@@ -1,0 +1,225 @@
+name: Code
+
+on:
+  # Run workflow on every PR.
+  pull_request:
+  # Run workflow on the main branch after every merge.
+  # This is important to fill the GitHub Actions cache in a way that PRs can see it.
+  push:
+    branches:
+      - main
+  # Run workflow on the main branch every Sunday.
+  schedule:
+    - cron: '14 3 * * 0'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CLICOLOR_FORCE: 1
+  # Disable incremental compilation.
+  #
+  # Incremental compilation is useful as part of an edit-build-test-edit cycle,
+  # as it lets the compiler avoid recompiling code that hasn't changed. However,
+  # on CI, we're not making small edits; we're almost always building the entire
+  # project from scratch. Thus, incremental compilation on CI actually
+  # introduces *additional* overhead to support making future builds
+  # faster...but no future builds will ever occur in any given CI environment.
+  #
+  # See https://matklad.github.io/2021/09/04/fast-rust-builds.html#ci-workflow
+  # for details.
+  CARGO_INCREMENTAL: 0
+  # Allow more retries for network requests in cargo (downloading crates) and
+  # rustup (installing toolchains). This should help to reduce flaky CI failures
+  # from transient network timeouts or other issues.
+  CARGO_NET_RETRY: 10
+  RUSTUP_MAX_RETRIES: 10
+  # Don't emit giant backtraces in the CI logs.
+  RUST_BACKTRACE: short
+  RUSTDOCFLAGS: -D warnings
+  SUI_TAG: mainnet-v1.17.3
+
+jobs:
+  diff:
+    runs-on: [ubuntu-ghcloud]
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      isRust: ${{ steps.diff.outputs.isRust }}
+      isMove: ${{ steps.diff.outputs.isMove }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect Changes
+        uses: dorny/paths-filter@v3.0.0
+        id: diff
+        with:
+          filters: |
+            isMove:
+              - 'contracts/**'
+              - 'scripts/move_coverage.sh'
+              - '.github/workflows/code.yml'
+            isRust:
+              - 'crates/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain'
+              - 'deny.toml'
+              - '.github/workflows/code.yml'
+
+  dependencies:
+    name: Check dependencies
+    needs: diff
+    if: ${{ needs.diff.outputs.isRust == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v1.5.13
+        with:
+          # do not check advisories to prevent sudden failure due to new announcement
+          command: check bans licenses sources
+
+  dependencies-schedule:
+    name: Check dependencies (including vulnerabilities)
+    needs: diff
+    if: ${{ github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v1.5.13
+
+  test:
+    name: Test Rust code and report coverage
+    needs: diff
+    if: ${{ github.event_name == 'schedule' || needs.diff.outputs.isRust == 'true' }}
+    runs-on: ubuntu-ghcloud
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      RUSTC_BOOTSTRAP: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2.7.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
+      - run: cargo install cargo-tarpaulin@0.27.3
+
+      - name: Run tests (including integration tests) and record coverage
+        run: >
+          cargo tarpaulin --workspace --skip-clean
+          --lib --bins --examples --tests --doc
+          --out html --out xml
+          --exclude-files "crates/**/tests/*"
+          --exclude-files "crates/**/benches/*"
+          -- --include-ignored
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: Coverage report
+          path: tarpaulin-report.html
+      - name: Code-coverage report
+        uses: irongut/CodeCoverageSummary@v1.3.0
+        with:
+          filename: cobertura.xml
+          badge: true
+          fail_below_min: false
+          format: markdown
+          hide_branch_rate: false
+          hide_complexity: true
+          indicators: true
+          output: both
+          thresholds: '50 75'
+      - name: Add coverage PR comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        if: ${{ github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' }}
+        with:
+          path: code-coverage-results.md
+
+  lint:
+    name: Lint Rust code
+    needs: diff
+    if: ${{ github.event_name == 'schedule' || needs.diff.outputs.isRust == 'true' }}
+    runs-on: ubuntu-ghcloud
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2.7.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
+      - run: cargo install cargo-sort@1.0.9
+
+      - name: Check formatting with rustfmt
+        run: >
+          cargo fmt --all -- --check
+          --config group_imports=StdExternalCrate,imports_granularity=Crate,imports_layout=HorizontalVertical
+      - name: Check sorting of dependencies
+        run: cargo sort -w -c
+      - name: Lint using clippy (w/o tests)
+        run: cargo clippy --all-features --no-deps -- -D warnings
+      - name: Lint using clippy (w/ tests)
+        run: cargo clippy --all-features --tests --no-deps -- -D warnings
+      - name: Check documentation
+        run: cargo doc --no-deps --workspace
+
+  build:
+    name: Build Rust code
+    needs: diff
+    if: ${{ github.event_name == 'schedule' || needs.diff.outputs.isRust == 'true' }}
+    runs-on: ubuntu-ghcloud
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2.7.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
+      - name: Build Rust code
+        run: cargo build --verbose
+
+  test-move:
+    name: Test Move code
+    needs: diff
+    if: ${{ github.event_name == 'schedule' || needs.diff.outputs.isMove == 'true' }}
+    runs-on: ubuntu-ghcloud
+    env:
+      SUI_BIN: "/home/runner/.cargo/bin/sui"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore cached sui binary
+        id: cache-sui-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.SUI_BIN }}
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ env.SUI_TAG }}
+      - run: rustup update stable
+        if: steps.cache-sui-restore.outputs.cache-hit != 'true'
+      - name: Install sui
+        if: steps.cache-sui-restore.outputs.cache-hit != 'true'
+        run: cargo install --locked --git https://github.com/MystenLabs/sui.git --tag $SUI_TAG --debug sui
+      - name: Run Move tests and check coverage
+        run: bash ./scripts/move_coverage.sh
+      - name: Cache sui binary
+        if: ${{ github.ref == 'refs/heads/main' && steps.cache-sui-restore.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.SUI_BIN }}
+          key: ${{ steps.cache-sui-restore.outputs.cache-primary-key }}
+
+  check-all:
+    name: Check if all code checks succeeded
+    if: always()
+    needs:
+      - diff
+      - dependencies
+      - test
+      - lint
+      - build
+      - test-move
+    runs-on: ubuntu-latest
+    steps:
+    - name: Decide whether all needed jobs succeeded
+      uses: re-actors/alls-green@v1.2.2
+      with:
+        allowed-skips: ${{ toJSON(needs) }}
+        jobs: ${{ toJSON(needs) }}
