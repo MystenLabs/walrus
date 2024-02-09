@@ -1,0 +1,80 @@
+repos:
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v4.5.0
+  hooks:
+  - id: check-merge-conflict
+  - id: check-yaml
+  - id: trailing-whitespace
+  - id: check-symlinks
+  - id: end-of-file-fixer
+  - id: mixed-line-ending
+  - id: trailing-whitespace
+- repo: https://github.com/editorconfig-checker/editorconfig-checker.python
+  rev: "2.7.3"
+  hooks:
+  - id: editorconfig-checker
+    alias: ec
+- repo: https://github.com/crate-ci/typos
+  rev: v1.17.2
+  hooks:
+  - id: typos
+    pass_filenames: false
+- repo: https://github.com/DevinR528/cargo-sort
+  rev: v1.0.9
+  hooks:
+  - id: cargo-sort
+- repo: https://github.com/EmbarkStudios/cargo-deny
+  rev: 7544cfcc8f5445af13a5fe027ba0d444427d7caa
+  hooks:
+  - id: cargo-deny
+- repo: local
+  hooks:
+  - id: cargo-fmt
+    name: cargo-fmt
+    entry: cargo fmt
+    args:
+    - "--"
+    - "--config"
+    - "group_imports=StdExternalCrate,imports_granularity=Crate,imports_layout=HorizontalVertical"
+    language: rust
+    types: [rust]
+    pass_filenames: false
+  - id: cargo-check
+    name: cargo-check
+    entry: cargo check
+    language: rust
+    files: ^(crates/|Cargo\.(toml|lock)$)
+    pass_filenames: false
+  - id: cargo-test
+    name: cargo-test
+    entry: cargo test
+    language: rust
+    files: ^(crates/|Cargo\.(toml|lock)$)
+    pass_filenames: false
+  - id: clippy-with-tests
+    name: clippy-with-tests
+    entry: cargo clippy
+    args: ["--all-features", "--tests", "--", "-D", "warnings"]
+    language: rust
+    files: ^(crates/|Cargo\.(toml|lock)$)
+    pass_filenames: false
+  - id: clippy
+    name: clippy
+    entry: cargo clippy
+    args: ["--all-features", "--", "-D", "warnings"]
+    language: rust
+    files: ^(crates/|Cargo\.(toml|lock)$)
+    pass_filenames: false
+  - id: cargo-doc
+    name: cargo-doc
+    entry: env RUSTDOCFLAGS="-D warnings" cargo doc
+    args: ["--workspace", "--no-deps"]
+    language: rust
+    files: ^(crates/|Cargo\.(toml|lock)$)
+    pass_filenames: false
+  - id: move-test
+    name: move-test
+    entry: scripts/move_coverage.sh
+    language: system
+    files: "contracts/.*"
+    pass_filenames: false
