@@ -8,6 +8,11 @@ license = { workspace = true }
 
 [dependencies]
 serde = { version = "1.0.197", features = ["derive"] }
+clap = { version = "=4.5.0", features = ["derive"] }
 
 [lints]
 workspace = true
+
+[[bin]]
+name = "client"
+path = "bin/client.rs"
