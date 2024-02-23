@@ -7,7 +7,8 @@ pub trait MoveClient {
     /// The id of a storage resource.
     type StorageResourceId;
 
-    /// Get the Walrus committee for a given epoch. If the epoch is not provided, the current epoch is used instead.
+    /// Get the Walrus committee for a given epoch. If the epoch is not provided, the current epoch
+    /// is used instead
     fn get_committee(&self, epoch: Option<Epoch>) -> Committee;
 
     /// Purchase blob storage with the specified parameters.
