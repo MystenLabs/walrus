@@ -1,0 +1,13 @@
+[package]
+name = "walrus-service"
+publish = false
+authors = { workspace = true }
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+serde = { version = "1.0.197", features = ["derive"] }
+
+[lints]
+workspace = true
