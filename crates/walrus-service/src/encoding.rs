@@ -16,7 +16,7 @@ pub trait ErasureCode {
     /// # Returns
     ///
     /// An instance of `Self` decoded from the bytes.
-    fn decode(bytes: &Vec<Vec<u8>>) -> Self;
+    fn decode(bytes: &[Vec<u8>]) -> Self;
 }
 
 /// Trait for data over which we can compute a commitment.
