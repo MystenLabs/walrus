@@ -80,6 +80,13 @@ module blob_store::committee {
         Committee { epoch, total_shards, members }
     }
 
+    #[test_only]
+    public fun committee_for_testing<TAG>(
+        epoch: u64,
+    ) : Committee<TAG> {
+        Committee { epoch, total_shards: 100, members: vector[] }
+    }
+
     // Quorum verification errors
     const ERROR_INCOMPATIBLE_LEN : u64 = 0;
     const ERROR_NON_INCREASING : u64 = 2;

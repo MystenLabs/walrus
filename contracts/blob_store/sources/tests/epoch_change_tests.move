@@ -8,8 +8,6 @@ module blob_store::epoch_change_tests {
     use sui::coin;
     use sui::balance;
 
-    use std::vector;
-
     use blob_store::committee;
     use blob_store::system;
     use blob_store::storage_accounting as sa;
@@ -24,17 +22,13 @@ module blob_store::epoch_change_tests {
     public fun test_use_system() : system::System<TESTTAG, TESTWAL> {
 
         let ctx = tx_context::dummy();
-
-        // Create a create committee capability
-        let tag = TESTTAG{};
         let tag2 = TESTTAG{};
-        let cap = committee::create_committee_cap(tag);
 
         // A test coin.
         let fake_coin = coin::mint_for_testing<TESTWAL>(100, &mut ctx);
 
         // Create a new committee
-        let committee = committee::create_committee(&cap, 0, 100, vector::empty());
+        let committee = committee::committee_for_testing(0);
 
         // Create a new system object
         let system : system::System<TESTTAG,TESTWAL> = system::new(&tag2, committee,
@@ -54,7 +48,7 @@ module blob_store::epoch_change_tests {
         assert!(system::used_capacity_size(&system) == 10, 0);
 
         // Advance epoch -- to epoch 1
-        let committee = committee::create_committee(&cap, 1, 100, vector::empty());
+        let committee = committee::committee_for_testing(1);
         let epoch_accounts = system::next_epoch(&mut system, committee, 1000, 3);
         assert!(balance::value(sa::rewards_to_distribute(&mut epoch_accounts)) == 20, 0);
 
@@ -69,7 +63,7 @@ module blob_store::epoch_change_tests {
 
         // Advance epoch -- to epoch 2
         system::set_done_for_testing(&mut system);
-        let committee = committee::create_committee(&cap, 2, 100, vector::empty());
+        let committee = committee::committee_for_testing(2);
         let epoch_accounts = system::next_epoch(&mut system, committee, 1000, 3);
         assert!(balance::value(sa::rewards_to_distribute(&mut epoch_accounts)) == 35, 0);
         sa::burn_for_testing(epoch_accounts);
@@ -78,7 +72,7 @@ module blob_store::epoch_change_tests {
 
         // Advance epoch -- to epoch 3
         system::set_done_for_testing(&mut system);
-        let committee = committee::create_committee(&cap, 3, 100, vector::empty());
+        let committee = committee::committee_for_testing(3);
         let epoch_accounts = system::next_epoch(&mut system, committee, 1000, 3);
         assert!(balance::value(sa::rewards_to_distribute(&mut epoch_accounts)) == 20, 0);
         sa::burn_for_testing(epoch_accounts);
@@ -88,7 +82,7 @@ module blob_store::epoch_change_tests {
 
         // Advance epoch -- to epoch 4
         system::set_done_for_testing(&mut system);
-        let committee = committee::create_committee(&cap, 4, 100, vector::empty());
+        let committee = committee::committee_for_testing(4);
         let epoch_accounts = system::next_epoch(&mut system, committee, 1000, 3);
         assert!(balance::value(sa::rewards_to_distribute(&mut epoch_accounts)) == 0, 0);
         sa::burn_for_testing(epoch_accounts);
@@ -105,28 +99,24 @@ module blob_store::epoch_change_tests {
     public fun test_move_sync_err_system() : system::System<TESTTAG, TESTWAL> {
 
         let ctx = tx_context::dummy();
-
-        // Create a create committee capability
-        let tag = TESTTAG{};
         let tag2 = TESTTAG{};
-        let cap = committee::create_committee_cap(tag);
 
         // A test coin.
         let fake_coin = coin::mint_for_testing<TESTWAL>(100, &mut ctx);
 
         // Create a new committee
-        let committee = committee::create_committee(&cap, 0, 100, vector::empty());
+        let committee = committee::committee_for_testing(0);
 
         // Create a new system object
         let system : system::System<TESTTAG,TESTWAL> = system::new(&tag2, committee,
             1000, 2, &mut ctx);
 
         // Advance epoch -- to epoch 1
-        let committee = committee::create_committee(&cap, 1, 100, vector::empty());
+        let committee = committee::committee_for_testing(1);
         let epoch_accounts1 = system::next_epoch(&mut system, committee, 1000, 3);
 
         // Advance epoch -- to epoch 2
-        let committee = committee::create_committee(&cap, 2, 100, vector::empty());
+        let committee = committee::committee_for_testing(2);
         // FAIL HERE BECAUSE WE ARE IN SYNC MODE NOT DONE!
         let epoch_accounts2 = system::next_epoch(&mut system, committee, 1000, 3);
 
@@ -143,17 +133,13 @@ module blob_store::epoch_change_tests {
     public fun test_fail_capacity_system() : system::System<TESTTAG, TESTWAL> {
 
         let ctx = tx_context::dummy();
-
-        // Create a create committee capability
-        let tag = TESTTAG{};
         let tag2 = TESTTAG{};
-        let cap = committee::create_committee_cap(tag);
 
         // A test coin.
         let fake_coin = coin::mint_for_testing<TESTWAL>(100, &mut ctx);
 
         // Create a new committee
-        let committee = committee::create_committee(&cap, 0, 100, vector::empty());
+        let committee = committee::committee_for_testing(0);
 
         // Create a new system object
         let system : system::System<TESTTAG,TESTWAL> = system::new(&tag2, committee,
@@ -164,7 +150,7 @@ module blob_store::epoch_change_tests {
         sr::destroy(storage);
 
         // Advance epoch -- to epoch 1
-        let committee = committee::create_committee(&cap, 1, 100, vector::empty());
+        let committee = committee::committee_for_testing(1);
         let epoch_accounts = system::next_epoch(&mut system, committee, 1000, 3);
 
         // Get some space for a few epochs
