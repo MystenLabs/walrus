@@ -73,7 +73,7 @@ module blob_store::storage_resource {
         ctx: &mut TxContext,
     ) : Storage<TAG> {
         assert!(
-            split_epoch > storage.start_epoch && split_epoch < storage.end_epoch,
+            split_epoch >= storage.start_epoch && split_epoch <= storage.end_epoch,
             EInvalidEpoch
         );
         let end_epoch = storage.end_epoch;
@@ -182,9 +182,8 @@ module blob_store::storage_resource {
         }
     }
 
-    #[test_only]
-    /// Destructor for [Storage] objects for tests
-    public fun destroy_for_test<TAG>(
+    /// Destructor for [Storage] objects
+    public fun destroy<TAG>(
         storage: Storage<TAG>,
     ) {
         let Storage {
@@ -195,5 +194,4 @@ module blob_store::storage_resource {
         } = storage;
         object::delete(id);
     }
-
 }
