@@ -9,8 +9,8 @@ use clap::Parser;
 #[command(author, version, about = "Walrus client", long_about = None)]
 pub struct Opts {
     /// The path to the Sui wallet file.
-    #[clap(long, value_name = "FILE", global = true)]
-    wallet_path: String,
+    #[clap(long, value_name = "FILE")]
+    wallet_path: PathBuf,
 
     /// The path to the blob the user wants to store on Walrus.
     #[clap(long, value_name = "FILE", global = true)]
