@@ -10,6 +10,6 @@ pub mod encoding;
 pub mod move_client;
 
 /// The ID of a blob.
-pub type BlobId = Vec<u8>;
+pub type BlobId = [u8; 32];
 /// The epoch number.
 pub type Epoch = u64;
