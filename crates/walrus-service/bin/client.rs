@@ -1,6 +1,6 @@
 //! The Walrus client.
 
-use std::{num::ParseIntError, path::PathBuf, time::Duration};
+use std::path::PathBuf;
 
 use clap::Parser;
 
@@ -16,16 +16,9 @@ pub struct Opts {
     #[clap(long, value_name = "FILE")]
     blob_path: PathBuf,
 
-    /// The duration for which the user wants to store the blob (in days).
-    #[clap(long, value_parser = parse_duration, default_value = "30", global = true)]
-    duration: Duration,
-}
-
-/// Parses a duration from a string representing the number of days.
-fn parse_duration(arg: &str) -> Result<Duration, ParseIntError> {
-    let days: u64 = arg.parse()?;
-    let seconds = days * 24 * 60 * 60;
-    Ok(Duration::from_secs(seconds))
+    /// The duration for which the user wants to store the blob (in Walrus epochs).
+    #[clap(long, value_name = "INT", default_value_t = 2)]
+    duration: usize,
 }
 
 /// The main function for the Walrus client.
