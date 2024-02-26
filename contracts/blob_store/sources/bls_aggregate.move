@@ -51,6 +51,19 @@ module blob_store::bls_aggregate {
         }
     }
 
+    #[test_only]
+    /// Test committee
+    public fun new_bls_committee_for_testing() : BlsCommittee {
+        let public_keys = vector[];
+        let weights = vector[];
+        let total_weight = 100;
+        BlsCommittee {
+            public_keys: public_keys,
+            total_weight: total_weight,
+            weights: weights,
+        }
+    }
+
     /// Verify an aggregate BLS signature is a certificate in the epoch, and return the type of
     /// certificate and the bytes certified. The members vector is an increasing list of indexes
     /// into the public_keys and weights vectors of the committee. If there is a certificate, the

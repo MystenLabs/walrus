@@ -86,3 +86,17 @@ for i in range(10):
 print(f"let message = vector{list(message)};")
 # print the aggregate signature
 print(f"let agg_sig = vector{list(agg_sig)};")
+
+print("---- Intent ----")
+
+sk1 = 10931
+pk1 = G2Basic.SkToPk(sk1)
+
+message = bytes([1, 0, 3, 5, 0, 0, 0, 0, 0, 0, 0] +  list(b"hello"))
+sig1 = G2Basic.Sign(sk1, message)
+
+assert G2Basic.Verify(pk1, message, sig1)
+
+print(f"let pub_key_bytes = vector{list(pk1)};")
+print(f"let message = vector{list(message)};")
+print(f"let signature = vector{list(sig1)};")

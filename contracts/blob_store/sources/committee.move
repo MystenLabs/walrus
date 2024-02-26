@@ -5,7 +5,21 @@ module blob_store::committee {
 
     use std::vector;
     use std::string::String;
-    use sui::ed25519;
+    use sui::bcs;
+
+    use sui::group_ops::Element;
+    use sui::bls12381::{G1, g1_from_bytes};
+
+    const APP_ID: u8 = 3;
+
+    // Errors
+    const ERROR_INCORRECT_APP_ID: u64 = 0;
+    const ERROR_INCORRECT_EPOCH: u64 = 1;
+
+    #[test_only]
+    use blob_store::bls_aggregate::new_bls_committee_for_testing;
+
+    use blob_store::bls_aggregate::{BlsCommittee, new_bls_committee, verify_certificate};
 
     /// Represents a storage node and its meta-data.
     ///
@@ -52,8 +66,7 @@ module blob_store::committee {
     /// signal that the new epoch has started.
     struct Committee<phantom TAG> has store {
         epoch: u64,
-        total_shards: u16,
-        members: vector<StorageNodeInfo>,
+        bls_committee : BlsCommittee,
     }
 
     /// Get the epoch of the committee.
@@ -74,75 +87,109 @@ module blob_store::committee {
     public fun create_committee<TAG>(
         _cap: &CreateCommitteeCap<TAG>,
         epoch: u64,
-        total_shards: u16,
         members: vector<StorageNodeInfo>,
     ) : Committee<TAG> {
-        Committee { epoch, total_shards, members }
+
+        let g1_public_keys : vector<Element<G1>> = vector[];
+        let weights = vector[];
+
+        let i = 0;
+        while (i < vector::length(&members)) {
+            let member = vector::borrow(&members, i);
+            let pk = public_key(member);
+            let shard_ids = shard_ids(member);
+            let weight = vector::length(shard_ids);
+            vector::push_back(&mut g1_public_keys, g1_from_bytes(pk));
+            vector::push_back(&mut weights, (weight as u16));
+            i = i + 1;
+        };
+
+        // Make BlsCommittee
+        let bls_committee = new_bls_committee(g1_public_keys, weights);
+
+        Committee { epoch, bls_committee }
     }
 
     #[test_only]
     public fun committee_for_testing<TAG>(
         epoch: u64,
     ) : Committee<TAG> {
-        Committee { epoch, total_shards: 100, members: vector[] }
+        let bls_committee = new_bls_committee_for_testing();
+        Committee { epoch, bls_committee }
     }
 
-    // Quorum verification errors
-    const ERROR_INCOMPATIBLE_LEN : u64 = 0;
-    const ERROR_NON_INCREASING : u64 = 2;
-    const ERROR_SIG_VERIFICATION : u64 = 3;
-    const ERROR_NOT_ENOUGH_STAKE : u64 = 4;
+    #[test_only]
+    public fun committee_for_testing_with_bls<TAG>(
+        epoch: u64,
+        bls_committee: BlsCommittee,
+    ) : Committee<TAG> {
+        Committee { epoch, bls_committee }
+    }
 
-    // TODO: port to BLS right now!
+    struct CertifiedMessage<phantom TAG> has store, drop {
+        intent_type: u8,
+        intent_version: u8,
+        cert_epoch: u64,
+        stake_support: u16,
+        message: vector<u8>,
+    }
+
+    // Make accessors for the CertifiedMessage
+    public fun intent_type<TAG>(self: &CertifiedMessage<TAG>) : u8 {
+        self.intent_type
+    }
+
+    public fun intent_version<TAG>(self: &CertifiedMessage<TAG>) : u8 {
+        self.intent_version
+    }
+
+    public fun cert_epoch<TAG>(self: &CertifiedMessage<TAG>) : u64 {
+        self.cert_epoch
+    }
+
+    public fun stake_support<TAG>(self: &CertifiedMessage<TAG>) : u16 {
+        self.stake_support
+    }
+
+    public fun message<TAG>(self: &CertifiedMessage<TAG>) : &vector<u8> {
+        &self.message
+    }
+
+    // Deconstruct into the vector of message bytes
+    public fun into_message<TAG>(self: CertifiedMessage<TAG>) : vector<u8> {
+        self.message
+    }
 
     /// Verifies that a message is signed by a quorum of the members of a committee.
     ///
     /// The members are listed in increasing order and with no repetitions. And the signatures
     /// match the order of the members. The total stake is returned, but if a quorum is not reached
     /// the function aborts with an error.
-    public fun verify_quorum<TAG>(
+    public fun verify_quorum_in_epoch<TAG>(
         committee: &Committee<TAG>,
-        message: &vector<u8>,
-        members: &vector<u16>,
-        signatures: &vector<vector<u8>>) : u16 {
+        signature: vector<u8>,
+        members: vector<u16>,
+        message: vector<u8>,
+        ) : CertifiedMessage<TAG> {
 
-        assert!(vector::length(members) == vector::length(signatures), ERROR_INCOMPATIBLE_LEN);
+        let stake_support =
+            verify_certificate(&committee.bls_committee, &signature, &members, &message);
 
-        // Here we store the index + 1 so that we can safely initialize to zero as an initial
-        // minimum value.
-        let recall_floor = 0;
-        let stake = 0;
+        // Here we BCS decode the header of the message to check intents, epochs, etc.
 
-        let i = 0;
-        while (i < vector::length(members)) {
-            // Ensure the sequence is strictly increasing, to avoid duplicates and stake double
-            // counting.
-            let member_index = *vector::borrow(members, i);
-            let member = vector::borrow(&committee.members, (member_index as u64));
+        let bcs_message = bcs::new(message);
+        let intent_type = bcs::peel_u8(&mut bcs_message);
+        let intent_version = bcs::peel_u8(&mut bcs_message);
 
-            assert!(recall_floor < member_index + 1, ERROR_NON_INCREASING);
-            recall_floor = member_index + 1;
+        let intent_app = bcs::peel_u8(&mut bcs_message);
+        assert!(intent_app == APP_ID, ERROR_INCORRECT_APP_ID);
 
-            // Ensure that the signature is valid.
-            let sig = vector::borrow(signatures, i);
-            let pk = public_key(member);
-            let verify = ed25519::ed25519_verify(sig, pk, message);
-            assert!(verify, ERROR_SIG_VERIFICATION);
+        let cert_epoch = bcs::peel_u64(&mut bcs_message);
+        assert!(cert_epoch == epoch(committee), ERROR_INCORRECT_EPOCH);
 
-            // Add the stake of the member to the total stake.
-            // The stake here is the number of shards held by the member.
-            stake = stake + vector::length(shard_ids(member));
+        let message = bcs::into_remainder_bytes(bcs_message);
 
-            i = i + 1;
-        };
-
-        // The expression below is the solution to the inequality:
-        // total_shards = 3 f + 1
-        // stake >= 2f + 1
-        assert!(3 * (stake as u64) >= 2 * (committee.total_shards as u64) + 1,
-            ERROR_NOT_ENOUGH_STAKE);
-
-        (stake as u16)
+        CertifiedMessage<TAG> { intent_type, intent_version, cert_epoch, stake_support, message }
     }
 
 
