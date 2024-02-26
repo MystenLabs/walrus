@@ -8,7 +8,7 @@ use crate::{
 };
 
 /// Represents the index of a shard.
-pub type ShardIndex = u64;
+pub type ShardIndex = u32;
 
 /// Represents a storage node identifier.
 #[derive(Serialize, Deserialize)]
@@ -47,7 +47,7 @@ impl Committee {
 
 /// Represents the global public parameters of the system.
 pub struct GlobalPublicParameters {
-    /// The public keys of the shards.
+    /// The network addresses of the shards.
     pub network_addresses: HashMap<ShardIndex, SocketAddr>,
     /// The metrics addresses of the shards.
     pub metrics_addresses: HashMap<ShardIndex, SocketAddr>,

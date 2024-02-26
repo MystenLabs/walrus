@@ -1,6 +1,6 @@
 //! The Walrus client.
 
-use std::{num::ParseIntError, time::Duration};
+use std::{num::ParseIntError, path::PathBuf, time::Duration};
 
 use clap::Parser;
 
