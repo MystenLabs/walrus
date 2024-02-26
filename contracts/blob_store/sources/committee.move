@@ -86,6 +86,7 @@ module blob_store::committee {
     const ERROR_SIG_VERIFICATION : u64 = 3;
     const ERROR_NOT_ENOUGH_STAKE : u64 = 4;
 
+    // TODO: port to BLS right now!
 
     /// Verifies that a message is signed by a quorum of the members of a committee.
     ///
@@ -119,7 +120,7 @@ module blob_store::committee {
             let sig = vector::borrow(signatures, i);
             let pk = public_key(member);
             let verify = ed25519::ed25519_verify(sig, pk, message);
-            assert!(verify == true, ERROR_SIG_VERIFICATION);
+            assert!(verify, ERROR_SIG_VERIFICATION);
 
             // Add the stake of the member to the total stake.
             // The stake here is the number of shards held by the member.

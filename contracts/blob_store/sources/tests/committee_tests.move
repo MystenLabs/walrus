@@ -22,7 +22,7 @@ module blob_store::committee_tests {
         let message = vector[72, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100, 33];
 
         let verify = ed25519::ed25519_verify(&signature, &public_key, &message);
-        assert!(verify == true, 0);
+        assert!(verify, 0);
     }
 
     struct TESTTAG has drop {}
