@@ -13,6 +13,7 @@ module blob_store::epoch_change_tests {
     use blob_store::committee;
     use blob_store::system;
     use blob_store::storage_accounting as sa;
+    use blob_store::storage_resource as sr;
 
     struct TESTTAG has drop {}
     struct TESTWAL has store, drop {}
@@ -40,7 +41,8 @@ module blob_store::epoch_change_tests {
             1000, 2, &mut ctx);
 
         // Get some space for a few epochs
-        let (_storage, fake_coin) = system::reserve_space(&mut system, 10, 3, fake_coin);
+        let (storage, fake_coin) = system::reserve_space(&mut system, 10, 3, fake_coin, &mut ctx);
+        sr::destroy_for_test(storage);
 
         // Check things about the system
         assert!(system::epoch(&system) == 0, 0);
@@ -57,7 +59,8 @@ module blob_store::epoch_change_tests {
         assert!(balance::value(sa::rewards_to_distribute(&mut epoch_accounts)) == 20, 0);
 
         // Get some space for a few epochs
-        let (_storage, fake_coin) = system::reserve_space(&mut system, 5, 1, fake_coin);
+        let (storage, fake_coin) = system::reserve_space(&mut system, 5, 1, fake_coin, &mut ctx);
+        sr::destroy_for_test(storage);
         // The value of the coin should be 40 - 3 x 5
         assert!(coin::value(&fake_coin) == 25, 0);
         sa::burn_for_testing(epoch_accounts);
@@ -157,14 +160,16 @@ module blob_store::epoch_change_tests {
             1000, 2, &mut ctx);
 
         // Get some space for a few epochs
-        let (_storage, fake_coin) = system::reserve_space(&mut system, 10, 3, fake_coin);
+        let (storage, fake_coin) = system::reserve_space(&mut system, 10, 3, fake_coin, &mut ctx);
+        sr::destroy_for_test(storage);
 
         // Advance epoch -- to epoch 1
         let committee = committee::create_committee(&cap, 1, 100, vector::empty());
         let epoch_accounts = system::next_epoch(&mut system, committee, 1000, 3);
 
         // Get some space for a few epochs
-        let (_storage, fake_coin) = system::reserve_space(&mut system, 995, 1, fake_coin);
+        let (storage, fake_coin) = system::reserve_space(&mut system, 995, 1, fake_coin, &mut ctx);
+        sr::destroy_for_test(storage);
         // The value of the coin should be 40 - 3 x 5
         sa::burn_for_testing(epoch_accounts);
 

@@ -13,6 +13,7 @@ module blob_store::system {
 
     use blob_store::committee::{Self, Committee};
     use blob_store::storage_accounting::{Self, FutureAccounting, FutureAccountingRingBuffer};
+    use blob_store::storage_resource::{Self, Storage};
 
     // Errors
     const ERROR_INCORRECT_COMMITTEE : u64 = 0;
@@ -30,7 +31,6 @@ module blob_store::system {
     /// TODO: the number here is a placeholder, and assumes an epoch is a week,
     /// and therefore 2 x 52 weeks = 2 years.
     const MAX_PERIODS_AHEAD : u64 = 104;
-    const MAX_STORAGE_AMOUNT : u64 = 1000000000; // about 1gb
 
     #[allow(unused_field)]
     struct System<phantom TAG, phantom WAL:store> has key, store {
@@ -153,15 +153,16 @@ module blob_store::system {
         self: &mut System<TAG, WAL>,
         storage_amount: u64,
         periods_ahead: u64,
-        payment: Coin<WAL>)
-        : (Storage<TAG>, Coin<WAL>) {
+        payment: Coin<WAL>,
+        ctx: &mut TxContext,
+        ) : (Storage<TAG>, Coin<WAL>) {
 
         // Check the period is within the allowed range.
         assert!(periods_ahead > 0, ERROR_INVALID_PERIODS_AHEAD);
         assert!(periods_ahead <= MAX_PERIODS_AHEAD, ERROR_INVALID_PERIODS_AHEAD);
 
         // Check capacity is available.
-        assert!(storage_amount <= MAX_STORAGE_AMOUNT, ERROR_STORAGE_EXCEEDED);
+        assert!(storage_amount <= storage_resource::max_storage_amount(), ERROR_STORAGE_EXCEEDED);
         assert!(self.used_capacity_size + storage_amount <= self.total_capacity_size,
             ERROR_STORAGE_EXCEEDED);
 
@@ -191,20 +192,13 @@ module blob_store::system {
         storage_accounting::increase_storage_to_reclaim(final_account, storage_amount);
 
         let self_epoch = epoch(self);
-        (Storage {
-            start_epoch: self_epoch,
-            end_epoch: self_epoch + periods_ahead,
-            storage_size: storage_amount,
-        },
+        (storage_resource::create_storage(
+            self_epoch,
+            self_epoch + periods_ahead,
+            storage_amount,
+            ctx,
+        ),
         payment)
-    }
-
-    #[allow(unused_field)]
-    /// Represents a reservation for storage for a given period.
-    struct Storage<phantom TAG> has drop {
-        start_epoch: u64,
-        end_epoch: u64,
-        storage_size: u64,
     }
 
     #[test_only]
