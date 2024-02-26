@@ -13,8 +13,8 @@ pub struct Opts {
     wallet_path: PathBuf,
 
     /// The path to the blob the user wants to store on Walrus.
-    #[clap(long, value_name = "FILE", global = true)]
-    blob_path: String,
+    #[clap(long, value_name = "FILE")]
+    blob_path: PathBuf,
 
     /// The duration for which the user wants to store the blob (in days).
     #[clap(long, value_parser = parse_duration, default_value = "30", global = true)]
