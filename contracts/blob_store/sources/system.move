@@ -148,7 +148,7 @@ module blob_store::system {
         accounts_old_epoch
     }
 
-    /// Allow a buying a storage reservation for a given period of epochs.
+    /// Allow buying a storage reservation for a given period of epochs.
     public fun reserve_space<TAG, WAL:store>(
         self: &mut System<TAG, WAL>,
         storage_amount: u64,
