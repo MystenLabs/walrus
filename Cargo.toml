@@ -10,6 +10,7 @@ license = "Apache-2.0"
 
 [workspace.dependencies]
 walrus-core = { path = "crates/walrus-core" }
+walrus-test-utils = { path = "crates/walrus-test-utils" }
 
 [workspace.lints.rust]
 missing_docs = "warn"

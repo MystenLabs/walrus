@@ -8,3 +8,8 @@ pub mod crypto;
 pub mod encoding;
 /// Client for interacting with Move.
 pub mod move_client;
+
+mod node;
+pub use node::StorageNode;
+
+mod storage;

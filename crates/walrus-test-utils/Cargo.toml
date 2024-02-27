@@ -1,0 +1,15 @@
+[package]
+name = "walrus-test-utils"
+publish = false
+authors = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+tokio = { version = "1.36.0", features = ["macros"] }

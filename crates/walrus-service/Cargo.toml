@@ -7,8 +7,13 @@ edition = { workspace = true }
 license = { workspace = true }
 
 [dependencies]
+anyhow = "1.0.80"
+bcs = "0.1.6"
 clap = { version = "4.5", features = ["derive"] }
+rocksdb = "0.22"
 serde = { version = "1.0.197", features = ["derive"] }
+thiserror = "1.0.57"
+tokio = { version = "1.36.0", features = ["rt-multi-thread", "macros"] }
 walrus-core = { workspace = true }
 
 [lints]
@@ -17,3 +22,7 @@ workspace = true
 [[bin]]
 name = "client"
 path = "bin/client.rs"
+
+[dev-dependencies]
+tempfile = "3"
+walrus-test-utils = { workspace = true }
