@@ -1,4 +1,5 @@
 //! Core functionality for Walrus.
+pub mod merkle;
 
 use fastcrypto::bls12381::min_pk::BLS12381Signature;
 use serde::{Deserialize, Serialize};
