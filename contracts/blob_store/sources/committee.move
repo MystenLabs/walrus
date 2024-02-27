@@ -126,7 +126,7 @@ module blob_store::committee {
         Committee { epoch, bls_committee }
     }
 
-    struct CertifiedMessage<phantom TAG> has store, drop {
+    struct CertifiedMessage<phantom TAG> has drop {
         intent_type: u8,
         intent_version: u8,
         cert_epoch: u64,
