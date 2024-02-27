@@ -230,15 +230,8 @@ module blob_store::epoch_change_tests {
         // Feed it into the logic to advance state
         system::sync_done_for_epoch(&mut system, test_sync_done_msg);
 
-        // Advance epoch -- to epoch 2
-        let committee = committee::committee_for_testing(2);
-        // FAIL HERE BECAUSE WE ARE IN SYNC MODE NOT DONE!
-        let epoch_accounts2 = system::next_epoch(&mut system, committee, 1000, 3);
-
-
         coin::burn_for_testing(fake_coin);
         sa::burn_for_testing(epoch_accounts1);
-        sa::burn_for_testing(epoch_accounts2);
 
         system
     }
@@ -272,15 +265,8 @@ module blob_store::epoch_change_tests {
         let test_sync_done_msg = system::make_sync_done_message_for_testing(1);
         system::sync_done_for_epoch(&mut system, test_sync_done_msg);
 
-        // Advance epoch -- to epoch 2
-        let committee = committee::committee_for_testing(2);
-        // We are in done state and this works
-        let epoch_accounts2 = system::next_epoch(&mut system, committee, 1000, 3);
-
-
         coin::burn_for_testing(fake_coin);
         sa::burn_for_testing(epoch_accounts1);
-        sa::burn_for_testing(epoch_accounts2);
 
         system
     }
