@@ -165,4 +165,125 @@ module blob_store::epoch_change_tests {
         system
     }
 
+    #[test]
+    public fun test_sync_done_happy() : system::System<TESTTAG, TESTWAL> {
+
+        let ctx = tx_context::dummy();
+        let tag2 = TESTTAG{};
+
+        // A test coin.
+        let fake_coin = coin::mint_for_testing<TESTWAL>(100, &mut ctx);
+
+        // Create a new committee
+        let committee = committee::committee_for_testing(0);
+
+        // Create a new system object
+        let system : system::System<TESTTAG,TESTWAL> = system::new(&tag2, committee,
+            1000, 2, &mut ctx);
+
+        // Advance epoch -- to epoch 1
+        let committee = committee::committee_for_testing(1);
+        let epoch_accounts1 = system::next_epoch(&mut system, committee, 1000, 3);
+
+        // Construct a test sync_done test message
+        let test_sync_done_msg = system::make_sync_done_message_for_testing(1);
+
+        // Feed it into the logic to advance state
+        system::sync_done_for_epoch(&mut system, test_sync_done_msg);
+
+        // Advance epoch -- to epoch 2
+        let committee = committee::committee_for_testing(2);
+        // We are in done state and this works
+        let epoch_accounts2 = system::next_epoch(&mut system, committee, 1000, 3);
+
+
+        coin::burn_for_testing(fake_coin);
+        sa::burn_for_testing(epoch_accounts1);
+        sa::burn_for_testing(epoch_accounts2);
+
+        system
+    }
+
+    #[test, expected_failure(abort_code=system::ERROR_SYNC_EPOCH_CHANGE)]
+    public fun test_sync_done_unhappy() : system::System<TESTTAG, TESTWAL> {
+
+        let ctx = tx_context::dummy();
+        let tag2 = TESTTAG{};
+
+        // A test coin.
+        let fake_coin = coin::mint_for_testing<TESTWAL>(100, &mut ctx);
+
+        // Create a new committee
+        let committee = committee::committee_for_testing(0);
+
+        // Create a new system object
+        let system : system::System<TESTTAG,TESTWAL> = system::new(&tag2, committee,
+            1000, 2, &mut ctx);
+
+        // Advance epoch -- to epoch 1
+        let committee = committee::committee_for_testing(1);
+        let epoch_accounts1 = system::next_epoch(&mut system, committee, 1000, 3);
+
+        // Construct a test sync_done test message -- INCORRECT EPOCH
+        let test_sync_done_msg = system::make_sync_done_message_for_testing(4);
+
+        // Feed it into the logic to advance state
+        system::sync_done_for_epoch(&mut system, test_sync_done_msg);
+
+        // Advance epoch -- to epoch 2
+        let committee = committee::committee_for_testing(2);
+        // FAIL HERE BECAUSE WE ARE IN SYNC MODE NOT DONE!
+        let epoch_accounts2 = system::next_epoch(&mut system, committee, 1000, 3);
+
+
+        coin::burn_for_testing(fake_coin);
+        sa::burn_for_testing(epoch_accounts1);
+        sa::burn_for_testing(epoch_accounts2);
+
+        system
+    }
+
+    #[test, expected_failure(abort_code=system::ERROR_SYNC_EPOCH_CHANGE)]
+    public fun test_twice_unhappy() : system::System<TESTTAG, TESTWAL> {
+
+        let ctx = tx_context::dummy();
+        let tag2 = TESTTAG{};
+
+        // A test coin.
+        let fake_coin = coin::mint_for_testing<TESTWAL>(100, &mut ctx);
+
+        // Create a new committee
+        let committee = committee::committee_for_testing(0);
+
+        // Create a new system object
+        let system : system::System<TESTTAG,TESTWAL> = system::new(&tag2, committee,
+            1000, 2, &mut ctx);
+
+        // Advance epoch -- to epoch 1
+        let committee = committee::committee_for_testing(1);
+        let epoch_accounts1 = system::next_epoch(&mut system, committee, 1000, 3);
+
+        // Construct a test sync_done test message
+        // Feed it into the logic to advance state
+        let test_sync_done_msg = system::make_sync_done_message_for_testing(1);
+        system::sync_done_for_epoch(&mut system, test_sync_done_msg);
+
+        // SECOND TIME -- FAILS
+        let test_sync_done_msg = system::make_sync_done_message_for_testing(1);
+        system::sync_done_for_epoch(&mut system, test_sync_done_msg);
+
+        // Advance epoch -- to epoch 2
+        let committee = committee::committee_for_testing(2);
+        // We are in done state and this works
+        let epoch_accounts2 = system::next_epoch(&mut system, committee, 1000, 3);
+
+
+        coin::burn_for_testing(fake_coin);
+        sa::burn_for_testing(epoch_accounts1);
+        sa::burn_for_testing(epoch_accounts2);
+
+        system
+    }
+
+
 }
