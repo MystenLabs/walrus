@@ -78,7 +78,7 @@ module blob_store::blob {
         assert!(stored_epoch < end_epoch(&storage), ERROR_RESOURCE_BOUNDS);
         assert!(size <= storage_size(&storage), ERROR_RESOURCE_SIZE);
 
-        // TODO: cryptographically verify that the Blob ID authenticates
+        // TODO(#42): cryptographically verify that the Blob ID authenticates
         // both the size and fe_type.
 
         Blob {
@@ -122,6 +122,8 @@ module blob_store::blob {
         }
     }
 
+    /// Certify that a blob will be available in the storage system until the end epoch of the
+    /// storage associated with it.
     public fun certify<TAG, WAL:store>(
         sys: &System<TAG, WAL>,
         message: CertifiedBlobMessage<TAG>,
