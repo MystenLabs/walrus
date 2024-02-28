@@ -116,6 +116,9 @@ module blob_store::blob {
         let bcs_body = bcs::new(message_body);
         let blob_id = bcs::peel_u256(&mut bcs_body);
 
+        // On purpose we do not check that nothing is left in the message
+        // to allow in the future for extensibility.
+
         CertifiedBlobMessage {
             epoch,
             blob_id,
@@ -145,6 +148,31 @@ module blob_store::blob {
         // Mark the blob as certified
         blob.certified = true;
     }
+
+    /// After the period of validity expires for the blob we can destroy the blob resource.
+    public fun destroy_blob<TAG, WAL:store>(
+        sys: &System<TAG, WAL>,
+        blob: Blob<TAG>,
+    ){
+
+        let current_epoch = system::epoch(sys);
+        assert!(current_epoch >= end_epoch(storage(&blob)), ERROR_RESOURCE_BOUNDS);
+
+        // Destroy the blob
+        let Blob {
+            id,
+            stored_epoch: _,
+            blob_id: _,
+            size: _,
+            fe_type: _,
+            certified: _,
+            storage,
+        } = blob;
+
+        object::delete(id);
+        destroy(storage);
+    }
+
 
     public fun extend(){
         // TODO: implement at a later time
