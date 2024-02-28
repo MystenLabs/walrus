@@ -9,6 +9,7 @@ license = { workspace = true }
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
 serde = { version = "1.0.197", features = ["derive"] }
+walrus-core = { workspace = true }
 
 [lints]
 workspace = true

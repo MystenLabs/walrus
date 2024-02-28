@@ -1,6 +1,8 @@
 use std::time::Duration;
 
-use crate::{config::Committee, crypto::Certificate, BlobId, Epoch};
+use walrus_core::{BlobId, Epoch};
+
+use crate::{config::Committee, crypto::Certificate};
 
 /// A client for interacting with the Walrus Move smart contract.
 pub trait MoveClient {

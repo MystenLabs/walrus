@@ -8,5 +8,8 @@ authors = ["Mysten Labs <build@mystenlabs.com>"]
 edition = "2021"
 license = "Apache-2.0"
 
+[workspace.dependencies]
+walrus-core = { path = "crates/walrus-core" }
+
 [workspace.lints.rust]
 missing_docs = "warn"

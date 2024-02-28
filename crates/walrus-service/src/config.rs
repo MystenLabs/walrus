@@ -1,11 +1,9 @@
 use std::{collections::HashMap, net::SocketAddr, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
+use walrus_core::Epoch;
 
-use crate::{
-    crypto::{KeyPair, PublicKey},
-    Epoch,
-};
+use crate::crypto::{KeyPair, PublicKey};
 
 /// Represents the index of a shard.
 pub type ShardIndex = u32;
