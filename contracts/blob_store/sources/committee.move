@@ -134,6 +134,17 @@ module blob_store::committee {
         message: vector<u8>,
     }
 
+    #[test_only]
+    public fun certified_message_for_testing<TAG>(
+        intent_type: u8,
+        intent_version: u8,
+        cert_epoch: u64,
+        stake_support: u16,
+        message: vector<u8>,
+    ) : CertifiedMessage<TAG> {
+        CertifiedMessage { intent_type, intent_version, cert_epoch, stake_support, message }
+    }
+
     // Make accessors for the CertifiedMessage
     public fun intent_type<TAG>(self: &CertifiedMessage<TAG>) : u8 {
         self.intent_type

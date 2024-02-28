@@ -9,13 +9,21 @@ module blob_store::blob {
 
     use blob_store::committee::{Self, CertifiedMessage};
     use blob_store::system::{Self, System};
-    use blob_store::storage_resource::{Storage, start_epoch, end_epoch, storage_size};
+    use blob_store::storage_resource::{Storage, start_epoch, end_epoch, storage_size, destroy};
+
+    // A certify blob message structure
+    const BLOB_CERT_MSG_TYPE: u8 = 1;
 
     // Error codes
     const ERROR_INVALID_MSG_TYPE: u64 = 1;
     const ERROR_RESOURCE_BOUNDS: u64 = 2;
     const ERROR_RESOURCE_SIZE: u64 = 3;
+    const ERROR_WRONG_EPOCH: u64 = 4;
+    const ERROR_ALREADY_CERTIFIED: u64 = 5;
+    const ERROR_INVALID_BLOB_ID: u64 = 6;
 
+    /// The blob structure represents a blob that has been registered to with some storage,
+    /// and then may eventually be certified as being available in the system.
     struct Blob<phantom TAG> has key, store {
         id: UID,
         stored_epoch: u64,
@@ -42,6 +50,10 @@ module blob_store::blob {
 
     public fun fe_type<TAG>(b: &Blob<TAG>) : u8 {
         b.fe_type
+    }
+
+    public fun certified<TAG>(b: &Blob<TAG>) : bool {
+        b.certified
     }
 
     public fun storage<TAG>(b: &Blob<TAG>) : &Storage<TAG> {
@@ -81,13 +93,11 @@ module blob_store::blob {
 
     }
 
-    // A certify blob message structure
-    const BLOB_CERT_MSG_TYPE: u8 = 1;
-
     struct CertifiedBlobMessage<phantom TAG> has drop {
         epoch: u64,
         blob_id: u256,
     }
+
 
     /// Construct the certified blob message, note that constructing
     /// implies a certified message, that is already checked.
@@ -111,10 +121,6 @@ module blob_store::blob {
             blob_id,
         }
     }
-
-    const ERROR_WRONG_EPOCH: u64 = 4;
-    const ERROR_ALREADY_CERTIFIED: u64 = 5;
-    const ERROR_INVALID_BLOB_ID: u64 = 6;
 
     public fun certify<TAG, WAL:store>(
         sys: &System<TAG, WAL>,
@@ -143,5 +149,41 @@ module blob_store::blob {
         assert!(false, 0);
     }
 
+    // Testing Functions
+
+    #[test_only]
+    public fun drop_for_testing<TAG>(b: Blob<TAG>) {
+        // deconstruct
+        let Blob {
+            id,
+            stored_epoch: _,
+            blob_id: _,
+            size: _,
+            fe_type: _,
+            certified: _,
+            storage,
+        } = b;
+
+        object::delete(id);
+        destroy(storage);
+    }
+
+    #[test_only]
+    // Accessor for blob
+    public fun message_blob_id<TAG>(m: &CertifiedBlobMessage<TAG>) : u256 {
+        m.blob_id
+    }
+
+
+    #[test_only]
+    public fun certified_blob_message_for_testing<TAG>(
+        epoch: u64,
+        blob_id: u256,
+        ) : CertifiedBlobMessage<TAG> {
+        CertifiedBlobMessage {
+            epoch,
+            blob_id,
+        }
+    }
 
 }
