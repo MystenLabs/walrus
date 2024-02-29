@@ -8,9 +8,9 @@ module blob_store::system {
     use sui::coin::{Self, Coin};
     use sui::table::{Self, Table};
     use sui::tx_context::{TxContext};
+    use sui::event;
+
     use std::option::{Self, Option};
-
-
 
     use blob_store::committee::{Self, Committee};
     use blob_store::storage_accounting::{Self, FutureAccounting, FutureAccountingRingBuffer};
@@ -26,7 +26,7 @@ module blob_store::system {
     // Message types:
     const EPOCH_DONE_MSG_TYPE: u8 = 0;
 
-
+    // Epoch status values
     #[allow(unused_const)]
     const EPOCH_STATUS_DONE : u8 = 0;
     #[allow(unused_const)]
@@ -36,6 +36,22 @@ module blob_store::system {
     /// TODO: the number here is a placeholder, and assumes an epoch is a week,
     /// and therefore 2 x 52 weeks = 2 years.
     const MAX_PERIODS_AHEAD : u64 = 104;
+
+    // Event types
+
+    /// Signals an epoch change, and entering the SYNC state for the new epoch.
+    struct EpochChangeSync<phantom TAG> has copy, drop {
+        epoch: u64,
+        total_capacity_size: u64,
+        used_capacity_size: u64,
+    }
+
+    /// Signals that the epoch change is DONE now.
+    struct EpochChangeDone<phantom TAG> has copy, drop {
+        epoch: u64,
+    }
+
+    // Object definitions
 
     #[allow(unused_field)]
     struct System<phantom TAG, phantom WAL:store> has key, store {
@@ -97,6 +113,16 @@ module blob_store::system {
 
         assert!(committee::epoch(&first_committee) == 0, ERROR_INCORRECT_COMMITTEE);
 
+        // We emit both sync and done events for the first epoch.
+        event::emit(EpochChangeSync<TAG> {
+            epoch: 0,
+            total_capacity_size: capacity,
+            used_capacity_size: 0,
+        });
+        event::emit(EpochChangeDone<TAG> {
+            epoch: 0,
+        });
+
         System {
             id: object::new(ctx),
             current_committee: option::some(first_committee),
@@ -149,6 +175,13 @@ module blob_store::system {
         // Update storage based on the accounts data.
         self.used_capacity_size = self.used_capacity_size
             - storage_accounting::storage_to_reclaim(&mut accounts_old_epoch);
+
+        // Emit Sync event.
+        event::emit(EpochChangeSync<TAG> {
+            epoch: new_epoch,
+            total_capacity_size: self.total_capacity_size,
+            used_capacity_size: self.used_capacity_size,
+        });
 
         accounts_old_epoch
     }
@@ -262,6 +295,10 @@ module blob_store::system {
 
         // Move to done state.
         system.epoch_status = EPOCH_STATUS_DONE;
+
+        event::emit(EpochChangeDone<TAG> {
+            epoch: message.epoch,
+        });
     }
 
 }
