@@ -8,10 +8,12 @@ license = { workspace = true }
 
 [dependencies]
 fastcrypto = "0.1.7"
-itertools = "0.12.1"
 raptorq = "1.8.0"
 serde = { version = "1.0.197", features = ["derive"] }
 thiserror = { workspace = true }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+walrus-test-utils = { workspace = true }

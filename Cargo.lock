@@ -2139,10 +2139,10 @@ name = "walrus-core"
 version = "0.1.0"
 dependencies = [
  "fastcrypto",
- "itertools 0.12.1",
  "raptorq",
  "serde",
  "thiserror",
+ "walrus-test-utils",
 ]
 
 [[package]]
