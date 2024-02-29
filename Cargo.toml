@@ -9,6 +9,7 @@ edition = "2021"
 license = "Apache-2.0"
 
 [workspace.dependencies]
+thiserror = "1.0.57"
 walrus-core = { path = "crates/walrus-core" }
 walrus-test-utils = { path = "crates/walrus-test-utils" }
 

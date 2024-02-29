@@ -1,18 +1,18 @@
 #![allow(missing_docs, unused)]
 
+//! TODO(mlegner): Describe encoding algorithm.
+
 use std::sync::OnceLock;
 
-use raptorq::{
-    EncodingPacket,
-    ObjectTransmissionInformation,
-    SourceBlockEncoder,
-    SourceBlockEncodingPlan,
-};
+use raptorq::{SourceBlockEncoder, SourceBlockEncodingPlan};
 use thiserror::Error;
+
+mod utils;
 
 /// The maximum length in bytes of a single symbol in RaptorQ.
 const MAX_SYMBOL_SIZE: u16 = u16::MAX;
 
+/// Global encoding configuration with pre-generated encoding plans.
 static ENCODING_CONFIG: OnceLock<EncodingConfig> = OnceLock::new();
 
 /// Creates a new global encoding configuration for the provided system parameters.
@@ -21,10 +21,10 @@ static ENCODING_CONFIG: OnceLock<EncodingConfig> = OnceLock::new();
 ///
 /// # Arguments
 ///
-/// * `source_symbols_primary` - The number of symbols per primary sliver. This should be slightly
-///   below `f`, where `f` is the Byzantine parameter.
-/// * `source_symbols_secondary` - The number of symbols for the secondary encoding. This should be
-///   slightly below `f`.
+/// * `source_symbols_primary` - The number of source symbols for the primary encoding. This
+///   should be slightly below `f`, where `f` is the Byzantine parameter.
+/// * `source_symbols_secondary` - The number of source symbols for the secondary encoding. This
+///   should be slightly below `2f`.
 /// * `total_shards` - The total number of shards.
 ///
 /// # Returns
@@ -55,14 +55,17 @@ pub fn initialize_encoding_config(
 ///
 /// # Returns
 ///
-/// The global [`EncodingConfig`], if it was initialized with  [`initialize_encoding_config`], or
+/// The global [`EncodingConfig`].
+///
+/// # Panics
+///
+/// Must only be called after the global encoding configuration was initialized with
+/// [`initialize_encoding_config`]. Panics otherwise.
 /// `None` otherwise.
-pub fn get_encoding_config() -> Option<&'static EncodingConfig> {
-    ENCODING_CONFIG.get()
-}
-
-fn get_transmission_info(symbol_size: u16) -> ObjectTransmissionInformation {
-    ObjectTransmissionInformation::new(0, symbol_size, 0, 1, 1)
+pub fn get_encoding_config() -> &'static EncodingConfig {
+    ENCODING_CONFIG
+        .get()
+        .expect("must first be initialized with `initialize_encoding_config`")
 }
 
 /// Error type returned when encoding a blob or sliver fails.
@@ -88,10 +91,10 @@ pub struct SliverPair {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EncodingConfig {
     /// The number of source symbols for the primary encoding, which is, simultaneously, the number
-    /// of symbols per secondary sliver.
+    /// of symbols per secondary sliver. It must be strictly less than 2/3 of `total_shards`.
     source_symbols_primary: u16,
     /// The number of source symbols for the secondary encoding, which is, simultaneously, the
-    /// number of symbols per primary sliver.
+    /// number of symbols per primary sliver. It must be strictly less than 1/3 of `total_shards`.
     source_symbols_secondary: u16,
     /// The number of shards.
     total_shards: u32,
@@ -109,13 +112,15 @@ pub enum EncodingType {
 impl EncodingConfig {
     fn new(source_symbols_primary: u16, source_symbols_secondary: u16, total_shards: u32) -> Self {
         assert!(
-            3 * (source_symbols_primary as u32) <= total_shards,
+            3 * (source_symbols_primary as u32) < total_shards,
             "the primary encoding can be at most a 1/3 encoding"
         );
         assert!(
-            3 * (source_symbols_secondary as u32) <= 2 * total_shards,
+            3 * (source_symbols_secondary as u32) < 2 * total_shards,
             "the secondary encoding can be at most a 2/3 encoding"
         );
+        // TODO(mlegner): Check that the parameters are compatible with the block size of RaptorQ.
+
         Self {
             source_symbols_primary,
             source_symbols_secondary,
@@ -126,10 +131,14 @@ impl EncodingConfig {
     }
 
     /// The maximum size in bytes of a blob that can be encoded.
+    ///
+    /// This is limited by the total number of source symbols, which is fixed by the dimensions
+    /// `source_symbols_primary` x `source_symbols_secondary` of the message matrix, and the maximum
+    /// symbol size supported by RaptorQ.
     #[inline]
     pub fn max_blob_size(&self) -> usize {
-        self.source_symbols_secondary as usize
-            * self.source_symbols_primary as usize
+        self.source_symbols_primary as usize
+            * self.source_symbols_secondary as usize
             * MAX_SYMBOL_SIZE as usize
     }
 
@@ -184,7 +193,7 @@ impl EncodingConfig {
             data,
             self.source_symbols_primary,
             self.source_symbols_secondary,
-            compute_symbol_size(data.len(), self.source_symbols_per_blob()),
+            utils::compute_symbol_size(data.len(), self.source_symbols_per_blob()),
             self.total_shards,
         )
     }
@@ -205,11 +214,11 @@ impl<'a> Encoder<'a> {
         total_shards: u32,
         encoding_plan: &SourceBlockEncodingPlan,
     ) -> Self {
-        let symbol_size = compute_symbol_size(data.len(), source_symbols_count.into());
+        let symbol_size = utils::compute_symbol_size(data.len(), source_symbols_count.into());
         Self {
             raptorq_encoder: SourceBlockEncoder::with_encoding_plan2(
                 0,
-                &get_transmission_info(symbol_size),
+                &utils::get_transmission_info(symbol_size),
                 data,
                 encoding_plan,
             ),
@@ -314,8 +323,10 @@ impl BlobEncoder {
     }
 
     pub fn encode(&self) -> Vec<SliverPair> {
-        let config = get_encoding_config().expect("global encoding config should exist");
+        let config = get_encoding_config();
         let mut result: Vec<SliverPair> = Vec::with_capacity(self.total_shards as usize);
+
+        // TODO(mlegner): Can we reduce the amount of duplicated code here?
         for (r, row) in self.matrix_rows.iter().enumerate() {
             // We can take the rows directly as the first few primary slivers.
             result[r].primary.data[..].copy_from_slice(row);
@@ -343,7 +354,7 @@ impl BlobEncoder {
             for (n, symbol) in config
                 .get_encoder(EncodingType::Primary, column)
                 .expect("size has already been checked")
-                .encode_all()
+                .encode_all_repair_symbols() // We only need the repair symbols.
                 .enumerate()
             {
                 result[n].primary.data
@@ -353,9 +364,4 @@ impl BlobEncoder {
         }
         result
     }
-}
-
-fn compute_symbol_size(data_length: usize, symbols_count: usize) -> u16 {
-    // TODO(mlegner): error handling
-    ((data_length - 1) / symbols_count + 1) as u16
 }
