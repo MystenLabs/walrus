@@ -29,7 +29,7 @@ module blob_store::blob {
         stored_epoch: u64,
         blob_id: u256,
         size: u64,
-        fe_type: u8,
+        erasure_code_type: u8,
         certified: bool,
         storage: Storage<TAG>,
     }
@@ -48,8 +48,8 @@ module blob_store::blob {
         b.size
     }
 
-    public fun fe_type<TAG>(b: &Blob<TAG>) : u8 {
-        b.fe_type
+    public fun erasure_code_type<TAG>(b: &Blob<TAG>) : u8 {
+        b.erasure_code_type
     }
 
     public fun certified<TAG>(b: &Blob<TAG>) : bool {
@@ -66,7 +66,7 @@ module blob_store::blob {
         storage: Storage<TAG>,
         blob_id: u256,
         size: u64,
-        fe_type: u8,
+        erasure_code_type: u8,
         ctx: &mut TxContext,
         ) : Blob<TAG> {
 
@@ -86,7 +86,8 @@ module blob_store::blob {
             stored_epoch,
             blob_id,
             size,
-            fe_type,
+            //
+            erasure_code_type,
             certified: false,
             storage,
         }
@@ -164,7 +165,7 @@ module blob_store::blob {
             stored_epoch: _,
             blob_id: _,
             size: _,
-            fe_type: _,
+            erasure_code_type: _,
             certified: _,
             storage,
         } = blob;
@@ -189,7 +190,7 @@ module blob_store::blob {
             stored_epoch: _,
             blob_id: _,
             size: _,
-            fe_type: _,
+            erasure_code_type: _,
             certified: _,
             storage,
         } = b;

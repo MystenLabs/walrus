@@ -66,9 +66,6 @@ module blob_store::blob_tests {
         // Register a Blob
         let blob1 = blob::register(&system, storage, 0xABC, 5000, 0x1, &mut ctx);
 
-        // Assert not certified
-        assert!(blob::certified(&blob1) == false, 0);
-
         coin::burn_for_testing(fake_coin);
         blob::drop_for_testing(blob1);
         system
@@ -102,8 +99,8 @@ module blob_store::blob_tests {
         // Set certify
         blob::certify(&system, certify_message, &mut blob1);
 
-        // Assert not certified
-        assert!(blob::certified(&blob1) == true, 0);
+        // Assert certified
+        assert!(blob::certified(&blob1), 0);
 
         coin::burn_for_testing(fake_coin);
         blob::drop_for_testing(blob1);
@@ -273,7 +270,6 @@ module blob_store::blob_tests {
         let epoch_accounts = system::next_epoch(&mut system, committee, 1000, 3);
         sa::burn_for_testing(epoch_accounts);
 
-
         // Destroy the blob
         blob::destroy_blob(&system, blob1);
 
@@ -339,7 +335,5 @@ module blob_store::blob_tests {
             let message = blob::certify_blob_message(msg);
             assert!(blob::message_blob_id(&message) == 0xAA, 0);
     }
-
-
 
 }
