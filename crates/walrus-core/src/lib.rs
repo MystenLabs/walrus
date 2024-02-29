@@ -3,6 +3,9 @@
 use fastcrypto::bls12381::min_pk::BLS12381Signature;
 use serde::{Deserialize, Serialize};
 
+/// Erasure encoding and decoding.
+pub mod encoding;
+
 /// The epoch number.
 pub type Epoch = u64;
 

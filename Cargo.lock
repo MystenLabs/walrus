@@ -1578,6 +1578,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "raptorq"
+version = "1.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c9cf9270cc5903afdef387f06ef1cd89fb77f45c357c2a425bae78b839fd866"
+
+[[package]]
 name = "readonly"
 version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2133,7 +2139,9 @@ name = "walrus-core"
 version = "0.1.0"
 dependencies = [
  "fastcrypto",
+ "raptorq",
  "serde",
+ "thiserror",
 ]
 
 [[package]]

@@ -8,7 +8,9 @@ license = { workspace = true }
 
 [dependencies]
 fastcrypto = "0.1.7"
+raptorq = "1.8.0"
 serde = { version = "1.0.197", features = ["derive"] }
+thiserror = "1.0.57"
 
 [lints]
 workspace = true
