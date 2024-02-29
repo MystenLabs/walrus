@@ -68,3 +68,12 @@ pub struct StorageNodePrivateParameters {
     /// The private parameters shards that the storage node is responsible for.
     pub shards: HashMap<ShardIndex, ShardPrivateParameters>,
 }
+
+impl StorageNodePrivateParameters {
+    /// Returns the network address of a particular shard index managed by the storage node.
+    pub fn network_address(&self, shard_index: ShardIndex) -> Option<SocketAddr> {
+        self.shards
+            .get(&shard_index)
+            .map(|parameters| parameters.network_address)
+    }
+}
