@@ -6,6 +6,7 @@ module blob_store::blob {
     use sui::object::{Self, UID};
     use sui::tx_context::TxContext;
     use sui::bcs;
+    use sui::event;
 
     use blob_store::committee::{Self, CertifiedMessage};
     use blob_store::system::{Self, System};
@@ -21,6 +22,27 @@ module blob_store::blob {
     const ERROR_WRONG_EPOCH: u64 = 4;
     const ERROR_ALREADY_CERTIFIED: u64 = 5;
     const ERROR_INVALID_BLOB_ID: u64 = 6;
+
+    // Event definitions
+
+    // Signals a blob with meta-data is registered.
+    struct BlobRegistered<phantom TAG> has copy, drop {
+        epoch: u64,
+        blob_id: u256,
+        size: u64,
+        erasure_code_type: u8,
+        end_epoch: u64,
+    }
+
+    // Signals a blob is certified.
+    struct BlobCertified<phantom TAG> has copy, drop {
+        epoch: u64,
+        blob_id: u256,
+        end_epoch: u64,
+    }
+
+
+    // Object definitions
 
     /// The blob structure represents a blob that has been registered to with some storage,
     /// and then may eventually be certified as being available in the system.
@@ -80,6 +102,15 @@ module blob_store::blob {
 
         // TODO(#42): cryptographically verify that the Blob ID authenticates
         // both the size and fe_type.
+
+        // Emit register event
+        event::emit(BlobRegistered<TAG> {
+            epoch: stored_epoch,
+            blob_id,
+            size,
+            erasure_code_type,
+            end_epoch: end_epoch(&storage),
+        });
 
         Blob {
             id,
@@ -148,6 +179,13 @@ module blob_store::blob {
 
         // Mark the blob as certified
         blob.certified = true;
+
+        // Emit certified event
+        event::emit(BlobCertified<TAG> {
+            epoch: message.epoch,
+            blob_id: message.blob_id,
+            end_epoch: end_epoch(storage(blob)),
+        });
     }
 
     /// After the period of validity expires for the blob we can destroy the blob resource.
