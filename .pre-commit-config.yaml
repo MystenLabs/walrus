@@ -23,6 +23,7 @@ repos:
   rev: v1.0.9
   hooks:
   - id: cargo-sort
+    args: ["--workspace"]
 - repo: https://github.com/EmbarkStudios/cargo-deny
   rev: 7544cfcc8f5445af13a5fe027ba0d444427d7caa
   hooks:
