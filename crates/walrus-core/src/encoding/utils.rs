@@ -1,4 +1,4 @@
-use raptorq::ObjectTransmissionInformation;
+use raptorq::{EncodingPacket, ObjectTransmissionInformation};
 
 use super::MAX_SYMBOL_SIZE;
 
@@ -37,6 +37,11 @@ pub(super) fn compute_symbol_size(data_length: usize, n_symbols: usize) -> Optio
     } else {
         Some(result)
     }
+}
+
+#[inline]
+pub(super) fn packet_to_data(packet: EncodingPacket) -> Vec<u8> {
+    packet.split().1
 }
 
 #[cfg(test)]

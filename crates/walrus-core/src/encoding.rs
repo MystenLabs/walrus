@@ -60,21 +60,17 @@ pub fn initialize_encoding_config(
 /// # Panics
 ///
 /// Must only be called after the global encoding configuration was initialized with
-/// [`initialize_encoding_config`]. Panics otherwise.
-/// `None` otherwise.
+/// [`initialize_encoding_config`], panics otherwise.
 pub fn get_encoding_config() -> &'static EncodingConfig {
     ENCODING_CONFIG
         .get()
         .expect("must first be initialized with `initialize_encoding_config`")
 }
 
-/// Error type returned when encoding a blob or sliver fails.
+/// Error returned if the provided data is too large to be encoded with this encoder.
 #[derive(Debug, Error, PartialEq, Eq)]
-pub enum EncodeError {
-    /// Error returned if the provided data is too large to be encoded with this encoder.
-    #[error("the data is to large to be encoded")]
-    DataTooLarge,
-}
+#[error("the data is to large to be encoded")]
+pub struct DataTooLargeError;
 
 /// Marker trait to indicate the encoding axis (primary or secondary).
 pub trait EncodingAxis: Clone + PartialEq + Eq + Default {
@@ -107,10 +103,8 @@ pub struct Sliver<T: EncodingAxis> {
 impl<T: EncodingAxis> Sliver<T> {
     /// Creates a new `Sliver` copying the provided slice of bytes.
     pub fn new(slice: &[u8]) -> Self {
-        let mut data = vec![0; slice.len()];
-        data.copy_from_slice(slice);
         Self {
-            data,
+            data: slice.into(),
             phantom: PhantomData,
         }
     }
@@ -245,8 +239,8 @@ impl EncodingConfig {
     ///
     /// # Errors
     ///
-    /// Returns an [`EncodeError::DataTooLarge`] if the `data` is too large to be encoded.
-    pub fn get_encoder<E: EncodingAxis>(&self, data: &[u8]) -> Result<Encoder, EncodeError> {
+    /// Returns an [`DataTooLargeError`] if the `data` is too large to be encoded.
+    pub fn get_encoder<E: EncodingAxis>(&self, data: &[u8]) -> Result<Encoder, DataTooLargeError> {
         Encoder::new(
             data,
             self.n_source_symbols::<E>(),
@@ -263,8 +257,8 @@ impl EncodingConfig {
     ///
     /// # Errors
     ///
-    /// Returns an [`EncodeError::DataTooLarge`] if the `blob` is too large to be encoded.
-    pub fn get_blob_encoder(&self, blob: &[u8]) -> Result<BlobEncoder, EncodeError> {
+    /// Returns an [`DataTooLargeError`] if the `blob` is too large to be encoded.
+    pub fn get_blob_encoder(&self, blob: &[u8]) -> Result<BlobEncoder, DataTooLargeError> {
         BlobEncoder::new(blob, self)
     }
 }
@@ -290,7 +284,7 @@ impl Encoder {
     ///
     /// # Errors
     ///
-    /// Returns an [`EncodeError::DataTooLarge`] if the `data` is too large to be encoded.
+    /// Returns an [`DataTooLargeError`] if the `data` is too large to be encoded.
     ///
     /// If the `encoding_plan` was generated for a different number of source symbols than
     /// `n_source_symbols`, later methods called on the returned `Encoder` may exhibit unexpected
@@ -300,10 +294,10 @@ impl Encoder {
         n_source_symbols: u16,
         n_shards: u32,
         encoding_plan: &SourceBlockEncodingPlan,
-    ) -> Result<Self, EncodeError> {
+    ) -> Result<Self, DataTooLargeError> {
         let Some(symbol_size) = utils::compute_symbol_size(data.len(), n_source_symbols.into())
         else {
-            return Err(EncodeError::DataTooLarge);
+            return Err(DataTooLargeError);
         };
         Ok(Self {
             raptorq_encoder: SourceBlockEncoder::with_encoding_plan2(
@@ -322,7 +316,7 @@ impl Encoder {
         self.raptorq_encoder
             .source_packets()
             .into_iter()
-            .map(|packet| packet.data().into())
+            .map(utils::packet_to_data)
     }
 
     /// Returns an iterator over a range of source and/or repair symbols.
@@ -339,7 +333,7 @@ impl Encoder {
             .into_iter()
             .chain(self.raptorq_encoder.repair_packets(0, repair_end))
             .skip(start as usize)
-            .map(|packet| packet.data().into())
+            .map(utils::packet_to_data)
     }
 
     /// Returns an iterator over all `n_shards` source and repair symbols.
@@ -351,7 +345,7 @@ impl Encoder {
                 self.raptorq_encoder
                     .repair_packets(0, self.n_shards - self.n_source_symbols as u32),
             )
-            .map(|packet| packet.data().into())
+            .map(utils::packet_to_data)
     }
 
     /// Returns an iterator over all `n_shards - self.n_source_symbols` repair symbols.
@@ -359,7 +353,7 @@ impl Encoder {
         self.raptorq_encoder
             .repair_packets(0, self.n_shards - self.n_source_symbols as u32)
             .into_iter()
-            .map(|packet| packet.data().into())
+            .map(utils::packet_to_data)
     }
 }
 
@@ -385,11 +379,11 @@ impl<'a> BlobEncoder<'a> {
     ///
     /// This creates the message matrix, padding with zeros if necessary. The actual encoding can be
     /// performed with the [`encode()`][Self::encode] method.
-    pub fn new(blob: &[u8], config: &'a EncodingConfig) -> Result<Self, EncodeError> {
+    pub fn new(blob: &[u8], config: &'a EncodingConfig) -> Result<Self, DataTooLargeError> {
         let Some(symbol_size) =
             utils::compute_symbol_size(blob.len(), config.source_symbols_per_blob())
         else {
-            return Err(EncodeError::DataTooLarge);
+            return Err(DataTooLargeError);
         };
         let n_columns = config.source_symbols_secondary as usize;
         let n_rows = config.source_symbols_primary as usize;
