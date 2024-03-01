@@ -140,7 +140,7 @@ pub struct SliverPair {
     /// Index of this sliver pair.
     ///
     /// Sliver pair `i` contains the primary sliver `i` and the secondary sliver `n_shards-i-1`.
-    // TODO(mlegner): Link to sliver->shard assignment.
+    // TODO(mlegner): Link to sliver->shard assignment (#49).
     pub index: u32,
     /// The sliver corresponding to the [`Primary`] encoding.
     pub primary: Sliver<Primary>,
@@ -276,7 +276,7 @@ pub struct Encoder {
     n_shards: u32,
 }
 
-// TODO(mlegner): check if memory management and copying can be improved for Encoder (#45).
+// TODO(mlegner): Check if memory management and copying can be improved for Encoder (#45).
 impl Encoder {
     /// Creates a new `Encoder` for the provided `data` with the specified arguments.
     ///
@@ -379,7 +379,7 @@ pub struct BlobEncoder<'a> {
     config: &'a EncodingConfig,
 }
 
-// TODO(mlegner): improve memory management and copying for BlobEncoder (#45).
+// TODO(mlegner): Improve memory management and copying for BlobEncoder (#45).
 impl<'a> BlobEncoder<'a> {
     /// Creates a new `BlobEncoder` to encode the provided `blob` with the provided configuration.
     ///
@@ -478,7 +478,7 @@ mod tests {
 
     use super::*;
 
-    // TODO(mlegner): Add tests for the actual encoding!
+    // TODO(mlegner): Add tests for the actual encoding (#28)!
 
     mod slivers {
         use super::*;
