@@ -1,8 +1,6 @@
-#![allow(missing_docs, unused)]
+//! TODO(mlegner): Describe encoding algorithm in detail (#50).
 
-//! TODO(mlegner): Describe encoding algorithm.
-
-use std::{cmp::min, iter::repeat, marker::PhantomData, sync::OnceLock};
+use std::{cmp::min, marker::PhantomData, sync::OnceLock};
 
 use raptorq::{SourceBlockEncoder, SourceBlockEncodingPlan};
 use thiserror::Error;
@@ -79,66 +77,71 @@ pub enum EncodeError {
 }
 
 /// Marker trait to indicate the encoding axis (primary or secondary).
-pub trait EncodingAxis: Clone + PartialEq + Eq {
-    /// Returns the number of source symbols configured for this type.
-    fn source_symbols_count(config: &EncodingConfig) -> u16;
-
-    /// Returns the pre-generated encoding plan this type.
-    fn encoding_plan(config: &EncodingConfig) -> &SourceBlockEncodingPlan;
-
-    /// The maximum size in bytes of data that can be encoded with this encoding.
-    #[inline]
-    fn max_data_size_primary(config: &EncodingConfig) -> usize {
-        Self::source_symbols_count(config) as usize * MAX_SYMBOL_SIZE
-    }
+pub trait EncodingAxis: Clone + PartialEq + Eq + Default {
+    /// Whether this corresponds to the primary (true) or secondary (false) encoding.
+    const IS_PRIMARY: bool;
 }
 
 /// Marker type to indicate the primary encoding.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Primary;
 impl EncodingAxis for Primary {
-    #[inline]
-    fn source_symbols_count(config: &EncodingConfig) -> u16 {
-        config.source_symbols_primary
-    }
-
-    #[inline]
-    fn encoding_plan(config: &EncodingConfig) -> &SourceBlockEncodingPlan {
-        &config.encoding_plan_primary
-    }
+    const IS_PRIMARY: bool = true;
 }
 
 /// Marker type to indicate the secondary encoding.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Secondary;
 impl EncodingAxis for Secondary {
-    #[inline]
-    fn source_symbols_count(config: &EncodingConfig) -> u16 {
-        config.source_symbols_secondary
-    }
-
-    #[inline]
-    fn encoding_plan(config: &EncodingConfig) -> &SourceBlockEncodingPlan {
-        &config.encoding_plan_secondary
-    }
+    const IS_PRIMARY: bool = false;
 }
 
 /// Encoded data corresponding to a single [`EncodingAxis`] assigned to one shard.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Sliver<T: EncodingAxis> {
     /// The encoded data.
     pub data: Vec<u8>,
     phantom: PhantomData<T>,
 }
 
+impl<T: EncodingAxis> Sliver<T> {
+    /// Creates a new `Sliver` copying the provided slice of bytes.
+    pub fn new(slice: &[u8]) -> Self {
+        let mut data = vec![0; slice.len()];
+        data.copy_from_slice(slice);
+        Self {
+            data,
+            phantom: PhantomData,
+        }
+    }
+
+    /// Creates a new `Sliver` with empty data of specified length.
+    pub fn new_empty(length: usize) -> Self {
+        Self {
+            data: vec![0; length],
+            phantom: PhantomData,
+        }
+    }
+
+    /// Copies the provided symbol to the location specified by the index.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `self.data.len() < index * (symbol.len() + 1)`.
+    pub fn copy_symbol_to(&mut self, index: usize, symbol: &[u8]) -> &mut Self {
+        self.data[symbol.len() * index..symbol.len() * (index + 1)].copy_from_slice(symbol);
+        self
+    }
+}
+
 /// Combination of a primary and secondary sliver of one shard.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SliverPair {
     /// Index of this sliver pair.
     ///
     /// Sliver pair `i` contains the primary sliver `i` and the secondary sliver `n_shards-i-1`.
     // TODO(mlegner): Link to sliver->shard assignment.
-    pub index: u16,
+    pub index: u32,
     /// The sliver corresponding to the [`Primary`] encoding.
     pub primary: Sliver<Primary>,
     /// The sliver corresponding to the [`Secondary`] encoding.
@@ -190,6 +193,30 @@ impl EncodingConfig {
         }
     }
 
+    /// Returns the number of source symbols configured for this type.
+    pub fn n_source_symbols<T: EncodingAxis>(&self) -> u16 {
+        if T::IS_PRIMARY {
+            self.source_symbols_primary
+        } else {
+            self.source_symbols_secondary
+        }
+    }
+
+    /// Returns the pre-generated encoding plan this type.
+    pub fn encoding_plan<T: EncodingAxis>(&self) -> &SourceBlockEncodingPlan {
+        if T::IS_PRIMARY {
+            &self.encoding_plan_primary
+        } else {
+            &self.encoding_plan_secondary
+        }
+    }
+
+    /// The maximum size in bytes of data that can be encoded with this encoding.
+    #[inline]
+    pub fn max_data_size<T: EncodingAxis>(&self) -> usize {
+        self.n_source_symbols::<T>() as usize * MAX_SYMBOL_SIZE
+    }
+
     /// The maximum size in bytes of a blob that can be encoded.
     ///
     /// This is limited by the total number of source symbols, which is fixed by the dimensions
@@ -218,20 +245,17 @@ impl EncodingConfig {
     ///
     /// # Errors
     ///
-    /// Returns an [`EncodeError::DataTooLarge`] if the `data` is too large.
-    pub fn get_encoder<'a, E: EncodingAxis>(
-        &self,
-        data: &'a [u8],
-    ) -> Result<Encoder<'a>, EncodeError> {
+    /// Returns an [`EncodeError::DataTooLarge`] if the `data` is too large to be encoded.
+    pub fn get_encoder<E: EncodingAxis>(&self, data: &[u8]) -> Result<Encoder, EncodeError> {
         Encoder::new(
             data,
-            E::source_symbols_count(self),
+            self.n_source_symbols::<E>(),
             self.n_shards,
-            E::encoding_plan(self),
+            self.encoding_plan::<E>(),
         )
     }
 
-    /// Returns a [`BlobEncoder`] to encode a blob into [`SliverPair`s][`SliverPair`].
+    /// Returns a [`BlobEncoder`] to encode a blob into [`SliverPair`s][SliverPair].
     ///
     /// # Arguments
     ///
@@ -245,24 +269,39 @@ impl EncodingConfig {
     }
 }
 
-pub struct Encoder<'a> {
+/// Wrapper to perform a single encoding with RaptorQ for the provided parameters.
+pub struct Encoder {
     raptorq_encoder: SourceBlockEncoder,
-    // Reference to the unpadded data.
-    data: &'a [u8],
-    // INV: symbol_size <= MAX_SYMBOL_SIZE.
-    symbol_size: usize,
-    source_symbols_count: u16,
+    n_source_symbols: u16,
     n_shards: u32,
 }
 
-impl<'a> Encoder<'a> {
+// TODO(mlegner): check if memory management and copying can be improved for Encoder (#45).
+impl Encoder {
+    /// Creates a new `Encoder` for the provided `data` with the specified arguments.
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - The data to encode.
+    /// * `n_source_symbols` - The number of source symbols into which the data should be split.
+    /// * `n_shards` - The total number of shards for which symbols should be generated.
+    /// * `encoding_plan` - A pre-generated [`SourceBlockEncodingPlan`] consistent with
+    ///   `n_source_symbols`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`EncodeError::DataTooLarge`] if the `data` is too large to be encoded.
+    ///
+    /// If the `encoding_plan` was generated for a different number of source symbols than
+    /// `n_source_symbols`, later methods called on the returned `Encoder` may exhibit unexpected
+    /// behavior.
     pub fn new(
-        data: &'a [u8],
-        source_symbols_count: u16,
+        data: &[u8],
+        n_source_symbols: u16,
         n_shards: u32,
         encoding_plan: &SourceBlockEncodingPlan,
     ) -> Result<Self, EncodeError> {
-        let Some(symbol_size) = utils::compute_symbol_size(data.len(), source_symbols_count.into())
+        let Some(symbol_size) = utils::compute_symbol_size(data.len(), n_source_symbols.into())
         else {
             return Err(EncodeError::DataTooLarge);
         };
@@ -273,72 +312,59 @@ impl<'a> Encoder<'a> {
                 data,
                 encoding_plan,
             ),
-            data,
-            symbol_size,
-            source_symbols_count,
+            n_source_symbols,
             n_shards,
         })
     }
 
-    fn padded_data(&self) -> impl Iterator<Item = &u8> {
-        let source_length = self.symbol_size * self.source_symbols_count as usize;
-        self.data
-            .iter()
-            .chain(repeat(&0u8).take(self.n_shards as usize - source_length))
+    /// Returns an iterator over all source symbols.
+    pub fn source_symbols(&self) -> impl Iterator<Item = Vec<u8>> {
+        self.raptorq_encoder
+            .source_packets()
+            .into_iter()
+            .map(|packet| packet.data().into())
     }
 
-    pub fn encode_range(&self, start: u32, end: u32) -> Vec<Vec<u8>> {
+    /// Returns an iterator over a range of source and/or repair symbols.
+    pub fn encode_range(&self, start: u32, end: u32) -> impl Iterator<Item = Vec<u8>> {
         assert!(end >= start);
-        if end <= self.source_symbols_count as u32 {
-            self.raptorq_encoder.source_packets()[start as usize..end as usize]
-                .iter()
-                .map(|packet| packet.data().into())
-                .collect()
-        } else if start < self.source_symbols_count as u32 {
-            self.raptorq_encoder.source_packets()[start as usize..]
-                .iter()
-                .chain(
-                    self.raptorq_encoder
-                        .repair_packets(0, end - self.source_symbols_count as u32)
-                        .iter(),
-                )
-                .map(|packet| packet.data().into())
-                .collect()
+        let repair_end = if end > self.n_source_symbols as u32 {
+            end - self.n_source_symbols as u32
         } else {
-            self.raptorq_encoder
-                .repair_packets(start - self.source_symbols_count as u32, end - start)
-                .into_iter()
-                .map(|packet| packet.data().into())
-                .collect()
-        }
+            0
+        };
+
+        self.raptorq_encoder
+            .source_packets()
+            .into_iter()
+            .chain(self.raptorq_encoder.repair_packets(0, repair_end))
+            .skip(start as usize)
+            .map(|packet| packet.data().into())
     }
 
-    // pub fn all_source_symbols(&self) -> IntoChunks<impl Iterator<Item = &u8>> {
-    //     self.padded_data().chunks(self.symbol_size)
-    // }
-
+    /// Returns an iterator over all `n_shards` source and repair symbols.
     pub fn encode_all(&self) -> impl Iterator<Item = Vec<u8>> {
         self.raptorq_encoder
             .source_packets()
             .into_iter()
             .chain(
                 self.raptorq_encoder
-                    .repair_packets(0, self.n_shards - self.source_symbols_count as u32),
+                    .repair_packets(0, self.n_shards - self.n_source_symbols as u32),
             )
             .map(|packet| packet.data().into())
     }
 
+    /// Returns an iterator over all `n_shards - self.n_source_symbols` repair symbols.
     pub fn encode_all_repair_symbols(&self) -> impl Iterator<Item = Vec<u8>> {
         self.raptorq_encoder
-            .repair_packets(0, self.n_shards - self.source_symbols_count as u32)
+            .repair_packets(0, self.n_shards - self.n_source_symbols as u32)
             .into_iter()
             .map(|packet| packet.data().into())
     }
 }
 
+/// Struct to perform the full blob encoding.
 pub struct BlobEncoder<'a> {
-    // INV: symbol_size <= MAX_SYMBOL_SIZE
-    symbol_size: usize,
     /// Rows of the message matrix.
     ///
     /// The outer vector has length `source_symbols_primary`, and each inner vector has length
@@ -349,26 +375,31 @@ pub struct BlobEncoder<'a> {
     /// The outer vector has length `source_symbols_secondary`, and each inner vector has length
     /// `source_symbols_primary`.
     columns: Vec<Vec<u8>>,
+    /// Reference to the encoding configuration of this encoder.
     config: &'a EncodingConfig,
 }
 
+// TODO(mlegner): improve memory management and copying for BlobEncoder (#45).
 impl<'a> BlobEncoder<'a> {
+    /// Creates a new `BlobEncoder` to encode the provided `blob` with the provided configuration.
+    ///
+    /// This creates the message matrix, padding with zeros if necessary. The actual encoding can be
+    /// performed with the [`encode()`][Self::encode] method.
     pub fn new(blob: &[u8], config: &'a EncodingConfig) -> Result<Self, EncodeError> {
         let Some(symbol_size) =
             utils::compute_symbol_size(blob.len(), config.source_symbols_per_blob())
         else {
             return Err(EncodeError::DataTooLarge);
         };
-        let count_columns = config.source_symbols_secondary as usize;
-        let count_rows = config.source_symbols_primary as usize;
-        let row_step = count_columns * symbol_size;
-        let column_step = count_rows * symbol_size;
+        let n_columns = config.source_symbols_secondary as usize;
+        let n_rows = config.source_symbols_primary as usize;
+        let row_step = n_columns * symbol_size;
+        let column_step = n_rows * symbol_size;
 
         // Initializing rows and columns with 0s implicitly takes care of padding.
-        let mut rows = vec![vec![0u8; row_step]; count_rows];
-        let mut columns = vec![vec![0u8; column_step]; count_columns];
+        let mut rows = vec![vec![0u8; row_step]; n_rows];
+        let mut columns = vec![vec![0u8; column_step]; n_columns];
 
-        // TODO(mlegner): make this more efficient and avoid copying as much as possible.
         for (row, chunk) in rows.iter_mut().zip(blob.chunks(row_step)) {
             row[..chunk.len()].copy_from_slice(chunk);
         }
@@ -381,57 +412,63 @@ impl<'a> BlobEncoder<'a> {
             }
         }
         Ok(Self {
-            symbol_size,
             rows,
             columns,
             config,
         })
     }
 
+    /// Encodes the blob with which `self` was created to a vector of [`SliverPair`s][SliverPair].
     pub fn encode(&self) -> Vec<SliverPair> {
-        let config = get_encoding_config();
-        let mut result: Vec<SliverPair> = Vec::with_capacity(self.config.n_shards as usize);
+        let n_rows = self.rows.len();
+        let n_columns = self.columns.len();
+        let mut sliver_pairs: Vec<SliverPair> = Vec::with_capacity(self.config.n_shards as usize);
 
-        // TODO(mlegner): Can we reduce the amount of duplicated code here?
-        for (r, row) in self.rows.iter().enumerate() {
-            // We can take the rows directly as the first few primary slivers.
-            result[r].primary.data[..].copy_from_slice(row);
-
-            // The secondary slivers contain several symbols resulting from encoding the rows.
-            // We reverse the order of the secondary slivers to ensure that the source data is
-            // spread over as many shards as possible.
-            for (n, symbol) in config
-                .get_encoder::<Secondary>(row)
-                .expect("size has already been checked")
-                .encode_all_repair_symbols() // We only need the repair symbols.
-                .enumerate()
-            {
-                result[self.config.n_shards as usize
-                    - 1
-                    - self.config.source_symbols_secondary as usize
-                    - n]
-                    .secondary
-                    .data[self.symbol_size * r..self.symbol_size * (r + 1)]
-                    .copy_from_slice(&symbol)
-            }
+        // Initialize `n_shards` empty sliver pairs with the correct lengths and indices.
+        for i in 0..self.config.n_shards {
+            sliver_pairs.push(SliverPair {
+                index: i,
+                primary: Sliver::new_empty(n_columns),
+                secondary: Sliver::new_empty(n_rows),
+            })
         }
-        for (c, column) in self.columns.iter().enumerate() {
-            // We can take the columns directly as the last few secondary slivers.
-            result[self.config.n_shards as usize - 1 - c].secondary.data[..]
-                .copy_from_slice(column);
 
-            // The primary slivers contain several symbols resulting from encoding the columns.
-            for (n, symbol) in config
+        // The first `n_rows` primary slivers and the last `n_columns` secondary slivers can be
+        // directly copied from the message matrix.
+        for (row, sliver_pair) in self.rows.iter().zip(sliver_pairs.iter_mut()) {
+            sliver_pair.primary.data.copy_from_slice(row)
+        }
+        for (column, sliver_pair) in self.columns.iter().zip(sliver_pairs.iter_mut().rev()) {
+            sliver_pair.secondary.data.copy_from_slice(column)
+        }
+
+        // Compute the remaining primary slivers by encoding the columns.
+        for (c, column) in self.columns.iter().enumerate() {
+            for (symbol, sliver_pair) in self
+                .config
                 .get_encoder::<Primary>(column)
                 .expect("size has already been checked")
                 .encode_all_repair_symbols() // We only need the repair symbols.
-                .enumerate()
+                .zip(sliver_pairs.iter_mut().skip(n_rows))
             {
-                result[n].primary.data[self.symbol_size * c..self.symbol_size * (c + 1)]
-                    .copy_from_slice(&symbol)
+                sliver_pair.primary.copy_symbol_to(c, &symbol);
             }
         }
-        result
+
+        // Compute the remaining secondary slivers by encoding the rows.
+        for (r, row) in self.rows.iter().enumerate() {
+            for (symbol, sliver_pair) in self
+                .config
+                .get_encoder::<Secondary>(row)
+                .expect("size has already been checked")
+                .encode_all_repair_symbols()
+                .zip(sliver_pairs.iter_mut().rev().skip(n_columns))
+            {
+                sliver_pair.secondary.copy_symbol_to(r, &symbol);
+            }
+        }
+
+        sliver_pairs
     }
 }
 
@@ -440,6 +477,42 @@ mod tests {
     use walrus_test_utils::param_test;
 
     use super::*;
+
+    // TODO(mlegner): Add tests for the actual encoding!
+
+    mod slivers {
+        use super::*;
+
+        param_test! {
+            copy_symbol_to_modifies_empty_sliver_correctly: [
+                empty_symbol_1: (0, 0, &[], &[]),
+                empty_symbol_2: (2, 0, &[], &[0,0]),
+                non_empty_symbol_aligned_1: (4, 0, &[1,2], &[1,2,0,0]),
+                non_empty_symbol_aligned_2: (4, 1, &[1,2], &[0,0,1,2]),
+                non_empty_symbol_misaligned_1: (5, 0, &[1,2], &[1,2,0,0,0]),
+                non_empty_symbol_misaligned_2: (5, 1, &[1,2], &[0,0,1,2,0]),
+            ]
+        }
+        fn copy_symbol_to_modifies_empty_sliver_correctly(
+            sliver_length: usize,
+            index: usize,
+            symbol: &[u8],
+            expected_sliver_data: &[u8],
+        ) {
+            assert_eq!(
+                Sliver::<Primary>::new_empty(sliver_length)
+                    .copy_symbol_to(index, symbol)
+                    .data,
+                expected_sliver_data
+            );
+        }
+
+        #[test]
+        fn new_sliver_copies_provided_slice() {
+            let slice = [1, 2, 3, 4, 5];
+            assert_eq!(Sliver::<Primary>::new(&slice).data, slice)
+        }
+    }
 
     param_test! {
         test_matrix_construction: [
