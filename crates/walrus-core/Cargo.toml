@@ -7,7 +7,8 @@ edition = { workspace = true }
 license = { workspace = true }
 
 [dependencies]
-fastcrypto = "0.1.7"
+bcs = { workspace = true }
+fastcrypto = { workspace = true }
 raptorq = "1.8.1"
 serde = { version = "1.0.197", features = ["derive"] }
 thiserror = { workspace = true }

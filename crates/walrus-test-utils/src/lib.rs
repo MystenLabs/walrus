@@ -1,5 +1,7 @@
 //! Test utilities shared between various crates.
 
+use tempfile::TempDir;
+
 /// A result type useful in tests, that wraps any error implementation.
 pub type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -130,6 +132,41 @@ macro_rules! async_param_test {
             $func_name -> $return_ty: [ $( #[tokio::test] $case_name: ( $($args),+ ) ),* ]
         );
     }
+}
+
+/// A wrapper for a type along with a temporary directory on which it depends.
+pub struct WithTempDir<T> {
+    /// The wrapped inner type.
+    pub inner: T,
+    /// The temporary directory that is kept alive.
+    pub temp_dir: TempDir,
+}
+
+impl<T> AsRef<T> for WithTempDir<T> {
+    fn as_ref(&self) -> &T {
+        &self.inner
+    }
+}
+
+impl<T> AsMut<T> for WithTempDir<T> {
+    fn as_mut(&mut self) -> &mut T {
+        &mut self.inner
+    }
+}
+
+/// Asserts that two sequences that implement [`std::iter::IntoIterator`], and whose items
+/// implement [`Ord`] are equal, irrespective of ordering.
+#[macro_export]
+macro_rules! assert_unordered_eq {
+    ($lhs:expr, $rhs:expr) => {
+        let mut lhs: Vec<_> = $lhs.into_iter().collect();
+        let mut rhs: Vec<_> = $rhs.into_iter().collect();
+
+        lhs.sort();
+        rhs.sort();
+
+        assert_eq!(lhs, rhs);
+    };
 }
 
 #[cfg(test)]
