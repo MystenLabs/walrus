@@ -35,9 +35,9 @@ static ENCODING_CONFIG: OnceLock<EncodingConfig> = OnceLock::new();
 /// # Panics
 ///
 /// Panics if the parameters are inconsistent with Byzantine fault tolerance; i.e., if the
-/// number of source symbols of the primary encoding is equal to or greater than a 1/3 of the
+/// number of source symbols of the primary encoding is equal to or greater than 1/3 of the
 /// number of shards, or if the number of source symbols of the secondary encoding equal to or
-/// greater than a 1/3 of the number of shards.
+/// greater than 2/3 of the number of shards.
 ///
 /// Panics if the number of primary or secondary source symbols is larger than
 /// [`MAX_SOURCE_SYMBOLS_PER_BLOCK`].
@@ -149,10 +149,10 @@ pub struct SliverPair {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EncodingConfig {
     /// The number of source symbols for the primary encoding, which is, simultaneously, the number
-    /// of symbols per secondary sliver. It must be strictly less than 2/3 of `n_shards`.
+    /// of symbols per secondary sliver. It must be strictly less than 1/3 of `n_shards`.
     source_symbols_primary: u16,
     /// The number of source symbols for the secondary encoding, which is, simultaneously, the
-    /// number of symbols per primary sliver. It must be strictly less than 1/3 of `n_shards`.
+    /// number of symbols per primary sliver. It must be strictly less than 2/3 of `n_shards`.
     source_symbols_secondary: u16,
     /// The number of shards.
     n_shards: u32,
