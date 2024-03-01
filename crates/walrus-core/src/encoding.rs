@@ -1,7 +1,9 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! TODO(mlegner): Describe encoding algorithm in detail (#50).
+//! Blob encoding functionality, using the RedStuff algorithm.
+
+#![doc = include_str!("../../../docs/red-stuff.md")]
 
 mod basic_encoding;
 pub use basic_encoding::{Decoder, Encoder};
