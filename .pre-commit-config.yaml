@@ -15,7 +15,7 @@ repos:
   - id: editorconfig-checker
     alias: ec
 - repo: https://github.com/crate-ci/typos
-  rev: v1.17.2
+  rev: v1.19.0
   hooks:
   - id: typos
     pass_filenames: false
@@ -25,7 +25,7 @@ repos:
   - id: cargo-sort
     args: ["--workspace"]
 - repo: https://github.com/EmbarkStudios/cargo-deny
-  rev: 7544cfcc8f5445af13a5fe027ba0d444427d7caa
+  rev: 0.14.15
   hooks:
   - id: cargo-deny
 - repo: local
