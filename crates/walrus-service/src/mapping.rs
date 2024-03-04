@@ -142,8 +142,8 @@ mod tests {
         (0..num)
             .map(|n| SliverPair {
                 index: n as u32,
-                primary: Sliver::new_empty(0),
-                secondary: Sliver::new_empty(0),
+                primary: Sliver::new_empty(0, 1),
+                secondary: Sliver::new_empty(0, 1),
             })
             .collect()
     }

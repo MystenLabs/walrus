@@ -5,7 +5,10 @@ use std::{cmp::min, marker::PhantomData, ops::Range, sync::OnceLock};
 use raptorq::{SourceBlockEncoder, SourceBlockEncodingPlan};
 use thiserror::Error;
 
+pub mod symbols;
 mod utils;
+
+pub use symbols::Symbols;
 
 /// The maximum length in bytes of a single symbol in RaptorQ.
 pub const MAX_SYMBOL_SIZE: usize = u16::MAX as usize;
@@ -117,23 +120,32 @@ impl EncodingAxis for Secondary {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Sliver<T: EncodingAxis> {
     /// The encoded data.
-    pub data: Vec<u8>,
+    pub symbols: Symbols,
     phantom: PhantomData<T>,
 }
 
 impl<T: EncodingAxis> Sliver<T> {
     /// Creates a new `Sliver` copying the provided slice of bytes.
-    pub fn new(slice: &[u8]) -> Self {
+    ///
+    /// # Panics
+    ///
+    /// Panics if the slice does not contain complete symbols, i.e., if
+    /// `slice.len() % symbol_size != 0` or if `symbol_size == 0`.
+    pub fn new(slice: &[u8], symbol_size: u16) -> Self {
         Self {
-            data: slice.into(),
+            symbols: Symbols::from_slice(slice, symbol_size),
             phantom: PhantomData,
         }
     }
 
     /// Creates a new `Sliver` with empty data of specified length.
-    pub fn new_empty(length: usize) -> Self {
+    ///
+    /// # Panics
+    ///
+    /// Panics if `symbol_size == 0`.
+    pub fn new_empty(length: usize, symbol_size: u16) -> Self {
         Self {
-            data: vec![0; length],
+            symbols: Symbols::zeros(length, symbol_size),
             phantom: PhantomData,
         }
     }
@@ -142,9 +154,11 @@ impl<T: EncodingAxis> Sliver<T> {
     ///
     /// # Panics
     ///
-    /// Panics if `self.data.len() < index * (symbol.len() + 1)`.
+    /// Panics if `self.data.len() < index * (symbol.len() + 1)` and if the symbol size does not
+    /// match the length specified in the `Symbols` struct.
     pub fn copy_symbol_to(&mut self, index: usize, symbol: &[u8]) -> &mut Self {
-        self.data[symbol.len() * index..symbol.len() * (index + 1)].copy_from_slice(symbol);
+        assert!(symbol.len() == self.symbols.symbol_size());
+        self.symbols[index].copy_from_slice(symbol);
         self
     }
 }
@@ -411,13 +425,15 @@ pub struct BlobEncoder<'a> {
     /// Rows of the message matrix.
     ///
     /// The outer vector has length `source_symbols_primary`, and each inner vector has length
-    /// `source_symbols_secondary`.
+    /// `source_symbols_secondary * symbol_size`.
     rows: Vec<Vec<u8>>,
     /// Columns of the message matrix.
     ///
     /// The outer vector has length `source_symbols_secondary`, and each inner vector has length
-    /// `source_symbols_primary`.
+    /// `source_symbols_primary * symbol_size`.
     columns: Vec<Vec<u8>>,
+    /// The size of the encoded and decoded symbols.
+    symbol_size: usize,
     /// Reference to the encoding configuration of this encoder.
     config: &'a EncodingConfig,
 }
@@ -457,6 +473,7 @@ impl<'a> BlobEncoder<'a> {
         Ok(Self {
             rows,
             columns,
+            symbol_size,
             config,
         })
     }
@@ -471,18 +488,22 @@ impl<'a> BlobEncoder<'a> {
         for i in 0..self.config.n_shards {
             sliver_pairs.push(SliverPair {
                 index: i,
-                primary: Sliver::new_empty(n_columns),
-                secondary: Sliver::new_empty(n_rows),
+                primary: Sliver::new_empty(n_columns, self.symbol_size as u16),
+                secondary: Sliver::new_empty(n_rows, self.symbol_size as u16),
             })
         }
 
         // The first `n_rows` primary slivers and the last `n_columns` secondary slivers can be
         // directly copied from the message matrix.
         for (row, sliver_pair) in self.rows.iter().zip(sliver_pairs.iter_mut()) {
-            sliver_pair.primary.data.copy_from_slice(row)
+            sliver_pair.primary.symbols.data_mut().copy_from_slice(row)
         }
         for (column, sliver_pair) in self.columns.iter().zip(sliver_pairs.iter_mut().rev()) {
-            sliver_pair.secondary.data.copy_from_slice(column)
+            sliver_pair
+                .secondary
+                .symbols
+                .data_mut()
+                .copy_from_slice(column)
         }
 
         // Compute the remaining primary slivers by encoding the columns.
@@ -528,24 +549,26 @@ mod tests {
 
         param_test! {
             copy_symbol_to_modifies_empty_sliver_correctly: [
-                empty_symbol_1: (0, 0, &[], &[]),
-                empty_symbol_2: (2, 0, &[], &[0,0]),
-                non_empty_symbol_aligned_1: (4, 0, &[1,2], &[1,2,0,0]),
-                non_empty_symbol_aligned_2: (4, 1, &[1,2], &[0,0,1,2]),
-                non_empty_symbol_misaligned_1: (5, 0, &[1,2], &[1,2,0,0,0]),
-                non_empty_symbol_misaligned_2: (5, 1, &[1,2], &[0,0,1,2,0]),
+                #[should_panic] empty_symbol_1: (0, 0, 2, &[], &[]),
+                #[should_panic] empty_symbol_2: (2, 0, 2, &[], &[0,0]),
+                non_empty_symbol_aligned_1: (2, 0, 2, &[1,2], &[1,2,0,0]),
+                non_empty_symbol_aligned_2: (2, 1, 2, &[1,2], &[0,0,1,2]),
+                #[should_panic] non_empty_wrong_symbol_size_1: (3, 0, 2, &[1,2,3], &[]),
+                #[should_panic] non_empty_wrong_symbol_size_2: (3, 1, 2, &[1], &[]),
             ]
         }
         fn copy_symbol_to_modifies_empty_sliver_correctly(
-            sliver_length: usize,
+            sliver_n_symbols: usize,
             index: usize,
+            symbol_size: usize,
             symbol: &[u8],
             expected_sliver_data: &[u8],
         ) {
             assert_eq!(
-                Sliver::<Primary>::new_empty(sliver_length)
+                Sliver::<Primary>::new_empty(sliver_n_symbols, symbol_size as u16)
                     .copy_symbol_to(index, symbol)
-                    .data,
+                    .symbols
+                    .data(),
                 expected_sliver_data
             );
         }
@@ -553,7 +576,7 @@ mod tests {
         #[test]
         fn new_sliver_copies_provided_slice() {
             let slice = [1, 2, 3, 4, 5];
-            assert_eq!(Sliver::<Primary>::new(&slice).data, slice)
+            assert_eq!(Sliver::<Primary>::new(&slice, 1).symbols.data(), &slice)
         }
     }
 
