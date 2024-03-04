@@ -105,10 +105,14 @@ impl Symbols {
     /// Returns a [`DecodingSymbol`] at the provided index.
     ///
     /// Returns `None` if the `index` is out of bounds.
-    pub fn decoding_symbol_at(&self, index: u32) -> Option<DecodingSymbol> {
+    pub fn decoding_symbol_at(
+        &self,
+        data_index: usize,
+        symbol_index: u32,
+    ) -> Option<DecodingSymbol> {
         Some(DecodingSymbol {
-            index,
-            data: self[index as usize].into(),
+            index: symbol_index,
+            data: self[data_index].into(),
         })
     }
 
