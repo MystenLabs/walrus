@@ -2554,7 +2554,7 @@ checksum = "734676eb262c623cec13c3155096e08d1f8f29adce39ba17948b18dad1e54142"
 [[package]]
 name = "sui-enum-compat-util"
 version = "0.1.0"
-source = "git+https://github.com/mystenlabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
 dependencies = [
  "serde_yaml",
 ]
@@ -2562,7 +2562,7 @@ dependencies = [
 [[package]]
 name = "sui-macros"
 version = "0.7.0"
-source = "git+https://github.com/mystenlabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
 dependencies = [
  "futures",
  "once_cell",
@@ -2573,7 +2573,7 @@ dependencies = [
 [[package]]
 name = "sui-proc-macros"
 version = "0.7.0"
-source = "git+https://github.com/mystenlabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
 dependencies = [
  "msim-macros",
  "proc-macro2",
@@ -2829,7 +2829,7 @@ dependencies = [
 [[package]]
 name = "typed-store"
 version = "0.4.0"
-source = "git+https://github.com/mystenlabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
 dependencies = [
  "async-trait",
  "bcs",
@@ -2857,7 +2857,7 @@ dependencies = [
 [[package]]
 name = "typed-store-error"
 version = "0.4.0"
-source = "git+https://github.com/mystenlabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
 dependencies = [
  "serde",
  "thiserror",

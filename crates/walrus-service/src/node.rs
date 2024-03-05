@@ -78,7 +78,7 @@ impl StorageNode {
         &self,
         blob_id: &BlobId,
     ) -> Result<Option<StorageConfirmation>, anyhow::Error> {
-        let shards: Vec<_> = self.storage.shards_with_sliver_pairs(blob_id)?.collect();
+        let shards: Vec<_> = self.storage.shards_with_sliver_pairs(blob_id)?;
 
         if shards.is_empty() {
             Ok(None)

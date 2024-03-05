@@ -24,8 +24,10 @@ pub struct SignedStorageConfirmation {
     pub signature: BLS12381Signature,
 }
 
-/// A non-empty list of shards, confirmed as storing their sliver pairs for the given blob_id,
-/// as of the specified epoch.
+/// A non-empty list of shards, confirmed as storing their sliver
+/// pairs for the given blob_id, as of the specified epoch.
+// Uses serde(remote) to allow validation of the confirmation header fields.
+// See https://github.com/serde-rs/serde/issues/1220 for more info.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(remote = "Self")]
 pub struct Confirmation {
@@ -124,7 +126,7 @@ impl Confirmation {
     }
 }
 
-/// Message header pre-prended to signed messages.
+/// Message header prepended to signed messages.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MessageHeader {
     /// The intent of the signed message.

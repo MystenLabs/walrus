@@ -45,7 +45,7 @@ impl IntentType {
 }
 
 wrapped_uint! {
-    /// Type for the intent type of signed messages.
+    /// Type for the intent version of signed messages.
     #[derive(Default)]
     pub struct IntentVersion(pub u8);
 }

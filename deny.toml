@@ -90,6 +90,5 @@ unknown-git = "deny"
 # 1 or more github.com organizations to allow git sources for
 github = [
     "MystenLabs",
-    "mystenlabs",
     "mystenmark",
 ]

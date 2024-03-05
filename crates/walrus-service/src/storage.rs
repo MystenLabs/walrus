@@ -98,12 +98,12 @@ impl Storage {
         self.metadata.get(blob_id)
     }
 
-    /// Returns an iterator over the identifiers of the shards that store their respecitive sliver
-    /// for the specified blob.
+    /// Returns an iterator over the identifiers of the shards that store their
+    /// respective sliver for the specified blob.
     pub fn shards_with_sliver_pairs(
         &self,
         blob_id: &BlobId,
-    ) -> Result<impl Iterator<Item = ShardIndex>, anyhow::Error> {
+    ) -> Result<Vec<ShardIndex>, anyhow::Error> {
         let mut shards_with_sliver_pairs = Vec::with_capacity(self.shards.len());
 
         for shard in self.shards.values() {
@@ -112,7 +112,7 @@ impl Storage {
             }
         }
 
-        Ok(shards_with_sliver_pairs.into_iter())
+        Ok(shards_with_sliver_pairs)
     }
 
     fn metadata_options() -> (&'static str, Options) {
@@ -247,10 +247,7 @@ pub(crate) mod tests {
         ) -> TestResult {
             let storage = populated_storage(&[(SHARD_INDEX, vec![(BLOB_ID, which)])])?;
 
-            let result: Vec<_> = storage
-                .as_ref()
-                .shards_with_sliver_pairs(&BLOB_ID)?
-                .collect();
+            let result: Vec<_> = storage.as_ref().shards_with_sliver_pairs(&BLOB_ID)?;
 
             if is_retrieved {
                 assert_eq!(result, &[SHARD_INDEX]);
@@ -268,10 +265,7 @@ pub(crate) mod tests {
                 (OTHER_SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
             ])?;
 
-            let mut result: Vec<_> = storage
-                .as_ref()
-                .shards_with_sliver_pairs(&BLOB_ID)?
-                .collect();
+            let mut result: Vec<_> = storage.as_ref().shards_with_sliver_pairs(&BLOB_ID)?;
 
             result.sort();
 
@@ -287,10 +281,7 @@ pub(crate) mod tests {
                 (OTHER_SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
             ])?;
 
-            let result: Vec<_> = storage
-                .as_ref()
-                .shards_with_sliver_pairs(&BLOB_ID)?
-                .collect();
+            let result: Vec<_> = storage.as_ref().shards_with_sliver_pairs(&BLOB_ID)?;
 
             assert_eq!(result, [OTHER_SHARD_INDEX]);
 

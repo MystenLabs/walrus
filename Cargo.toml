@@ -16,7 +16,7 @@ tempfile = "3.10.1"
 thiserror = "1.0.57"
 walrus-core = { path = "crates/walrus-core" }
 walrus-test-utils = { path = "crates/walrus-test-utils" }
-typed-store = { git = "https://github.com/mystenlabs/sui", tag = "testnet-v1.20.0" }
+typed-store = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.20.0" }
 
 [workspace.lints.rust]
 missing_docs = "warn"
