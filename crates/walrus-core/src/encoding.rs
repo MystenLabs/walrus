@@ -1,6 +1,6 @@
 //! TODO(mlegner): Describe encoding algorithm in detail (#50).
 
-use std::{cmp::min, marker::PhantomData, sync::OnceLock};
+use std::{cmp::min, marker::PhantomData, ops::Range, sync::OnceLock};
 
 use raptorq::{SourceBlockEncoder, SourceBlockEncodingPlan};
 use thiserror::Error;
@@ -28,6 +28,10 @@ static ENCODING_CONFIG: OnceLock<EncodingConfig> = OnceLock::new();
 ///   should be slightly below `2f`.
 /// * `n_shards` - The total number of shards.
 ///
+/// Ideally, both `source_symbols_primary` and `source_symbols_secondary` should be chosen from the
+/// list of supported values of K' provided in [RFC 6330, Section 5.6][rfc6330s5.6] to avoid the
+/// need for padding symbols.
+///
 /// # Returns
 ///
 /// The global encoding configuration.
@@ -41,6 +45,8 @@ static ENCODING_CONFIG: OnceLock<EncodingConfig> = OnceLock::new();
 ///
 /// Panics if the number of primary or secondary source symbols is larger than
 /// [`MAX_SOURCE_SYMBOLS_PER_BLOCK`].
+///
+/// [rfc6330s5.6]: https://datatracker.ietf.org/doc/html/rfc6330#section-5.6
 pub fn initialize_encoding_config(
     source_symbols_primary: u16,
     source_symbols_secondary: u16,
@@ -67,10 +73,25 @@ pub fn get_encoding_config() -> &'static EncodingConfig {
         .expect("must first be initialized with `initialize_encoding_config`")
 }
 
-/// Error returned if the provided data is too large to be encoded with this encoder.
+/// Error returned when the data is too large to be encoded with this encoder.
 #[derive(Debug, Error, PartialEq, Eq)]
 #[error("the data is to large to be encoded")]
 pub struct DataTooLargeError;
+
+/// Error type returned when encoding fails.
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum EncodeError {
+    /// The data is too large to be encoded with this encoder.
+    #[error("the data is to large to be encoded (max size: {0})")]
+    DataTooLarge(usize),
+    /// The data to be encoded is empty.
+    #[error("empty data cannot be encoded")]
+    EmptyData,
+    /// The data is not properly aligned; i.e., it is not a multiple of the symbol size or symbol
+    /// count.
+    #[error("the data is not properly aligned (must be a multiple of {0})")]
+    MisalignedData(u16),
+}
 
 /// Marker trait to indicate the encoding axis (primary or secondary).
 pub trait EncodingAxis: Clone + PartialEq + Eq + Default {
@@ -235,12 +256,13 @@ impl EncodingConfig {
     /// # Arguments
     ///
     /// * `encoding_axis` - Sets the encoding parameters for the primary or secondary encoding.
-    /// * `data` - The data to be encoded. Does not have to be padded.
+    /// * `data` - The data to be encoded. This *does not* have to be aligned/padded.
     ///
     /// # Errors
     ///
-    /// Returns an [`DataTooLargeError`] if the `data` is too large to be encoded.
-    pub fn get_encoder<E: EncodingAxis>(&self, data: &[u8]) -> Result<Encoder, DataTooLargeError> {
+    /// Returns an [`EncodeError`] if the `data` cannot be encoded. See [`Encoder::new`] for further
+    /// details about the returned errors.
+    pub fn get_encoder<E: EncodingAxis>(&self, data: &[u8]) -> Result<Encoder, EncodeError> {
         Encoder::new(
             data,
             self.n_source_symbols::<E>(),
@@ -276,7 +298,8 @@ impl Encoder {
     ///
     /// # Arguments
     ///
-    /// * `data` - The data to encode.
+    /// * `data` - The data to encode. This *must* be a multiple of `n_source_symbols` and must not
+    ///   be empty.
     /// * `n_source_symbols` - The number of source symbols into which the data should be split.
     /// * `n_shards` - The total number of shards for which symbols should be generated.
     /// * `encoding_plan` - A pre-generated [`SourceBlockEncodingPlan`] consistent with
@@ -284,7 +307,9 @@ impl Encoder {
     ///
     /// # Errors
     ///
-    /// Returns an [`DataTooLargeError`] if the `data` is too large to be encoded.
+    /// Returns an [`EncodeError`] if the `data` is empty, not a multiple of `n_source_symbols`, or
+    /// too large to be encoded with the provided `n_source_symbols` (this includes the case
+    /// `n_source_symbols == 0`).
     ///
     /// If the `encoding_plan` was generated for a different number of source symbols than
     /// `n_source_symbols`, later methods called on the returned `Encoder` may exhibit unexpected
@@ -294,11 +319,21 @@ impl Encoder {
         n_source_symbols: u16,
         n_shards: u32,
         encoding_plan: &SourceBlockEncodingPlan,
-    ) -> Result<Self, DataTooLargeError> {
+    ) -> Result<Self, EncodeError> {
+        if data.is_empty() {
+            return Err(EncodeError::EmptyData);
+        }
+        if data.len() % n_source_symbols as usize != 0 {
+            return Err(EncodeError::MisalignedData(n_source_symbols));
+        }
+
         let Some(symbol_size) = utils::compute_symbol_size(data.len(), n_source_symbols.into())
         else {
-            return Err(DataTooLargeError);
+            return Err(EncodeError::DataTooLarge(
+                n_source_symbols as usize * MAX_SYMBOL_SIZE,
+            ));
         };
+
         Ok(Self {
             raptorq_encoder: SourceBlockEncoder::with_encoding_plan2(
                 0,
@@ -311,6 +346,20 @@ impl Encoder {
         })
     }
 
+    /// Creates a new `Encoder` for the provided `data` with the specified arguments.
+    ///
+    /// This generates an appropriate [`SourceBlockEncodingPlan`] and then calls [`Self::new`].
+    ///
+    /// See [`Self::new`] for further details.
+    pub fn new_with_new_encoding_plan(
+        data: &[u8],
+        n_source_symbols: u16,
+        n_shards: u32,
+    ) -> Result<Self, EncodeError> {
+        let encoding_plan = SourceBlockEncodingPlan::generate(n_source_symbols);
+        Self::new(data, n_source_symbols, n_shards, &encoding_plan)
+    }
+
     /// Returns an iterator over all source symbols.
     pub fn source_symbols(&self) -> impl Iterator<Item = Vec<u8>> {
         self.raptorq_encoder
@@ -320,10 +369,9 @@ impl Encoder {
     }
 
     /// Returns an iterator over a range of source and/or repair symbols.
-    pub fn encode_range(&self, start: u32, end: u32) -> impl Iterator<Item = Vec<u8>> {
-        assert!(end >= start);
-        let repair_end = if end > self.n_source_symbols as u32 {
-            end - self.n_source_symbols as u32
+    pub fn encode_range(&self, range: Range<u32>) -> impl Iterator<Item = Vec<u8>> {
+        let repair_end = if range.end > self.n_source_symbols as u32 {
+            range.end - self.n_source_symbols as u32
         } else {
             0
         };
@@ -332,7 +380,8 @@ impl Encoder {
             .source_packets()
             .into_iter()
             .chain(self.raptorq_encoder.repair_packets(0, repair_end))
-            .skip(start as usize)
+            .skip(range.start as usize)
+            .take(range.len())
             .map(utils::packet_to_data)
     }
 

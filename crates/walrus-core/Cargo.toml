@@ -8,7 +8,7 @@ license = { workspace = true }
 
 [dependencies]
 fastcrypto = "0.1.7"
-raptorq = "1.8.0"
+raptorq = "1.8.1"
 serde = { version = "1.0.197", features = ["derive"] }
 thiserror = { workspace = true }
 
@@ -16,4 +16,5 @@ thiserror = { workspace = true }
 workspace = true
 
 [dev-dependencies]
+rand = "0.8.5"
 walrus-test-utils = { workspace = true }
