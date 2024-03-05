@@ -65,12 +65,14 @@ ignore = true
 # Lint level for when multiple versions of the same crate are detected
 multiple-versions = "deny"
 skip = [
-    { name = "itertools", version = "<=12.1"}
+    { name = "itertools", version = "<=12.1" },
 ]
 skip-tree = [
-    { name = "fastcrypto", depth = 3 },
+    # Mysten's typed-store and fastcrypto pull in several conflicting repo versions.
+    { name = "fastcrypto", depth = 4 },
+    { name = "typed-store", depth = 6},
     # several crate depend on an older version of windows-sys
-    { name = "windows-sys", depth = 3, version = "0.48" }
+    { name = "windows-sys", depth = 3, version = "0.48" },
 ]
 
 # This section is considered when running `cargo deny check sources`.
@@ -87,5 +89,7 @@ unknown-git = "deny"
 [sources.allow-org]
 # 1 or more github.com organizations to allow git sources for
 github = [
-    # "MystenLabs",
+    "MystenLabs",
+    "mystenlabs",
+    "mystenmark",
 ]

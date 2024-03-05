@@ -5,6 +5,7 @@ use std::{
     slice::{Chunks, ChunksMut},
 };
 
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use super::DecodingSymbol;
@@ -15,7 +16,7 @@ use super::DecodingSymbol;
 pub struct WrongSymbolSizeError;
 
 /// A set of encoded symbols.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct Symbols {
     /// The encoded symbols.
     data: Vec<u8>,

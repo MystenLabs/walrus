@@ -9,6 +9,7 @@ use raptorq::{
     SourceBlockEncoder,
     SourceBlockEncodingPlan,
 };
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use self::utils::{compute_symbol_size, get_transmission_info};
@@ -17,6 +18,12 @@ pub mod symbols;
 pub use symbols::Symbols;
 
 mod utils;
+
+/// A primary sliver resulting from an encoding of a blob.
+pub type PrimarySliver = Sliver<Primary>;
+
+/// A secondary sliver resulting from an encoding of a blob.
+pub type SecondarySliver = Sliver<Secondary>;
 
 /// The maximum length in bytes of a single symbol in RaptorQ.
 pub const MAX_SYMBOL_SIZE: usize = u16::MAX as usize;
@@ -125,7 +132,7 @@ impl EncodingAxis for Secondary {
 }
 
 /// Encoded data corresponding to a single [`EncodingAxis`] assigned to one shard.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct Sliver<T: EncodingAxis> {
     /// The encoded data.
     pub symbols: Symbols,
@@ -139,9 +146,9 @@ impl<T: EncodingAxis> Sliver<T> {
     ///
     /// Panics if the slice does not contain complete symbols, i.e., if
     /// `slice.len() % symbol_size != 0` or if `symbol_size == 0`.
-    pub fn new(slice: &[u8], symbol_size: u16) -> Self {
+    pub fn new<U: Into<Vec<u8>>>(data: U, symbol_size: u16) -> Self {
         Self {
-            symbols: Symbols::from_slice(slice, symbol_size),
+            symbols: Symbols::new(data.into(), symbol_size),
             phantom: PhantomData,
         }
     }
@@ -684,7 +691,7 @@ mod tests {
         #[test]
         fn new_sliver_copies_provided_slice() {
             let slice = [1, 2, 3, 4, 5];
-            assert_eq!(Sliver::<Primary>::new(&slice, 1).symbols.data(), &slice)
+            assert_eq!(Sliver::<Primary>::new(slice, 1).symbols.data(), &slice)
         }
     }
 
