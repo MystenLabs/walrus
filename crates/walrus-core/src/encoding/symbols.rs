@@ -1,11 +1,13 @@
 //! The representation on encoded symbols.
 
 use std::{
-    ops::{Index, IndexMut},
+    ops::{Index, IndexMut, Range},
     slice::{Chunks, ChunksMut},
 };
 
 use thiserror::Error;
+
+use super::DecodingSymbol;
 
 /// Error returned when the size of input symbols does not match the size of existing symbols.
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -96,6 +98,16 @@ impl Symbols {
         }
     }
 
+    /// Returns a [`DecodingSymbol`] at the provided index.
+    ///
+    /// Returns `None` if the `index` is out of bounds.
+    pub fn decoding_symbol_at(&self, index: u32) -> Option<DecodingSymbol> {
+        Some(DecodingSymbol {
+            index,
+            data: self[index as usize].into(),
+        })
+    }
+
     /// Returns an iterator of references to symbols.
     pub fn to_symbols(&self) -> Chunks<'_, u8> {
         self.data.chunks(self.symbol_size())
@@ -103,7 +115,23 @@ impl Symbols {
 
     /// Returns an iterator of mutable references to symbols.
     pub fn to_symbols_mut(&mut self) -> ChunksMut<'_, u8> {
-        self.data.chunks_mut(self.symbol_size as usize)
+        let symbol_size = self.symbol_size();
+        self.data.chunks_mut(symbol_size)
+    }
+
+    /// Returns an iterator of [`DecodingSymbol`s][DecodingSymbol].
+    ///
+    /// Returns `None` if the length of [`self.data`][Self::data] is larger than
+    /// `u32::MAX * self.symbol_size`.
+    pub fn to_decoding_symbols(&self) -> Option<impl Iterator<Item = DecodingSymbol> + '_> {
+        if self.n_symbols() > u32::MAX as usize {
+            None
+        } else {
+            Some(self.to_symbols().enumerate().map(|(i, s)| DecodingSymbol {
+                index: i.try_into().expect("checked limit above"),
+                data: s.into(),
+            }))
+        }
     }
 
     /// Add one or more symbols to the collection.
@@ -122,7 +150,7 @@ impl Symbols {
 
     /// Returns the `symbol_size` as a `usize`.
     pub fn symbol_size(&self) -> usize {
-        self.symbol_size as usize
+        self.symbol_size.into()
     }
 
     /// Returns a reference to the inner vector of `data` representing the symbols.
@@ -134,19 +162,25 @@ impl Symbols {
     pub fn data_mut(&mut self) -> &mut Vec<u8> {
         &mut self.data
     }
+
+    /// Returns the range of the underlying byte vector that contains symbol at index `index`.
+    pub fn symbol_range(&self, index: usize) -> Range<usize> {
+        self.symbol_size() * index..self.symbol_size() * (index + 1)
+    }
 }
 
 impl Index<usize> for Symbols {
     type Output = [u8];
 
     fn index(&self, index: usize) -> &Self::Output {
-        &self.data[self.symbol_size() * index..self.symbol_size() * (index + 1)]
+        &self.data[self.symbol_range(index)]
     }
 }
 
 impl IndexMut<usize> for Symbols {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        &mut self.data[self.symbol_size as usize * index..self.symbol_size as usize * (index + 1)]
+        let range = self.symbol_range(index);
+        &mut self.data[range]
     }
 }
 

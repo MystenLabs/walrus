@@ -2,13 +2,21 @@
 
 use std::{cmp::min, marker::PhantomData, ops::Range, sync::OnceLock};
 
-use raptorq::{SourceBlockEncoder, SourceBlockEncodingPlan};
+use raptorq::{
+    EncodingPacket,
+    PayloadId,
+    SourceBlockDecoder,
+    SourceBlockEncoder,
+    SourceBlockEncodingPlan,
+};
 use thiserror::Error;
 
-pub mod symbols;
-mod utils;
+use self::utils::{compute_symbol_size, get_transmission_info};
 
+pub mod symbols;
 pub use symbols::Symbols;
+
+mod utils;
 
 /// The maximum length in bytes of a single symbol in RaptorQ.
 pub const MAX_SYMBOL_SIZE: usize = u16::MAX as usize;
@@ -420,6 +428,96 @@ impl Encoder {
     }
 }
 
+/// A single symbol used for decoding, consisting of the data and the symbol's index.
+// TODO(mlegner): align this with the `Symbols` struct added in #61?
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DecodingSymbol {
+    /// The index of the symbol.
+    ///
+    /// This is equal to the ESI as defined in [RFC 6330][rfc6330s5.3.1].
+    ///
+    /// [rfc6330s5.3.1]: https://datatracker.ietf.org/doc/html/rfc6330#section-5.3.1
+    pub index: u32,
+    /// The symbol data as a byte vector.
+    pub data: Vec<u8>,
+}
+
+/// Wrapper to perform a single decoding with RaptorQ for the provided parameters.
+pub struct Decoder {
+    raptorq_decoder: SourceBlockDecoder,
+    n_source_symbols: u16,
+    n_padding_symbols: u16,
+}
+
+impl Decoder {
+    /// Creates a new `Decoder`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`DataTooLargeError`] if the provided parameters lead to a symbol size larger than
+    /// [`MAX_SYMBOL_SIZE`].
+    pub fn new(n_source_symbols: u16, data_length: usize) -> Result<Self, DataTooLargeError> {
+        let Some(symbol_size) = compute_symbol_size(data_length, n_source_symbols.into()) else {
+            return Err(DataTooLargeError);
+        };
+        let raptorq_decoder = SourceBlockDecoder::new2(
+            0,
+            &get_transmission_info(symbol_size),
+            data_length
+                .try_into()
+                .expect("if this conversion failed, we would already have returned an error above"),
+        );
+        let n_padding_symbols = u16::try_from(raptorq::extended_source_block_symbols(
+            n_source_symbols as u32,
+        ))
+        .expect("the largest value that is ever returned is smaller than u16::MAX")
+            - n_source_symbols;
+        Ok(Self {
+            raptorq_decoder,
+            n_source_symbols,
+            n_padding_symbols,
+        })
+    }
+
+    /// Attempts to encode the source data from the provided iterator over
+    /// [`DecodingSymbol`s][DecodingSymbol].
+    ///
+    /// Returns the source data as a byte vector if decoding succeeds or `None` if decoding fails.
+    ///
+    /// If decoding failed due to an insufficient number of provided symbols, it can be continued
+    /// by additional calls to [`decode`][Self::decode] providing more symbols.
+    pub fn decode<T: IntoIterator<Item = DecodingSymbol>>(
+        &mut self,
+        symbols: T,
+    ) -> Option<Vec<u8>> {
+        let packets = symbols
+            .into_iter()
+            .map(|s| encoding_packet_from_symbol(s, self.n_source_symbols, self.n_padding_symbols));
+        self.raptorq_decoder.decode(packets)
+    }
+}
+
+/// This function is necessary to convert from the index to the symbol ID used by the raptorq
+/// library.
+///
+/// It is needed because currently the [raptorq] library currently uses the ISI in the
+/// [`PayloadId`]. The two can be converted with the knowledge of the number of source symbols (`K`
+/// in the RFC's terminology) and padding symbols (`K' - K` in the RFC's terminology).
+// TODO(mlegner): Update if the raptorq library changes its behavior.
+fn encoding_packet_from_symbol(
+    symbol: DecodingSymbol,
+    n_source_symbols: u16,
+    n_padding_symbols: u16,
+) -> EncodingPacket {
+    let isi = symbol.index
+        + if n_padding_symbols == 0 || symbol.index < n_source_symbols as u32 {
+            0
+        } else {
+            n_padding_symbols as u32
+        };
+    EncodingPacket::new(PayloadId::new(0, isi), symbol.data)
+}
+
 /// Struct to perform the full blob encoding.
 pub struct BlobEncoder<'a> {
     /// Rows of the message matrix.
@@ -538,11 +636,21 @@ impl<'a> BlobEncoder<'a> {
 
 #[cfg(test)]
 mod tests {
-    use walrus_test_utils::param_test;
+    use std::ops::Range;
+
+    use rand::{rngs::StdRng, RngCore, SeedableRng};
+    use walrus_test_utils::{param_test, Result};
 
     use super::*;
 
-    // TODO(mlegner): Add tests for the actual encoding (#28)!
+    fn large_random_data(data_length: usize) -> Vec<u8> {
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut result = vec![0u8; data_length];
+        rng.fill_bytes(&mut result);
+        result
+    }
+
+    // TODO(mlegner): Add more tests for the encoding/decoding (#28)!
 
     mod slivers {
         use super::*;
@@ -580,66 +688,170 @@ mod tests {
         }
     }
 
-    param_test! {
-        test_matrix_construction: [
-            aligned_square_single_byte_symbols: (
-                2,
-                2,
-                &[1,2,3,4],
-                &[&[1,2], &[3,4]],
-                &[&[1,3], &[2,4]]
-            ),
-            aligned_square_double_byte_symbols: (
-                2,
-                2,
-                &[1,2,3,4,5,6,7,8],
-                &[&[1,2,3,4], &[5,6,7,8]],
-                &[&[1,2,5,6],&[3,4,7,8]]
-            ),
-            aligned_rectangle_single_byte_symbols: (
-                2,
-                4,
-                &[1,2,3,4,5,6,7,8],
-                &[&[1,2,3,4], &[5,6,7,8]],
-                &[&[1,5], &[2,6], &[3,7], &[4,8]]
-            ),
-            aligned_rectangle_double_byte_symbols: (
-                2,
-                3,
-                &[1,2,3,4,5,6,7,8,9,10,11,12],
-                &[&[1,2,3,4,5,6], &[7,8,9,10,11,12]],
-                &[&[1,2,7,8], &[3,4,9,10], &[5,6,11,12]]
-            ),
-            misaligned_square_double_byte_symbols: (
-                2,
-                2,
-                &[1,2,3,4,5],
-                &[&[1,2,3,4], &[5,0,0,0]],
-                &[&[1,2,5,0],&[3,4,0,0]]
-            ),
-            misaligned_rectangle_double_byte_symbols: (
-                2,
-                3,
-                &[1,2,3,4,5,6,7,8],
-                &[&[1,2,3,4,5,6], &[7,8,0,0,0,0]],
-                &[&[1,2,7,8], &[3,4,0,0], &[5,6,0,0]]
-            ),
-        ]
+    mod encoding {
+        use super::*;
+
+        #[test]
+        fn encoding_empty_data_fails() {
+            assert!(matches!(
+                Encoder::new_with_new_encoding_plan(&[], 42, 314),
+                Err(EncodeError::EmptyData)
+            ));
+        }
+
+        #[test]
+        fn encoding_misaligned_data_fails() {
+            assert!(matches!(
+                Encoder::new_with_new_encoding_plan(&[1, 2], 3, 314),
+                Err(EncodeError::MisalignedData(3))
+            ));
+        }
+
+        param_test! {
+            test_encode_decode -> Result: [
+                aligned_data_source_symbols_1: (&[1, 2], 2, 0..2, true),
+                aligned_data_source_symbols_2: (&[1, 2, 3, 4], 2, 0..2, true),
+                aligned_data_repair_symbols_1: (&[1, 2], 2, 2..4, true),
+                aligned_data_repair_symbols_2: (&[1, 2, 3, 4, 5, 6], 2, 2..4, true),
+                aligned_data_repair_symbols_3: (&[1, 2, 3, 4, 5, 6], 3, 3..6, true),
+                aligned_large_data_repair_symbols: (&large_random_data(42000), 100, 100..200, true),
+                aligned_data_too_few_symbols_1: (&[1, 2], 2, 2..3, false),
+                aligned_data_too_few_symbols_2: (&[1, 2, 3], 3, 0..2, false),
+            ]
+        }
+        fn test_encode_decode(
+            data: &[u8],
+            n_source_symbols: u16,
+            encoded_symbols_range: Range<u32>,
+            should_succeed: bool,
+        ) -> Result {
+            let start = encoded_symbols_range.start;
+
+            let encoder = Encoder::new_with_new_encoding_plan(
+                data,
+                n_source_symbols,
+                encoded_symbols_range.end,
+            )?;
+            let encoded_symbols =
+                encoder
+                    .encode_range(encoded_symbols_range)
+                    .enumerate()
+                    .map(|(i, symbol)| DecodingSymbol {
+                        index: i as u32 + start,
+                        data: symbol,
+                    });
+            let mut decoder = Decoder::new(n_source_symbols, data.len())?;
+            let decoding_result = decoder.decode(encoded_symbols);
+
+            if should_succeed {
+                assert_eq!(decoding_result.unwrap(), data);
+            } else {
+                assert_eq!(decoding_result, None)
+            }
+
+            Ok(())
+        }
+
+        #[test]
+        fn can_decode_in_multiple_steps() -> Result {
+            let n_source_symbols = 3;
+            let data = [1, 2, 3, 4, 5, 6];
+            let encoder = Encoder::new_with_new_encoding_plan(&data, n_source_symbols, 10)?;
+            let mut encoded_symbols =
+                encoder
+                    .encode_all_repair_symbols()
+                    .enumerate()
+                    .map(|(i, symbol)| {
+                        vec![DecodingSymbol {
+                            index: i as u32 + n_source_symbols as u32,
+                            data: symbol,
+                        }]
+                    });
+            let mut decoder = Decoder::new(n_source_symbols, data.len())?;
+
+            assert_eq!(
+                decoder.decode(encoded_symbols.next().unwrap().clone()),
+                None
+            );
+            assert_eq!(
+                decoder.decode(encoded_symbols.next().unwrap().clone()),
+                None
+            );
+            assert_eq!(
+                decoder
+                    .decode(encoded_symbols.next().unwrap().clone())
+                    .unwrap(),
+                data
+            );
+
+            Ok(())
+        }
     }
-    fn test_matrix_construction(
-        source_symbols_primary: u16,
-        source_symbols_secondary: u16,
-        blob: &[u8],
-        rows: &[&[u8]],
-        columns: &[&[u8]],
-    ) {
-        let config = EncodingConfig::new(
-            source_symbols_primary,
-            source_symbols_secondary,
-            3 * (source_symbols_primary + source_symbols_secondary) as u32,
-        );
-        let blob_encoder = config.get_blob_encoder(blob).unwrap();
-        assert_eq!(blob_encoder.rows, rows);
-        assert_eq!(blob_encoder.columns, columns);
+
+    mod blob_encoding {
+        use super::*;
+
+        param_test! {
+            test_matrix_construction: [
+                aligned_square_single_byte_symbols: (
+                    2,
+                    2,
+                    &[1,2,3,4],
+                    &[&[1,2], &[3,4]],
+                    &[&[1,3], &[2,4]]
+                ),
+                aligned_square_double_byte_symbols: (
+                    2,
+                    2,
+                    &[1,2,3,4,5,6,7,8],
+                    &[&[1,2,3,4], &[5,6,7,8]],
+                    &[&[1,2,5,6],&[3,4,7,8]]
+                ),
+                aligned_rectangle_single_byte_symbols: (
+                    2,
+                    4,
+                    &[1,2,3,4,5,6,7,8],
+                    &[&[1,2,3,4], &[5,6,7,8]],
+                    &[&[1,5], &[2,6], &[3,7], &[4,8]]
+                ),
+                aligned_rectangle_double_byte_symbols: (
+                    2,
+                    3,
+                    &[1,2,3,4,5,6,7,8,9,10,11,12],
+                    &[&[1,2,3,4,5,6], &[7,8,9,10,11,12]],
+                    &[&[1,2,7,8], &[3,4,9,10], &[5,6,11,12]]
+                ),
+                misaligned_square_double_byte_symbols: (
+                    2,
+                    2,
+                    &[1,2,3,4,5],
+                    &[&[1,2,3,4], &[5,0,0,0]],
+                    &[&[1,2,5,0],&[3,4,0,0]]
+                ),
+                misaligned_rectangle_double_byte_symbols: (
+                    2,
+                    3,
+                    &[1,2,3,4,5,6,7,8],
+                    &[&[1,2,3,4,5,6], &[7,8,0,0,0,0]],
+                    &[&[1,2,7,8], &[3,4,0,0], &[5,6,0,0]]
+                ),
+            ]
+        }
+        fn test_matrix_construction(
+            source_symbols_primary: u16,
+            source_symbols_secondary: u16,
+            blob: &[u8],
+            rows: &[&[u8]],
+            columns: &[&[u8]],
+        ) {
+            let config = EncodingConfig::new(
+                source_symbols_primary,
+                source_symbols_secondary,
+                3 * (source_symbols_primary + source_symbols_secondary) as u32,
+            );
+            let blob_encoder = config.get_blob_encoder(blob).unwrap();
+            assert_eq!(blob_encoder.rows, rows);
+            assert_eq!(blob_encoder.columns, columns);
+        }
     }
 }
