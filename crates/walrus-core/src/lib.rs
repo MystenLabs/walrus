@@ -2,22 +2,64 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Core functionality for Walrus.
-pub mod merkle;
-
 use encoding::{PrimarySliver, SecondarySliver};
+use fastcrypto::hash::{Blake2b256, HashFunction};
+use merkle::Node;
 use serde::{Deserialize, Serialize};
 
-pub mod messages;
-
-/// Erasure encoding and decoding.
 pub mod encoding;
+pub mod merkle;
+pub mod messages;
+pub mod metadata;
 
 /// The epoch number.
 pub type Epoch = u64;
+
 /// The ID of a blob.
-pub type BlobId = [u8; 32];
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[repr(transparent)]
+pub struct BlobId(pub [u8; Self::LENGTH]);
+
+impl BlobId {
+    /// The length of a blob ID in bytes.
+    const LENGTH: usize = 32;
+
+    /// Returns the blob ID as a hash over the merkle root, encoding type,
+    /// and unencoded_length of the blob.
+    pub fn from_metadata(merkle_root: Node, encoding: EncodingType, unencoded_length: u64) -> Self {
+        Self::new_with_hash_function::<Blake2b256>(merkle_root, encoding, unencoded_length)
+    }
+
+    fn new_with_hash_function<T>(
+        merkle_root: Node,
+        encoding: EncodingType,
+        unencoded_length: u64,
+    ) -> BlobId
+    where
+        T: HashFunction<{ Self::LENGTH }>,
+    {
+        let mut hasher = T::default();
+
+        // This is equivalent to the bcs encoding of the encoding type,
+        // unencoded length, and merkle root.
+        hasher.update([encoding.into()]);
+        hasher.update(unencoded_length.to_le_bytes());
+        hasher.update(merkle_root.bytes());
+
+        Self(hasher.finalize().into())
+    }
+}
+
+impl AsRef<[u8]> for BlobId {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
 /// Represents the index of a shard.
-pub type ShardIndex = u32;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[repr(transparent)]
+pub struct ShardIndex(pub u16);
 
 /// A sliver of an erasure-encoded blob.
 ///
@@ -59,4 +101,19 @@ pub enum SliverType {
     Primary,
     /// Enum indicating a secondary sliver.
     Secondary,
+}
+
+/// Supported Walrus encoding types.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum EncodingType {
+    /// Default RaptorQ encoding.
+    #[default]
+    RedStuff = 0,
+}
+
+impl From<EncodingType> for u8 {
+    fn from(value: EncodingType) -> Self {
+        value as u8
+    }
 }

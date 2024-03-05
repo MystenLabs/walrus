@@ -137,7 +137,7 @@ impl ShardStorage {
 
 #[inline]
 fn base_column_family_name(id: ShardIndex) -> String {
-    format!("shard-{}", id)
+    format!("shard-{}", id.0)
 }
 
 #[inline]

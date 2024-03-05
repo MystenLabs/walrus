@@ -86,7 +86,7 @@ mod tests {
     use super::*;
 
     const EPOCH: Epoch = 21;
-    const BLOB_ID: BlobId = [7; 32];
+    const BLOB_ID: BlobId = BlobId([7; 32]);
 
     #[test]
     fn confirmation_has_correct_header() {

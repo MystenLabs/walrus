@@ -17,15 +17,21 @@ use typed_store::{
     Map,
     TypedStoreError,
 };
-use walrus_core::BlobId;
+use walrus_core::{
+    merkle::Node as MerkleNode,
+    metadata::{
+        BlobMetadata,
+        BlobMetadataWithId,
+        UnverifiedBlobMetadataWithId,
+        VerifiedBlobMetadataWithId,
+    },
+    BlobId,
+    ShardIndex,
+};
 
 use self::shard::ShardStorage;
-use crate::config::ShardIndex;
 
 mod shard;
-
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Metadata(Vec<[u8; 32]>);
 
 /// Storage backing a [`StorageNode`][crate::StorageNode].
 ///
@@ -34,7 +40,7 @@ pub struct Metadata(Vec<[u8; 32]>);
 #[derive(Debug)]
 pub(crate) struct Storage {
     database: Arc<RocksDB>,
-    metadata: DBMap<BlobId, Metadata>,
+    metadata: DBMap<BlobId, BlobMetadata>,
     shards: HashMap<ShardIndex, ShardStorage>,
 }
 
@@ -87,18 +93,31 @@ impl Storage {
         self.shards.get(&shard)
     }
 
-    /// Store the metadata associated with the provided blob_id.
-    pub fn put_metadata(
+    /// Store the verified metadata.
+    pub fn put_verified_metadata(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+    ) -> Result<(), TypedStoreError> {
+        self.put_metadata(metadata.blob_id(), metadata.metadata())
+    }
+
+    fn put_metadata(
         &self,
         blob_id: &BlobId,
-        metadata: &Metadata,
+        metadata: &BlobMetadata,
     ) -> Result<(), TypedStoreError> {
         self.metadata.insert(blob_id, metadata)
     }
 
     /// Gets the metadata for a given [`BlobId`] or None.
-    pub fn get_metadata(&self, blob_id: &BlobId) -> Result<Option<Metadata>, TypedStoreError> {
-        self.metadata.get(blob_id)
+    pub fn get_metadata(
+        &self,
+        blob_id: &BlobId,
+    ) -> Result<Option<UnverifiedBlobMetadataWithId>, TypedStoreError> {
+        Ok(self
+            .metadata
+            .get(blob_id)?
+            .map(|inner| UnverifiedBlobMetadataWithId::new(*blob_id, inner)))
     }
 
     /// Returns true if the sliver pairs for the provided blob-id is stored at
@@ -148,6 +167,7 @@ pub(crate) mod tests {
     use typed_store::metrics::SamplingInterval;
     use walrus_core::{
         encoding::{EncodingAxis, Primary, Secondary, Sliver as TypedSliver},
+        EncodingType,
         Sliver,
         SliverType,
     };
@@ -163,9 +183,9 @@ pub(crate) mod tests {
         Both,
     }
 
-    pub(crate) const BLOB_ID: BlobId = [7; 32];
-    pub(crate) const SHARD_INDEX: ShardIndex = 17;
-    pub(crate) const OTHER_SHARD_INDEX: ShardIndex = 831;
+    pub(crate) const BLOB_ID: BlobId = BlobId([7; 32]);
+    pub(crate) const SHARD_INDEX: ShardIndex = ShardIndex(17);
+    pub(crate) const OTHER_SHARD_INDEX: ShardIndex = ShardIndex(831);
 
     /// Returns an empty storage, with the column families for [`SHARD_INDEX`] already created.
     pub(crate) fn empty_storage() -> WithTempDir<Storage> {
@@ -192,8 +212,15 @@ pub(crate) mod tests {
     }
 
     /// Returns an arbitrary metadata object.
-    pub(crate) fn arbitrary_metadata() -> Metadata {
-        Metadata((0..100u8).map(|i| [i; 32]).collect())
+    pub(crate) fn arbitrary_metadata() -> UnverifiedBlobMetadataWithId {
+        UnverifiedBlobMetadataWithId::new(
+            BLOB_ID,
+            BlobMetadata {
+                encoding_type: EncodingType::RedStuff,
+                unencoded_length: 700,
+                hashes: (0..100u8).map(|i| MerkleNode::Digest([i; 32])).collect(),
+            },
+        )
     }
 
     pub(crate) fn get_typed_sliver<E: EncodingAxis>(seed: u8) -> TypedSliver<E> {
@@ -236,7 +263,7 @@ pub(crate) mod tests {
         let storage = storage.as_ref();
         let metadata = arbitrary_metadata();
 
-        storage.put_metadata(&BLOB_ID, &metadata)?;
+        storage.put_metadata(&BLOB_ID, metadata.metadata())?;
         let retrieved = storage.get_metadata(&BLOB_ID)?;
 
         assert_eq!(retrieved, Some(metadata));

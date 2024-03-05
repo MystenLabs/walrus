@@ -1,28 +1,36 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{path::Path, sync::Arc};
+use std::{num::NonZeroUsize, path::Path, sync::Arc};
 
 use anyhow::Context;
 use fastcrypto::{bls12381::min_pk::BLS12381PrivateKey, traits::Signer};
 use typed_store::rocks::MetricConf;
 use walrus_core::{
     messages::{Confirmation, SignedStorageConfirmation, StorageConfirmation},
+    metadata::{BlobMetadataWithId, VerificationError},
     BlobId,
     Epoch,
+    ShardIndex,
     Sliver,
 };
 
-use crate::{
-    config::ShardIndex,
-    storage::{Metadata, Storage},
-};
+use crate::storage::Storage;
+
+#[derive(Debug, thiserror::Error)]
+pub enum StoreMetadataError {
+    #[error(transparent)]
+    InvalidMetadata(#[from] VerificationError),
+    #[error(transparent)]
+    Internal(#[from] anyhow::Error),
+}
 
 /// A Walrus storage node, responsible for 1 or more shards on Walrus.
 pub struct StorageNode {
     current_epoch: Epoch,
     storage: Storage,
     signer: Arc<BLS12381PrivateKey>,
+    n_shards: NonZeroUsize,
 }
 
 impl StorageNode {
@@ -39,20 +47,24 @@ impl StorageNode {
     fn new_with_storage(storage: Storage, signing_key: BLS12381PrivateKey) -> Self {
         Self {
             storage,
-            current_epoch: 0,
             signer: Arc::new(signing_key),
+            current_epoch: 0,
+            n_shards: NonZeroUsize::new(100).unwrap(),
         }
     }
 
     /// Stores the metadata associated with a blob.
     pub fn store_blob_metadata(
         &self,
-        blob_id: &BlobId,
-        metadata: &Metadata,
-    ) -> Result<(), anyhow::Error> {
+        metadata: BlobMetadataWithId,
+    ) -> Result<(), StoreMetadataError> {
+        let verified_metadata = metadata.verify(self.n_shards)?;
+
         self.storage
-            .put_metadata(blob_id, metadata)
-            .context("unable to store metadata")
+            .put_verified_metadata(&verified_metadata)
+            .context("unable to store metadata")?;
+
+        Ok(())
     }
 
     /// Store the primary or secondary encoding for a blob for a shard held by this storage node.
@@ -114,12 +126,15 @@ mod tests {
     use walrus_test_utils::{Result as TestResult, WithTempDir};
 
     use super::*;
-    use crate::storage::tests::populated_storage;
+    use crate::storage::tests::{
+        populated_storage,
+        WhichSlivers,
+        BLOB_ID,
+        OTHER_SHARD_INDEX,
+        SHARD_INDEX,
+    };
 
-    const BLOB_ID: BlobId = [7; 32];
-    const OTHER_BLOB_ID: BlobId = [247; 32];
-    const SHARD_INDEX: ShardIndex = 17;
-    const OTHER_SHARD_INDEX: ShardIndex = 831;
+    const OTHER_BLOB_ID: BlobId = BlobId([247; 32]);
 
     fn storage_node_with_storage(storage: WithTempDir<Storage>) -> WithTempDir<StorageNode> {
         let signing_key = BLS12381KeyPair::generate(&mut rand::thread_rng()).private();
@@ -134,7 +149,6 @@ mod tests {
         use fastcrypto::{bls12381::min_pk::BLS12381PublicKey, traits::VerifyingKey};
 
         use super::*;
-        use crate::storage::tests::WhichSlivers;
 
         #[tokio::test]
         async fn returns_none_if_no_shards_store_pairs() -> TestResult {

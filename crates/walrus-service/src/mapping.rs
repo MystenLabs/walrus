@@ -45,7 +45,7 @@ pub fn rotate_pairs(
     }
     if is_rotation(pairs) {
         if pairs[0].index() == 0 {
-            rotate_by_bytes(pairs, blob_id);
+            rotate_by_bytes(pairs, blob_id.as_ref());
         } else if pairs[0].index() as usize != pair_index_for_shard(0, pairs.len(), blob_id) {
             return Err(SliverAssignmentError::InconsistentRotation);
         }
@@ -71,7 +71,7 @@ pub fn rotate_pairs_unchecked(pairs: &mut [SliverPair], blob_id: &BlobId) {
     if pairs.is_empty() {
         return;
     }
-    rotate_by_bytes(pairs, blob_id);
+    rotate_by_bytes(pairs, blob_id.as_ref());
 }
 
 /// Check that the slice of sliver pairs is a valid rotation.
@@ -92,7 +92,7 @@ fn is_rotation(pairs: &[SliverPair]) -> bool {
 /// * `blob_id` - The Blob ID that produced the sliver. It is interpreted as a big-endian unsigned
 /// integer, and then used to compute the offset for the sliver pair index.
 pub fn shard_index_for_pair(pair_idx: usize, total_shards: usize, blob_id: &BlobId) -> usize {
-    (bytes_mod(blob_id, total_shards) + pair_idx) % total_shards
+    (bytes_mod(blob_id.as_ref(), total_shards) + pair_idx) % total_shards
 }
 
 /// Get the index of the sliver pair which is store on the shard of the given index.
@@ -104,7 +104,7 @@ pub fn shard_index_for_pair(pair_idx: usize, total_shards: usize, blob_id: &Blob
 /// * `blob_id` - The Blob ID that produced the sliver pair. It is interpreted as a big-endian
 /// unsigned integer, and the used to compute the offset for the sliver pair index.
 pub fn pair_index_for_shard(shard_idx: usize, total_shards: usize, blob_id: &BlobId) -> usize {
-    (total_shards - bytes_mod(blob_id, total_shards) + shard_idx) % total_shards
+    (total_shards - bytes_mod(blob_id.as_ref(), total_shards) + shard_idx) % total_shards
 }
 
 /// Rotate the input slice in place, based on the rotation specified by the byte array.
@@ -138,7 +138,7 @@ mod tests {
     fn blob_id_for_testing(num: u64) -> BlobId {
         let mut blob_id = [0u8; 32];
         blob_id[24..].copy_from_slice(&num.to_be_bytes());
-        blob_id
+        BlobId(blob_id)
     }
 
     // Fixture
@@ -285,7 +285,7 @@ mod tests {
     fn test_rotate_by_bytes() {
         let mut pairs = Vec::from_iter(0..5);
         let blob_id = blob_id_for_testing(11);
-        rotate_by_bytes(&mut pairs, &blob_id);
+        rotate_by_bytes(&mut pairs, blob_id.as_ref());
         assert_eq!(pairs, [4, 0, 1, 2, 3]);
     }
 }
