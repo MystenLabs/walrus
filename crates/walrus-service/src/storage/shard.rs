@@ -130,7 +130,7 @@ impl ShardStorage {
     }
 
     fn slivers_column_family_options(id: ShardIndex) -> (String, Options) {
-        // TODO(jsmith): Optimize for sliver storage.
+        // TODO(jsmith): Optimize for sliver storage (#65).
         let mut options = Options::default();
         options.set_enable_blob_files(true);
 

@@ -118,7 +118,7 @@ impl Storage {
     fn metadata_options() -> (&'static str, Options) {
         let mut options = Options::default();
 
-        // TODO(jsmith): Tune storage for metadata and slivers
+        // TODO(jsmith): Tune storage for metadata and slivers (#65)
         options.set_enable_blob_files(true);
 
         (Self::METADATA_COLUMN_FAMILY_NAME, options)
