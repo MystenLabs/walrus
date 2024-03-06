@@ -9,6 +9,7 @@ module blob_store::system {
     use sui::table::{Self, Table};
     use sui::tx_context::{TxContext};
     use sui::event;
+    use sui::transfer;
 
     use std::option::{Self, Option};
 
@@ -54,7 +55,7 @@ module blob_store::system {
     // Object definitions
 
     #[allow(unused_field)]
-    struct System<phantom TAG, phantom WAL:store> has key, store {
+    struct System<phantom TAG, phantom WAL> has key, store {
 
         id: UID,
 
@@ -80,21 +81,21 @@ module blob_store::system {
     }
 
     /// Get epoch. Uses the committee to get the epoch.
-    public fun epoch<TAG, WAL:store>(
+    public fun epoch<TAG, WAL>(
         self: &System<TAG, WAL>
     ) : u64 {
         committee::epoch(option::borrow(&self.current_committee))
     }
 
     /// Accessor for total capacity size.
-    public fun total_capacity_size<TAG, WAL:store>(
+    public fun total_capacity_size<TAG, WAL>(
         self: &System<TAG, WAL>
     ) : u64 {
         self.total_capacity_size
     }
 
     /// Accessor for used capacity size.
-    public fun used_capacity_size<TAG, WAL:store>(
+    public fun used_capacity_size<TAG, WAL>(
         self: &System<TAG, WAL>
     ) : u64 {
         self.used_capacity_size
@@ -103,7 +104,7 @@ module blob_store::system {
     /// A privileged constructor ensures we can build the type TAG and provides
     /// an initial system object, at epoch 0 with a given committee, and a given
     /// capacity and price.
-    public fun new<TAG, WAL:store>(
+    public fun new<TAG, WAL>(
         _witness: &TAG, // Ensures the caller can construct this type.
         first_committee: Committee<TAG>,
         capacity: u64,
@@ -135,15 +136,26 @@ module blob_store::system {
         }
     }
 
+    public fun share_new<TAG, WAL>(
+        _witness: &TAG, // Ensures the caller can construct this type.
+        first_committee: Committee<TAG>,
+        capacity: u64,
+        price: u64,
+        ctx: &mut TxContext
+    ) {
+        let sys : System<TAG, WAL> = new(_witness, first_committee, capacity, price, ctx);
+        transfer::share_object(sys);
+    }
+
     /// An accessor for the current committee.
-    public fun current_committee<TAG, WAL:store>(
+    public fun current_committee<TAG, WAL>(
         self: &System<TAG, WAL>
     ) : &Committee<TAG> {
         option::borrow(&self.current_committee)
     }
 
     /// Update epoch to next epoch, and also update the committee, price and capacity.
-    public fun next_epoch<TAG, WAL:store>(
+    public fun next_epoch<TAG, WAL>(
         self: &mut System<TAG, WAL>,
         new_committee: Committee<TAG>,
         new_capacity: u64,
@@ -187,7 +199,7 @@ module blob_store::system {
     }
 
     /// Allow buying a storage reservation for a given period of epochs.
-    public fun reserve_space<TAG, WAL:store>(
+    public fun reserve_space<TAG, WAL>(
         self: &mut System<TAG, WAL>,
         storage_amount: u64,
         periods_ahead: u64,
@@ -240,7 +252,7 @@ module blob_store::system {
     }
 
     #[test_only]
-    public fun set_done_for_testing<TAG, WAL:store>(
+    public fun set_done_for_testing<TAG, WAL>(
         self: &mut System<TAG, WAL>
     ) {
         self.epoch_status = EPOCH_STATUS_DONE;
@@ -282,7 +294,7 @@ module blob_store::system {
 
 
     /// Use the certified message to advance the epoch status to DONE.
-    public fun sync_done_for_epoch<TAG, WAL:store>(
+    public fun sync_done_for_epoch<TAG, WAL>(
         system: &mut System<TAG, WAL>,
         message: CertifiedSyncDone<TAG>,
     )
