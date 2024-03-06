@@ -3,11 +3,7 @@
 use std::{cmp::min, marker::PhantomData, ops::Range, sync::OnceLock};
 
 use raptorq::{
-    EncodingPacket,
-    PayloadId,
-    SourceBlockDecoder,
-    SourceBlockEncoder,
-    SourceBlockEncodingPlan,
+    EncodingPacket, PayloadId, SourceBlockDecoder, SourceBlockEncoder, SourceBlockEncodingPlan,
 };
 use thiserror::Error;
 

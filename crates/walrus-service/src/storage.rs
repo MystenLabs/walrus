@@ -101,7 +101,7 @@ impl Storage {
 pub(crate) struct ShardStorage<'a> {
     id: ShardIndex,
     database: &'a DB,
-    shard_columns: Arc<BoundColumnFamily<'a>>// &'a ColumnFamily,
+    shard_columns: Arc<BoundColumnFamily<'a>>, // &'a ColumnFamily,
 }
 
 impl<'a> ShardStorage<'a> {
