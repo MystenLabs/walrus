@@ -179,8 +179,8 @@ mod tests {
             let confirmation: Confirmation =
                 bcs::from_bytes(&signed.confirmation).expect("message should be decodable");
 
-            assert_eq!(confirmation.epoch(), storage_node.as_ref().current_epoch);
-            assert_eq!(confirmation.blob_id(), &BLOB_ID);
+            assert_eq!(confirmation.epoch, storage_node.as_ref().current_epoch);
+            assert_eq!(confirmation.blob_id, BLOB_ID);
 
             Ok(())
         }

@@ -1,6 +1,7 @@
 use fastcrypto::bls12381::min_pk::BLS12381Signature;
 use serde::{de::Error as _, Deserialize, Serialize};
 
+use super::Intent;
 use crate::{
     messages::{IntentAppId, IntentType, IntentVersion},
     BlobId,
@@ -28,95 +29,53 @@ pub struct SignedStorageConfirmation {
 // Uses serde(remote) to allow validation of the confirmation header fields.
 // See https://github.com/serde-rs/serde/issues/1220 for more info.
 #[derive(Debug, Deserialize, Serialize)]
-#[serde(remote = "Self")]
 pub struct Confirmation {
-    header: MessageHeader,
+    #[serde(deserialize_with = "deserialize_storage_confirmation_intent")]
+    intent: Intent,
+    /// The epoch in which this confirmation is generated.
+    pub epoch: Epoch,
     /// The ID of the Blob whose sliver pairs are confirmed as being stored.
-    blob_id: BlobId,
-}
-
-impl<'de> Deserialize<'de> for Confirmation {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let to_verify = Confirmation::deserialize(deserializer)?;
-        let MessageHeader {
-            intent,
-            version,
-            app_id,
-            ..
-        } = to_verify.header;
-
-        if intent != IntentType::STORAGE_CERT_MSG {
-            return Err(D::Error::custom(format!(
-                "invalid intent type for storage confirmation: {:?}",
-                intent
-            )));
-        }
-        if version != IntentVersion::default() {
-            return Err(D::Error::custom(format!(
-                "invalid intent version for storage confirmation: {:?}",
-                version
-            )));
-        }
-
-        if app_id != IntentAppId::STORAGE {
-            return Err(D::Error::custom(format!(
-                "invalid App ID for storage confirmation: {:?}",
-                app_id
-            )));
-        }
-
-        Ok(to_verify)
-    }
-}
-
-impl serde::ser::Serialize for Confirmation {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        Confirmation::serialize(self, serializer)
-    }
+    pub blob_id: BlobId,
 }
 
 impl Confirmation {
     /// Creates a new confirmation message for the provided blob ID.
     pub fn new(epoch: Epoch, blob_id: BlobId) -> Self {
         Self {
-            header: MessageHeader {
-                intent: IntentType::STORAGE_CERT_MSG,
-                version: IntentVersion::default(),
-                app_id: IntentAppId::STORAGE,
-                epoch,
-            },
+            intent: Intent::storage(IntentType::STORAGE_CERT_MSG),
+            epoch,
             blob_id,
         }
     }
-
-    /// Returns the Walrus epoch in which this message was generated.
-    pub fn epoch(&self) -> Epoch {
-        self.header.epoch
-    }
-
-    /// Returns the blob id associated with this confirmation.
-    pub fn blob_id(&self) -> &BlobId {
-        &self.blob_id
-    }
 }
 
-/// Message header prepended to signed messages.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct MessageHeader {
-    /// The intent of the signed message.
-    pub intent: IntentType,
-    /// The intent version.
-    pub version: IntentVersion,
-    /// The app ID, usually [`IntentAppId::STORAGE`] for Walrus messages.
-    pub app_id: IntentAppId,
-    /// The epoch in which this confirmation is generated.
-    pub epoch: Epoch,
+fn deserialize_storage_confirmation_intent<'de, D>(deserializer: D) -> Result<Intent, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let unverified_intent = Intent::deserialize(deserializer)?;
+
+    if unverified_intent.r#type != IntentType::STORAGE_CERT_MSG {
+        return Err(D::Error::custom(format!(
+            "invalid intent type for storage confirmation: {:?}",
+            unverified_intent.r#type
+        )));
+    }
+    if unverified_intent.version != IntentVersion::DEFAULT {
+        return Err(D::Error::custom(format!(
+            "invalid intent version for storage confirmation: {:?}",
+            unverified_intent.version
+        )));
+    }
+
+    if unverified_intent.app_id != IntentAppId::STORAGE {
+        return Err(D::Error::custom(format!(
+            "invalid App ID for storage confirmation: {:?}",
+            unverified_intent.app_id
+        )));
+    }
+
+    Ok(unverified_intent)
 }
 
 #[cfg(test)]
@@ -150,7 +109,7 @@ mod tests {
         assert_ne!(IntentType::STORAGE_CERT_MSG, OTHER_MSG_TYPE);
 
         let mut confirmation = Confirmation::new(EPOCH, BLOB_ID);
-        confirmation.header.intent = OTHER_MSG_TYPE;
+        confirmation.intent.r#type = OTHER_MSG_TYPE;
         let invalid_message = bcs::to_bytes(&confirmation).expect("successful encoding");
 
         bcs::from_bytes::<Confirmation>(&invalid_message).expect_err("decoding must fail");
@@ -164,7 +123,7 @@ mod tests {
         assert_ne!(UNSUPPORTED_INTENT_VERSION, IntentVersion::default());
 
         let mut confirmation = Confirmation::new(EPOCH, BLOB_ID);
-        confirmation.header.version = UNSUPPORTED_INTENT_VERSION;
+        confirmation.intent.version = UNSUPPORTED_INTENT_VERSION;
         let invalid_message = bcs::to_bytes(&confirmation).expect("successful encoding");
 
         bcs::from_bytes::<Confirmation>(&invalid_message).expect_err("decoding must fail");
@@ -178,7 +137,7 @@ mod tests {
         assert_ne!(INVALID_APP_ID, IntentAppId::STORAGE);
 
         let mut confirmation = Confirmation::new(EPOCH, BLOB_ID);
-        confirmation.header.app_id = INVALID_APP_ID;
+        confirmation.intent.app_id = INVALID_APP_ID;
         let invalid_message = bcs::to_bytes(&confirmation).expect("successful encoding");
 
         bcs::from_bytes::<Confirmation>(&invalid_message).expect_err("decoding must fail");
@@ -194,8 +153,8 @@ mod tests {
         let confirmation =
             bcs::from_bytes::<Confirmation>(&message).expect("decoding must succeed");
 
-        assert_eq!(confirmation.blob_id(), &BLOB_ID);
-        assert_eq!(confirmation.epoch(), EPOCH);
+        assert_eq!(confirmation.blob_id, BLOB_ID);
+        assert_eq!(confirmation.epoch, EPOCH);
 
         Ok(())
     }
