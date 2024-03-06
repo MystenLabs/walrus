@@ -8,7 +8,9 @@ notice = "deny"
 unsound = "deny"
 
 ignore = [
-    "RUSTSEC-2023-0071"
+    "RUSTSEC-2023-0071",
+    # difference 2.0.0 is unmaintained
+    "RUSTSEC-2020-0095",
 ]
 
 # This section is considered when running `cargo deny check licenses`
@@ -21,12 +23,15 @@ unlicensed = "deny"
 # See https://spdx.org/licenses/ for list of possible licenses
 # [possible values: any SPDX 3.11 short identifier (+ optional exception)].
 allow = [
+    "0BSD",
     "Apache-2.0",
     "BSD-2-Clause",
     "BSD-3-Clause",
     "CC0-1.0",
     "ISC",
+    "LicenseRef-ring",
     "MIT",
+    "MPL-2.0",
     "Unicode-DFS-2016",
 ]
 # Lint level for licenses considered copyleft
@@ -42,13 +47,20 @@ default = "deny"
 # The higher the value, the more closely the license text must be to the
 # canonical license text of a valid SPDX license file.
 # [possible values: any between 0.0 and 1.0].
-confidence-threshold = 0.9
+confidence-threshold = 0.8
 # Allow 1 or more licenses on a per-crate basis, so that particular licenses
 # aren't accepted for every possible crate as with the normal allow list
 exceptions = [
     # { allow = [
     #     "Unicode-DFS-2016",
     # ], name = "unicode-ident" },
+]
+
+[[licenses.clarify]]
+name = "ring"
+expression = "LicenseRef-ring"
+license-files = [
+    { path = "LICENSE", hash = 0xbd0eed23 }
 ]
 
 [licenses.private]
@@ -68,9 +80,10 @@ skip = [
     { name = "itertools", version = "<=12.1" },
 ]
 skip-tree = [
-    # Mysten's typed-store and fastcrypto pull in several conflicting repo versions.
+    # Mysten's libraries pull in several conflicting repo versions.
     { name = "fastcrypto", depth = 4 },
     { name = "typed-store", depth = 6},
+    { name = "test-cluster", depth = 6},
     # several crate depend on an older version of windows-sys
     { name = "windows-sys", depth = 3, version = "0.48" },
 ]
@@ -85,10 +98,16 @@ unknown-registry = "deny"
 # Lint level for what to happen when a crate from a git repository that is not
 # in the allow list is encountered
 unknown-git = "deny"
+allow-git = [
+    "https://github.com/mystenmark/tokio-madsim-fork",
+    "https://github.com/mystenmark/async-task",
+    "https://github.com/wlmyng/jsonrpsee",
+    "https://github.com/zhiburt/tabled",
+]
 
 [sources.allow-org]
 # 1 or more github.com organizations to allow git sources for
 github = [
     "MystenLabs",
-    "mystenmark",
+    "mystenlabs",
 ]
