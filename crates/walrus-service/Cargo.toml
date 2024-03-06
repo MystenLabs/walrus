@@ -10,7 +10,7 @@ license = { workspace = true }
 anyhow = "1.0.80"
 bcs = "0.1.6"
 clap = { version = "4.5", features = ["derive"] }
-rocksdb = "0.22"
+rocksdb = "0.21"
 serde = { version = "1.0.197", features = ["derive"] }
 thiserror = { workspace = true }
 tokio = { version = "1.36.0", features = ["rt-multi-thread", "macros"] }
