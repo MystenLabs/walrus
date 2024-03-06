@@ -5,7 +5,6 @@ use crate::{
     messages::{IntentAppId, IntentType, IntentVersion},
     BlobId,
     Epoch,
-    ShardIndex,
 };
 
 /// Confirmation from a storage node that it has stored the sliver pairs for a given blob.
@@ -34,9 +33,6 @@ pub struct Confirmation {
     header: MessageHeader,
     /// The ID of the Blob whose sliver pairs are confirmed as being stored.
     blob_id: BlobId,
-    /// The shards that are confirmed to be storing their slivers.
-    // INV: non-empty
-    shards: Vec<ShardIndex>,
 }
 
 impl<'de> Deserialize<'de> for Confirmation {
@@ -86,18 +82,8 @@ impl serde::ser::Serialize for Confirmation {
 }
 
 impl Confirmation {
-    /// Maximum number of shards in a confirmation.
-    pub const MAX_SHARDS: usize = u16::MAX as usize;
-
-    /// Creates a new confirmation message for the provided blob ID and shards.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the list of shards is empty, or contains more than [`Self::MAX_SHARDS`] shard IDs.
-    pub fn new(epoch: Epoch, blob_id: BlobId, shards: &[ShardIndex]) -> Self {
-        assert!(!shards.is_empty(), "shards must be non-empty");
-        assert!(shards.len() <= Self::MAX_SHARDS, "too many shards");
-
+    /// Creates a new confirmation message for the provided blob ID.
+    pub fn new(epoch: Epoch, blob_id: BlobId) -> Self {
         Self {
             header: MessageHeader {
                 intent: IntentType::STORAGE_CERT_MSG,
@@ -106,18 +92,12 @@ impl Confirmation {
                 epoch,
             },
             blob_id,
-            shards: shards.into(),
         }
     }
 
     /// Returns the Walrus epoch in which this message was generated.
     pub fn epoch(&self) -> Epoch {
         self.header.epoch
-    }
-
-    /// Returns the shards confirmed to be storing their sliver pairs for the blob ID.
-    pub fn shards(&self) -> &[ShardIndex] {
-        self.shards.as_ref()
     }
 
     /// Returns the blob id associated with this confirmation.
@@ -147,12 +127,10 @@ mod tests {
 
     const EPOCH: Epoch = 21;
     const BLOB_ID: BlobId = [7; 32];
-    const SHARD_INDEX: ShardIndex = 17;
-    const OTHER_SHARD_INDEX: ShardIndex = 831;
 
     #[test]
     fn confirmation_has_correct_header() {
-        let confirmation = Confirmation::new(EPOCH, BLOB_ID, &[SHARD_INDEX, OTHER_SHARD_INDEX]);
+        let confirmation = Confirmation::new(EPOCH, BLOB_ID);
         let encoded = bcs::to_bytes(&confirmation).expect("successful encoding");
 
         assert_eq!(
@@ -171,7 +149,7 @@ mod tests {
         const OTHER_MSG_TYPE: IntentType = IntentType(0);
         assert_ne!(IntentType::STORAGE_CERT_MSG, OTHER_MSG_TYPE);
 
-        let mut confirmation = Confirmation::new(EPOCH, BLOB_ID, &[SHARD_INDEX, OTHER_SHARD_INDEX]);
+        let mut confirmation = Confirmation::new(EPOCH, BLOB_ID);
         confirmation.header.intent = OTHER_MSG_TYPE;
         let invalid_message = bcs::to_bytes(&confirmation).expect("successful encoding");
 
@@ -185,7 +163,7 @@ mod tests {
         const UNSUPPORTED_INTENT_VERSION: IntentVersion = IntentVersion(99);
         assert_ne!(UNSUPPORTED_INTENT_VERSION, IntentVersion::default());
 
-        let mut confirmation = Confirmation::new(EPOCH, BLOB_ID, &[SHARD_INDEX, OTHER_SHARD_INDEX]);
+        let mut confirmation = Confirmation::new(EPOCH, BLOB_ID);
         confirmation.header.version = UNSUPPORTED_INTENT_VERSION;
         let invalid_message = bcs::to_bytes(&confirmation).expect("successful encoding");
 
@@ -199,7 +177,7 @@ mod tests {
         const INVALID_APP_ID: IntentAppId = IntentAppId(44);
         assert_ne!(INVALID_APP_ID, IntentAppId::STORAGE);
 
-        let mut confirmation = Confirmation::new(EPOCH, BLOB_ID, &[SHARD_INDEX, OTHER_SHARD_INDEX]);
+        let mut confirmation = Confirmation::new(EPOCH, BLOB_ID);
         confirmation.header.app_id = INVALID_APP_ID;
         let invalid_message = bcs::to_bytes(&confirmation).expect("successful encoding");
 
@@ -210,14 +188,13 @@ mod tests {
 
     #[test]
     fn decoding_succeeds_for_valid_message() -> TestResult {
-        let confirmation = Confirmation::new(EPOCH, BLOB_ID, &[SHARD_INDEX, OTHER_SHARD_INDEX]);
+        let confirmation = Confirmation::new(EPOCH, BLOB_ID);
         let message = bcs::to_bytes(&confirmation).expect("successful encoding");
 
         let confirmation =
             bcs::from_bytes::<Confirmation>(&message).expect("decoding must succeed");
 
         assert_eq!(confirmation.blob_id(), &BLOB_ID);
-        assert_eq!(confirmation.shards(), confirmation.shards());
         assert_eq!(confirmation.epoch(), EPOCH);
 
         Ok(())

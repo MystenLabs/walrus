@@ -98,12 +98,24 @@ impl Storage {
         self.metadata.get(blob_id)
     }
 
-    /// Returns an iterator over the identifiers of the shards that store their
+    /// Returns true if the sliver pairs for the provided blob-id is stored at
+    /// all of the storage's shards.
+    pub fn is_stored_at_all_shards(&self, blob_id: &BlobId) -> Result<bool, TypedStoreError> {
+        for shard in self.shards.values() {
+            if !shard.is_sliver_pair_stored(blob_id)? {
+                return Ok(false);
+            }
+        }
+
+        Ok(!self.shards.is_empty())
+    }
+
+    /// Returns a list of identifiers of the shards that store their
     /// respective sliver for the specified blob.
     pub fn shards_with_sliver_pairs(
         &self,
         blob_id: &BlobId,
-    ) -> Result<Vec<ShardIndex>, anyhow::Error> {
+    ) -> Result<Vec<ShardIndex>, TypedStoreError> {
         let mut shards_with_sliver_pairs = Vec::with_capacity(self.shards.len());
 
         for shard in self.shards.values() {

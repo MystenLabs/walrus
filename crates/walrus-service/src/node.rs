@@ -78,15 +78,13 @@ impl StorageNode {
         &self,
         blob_id: &BlobId,
     ) -> Result<Option<StorageConfirmation>, anyhow::Error> {
-        let shards: Vec<_> = self.storage.shards_with_sliver_pairs(blob_id)?;
-
-        if shards.is_empty() {
-            Ok(None)
-        } else {
-            let confirmation = Confirmation::new(self.current_epoch, *blob_id, &shards);
+        if self.storage.is_stored_at_all_shards(blob_id)? {
+            let confirmation = Confirmation::new(self.current_epoch, *blob_id);
             sign_confirmation(confirmation, self.signer.clone())
                 .await
                 .map(|signed| Some(StorageConfirmation::Signed(signed)))
+        } else {
+            Ok(None)
         }
     }
 }
@@ -134,7 +132,6 @@ mod tests {
 
     mod get_storage_confirmation {
         use fastcrypto::{bls12381::min_pk::BLS12381PublicKey, traits::VerifyingKey};
-        use walrus_test_utils::assert_unordered_eq;
 
         use super::*;
         use crate::storage::tests::WhichSlivers;
@@ -184,7 +181,6 @@ mod tests {
 
             assert_eq!(confirmation.epoch(), storage_node.as_ref().current_epoch);
             assert_eq!(confirmation.blob_id(), &BLOB_ID);
-            assert_unordered_eq!(confirmation.shards(), &[SHARD_INDEX, OTHER_SHARD_INDEX]);
 
             Ok(())
         }
