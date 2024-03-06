@@ -1,8 +1,7 @@
 //! Walrus shard storage.
 //!
-use std::sync::Arc;
+use std::{borrow::Borrow, sync::Arc};
 
-use anyhow::Context;
 use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, MergeOperands, Options, DB};
 use serde::{Deserialize, Serialize};
 use typed_store::{
@@ -18,32 +17,29 @@ use walrus_core::{
     SliverType,
 };
 
-#[derive(Debug, Serialize, Deserialize)]
-struct SliverId {
-    is_primary: bool,
-    blob_id: BlobId,
+type PrimarySliverKey = SliverKey<true>;
+type SecondarySliverKey = SliverKey<false>;
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Deserialize, Serialize)]
+struct SliverKey<const P: bool>((bool, BlobId));
+
+impl<const P: bool> SliverKey<P> {
+    fn new(blob_id: BlobId) -> Self {
+        Self((P, blob_id))
+    }
 }
 
-impl SliverId {
-    fn primary(blob_id: &BlobId) -> Self {
-        SliverId {
-            is_primary: true,
-            blob_id: *blob_id,
-        }
-    }
-    fn secondary(blob_id: &BlobId) -> Self {
-        SliverId {
-            is_primary: false,
-            blob_id: *blob_id,
-        }
+impl<const P: bool, T: Borrow<BlobId>> From<T> for SliverKey<P> {
+    fn from(value: T) -> Self {
+        Self::new(*value.borrow())
     }
 }
 
 #[derive(Debug)]
 pub(crate) struct ShardStorage {
     id: ShardIndex,
-    primary_slivers: DBMap<SliverId, PrimarySliver>,
-    secondary_slivers: DBMap<SliverId, SecondarySliver>,
+    primary_slivers: DBMap<PrimarySliverKey, PrimarySliver>,
+    secondary_slivers: DBMap<SecondarySliverKey, SecondarySliver>,
 }
 
 impl ShardStorage {
@@ -78,12 +74,10 @@ impl ShardStorage {
     /// Stores the provided primary or secondary sliver for the given blob ID.
     pub fn put_sliver(&self, blob_id: &BlobId, sliver: &Sliver) -> Result<(), TypedStoreError> {
         match sliver {
-            Sliver::Primary(primary) => self
-                .primary_slivers
-                .insert(&SliverId::primary(blob_id), primary),
-            Sliver::Secondary(secondary) => self
-                .secondary_slivers
-                .insert(&SliverId::secondary(blob_id), secondary),
+            Sliver::Primary(primary) => self.primary_slivers.insert(&blob_id.into(), primary),
+            Sliver::Secondary(secondary) => {
+                self.secondary_slivers.insert(&blob_id.into(), secondary)
+            }
         }
     }
 
@@ -112,7 +106,7 @@ impl ShardStorage {
         &self,
         blob_id: &BlobId,
     ) -> Result<Option<PrimarySliver>, TypedStoreError> {
-        self.primary_slivers.get(&SliverId::primary(blob_id))
+        self.primary_slivers.get(&blob_id.into())
     }
 
     /// Retrieves the stored secondary sliver for the given blob ID.
@@ -120,13 +114,13 @@ impl ShardStorage {
         &self,
         blob_id: &BlobId,
     ) -> Result<Option<SecondarySliver>, TypedStoreError> {
-        self.secondary_slivers.get(&SliverId::secondary(blob_id))
+        self.secondary_slivers.get(&blob_id.into())
     }
 
     /// Returns true iff the sliver-pair for the given blob ID is stored by the shard.
-    pub fn is_sliver_pair_stored(&self, blob_id: &BlobId) -> Result<bool, anyhow::Error> {
-        Ok(self.get_primary_sliver(blob_id)?.is_some()
-            && self.get_secondary_sliver(blob_id)?.is_some())
+    pub fn is_sliver_pair_stored(&self, blob_id: &BlobId) -> Result<bool, TypedStoreError> {
+        Ok(self.primary_slivers.contains_key(&blob_id.into())?
+            && self.secondary_slivers.contains_key(&blob_id.into())?)
     }
 
     fn slivers_column_family_options(id: ShardIndex) -> (String, Options) {
