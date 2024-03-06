@@ -4,6 +4,14 @@
 #[cfg(test)]
 mod tests {
 
+    use std::path::PathBuf;
+
+    use sui_move_build::{
+        build_from_resolution_graph,
+        gather_published_ids,
+        BuildConfig,
+        PackageDependencies,
+    };
     use sui_sdk::{
         rpc_types::{EventFilter, SuiTransactionBlockResponseOptions},
         types::{base_types::ObjectID, quorum_driver_types::ExecuteTransactionRequestType},
@@ -11,12 +19,6 @@ mod tests {
     };
     use test_cluster::TestClusterBuilder;
     use tokio;
-
-    use sui_move_build::{
-        build_from_resolution_graph, gather_published_ids, BuildConfig, PackageDependencies,
-    };
-
-    use std::path::PathBuf;
 
     /// Taken from the Hummingbird codebase
     pub fn compile_package(package_path: PathBuf) -> (PackageDependencies, Vec<Vec<u8>>) {
