@@ -36,6 +36,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: crate-ci/typos@v1.19.0
 
+  license-headers:
+    runs-on: ubuntu-latest
+    name: Check license headers
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo install licensesnip@1.5.0
+      - run: licensesnip check
+
   check-all:
     name: Check if all lint jobs succeeded
     if: always()
@@ -43,6 +51,7 @@ jobs:
       - pr-title
       - editorconfig
       - typos
+      - license-headers
     runs-on: ubuntu-latest
     steps:
     - name: Decide whether all needed jobs succeeded
