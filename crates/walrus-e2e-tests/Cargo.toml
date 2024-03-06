@@ -1,0 +1,16 @@
+[package]
+name = "walrus-e2e-tests"
+publish = false
+authors = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+anyhow = "1.0.80"
+sui-move-build = { git = "https://github.com/MystenLabs/sui" }
+sui-sdk = { git = "https://github.com/mystenlabs/sui", package = "sui-sdk" }
+test-cluster = { git = "https://github.com/mystenlabs/sui", package = "test-cluster" }
+tokio = { version = "1.36.0", features = ["macros"] }
+
+[dev-dependencies]
