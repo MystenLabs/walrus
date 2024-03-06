@@ -11,7 +11,7 @@ license = "Apache-2.0"
 [workspace.dependencies]
 bcs = "0.1.6"
 # The version of fastcrypto is taken from Cargo.toml of the associated sui repo version.
-fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "ea66012b" }
+fastcrypto = "0.1"
 tempfile = "3.10.1"
 thiserror = "1.0.57"
 walrus-core = { path = "crates/walrus-core" }

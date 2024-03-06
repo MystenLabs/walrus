@@ -372,12 +372,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bech32"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d86b93f97252c47b41663388e6d155714a9d0c398b99f1005cbc5f978b29f445"
-
-[[package]]
 name = "bincode"
 version = "1.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1045,7 +1039,8 @@ dependencies = [
 [[package]]
 name = "fastcrypto"
 version = "0.1.7"
-source = "git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b#ea66012b860d9dd152abb7f2156275698ee91126"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2bca1e2b84f89b70d452d426fc7d4c0354375375af31d85d677062278d5dd2fd"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -1055,7 +1050,6 @@ dependencies = [
  "ark-serialize",
  "auto_ops",
  "base64ct",
- "bech32",
  "bincode",
  "blake2",
  "blake3",
@@ -1074,11 +1068,9 @@ dependencies = [
  "fastcrypto-derive",
  "generic-array",
  "hex",
- "hex-literal",
  "hkdf",
  "lazy_static",
  "merlin",
- "num-bigint",
  "once_cell",
  "p256",
  "rand",
@@ -1104,7 +1096,8 @@ dependencies = [
 [[package]]
 name = "fastcrypto-derive"
 version = "0.1.3"
-source = "git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b#ea66012b860d9dd152abb7f2156275698ee91126"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c0c2af2157f416cb885e11d36cd0de2753f6d5384752d364075c835f5f8f891"
 dependencies = [
  "convert_case 0.6.0",
  "proc-macro2",
@@ -1354,12 +1347,6 @@ name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
-
-[[package]]
-name = "hex-literal"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6fe2267d4ed49bc07b63801559be28c718ea06c4738b7a03c94df7386d2cde46"
 
 [[package]]
 name = "hkdf"
