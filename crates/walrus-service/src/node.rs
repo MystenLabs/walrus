@@ -41,9 +41,6 @@ impl StorageNode {
         }
     }
 
-    /// Notifies the storage node of a new blob ID being registered on chain.
-    pub fn notify_blob_id_registered(&self, _blob_id: &BlobId) {}
-
     /// Stores the metadata associated with a blob.
     pub fn store_blob_metadata(
         &self,
