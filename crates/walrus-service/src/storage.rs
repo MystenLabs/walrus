@@ -1,8 +1,8 @@
 #![allow(unused)]
-use std::{collections::HashSet, path::Path};
+use std::{collections::HashSet, path::Path, sync::Arc};
 
 use anyhow::Context;
-use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Options, DB};
+use rocksdb::{BoundColumnFamily, ColumnFamily, ColumnFamilyDescriptor, Options, DB};
 use walrus_core::BlobId;
 
 use crate::config::ShardIndex;
@@ -61,14 +61,14 @@ impl Storage {
             bcs::to_bytes(metadata).expect("metadata should be always serializable");
 
         self.database
-            .put_cf(self.metadata_handle(), blob_id, encoded_metadata)
+            .put_cf(&self.metadata_handle(), blob_id, encoded_metadata)
             .context("unable to put metadata")
     }
 
     /// Gets the metadata for a given [`BlobId`] or None.
     pub fn get_metadata(&self, blob_id: &BlobId) -> Result<Option<Metadata>, anyhow::Error> {
         self.database
-            .get_pinned_cf(self.metadata_handle(), blob_id)
+            .get_pinned_cf(&self.metadata_handle(), blob_id)
             .context("error retrieving metadata")?
             .map(|raw| bcs::from_bytes(raw.as_ref()).context("failed to decode metadata"))
             .transpose()
@@ -91,7 +91,7 @@ impl Storage {
         ColumnFamilyDescriptor::new(Self::METADATA_COLUMN_FAMILY_NAME, options)
     }
 
-    fn metadata_handle(&self) -> &ColumnFamily {
+    fn metadata_handle(&self) -> Arc<BoundColumnFamily<'_>> {
         self.database
             .cf_handle(Self::METADATA_COLUMN_FAMILY_NAME)
             .expect("metadata column family must exist")
@@ -101,7 +101,7 @@ impl Storage {
 pub(crate) struct ShardStorage<'a> {
     id: ShardIndex,
     database: &'a DB,
-    shard_columns: &'a ColumnFamily,
+    shard_columns: Arc<BoundColumnFamily<'a>>, // &'a ColumnFamily,
 }
 
 impl<'a> ShardStorage<'a> {
@@ -137,7 +137,7 @@ impl<'a> ShardStorage<'a> {
     ) -> Result<(), anyhow::Error> {
         self.database
             .put_cf(
-                self.shard_columns,
+                &self.shard_columns,
                 Self::sliver_key(blob_id, is_primary),
                 sliver,
             )
@@ -151,7 +151,7 @@ impl<'a> ShardStorage<'a> {
         is_primary: bool,
     ) -> Result<Option<Vec<u8>>, anyhow::Error> {
         self.database
-            .get_cf(self.shard_columns, Self::sliver_key(blob_id, is_primary))
+            .get_cf(&self.shard_columns, Self::sliver_key(blob_id, is_primary))
             .context("unable to store sliver")
     }
 
