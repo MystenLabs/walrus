@@ -91,7 +91,7 @@ impl Storage {
         ColumnFamilyDescriptor::new(Self::METADATA_COLUMN_FAMILY_NAME, options)
     }
 
-    fn metadata_handle<'a>(&'a self) -> Arc<BoundColumnFamily<'a>> {
+    fn metadata_handle(&self) -> Arc<BoundColumnFamily<'_>> {
         self.database
             .cf_handle(Self::METADATA_COLUMN_FAMILY_NAME)
             .expect("metadata column family must exist")

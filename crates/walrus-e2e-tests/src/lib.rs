@@ -18,7 +18,6 @@ mod tests {
         SuiClientBuilder,
     };
     use test_cluster::TestClusterBuilder;
-    use tokio;
 
     /// Taken from the Hummingbird codebase
     pub fn compile_package(package_path: PathBuf) -> (PackageDependencies, Vec<Vec<u8>>) {
