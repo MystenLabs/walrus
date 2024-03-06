@@ -1,3 +1,6 @@
+// Copyright (c) Mysten Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 use raptorq::{EncodingPacket, ObjectTransmissionInformation};
 
 use super::MAX_SYMBOL_SIZE;

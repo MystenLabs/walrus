@@ -1,3 +1,6 @@
+# Copyright (c) Mysten Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 from py_ecc.bls import G2Basic
 
 from py_ecc.optimized_bls12_381 import (

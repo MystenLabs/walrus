@@ -1,3 +1,6 @@
+// Copyright (c) Mysten Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Merkle tree implementation for Walrus.
 use std::{fmt::Debug, marker::PhantomData};
 

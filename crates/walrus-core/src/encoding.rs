@@ -1,3 +1,6 @@
+// Copyright (c) Mysten Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! TODO(mlegner): Describe encoding algorithm in detail (#50).
 
 use std::{cmp::min, marker::PhantomData, ops::Range, sync::OnceLock};

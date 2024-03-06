@@ -1,3 +1,6 @@
+// Copyright (c) Mysten Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /// Trait for encoding and decoding blobs and slivers.
 pub trait ErasureCode {
     /// Encode the instance into a vector of byte vectors.
