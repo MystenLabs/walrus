@@ -100,3 +100,12 @@ assert G2Basic.Verify(pk1, message, sig1)
 print(f"let pub_key_bytes = vector{list(pk1)};")
 print(f"let message = vector{list(message)};")
 print(f"let signature = vector{list(sig1)};")
+
+
+print("---- e2e test BLS key ----")
+
+sk1 = 117
+pk1 = G2Basic.SkToPk(sk1)
+
+print(f"let secret_key_bytes = {sk1};")
+print(f"let pub_key_bytes = vector{list(pk1)};")
