@@ -136,6 +136,8 @@ module blob_store::system {
         }
     }
 
+    // We actually create a new objects that does not exist before, so all is good.
+    #[allow(lint(share_owned))]
     public fun share_new<TAG, WAL>(
         _witness: &TAG, // Ensures the caller can construct this type.
         first_committee: Committee<TAG>,

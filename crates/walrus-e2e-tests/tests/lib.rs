@@ -7,10 +7,7 @@ mod tests {
     use std::path::PathBuf;
 
     use sui_move_build::{
-        build_from_resolution_graph,
-        gather_published_ids,
-        BuildConfig,
-        PackageDependencies,
+        build_from_resolution_graph, gather_published_ids, BuildConfig, PackageDependencies,
     };
     use sui_sdk::{
         rpc_types::{EventFilter, SuiTransactionBlockResponseOptions},
@@ -40,12 +37,13 @@ mod tests {
         let context = &mut test_cluster.wallet;
         let sender = context.active_address().unwrap();
 
-        let mut current_dir = std::env::current_dir()?;
-        // navigate to ../../contracts/blob_store
-        current_dir.pop();
-        current_dir.pop();
-        current_dir.push("contracts");
-        current_dir.push("blob_store");
+        let current_dir = std::env::current_dir()?
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("contracts")
+            .join("blob_store");
 
         let (dependencies, compiled_modules) = compile_package(current_dir);
 
@@ -54,7 +52,6 @@ mod tests {
             .await
             .expect("Failed to get client.");
 
-        println!("Test address: {:?}", sender);
         let dep_ids: Vec<ObjectID> = dependencies.published.values().cloned().collect();
 
         // Build a publish transaction
@@ -88,24 +85,22 @@ mod tests {
             .query_events(EventFilter::Sender(sender), None, None, false)
             .await?;
 
-        assert!(
-            events
-                .data
-                .iter()
-                .any(|e| e.type_.name.clone().into_string() == "EpochChangeSync"),
-            "No EpochChangeSync event found"
-        );
+        let epoch_change_sync = events
+            .data
+            .iter()
+            .find(|e| e.type_.name.to_string() == "EpochChangeSync")
+            .expect("No EpochChangeSync event found");
 
-        assert!(
-            events
-                .data
-                .iter()
-                .any(|e| e.type_.name.clone().into_string() == "EpochChangeDone"),
-            "No EpochChangeDone event found"
-        );
+        let epoch_change_done = events
+            .data
+            .iter()
+            .find(|e| e.type_.name.to_string() == "EpochChangeDone")
+            .expect("No EpochChangeDone event found");
 
-        // Print events
-        println!("Events: {:?}", events);
+        assert_eq!(
+            epoch_change_sync.type_.address,
+            epoch_change_done.type_.address
+        );
 
         Ok(())
     }

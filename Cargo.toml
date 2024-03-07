@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = ["crates/*"]
+default-members = ["crates/walrus-core", "crates/walrus-service", "crates/walrus-test-utils"]
 
 [workspace.package]
 version = "0.1.0"
