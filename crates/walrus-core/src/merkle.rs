@@ -51,6 +51,15 @@ impl From<[u8; DIGEST_LEN]> for Node {
     }
 }
 
+impl AsRef<[u8]> for Node {
+    fn as_ref(&self) -> &[u8] {
+        match self {
+            Node::Empty => EMPTY_NODE.as_ref(),
+            Node::Digest(val) => val.as_ref(),
+        }
+    }
+}
+
 /// A proof that some data is at index `leaf_index` in a [`MerkleTree`].
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
 pub struct MerkleProof<T = Blake2b256> {
@@ -120,21 +129,22 @@ impl<T> MerkleTree<T>
 where
     T: HashFunction<DIGEST_LEN>,
 {
-    /// Create the [`MerkleTree`] as a commitment to the data vector `data`.
-    pub fn build(data: &[&[u8]]) -> Self {
+    /// Create the [`MerkleTree`] as a commitment to the provided data.
+    pub fn build<I>(iter: I) -> Self
+    where
+        I: IntoIterator,
+        I::IntoIter: ExactSizeIterator,
+        I::Item: AsRef<[u8]>,
+    {
+        let iter = iter.into_iter();
+
         // Create the capacity that we know will be needed, since the vec will be
         // reused by the call to from_leaf_nodes.
-        let mut nodes = Vec::with_capacity(n_nodes(data.len()));
+        let mut nodes = Vec::with_capacity(n_nodes(iter.len()));
 
         // Hash each leaf prefixed with `LEAF_PREFIX` and insert the hash into `nodes`
-        nodes.extend(data.iter().map(|leaf| leaf_hash::<T>(leaf)));
+        nodes.extend(iter.map(|leaf| leaf_hash::<T>(leaf.as_ref())));
 
-        Self::from_leaf_nodes(nodes)
-    }
-
-    /// Creates a new tree from the provided leaf nodes.
-    pub fn from_leaf_nodes<I: Into<Vec<Node>>>(leaves: I) -> Self {
-        let mut nodes = leaves.into();
         let n_leaves = nodes.len();
         let mut level_nodes = n_leaves;
         let mut prev_level_index = 0;
@@ -258,7 +268,7 @@ mod test {
 
     #[test]
     fn test_merkle_tree_empty() {
-        let mt: MerkleTree = MerkleTree::build(&[]);
+        let mt: MerkleTree = MerkleTree::build::<[&[u8]; 0]>([]);
         assert_eq!(mt.root().bytes(), EMPTY_NODE);
     }
 

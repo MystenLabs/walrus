@@ -1,3 +1,6 @@
+// Copyright (c) Mysten Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Metadata associated with a Blob and stored by storage nodes.
 use std::num::NonZeroUsize;
 
@@ -5,6 +8,7 @@ use fastcrypto::hash::Blake2b256;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    assert_or_err,
     merkle::{MerkleTree, Node as MerkleNode},
     BlobId,
     EncodingType,
@@ -68,22 +72,23 @@ impl UnverifiedBlobMetadataWithId {
         n_shards: NonZeroUsize,
     ) -> Result<VerifiedBlobMetadataWithId, VerificationError> {
         let n_hashes = self.metadata().hashes.len();
-
-        if n_hashes != n_shards.get() {
-            return Err(VerificationError::InvalidHashCount {
+        assert_or_err!(
+            n_hashes == n_shards.get(),
+            VerificationError::InvalidHashCount {
                 actual: n_hashes,
                 expected: n_shards.get(),
-            });
-        }
+            }
+        );
 
         let computed_blob_id = BlobId::from_metadata(
-            MerkleTree::<Blake2b256>::from_leaf_nodes(self.metadata.hashes.clone()).root(),
+            MerkleTree::<Blake2b256>::build(&self.metadata.hashes).root(),
             EncodingType::RedStuff,
             self.metadata().unencoded_length,
         );
-        if computed_blob_id != *self.blob_id() {
-            return Err(VerificationError::BlobIdMismatch);
-        }
+        assert_or_err!(
+            computed_blob_id == *self.blob_id(),
+            VerificationError::BlobIdMismatch
+        );
 
         Ok(BlobMetadataWithId {
             blob_id: self.blob_id,
@@ -122,7 +127,7 @@ mod tests {
     fn arbitrary_metadata() -> UnverifiedBlobMetadataWithId {
         let unencoded_length = 7_000_000_000;
         let hashes: Vec<_> = (0..100u8).map(|i| MerkleNode::Digest([i; 32])).collect();
-        let tree = MerkleTree::<Blake2b256>::from_leaf_nodes(hashes.clone());
+        let tree = MerkleTree::<Blake2b256>::build(&hashes);
         let blob_id = BlobId::from_metadata(tree.root(), EncodingType::RedStuff, unencoded_length);
 
         UnverifiedBlobMetadataWithId::new(
