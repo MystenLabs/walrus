@@ -10,7 +10,13 @@ module blob_store::blob {
 
     use blob_store::committee::{Self, CertifiedMessage};
     use blob_store::system::{Self, System};
-    use blob_store::storage_resource::{Storage, start_epoch, end_epoch, storage_size, destroy};
+    use blob_store::storage_resource::{
+        Storage,
+        start_epoch,
+        end_epoch,
+        storage_size,
+        fuse_periods,
+        destroy};
 
     // A certify blob message structure
     const BLOB_CERT_MSG_TYPE: u8 = 1;
@@ -22,6 +28,7 @@ module blob_store::blob {
     const ERROR_WRONG_EPOCH: u64 = 4;
     const ERROR_ALREADY_CERTIFIED: u64 = 5;
     const ERROR_INVALID_BLOB_ID: u64 = 6;
+    const ERROR_NOT_CERTIFIED : u64 = 7;
 
     // Event definitions
 
@@ -83,7 +90,7 @@ module blob_store::blob {
     }
 
     /// Register a new blob in the system.
-    public fun register<TAG,WAL:store>(
+    public fun register<TAG,WAL>(
         sys: &System<TAG,WAL>,
         storage: Storage<TAG>,
         blob_id: u256,
@@ -159,7 +166,7 @@ module blob_store::blob {
 
     /// Certify that a blob will be available in the storage system until the end epoch of the
     /// storage associated with it.
-    public fun certify<TAG, WAL:store>(
+    public fun certify<TAG, WAL>(
         sys: &System<TAG, WAL>,
         message: CertifiedBlobMessage<TAG>,
         blob: &mut Blob<TAG>,
@@ -189,7 +196,7 @@ module blob_store::blob {
     }
 
     /// After the period of validity expires for the blob we can destroy the blob resource.
-    public fun destroy_blob<TAG, WAL:store>(
+    public fun destroy_blob<TAG, WAL>(
         sys: &System<TAG, WAL>,
         blob: Blob<TAG>,
     ){
@@ -212,10 +219,31 @@ module blob_store::blob {
         destroy(storage);
     }
 
+    /// Extend the period of validity of a blob with a new storage resource.
+    /// The new storage resource must be the same size as the storage resource
+    /// used in the blob, and have a longer period of validity.
+    public fun extend<TAG,WAL>(
+        sys: &System<TAG, WAL>,
+        blob: &mut Blob<TAG>,
+        extension: Storage<TAG>){
 
-    public fun extend(){
-        // TODO: implement at a later time
-        assert!(false, 0);
+        // We only extend certified blobs within their period of validity
+        // with storage that extends this period. First we check for these
+        // conditions.
+
+        // Assert this is a certified blob
+        assert!(blob.certified, ERROR_NOT_CERTIFIED);
+
+        // Check the blob is within its availability period
+        assert!(system::epoch(sys) < end_epoch(storage(blob)), ERROR_RESOURCE_BOUNDS);
+
+        // Check that the extension is valid, and the end
+        // period of the extension is after the current period.
+        assert!(end_epoch(&extension) > end_epoch(storage(blob)), ERROR_RESOURCE_BOUNDS);
+
+        // Note: if the amounts do not match there will be an error.
+        fuse_periods(&mut blob.storage , extension);
+
     }
 
     // Testing Functions
