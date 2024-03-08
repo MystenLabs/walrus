@@ -321,13 +321,13 @@ impl<T: EncodingAxis> Sliver<T> {
         &self,
         self_pair_idx: u32,
         target_pair_idx: u32,
-    ) -> Result<DecodingSymbol, RecoveryError> {
+    ) -> Result<RecoverySymbol<T::OrthogonalAxis>, RecoveryError> {
         let (self_sliver_idx, other_sliver_idx) =
             Self::relative_sliver_indices(self_pair_idx, target_pair_idx);
-        Ok(DecodingSymbol {
+        Ok(RecoverySymbol::new(DecodingSymbol {
             index: self_sliver_idx,
             data: self.single_recovery_symbol(other_sliver_idx)?,
-        })
+        }))
     }
 
     /// Recovers a [`Sliver`] from the recovery symbols.
@@ -412,38 +412,6 @@ impl SliverPair {
         self.primary.index
     }
 
-    /// Gets the recovery symbol for a specific target sliver starting from the current sliver pair.
-    ///
-    /// The generic parameter specifies the type of the *target sliver* (the one to be recovered).
-    /// To recover a [`Primary`] sliver, recovery symbols are created from the [`Secondary`] sliver,
-    /// and vice-versa.
-    ///
-    /// # Arguments
-    ///
-    /// * `target_pair_idx` - the index of the [`SliverPair`] to which the target sliver belongs.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`RecoveryError::EncodeError`] if the sliver cannot be encoded. See
-    /// [`Encoder::new`] for further details about the returned errors.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `target_pair_idx` is larger than `n_shards` in the encoding config.
-    pub fn recovery_symbol_for_sliver<T: EncodingAxis>(
-        &self,
-        target_pair_idx: u32,
-    ) -> Result<DecodingSymbol, RecoveryError> {
-        match T::IS_PRIMARY {
-            false => self
-                .primary
-                .recovery_symbol_for_sliver(self.index(), target_pair_idx),
-            true => self
-                .secondary
-                .recovery_symbol_for_sliver(self.index(), target_pair_idx),
-        }
-    }
-
     /// Gets the two recovery symbols for a specific target sliver pair starting from the current
     /// sliver pair.
     ///
@@ -464,8 +432,12 @@ impl SliverPair {
         target_pair_idx: u32,
     ) -> Result<RecoverySymbolPair, RecoveryError> {
         Ok(RecoverySymbolPair {
-            primary: self.recovery_symbol_for_sliver::<Primary>(target_pair_idx)?,
-            secondary: self.recovery_symbol_for_sliver::<Secondary>(target_pair_idx)?,
+            primary: self
+                .secondary
+                .recovery_symbol_for_sliver(self.index(), target_pair_idx)?,
+            secondary: self
+                .primary
+                .recovery_symbol_for_sliver(self.index(), target_pair_idx)?,
         })
     }
 }
@@ -760,13 +732,32 @@ pub struct DecodingSymbol {
     pub data: Vec<u8>,
 }
 
+/// A recovery symbol to recover a single sliver.
+///
+/// The generic argument specifies the type of the sliver to be recovered.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecoverySymbol<T: EncodingAxis> {
+    _symbol_type: PhantomData<T>,
+    symbol: DecodingSymbol,
+}
+
+impl<T: EncodingAxis> RecoverySymbol<T> {
+    /// Creates a new recovery symbol.
+    pub fn new(symbol: DecodingSymbol) -> Self {
+        Self {
+            _symbol_type: PhantomData,
+            symbol,
+        }
+    }
+}
+
 /// A pair of recovery symbols to recover a sliver pair.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecoverySymbolPair {
     /// Symbol to recover the primary sliver.
-    pub primary: DecodingSymbol,
+    pub primary: RecoverySymbol<Primary>,
     /// Symbol to recover the secondary sliver.
-    pub secondary: DecodingSymbol,
+    pub secondary: RecoverySymbol<Secondary>,
 }
 
 /// Wrapper to perform a single decoding with RaptorQ for the provided parameters.
@@ -1308,14 +1299,14 @@ mod tests {
 
             // Recover the primary sliver.
             let recovered = Sliver::<Primary>::recover_sliver(
-                recovery_symbols.iter().map(|s| s.primary.clone()),
+                recovery_symbols.iter().map(|s| s.primary.symbol.clone()),
                 pair.primary.index,
             )?;
             assert_eq!(recovered.unwrap(), pair.primary);
 
             // Recover the secondary sliver.
             let recovered = Sliver::<Secondary>::recover_sliver(
-                recovery_symbols.iter().map(|s| s.secondary.clone()),
+                recovery_symbols.iter().map(|s| s.secondary.symbol.clone()),
                 pair.secondary.index,
             )?;
             assert_eq!(recovered.unwrap(), pair.secondary);
@@ -1442,6 +1433,7 @@ mod tests {
                     primary_slivers.iter().map(|p| {
                         p.recovery_symbol_for_sliver(p.index, target_idx as u32)
                             .unwrap()
+                            .symbol
                     }),
                     (n_shards - 1 - target_idx) as u32,
                 )
@@ -1460,6 +1452,7 @@ mod tests {
                     .map(|(source_idx, s)| {
                         s.recovery_symbol_for_sliver(source_idx as u32, target_idx as u32)
                             .unwrap()
+                            .symbol
                     }),
                 target_idx as u32,
             )
