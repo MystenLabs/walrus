@@ -19,8 +19,6 @@ use raptorq::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use self::utils::{compute_symbol_size, get_transmission_info};
-
 pub mod symbols;
 pub use symbols::Symbols;
 
@@ -220,7 +218,7 @@ impl EncodingAxis for Secondary {
 pub struct Sliver<T: EncodingAxis> {
     /// The encoded data.
     pub symbols: Symbols,
-    phantom: PhantomData<T>,
+    _sliver_type: PhantomData<T>,
 }
 
 impl<T: EncodingAxis> Sliver<T> {
@@ -233,7 +231,7 @@ impl<T: EncodingAxis> Sliver<T> {
     pub fn new<U: Into<Vec<u8>>>(data: U, symbol_size: u16) -> Self {
         Self {
             symbols: Symbols::new(data.into(), symbol_size),
-            phantom: PhantomData,
+            _sliver_type: PhantomData,
         }
     }
 
@@ -245,7 +243,7 @@ impl<T: EncodingAxis> Sliver<T> {
     pub fn new_empty(length: usize, symbol_size: u16) -> Self {
         Self {
             symbols: Symbols::zeros(length, symbol_size),
-            phantom: PhantomData,
+            _sliver_type: PhantomData,
         }
     }
 
@@ -299,21 +297,22 @@ impl<T: EncodingAxis> Sliver<T> {
     /// Gets the recovery symbol for a specific target sliver starting from the current sliver.
     ///
     /// A [`Primary`] sliver is used to reconstruct symbols for a [`Secondary`] sliver, and
-    /// conversely.
+    /// vice-versa.
     ///
     /// # Arguments
     ///
-    /// * `self_pair_idx` - the index of the [`SliverPair`] to which the source sliver belongs.
+    /// * `self_pair_idx` - the index of the [`SliverPair`] to which this sliver belongs.
     /// * `target_pair_idx` - the index of the [`SliverPair`] to which the target sliver belongs.
     ///
     /// # Errors
     ///
-    /// Returns an [`RecoveryError::EncodeError`] if the `data` cannot be encoded. See
+    /// Returns a [`RecoveryError::EncodeError`] if the sliver cannot be encoded. See
     /// [`Encoder::new`] for further details about the returned errors.
     ///
     /// # Panics
     ///
-    /// Panics if any of the inputs is larger than `n_shards` in the encoding config.
+    /// Panics if `self_pair_idx` or `target_pair_idx` is larger than `n_shards` in the encoding
+    /// config.
     pub fn recovery_symbol_for_sliver(
         &self,
         self_pair_idx: usize,
@@ -355,21 +354,12 @@ impl<T: EncodingAxis> Sliver<T> {
         if symbol_size == 0 || inner_iter.any(|s| s.data.len() != symbol_size) {
             return Err(RecoveryError::InvalidSymbolSizes);
         }
+        let symbol_size: u16 = symbol_size.try_into().map_err(|_| DataTooLargeError)?;
 
         // Pass the symbols to the decoder.
-        Ok(Decoder::new(
-            Self::n_source_symbols(),
-            symbol_size * Self::n_source_symbols() as usize,
-        )?
-        .decode(recovery_iter)
-        .map(|data| {
-            Sliver::new(
-                data,
-                symbol_size.try_into().expect(
-                    "if larger than `u16::MAX`, we couldn't have created the `Decoder` above",
-                ),
-            )
-        }))
+        Ok(Decoder::new(Self::n_source_symbols(), symbol_size)
+            .decode(recovery_iter)
+            .map(|data| Sliver::new(data, symbol_size)))
     }
 
     /// Returns the number of source symbol for the current sliver's [`EncodingAxis`].
@@ -410,6 +400,65 @@ pub struct SliverPair {
     pub primary: Sliver<Primary>,
     /// The sliver corresponding to the [`Secondary`] encoding.
     pub secondary: Sliver<Secondary>,
+}
+
+impl SliverPair {
+    /// Gets the recovery symbol for a specific target sliver starting from the current sliver pair.
+    ///
+    /// The generic parameter specifies the type of the *target sliver* (the one to be recovered).
+    /// To recover a [`Primary`] sliver, recovery symbols are created from the [`Secondary`] sliver,
+    /// and vice-versa.
+    ///
+    /// # Arguments
+    ///
+    /// * `target_pair_idx` - the index of the [`SliverPair`] to which the target sliver belongs.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`RecoveryError::EncodeError`] if the sliver cannot be encoded. See
+    /// [`Encoder::new`] for further details about the returned errors.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `target_pair_idx` is larger than `n_shards` in the encoding config.
+    pub fn recovery_symbol_for_sliver<T: EncodingAxis>(
+        &self,
+        target_pair_idx: usize,
+    ) -> Result<DecodingSymbol, RecoveryError> {
+        match T::IS_PRIMARY {
+            false => self
+                .primary
+                .recovery_symbol_for_sliver(self.index as usize, target_pair_idx),
+            true => self
+                .secondary
+                .recovery_symbol_for_sliver(self.index as usize, target_pair_idx),
+        }
+    }
+
+    /// Gets the two recovery symbols for a specific target sliver pair starting from the current
+    /// sliver pair.
+    ///
+    /// # Arguments
+    ///
+    /// * `target_pair_idx` - the index of the target [`SliverPair`] (the one to be recovered).
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`RecoveryError::EncodeError`] if any of the the slivers cannot be encoded. See
+    /// [`Encoder::new`] for further details about the returned errors.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `target_pair_idx` is larger than `n_shards` in the encoding config.
+    pub fn recovery_symbols_for_sliver(
+        &self,
+        target_pair_idx: usize,
+    ) -> Result<RecoverySymbolPair, RecoveryError> {
+        Ok(RecoverySymbolPair {
+            primary: self.recovery_symbol_for_sliver::<Primary>(target_pair_idx)?,
+            secondary: self.recovery_symbol_for_sliver::<Secondary>(target_pair_idx)?,
+        })
+    }
 }
 
 /// Configuration of the Walrus encoding.
@@ -539,6 +588,7 @@ pub struct Encoder {
     raptorq_encoder: SourceBlockEncoder,
     n_source_symbols: u16,
     n_shards: u32,
+    symbol_size: u16,
 }
 
 // TODO(mlegner): Check if memory management and copying can be improved for Encoder (#45).
@@ -592,6 +642,7 @@ impl Encoder {
             ),
             n_source_symbols,
             n_shards,
+            symbol_size: symbol_size.try_into().expect("bounds checked above"),
         })
     }
 
@@ -607,6 +658,12 @@ impl Encoder {
     ) -> Result<Self, EncodeError> {
         let encoding_plan = SourceBlockEncodingPlan::generate(n_source_symbols);
         Self::new(data, n_source_symbols, n_shards, &encoding_plan)
+    }
+
+    /// Gets the symbol size of this encoder.
+    #[inline]
+    pub fn symbol_size(&self) -> u16 {
+        self.symbol_size
     }
 
     /// Returns an iterator over all source symbols.
@@ -669,7 +726,17 @@ pub struct DecodingSymbol {
     pub data: Vec<u8>,
 }
 
+/// A pair of recovery symbols to recover a sliver pair.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecoverySymbolPair {
+    /// Symbol to recover the primary sliver.
+    pub primary: DecodingSymbol,
+    /// Symbol to recover the secondary sliver.
+    pub secondary: DecodingSymbol,
+}
+
 /// Wrapper to perform a single decoding with RaptorQ for the provided parameters.
+#[derive(Debug, Clone)]
 pub struct Decoder {
     raptorq_decoder: SourceBlockDecoder,
     n_source_symbols: u16,
@@ -679,31 +746,25 @@ pub struct Decoder {
 impl Decoder {
     /// Creates a new `Decoder`.
     ///
-    /// # Errors
-    ///
-    /// Returns a [`DataTooLargeError`] if the provided parameters lead to a symbol size larger than
-    /// [`MAX_SYMBOL_SIZE`].
-    pub fn new(n_source_symbols: u16, data_length: usize) -> Result<Self, DataTooLargeError> {
-        let Some(symbol_size) = compute_symbol_size(data_length, n_source_symbols.into()) else {
-            return Err(DataTooLargeError);
-        };
+    /// Assumes that the length of the data to be decoded is the product of `n_source_symbols` and
+    /// `symbol_size`.
+    pub fn new(n_source_symbols: u16, symbol_size: u16) -> Self {
+        let data_length = (n_source_symbols as u64) * (symbol_size as u64);
         let raptorq_decoder = SourceBlockDecoder::new2(
             0,
-            &get_transmission_info(symbol_size),
-            data_length
-                .try_into()
-                .expect("if this conversion failed, we would already have returned an error above"),
+            &utils::get_transmission_info(symbol_size as usize),
+            data_length,
         );
         let n_padding_symbols = u16::try_from(raptorq::extended_source_block_symbols(
             n_source_symbols as u32,
         ))
         .expect("the largest value that is ever returned is smaller than u16::MAX")
             - n_source_symbols;
-        Ok(Self {
+        Self {
             raptorq_decoder,
             n_source_symbols,
             n_padding_symbols,
-        })
+        }
     }
 
     /// Attempts to encode the source data from the provided iterator over
@@ -746,6 +807,7 @@ fn encoding_packet_from_symbol(
 }
 
 /// Struct to perform the full blob encoding.
+#[derive(Debug)]
 pub struct BlobEncoder<'a> {
     /// Rows of the message matrix.
     ///
@@ -877,7 +939,15 @@ mod tests {
         result
     }
 
-    // TODO(mlegner): Add more tests for the encoding/decoding (#28)!
+    fn get_random_subset<T: Clone>(
+        data: impl IntoIterator<Item = T>,
+        mut rng: &mut impl RngCore,
+        count: usize,
+    ) -> impl Iterator<Item = T> + Clone {
+        let mut data: Vec<_> = data.into_iter().collect();
+        data.shuffle(&mut rng);
+        data.into_iter().take(count)
+    }
 
     mod slivers {
         use super::*;
@@ -967,7 +1037,7 @@ mod tests {
                         index: i as u32 + start,
                         data: symbol,
                     });
-            let mut decoder = Decoder::new(n_source_symbols, data.len())?;
+            let mut decoder = Decoder::new(n_source_symbols, encoder.symbol_size());
             let decoding_result = decoder.decode(encoded_symbols);
 
             if should_succeed {
@@ -994,7 +1064,7 @@ mod tests {
                             data: symbol,
                         }]
                     });
-            let mut decoder = Decoder::new(n_source_symbols, data.len())?;
+            let mut decoder = Decoder::new(n_source_symbols, encoder.symbol_size());
 
             assert_eq!(
                 decoder.decode(encoded_symbols.next().unwrap().clone()),
@@ -1184,30 +1254,31 @@ mod tests {
             n_shards,
             blob,
         );
-        let n_to_recover_from = source_symbols_primary.max(source_symbols_secondary);
+        let n_to_recover_from = source_symbols_primary.max(source_symbols_secondary) as usize;
         let mut rng = StdRng::seed_from_u64(42);
 
         for (idx, pair) in pairs.iter().enumerate() {
-            // Randomize the indices from where to get the recovery symbols.
-            let mut recover_from = Vec::from_iter(0..n_shards as usize);
-            recover_from.shuffle(&mut rng);
-            let _ = recover_from.split_off(n_to_recover_from as usize);
+            // Get a random subset of recovery symbols.
+            let recovery_symbols: Vec<_> = get_random_subset(
+                pairs
+                    .iter()
+                    .map(|p| p.recovery_symbols_for_sliver(idx).unwrap()),
+                &mut rng,
+                n_to_recover_from,
+            )
+            .collect();
 
             // Recover the primary sliver.
-            let recovery_symbols = recover_from
-                .iter()
-                .map(|&i| pairs[i].secondary.recovery_symbol_for_sliver(i, idx))
-                .collect::<std::result::Result<Vec<_>, RecoveryError>>()?;
-            let recovered = Sliver::<Primary>::recover_sliver(recovery_symbols)?;
+            let recovered = Sliver::<Primary>::recover_sliver(
+                recovery_symbols.iter().map(|s| s.primary.clone()),
+            )?;
             assert_eq!(recovered.unwrap(), pair.primary);
 
             // Recover the secondary sliver.
-            let recovery_symbols = recover_from
-                .iter()
-                .map(|&i| pairs[i].primary.recovery_symbol_for_sliver(i, idx))
-                .collect::<std::result::Result<Vec<_>, RecoveryError>>()?;
-            let recovered = Sliver::<Secondary>::recover_sliver(recovery_symbols)?;
-            assert_eq!(recovered.unwrap(), pair.secondary);
+            let recovered = Sliver::<Primary>::recover_sliver(
+                recovery_symbols.iter().map(|s| s.primary.clone()),
+            )?;
+            assert_eq!(recovered.unwrap(), pair.primary);
         }
         Ok(())
     }
