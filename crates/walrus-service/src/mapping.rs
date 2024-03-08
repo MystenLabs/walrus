@@ -44,9 +44,9 @@ pub fn rotate_pairs(
         return Ok(());
     }
     if is_rotation(pairs) {
-        if pairs[0].index == 0 {
+        if pairs[0].index() == 0 {
             rotate_by_bytes(pairs, blob_id);
-        } else if pairs[0].index as usize != pair_index_for_shard(0, pairs.len(), blob_id) {
+        } else if pairs[0].index() as usize != pair_index_for_shard(0, pairs.len(), blob_id) {
             return Err(SliverAssignmentError::InconsistentRotation);
         }
         Ok(())
@@ -74,12 +74,13 @@ pub fn rotate_pairs_unchecked(pairs: &mut [SliverPair], blob_id: &BlobId) {
     rotate_by_bytes(pairs, blob_id);
 }
 
-// Check that the slice of sliver pairs is a valid rotation.
+/// Check that the slice of sliver pairs is a valid rotation.
 fn is_rotation(pairs: &[SliverPair]) -> bool {
+    // TODO(mlegner): also check internal state of pair?
     pairs
         .iter()
         .enumerate()
-        .all(|(idx, pair)| pair.index as usize == (idx + pairs[0].index as usize) % pairs.len())
+        .all(|(idx, pair)| pair.index() as usize == (idx + pairs[0].index() as usize) % pairs.len())
 }
 
 /// Get the index of the shard on which the sliver pair of the given index is stored.
@@ -141,12 +142,11 @@ mod tests {
     }
 
     // Fixture
-    fn sliver_pairs(num: usize) -> Vec<SliverPair> {
+    fn sliver_pairs(num: u32) -> Vec<SliverPair> {
         (0..num)
             .map(|n| SliverPair {
-                index: n as u32,
-                primary: Sliver::new_empty(0, 1),
-                secondary: Sliver::new_empty(0, 1),
+                primary: Sliver::new_empty(0, 1, n),
+                secondary: Sliver::new_empty(0, 1, num - n - 1),
             })
             .collect()
     }
@@ -160,7 +160,7 @@ mod tests {
         assert!(pairs
             .iter()
             .enumerate()
-            .all(|(idx, pair)| pair_index_for_shard(idx, 7, &blob_id) == pair.index as usize));
+            .all(|(idx, pair)| pair_index_for_shard(idx, 7, &blob_id) == pair.index() as usize));
     }
 
     #[test]
@@ -170,7 +170,10 @@ mod tests {
         rotate_pairs_unchecked(&mut pairs, &blob_id);
         // Check that all the pairs are is in the correct spot
         for (idx, pair) in pairs.iter().enumerate() {
-            assert_eq!(pair_index_for_shard(idx, 7, &blob_id), pair.index as usize);
+            assert_eq!(
+                pair_index_for_shard(idx, 7, &blob_id),
+                pair.index() as usize
+            );
         }
         // Rotate again and check if the two rotations combined have been applied
         let blob_id_2 = blob_id_for_testing(15);
@@ -181,7 +184,7 @@ mod tests {
             .enumerate()
             .all(
                 |(idx, pair)| pair_index_for_shard(idx, 7, &combined_blob_id)
-                    == pair.index as usize
+                    == pair.index() as usize
             ));
     }
 
