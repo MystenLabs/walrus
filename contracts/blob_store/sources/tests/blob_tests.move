@@ -14,6 +14,10 @@ module blob_store::blob_tests {
     use blob_store::storage_accounting as sa;
     use blob_store::blob;
 
+    use blob_store::storage_resource::{
+        split_by_epoch,
+        destroy};
+
     struct TESTTAG has drop {}
     struct TESTWAL has store, drop {}
 
@@ -337,5 +341,97 @@ module blob_store::blob_tests {
             let message = blob::certify_blob_message(msg);
             assert!(blob::message_blob_id(&message) == 0xAA, 0);
     }
+
+    #[test]
+    public fun test_blob_extend_happy_path() : system::System<TESTTAG, TESTWAL> {
+
+        let ctx = tx_context::dummy();
+        let tag2 = TESTTAG{};
+
+        // A test coin.
+        let fake_coin = coin::mint_for_testing<TESTWAL>(100000000, &mut ctx);
+
+        // Create a new committee
+        let committee = committee::committee_for_testing(0);
+
+        // Create a new system object
+        let system : system::System<TESTTAG,TESTWAL> = system::new(&tag2, committee,
+            1000000000, 5, &mut ctx);
+
+        // Get some space for a few epochs
+        let (storage, fake_coin) = system::reserve_space(
+                &mut system, 10000, 3, fake_coin, &mut ctx);
+
+        // Get a longer storage period
+        let (storage_long, fake_coin) = system::reserve_space(
+                &mut system, 10000, 5, fake_coin, &mut ctx);
+
+        // Split by period
+        let trailing_storage =
+            split_by_epoch(&mut storage_long, 3, &mut ctx);
+
+        // Register a Blob
+        let blob1 = blob::register(&system, storage, 0xABC, 5000, 0x1, &mut ctx);
+        let certify_message = blob::certified_blob_message_for_testing<TESTTAG>(0, 0xABC);
+
+        // Set certify
+        blob::certify(&system, certify_message, &mut blob1);
+
+        // Now extend the blob
+        blob::extend(&system, &mut blob1, trailing_storage);
+
+        // Assert certified
+        assert!(option::is_some(blob::certified(&blob1)), 0);
+
+        destroy(storage_long);
+        coin::burn_for_testing(fake_coin);
+        blob::drop_for_testing(blob1);
+        system
+    }
+
+    #[test, expected_failure]
+    public fun test_blob_extend_bad_period() : system::System<TESTTAG, TESTWAL> {
+
+        let ctx = tx_context::dummy();
+        let tag2 = TESTTAG{};
+
+        // A test coin.
+        let fake_coin = coin::mint_for_testing<TESTWAL>(100000000, &mut ctx);
+
+        // Create a new committee
+        let committee = committee::committee_for_testing(0);
+
+        // Create a new system object
+        let system : system::System<TESTTAG,TESTWAL> = system::new(&tag2, committee,
+            1000000000, 5, &mut ctx);
+
+        // Get some space for a few epochs
+        let (storage, fake_coin) = system::reserve_space(
+                &mut system, 10000, 3, fake_coin, &mut ctx);
+
+        // Get a longer storage period
+        let (storage_long, fake_coin) = system::reserve_space(
+                &mut system, 10000, 5, fake_coin, &mut ctx);
+
+        // Split by period
+        let trailing_storage =
+            split_by_epoch(&mut storage_long, 4, &mut ctx);
+
+        // Register a Blob
+        let blob1 = blob::register(&system, storage, 0xABC, 5000, 0x1, &mut ctx);
+        let certify_message = blob::certified_blob_message_for_testing<TESTTAG>(0, 0xABC);
+
+        // Set certify
+        blob::certify(&system, certify_message, &mut blob1);
+
+        // Now extend the blob // ITS THE WRONG PERIOD
+        blob::extend(&system, &mut blob1, trailing_storage);
+
+        destroy(storage_long);
+        coin::burn_for_testing(fake_coin);
+        blob::drop_for_testing(blob1);
+        system
+    }
+
 
 }
