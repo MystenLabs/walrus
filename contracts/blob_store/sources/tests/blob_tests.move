@@ -7,6 +7,8 @@ module blob_store::blob_tests {
     use sui::tx_context::{Self};
     use sui::coin;
 
+    use std::option;
+
     use blob_store::committee;
     use blob_store::system;
     use blob_store::storage_accounting as sa;
@@ -100,7 +102,7 @@ module blob_store::blob_tests {
         blob::certify(&system, certify_message, &mut blob1);
 
         // Assert certified
-        assert!(blob::certified(&blob1), 0);
+        assert!(option::is_some(blob::certified(&blob1)), 0);
 
         coin::burn_for_testing(fake_coin);
         blob::drop_for_testing(blob1);

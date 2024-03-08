@@ -8,6 +8,8 @@ module blob_store::blob {
     use sui::bcs;
     use sui::event;
 
+    use std::option::{Self, Option};
+
     use blob_store::committee::{Self, CertifiedMessage};
     use blob_store::system::{Self, System};
     use blob_store::storage_resource::{
@@ -59,7 +61,7 @@ module blob_store::blob {
         blob_id: u256,
         size: u64,
         erasure_code_type: u8,
-        certified: bool,
+        certified: option::Option<u64>, // Store the epoch first certified
         storage: Storage<TAG>,
     }
 
@@ -81,8 +83,8 @@ module blob_store::blob {
         b.erasure_code_type
     }
 
-    public fun certified<TAG>(b: &Blob<TAG>) : bool {
-        b.certified
+    public fun certified<TAG>(b: &Blob<TAG>) : &Option<u64> {
+        &b.certified
     }
 
     public fun storage<TAG>(b: &Blob<TAG>) : &Storage<TAG> {
@@ -126,7 +128,7 @@ module blob_store::blob {
             size,
             //
             erasure_code_type,
-            certified: false,
+            certified: option::none(),
             storage,
         }
 
@@ -176,7 +178,7 @@ module blob_store::blob {
         assert!(blob_id(blob) == message.blob_id, ERROR_INVALID_BLOB_ID);
 
         // Check that the blob is not already certified
-        assert!(!blob.certified, ERROR_ALREADY_CERTIFIED);
+        assert!(!option::is_some(&blob.certified), ERROR_ALREADY_CERTIFIED);
 
         // Check that the message is from the current epoch
         assert!(message.epoch == system::epoch(sys), ERROR_WRONG_EPOCH);
@@ -185,7 +187,7 @@ module blob_store::blob {
         assert!(message.epoch < end_epoch(storage(blob)), ERROR_RESOURCE_BOUNDS);
 
         // Mark the blob as certified
-        blob.certified = true;
+        blob.certified = option::some(message.epoch);
 
         // Emit certified event
         event::emit(BlobCertified<TAG> {
@@ -232,7 +234,7 @@ module blob_store::blob {
         // conditions.
 
         // Assert this is a certified blob
-        assert!(blob.certified, ERROR_NOT_CERTIFIED);
+        assert!(option::is_some(&blob.certified), ERROR_NOT_CERTIFIED);
 
         // Check the blob is within its availability period
         assert!(system::epoch(sys) < end_epoch(storage(blob)), ERROR_RESOURCE_BOUNDS);
@@ -241,8 +243,19 @@ module blob_store::blob {
         // period of the extension is after the current period.
         assert!(end_epoch(&extension) > end_epoch(storage(blob)), ERROR_RESOURCE_BOUNDS);
 
-        // Note: if the amounts do not match there will be an error.
+        // Note: if the amounts do not match there will be an abort here.
         fuse_periods(&mut blob.storage , extension);
+
+        // Emit certified event
+        //
+        // Note: We use the original certified period since for the purposes of
+        // reconfiguration this is the committee that has a quorum that hold the
+        // resource.
+        event::emit(BlobCertified<TAG> {
+            epoch: *option::borrow(&blob.certified),
+            blob_id: blob.blob_id,
+            end_epoch: end_epoch(storage(blob)),
+        });
 
     }
 
