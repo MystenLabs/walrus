@@ -22,6 +22,8 @@ use thiserror::Error;
 pub mod symbols;
 pub use symbols::Symbols;
 
+use self::utils::compute_symbol_size;
+
 mod utils;
 
 /// A primary sliver resulting from an encoding of a blob.
@@ -79,7 +81,7 @@ thread_local! {
 /// number of shards, or if the number of source symbols of the secondary encoding equal to or
 /// greater than 2/3 of the number of shards.
 ///
-/// Panics if the number of primary or secondary source symbols is larger than
+/// Panics if the number of primary or secondary source symbols is 0 or larger than
 /// [`MAX_SOURCE_SYMBOLS_PER_BLOCK`].
 ///
 /// [rfc6330s5.6]: https://datatracker.ietf.org/doc/html/rfc6330#section-5.6
@@ -179,14 +181,13 @@ pub trait EncodingAxis: Clone + PartialEq + Eq + Default {
     /// Whether this corresponds to the primary (true) or secondary (false) encoding.
     const IS_PRIMARY: bool;
 
-    /// Computes the index of the [`Sliver`] starting from the index of the [`SliverPair`].
+    /// Computes the index of the [`Sliver`] of the corresponding axis starting from the index of
+    /// the [`SliverPair`].
     ///
-    /// This is needed because primary slivers are assigned in ascending `pair_index` order, while
-    /// secondary slivers are assigned in descending `pair_index` order. I.e., the first primary
-    /// sliver is contained in the first sliver pair, but the first secondary sliver is contained in
-    /// the last sliver pair.
-    // TODO(giac): Point to the redstuff documentation when ready!
-    fn sliver_index_from_pair_index(pair_index: usize) -> usize;
+    /// See [`EncodingConfig::sliver_index_from_pair_index`] for further details.
+    fn sliver_index_from_pair_index(pair_index: u32) -> u32 {
+        get_encoding_config().sliver_index_from_pair_index::<Self>(pair_index)
+    }
 }
 
 /// Marker type to indicate the primary encoding.
@@ -196,7 +197,7 @@ impl EncodingAxis for Primary {
     type OrthogonalAxis = Secondary;
     const IS_PRIMARY: bool = true;
 
-    fn sliver_index_from_pair_index(pair_index: usize) -> usize {
+    fn sliver_index_from_pair_index(pair_index: u32) -> u32 {
         pair_index
     }
 }
@@ -207,10 +208,6 @@ pub struct Secondary;
 impl EncodingAxis for Secondary {
     type OrthogonalAxis = Primary;
     const IS_PRIMARY: bool = false;
-
-    fn sliver_index_from_pair_index(pair_index: usize) -> usize {
-        get_encoding_config().n_shards as usize - pair_index - 1
-    }
 }
 
 /// Encoded data corresponding to a single [`EncodingAxis`] assigned to one shard.
@@ -260,7 +257,7 @@ impl<T: EncodingAxis> Sliver<T> {
     /// Panics if `self.data.len() < index * (symbol.len() + 1)` and if the symbol size does not
     /// match the length specified in the [`Symbols`] struct.
     pub fn copy_symbol_to(&mut self, index: usize, symbol: &[u8]) -> &mut Self {
-        assert!(symbol.len() == self.symbols.symbol_size());
+        assert!(symbol.len() == self.symbols.symbol_usize());
         self.symbols[index].copy_from_slice(symbol);
         self
     }
@@ -277,7 +274,7 @@ impl<T: EncodingAxis> Sliver<T> {
     pub fn recovery_symbols(&self) -> Result<Symbols, RecoveryError> {
         Ok(Symbols::new(
             self.get_sliver_encoder()?.encode_all().flatten().collect(),
-            self.symbols.symbol_size() as u16, // The symbol size remains unvaried when re-encoding.
+            self.symbols.symbol_size(), // The symbol size remains unvaried when re-encoding.
         ))
     }
 
@@ -322,14 +319,14 @@ impl<T: EncodingAxis> Sliver<T> {
     /// config.
     pub fn recovery_symbol_for_sliver(
         &self,
-        self_pair_idx: usize,
-        target_pair_idx: usize,
+        self_pair_idx: u32,
+        target_pair_idx: u32,
     ) -> Result<DecodingSymbol, RecoveryError> {
         let (self_sliver_idx, other_sliver_idx) =
             Self::relative_sliver_indices(self_pair_idx, target_pair_idx);
         Ok(DecodingSymbol {
-            index: self_sliver_idx as u32,
-            data: self.single_recovery_symbol(other_sliver_idx as u32)?,
+            index: self_sliver_idx,
+            data: self.single_recovery_symbol(other_sliver_idx)?,
         })
     }
 
@@ -390,7 +387,7 @@ impl<T: EncodingAxis> Sliver<T> {
     /// (`self_pair_idx`), while the `data` should be taken from position
     /// `n_shards - other_pair_idx - 1` on the expanded source primary sliver.
     /// The opposite conversion happens when recovering a primary sliver.
-    fn relative_sliver_indices(self_pair_idx: usize, other_pair_idx: usize) -> (usize, usize) {
+    fn relative_sliver_indices(self_pair_idx: u32, other_pair_idx: u32) -> (u32, u32) {
         (
             T::sliver_index_from_pair_index(self_pair_idx),
             T::OrthogonalAxis::sliver_index_from_pair_index(other_pair_idx),
@@ -435,15 +432,15 @@ impl SliverPair {
     /// Panics if `target_pair_idx` is larger than `n_shards` in the encoding config.
     pub fn recovery_symbol_for_sliver<T: EncodingAxis>(
         &self,
-        target_pair_idx: usize,
+        target_pair_idx: u32,
     ) -> Result<DecodingSymbol, RecoveryError> {
         match T::IS_PRIMARY {
             false => self
                 .primary
-                .recovery_symbol_for_sliver(self.index() as usize, target_pair_idx),
+                .recovery_symbol_for_sliver(self.index(), target_pair_idx),
             true => self
                 .secondary
-                .recovery_symbol_for_sliver(self.index() as usize, target_pair_idx),
+                .recovery_symbol_for_sliver(self.index(), target_pair_idx),
         }
     }
 
@@ -464,7 +461,7 @@ impl SliverPair {
     /// Panics if `target_pair_idx` is larger than `n_shards` in the encoding config.
     pub fn recovery_symbols_for_sliver(
         &self,
-        target_pair_idx: usize,
+        target_pair_idx: u32,
     ) -> Result<RecoverySymbolPair, RecoveryError> {
         Ok(RecoverySymbolPair {
             primary: self.recovery_symbol_for_sliver::<Primary>(target_pair_idx)?,
@@ -495,6 +492,10 @@ pub struct EncodingConfig {
 
 impl EncodingConfig {
     fn new(source_symbols_primary: u16, source_symbols_secondary: u16, n_shards: u32) -> Self {
+        assert!(
+            source_symbols_primary * source_symbols_secondary > 0,
+            "the number of source symbols must not be 0"
+        );
         assert!(
             3 * (source_symbols_primary as u32) < n_shards,
             "the primary encoding can be at most a 1/3 encoding"
@@ -549,15 +550,37 @@ impl EncodingConfig {
     /// symbol size supported by RaptorQ.
     #[inline]
     pub fn max_blob_size(&self) -> usize {
-        self.source_symbols_primary as usize
-            * self.source_symbols_secondary as usize
-            * MAX_SYMBOL_SIZE
+        self.source_symbols_per_blob() * MAX_SYMBOL_SIZE
     }
 
     /// The number of symbols a blob is split into.
     #[inline]
     pub fn source_symbols_per_blob(&self) -> usize {
         self.source_symbols_primary as usize * self.source_symbols_secondary as usize
+    }
+
+    /// The symbol size when encoding a blob of size `blob_size`.
+    ///
+    /// Returns `None` if the computed symbol size is larger than [`MAX_SYMBOL_SIZE`].
+    #[inline]
+    pub fn symbol_size_for_blob(&self, blob_size: usize) -> Option<u16> {
+        compute_symbol_size(blob_size, self.source_symbols_per_blob())
+    }
+
+    /// Computes the index of the [`Sliver`] of the axis specified by the generic parameter starting
+    /// from the index of the [`SliverPair`].
+    ///
+    /// This is needed because primary slivers are assigned in ascending `pair_index` order, while
+    /// secondary slivers are assigned in descending `pair_index` order. I.e., the first primary
+    /// sliver is contained in the first sliver pair, but the first secondary sliver is contained in
+    /// the last sliver pair.
+    // TODO(giac): Point to the redstuff documentation when ready!
+    pub fn sliver_index_from_pair_index<T: EncodingAxis>(&self, pair_index: u32) -> u32 {
+        if T::IS_PRIMARY {
+            pair_index
+        } else {
+            self.n_shards - pair_index - 1
+        }
     }
 
     /// Returns an [`Encoder`] to perform a single primary or secondary encoding of the provided
@@ -589,9 +612,9 @@ impl EncodingConfig {
     ///
     /// # Errors
     ///
-    /// Returns an [`DataTooLargeError`] if the `blob` is too large to be encoded.
+    /// Returns a [`DataTooLargeError`] if the `blob` is too large to be encoded.
     pub fn get_blob_encoder(&self, blob: &[u8]) -> Result<BlobEncoder, DataTooLargeError> {
-        BlobEncoder::new(blob, self)
+        BlobEncoder::new(self, blob)
     }
 }
 
@@ -648,13 +671,13 @@ impl Encoder {
         Ok(Self {
             raptorq_encoder: SourceBlockEncoder::with_encoding_plan2(
                 0,
-                &utils::get_transmission_info(symbol_size),
+                &utils::get_transmission_info(symbol_size.into()),
                 data,
                 encoding_plan,
             ),
             n_source_symbols,
             n_shards,
-            symbol_size: symbol_size.try_into().expect("bounds checked above"),
+            symbol_size,
         })
     }
 
@@ -725,7 +748,6 @@ impl Encoder {
 }
 
 /// A single symbol used for decoding, consisting of the data and the symbol's index.
-// TODO(mlegner): align this with the `Symbols` struct added in #61?
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecodingSymbol {
     /// The index of the symbol.
@@ -779,7 +801,7 @@ impl Decoder {
         }
     }
 
-    /// Attempts to encode the source data from the provided iterator over
+    /// Attempts to decode the source data from the provided iterator over
     /// [`DecodingSymbol`s][DecodingSymbol].
     ///
     /// Returns the source data as a byte vector if decoding succeeds or `None` if decoding fails.
@@ -832,7 +854,7 @@ pub struct BlobEncoder<'a> {
     /// `source_symbols_primary * symbol_size`.
     columns: Vec<Vec<u8>>,
     /// The size of the encoded and decoded symbols.
-    symbol_size: usize,
+    symbol_size: u16,
     /// Reference to the encoding configuration of this encoder.
     config: &'a EncodingConfig,
 }
@@ -843,16 +865,17 @@ impl<'a> BlobEncoder<'a> {
     ///
     /// This creates the message matrix, padding with zeros if necessary. The actual encoding can be
     /// performed with the [`encode()`][Self::encode] method.
-    pub fn new(blob: &[u8], config: &'a EncodingConfig) -> Result<Self, DataTooLargeError> {
+    pub fn new(config: &'a EncodingConfig, blob: &[u8]) -> Result<Self, DataTooLargeError> {
         let Some(symbol_size) =
             utils::compute_symbol_size(blob.len(), config.source_symbols_per_blob())
         else {
             return Err(DataTooLargeError);
         };
+        let symbol_usize = symbol_size as usize;
         let n_columns = config.source_symbols_secondary as usize;
         let n_rows = config.source_symbols_primary as usize;
-        let row_step = n_columns * symbol_size;
-        let column_step = n_rows * symbol_size;
+        let row_step = n_columns * symbol_usize;
+        let column_step = n_rows * symbol_usize;
 
         // Initializing rows and columns with 0s implicitly takes care of padding.
         let mut rows = vec![vec![0u8; row_step]; n_rows];
@@ -862,9 +885,9 @@ impl<'a> BlobEncoder<'a> {
             row[..chunk.len()].copy_from_slice(chunk);
         }
         for (c, col) in columns.iter_mut().enumerate() {
-            for (r, target_chunk) in col.chunks_mut(symbol_size).enumerate() {
-                let copy_index_start = min(r * row_step + c * symbol_size, blob.len());
-                let copy_index_end = min(copy_index_start + symbol_size, blob.len());
+            for (r, target_chunk) in col.chunks_mut(symbol_usize).enumerate() {
+                let copy_index_start = min(r * row_step + c * symbol_usize, blob.len());
+                let copy_index_end = min(copy_index_start + symbol_usize, blob.len());
                 target_chunk[..copy_index_end - copy_index_start]
                     .copy_from_slice(&blob[copy_index_start..copy_index_end])
             }
@@ -886,11 +909,11 @@ impl<'a> BlobEncoder<'a> {
         // Initialize `n_shards` empty sliver pairs with the correct lengths and indices.
         for i in 0..self.config.n_shards {
             sliver_pairs.push(SliverPair {
-                primary: Sliver::new_empty(n_columns, self.symbol_size as u16, i),
+                primary: Sliver::new_empty(n_columns, self.symbol_size, i),
                 secondary: Sliver::new_empty(
                     n_rows,
-                    self.symbol_size as u16,
-                    Secondary::sliver_index_from_pair_index(i as usize) as u32,
+                    self.symbol_size,
+                    Secondary::sliver_index_from_pair_index(i),
                 ),
             })
         }
@@ -980,12 +1003,12 @@ mod tests {
         fn copy_symbol_to_modifies_empty_sliver_correctly(
             sliver_n_symbols: usize,
             index: usize,
-            symbol_size: usize,
+            symbol_size: u16,
             symbol: &[u8],
             expected_sliver_data: &[u8],
         ) {
             assert_eq!(
-                Sliver::<Primary>::new_empty(sliver_n_symbols, symbol_size as u16, 0)
+                Sliver::<Primary>::new_empty(sliver_n_symbols, symbol_size, 0)
                     .copy_symbol_to(index, symbol)
                     .symbols
                     .data(),
@@ -1275,10 +1298,9 @@ mod tests {
         for pair in pairs.iter() {
             // Get a random subset of recovery symbols.
             let recovery_symbols: Vec<_> = get_random_subset(
-                pairs.iter().map(|p| {
-                    p.recovery_symbols_for_sliver(pair.index() as usize)
-                        .unwrap()
-                }),
+                pairs
+                    .iter()
+                    .map(|p| p.recovery_symbols_for_sliver(pair.index()).unwrap()),
                 &mut rng,
                 n_to_recover_from,
             )
@@ -1417,8 +1439,8 @@ mod tests {
         let secondary_slivers = (0..n_shards)
             .map(|target_idx| {
                 Sliver::<Secondary>::recover_sliver(
-                    primary_slivers.iter().enumerate().map(|(source_idx, p)| {
-                        p.recovery_symbol_for_sliver(source_idx, target_idx)
+                    primary_slivers.iter().map(|p| {
+                        p.recovery_symbol_for_sliver(p.index, target_idx as u32)
                             .unwrap()
                     }),
                     (n_shards - 1 - target_idx) as u32,
@@ -1436,7 +1458,7 @@ mod tests {
                     .take(2 * f + 1)
                     .enumerate()
                     .map(|(source_idx, s)| {
-                        s.recovery_symbol_for_sliver(source_idx, target_idx)
+                        s.recovery_symbol_for_sliver(source_idx as u32, target_idx as u32)
                             .unwrap()
                     }),
                 target_idx as u32,

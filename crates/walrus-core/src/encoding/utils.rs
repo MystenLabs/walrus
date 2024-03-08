@@ -3,13 +3,11 @@
 
 use raptorq::{EncodingPacket, ObjectTransmissionInformation};
 
-use super::MAX_SYMBOL_SIZE;
-
 /// Creates a new [`ObjectTransmissionInformation`] for the given `symbol_size`.
 ///
 /// # Panics
 ///
-/// Panics if the `symbol_size` is larger than [`MAX_SYMBOL_SIZE`][`super::MAX_SYMBOL_SIZE`].
+/// Panics if the `symbol_size` is larger than [`MAX_SYMBOL_SIZE`][super::MAX_SYMBOL_SIZE].
 pub(super) fn get_transmission_info(symbol_size: usize) -> ObjectTransmissionInformation {
     ObjectTransmissionInformation::new(
         0,
@@ -26,20 +24,16 @@ pub(super) fn get_transmission_info(symbol_size: usize) -> ObjectTransmissionInf
 /// data length, `data_length`.
 ///
 /// Returns `None` if `n_symbols == 0` or the computed symbol size is larger than
-/// [`MAX_SYMBOL_SIZE`][`super::MAX_SYMBOL_SIZE`].
-pub(super) fn compute_symbol_size(data_length: usize, n_symbols: usize) -> Option<usize> {
+/// [`MAX_SYMBOL_SIZE`][super::MAX_SYMBOL_SIZE].
+#[inline]
+pub(super) fn compute_symbol_size(data_length: usize, n_symbols: usize) -> Option<u16> {
     if n_symbols == 0 {
         return None;
     }
     if data_length == 0 {
         return Some(0);
     }
-    let result = (data_length - 1) / n_symbols + 1;
-    if result > MAX_SYMBOL_SIZE {
-        None
-    } else {
-        Some(result)
-    }
+    u16::try_from((data_length - 1) / n_symbols + 1).ok()
 }
 
 #[inline]
@@ -52,6 +46,7 @@ mod tests {
     use walrus_test_utils::param_test;
 
     use super::*;
+    use crate::encoding::MAX_SYMBOL_SIZE;
 
     param_test! {
         get_transmission_info_succeeds: [
@@ -86,7 +81,7 @@ mod tests {
     fn compute_symbol_size_matches_expectation(
         data_length: usize,
         n_symbols: usize,
-        expected_result: Option<usize>,
+        expected_result: Option<u16>,
     ) {
         assert_eq!(compute_symbol_size(data_length, n_symbols), expected_result);
     }

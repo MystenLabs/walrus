@@ -74,16 +74,24 @@ impl Symbols {
     }
 
     /// The number of symbols.
-    pub fn n_symbols(&self) -> usize {
-        self.data.len() / self.symbol_size()
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.data.len() / self.symbol_usize()
+    }
+
+    /// True iff it does not contain any symbols.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     /// Obtain a reference to the symbol at `index`.
     ///
     /// Returns an `Option` with a reference to the symbol at the `index`, if `index` is within the
     /// set of symbols, `None` otherwise.
+    #[inline]
     pub fn get(&self, index: usize) -> Option<&[u8]> {
-        if index >= self.n_symbols() {
+        if index >= self.len() {
             None
         } else {
             Some(&self[index])
@@ -95,7 +103,7 @@ impl Symbols {
     /// Returns an `Option` with a mutable reference to the symbol at the `index`, if `index` is
     /// within the set of symbols, `None` otherwise.
     pub fn get_mut(&mut self, index: usize) -> Option<&mut [u8]> {
-        if index >= self.n_symbols() {
+        if index >= self.len() {
             None
         } else {
             Some(&mut self[index])
@@ -105,6 +113,7 @@ impl Symbols {
     /// Returns a [`DecodingSymbol`] at the provided index.
     ///
     /// Returns `None` if the `index` is out of bounds.
+    #[inline]
     pub fn decoding_symbol_at(
         &self,
         data_index: usize,
@@ -117,13 +126,15 @@ impl Symbols {
     }
 
     /// Returns an iterator of references to symbols.
+    #[inline]
     pub fn to_symbols(&self) -> Chunks<'_, u8> {
-        self.data.chunks(self.symbol_size())
+        self.data.chunks(self.symbol_usize())
     }
 
     /// Returns an iterator of mutable references to symbols.
+    #[inline]
     pub fn to_symbols_mut(&mut self) -> ChunksMut<'_, u8> {
-        let symbol_size = self.symbol_size();
+        let symbol_size = self.symbol_usize();
         self.data.chunks_mut(symbol_size)
     }
 
@@ -132,7 +143,7 @@ impl Symbols {
     /// Returns `None` if the length of [`self.data`][Self::data] is larger than
     /// `u32::MAX * self.symbol_size`.
     pub fn to_decoding_symbols(&self) -> Option<impl Iterator<Item = DecodingSymbol> + '_> {
-        if self.n_symbols() > u32::MAX as usize {
+        if self.len() > u32::MAX as usize {
             None
         } else {
             Some(self.to_symbols().enumerate().map(|(i, s)| DecodingSymbol {
@@ -148,32 +159,49 @@ impl Symbols {
     ///
     /// Returns a [`WrongSymbolSizeError`] error if the provided symbols do not match the
     /// `symbol_size` of the struct.
+    #[inline]
     pub fn extend(&mut self, symbols: &[u8]) -> Result<(), WrongSymbolSizeError> {
-        if symbols.len() % self.symbol_size() != 0 {
+        if symbols.len() % self.symbol_usize() != 0 {
             return Err(WrongSymbolSizeError);
         }
         self.data.extend(symbols);
         Ok(())
     }
 
+    /// Returns the `symbol_size`.
+    #[inline]
+    pub fn symbol_size(&self) -> u16 {
+        self.symbol_size
+    }
+
     /// Returns the `symbol_size` as a `usize`.
-    pub fn symbol_size(&self) -> usize {
+    #[inline]
+    pub fn symbol_usize(&self) -> usize {
         self.symbol_size.into()
     }
 
     /// Returns a reference to the inner vector of `data` representing the symbols.
+    #[inline]
     pub fn data(&self) -> &Vec<u8> {
         &self.data
     }
 
     /// Returns a mutable reference to the inner vector of `data` representing the symbols.
+    #[inline]
     pub fn data_mut(&mut self) -> &mut Vec<u8> {
         &mut self.data
     }
 
     /// Returns the range of the underlying byte vector that contains symbol at index `index`.
+    #[inline]
     pub fn symbol_range(&self, index: usize) -> Range<usize> {
-        self.symbol_size() * index..self.symbol_size() * (index + 1)
+        self.symbol_usize() * index..self.symbol_usize() * (index + 1)
+    }
+
+    /// Returns the underlying byte vector as an owned object.
+    #[inline]
+    pub fn into_vec(self) -> Vec<u8> {
+        self.data
     }
 }
 
