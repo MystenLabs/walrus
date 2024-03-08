@@ -588,6 +588,23 @@ impl EncodingConfig {
     pub fn get_blob_encoder(&self, blob: &[u8]) -> Result<BlobEncoder, DataTooLargeError> {
         BlobEncoder::new(self, blob)
     }
+
+    /// Returns a [`BlobDecoder`] to reconstruct a blob from either [`Primary`] or [`Secondary`]
+    /// slivers.
+    ///
+    /// # Arguments
+    ///
+    /// * `blob_size` - The size of the blob to be decoded.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`DataTooLargeError`] if the `blob_size` is too large to be decoded.
+    pub fn get_blob_decoder<T: EncodingAxis>(
+        &self,
+        blob_size: usize,
+    ) -> Result<BlobDecoder<T>, DataTooLargeError> {
+        BlobDecoder::new(self, blob_size)
+    }
 }
 
 /// Wrapper to perform a single encoding with RaptorQ for the provided parameters.
@@ -952,6 +969,110 @@ impl<'a> BlobEncoder<'a> {
     }
 }
 
+/// Struct to reconstruct a blob from either [`Primary`] (default) or [`Secondary`]
+/// [`Sliver`s][Sliver].
+#[derive(Debug)]
+pub struct BlobDecoder<T: EncodingAxis = Primary> {
+    _decoding_axis: PhantomData<T>,
+    decoders: Vec<Decoder>,
+    blob_size: usize,
+    symbol_size: u16,
+    n_source_symbols: u16,
+}
+
+impl<T: EncodingAxis> BlobDecoder<T> {
+    /// Creates a new `BlobDecoder` to decode a blob of size `blob_size` using the provided
+    /// configuration.
+    ///
+    /// The generic parameter specifies from which type of slivers the decoding will be performed.
+    ///
+    /// This function creates the necessary [`Decoder`s][Decoder] for the decoding; actual decoding
+    /// can be performed with the [`decode()`][Self::decode] method.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`DataTooLargeError`] if the `blob_size` is too large to be decoded.
+    pub fn new(config: &EncodingConfig, blob_size: usize) -> Result<Self, DataTooLargeError> {
+        let n_decoders = config.n_source_symbols::<T::OrthogonalAxis>() as usize;
+        let n_source_symbols = config.n_source_symbols::<T>();
+        let Some(symbol_size) = config.symbol_size_for_blob(blob_size) else {
+            return Err(DataTooLargeError);
+        };
+        Ok(Self {
+            _decoding_axis: PhantomData,
+            decoders: vec![Decoder::new(n_source_symbols, symbol_size); n_decoders],
+            blob_size,
+            symbol_size,
+            n_source_symbols,
+        })
+    }
+
+    /// Attempts to decode the source blob from the provided slivers.
+    ///
+    /// Returns the source blob as a byte vector if decoding succeeds or `None` if decoding fails.
+    ///
+    /// Slivers of incorrect length are ignored and silently dropped.
+    ///
+    /// If decoding failed due to an insufficient number of provided slivers, it can be continued
+    /// by additional calls to [`decode`][Self::decode] providing more slivers.
+    pub fn decode(
+        &mut self,
+        slivers: impl IntoIterator<Item = (u32, Sliver<T>)>,
+    ) -> Option<Vec<u8>> {
+        // Depending on the decoding axis, this represents the message matrix's columns (primary)
+        // or rows (secondary).
+        let mut columns_or_rows = Vec::with_capacity(self.decoders.len());
+        let mut decoding_successful = false;
+
+        for (sliver_index, sliver) in slivers {
+            if sliver.symbols.len() != self.decoders.len()
+                || sliver.symbols.symbol_size() != self.symbol_size as usize
+            {
+                // Ignore slivers of incorrect length or incorrect symbol size.
+                // Question(mlegner): Should we return an error instead? Or at least log this?
+                continue;
+            }
+            for (i, symbol) in sliver.symbols.to_symbols().enumerate() {
+                if let Some(decoded_data) = self.decoders[i].decode([DecodingSymbol {
+                    index: sliver_index,
+                    data: symbol.into(),
+                }]) {
+                    // If one decoding succeeds, all succeed as they have identical
+                    // encoding/decoding matrices.
+                    decoding_successful = true;
+                    columns_or_rows.push(decoded_data);
+                }
+            }
+            // Stop decoding as soon as we are done.
+            if decoding_successful {
+                break;
+            }
+        }
+
+        if !decoding_successful {
+            return None;
+        }
+
+        let mut blob: Vec<u8> = if T::IS_PRIMARY {
+            // Primary decoding: transpose columns to get to the original blob.
+            let mut columns: Vec<_> = columns_or_rows.into_iter().map(|c| c.into_iter()).collect();
+            (0..self.n_source_symbols)
+                .flat_map(|_| {
+                    { columns.iter_mut().map(|c| c.take(self.symbol_size.into())) }
+                        .flatten()
+                        .collect::<Vec<u8>>()
+                })
+                .collect()
+        } else {
+            // Secondary decoding: these are the rows and can be used directly as the blob.
+            columns_or_rows.into_iter().flatten().collect()
+        };
+
+        let _ = blob.split_off(self.blob_size);
+        Some(blob)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::ops::Range;
@@ -1115,6 +1236,8 @@ mod tests {
     }
 
     mod blob_encoding {
+        use std::cmp::max;
+
         use super::*;
 
         param_test! {
@@ -1178,6 +1301,53 @@ mod tests {
             let blob_encoder = config.get_blob_encoder(blob).unwrap();
             assert_eq!(blob_encoder.rows, rows);
             assert_eq!(blob_encoder.columns, columns);
+        }
+
+        #[test]
+        fn test_blob_encode_decode() {
+            let blob = large_random_data(31415);
+            let source_symbols_primary = 11;
+            let source_symbols_secondary = 23;
+
+            let config = EncodingConfig::new(
+                source_symbols_primary,
+                source_symbols_secondary,
+                3 * (source_symbols_primary + source_symbols_secondary) as u32,
+            );
+
+            let slivers_for_decoding = get_random_subset(
+                config.get_blob_encoder(&blob).unwrap().encode(),
+                &mut StdRng::seed_from_u64(42),
+                max(source_symbols_primary, source_symbols_secondary) as usize,
+            );
+
+            let mut primary_decoder = config.get_blob_decoder::<Primary>(blob.len()).unwrap();
+            assert_eq!(
+                primary_decoder
+                    .decode(
+                        slivers_for_decoding
+                            .clone()
+                            .map(|p| (p.index, p.primary))
+                            .take(source_symbols_primary.into())
+                    )
+                    .unwrap(),
+                blob
+            );
+
+            let mut secondary_decoder = config.get_blob_decoder::<Secondary>(blob.len()).unwrap();
+            assert_eq!(
+                secondary_decoder
+                    .decode(
+                        slivers_for_decoding
+                            .map(|p| (
+                                config.sliver_index_from_pair_index::<Secondary>(p.index),
+                                p.secondary
+                            ))
+                            .take(source_symbols_secondary.into())
+                    )
+                    .unwrap(),
+                blob
+            );
         }
     }
 
