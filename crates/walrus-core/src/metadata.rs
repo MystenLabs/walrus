@@ -8,7 +8,6 @@ use fastcrypto::hash::Blake2b256;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    assert_or_err,
     merkle::{MerkleTree, Node as MerkleNode},
     BlobId,
     EncodingType,
@@ -72,7 +71,7 @@ impl UnverifiedBlobMetadataWithId {
         n_shards: NonZeroUsize,
     ) -> Result<VerifiedBlobMetadataWithId, VerificationError> {
         let n_hashes = self.metadata().hashes.len();
-        assert_or_err!(
+        crate::ensure!(
             n_hashes == n_shards.get(),
             VerificationError::InvalidHashCount {
                 actual: n_hashes,
@@ -85,7 +84,7 @@ impl UnverifiedBlobMetadataWithId {
             EncodingType::RedStuff,
             self.metadata().unencoded_length,
         );
-        assert_or_err!(
+        crate::ensure!(
             computed_blob_id == *self.blob_id(),
             VerificationError::BlobIdMismatch
         );

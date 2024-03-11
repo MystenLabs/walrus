@@ -120,7 +120,7 @@ impl From<EncodingType> for u8 {
 
 /// Returns an error if the condition evaluates to false.
 #[macro_export]
-macro_rules! assert_or_err {
+macro_rules! ensure {
     ($cond:expr, $err:expr $(,)?) => {
         if !$cond {
             return Err($err);
