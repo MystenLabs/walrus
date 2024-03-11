@@ -433,5 +433,70 @@ module blob_store::blob_tests {
         system
     }
 
+    #[test,expected_failure(abort_code=blob::ERROR_RESOURCE_BOUNDS)]
+    public fun test_blob_unhappy_extend() : system::System<TESTTAG, TESTWAL> {
+
+        let ctx = tx_context::dummy();
+        let tag2 = TESTTAG{};
+
+        // A test coin.
+        let fake_coin = coin::mint_for_testing<TESTWAL>(100000000, &mut ctx);
+
+        // Create a new committee
+        let committee = committee::committee_for_testing(0);
+
+        // Create a new system object
+        let system : system::System<TESTTAG,TESTWAL> = system::new(&tag2, committee,
+            1000000000, 5, &mut ctx);
+
+        // Get some space for a few epochs
+        let (storage, fake_coin) = system::reserve_space(
+                &mut system, 10000, 3, fake_coin, &mut ctx);
+
+        // Get a longer storage period
+        let (storage_long, fake_coin) = system::reserve_space(
+                &mut system, 10000, 5, fake_coin, &mut ctx);
+
+        // Split by period
+        let trailing_storage =
+            split_by_epoch(&mut storage_long, 3, &mut ctx);
+
+
+        // Register a Blob
+        let blob1 = blob::register(&system, storage, 0xABC, 5000, 0x1, &mut ctx);
+
+        // Set certify
+        let certify_message = blob::certified_blob_message_for_testing<TESTTAG>(0, 0xABC);
+        blob::certify(&system, certify_message, &mut blob1);
+
+        // Advance epoch -- to epoch 1
+        let committee = committee::committee_for_testing(1);
+        let epoch_accounts = system::next_epoch(&mut system, committee, 1000, 3);
+        sa::burn_for_testing(epoch_accounts);
+
+        // Advance epoch -- to epoch 2
+        system::set_done_for_testing(&mut system);
+        let committee = committee::committee_for_testing(2);
+        let epoch_accounts = system::next_epoch(&mut system, committee, 1000, 3);
+        sa::burn_for_testing(epoch_accounts);
+
+        // Advance epoch -- to epoch 3
+        system::set_done_for_testing(&mut system);
+        let committee = committee::committee_for_testing(3);
+        let epoch_accounts = system::next_epoch(&mut system, committee, 1000, 3);
+        sa::burn_for_testing(epoch_accounts);
+
+        // Try to extend after expiry.
+
+        // Now extend the blo
+        blob::extend(&system, &mut blob1, trailing_storage);
+
+        // Destroy the blob
+        blob::destroy_blob(&system, blob1);
+
+        destroy(storage_long);
+        coin::burn_for_testing(fake_coin);
+        system
+    }
 
 }
