@@ -1,3 +1,6 @@
+// Copyright (c) Mysten Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Service functionality for Walrus.
 
 /// Configuration module.
@@ -6,6 +9,8 @@ pub mod config;
 pub mod crypto;
 /// Encoding utilities.
 pub mod encoding;
+/// Mapping from sliver pairs to shards.
+pub mod mapping;
 /// Client for interacting with Move.
 pub mod move_client;
 /// Server for the Walrus service.

@@ -1,0 +1,3 @@
+contracts/blob_store/sources/tests/bls_tests.move
+contracts/blob_store/sources/tests/committee_cert_tests.move
+scripts/move_coverage.sh

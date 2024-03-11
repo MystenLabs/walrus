@@ -1,12 +1,12 @@
+// Copyright (c) Mysten Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 use std::{collections::HashMap, net::SocketAddr, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
-use walrus_core::Epoch;
+use walrus_core::{Epoch, ShardIndex};
 
 use crate::crypto::{KeyPair, PublicKey};
-
-/// Represents the index of a shard.
-pub type ShardIndex = u32;
 
 /// Represents a storage node identifier.
 #[derive(Serialize, Deserialize)]
@@ -53,10 +53,6 @@ pub struct GlobalPublicParameters {
 
 /// Represents the private parameters of a shard.
 pub struct ShardPrivateParameters {
-    /// The network address of the shard.
-    pub network_address: SocketAddr,
-    /// The metrics address of the shard.
-    pub metrics_address: SocketAddr,
     /// The storage directory of the shard.
     pub storage_directory: PathBuf,
 }
@@ -65,15 +61,10 @@ pub struct ShardPrivateParameters {
 pub struct StorageNodePrivateParameters {
     /// The keypair of the storage node.
     pub keypair: KeyPair,
+    /// The network address of the shard.
+    pub network_address: SocketAddr,
+    /// The metrics address of the shard.
+    pub metrics_address: SocketAddr,
     /// The private parameters shards that the storage node is responsible for.
     pub shards: HashMap<ShardIndex, ShardPrivateParameters>,
-}
-
-impl StorageNodePrivateParameters {
-    /// Returns the network address of a particular shard index managed by the storage node.
-    pub fn network_address(&self, shard_index: ShardIndex) -> Option<SocketAddr> {
-        self.shards
-            .get(&shard_index)
-            .map(|parameters| parameters.network_address)
-    }
 }

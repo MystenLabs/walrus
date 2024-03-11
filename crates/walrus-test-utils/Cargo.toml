@@ -7,6 +7,7 @@ license = { workspace = true }
 version = { workspace = true }
 
 [dependencies]
+tempfile = { workspace = true }
 
 [lints]
 workspace = true

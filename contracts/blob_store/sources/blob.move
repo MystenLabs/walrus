@@ -6,10 +6,19 @@ module blob_store::blob {
     use sui::object::{Self, UID};
     use sui::tx_context::TxContext;
     use sui::bcs;
+    use sui::event;
+
+    use std::option::{Self, Option};
 
     use blob_store::committee::{Self, CertifiedMessage};
     use blob_store::system::{Self, System};
-    use blob_store::storage_resource::{Storage, start_epoch, end_epoch, storage_size, destroy};
+    use blob_store::storage_resource::{
+        Storage,
+        start_epoch,
+        end_epoch,
+        storage_size,
+        fuse_periods,
+        destroy};
 
     // A certify blob message structure
     const BLOB_CERT_MSG_TYPE: u8 = 1;
@@ -21,6 +30,28 @@ module blob_store::blob {
     const ERROR_WRONG_EPOCH: u64 = 4;
     const ERROR_ALREADY_CERTIFIED: u64 = 5;
     const ERROR_INVALID_BLOB_ID: u64 = 6;
+    const ERROR_NOT_CERTIFIED : u64 = 7;
+
+    // Event definitions
+
+    // Signals a blob with meta-data is registered.
+    struct BlobRegistered<phantom TAG> has copy, drop {
+        epoch: u64,
+        blob_id: u256,
+        size: u64,
+        erasure_code_type: u8,
+        end_epoch: u64,
+    }
+
+    // Signals a blob is certified.
+    struct BlobCertified<phantom TAG> has copy, drop {
+        epoch: u64,
+        blob_id: u256,
+        end_epoch: u64,
+    }
+
+
+    // Object definitions
 
     /// The blob structure represents a blob that has been registered to with some storage,
     /// and then may eventually be certified as being available in the system.
@@ -30,7 +61,7 @@ module blob_store::blob {
         blob_id: u256,
         size: u64,
         erasure_code_type: u8,
-        certified: bool,
+        certified: option::Option<u64>, // Store the epoch first certified
         storage: Storage<TAG>,
     }
 
@@ -52,8 +83,8 @@ module blob_store::blob {
         b.erasure_code_type
     }
 
-    public fun certified<TAG>(b: &Blob<TAG>) : bool {
-        b.certified
+    public fun certified<TAG>(b: &Blob<TAG>) : &Option<u64> {
+        &b.certified
     }
 
     public fun storage<TAG>(b: &Blob<TAG>) : &Storage<TAG> {
@@ -61,7 +92,7 @@ module blob_store::blob {
     }
 
     /// Register a new blob in the system.
-    public fun register<TAG,WAL:store>(
+    public fun register<TAG,WAL>(
         sys: &System<TAG,WAL>,
         storage: Storage<TAG>,
         blob_id: u256,
@@ -81,6 +112,15 @@ module blob_store::blob {
         // TODO(#42): cryptographically verify that the Blob ID authenticates
         // both the size and fe_type.
 
+        // Emit register event
+        event::emit(BlobRegistered<TAG> {
+            epoch: stored_epoch,
+            blob_id,
+            size,
+            erasure_code_type,
+            end_epoch: end_epoch(&storage),
+        });
+
         Blob {
             id,
             stored_epoch,
@@ -88,7 +128,7 @@ module blob_store::blob {
             size,
             //
             erasure_code_type,
-            certified: false,
+            certified: option::none(),
             storage,
         }
 
@@ -128,7 +168,7 @@ module blob_store::blob {
 
     /// Certify that a blob will be available in the storage system until the end epoch of the
     /// storage associated with it.
-    public fun certify<TAG, WAL:store>(
+    public fun certify<TAG, WAL>(
         sys: &System<TAG, WAL>,
         message: CertifiedBlobMessage<TAG>,
         blob: &mut Blob<TAG>,
@@ -138,7 +178,7 @@ module blob_store::blob {
         assert!(blob_id(blob) == message.blob_id, ERROR_INVALID_BLOB_ID);
 
         // Check that the blob is not already certified
-        assert!(!blob.certified, ERROR_ALREADY_CERTIFIED);
+        assert!(!option::is_some(&blob.certified), ERROR_ALREADY_CERTIFIED);
 
         // Check that the message is from the current epoch
         assert!(message.epoch == system::epoch(sys), ERROR_WRONG_EPOCH);
@@ -147,11 +187,18 @@ module blob_store::blob {
         assert!(message.epoch < end_epoch(storage(blob)), ERROR_RESOURCE_BOUNDS);
 
         // Mark the blob as certified
-        blob.certified = true;
+        blob.certified = option::some(message.epoch);
+
+        // Emit certified event
+        event::emit(BlobCertified<TAG> {
+            epoch: message.epoch,
+            blob_id: message.blob_id,
+            end_epoch: end_epoch(storage(blob)),
+        });
     }
 
     /// After the period of validity expires for the blob we can destroy the blob resource.
-    public fun destroy_blob<TAG, WAL:store>(
+    public fun destroy_blob<TAG, WAL>(
         sys: &System<TAG, WAL>,
         blob: Blob<TAG>,
     ){
@@ -174,10 +221,42 @@ module blob_store::blob {
         destroy(storage);
     }
 
+    /// Extend the period of validity of a blob with a new storage resource.
+    /// The new storage resource must be the same size as the storage resource
+    /// used in the blob, and have a longer period of validity.
+    public fun extend<TAG,WAL>(
+        sys: &System<TAG, WAL>,
+        blob: &mut Blob<TAG>,
+        extension: Storage<TAG>){
 
-    public fun extend(){
-        // TODO: implement at a later time
-        assert!(false, 0);
+        // We only extend certified blobs within their period of validity
+        // with storage that extends this period. First we check for these
+        // conditions.
+
+        // Assert this is a certified blob
+        assert!(option::is_some(&blob.certified), ERROR_NOT_CERTIFIED);
+
+        // Check the blob is within its availability period
+        assert!(system::epoch(sys) < end_epoch(storage(blob)), ERROR_RESOURCE_BOUNDS);
+
+        // Check that the extension is valid, and the end
+        // period of the extension is after the current period.
+        assert!(end_epoch(&extension) > end_epoch(storage(blob)), ERROR_RESOURCE_BOUNDS);
+
+        // Note: if the amounts do not match there will be an abort here.
+        fuse_periods(&mut blob.storage , extension);
+
+        // Emit certified event
+        //
+        // Note: We use the original certified period since for the purposes of
+        // reconfiguration this is the committee that has a quorum that hold the
+        // resource.
+        event::emit(BlobCertified<TAG> {
+            epoch: *option::borrow(&blob.certified),
+            blob_id: blob.blob_id,
+            end_epoch: end_epoch(storage(blob)),
+        });
+
     }
 
     // Testing Functions

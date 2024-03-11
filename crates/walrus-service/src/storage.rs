@@ -1,212 +1,196 @@
+// Copyright (c) Mysten Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 #![allow(unused)]
-use std::{collections::HashSet, path::Path};
+
+use std::{
+    collections::{hash_map::Entry, HashMap, HashSet},
+    path::Path,
+    sync::Arc,
+};
 
 use anyhow::Context;
 use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Options, DB};
-use walrus_core::BlobId;
+use serde::{Deserialize, Serialize};
+use typed_store::{
+    rocks::{self, DBMap, MetricConf, ReadWriteOptions, RocksDB},
+    Map, TypedStoreError,
+};
+use walrus_core::{
+    merkle::Node as MerkleNode,
+    metadata::{
+        BlobMetadata, BlobMetadataWithId, UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId,
+    },
+    BlobId, ShardIndex,
+};
 
-use crate::config::ShardIndex;
+use self::shard::ShardStorage;
 
-pub type Metadata = Vec<[u8; 32]>;
+mod shard;
 
 /// Storage backing a [`StorageNode`][crate::StorageNode].
 ///
 /// Enables storing blob metadata, which is shared across all shards. The method
 /// [`shard_storage()`][Self::shard_storage] can be used to retrieve shard-specific storage.
+#[derive(Debug)]
 pub(crate) struct Storage {
-    database: DB,
-    shards: HashSet<ShardIndex>,
+    database: Arc<RocksDB>,
+    metadata: DBMap<BlobId, BlobMetadata>,
+    shards: HashMap<ShardIndex, ShardStorage>,
 }
 
 impl Storage {
     const METADATA_COLUMN_FAMILY_NAME: &'static str = "metadata";
 
     /// Opens the storage database located at the specified path, creating the database if absent.
-    pub fn open(path: &Path) -> Result<Self, anyhow::Error> {
+    pub fn open(path: &Path, metrics_config: MetricConf) -> Result<Self, anyhow::Error> {
         let mut db_opts = Options::default();
         db_opts.create_missing_column_families(true);
         db_opts.create_if_missing(true);
 
-        let database = DB::open_cf_descriptors(&db_opts, path, [Self::metadata_descriptor()])
-            .context("storage unable to open database")?;
+        let (metadata_cf_name, metadata_options) = Self::metadata_options();
+        let database = rocks::open_cf_opts(
+            path,
+            Some(db_opts),
+            metrics_config,
+            &[(metadata_cf_name, metadata_options)],
+        )?;
+        let metadata = DBMap::reopen(
+            &database,
+            Some(metadata_cf_name),
+            &ReadWriteOptions::default(),
+        )?;
 
         Ok(Self {
             database,
-            shards: HashSet::default(),
+            metadata,
+            shards: HashMap::default(),
         })
     }
 
-    /// Creates storage for the specified shard, or does nothing if the storage already exists.
-    pub fn create_storage_for_shard(&mut self, shard: ShardIndex) -> Result<(), anyhow::Error> {
-        if !self.shards.contains(&shard) {
-            ShardStorage::create(shard, &mut self.database)?;
-            self.shards.insert(shard);
+    /// Creates storage for the specified shard, and returns it, or just returns the shard's storage
+    /// if it already exists.
+    pub fn create_storage_for_shard(
+        &mut self,
+        shard: ShardIndex,
+    ) -> Result<&ShardStorage, TypedStoreError> {
+        match self.shards.entry(shard) {
+            Entry::Occupied(entry) => Ok(entry.into_mut()),
+            Entry::Vacant(entry) => {
+                let shard_storage = ShardStorage::create_or_reopen(shard, &self.database)?;
+                Ok(entry.insert(shard_storage))
+            }
         }
-
-        Ok(())
     }
 
     /// Returns a handle over the storage for a single shard.
-    pub fn shard_storage(&self, shard: ShardIndex) -> Option<ShardStorage> {
-        self.shards
-            .contains(&shard)
-            .then(|| ShardStorage::new(shard, &self.database))
+    pub fn shard_storage(&self, shard: ShardIndex) -> Option<&ShardStorage> {
+        self.shards.get(&shard)
     }
 
-    /// Store the metadata associated with the provided blob_id.
-    pub fn put_metadata(&self, blob_id: BlobId, metadata: &Metadata) -> Result<(), anyhow::Error> {
-        // TODO(jsmith): Guarantee that serialization of metadata representation is
-        // within bcs::MAX_SEQUENCE_LENGTH and otherwise infallible.
-        let encoded_metadata =
-            bcs::to_bytes(metadata).expect("metadata should be always serializable");
+    /// Store the verified metadata.
+    pub fn put_verified_metadata(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+    ) -> Result<(), TypedStoreError> {
+        self.put_metadata(metadata.blob_id(), metadata.metadata())
+    }
 
-        self.database
-            .put_cf(self.metadata_handle(), blob_id, encoded_metadata)
-            .context("unable to put metadata")
+    fn put_metadata(
+        &self,
+        blob_id: &BlobId,
+        metadata: &BlobMetadata,
+    ) -> Result<(), TypedStoreError> {
+        self.metadata.insert(blob_id, metadata)
     }
 
     /// Gets the metadata for a given [`BlobId`] or None.
-    pub fn get_metadata(&self, blob_id: &BlobId) -> Result<Option<Metadata>, anyhow::Error> {
-        self.database
-            .get_pinned_cf(self.metadata_handle(), blob_id)
-            .context("error retrieving metadata")?
-            .map(|raw| bcs::from_bytes(raw.as_ref()).context("failed to decode metadata"))
-            .transpose()
-    }
-
-    fn descriptors(shards: &[ShardIndex]) -> Vec<ColumnFamilyDescriptor> {
-        let mut descriptors = vec![Self::metadata_descriptor()];
-        descriptors.extend(shards.iter().map(|shard| ShardStorage::descriptors(*shard)));
-
-        descriptors
-    }
-
-    fn metadata_descriptor() -> ColumnFamilyDescriptor {
-        let mut options = Options::default();
-
-        // TODO(jsmith): Tune storage for metadata and slivers
-        // See https://rocksdb.org/blog/2021/05/26/integrated-blob-db.html
-        options.set_enable_blob_files(true);
-
-        ColumnFamilyDescriptor::new(Self::METADATA_COLUMN_FAMILY_NAME, options)
-    }
-
-    fn metadata_handle(&self) -> &ColumnFamily {
-        self.database
-            .cf_handle(Self::METADATA_COLUMN_FAMILY_NAME)
-            .expect("metadata column family must exist")
-    }
-}
-
-pub(crate) struct ShardStorage<'a> {
-    id: ShardIndex,
-    database: &'a DB,
-    shard_columns: &'a ColumnFamily,
-}
-
-impl<'a> ShardStorage<'a> {
-    fn new(id: ShardIndex, database: &'a DB) -> Self {
-        let shard_columns = database
-            .cf_handle(&Self::column_family_name(id))
-            .expect("shard's column family must be present in database");
-
-        Self {
-            id,
-            database,
-            shard_columns,
-        }
-    }
-
-    fn create(id: ShardIndex, database: &'a mut DB) -> Result<Self, anyhow::Error> {
-        let mut options = Options::default();
-        // TODO(jsmith): Tune storage for metadata and slivers
-        // See https://rocksdb.org/blog/2021/05/26/integrated-blob-db.html
-        options.set_enable_blob_files(true);
-
-        database.create_cf(Self::column_family_name(id), &options)?;
-
-        Ok(ShardStorage::new(id, database))
-    }
-
-    /// Stores the provided primary or secondary sliver for the given blob ID.
-    pub fn put_sliver(
+    pub fn get_metadata(
         &self,
         blob_id: &BlobId,
-        sliver: &[u8],
-        is_primary: bool,
-    ) -> Result<(), anyhow::Error> {
-        self.database
-            .put_cf(
-                self.shard_columns,
-                Self::sliver_key(blob_id, is_primary),
-                sliver,
-            )
-            .context("unable to store sliver")
+    ) -> Result<Option<VerifiedBlobMetadataWithId>, TypedStoreError> {
+        Ok(self
+            .metadata
+            .get(blob_id)?
+            .map(|inner| VerifiedBlobMetadataWithId::new_verified_unchecked(*blob_id, inner)))
     }
 
-    /// Retrieves the stored primary or secondary sliver for the given blob ID.
-    pub fn get_sliver(
+    /// Returns true if the sliver pairs for the provided blob-id is stored at
+    /// all of the storage's shards.
+    pub fn is_stored_at_all_shards(&self, blob_id: &BlobId) -> Result<bool, TypedStoreError> {
+        for shard in self.shards.values() {
+            if !shard.is_sliver_pair_stored(blob_id)? {
+                return Ok(false);
+            }
+        }
+
+        Ok(!self.shards.is_empty())
+    }
+
+    /// Returns a list of identifiers of the shards that store their
+    /// respective sliver for the specified blob.
+    pub fn shards_with_sliver_pairs(
         &self,
         blob_id: &BlobId,
-        is_primary: bool,
-    ) -> Result<Option<Vec<u8>>, anyhow::Error> {
-        self.database
-            .get_cf(self.shard_columns, Self::sliver_key(blob_id, is_primary))
-            .context("unable to store sliver")
-    }
+    ) -> Result<Vec<ShardIndex>, TypedStoreError> {
+        let mut shards_with_sliver_pairs = Vec::with_capacity(self.shards.len());
 
-    fn column_family_name(id: ShardIndex) -> String {
-        format!("shard-{}", id)
-    }
-
-    fn sliver_key(blob_id: &BlobId, is_primary: bool) -> Vec<u8> {
-        if is_primary {
-            [b"P:".as_slice(), blob_id.as_slice()].concat()
-        } else {
-            [b"S:".as_slice(), blob_id.as_slice()].concat()
+        for shard in self.shards.values() {
+            if shard.is_sliver_pair_stored(blob_id)? {
+                shards_with_sliver_pairs.push(shard.id());
+            }
         }
+
+        Ok(shards_with_sliver_pairs)
     }
 
-    fn descriptors(shard: ShardIndex) -> ColumnFamilyDescriptor {
+    fn metadata_options() -> (&'static str, Options) {
         let mut options = Options::default();
 
-        // TODO(jsmith): Tune storage for metadata and slivers
-        // See https://rocksdb.org/blog/2021/05/26/integrated-blob-db.html
+        // TODO(jsmith): Tune storage for metadata and slivers (#65)
         options.set_enable_blob_files(true);
 
-        ColumnFamilyDescriptor::new(Self::column_family_name(shard), options)
+        (Self::METADATA_COLUMN_FAMILY_NAME, options)
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use tempfile::TempDir;
-    use walrus_test_utils::{param_test, Result as TestResult};
+pub(crate) mod tests {
+    use std::{fmt, time::Duration};
+
+    use prometheus::Registry;
+    use typed_store::metrics::SamplingInterval;
+    use walrus_core::{
+        encoding::{EncodingAxis, Primary, Secondary, Sliver as TypedSliver},
+        EncodingType, Sliver, SliverType,
+    };
+    use walrus_test_utils::{param_test, Result as TestResult, WithTempDir};
 
     use super::*;
 
-    const BLOB_ID: BlobId = [7; 32];
-    const SHARD_INDEX: ShardIndex = 17;
-    const OTHER_SHARD_INDEX: ShardIndex = 831;
+    type StorageSpec<'a> = &'a [(ShardIndex, Vec<(BlobId, WhichSlivers)>)];
 
-    struct TempStorage {
-        storage: Storage,
-        _directory: TempDir,
+    pub(crate) enum WhichSlivers {
+        Primary,
+        Secondary,
+        Both,
     }
 
-    impl AsRef<Storage> for TempStorage {
-        fn as_ref(&self) -> &Storage {
-            &self.storage
-        }
-    }
+    pub(crate) const BLOB_ID: BlobId = BlobId([7; 32]);
+    pub(crate) const SHARD_INDEX: ShardIndex = ShardIndex(17);
+    pub(crate) const OTHER_SHARD_INDEX: ShardIndex = ShardIndex(831);
 
-    fn empty_storage() -> TempStorage {
+    /// Returns an empty storage, with the column families for [`SHARD_INDEX`] already created.
+    pub(crate) fn empty_storage() -> WithTempDir<Storage> {
+        typed_store::metrics::DBMetrics::init(&Registry::new());
         empty_storage_with_shards(&[SHARD_INDEX])
     }
 
-    fn empty_storage_with_shards(shards: &[ShardIndex]) -> TempStorage {
-        let directory = tempfile::tempdir().expect("temporary directory creation must succeed");
-        let mut storage = Storage::open(directory.path()).expect("storage creation must succeed");
+    /// Returns an empty storage, with the column families for the specified shards already created.
+    pub(crate) fn empty_storage_with_shards(shards: &[ShardIndex]) -> WithTempDir<Storage> {
+        let temp_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
+        let mut storage = Storage::open(temp_dir.path(), MetricConf::default())
+            .expect("storage creation must succeed");
 
         for shard in shards {
             storage
@@ -214,118 +198,133 @@ mod tests {
                 .expect("shard should be successfully created");
         }
 
-        TempStorage {
-            storage,
-            _directory: directory,
+        WithTempDir {
+            inner: storage,
+            temp_dir,
         }
     }
 
-    fn arbitrary_metadata() -> Metadata {
-        (0..100u8).map(|i| [i; 32]).collect()
+    /// Returns an arbitrary metadata object.
+    pub(crate) fn arbitrary_metadata() -> UnverifiedBlobMetadataWithId {
+        UnverifiedBlobMetadataWithId::new(
+            BLOB_ID,
+            BlobMetadata {
+                encoding_type: EncodingType::RedStuff,
+                unencoded_length: 700,
+                hashes: (0..100u8).map(|i| MerkleNode::Digest([i; 32])).collect(),
+            },
+        )
     }
 
-    fn arbitrary_sliver() -> Vec<u8> {
-        vec![7; 1024]
-    }
-    fn other_sliver() -> Vec<u8> {
-        vec![201; 512]
+    pub(crate) fn get_typed_sliver<E: EncodingAxis>(seed: u8) -> TypedSliver<E> {
+        TypedSliver::new(vec![seed; seed as usize * 512], 16, 0)
     }
 
-    #[test]
-    fn can_write_then_read_metadata() -> TestResult {
+    pub(crate) fn get_sliver(sliver_type: SliverType, seed: u8) -> Sliver {
+        match sliver_type {
+            SliverType::Primary => Sliver::Primary(get_typed_sliver(seed)),
+            SliverType::Secondary => Sliver::Secondary(get_typed_sliver(seed)),
+        }
+    }
+
+    pub(crate) fn populated_storage(spec: StorageSpec) -> TestResult<WithTempDir<Storage>> {
+        let mut storage = empty_storage();
+
+        let mut seed = 10u8;
+        for (shard, sliver_list) in spec {
+            storage.as_mut().create_storage_for_shard(*shard)?;
+            let shard_storage = storage.as_ref().shard_storage(*shard).unwrap();
+
+            for (blob_id, which) in sliver_list.iter() {
+                if matches!(*which, WhichSlivers::Primary | WhichSlivers::Both) {
+                    shard_storage.put_sliver(blob_id, &get_sliver(SliverType::Primary, seed))?;
+                    seed += 1;
+                }
+                if matches!(*which, WhichSlivers::Secondary | WhichSlivers::Both) {
+                    shard_storage.put_sliver(blob_id, &get_sliver(SliverType::Secondary, seed))?;
+                    seed += 1;
+                }
+            }
+        }
+
+        Ok(storage)
+    }
+
+    #[tokio::test]
+    async fn can_write_then_read_metadata() -> TestResult {
         let storage = empty_storage();
         let storage = storage.as_ref();
         let metadata = arbitrary_metadata();
+        let expected = VerifiedBlobMetadataWithId::new_verified_unchecked(
+            *metadata.blob_id(),
+            metadata.metadata().clone(),
+        );
 
-        storage.put_metadata(BLOB_ID, &metadata)?;
+        storage.put_metadata(&BLOB_ID, metadata.metadata())?;
         let retrieved = storage.get_metadata(&BLOB_ID)?;
 
-        assert_eq!(retrieved, Some(metadata));
+        assert_eq!(retrieved, Some(expected));
 
         Ok(())
     }
 
-    param_test! {
-        can_store_and_retrieve_sliver -> TestResult: [
-            primary: (true),
-            secondary: (false),
-        ]
-    }
-    fn can_store_and_retrieve_sliver(is_primary: bool) -> TestResult {
-        let storage = empty_storage();
-        let shard = storage.as_ref().shard_storage(SHARD_INDEX).unwrap();
-        let sliver = arbitrary_sliver();
+    mod shards_with_sliver_pairs {
+        use walrus_test_utils::async_param_test;
 
-        shard.put_sliver(&BLOB_ID, &sliver, is_primary)?;
-        let retrieved = shard.get_sliver(&BLOB_ID, is_primary)?;
+        use super::*;
 
-        assert_eq!(retrieved, Some(sliver));
+        async_param_test! {
+            returns_shard_if_it_stores_both -> TestResult: [
+                both: (WhichSlivers::Both, true),
+                only_primary: (WhichSlivers::Primary, false),
+                only_secondary: (WhichSlivers::Secondary, false),
+            ]
+        }
+        async fn returns_shard_if_it_stores_both(
+            which: WhichSlivers,
+            is_retrieved: bool,
+        ) -> TestResult {
+            let storage = populated_storage(&[(SHARD_INDEX, vec![(BLOB_ID, which)])])?;
 
-        Ok(())
-    }
+            let result: Vec<_> = storage.as_ref().shards_with_sliver_pairs(&BLOB_ID)?;
 
-    #[test]
-    fn stores_separate_primary_and_secondary_sliver() -> TestResult {
-        let storage = empty_storage();
-        let shard = storage.as_ref().shard_storage(SHARD_INDEX).unwrap();
+            if is_retrieved {
+                assert_eq!(result, &[SHARD_INDEX]);
+            } else {
+                assert!(result.is_empty());
+            }
 
-        let primary = arbitrary_sliver();
-        let secondary = other_sliver();
-        assert_ne!(primary, secondary);
+            Ok(())
+        }
 
-        shard.put_sliver(&BLOB_ID, &primary, true)?;
-        shard.put_sliver(&BLOB_ID, &secondary, false)?;
+        #[tokio::test]
+        async fn identifies_all_shards_storing_sliver_pairs() -> TestResult {
+            let storage = populated_storage(&[
+                (SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
+                (OTHER_SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
+            ])?;
 
-        let retrieved_primary = shard.get_sliver(&BLOB_ID, true)?;
-        let retrieved_secondary = shard.get_sliver(&BLOB_ID, false)?;
+            let mut result: Vec<_> = storage.as_ref().shards_with_sliver_pairs(&BLOB_ID)?;
 
-        assert_eq!(retrieved_primary, Some(primary), "invalid primary sliver");
-        assert_eq!(
-            retrieved_secondary,
-            Some(secondary),
-            "invalid secondary sliver"
-        );
+            result.sort();
 
-        Ok(())
-    }
+            assert_eq!(result, [SHARD_INDEX, OTHER_SHARD_INDEX]);
 
-    param_test! {
-        stores_and_retrieves_for_multiple_shards -> TestResult: [
-            primary_primary: (true, true),
-            secondary_secondary: (false, false),
-            mixed: (true, false),
-        ]
-    }
-    fn stores_and_retrieves_for_multiple_shards(
-        is_first_primary: bool,
-        is_second_primary: bool,
-    ) -> TestResult {
-        let storage = empty_storage_with_shards(&[SHARD_INDEX, OTHER_SHARD_INDEX]);
+            Ok(())
+        }
 
-        let first_shard = storage.as_ref().shard_storage(SHARD_INDEX).unwrap();
-        let first_sliver = arbitrary_sliver();
+        #[tokio::test]
+        async fn ignores_shards_without_both_sliver_pairs() -> TestResult {
+            let storage = populated_storage(&[
+                (SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Primary)]),
+                (OTHER_SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
+            ])?;
 
-        let second_shard = storage.as_ref().shard_storage(OTHER_SHARD_INDEX).unwrap();
-        let second_sliver = other_sliver();
-        assert_ne!(first_sliver, second_sliver);
+            let result: Vec<_> = storage.as_ref().shards_with_sliver_pairs(&BLOB_ID)?;
 
-        first_shard.put_sliver(&BLOB_ID, &first_sliver, is_first_primary)?;
-        second_shard.put_sliver(&BLOB_ID, &second_sliver, is_second_primary)?;
+            assert_eq!(result, [OTHER_SHARD_INDEX]);
 
-        let first_retrieved = first_shard.get_sliver(&BLOB_ID, is_first_primary)?;
-        let second_retrieved = second_shard.get_sliver(&BLOB_ID, is_second_primary)?;
-
-        assert_eq!(
-            first_retrieved,
-            Some(first_sliver),
-            "invalid sliver from first shard"
-        );
-        assert_eq!(
-            second_retrieved,
-            Some(second_sliver),
-            "invalid sliver from second shard"
-        );
-
-        Ok(())
+            Ok(())
+        }
     }
 }
