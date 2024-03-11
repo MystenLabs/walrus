@@ -9,8 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     merkle::{MerkleTree, Node as MerkleNode},
-    BlobId,
-    EncodingType,
+    BlobId, EncodingType,
 };
 
 /// Errors returned by [`UnverifiedBlobMetadataWithId::verify`] when unable to verify the metadata.
@@ -103,6 +102,23 @@ impl UnverifiedBlobMetadataWithId {
             metadata: self.metadata,
         })
     }
+
+    /// Returns an arbitrary metadata object.
+    pub fn arbitrary_metadata_for_test() -> UnverifiedBlobMetadataWithId {
+        let unencoded_length = 7_000_000_000;
+        let hashes: Vec<_> = (0..100u8).map(|i| MerkleNode::Digest([i; 32])).collect();
+        let tree = MerkleTree::<Blake2b256>::build(&hashes);
+        let blob_id = BlobId::from_metadata(tree.root(), EncodingType::RedStuff, unencoded_length);
+
+        UnverifiedBlobMetadataWithId::new(
+            blob_id,
+            BlobMetadata {
+                encoding_type: EncodingType::RedStuff,
+                unencoded_length,
+                hashes,
+            },
+        )
+    }
 }
 
 impl<const V: bool> AsRef<BlobMetadata> for BlobMetadataWithId<V> {
@@ -124,36 +140,17 @@ pub struct BlobMetadata {
 
 #[cfg(test)]
 mod tests {
-    use fastcrypto::hash::Blake2b256;
 
     use super::*;
-    use crate::merkle::MerkleTree;
 
     const BLOB_ID: BlobId = BlobId([7; 32]);
-
-    /// Returns an arbitrary metadata object.
-    fn arbitrary_metadata() -> UnverifiedBlobMetadataWithId {
-        let unencoded_length = 7_000_000_000;
-        let hashes: Vec<_> = (0..100u8).map(|i| MerkleNode::Digest([i; 32])).collect();
-        let tree = MerkleTree::<Blake2b256>::build(&hashes);
-        let blob_id = BlobId::from_metadata(tree.root(), EncodingType::RedStuff, unencoded_length);
-
-        UnverifiedBlobMetadataWithId::new(
-            blob_id,
-            BlobMetadata {
-                encoding_type: EncodingType::RedStuff,
-                unencoded_length,
-                hashes,
-            },
-        )
-    }
 
     mod verify {
         use super::*;
 
         #[test]
         fn fails_for_incorrect_blob_id() {
-            let valid_metadata = arbitrary_metadata();
+            let valid_metadata = UnverifiedBlobMetadataWithId::arbitrary_metadata_for_test();
             let n_shards = valid_metadata.metadata().hashes.len();
             assert_ne!(*valid_metadata.blob_id(), BLOB_ID);
 
@@ -171,7 +168,7 @@ mod tests {
 
         #[test]
         fn succeeds_for_correct_metadata() {
-            let metadata = arbitrary_metadata();
+            let metadata = UnverifiedBlobMetadataWithId::arbitrary_metadata_for_test();
             let actual = metadata.metadata().hashes.len();
 
             let _ = metadata
@@ -181,7 +178,7 @@ mod tests {
 
         #[test]
         fn verified_metadata_has_the_same_data_as_unverified() {
-            let unverified = arbitrary_metadata();
+            let unverified = UnverifiedBlobMetadataWithId::arbitrary_metadata_for_test();
             let actual = unverified.metadata().hashes.len();
 
             let verified = unverified
@@ -195,7 +192,7 @@ mod tests {
 
         #[test]
         fn fails_for_hash_count_mismatch() {
-            let metadata = arbitrary_metadata();
+            let metadata = UnverifiedBlobMetadataWithId::arbitrary_metadata_for_test();
             let actual = metadata.metadata().hashes.len();
             let expected = actual + 1;
 

@@ -48,6 +48,11 @@ impl BlobId {
 
         Self(hasher.finalize().into())
     }
+
+    /// Returns an arbitrary blob ID for testing.
+    pub fn arbitrary_for_test() -> Self {
+        Self([0; Self::LENGTH])
+    }
 }
 
 impl AsRef<[u8]> for BlobId {
@@ -91,6 +96,11 @@ impl Sliver {
             Sliver::Primary(_) => SliverType::Primary,
             Sliver::Secondary(_) => SliverType::Secondary,
         }
+    }
+
+    /// Returns an arbitrary sliver for testing.
+    pub fn arbitrary_for_test() -> Self {
+        Sliver::Primary(encoding::Sliver::new_empty(1, 1, 1))
     }
 }
 

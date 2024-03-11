@@ -10,11 +10,7 @@ use std::sync::OnceLock;
 use std::{cmp::min, marker::PhantomData, ops::Range};
 
 use raptorq::{
-    EncodingPacket,
-    PayloadId,
-    SourceBlockDecoder,
-    SourceBlockEncoder,
-    SourceBlockEncodingPlan,
+    EncodingPacket, PayloadId, SourceBlockDecoder, SourceBlockEncoder, SourceBlockEncodingPlan,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

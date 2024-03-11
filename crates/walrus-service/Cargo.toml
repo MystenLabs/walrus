@@ -8,6 +8,7 @@ license = { workspace = true }
 
 [dependencies]
 anyhow = "1.0.80"
+axum = { version = "0.7.4", features = ["http2"] }
 bcs = { workspace = true }
 clap = { version = "4.5.2", features = ["derive"] }
 fastcrypto = { workspace = true }
@@ -19,7 +20,6 @@ tokio = { version = "1.36.0", features = ["rt-multi-thread", "macros"] }
 tokio-stream = "0.1.14"
 typed-store = { workspace = true }
 walrus-core = { workspace = true }
-axum = { version = "0.7.4", features = ["http2"] }
 
 [lints]
 workspace = true
@@ -30,5 +30,6 @@ path = "bin/client.rs"
 
 [dev-dependencies]
 rand = "0.8.5"
+reqwest = { version = "0.11.25", features = ["json"] }
 tempfile = { workspace = true }
 walrus-test-utils = { workspace = true }

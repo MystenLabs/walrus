@@ -1,7 +1,11 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashMap, net::SocketAddr, path::PathBuf};
+use std::{
+    collections::HashMap,
+    net::{SocketAddr, TcpListener},
+    path::PathBuf,
+};
 
 use serde::{Deserialize, Serialize};
 use walrus_core::{Epoch, ShardIndex};
@@ -67,4 +71,22 @@ pub struct StorageNodePrivateParameters {
     pub metrics_address: SocketAddr,
     /// The private parameters shards that the storage node is responsible for.
     pub shards: HashMap<ShardIndex, ShardPrivateParameters>,
+}
+
+impl StorageNodePrivateParameters {
+    /// Creates a new storage node private parameters for testing.
+    pub fn new_for_test() -> Self {
+        let network_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let network_address = network_listener.local_addr().unwrap();
+
+        let metrics_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let metrics_address = metrics_listener.local_addr().unwrap();
+
+        Self {
+            keypair: KeyPair::new(),
+            network_address,
+            metrics_address,
+            shards: HashMap::new(),
+        }
+    }
 }
