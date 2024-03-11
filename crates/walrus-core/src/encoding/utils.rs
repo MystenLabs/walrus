@@ -1,14 +1,18 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use raptorq::{EncodingPacket, ObjectTransmissionInformation};
+#[cfg(test)]
+use rand::RngCore;
+use raptorq::{EncodingPacket, ObjectTransmissionInformation, PayloadId};
+
+use super::DecodingSymbol;
 
 /// Creates a new [`ObjectTransmissionInformation`] for the given `symbol_size`.
 ///
 /// # Panics
 ///
 /// Panics if the `symbol_size` is larger than [`MAX_SYMBOL_SIZE`][super::MAX_SYMBOL_SIZE].
-pub(super) fn get_transmission_info(symbol_size: usize) -> ObjectTransmissionInformation {
+pub fn get_transmission_info(symbol_size: usize) -> ObjectTransmissionInformation {
     ObjectTransmissionInformation::new(
         0,
         symbol_size
@@ -26,7 +30,7 @@ pub(super) fn get_transmission_info(symbol_size: usize) -> ObjectTransmissionInf
 /// Returns `None` if `n_symbols == 0` or the computed symbol size is larger than
 /// [`MAX_SYMBOL_SIZE`][super::MAX_SYMBOL_SIZE].
 #[inline]
-pub(super) fn compute_symbol_size(data_length: usize, n_symbols: usize) -> Option<u16> {
+pub fn compute_symbol_size(data_length: usize, n_symbols: usize) -> Option<u16> {
     if n_symbols == 0 {
         return None;
     }
@@ -37,8 +41,52 @@ pub(super) fn compute_symbol_size(data_length: usize, n_symbols: usize) -> Optio
 }
 
 #[inline]
-pub(super) fn packet_to_data(packet: EncodingPacket) -> Vec<u8> {
+pub fn packet_to_data(packet: EncodingPacket) -> Vec<u8> {
     packet.split().1
+}
+
+/// This function is necessary to convert from the index to the symbol ID used by the raptorq
+/// library.
+///
+/// It is needed because currently the [raptorq] library currently uses the ISI in the
+/// [`PayloadId`]. The two can be converted with the knowledge of the number of source symbols (`K`
+/// in the RFC's terminology) and padding symbols (`K' - K` in the RFC's terminology).
+// TODO(mlegner): Update if the raptorq library changes its behavior.
+pub fn encoding_packet_from_symbol(
+    symbol: DecodingSymbol,
+    n_source_symbols: u16,
+    n_padding_symbols: u16,
+) -> EncodingPacket {
+    let isi = symbol.index
+        + if n_padding_symbols == 0 || symbol.index < n_source_symbols as u32 {
+            0
+        } else {
+            n_padding_symbols as u32
+        };
+    EncodingPacket::new(PayloadId::new(0, isi), symbol.data)
+}
+
+#[cfg(test)]
+pub(crate) fn large_random_data(data_length: usize) -> Vec<u8> {
+    use rand::{rngs::StdRng, SeedableRng};
+
+    let mut rng = StdRng::seed_from_u64(42);
+    let mut result = vec![0u8; data_length];
+    rng.fill_bytes(&mut result);
+    result
+}
+
+#[cfg(test)]
+pub(crate) fn get_random_subset<T: Clone>(
+    data: impl IntoIterator<Item = T>,
+    mut rng: &mut impl RngCore,
+    count: usize,
+) -> impl Iterator<Item = T> + Clone {
+    use rand::seq::SliceRandom;
+
+    let mut data: Vec<_> = data.into_iter().collect();
+    data.shuffle(&mut rng);
+    data.into_iter().take(count)
 }
 
 #[cfg(test)]

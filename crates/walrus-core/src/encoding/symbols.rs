@@ -4,19 +4,14 @@
 //! The representation on encoded symbols.
 
 use std::{
+    marker::PhantomData,
     ops::{Index, IndexMut, Range},
     slice::{Chunks, ChunksMut},
 };
 
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
-use super::DecodingSymbol;
-
-/// Error returned when the size of input symbols does not match the size of existing symbols.
-#[derive(Debug, Error, PartialEq, Eq)]
-#[error("the size of the symbols provided does not match the size of the existing symbols")]
-pub struct WrongSymbolSizeError;
+use super::{EncodingAxis, Primary, Secondary, WrongSymbolSizeError};
 
 /// A set of encoded symbols.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -232,6 +227,48 @@ impl AsMut<[u8]> for Symbols {
     fn as_mut(&mut self) -> &mut [u8] {
         &mut self.data
     }
+}
+
+/// A single symbol used for decoding, consisting of the data and the symbol's index.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DecodingSymbol {
+    /// The index of the symbol.
+    ///
+    /// This is equal to the ESI as defined in [RFC 6330][rfc6330s5.3.1].
+    ///
+    /// [rfc6330s5.3.1]: https://datatracker.ietf.org/doc/html/rfc6330#section-5.3.1
+    pub index: u32,
+    /// The symbol data as a byte vector.
+    pub data: Vec<u8>,
+}
+
+/// A recovery symbol to recover a single sliver.
+///
+/// The generic argument specifies the type of the sliver to be recovered.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecoverySymbol<T: EncodingAxis> {
+    _symbol_type: PhantomData<T>,
+    /// The symbol data and index.
+    pub symbol: DecodingSymbol,
+}
+
+impl<T: EncodingAxis> RecoverySymbol<T> {
+    /// Creates a new recovery symbol.
+    pub fn new(symbol: DecodingSymbol) -> Self {
+        Self {
+            _symbol_type: PhantomData,
+            symbol,
+        }
+    }
+}
+
+/// A pair of recovery symbols to recover a sliver pair.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecoverySymbolPair {
+    /// Symbol to recover the primary sliver.
+    pub primary: RecoverySymbol<Primary>,
+    /// Symbol to recover the secondary sliver.
+    pub secondary: RecoverySymbol<Secondary>,
 }
 
 #[cfg(test)]
