@@ -11,8 +11,6 @@ pub mod crypto;
 pub mod encoding;
 /// Mapping from sliver pairs to shards.
 pub mod mapping;
-/// Client for interacting with Move.
-pub mod move_client;
 
 mod node;
 pub use node::StorageNode;

@@ -9429,6 +9429,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "walrus-move-client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "futures",
+ "move-core-types",
+ "serde_json",
+ "sui-sdk",
+ "sui-types",
+ "test-cluster",
+ "tokio",
+ "tracing",
+ "walrus-core",
+ "walrus-e2e-tests",
+ "walrus-service",
+ "walrus-test-utils",
+]
+
+[[package]]
 name = "walrus-service"
 version = "0.1.0"
 dependencies = [

@@ -6,6 +6,7 @@ use encoding::{PrimarySliver, SecondarySliver};
 use fastcrypto::hash::{Blake2b256, HashFunction};
 use merkle::Node;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 pub mod encoding;
 pub mod merkle;
@@ -103,6 +104,11 @@ pub enum SliverType {
     Secondary,
 }
 
+/// Error returned for an invalid conversion to an encoding type.
+#[derive(Debug, Error, PartialEq, Eq)]
+#[error("the provided value is not a valid EncodingType")]
+pub struct InvalidEncodingType;
+
 /// Supported Walrus encoding types.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default, Serialize, Deserialize)]
 #[repr(u8)]
@@ -115,6 +121,16 @@ pub enum EncodingType {
 impl From<EncodingType> for u8 {
     fn from(value: EncodingType) -> Self {
         value as u8
+    }
+}
+
+impl TryFrom<u8> for EncodingType {
+    type Error = InvalidEncodingType;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(EncodingType::RedStuff),
+            _ => Err(InvalidEncodingType),
+        }
     }
 }
 
