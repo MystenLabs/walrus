@@ -8,9 +8,9 @@ version = { workspace = true }
 
 [dependencies]
 anyhow = "1.0.80"
-sui-move-build = { git = "https://github.com/MystenLabs/sui" }
-sui-sdk = { git = "https://github.com/MystenLabs/sui", package = "sui-sdk" }
-test-cluster = { git = "https://github.com/MystenLabs/sui", package = "test-cluster" }
+sui-move-build = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.20.0" }
+sui-sdk = { git = "https://github.com/MystenLabs/sui", package = "sui-sdk", tag = "testnet-v1.20.0" }
+test-cluster = { git = "https://github.com/MystenLabs/sui", package = "test-cluster", tag = "testnet-v1.20.0" }
 tokio = { version = "1.36.0", features = ["macros"] }
 
 [dev-dependencies]
