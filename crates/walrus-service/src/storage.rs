@@ -113,11 +113,11 @@ impl Storage {
     pub fn get_metadata(
         &self,
         blob_id: &BlobId,
-    ) -> Result<Option<UnverifiedBlobMetadataWithId>, TypedStoreError> {
+    ) -> Result<Option<VerifiedBlobMetadataWithId>, TypedStoreError> {
         Ok(self
             .metadata
             .get(blob_id)?
-            .map(|inner| UnverifiedBlobMetadataWithId::new(*blob_id, inner)))
+            .map(|inner| VerifiedBlobMetadataWithId::new_verified_unchecked(*blob_id, inner)))
     }
 
     /// Returns true if the sliver pairs for the provided blob-id is stored at
@@ -262,11 +262,15 @@ pub(crate) mod tests {
         let storage = empty_storage();
         let storage = storage.as_ref();
         let metadata = arbitrary_metadata();
+        let expected = VerifiedBlobMetadataWithId::new_verified_unchecked(
+            *metadata.blob_id(),
+            metadata.metadata().clone(),
+        );
 
         storage.put_metadata(&BLOB_ID, metadata.metadata())?;
         let retrieved = storage.get_metadata(&BLOB_ID)?;
 
-        assert_eq!(retrieved, Some(metadata));
+        assert_eq!(retrieved, Some(expected));
 
         Ok(())
     }

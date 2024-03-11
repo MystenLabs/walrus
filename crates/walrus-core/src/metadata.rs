@@ -52,6 +52,15 @@ impl<const V: bool> BlobMetadataWithId<V> {
         BlobMetadataWithId { blob_id, metadata }
     }
 
+    /// Creates a new verified metadata with the corresponding blob ID, without running the
+    /// verification.
+    pub fn new_verified_unchecked(
+        blob_id: BlobId,
+        metadata: BlobMetadata,
+    ) -> VerifiedBlobMetadataWithId {
+        BlobMetadataWithId { blob_id, metadata }
+    }
+
     /// The ID of the blob associated with the metadata.
     pub fn blob_id(&self) -> &BlobId {
         &self.blob_id
