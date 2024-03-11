@@ -175,9 +175,9 @@ impl Decoder {
     ///
     /// If decoding failed due to an insufficient number of provided symbols, it can be continued
     /// by additional calls to [`decode`][Self::decode] providing more symbols.
-    pub fn decode<T: IntoIterator<Item = DecodingSymbol>>(
+    pub fn decode<T, U: IntoIterator<Item = DecodingSymbol<T>>>(
         &mut self,
-        symbols: T,
+        symbols: U,
     ) -> Option<Vec<u8>> {
         let packets = symbols.into_iter().map(|s| {
             utils::encoding_packet_from_symbol(s, self.n_source_symbols, self.n_padding_symbols)
@@ -235,14 +235,10 @@ mod tests {
 
         let encoder =
             Encoder::new_with_new_encoding_plan(data, n_source_symbols, encoded_symbols_range.end)?;
-        let encoded_symbols =
-            encoder
-                .encode_range(encoded_symbols_range)
-                .enumerate()
-                .map(|(i, symbol)| DecodingSymbol {
-                    index: i as u32 + start,
-                    data: symbol,
-                });
+        let encoded_symbols = encoder
+            .encode_range(encoded_symbols_range)
+            .enumerate()
+            .map(|(i, symbol)| DecodingSymbol::new(i as u32 + start, symbol));
         let mut decoder = Decoder::new(n_source_symbols, encoder.symbol_size());
         let decoding_result = decoder.decode(encoded_symbols);
 
@@ -265,10 +261,10 @@ mod tests {
                 .encode_all_repair_symbols()
                 .enumerate()
                 .map(|(i, symbol)| {
-                    vec![DecodingSymbol {
-                        index: i as u32 + n_source_symbols as u32,
-                        data: symbol,
-                    }]
+                    vec![DecodingSymbol::new(
+                        i as u32 + n_source_symbols as u32,
+                        symbol,
+                    )]
                 });
         let mut decoder = Decoder::new(n_source_symbols, encoder.symbol_size());
 

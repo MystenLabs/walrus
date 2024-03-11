@@ -10,14 +10,7 @@ mod blob_encoding;
 pub use blob_encoding::{BlobDecoder, BlobEncoder};
 
 mod common;
-pub use common::{
-    EncodingAxis,
-    Primary,
-    Secondary,
-    MAX_ENCODING_SYMBOL_ID,
-    MAX_SOURCE_SYMBOLS_PER_BLOCK,
-    MAX_SYMBOL_SIZE,
-};
+pub use common::{EncodingAxis, Primary, Secondary, MAX_SOURCE_SYMBOLS_PER_BLOCK, MAX_SYMBOL_SIZE};
 
 mod config;
 pub use config::{get_encoding_config, initialize_encoding_config, EncodingConfig};
@@ -29,6 +22,6 @@ mod slivers;
 pub use slivers::{PrimarySliver, SecondarySliver, Sliver, SliverPair};
 
 mod symbols;
-pub use symbols::{DecodingSymbol, RecoverySymbol, RecoverySymbolPair, Symbols};
+pub use symbols::{DecodingSymbol, DecodingSymbolPair, Symbols};
 
 mod utils;

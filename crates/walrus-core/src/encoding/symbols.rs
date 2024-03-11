@@ -4,14 +4,14 @@
 //! The representation on encoded symbols.
 
 use std::{
-    marker::PhantomData,
     ops::{Index, IndexMut, Range},
     slice::{Chunks, ChunksMut},
 };
 
 use serde::{Deserialize, Serialize};
 
-use super::{EncodingAxis, Primary, Secondary, WrongSymbolSizeError};
+use super::WrongSymbolSizeError;
+use crate::merkle::{MerkleAuth, Node};
 
 /// A set of encoded symbols.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -114,10 +114,7 @@ impl Symbols {
         data_index: usize,
         symbol_index: u32,
     ) -> Option<DecodingSymbol> {
-        Some(DecodingSymbol {
-            index: symbol_index,
-            data: self[data_index].into(),
-        })
+        Some(DecodingSymbol::new(symbol_index, self[data_index].into()))
     }
 
     /// Returns an iterator of references to symbols.
@@ -143,9 +140,8 @@ impl Symbols {
         if self.len() > u32::MAX as usize {
             None
         } else {
-            Some(self.to_symbols().enumerate().map(|(i, s)| DecodingSymbol {
-                index: i.try_into().expect("checked limit above"),
-                data: s.into(),
+            Some(self.to_symbols().enumerate().map(|(i, s)| {
+                DecodingSymbol::new(i.try_into().expect("checked limit above"), s.into())
             }))
         }
     }
@@ -231,7 +227,7 @@ impl AsMut<[u8]> for Symbols {
 
 /// A single symbol used for decoding, consisting of the data and the symbol's index.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DecodingSymbol {
+pub struct DecodingSymbol<T = ()> {
     /// The index of the symbol.
     ///
     /// This is equal to the ESI as defined in [RFC 6330][rfc6330s5.3.1].
@@ -240,35 +236,54 @@ pub struct DecodingSymbol {
     pub index: u32,
     /// The symbol data as a byte vector.
     pub data: Vec<u8>,
+    /// An optional proof that the decoding symbol belongs to a committed sliver.
+    proof: T,
 }
 
-/// A recovery symbol to recover a single sliver.
-///
-/// The generic argument specifies the type of the sliver to be recovered.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RecoverySymbol<T: EncodingAxis> {
-    _symbol_type: PhantomData<T>,
-    /// The symbol data and index.
-    pub symbol: DecodingSymbol,
-}
-
-impl<T: EncodingAxis> RecoverySymbol<T> {
+impl DecodingSymbol {
     /// Creates a new recovery symbol.
-    pub fn new(symbol: DecodingSymbol) -> Self {
+    pub fn new(index: u32, data: Vec<u8>) -> Self {
         Self {
-            _symbol_type: PhantomData,
-            symbol,
+            index,
+            data,
+            proof: (),
         }
+    }
+
+    /// Adds a Merkle proof to the [`DecodingSymbol`]
+    ///
+    /// This method consumes the original [`DecodingSymbol`], and returns a [`DecodingSymbol<T>`],
+    /// where `T` is a type that implements the trait [`MerkleAuth`][`crate::merkle::MerkleAuth`].
+    pub fn with_proof<T: MerkleAuth>(self, proof: T) -> DecodingSymbol<T> {
+        DecodingSymbol {
+            index: self.index,
+            data: self.data,
+            proof,
+        }
+    }
+}
+
+impl<T: MerkleAuth> DecodingSymbol<T> {
+    /// Verifies that the decoding symbol belongs to a committed sliver by checking the Merkle proof
+    /// against the `root` hash stored.
+    pub fn verify_proof(&self, root: &Node) -> bool {
+        self.proof.verify_proof(root, &self.data)
+    }
+
+    /// Consumes the [`DecodingSymbol<T>`], removing the proof, and returns [`DecodingSymbol`]
+    /// without proof.
+    pub fn remove_proof(self) -> DecodingSymbol {
+        DecodingSymbol::new(self.index, self.data)
     }
 }
 
 /// A pair of recovery symbols to recover a sliver pair.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RecoverySymbolPair {
+pub struct DecodingSymbolPair<T = ()> {
     /// Symbol to recover the primary sliver.
-    pub primary: RecoverySymbol<Primary>,
+    pub primary: DecodingSymbol<T>,
     /// Symbol to recover the secondary sliver.
-    pub secondary: RecoverySymbol<Secondary>,
+    pub secondary: DecodingSymbol<T>,
 }
 
 #[cfg(test)]

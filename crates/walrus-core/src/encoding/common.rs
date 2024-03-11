@@ -9,9 +9,6 @@ pub const MAX_SYMBOL_SIZE: usize = u16::MAX as usize;
 /// The maximum number of source symbols per block for RaptorQ.
 pub const MAX_SOURCE_SYMBOLS_PER_BLOCK: u16 = 56403;
 
-/// The largest symbol ID possible
-pub const MAX_ENCODING_SYMBOL_ID: u32 = (1 << 24) - 1;
-
 /// Marker trait to indicate the encoding axis (primary or secondary).
 pub trait EncodingAxis: Clone + PartialEq + Eq + Default {
     /// The complementary encoding axis.
