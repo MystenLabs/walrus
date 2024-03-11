@@ -921,7 +921,7 @@ impl<'a> BlobEncoder<'a> {
                 secondary: Sliver::new_empty(
                     n_rows,
                     self.symbol_size,
-                    Secondary::sliver_index_from_pair_index(i),
+                    self.config.sliver_index_from_pair_index::<Secondary>(i),
                 ),
             })
         }
@@ -993,14 +993,16 @@ impl<T: EncodingAxis> BlobDecoder<T> {
     ///
     /// Returns a [`DataTooLargeError`] if the `blob_size` is too large to be decoded.
     pub fn new(config: &EncodingConfig, blob_size: usize) -> Result<Self, DataTooLargeError> {
-        let n_decoders = config.n_source_symbols::<T::OrthogonalAxis>() as usize;
         let n_source_symbols = config.n_source_symbols::<T>();
         let Some(symbol_size) = config.symbol_size_for_blob(blob_size) else {
             return Err(DataTooLargeError);
         };
         Ok(Self {
             _decoding_axis: PhantomData,
-            decoders: vec![Decoder::new(n_source_symbols, symbol_size); n_decoders],
+            decoders: vec![
+                Decoder::new(n_source_symbols, symbol_size);
+                config.n_source_symbols::<T::OrthogonalAxis>() as usize
+            ],
             blob_size,
             symbol_size,
             n_source_symbols,
@@ -1015,18 +1017,15 @@ impl<T: EncodingAxis> BlobDecoder<T> {
     ///
     /// If decoding failed due to an insufficient number of provided slivers, it can be continued
     /// by additional calls to [`decode`][Self::decode] providing more slivers.
-    pub fn decode(
-        &mut self,
-        slivers: impl IntoIterator<Item = (u32, Sliver<T>)>,
-    ) -> Option<Vec<u8>> {
+    pub fn decode(&mut self, slivers: impl IntoIterator<Item = Sliver<T>>) -> Option<Vec<u8>> {
         // Depending on the decoding axis, this represents the message matrix's columns (primary)
         // or rows (secondary).
         let mut columns_or_rows = Vec::with_capacity(self.decoders.len());
         let mut decoding_successful = false;
 
-        for (sliver_index, sliver) in slivers {
+        for sliver in slivers {
             if sliver.symbols.len() != self.decoders.len()
-                || sliver.symbols.symbol_size() != self.symbol_size as usize
+                || sliver.symbols.symbol_size() != self.symbol_size
             {
                 // Ignore slivers of incorrect length or incorrect symbol size.
                 // Question(mlegner): Should we return an error instead? Or at least log this?
@@ -1034,7 +1033,7 @@ impl<T: EncodingAxis> BlobDecoder<T> {
             }
             for (i, symbol) in sliver.symbols.to_symbols().enumerate() {
                 if let Some(decoded_data) = self.decoders[i].decode([DecodingSymbol {
-                    index: sliver_index,
+                    index: sliver.index,
                     data: symbol.into(),
                 }]) {
                     // If one decoding succeeds, all succeed as they have identical
@@ -1068,7 +1067,7 @@ impl<T: EncodingAxis> BlobDecoder<T> {
             columns_or_rows.into_iter().flatten().collect()
         };
 
-        let _ = blob.split_off(self.blob_size);
+        blob.truncate(self.blob_size);
         Some(blob)
     }
 }
@@ -1327,7 +1326,7 @@ mod tests {
                     .decode(
                         slivers_for_decoding
                             .clone()
-                            .map(|p| (p.index, p.primary))
+                            .map(|p| p.primary)
                             .take(source_symbols_primary.into())
                     )
                     .unwrap(),
@@ -1339,10 +1338,7 @@ mod tests {
                 secondary_decoder
                     .decode(
                         slivers_for_decoding
-                            .map(|p| (
-                                config.sliver_index_from_pair_index::<Secondary>(p.index),
-                                p.secondary
-                            ))
+                            .map(|p| p.secondary)
                             .take(source_symbols_secondary.into())
                     )
                     .unwrap(),

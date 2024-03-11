@@ -140,6 +140,8 @@ impl Symbols {
 
     /// Returns an iterator of [`DecodingSymbol`s][DecodingSymbol].
     ///
+    /// The `index` of each resulting [`DecodingSymbol`] is its position in this object's data.
+    ///
     /// Returns `None` if the length of [`self.data`][Self::data] is larger than
     /// `u32::MAX * self.symbol_size`.
     pub fn to_decoding_symbols(&self) -> Option<impl Iterator<Item = DecodingSymbol> + '_> {
