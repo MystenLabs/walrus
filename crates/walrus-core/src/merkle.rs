@@ -162,7 +162,7 @@ where
 
     /// Get the [`MerkleProof`] for the leaf at `leaf_index` consisting
     /// of all sibling hashes on the path from the leaf to the root.
-    pub fn get_proof(&self, leaf_index: usize) -> Result<MerkleProof, LeafIndexOutOfBounds> {
+    pub fn get_proof(&self, leaf_index: usize) -> Result<MerkleProof<T>, LeafIndexOutOfBounds> {
         if leaf_index >= self.n_leaves {
             return Err(LeafIndexOutOfBounds(leaf_index));
         }
