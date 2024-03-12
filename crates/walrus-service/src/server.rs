@@ -10,12 +10,17 @@ use axum::{
     extract::State,
     http::StatusCode,
     routing::{get, post},
-    Json, Router,
+    Json,
+    Router,
 };
 use serde::{Deserialize, Serialize};
-use tokio::task::JoinHandle;
+use tokio::{sync::oneshot, task::JoinHandle};
 use walrus_core::{
-    messages::StorageConfirmation, metadata::BlobMetadataWithId, BlobId, ShardIndex, Sliver,
+    messages::StorageConfirmation,
+    metadata::BlobMetadataWithId,
+    BlobId,
+    ShardIndex,
+    Sliver,
 };
 
 use crate::{
@@ -44,17 +49,21 @@ pub struct StoreSliverRequest {
 /// Represents a user server.
 pub struct UserServer<S> {
     state: Arc<S>,
+    shutdown_signal: oneshot::Receiver<()>,
 }
 
 impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
     /// Creates a new user server.
-    pub fn new(state: Arc<S>) -> Self {
-        Self { state }
+    pub fn new(state: Arc<S>, shutdown_signal: oneshot::Receiver<()>) -> Self {
+        Self {
+            state,
+            shutdown_signal,
+        }
     }
 
     /// Creates a new user server.
     pub async fn run(
-        &self,
+        self,
         storage_node_private_parameters: &StorageNodePrivateParameters,
     ) -> JoinHandle<Result<(), std::io::Error>> {
         let app = Router::new()
@@ -70,7 +79,11 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
         tokio::spawn(async move {
             let listener = tokio::net::TcpListener::bind(network_address).await?;
-            axum::serve(listener, app).await
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async move {
+                    let _ = self.shutdown_signal.await;
+                })
+                .await
         })
     }
 
@@ -116,17 +129,23 @@ mod test {
     use std::sync::Arc;
 
     use reqwest::StatusCode;
+    use tokio::sync::oneshot;
     use walrus_core::{
         messages::{SignedStorageConfirmation, StorageConfirmation},
         metadata::{BlobMetadataWithId, UnverifiedBlobMetadataWithId},
-        BlobId, ShardIndex, Sliver,
+        BlobId,
+        ShardIndex,
+        Sliver,
     };
 
     use crate::{
         config::StorageNodePrivateParameters,
         node::{ServiceState, StoreMetadataError},
         server::{
-            StoreSliverRequest, UserServer, GET_STORAGE_CONFIRMATION, POST_STORE_BLOB_METADATA,
+            StoreSliverRequest,
+            UserServer,
+            GET_STORAGE_CONFIRMATION,
+            POST_STORE_BLOB_METADATA,
             POST_STORE_SLIVER,
         },
     };
@@ -171,7 +190,8 @@ mod test {
 
     #[tokio::test]
     async fn store_blob_metadata() {
-        let server = UserServer::new(Arc::new(MockServiceState));
+        let (_shutdown_tx, shutdown_rx) = oneshot::channel();
+        let server = UserServer::new(Arc::new(MockServiceState), shutdown_rx);
         let test_private_parameters = StorageNodePrivateParameters::new_for_test();
         let _handle = server.run(&test_private_parameters).await;
 
@@ -190,7 +210,8 @@ mod test {
 
     #[tokio::test]
     async fn store_sliver() {
-        let server = UserServer::new(Arc::new(MockServiceState));
+        let (_shutdown_tx, shutdown_rx) = oneshot::channel();
+        let server = UserServer::new(Arc::new(MockServiceState), shutdown_rx);
         let test_private_parameters = StorageNodePrivateParameters::new_for_test();
         let _handle = server.run(&test_private_parameters).await;
 
@@ -213,7 +234,8 @@ mod test {
 
     #[tokio::test]
     async fn store_sliver_error() {
-        let server = UserServer::new(Arc::new(MockServiceState));
+        let (_shutdown_tx, shutdown_rx) = oneshot::channel();
+        let server = UserServer::new(Arc::new(MockServiceState), shutdown_rx);
         let test_private_parameters = StorageNodePrivateParameters::new_for_test();
         let _handle = server.run(&test_private_parameters).await;
 
@@ -236,7 +258,8 @@ mod test {
 
     #[tokio::test]
     async fn get_storage_confirmation() {
-        let server = UserServer::new(Arc::new(MockServiceState));
+        let (_shutdown_tx, shutdown_rx) = oneshot::channel();
+        let server = UserServer::new(Arc::new(MockServiceState), shutdown_rx);
         let test_private_parameters = StorageNodePrivateParameters::new_for_test();
         let _handle = server.run(&test_private_parameters).await;
 
@@ -258,7 +281,8 @@ mod test {
 
     #[tokio::test]
     async fn get_storage_confirmation_not_found() {
-        let server = UserServer::new(Arc::new(MockServiceState));
+        let (_shutdown_tx, shutdown_rx) = oneshot::channel();
+        let server = UserServer::new(Arc::new(MockServiceState), shutdown_rx);
         let test_private_parameters = StorageNodePrivateParameters::new_for_test();
         let _handle = server.run(&test_private_parameters).await;
 
@@ -278,7 +302,8 @@ mod test {
 
     #[tokio::test]
     async fn get_storage_confirmation_error() {
-        let server = UserServer::new(Arc::new(MockServiceState));
+        let (_shutdown_tx, shutdown_rx) = oneshot::channel();
+        let server = UserServer::new(Arc::new(MockServiceState), shutdown_rx);
         let test_private_parameters = StorageNodePrivateParameters::new_for_test();
         let _handle = server.run(&test_private_parameters).await;
 
@@ -294,5 +319,15 @@ mod test {
 
         let res = client.get(url).json(&blob_id).send().await.unwrap();
         assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[tokio::test]
+    async fn shutdown_server() {
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let server = UserServer::new(Arc::new(MockServiceState), shutdown_rx);
+        let test_private_parameters = StorageNodePrivateParameters::new_for_test();
+        let handle = server.run(&test_private_parameters).await;
+        drop(shutdown_tx);
+        handle.await.unwrap().unwrap();
     }
 }
