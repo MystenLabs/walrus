@@ -117,7 +117,7 @@ mod test {
 
     use reqwest::StatusCode;
     use walrus_core::{
-        messages::StorageConfirmation,
+        messages::{SignedStorageConfirmation, StorageConfirmation},
         metadata::{BlobMetadataWithId, UnverifiedBlobMetadataWithId},
         BlobId, ShardIndex, Sliver,
     };
@@ -159,7 +159,8 @@ mod test {
             blob_id: &BlobId,
         ) -> Result<Option<StorageConfirmation>, anyhow::Error> {
             if blob_id.0[0] == 0 {
-                todo!("(alberto): #94 find the best way to mock signatures")
+                let confirmation = SignedStorageConfirmation::arbitrary_for_test();
+                Ok(Some(StorageConfirmation::Signed(confirmation)))
             } else if blob_id.0[0] == 1 {
                 Ok(None)
             } else {
@@ -231,6 +232,28 @@ mod test {
 
         let res = client.post(url).json(&request).send().await.unwrap();
         assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[tokio::test]
+    async fn get_storage_confirmation() {
+        let server = UserServer::new(Arc::new(MockServiceState));
+        let test_private_parameters = StorageNodePrivateParameters::new_for_test();
+        let _handle = server.run(&test_private_parameters).await;
+
+        tokio::task::yield_now().await;
+
+        let client = reqwest::Client::new();
+        let url = format!(
+            "http://{}{}",
+            test_private_parameters.network_address, GET_STORAGE_CONFIRMATION
+        );
+        let mut blob_id = BlobId::arbitrary_for_test();
+        blob_id.0[0] = 0; // Triggers a valid response
+
+        let res = client.get(url).json(&blob_id).send().await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let confirmation = res.json::<StorageConfirmation>().await.unwrap();
+        assert!(matches!(confirmation, StorageConfirmation::Signed(_)));
     }
 
     #[tokio::test]

@@ -12,10 +12,10 @@ fastcrypto = { workspace = true }
 raptorq = "1.8.1"
 serde = { version = "1.0.197", features = ["derive"] }
 thiserror = { workspace = true }
+rand = "0.8.5"
 
 [lints]
 workspace = true
 
 [dev-dependencies]
-rand = "0.8.5"
 walrus-test-utils = { workspace = true }

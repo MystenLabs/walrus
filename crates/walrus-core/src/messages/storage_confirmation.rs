@@ -1,7 +1,11 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use fastcrypto::bls12381::min_pk::BLS12381Signature;
+use fastcrypto::{
+    bls12381::min_pk::{BLS12381KeyPair, BLS12381Signature},
+    traits::{KeyPair, Signer},
+};
+use rand::{rngs::StdRng, SeedableRng};
 use serde::{de::Error as _, Deserialize, Serialize};
 
 use super::Intent;
@@ -24,6 +28,20 @@ pub struct SignedStorageConfirmation {
     pub confirmation: Vec<u8>,
     /// The signature over the BCS encoded confirmation.
     pub signature: BLS12381Signature,
+}
+
+impl SignedStorageConfirmation {
+    /// Creates a new arbitrary signed storage confirmation for tests.
+    pub fn arbitrary_for_test() -> Self {
+        let confirmation = vec![0; 32];
+        let mut rng = StdRng::seed_from_u64(0);
+        let signer = BLS12381KeyPair::generate(&mut rng);
+        let signature = signer.sign(&confirmation);
+        Self {
+            confirmation,
+            signature,
+        }
+    }
 }
 
 /// A non-empty list of shards, confirmed as storing their sliver
