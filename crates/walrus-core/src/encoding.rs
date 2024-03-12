@@ -10,7 +10,14 @@ mod blob_encoding;
 pub use blob_encoding::{BlobDecoder, BlobEncoder};
 
 mod common;
-pub use common::{EncodingAxis, Primary, Secondary, MAX_SOURCE_SYMBOLS_PER_BLOCK, MAX_SYMBOL_SIZE};
+pub use common::{
+    EncodingAxis,
+    Primary,
+    Secondary,
+    MAX_N_SHARDS,
+    MAX_SOURCE_SYMBOLS_PER_BLOCK,
+    MAX_SYMBOL_SIZE,
+};
 
 mod config;
 pub use config::{get_encoding_config, initialize_encoding_config, EncodingConfig};

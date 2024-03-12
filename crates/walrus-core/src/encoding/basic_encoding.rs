@@ -5,7 +5,7 @@ use std::ops::Range;
 
 use raptorq::{SourceBlockDecoder, SourceBlockEncoder, SourceBlockEncodingPlan};
 
-use super::{utils, DecodingSymbol, EncodeError, MAX_SYMBOL_SIZE};
+use super::{utils, DecodingSymbol, EncodeError, EncodingAxis, MAX_SYMBOL_SIZE};
 
 /// Wrapper to perform a single encoding with RaptorQ for the provided parameters.
 pub struct Encoder {
@@ -175,10 +175,11 @@ impl Decoder {
     ///
     /// If decoding failed due to an insufficient number of provided symbols, it can be continued
     /// by additional calls to [`decode`][Self::decode] providing more symbols.
-    pub fn decode<T, U: IntoIterator<Item = DecodingSymbol<T>>>(
-        &mut self,
-        symbols: U,
-    ) -> Option<Vec<u8>> {
+    pub fn decode<T, U, V>(&mut self, symbols: T) -> Option<Vec<u8>>
+    where
+        T: IntoIterator<Item = DecodingSymbol<U, V>>,
+        U: EncodingAxis,
+    {
         let packets = symbols.into_iter().map(|s| {
             utils::encoding_packet_from_symbol(s, self.n_source_symbols, self.n_padding_symbols)
         });
@@ -193,7 +194,7 @@ mod tests {
     use walrus_test_utils::{param_test, Result};
 
     use super::*;
-    use crate::encoding::utils;
+    use crate::encoding::{utils, Primary};
 
     #[test]
     fn encoding_empty_data_fails() {
@@ -238,7 +239,7 @@ mod tests {
         let encoded_symbols = encoder
             .encode_range(encoded_symbols_range)
             .enumerate()
-            .map(|(i, symbol)| DecodingSymbol::new(i as u32 + start, symbol));
+            .map(|(i, symbol)| DecodingSymbol::<Primary>::new(i as u32 + start, symbol));
         let mut decoder = Decoder::new(n_source_symbols, encoder.symbol_size());
         let decoding_result = decoder.decode(encoded_symbols);
 
@@ -261,7 +262,7 @@ mod tests {
                 .encode_all_repair_symbols()
                 .enumerate()
                 .map(|(i, symbol)| {
-                    vec![DecodingSymbol::new(
+                    vec![DecodingSymbol::<Primary>::new(
                         i as u32 + n_source_symbols as u32,
                         symbol,
                     )]

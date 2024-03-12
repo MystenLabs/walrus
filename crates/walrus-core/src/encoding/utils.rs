@@ -5,7 +5,7 @@
 use rand::RngCore;
 use raptorq::{EncodingPacket, ObjectTransmissionInformation, PayloadId};
 
-use super::DecodingSymbol;
+use super::{DecodingSymbol, EncodingAxis};
 
 /// Creates a new [`ObjectTransmissionInformation`] for the given `symbol_size`.
 ///
@@ -52,8 +52,8 @@ pub fn packet_to_data(packet: EncodingPacket) -> Vec<u8> {
 /// [`PayloadId`]. The two can be converted with the knowledge of the number of source symbols (`K`
 /// in the RFC's terminology) and padding symbols (`K' - K` in the RFC's terminology).
 // TODO(mlegner): Update if the raptorq library changes its behavior.
-pub fn encoding_packet_from_symbol<T>(
-    symbol: DecodingSymbol<T>,
+pub fn encoding_packet_from_symbol<T: EncodingAxis, U>(
+    symbol: DecodingSymbol<T, U>,
     n_source_symbols: u16,
     n_padding_symbols: u16,
 ) -> EncodingPacket {
