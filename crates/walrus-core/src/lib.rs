@@ -4,7 +4,8 @@
 //! Core functionality for Walrus.
 use encoding::{PrimarySliver, SecondarySliver};
 use fastcrypto::hash::{Blake2b256, HashFunction};
-use merkle::Node;
+use merkle::{MerkleTree, Node};
+use metadata::SliverPairMetadata;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -27,10 +28,26 @@ impl BlobId {
     /// The length of a blob ID in bytes.
     pub const LENGTH: usize = 32;
 
-    /// Returns the blob ID as a hash over the merkle root, encoding type,
+    /// Returns the blob ID as a hash over the Merkle root, encoding type,
     /// and unencoded_length of the blob.
     pub fn from_metadata(merkle_root: Node, encoding: EncodingType, unencoded_length: u64) -> Self {
         Self::new_with_hash_function::<Blake2b256>(merkle_root, encoding, unencoded_length)
+    }
+
+    /// Computes the Merkle root over the [`SliverPairMetadata`],
+    /// and then computes the blob ID.
+    pub fn from_sliver_pair_metadata(
+        sliver_pair_meta: &[SliverPairMetadata],
+        encoding: EncodingType,
+        unencoded_length: u64,
+    ) -> Self {
+        let merkle_root = MerkleTree::<Blake2b256>::build(
+            sliver_pair_meta
+                .iter()
+                .map(|h| h.pair_leaf_input::<Blake2b256>()),
+        )
+        .root();
+        Self::from_metadata(merkle_root, encoding, unencoded_length)
     }
 
     fn new_with_hash_function<T>(

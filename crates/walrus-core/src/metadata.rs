@@ -4,11 +4,11 @@
 //! Metadata associated with a Blob and stored by storage nodes.
 use std::num::NonZeroUsize;
 
-use fastcrypto::hash::Blake2b256;
+use fastcrypto::hash::HashFunction;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    merkle::{MerkleTree, Node as MerkleNode},
+    merkle::{Node as MerkleNode, DIGEST_LEN},
     BlobId,
     EncodingType,
 };
@@ -52,6 +52,24 @@ impl<const V: bool> BlobMetadataWithId<V> {
         BlobMetadataWithId { blob_id, metadata }
     }
 
+    /// Creates a new verified metadata starting from the components of the metadata.
+    ///
+    /// The verification is implicit as the blob ID is created directly from the metadata.
+    pub fn new_verified_from_metadata(
+        sliver_pair_meta: Vec<SliverPairMetadata>,
+        encoding: EncodingType,
+        unencoded_length: u64,
+    ) -> VerifiedBlobMetadataWithId {
+        Self::new_verified_unchecked(
+            BlobId::from_sliver_pair_metadata(&sliver_pair_meta, encoding, unencoded_length),
+            BlobMetadata {
+                encoding_type: encoding,
+                unencoded_length,
+                hashes: sliver_pair_meta,
+            },
+        )
+    }
+
     /// Creates a new verified metadata with the corresponding blob ID, without running the
     /// verification.
     pub fn new_verified_unchecked(
@@ -88,8 +106,8 @@ impl UnverifiedBlobMetadataWithId {
             }
         );
 
-        let computed_blob_id = BlobId::from_metadata(
-            MerkleTree::<Blake2b256>::build(&self.metadata.hashes).root(),
+        let computed_blob_id = BlobId::from_sliver_pair_metadata(
+            &self.metadata.hashes,
             EncodingType::RedStuff,
             self.metadata().unencoded_length,
         );
@@ -108,9 +126,14 @@ impl UnverifiedBlobMetadataWithId {
     // todo(@asonnino): Move this function to `walrus-test-utils`, #109
     pub fn arbitrary_metadata_for_test() -> UnverifiedBlobMetadataWithId {
         let unencoded_length = 7_000_000_000;
-        let hashes: Vec<_> = (0..100u8).map(|i| MerkleNode::Digest([i; 32])).collect();
-        let tree = MerkleTree::<Blake2b256>::build(&hashes);
-        let blob_id = BlobId::from_metadata(tree.root(), EncodingType::RedStuff, unencoded_length);
+        let hashes: Vec<_> = (0..100u8)
+            .map(|i| SliverPairMetadata {
+                primary_hash: MerkleNode::Digest([i; 32]),
+                secondary_hash: MerkleNode::Digest([i; 32]),
+            })
+            .collect();
+        let blob_id =
+            BlobId::from_sliver_pair_metadata(&hashes, EncodingType::RedStuff, unencoded_length);
 
         UnverifiedBlobMetadataWithId::new(
             blob_id,
@@ -137,7 +160,36 @@ pub struct BlobMetadata {
     /// The length of the unencoded blob.
     pub unencoded_length: u64,
     /// The hashes over the slivers of the blob.
-    pub hashes: Vec<MerkleNode>,
+    pub hashes: Vec<SliverPairMetadata>,
+}
+
+/// Metadata about a sliver pair, i.e., the root hashes of the primary and secondary slivers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SliverPairMetadata {
+    /// The hash of the primary sliver in the sliver pair.
+    pub primary_hash: MerkleNode,
+    /// The hash of the secondary sliver in the sliver pair.
+    pub secondary_hash: MerkleNode,
+}
+
+impl SliverPairMetadata {
+    /// Creates a new [`SliverPairMetadata`] with empty hashes ([`MerkleNode::Empty`]).
+    pub fn new_empty() -> SliverPairMetadata {
+        SliverPairMetadata {
+            primary_hash: MerkleNode::Empty,
+            secondary_hash: MerkleNode::Empty,
+        }
+    }
+
+    /// Concatenates the Merkle roots over the primary and secondary slivers.
+    ///
+    /// This is then to be used as input to compute the Merkle tree over the sliver pairs.
+    pub fn pair_leaf_input<T: HashFunction<DIGEST_LEN>>(&self) -> [u8; 2 * DIGEST_LEN] {
+        let mut concat = [0u8; 2 * DIGEST_LEN];
+        concat[0..DIGEST_LEN].copy_from_slice(&self.primary_hash.bytes());
+        concat[DIGEST_LEN..2 * DIGEST_LEN].copy_from_slice(&self.secondary_hash.bytes());
+        concat
+    }
 }
 
 #[cfg(test)]

@@ -167,6 +167,7 @@ pub(crate) mod tests {
     use typed_store::metrics::SamplingInterval;
     use walrus_core::{
         encoding::{EncodingAxis, Primary, Secondary, Sliver as TypedSliver},
+        metadata::SliverPairMetadata,
         EncodingType,
         Sliver,
         SliverType,
@@ -218,7 +219,12 @@ pub(crate) mod tests {
             BlobMetadata {
                 encoding_type: EncodingType::RedStuff,
                 unencoded_length: 700,
-                hashes: (0..100u8).map(|i| MerkleNode::Digest([i; 32])).collect(),
+                hashes: (0..100u8)
+                    .map(|i| SliverPairMetadata {
+                        primary_hash: MerkleNode::Digest([i; 32]),
+                        secondary_hash: MerkleNode::Digest([i; 32]),
+                    })
+                    .collect(),
             },
         )
     }

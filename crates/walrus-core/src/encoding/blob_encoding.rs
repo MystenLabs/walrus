@@ -3,6 +3,8 @@
 
 use std::{cmp, marker::PhantomData};
 
+use fastcrypto::hash::Blake2b256;
+
 use super::{
     utils,
     DataTooLargeError,
@@ -14,11 +16,19 @@ use super::{
     Secondary,
     Sliver,
     SliverPair,
+    Symbols,
+};
+use crate::{
+    merkle::MerkleTree,
+    metadata::{SliverPairMetadata, VerifiedBlobMetadataWithId},
+    EncodingType,
 };
 
 /// Struct to perform the full blob encoding.
 #[derive(Debug)]
 pub struct BlobEncoder<'a> {
+    /// The size of the unencoded blob to be encoded.
+    blob_size: usize,
     /// Rows of the message matrix.
     ///
     /// The outer vector has length `source_symbols_primary`, and each inner vector has length
@@ -69,6 +79,7 @@ impl<'a> BlobEncoder<'a> {
             }
         }
         Ok(Self {
+            blob_size: blob.len(),
             rows,
             columns,
             symbol_size,
@@ -80,19 +91,7 @@ impl<'a> BlobEncoder<'a> {
     pub fn encode(&self) -> Vec<SliverPair> {
         let n_rows = self.rows.len();
         let n_columns = self.columns.len();
-        let mut sliver_pairs: Vec<SliverPair> = Vec::with_capacity(self.config.n_shards as usize);
-
-        // Initialize `n_shards` empty sliver pairs with the correct lengths and indices.
-        for i in 0..self.config.n_shards {
-            sliver_pairs.push(SliverPair {
-                primary: Sliver::new_empty(n_columns, self.symbol_size, i),
-                secondary: Sliver::new_empty(
-                    n_rows,
-                    self.symbol_size,
-                    self.config.sliver_index_from_pair_index::<Secondary>(i),
-                ),
-            })
-        }
+        let mut sliver_pairs = self.empty_sliver_pairs();
 
         // The first `n_rows` primary slivers and the last `n_columns` secondary slivers can be
         // directly copied from the message matrix.
@@ -134,6 +133,139 @@ impl<'a> BlobEncoder<'a> {
         }
 
         sliver_pairs
+    }
+
+    /// Encodes the blob with which `self` was created to a vector of [`SliverPair`s][SliverPair],
+    /// and provides the relative [`VerifiedBlobMetadataWithId`].
+    ///
+    /// This function operates on the fully expanded message matrix for the blob. This matrix is
+    /// used to compute the Merkle trees for the metadata, and to extract the sliver pairs. The
+    /// returned blob metadata is considered to be verified as it is directly built from the data.
+    pub fn encode_with_metadata(&self) -> (Vec<SliverPair>, VerifiedBlobMetadataWithId) {
+        let n_shards_usize = self.config.n_shards as usize;
+        // The "matrix" is represented as vector of rows, where each row is a `Symbols` object. This
+        // choice simplifies indexing, and the rows of `Symbols` can then be directly truncated into
+        // primary slivers.
+        let mut expanded_matrix =
+            vec![Symbols::zeros(n_shards_usize, self.symbol_size); self.config.n_shards as usize];
+        self.fill_systematic_with_rows(&mut expanded_matrix);
+        self.expand_columns_for_primary(&mut expanded_matrix);
+        self.expand_all_rows(&mut expanded_matrix);
+        let (sliver_pairs, metadata) = self.get_pairs_and_metadata(expanded_matrix);
+        (
+            sliver_pairs,
+            VerifiedBlobMetadataWithId::new_verified_from_metadata(
+                metadata,
+                EncodingType::RedStuff,
+                self.blob_size as u64,
+            ),
+        )
+    }
+
+    /// Return a vector of empty [`SliverPair`] of length `n_shards`. Primary and secondary slivers
+    /// are initialized with the appropriate `symbol_size` and `length`.
+    fn empty_sliver_pairs(&self) -> Vec<SliverPair> {
+        (0..self.config.n_shards)
+            .map(|i| SliverPair::new_empty(self.config, self.symbol_size, i))
+            .collect()
+    }
+
+    /// Fills the systematic part of the matrix using `self.rows`.
+    fn fill_systematic_with_rows(&self, matrix: &mut [Symbols]) {
+        for (row_idx, row) in self.rows.iter().enumerate() {
+            matrix[row_idx][0..self.config.source_symbols_secondary as usize].copy_from_slice(row);
+        }
+    }
+
+    /// Expands the first `source_symbols_secondary` columns from `self.columns` to get all
+    /// remaining primary slivers.
+    fn expand_columns_for_primary(&self, matrix: &mut [Symbols]) {
+        for (col_idx, col) in self.columns.iter().enumerate() {
+            for (row_idx, symbol) in self
+                .config
+                .get_encoder::<Primary>(col)
+                .expect("size has already been checked")
+                .encode_all_repair_symbols()
+                .enumerate()
+            {
+                matrix[self.rows.len() + row_idx][col_idx].copy_from_slice(&symbol);
+            }
+        }
+    }
+
+    /// Expands all `n_shards` primary slivers (rows) to completely fill the `n_shards * n_shards`
+    /// expanded message matrix.
+    fn expand_all_rows(&self, matrix: &mut [Symbols]) {
+        for row in matrix.iter_mut() {
+            for (col_idx, symbol) in self
+                .config
+                .get_encoder::<Secondary>(&row[0..self.columns.len()])
+                .expect("size has already been checked")
+                .encode_all_repair_symbols()
+                .enumerate()
+            {
+                row[self.columns.len() + col_idx].copy_from_slice(&symbol)
+            }
+        }
+    }
+
+    /// Computes the sliver pairs and the sliver pair metadata by consuming the expanded message
+    /// matrix.
+    fn get_pairs_and_metadata(
+        &self,
+        mut matrix: Vec<Symbols>,
+    ) -> (Vec<SliverPair>, Vec<SliverPairMetadata>) {
+        let mut sliver_pairs = self.empty_sliver_pairs();
+        let mut metadata = vec![SliverPairMetadata::new_empty(); matrix.len()];
+        // First compute the secondary slivers & metadata -- does not require consuming the matrix.
+        self.get_secondary_slivers_and_metadata(&mut matrix, &mut sliver_pairs, &mut metadata);
+        // The consume the matrix to get the primary slivers & metadata.
+        self.get_primary_slivers_and_metadata(matrix, &mut sliver_pairs, &mut metadata);
+        (sliver_pairs, metadata)
+    }
+
+    /// Get the secondary slivers and their metadata from the matrix.
+    fn get_secondary_slivers_and_metadata(
+        &self,
+        matrix: &mut [Symbols],
+        sliver_pairs: &mut [SliverPair],
+        metadata: &mut [SliverPairMetadata],
+    ) {
+        let n_shards = matrix.len();
+        for col_idx in 0..n_shards {
+            let col_symbols = matrix
+                .iter()
+                // Get the columns in reverse order `n_shards - col_idx - 1`.
+                .map(|row| {
+                    row[self
+                        .config
+                        .sliver_index_from_pair_index::<Secondary>(col_idx as u32)
+                        as usize]
+                        .as_ref()
+                });
+            metadata[col_idx].secondary_hash =
+                MerkleTree::<Blake2b256>::build(col_symbols.clone()).root();
+            for (row_idx, symbol) in col_symbols.into_iter().take(self.rows.len()).enumerate() {
+                sliver_pairs[col_idx].secondary.symbols[row_idx].copy_from_slice(symbol);
+            }
+        }
+    }
+
+    /// Get the primary slivers and their metadata.
+    ///
+    /// Consumes the original matrix, as it creates the primary slivers by truncating the rows of
+    /// the matrix.
+    fn get_primary_slivers_and_metadata(
+        &self,
+        matrix: Vec<Symbols>,
+        sliver_pairs: &mut [SliverPair],
+        metadata: &mut [SliverPairMetadata],
+    ) {
+        for (idx, mut row) in matrix.into_iter().enumerate() {
+            metadata[idx].primary_hash = MerkleTree::<Blake2b256>::build(row.to_symbols()).root();
+            row.truncate(self.columns.len());
+            sliver_pairs[idx].primary.symbols = row;
+        }
     }
 }
 
@@ -248,7 +380,10 @@ mod tests {
     use walrus_test_utils::param_test;
 
     use super::*;
-    use crate::encoding::EncodingConfig;
+    use crate::{
+        encoding::{get_encoding_config, initialize_encoding_config, EncodingConfig},
+        metadata::UnverifiedBlobMetadataWithId,
+    };
 
     param_test! {
         test_matrix_construction: [
@@ -355,5 +490,55 @@ mod tests {
                 .unwrap(),
             blob
         );
+    }
+
+    #[test]
+    fn test_encode_with_metadata() {
+        // A big test checking that:
+        // 1. The sliver pairs produced by `encode_with_metadata` are the same as the ones produced
+        //    by `encode`;
+        // 2. the metadata produced by `encode_with_metadata` is the same as
+        //    the metadata that can be computed from the sliver pairs directly.
+        //
+        // Takes long (O(1s)) to run.
+        let blob = utils::large_random_data(27182);
+        let source_symbols_primary = 11;
+        let source_symbols_secondary = 23;
+        let n_shards = 3 * (source_symbols_primary + source_symbols_secondary) as u32;
+
+        initialize_encoding_config(source_symbols_primary, source_symbols_secondary, n_shards);
+
+        // Check that the encoding with and without metadata are identical.
+        let sliver_pairs_1 = get_encoding_config()
+            .get_blob_encoder(&blob)
+            .unwrap()
+            .encode();
+        let (sliver_pairs_2, blob_metadata) = get_encoding_config()
+            .get_blob_encoder(&blob)
+            .unwrap()
+            .encode_with_metadata();
+        assert_eq!(sliver_pairs_1, sliver_pairs_2);
+
+        // Check that the hashes obtained by re-encoding the sliver pairs are equivalent to the ones
+        // obtained in the `encode_with_metadata` function.
+        for (sliver_pair, pair_meta) in sliver_pairs_2
+            .iter()
+            .zip(blob_metadata.metadata().hashes.iter())
+        {
+            let pair_hash = sliver_pair
+                .pair_leaf_input::<Blake2b256>()
+                .expect("should be able to encode");
+            let meta_hash = pair_meta.pair_leaf_input::<Blake2b256>();
+            assert_eq!(pair_hash, meta_hash);
+        }
+
+        // Check that the blob metadata verifies.
+        let unverified = UnverifiedBlobMetadataWithId::new(
+            *blob_metadata.blob_id(),
+            blob_metadata.metadata().clone(),
+        );
+        assert!(unverified
+            .verify((n_shards as usize).try_into().unwrap())
+            .is_ok());
     }
 }

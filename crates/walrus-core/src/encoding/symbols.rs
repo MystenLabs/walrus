@@ -42,6 +42,13 @@ impl Symbols {
         }
     }
 
+    /// Shortens the `data` in [`Symbols`], keeping the first `len` symbols and dropping the
+    /// rest. If `len` is greater or equal to the [`Symbols`]’ current number of symbols, this has
+    /// no effect.
+    pub fn truncate(&mut self, len: usize) {
+        self.data.truncate(len * self.symbol_size as usize);
+    }
+
     /// Creates a new `Symbols` struct with zeroed-out data of specified length.
     ///
     /// # Arguments
@@ -192,10 +199,10 @@ impl Symbols {
         &mut self.data
     }
 
-    /// Returns the range of the underlying byte vector that contains symbol at index `index`.
+    /// Returns the range of the underlying byte vector that contains the symbols in the range.
     #[inline]
-    pub fn symbol_range(&self, index: usize) -> Range<usize> {
-        self.symbol_usize() * index..self.symbol_usize() * (index + 1)
+    pub fn symbol_range(&self, range: Range<usize>) -> Range<usize> {
+        self.symbol_usize() * range.start..self.symbol_usize() * range.end
     }
 
     /// Returns the underlying byte vector as an owned object.
@@ -209,12 +216,27 @@ impl Index<usize> for Symbols {
     type Output = [u8];
 
     fn index(&self, index: usize) -> &Self::Output {
-        &self.data[self.symbol_range(index)]
+        &self.data[self.symbol_range(index..index + 1)]
     }
 }
 
 impl IndexMut<usize> for Symbols {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        let range = self.symbol_range(index..index + 1);
+        &mut self.data[range]
+    }
+}
+
+impl Index<Range<usize>> for Symbols {
+    type Output = [u8];
+
+    fn index(&self, index: Range<usize>) -> &Self::Output {
+        &self.data[self.symbol_range(index)]
+    }
+}
+
+impl IndexMut<Range<usize>> for Symbols {
+    fn index_mut(&mut self, index: Range<usize>) -> &mut Self::Output {
         let range = self.symbol_range(index);
         &mut self.data[range]
     }

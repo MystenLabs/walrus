@@ -15,12 +15,16 @@ use super::{
     EncodeError,
     Encoder,
     EncodingAxis,
+    EncodingConfig,
     Primary,
     RecoveryError,
     Secondary,
     Symbols,
 };
-use crate::merkle::{MerkleProof, MerkleTree, Node, DIGEST_LEN};
+use crate::{
+    merkle::{MerkleProof, MerkleTree, Node, DIGEST_LEN},
+    metadata::SliverPairMetadata,
+};
 
 /// A primary sliver resulting from an encoding of a blob.
 pub type PrimarySliver = Sliver<Primary>;
@@ -71,9 +75,9 @@ impl<T: EncodingAxis> Sliver<T> {
     /// # Panics
     ///
     /// Panics if `symbol_size == 0`.
-    pub fn new_empty(length: usize, symbol_size: u16, index: u32) -> Self {
+    pub fn new_empty(length: u16, symbol_size: u16, index: u32) -> Self {
         Self {
-            symbols: Symbols::zeros(length, symbol_size),
+            symbols: Symbols::zeros(length as usize, symbol_size),
             index,
             _sliver_type: PhantomData,
         }
@@ -265,6 +269,18 @@ impl SliverPair {
         self.primary.index
     }
 
+    /// Creates a new sliver pair containing two empty [`Sliver`] instances of the specified size.
+    pub fn new_empty(config: &EncodingConfig, symbol_size: u16, index: u32) -> Self {
+        SliverPair {
+            primary: Sliver::new_empty(config.source_symbols_secondary, symbol_size, index),
+            secondary: Sliver::new_empty(
+                config.source_symbols_primary,
+                symbol_size,
+                config.sliver_index_from_pair_index::<Secondary>(index),
+            ),
+        }
+    }
+
     /// Gets the two recovery symbols for a specific target sliver pair starting from the current
     /// sliver pair.
     ///
@@ -316,6 +332,25 @@ impl SliverPair {
                 .recovery_symbol_for_sliver_with_proof(target_pair_idx)?,
         })
     }
+
+    /// Concatenates the Merkle roots over the primary and secondary slivers.
+    ///
+    /// The concatenated Merkle roots are then used as inputs to compute the blob ID (as the root of
+    /// the Merkle tree over these concatenated roots).
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`RecoveryError::EncodeError`] if any of the the slivers cannot be encoded. See
+    /// [`Encoder::new`] for further details about the returned errors.
+    pub fn pair_leaf_input<T: HashFunction<DIGEST_LEN>>(
+        &self,
+    ) -> Result<[u8; 2 * DIGEST_LEN], RecoveryError> {
+        Ok(SliverPairMetadata {
+            primary_hash: self.primary.get_merkle_root::<T>()?,
+            secondary_hash: self.secondary.get_merkle_root::<T>()?,
+        }
+        .pair_leaf_input::<T>())
+    }
 }
 
 #[cfg(test)]
@@ -349,7 +384,7 @@ mod tests {
         ]
     }
     fn copy_symbol_to_modifies_empty_sliver_correctly(
-        sliver_n_symbols: usize,
+        sliver_n_symbols: u16,
         index: usize,
         symbol_size: u16,
         symbol: &[u8],
@@ -510,7 +545,6 @@ mod tests {
         let secondary = Sliver::<Secondary>::new(sliver_bytes, symbol_size, 0);
 
         for (idx, symbol) in primary.recovery_symbols()?.to_symbols().enumerate() {
-            println!("idx {}", idx);
             assert_eq!(primary.single_recovery_symbol(idx as u32)?, symbol)
         }
         for (idx, symbol) in secondary.recovery_symbols()?.to_symbols().enumerate() {
