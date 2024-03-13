@@ -78,6 +78,7 @@ unknown-registry = "deny"
 # in the allow list is encountered
 unknown-git = "deny"
 allow-git = [
+    "https://github.com/cberner/raptorq",
     "https://github.com/mystenmark/tokio-madsim-fork",
     "https://github.com/mystenmark/async-task",
     "https://github.com/wlmyng/jsonrpsee",

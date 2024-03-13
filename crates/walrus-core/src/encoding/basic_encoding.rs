@@ -140,8 +140,6 @@ impl Encoder {
 #[derive(Debug, Clone)]
 pub struct Decoder {
     raptorq_decoder: SourceBlockDecoder,
-    n_source_symbols: u16,
-    n_padding_symbols: u16,
 }
 
 impl Decoder {
@@ -150,21 +148,12 @@ impl Decoder {
     /// Assumes that the length of the data to be decoded is the product of `n_source_symbols` and
     /// `symbol_size`.
     pub fn new(n_source_symbols: u16, symbol_size: u16) -> Self {
-        let data_length = (n_source_symbols as u64) * (symbol_size as u64);
-        let raptorq_decoder = SourceBlockDecoder::new2(
-            0,
-            &utils::get_transmission_info(symbol_size as usize),
-            data_length,
-        );
-        let n_padding_symbols = u16::try_from(raptorq::extended_source_block_symbols(
-            n_source_symbols as u32,
-        ))
-        .expect("the largest value that is ever returned is smaller than u16::MAX")
-            - n_source_symbols;
         Self {
-            raptorq_decoder,
-            n_source_symbols,
-            n_padding_symbols,
+            raptorq_decoder: SourceBlockDecoder::new2(
+                0,
+                &utils::get_transmission_info(symbol_size as usize),
+                (n_source_symbols as u64) * (symbol_size as u64),
+            ),
         }
     }
 
@@ -180,9 +169,9 @@ impl Decoder {
         T: IntoIterator<Item = DecodingSymbol<U, V>>,
         U: EncodingAxis,
     {
-        let packets = symbols.into_iter().map(|s| {
-            utils::encoding_packet_from_symbol(s, self.n_source_symbols, self.n_padding_symbols)
-        });
+        let packets = symbols
+            .into_iter()
+            .map(DecodingSymbol::<U, V>::into_encoding_packet);
         self.raptorq_decoder.decode(packets)
     }
 }

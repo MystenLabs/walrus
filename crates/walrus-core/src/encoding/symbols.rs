@@ -9,6 +9,7 @@ use std::{
     slice::{Chunks, ChunksMut},
 };
 
+use raptorq::{EncodingPacket, PayloadId};
 use serde::{Deserialize, Serialize};
 
 use super::{EncodingAxis, Primary, Secondary, WrongSymbolSizeError};
@@ -255,6 +256,13 @@ pub struct DecodingSymbol<T: EncodingAxis, U = ()> {
     proof: U,
     /// Marker representing whether this symbol is used to decode primary or secondary slivers.
     _axis: PhantomData<T>,
+}
+
+impl<T: EncodingAxis, U> DecodingSymbol<T, U> {
+    /// Converts the `DecodingSymbol` to an [`EncodingPacket`] expected by the [`raptorq::Decoder`].
+    pub fn into_encoding_packet(self) -> EncodingPacket {
+        EncodingPacket::new(PayloadId::new(0, self.index), self.data)
+    }
 }
 
 impl<T: EncodingAxis> DecodingSymbol<T> {

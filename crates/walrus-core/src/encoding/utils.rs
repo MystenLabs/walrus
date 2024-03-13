@@ -3,9 +3,7 @@
 
 #[cfg(test)]
 use rand::RngCore;
-use raptorq::{EncodingPacket, ObjectTransmissionInformation, PayloadId};
-
-use super::{DecodingSymbol, EncodingAxis};
+use raptorq::{EncodingPacket, ObjectTransmissionInformation};
 
 /// Creates a new [`ObjectTransmissionInformation`] for the given `symbol_size`.
 ///
@@ -43,27 +41,6 @@ pub fn compute_symbol_size(data_length: usize, n_symbols: usize) -> Option<u16> 
 #[inline]
 pub fn packet_to_data(packet: EncodingPacket) -> Vec<u8> {
     packet.split().1
-}
-
-/// This function is necessary to convert from the index to the symbol ID used by the raptorq
-/// library.
-///
-/// It is needed because currently the [raptorq] library currently uses the ISI in the
-/// [`PayloadId`]. The two can be converted with the knowledge of the number of source symbols (`K`
-/// in the RFC's terminology) and padding symbols (`K' - K` in the RFC's terminology).
-// TODO(mlegner): Update if the raptorq library changes its behavior.
-pub fn encoding_packet_from_symbol<T: EncodingAxis, U>(
-    symbol: DecodingSymbol<T, U>,
-    n_source_symbols: u16,
-    n_padding_symbols: u16,
-) -> EncodingPacket {
-    let isi = symbol.index
-        + if n_padding_symbols == 0 || symbol.index < n_source_symbols as u32 {
-            0
-        } else {
-            n_padding_symbols as u32
-        };
-    EncodingPacket::new(PayloadId::new(0, isi), symbol.data)
 }
 
 #[cfg(test)]
