@@ -8,7 +8,7 @@ use std::collections::BTreeSet;
 
 use anyhow::{anyhow, Result};
 use futures::Future;
-use move_core_types::language_storage::StructTag as MoveStructTag;
+use move_core_types::{language_storage::StructTag as MoveStructTag, u256::U256};
 use sui_sdk::{
     rpc_types::{
         ObjectChange,
@@ -23,6 +23,7 @@ use sui_sdk::{
     SuiClient,
 };
 use sui_types::{base_types::ObjectType, transaction::CallArg, TypeTag};
+use walrus_core::BlobId;
 
 pub(crate) fn get_struct_from_object_response(
     object_response: &SuiObjectResponse,
@@ -138,6 +139,15 @@ where
             _ => None,
         })
         .collect()
+}
+
+pub(crate) fn blob_id_from_u256(input: U256) -> BlobId {
+    BlobId(input.to_le_bytes())
+}
+
+pub(crate) fn blob_id_to_call_arg(blob_id: BlobId) -> CallArg {
+    // The bcs encoding of a u256 is just its bytes in little endian
+    CallArg::Pure(blob_id.0.into())
 }
 
 macro_rules! match_for_correct_type {

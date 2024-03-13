@@ -7,4 +7,4 @@
 mod utils;
 pub mod client;
 mod contracts;
-mod types;
+pub mod types;

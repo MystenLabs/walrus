@@ -29,11 +29,13 @@ use sui_types::{
     Identifier,
     TypeTag,
 };
+use walrus_core::{BlobId, EncodingType};
 
 use crate::{
     contracts::{self, AssociatedContractStruct, FunctionTag},
-    types::StorageResource,
+    types::{Blob, StorageResource},
     utils::{
+        blob_id_to_call_arg,
         call_args_to_object_ids,
         get_created_object_ids_by_type,
         get_struct_from_object_response,
@@ -216,18 +218,14 @@ impl WalrusSuiClient {
         })
     }
 
-    /// Purchase blob storage with the specified parameters.
-    ///
-    /// # Arguments
-    ///
-    /// * `size` - The size of the blob in bytes.
-    /// * `periods_ahead` - The duration of the storage lease in Walrus epochs
-    ///
-    /// # Returns
-    ///
-    /// The storage resource
-    pub async fn reserve_space(&self, size: u64, periods_ahead: u64) -> Result<StorageResource> {
-        let price = periods_ahead * size * self.price_per_unit_size().await?;
+    /// Purchases blob storage for the next `periods_ahead` Walrus epochs and an encoded
+    /// size of `encoded_size` and returns the created storage resource.
+    pub async fn reserve_space(
+        &self,
+        encoded_size: u64,
+        periods_ahead: u64,
+    ) -> Result<StorageResource> {
+        let price = periods_ahead * encoded_size * self.price_per_unit_size().await?;
         let payment_coin = handle_pagination(|cursor| {
             self.sui_client.coin_read_api().get_coins(
                 self.wallet_address,
@@ -246,7 +244,7 @@ impl WalrusSuiClient {
                 vec![
                     self.call_arg_from_shared_object_id(self.system_object, true)
                         .await?,
-                    size.into(),
+                    encoded_size.into(),
                     periods_ahead.into(),
                     payment_coin.object_ref().into(),
                 ],
@@ -263,5 +261,45 @@ impl WalrusSuiClient {
             storage_id.len()
         );
         self.get_object(storage_id[0]).await
+    }
+
+    /// Registers a blob with the specified [`BlobId`] using the provided [`StorageResource`],
+    /// and returns the created blob object.
+    ///
+    /// `encoded_size` is the size of the encoded blob, must be less than or equal to the size
+    ///  reserved in `storage`.
+    pub async fn register_blob(
+        &self,
+        storage: &StorageResource,
+        blob_id: BlobId,
+        encoded_size: u64,
+        erasure_code_type: EncodingType,
+    ) -> Result<Blob> {
+        let erasure_code_type: u8 = erasure_code_type.into();
+        let res = self
+            .move_call_and_transfer(
+                contracts::blob::register
+                    .with_type_params(&[self.system_tag.clone(), self.coin_type.clone()]),
+                vec![
+                    self.call_arg_from_shared_object_id(self.system_object, true)
+                        .await?,
+                    self.wallet.get_object_ref(storage.id).await?.into(),
+                    blob_id_to_call_arg(blob_id),
+                    encoded_size.into(),
+                    erasure_code_type.into(),
+                ],
+            )
+            .await?;
+        let blob_obj_id = get_created_object_ids_by_type(
+            &res,
+            &contracts::blob::Blob
+                .to_move_struct_tag(self.walrus_pkg, &[self.system_tag.clone()])?,
+        )?;
+        ensure!(
+            blob_obj_id.len() == 1,
+            "unexpected number of blob objects created: {}",
+            blob_obj_id.len()
+        );
+        self.get_object(blob_obj_id[0]).await
     }
 }
