@@ -1,11 +1,13 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{future::Future, num::NonZeroUsize, path::Path, sync::Arc};
+use std::{future::Future, num::NonZeroUsize, sync::Arc};
 
 use anyhow::Context;
-use fastcrypto::{bls12381::min_pk::BLS12381PrivateKey, traits::Signer};
-use typed_store::rocks::MetricConf;
+use fastcrypto::traits::Signer;
+use mysten_metrics::RegistryService;
+use tokio_util::sync::CancellationToken;
+use typed_store::{rocks::MetricConf, DBMetrics};
 use walrus_core::{
     encoding::{get_encoding_config, Primary, RecoveryError, Secondary},
     ensure,
@@ -13,12 +15,13 @@ use walrus_core::{
     metadata::{UnverifiedBlobMetadataWithId, VerificationError},
     BlobId,
     Epoch,
+    KeyPair,
     ShardIndex,
     Sliver,
     SliverType,
 };
 
-use crate::{mapping::shard_index_for_pair, storage::Storage};
+use crate::{config::WalrusNodeConfig, mapping::shard_index_for_pair, storage::Storage};
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreMetadataError {
@@ -94,35 +97,49 @@ pub trait ServiceState {
 }
 
 /// A Walrus storage node, responsible for 1 or more shards on Walrus.
-pub struct StorageNode {
+pub struct WalrusStorageNode {
     current_epoch: Epoch,
     storage: Storage,
-    signer: Arc<BLS12381PrivateKey>,
     n_shards: NonZeroUsize,
+    protocol_key_pair: Arc<KeyPair>,
 }
 
-impl StorageNode {
+impl WalrusStorageNode {
     /// Create a new storage node with the provided configuration.
     pub fn new(
-        storage_path: &Path,
-        signing_key: BLS12381PrivateKey,
-    ) -> Result<Self, anyhow::Error> {
-        let storage = Storage::open(storage_path, MetricConf::new("storage"))?;
+        config: &WalrusNodeConfig,
+        registry_service: RegistryService,
+    ) -> anyhow::Result<Self> {
+        DBMetrics::init(&registry_service.default_registry());
+        let storage = Storage::open(config.storage_path.as_path(), MetricConf::new("storage"))?;
 
-        Ok(Self::new_with_storage(storage, signing_key))
+        Ok(Self::new_with_storage(
+            storage,
+            config.protocol_key_pair.clone(),
+        ))
     }
 
-    fn new_with_storage(storage: Storage, signing_key: BLS12381PrivateKey) -> Self {
+    fn new_with_storage(storage: Storage, protocol_key_pair: Arc<KeyPair>) -> Self {
         Self {
             storage,
-            signer: Arc::new(signing_key),
             current_epoch: 0,
             n_shards: NonZeroUsize::new(100).unwrap(),
+            protocol_key_pair,
         }
     }
 }
 
-impl ServiceState for StorageNode {
+impl WalrusStorageNode {
+    /// Run the walrus-node logic until cancelled using the provided cancellation token.
+    pub async fn run(&self, cancel_token: CancellationToken) -> anyhow::Result<()> {
+        // TODO(jsmith): Run any subtasks such as the HTTP api, shard migration,
+        // etc until cancelled.
+        cancel_token.cancelled().await;
+        Ok(())
+    }
+}
+
+impl ServiceState for WalrusStorageNode {
     fn retrieve_metadata(
         &self,
         blob_id: &BlobId,
@@ -131,7 +148,6 @@ impl ServiceState for StorageNode {
             .storage
             .get_metadata(blob_id)
             .context("unable to retrieve metadata")?;
-
         // Format the metadata as unverified, as the client will have to re-verify them.
         Ok(verified_metadata_with_id.map(|metadata| metadata.into_unverified()))
     }
@@ -227,7 +243,7 @@ impl ServiceState for StorageNode {
     ) -> Result<Option<StorageConfirmation>, anyhow::Error> {
         if self.storage.is_stored_at_all_shards(blob_id)? {
             let confirmation = Confirmation::new(self.current_epoch, *blob_id);
-            sign_confirmation(confirmation, self.signer.clone())
+            sign_confirmation(confirmation, self.protocol_key_pair.clone())
                 .await
                 .map(|signed| Some(StorageConfirmation::Signed(signed)))
         } else {
@@ -238,7 +254,7 @@ impl ServiceState for StorageNode {
 
 async fn sign_confirmation(
     confirmation: Confirmation,
-    signer: Arc<BLS12381PrivateKey>,
+    signer: Arc<KeyPair>,
 ) -> Result<SignedStorageConfirmation, anyhow::Error> {
     let signed = tokio::task::spawn_blocking(move || {
         let encoded_confirmation = bcs::to_bytes(&confirmation)
@@ -271,17 +287,17 @@ mod tests {
 
     const OTHER_BLOB_ID: BlobId = BlobId([247; 32]);
 
-    fn storage_node_with_storage(storage: WithTempDir<Storage>) -> WithTempDir<StorageNode> {
-        let signing_key = BLS12381KeyPair::generate(&mut rand::thread_rng()).private();
+    fn storage_node_with_storage(storage: WithTempDir<Storage>) -> WithTempDir<WalrusStorageNode> {
+        let signing_key = BLS12381KeyPair::generate(&mut rand::thread_rng());
 
         WithTempDir {
-            inner: StorageNode::new_with_storage(storage.inner, signing_key),
+            inner: WalrusStorageNode::new_with_storage(storage.inner, signing_key.into()),
             temp_dir: storage.temp_dir,
         }
     }
 
     mod get_storage_confirmation {
-        use fastcrypto::{bls12381::min_pk::BLS12381PublicKey, traits::VerifyingKey};
+        use fastcrypto::traits::VerifyingKey;
 
         use super::*;
 
@@ -321,7 +337,10 @@ mod tests {
 
             let StorageConfirmation::Signed(signed) = confirmation;
 
-            BLS12381PublicKey::from(storage_node.as_ref().signer.as_ref())
+            storage_node
+                .as_ref()
+                .protocol_key_pair
+                .public()
                 .verify(&signed.confirmation, &signed.signature)
                 .expect("message should be verifiable");
 

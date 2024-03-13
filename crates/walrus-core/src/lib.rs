@@ -26,6 +26,7 @@ pub mod messages;
 pub use messages::SignedStorageConfirmation;
 
 pub mod metadata;
+pub mod utils;
 
 /// A public key.
 pub type PublicKey = BLS12381PublicKey;

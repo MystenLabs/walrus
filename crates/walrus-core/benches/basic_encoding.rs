@@ -40,7 +40,7 @@ fn basic_encoding(c: &mut Criterion) {
                 |b, (symbol_count, data)| {
                     b.iter(|| {
                         let encoder =
-                            Encoder::new(&data, *symbol_count, constants::N_SHARDS, &encoding_plan)
+                            Encoder::new(data, *symbol_count, constants::N_SHARDS, &encoding_plan)
                                 .unwrap();
                         let _encoded_symbols = encoder.encode_all().collect::<Vec<_>>();
                     });
@@ -68,7 +68,7 @@ fn basic_decoding(c: &mut Criterion) {
                 encoder
                     .encode_all()
                     .enumerate()
-                    .map(|(i, s)| DecodingSymbol::<Primary>::new(i as u32, s.into())),
+                    .map(|(i, s)| DecodingSymbol::<Primary>::new(i as u32, s)),
                 symbol_count as usize + 1,
             )
             .collect();

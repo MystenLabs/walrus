@@ -13,7 +13,7 @@ pub mod mapping;
 pub mod server;
 
 mod node;
-pub use node::StorageNode;
+pub use node::WalrusStorageNode;
 
 mod storage;
 
