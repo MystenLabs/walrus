@@ -44,20 +44,27 @@ pub enum ServiceResponse<T: Serialize> {
 }
 
 impl<T: Serialize> ServiceResponse<T> {
-    /// Creates a new success response.
-    pub fn new_success(code: StatusCode, data: T) -> Self {
-        Self::Success {
+    /// Creates a new serialized success response. This response must be a tuple containing the
+    /// status code (so that axum includes it in the HTTP header) and the JSON response.
+    pub fn serialized_success(code: StatusCode, data: T) -> (StatusCode, Json<Self>) {
+        let response = Self::Success {
             code: code.as_u16(),
             data,
-        }
+        };
+        (code, Json(response))
     }
 
-    /// Creates a new error response.
-    pub fn new_error<S: Into<String>>(code: StatusCode, message: S) -> Self {
-        Self::Error {
+    /// Creates a new serialized error response. This response must be a tuple containing the status
+    /// code (so that axum includes it in the HTTP header) and the JSON response.
+    pub fn serialized_error<S: Into<String>>(
+        code: StatusCode,
+        message: S,
+    ) -> (StatusCode, Json<Self>) {
+        let response = Self::Error {
             code: code.as_u16(),
             message: message.into(),
-        }
+        };
+        (code, Json(response))
     }
 }
 
@@ -108,52 +115,48 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
     async fn store_blob_metadata(
         State(state): State<Arc<S>>,
         Json(request): Json<BlobMetadataWithId>,
-    ) -> Json<ServiceResponse<()>> {
+    ) -> (StatusCode, Json<ServiceResponse<()>>) {
         match state.store_blob_metadata(request) {
-            Ok(()) => Json(ServiceResponse::new_success(StatusCode::OK, ())),
-            Err(StoreMetadataError::InvalidMetadata(message)) => Json(ServiceResponse::new_error(
-                StatusCode::BAD_REQUEST,
-                message.to_string(),
-            )),
+            Ok(()) => ServiceResponse::serialized_success(StatusCode::OK, ()),
+            Err(StoreMetadataError::InvalidMetadata(message)) => {
+                ServiceResponse::serialized_error(StatusCode::BAD_REQUEST, message.to_string())
+            }
             // TODO(@asonnino): Log this error message once #106 lands.
-            Err(StoreMetadataError::Internal(_message)) => Json(ServiceResponse::new_error(
+            Err(StoreMetadataError::Internal(_message)) => ServiceResponse::serialized_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Internal error",
-            )),
+            ),
         }
     }
 
     async fn store_sliver(
         State(state): State<Arc<S>>,
         Json(request): Json<StoreSliverRequest>,
-    ) -> Json<ServiceResponse<()>> {
+    ) -> (StatusCode, Json<ServiceResponse<()>>) {
         match state.store_sliver(request.shard, &request.blob_id, &request.sliver) {
-            Ok(()) => Json(ServiceResponse::new_success(StatusCode::OK, ())),
+            Ok(()) => ServiceResponse::serialized_success(StatusCode::OK, ()),
             // TODO(@asonnino): Log this error message once #106 lands.
-            Err(_error) => Json(ServiceResponse::new_error(
+            Err(_error) => ServiceResponse::serialized_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Internal error",
-            )),
+            ),
         }
     }
 
     async fn storage_confirmation(
         State(state): State<Arc<S>>,
         Json(request): Json<BlobId>,
-    ) -> Json<ServiceResponse<StorageConfirmation>> {
+    ) -> (StatusCode, Json<ServiceResponse<StorageConfirmation>>) {
         match state.get_storage_confirmation(&request).await {
             Ok(Some(confirmation)) => {
-                Json(ServiceResponse::new_success(StatusCode::OK, confirmation))
+                ServiceResponse::serialized_success(StatusCode::OK, confirmation)
             }
-            Ok(None) => Json(ServiceResponse::new_error(
-                StatusCode::NOT_FOUND,
-                "Not found",
-            )),
+            Ok(None) => ServiceResponse::serialized_error(StatusCode::NOT_FOUND, "Not found"),
             // TODO(@asonnino): Log this error message once #106 lands.
-            Err(_error) => Json(ServiceResponse::new_error(
+            Err(_error) => ServiceResponse::serialized_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Internal error",
-            )),
+            ),
         }
     }
 }
@@ -174,8 +177,8 @@ mod test {
         config::StorageNodePrivateParameters,
         node::{ServiceState, StoreMetadataError},
         server::{
-            StoreSliverRequest, UserServer, GET_STORAGE_CONFIRMATION, POST_STORE_BLOB_METADATA,
-            POST_STORE_SLIVER,
+            ServiceResponse, StoreSliverRequest, UserServer, GET_STORAGE_CONFIRMATION,
+            POST_STORE_BLOB_METADATA, POST_STORE_SLIVER,
         },
     };
 
@@ -258,7 +261,7 @@ mod test {
             test_private_parameters.network_address, POST_STORE_SLIVER
         );
         let request = StoreSliverRequest {
-            shard: ShardIndex(0),
+            shard: ShardIndex(0), // Triggers a valid response
             blob_id: BlobId::arbitrary_for_test(),
             sliver: Sliver::arbitrary_for_test(),
         };
@@ -284,12 +287,13 @@ mod test {
             test_private_parameters.network_address, POST_STORE_SLIVER
         );
         let request = StoreSliverRequest {
-            shard: ShardIndex(1),
+            shard: ShardIndex(1), // Triggers a 'shard not found' response
             blob_id: BlobId::arbitrary_for_test(),
             sliver: Sliver::arbitrary_for_test(),
         };
 
         let res = client.post(url).json(&request).send().await.unwrap();
+        println!("{:?}", res.status());
         assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 
@@ -315,8 +319,17 @@ mod test {
 
         let res = client.get(url).json(&blob_id).send().await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
-        let confirmation = res.json::<StorageConfirmation>().await.unwrap();
-        assert!(matches!(confirmation, StorageConfirmation::Signed(_)));
+
+        let body = res.json::<ServiceResponse<StorageConfirmation>>().await;
+        match body.unwrap() {
+            ServiceResponse::Success { code, data } => {
+                assert_eq!(code, StatusCode::OK.as_u16());
+                assert!(matches!(data, StorageConfirmation::Signed(_)));
+            }
+            ServiceResponse::Error { code, message } => {
+                panic!("Unexpected error response: {} {}", code, message);
+            }
+        }
     }
 
     #[tokio::test]
