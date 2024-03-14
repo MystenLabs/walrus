@@ -5,13 +5,14 @@
 use encoding::{PrimarySliver, SecondarySliver};
 use fastcrypto::hash::{Blake2b256, HashFunction};
 use merkle::Node;
-use rand::{rngs::StdRng, RngCore, SeedableRng};
 use serde::{Deserialize, Serialize};
 
 pub mod encoding;
 pub mod merkle;
 pub mod messages;
 pub mod metadata;
+
+pub use messages::SignedStorageConfirmation;
 
 /// The epoch number.
 pub type Epoch = u64;
@@ -23,7 +24,7 @@ pub struct BlobId(pub [u8; Self::LENGTH]);
 
 impl BlobId {
     /// The length of a blob ID in bytes.
-    const LENGTH: usize = 32;
+    pub const LENGTH: usize = 32;
 
     /// Returns the blob ID as a hash over the merkle root, encoding type,
     /// and unencoded_length of the blob.
@@ -48,14 +49,6 @@ impl BlobId {
         hasher.update(merkle_root.bytes());
 
         Self(hasher.finalize().into())
-    }
-
-    /// Returns an arbitrary blob ID for testing.
-    pub fn arbitrary_for_test() -> Self {
-        let mut rng = StdRng::seed_from_u64(0);
-        let mut bytes = [0; Self::LENGTH];
-        rng.fill_bytes(&mut bytes);
-        Self(bytes)
     }
 }
 
@@ -100,11 +93,6 @@ impl Sliver {
             Sliver::Primary(_) => SliverType::Primary,
             Sliver::Secondary(_) => SliverType::Secondary,
         }
-    }
-
-    /// Returns an arbitrary sliver for testing.
-    pub fn arbitrary_for_test() -> Self {
-        Sliver::Primary(encoding::Sliver::new_empty(1, 1, 1))
     }
 }
 

@@ -9701,6 +9701,7 @@ dependencies = [
  "rand 0.8.5",
  "tempfile",
  "tokio",
+ "walrus-core",
 ]
 
 [[package]]

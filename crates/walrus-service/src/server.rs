@@ -7,12 +7,17 @@ use axum::{
     extract::State,
     http::StatusCode,
     routing::{get, post},
-    Json, Router,
+    Json,
+    Router,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 use walrus_core::{
-    messages::StorageConfirmation, metadata::BlobMetadataWithId, BlobId, ShardIndex, Sliver,
+    messages::StorageConfirmation,
+    metadata::BlobMetadataWithId,
+    BlobId,
+    ShardIndex,
+    Sliver,
 };
 
 use crate::node::{ServiceState, StoreMetadataError};
@@ -168,17 +173,24 @@ mod test {
     use reqwest::StatusCode;
     use tokio::sync::oneshot;
     use walrus_core::{
-        messages::{SignedStorageConfirmation, StorageConfirmation},
+        messages::StorageConfirmation,
         metadata::{BlobMetadataWithId, UnverifiedBlobMetadataWithId},
-        BlobId, ShardIndex, Sliver,
+        BlobId,
+        ShardIndex,
+        Sliver,
     };
+    use walrus_test_utils::{test_blob_id, test_signed_storage_confirmation, test_sliver};
 
     use crate::{
         config::StorageNodePrivateParameters,
         node::{ServiceState, StoreMetadataError},
         server::{
-            ServiceResponse, StoreSliverRequest, UserServer, GET_STORAGE_CONFIRMATION,
-            POST_STORE_BLOB_METADATA, POST_STORE_SLIVER,
+            ServiceResponse,
+            StoreSliverRequest,
+            UserServer,
+            GET_STORAGE_CONFIRMATION,
+            POST_STORE_BLOB_METADATA,
+            POST_STORE_SLIVER,
         },
     };
 
@@ -210,7 +222,7 @@ mod test {
             blob_id: &BlobId,
         ) -> Result<Option<StorageConfirmation>, anyhow::Error> {
             if blob_id.0[0] == 0 {
-                let confirmation = SignedStorageConfirmation::arbitrary_for_test();
+                let confirmation = test_signed_storage_confirmation();
                 Ok(Some(StorageConfirmation::Signed(confirmation)))
             } else if blob_id.0[0] == 1 {
                 Ok(None)
@@ -262,8 +274,8 @@ mod test {
         );
         let request = StoreSliverRequest {
             shard: ShardIndex(0), // Triggers a valid response
-            blob_id: BlobId::arbitrary_for_test(),
-            sliver: Sliver::arbitrary_for_test(),
+            blob_id: test_blob_id(),
+            sliver: test_sliver(),
         };
 
         let res = client.post(url).json(&request).send().await.unwrap();
@@ -288,8 +300,8 @@ mod test {
         );
         let request = StoreSliverRequest {
             shard: ShardIndex(1), // Triggers a 'shard not found' response
-            blob_id: BlobId::arbitrary_for_test(),
-            sliver: Sliver::arbitrary_for_test(),
+            blob_id: test_blob_id(),
+            sliver: test_sliver(),
         };
 
         let res = client.post(url).json(&request).send().await.unwrap();
@@ -314,7 +326,7 @@ mod test {
             "http://{}{}",
             test_private_parameters.network_address, GET_STORAGE_CONFIRMATION
         );
-        let mut blob_id = BlobId::arbitrary_for_test();
+        let mut blob_id = test_blob_id();
         blob_id.0[0] = 0; // Triggers a valid response
 
         let res = client.get(url).json(&blob_id).send().await.unwrap();
@@ -349,7 +361,7 @@ mod test {
             "http://{}{}",
             test_private_parameters.network_address, GET_STORAGE_CONFIRMATION
         );
-        let mut blob_id = BlobId::arbitrary_for_test();
+        let mut blob_id = test_blob_id();
         blob_id.0[0] = 1; // Triggers not found response
 
         let res = client.get(url).json(&blob_id).send().await.unwrap();
@@ -373,7 +385,7 @@ mod test {
             "http://{}{}",
             test_private_parameters.network_address, GET_STORAGE_CONFIRMATION
         );
-        let mut blob_id = BlobId::arbitrary_for_test();
+        let mut blob_id = test_blob_id();
         blob_id.0[0] = 2; // Triggers internal error response
 
         let res = client.get(url).json(&blob_id).send().await.unwrap();

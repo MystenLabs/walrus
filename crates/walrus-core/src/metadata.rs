@@ -9,8 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     merkle::{MerkleTree, Node as MerkleNode},
-    BlobId,
-    EncodingType,
+    BlobId, EncodingType,
 };
 
 /// Errors returned by [`UnverifiedBlobMetadataWithId::verify`] when unable to verify the metadata.
@@ -105,6 +104,7 @@ impl UnverifiedBlobMetadataWithId {
     }
 
     /// Returns an arbitrary metadata object.
+    // todo(@asonnino): Move this function to `walrus-test-utils`.
     pub fn arbitrary_metadata_for_test() -> UnverifiedBlobMetadataWithId {
         let unencoded_length = 7_000_000_000;
         let hashes: Vec<_> = (0..100u8).map(|i| MerkleNode::Digest([i; 32])).collect();
