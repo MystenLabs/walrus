@@ -29,9 +29,8 @@ pub enum RecoveryError {
     /// The symbols provided are empty or have different sizes.
     #[error("the symbols provided are empty or have different sizes")]
     InvalidSymbolSizes,
-    /// The index of the recovery symbol can be at most
-    /// [`MAX_ENCODING_SYMBOL_ID`][super::MAX_ENCODING_SYMBOL_ID].
-    #[error("the index of the recovery symbol can be at most `MAX_ENCODING_SYMBOL_ID`")]
+    /// The index of the recovery symbol can be at most `n_shards`
+    #[error("the index of the recovery symbol can be at most `n_shards`")]
     IndexTooLarge,
     /// The underlying [`Encoder`][super::Encoder] returned an error.
     #[error(transparent)]

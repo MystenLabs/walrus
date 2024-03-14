@@ -14,7 +14,7 @@ pub use common::{
     EncodingAxis,
     Primary,
     Secondary,
-    MAX_ENCODING_SYMBOL_ID,
+    MAX_N_SHARDS,
     MAX_SOURCE_SYMBOLS_PER_BLOCK,
     MAX_SYMBOL_SIZE,
 };
@@ -29,6 +29,6 @@ mod slivers;
 pub use slivers::{PrimarySliver, SecondarySliver, Sliver, SliverPair};
 
 mod symbols;
-pub use symbols::{DecodingSymbol, RecoverySymbol, RecoverySymbolPair, Symbols};
+pub use symbols::{DecodingSymbol, DecodingSymbolPair, Symbols};
 
 mod utils;

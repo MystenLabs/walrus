@@ -19,6 +19,7 @@ use super::{
     MAX_SOURCE_SYMBOLS_PER_BLOCK,
     MAX_SYMBOL_SIZE,
 };
+use crate::encoding::common::MAX_N_SHARDS;
 
 /// Global encoding configuration with pre-generated encoding plans.
 #[cfg(not(test))]
@@ -62,6 +63,8 @@ thread_local! {
 ///
 /// Panics if the number of primary or secondary source symbols is 0 or larger than
 /// [`MAX_SOURCE_SYMBOLS_PER_BLOCK`].
+///
+/// Panics if the total number of shards `n_shards` is greater than `MAX_N_SHARDS`.
 ///
 /// [rfc6330s5.6]: https://datatracker.ietf.org/doc/html/rfc6330#section-5.6
 #[cfg(not(test))]
@@ -145,6 +148,10 @@ impl EncodingConfig {
         assert!(
             source_symbols_primary * source_symbols_secondary > 0,
             "the number of source symbols must not be 0"
+        );
+        assert!(
+            n_shards <= MAX_N_SHARDS,
+            "the number of shards can be at most `MAX_N_SHARDS`",
         );
         assert!(
             3 * (source_symbols_primary as u32) < n_shards,

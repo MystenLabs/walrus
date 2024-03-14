@@ -60,6 +60,16 @@ impl AsRef<[u8]> for Node {
     }
 }
 
+/// The operations required to authenticate a Merkle proof.
+pub trait MerkleAuth {
+    /// Verify the proof given a Merkle root and the leaf data.
+    fn verify_proof(&self, root: &Node, leaf: &[u8]) -> bool {
+        self.compute_root(leaf) == *root
+    }
+    /// Recompute the Merkle root from the proof and the provided leaf data.
+    fn compute_root(&self, leaf: &[u8]) -> Node;
+}
+
 /// A proof that some data is at index `leaf_index` in a [`MerkleTree`].
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
 pub struct MerkleProof<T = Blake2b256> {
@@ -85,14 +95,13 @@ where
             leaf_index,
         })
     }
+}
 
-    /// Verify the proof given a Merkle root and the leaf data.
-    pub fn verify_proof(&self, root: &Node, leaf: &[u8]) -> bool {
-        self.compute_root(leaf) == *root
-    }
-
-    /// Recompute the Merkle root from the proof and the provided leaf data.
-    pub fn compute_root(&self, leaf: &[u8]) -> Node {
+impl<T> MerkleAuth for MerkleProof<T>
+where
+    T: HashFunction<DIGEST_LEN>,
+{
+    fn compute_root(&self, leaf: &[u8]) -> Node {
         let mut current_hash = leaf_hash::<T>(leaf);
         let mut level_idx = self.leaf_index;
         for sibling in self.path.iter() {

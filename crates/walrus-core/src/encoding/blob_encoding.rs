@@ -200,10 +200,11 @@ impl<T: EncodingAxis> BlobDecoder<T> {
                 continue;
             }
             for (i, symbol) in sliver.symbols.to_symbols().enumerate() {
-                if let Some(decoded_data) = self.decoders[i].decode([DecodingSymbol {
-                    index: sliver.index,
-                    data: symbol.into(),
-                }]) {
+                if let Some(decoded_data) = self.decoders[i]
+                    // NOTE: The encoding axis of the following symbol is irrelevant, but since we
+                    // are reconstructing from slivers of type `T`, it should be of type `T`.
+                    .decode([DecodingSymbol::<T>::new(sliver.index, symbol.into())])
+                {
                     // If one decoding succeeds, all succeed as they have identical
                     // encoding/decoding matrices.
                     decoding_successful = true;

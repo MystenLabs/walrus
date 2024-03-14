@@ -9,9 +9,11 @@ use std::{
     slice::{Chunks, ChunksMut},
 };
 
+use raptorq::{EncodingPacket, PayloadId};
 use serde::{Deserialize, Serialize};
 
 use super::{EncodingAxis, Primary, Secondary, WrongSymbolSizeError};
+use crate::merkle::{MerkleAuth, Node};
 
 /// A set of encoded symbols.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -109,15 +111,15 @@ impl Symbols {
     ///
     /// Returns `None` if the `index` is out of bounds.
     #[inline]
-    pub fn decoding_symbol_at(
+    pub fn decoding_symbol_at<T: EncodingAxis>(
         &self,
         data_index: usize,
         symbol_index: u32,
-    ) -> Option<DecodingSymbol> {
-        Some(DecodingSymbol {
-            index: symbol_index,
-            data: self[data_index].into(),
-        })
+    ) -> Option<DecodingSymbol<T>> {
+        Some(DecodingSymbol::<T>::new(
+            symbol_index,
+            self[data_index].into(),
+        ))
     }
 
     /// Returns an iterator of references to symbols.
@@ -139,13 +141,14 @@ impl Symbols {
     ///
     /// Returns `None` if the length of [`self.data`][Self::data] is larger than
     /// `u32::MAX * self.symbol_size`.
-    pub fn to_decoding_symbols(&self) -> Option<impl Iterator<Item = DecodingSymbol> + '_> {
+    pub fn to_decoding_symbols<T: EncodingAxis>(
+        &self,
+    ) -> Option<impl Iterator<Item = DecodingSymbol<T>> + '_> {
         if self.len() > u32::MAX as usize {
             None
         } else {
-            Some(self.to_symbols().enumerate().map(|(i, s)| DecodingSymbol {
-                index: i.try_into().expect("checked limit above"),
-                data: s.into(),
+            Some(self.to_symbols().enumerate().map(|(i, s)| {
+                DecodingSymbol::new(i.try_into().expect("checked limit above"), s.into())
             }))
         }
     }
@@ -229,9 +232,18 @@ impl AsMut<[u8]> for Symbols {
     }
 }
 
-/// A single symbol used for decoding, consisting of the data and the symbol's index.
+/// A single symbol used for decoding, consisting of the data, the symbol's index, and optionally a
+/// proof that the symbol belongs to a committed [`Sliver`][`super::Sliver`].
+///
+/// The type parameter `T` represents the [`EncodingAxis`] of the slivers that can be recovered from
+/// this symbol.  I.e., a `DecodingSymbol<Primary>` is used to recover `Sliver<Primary>` slivers.
+///
+/// The type parameter `U` represents the type of the Merkle proof that can be associated to the
+/// symbol. It can either be `U = ()` -- representing "no proof" -- or `U: MerkeAuth`, and defaults
+/// to `()`. This type parameter can only be changed through the functions
+/// [`DecodingSymbol::with_proof`] and [`DecodingSymbol::remove_proof`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DecodingSymbol {
+pub struct DecodingSymbol<T: EncodingAxis, U = ()> {
     /// The index of the symbol.
     ///
     /// This is equal to the ESI as defined in [RFC 6330][rfc6330s5.3.1].
@@ -240,35 +252,65 @@ pub struct DecodingSymbol {
     pub index: u32,
     /// The symbol data as a byte vector.
     pub data: Vec<u8>,
+    /// An optional proof that the decoding symbol belongs to a committed sliver.
+    proof: U,
+    /// Marker representing whether this symbol is used to decode primary or secondary slivers.
+    _axis: PhantomData<T>,
 }
 
-/// A recovery symbol to recover a single sliver.
-///
-/// The generic argument specifies the type of the sliver to be recovered.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RecoverySymbol<T: EncodingAxis> {
-    _symbol_type: PhantomData<T>,
-    /// The symbol data and index.
-    pub symbol: DecodingSymbol,
+impl<T: EncodingAxis, U> DecodingSymbol<T, U> {
+    /// Converts the `DecodingSymbol` to an [`EncodingPacket`] expected by the [`raptorq::Decoder`].
+    pub fn into_encoding_packet(self) -> EncodingPacket {
+        EncodingPacket::new(PayloadId::new(0, self.index), self.data)
+    }
 }
 
-impl<T: EncodingAxis> RecoverySymbol<T> {
-    /// Creates a new recovery symbol.
-    pub fn new(symbol: DecodingSymbol) -> Self {
+impl<T: EncodingAxis> DecodingSymbol<T> {
+    /// Creates a new `DecodingSymbol`.
+    pub fn new(index: u32, data: Vec<u8>) -> Self {
         Self {
-            _symbol_type: PhantomData,
-            symbol,
+            index,
+            data,
+            proof: (),
+            _axis: PhantomData,
         }
+    }
+
+    /// Adds a Merkle proof to the [`DecodingSymbol`]
+    ///
+    /// This method consumes the original [`DecodingSymbol`], and returns a [`DecodingSymbol<U>`],
+    /// where `U` is a type that implements the trait [`MerkleAuth`][`crate::merkle::MerkleAuth`].
+    pub fn with_proof<U: MerkleAuth>(self, proof: U) -> DecodingSymbol<T, U> {
+        DecodingSymbol {
+            index: self.index,
+            data: self.data,
+            proof,
+            _axis: PhantomData,
+        }
+    }
+}
+
+impl<T: EncodingAxis, U: MerkleAuth> DecodingSymbol<T, U> {
+    /// Verifies that the decoding symbol belongs to a committed sliver by checking the Merkle proof
+    /// against the `root` hash stored.
+    pub fn verify_proof(&self, root: &Node) -> bool {
+        self.proof.verify_proof(root, &self.data)
+    }
+
+    /// Consumes the [`DecodingSymbol<T>`], removing the proof, and returns the [`DecodingSymbol`]
+    /// without the proof.
+    pub fn remove_proof(self) -> DecodingSymbol<T> {
+        DecodingSymbol::new(self.index, self.data)
     }
 }
 
 /// A pair of recovery symbols to recover a sliver pair.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RecoverySymbolPair {
+pub struct DecodingSymbolPair<U = ()> {
     /// Symbol to recover the primary sliver.
-    pub primary: RecoverySymbol<Primary>,
+    pub primary: DecodingSymbol<Primary, U>,
     /// Symbol to recover the secondary sliver.
-    pub secondary: RecoverySymbol<Secondary>,
+    pub secondary: DecodingSymbol<Secondary, U>,
 }
 
 #[cfg(test)]

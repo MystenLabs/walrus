@@ -6380,8 +6380,7 @@ dependencies = [
 [[package]]
 name = "raptorq"
 version = "1.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7cc8cd0bcb2d520fff368264b5a6295e064c60955349517d09b14473afae4856"
+source = "git+https://github.com/cberner/raptorq?rev=da79ac2ba51e99484c81901fe293a2d8b32add49#da79ac2ba51e99484c81901fe293a2d8b32add49"
 
 [[package]]
 name = "raw-cpuid"
@@ -9668,6 +9667,25 @@ dependencies = [
  "sui-sdk",
  "test-cluster",
  "tokio",
+]
+
+[[package]]
+name = "walrus-move-client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "futures",
+ "move-core-types",
+ "serde_json",
+ "sui-sdk",
+ "sui-types",
+ "test-cluster",
+ "tokio",
+ "tracing",
+ "walrus-core",
+ "walrus-e2e-tests",
+ "walrus-service",
+ "walrus-test-utils",
 ]
 
 [[package]]
