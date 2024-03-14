@@ -53,7 +53,7 @@ pub type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 ///     ]
 /// }
 /// fn test_parses(to_parse: &str, expected: i32) -> Result<(), Box<dyn Error>> {
-///     assert_eq!(expected, to_parse.parse()?);
+///     assert_eq!(expected, to_parse.parse::<i32>()?);
 ///     Ok(())
 /// }
 /// ```
@@ -71,7 +71,7 @@ pub type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 ///     ]
 /// }
 /// fn test_parses(to_parse: &str, expected: i32) -> Result<(), Box<dyn Error>> {
-///     assert_eq!(expected, to_parse.parse()?);
+///     assert_eq!(expected, to_parse.parse::<i32>()?);
 ///     Ok(())
 /// }
 /// ```
