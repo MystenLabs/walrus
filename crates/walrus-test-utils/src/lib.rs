@@ -3,6 +3,8 @@
 
 //! Test utilities shared between various crates.
 
+use fastcrypto::{bls12381::min_pk::BLS12381KeyPair, traits::KeyPair};
+use rand::{rngs::StdRng, SeedableRng};
 use tempfile::TempDir;
 
 /// A result type useful in tests, that wraps any error implementation.
@@ -155,6 +157,13 @@ impl<T> AsMut<T> for WithTempDir<T> {
     fn as_mut(&mut self) -> &mut T {
         &mut self.inner
     }
+}
+
+/// A deterministic fixed keypair for testing. Various testing facilities can use this key and
+/// unit-test can re-generate it to verify the correctness of inputs and outputs.
+pub fn test_keypair() -> BLS12381KeyPair {
+    let mut rng = StdRng::seed_from_u64(0);
+    BLS12381KeyPair::generate(&mut rng)
 }
 
 /// Asserts that two sequences that implement [`std::iter::IntoIterator`], and whose items

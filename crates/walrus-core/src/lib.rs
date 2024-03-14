@@ -5,6 +5,7 @@
 use encoding::{PrimarySliver, SecondarySliver};
 use fastcrypto::hash::{Blake2b256, HashFunction};
 use merkle::Node;
+use rand::{rngs::StdRng, RngCore, SeedableRng};
 use serde::{Deserialize, Serialize};
 
 pub mod encoding;
@@ -51,7 +52,10 @@ impl BlobId {
 
     /// Returns an arbitrary blob ID for testing.
     pub fn arbitrary_for_test() -> Self {
-        Self([0; Self::LENGTH])
+        let mut rng = StdRng::seed_from_u64(0);
+        let mut bytes = [0; Self::LENGTH];
+        rng.fill_bytes(&mut bytes);
+        Self(bytes)
     }
 }
 

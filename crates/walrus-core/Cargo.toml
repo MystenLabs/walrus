@@ -13,9 +13,9 @@ rand = "0.8.5"
 raptorq = "1.8.1"
 serde = { version = "1.0.197", features = ["derive"] }
 thiserror = { workspace = true }
+walrus-test-utils = { workspace = true }
 
 [lints]
 workspace = true
 
 [dev-dependencies]
-walrus-test-utils = { workspace = true }

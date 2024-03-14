@@ -9,10 +9,7 @@ use typed_store::rocks::MetricConf;
 use walrus_core::{
     messages::{Confirmation, SignedStorageConfirmation, StorageConfirmation},
     metadata::{BlobMetadataWithId, VerificationError},
-    BlobId,
-    Epoch,
-    ShardIndex,
-    Sliver,
+    BlobId, Epoch, ShardIndex, Sliver,
 };
 
 use crate::storage::Storage;
@@ -146,11 +143,7 @@ mod tests {
 
     use super::*;
     use crate::storage::tests::{
-        populated_storage,
-        WhichSlivers,
-        BLOB_ID,
-        OTHER_SHARD_INDEX,
-        SHARD_INDEX,
+        populated_storage, WhichSlivers, BLOB_ID, OTHER_SHARD_INDEX, SHARD_INDEX,
     };
 
     const OTHER_BLOB_ID: BlobId = BlobId([247; 32]);

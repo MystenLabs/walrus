@@ -1,18 +1,14 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use fastcrypto::{
-    bls12381::min_pk::{BLS12381KeyPair, BLS12381Signature},
-    traits::{KeyPair, Signer},
-};
-use rand::{rngs::StdRng, SeedableRng};
+use fastcrypto::{bls12381::min_pk::BLS12381Signature, traits::Signer};
 use serde::{de::Error as _, Deserialize, Serialize};
+use walrus_test_utils::test_keypair;
 
 use super::Intent;
 use crate::{
     messages::{IntentAppId, IntentType, IntentVersion},
-    BlobId,
-    Epoch,
+    BlobId, Epoch,
 };
 
 /// Confirmation from a storage node that it has stored the sliver pairs for a given blob.
@@ -35,8 +31,7 @@ impl SignedStorageConfirmation {
     /// Creates a new arbitrary signed storage confirmation for tests.
     pub fn arbitrary_for_test() -> Self {
         let confirmation = vec![0; 32];
-        let mut rng = StdRng::seed_from_u64(0);
-        let signer = BLS12381KeyPair::generate(&mut rng);
+        let signer = test_keypair();
         let signature = signer.sign(&confirmation);
         Self {
             confirmation,
