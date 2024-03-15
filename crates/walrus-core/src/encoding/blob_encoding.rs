@@ -10,6 +10,7 @@ use super::{
     DataTooLargeError,
     Decoder,
     DecodingSymbol,
+    DecodingVerificationError,
     EncodingAxis,
     EncodingConfig,
     Primary,
@@ -21,6 +22,7 @@ use super::{
 use crate::{
     merkle::MerkleTree,
     metadata::{SliverPairMetadata, VerifiedBlobMetadataWithId},
+    BlobId,
     EncodingType,
 };
 
@@ -135,6 +137,17 @@ impl<'a> BlobEncoder<'a> {
         sliver_pairs
     }
 
+    /// Computes the metadata (blob ID, hashes) for the blob, without returning the slivers.
+    pub fn compute_metadata(&self) -> VerifiedBlobMetadataWithId {
+        let expanded_matrix = self.get_expanded_matrix();
+        let metadata = self.get_metadata(expanded_matrix);
+        VerifiedBlobMetadataWithId::new_verified_from_metadata(
+            metadata,
+            EncodingType::RedStuff,
+            self.blob_size as u64,
+        )
+    }
+
     /// Encodes the blob with which `self` was created to a vector of [`SliverPair`s][SliverPair],
     /// and provides the relative [`VerifiedBlobMetadataWithId`].
     ///
@@ -143,15 +156,12 @@ impl<'a> BlobEncoder<'a> {
     /// returned blob metadata is considered to be verified as it is directly built from the data.
     pub fn encode_with_metadata(&self) -> (Vec<SliverPair>, VerifiedBlobMetadataWithId) {
         let n_shards_usize = self.config.n_shards as usize;
-        // The "matrix" is represented as vector of rows, where each row is a `Symbols` object. This
-        // choice simplifies indexing, and the rows of `Symbols` can then be directly truncated into
-        // primary slivers.
         let mut expanded_matrix =
             vec![Symbols::zeros(n_shards_usize, self.symbol_size); self.config.n_shards as usize];
         self.fill_systematic_with_rows(&mut expanded_matrix);
         self.expand_columns_for_primary(&mut expanded_matrix);
         self.expand_all_rows(&mut expanded_matrix);
-        let (sliver_pairs, metadata) = self.get_pairs_and_metadata(expanded_matrix);
+        let (metadata, sliver_pairs) = self.get_metadata_and_pairs(expanded_matrix);
         (
             sliver_pairs,
             VerifiedBlobMetadataWithId::new_verified_from_metadata(
@@ -168,6 +178,23 @@ impl<'a> BlobEncoder<'a> {
         (0..self.config.n_shards)
             .map(|i| SliverPair::new_empty(self.config, self.symbol_size, i))
             .collect()
+    }
+
+    /// Compute the fully expanded message matrix by encoding rows and columns.
+    ///
+    /// The "matrix" is represented as vector of rows, where each row is a [`Symbols`] object. This
+    /// choice simplifies indexing, and the rows of [`Symbols`] can then be directly truncated into
+    /// primary slivers.
+    fn get_expanded_matrix(&self) -> Vec<Symbols> {
+        let mut expanded_matrix =
+            vec![
+                Symbols::zeros(self.config.n_shards as usize, self.symbol_size);
+                self.config.n_shards as usize
+            ];
+        self.fill_systematic_with_rows(&mut expanded_matrix);
+        self.expand_columns_for_primary(&mut expanded_matrix);
+        self.expand_all_rows(&mut expanded_matrix);
+        expanded_matrix
     }
 
     /// Fills the systematic part of the matrix using `self.rows`.
@@ -209,26 +236,41 @@ impl<'a> BlobEncoder<'a> {
         }
     }
 
-    /// Computes the sliver pairs and the sliver pair metadata by consuming the expanded message
-    /// matrix.
-    fn get_pairs_and_metadata(
+    /// Computes the sliver pair metadata and the sliver pairs by consuming the
+    /// expanded message matrix.
+    fn get_metadata_and_pairs(
         &self,
         mut matrix: Vec<Symbols>,
-    ) -> (Vec<SliverPair>, Vec<SliverPairMetadata>) {
+    ) -> (Vec<SliverPairMetadata>, Vec<SliverPair>) {
+        let mut metadata = vec![SliverPairMetadata::new_empty(); matrix.len()];
         let mut sliver_pairs = self.empty_sliver_pairs();
+        // First compute the secondary slivers & metadata -- does not require consuming the matrix.
+        self.get_secondary_slivers_and_metadata(
+            &mut matrix,
+            Some(&mut sliver_pairs),
+            &mut metadata,
+        );
+        // The consume the matrix to get the primary slivers & metadata.
+        self.get_primary_slivers_and_metadata(matrix, Some(&mut sliver_pairs), &mut metadata);
+        (metadata, sliver_pairs)
+    }
+
+    /// Computes the sliver pair metadata by consuming the
+    /// expanded message matrix.
+    fn get_metadata(&self, mut matrix: Vec<Symbols>) -> Vec<SliverPairMetadata> {
         let mut metadata = vec![SliverPairMetadata::new_empty(); matrix.len()];
         // First compute the secondary slivers & metadata -- does not require consuming the matrix.
-        self.get_secondary_slivers_and_metadata(&mut matrix, &mut sliver_pairs, &mut metadata);
+        self.get_secondary_slivers_and_metadata(&mut matrix, None.as_mut(), &mut metadata);
         // The consume the matrix to get the primary slivers & metadata.
-        self.get_primary_slivers_and_metadata(matrix, &mut sliver_pairs, &mut metadata);
-        (sliver_pairs, metadata)
+        self.get_primary_slivers_and_metadata(matrix, None.as_mut(), &mut metadata);
+        metadata
     }
 
     /// Get the secondary slivers and their metadata from the matrix.
     fn get_secondary_slivers_and_metadata(
         &self,
         matrix: &mut [Symbols],
-        sliver_pairs: &mut [SliverPair],
+        mut sliver_pairs: Option<&mut Vec<SliverPair>>,
         metadata: &mut [SliverPairMetadata],
     ) {
         let n_shards = matrix.len();
@@ -245,8 +287,10 @@ impl<'a> BlobEncoder<'a> {
                 });
             metadata[col_idx].secondary_hash =
                 MerkleTree::<Blake2b256>::build(col_symbols.clone()).root();
-            for (row_idx, symbol) in col_symbols.into_iter().take(self.rows.len()).enumerate() {
-                sliver_pairs[col_idx].secondary.symbols[row_idx].copy_from_slice(symbol);
+            if let Some(pairs) = sliver_pairs.as_mut() {
+                for (row_idx, symbol) in col_symbols.into_iter().take(self.rows.len()).enumerate() {
+                    pairs[col_idx].secondary.symbols[row_idx].copy_from_slice(symbol);
+                }
             }
         }
     }
@@ -258,13 +302,15 @@ impl<'a> BlobEncoder<'a> {
     fn get_primary_slivers_and_metadata(
         &self,
         matrix: Vec<Symbols>,
-        sliver_pairs: &mut [SliverPair],
+        mut sliver_pairs: Option<&mut Vec<SliverPair>>,
         metadata: &mut [SliverPairMetadata],
     ) {
         for (idx, mut row) in matrix.into_iter().enumerate() {
             metadata[idx].primary_hash = MerkleTree::<Blake2b256>::build(row.to_symbols()).root();
-            row.truncate(self.columns.len());
-            sliver_pairs[idx].primary.symbols = row;
+            if let Some(pairs) = sliver_pairs.as_mut() {
+                row.truncate(self.columns.len());
+                pairs[idx].primary.symbols = row;
+            }
         }
     }
 }
@@ -272,15 +318,15 @@ impl<'a> BlobEncoder<'a> {
 /// Struct to reconstruct a blob from either [`Primary`] (default) or [`Secondary`]
 /// [`Sliver`s][Sliver].
 #[derive(Debug)]
-pub struct BlobDecoder<T: EncodingAxis = Primary> {
+pub struct BlobDecoder<'a, T: EncodingAxis = Primary> {
     _decoding_axis: PhantomData<T>,
     decoders: Vec<Decoder>,
     blob_size: usize,
     symbol_size: u16,
-    n_source_symbols: u16,
+    config: &'a EncodingConfig,
 }
 
-impl<T: EncodingAxis> BlobDecoder<T> {
+impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
     /// Creates a new `BlobDecoder` to decode a blob of size `blob_size` using the provided
     /// configuration.
     ///
@@ -292,20 +338,19 @@ impl<T: EncodingAxis> BlobDecoder<T> {
     /// # Errors
     ///
     /// Returns a [`DataTooLargeError`] if the `blob_size` is too large to be decoded.
-    pub fn new(config: &EncodingConfig, blob_size: usize) -> Result<Self, DataTooLargeError> {
-        let n_source_symbols = config.n_source_symbols::<T>();
+    pub fn new(config: &'a EncodingConfig, blob_size: usize) -> Result<Self, DataTooLargeError> {
         let Some(symbol_size) = config.symbol_size_for_blob(blob_size) else {
             return Err(DataTooLargeError);
         };
         Ok(Self {
             _decoding_axis: PhantomData,
             decoders: vec![
-                Decoder::new(n_source_symbols, symbol_size);
+                Decoder::new(config.n_source_symbols::<T>(), symbol_size);
                 config.n_source_symbols::<T::OrthogonalAxis>() as usize
             ],
             blob_size,
             symbol_size,
-            n_source_symbols,
+            config,
         })
     }
 
@@ -356,7 +401,7 @@ impl<T: EncodingAxis> BlobDecoder<T> {
         let mut blob: Vec<u8> = if T::IS_PRIMARY {
             // Primary decoding: transpose columns to get to the original blob.
             let mut columns: Vec<_> = columns_or_rows.into_iter().map(|c| c.into_iter()).collect();
-            (0..self.n_source_symbols)
+            (0..self.config.n_source_symbols::<T>())
                 .flat_map(|_| {
                     { columns.iter_mut().map(|c| c.take(self.symbol_size.into())) }
                         .flatten()
@@ -370,6 +415,45 @@ impl<T: EncodingAxis> BlobDecoder<T> {
 
         blob.truncate(self.blob_size);
         Some(blob)
+    }
+
+    /// Attempts to decode the source blob from the provided slivers, and to verify that the decoded
+    /// blob matches the blob ID.
+    ///
+    /// Internally, this function uses a [`BlobEncoder`] to recompute the metadata. This metadata is
+    /// then compared against the provided [`BlobId`].
+    ///
+    /// If the decoding and the checks are successful, the function returns a tuple of two values:
+    /// * the reconstructed source blob as a byte vector; and
+    /// * the [`VerifiedBlobMetadataWithId`] corresponding to the source blob.
+    ///
+    /// It returns `None` if the decoding fails. If decoding failed due to an insufficient number of
+    /// provided slivers, the decoding can be continued by additional calls to
+    /// [`decode_and_verify`][Self::decode_and_verify] providing more slivers.
+    ///
+    /// # Errors
+    ///
+    /// If, upon successful decoding, the recomputed blob ID does not match the input blob ID,
+    /// returns a [`DecodingVerificationError`].
+    pub fn decode_and_verify(
+        &mut self,
+        blob_id: &BlobId,
+        slivers: impl IntoIterator<Item = Sliver<T>>,
+    ) -> Result<Option<(Vec<u8>, VerifiedBlobMetadataWithId)>, DecodingVerificationError> {
+        if let Some(decoded_blob) = self.decode(slivers) {
+            let blob_metadata = self
+                .config
+                .get_blob_encoder(&decoded_blob)
+                .expect("the blob size cannot be too large since we were able to decode")
+                .compute_metadata();
+            if blob_metadata.blob_id() == blob_id {
+                Ok(Some((decoded_blob, blob_metadata)))
+            } else {
+                Err(DecodingVerificationError)
+            }
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -499,7 +583,8 @@ mod tests {
         //    by `encode`;
         // 2. the metadata produced by `encode_with_metadata` is the same as
         //    the metadata that can be computed from the sliver pairs directly.
-        //
+        // 3. the metadata produced by `encode_with_metadata` is the same as
+        //    the metadata produced by `compute_metadata_only`.
         // Takes long (O(1s)) to run.
         let blob = random_data(27182);
         let source_symbols_primary = 11;
@@ -513,17 +598,22 @@ mod tests {
             .get_blob_encoder(&blob)
             .unwrap()
             .encode();
-        let (sliver_pairs_2, blob_metadata) = get_encoding_config()
+        let blob_metadata_1 = get_encoding_config()
+            .get_blob_encoder(&blob)
+            .unwrap()
+            .compute_metadata();
+        let (sliver_pairs_2, blob_metadata_2) = get_encoding_config()
             .get_blob_encoder(&blob)
             .unwrap()
             .encode_with_metadata();
         assert_eq!(sliver_pairs_1, sliver_pairs_2);
+        assert_eq!(blob_metadata_1, blob_metadata_2);
 
         // Check that the hashes obtained by re-encoding the sliver pairs are equivalent to the ones
         // obtained in the `encode_with_metadata` function.
         for (sliver_pair, pair_meta) in sliver_pairs_2
             .iter()
-            .zip(blob_metadata.metadata().hashes.iter())
+            .zip(blob_metadata_2.metadata().hashes.iter())
         {
             let pair_hash = sliver_pair
                 .pair_leaf_input::<Blake2b256>()
@@ -534,11 +624,42 @@ mod tests {
 
         // Check that the blob metadata verifies.
         let unverified = UnverifiedBlobMetadataWithId::new(
-            *blob_metadata.blob_id(),
-            blob_metadata.metadata().clone(),
+            *blob_metadata_2.blob_id(),
+            blob_metadata_2.metadata().clone(),
         );
         assert!(unverified
             .verify((n_shards as usize).try_into().unwrap())
             .is_ok());
+    }
+
+    #[test]
+    fn test_encode_decode_and_verify() {
+        let blob = random_data(16180);
+        let source_symbols_primary = 11;
+        let source_symbols_secondary = 23;
+        let n_shards = 3 * (source_symbols_primary + source_symbols_secondary) as u32;
+
+        initialize_encoding_config(source_symbols_primary, source_symbols_secondary, n_shards);
+
+        let (slivers, metadata_enc) = get_encoding_config()
+            .get_blob_encoder(&blob)
+            .unwrap()
+            .encode_with_metadata();
+        let slivers_for_decoding = random_subset(
+            slivers,
+            &mut StdRng::seed_from_u64(23),
+            source_symbols_primary as usize,
+        )
+        .map(|s| s.primary)
+        .collect::<Vec<_>>();
+        let (blob_dec, metadata_dec) = get_encoding_config()
+            .get_blob_decoder(blob.len())
+            .unwrap()
+            .decode_and_verify(metadata_enc.blob_id(), slivers_for_decoding)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(blob, blob_dec);
+        assert_eq!(metadata_enc, metadata_dec);
     }
 }
