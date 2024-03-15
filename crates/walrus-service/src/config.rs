@@ -75,6 +75,7 @@ pub struct StorageNodePrivateParameters {
 
 impl StorageNodePrivateParameters {
     /// Creates a new storage node private parameters for testing.
+    #[cfg(test)]
     pub fn new_for_test() -> Self {
         let network_listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let network_address = network_listener.local_addr().unwrap();
