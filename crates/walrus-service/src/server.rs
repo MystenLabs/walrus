@@ -7,12 +7,17 @@ use axum::{
     extract::State,
     http::StatusCode,
     routing::{get, post},
-    Json, Router,
+    Json,
+    Router,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 use walrus_core::{
-    messages::StorageConfirmation, metadata::BlobMetadataWithId, BlobId, ShardIndex, Sliver,
+    messages::StorageConfirmation,
+    metadata::BlobMetadataWithId,
+    BlobId,
+    ShardIndex,
+    Sliver,
 };
 
 use crate::node::{ServiceState, StoreMetadataError};
@@ -176,7 +181,9 @@ mod test {
     use walrus_core::{
         messages::StorageConfirmation,
         metadata::{BlobMetadataWithId, UnverifiedBlobMetadataWithId},
-        BlobId, ShardIndex, Sliver,
+        BlobId,
+        ShardIndex,
+        Sliver,
     };
     use walrus_test_utils::{test_blob_id, test_signed_storage_confirmation, test_sliver};
 
@@ -184,8 +191,12 @@ mod test {
         config::StorageNodePrivateParameters,
         node::{ServiceState, StoreMetadataError},
         server::{
-            ServiceResponse, StoreSliverRequest, UserServer, GET_STORAGE_CONFIRMATION,
-            POST_STORE_BLOB_METADATA, POST_STORE_SLIVER,
+            ServiceResponse,
+            StoreSliverRequest,
+            UserServer,
+            GET_STORAGE_CONFIRMATION,
+            POST_STORE_BLOB_METADATA,
+            POST_STORE_SLIVER,
         },
     };
 

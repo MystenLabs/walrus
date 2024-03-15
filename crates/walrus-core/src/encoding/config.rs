@@ -9,8 +9,15 @@ use std::sync::OnceLock;
 use raptorq::SourceBlockEncodingPlan;
 
 use super::{
-    utils, BlobDecoder, BlobEncoder, DataTooLargeError, EncodeError, Encoder, EncodingAxis,
-    MAX_SOURCE_SYMBOLS_PER_BLOCK, MAX_SYMBOL_SIZE,
+    utils,
+    BlobDecoder,
+    BlobEncoder,
+    DataTooLargeError,
+    EncodeError,
+    Encoder,
+    EncodingAxis,
+    MAX_SOURCE_SYMBOLS_PER_BLOCK,
+    MAX_SYMBOL_SIZE,
 };
 use crate::encoding::common::MAX_N_SHARDS;
 

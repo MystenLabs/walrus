@@ -4,8 +4,16 @@
 use std::{cmp, marker::PhantomData};
 
 use super::{
-    utils, DataTooLargeError, Decoder, DecodingSymbol, EncodingAxis, EncodingConfig, Primary,
-    Secondary, Sliver, SliverPair,
+    utils,
+    DataTooLargeError,
+    Decoder,
+    DecodingSymbol,
+    EncodingAxis,
+    EncodingConfig,
+    Primary,
+    Secondary,
+    Sliver,
+    SliverPair,
 };
 
 /// Struct to perform the full blob encoding.

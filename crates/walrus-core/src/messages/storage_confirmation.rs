@@ -7,7 +7,8 @@ use serde::{de::Error as _, Deserialize, Serialize};
 use super::Intent;
 use crate::{
     messages::{IntentAppId, IntentType, IntentVersion},
-    BlobId, Epoch,
+    BlobId,
+    Epoch,
 };
 
 /// Confirmation from a storage node that it has stored the sliver pairs for a given blob.

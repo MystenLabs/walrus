@@ -1,11 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{
-    collections::HashMap,
-    net::{SocketAddr, TcpListener},
-    path::PathBuf,
-};
+use std::{collections::HashMap, net::SocketAddr, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 use walrus_core::{Epoch, ShardIndex};
@@ -77,10 +73,10 @@ impl StorageNodePrivateParameters {
     /// Creates a new storage node private parameters for testing.
     #[cfg(test)]
     pub fn new_for_test() -> Self {
-        let network_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let network_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let network_address = network_listener.local_addr().unwrap();
 
-        let metrics_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let metrics_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let metrics_address = metrics_listener.local_addr().unwrap();
 
         Self {
