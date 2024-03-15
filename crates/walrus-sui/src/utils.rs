@@ -145,9 +145,10 @@ pub(crate) fn blob_id_from_u256(input: U256) -> BlobId {
     BlobId(input.to_le_bytes())
 }
 
-pub(crate) fn blob_id_to_call_arg(blob_id: BlobId) -> CallArg {
-    // The bcs encoding of a u256 is just its bytes in little endian
-    CallArg::Pure(blob_id.0.into())
+macro_rules! call_arg_pure {
+    ($value: expr) => {
+        CallArg::Pure(bcs::to_bytes($value)?)
+    };
 }
 
 macro_rules! match_for_correct_type {
@@ -175,7 +176,19 @@ macro_rules! get_dynamic_field {
             $field_name,
             stringify!($field_type),
             $struct,
-        ))?
+        ))
+    };
+}
+
+macro_rules! get_dynamic_objectid_field {
+    ($struct: expr) => {
+        get_dynamic_field!($struct, "id", SuiMoveValue::UID { id })
+    };
+}
+
+macro_rules! get_dynamic_u64_field {
+    ($struct: expr, $field_name: expr) => {
+        get_dynamic_field!($struct, $field_name, SuiMoveValue::String)?.parse()
     };
 }
 

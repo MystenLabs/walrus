@@ -6,6 +6,7 @@
 use core::str::FromStr;
 
 use anyhow::{anyhow, bail, ensure, Result};
+use fastcrypto::traits::ToFromBytes;
 use sui_sdk::{
     rpc_types::{
         SuiExecutionStatus,
@@ -29,13 +30,12 @@ use sui_types::{
     Identifier,
     TypeTag,
 };
-use walrus_core::{BlobId, EncodingType};
+use walrus_core::{messages::ConfirmationCertificate, BlobId, EncodingType};
 
 use crate::{
     contracts::{self, AssociatedContractStruct, FunctionTag},
     types::{Blob, StorageResource},
     utils::{
-        blob_id_to_call_arg,
         call_args_to_object_ids,
         get_created_object_ids_by_type,
         get_struct_from_object_response,
@@ -194,7 +194,7 @@ impl WalrusSuiClient {
                 .await?,
         )?;
         Ok(
-            get_dynamic_field!(system_struct, "price_per_unit_size", SuiMoveValue::String)
+            get_dynamic_field!(system_struct, "price_per_unit_size", SuiMoveValue::String)?
                 .parse()?,
         )
     }
@@ -284,7 +284,7 @@ impl WalrusSuiClient {
                     self.call_arg_from_shared_object_id(self.system_object, true)
                         .await?,
                     self.wallet.get_object_ref(storage.id).await?.into(),
-                    blob_id_to_call_arg(blob_id),
+                    call_arg_pure!(&blob_id),
                     encoded_size.into(),
                     erasure_code_type.into(),
                 ],
@@ -301,5 +301,34 @@ impl WalrusSuiClient {
             blob_obj_id.len()
         );
         self.get_object(blob_obj_id[0]).await
+    }
+
+    /// Certifies the specified blob on Sui, given a certificate that confirms its storage and
+    /// returns the certified blob.
+    pub async fn certify_blob(
+        &self,
+        blob: &Blob,
+        certificate: &ConfirmationCertificate,
+    ) -> Result<Blob> {
+        let res = self
+            .move_call_and_transfer(
+                contracts::blob::certify
+                    .with_type_params(&[self.system_tag.clone(), self.coin_type.clone()]),
+                vec![
+                    self.call_arg_from_shared_object_id(self.system_object, true)
+                        .await?,
+                    self.wallet.get_object_ref(blob.id).await?.into(),
+                    call_arg_pure!(certificate.signature.as_bytes()),
+                    call_arg_pure!(&certificate.signers),
+                    (&certificate.confirmation).into(),
+                ],
+            )
+            .await?;
+        let blob: Blob = self.get_object(blob.id).await?;
+        ensure!(
+            blob.certified.is_some(),
+            format!("could not certify blob: {:?}", res.errors)
+        );
+        Ok(blob)
     }
 }

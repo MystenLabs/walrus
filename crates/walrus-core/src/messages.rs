@@ -8,6 +8,9 @@ use serde::{Deserialize, Serialize};
 mod storage_confirmation;
 pub use storage_confirmation::{Confirmation, SignedStorageConfirmation, StorageConfirmation};
 
+mod certificate;
+pub use certificate::ConfirmationCertificate;
+
 macro_rules! wrapped_uint {
     (
         $(#[$outer:meta])*

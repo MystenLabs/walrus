@@ -4,7 +4,7 @@
 //! Walrus move type bindings. Replicates the move types in Rust.
 //!
 
-use anyhow::{anyhow, Ok};
+use anyhow::anyhow;
 use move_core_types::u256::U256;
 use sui_sdk::rpc_types::{SuiMoveStruct, SuiMoveValue};
 use sui_types::base_types::ObjectID;
@@ -31,13 +31,10 @@ impl TryFrom<&SuiMoveStruct> for StorageResource {
     type Error = anyhow::Error;
 
     fn try_from(sui_move_struct: &SuiMoveStruct) -> Result<Self, Self::Error> {
-        let id = get_dynamic_field!(sui_move_struct, "id", SuiMoveValue::UID { id });
-        let start_epoch =
-            get_dynamic_field!(sui_move_struct, "start_epoch", SuiMoveValue::String).parse()?;
-        let end_epoch =
-            get_dynamic_field!(sui_move_struct, "end_epoch", SuiMoveValue::String).parse()?;
-        let storage_size =
-            get_dynamic_field!(sui_move_struct, "storage_size", SuiMoveValue::String).parse()?;
+        let id = get_dynamic_objectid_field!(sui_move_struct)?;
+        let start_epoch = get_dynamic_u64_field!(sui_move_struct, "start_epoch")?;
+        let end_epoch = get_dynamic_u64_field!(sui_move_struct, "end_epoch")?;
+        let storage_size = get_dynamic_u64_field!(sui_move_struct, "storage_size")?;
         Ok(Self {
             id,
             start_epoch,
@@ -82,36 +79,39 @@ impl TryFrom<&SuiMoveStruct> for Blob {
     type Error = anyhow::Error;
 
     fn try_from(sui_move_struct: &SuiMoveStruct) -> Result<Self, Self::Error> {
-        let id = get_dynamic_field!(sui_move_struct, "id", SuiMoveValue::UID { id });
+        let id = get_dynamic_objectid_field!(sui_move_struct)?;
 
-        let stored_epoch =
-            get_dynamic_field!(sui_move_struct, "stored_epoch", SuiMoveValue::String).parse()?;
+        let stored_epoch = get_dynamic_u64_field!(sui_move_struct, "stored_epoch")?;
         let blob_id = blob_id_from_u256(
-            get_dynamic_field!(sui_move_struct, "blob_id", SuiMoveValue::String).parse::<U256>()?,
+            get_dynamic_field!(sui_move_struct, "blob_id", SuiMoveValue::String)?
+                .parse::<U256>()?,
         );
-        let encoded_size =
-            get_dynamic_field!(sui_move_struct, "size", SuiMoveValue::String).parse()?;
+        let encoded_size = get_dynamic_u64_field!(sui_move_struct, "size")?;
         let erasure_code_type = EncodingType::try_from(u8::try_from(get_dynamic_field!(
             sui_move_struct,
             "erasure_code_type",
             SuiMoveValue::Number
-        ))?)?;
-        let certified =
-            match *get_dynamic_field!(sui_move_struct, "certified", SuiMoveValue::Option) {
-                Some(SuiMoveValue::String(val)) => Some(val.parse()?),
-                Some(sui_move_val) => {
-                    return Err(anyhow!(
-                        "invalid value for field `certified`: {}",
-                        sui_move_val
-                    ))
+        )?)?)?;
+        // `SuiMoveValue::Option` seems to be replaced with `SuiMoveValue::String` directly
+        // if it is not `None`.
+        let certified = get_dynamic_field!(sui_move_struct, "certified", SuiMoveValue::String)
+            .and_then(|s| Ok(Some(s.parse()?)))
+            .or_else(|_| {
+                match get_dynamic_field!(sui_move_struct, "certified", SuiMoveValue::Option)?
+                    .as_ref()
+                {
+                    None => Ok(None),
+                    // Below would be the expected behaviour in the not-None-case, so we capture
+                    // this nevertheless
+                    Some(SuiMoveValue::String(s)) => Ok(Some(s.parse()?)),
+                    Some(smv) => Err(anyhow!("unexpected type for field `certified`: {}", smv)),
                 }
-                None => None,
-            };
+            })?;
         let storage = StorageResource::try_from(get_dynamic_field!(
             sui_move_struct,
             "storage",
             SuiMoveValue::Struct
-        ))?;
+        )?)?;
         Ok(Self {
             id,
             stored_epoch,

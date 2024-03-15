@@ -9698,6 +9698,8 @@ name = "walrus-sui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bcs",
+ "fastcrypto 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures",
  "move-core-types",
  "serde_json",
@@ -9708,8 +9710,6 @@ dependencies = [
  "tracing",
  "walrus-core",
  "walrus-e2e-tests",
- "walrus-service",
- "walrus-test-utils",
 ]
 
 [[package]]

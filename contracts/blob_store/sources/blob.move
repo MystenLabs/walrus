@@ -167,8 +167,8 @@ module blob_store::blob {
     }
 
     /// Certify that a blob will be available in the storage system until the end epoch of the
-    /// storage associated with it.
-    public fun certify<TAG, WAL>(
+    /// storage associated with it, given a [`CertifiedBlobMessage`].
+    public fun certify_with_certified_msg<TAG, WAL>(
         sys: &System<TAG, WAL>,
         message: CertifiedBlobMessage<TAG>,
         blob: &mut Blob<TAG>,
@@ -195,6 +195,25 @@ module blob_store::blob {
             blob_id: message.blob_id,
             end_epoch: end_epoch(storage(blob)),
         });
+    }
+
+    /// Certify that a blob will be available in the storage system until the end epoch of the
+    /// storage associated with it.
+    public fun certify<TAG, WAL>(
+        sys: &System<TAG, WAL>,
+        blob: &mut Blob<TAG>,
+        signature: vector<u8>,
+        members: vector<u16>,
+        message: vector<u8>,
+    ) {
+        let certified_msg = committee::verify_quorum_in_epoch(
+            system::current_committee(sys),
+            signature,
+            members,
+            message
+        );
+        let certified_blob_msg = certify_blob_message(certified_msg);
+        certify_with_certified_msg(sys, certified_blob_msg, blob);
     }
 
     /// After the period of validity expires for the blob we can destroy the blob resource.

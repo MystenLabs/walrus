@@ -108,6 +108,7 @@ pub mod blob {
     use super::*;
 
     contract_ident!(fn blob::register, 1);
+    contract_ident!(fn blob::certify);
     contract_ident!(struct blob::BlobCertified);
     contract_ident!(struct blob::BlobRegistered);
     contract_ident!(struct blob::Blob);
