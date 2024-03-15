@@ -41,8 +41,8 @@ macro_rules! wrapped_uint {
 wrapped_uint! {
     /// Type for the intent type of signed messages.
     pub struct IntentType(pub u8) {
-        /// Intent type for storage-certification messages.
-        pub const STORAGE_CERT_MSG: Self = Self(2);
+        /// Intent type for blob-certification messages.
+        pub const BLOB_CERT_MSG: Self = Self(1);
     }
 }
 

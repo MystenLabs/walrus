@@ -43,7 +43,7 @@ impl Confirmation {
     /// Creates a new confirmation message for the provided blob ID.
     pub fn new(epoch: Epoch, blob_id: BlobId) -> Self {
         Self {
-            intent: Intent::storage(IntentType::STORAGE_CERT_MSG),
+            intent: Intent::storage(IntentType::BLOB_CERT_MSG),
             epoch,
             blob_id,
         }
@@ -56,7 +56,7 @@ where
 {
     let unverified_intent = Intent::deserialize(deserializer)?;
 
-    if unverified_intent.r#type != IntentType::STORAGE_CERT_MSG {
+    if unverified_intent.r#type != IntentType::BLOB_CERT_MSG {
         return Err(D::Error::custom(format!(
             "invalid intent type for storage confirmation: {:?}",
             unverified_intent.r#type
@@ -96,7 +96,7 @@ mod tests {
         assert_eq!(
             encoded[..3],
             [
-                IntentType::STORAGE_CERT_MSG.0,
+                IntentType::BLOB_CERT_MSG.0,
                 IntentVersion::default().0,
                 IntentAppId::STORAGE.0
             ]
@@ -107,7 +107,7 @@ mod tests {
     #[test]
     fn decoding_fails_for_incorrect_message_type() -> TestResult {
         const OTHER_MSG_TYPE: IntentType = IntentType(0);
-        assert_ne!(IntentType::STORAGE_CERT_MSG, OTHER_MSG_TYPE);
+        assert_ne!(IntentType::BLOB_CERT_MSG, OTHER_MSG_TYPE);
 
         let mut confirmation = Confirmation::new(EPOCH, BLOB_ID);
         confirmation.intent.r#type = OTHER_MSG_TYPE;
