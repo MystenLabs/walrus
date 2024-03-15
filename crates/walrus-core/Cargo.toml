@@ -11,12 +11,12 @@ bcs = { workspace = true }
 fastcrypto = { workspace = true }
 # TODO(mlegner): Update as soon as there is an official release with the ESI fix.
 raptorq = { git = "https://github.com/cberner/raptorq", rev = "da79ac2ba51e99484c81901fe293a2d8b32add49" }
-serde = { version = "1.0.197", features = ["derive"] }
+serde = { workspace = true }
 thiserror = { workspace = true }
 
 [lints]
 workspace = true
 
 [dev-dependencies]
-rand = "0.8.5"
+rand = { workspace = true }
 walrus-test-utils = { workspace = true }

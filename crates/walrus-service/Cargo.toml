@@ -14,7 +14,7 @@ clap = { version = "4.5.2", features = ["derive"] }
 fastcrypto = { workspace = true }
 prometheus = "0.13.3"
 rocksdb = "0.21"
-serde = { version = "1.0.197", features = ["derive"] }
+serde = { workspace = true }
 thiserror = { workspace = true }
 tokio = { version = "1.36.0", features = ["rt-multi-thread", "macros"] }
 tokio-stream = "0.1.14"
@@ -30,7 +30,7 @@ name = "client"
 path = "bin/client.rs"
 
 [dev-dependencies]
-rand = "0.8.5"
+rand = { workspace = true }
 reqwest = { version = "0.11.25", features = ["json"] }
 tempfile = { workspace = true }
 walrus-test-utils = { workspace = true }

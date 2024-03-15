@@ -29,6 +29,8 @@ test-cluster = { git = "https://github.com/MystenLabs/sui", package = "test-clus
 sui_types = { git = "https://github.com/MystenLabs/sui", package = "sui-types", tag = "testnet-v1.20.0" }
 move_core_types = { git = "https://github.com/MystenLabs/sui", package = "move-core-types", tag = "testnet-v1.20.0" }
 sui-move-build = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.20.0" }
+rand = "0.8.5"
+serde = { version = "1.0.197", features = ["derive"] }
 
 [workspace.lints.rust]
 missing_docs = "warn"
