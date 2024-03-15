@@ -75,7 +75,6 @@ impl StorageNode {
 }
 
 impl ServiceState for StorageNode {
-    /// Stores the metadata associated with a blob.
     fn store_blob_metadata(&self, metadata: BlobMetadataWithId) -> Result<(), StoreMetadataError> {
         let verified_metadata = metadata.verify(self.n_shards)?;
 
@@ -86,7 +85,6 @@ impl ServiceState for StorageNode {
         Ok(())
     }
 
-    /// Store the primary or secondary encoding for a blob for a shard held by this storage node.
     fn store_sliver(
         &self,
         shard: ShardIndex,
@@ -103,8 +101,6 @@ impl ServiceState for StorageNode {
             .context("unable to store sliver")
     }
 
-    /// Get a signed confirmation over the identifiers of the shards storing their respective
-    /// sliver-pairs for their BlobIds.
     async fn get_storage_confirmation(
         &self,
         blob_id: &BlobId,

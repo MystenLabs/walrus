@@ -126,11 +126,13 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             Err(StoreMetadataError::InvalidMetadata(message)) => {
                 ServiceResponse::serialized_error(StatusCode::BAD_REQUEST, message.to_string())
             }
-            // TODO(@asonnino): Log this error message once #106 lands.
-            Err(StoreMetadataError::Internal(_message)) => ServiceResponse::serialized_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Internal error",
-            ),
+            Err(StoreMetadataError::Internal(message)) => {
+                tracing::error!("Internal server error: {message}");
+                ServiceResponse::serialized_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal error",
+                )
+            }
         }
     }
 
@@ -140,11 +142,13 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
     ) -> (StatusCode, Json<ServiceResponse<()>>) {
         match state.store_sliver(request.shard, &request.blob_id, &request.sliver) {
             Ok(()) => ServiceResponse::serialized_success(StatusCode::OK, ()),
-            // TODO(@asonnino): Log this error message once #106 lands.
-            Err(_error) => ServiceResponse::serialized_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Internal error",
-            ),
+            Err(message) => {
+                tracing::error!("Internal server error: {message}");
+                ServiceResponse::serialized_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal error",
+                )
+            }
         }
     }
 
@@ -157,11 +161,13 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
                 ServiceResponse::serialized_success(StatusCode::OK, confirmation)
             }
             Ok(None) => ServiceResponse::serialized_error(StatusCode::NOT_FOUND, "Not found"),
-            // TODO(@asonnino): Log this error message once #106 lands.
-            Err(_error) => ServiceResponse::serialized_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Internal error",
-            ),
+            Err(message) => {
+                tracing::error!("Internal server error: {message}");
+                ServiceResponse::serialized_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal error",
+                )
+            }
         }
     }
 }

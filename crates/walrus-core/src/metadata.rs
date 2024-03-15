@@ -105,7 +105,7 @@ impl UnverifiedBlobMetadataWithId {
     }
 
     /// Returns an arbitrary metadata object.
-    // todo(@asonnino): Move this function to `walrus-test-utils`.
+    // todo(@asonnino): Move this function to `walrus-test-utils`, #109
     pub fn arbitrary_metadata_for_test() -> UnverifiedBlobMetadataWithId {
         let unencoded_length = 7_000_000_000;
         let hashes: Vec<_> = (0..100u8).map(|i| MerkleNode::Digest([i; 32])).collect();

@@ -2,10 +2,10 @@
 resolver = "2"
 members = ["crates/*"]
 default-members = [
-    "crates/walrus-core",
-    "crates/walrus-service",
-    "crates/walrus-test-utils",
-    "crates/walrus-sui",
+  "crates/walrus-core",
+  "crates/walrus-service",
+  "crates/walrus-test-utils",
+  "crates/walrus-sui",
 ]
 
 [workspace.package]

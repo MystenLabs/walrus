@@ -9706,6 +9706,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-stream",
+ "tracing",
  "typed-store",
  "walrus-core",
  "walrus-test-utils",
