@@ -9,8 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     merkle::{MerkleTree, Node as MerkleNode},
-    BlobId,
-    EncodingType,
+    BlobId, EncodingType,
 };
 
 /// Errors returned by [`UnverifiedBlobMetadataWithId::verify`] when unable to verify the metadata.

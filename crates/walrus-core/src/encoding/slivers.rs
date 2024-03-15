@@ -7,18 +7,8 @@ use fastcrypto::hash::HashFunction;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    get_encoding_config,
-    DataTooLargeError,
-    Decoder,
-    DecodingSymbol,
-    DecodingSymbolPair,
-    EncodeError,
-    Encoder,
-    EncodingAxis,
-    Primary,
-    RecoveryError,
-    Secondary,
-    Symbols,
+    get_encoding_config, DataTooLargeError, Decoder, DecodingSymbol, DecodingSymbolPair,
+    EncodeError, Encoder, EncodingAxis, Primary, RecoveryError, Secondary, Symbols,
 };
 use crate::merkle::{MerkleProof, MerkleTree, Node, DIGEST_LEN};
 

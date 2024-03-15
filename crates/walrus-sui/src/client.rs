@@ -8,10 +8,7 @@ use core::str::FromStr;
 use anyhow::{anyhow, bail, ensure, Result};
 use sui_sdk::{
     rpc_types::{
-        SuiExecutionStatus,
-        SuiMoveValue,
-        SuiObjectDataOptions,
-        SuiTransactionBlockEffectsAPI,
+        SuiExecutionStatus, SuiMoveValue, SuiObjectDataOptions, SuiTransactionBlockEffectsAPI,
         SuiTransactionBlockResponse,
     },
     types::{
@@ -26,19 +23,15 @@ use sui_types::{
     base_types::SuiAddress,
     object::Owner,
     transaction::{Argument, ProgrammableTransaction},
-    Identifier,
-    TypeTag,
+    Identifier, TypeTag,
 };
 
 use crate::{
     contracts::{self, AssociatedContractStruct, FunctionTag},
     types::StorageResource,
     utils::{
-        call_args_to_object_ids,
-        get_created_object_ids_by_type,
-        get_struct_from_object_response,
-        get_type_parameters,
-        handle_pagination,
+        call_args_to_object_ids, get_created_object_ids_by_type, get_struct_from_object_response,
+        get_type_parameters, handle_pagination,
     },
 };
 
