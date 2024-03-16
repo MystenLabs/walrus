@@ -58,7 +58,7 @@ impl Encoder {
         };
 
         Ok(Self {
-            raptorq_encoder: SourceBlockEncoder::with_encoding_plan2(
+            raptorq_encoder: SourceBlockEncoder::with_encoding_plan(
                 0,
                 &utils::get_transmission_info(symbol_size.into()),
                 data,
@@ -149,7 +149,7 @@ impl Decoder {
     /// `symbol_size`.
     pub fn new(n_source_symbols: u16, symbol_size: u16) -> Self {
         Self {
-            raptorq_decoder: SourceBlockDecoder::new2(
+            raptorq_decoder: SourceBlockDecoder::new(
                 0,
                 &utils::get_transmission_info(symbol_size as usize),
                 (n_source_symbols as u64) * (symbol_size as u64),

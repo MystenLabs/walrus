@@ -6379,8 +6379,9 @@ dependencies = [
 
 [[package]]
 name = "raptorq"
-version = "1.8.1"
-source = "git+https://github.com/cberner/raptorq?rev=da79ac2ba51e99484c81901fe293a2d8b32add49#da79ac2ba51e99484c81901fe293a2d8b32add49"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "90b1b1fad69672f0b901b5004863ea4307f03d168a3db5f2bcba4d3dfed88e97"
 
 [[package]]
 name = "raw-cpuid"
