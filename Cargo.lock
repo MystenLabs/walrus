@@ -1514,7 +1514,7 @@ dependencies = [
  "tokio",
  "tower",
  "tracing",
- "typed-store",
+ "typed-store 0.4.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
 ]
 
 [[package]]
@@ -4785,7 +4785,7 @@ dependencies = [
  "tokio",
  "tonic 0.10.2",
  "tracing",
- "typed-store",
+ "typed-store 0.4.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
 ]
 
 [[package]]
@@ -4811,7 +4811,7 @@ dependencies = [
  "prometheus",
  "quinn-proto",
  "rand 0.8.5",
- "sui-macros",
+ "sui-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "tokio",
  "tower",
  "tracing",
@@ -4887,7 +4887,7 @@ dependencies = [
  "parking_lot 0.12.1",
  "prometheus",
  "rand 0.8.5",
- "sui-macros",
+ "sui-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-protocol-config",
  "tap",
  "thiserror",
@@ -4895,7 +4895,7 @@ dependencies = [
  "tokio-stream",
  "tower",
  "tracing",
- "typed-store",
+ "typed-store 0.4.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
 ]
 
 [[package]]
@@ -4912,12 +4912,12 @@ dependencies = [
  "narwhal-types",
  "parking_lot 0.12.1",
  "prometheus",
- "sui-macros",
+ "sui-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "tap",
  "tempfile",
  "tokio",
  "tracing",
- "typed-store",
+ "typed-store 0.4.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
 ]
 
 [[package]]
@@ -4950,7 +4950,7 @@ dependencies = [
  "tokio",
  "tonic 0.10.2",
  "tracing",
- "typed-store",
+ "typed-store 0.4.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
 ]
 
 [[package]]
@@ -4995,7 +4995,7 @@ dependencies = [
  "tonic 0.10.2",
  "tonic-build",
  "tracing",
- "typed-store",
+ "typed-store 0.4.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
 ]
 
 [[package]]
@@ -5030,7 +5030,7 @@ dependencies = [
  "tonic 0.10.2",
  "tower",
  "tracing",
- "typed-store",
+ "typed-store 0.4.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
 ]
 
 [[package]]
@@ -7504,7 +7504,7 @@ dependencies = [
  "move-vm-types",
  "parking_lot 0.12.1",
  "serde",
- "sui-macros",
+ "sui-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-move-natives-latest",
  "sui-protocol-config",
  "sui-types",
@@ -7531,7 +7531,7 @@ dependencies = [
  "once_cell",
  "parking_lot 0.12.1",
  "serde",
- "sui-macros",
+ "sui-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-move-natives-v0",
  "sui-protocol-config",
  "sui-types",
@@ -7557,7 +7557,7 @@ dependencies = [
  "move-vm-types",
  "parking_lot 0.12.1",
  "serde",
- "sui-macros",
+ "sui-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-move-natives-v1",
  "sui-protocol-config",
  "sui-types",
@@ -7695,7 +7695,7 @@ dependencies = [
  "sui-framework",
  "sui-genesis-builder",
  "sui-json-rpc-types",
- "sui-macros",
+ "sui-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-move-build",
  "sui-network",
  "sui-protocol-config",
@@ -7713,7 +7713,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "twox-hash",
- "typed-store",
+ "typed-store 0.4.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "typed-store-derive",
  "zeroize",
 ]
@@ -7722,6 +7722,14 @@ dependencies = [
 name = "sui-enum-compat-util"
 version = "0.1.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
+dependencies = [
+ "serde_yaml 0.8.26",
+]
+
+[[package]]
+name = "sui-enum-compat-util"
+version = "0.1.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
 dependencies = [
  "serde_yaml 0.8.26",
 ]
@@ -7875,7 +7883,7 @@ dependencies = [
  "tower",
  "tower-http",
  "tracing",
- "typed-store-error",
+ "typed-store-error 0.4.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
 ]
 
 [[package]]
@@ -7918,9 +7926,9 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
- "sui-enum-compat-util",
+ "sui-enum-compat-util 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-json",
- "sui-macros",
+ "sui-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-protocol-config",
  "sui-types",
  "tabled",
@@ -7953,7 +7961,18 @@ source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a548
 dependencies = [
  "futures",
  "once_cell",
- "sui-proc-macros",
+ "sui-proc-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "tracing",
+]
+
+[[package]]
+name = "sui-macros"
+version = "0.7.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "futures",
+ "once_cell",
+ "sui-proc-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "tracing",
 ]
 
@@ -8105,7 +8124,7 @@ dependencies = [
  "sui-core",
  "sui-json-rpc",
  "sui-json-rpc-api",
- "sui-macros",
+ "sui-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-network",
  "sui-protocol-config",
  "sui-rest-api",
@@ -8120,7 +8139,7 @@ dependencies = [
  "tokio",
  "tower",
  "tracing",
- "typed-store",
+ "typed-store 0.4.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "url",
 ]
 
@@ -8157,7 +8176,19 @@ dependencies = [
  "msim-macros",
  "proc-macro2 1.0.78",
  "quote 1.0.35",
- "sui-enum-compat-util",
+ "sui-enum-compat-util 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "syn 2.0.52",
+]
+
+[[package]]
+name = "sui-proc-macros"
+version = "0.7.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "msim-macros",
+ "proc-macro2 1.0.78",
+ "quote 1.0.35",
+ "sui-enum-compat-util 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "syn 2.0.52",
 ]
 
@@ -8334,7 +8365,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
- "typed-store",
+ "typed-store 0.4.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "typed-store-derive",
  "url",
  "zstd",
@@ -8352,7 +8383,7 @@ dependencies = [
  "prometheus",
  "rand 0.8.5",
  "sui-config",
- "sui-macros",
+ "sui-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-node",
  "sui-protocol-config",
  "sui-simulator",
@@ -8384,7 +8415,7 @@ dependencies = [
  "shared-crypto",
  "sui-config",
  "sui-genesis-builder",
- "sui-macros",
+ "sui-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-protocol-config",
  "sui-simulator",
  "sui-types",
@@ -8464,7 +8495,7 @@ dependencies = [
  "once_cell",
  "sui-config",
  "sui-execution",
- "sui-macros",
+ "sui-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-protocol-config",
  "sui-types",
  "tracing",
@@ -8521,14 +8552,14 @@ dependencies = [
  "static_assertions",
  "strum",
  "strum_macros",
- "sui-enum-compat-util",
- "sui-macros",
+ "sui-enum-compat-util 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-protocol-config",
  "tap",
  "thiserror",
  "tonic 0.10.2",
  "tracing",
- "typed-store-error",
+ "typed-store-error 0.4.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
 ]
 
 [[package]]
@@ -9391,12 +9422,40 @@ dependencies = [
  "rand 0.8.5",
  "rocksdb",
  "serde",
- "sui-macros",
+ "sui-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "tap",
  "thiserror",
  "tokio",
  "tracing",
- "typed-store-error",
+ "typed-store-error 0.4.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+]
+
+[[package]]
+name = "typed-store"
+version = "0.4.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "async-trait",
+ "bcs",
+ "bincode",
+ "collectable",
+ "eyre",
+ "fdlimit",
+ "hdrhistogram",
+ "itertools 0.10.5",
+ "msim",
+ "once_cell",
+ "ouroboros",
+ "prometheus",
+ "rand 0.8.5",
+ "rocksdb",
+ "serde",
+ "sui-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "tap",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "typed-store-error 0.4.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
 ]
 
 [[package]]
@@ -9414,6 +9473,15 @@ dependencies = [
 name = "typed-store-error"
 version = "0.4.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
+dependencies = [
+ "serde",
+ "thiserror",
+]
+
+[[package]]
+name = "typed-store-error"
+version = "0.4.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
 dependencies = [
  "serde",
  "thiserror",
@@ -9707,7 +9775,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tracing",
- "typed-store",
+ "typed-store 0.4.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "walrus-core",
  "walrus-test-utils",
 ]
