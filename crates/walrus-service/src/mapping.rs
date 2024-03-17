@@ -4,7 +4,7 @@
 //! The mapping between the encoded sliver pairs and shards.
 
 use thiserror::Error;
-use walrus_core::{encoding::SliverPair, BlobId};
+use walrus_core::{encoding::SliverPair, BlobId, ShardIndex};
 
 /// Errors returned if the slice of sliver pairs has already been shuffled in a way that is
 /// inconsistent with the provided blob id.
@@ -91,8 +91,9 @@ fn is_rotation(pairs: &[SliverPair]) -> bool {
 /// * `total_shards` - The total number of shards in the system.
 /// * `blob_id` - The Blob ID that produced the sliver. It is interpreted as a big-endian unsigned
 /// integer, and then used to compute the offset for the sliver pair index.
-pub fn shard_index_for_pair(pair_idx: usize, total_shards: usize, blob_id: &BlobId) -> usize {
-    (bytes_mod(blob_id.as_ref(), total_shards) + pair_idx) % total_shards
+pub fn shard_index_for_pair(pair_idx: usize, total_shards: usize, blob_id: &BlobId) -> ShardIndex {
+    let index = (bytes_mod(blob_id.as_ref(), total_shards) + pair_idx) % total_shards;
+    ShardIndex(index as u16)
 }
 
 /// Get the index of the sliver pair which is store on the shard of the given index.
@@ -228,7 +229,7 @@ mod tests {
         total_shards: usize,
         blob_id_value: u64,
         pair_idx: usize,
-        shard_idx: usize,
+        shard_idx: ShardIndex,
     ) {
         let blob_id = blob_id_for_testing(blob_id_value);
         assert_eq!(
@@ -239,9 +240,9 @@ mod tests {
 
     param_test! {
         test_shard_index_for_pair: [
-                start: (7, 15, 0, 1),
-                mid: (7, 15, 5,6),
-                end: (7, 15, 6, 0),
+                start: (7, 15, 0, ShardIndex(1)),
+                mid: (7, 15, 5, ShardIndex(6)),
+                end: (7, 15, 6, ShardIndex(0)),
             ]
     }
 

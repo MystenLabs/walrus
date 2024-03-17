@@ -231,7 +231,7 @@ impl<T: EncodingAxis> Sliver<T> {
     }
 
     /// Computes the Merkle root [`Node`][`crate::merkle::Node`] of the
-    /// [`MerkleTree`][`crate::merkle::MerkleTree`] over the symbols of the exanded [`Sliver`].
+    /// [`MerkleTree`][`crate::merkle::MerkleTree`] over the symbols of the expanded [`Sliver`].
     ///
     /// # Errors
     ///

@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Core functionality for Walrus.
-use encoding::{PrimarySliver, SecondarySliver};
+use std::fmt::{self, Display};
+
+use encoding::{PrimarySliver, RecoveryError, SecondarySliver};
 use fastcrypto::hash::{Blake2b256, HashFunction};
-use merkle::{MerkleTree, Node};
+use merkle::{MerkleTree, Node, DIGEST_LEN};
 use metadata::SliverPairMetadata;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -76,6 +78,12 @@ impl AsRef<[u8]> for BlobId {
     }
 }
 
+impl Display for BlobId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "BlobId(0x{})", hex::encode(self.0))
+    }
+}
+
 /// Represents the index of a shard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[repr(transparent)]
@@ -110,6 +118,14 @@ impl Sliver {
         match self {
             Sliver::Primary(_) => SliverType::Primary,
             Sliver::Secondary(_) => SliverType::Secondary,
+        }
+    }
+
+    /// Returns the hash of the sliver.
+    pub fn hash<U: HashFunction<DIGEST_LEN>>(&self) -> Result<Node, RecoveryError> {
+        match self {
+            Sliver::Primary(inner) => inner.get_merkle_root::<U>(),
+            Sliver::Secondary(inner) => inner.get_merkle_root::<U>(),
         }
     }
 }
