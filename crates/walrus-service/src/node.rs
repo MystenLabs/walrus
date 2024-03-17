@@ -8,7 +8,7 @@ use fastcrypto::{bls12381::min_pk::BLS12381PrivateKey, traits::Signer};
 use typed_store::rocks::MetricConf;
 use walrus_core::{
     messages::{Confirmation, SignedStorageConfirmation, StorageConfirmation},
-    metadata::{BlobMetadataWithId, VerificationError},
+    metadata::{BlobMetadataWithId, VerificationError, VerifiedBlobMetadataWithId},
     BlobId,
     Epoch,
     ShardIndex,
@@ -29,6 +29,11 @@ pub trait ServiceState {
     /// Stores the metadata associated with a blob.
     fn store_blob_metadata(&self, metadata: BlobMetadataWithId) -> Result<(), StoreMetadataError>;
 
+    fn get_metadata(
+        &self,
+        blob_id: &BlobId,
+    ) -> Result<Option<VerifiedBlobMetadataWithId>, anyhow::Error>;
+
     /// Store the primary or secondary encoding for a blob for a shard held by this storage node.
     fn store_sliver(
         &self,
@@ -43,6 +48,9 @@ pub trait ServiceState {
         &self,
         blob_id: &BlobId,
     ) -> impl Future<Output = Result<Option<StorageConfirmation>, anyhow::Error>> + Send;
+
+    /// Get the number of shards this storage node is responsible for.
+    fn n_shards(&self) -> NonZeroUsize;
 }
 
 /// A Walrus storage node, responsible for 1 or more shards on Walrus.
@@ -85,6 +93,15 @@ impl ServiceState for StorageNode {
         Ok(())
     }
 
+    fn get_metadata(
+        &self,
+        blob_id: &BlobId,
+    ) -> Result<Option<VerifiedBlobMetadataWithId>, anyhow::Error> {
+        self.storage
+            .get_metadata(blob_id)
+            .context("unable to retrieve metadata")
+    }
+
     fn store_sliver(
         &self,
         shard: ShardIndex,
@@ -113,6 +130,10 @@ impl ServiceState for StorageNode {
         } else {
             Ok(None)
         }
+    }
+
+    fn n_shards(&self) -> NonZeroUsize {
+        self.n_shards
     }
 }
 
