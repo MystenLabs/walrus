@@ -1476,10 +1476,22 @@ version = "0.1.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
 dependencies = [
  "fastcrypto 0.1.7 (git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b860d9dd152abb7f2156275698ee91126)",
- "mysten-network",
+ "mysten-network 0.2.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "rand 0.8.5",
  "serde",
- "shared-crypto",
+ "shared-crypto 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+]
+
+[[package]]
+name = "consensus-config"
+version = "0.1.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "fastcrypto 0.1.7 (git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b860d9dd152abb7f2156275698ee91126)",
+ "mysten-network 0.2.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "rand 0.8.5",
+ "serde",
+ "shared-crypto 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
 ]
 
 [[package]]
@@ -1496,19 +1508,19 @@ dependencies = [
  "bcs",
  "bytes",
  "cfg-if",
- "consensus-config",
+ "consensus-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "enum_dispatch",
  "fastcrypto 0.1.7 (git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b860d9dd152abb7f2156275698ee91126)",
  "futures",
  "mockall",
- "mysten-metrics",
- "mysten-network",
+ "mysten-metrics 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "mysten-network 0.2.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "parking_lot 0.12.1",
  "prometheus",
  "rand 0.8.5",
  "serde",
- "shared-crypto",
- "sui-protocol-config",
+ "shared-crypto 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "tap",
  "thiserror",
  "tokio",
@@ -2207,6 +2219,14 @@ dependencies = [
 name = "enum-compat-util"
 version = "0.1.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
+dependencies = [
+ "serde_yaml 0.8.26",
+]
+
+[[package]]
+name = "enum-compat-util"
+version = "0.1.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
 dependencies = [
  "serde_yaml 0.8.26",
 ]
@@ -3919,14 +3939,33 @@ version = "0.0.1"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
 
 [[package]]
+name = "move-abstract-stack"
+version = "0.0.1"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+
+[[package]]
 name = "move-binary-format"
 version = "0.0.3"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
 dependencies = [
  "anyhow",
- "enum-compat-util",
- "move-core-types",
- "move-proc-macros",
+ "enum-compat-util 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-proc-macros 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "ref-cast",
+ "serde",
+ "variant_count",
+]
+
+[[package]]
+name = "move-binary-format"
+version = "0.0.3"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "anyhow",
+ "enum-compat-util 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-proc-macros 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "ref-cast",
  "serde",
  "variant_count",
@@ -3938,17 +3977,37 @@ version = "0.0.1"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
 
 [[package]]
+name = "move-borrow-graph"
+version = "0.0.1"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+
+[[package]]
 name = "move-bytecode-source-map"
 version = "0.1.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
 dependencies = [
  "anyhow",
  "bcs",
- "move-binary-format",
- "move-command-line-common",
- "move-core-types",
- "move-ir-types",
- "move-symbol-pool",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-command-line-common 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-ir-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-symbol-pool 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "serde",
+]
+
+[[package]]
+name = "move-bytecode-source-map"
+version = "0.1.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "anyhow",
+ "bcs",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-command-line-common 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-ir-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-symbol-pool 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "serde",
 ]
 
@@ -3958,8 +4017,20 @@ version = "0.1.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
 dependencies = [
  "anyhow",
- "move-binary-format",
- "move-core-types",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "petgraph 0.5.1",
+ "serde-reflection",
+]
+
+[[package]]
+name = "move-bytecode-utils"
+version = "0.1.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "anyhow",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "petgraph 0.5.1",
  "serde-reflection",
 ]
@@ -3969,11 +4040,24 @@ name = "move-bytecode-verifier"
 version = "0.1.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
 dependencies = [
- "move-abstract-stack",
- "move-binary-format",
- "move-borrow-graph",
- "move-core-types",
- "move-vm-config",
+ "move-abstract-stack 0.0.1 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-borrow-graph 0.0.1 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-vm-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "petgraph 0.5.1",
+]
+
+[[package]]
+name = "move-bytecode-verifier"
+version = "0.1.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "move-abstract-stack 0.0.1 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-borrow-graph 0.0.1 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-vm-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "petgraph 0.5.1",
 ]
 
@@ -3982,11 +4066,11 @@ name = "move-bytecode-verifier-v0"
 version = "0.1.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
 dependencies = [
- "move-abstract-stack",
- "move-binary-format",
- "move-borrow-graph",
- "move-core-types",
- "move-vm-config",
+ "move-abstract-stack 0.0.1 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-borrow-graph 0.0.1 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-vm-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "petgraph 0.5.1",
 ]
 
@@ -3995,11 +4079,11 @@ name = "move-bytecode-verifier-v1"
 version = "0.1.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
 dependencies = [
- "move-abstract-stack",
- "move-binary-format",
- "move-borrow-graph",
- "move-core-types",
- "move-vm-config",
+ "move-abstract-stack 0.0.1 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-borrow-graph 0.0.1 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-vm-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "petgraph 0.5.1",
 ]
 
@@ -4012,7 +4096,25 @@ dependencies = [
  "difference",
  "dirs-next",
  "hex",
- "move-core-types",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "num-bigint 0.4.4",
+ "once_cell",
+ "serde",
+ "sha2 0.9.9",
+ "vfs",
+ "walkdir",
+]
+
+[[package]]
+name = "move-command-line-common"
+version = "0.1.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "anyhow",
+ "difference",
+ "dirs-next",
+ "hex",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "num-bigint 0.4.4",
  "once_cell",
  "serde",
@@ -4032,15 +4134,45 @@ dependencies = [
  "codespan-reporting",
  "dunce",
  "hex",
- "move-binary-format",
- "move-borrow-graph",
- "move-bytecode-source-map",
- "move-bytecode-verifier",
- "move-command-line-common",
- "move-core-types",
- "move-ir-to-bytecode",
- "move-ir-types",
- "move-symbol-pool",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-borrow-graph 0.0.1 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-bytecode-source-map 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-bytecode-verifier 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-command-line-common 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-ir-to-bytecode 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-ir-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-symbol-pool 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "once_cell",
+ "pathdiff",
+ "petgraph 0.5.1",
+ "regex",
+ "serde",
+ "stacker",
+ "tempfile",
+ "vfs",
+]
+
+[[package]]
+name = "move-compiler"
+version = "0.0.1"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "anyhow",
+ "bcs",
+ "clap",
+ "codespan-reporting",
+ "dunce",
+ "hex",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-borrow-graph 0.0.1 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-bytecode-source-map 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-bytecode-verifier 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-command-line-common 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-ir-to-bytecode 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-ir-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-symbol-pool 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "once_cell",
  "pathdiff",
  "petgraph 0.5.1",
@@ -4058,10 +4190,31 @@ source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a548
 dependencies = [
  "anyhow",
  "bcs",
- "enum-compat-util",
+ "enum-compat-util 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "ethnum",
  "hex",
- "move-proc-macros",
+ "move-proc-macros 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "num",
+ "once_cell",
+ "primitive-types",
+ "rand 0.8.5",
+ "ref-cast",
+ "serde",
+ "serde_bytes",
+ "uint",
+]
+
+[[package]]
+name = "move-core-types"
+version = "0.0.4"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "anyhow",
+ "bcs",
+ "enum-compat-util 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "ethnum",
+ "hex",
+ "move-proc-macros 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "num",
  "once_cell",
  "primitive-types",
@@ -4082,11 +4235,30 @@ dependencies = [
  "clap",
  "codespan",
  "colored",
- "move-binary-format",
- "move-bytecode-source-map",
- "move-command-line-common",
- "move-core-types",
- "move-ir-types",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-bytecode-source-map 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-command-line-common 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-ir-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "petgraph 0.5.1",
+ "serde",
+]
+
+[[package]]
+name = "move-coverage"
+version = "0.1.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "anyhow",
+ "bcs",
+ "clap",
+ "codespan",
+ "colored",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-bytecode-source-map 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-command-line-common 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-ir-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "petgraph 0.5.1",
  "serde",
 ]
@@ -4101,13 +4273,32 @@ dependencies = [
  "clap",
  "colored",
  "hex",
- "move-binary-format",
- "move-bytecode-source-map",
- "move-command-line-common",
- "move-compiler",
- "move-core-types",
- "move-coverage",
- "move-ir-types",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-bytecode-source-map 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-command-line-common 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-compiler 0.0.1 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-coverage 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-ir-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+]
+
+[[package]]
+name = "move-disassembler"
+version = "0.1.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "anyhow",
+ "bcs",
+ "clap",
+ "colored",
+ "hex",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-bytecode-source-map 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-command-line-common 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-compiler 0.0.1 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-coverage 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-ir-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
 ]
 
 [[package]]
@@ -4120,8 +4311,26 @@ dependencies = [
  "codespan-reporting",
  "itertools 0.10.5",
  "log",
- "move-compiler",
- "move-model",
+ "move-compiler 0.0.1 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-model 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "num",
+ "once_cell",
+ "regex",
+ "serde",
+]
+
+[[package]]
+name = "move-docgen"
+version = "0.1.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "anyhow",
+ "codespan",
+ "codespan-reporting",
+ "itertools 0.10.5",
+ "log",
+ "move-compiler 0.0.1 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-model 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "num",
  "once_cell",
  "regex",
@@ -4134,9 +4343,9 @@ version = "0.1.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
 dependencies = [
  "anyhow",
- "move-command-line-common",
- "move-core-types",
- "move-model",
+ "move-command-line-common 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-model 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "serde",
 ]
 
@@ -4148,13 +4357,31 @@ dependencies = [
  "anyhow",
  "codespan-reporting",
  "log",
- "move-binary-format",
- "move-bytecode-source-map",
- "move-command-line-common",
- "move-core-types",
- "move-ir-to-bytecode-syntax",
- "move-ir-types",
- "move-symbol-pool",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-bytecode-source-map 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-command-line-common 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-ir-to-bytecode-syntax 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-ir-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-symbol-pool 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "ouroboros",
+]
+
+[[package]]
+name = "move-ir-to-bytecode"
+version = "0.1.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "anyhow",
+ "codespan-reporting",
+ "log",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-bytecode-source-map 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-command-line-common 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-ir-to-bytecode-syntax 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-ir-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-symbol-pool 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "ouroboros",
 ]
 
@@ -4165,10 +4392,23 @@ source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a548
 dependencies = [
  "anyhow",
  "hex",
- "move-command-line-common",
- "move-core-types",
- "move-ir-types",
- "move-symbol-pool",
+ "move-command-line-common 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-ir-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-symbol-pool 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+]
+
+[[package]]
+name = "move-ir-to-bytecode-syntax"
+version = "0.1.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "anyhow",
+ "hex",
+ "move-command-line-common 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-ir-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-symbol-pool 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
 ]
 
 [[package]]
@@ -4177,9 +4417,22 @@ version = "0.1.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
 dependencies = [
  "hex",
- "move-command-line-common",
- "move-core-types",
- "move-symbol-pool",
+ "move-command-line-common 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-symbol-pool 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "once_cell",
+ "serde",
+]
+
+[[package]]
+name = "move-ir-types"
+version = "0.1.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "hex",
+ "move-command-line-common 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-symbol-pool 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "once_cell",
  "serde",
 ]
@@ -4195,14 +4448,39 @@ dependencies = [
  "internment",
  "itertools 0.10.5",
  "log",
- "move-binary-format",
- "move-bytecode-source-map",
- "move-command-line-common",
- "move-compiler",
- "move-core-types",
- "move-disassembler",
- "move-ir-types",
- "move-symbol-pool",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-bytecode-source-map 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-command-line-common 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-compiler 0.0.1 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-disassembler 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-ir-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-symbol-pool 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "num",
+ "once_cell",
+ "regex",
+ "serde",
+]
+
+[[package]]
+name = "move-model"
+version = "0.1.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "anyhow",
+ "codespan",
+ "codespan-reporting",
+ "internment",
+ "itertools 0.10.5",
+ "log",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-bytecode-source-map 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-command-line-common 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-compiler 0.0.1 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-disassembler 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-ir-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-symbol-pool 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "num",
  "once_cell",
  "regex",
@@ -4218,15 +4496,48 @@ dependencies = [
  "clap",
  "colored",
  "itertools 0.10.5",
- "move-binary-format",
- "move-bytecode-source-map",
- "move-bytecode-utils",
- "move-command-line-common",
- "move-compiler",
- "move-core-types",
- "move-docgen",
- "move-model",
- "move-symbol-pool",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-bytecode-source-map 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-bytecode-utils 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-command-line-common 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-compiler 0.0.1 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-docgen 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-model 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-symbol-pool 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "named-lock",
+ "once_cell",
+ "petgraph 0.5.1",
+ "regex",
+ "serde",
+ "serde_yaml 0.8.26",
+ "sha2 0.9.9",
+ "tempfile",
+ "toml",
+ "toml_edit",
+ "treeline",
+ "walkdir",
+ "whoami",
+]
+
+[[package]]
+name = "move-package"
+version = "0.1.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "anyhow",
+ "clap",
+ "colored",
+ "itertools 0.10.5",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-bytecode-source-map 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-bytecode-utils 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-command-line-common 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-compiler 0.0.1 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-docgen 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-model 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-symbol-pool 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "named-lock",
  "once_cell",
  "petgraph 0.5.1",
@@ -4247,7 +4558,17 @@ name = "move-proc-macros"
 version = "0.1.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
 dependencies = [
- "enum-compat-util",
+ "enum-compat-util 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "quote 1.0.35",
+ "syn 2.0.52",
+]
+
+[[package]]
+name = "move-proc-macros"
+version = "0.1.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "enum-compat-util 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "quote 1.0.35",
  "syn 2.0.52",
 ]
@@ -4262,11 +4583,11 @@ dependencies = [
  "codespan-reporting",
  "itertools 0.10.5",
  "log",
- "move-command-line-common",
- "move-compiler",
- "move-docgen",
+ "move-command-line-common 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-compiler 0.0.1 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-docgen 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "move-errmapgen",
- "move-model",
+ "move-model 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "move-stackless-bytecode",
  "once_cell",
  "serde",
@@ -4279,8 +4600,8 @@ name = "move-read-write-set-types"
 version = "0.0.3"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
 dependencies = [
- "move-binary-format",
- "move-core-types",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "serde",
 ]
 
@@ -4295,11 +4616,11 @@ dependencies = [
  "im",
  "itertools 0.10.5",
  "log",
- "move-binary-format",
- "move-command-line-common",
- "move-compiler",
- "move-core-types",
- "move-model",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-command-line-common 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-compiler 0.0.1 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-model 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "move-read-write-set-types",
  "num",
  "paste",
@@ -4315,14 +4636,14 @@ dependencies = [
  "anyhow",
  "hex",
  "log",
- "move-binary-format",
- "move-command-line-common",
- "move-core-types",
- "move-docgen",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-command-line-common 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-docgen 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "move-errmapgen",
  "move-prover",
  "move-vm-runtime",
- "move-vm-types",
+ "move-vm-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sha2 0.9.9",
  "sha3 0.9.1",
  "smallvec",
@@ -4337,14 +4658,14 @@ dependencies = [
  "anyhow",
  "hex",
  "log",
- "move-binary-format",
- "move-command-line-common",
- "move-core-types",
- "move-docgen",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-command-line-common 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-docgen 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "move-errmapgen",
  "move-prover",
  "move-vm-runtime-v0",
- "move-vm-types",
+ "move-vm-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sha2 0.9.9",
  "sha3 0.9.1",
  "smallvec",
@@ -4359,14 +4680,14 @@ dependencies = [
  "anyhow",
  "hex",
  "log",
- "move-binary-format",
- "move-command-line-common",
- "move-core-types",
- "move-docgen",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-command-line-common 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-docgen 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "move-errmapgen",
  "move-prover",
  "move-vm-runtime-v1",
- "move-vm-types",
+ "move-vm-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sha2 0.9.9",
  "sha3 0.9.1",
  "smallvec",
@@ -4384,11 +4705,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "move-symbol-pool"
+version = "0.1.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "once_cell",
+ "phf",
+ "serde",
+]
+
+[[package]]
 name = "move-vm-config"
 version = "0.1.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
 dependencies = [
- "move-binary-format",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "once_cell",
+]
+
+[[package]]
+name = "move-vm-config"
+version = "0.1.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "once_cell",
 ]
 
@@ -4397,7 +4737,19 @@ name = "move-vm-profiler"
 version = "0.1.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
 dependencies = [
- "move-vm-config",
+ "move-vm-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "once_cell",
+ "serde",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
+name = "move-vm-profiler"
+version = "0.1.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "move-vm-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "once_cell",
  "serde",
  "serde_json",
@@ -4411,12 +4763,12 @@ source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a548
 dependencies = [
  "better_any",
  "fail",
- "move-binary-format",
- "move-bytecode-verifier",
- "move-core-types",
- "move-vm-config",
- "move-vm-profiler",
- "move-vm-types",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-bytecode-verifier 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-vm-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-vm-profiler 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-vm-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "once_cell",
  "parking_lot 0.11.2",
  "sha3 0.9.1",
@@ -4431,12 +4783,12 @@ source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a548
 dependencies = [
  "better_any",
  "fail",
- "move-binary-format",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "move-bytecode-verifier-v0",
- "move-core-types",
- "move-vm-config",
- "move-vm-profiler",
- "move-vm-types",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-vm-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-vm-profiler 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-vm-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "once_cell",
  "parking_lot 0.11.2",
  "sha3 0.9.1",
@@ -4451,12 +4803,12 @@ source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a548
 dependencies = [
  "better_any",
  "fail",
- "move-binary-format",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "move-bytecode-verifier-v1",
- "move-core-types",
- "move-vm-config",
- "move-vm-profiler",
- "move-vm-types",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-vm-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-vm-profiler 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-vm-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "once_cell",
  "parking_lot 0.11.2",
  "sha3 0.9.1",
@@ -4470,10 +4822,24 @@ version = "0.1.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
 dependencies = [
  "anyhow",
- "move-binary-format",
- "move-core-types",
- "move-vm-profiler",
- "move-vm-types",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-vm-profiler 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-vm-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "once_cell",
+ "serde",
+]
+
+[[package]]
+name = "move-vm-test-utils"
+version = "0.1.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "anyhow",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-vm-profiler 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-vm-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "once_cell",
  "serde",
 ]
@@ -4484,9 +4850,22 @@ version = "0.1.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
 dependencies = [
  "bcs",
- "move-binary-format",
- "move-core-types",
- "move-vm-profiler",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-vm-profiler 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "serde",
+ "smallvec",
+]
+
+[[package]]
+name = "move-vm-types"
+version = "0.1.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "bcs",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-vm-profiler 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "serde",
  "smallvec",
 ]
@@ -4614,7 +4993,27 @@ dependencies = [
  "once_cell",
  "parking_lot 0.12.1",
  "prometheus",
- "prometheus-closure-metric",
+ "prometheus-closure-metric 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "scopeguard",
+ "tap",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "mysten-metrics"
+version = "0.7.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "async-trait",
+ "axum 0.6.20",
+ "dashmap",
+ "futures",
+ "once_cell",
+ "parking_lot 0.12.1",
+ "prometheus",
+ "prometheus-closure-metric 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "scopeguard",
  "tap",
  "tokio",
@@ -4647,6 +5046,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "mysten-network"
+version = "0.2.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "anemo",
+ "bcs",
+ "bytes",
+ "eyre",
+ "futures",
+ "http 0.2.12",
+ "multiaddr",
+ "pin-project-lite",
+ "serde",
+ "snap",
+ "tokio",
+ "tokio-stream",
+ "tonic 0.10.2",
+ "tonic-health",
+ "tower",
+ "tower-http",
+ "tracing",
+]
+
+[[package]]
 name = "mysten-util-mem"
 version = "0.11.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
@@ -4658,7 +5081,26 @@ dependencies = [
  "hashbrown 0.12.3",
  "impl-trait-for-tuples",
  "indexmap 2.2.5",
- "mysten-util-mem-derive",
+ "mysten-util-mem-derive 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "once_cell",
+ "parking_lot 0.12.1",
+ "roaring",
+ "smallvec",
+]
+
+[[package]]
+name = "mysten-util-mem"
+version = "0.11.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "cfg-if",
+ "ed25519-consensus",
+ "fastcrypto 0.1.7 (git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b860d9dd152abb7f2156275698ee91126)",
+ "fastcrypto-tbls",
+ "hashbrown 0.12.3",
+ "impl-trait-for-tuples",
+ "indexmap 2.2.5",
+ "mysten-util-mem-derive 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "once_cell",
  "parking_lot 0.12.1",
  "roaring",
@@ -4669,6 +5111,16 @@ dependencies = [
 name = "mysten-util-mem-derive"
 version = "0.1.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
+dependencies = [
+ "proc-macro2 1.0.78",
+ "syn 1.0.109",
+ "synstructure",
+]
+
+[[package]]
+name = "mysten-util-mem-derive"
+version = "0.1.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
 dependencies = [
  "proc-macro2 1.0.78",
  "syn 1.0.109",
@@ -4737,9 +5189,27 @@ dependencies = [
  "fastcrypto 0.1.7 (git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b860d9dd152abb7f2156275698ee91126)",
  "fastcrypto-tbls",
  "match_opt",
- "mysten-network",
- "mysten-util-mem",
- "narwhal-crypto",
+ "mysten-network 0.2.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "mysten-util-mem 0.11.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "narwhal-crypto 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
+name = "narwhal-config"
+version = "0.1.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "fastcrypto 0.1.7 (git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b860d9dd152abb7f2156275698ee91126)",
+ "fastcrypto-tbls",
+ "match_opt",
+ "mysten-network 0.2.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "mysten-util-mem 0.11.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "narwhal-crypto 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "rand 0.8.5",
  "serde",
  "serde_json",
@@ -4756,7 +5226,19 @@ dependencies = [
  "fastcrypto 0.1.7 (git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b860d9dd152abb7f2156275698ee91126)",
  "fastcrypto-tbls",
  "serde",
- "shared-crypto",
+ "shared-crypto 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+]
+
+[[package]]
+name = "narwhal-crypto"
+version = "0.1.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "bcs",
+ "fastcrypto 0.1.7 (git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b860d9dd152abb7f2156275698ee91126)",
+ "fastcrypto-tbls",
+ "serde",
+ "shared-crypto 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
 ]
 
 [[package]]
@@ -4771,16 +5253,16 @@ dependencies = [
  "fastcrypto 0.1.7 (git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b860d9dd152abb7f2156275698ee91126)",
  "futures",
  "mockall",
- "mysten-metrics",
- "narwhal-config",
- "narwhal-crypto",
+ "mysten-metrics 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "narwhal-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "narwhal-crypto 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "narwhal-network",
  "narwhal-primary",
  "narwhal-storage",
  "narwhal-types",
  "prometheus",
  "serde",
- "sui-protocol-config",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "thiserror",
  "tokio",
  "tonic 0.10.2",
@@ -4804,14 +5286,14 @@ dependencies = [
  "dashmap",
  "futures",
  "mysten-common",
- "mysten-metrics",
- "narwhal-crypto",
+ "mysten-metrics 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "narwhal-crypto 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "narwhal-types",
  "parking_lot 0.12.1",
  "prometheus",
  "quinn-proto",
  "rand 0.8.5",
- "sui-macros",
+ "sui-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "tokio",
  "tower",
  "tracing",
@@ -4832,10 +5314,10 @@ dependencies = [
  "eyre",
  "fastcrypto 0.1.7 (git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b860d9dd152abb7f2156275698ee91126)",
  "futures",
- "mysten-metrics",
- "mysten-network",
- "narwhal-config",
- "narwhal-crypto",
+ "mysten-metrics 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "mysten-network 0.2.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "narwhal-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "narwhal-crypto 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "narwhal-executor",
  "narwhal-network",
  "narwhal-primary",
@@ -4845,9 +5327,9 @@ dependencies = [
  "prometheus",
  "rand 0.8.5",
  "reqwest",
- "sui-keys",
- "sui-protocol-config",
- "sui-types",
+ "sui-keys 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "telemetry-subscribers",
  "thiserror",
  "tokio",
@@ -4876,10 +5358,10 @@ dependencies = [
  "governor",
  "itertools 0.10.5",
  "mysten-common",
- "mysten-metrics",
- "mysten-network",
- "narwhal-config",
- "narwhal-crypto",
+ "mysten-metrics 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "mysten-network 0.2.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "narwhal-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "narwhal-crypto 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "narwhal-network",
  "narwhal-storage",
  "narwhal-types",
@@ -4887,8 +5369,8 @@ dependencies = [
  "parking_lot 0.12.1",
  "prometheus",
  "rand 0.8.5",
- "sui-macros",
- "sui-protocol-config",
+ "sui-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "tap",
  "thiserror",
  "tokio",
@@ -4908,11 +5390,11 @@ dependencies = [
  "futures",
  "lru",
  "mysten-common",
- "narwhal-config",
+ "narwhal-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "narwhal-types",
  "parking_lot 0.12.1",
  "prometheus",
- "sui-macros",
+ "sui-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "tap",
  "tempfile",
  "tokio",
@@ -4930,10 +5412,10 @@ dependencies = [
  "fdlimit",
  "indexmap 2.2.5",
  "itertools 0.10.5",
- "mysten-metrics",
- "mysten-network",
- "narwhal-config",
- "narwhal-crypto",
+ "mysten-metrics 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "mysten-network 0.2.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "narwhal-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "narwhal-crypto 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "narwhal-executor",
  "narwhal-network",
  "narwhal-node",
@@ -4944,7 +5426,7 @@ dependencies = [
  "once_cell",
  "prometheus",
  "rand 0.8.5",
- "sui-protocol-config",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "telemetry-subscribers",
  "tempfile",
  "tokio",
@@ -4972,11 +5454,11 @@ dependencies = [
  "indexmap 2.2.5",
  "mockall",
  "mysten-common",
- "mysten-metrics",
- "mysten-network",
- "mysten-util-mem",
- "narwhal-config",
- "narwhal-crypto",
+ "mysten-metrics 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "mysten-network 0.2.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "mysten-util-mem 0.11.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "narwhal-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "narwhal-crypto 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "once_cell",
  "prometheus",
  "proptest",
@@ -4989,7 +5471,7 @@ dependencies = [
  "rustversion",
  "serde",
  "serde_with",
- "sui-protocol-config",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "thiserror",
  "tokio",
  "tonic 0.10.2",
@@ -5015,15 +5497,15 @@ dependencies = [
  "futures",
  "governor",
  "itertools 0.10.5",
- "mysten-metrics",
- "mysten-network",
- "narwhal-config",
- "narwhal-crypto",
+ "mysten-metrics 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "mysten-network 0.2.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "narwhal-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "narwhal-crypto 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "narwhal-network",
  "narwhal-types",
  "prometheus",
  "rand 0.8.5",
- "sui-protocol-config",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "tap",
  "thiserror",
  "tokio",
@@ -6027,6 +6509,16 @@ dependencies = [
 name = "prometheus-closure-metric"
 version = "0.1.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
+dependencies = [
+ "anyhow",
+ "prometheus",
+ "protobuf",
+]
+
+[[package]]
+name = "prometheus-closure-metric"
+version = "0.1.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
 dependencies = [
  "anyhow",
  "prometheus",
@@ -7189,6 +7681,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "shared-crypto"
+version = "0.0.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "bcs",
+ "eyre",
+ "fastcrypto 0.1.7 (git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b860d9dd152abb7f2156275698ee91126)",
+ "serde",
+ "serde_repr",
+]
+
+[[package]]
 name = "shlex"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7494,21 +7998,21 @@ dependencies = [
  "anyhow",
  "bcs",
  "leb128",
- "move-binary-format",
- "move-bytecode-utils",
- "move-bytecode-verifier",
- "move-core-types",
- "move-vm-config",
- "move-vm-profiler",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-bytecode-utils 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-bytecode-verifier 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-vm-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-vm-profiler 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "move-vm-runtime",
- "move-vm-types",
+ "move-vm-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "parking_lot 0.12.1",
  "serde",
- "sui-macros",
+ "sui-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-move-natives-latest",
- "sui-protocol-config",
- "sui-types",
- "sui-verifier-latest",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-verifier-latest 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "tracing",
 ]
 
@@ -7520,21 +8024,21 @@ dependencies = [
  "anyhow",
  "bcs",
  "leb128",
- "move-binary-format",
- "move-bytecode-utils",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-bytecode-utils 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "move-bytecode-verifier-v0",
- "move-core-types",
- "move-vm-config",
- "move-vm-profiler",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-vm-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-vm-profiler 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "move-vm-runtime-v0",
- "move-vm-types",
+ "move-vm-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "once_cell",
  "parking_lot 0.12.1",
  "serde",
- "sui-macros",
+ "sui-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-move-natives-v0",
- "sui-protocol-config",
- "sui-types",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-verifier-v0",
  "tracing",
 ]
@@ -7547,20 +8051,20 @@ dependencies = [
  "anyhow",
  "bcs",
  "leb128",
- "move-binary-format",
- "move-bytecode-utils",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-bytecode-utils 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "move-bytecode-verifier-v1",
- "move-core-types",
- "move-vm-config",
- "move-vm-profiler",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-vm-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-vm-profiler 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "move-vm-runtime-v1",
- "move-vm-types",
+ "move-vm-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "parking_lot 0.12.1",
  "serde",
- "sui-macros",
+ "sui-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-move-natives-v1",
- "sui-protocol-config",
- "sui-types",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-verifier-v1",
  "tracing",
 ]
@@ -7581,10 +8085,10 @@ dependencies = [
  "prometheus",
  "rand 0.8.5",
  "serde",
- "sui-config",
+ "sui-config 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-simulator",
  "sui-storage",
- "sui-types",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "tokio",
  "tracing",
 ]
@@ -7595,8 +8099,8 @@ version = "0.1.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
 dependencies = [
  "futures",
- "mysten-metrics",
- "sui-types",
+ "mysten-metrics 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "tokio",
  "tracing",
 ]
@@ -7613,7 +8117,7 @@ dependencies = [
  "csv",
  "dirs",
  "fastcrypto 0.1.7 (git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b860d9dd152abb7f2156275698ee91126)",
- "narwhal-config",
+ "narwhal-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "object_store",
  "once_cell",
  "prometheus",
@@ -7622,9 +8126,36 @@ dependencies = [
  "serde",
  "serde_with",
  "serde_yaml 0.8.26",
- "sui-keys",
- "sui-protocol-config",
- "sui-types",
+ "sui-keys 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "tracing",
+]
+
+[[package]]
+name = "sui-config"
+version = "0.0.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "anemo",
+ "anyhow",
+ "bcs",
+ "clap",
+ "csv",
+ "dirs",
+ "fastcrypto 0.1.7 (git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b860d9dd152abb7f2156275698ee91126)",
+ "narwhal-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "object_store",
+ "once_cell",
+ "prometheus",
+ "rand 0.8.5",
+ "reqwest",
+ "serde",
+ "serde_with",
+ "serde_yaml 0.8.26",
+ "sui-keys 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "tracing",
 ]
 
@@ -7639,7 +8170,7 @@ dependencies = [
  "bcs",
  "bytes",
  "chrono",
- "consensus-config",
+ "consensus-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "consensus-core",
  "dashmap",
  "diffy",
@@ -7656,17 +8187,17 @@ dependencies = [
  "lru",
  "mockall",
  "moka",
- "move-binary-format",
- "move-bytecode-utils",
- "move-core-types",
- "move-package",
- "move-symbol-pool",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-bytecode-utils 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-package 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-symbol-pool 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "mysten-common",
- "mysten-metrics",
- "mysten-network",
+ "mysten-metrics 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "mysten-network 0.2.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "mysticeti-core",
- "narwhal-config",
- "narwhal-crypto",
+ "narwhal-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "narwhal-crypto 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "narwhal-executor",
  "narwhal-network",
  "narwhal-node",
@@ -7685,25 +8216,25 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
- "shared-crypto",
+ "shared-crypto 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "signature 1.6.4",
  "static_assertions",
  "sui-archival",
  "sui-authority-aggregation",
- "sui-config",
+ "sui-config 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-execution",
- "sui-framework",
+ "sui-framework 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-genesis-builder",
- "sui-json-rpc-types",
- "sui-macros",
- "sui-move-build",
+ "sui-json-rpc-types 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-move-build 1.20.0",
  "sui-network",
- "sui-protocol-config",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-simulator",
  "sui-storage",
  "sui-swarm-config",
  "sui-transaction-checks",
- "sui-types",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "tap",
  "telemetry-subscribers",
  "tempfile",
@@ -7727,15 +8258,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "sui-enum-compat-util"
+version = "0.1.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "serde_yaml 0.8.26",
+]
+
+[[package]]
 name = "sui-execution"
 version = "0.1.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
 dependencies = [
- "move-binary-format",
- "move-bytecode-verifier",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-bytecode-verifier 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "move-bytecode-verifier-v0",
  "move-bytecode-verifier-v1",
- "move-vm-config",
+ "move-vm-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "move-vm-runtime",
  "move-vm-runtime-v0",
  "move-vm-runtime-v1",
@@ -7745,9 +8284,9 @@ dependencies = [
  "sui-move-natives-latest",
  "sui-move-natives-v0",
  "sui-move-natives-v1",
- "sui-protocol-config",
- "sui-types",
- "sui-verifier-latest",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-verifier-latest 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-verifier-v0",
  "sui-verifier-v1",
 ]
@@ -7759,13 +8298,30 @@ source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a548
 dependencies = [
  "anyhow",
  "bcs",
- "move-binary-format",
- "move-core-types",
- "move-package",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-package 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "once_cell",
  "serde",
- "sui-move-build",
- "sui-types",
+ "sui-move-build 1.20.0",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "tracing",
+]
+
+[[package]]
+name = "sui-framework"
+version = "0.1.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "anyhow",
+ "bcs",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-package 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "once_cell",
+ "serde",
+ "sui-move-build 1.20.1",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "tracing",
 ]
 
@@ -7779,9 +8335,9 @@ dependencies = [
  "git-version",
  "serde",
  "serde_json",
- "sui-framework",
- "sui-protocol-config",
- "sui-types",
+ "sui-framework 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
 ]
 
 [[package]]
@@ -7793,21 +8349,21 @@ dependencies = [
  "bcs",
  "camino",
  "fastcrypto 0.1.7 (git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b860d9dd152abb7f2156275698ee91126)",
- "move-binary-format",
- "move-core-types",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "prometheus",
  "rand 0.8.5",
  "serde",
  "serde_with",
  "serde_yaml 0.8.26",
- "shared-crypto",
- "sui-config",
+ "shared-crypto 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-config 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-execution",
- "sui-framework",
+ "sui-framework 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-framework-snapshot",
- "sui-protocol-config",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-simulator",
- "sui-types",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "tempfile",
  "tracing",
 ]
@@ -7820,14 +8376,32 @@ dependencies = [
  "anyhow",
  "bcs",
  "fastcrypto 0.1.7 (git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b860d9dd152abb7f2156275698ee91126)",
- "move-binary-format",
- "move-bytecode-utils",
- "move-core-types",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-bytecode-utils 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "schemars",
  "serde",
  "serde_json",
- "sui-framework",
- "sui-types",
+ "sui-framework 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+]
+
+[[package]]
+name = "sui-json"
+version = "0.0.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "anyhow",
+ "bcs",
+ "fastcrypto 0.1.7 (git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b860d9dd152abb7f2156275698ee91126)",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-bytecode-utils 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "schemars",
+ "serde",
+ "serde_json",
+ "sui-framework 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
 ]
 
 [[package]]
@@ -7848,34 +8422,34 @@ dependencies = [
  "indexmap 2.2.5",
  "itertools 0.10.5",
  "jsonrpsee",
- "move-binary-format",
- "move-bytecode-utils",
- "move-core-types",
- "move-package",
- "mysten-metrics",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-bytecode-utils 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-package 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "mysten-metrics 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "once_cell",
  "prometheus",
  "serde",
  "serde_json",
- "shared-crypto",
+ "shared-crypto 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "signature 1.6.4",
  "sui-core",
- "sui-json",
- "sui-json-rpc-api",
- "sui-json-rpc-types",
- "sui-open-rpc",
- "sui-open-rpc-macros",
- "sui-protocol-config",
+ "sui-json 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-json-rpc-api 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-json-rpc-types 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-open-rpc 1.20.0",
+ "sui-open-rpc-macros 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-storage",
- "sui-transaction-builder",
- "sui-types",
+ "sui-transaction-builder 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "tap",
  "thiserror",
  "tokio",
  "tower",
  "tower-http",
  "tracing",
- "typed-store-error",
+ "typed-store-error 0.4.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
 ]
 
 [[package]]
@@ -7886,14 +8460,34 @@ dependencies = [
  "anyhow",
  "fastcrypto 0.1.7 (git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b860d9dd152abb7f2156275698ee91126)",
  "jsonrpsee",
- "mysten-metrics",
+ "mysten-metrics 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "once_cell",
  "prometheus",
- "sui-json",
- "sui-json-rpc-types",
- "sui-open-rpc",
- "sui-open-rpc-macros",
- "sui-types",
+ "sui-json 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-json-rpc-types 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-open-rpc 1.20.0",
+ "sui-open-rpc-macros 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "tap",
+ "tracing",
+]
+
+[[package]]
+name = "sui-json-rpc-api"
+version = "0.0.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "anyhow",
+ "fastcrypto 0.1.7 (git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b860d9dd152abb7f2156275698ee91126)",
+ "jsonrpsee",
+ "mysten-metrics 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "once_cell",
+ "prometheus",
+ "sui-json 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "sui-json-rpc-types 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "sui-open-rpc 1.20.1",
+ "sui-open-rpc-macros 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "tap",
  "tracing",
 ]
@@ -7910,19 +8504,48 @@ dependencies = [
  "fastcrypto 0.1.7 (git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b860d9dd152abb7f2156275698ee91126)",
  "itertools 0.10.5",
  "json_to_table",
- "move-binary-format",
- "move-bytecode-utils",
- "move-core-types",
- "mysten-metrics",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-bytecode-utils 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "mysten-metrics 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "schemars",
  "serde",
  "serde_json",
  "serde_with",
- "sui-enum-compat-util",
- "sui-json",
- "sui-macros",
- "sui-protocol-config",
- "sui-types",
+ "sui-enum-compat-util 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-json 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "tabled",
+ "tracing",
+]
+
+[[package]]
+name = "sui-json-rpc-types"
+version = "0.0.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "anyhow",
+ "bcs",
+ "colored",
+ "enum_dispatch",
+ "fastcrypto 0.1.7 (git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b860d9dd152abb7f2156275698ee91126)",
+ "itertools 0.10.5",
+ "json_to_table",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-bytecode-utils 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "mysten-metrics 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "schemars",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "sui-enum-compat-util 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "sui-json 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "sui-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "tabled",
  "tracing",
 ]
@@ -7939,10 +8562,29 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
- "shared-crypto",
+ "shared-crypto 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "signature 1.6.4",
  "slip10_ed25519",
- "sui-types",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "tiny-bip39",
+]
+
+[[package]]
+name = "sui-keys"
+version = "0.0.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "anyhow",
+ "bip32",
+ "fastcrypto 0.1.7 (git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b860d9dd152abb7f2156275698ee91126)",
+ "rand 0.8.5",
+ "regex",
+ "serde",
+ "serde_json",
+ "shared-crypto 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "signature 1.6.4",
+ "slip10_ed25519",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "tiny-bip39",
 ]
 
@@ -7953,7 +8595,18 @@ source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a548
 dependencies = [
  "futures",
  "once_cell",
- "sui-proc-macros",
+ "sui-proc-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "tracing",
+]
+
+[[package]]
+name = "sui-macros"
+version = "0.7.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "futures",
+ "once_cell",
+ "sui-proc-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "tracing",
 ]
 
@@ -7964,19 +8617,42 @@ source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a548
 dependencies = [
  "anyhow",
  "fastcrypto 0.1.7 (git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b860d9dd152abb7f2156275698ee91126)",
- "move-binary-format",
- "move-bytecode-utils",
- "move-bytecode-verifier",
- "move-command-line-common",
- "move-compiler",
- "move-core-types",
- "move-ir-types",
- "move-package",
- "move-symbol-pool",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-bytecode-utils 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-bytecode-verifier 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-command-line-common 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-compiler 0.0.1 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-ir-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-package 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-symbol-pool 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "serde-reflection",
- "sui-protocol-config",
- "sui-types",
- "sui-verifier-latest",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-verifier-latest 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "tempfile",
+]
+
+[[package]]
+name = "sui-move-build"
+version = "1.20.1"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "anyhow",
+ "fastcrypto 0.1.7 (git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b860d9dd152abb7f2156275698ee91126)",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-bytecode-utils 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-bytecode-verifier 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-command-line-common 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-compiler 0.0.1 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-ir-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-package 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-symbol-pool 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "serde-reflection",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "sui-verifier-latest 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "tempfile",
 ]
 
@@ -7990,14 +8666,14 @@ dependencies = [
  "fastcrypto 0.1.7 (git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b860d9dd152abb7f2156275698ee91126)",
  "fastcrypto-zkp",
  "indexmap 2.2.5",
- "move-binary-format",
- "move-core-types",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "move-stdlib",
  "move-vm-runtime",
- "move-vm-types",
+ "move-vm-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "smallvec",
- "sui-protocol-config",
- "sui-types",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "tracing",
 ]
 
@@ -8011,14 +8687,14 @@ dependencies = [
  "fastcrypto 0.1.7 (git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b860d9dd152abb7f2156275698ee91126)",
  "fastcrypto-zkp",
  "linked-hash-map",
- "move-binary-format",
- "move-core-types",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "move-stdlib-v0",
  "move-vm-runtime-v0",
- "move-vm-types",
+ "move-vm-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "smallvec",
- "sui-protocol-config",
- "sui-types",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "tracing",
 ]
 
@@ -8032,14 +8708,14 @@ dependencies = [
  "fastcrypto 0.1.7 (git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b860d9dd152abb7f2156275698ee91126)",
  "fastcrypto-zkp",
  "linked-hash-map",
- "move-binary-format",
- "move-core-types",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "move-stdlib-v1",
  "move-vm-runtime-v1",
- "move-vm-types",
+ "move-vm-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "smallvec",
- "sui-protocol-config",
- "sui-types",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "tracing",
 ]
 
@@ -8055,16 +8731,16 @@ dependencies = [
  "dashmap",
  "futures",
  "governor",
- "mysten-metrics",
- "mysten-network",
+ "mysten-metrics 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "mysten-network 0.2.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "prometheus",
  "rand 0.8.5",
  "serde",
  "sui-archival",
- "sui-config",
+ "sui-config 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-storage",
  "sui-swarm-config",
- "sui-types",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "tap",
  "tokio",
  "tonic 0.10.2",
@@ -8090,10 +8766,10 @@ dependencies = [
  "futures",
  "git-version",
  "humantime",
- "move-vm-profiler",
+ "move-vm-profiler 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "mysten-common",
- "mysten-metrics",
- "mysten-network",
+ "mysten-metrics 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "mysten-network 0.2.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "narwhal-network",
  "narwhal-worker",
  "prometheus",
@@ -8101,20 +8777,20 @@ dependencies = [
  "serde",
  "snap",
  "sui-archival",
- "sui-config",
+ "sui-config 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-core",
  "sui-json-rpc",
- "sui-json-rpc-api",
- "sui-macros",
+ "sui-json-rpc-api 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-network",
- "sui-protocol-config",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-rest-api",
  "sui-simulator",
  "sui-snapshot",
  "sui-storage",
  "sui-telemetry",
  "sui-tls",
- "sui-types",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "tap",
  "telemetry-subscribers",
  "tokio",
@@ -8137,9 +8813,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "sui-open-rpc"
+version = "1.20.1"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "bcs",
+ "schemars",
+ "serde",
+ "serde_json",
+ "versions",
+]
+
+[[package]]
 name = "sui-open-rpc-macros"
 version = "0.1.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
+dependencies = [
+ "derive-syn-parse",
+ "itertools 0.10.5",
+ "proc-macro2 1.0.78",
+ "quote 1.0.35",
+ "syn 1.0.109",
+ "unescape",
+]
+
+[[package]]
+name = "sui-open-rpc-macros"
+version = "0.1.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
 dependencies = [
  "derive-syn-parse",
  "itertools 0.10.5",
@@ -8157,7 +8858,19 @@ dependencies = [
  "msim-macros",
  "proc-macro2 1.0.78",
  "quote 1.0.35",
- "sui-enum-compat-util",
+ "sui-enum-compat-util 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "syn 2.0.52",
+]
+
+[[package]]
+name = "sui-proc-macros"
+version = "0.7.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "msim-macros",
+ "proc-macro2 1.0.78",
+ "quote 1.0.35",
+ "sui-enum-compat-util 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "syn 2.0.52",
 ]
 
@@ -8171,7 +8884,21 @@ dependencies = [
  "schemars",
  "serde",
  "serde_with",
- "sui-protocol-config-macros",
+ "sui-protocol-config-macros 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "tracing",
+]
+
+[[package]]
+name = "sui-protocol-config"
+version = "0.1.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "clap",
+ "insta",
+ "schemars",
+ "serde",
+ "serde_with",
+ "sui-protocol-config-macros 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "tracing",
 ]
 
@@ -8179,6 +8906,16 @@ dependencies = [
 name = "sui-protocol-config-macros"
 version = "0.1.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
+dependencies = [
+ "proc-macro2 1.0.78",
+ "quote 1.0.35",
+ "syn 1.0.109",
+]
+
+[[package]]
+name = "sui-protocol-config-macros"
+version = "0.1.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
 dependencies = [
  "proc-macro2 1.0.78",
  "quote 1.0.35",
@@ -8200,7 +8937,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
- "sui-types",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "tap",
  "thiserror",
 ]
@@ -8219,19 +8956,51 @@ dependencies = [
  "futures",
  "futures-core",
  "jsonrpsee",
- "move-core-types",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "reqwest",
  "serde",
  "serde_json",
  "serde_with",
- "shared-crypto",
- "sui-config",
- "sui-json",
- "sui-json-rpc-api",
- "sui-json-rpc-types",
- "sui-keys",
- "sui-transaction-builder",
- "sui-types",
+ "shared-crypto 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-config 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-json 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-json-rpc-api 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-json-rpc-types 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-keys 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-transaction-builder 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "sui-sdk"
+version = "1.20.1"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bcs",
+ "clap",
+ "colored",
+ "fastcrypto 0.1.7 (git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b860d9dd152abb7f2156275698ee91126)",
+ "futures",
+ "futures-core",
+ "jsonrpsee",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "shared-crypto 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "sui-config 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "sui-json 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "sui-json-rpc-api 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "sui-json-rpc-types 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "sui-keys 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "sui-transaction-builder 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
  "thiserror",
  "tokio",
  "tracing",
@@ -8247,14 +9016,14 @@ dependencies = [
  "bcs",
  "fastcrypto 0.1.7 (git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b860d9dd152abb7f2156275698ee91126)",
  "lru",
- "move-package",
+ "move-package 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "msim",
  "narwhal-network",
  "rand 0.8.5",
  "serde",
- "sui-framework",
- "sui-move-build",
- "sui-types",
+ "sui-framework 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-move-build 1.20.0",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "telemetry-subscribers",
  "tempfile",
  "tower",
@@ -8279,11 +9048,11 @@ dependencies = [
  "prometheus",
  "serde",
  "serde_json",
- "sui-config",
+ "sui-config 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-core",
- "sui-protocol-config",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-storage",
- "sui-types",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -8312,10 +9081,10 @@ dependencies = [
  "integer-encoding",
  "itertools 0.10.5",
  "lru",
- "move-binary-format",
- "move-bytecode-utils",
- "move-core-types",
- "mysten-metrics",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-bytecode-utils 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "mysten-metrics 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "num_enum",
  "object_store",
  "parking_lot 0.12.1",
@@ -8325,10 +9094,10 @@ dependencies = [
  "rocksdb",
  "serde",
  "serde_json",
- "sui-config",
- "sui-json-rpc-types",
- "sui-protocol-config",
- "sui-types",
+ "sui-config 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-json-rpc-types 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "tap",
  "telemetry-subscribers",
  "tempfile",
@@ -8347,17 +9116,17 @@ source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a548
 dependencies = [
  "anyhow",
  "futures",
- "mysten-metrics",
- "mysten-network",
+ "mysten-metrics 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "mysten-network 0.2.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "prometheus",
  "rand 0.8.5",
- "sui-config",
- "sui-macros",
+ "sui-config 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-node",
- "sui-protocol-config",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-simulator",
  "sui-swarm-config",
- "sui-types",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "tap",
  "telemetry-subscribers",
  "tempfile",
@@ -8374,20 +9143,20 @@ dependencies = [
  "anemo",
  "anyhow",
  "fastcrypto 0.1.7 (git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b860d9dd152abb7f2156275698ee91126)",
- "move-bytecode-utils",
- "narwhal-config",
+ "move-bytecode-utils 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "narwhal-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "prometheus",
  "rand 0.8.5",
  "serde",
  "serde_with",
  "serde_yaml 0.8.26",
- "shared-crypto",
- "sui-config",
+ "shared-crypto 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-config 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-genesis-builder",
- "sui-macros",
- "sui-protocol-config",
+ "sui-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-simulator",
- "sui-types",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "tempfile",
  "tracing",
 ]
@@ -8409,12 +9178,12 @@ version = "0.1.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
 dependencies = [
  "bcs",
- "move-core-types",
- "shared-crypto",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "shared-crypto 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-genesis-builder",
- "sui-move-build",
- "sui-sdk",
- "sui-types",
+ "sui-move-build 1.20.0",
+ "sui-sdk 1.20.0",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
 ]
 
 [[package]]
@@ -8447,12 +9216,29 @@ dependencies = [
  "async-trait",
  "bcs",
  "futures",
- "move-binary-format",
- "move-core-types",
- "sui-json",
- "sui-json-rpc-types",
- "sui-protocol-config",
- "sui-types",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-json 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-json-rpc-types 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+]
+
+[[package]]
+name = "sui-transaction-builder"
+version = "0.0.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bcs",
+ "futures",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "sui-json 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "sui-json-rpc-types 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
 ]
 
 [[package]]
@@ -8462,11 +9248,11 @@ source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a548
 dependencies = [
  "fastcrypto-zkp",
  "once_cell",
- "sui-config",
+ "sui-config 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-execution",
- "sui-macros",
- "sui-protocol-config",
- "sui-types",
+ "sui-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "tracing",
 ]
 
@@ -8480,7 +9266,7 @@ dependencies = [
  "bcs",
  "bincode",
  "byteorder",
- "consensus-config",
+ "consensus-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "derivative",
  "derive_more",
  "enum_dispatch",
@@ -8491,19 +9277,19 @@ dependencies = [
  "im",
  "indexmap 2.2.5",
  "itertools 0.10.5",
- "move-binary-format",
- "move-bytecode-utils",
- "move-command-line-common",
- "move-core-types",
- "move-disassembler",
- "move-ir-types",
- "move-vm-profiler",
- "move-vm-test-utils",
- "move-vm-types",
- "mysten-metrics",
- "mysten-network",
- "narwhal-config",
- "narwhal-crypto",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-bytecode-utils 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-command-line-common 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-disassembler 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-ir-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-vm-profiler 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-vm-test-utils 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-vm-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "mysten-metrics 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "mysten-network 0.2.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "narwhal-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "narwhal-crypto 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "nonempty",
  "once_cell",
  "prometheus",
@@ -8516,19 +9302,82 @@ dependencies = [
  "serde-name",
  "serde_json",
  "serde_with",
- "shared-crypto",
+ "shared-crypto 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "signature 1.6.4",
  "static_assertions",
  "strum",
  "strum_macros",
- "sui-enum-compat-util",
- "sui-macros",
- "sui-protocol-config",
+ "sui-enum-compat-util 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "tap",
  "thiserror",
  "tonic 0.10.2",
  "tracing",
- "typed-store-error",
+ "typed-store-error 0.4.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+]
+
+[[package]]
+name = "sui-types"
+version = "0.1.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "anemo",
+ "anyhow",
+ "bcs",
+ "bincode",
+ "byteorder",
+ "consensus-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "derivative",
+ "derive_more",
+ "enum_dispatch",
+ "eyre",
+ "fastcrypto 0.1.7 (git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b860d9dd152abb7f2156275698ee91126)",
+ "fastcrypto-tbls",
+ "fastcrypto-zkp",
+ "im",
+ "indexmap 2.2.5",
+ "itertools 0.10.5",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-bytecode-utils 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-command-line-common 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-disassembler 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-ir-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-vm-profiler 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-vm-test-utils 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-vm-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "mysten-metrics 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "mysten-network 0.2.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "narwhal-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "narwhal-crypto 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "nonempty",
+ "num-bigint 0.4.4",
+ "num-traits",
+ "once_cell",
+ "prometheus",
+ "proptest",
+ "proptest-derive",
+ "rand 0.8.5",
+ "roaring",
+ "schemars",
+ "serde",
+ "serde-name",
+ "serde_json",
+ "serde_with",
+ "shared-crypto 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "signature 1.6.4",
+ "static_assertions",
+ "strum",
+ "strum_macros",
+ "sui-enum-compat-util 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "sui-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "tap",
+ "thiserror",
+ "tonic 0.10.2",
+ "tracing",
+ "typed-store-error 0.4.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
 ]
 
 [[package]]
@@ -8536,14 +9385,29 @@ name = "sui-verifier-latest"
 version = "0.1.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
 dependencies = [
- "move-abstract-stack",
- "move-binary-format",
- "move-bytecode-utils",
- "move-bytecode-verifier",
- "move-core-types",
- "move-vm-config",
- "sui-protocol-config",
- "sui-types",
+ "move-abstract-stack 0.0.1 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-bytecode-utils 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-bytecode-verifier 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-vm-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+]
+
+[[package]]
+name = "sui-verifier-latest"
+version = "0.1.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
+dependencies = [
+ "move-abstract-stack 0.0.1 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-bytecode-utils 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-bytecode-verifier 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "move-vm-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1)",
 ]
 
 [[package]]
@@ -8551,14 +9415,14 @@ name = "sui-verifier-v0"
 version = "0.1.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
 dependencies = [
- "move-abstract-stack",
- "move-binary-format",
- "move-bytecode-utils",
+ "move-abstract-stack 0.0.1 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-bytecode-utils 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "move-bytecode-verifier-v0",
- "move-core-types",
- "move-vm-config",
- "sui-protocol-config",
- "sui-types",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-vm-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
 ]
 
 [[package]]
@@ -8566,13 +9430,13 @@ name = "sui-verifier-v1"
 version = "0.1.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
 dependencies = [
- "move-abstract-stack",
- "move-binary-format",
- "move-bytecode-utils",
+ "move-abstract-stack 0.0.1 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-bytecode-utils 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "move-bytecode-verifier-v1",
- "move-core-types",
- "move-vm-config",
- "sui-types",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "move-vm-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
 ]
 
 [[package]]
@@ -8755,23 +9619,23 @@ dependencies = [
  "fastcrypto-zkp",
  "futures",
  "jsonrpsee",
- "move-binary-format",
+ "move-binary-format 0.0.3 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "prometheus",
  "rand 0.8.5",
- "sui-config",
+ "sui-config 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-core",
- "sui-framework",
+ "sui-framework 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-json-rpc",
- "sui-json-rpc-types",
- "sui-keys",
+ "sui-json-rpc-types 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-keys 0.0.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "sui-node",
- "sui-protocol-config",
- "sui-sdk",
+ "sui-protocol-config 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
+ "sui-sdk 1.20.0",
  "sui-simulator",
  "sui-swarm",
  "sui-swarm-config",
  "sui-test-transaction-builder",
- "sui-types",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "tokio",
  "tracing",
 ]
@@ -9391,12 +10255,12 @@ dependencies = [
  "rand 0.8.5",
  "rocksdb",
  "serde",
- "sui-macros",
+ "sui-macros 0.7.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "tap",
  "thiserror",
  "tokio",
  "tracing",
- "typed-store-error",
+ "typed-store-error 0.4.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
 ]
 
 [[package]]
@@ -9414,6 +10278,15 @@ dependencies = [
 name = "typed-store-error"
 version = "0.4.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
+dependencies = [
+ "serde",
+ "thiserror",
+]
+
+[[package]]
+name = "typed-store-error"
+version = "0.4.0"
+source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.1#d951895b90014b58cfd7734e3a5a25d7a37ee9b7"
 dependencies = [
  "serde",
  "thiserror",
@@ -9663,8 +10536,8 @@ name = "walrus-e2e-tests"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "sui-move-build",
- "sui-sdk",
+ "sui-move-build 1.20.0",
+ "sui-sdk 1.20.1",
  "test-cluster",
  "tokio",
 ]
@@ -9675,10 +10548,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "futures",
- "move-core-types",
+ "move-core-types 0.0.4 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "serde_json",
- "sui-sdk",
- "sui-types",
+ "sui-sdk 1.20.1",
+ "sui-types 0.1.0 (git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0)",
  "test-cluster",
  "tokio",
  "tracing",

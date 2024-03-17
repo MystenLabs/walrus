@@ -24,7 +24,7 @@ walrus-sui = { path = "crates/walrus-sui" }
 walrus-service = { path = "crates/walrus-service" }
 walrus-test-utils = { path = "crates/walrus-test-utils" }
 typed-store = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.20.0" }
-sui-sdk = { git = "https://github.com/MystenLabs/sui", package = "sui-sdk", tag = "testnet-v1.20.0" }
+sui-sdk = { git = "https://github.com/MystenLabs/sui", package = "sui-sdk", tag = "testnet-v1.20.1" }
 test-cluster = { git = "https://github.com/MystenLabs/sui", package = "test-cluster", tag = "testnet-v1.20.0" }
 sui_types = { git = "https://github.com/MystenLabs/sui", package = "sui-types", tag = "testnet-v1.20.0" }
 move_core_types = { git = "https://github.com/MystenLabs/sui", package = "move-core-types", tag = "testnet-v1.20.0" }
