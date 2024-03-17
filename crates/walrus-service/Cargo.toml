@@ -7,17 +7,17 @@ edition = { workspace = true }
 license = { workspace = true }
 
 [dependencies]
-anyhow = "1.0.80"
+anyhow = "1.0.81"
 axum = { version = "0.7.4", features = ["http2"] }
 bcs = { workspace = true }
-clap = { version = "4.5.2", features = ["derive"] }
+clap = { version = "4.5.3", features = ["derive"] }
 fastcrypto = { workspace = true }
 prometheus = "0.13.3"
 rocksdb = "0.21"
 serde = { workspace = true }
 thiserror = { workspace = true }
 tokio = { version = "1.36.0", features = ["rt-multi-thread", "macros"] }
-tokio-stream = "0.1.14"
+tokio-stream = "0.1.15"
 tracing = "0.1.40"
 typed-store = { workspace = true }
 walrus-core = { workspace = true }
@@ -31,6 +31,6 @@ path = "bin/client.rs"
 
 [dev-dependencies]
 rand = { workspace = true }
-reqwest = { version = "0.11.25", features = ["json"] }
+reqwest = { version = "0.11.26", features = ["json"] }
 tempfile = { workspace = true }
 walrus-test-utils = { workspace = true }

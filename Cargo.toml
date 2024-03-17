@@ -18,7 +18,7 @@ license = "Apache-2.0"
 bcs = "0.1.6"
 fastcrypto = "0.1"
 tempfile = "3.10.1"
-thiserror = "1.0.57"
+thiserror = "1.0.58"
 walrus-core = { path = "crates/walrus-core" }
 walrus-sui = { path = "crates/walrus-sui" }
 walrus-service = { path = "crates/walrus-service" }
