@@ -55,6 +55,20 @@ or aren't covered by tests. Other valid output formats are `json`, `stdout`, `xm
 
 The exact command we use in our CI pipeline is visible in [.github/workflows/code.yml](.github/workflows/code.yml).
 
+## Benchmarks
+
+We run micro-benchmarks for encoding, decoding, and authentication using
+[Criterion.rs](https://bheisler.github.io/criterion.rs/book/criterion_rs.html). These benchmarks are not run
+automatically in our pipeline as there is an [explicit advice against doing
+this](https://bheisler.github.io/criterion.rs/book/faq.html#how-should-i-run-criterionrs-benchmarks-in-a-ci-pipeline).
+
+You can run the benchmarks by calling `cargo bench` from the project's root directory. Criterion will output some data
+to the command line and also generate HTML reports including plots; the root file is located at
+[`target/criterion/report/index.html].
+
+Criterion automatically compares the results from multiple runs. To check if your code changes improve or worsen the
+performance, run the benchmarks first on the latest `main` branch and then again with your code changes.
+
 ## Signed commits
 
 We appreciate it if you configure Git to [sign your

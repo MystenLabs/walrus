@@ -173,10 +173,10 @@ macro_rules! assert_unordered_eq {
     };
 }
 
-/// Gets a random subset of `count` elements of `data` in an arbitrary order.
+/// Gets a random subset of `count` elements of `data` in an arbitrary order using the provided RNG.
 ///
 /// If the `data` has fewer elements than `count` the original number of elements is returned.
-pub fn random_subset<T: Clone>(
+pub fn random_subset_from_rng<T: Clone>(
     data: impl IntoIterator<Item = T>,
     mut rng: &mut impl RngCore,
     count: usize,
@@ -184,6 +184,17 @@ pub fn random_subset<T: Clone>(
     let mut data: Vec<_> = data.into_iter().collect();
     data.shuffle(&mut rng);
     data.into_iter().take(count)
+}
+
+/// Gets a random subset of `count` elements of `data` in an arbitrary order using a newly generated
+/// RNG with fixed seed.
+///
+/// If the `data` has fewer elements than `count` the original number of elements is returned.
+pub fn random_subset<T: Clone>(
+    data: impl IntoIterator<Item = T>,
+    count: usize,
+) -> impl Iterator<Item = T> + Clone {
+    random_subset_from_rng(data, &mut StdRng::seed_from_u64(42), count)
 }
 
 /// Creates a byte vector of length `data_length` filled with random data using the provided RNG.

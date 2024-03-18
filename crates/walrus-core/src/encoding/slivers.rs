@@ -356,7 +356,6 @@ impl SliverPair {
 #[cfg(test)]
 mod tests {
     use fastcrypto::hash::Blake2b256;
-    use rand::{rngs::StdRng, SeedableRng};
     use walrus_test_utils::{param_test, random_subset, Result};
 
     use super::*;
@@ -494,7 +493,6 @@ mod tests {
             blob,
         );
         let n_to_recover_from = source_symbols_primary.max(source_symbols_secondary) as usize;
-        let mut rng = StdRng::seed_from_u64(42);
 
         for pair in pairs.iter() {
             // Get a random subset of recovery symbols.
@@ -502,7 +500,6 @@ mod tests {
                 pairs
                     .iter()
                     .map(|p| p.recovery_symbol_pair_for_sliver(pair.index()).unwrap()),
-                &mut rng,
                 n_to_recover_from,
             )
             .collect();

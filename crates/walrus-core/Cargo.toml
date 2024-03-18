@@ -18,7 +18,12 @@ thiserror = { workspace = true }
 workspace = true
 
 [dev-dependencies]
+criterion = "0.5.1"
 walrus-test-utils = { workspace = true }
 
 [features]
 test-utils = ["rand"]
+
+[[bench]]
+name = "basic_encoding"
+harness = false

@@ -460,7 +460,6 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
 #[cfg(test)]
 mod tests {
 
-    use rand::{rngs::StdRng, SeedableRng};
     use walrus_test_utils::{param_test, random_data, random_subset};
 
     use super::*;
@@ -546,7 +545,6 @@ mod tests {
 
         let slivers_for_decoding = random_subset(
             config.get_blob_encoder(&blob).unwrap().encode(),
-            &mut StdRng::seed_from_u64(42),
             cmp::max(source_symbols_primary, source_symbols_secondary) as usize,
         );
 
@@ -645,13 +643,9 @@ mod tests {
             .get_blob_encoder(&blob)
             .unwrap()
             .encode_with_metadata();
-        let slivers_for_decoding = random_subset(
-            slivers,
-            &mut StdRng::seed_from_u64(23),
-            source_symbols_primary as usize,
-        )
-        .map(|s| s.primary)
-        .collect::<Vec<_>>();
+        let slivers_for_decoding = random_subset(slivers, source_symbols_primary as usize)
+            .map(|s| s.primary)
+            .collect::<Vec<_>>();
         let (blob_dec, metadata_dec) = get_encoding_config()
             .get_blob_decoder(blob.len())
             .unwrap()
