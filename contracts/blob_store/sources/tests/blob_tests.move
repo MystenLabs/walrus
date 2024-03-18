@@ -14,6 +14,7 @@ module blob_store::blob_tests {
     use blob_store::system;
     use blob_store::storage_accounting as sa;
     use blob_store::blob;
+    use blob_store::storage_node;
 
     use blob_store::storage_resource::{
         split_by_epoch,
@@ -156,7 +157,7 @@ module blob_store::blob_tests {
         let public_key = vector[149, 234, 204, 58, 220, 9, 200, 39, 89, 63, 88, 30, 142, 45,
             224, 104, 191, 76, 245, 208, 192, 235, 41, 229, 55, 47, 13, 35, 54, 71, 136, 238, 15,
             155, 235, 17, 44, 138, 126, 156, 47, 12, 114, 4, 51, 112, 92, 240];
-        let storage_node = committee::create_storage_node_info(
+        let storage_node = storage_node::create_storage_node_info(
             string::utf8(b"node"),
             string::utf8(b"127.0.0.1"),
             public_key,

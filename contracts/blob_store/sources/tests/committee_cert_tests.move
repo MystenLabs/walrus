@@ -7,10 +7,11 @@
 #[test_only]
 module blob_store::committee_cert_tests {
 
-    use sui::bls12381::{bls12381_min_pk_verify, g1_from_bytes};
+    use sui::bls12381::{bls12381_min_pk_verify};
 
     use blob_store::bls_aggregate::new_bls_committee;
     use blob_store::committee::{Self, Committee, committee_for_testing_with_bls , verify_quorum_in_epoch};
+    use blob_store::storage_node;
 
     struct TESTTYPE has drop {}
 
@@ -29,9 +30,8 @@ module blob_store::committee_cert_tests {
         // Make a new committee
         let bls_committee = new_bls_committee(
             vector[
-                g1_from_bytes(&pub_key_bytes),
-            ],
-            vector[10]
+                storage_node::new_for_testing(pub_key_bytes, 10)
+            ]
         );
 
         // actual committee
@@ -59,9 +59,8 @@ module blob_store::committee_cert_tests {
         // Make a new committee
         let bls_committee = new_bls_committee(
             vector[
-                g1_from_bytes(&pub_key_bytes),
-            ],
-            vector[10]
+                storage_node::new_for_testing(pub_key_bytes, 10),
+            ]
         );
 
         // actual committee

@@ -6,6 +6,7 @@ module blob_store::e2e_test  {
     use sui::tx_context::TxContext;
     use blob_store::committee;
     use blob_store::system;
+    use blob_store::storage_node;
     use std::string;
     use sui::sui::SUI;
 
@@ -22,7 +23,7 @@ module blob_store::e2e_test  {
             155, 235, 17, 44, 138, 126, 156, 47, 12, 114, 4, 51, 112, 92, 240];
 
         // The one storage node
-        let storage_node = committee::create_storage_node_info(
+        let storage_node = storage_node::create_storage_node_info(
             string::utf8(b"Test0"),
             string::utf8(b"Address0"),
             pub_key_bytes,
