@@ -20,7 +20,7 @@ fastcrypto = "0.1"
 rand = "0.8.5"
 serde = { version = "1.0.197", features = ["derive"] }
 tempfile = "3.10.1"
-thiserror = "1.0.57"
+thiserror = "1.0.58"
 walrus-core = { path = "crates/walrus-core" }
 walrus-sui = { path = "crates/walrus-sui" }
 walrus-service = { path = "crates/walrus-service" }
