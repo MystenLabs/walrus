@@ -168,6 +168,7 @@ pub(crate) mod tests {
     use walrus_core::{
         encoding::{EncodingAxis, Primary, Secondary, Sliver as TypedSliver},
         metadata::SliverPairMetadata,
+        test_utils,
         EncodingType,
         Sliver,
         SliverType,
@@ -212,23 +213,6 @@ pub(crate) mod tests {
         }
     }
 
-    /// Returns an arbitrary metadata object.
-    pub(crate) fn arbitrary_metadata() -> UnverifiedBlobMetadataWithId {
-        UnverifiedBlobMetadataWithId::new(
-            BLOB_ID,
-            BlobMetadata {
-                encoding_type: EncodingType::RedStuff,
-                unencoded_length: 700,
-                hashes: (0..100u8)
-                    .map(|i| SliverPairMetadata {
-                        primary_hash: MerkleNode::Digest([i; 32]),
-                        secondary_hash: MerkleNode::Digest([i; 32]),
-                    })
-                    .collect(),
-            },
-        )
-    }
-
     pub(crate) fn get_typed_sliver<E: EncodingAxis>(seed: u8) -> TypedSliver<E> {
         TypedSliver::new(vec![seed; seed as usize * 512], 16, 0)
     }
@@ -267,14 +251,15 @@ pub(crate) mod tests {
     async fn can_write_then_read_metadata() -> TestResult {
         let storage = empty_storage();
         let storage = storage.as_ref();
-        let metadata = arbitrary_metadata();
+        let metadata = test_utils::verified_blob_metadata();
+        let blob_id = metadata.blob_id();
         let expected = VerifiedBlobMetadataWithId::new_verified_unchecked(
-            *metadata.blob_id(),
+            *blob_id,
             metadata.metadata().clone(),
         );
 
-        storage.put_metadata(&BLOB_ID, metadata.metadata())?;
-        let retrieved = storage.get_metadata(&BLOB_ID)?;
+        storage.put_metadata(metadata.blob_id(), metadata.metadata())?;
+        let retrieved = storage.get_metadata(blob_id)?;
 
         assert_eq!(retrieved, Some(expected));
 

@@ -129,17 +129,10 @@ fn bytes_mod(bytes: &[u8], modulus: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use walrus_core::encoding::Sliver;
+    use walrus_core::{encoding::Sliver, test_utils};
     use walrus_test_utils::param_test;
 
     use super::*;
-
-    // Get a blob ID of given number for testing.
-    fn blob_id_for_testing(num: u64) -> BlobId {
-        let mut blob_id = [0u8; 32];
-        blob_id[24..].copy_from_slice(&num.to_be_bytes());
-        BlobId(blob_id)
-    }
 
     // Fixture
     fn sliver_pairs(num: u32) -> Vec<SliverPair> {
@@ -154,7 +147,7 @@ mod tests {
     #[test]
     fn test_rotate_pairs() {
         let mut pairs = sliver_pairs(7);
-        let blob_id = blob_id_for_testing(17);
+        let blob_id = test_utils::blob_id_from_u64(17);
         rotate_pairs(&mut pairs, &blob_id).unwrap();
         // Check that all the pairs are is in the correct spot
         assert!(pairs
@@ -166,7 +159,7 @@ mod tests {
     #[test]
     fn test_rotate_pairs_unchecked() {
         let mut pairs = sliver_pairs(7);
-        let blob_id = blob_id_for_testing(17);
+        let blob_id = test_utils::blob_id_from_u64(17);
         rotate_pairs_unchecked(&mut pairs, &blob_id);
         // Check that all the pairs are is in the correct spot
         for (idx, pair) in pairs.iter().enumerate() {
@@ -176,8 +169,8 @@ mod tests {
             );
         }
         // Rotate again and check if the two rotations combined have been applied
-        let blob_id_2 = blob_id_for_testing(15);
-        let combined_blob_id = blob_id_for_testing(18); // 17 % 7 + 15 % 7 = 18 % 7
+        let blob_id_2 = test_utils::blob_id_from_u64(15);
+        let combined_blob_id = test_utils::blob_id_from_u64(18); // 17 % 7 + 15 % 7 = 18 % 7
         rotate_pairs_unchecked(&mut pairs, &blob_id_2);
         assert!(pairs
             .iter()
@@ -194,7 +187,7 @@ mod tests {
         let mut slivers_1 = sliver_pairs(7);
         assert!(is_rotation(&slivers_1));
         // Rotation
-        rotate_pairs(&mut slivers_1, &blob_id_for_testing(17)).unwrap();
+        rotate_pairs(&mut slivers_1, &test_utils::blob_id_from_u64(17)).unwrap();
         assert!(is_rotation(&slivers_1));
         // Incorrect shuffling
         slivers_1.swap(2, 5);
@@ -204,8 +197,8 @@ mod tests {
     #[test]
     fn test_wrong_rotation_pairs() {
         let mut pairs = sliver_pairs(7);
-        let blob_id_1 = blob_id_for_testing(17);
-        let blob_id_2 = blob_id_for_testing(18);
+        let blob_id_1 = test_utils::blob_id_from_u64(17);
+        let blob_id_2 = test_utils::blob_id_from_u64(18);
         rotate_pairs(&mut pairs, &blob_id_1).unwrap();
         assert!(
             rotate_pairs(&mut pairs, &blob_id_2)
@@ -216,7 +209,7 @@ mod tests {
     #[test]
     fn test_idempotent_rotation() {
         let mut pairs = sliver_pairs(7);
-        let blob_id = blob_id_for_testing(17);
+        let blob_id = test_utils::blob_id_from_u64(17);
         rotate_pairs(&mut pairs, &blob_id).unwrap();
         let cloned = pairs.clone();
         // Check that rotating again does not have an effect
@@ -230,7 +223,7 @@ mod tests {
         pair_idx: usize,
         shard_idx: usize,
     ) {
-        let blob_id = blob_id_for_testing(blob_id_value);
+        let blob_id = test_utils::blob_id_from_u64(blob_id_value);
         assert_eq!(
             shard_index_for_pair(pair_idx, total_shards, &blob_id),
             shard_idx
@@ -251,7 +244,7 @@ mod tests {
         shard_idx: usize,
         pair_idx: usize,
     ) {
-        let blob_id = blob_id_for_testing(blob_id_value);
+        let blob_id = test_utils::blob_id_from_u64(blob_id_value);
         assert_eq!(
             pair_index_for_shard(shard_idx, total_shards, &blob_id),
             pair_idx
@@ -284,7 +277,7 @@ mod tests {
     #[test]
     fn test_rotate_by_bytes() {
         let mut pairs = Vec::from_iter(0..5);
-        let blob_id = blob_id_for_testing(11);
+        let blob_id = test_utils::blob_id_from_u64(11);
         rotate_by_bytes(&mut pairs, blob_id.as_ref());
         assert_eq!(pairs, [4, 0, 1, 2, 3]);
     }

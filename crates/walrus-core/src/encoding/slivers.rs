@@ -357,10 +357,10 @@ impl SliverPair {
 mod tests {
     use fastcrypto::hash::Blake2b256;
     use rand::{rngs::StdRng, SeedableRng};
-    use walrus_test_utils::{param_test, Result};
+    use walrus_test_utils::{param_test, random_subset, Result};
 
     use super::*;
-    use crate::encoding::{initialize_encoding_config, utils};
+    use crate::encoding::initialize_encoding_config;
 
     fn init_config_and_encode_pairs(
         source_symbols_primary: u16,
@@ -498,7 +498,7 @@ mod tests {
 
         for pair in pairs.iter() {
             // Get a random subset of recovery symbols.
-            let recovery_symbols: Vec<_> = utils::get_random_subset(
+            let recovery_symbols: Vec<_> = random_subset(
                 pairs
                     .iter()
                     .map(|p| p.recovery_symbol_pair_for_sliver(pair.index()).unwrap()),

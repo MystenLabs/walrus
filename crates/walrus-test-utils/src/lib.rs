@@ -3,13 +3,8 @@
 
 //! Test utilities shared between various crates.
 
-use fastcrypto::{
-    bls12381::min_pk::BLS12381KeyPair,
-    traits::{KeyPair, Signer},
-};
-use rand::{rngs::StdRng, RngCore, SeedableRng};
+use rand::{rngs::StdRng, seq::SliceRandom, RngCore, SeedableRng};
 use tempfile::TempDir;
-use walrus_core::{encoding, messages::SignedStorageConfirmation, BlobId, Sliver};
 
 /// A result type useful in tests, that wraps any error implementation.
 pub type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -163,40 +158,6 @@ impl<T> AsMut<T> for WithTempDir<T> {
     }
 }
 
-/// A deterministic fixed keypair for testing. Various testing facilities can use this key and
-/// unit-test can re-generate it to verify the correctness of inputs and outputs.
-pub fn test_keypair() -> BLS12381KeyPair {
-    let mut rng = StdRng::seed_from_u64(0);
-    BLS12381KeyPair::generate(&mut rng)
-}
-
-/// Returns an arbitrary sliver for testing.
-pub fn test_sliver() -> Sliver {
-    Sliver::Primary(encoding::Sliver::new_empty(1, 1, 1))
-}
-
-/// An arbitrary storage confirmation for tests.
-pub fn test_signed_storage_confirmation() -> SignedStorageConfirmation {
-    let mut rng = StdRng::seed_from_u64(0);
-    let mut confirmation = vec![0; 32];
-    rng.fill_bytes(&mut confirmation);
-
-    let signer = test_keypair();
-    let signature = signer.sign(&confirmation);
-    SignedStorageConfirmation {
-        confirmation,
-        signature,
-    }
-}
-
-/// An arbitrary blob ID for testing.
-pub fn test_blob_id() -> BlobId {
-    let mut rng = StdRng::seed_from_u64(0);
-    let mut bytes = [0; BlobId::LENGTH];
-    rng.fill_bytes(&mut bytes);
-    BlobId(bytes)
-}
-
 /// Asserts that two sequences that implement [`std::iter::IntoIterator`], and whose items
 /// implement [`Ord`] are equal, irrespective of ordering.
 #[macro_export]
@@ -210,6 +171,32 @@ macro_rules! assert_unordered_eq {
 
         assert_eq!(lhs, rhs);
     };
+}
+
+/// Gets a random subset of `count` elements of `data` in an arbitrary order.
+///
+/// If the `data` has fewer elements than `count` the original number of elements is returned.
+pub fn random_subset<T: Clone>(
+    data: impl IntoIterator<Item = T>,
+    mut rng: &mut impl RngCore,
+    count: usize,
+) -> impl Iterator<Item = T> + Clone {
+    let mut data: Vec<_> = data.into_iter().collect();
+    data.shuffle(&mut rng);
+    data.into_iter().take(count)
+}
+
+/// Creates a byte vector of length `data_length` filled with random data using the provided RNG.
+pub fn random_data_from_rng(data_length: usize, rng: &mut impl RngCore) -> Vec<u8> {
+    let mut result = vec![0u8; data_length];
+    rng.fill_bytes(&mut result);
+    result
+}
+
+/// Creates a byte vector of length `data_length` filled with random data using a newly generated
+/// RNG with fixed seed.
+pub fn random_data(data_length: usize) -> Vec<u8> {
+    random_data_from_rng(data_length, &mut StdRng::seed_from_u64(42))
 }
 
 #[cfg(test)]

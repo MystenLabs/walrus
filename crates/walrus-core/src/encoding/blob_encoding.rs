@@ -377,7 +377,7 @@ impl<T: EncodingAxis> BlobDecoder<T> {
 mod tests {
 
     use rand::{rngs::StdRng, SeedableRng};
-    use walrus_test_utils::param_test;
+    use walrus_test_utils::{param_test, random_data, random_subset};
 
     use super::*;
     use crate::{
@@ -450,7 +450,7 @@ mod tests {
 
     #[test]
     fn test_blob_encode_decode() {
-        let blob = utils::large_random_data(31415);
+        let blob = random_data(31415);
         let source_symbols_primary = 11;
         let source_symbols_secondary = 23;
 
@@ -460,7 +460,7 @@ mod tests {
             3 * (source_symbols_primary + source_symbols_secondary) as u32,
         );
 
-        let slivers_for_decoding = utils::get_random_subset(
+        let slivers_for_decoding = random_subset(
             config.get_blob_encoder(&blob).unwrap().encode(),
             &mut StdRng::seed_from_u64(42),
             cmp::max(source_symbols_primary, source_symbols_secondary) as usize,
@@ -501,7 +501,7 @@ mod tests {
         //    the metadata that can be computed from the sliver pairs directly.
         //
         // Takes long (O(1s)) to run.
-        let blob = utils::large_random_data(27182);
+        let blob = random_data(27182);
         let source_symbols_primary = 11;
         let source_symbols_secondary = 23;
         let n_shards = 3 * (source_symbols_primary + source_symbols_secondary) as u32;

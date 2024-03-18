@@ -9716,11 +9716,9 @@ dependencies = [
 name = "walrus-test-utils"
 version = "0.1.0"
 dependencies = [
- "fastcrypto 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.8.5",
  "tempfile",
  "tokio",
- "walrus-core",
 ]
 
 [[package]]

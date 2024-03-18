@@ -5,16 +5,24 @@
 use encoding::{PrimarySliver, SecondarySliver};
 use fastcrypto::hash::{Blake2b256, HashFunction};
 use merkle::{MerkleTree, Node};
-use metadata::SliverPairMetadata;
+use metadata::BlobMetadata;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub mod encoding;
+
 pub mod merkle;
+
 pub mod messages;
+pub use messages::SignedStorageConfirmation;
+
 pub mod metadata;
 
-pub use messages::SignedStorageConfirmation;
+/// Utility functions for tests.
+///
+/// These are available with the "test-utils" feature.
+#[cfg(feature = "test-utils")]
+pub mod test_utils;
 
 /// The epoch number.
 pub type Epoch = u64;
@@ -34,20 +42,21 @@ impl BlobId {
         Self::new_with_hash_function::<Blake2b256>(merkle_root, encoding, unencoded_length)
     }
 
-    /// Computes the Merkle root over the [`SliverPairMetadata`],
-    /// and then computes the blob ID.
-    pub fn from_sliver_pair_metadata(
-        sliver_pair_meta: &[SliverPairMetadata],
-        encoding: EncodingType,
-        unencoded_length: u64,
-    ) -> Self {
+    /// Computes the Merkle root over the [`SliverPairMetadata`][metadata::SliverPairMetadata],
+    /// contained in the `blob_metadata` and then computes the blob ID.
+    pub fn from_sliver_pair_metadata(blob_metadata: &BlobMetadata) -> Self {
         let merkle_root = MerkleTree::<Blake2b256>::build(
-            sliver_pair_meta
+            blob_metadata
+                .hashes
                 .iter()
                 .map(|h| h.pair_leaf_input::<Blake2b256>()),
         )
         .root();
-        Self::from_metadata(merkle_root, encoding, unencoded_length)
+        Self::from_metadata(
+            merkle_root,
+            blob_metadata.encoding_type,
+            blob_metadata.unencoded_length,
+        )
     }
 
     fn new_with_hash_function<T>(

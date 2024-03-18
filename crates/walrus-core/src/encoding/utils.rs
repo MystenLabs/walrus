@@ -1,8 +1,6 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-#[cfg(test)]
-use rand::RngCore;
 use raptorq::{EncodingPacket, ObjectTransmissionInformation};
 
 /// Creates a new [`ObjectTransmissionInformation`] for the given `symbol_size`.
@@ -41,29 +39,6 @@ pub fn compute_symbol_size(data_length: usize, n_symbols: usize) -> Option<u16> 
 #[inline]
 pub fn packet_to_data(packet: EncodingPacket) -> Vec<u8> {
     packet.split().1
-}
-
-#[cfg(test)]
-pub(crate) fn large_random_data(data_length: usize) -> Vec<u8> {
-    use rand::{rngs::StdRng, SeedableRng};
-
-    let mut rng = StdRng::seed_from_u64(42);
-    let mut result = vec![0u8; data_length];
-    rng.fill_bytes(&mut result);
-    result
-}
-
-#[cfg(test)]
-pub(crate) fn get_random_subset<T: Clone>(
-    data: impl IntoIterator<Item = T>,
-    mut rng: &mut impl RngCore,
-    count: usize,
-) -> impl Iterator<Item = T> + Clone {
-    use rand::seq::SliceRandom;
-
-    let mut data: Vec<_> = data.into_iter().collect();
-    data.shuffle(&mut rng);
-    data.into_iter().take(count)
 }
 
 #[cfg(test)]

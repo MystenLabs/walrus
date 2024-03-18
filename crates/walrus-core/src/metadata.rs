@@ -60,13 +60,14 @@ impl<const V: bool> BlobMetadataWithId<V> {
         encoding: EncodingType,
         unencoded_length: u64,
     ) -> VerifiedBlobMetadataWithId {
+        let blob_metadata = BlobMetadata {
+            encoding_type: encoding,
+            unencoded_length,
+            hashes: sliver_pair_meta,
+        };
         Self::new_verified_unchecked(
-            BlobId::from_sliver_pair_metadata(&sliver_pair_meta, encoding, unencoded_length),
-            BlobMetadata {
-                encoding_type: encoding,
-                unencoded_length,
-                hashes: sliver_pair_meta,
-            },
+            BlobId::from_sliver_pair_metadata(&blob_metadata),
+            blob_metadata,
         )
     }
 
@@ -106,11 +107,7 @@ impl UnverifiedBlobMetadataWithId {
             }
         );
 
-        let computed_blob_id = BlobId::from_sliver_pair_metadata(
-            &self.metadata.hashes,
-            EncodingType::RedStuff,
-            self.metadata().unencoded_length,
-        );
+        let computed_blob_id = BlobId::from_sliver_pair_metadata(&self.metadata);
         crate::ensure!(
             computed_blob_id == *self.blob_id(),
             VerificationError::BlobIdMismatch
@@ -120,29 +117,6 @@ impl UnverifiedBlobMetadataWithId {
             blob_id: self.blob_id,
             metadata: self.metadata,
         })
-    }
-
-    /// Returns an arbitrary metadata object.
-    // todo(@asonnino): Move this function to `walrus-test-utils`, #109
-    pub fn arbitrary_metadata_for_test() -> UnverifiedBlobMetadataWithId {
-        let unencoded_length = 7_000_000_000;
-        let hashes: Vec<_> = (0..100u8)
-            .map(|i| SliverPairMetadata {
-                primary_hash: MerkleNode::Digest([i; 32]),
-                secondary_hash: MerkleNode::Digest([i; 32]),
-            })
-            .collect();
-        let blob_id =
-            BlobId::from_sliver_pair_metadata(&hashes, EncodingType::RedStuff, unencoded_length);
-
-        UnverifiedBlobMetadataWithId::new(
-            blob_id,
-            BlobMetadata {
-                encoding_type: EncodingType::RedStuff,
-                unencoded_length,
-                hashes,
-            },
-        )
     }
 }
 
@@ -201,10 +175,11 @@ mod tests {
 
     mod verify {
         use super::*;
+        use crate::test_utils;
 
         #[test]
         fn fails_for_incorrect_blob_id() {
-            let valid_metadata = UnverifiedBlobMetadataWithId::arbitrary_metadata_for_test();
+            let valid_metadata = test_utils::unverified_blob_metadata();
             let n_shards = valid_metadata.metadata().hashes.len();
             assert_ne!(*valid_metadata.blob_id(), BLOB_ID);
 
@@ -222,7 +197,7 @@ mod tests {
 
         #[test]
         fn succeeds_for_correct_metadata() {
-            let metadata = UnverifiedBlobMetadataWithId::arbitrary_metadata_for_test();
+            let metadata = test_utils::unverified_blob_metadata();
             let actual = metadata.metadata().hashes.len();
 
             let _ = metadata
@@ -232,7 +207,7 @@ mod tests {
 
         #[test]
         fn verified_metadata_has_the_same_data_as_unverified() {
-            let unverified = UnverifiedBlobMetadataWithId::arbitrary_metadata_for_test();
+            let unverified = test_utils::unverified_blob_metadata();
             let actual = unverified.metadata().hashes.len();
 
             let verified = unverified
@@ -246,7 +221,7 @@ mod tests {
 
         #[test]
         fn fails_for_hash_count_mismatch() {
-            let metadata = UnverifiedBlobMetadataWithId::arbitrary_metadata_for_test();
+            let metadata = test_utils::unverified_blob_metadata();
             let actual = metadata.metadata().hashes.len();
             let expected = actual + 1;
 

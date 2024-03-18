@@ -68,22 +68,3 @@ pub struct StorageNodePrivateParameters {
     /// The private parameters shards that the storage node is responsible for.
     pub shards: HashMap<ShardIndex, ShardPrivateParameters>,
 }
-
-impl StorageNodePrivateParameters {
-    /// Creates a new storage node private parameters for testing.
-    #[cfg(test)]
-    pub fn new_for_test() -> Self {
-        let network_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let network_address = network_listener.local_addr().unwrap();
-
-        let metrics_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let metrics_address = metrics_listener.local_addr().unwrap();
-
-        Self {
-            keypair: KeyPair::new(),
-            network_address,
-            metrics_address,
-            shards: HashMap::new(),
-        }
-    }
-}

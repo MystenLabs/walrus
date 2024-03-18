@@ -146,7 +146,7 @@ fn slivers_column_family_name(id: ShardIndex) -> String {
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+mod tests {
     use std::fmt;
 
     use walrus_core::{Sliver, SliverType};
