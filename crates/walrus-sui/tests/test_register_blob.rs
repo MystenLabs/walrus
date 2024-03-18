@@ -4,7 +4,7 @@
 use test_cluster::TestClusterBuilder;
 use walrus_core::{BlobId, EncodingType};
 use walrus_e2e_tests::publish_package;
-use walrus_move_client::client::WalrusSuiClient;
+use walrus_sui::client::WalrusSuiClient;
 
 #[tokio::test]
 async fn test_register_blob() -> anyhow::Result<()> {
