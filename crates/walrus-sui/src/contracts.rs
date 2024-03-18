@@ -100,7 +100,20 @@ pub mod storage_resource {
 pub mod system {
     use super::*;
 
+    contract_ident!(struct system::System);
     contract_ident!(fn system::reserve_space, 2);
+}
+
+pub mod committee {
+    use super::*;
+
+    contract_ident!(struct committee::Committee);
+}
+
+pub mod storage_node {
+    use super::*;
+
+    contract_ident!(struct storage_node::StorageNodeInfo);
 }
 
 #[allow(unused)]

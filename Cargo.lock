@@ -9878,6 +9878,7 @@ dependencies = [
  "sui-sdk",
  "sui-types",
  "test-cluster",
+ "thiserror",
  "tokio",
  "tracing",
  "walrus-core",

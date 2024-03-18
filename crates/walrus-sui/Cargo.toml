@@ -15,6 +15,7 @@ move-core-types = { workspace = true }
 serde_json = "1.0.114"
 sui-sdk = { workspace = true }
 sui-types = { workspace = true }
+thiserror = { workspace = true }
 tokio = "1.36.0"
 tracing = "0.1.40"
 walrus-core = { workspace = true }

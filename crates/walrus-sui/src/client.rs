@@ -10,7 +10,6 @@ use fastcrypto::traits::ToFromBytes;
 use sui_sdk::{
     rpc_types::{
         SuiExecutionStatus,
-        SuiMoveValue,
         SuiObjectDataOptions,
         SuiTransactionBlockEffectsAPI,
         SuiTransactionBlockResponse,
@@ -34,7 +33,7 @@ use walrus_core::{messages::ConfirmationCertificate, BlobId, EncodingType};
 
 use crate::{
     contracts::{self, AssociatedContractStruct, FunctionTag},
-    types::{Blob, StorageResource},
+    types::{Blob, Committee, StorageResource, SystemObject},
     utils::{
         call_args_to_object_ids,
         get_created_object_ids_by_type,
@@ -183,20 +182,7 @@ impl WalrusSuiClient {
     }
 
     async fn price_per_unit_size(&self) -> Result<u64> {
-        let system_struct = get_struct_from_object_response(
-            &self
-                .sui_client
-                .read_api()
-                .get_object_with_options(
-                    self.system_object,
-                    SuiObjectDataOptions::new().with_content(),
-                )
-                .await?,
-        )?;
-        Ok(
-            get_dynamic_field!(system_struct, "price_per_unit_size", SuiMoveValue::String)?
-                .parse()?,
-        )
+        Ok(self.get_system_object().await?.price_per_unit_size)
     }
 
     async fn get_object<U>(&self, object_id: ObjectID) -> Result<U>
@@ -330,5 +316,15 @@ impl WalrusSuiClient {
             format!("could not certify blob: {:?}", res.errors)
         );
         Ok(blob)
+    }
+
+    /// Get the current Walrus system object
+    pub async fn get_system_object(&self) -> Result<SystemObject> {
+        self.get_object(self.system_object).await
+    }
+
+    /// Get the current committee
+    pub async fn current_committee(&self) -> Result<Committee> {
+        Ok(self.get_system_object().await?.current_committee)
     }
 }

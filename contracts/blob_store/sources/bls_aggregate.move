@@ -66,7 +66,9 @@ module blob_store::bls_aggregate {
     ) : u16
     {
         // Use the signers flags to construct the key and the weights.
-        let initial_member = 0; // store member - 1
+
+        // Lower bound for the next `member_idx` to ensure they are monotonically increasing
+        let min_next_member_idx = 0;
         let i = 0;
 
         let aggregate_key = bls12381::g1_identity();
@@ -74,8 +76,8 @@ module blob_store::bls_aggregate {
 
         while (i < vector::length(signers)) {
             let member_idx = (*vector::borrow(signers, i) as u64);
-            assert!(member_idx + 1 > initial_member, ERROR_TOTAL_MEMBER_ORDER);
-            initial_member = member_idx + 1;
+            assert!(member_idx >= min_next_member_idx, ERROR_TOTAL_MEMBER_ORDER);
+            min_next_member_idx = member_idx + 1;
 
             // Bounds check happens here
             let member = vector::borrow(&self.members, member_idx);

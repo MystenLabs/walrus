@@ -4,7 +4,7 @@
 //! Helper functions for the crate.
 //!
 
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, str::FromStr};
 
 use anyhow::{anyhow, Result};
 use futures::Future;
@@ -14,6 +14,7 @@ use sui_sdk::{
         ObjectChange,
         Page,
         SuiMoveStruct,
+        SuiMoveValue,
         SuiObjectDataOptions,
         SuiObjectResponse,
         SuiParsedData,
@@ -93,6 +94,37 @@ pub(crate) fn get_created_object_ids_by_type(
             response.errors
         )),
     }
+}
+
+/// Attempts to convert a vector of SuiMoveValues to a vector of numeric rust types
+pub(crate) fn sui_move_convert_numeric_vec<T>(sui_move_vec: Vec<SuiMoveValue>) -> Result<Vec<T>>
+where
+    T: TryFrom<u32> + FromStr,
+{
+    sui_move_vec
+        .into_iter()
+        .map(|e| match e {
+            SuiMoveValue::Number(n) => T::try_from(n).map_err(|_| anyhow!("conversion failed")),
+            SuiMoveValue::String(s) => s.parse().map_err(|_| anyhow!("conversion failed")),
+            other => Err(anyhow!("unexpected value in Move vector: {:?}", other)),
+        })
+        .collect()
+}
+
+/// Attempts to convert a vector of SuiMoveValues to a vector of type T
+pub(crate) fn sui_move_convert_struct_vec<T>(sui_move_vec: Vec<SuiMoveValue>) -> Result<Vec<T>>
+where
+    T: AssociatedContractStruct,
+{
+    sui_move_vec
+        .into_iter()
+        .map(|e| match e {
+            SuiMoveValue::Struct(move_struct) => {
+                T::try_from(move_struct).map_err(|_| anyhow!("conversion failed"))
+            }
+            other => Err(anyhow!("unexpected value in Move vector: {:?}", other)),
+        })
+        .collect()
 }
 
 pub(crate) async fn handle_pagination<F, T, C, Fut>(
@@ -207,3 +239,5 @@ macro_rules! get_field_from_event {
 pub(crate) use get_dynamic_field;
 #[allow(unused)]
 pub(crate) use get_field_from_event;
+
+use crate::contracts::AssociatedContractStruct;
