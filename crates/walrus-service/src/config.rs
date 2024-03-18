@@ -80,7 +80,7 @@ impl StorageNodePrivateParameters {
         let metrics_address = metrics_listener.local_addr().unwrap();
 
         Self {
-            keypair: KeyPair::new(),
+            keypair: walrus_test_utils::test_keypair(),
             network_address,
             metrics_address,
             shards: HashMap::new(),
