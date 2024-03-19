@@ -15,6 +15,7 @@ use fastcrypto::{
 use merkle::{MerkleTree, Node, DIGEST_LEN};
 use metadata::BlobMetadata;
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DeserializeFromStr, SerializeDisplay};
 use thiserror::Error;
 
 pub mod encoding;
@@ -36,8 +37,8 @@ pub mod test_utils;
 pub type Epoch = u64;
 
 /// The ID of a blob.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[repr(transparent)]
+#[serde_as]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, SerializeDisplay, DeserializeFromStr)]
 pub struct BlobId(pub [u8; Self::LENGTH]);
 
 impl BlobId {

@@ -12,6 +12,7 @@ fastcrypto = { workspace = true }
 rand = { workspace = true, optional = true }
 raptorq = "2.0.0"
 serde = { workspace = true }
+serde_with = "3.7.0"
 thiserror = { workspace = true }
 
 [lints]

@@ -121,16 +121,11 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn retrieve_metadata(
         State(state): State<Arc<S>>,
-        Path(encoded_blob_id): Path<String>,
+        Path(blob_id): Path<BlobId>,
     ) -> (
         StatusCode,
         Json<ServiceResponse<VerifiedBlobMetadataWithId>>,
     ) {
-        let Ok(blob_id) = BlobId::from_str(&encoded_blob_id) else {
-            tracing::debug!("Invalid blob ID {encoded_blob_id}");
-            return ServiceResponse::serialized_error(StatusCode::BAD_REQUEST, "Invalid blob ID");
-        };
-
         match state.retrieve_metadata(&blob_id) {
             Ok(Some(metadata)) => {
                 tracing::debug!("Retrieved metadata for {blob_id:?}");
@@ -152,14 +147,9 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn store_metadata(
         State(state): State<Arc<S>>,
-        Path(encoded_blob_id): Path<String>,
+        Path(blob_id): Path<BlobId>,
         Json(metadata): Json<BlobMetadata>,
     ) -> (StatusCode, Json<ServiceResponse<()>>) {
-        let Ok(blob_id) = BlobId::from_str(&encoded_blob_id) else {
-            tracing::debug!("Invalid blob ID {encoded_blob_id}");
-            return ServiceResponse::serialized_error(StatusCode::BAD_REQUEST, "Invalid blob ID");
-        };
-
         match state.store_metadata(blob_id, metadata) {
             Ok(()) => {
                 tracing::debug!("Stored metadata for {blob_id:?}");
@@ -181,35 +171,24 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn retrieve_primary_sliver(
         State(state): State<Arc<S>>,
-        Path((encoded_blob_id, sliver_pair_idx)): Path<(String, usize)>,
+        Path((blob_id, sliver_pair_idx)): Path<(BlobId, usize)>,
     ) -> (StatusCode, Json<ServiceResponse<Sliver>>) {
-        Self::retrieve_sliver(state, encoded_blob_id, sliver_pair_idx, SliverType::Primary).await
+        Self::retrieve_sliver(state, blob_id, sliver_pair_idx, SliverType::Primary).await
     }
 
     async fn retrieve_secondary_sliver(
         State(state): State<Arc<S>>,
-        Path((encoded_blob_id, sliver_pair_idx)): Path<(String, usize)>,
+        Path((blob_id, sliver_pair_idx)): Path<(BlobId, usize)>,
     ) -> (StatusCode, Json<ServiceResponse<Sliver>>) {
-        Self::retrieve_sliver(
-            state,
-            encoded_blob_id,
-            sliver_pair_idx,
-            SliverType::Secondary,
-        )
-        .await
+        Self::retrieve_sliver(state, blob_id, sliver_pair_idx, SliverType::Secondary).await
     }
 
     async fn retrieve_sliver(
         state: Arc<S>,
-        encoded_blob_id: String,
+        blob_id: BlobId,
         sliver_pair_idx: usize,
         sliver_type: SliverType,
     ) -> (StatusCode, Json<ServiceResponse<Sliver>>) {
-        let Ok(blob_id) = BlobId::from_str(&encoded_blob_id) else {
-            tracing::debug!("Invalid blob ID {encoded_blob_id}");
-            return ServiceResponse::serialized_error(StatusCode::BAD_REQUEST, "Invalid blob ID");
-        };
-
         match state.retrieve_sliver(&blob_id, sliver_pair_idx, sliver_type) {
             Ok(Some(sliver)) => {
                 tracing::debug!("Retrieved {sliver_type:?} sliver for {blob_id:?}");
@@ -231,27 +210,20 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn store_primary_sliver(
         State(state): State<Arc<S>>,
-        Path((encoded_blob_id, sliver_pair_idx)): Path<(String, usize)>,
+        Path((blob_id, sliver_pair_idx)): Path<(BlobId, usize)>,
         Json(sliver): Json<Sliver>,
     ) -> (StatusCode, Json<ServiceResponse<()>>) {
-        Self::store_sliver(
-            state,
-            encoded_blob_id,
-            sliver_pair_idx,
-            sliver,
-            SliverType::Primary,
-        )
-        .await
+        Self::store_sliver(state, blob_id, sliver_pair_idx, sliver, SliverType::Primary).await
     }
 
     async fn store_secondary_sliver(
         State(state): State<Arc<S>>,
-        Path((encoded_blob_id, sliver_pair_idx)): Path<(String, usize)>,
+        Path((blob_id, sliver_pair_idx)): Path<(BlobId, usize)>,
         Json(sliver): Json<Sliver>,
     ) -> (StatusCode, Json<ServiceResponse<()>>) {
         Self::store_sliver(
             state,
-            encoded_blob_id,
+            blob_id,
             sliver_pair_idx,
             sliver,
             SliverType::Secondary,
@@ -261,7 +233,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn store_sliver(
         state: Arc<S>,
-        encoded_blob_id: String,
+        blob_id: BlobId,
         sliver_pair_idx: usize,
         sliver: Sliver,
         sliver_type: SliverType,
@@ -272,11 +244,6 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
                 "Invalid sliver type",
             );
         }
-
-        let Ok(blob_id) = BlobId::from_str(&encoded_blob_id) else {
-            tracing::debug!("Invalid blob ID {encoded_blob_id}");
-            return ServiceResponse::serialized_error(StatusCode::BAD_REQUEST, "Invalid blob ID");
-        };
 
         match state.store_sliver(&blob_id, sliver_pair_idx, &sliver) {
             Ok(()) => {
