@@ -9,12 +9,8 @@ use criterion::{AxisScale, BatchSize, BenchmarkId, Criterion, PlotConfiguration}
 use walrus_core::encoding::{get_encoding_config, initialize_encoding_config, Primary};
 use walrus_test_utils::{random_data, random_subset};
 
-const N_SHARDS: u32 = 1000;
-// Likely values for the number of source symbols for the primary and secondary encoding.
-// These values are consistent with BFT and are supported source-block sizes that do not require
-// padding, see https://datatracker.ietf.org/doc/html/rfc6330#section-5.6.
-const SOURCE_SYMBOLS_PRIMARY: u16 = 324;
-const SOURCE_SYMBOLS_SECONDARY: u16 = 648;
+mod constants;
+
 // The maximum symbol size is `u16::MAX`, which means a maximum blob size of ~13 GiB.
 // The blob size does not have to be a multiple of the number of symbols as we pad with 0s.
 const BLOB_SIZES: [(usize, &str); 6] = [
@@ -67,7 +63,7 @@ fn blob_decoding(c: &mut Criterion) {
         let (sliver_pairs, metadata) = encoder.encode_with_metadata();
         let primary_slivers_for_decoding: Vec<_> = random_subset(
             sliver_pairs.into_iter().map(|p| p.primary),
-            SOURCE_SYMBOLS_PRIMARY.into(),
+            constants::SOURCE_SYMBOLS_PRIMARY.into(),
         )
         .collect();
         let blob_id = metadata.blob_id();
@@ -78,7 +74,7 @@ fn blob_decoding(c: &mut Criterion) {
             |b, (blob_size, slivers)| {
                 b.iter_batched(
                     || slivers.clone(),
-                    move |slivers| {
+                    |slivers| {
                         let mut decoder = get_encoding_config()
                             .get_blob_decoder::<Primary>(*blob_size)
                             .unwrap();
@@ -95,7 +91,7 @@ fn blob_decoding(c: &mut Criterion) {
             |b, (blob_size, blob_id, slivers)| {
                 b.iter_batched(
                     || slivers.clone(),
-                    move |slivers| {
+                    |slivers| {
                         let mut decoder = get_encoding_config()
                             .get_blob_decoder::<Primary>(*blob_size)
                             .unwrap();
@@ -114,8 +110,13 @@ fn blob_decoding(c: &mut Criterion) {
 }
 
 fn main() {
-    initialize_encoding_config(SOURCE_SYMBOLS_PRIMARY, SOURCE_SYMBOLS_SECONDARY, N_SHARDS);
+    initialize_encoding_config(
+        constants::SOURCE_SYMBOLS_PRIMARY,
+        constants::SOURCE_SYMBOLS_SECONDARY,
+        constants::N_SHARDS,
+    );
     let mut criterion = Criterion::default()
+        .configure_from_args()
         .sample_size(10) // set sample size to the minimum to limit execution time
         .warm_up_time(Duration::from_millis(10)); // warm up doesn't make much sense in this case
 

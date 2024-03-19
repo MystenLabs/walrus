@@ -10,11 +10,12 @@ use raptorq::SourceBlockEncodingPlan;
 use walrus_core::encoding::{Decoder, DecodingSymbol, Encoder, Primary};
 use walrus_test_utils::{random_data, random_subset};
 
-const N_SHARDS: u32 = 1000;
-// Likely values for the number of source symbols for the primary and secondary encoding.
-// These values are consistent with BFT and are supported source-block sizes that do not require
-// padding, see https://datatracker.ietf.org/doc/html/rfc6330#section-5.6.
-const SYMBOL_COUNTS: [u16; 2] = [324, 648];
+mod constants;
+
+const SYMBOL_COUNTS: [u16; 2] = [
+    constants::SOURCE_SYMBOLS_PRIMARY,
+    constants::SOURCE_SYMBOLS_SECONDARY,
+];
 // Can be at most `u16::MAX`.
 const SYMBOL_SIZES: [u16; 5] = [1, 16, 256, 4096, u16::MAX];
 
@@ -39,7 +40,8 @@ fn basic_encoding(c: &mut Criterion) {
                 |b, (symbol_count, data)| {
                     b.iter(|| {
                         let encoder =
-                            Encoder::new(&data, *symbol_count, N_SHARDS, &encoding_plan).unwrap();
+                            Encoder::new(&data, *symbol_count, constants::N_SHARDS, &encoding_plan)
+                                .unwrap();
                         let _encoded_symbols = encoder.encode_all().collect::<Vec<_>>();
                     });
                 },
@@ -60,7 +62,8 @@ fn basic_decoding(c: &mut Criterion) {
             let data_length = symbol_size as usize * symbol_count as usize;
             let data = random_data(data_length);
             group.throughput(criterion::Throughput::Bytes(data_length as u64));
-            let encoder = Encoder::new(&data, symbol_count, N_SHARDS, &encoding_plan).unwrap();
+            let encoder =
+                Encoder::new(&data, symbol_count, constants::N_SHARDS, &encoding_plan).unwrap();
             let symbols: Vec<_> = random_subset(
                 encoder
                     .encode_all()
@@ -94,6 +97,7 @@ fn basic_decoding(c: &mut Criterion) {
 
 fn main() {
     let mut criterion = Criterion::default()
+        .configure_from_args()
         .sample_size(50) // reduce sample size to limit execution time
         .warm_up_time(Duration::from_millis(500)); // reduce warm up
 

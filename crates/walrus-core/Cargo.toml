@@ -24,6 +24,9 @@ walrus-test-utils = { workspace = true }
 [features]
 test-utils = ["rand"]
 
+[lib]
+bench = false
+
 [[bench]]
 name = "basic_encoding"
 harness = false
