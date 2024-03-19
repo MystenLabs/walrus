@@ -8,7 +8,10 @@ use std::{
 };
 
 use encoding::{PrimarySliver, RecoveryError, SecondarySliver};
-use fastcrypto::hash::{Blake2b256, HashFunction};
+use fastcrypto::{
+    encoding::{Encoding, Hex},
+    hash::{Blake2b256, HashFunction},
+};
 use merkle::{MerkleTree, Node, DIGEST_LEN};
 use metadata::BlobMetadata;
 use serde::{Deserialize, Serialize};
@@ -92,13 +95,13 @@ impl AsRef<[u8]> for BlobId {
 
 impl Display for BlobId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "0x{}", hex::encode(self.0))
+        write!(f, "0x{}", Hex::encode(self.0))
     }
 }
 
 impl Debug for BlobId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "BlobId(0x{})", hex::encode(self.0))
+        write!(f, "BlobId(0x{})", Hex::encode(self.0))
     }
 }
 
@@ -115,7 +118,7 @@ impl FromStr for BlobId {
             s.starts_with("0x") && s.len() <= (Self::LENGTH + 1) * 2,
             BlobIdParseError
         );
-        let bytes = hex::decode(&s[2..]).map_err(|_| BlobIdParseError)?;
+        let bytes = Hex::decode(&s[2..]).map_err(|_| BlobIdParseError)?;
         let mut blob_id = [0u8; Self::LENGTH];
         blob_id[Self::LENGTH - bytes.len()..].copy_from_slice(&bytes);
         Ok(Self(blob_id))

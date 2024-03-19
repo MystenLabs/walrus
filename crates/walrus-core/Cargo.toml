@@ -9,7 +9,6 @@ license = { workspace = true }
 [dependencies]
 bcs = { workspace = true }
 fastcrypto = { workspace = true }
-hex = "0.4.3"
 rand = { workspace = true, optional = true }
 raptorq = "2.0.0"
 serde = { workspace = true }
