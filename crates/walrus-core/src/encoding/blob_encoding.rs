@@ -140,12 +140,7 @@ impl<'a> BlobEncoder<'a> {
     /// Computes the metadata (blob ID, hashes) for the blob, without returning the slivers.
     pub fn compute_metadata(&self) -> VerifiedBlobMetadataWithId {
         let expanded_matrix = self.get_expanded_matrix();
-        let metadata = self.get_metadata(expanded_matrix);
-        VerifiedBlobMetadataWithId::new_verified_from_metadata(
-            metadata,
-            EncodingType::RedStuff,
-            self.blob_size as u64,
-        )
+        self.get_metadata(&expanded_matrix)
     }
 
     /// Encodes the blob with which `self` was created to a vector of [`SliverPair`s][SliverPair],
@@ -155,21 +150,16 @@ impl<'a> BlobEncoder<'a> {
     /// used to compute the Merkle trees for the metadata, and to extract the sliver pairs. The
     /// returned blob metadata is considered to be verified as it is directly built from the data.
     pub fn encode_with_metadata(&self) -> (Vec<SliverPair>, VerifiedBlobMetadataWithId) {
-        let n_shards_usize = self.config.n_shards as usize;
-        let mut expanded_matrix =
-            vec![Symbols::zeros(n_shards_usize, self.symbol_size); self.config.n_shards as usize];
-        self.fill_systematic_with_rows(&mut expanded_matrix);
-        self.expand_columns_for_primary(&mut expanded_matrix);
-        self.expand_all_rows(&mut expanded_matrix);
-        let (metadata, sliver_pairs) = self.get_metadata_and_pairs(expanded_matrix);
-        (
-            sliver_pairs,
-            VerifiedBlobMetadataWithId::new_verified_from_metadata(
-                metadata,
-                EncodingType::RedStuff,
-                self.blob_size as u64,
-            ),
-        )
+        let expanded_matrix = self.get_expanded_matrix();
+        let metadata = self.get_metadata(&expanded_matrix);
+
+        let mut sliver_pairs = self.empty_sliver_pairs();
+        // First compute the secondary slivers -- does not require consuming the matrix.
+        self.write_secondary_slivers(&expanded_matrix, &mut sliver_pairs);
+        // Then consume the matrix to get the primary slivers.
+        self.write_primary_slivers(expanded_matrix, &mut sliver_pairs);
+
+        (sliver_pairs, metadata)
     }
 
     /// Return a vector of empty [`SliverPair`] of length `n_shards`. Primary and secondary slivers
@@ -199,8 +189,8 @@ impl<'a> BlobEncoder<'a> {
 
     /// Fills the systematic part of the matrix using `self.rows`.
     fn fill_systematic_with_rows(&self, matrix: &mut [Symbols]) {
-        for (row_idx, row) in self.rows.iter().enumerate() {
-            matrix[row_idx][0..self.config.source_symbols_secondary as usize].copy_from_slice(row);
+        for (destination_row, row) in matrix.iter_mut().zip(self.rows.iter()) {
+            destination_row[0..self.config.source_symbols_secondary as usize].copy_from_slice(row);
         }
     }
 
@@ -236,81 +226,75 @@ impl<'a> BlobEncoder<'a> {
         }
     }
 
-    /// Computes the sliver pair metadata and the sliver pairs by consuming the
-    /// expanded message matrix.
-    fn get_metadata_and_pairs(
-        &self,
-        mut matrix: Vec<Symbols>,
-    ) -> (Vec<SliverPairMetadata>, Vec<SliverPair>) {
+    /// Computes the sliver pair metadata from the expanded message matrix.
+    fn get_metadata(&self, matrix: &[Symbols]) -> VerifiedBlobMetadataWithId {
         let mut metadata = vec![SliverPairMetadata::new_empty(); matrix.len()];
-        let mut sliver_pairs = self.empty_sliver_pairs();
-        // First compute the secondary slivers & metadata -- does not require consuming the matrix.
-        self.get_secondary_slivers_and_metadata(
-            &mut matrix,
-            Some(&mut sliver_pairs),
-            &mut metadata,
-        );
-        // The consume the matrix to get the primary slivers & metadata.
-        self.get_primary_slivers_and_metadata(matrix, Some(&mut sliver_pairs), &mut metadata);
-        (metadata, sliver_pairs)
+        self.write_secondary_metadata(matrix, &mut metadata);
+        self.write_primary_metadata(matrix, &mut metadata);
+        VerifiedBlobMetadataWithId::new_verified_from_metadata(
+            metadata,
+            EncodingType::RedStuff,
+            self.blob_size as u64,
+        )
     }
 
-    /// Computes the sliver pair metadata by consuming the
-    /// expanded message matrix.
-    fn get_metadata(&self, mut matrix: Vec<Symbols>) -> Vec<SliverPairMetadata> {
-        let mut metadata = vec![SliverPairMetadata::new_empty(); matrix.len()];
-        // First compute the secondary slivers & metadata -- does not require consuming the matrix.
-        self.get_secondary_slivers_and_metadata(&mut matrix, None.as_mut(), &mut metadata);
-        // The consume the matrix to get the primary slivers & metadata.
-        self.get_primary_slivers_and_metadata(matrix, None.as_mut(), &mut metadata);
-        metadata
-    }
-
-    /// Get the secondary slivers and their metadata from the matrix.
-    fn get_secondary_slivers_and_metadata(
+    fn col_symbols(
         &self,
-        matrix: &mut [Symbols],
-        mut sliver_pairs: Option<&mut Vec<SliverPair>>,
-        metadata: &mut [SliverPairMetadata],
-    ) {
-        let n_shards = matrix.len();
-        for col_idx in 0..n_shards {
-            let col_symbols = matrix
+        matrix: &'a [Symbols],
+    ) -> impl Iterator<Item = impl ExactSizeIterator<Item = &'a [u8]> + '_> {
+        (0..matrix.len()).map(move |col_idx| {
+            matrix
                 .iter()
                 // Get the columns in reverse order `n_shards - col_idx - 1`.
-                .map(|row| {
+                .map(move |row| {
                     row[self
                         .config
                         .sliver_index_from_pair_index::<Secondary>(col_idx as u32)
                         as usize]
                         .as_ref()
-                });
-            metadata[col_idx].secondary_hash =
-                MerkleTree::<Blake2b256>::build(col_symbols.clone()).root();
-            if let Some(pairs) = sliver_pairs.as_mut() {
-                for (row_idx, symbol) in col_symbols.into_iter().take(self.rows.len()).enumerate() {
-                    pairs[col_idx].secondary.symbols[row_idx].copy_from_slice(symbol);
+                })
+        })
+    }
+
+    /// Writes the secondary metadata to the provided mutable slice.
+    fn write_secondary_metadata(&self, matrix: &[Symbols], metadata: &mut [SliverPairMetadata]) {
+        metadata
+            .iter_mut()
+            .zip(self.col_symbols(matrix))
+            .for_each(|(metadata, symbols)| {
+                metadata.secondary_hash = MerkleTree::<Blake2b256>::build(symbols).root();
+            });
+    }
+
+    /// Writes the secondary slivers to the provided mutable slice.
+    fn write_secondary_slivers(&self, matrix: &[Symbols], sliver_pairs: &mut [SliverPair]) {
+        sliver_pairs
+            .iter_mut()
+            .zip(self.col_symbols(matrix))
+            .for_each(|(sliver_pair, symbols)| {
+                for (target_slice, symbol) in
+                    sliver_pair.secondary.symbols.to_symbols_mut().zip(symbols)
+                {
+                    target_slice.copy_from_slice(symbol);
                 }
-            }
+            })
+    }
+
+    /// Writes the primary metadata to the provided mutable slice.
+    fn write_primary_metadata(&self, matrix: &[Symbols], metadata: &mut [SliverPairMetadata]) {
+        for (metadata, row) in metadata.iter_mut().zip(matrix.iter()) {
+            metadata.primary_hash = MerkleTree::<Blake2b256>::build(row.to_symbols()).root();
         }
     }
 
-    /// Get the primary slivers and their metadata.
+    /// Writes the primary slivers to the provided mutable slice.
     ///
     /// Consumes the original matrix, as it creates the primary slivers by truncating the rows of
     /// the matrix.
-    fn get_primary_slivers_and_metadata(
-        &self,
-        matrix: Vec<Symbols>,
-        mut sliver_pairs: Option<&mut Vec<SliverPair>>,
-        metadata: &mut [SliverPairMetadata],
-    ) {
-        for (idx, mut row) in matrix.into_iter().enumerate() {
-            metadata[idx].primary_hash = MerkleTree::<Blake2b256>::build(row.to_symbols()).root();
-            if let Some(pairs) = sliver_pairs.as_mut() {
-                row.truncate(self.columns.len());
-                pairs[idx].primary.symbols = row;
-            }
+    fn write_primary_slivers(&self, matrix: Vec<Symbols>, sliver_pairs: &mut [SliverPair]) {
+        for (sliver_pair, mut row) in sliver_pairs.iter_mut().zip(matrix.into_iter()) {
+            row.truncate(self.columns.len());
+            sliver_pair.primary.symbols = row;
         }
     }
 }
@@ -376,8 +360,8 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
                 // Question(mlegner): Should we return an error instead? Or at least log this?
                 continue;
             }
-            for (i, symbol) in sliver.symbols.to_symbols().enumerate() {
-                if let Some(decoded_data) = self.decoders[i]
+            for (decoder, symbol) in self.decoders.iter_mut().zip(sliver.symbols.to_symbols()) {
+                if let Some(decoded_data) = decoder
                     // NOTE: The encoding axis of the following symbol is irrelevant, but since we
                     // are reconstructing from slivers of type `T`, it should be of type `T`.
                     .decode([DecodingSymbol::<T>::new(sliver.index, symbol.into())])
