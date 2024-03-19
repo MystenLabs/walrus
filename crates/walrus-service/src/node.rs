@@ -35,11 +35,11 @@ pub enum StoreMetadataError {
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreSliverError {
-    #[error("Metadata not found for {0}")]
+    #[error("Metadata not found for {0:?}")]
     MetadataNotFound(BlobId),
-    #[error("Invalid sliver pair id {0} for {1}")]
+    #[error("Invalid sliver pair id {0} for {1:?}")]
     InvalidSliverPairId(usize, BlobId),
-    #[error("Invalid shard type {0:?} for {1}")]
+    #[error("Invalid shard type {0:?} for {1:?}")]
     InvalidSliverType(SliverType, BlobId),
     #[error("Invalid shard {0:?}")]
     InvalidShard(ShardIndex),

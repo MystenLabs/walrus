@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Core functionality for Walrus.
-use std::fmt::{self, Display};
+use std::{
+    fmt::{self, Debug, Display},
+    str::FromStr,
+};
 
 use encoding::{PrimarySliver, RecoveryError, SecondarySliver};
 use fastcrypto::hash::{Blake2b256, HashFunction};
@@ -22,7 +25,7 @@ pub use messages::SignedStorageConfirmation;
 pub type Epoch = u64;
 
 /// The ID of a blob.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(transparent)]
 pub struct BlobId(pub [u8; Self::LENGTH]);
 
@@ -80,7 +83,33 @@ impl AsRef<[u8]> for BlobId {
 
 impl Display for BlobId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "0x{}", hex::encode(self.0))
+    }
+}
+
+impl Debug for BlobId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "BlobId(0x{})", hex::encode(self.0))
+    }
+}
+
+/// Errors returned by [`BlobId::from_str`] when unable to parse a blob ID.
+#[derive(Debug, Error, PartialEq, Eq)]
+#[error("failed to parse a blob ID from the provided string")]
+pub struct BlobIdParseError;
+
+impl FromStr for BlobId {
+    type Err = BlobIdParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        ensure!(
+            s.starts_with("0x") && s.len() <= (Self::LENGTH + 1) * 2,
+            BlobIdParseError
+        );
+        let bytes = hex::decode(&s[2..]).map_err(|_| BlobIdParseError)?;
+        let mut blob_id = [0u8; Self::LENGTH];
+        blob_id[Self::LENGTH - bytes.len()..].copy_from_slice(&bytes);
+        Ok(Self(blob_id))
     }
 }
 
