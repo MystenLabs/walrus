@@ -8,6 +8,9 @@ use serde::{Deserialize, Serialize};
 mod storage_confirmation;
 pub use storage_confirmation::{Confirmation, SignedStorageConfirmation, StorageConfirmation};
 
+mod certificate;
+pub use certificate::ConfirmationCertificate;
+
 macro_rules! wrapped_uint {
     (
         $(#[$outer:meta])*
@@ -41,8 +44,8 @@ macro_rules! wrapped_uint {
 wrapped_uint! {
     /// Type for the intent type of signed messages.
     pub struct IntentType(pub u8) {
-        /// Intent type for storage-certification messages.
-        pub const STORAGE_CERT_MSG: Self = Self(2);
+        /// Intent type for blob-certification messages.
+        pub const BLOB_CERT_MSG: Self = Self(1);
     }
 }
 

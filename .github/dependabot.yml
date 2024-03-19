@@ -17,6 +17,11 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      - dependency-name: move-core-types
+      - dependency-name: sui-*
+      - dependency-name: test-cluster
+      - dependency-name: typed-store
 
   - package-ecosystem: "github-actions"
     directory: "/"

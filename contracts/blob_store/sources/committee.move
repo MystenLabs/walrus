@@ -3,12 +3,7 @@
 
 module blob_store::committee {
 
-    use std::vector;
-    use std::string::String;
     use sui::bcs;
-
-    use sui::group_ops::Element;
-    use sui::bls12381::{G1, g1_from_bytes};
 
     const APP_ID: u8 = 3;
 
@@ -20,36 +15,7 @@ module blob_store::committee {
     use blob_store::bls_aggregate::new_bls_committee_for_testing;
 
     use blob_store::bls_aggregate::{BlsCommittee, new_bls_committee, verify_certificate};
-
-    /// Represents a storage node and its meta-data.
-    ///
-    /// Creation and deletion of storage node info is an
-    /// uncontrolled operation, but it lacks key so cannot
-    /// be stored outside the context of another object.
-    struct StorageNodeInfo has store, drop {
-        name: String,
-        network_address: String,
-        public_key: vector<u8>,
-        shard_ids: vector<u16>,
-    }
-
-    /// A public constructor for the StorageNodeInfo.
-    public fun create_storage_node_info(
-        name: String,
-        network_address: String,
-        public_key: vector<u8>,
-        shard_ids: vector<u16>,
-    ) : StorageNodeInfo {
-        StorageNodeInfo { name, network_address, public_key, shard_ids }
-    }
-
-    public fun public_key(self: &StorageNodeInfo) : &vector<u8> {
-        &self.public_key
-    }
-
-    public fun shard_ids(self: &StorageNodeInfo) : &vector<u16> {
-        &self.shard_ids
-    }
+    use blob_store::storage_node::StorageNodeInfo;
 
     /// Represents a committee for a given epoch, for a phantom type TAG.
     ///
@@ -89,23 +55,8 @@ module blob_store::committee {
         epoch: u64,
         members: vector<StorageNodeInfo>,
     ) : Committee<TAG> {
-
-        let g1_public_keys : vector<Element<G1>> = vector[];
-        let weights = vector[];
-
-        let i = 0;
-        while (i < vector::length(&members)) {
-            let member = vector::borrow(&members, i);
-            let pk = public_key(member);
-            let shard_ids = shard_ids(member);
-            let weight = vector::length(shard_ids);
-            vector::push_back(&mut g1_public_keys, g1_from_bytes(pk));
-            vector::push_back(&mut weights, (weight as u16));
-            i = i + 1;
-        };
-
         // Make BlsCommittee
-        let bls_committee = new_bls_committee(g1_public_keys, weights);
+        let bls_committee = new_bls_committee(members);
 
         Committee { epoch, bls_committee }
     }

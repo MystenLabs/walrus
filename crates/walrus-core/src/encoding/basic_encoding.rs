@@ -58,7 +58,7 @@ impl Encoder {
         };
 
         Ok(Self {
-            raptorq_encoder: SourceBlockEncoder::with_encoding_plan2(
+            raptorq_encoder: SourceBlockEncoder::with_encoding_plan(
                 0,
                 &utils::get_transmission_info(symbol_size.into()),
                 data,
@@ -149,7 +149,7 @@ impl Decoder {
     /// `symbol_size`.
     pub fn new(n_source_symbols: u16, symbol_size: u16) -> Self {
         Self {
-            raptorq_decoder: SourceBlockDecoder::new2(
+            raptorq_decoder: SourceBlockDecoder::new(
                 0,
                 &utils::get_transmission_info(symbol_size as usize),
                 (n_source_symbols as u64) * (symbol_size as u64),
@@ -180,10 +180,10 @@ impl Decoder {
 mod tests {
     use std::ops::Range;
 
-    use walrus_test_utils::{param_test, Result};
+    use walrus_test_utils::{param_test, random_data, Result};
 
     use super::*;
-    use crate::encoding::{utils, Primary};
+    use crate::encoding::Primary;
 
     #[test]
     fn encoding_empty_data_fails() {
@@ -209,7 +209,7 @@ mod tests {
             aligned_data_repair_symbols_2: (&[1, 2, 3, 4, 5, 6], 2, 2..4, true),
             aligned_data_repair_symbols_3: (&[1, 2, 3, 4, 5, 6], 3, 3..6, true),
             aligned_large_data_repair_symbols: (
-                &utils::large_random_data(42000), 100, 100..200, true
+                &random_data(42000), 100, 100..200, true
             ),
             aligned_data_too_few_symbols_1: (&[1, 2], 2, 2..3, false),
             aligned_data_too_few_symbols_2: (&[1, 2, 3], 3, 0..2, false),

@@ -29,7 +29,6 @@ Intent types (add here):
 
 const SYNC_DONE_MSG_TYPE: u8 = 0;
 const BLOB_CERT_MSG_TYPE: u8 = 1;
-const STORAGE_CERT_MSG_TYPE: u8 = 2;
 
 SYNC_DONE message
 -----------------

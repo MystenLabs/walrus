@@ -44,3 +44,9 @@ pub enum RecoveryError {
 #[derive(Debug, Error, PartialEq, Eq)]
 #[error("the size of the symbols provided does not match the size of the existing symbols")]
 pub struct WrongSymbolSizeError;
+
+/// Error returned when the verification of a reconstructed blob fails. Verification failure occurs
+/// when the provided blob ID does not match the blob ID computed from the reconstructed blob.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[error("decoding verification failed because the blob ID does not match the provided metadata")]
+pub struct DecodingVerificationError;

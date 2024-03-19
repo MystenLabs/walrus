@@ -331,15 +331,13 @@ mod test {
     use tokio::sync::oneshot;
     use walrus_core::{
         messages::StorageConfirmation,
-        metadata::{BlobMetadata, UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
+        metadata::{BlobMetadata, VerifiedBlobMetadataWithId},
         BlobId,
         Sliver,
         SliverType,
     };
-    use walrus_test_utils::{test_blob_id, test_signed_storage_confirmation, test_sliver};
 
     use crate::{
-        config::StorageNodePrivateParameters,
         node::{ServiceState, StoreMetadataError, StoreSliverError},
         server::{
             ServiceResponse,
@@ -348,6 +346,7 @@ mod test {
             PRIMARY_SLIVER_ENDPOINT,
             STORAGE_CONFIRMATION_ENDPOINT,
         },
+        test_utils,
     };
 
     pub struct MockServiceState;
@@ -358,13 +357,7 @@ mod test {
             blob_id: &BlobId,
         ) -> Result<Option<VerifiedBlobMetadataWithId>, anyhow::Error> {
             if blob_id.0[0] == 0 {
-                let unverified_metadata =
-                    UnverifiedBlobMetadataWithId::arbitrary_metadata_for_test();
-                let verified_metadata = VerifiedBlobMetadataWithId::new_verified_unchecked(
-                    *unverified_metadata.blob_id(),
-                    unverified_metadata.metadata().clone(),
-                );
-                Ok(Some(verified_metadata))
+                Ok(Some(walrus_core::test_utils::verified_blob_metadata()))
             } else if blob_id.0[0] == 1 {
                 Ok(None)
             } else {
@@ -386,7 +379,7 @@ mod test {
             _sliver_pair_idx: usize,
             _sliver_type: SliverType,
         ) -> Result<Option<Sliver>, anyhow::Error> {
-            Ok(Some(test_sliver()))
+            Ok(Some(walrus_core::test_utils::sliver()))
         }
 
         fn store_sliver(
@@ -407,7 +400,7 @@ mod test {
             blob_id: &BlobId,
         ) -> Result<Option<StorageConfirmation>, anyhow::Error> {
             if blob_id.0[0] == 0 {
-                let confirmation = test_signed_storage_confirmation();
+                let confirmation = walrus_core::test_utils::signed_storage_confirmation();
                 Ok(Some(StorageConfirmation::Signed(confirmation)))
             } else if blob_id.0[0] == 1 {
                 Ok(None)
@@ -421,7 +414,7 @@ mod test {
     async fn retrieve_metadata() {
         let (_shutdown_tx, shutdown_rx) = oneshot::channel();
         let server = UserServer::new(Arc::new(MockServiceState), shutdown_rx);
-        let test_private_parameters = StorageNodePrivateParameters::new_for_test();
+        let test_private_parameters = test_utils::storage_node_private_parameters();
         let _handle = tokio::spawn(async move {
             let network_address = test_private_parameters.network_address;
             server.run(&network_address).await
@@ -429,7 +422,7 @@ mod test {
 
         tokio::task::yield_now().await;
 
-        let mut blob_id = test_blob_id();
+        let mut blob_id = walrus_core::test_utils::random_blob_id();
         blob_id.0[0] = 0; // Triggers a valid response
         let path = METADATA_ENDPOINT.replace(":blobId", &blob_id.to_string());
         let url = format!("http://{}{path}", test_private_parameters.network_address);
@@ -455,7 +448,7 @@ mod test {
     async fn retrieve_metadata_not_found() {
         let (_shutdown_tx, shutdown_rx) = oneshot::channel();
         let server = UserServer::new(Arc::new(MockServiceState), shutdown_rx);
-        let test_private_parameters = StorageNodePrivateParameters::new_for_test();
+        let test_private_parameters = test_utils::storage_node_private_parameters();
         let _handle = tokio::spawn(async move {
             let network_address = test_private_parameters.network_address;
             server.run(&network_address).await
@@ -463,7 +456,7 @@ mod test {
 
         tokio::task::yield_now().await;
 
-        let mut blob_id = test_blob_id();
+        let mut blob_id = walrus_core::test_utils::random_blob_id();
         blob_id.0[0] = 1; // Triggers a not found response
         let path = METADATA_ENDPOINT.replace(":blobId", &blob_id.to_string());
         let url = format!("http://{}{path}", test_private_parameters.network_address);
@@ -477,7 +470,7 @@ mod test {
     async fn retrieve_metadata_internal_error() {
         let (_shutdown_tx, shutdown_rx) = oneshot::channel();
         let server = UserServer::new(Arc::new(MockServiceState), shutdown_rx);
-        let test_private_parameters = StorageNodePrivateParameters::new_for_test();
+        let test_private_parameters = test_utils::storage_node_private_parameters();
         let _handle = tokio::spawn(async move {
             let network_address = test_private_parameters.network_address;
             server.run(&network_address).await
@@ -485,7 +478,7 @@ mod test {
 
         tokio::task::yield_now().await;
 
-        let mut blob_id = test_blob_id();
+        let mut blob_id = walrus_core::test_utils::random_blob_id();
         blob_id.0[0] = 2; // Triggers an internal server error
         let path = METADATA_ENDPOINT.replace(":blobId", &blob_id.to_string());
         let url = format!("http://{}{path}", test_private_parameters.network_address);
@@ -499,7 +492,7 @@ mod test {
     async fn store_metadata() {
         let (_shutdown_tx, shutdown_rx) = oneshot::channel();
         let server = UserServer::new(Arc::new(MockServiceState), shutdown_rx);
-        let test_private_parameters = StorageNodePrivateParameters::new_for_test();
+        let test_private_parameters = test_utils::storage_node_private_parameters();
         let _handle = tokio::spawn(async move {
             let network_address = test_private_parameters.network_address;
             server.run(&network_address).await
@@ -507,7 +500,7 @@ mod test {
 
         tokio::task::yield_now().await;
 
-        let metadata_with_blob_id = UnverifiedBlobMetadataWithId::arbitrary_metadata_for_test();
+        let metadata_with_blob_id = walrus_core::test_utils::unverified_blob_metadata();
         let metadata = metadata_with_blob_id.metadata();
 
         let blob_id = metadata_with_blob_id.blob_id().to_string();
@@ -523,7 +516,7 @@ mod test {
     async fn retrieve_sliver() {
         let (_shutdown_tx, shutdown_rx) = oneshot::channel();
         let server = UserServer::new(Arc::new(MockServiceState), shutdown_rx);
-        let test_private_parameters = StorageNodePrivateParameters::new_for_test();
+        let test_private_parameters = test_utils::storage_node_private_parameters();
         let _handle = tokio::spawn(async move {
             let network_address = test_private_parameters.network_address;
             server.run(&network_address).await
@@ -531,7 +524,7 @@ mod test {
 
         tokio::task::yield_now().await;
 
-        let blob_id = test_blob_id();
+        let blob_id = walrus_core::test_utils::random_blob_id();
         let sliver_pair_id = 0; // Triggers an valid response
         let path = PRIMARY_SLIVER_ENDPOINT
             .replace(":blobId", &blob_id.to_string())
@@ -557,7 +550,7 @@ mod test {
     async fn store_sliver() {
         let (_shutdown_tx, shutdown_rx) = oneshot::channel();
         let server = UserServer::new(Arc::new(MockServiceState), shutdown_rx);
-        let test_private_parameters = StorageNodePrivateParameters::new_for_test();
+        let test_private_parameters = test_utils::storage_node_private_parameters();
         let _handle = tokio::spawn(async move {
             let network_address = test_private_parameters.network_address;
             server.run(&network_address).await
@@ -565,9 +558,9 @@ mod test {
 
         tokio::task::yield_now().await;
 
-        let sliver = test_sliver();
+        let sliver = walrus_core::test_utils::sliver();
 
-        let blob_id = test_blob_id();
+        let blob_id = walrus_core::test_utils::random_blob_id();
         let sliver_pair_id = 0; // Triggers an ok response
         let path = PRIMARY_SLIVER_ENDPOINT
             .replace(":blobId", &blob_id.to_string())
@@ -583,7 +576,7 @@ mod test {
     async fn store_sliver_error() {
         let (_shutdown_tx, shutdown_rx) = oneshot::channel();
         let server = UserServer::new(Arc::new(MockServiceState), shutdown_rx);
-        let test_private_parameters = StorageNodePrivateParameters::new_for_test();
+        let test_private_parameters = test_utils::storage_node_private_parameters();
         let _handle = tokio::spawn(async move {
             let network_address = test_private_parameters.network_address;
             server.run(&network_address).await
@@ -591,9 +584,9 @@ mod test {
 
         tokio::task::yield_now().await;
 
-        let sliver = test_sliver();
+        let sliver = walrus_core::test_utils::sliver();
 
-        let blob_id = test_blob_id();
+        let blob_id = walrus_core::test_utils::random_blob_id();
         let sliver_pair_id = 1; // Triggers an internal server error
         let path = PRIMARY_SLIVER_ENDPOINT
             .replace(":blobId", &blob_id.to_string())
@@ -609,7 +602,7 @@ mod test {
     async fn retrieve_storage_confirmation() {
         let (_shutdown_tx, shutdown_rx) = oneshot::channel();
         let server = UserServer::new(Arc::new(MockServiceState), shutdown_rx);
-        let test_private_parameters = StorageNodePrivateParameters::new_for_test();
+        let test_private_parameters = test_utils::storage_node_private_parameters();
         let _handle = tokio::spawn(async move {
             let network_address = test_private_parameters.network_address;
             server.run(&network_address).await
@@ -617,7 +610,7 @@ mod test {
 
         tokio::task::yield_now().await;
 
-        let mut blob_id = test_blob_id();
+        let mut blob_id = walrus_core::test_utils::random_blob_id();
         blob_id.0[0] = 0; // Triggers a valid response
         let path = STORAGE_CONFIRMATION_ENDPOINT.replace(":blobId", &blob_id.to_string());
         let url = format!("http://{}{path}", test_private_parameters.network_address);
@@ -642,7 +635,7 @@ mod test {
     async fn retrieve_storage_confirmation_not_found() {
         let (_shutdown_tx, shutdown_rx) = oneshot::channel();
         let server = UserServer::new(Arc::new(MockServiceState), shutdown_rx);
-        let test_private_parameters = StorageNodePrivateParameters::new_for_test();
+        let test_private_parameters = test_utils::storage_node_private_parameters();
         let _handle = tokio::spawn(async move {
             let network_address = test_private_parameters.network_address;
             server.run(&network_address).await
@@ -650,7 +643,7 @@ mod test {
 
         tokio::task::yield_now().await;
 
-        let mut blob_id = test_blob_id();
+        let mut blob_id = walrus_core::test_utils::random_blob_id();
         blob_id.0[0] = 1; // Triggers a not found response
         let path = STORAGE_CONFIRMATION_ENDPOINT.replace(":blobId", &blob_id.to_string());
         let url = format!("http://{}{path}", test_private_parameters.network_address);
@@ -664,7 +657,7 @@ mod test {
     async fn retrieve_storage_confirmation_internal_error() {
         let (_shutdown_tx, shutdown_rx) = oneshot::channel();
         let server = UserServer::new(Arc::new(MockServiceState), shutdown_rx);
-        let test_private_parameters = StorageNodePrivateParameters::new_for_test();
+        let test_private_parameters = test_utils::storage_node_private_parameters();
         let _handle = tokio::spawn(async move {
             let network_address = test_private_parameters.network_address;
             server.run(&network_address).await
@@ -672,7 +665,7 @@ mod test {
 
         tokio::task::yield_now().await;
 
-        let mut blob_id = test_blob_id();
+        let mut blob_id = walrus_core::test_utils::random_blob_id();
         blob_id.0[0] = 2; // Triggers an internal server error
         let path = STORAGE_CONFIRMATION_ENDPOINT.replace(":blobId", &blob_id.to_string());
         let url = format!("http://{}{path}", test_private_parameters.network_address);
@@ -686,7 +679,7 @@ mod test {
     async fn shutdown_server() {
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
         let server = UserServer::new(Arc::new(MockServiceState), shutdown_rx);
-        let test_private_parameters = StorageNodePrivateParameters::new_for_test();
+        let test_private_parameters = test_utils::storage_node_private_parameters();
         let handle = tokio::spawn(async move {
             let network_address = test_private_parameters.network_address;
             server.run(&network_address).await

@@ -23,7 +23,13 @@ mod config;
 pub use config::{get_encoding_config, initialize_encoding_config, EncodingConfig};
 
 mod errors;
-pub use errors::{DataTooLargeError, EncodeError, RecoveryError, WrongSymbolSizeError};
+pub use errors::{
+    DataTooLargeError,
+    DecodingVerificationError,
+    EncodeError,
+    RecoveryError,
+    WrongSymbolSizeError,
+};
 
 mod slivers;
 pub use slivers::{PrimarySliver, SecondarySliver, Sliver, SliverPair};

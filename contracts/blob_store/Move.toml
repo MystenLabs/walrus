@@ -6,3 +6,4 @@ Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-fram
 
 [addresses]
 blob_store = "0x0"
+sui = "0x2"

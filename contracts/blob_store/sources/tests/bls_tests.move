@@ -7,9 +7,10 @@
 #[test_only]
 module blob_store::bls_tests {
 
-    use sui::bls12381::{bls12381_min_pk_verify, g1_from_bytes};
+    use sui::bls12381::bls12381_min_pk_verify;
 
     use blob_store::bls_aggregate::{Self, BlsCommittee, new_bls_committee, verify_certificate};
+    use blob_store::storage_node;
 
     #[test]
     public fun test_basic_compatibility(){
@@ -47,9 +48,8 @@ module blob_store::bls_tests {
         // Make a new committee
         let committee = new_bls_committee(
             vector[
-                g1_from_bytes(&pk0), g1_from_bytes(&pk1), g1_from_bytes(&pk2), g1_from_bytes(&pk3), g1_from_bytes(&pk4), g1_from_bytes(&pk5), g1_from_bytes(&pk6), g1_from_bytes(&pk7), g1_from_bytes(&pk8), g1_from_bytes(&pk9)
-            ],
-            vector[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+                storage_node::new_for_testing(pk0, 1), storage_node::new_for_testing(pk1, 1), storage_node::new_for_testing(pk2, 1), storage_node::new_for_testing(pk3, 1), storage_node::new_for_testing(pk4, 1), storage_node::new_for_testing(pk5, 1), storage_node::new_for_testing(pk6, 1), storage_node::new_for_testing(pk7, 1), storage_node::new_for_testing(pk8, 1), storage_node::new_for_testing(pk9, 1)
+            ]
         );
 
         // Verify the aggregate signature
@@ -82,9 +82,8 @@ module blob_store::bls_tests {
         // Make a new committee
         let committee = new_bls_committee(
             vector[
-                g1_from_bytes(&pk0), g1_from_bytes(&pk1), g1_from_bytes(&pk2), g1_from_bytes(&pk3), g1_from_bytes(&pk4), g1_from_bytes(&pk5), g1_from_bytes(&pk6), g1_from_bytes(&pk7), g1_from_bytes(&pk8), g1_from_bytes(&pk9)
-            ],
-            vector[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+                storage_node::new_for_testing(pk0, 1), storage_node::new_for_testing(pk1, 1), storage_node::new_for_testing(pk2, 1), storage_node::new_for_testing(pk3, 1), storage_node::new_for_testing(pk4, 1), storage_node::new_for_testing(pk5, 1), storage_node::new_for_testing(pk6, 1), storage_node::new_for_testing(pk7, 1), storage_node::new_for_testing(pk8, 1), storage_node::new_for_testing(pk9, 1)
+            ]
         );
 
         // Verify the aggregate signature
@@ -118,9 +117,8 @@ module blob_store::bls_tests {
         // Make a new committee
         let committee = new_bls_committee(
             vector[
-                g1_from_bytes(&pk0), g1_from_bytes(&pk1), g1_from_bytes(&pk2), g1_from_bytes(&pk3), g1_from_bytes(&pk4), g1_from_bytes(&pk5), g1_from_bytes(&pk6), g1_from_bytes(&pk7), g1_from_bytes(&pk8), g1_from_bytes(&pk9)
-            ],
-            vector[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+                storage_node::new_for_testing(pk0, 1), storage_node::new_for_testing(pk1, 1), storage_node::new_for_testing(pk2, 1), storage_node::new_for_testing(pk3, 1), storage_node::new_for_testing(pk4, 1), storage_node::new_for_testing(pk5, 1), storage_node::new_for_testing(pk6, 1), storage_node::new_for_testing(pk7, 1), storage_node::new_for_testing(pk8, 1), storage_node::new_for_testing(pk9, 1)
+            ]
         );
 
         // Verify the aggregate signature
@@ -154,9 +152,8 @@ module blob_store::bls_tests {
         // Make a new committee
         let committee = new_bls_committee(
             vector[
-                g1_from_bytes(&pk0), g1_from_bytes(&pk1), g1_from_bytes(&pk2), g1_from_bytes(&pk3), g1_from_bytes(&pk4), g1_from_bytes(&pk5), g1_from_bytes(&pk6), g1_from_bytes(&pk7), g1_from_bytes(&pk8), g1_from_bytes(&pk9)
-            ],
-            vector[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+                storage_node::new_for_testing(pk0, 1), storage_node::new_for_testing(pk1, 1), storage_node::new_for_testing(pk2, 1), storage_node::new_for_testing(pk3, 1), storage_node::new_for_testing(pk4, 1), storage_node::new_for_testing(pk5, 1), storage_node::new_for_testing(pk6, 1), storage_node::new_for_testing(pk7, 1), storage_node::new_for_testing(pk8, 1), storage_node::new_for_testing(pk9, 1)
+            ]
         );
 
         // Verify the aggregate signature
@@ -190,9 +187,8 @@ module blob_store::bls_tests {
         // Make a new committee
         let committee = new_bls_committee(
             vector[
-                g1_from_bytes(&pk0), g1_from_bytes(&pk1), g1_from_bytes(&pk2), g1_from_bytes(&pk3), g1_from_bytes(&pk4), g1_from_bytes(&pk5), g1_from_bytes(&pk6), g1_from_bytes(&pk7), g1_from_bytes(&pk8), g1_from_bytes(&pk9)
-            ],
-            vector[1, 2, 2, 2, 2, 2, 2, 2, 2, 3]
+                storage_node::new_for_testing(pk0, 1), storage_node::new_for_testing(pk1, 2), storage_node::new_for_testing(pk2, 2), storage_node::new_for_testing(pk3, 2), storage_node::new_for_testing(pk4, 2), storage_node::new_for_testing(pk5, 2), storage_node::new_for_testing(pk6, 2), storage_node::new_for_testing(pk7, 2), storage_node::new_for_testing(pk8, 2), storage_node::new_for_testing(pk9, 3)
+            ]
         );
 
         // Verify the aggregate signature
