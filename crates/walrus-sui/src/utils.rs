@@ -224,7 +224,6 @@ macro_rules! get_dynamic_u64_field {
     };
 }
 
-#[allow(unused)]
 macro_rules! get_field_from_event {
     ($event_object: expr, $field_name: expr, $field_type: path) => {
         match_for_correct_type!($event_object.get($field_name), $field_type).ok_or(anyhow!(
@@ -232,7 +231,13 @@ macro_rules! get_field_from_event {
             $field_name,
             stringify!($field_type),
             $event_object
-        ))?
+        ))
+    };
+}
+
+macro_rules! get_u64_field_from_event {
+    ($struct: expr, $field_name: expr) => {
+        get_field_from_event!($struct, $field_name, Value::String)?.parse()
     };
 }
 

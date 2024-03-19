@@ -21,8 +21,8 @@ serde = { workspace = true }
 serde_yaml = "0.9.32"
 telemetry-subscribers = { workspace = true }
 thiserror = { workspace = true }
-tokio = { version = "1.36.0", features = ["rt-multi-thread", "macros"] }
-tokio-stream = "0.1.14"
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tokio-stream = { workspace = true }
 tokio-util = "0.7.10"
 tower-http = { version = "0.5.2", features = ["trace"] }
 tracing = "0.1.40"

@@ -9909,7 +9909,9 @@ dependencies = [
  "test-cluster",
  "thiserror",
  "tokio",
+ "tokio-stream",
  "tracing",
+ "tracing-subscriber",
  "walrus-core",
  "walrus-e2e-tests",
 ]

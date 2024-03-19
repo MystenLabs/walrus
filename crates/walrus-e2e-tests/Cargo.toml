@@ -10,7 +10,7 @@ version = { workspace = true }
 anyhow = "1.0.80"
 sui-move-build = { workspace = true }
 sui-sdk = { workspace = true }
-tokio = { version = "1.36.0", features = ["macros"] }
+tokio = { workspace = true, features = ["macros"] }
 
 [dev-dependencies]
 test-cluster = { workspace = true }

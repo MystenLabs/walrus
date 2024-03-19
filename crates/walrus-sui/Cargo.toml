@@ -16,7 +16,8 @@ serde_json = "1.0.114"
 sui-sdk = { workspace = true }
 sui-types = { workspace = true }
 thiserror = { workspace = true }
-tokio = "1.36.0"
+tokio = { workspace = true, features = ["sync"] }
+tokio-stream = { workspace = true }
 tracing = "0.1.40"
 walrus-core = { workspace = true }
 
@@ -25,4 +26,5 @@ workspace = true
 
 [dev-dependencies]
 test-cluster = { workspace = true }
+tracing-subscriber = "0.3.18"
 walrus-e2e-tests = { path = "../walrus-e2e-tests" }
