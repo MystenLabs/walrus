@@ -27,3 +27,7 @@ test-utils = ["rand"]
 [[bench]]
 name = "basic_encoding"
 harness = false
+
+[[bench]]
+name = "blob_encoding"
+harness = false

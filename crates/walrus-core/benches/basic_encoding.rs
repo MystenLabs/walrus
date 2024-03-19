@@ -1,11 +1,11 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-#![allow(missing_docs)]
-
 //! Benchmarks for the basic encoding and decoding.
 
-use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
+use std::time::Duration;
+
+use criterion::{AxisScale, BatchSize, BenchmarkId, Criterion, PlotConfiguration};
 use raptorq::SourceBlockEncodingPlan;
 use walrus_core::encoding::{Decoder, DecodingSymbol, Encoder, Primary};
 use walrus_test_utils::{random_data, random_subset};
@@ -20,6 +20,7 @@ const SYMBOL_SIZES: [u16; 5] = [1, 16, 256, 4096, u16::MAX];
 
 fn basic_encoding(c: &mut Criterion) {
     let mut group = c.benchmark_group("basic_encoding");
+    group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Logarithmic));
 
     for symbol_count in SYMBOL_COUNTS {
         let encoding_plan = SourceBlockEncodingPlan::generate(symbol_count);
@@ -30,10 +31,10 @@ fn basic_encoding(c: &mut Criterion) {
             group.throughput(criterion::Throughput::Bytes(data_length as u64));
 
             group.bench_with_input(
-                BenchmarkId::from_parameter({
-                    let res = format!("symbol_count={},symbol_size={}", symbol_count, symbol_size);
-                    res
-                }),
+                BenchmarkId::from_parameter(format!(
+                    "symbol_count={},symbol_size={}",
+                    symbol_count, symbol_size
+                )),
                 &(symbol_count, data),
                 |b, (symbol_count, data)| {
                     b.iter(|| {
@@ -51,6 +52,8 @@ fn basic_encoding(c: &mut Criterion) {
 
 fn basic_decoding(c: &mut Criterion) {
     let mut group = c.benchmark_group("basic_decoding");
+    group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Logarithmic));
+
     for symbol_count in SYMBOL_COUNTS {
         let encoding_plan = SourceBlockEncodingPlan::generate(symbol_count);
         for symbol_size in SYMBOL_SIZES {
@@ -67,10 +70,10 @@ fn basic_decoding(c: &mut Criterion) {
             )
             .collect();
             group.bench_with_input(
-                BenchmarkId::from_parameter({
-                    let res = format!("symbol_count={},symbol_size={}", symbol_count, symbol_size);
-                    res
-                }),
+                BenchmarkId::from_parameter(format!(
+                    "symbol_count={},symbol_size={}",
+                    symbol_count, symbol_size
+                )),
                 &(symbol_count, symbol_size, symbols),
                 |b, (symbol_count, symbol_size, symbols)| {
                     b.iter_batched(
@@ -89,5 +92,13 @@ fn basic_decoding(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, basic_encoding, basic_decoding);
-criterion_main!(benches);
+fn main() {
+    let mut criterion = Criterion::default()
+        .sample_size(50) // reduce sample size to limit execution time
+        .warm_up_time(Duration::from_millis(500)); // reduce warm up
+
+    basic_encoding(&mut criterion);
+    basic_decoding(&mut criterion);
+
+    criterion.final_summary();
+}
