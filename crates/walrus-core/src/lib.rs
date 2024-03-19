@@ -102,7 +102,7 @@ impl Debug for BlobId {
     }
 }
 
-/// Errors returned by [`BlobId::from_str`] when unable to parse a blob ID.
+/// Error returned by [`BlobId::from_str`] when unable to parse a blob ID.
 #[derive(Debug, Error, PartialEq, Eq)]
 #[error("failed to parse a blob ID from the provided string")]
 pub struct BlobIdParseError;
