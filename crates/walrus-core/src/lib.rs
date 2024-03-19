@@ -159,7 +159,7 @@ impl Sliver {
         }
     }
 
-    /// Returns the hash of the sliver.
+    /// Returns the hash of the sliver, i.e., the Merkle root of the tree computed over the symbols.
     pub fn hash<U: HashFunction<DIGEST_LEN>>(&self) -> Result<Node, RecoveryError> {
         match self {
             Sliver::Primary(inner) => inner.get_merkle_root::<U>(),
