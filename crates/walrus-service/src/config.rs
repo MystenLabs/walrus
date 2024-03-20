@@ -4,9 +4,7 @@
 use std::{collections::HashMap, net::SocketAddr, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
-use walrus_core::{Epoch, ShardIndex};
-
-use crate::crypto::{KeyPair, PublicKey};
+use walrus_core::{Epoch, KeyPair, PublicKey, ShardIndex};
 
 /// Represents a storage node identifier.
 #[derive(Serialize, Deserialize)]

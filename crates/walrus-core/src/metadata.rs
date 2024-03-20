@@ -11,6 +11,7 @@ use crate::{
     merkle::{Node as MerkleNode, DIGEST_LEN},
     BlobId,
     EncodingType,
+    SliverType,
 };
 
 /// Errors returned by [`UnverifiedBlobMetadataWithId::verify`] when unable to verify the metadata.
@@ -91,6 +92,16 @@ impl<const V: bool> BlobMetadataWithId<V> {
     }
 }
 
+impl VerifiedBlobMetadataWithId {
+    /// Converts the verified metadata into an unverified one.
+    pub fn into_unverified(self) -> UnverifiedBlobMetadataWithId {
+        BlobMetadataWithId {
+            blob_id: self.blob_id,
+            metadata: self.metadata,
+        }
+    }
+}
+
 impl UnverifiedBlobMetadataWithId {
     /// Consumes the metadata and attempts to verify it the relationship between the contained
     /// metadata and blob ID. On success, returns a [`VerifiedBlobMetadataWithId`].
@@ -135,6 +146,22 @@ pub struct BlobMetadata {
     pub unencoded_length: u64,
     /// The hashes over the slivers of the blob.
     pub hashes: Vec<SliverPairMetadata>,
+}
+
+impl BlobMetadata {
+    /// Return the hash of the sliver pair at the given index and type.
+    pub fn get_sliver_hash(
+        &self,
+        sliver_pair_idx: u16,
+        sliver_type: SliverType,
+    ) -> Option<&MerkleNode> {
+        self.hashes
+            .get(sliver_pair_idx as usize)
+            .map(|sliver_pair_metadata| match sliver_type {
+                SliverType::Primary => &sliver_pair_metadata.primary_hash,
+                SliverType::Secondary => &sliver_pair_metadata.secondary_hash,
+            })
+    }
 }
 
 /// Metadata about a sliver pair, i.e., the root hashes of the primary and secondary slivers.

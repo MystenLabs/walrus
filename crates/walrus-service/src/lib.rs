@@ -5,8 +5,6 @@
 
 /// Configuration module.
 pub mod config;
-/// Cryptographic utilities.
-pub mod crypto;
 /// Encoding utilities.
 pub mod encoding;
 /// Mapping from sliver pairs to shards.

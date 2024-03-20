@@ -14,13 +14,13 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 use walrus_core::{
     messages::StorageConfirmation,
-    metadata::{BlobMetadata, VerifiedBlobMetadataWithId},
+    metadata::{BlobMetadata, UnverifiedBlobMetadataWithId},
     BlobId,
     Sliver,
     SliverType,
 };
 
-use crate::node::{ServiceState, StoreMetadataError};
+use crate::node::{ServiceState, StoreMetadataError, StoreSliverError};
 
 /// The path to get and store blob metadata.
 pub const METADATA_ENDPOINT: &str = "/v1/blobs/:blobId/metadata";
@@ -73,6 +73,11 @@ impl<T: Serialize> ServiceResponse<T> {
         };
         (code, Json(response))
     }
+
+    /// Creates a new serialized bad request response for 'not found' errors.
+    pub fn serialized_not_found() -> (StatusCode, Json<Self>) {
+        Self::serialized_error(StatusCode::NOT_FOUND, "Not found")
+    }
 }
 
 /// Represents a user server.
@@ -124,7 +129,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
         Path(encoded_blob_id): Path<String>,
     ) -> (
         StatusCode,
-        Json<ServiceResponse<VerifiedBlobMetadataWithId>>,
+        Json<ServiceResponse<UnverifiedBlobMetadataWithId>>,
     ) {
         let Ok(blob_id) = BlobId::from_str(&encoded_blob_id) else {
             tracing::debug!("Invalid blob ID {encoded_blob_id}");
@@ -138,7 +143,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             }
             Ok(None) => {
                 tracing::debug!("Metadata not found for {blob_id:?}");
-                ServiceResponse::serialized_error(StatusCode::NOT_FOUND, "Not found")
+                ServiceResponse::serialized_not_found()
             }
             Err(message) => {
                 tracing::error!("Internal server error: {message}");
@@ -160,7 +165,8 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             return ServiceResponse::serialized_error(StatusCode::BAD_REQUEST, "Invalid blob ID");
         };
 
-        match state.store_metadata(blob_id, metadata) {
+        let unverified_metadata_with_id = UnverifiedBlobMetadataWithId::new(blob_id, metadata);
+        match state.store_metadata(unverified_metadata_with_id) {
             Ok(()) => {
                 tracing::debug!("Stored metadata for {blob_id:?}");
                 ServiceResponse::serialized_success(StatusCode::OK, ())
@@ -181,14 +187,14 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn retrieve_primary_sliver(
         State(state): State<Arc<S>>,
-        Path((encoded_blob_id, sliver_pair_idx)): Path<(String, usize)>,
+        Path((encoded_blob_id, sliver_pair_idx)): Path<(String, u16)>,
     ) -> (StatusCode, Json<ServiceResponse<Sliver>>) {
         Self::retrieve_sliver(state, encoded_blob_id, sliver_pair_idx, SliverType::Primary).await
     }
 
     async fn retrieve_secondary_sliver(
         State(state): State<Arc<S>>,
-        Path((encoded_blob_id, sliver_pair_idx)): Path<(String, usize)>,
+        Path((encoded_blob_id, sliver_pair_idx)): Path<(String, u16)>,
     ) -> (StatusCode, Json<ServiceResponse<Sliver>>) {
         Self::retrieve_sliver(
             state,
@@ -202,7 +208,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
     async fn retrieve_sliver(
         state: Arc<S>,
         encoded_blob_id: String,
-        sliver_pair_idx: usize,
+        sliver_pair_idx: u16,
         sliver_type: SliverType,
     ) -> (StatusCode, Json<ServiceResponse<Sliver>>) {
         let Ok(blob_id) = BlobId::from_str(&encoded_blob_id) else {
@@ -217,7 +223,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             }
             Ok(None) => {
                 tracing::debug!("{sliver_type:?} sliver not found for {blob_id:?}");
-                ServiceResponse::serialized_error(StatusCode::NOT_FOUND, "Not found")
+                ServiceResponse::serialized_not_found()
             }
             Err(message) => {
                 tracing::error!("Internal server error: {message}");
@@ -231,7 +237,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn store_primary_sliver(
         State(state): State<Arc<S>>,
-        Path((encoded_blob_id, sliver_pair_idx)): Path<(String, usize)>,
+        Path((encoded_blob_id, sliver_pair_idx)): Path<(String, u16)>,
         Json(sliver): Json<Sliver>,
     ) -> (StatusCode, Json<ServiceResponse<()>>) {
         Self::store_sliver(
@@ -246,7 +252,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn store_secondary_sliver(
         State(state): State<Arc<S>>,
-        Path((encoded_blob_id, sliver_pair_idx)): Path<(String, usize)>,
+        Path((encoded_blob_id, sliver_pair_idx)): Path<(String, u16)>,
         Json(sliver): Json<Sliver>,
     ) -> (StatusCode, Json<ServiceResponse<()>>) {
         Self::store_sliver(
@@ -262,7 +268,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
     async fn store_sliver(
         state: Arc<S>,
         encoded_blob_id: String,
-        sliver_pair_idx: usize,
+        sliver_pair_idx: u16,
         sliver: Sliver,
         sliver_type: SliverType,
     ) -> (StatusCode, Json<ServiceResponse<()>>) {
@@ -283,12 +289,16 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
                 tracing::debug!("Stored {sliver_type:?} sliver for {blob_id:?}");
                 ServiceResponse::serialized_success(StatusCode::OK, ())
             }
-            Err(message) => {
+            Err(StoreSliverError::Internal(message)) => {
                 tracing::error!("Internal server error: {message}");
                 ServiceResponse::serialized_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "Internal error",
                 )
+            }
+            Err(client_error) => {
+                tracing::debug!("Received invalid {sliver_type:?} sliver: {client_error}");
+                ServiceResponse::serialized_error(StatusCode::BAD_REQUEST, client_error.to_string())
             }
         }
     }
@@ -302,14 +312,14 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             return ServiceResponse::serialized_error(StatusCode::BAD_REQUEST, "Invalid blob ID");
         };
 
-        match state.retrieve_storage_confirmation(&blob_id).await {
+        match state.compute_storage_confirmation(&blob_id).await {
             Ok(Some(confirmation)) => {
                 tracing::debug!("Retrieved storage confirmation for {blob_id:?}");
                 ServiceResponse::serialized_success(StatusCode::OK, confirmation)
             }
             Ok(None) => {
                 tracing::debug!("Storage confirmation not found for {blob_id:?}");
-                ServiceResponse::serialized_error(StatusCode::NOT_FOUND, "Not found")
+                ServiceResponse::serialized_not_found()
             }
             Err(message) => {
                 tracing::error!("Internal server error: {message}");
@@ -331,14 +341,14 @@ mod test {
     use tokio::sync::oneshot;
     use walrus_core::{
         messages::StorageConfirmation,
-        metadata::{BlobMetadata, VerifiedBlobMetadataWithId},
+        metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
         BlobId,
         Sliver,
         SliverType,
     };
 
     use crate::{
-        node::{ServiceState, StoreMetadataError, StoreSliverError},
+        node::{RetrieveSliverError, ServiceState, StoreMetadataError, StoreSliverError},
         server::{
             ServiceResponse,
             UserServer,
@@ -355,9 +365,11 @@ mod test {
         fn retrieve_metadata(
             &self,
             blob_id: &BlobId,
-        ) -> Result<Option<VerifiedBlobMetadataWithId>, anyhow::Error> {
+        ) -> Result<Option<UnverifiedBlobMetadataWithId>, anyhow::Error> {
             if blob_id.0[0] == 0 {
-                Ok(Some(walrus_core::test_utils::verified_blob_metadata()))
+                Ok(Some(
+                    walrus_core::test_utils::verified_blob_metadata().into_unverified(),
+                ))
             } else if blob_id.0[0] == 1 {
                 Ok(None)
             } else {
@@ -367,8 +379,7 @@ mod test {
 
         fn store_metadata(
             &self,
-            _blob_id: BlobId,
-            _metadata: BlobMetadata,
+            _metadata: UnverifiedBlobMetadataWithId,
         ) -> Result<(), StoreMetadataError> {
             Ok(())
         }
@@ -376,16 +387,16 @@ mod test {
         fn retrieve_sliver(
             &self,
             _blob_id: &BlobId,
-            _sliver_pair_idx: usize,
+            _sliver_pair_idx: u16,
             _sliver_type: SliverType,
-        ) -> Result<Option<Sliver>, anyhow::Error> {
+        ) -> Result<Option<Sliver>, RetrieveSliverError> {
             Ok(Some(walrus_core::test_utils::sliver()))
         }
 
         fn store_sliver(
             &self,
             _blob_id: &BlobId,
-            sliver_pair_idx: usize,
+            sliver_pair_idx: u16,
             _sliver: &Sliver,
         ) -> Result<(), StoreSliverError> {
             if sliver_pair_idx == 0 {
@@ -395,7 +406,7 @@ mod test {
             }
         }
 
-        async fn retrieve_storage_confirmation(
+        async fn compute_storage_confirmation(
             &self,
             blob_id: &BlobId,
         ) -> Result<Option<StorageConfirmation>, anyhow::Error> {
