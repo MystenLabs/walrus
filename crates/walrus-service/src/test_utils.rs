@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use walrus_core::test_utils::keypair;
+use walrus_core::test_utils;
 
 use crate::config::StorageNodePrivateParameters;
 

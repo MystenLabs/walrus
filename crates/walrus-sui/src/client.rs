@@ -270,7 +270,7 @@ impl WalrusSuiClient {
                     self.call_arg_from_shared_object_id(self.system_object, true)
                         .await?,
                     self.wallet.get_object_ref(storage.id).await?.into(),
-                    call_arg_pure!(&blob_id),
+                    call_arg_pure!(blob_id.as_bytes()),
                     encoded_size.into(),
                     erasure_code_type.into(),
                 ],

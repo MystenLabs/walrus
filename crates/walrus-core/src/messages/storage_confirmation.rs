@@ -36,6 +36,8 @@ pub struct Confirmation {
     /// The epoch in which this confirmation is generated.
     pub epoch: Epoch,
     /// The ID of the Blob whose sliver pairs are confirmed as being stored.
+    #[serde(serialize_with = "serialize_blob_id_as_bytes")]
+    #[serde(deserialize_with = "deserialize_blob_id_from_bytes")]
     pub blob_id: BlobId,
 }
 
@@ -77,6 +79,21 @@ where
     }
 
     Ok(unverified_intent)
+}
+
+fn serialize_blob_id_as_bytes<S>(blob_id: &BlobId, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    <[u8; BlobId::LENGTH]>::serialize(&blob_id.0, serializer)
+}
+
+fn deserialize_blob_id_from_bytes<'de, D>(deserializer: D) -> Result<BlobId, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let bytes = <[u8; BlobId::LENGTH]>::deserialize(deserializer)?;
+    Ok(BlobId(bytes))
 }
 
 #[cfg(test)]

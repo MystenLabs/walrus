@@ -86,6 +86,11 @@ impl BlobId {
 
         Self(hasher.finalize().into())
     }
+
+    /// Returns the blob ID as a byte array.
+    pub fn as_bytes(&self) -> &[u8; Self::LENGTH] {
+        &self.0
+    }
 }
 
 impl AsRef<[u8]> for BlobId {
