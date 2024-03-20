@@ -250,6 +250,16 @@ impl<T: EncodingAxis> Sliver<T> {
     fn get_sliver_encoder(&self) -> Result<Encoder, EncodeError> {
         get_encoding_config().get_encoder::<T::OrthogonalAxis>(self.symbols.data())
     }
+
+    /// Returns the sliver size in bytes.
+    pub fn len(&self) -> usize {
+        self.symbols.data().len()
+    }
+
+    /// Returns true iff the sliver length is 0.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 /// Combination of a primary and secondary sliver of one shard.

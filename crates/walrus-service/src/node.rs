@@ -7,7 +7,7 @@ use anyhow::Context;
 use fastcrypto::{bls12381::min_pk::BLS12381PrivateKey, traits::Signer};
 use typed_store::rocks::MetricConf;
 use walrus_core::{
-    encoding::RecoveryError,
+    encoding::{get_encoding_config, Primary, RecoveryError, Secondary},
     ensure,
     messages::{Confirmation, SignedStorageConfirmation, StorageConfirmation},
     metadata::{
@@ -39,6 +39,8 @@ pub enum StoreSliverError {
     MetadataNotFound(BlobId),
     #[error("Invalid sliver pair id {0} for {1:?}")]
     InvalidSliverPairId(usize, BlobId),
+    #[error("Invalid sliver size {0} for {1:?}")]
+    IncorrectSize(usize, BlobId),
     #[error("Invalid shard type {0:?} for {1:?}")]
     InvalidSliverType(SliverType, BlobId),
     #[error("Invalid shard {0:?}")]
@@ -167,6 +169,23 @@ impl ServiceState for StorageNode {
             .get_metadata(blob_id)
             .context("unable to retrieve metadata")?
             .ok_or_else(|| StoreSliverError::MetadataNotFound(*blob_id))?;
+
+        // Ensure the received sliver has the expected size.
+        let blob_size = metadata
+            .metadata()
+            .unencoded_length
+            .try_into()
+            .expect("The maximum blob size is smaller than `usize::MAX`");
+        let expected_sliver_size = match sliver {
+            Sliver::Primary(_) => get_encoding_config().sliver_size_for_blob::<Primary>(blob_size),
+            Sliver::Secondary(_) => {
+                get_encoding_config().sliver_size_for_blob::<Secondary>(blob_size)
+            }
+        };
+        ensure!(
+            expected_sliver_size == Some(sliver.len()),
+            StoreSliverError::IncorrectSize(sliver.len(), *blob_id)
+        );
 
         // Ensure the received sliver matches the metadata we have in store.
         let stored_sliver_pair_metadata = metadata
