@@ -16,7 +16,7 @@ pub fn storage_node_private_parameters() -> StorageNodePrivateParameters {
     let metrics_address = metrics_listener.local_addr().unwrap();
 
     StorageNodePrivateParameters {
-        keypair: keypair(),
+        keypair: test_utils::keypair(),
         network_address,
         metrics_address,
         shards: HashMap::new(),

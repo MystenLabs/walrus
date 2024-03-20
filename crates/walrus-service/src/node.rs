@@ -63,7 +63,7 @@ pub trait ServiceState {
         metadata: BlobMetadata,
     ) -> Result<(), StoreMetadataError>;
 
-    /// Retrieves a primary or secondary sliver for a blob for a shard help by this storage node.
+    /// Retrieves a primary or secondary sliver for a blob for a shard held by this storage node.
     fn retrieve_sliver(
         &self,
         blob_id: &BlobId,
