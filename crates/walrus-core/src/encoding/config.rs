@@ -224,6 +224,17 @@ impl EncodingConfig {
         utils::compute_symbol_size(blob_size, self.source_symbols_per_blob())
     }
 
+    /// The size (in bytes) of a sliver corresponding to a blob of size `blob_size`.
+    ///
+    /// Returns `None` if `blob_size > self.max_blob_size()`.
+    #[inline]
+    pub fn sliver_size_for_blob<T: EncodingAxis>(&self, blob_size: usize) -> Option<usize> {
+        Some(
+            self.n_source_symbols::<T::OrthogonalAxis>() as usize
+                * self.symbol_size_for_blob(blob_size)? as usize,
+        )
+    }
+
     /// Computes the index of the [`Sliver`][super::Sliver] of the axis specified by the generic
     /// parameter starting from the index of the [`SliverPair`][super::SliverPair].
     ///
@@ -289,5 +300,30 @@ impl EncodingConfig {
         blob_size: usize,
     ) -> Result<BlobDecoder<T>, DataTooLargeError> {
         BlobDecoder::new(self, blob_size)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use walrus_test_utils::param_test;
+
+    use super::*;
+    use crate::encoding::Primary;
+
+    param_test! {
+        test_sliver_size_for_blob: [
+            zero: (0, Some(0)),
+            one: (1, Some(5)),
+            full_matrix: (15, Some(5)),
+            full_matrix_plus_1: (16, Some(10)),
+            too_large: (3 * 5 * MAX_SYMBOL_SIZE + 1, None),
+        ]
+    }
+    fn test_sliver_size_for_blob(blob_size: usize, expected_primary_sliver_size: Option<usize>) {
+        let config = EncodingConfig::new(3, 5, 10);
+        assert_eq!(
+            config.sliver_size_for_blob::<Primary>(blob_size),
+            expected_primary_sliver_size
+        );
     }
 }

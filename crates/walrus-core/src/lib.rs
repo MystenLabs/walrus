@@ -169,6 +169,19 @@ impl Sliver {
             Sliver::Secondary(inner) => inner.get_merkle_root::<U>(),
         }
     }
+
+    /// Returns the sliver size in bytes.
+    pub fn len(&self) -> usize {
+        match self {
+            Sliver::Primary(inner) => inner.len(),
+            Sliver::Secondary(inner) => inner.len(),
+        }
+    }
+
+    /// Returns true iff the sliver length is 0.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 /// A type indicating either a primary or secondary sliver.
