@@ -18,6 +18,7 @@ serde = { workspace = true }
 thiserror = { workspace = true }
 tokio = { version = "1.36.0", features = ["rt-multi-thread", "macros"] }
 tokio-stream = "0.1.14"
+tower-http = { version = "0.5.2", features = ["trace"] }
 tracing = "0.1.40"
 typed-store = { workspace = true }
 walrus-core = { workspace = true }

@@ -12,6 +12,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
+use tower_http::trace::TraceLayer;
 use walrus_core::{
     messages::StorageConfirmation,
     metadata::{BlobMetadata, UnverifiedBlobMetadataWithId},
@@ -114,7 +115,8 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
                 STORAGE_CONFIRMATION_ENDPOINT,
                 get(Self::retrieve_storage_confirmation),
             )
-            .with_state(self.state.clone());
+            .with_state(self.state.clone())
+            .layer(TraceLayer::new_for_http());
 
         let listener = tokio::net::TcpListener::bind(network_address).await?;
         axum::serve(listener, app)

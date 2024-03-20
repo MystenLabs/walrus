@@ -4748,7 +4748,7 @@ dependencies = [
  "tonic 0.10.2",
  "tonic-health",
  "tower",
- "tower-http",
+ "tower-http 0.3.5",
  "tracing",
 ]
 
@@ -8034,7 +8034,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tower",
- "tower-http",
+ "tower-http 0.3.5",
  "tracing",
  "typed-store-error",
 ]
@@ -9357,6 +9357,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "tower-http"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e9cd434a998747dd2c4276bc96ee2e0c7a2eadf3cae88e52be55a05fa9053f5"
+dependencies = [
+ "bitflags 2.4.2",
+ "bytes",
+ "http 1.1.0",
+ "http-body 1.0.0",
+ "http-body-util",
+ "pin-project-lite",
+ "tower-layer",
+ "tower-service",
+ "tracing",
+]
+
+[[package]]
 name = "tower-layer"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9859,6 +9876,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-stream",
+ "tower-http 0.5.2",
  "tracing",
  "typed-store",
  "walrus-core",
