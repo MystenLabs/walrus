@@ -15,6 +15,7 @@ use walrus_e2e_tests::publish_package;
 use walrus_sui::{client::WalrusSuiClient, types::EpochStatus};
 
 #[tokio::test]
+#[ignore = "ignore integration tests by default"]
 async fn test_register_blob() -> anyhow::Result<()> {
     let test_cluster = TestClusterBuilder::new().build().await;
     let mut wallet = test_cluster.wallet;
@@ -59,6 +60,7 @@ async fn test_register_blob() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+#[ignore = "ignore integration tests by default"]
 async fn test_get_system() -> anyhow::Result<()> {
     let test_cluster = TestClusterBuilder::new().build().await;
     let mut wallet = test_cluster.wallet;

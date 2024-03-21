@@ -8,6 +8,8 @@
 # Rust build and test files
 **/target
 tarpaulin-report.html
+build_rs_cov.profraw
+cobertura.xml
 
 # Move-related files
 build/

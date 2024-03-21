@@ -47,13 +47,22 @@ run the tool as follows:
 
 ```sh
 cargo install cargo-tarpaulin
-cargo tarpaulin --workspace --skip-clean --lib --bins --examples --tests --doc --out html
+cargo tarpaulin --out html
 ```
 
 This creates a file `tarpaulin-report.html`, which shows you coverage statistics as well as which individual lines are
 or aren't covered by tests. Other valid output formats are `json`, `stdout`, `xml`, and `lcov`.
 
-The exact command we use in our CI pipeline is visible in [.github/workflows/code.yml](.github/workflows/code.yml).
+The configuration file for Tarpaulin is [.tarpaulin.toml](./.tarpaulin.toml).
+
+## Integration and end-to-end tests
+
+Integration and end-to-end tests are excluded by default when running `cargo test` as they depend on additional packages
+and take longer to run. You can run these test as follows:
+
+```sh
+cargo test -- --ignored
+```
 
 ## Benchmarks
 

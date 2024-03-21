@@ -50,6 +50,7 @@ jobs:
     outputs:
       isRust: ${{ steps.diff.outputs.isRust }}
       isMove: ${{ steps.diff.outputs.isMove }}
+      relevantForE2eTests: ${{ steps.diff.outputs.relevantForE2eTests }}
     steps:
       - uses: actions/checkout@v4
       - name: Detect Changes
@@ -67,6 +68,11 @@ jobs:
               - 'Cargo.lock'
               - 'rust-toolchain'
               - 'deny.toml'
+              - '.github/workflows/code.yml'
+            relevantForE2eTests:
+              - 'crates/walrus-sui/**'
+              - 'crates/walrus-e2e-tests/**'
+              - 'contracts/**'
               - '.github/workflows/code.yml'
 
   dependencies:
@@ -90,8 +96,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: EmbarkStudios/cargo-deny-action@v1.6.1
 
-  test:
-    name: Test Rust code and report coverage
+  # TODO(mlegner): Currently running all tests on all PRs touching Rust code.
+  # If the running time gets too long, we may need to remove the integration and E2E tests and/or
+  # not do the coverage analysis on PRs.
+  test-coverage:
+    name: Run all Rust tests and report coverage
     needs: diff
     if: ${{ github.event_name == 'schedule' || needs.diff.outputs.isRust == 'true' }}
     runs-on: ubuntu-ghcloud
@@ -107,14 +116,8 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
       - run: cargo install cargo-tarpaulin@0.27.3
 
-      - name: Run tests (including integration tests) and record coverage
-        run: >
-          cargo tarpaulin --workspace --skip-clean
-          --lib --bins --examples --tests --doc
-          --out html --out xml
-          --exclude-files "crates/**/tests/*"
-          --exclude-files "crates/**/benches/*"
-          -- --include-ignored
+      - name: Run tests (including integration E2E tests) and record coverage
+        run: cargo tarpaulin
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
@@ -138,6 +141,17 @@ jobs:
         if: ${{ github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' }}
         with:
           path: code-coverage-results.md
+
+  e2e-tests:
+    name: End-to-end tests
+    needs: diff
+    if: ${{ github.event_name == 'schedule' || needs.diff.outputs.relevantForE2eTests == 'true' }}
+    runs-on: ubuntu-ghcloud
+    steps:
+      - uses: actions/checkout@v4
+      # Don't cache as this shouldn't be run too often and would bring us above GitHub's 10GB limit.
+      - name: Run E2E tests
+        run: cargo test -p walrus-sui -p walrus-e2e-tests -- --include-ignored
 
   lint:
     name: Lint Rust code
@@ -212,7 +226,8 @@ jobs:
     needs:
       - diff
       - dependencies
-      - test
+      - test-coverage
+      - e2e-tests
       - lint
       - build
       - test-move
