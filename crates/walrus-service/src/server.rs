@@ -349,7 +349,7 @@ mod test {
 
     use crate::{
         node::{
-            RetreiveSymbolError, RetrieveSliverError, ServiceState, StoreMetadataError,
+            RetrieveSliverError, RetrieveSymbolError, ServiceState, StoreMetadataError,
             StoreSliverError,
         },
         server::{
@@ -397,10 +397,10 @@ mod test {
             &self,
             _blob_id: &BlobId,
             _sliver_pair_idx: u16,
-            _index: u32,
+            index: u32,
         ) -> Result<
             DecodingSymbol<walrus_core::encoding::Secondary, MerkleProof<U>>,
-            RetreiveSymbolError,
+            RetrieveSymbolError,
         >
         where
             U: HashFunction<DIGEST_LEN>,
@@ -408,20 +408,22 @@ mod test {
             let sliver = walrus_core::test_utils::sliver();
             match sliver {
                 Sliver::Primary(inner) => {
-                    let symbol = inner.recovery_symbol_for_sliver_with_proof(0).unwrap();
+                    let symbol = inner
+                        .recovery_symbol_for_sliver_with_proof(index)
+                        .map_err(|_| RetrieveSymbolError::RecoveryError)?;
                     Ok(symbol)
                 }
-                Sliver::Secondary(_) => Err(RetreiveSymbolError::GenericError),
+                Sliver::Secondary(_) => Err(RetrieveSymbolError::WrongAxis),
             }
         }
         fn retrieve_recovery_symbol_primary<U>(
             &self,
             _blob_id: &BlobId,
             _sliver_pair_idx: u16,
-            _index: u32,
+            index: u32,
         ) -> Result<
             DecodingSymbol<walrus_core::encoding::Primary, MerkleProof<U>>,
-            RetreiveSymbolError,
+            RetrieveSymbolError,
         >
         where
             U: HashFunction<DIGEST_LEN>,
@@ -429,10 +431,12 @@ mod test {
             let sliver = walrus_core::test_utils::sliver_secondary();
             match sliver {
                 Sliver::Secondary(inner) => {
-                    let symbol = inner.recovery_symbol_for_sliver_with_proof(0).unwrap();
+                    let symbol = inner
+                        .recovery_symbol_for_sliver_with_proof(index)
+                        .map_err(|_| RetrieveSymbolError::RecoveryError)?;
                     Ok(symbol)
                 }
-                Sliver::Primary(_) => Err(RetreiveSymbolError::GenericError),
+                Sliver::Primary(_) => Err(RetrieveSymbolError::WrongAxis),
             }
         }
         fn store_sliver(

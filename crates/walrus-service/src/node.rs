@@ -36,11 +36,13 @@ pub enum RetrieveSliverError {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum RetreiveSymbolError {
+pub enum RetrieveSymbolError {
     #[error("Invalid shard {0:?}")]
     InvalidShard(ShardIndex),
-    #[error("Generic")]
-    GenericError,
+    #[error("Symbol Recovery Failed")]
+    RecoveryError,
+    #[error("Symbol Recovering the Wrong Axis")]
+    WrongAxis,
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
 }
@@ -107,7 +109,7 @@ pub trait ServiceState {
         blob_id: &BlobId,
         sliver_pair_idx: u16,
         index: u32,
-    ) -> Result<DecodingSymbol<walrus_core::encoding::Primary, MerkleProof<U>>, RetreiveSymbolError>
+    ) -> Result<DecodingSymbol<walrus_core::encoding::Primary, MerkleProof<U>>, RetrieveSymbolError>
     where
         U: HashFunction<DIGEST_LEN>;
     /// Retrieves a recovery symbol for getting a secondary sliver for a shard held by this storage node.
@@ -116,7 +118,7 @@ pub trait ServiceState {
         blob_id: &BlobId,
         sliver_pair_idx: u16,
         index: u32,
-    ) -> Result<DecodingSymbol<walrus_core::encoding::Secondary, MerkleProof<U>>, RetreiveSymbolError>
+    ) -> Result<DecodingSymbol<walrus_core::encoding::Secondary, MerkleProof<U>>, RetrieveSymbolError>
     where
         U: HashFunction<DIGEST_LEN>;
 }
@@ -268,20 +270,28 @@ impl ServiceState for StorageNode {
         blob_id: &BlobId,
         sliver_pair_idx: u16,
         index: u32,
-    ) -> Result<DecodingSymbol<walrus_core::encoding::Primary, MerkleProof<U>>, RetreiveSymbolError>
+    ) -> Result<DecodingSymbol<walrus_core::encoding::Primary, MerkleProof<U>>, RetrieveSymbolError>
     where
         U: HashFunction<DIGEST_LEN>,
     {
         let sliver = self
             .retrieve_sliver(blob_id, sliver_pair_idx, SliverType::Secondary)
-            .unwrap()
+            .map_err(|_| {
+                RetrieveSymbolError::InvalidShard(shard_index_for_pair(
+                    sliver_pair_idx,
+                    self.n_shards.get(),
+                    blob_id,
+                ))
+            })?
             .unwrap();
         match sliver {
             Sliver::Secondary(inner) => {
-                let symbol = inner.recovery_symbol_for_sliver_with_proof(index).unwrap();
+                let symbol = inner
+                    .recovery_symbol_for_sliver_with_proof(index)
+                    .map_err(|_| RetrieveSymbolError::RecoveryError)?;
                 Ok(symbol)
             }
-            Sliver::Primary(_) => Err(RetreiveSymbolError::GenericError),
+            Sliver::Primary(_) => Err(RetrieveSymbolError::WrongAxis),
         }
     }
     fn retrieve_recovery_symbol_secondary<U>(
@@ -289,20 +299,28 @@ impl ServiceState for StorageNode {
         blob_id: &BlobId,
         sliver_pair_idx: u16,
         index: u32,
-    ) -> Result<DecodingSymbol<walrus_core::encoding::Secondary, MerkleProof<U>>, RetreiveSymbolError>
+    ) -> Result<DecodingSymbol<walrus_core::encoding::Secondary, MerkleProof<U>>, RetrieveSymbolError>
     where
         U: HashFunction<DIGEST_LEN>,
     {
         let sliver = self
             .retrieve_sliver(blob_id, sliver_pair_idx, SliverType::Primary)
-            .unwrap()
+            .map_err(|_| {
+                RetrieveSymbolError::InvalidShard(shard_index_for_pair(
+                    sliver_pair_idx,
+                    self.n_shards.get(),
+                    blob_id,
+                ))
+            })?
             .unwrap();
         match sliver {
             Sliver::Primary(inner) => {
-                let symbol = inner.recovery_symbol_for_sliver_with_proof(index).unwrap();
+                let symbol = inner
+                    .recovery_symbol_for_sliver_with_proof(index)
+                    .map_err(|_| RetrieveSymbolError::RecoveryError)?;
                 Ok(symbol)
             }
-            Sliver::Secondary(_) => Err(RetreiveSymbolError::GenericError),
+            Sliver::Secondary(_) => Err(RetrieveSymbolError::WrongAxis),
         }
     }
 }
