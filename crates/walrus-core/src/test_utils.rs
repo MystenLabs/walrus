@@ -11,15 +11,9 @@ use crate::{
     encoding,
     merkle::Node,
     metadata::{
-        BlobMetadata,
-        SliverPairMetadata,
-        UnverifiedBlobMetadataWithId,
-        VerifiedBlobMetadataWithId,
+        BlobMetadata, SliverPairMetadata, UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId,
     },
-    BlobId,
-    EncodingType,
-    SignedStorageConfirmation,
-    Sliver,
+    BlobId, EncodingType, SignedStorageConfirmation, Sliver,
 };
 
 /// Returns a deterministic fixed key pair for testing.
@@ -31,9 +25,14 @@ pub fn keypair() -> BLS12381KeyPair {
     BLS12381KeyPair::generate(&mut rng)
 }
 
-/// Returns an arbitrary sliver for testing.
+/// Returns an arbitrary primary sliver for testing.
 pub fn sliver() -> Sliver {
     Sliver::Primary(encoding::Sliver::new([1, 2, 3, 4], 2, 1))
+}
+
+/// Returns an arbitrary secondary sliver for testing.
+pub fn sliver_secondary() -> Sliver {
+    Sliver::Secondary(encoding::Sliver::new([1, 2, 3, 4], 2, 1))
 }
 
 /// Returns an arbitrary storage confirmation for tests.

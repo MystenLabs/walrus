@@ -11,14 +11,8 @@ use futures::Future;
 use move_core_types::{language_storage::StructTag as MoveStructTag, u256::U256};
 use sui_sdk::{
     rpc_types::{
-        ObjectChange,
-        Page,
-        SuiMoveStruct,
-        SuiMoveValue,
-        SuiObjectDataOptions,
-        SuiObjectResponse,
-        SuiParsedData,
-        SuiTransactionBlockResponse,
+        ObjectChange, Page, SuiMoveStruct, SuiMoveValue, SuiObjectDataOptions, SuiObjectResponse,
+        SuiParsedData, SuiTransactionBlockResponse,
     },
     types::base_types::ObjectID,
     SuiClient,

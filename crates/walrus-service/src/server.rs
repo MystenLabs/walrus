@@ -7,8 +7,7 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     routing::get,
-    Json,
-    Router,
+    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
@@ -16,9 +15,7 @@ use tower_http::trace::TraceLayer;
 use walrus_core::{
     messages::StorageConfirmation,
     metadata::{BlobMetadata, UnverifiedBlobMetadataWithId},
-    BlobId,
-    Sliver,
-    SliverType,
+    BlobId, Sliver, SliverType,
 };
 
 use crate::node::{ServiceState, StoreMetadataError, StoreSliverError};
@@ -339,23 +336,24 @@ mod test {
     use std::sync::Arc;
 
     use anyhow::anyhow;
+    use fastcrypto::hash::HashFunction;
     use reqwest::StatusCode;
     use tokio::sync::oneshot;
     use walrus_core::{
+        encoding::DecodingSymbol,
+        merkle::{MerkleProof, DIGEST_LEN},
         messages::StorageConfirmation,
         metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
-        BlobId,
-        Sliver,
-        SliverType,
+        BlobId, Sliver, SliverType,
     };
 
     use crate::{
-        node::{RetrieveSliverError, ServiceState, StoreMetadataError, StoreSliverError},
+        node::{
+            RetreiveSymbolError, RetrieveSliverError, ServiceState, StoreMetadataError,
+            StoreSliverError,
+        },
         server::{
-            ServiceResponse,
-            UserServer,
-            METADATA_ENDPOINT,
-            PRIMARY_SLIVER_ENDPOINT,
+            ServiceResponse, UserServer, METADATA_ENDPOINT, PRIMARY_SLIVER_ENDPOINT,
             STORAGE_CONFIRMATION_ENDPOINT,
         },
         test_utils,
@@ -395,6 +393,48 @@ mod test {
             Ok(Some(walrus_core::test_utils::sliver()))
         }
 
+        fn retrieve_recovery_symbol_secondary<U>(
+            &self,
+            _blob_id: &BlobId,
+            _sliver_pair_idx: u16,
+            _index: u32,
+        ) -> Result<
+            DecodingSymbol<walrus_core::encoding::Secondary, MerkleProof<U>>,
+            RetreiveSymbolError,
+        >
+        where
+            U: HashFunction<DIGEST_LEN>,
+        {
+            let sliver = walrus_core::test_utils::sliver();
+            match sliver {
+                Sliver::Primary(inner) => {
+                    let symbol = inner.recovery_symbol_for_sliver_with_proof(0).unwrap();
+                    Ok(symbol)
+                }
+                Sliver::Secondary(_) => Err(RetreiveSymbolError::GenericError),
+            }
+        }
+        fn retrieve_recovery_symbol_primary<U>(
+            &self,
+            _blob_id: &BlobId,
+            _sliver_pair_idx: u16,
+            _index: u32,
+        ) -> Result<
+            DecodingSymbol<walrus_core::encoding::Primary, MerkleProof<U>>,
+            RetreiveSymbolError,
+        >
+        where
+            U: HashFunction<DIGEST_LEN>,
+        {
+            let sliver = walrus_core::test_utils::sliver_secondary();
+            match sliver {
+                Sliver::Secondary(inner) => {
+                    let symbol = inner.recovery_symbol_for_sliver_with_proof(0).unwrap();
+                    Ok(symbol)
+                }
+                Sliver::Primary(_) => Err(RetreiveSymbolError::GenericError),
+            }
+        }
         fn store_sliver(
             &self,
             _blob_id: &BlobId,

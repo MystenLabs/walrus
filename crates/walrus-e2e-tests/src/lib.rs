@@ -5,14 +5,10 @@ use std::path::PathBuf;
 
 use anyhow::{anyhow, ensure, Result};
 use sui_move_build::{
-    build_from_resolution_graph,
-    gather_published_ids,
-    BuildConfig,
-    PackageDependencies,
+    build_from_resolution_graph, gather_published_ids, BuildConfig, PackageDependencies,
 };
 use sui_sdk::{
-    rpc_types::SuiTransactionBlockEffectsAPI,
-    types::base_types::ObjectID,
+    rpc_types::SuiTransactionBlockEffectsAPI, types::base_types::ObjectID,
     wallet_context::WalletContext,
 };
 

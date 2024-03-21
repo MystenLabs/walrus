@@ -4,18 +4,17 @@
 use std::{future::Future, num::NonZeroUsize, path::Path, sync::Arc};
 
 use anyhow::Context;
-use fastcrypto::{bls12381::min_pk::BLS12381PrivateKey, traits::Signer};
+use fastcrypto::{bls12381::min_pk::BLS12381PrivateKey, hash::HashFunction, traits::Signer};
 use typed_store::rocks::MetricConf;
 use walrus_core::{
-    encoding::{get_encoding_config, Primary, RecoveryError, Secondary},
+    encoding::{
+        get_encoding_config, DecodingSymbol, EncodingAxis, Primary, RecoveryError, Secondary,
+    },
     ensure,
+    merkle::{MerkleProof, DIGEST_LEN},
     messages::{Confirmation, SignedStorageConfirmation, StorageConfirmation},
     metadata::{UnverifiedBlobMetadataWithId, VerificationError},
-    BlobId,
-    Epoch,
-    ShardIndex,
-    Sliver,
-    SliverType,
+    BlobId, Epoch, ShardIndex, Sliver, SliverType,
 };
 
 use crate::{mapping::shard_index_for_pair, storage::Storage};
@@ -32,6 +31,16 @@ pub enum StoreMetadataError {
 pub enum RetrieveSliverError {
     #[error("Invalid shard {0:?}")]
     InvalidShard(ShardIndex),
+    #[error(transparent)]
+    Internal(#[from] anyhow::Error),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum RetreiveSymbolError {
+    #[error("Invalid shard {0:?}")]
+    InvalidShard(ShardIndex),
+    #[error("Generic")]
+    GenericError,
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
 }
@@ -91,6 +100,25 @@ pub trait ServiceState {
         &self,
         blob_id: &BlobId,
     ) -> impl Future<Output = Result<Option<StorageConfirmation>, anyhow::Error>> + Send;
+
+    /// Retrieves a recovery symbol for getting a primary sliver for a shard held by this storage node.
+    fn retrieve_recovery_symbol_primary<U>(
+        &self,
+        blob_id: &BlobId,
+        sliver_pair_idx: u16,
+        index: u32,
+    ) -> Result<DecodingSymbol<walrus_core::encoding::Primary, MerkleProof<U>>, RetreiveSymbolError>
+    where
+        U: HashFunction<DIGEST_LEN>;
+    /// Retrieves a recovery symbol for getting a secondary sliver for a shard held by this storage node.
+    fn retrieve_recovery_symbol_secondary<U>(
+        &self,
+        blob_id: &BlobId,
+        sliver_pair_idx: u16,
+        index: u32,
+    ) -> Result<DecodingSymbol<walrus_core::encoding::Secondary, MerkleProof<U>>, RetreiveSymbolError>
+    where
+        U: HashFunction<DIGEST_LEN>;
 }
 
 /// A Walrus storage node, responsible for 1 or more shards on Walrus.
@@ -234,6 +262,49 @@ impl ServiceState for StorageNode {
             Ok(None)
         }
     }
+
+    fn retrieve_recovery_symbol_primary<U>(
+        &self,
+        blob_id: &BlobId,
+        sliver_pair_idx: u16,
+        index: u32,
+    ) -> Result<DecodingSymbol<walrus_core::encoding::Primary, MerkleProof<U>>, RetreiveSymbolError>
+    where
+        U: HashFunction<DIGEST_LEN>,
+    {
+        let sliver = self
+            .retrieve_sliver(blob_id, sliver_pair_idx, SliverType::Secondary)
+            .unwrap()
+            .unwrap();
+        match sliver {
+            Sliver::Secondary(inner) => {
+                let symbol = inner.recovery_symbol_for_sliver_with_proof(index).unwrap();
+                Ok(symbol)
+            }
+            Sliver::Primary(_) => Err(RetreiveSymbolError::GenericError),
+        }
+    }
+    fn retrieve_recovery_symbol_secondary<U>(
+        &self,
+        blob_id: &BlobId,
+        sliver_pair_idx: u16,
+        index: u32,
+    ) -> Result<DecodingSymbol<walrus_core::encoding::Secondary, MerkleProof<U>>, RetreiveSymbolError>
+    where
+        U: HashFunction<DIGEST_LEN>,
+    {
+        let sliver = self
+            .retrieve_sliver(blob_id, sliver_pair_idx, SliverType::Primary)
+            .unwrap()
+            .unwrap();
+        match sliver {
+            Sliver::Primary(inner) => {
+                let symbol = inner.recovery_symbol_for_sliver_with_proof(index).unwrap();
+                Ok(symbol)
+            }
+            Sliver::Secondary(_) => Err(RetreiveSymbolError::GenericError),
+        }
+    }
 }
 
 async fn sign_confirmation(
@@ -262,11 +333,7 @@ mod tests {
 
     use super::*;
     use crate::storage::tests::{
-        populated_storage,
-        WhichSlivers,
-        BLOB_ID,
-        OTHER_SHARD_INDEX,
-        SHARD_INDEX,
+        populated_storage, WhichSlivers, BLOB_ID, OTHER_SHARD_INDEX, SHARD_INDEX,
     };
 
     const OTHER_BLOB_ID: BlobId = BlobId([247; 32]);

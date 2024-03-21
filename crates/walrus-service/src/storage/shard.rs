@@ -9,15 +9,11 @@ use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, MergeOperands, Options, DB};
 use serde::{Deserialize, Serialize};
 use typed_store::{
     rocks::{errors::typed_store_err_from_rocks_err, DBMap, ReadWriteOptions, RocksDB},
-    Map,
-    TypedStoreError,
+    Map, TypedStoreError,
 };
 use walrus_core::{
     encoding::{EncodingAxis, PrimarySliver, SecondarySliver},
-    BlobId,
-    ShardIndex,
-    Sliver,
-    SliverType,
+    BlobId, ShardIndex, Sliver, SliverType,
 };
 
 type PrimarySliverKey = SliverKey<true>;
@@ -153,11 +149,7 @@ mod tests {
     use walrus_test_utils::{async_param_test, param_test, Result as TestResult, WithTempDir};
 
     use crate::storage::tests::{
-        empty_storage,
-        empty_storage_with_shards,
-        get_sliver,
-        BLOB_ID,
-        OTHER_SHARD_INDEX,
+        empty_storage, empty_storage_with_shards, get_sliver, BLOB_ID, OTHER_SHARD_INDEX,
         SHARD_INDEX,
     };
 

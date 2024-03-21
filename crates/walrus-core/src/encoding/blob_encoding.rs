@@ -6,24 +6,13 @@ use std::{cmp, marker::PhantomData};
 use fastcrypto::hash::Blake2b256;
 
 use super::{
-    utils,
-    DataTooLargeError,
-    Decoder,
-    DecodingSymbol,
-    DecodingVerificationError,
-    EncodingAxis,
-    EncodingConfig,
-    Primary,
-    Secondary,
-    Sliver,
-    SliverPair,
-    Symbols,
+    utils, DataTooLargeError, Decoder, DecodingSymbol, DecodingVerificationError, EncodingAxis,
+    EncodingConfig, Primary, Secondary, Sliver, SliverPair, Symbols,
 };
 use crate::{
     merkle::MerkleTree,
     metadata::{SliverPairMetadata, VerifiedBlobMetadataWithId},
-    BlobId,
-    EncodingType,
+    BlobId, EncodingType,
 };
 
 /// Struct to perform the full blob encoding.

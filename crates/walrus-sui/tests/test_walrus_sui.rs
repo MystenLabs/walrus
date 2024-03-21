@@ -8,8 +8,7 @@ use fastcrypto::{
 use test_cluster::TestClusterBuilder;
 use walrus_core::{
     messages::{Confirmation, ConfirmationCertificate},
-    BlobId,
-    EncodingType,
+    BlobId, EncodingType,
 };
 use walrus_e2e_tests::publish_package;
 use walrus_sui::{client::WalrusSuiClient, types::EpochStatus};
