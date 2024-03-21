@@ -41,6 +41,8 @@ pub enum RetrieveSymbolError {
     InvalidShard(ShardIndex),
     #[error("Symbol Recovery Failed")]
     RecoveryError,
+    #[error("Sliver is not Available for Recovery")]
+    UnavailableSliver,
     #[error("Symbol Recovering the Wrong Axis")]
     WrongAxis,
     #[error(transparent)]
@@ -274,7 +276,7 @@ impl ServiceState for StorageNode {
     where
         U: HashFunction<DIGEST_LEN>,
     {
-        let sliver = self
+        let optional_sliver = self
             .retrieve_sliver(blob_id, sliver_pair_idx, SliverType::Secondary)
             .map_err(|_| {
                 RetrieveSymbolError::InvalidShard(shard_index_for_pair(
@@ -282,16 +284,18 @@ impl ServiceState for StorageNode {
                     self.n_shards.get(),
                     blob_id,
                 ))
-            })?
-            .unwrap();
-        match sliver {
-            Sliver::Secondary(inner) => {
-                let symbol = inner
-                    .recovery_symbol_for_sliver_with_proof(index)
-                    .map_err(|_| RetrieveSymbolError::RecoveryError)?;
-                Ok(symbol)
-            }
-            Sliver::Primary(_) => Err(RetrieveSymbolError::WrongAxis),
+            })?;
+        match optional_sliver {
+            Some(sliver) => match sliver {
+                Sliver::Secondary(inner) => {
+                    let symbol = inner
+                        .recovery_symbol_for_sliver_with_proof(index)
+                        .map_err(|_| RetrieveSymbolError::RecoveryError)?;
+                    Ok(symbol)
+                }
+                Sliver::Primary(_) => Err(RetrieveSymbolError::WrongAxis),
+            },
+            None => Err(RetrieveSymbolError::UnavailableSliver),
         }
     }
     fn retrieve_recovery_symbol_secondary<U>(
@@ -303,7 +307,7 @@ impl ServiceState for StorageNode {
     where
         U: HashFunction<DIGEST_LEN>,
     {
-        let sliver = self
+        let optional_sliver = self
             .retrieve_sliver(blob_id, sliver_pair_idx, SliverType::Primary)
             .map_err(|_| {
                 RetrieveSymbolError::InvalidShard(shard_index_for_pair(
@@ -311,16 +315,18 @@ impl ServiceState for StorageNode {
                     self.n_shards.get(),
                     blob_id,
                 ))
-            })?
-            .unwrap();
-        match sliver {
-            Sliver::Primary(inner) => {
-                let symbol = inner
-                    .recovery_symbol_for_sliver_with_proof(index)
-                    .map_err(|_| RetrieveSymbolError::RecoveryError)?;
-                Ok(symbol)
-            }
-            Sliver::Secondary(_) => Err(RetrieveSymbolError::WrongAxis),
+            })?;
+        match optional_sliver {
+            Some(sliver) => match sliver {
+                Sliver::Primary(inner) => {
+                    let symbol = inner
+                        .recovery_symbol_for_sliver_with_proof(index)
+                        .map_err(|_| RetrieveSymbolError::RecoveryError)?;
+                    Ok(symbol)
+                }
+                Sliver::Secondary(_) => Err(RetrieveSymbolError::WrongAxis),
+            },
+            None => Err(RetrieveSymbolError::UnavailableSliver),
         }
     }
 }
