@@ -26,10 +26,8 @@ use crate::node::{ServiceState, StoreMetadataError, StoreSliverError};
 
 /// The path to get and store blob metadata.
 pub const METADATA_ENDPOINT: &str = "/v1/blobs/:blobId/metadata";
-/// The path to get and store primary slivers.
-pub const PRIMARY_SLIVER_ENDPOINT: &str = "/v1/blobs/:blobId/slivers/:sliverPairIdx/primary";
-/// The path to get and store secondary slivers.
-pub const SECONDARY_SLIVER_ENDPOINT: &str = "/v1/blobs/:blobId/slivers/:sliverPairIdx/secondary";
+/// The path to get and store slivers.
+pub const SLIVER_ENDPOINT: &str = "/v1/blobs/:blobId/slivers/:sliverPairIdx/:sliverType";
 /// The path to get storage confirmations.
 pub const STORAGE_CONFIRMATION_ENDPOINT: &str = "/v1/blobs/:blobId/confirmation";
 
@@ -116,12 +114,8 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
                 get(Self::retrieve_metadata).put(Self::store_metadata),
             )
             .route(
-                PRIMARY_SLIVER_ENDPOINT,
-                get(Self::retrieve_primary_sliver).put(Self::store_primary_sliver),
-            )
-            .route(
-                SECONDARY_SLIVER_ENDPOINT,
-                get(Self::retrieve_secondary_sliver).put(Self::store_secondary_sliver),
+                SLIVER_ENDPOINT,
+                get(Self::retrieve_sliver).put(Self::store_sliver),
             )
             .route(
                 STORAGE_CONFIRMATION_ENDPOINT,
@@ -189,25 +183,9 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
         }
     }
 
-    async fn retrieve_primary_sliver(
-        State(state): State<Arc<S>>,
-        Path((hex_blob_id, sliver_pair_idx)): Path<(HexBlobId, u16)>,
-    ) -> (StatusCode, Json<ServiceResponse<Sliver>>) {
-        Self::retrieve_sliver(state, hex_blob_id, sliver_pair_idx, SliverType::Primary).await
-    }
-
-    async fn retrieve_secondary_sliver(
-        State(state): State<Arc<S>>,
-        Path((hex_blob_id, sliver_pair_idx)): Path<(HexBlobId, u16)>,
-    ) -> (StatusCode, Json<ServiceResponse<Sliver>>) {
-        Self::retrieve_sliver(state, hex_blob_id, sliver_pair_idx, SliverType::Secondary).await
-    }
-
     async fn retrieve_sliver(
-        state: Arc<S>,
-        hex_blob_id: HexBlobId,
-        sliver_pair_idx: u16,
-        sliver_type: SliverType,
+        State(state): State<Arc<S>>,
+        Path((hex_blob_id, sliver_pair_idx, sliver_type)): Path<(HexBlobId, u16, SliverType)>,
     ) -> (StatusCode, Json<ServiceResponse<Sliver>>) {
         let blob_id = hex_blob_id.into();
         match state.retrieve_sliver(&blob_id, sliver_pair_idx, sliver_type) {
@@ -229,42 +207,10 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
         }
     }
 
-    async fn store_primary_sliver(
-        State(state): State<Arc<S>>,
-        Path((hex_blob_id, sliver_pair_idx)): Path<(HexBlobId, u16)>,
-        Json(sliver): Json<Sliver>,
-    ) -> (StatusCode, Json<ServiceResponse<()>>) {
-        Self::store_sliver(
-            state,
-            hex_blob_id,
-            sliver_pair_idx,
-            sliver,
-            SliverType::Primary,
-        )
-        .await
-    }
-
-    async fn store_secondary_sliver(
-        State(state): State<Arc<S>>,
-        Path((hex_blob_id, sliver_pair_idx)): Path<(HexBlobId, u16)>,
-        Json(sliver): Json<Sliver>,
-    ) -> (StatusCode, Json<ServiceResponse<()>>) {
-        Self::store_sliver(
-            state,
-            hex_blob_id,
-            sliver_pair_idx,
-            sliver,
-            SliverType::Secondary,
-        )
-        .await
-    }
-
     async fn store_sliver(
-        state: Arc<S>,
-        hex_blob_id: HexBlobId,
-        sliver_pair_idx: u16,
-        sliver: Sliver,
-        sliver_type: SliverType,
+        State(state): State<Arc<S>>,
+        Path((hex_blob_id, sliver_pair_idx, sliver_type)): Path<(HexBlobId, u16, SliverType)>,
+        Json(sliver): Json<Sliver>,
     ) -> (StatusCode, Json<ServiceResponse<()>>) {
         if sliver.r#type() != sliver_type {
             return ServiceResponse::serialized_error(
@@ -339,7 +285,7 @@ mod test {
             ServiceResponse,
             UserServer,
             METADATA_ENDPOINT,
-            PRIMARY_SLIVER_ENDPOINT,
+            SLIVER_ENDPOINT,
             STORAGE_CONFIRMATION_ENDPOINT,
         },
         test_utils,
@@ -518,9 +464,10 @@ mod test {
 
         let blob_id = walrus_core::test_utils::random_blob_id();
         let sliver_pair_id = 0; // Triggers an valid response
-        let path = PRIMARY_SLIVER_ENDPOINT
+        let path = SLIVER_ENDPOINT
             .replace(":blobId", &blob_id.to_string())
-            .replace(":sliverPairIdx", &sliver_pair_id.to_string());
+            .replace(":sliverPairIdx", &sliver_pair_id.to_string())
+            .replace(":sliverType", "primary");
         let url = format!("http://{}{path}", test_private_parameters.network_address);
 
         let client = reqwest::Client::new();
@@ -553,9 +500,10 @@ mod test {
 
         let blob_id = walrus_core::test_utils::random_blob_id();
         let sliver_pair_id = 0; // Triggers an ok response
-        let path = PRIMARY_SLIVER_ENDPOINT
+        let path = SLIVER_ENDPOINT
             .replace(":blobId", &blob_id.to_string())
-            .replace(":sliverPairIdx", &sliver_pair_id.to_string());
+            .replace(":sliverPairIdx", &sliver_pair_id.to_string())
+            .replace(":sliverType", "primary");
         let url = format!("http://{}{path}", test_private_parameters.network_address);
 
         let client = reqwest::Client::new();
@@ -578,9 +526,10 @@ mod test {
 
         let blob_id = walrus_core::test_utils::random_blob_id();
         let sliver_pair_id = 1; // Triggers an internal server error
-        let path = PRIMARY_SLIVER_ENDPOINT
+        let path = SLIVER_ENDPOINT
             .replace(":blobId", &blob_id.to_string())
-            .replace(":sliverPairIdx", &sliver_pair_id.to_string());
+            .replace(":sliverPairIdx", &sliver_pair_id.to_string())
+            .replace(":sliverType", "primary");
         let url = format!("http://{}{path}", test_private_parameters.network_address);
 
         let client = reqwest::Client::new();

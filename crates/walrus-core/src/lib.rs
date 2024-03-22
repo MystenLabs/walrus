@@ -213,6 +213,7 @@ impl Sliver {
 
 /// A type indicating either a primary or secondary sliver.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum SliverType {
     /// Enum indicating a primary sliver.
     Primary,
