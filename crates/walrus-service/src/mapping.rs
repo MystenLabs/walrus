@@ -110,8 +110,8 @@ pub fn shard_index_for_pair(
 /// * `total_shards` - The total number of shards in the system.
 /// * `blob_id` - The Blob ID that produced the sliver pair. It is interpreted as a big-endian
 /// unsigned integer, and the used to compute the offset for the sliver pair index.
-pub fn pair_index_for_shard(shard_idx: usize, total_shards: usize, blob_id: &BlobId) -> usize {
-    (total_shards - bytes_mod(blob_id.as_ref(), total_shards) + shard_idx) % total_shards
+pub fn pair_index_for_shard(shard_idx: ShardIndex, total_shards: usize, blob_id: &BlobId) -> usize {
+    (total_shards - bytes_mod(blob_id.as_ref(), total_shards) + shard_idx.0 as usize) % total_shards
 }
 
 /// Rotate the input slice in place, based on the rotation specified by the byte array.
@@ -249,7 +249,7 @@ mod tests {
     fn test_pair_index_for_shard(
         total_shards: usize,
         blob_id_value: u64,
-        shard_idx: usize,
+        shard_idx: ShardIndex,
         pair_idx: usize,
     ) {
         let blob_id = test_utils::blob_id_from_u64(blob_id_value);
@@ -261,9 +261,9 @@ mod tests {
 
     param_test! {
             test_pair_index_for_shard: [
-                start: (7, 16, 0, 5),
-                mid: (7, 16, 1, 6),
-                end: (7, 16, 6, 4),
+                start: (7, 16, ShardIndex(0), 5),
+                mid: (7, 16, ShardIndex(1), 6),
+                end: (7, 16, ShardIndex(6), 4),
             ]
     }
 

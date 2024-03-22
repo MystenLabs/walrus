@@ -66,7 +66,7 @@ mod defaults {
 }
 
 /// Represents a storage node identifier.
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct StorageNodeIdentifier {
     /// The public key of the storage node.
     pub public_key: PublicKey,
@@ -75,7 +75,7 @@ pub struct StorageNodeIdentifier {
 }
 
 /// Represents a committee of storage nodes, that is, the Walrus committee.
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Committee {
     /// The members of the committee.
     pub members: Vec<StorageNodeIdentifier>,

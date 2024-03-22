@@ -6,6 +6,7 @@
 
 use anyhow::anyhow;
 use move_core_types::u256::U256;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sui_sdk::rpc_types::{SuiEvent, SuiMoveStruct, SuiMoveValue};
 use sui_types::{base_types::ObjectID, event::EventID};
@@ -144,7 +145,7 @@ impl AssociatedContractStruct for Blob {
 }
 
 /// Sui type for storage node
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct StorageNode {
     /// Name of the storage node
     pub name: String,
@@ -197,7 +198,7 @@ impl AssociatedContractStruct for StorageNode {
 }
 
 /// Sui type for storage committee
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Committee {
     /// The members of the committee
     pub members: Vec<StorageNode>,
@@ -205,6 +206,18 @@ pub struct Committee {
     pub epoch: u64,
     /// The total weight of the committee (number of shards)
     pub total_weight: usize,
+}
+
+impl Committee {
+    /// Returns the number of shards required to reach a quorum (2f+1).
+    pub fn quorum_threshold(&self) -> usize {
+        (self.total_weight * 2 + 2) / 3
+    }
+
+    /// Returns the number of shards required to reach validity (f+1).
+    pub fn validity_threshold(&self) -> usize {
+        (self.total_weight + 2) / 3
+    }
 }
 
 impl TryFrom<&SuiMoveStruct> for Committee {

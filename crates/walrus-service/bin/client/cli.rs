@@ -1,0 +1,79 @@
+// Copyright (c) Mysten Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+use std::{net::SocketAddr, path::PathBuf};
+
+use anyhow::Result;
+use clap::{Parser, Subcommand};
+use serde::{Deserialize, Serialize};
+use walrus_core::{encoding::Primary, BlobId, PublicKey, ShardIndex};
+use walrus_sui::types::Committee;
+
+use super::client::Client;
+
+#[derive(Parser, Debug, Clone)]
+#[clap(rename_all = "kebab-case")]
+#[command(author, version, about = "Walrus client", long_about = None)]
+struct Args {
+    // TODO(giac): this will eventually be pulled from the chain.
+    /// The configuration file with the committee information.
+    #[clap(short, long, default_value = "config.yml")]
+    config: PathBuf,
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+#[clap(rename_all = "kebab-case")]
+enum Commands {
+    /// Store a new blob into Walrus. At the moment, the client does not interact with the chain;
+    /// therefore, this command only works with storage nodes that blindly accept blobs.
+    Store {
+        /// The file containing the blob to be published to Walrus.
+        file: PathBuf,
+    },
+    /// Read a blob from Walrus, given the blob ID.
+    Read {
+        /// The blob ID to be read.
+        blob_id: BlobId,
+        /// The file path where to write the blob.
+        out: PathBuf,
+        /// Skip the verification of the blob ID once the blob has been recovered.
+        #[clap(short, long, action)]
+        no_verify: bool,
+    },
+}
+
+/// Temporary config for the client
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Config {
+    pub committee: Committee,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NodeConfig {
+    pub public_key: PublicKey,
+    pub address: SocketAddr,
+    pub shards: Vec<ShardIndex>,
+}
+
+pub async fn main() -> Result<()> {
+    let args = Args::parse();
+    let client = Client::new(serde_yaml::from_str(&std::fs::read_to_string(
+        args.config,
+    )?)?);
+    match args.command {
+        Commands::Store { file } => {
+            client.store_blob(std::fs::read(file)?).await?;
+            Ok(())
+        }
+        Commands::Read {
+            blob_id,
+            out,
+            no_verify: _,
+        } => {
+            let blob = client.read_blob::<Primary>(&blob_id).await?;
+            Ok(std::fs::write(out, blob)?)
+        }
+    }
+}
