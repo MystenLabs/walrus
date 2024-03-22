@@ -14,14 +14,19 @@ use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Options, DB};
 use serde::{Deserialize, Serialize};
 use typed_store::{
     rocks::{self, DBMap, MetricConf, ReadWriteOptions, RocksDB},
-    Map, TypedStoreError,
+    Map,
+    TypedStoreError,
 };
 use walrus_core::{
     merkle::Node as MerkleNode,
     metadata::{
-        BlobMetadata, BlobMetadataWithId, UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId,
+        BlobMetadata,
+        BlobMetadataWithId,
+        UnverifiedBlobMetadataWithId,
+        VerifiedBlobMetadataWithId,
     },
-    BlobId, ShardIndex,
+    BlobId,
+    ShardIndex,
 };
 
 use self::shard::ShardStorage;
@@ -163,7 +168,10 @@ pub(crate) mod tests {
     use walrus_core::{
         encoding::{EncodingAxis, Primary, Secondary, Sliver as TypedSliver},
         metadata::SliverPairMetadata,
-        test_utils, EncodingType, Sliver, SliverType,
+        test_utils,
+        EncodingType,
+        Sliver,
+        SliverType,
     };
     use walrus_test_utils::{param_test, Result as TestResult, WithTempDir};
 

@@ -14,7 +14,9 @@ use walrus_core::{BlobId, EncodingType};
 use crate::{
     contracts::{self, AssociatedContractStruct, StructTag},
     utils::{
-        blob_id_from_u256, get_dynamic_field, sui_move_convert_numeric_vec,
+        blob_id_from_u256,
+        get_dynamic_field,
+        sui_move_convert_numeric_vec,
         sui_move_convert_struct_vec,
     },
 };

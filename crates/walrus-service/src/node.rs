@@ -12,7 +12,11 @@ use walrus_core::{
     merkle::{MerkleProof, DIGEST_LEN},
     messages::{Confirmation, SignedStorageConfirmation, StorageConfirmation},
     metadata::{UnverifiedBlobMetadataWithId, VerificationError},
-    BlobId, Epoch, ShardIndex, Sliver, SliverType,
+    BlobId,
+    Epoch,
+    ShardIndex,
+    Sliver,
+    SliverType,
 };
 
 use crate::{mapping::shard_index_for_pair, storage::Storage};
@@ -355,7 +359,11 @@ mod tests {
 
     use super::*;
     use crate::storage::tests::{
-        populated_storage, WhichSlivers, BLOB_ID, OTHER_SHARD_INDEX, SHARD_INDEX,
+        populated_storage,
+        WhichSlivers,
+        BLOB_ID,
+        OTHER_SHARD_INDEX,
+        SHARD_INDEX,
     };
 
     const OTHER_BLOB_ID: BlobId = BlobId([247; 32]);

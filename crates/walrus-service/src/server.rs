@@ -7,7 +7,8 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     routing::get,
-    Json, Router,
+    Json,
+    Router,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
@@ -17,7 +18,9 @@ use walrus_core::{
     merkle::MerkleProof,
     messages::StorageConfirmation,
     metadata::{BlobMetadata, UnverifiedBlobMetadataWithId},
-    BlobId, Sliver, SliverType,
+    BlobId,
+    Sliver,
+    SliverType,
 };
 
 use crate::node::{ServiceState, StoreMetadataError, StoreSliverError};
@@ -462,16 +465,24 @@ mod test {
         merkle::{MerkleProof, DIGEST_LEN},
         messages::StorageConfirmation,
         metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
-        BlobId, Sliver, SliverType,
+        BlobId,
+        Sliver,
+        SliverType,
     };
 
     use crate::{
         node::{
-            RetrieveSliverError, RetrieveSymbolError, ServiceState, StoreMetadataError,
+            RetrieveSliverError,
+            RetrieveSymbolError,
+            ServiceState,
+            StoreMetadataError,
             StoreSliverError,
         },
         server::{
-            ServiceResponse, UserServer, METADATA_ENDPOINT, PRIMARY_SLIVER_ENDPOINT,
+            ServiceResponse,
+            UserServer,
+            METADATA_ENDPOINT,
+            PRIMARY_SLIVER_ENDPOINT,
             STORAGE_CONFIRMATION_ENDPOINT,
         },
         test_utils,
