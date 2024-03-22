@@ -736,9 +736,32 @@ dependencies = [
  "hyper 0.14.28",
  "pin-project-lite",
  "rustls 0.21.10",
- "rustls-pemfile",
+ "rustls-pemfile 1.0.4",
  "tokio",
  "tokio-rustls 0.24.1",
+ "tower-service",
+]
+
+[[package]]
+name = "axum-server"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c1ad46c3ec4e12f4a4b6835e173ba21c25e484c9d02b49770bf006ce5367c036"
+dependencies = [
+ "arc-swap",
+ "bytes",
+ "futures-util",
+ "http 1.1.0",
+ "http-body 1.0.0",
+ "http-body-util",
+ "hyper 1.2.0",
+ "hyper-util",
+ "pin-project-lite",
+ "rustls 0.21.10",
+ "rustls-pemfile 2.1.1",
+ "tokio",
+ "tokio-rustls 0.24.1",
+ "tower",
  "tower-service",
 ]
 
@@ -2561,7 +2584,7 @@ dependencies = [
  "num-bigint 0.4.4",
  "once_cell",
  "regex",
- "reqwest",
+ "reqwest 0.11.27",
  "rustls-webpki",
  "schemars",
  "serde",
@@ -3254,6 +3277,7 @@ dependencies = [
  "pin-project-lite",
  "smallvec",
  "tokio",
+ "want",
 ]
 
 [[package]]
@@ -3302,15 +3326,18 @@ dependencies = [
 
 [[package]]
 name = "hyper-tls"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6183ddfa99b85da61a140bea0efc93fdf56ceaa041b37d553518030827f9905"
+checksum = "70206fc6890eaca9fde8a0bf71caa2ddfc9fe045ac9e5c70df101a7dbde866e0"
 dependencies = [
  "bytes",
- "hyper 0.14.28",
+ "http-body-util",
+ "hyper 1.2.0",
+ "hyper-util",
  "native-tls",
  "tokio",
  "tokio-native-tls",
+ "tower-service",
 ]
 
 [[package]]
@@ -3320,6 +3347,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ca38ef113da30126bbff9cd1705f9273e15d45498615d138b0c20279ac7a76aa"
 dependencies = [
  "bytes",
+ "futures-channel",
  "futures-util",
  "http 1.1.0",
  "http-body 1.0.0",
@@ -3327,6 +3355,9 @@ dependencies = [
  "pin-project-lite",
  "socket2 0.5.6",
  "tokio",
+ "tower",
+ "tower-service",
+ "tracing",
 ]
 
 [[package]]
@@ -4910,7 +4941,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "axum 0.6.20",
- "axum-server",
+ "axum-server 0.5.1",
  "backoff",
  "bytes",
  "dashmap",
@@ -4956,7 +4987,7 @@ dependencies = [
  "narwhal-worker",
  "prometheus",
  "rand 0.8.5",
- "reqwest",
+ "reqwest 0.11.27",
  "sui-keys",
  "sui-protocol-config",
  "sui-types",
@@ -5401,9 +5432,9 @@ dependencies = [
  "percent-encoding",
  "quick-xml",
  "rand 0.8.5",
- "reqwest",
+ "reqwest 0.11.27",
  "ring 0.16.20",
- "rustls-pemfile",
+ "rustls-pemfile 1.0.4",
  "serde",
  "serde_json",
  "snafu",
@@ -6708,24 +6739,21 @@ dependencies = [
  "http-body 0.4.6",
  "hyper 0.14.28",
  "hyper-rustls 0.24.2",
- "hyper-tls",
  "ipnet",
  "js-sys",
  "log",
  "mime",
- "native-tls",
  "once_cell",
  "percent-encoding",
  "pin-project-lite",
  "rustls 0.21.10",
- "rustls-pemfile",
+ "rustls-pemfile 1.0.4",
  "serde",
  "serde_json",
  "serde_urlencoded",
  "sync_wrapper",
  "system-configuration",
  "tokio",
- "tokio-native-tls",
  "tokio-rustls 0.24.1",
  "tokio-util 0.7.10 (registry+https://github.com/rust-lang/crates.io-index)",
  "tower-service",
@@ -6735,6 +6763,48 @@ dependencies = [
  "wasm-streams",
  "web-sys",
  "webpki-roots 0.25.4",
+ "winreg",
+]
+
+[[package]]
+name = "reqwest"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e333b1eb9fe677f6893a9efcb0d277a2d3edd83f358a236b657c32301dc6e5f6"
+dependencies = [
+ "base64 0.21.7",
+ "bytes",
+ "encoding_rs",
+ "futures-core",
+ "futures-util",
+ "h2 0.4.3",
+ "http 1.1.0",
+ "http-body 1.0.0",
+ "http-body-util",
+ "hyper 1.2.0",
+ "hyper-tls",
+ "hyper-util",
+ "ipnet",
+ "js-sys",
+ "log",
+ "mime",
+ "native-tls",
+ "once_cell",
+ "percent-encoding",
+ "pin-project-lite",
+ "rustls-pemfile 1.0.4",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+ "sync_wrapper",
+ "system-configuration",
+ "tokio",
+ "tokio-native-tls",
+ "tower-service",
+ "url",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
  "winreg",
 ]
 
@@ -6919,7 +6989,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a9aace74cb666635c918e9c12bc0d348266037aa8eb599b5cba565709a8dff00"
 dependencies = [
  "openssl-probe",
- "rustls-pemfile",
+ "rustls-pemfile 1.0.4",
  "schannel",
  "security-framework",
 ]
@@ -6932,6 +7002,22 @@ checksum = "1c74cae0a4cf6ccbbf5f359f08efdf8ee7e1dc532573bf0db71968cb56b1448c"
 dependencies = [
  "base64 0.21.7",
 ]
+
+[[package]]
+name = "rustls-pemfile"
+version = "2.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f48172685e6ff52a556baa527774f61fcaa884f59daf3375c62a3f1cd2549dab"
+dependencies = [
+ "base64 0.21.7",
+ "rustls-pki-types",
+]
+
+[[package]]
+name = "rustls-pki-types"
+version = "1.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5ede67b28608b4c60685c7d54122d4400d90f62b40caee7700e700380a390fa8"
 
 [[package]]
 name = "rustls-webpki"
@@ -7785,7 +7871,7 @@ dependencies = [
  "once_cell",
  "prometheus",
  "rand 0.8.5",
- "reqwest",
+ "reqwest 0.11.27",
  "serde",
  "serde_with",
  "serde_yaml 0.8.26",
@@ -8264,7 +8350,7 @@ dependencies = [
  "narwhal-network",
  "narwhal-worker",
  "prometheus",
- "reqwest",
+ "reqwest 0.11.27",
  "serde",
  "snap",
  "sui-archival",
@@ -8363,7 +8449,7 @@ dependencies = [
  "fastcrypto 0.1.7 (git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b860d9dd152abb7f2156275698ee91126)",
  "mime",
  "rand 0.8.5",
- "reqwest",
+ "reqwest 0.11.27",
  "serde",
  "serde_json",
  "serde_with",
@@ -8387,7 +8473,7 @@ dependencies = [
  "futures-core",
  "jsonrpsee",
  "move-core-types",
- "reqwest",
+ "reqwest 0.11.27",
  "serde",
  "serde_json",
  "serde_with",
@@ -8488,7 +8574,7 @@ dependencies = [
  "parking_lot 0.12.1",
  "percent-encoding",
  "prometheus",
- "reqwest",
+ "reqwest 0.11.27",
  "rocksdb",
  "serde",
  "serde_json",
@@ -8564,7 +8650,7 @@ name = "sui-telemetry"
 version = "0.1.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a54804862e3e53389d918c5c9b0993ce"
 dependencies = [
- "reqwest",
+ "reqwest 0.11.27",
  "serde",
  "sui-core",
  "tracing",
@@ -8591,12 +8677,12 @@ source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.20.0#8ea60086a548
 dependencies = [
  "anyhow",
  "axum 0.6.20",
- "axum-server",
+ "axum-server 0.5.1",
  "ed25519",
  "fastcrypto 0.1.7 (git+https://github.com/MystenLabs/fastcrypto?rev=ea66012b860d9dd152abb7f2156275698ee91126)",
  "pkcs8 0.9.0",
  "rcgen",
- "reqwest",
+ "reqwest 0.11.27",
  "rustls 0.21.10",
  "rustls-webpki",
  "tokio",
@@ -9275,7 +9361,7 @@ dependencies = [
  "pin-project",
  "prost 0.12.3",
  "rustls 0.21.10",
- "rustls-pemfile",
+ "rustls-pemfile 1.0.4",
  "tokio",
  "tokio-rustls 0.24.1",
  "tokio-stream",
@@ -9870,6 +9956,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum 0.7.4",
+ "axum-server 0.6.0",
  "bcs",
  "clap",
  "fastcrypto 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -9878,7 +9965,7 @@ dependencies = [
  "prometheus",
  "rand 0.8.5",
  "regex",
- "reqwest",
+ "reqwest 0.12.1",
  "rocksdb",
  "serde",
  "serde_yaml 0.9.33",

@@ -10,6 +10,7 @@ use axum::{
     Json,
     Router,
 };
+use axum_server::tls_rustls::RustlsConfig;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 use tower_http::trace::TraceLayer;
@@ -85,6 +86,7 @@ impl<T: Serialize> ServiceResponse<T> {
 pub struct UserServer<S> {
     state: Arc<S>,
     cancel_token: CancellationToken,
+    tls_config: Option<RustlsConfig>,
 }
 
 impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
@@ -93,7 +95,14 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
         Self {
             state,
             cancel_token,
+            tls_config: None,
         }
+    }
+
+    /// Upgrades the server to use TLS.
+    pub fn upgrade_to_tls(mut self, tls_config: RustlsConfig) -> Self {
+        self.tls_config = Some(tls_config);
+        self
     }
 
     /// Creates a new user server.
@@ -118,10 +127,21 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             .with_state(self.state.clone())
             .layer(TraceLayer::new_for_http());
 
-        let listener = tokio::net::TcpListener::bind(network_address).await?;
-        axum::serve(listener, app)
-            .with_graceful_shutdown(self.cancel_token.cancelled_owned())
-            .await
+        match self.tls_config {
+            Some(config) => {
+                tracing::info!("HTTPS server starting on {network_address:?}");
+                axum_server::bind_rustls(*network_address, config)
+                    .serve(app.into_make_service())
+                    .await
+            }
+            None => {
+                tracing::info!("HTTP server starting on {network_address:?}");
+                let listener = tokio::net::TcpListener::bind(network_address).await?;
+                axum::serve(listener, app)
+                    .with_graceful_shutdown(self.cancel_token.cancelled_owned())
+                    .await
+            }
+        }
     }
 
     async fn retrieve_metadata(
@@ -334,9 +354,10 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
+    use std::{path::PathBuf, sync::Arc};
 
     use anyhow::anyhow;
+    use axum_server::tls_rustls::RustlsConfig;
     use reqwest::StatusCode;
     use tokio_util::sync::CancellationToken;
     use walrus_core::{
@@ -688,5 +709,34 @@ mod test {
 
         cancel_token.cancel();
         handle.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn https_server() {
+        let config = RustlsConfig::from_pem_file(
+            PathBuf::from("assets/").join("test_tls_cert.pem"),
+            PathBuf::from("assets/").join("test_tls_key.pem"),
+        )
+        .await
+        .unwrap();
+        let server = UserServer::new(Arc::new(MockServiceState), CancellationToken::new())
+            .upgrade_to_tls(config);
+        let test_private_parameters = test_utils::storage_node_private_parameters();
+        let _handle = tokio::spawn(async move {
+            let network_address = test_private_parameters.network_address;
+            server.run(&network_address).await
+        });
+
+        tokio::task::yield_now().await;
+
+        // Make a simple request to the server
+        let mut blob_id = walrus_core::test_utils::random_blob_id();
+        blob_id.0[0] = 0; // Triggers a valid response
+        let path = METADATA_ENDPOINT.replace(":blobId", &blob_id.to_string());
+        let url = format!("https://{}{path}", test_private_parameters.network_address);
+
+        let client = reqwest::Client::new();
+        let res = client.get(url).json(&blob_id).send().await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
     }
 }
