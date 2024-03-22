@@ -21,7 +21,7 @@ use walrus_core::{
     SliverType,
 };
 
-use crate::{config::NodeConfig, mapping::shard_index_for_pair, storage::Storage};
+use crate::{config::StorageNodeConfig, mapping::shard_index_for_pair, storage::Storage};
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreMetadataError {
@@ -106,7 +106,10 @@ pub struct StorageNode {
 
 impl StorageNode {
     /// Create a new storage node with the provided configuration.
-    pub fn new(config: &NodeConfig, registry_service: RegistryService) -> anyhow::Result<Self> {
+    pub fn new(
+        config: &StorageNodeConfig,
+        registry_service: RegistryService,
+    ) -> anyhow::Result<Self> {
         DBMetrics::init(&registry_service.default_registry());
         let storage = Storage::open(config.storage_path.as_path(), MetricConf::new("storage"))?;
 
