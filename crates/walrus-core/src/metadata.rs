@@ -41,7 +41,7 @@ pub type VerifiedBlobMetadataWithId = BlobMetadataWithId<true>;
 pub type UnverifiedBlobMetadataWithId = BlobMetadataWithId<false>;
 
 /// Represents the index of a sliver pair.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(transparent)]
 pub struct SliverPairIndex(pub u16);
 
