@@ -4,7 +4,7 @@
 //! The mapping between the encoded sliver pairs and shards.
 
 use thiserror::Error;
-use walrus_core::{encoding::SliverPair, BlobId, ShardIndex};
+use walrus_core::{encoding::SliverPair, metadata::SliverPairIndex, BlobId, ShardIndex};
 
 /// Errors returned if the slice of sliver pairs has already been shuffled in a way that is
 /// inconsistent with the provided blob id.
@@ -94,7 +94,11 @@ fn is_rotation(pairs: &[SliverPair]) -> bool {
 ///
 /// # Panics
 /// Panic if the total number of shards is greater than `u16::MAX`.
-pub fn shard_index_for_pair(pair_idx: u16, total_shards: usize, blob_id: &BlobId) -> ShardIndex {
+pub fn shard_index_for_pair(
+    pair_idx: SliverPairIndex,
+    total_shards: usize,
+    blob_id: &BlobId,
+) -> ShardIndex {
     let index = (bytes_mod(blob_id.as_ref(), total_shards) + pair_idx as usize) % total_shards;
     ShardIndex(index as u16)
 }
@@ -224,7 +228,7 @@ mod tests {
     fn test_shard_index_for_pair(
         total_shards: usize,
         blob_id_value: u64,
-        pair_idx: u16,
+        pair_idx: SliverPairIndex,
         shard_idx: ShardIndex,
     ) {
         let blob_id = test_utils::blob_id_from_u64(blob_id_value);

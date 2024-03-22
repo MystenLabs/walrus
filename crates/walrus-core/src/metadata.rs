@@ -37,6 +37,9 @@ pub type VerifiedBlobMetadataWithId = BlobMetadataWithId<true>;
 /// type of [`BlobMetadataWithId`].
 pub type UnverifiedBlobMetadataWithId = BlobMetadataWithId<false>;
 
+/// Represents the index of a sliver pair.
+pub type SliverPairIndex = u16;
+
 /// Metadata associated with a blob.
 ///
 /// Stores the [`BlobId`] as well as additional details such as the encoding type,

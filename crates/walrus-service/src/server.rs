@@ -15,7 +15,7 @@ use tokio_util::sync::CancellationToken;
 use tower_http::trace::TraceLayer;
 use walrus_core::{
     messages::StorageConfirmation,
-    metadata::{BlobMetadata, UnverifiedBlobMetadataWithId},
+    metadata::{BlobMetadata, SliverPairIndex, UnverifiedBlobMetadataWithId},
     BlobId,
     Sliver,
     SliverType,
@@ -187,14 +187,14 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn retrieve_primary_sliver(
         State(state): State<Arc<S>>,
-        Path((encoded_blob_id, sliver_pair_idx)): Path<(String, u16)>,
+        Path((encoded_blob_id, sliver_pair_idx)): Path<(String, SliverPairIndex)>,
     ) -> (StatusCode, Json<ServiceResponse<Sliver>>) {
         Self::retrieve_sliver(state, encoded_blob_id, sliver_pair_idx, SliverType::Primary).await
     }
 
     async fn retrieve_secondary_sliver(
         State(state): State<Arc<S>>,
-        Path((encoded_blob_id, sliver_pair_idx)): Path<(String, u16)>,
+        Path((encoded_blob_id, sliver_pair_idx)): Path<(String, SliverPairIndex)>,
     ) -> (StatusCode, Json<ServiceResponse<Sliver>>) {
         Self::retrieve_sliver(
             state,
@@ -208,7 +208,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
     async fn retrieve_sliver(
         state: Arc<S>,
         encoded_blob_id: String,
-        sliver_pair_idx: u16,
+        sliver_pair_idx: SliverPairIndex,
         sliver_type: SliverType,
     ) -> (StatusCode, Json<ServiceResponse<Sliver>>) {
         let Ok(blob_id) = BlobId::from_str(&encoded_blob_id) else {
@@ -237,7 +237,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn store_primary_sliver(
         State(state): State<Arc<S>>,
-        Path((encoded_blob_id, sliver_pair_idx)): Path<(String, u16)>,
+        Path((encoded_blob_id, sliver_pair_idx)): Path<(String, SliverPairIndex)>,
         Json(sliver): Json<Sliver>,
     ) -> (StatusCode, Json<ServiceResponse<()>>) {
         Self::store_sliver(
@@ -252,7 +252,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn store_secondary_sliver(
         State(state): State<Arc<S>>,
-        Path((encoded_blob_id, sliver_pair_idx)): Path<(String, u16)>,
+        Path((encoded_blob_id, sliver_pair_idx)): Path<(String, SliverPairIndex)>,
         Json(sliver): Json<Sliver>,
     ) -> (StatusCode, Json<ServiceResponse<()>>) {
         Self::store_sliver(
@@ -268,7 +268,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
     async fn store_sliver(
         state: Arc<S>,
         encoded_blob_id: String,
-        sliver_pair_idx: u16,
+        sliver_pair_idx: SliverPairIndex,
         sliver: Sliver,
         sliver_type: SliverType,
     ) -> (StatusCode, Json<ServiceResponse<()>>) {
@@ -341,7 +341,7 @@ mod test {
     use tokio_util::sync::CancellationToken;
     use walrus_core::{
         messages::StorageConfirmation,
-        metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
+        metadata::{SliverPairIndex, UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
         BlobId,
         Sliver,
         SliverType,
@@ -387,7 +387,7 @@ mod test {
         fn retrieve_sliver(
             &self,
             _blob_id: &BlobId,
-            _sliver_pair_idx: u16,
+            _sliver_pair_idx: SliverPairIndex,
             _sliver_type: SliverType,
         ) -> Result<Option<Sliver>, RetrieveSliverError> {
             Ok(Some(walrus_core::test_utils::sliver()))
@@ -396,7 +396,7 @@ mod test {
         fn store_sliver(
             &self,
             _blob_id: &BlobId,
-            sliver_pair_idx: u16,
+            sliver_pair_idx: SliverPairIndex,
             _sliver: &Sliver,
         ) -> Result<(), StoreSliverError> {
             if sliver_pair_idx == 0 {
