@@ -110,7 +110,7 @@ pub trait ServiceState {
         blob_id: &BlobId,
     ) -> impl Future<Output = Result<Option<StorageConfirmation>, anyhow::Error>> + Send;
 
-    /// Retrieves a recovery symbol for getting a primary sliver for a shard held by this storage node.
+    /// Retrieves a recovery symbol for a primary sliver for a shard held by this storage node.
     fn retrieve_recovery_symbol_primary<U>(
         &self,
         blob_id: &BlobId,
@@ -119,7 +119,7 @@ pub trait ServiceState {
     ) -> Result<DecodingSymbol<walrus_core::encoding::Primary, MerkleProof<U>>, RetrieveSymbolError>
     where
         U: HashFunction<DIGEST_LEN>;
-    /// Retrieves a recovery symbol for getting a secondary sliver for a shard held by this storage node.
+    /// Retrieves a recovery symbol for a secondary sliver for a shard held by this storage node.
     fn retrieve_recovery_symbol_secondary<U>(
         &self,
         blob_id: &BlobId,

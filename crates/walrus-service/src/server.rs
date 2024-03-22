@@ -272,20 +272,16 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
                             Ok(symbol) => {
                                 ServiceResponse::serialized_success(StatusCode::OK, symbol)
                             }
-                            Err(_) => {
-                                ServiceResponse::serialized_error(
-                                    StatusCode::INTERNAL_SERVER_ERROR,
-                                    "Internal error in recovery symbol"
-                                )
-                            }
+                            Err(_) => ServiceResponse::serialized_error(
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                "Internal error in recovery symbol",
+                            ),
                         }
                     }
-                    Sliver::Primary(_) => {
-                        ServiceResponse::serialized_error(
-                            StatusCode::BAD_REQUEST,
-                            "Sliver recovered is not Secondary, you cannot recover Primary with Primary"
-                        )
-                    }
+                    Sliver::Primary(_) => ServiceResponse::serialized_error(
+                        StatusCode::BAD_REQUEST,
+                        "Sliver recovered is not Secondary",
+                    ),
                 }
             }
             Ok(None) => {
@@ -323,20 +319,16 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
                             Ok(symbol) => {
                                 ServiceResponse::serialized_success(StatusCode::OK, symbol)
                             }
-                            Err(_) => {
-                                ServiceResponse::serialized_error(
-                                    StatusCode::INTERNAL_SERVER_ERROR,
-                                    "Internal error in recovery symbol"
-                                )
-                            }
+                            Err(_) => ServiceResponse::serialized_error(
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                "Internal error in recovery symbol",
+                            ),
                         }
                     }
-                    Sliver::Secondary(_) => {
-                        ServiceResponse::serialized_error(
-                            StatusCode::BAD_REQUEST,
-                            "Sliver recovered is not Primary, you cannot recover Secondary with Secondary"
-                        )
-                    }
+                    Sliver::Secondary(_) => ServiceResponse::serialized_error(
+                        StatusCode::BAD_REQUEST,
+                        "Sliver recovered is not Primary",
+                    ),
                 }
             }
             Ok(None) => {
