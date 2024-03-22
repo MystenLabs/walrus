@@ -9877,6 +9877,7 @@ dependencies = [
  "mysten-metrics",
  "prometheus",
  "rand 0.8.5",
+ "regex",
  "reqwest",
  "rocksdb",
  "serde",

@@ -24,8 +24,6 @@ test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.20
 thiserror = "1.0.57"
 typed-store = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.20.0" }
 walrus-core = { path = "crates/walrus-core" }
-walrus-service = { path = "crates/walrus-service" }
-walrus-sui = { path = "crates/walrus-sui" }
 walrus-test-utils = { path = "crates/walrus-test-utils" }
 
 [workspace.lints.rust]

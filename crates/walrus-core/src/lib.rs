@@ -151,6 +151,12 @@ impl FromStr for BlobId {
 #[repr(transparent)]
 pub struct ShardIndex(pub u16);
 
+impl Display for ShardIndex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "shard-{}", self.0)
+    }
+}
+
 /// A sliver of an erasure-encoded blob.
 ///
 /// Can be either a [`PrimarySliver`] or [`SecondarySliver`].

@@ -3,8 +3,14 @@
 
 //! Walrus shard storage.
 //!
-use std::{borrow::Borrow, sync::Arc};
+use std::{
+    borrow::Borrow,
+    collections::HashSet,
+    path::Path,
+    sync::{Arc, OnceLock},
+};
 
+use regex::Regex;
 use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, MergeOperands, Options, DB};
 use serde::{Deserialize, Serialize};
 use typed_store::{
@@ -126,13 +132,36 @@ impl ShardStorage {
             && self.secondary_slivers.contains_key(&blob_id.into())?)
     }
 
-    fn slivers_column_family_options(id: ShardIndex) -> (String, Options) {
+    /// Returns the name and options for the column family for a shard with the specified index.
+    pub(crate) fn slivers_column_family_options(id: ShardIndex) -> (String, Options) {
         // TODO(jsmith): Optimize for sliver storage (#65).
         let mut options = Options::default();
         options.set_enable_blob_files(true);
 
         (slivers_column_family_name(id), options)
     }
+
+    /// Returns the ids of existing shards in the database at the provided path.
+    pub(crate) fn existing_shards(path: &Path, options: &Options) -> HashSet<ShardIndex> {
+        DB::list_cf(options, path)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|cf_name| id_from_column_family_name(&cf_name))
+            .collect()
+    }
+}
+
+fn id_from_column_family_name(name: &str) -> Option<ShardIndex> {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"^shard-(\d+)/slivers$").expect("valid static regex"))
+        .captures(name)
+        .and_then(|captures| {
+            let Ok(id) = captures.get(1)?.as_str().parse() else {
+                tracing::warn!(%name, "ignoring shard-like column family with an ID out of range");
+                return None;
+            };
+            Some(ShardIndex(id))
+        })
 }
 
 #[inline]
