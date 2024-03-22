@@ -7,7 +7,8 @@ use serde::{de::Error as _, Deserialize, Serialize};
 use super::Intent;
 use crate::{
     messages::{IntentAppId, IntentType, IntentVersion},
-    BlobId, Epoch,
+    BlobId,
+    Epoch,
 };
 
 /// Confirmation from a storage node that it has stored the sliver pairs for a given blob.
@@ -97,7 +98,7 @@ mod tests {
             [
                 IntentType::BLOB_CERT_MSG.0,
                 IntentVersion::default().0,
-                IntentAppId::STORAGE.0,
+                IntentAppId::STORAGE.0
             ]
         );
         assert_eq!(encoded[3..11], EPOCH.to_le_bytes());
