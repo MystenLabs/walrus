@@ -12,7 +12,7 @@ use walrus_core::{
     encoding::{get_encoding_config, Primary, RecoveryError, Secondary},
     ensure,
     messages::{Confirmation, SignedStorageConfirmation, StorageConfirmation},
-    metadata::{UnverifiedBlobMetadataWithId, VerificationError},
+    metadata::{SliverPairIndex, UnverifiedBlobMetadataWithId, VerificationError},
     BlobId,
     Epoch,
     KeyPair,
@@ -43,10 +43,10 @@ pub enum RetrieveSliverError {
 pub enum StoreSliverError {
     #[error("Missing metadata for {0:?}")]
     MissingMetadata(BlobId),
-    #[error("Invalid sliver pair id {0} for {1:?}")]
-    InvalidSliverPairId(u16, BlobId),
-    #[error("Invalid sliver id {0} for {1:?}")]
-    InvalidSliver(u16, BlobId),
+    #[error("Invalid {0} for {1:?}")]
+    InvalidSliverPairId(SliverPairIndex, BlobId),
+    #[error("Invalid {0} for {1:?}")]
+    InvalidSliver(SliverPairIndex, BlobId),
     #[error("Invalid sliver size {0} for {1:?}")]
     IncorrectSize(usize, BlobId),
     #[error("Invalid shard type {0:?} for {1:?}")]
@@ -76,7 +76,7 @@ pub trait ServiceState {
     fn retrieve_sliver(
         &self,
         blob_id: &BlobId,
-        sliver_pair_idx: u16,
+        sliver_pair_idx: SliverPairIndex,
         sliver_type: SliverType,
     ) -> Result<Option<Sliver>, RetrieveSliverError>;
 
@@ -84,7 +84,7 @@ pub trait ServiceState {
     fn store_sliver(
         &self,
         blob_id: &BlobId,
-        sliver_pair_idx: u16,
+        sliver_pair_idx: SliverPairIndex,
         sliver: &Sliver,
     ) -> Result<(), StoreSliverError>;
 
@@ -166,7 +166,7 @@ impl ServiceState for WalrusStorageNode {
     fn retrieve_sliver(
         &self,
         blob_id: &BlobId,
-        sliver_pair_idx: u16,
+        sliver_pair_idx: SliverPairIndex,
         sliver_type: SliverType,
     ) -> Result<Option<Sliver>, RetrieveSliverError> {
         let shard = shard_index_for_pair(sliver_pair_idx, self.n_shards.get(), blob_id);
@@ -182,7 +182,7 @@ impl ServiceState for WalrusStorageNode {
     fn store_sliver(
         &self,
         blob_id: &BlobId,
-        sliver_pair_idx: u16,
+        sliver_pair_idx: SliverPairIndex,
         sliver: &Sliver,
     ) -> Result<(), StoreSliverError> {
         // First determine if the shard that should store this sliver is managed by this node.

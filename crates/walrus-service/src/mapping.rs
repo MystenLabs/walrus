@@ -99,7 +99,7 @@ pub fn shard_index_for_pair(
     total_shards: usize,
     blob_id: &BlobId,
 ) -> ShardIndex {
-    let index = (bytes_mod(blob_id.as_ref(), total_shards) + pair_idx as usize) % total_shards;
+    let index = (bytes_mod(blob_id.as_ref(), total_shards) + pair_idx.as_usize()) % total_shards;
     ShardIndex(index as u16)
 }
 
@@ -240,9 +240,9 @@ mod tests {
 
     param_test! {
         test_shard_index_for_pair: [
-                start: (7, 15, 0, ShardIndex(1)),
-                mid: (7, 15, 5, ShardIndex(6)),
-                end: (7, 15, 6, ShardIndex(0)),
+                start: (7, 15, SliverPairIndex(0), ShardIndex(1)),
+                mid: (7, 15, SliverPairIndex(5), ShardIndex(6)),
+                end: (7, 15, SliverPairIndex(6), ShardIndex(0)),
             ]
     }
 

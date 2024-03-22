@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Metadata associated with a Blob and stored by storage nodes.
-use std::num::NonZeroUsize;
+use std::{
+    fmt::{self, Display},
+    num::NonZeroUsize,
+};
 
 use fastcrypto::hash::HashFunction;
 use serde::{Deserialize, Serialize};
@@ -38,7 +41,22 @@ pub type VerifiedBlobMetadataWithId = BlobMetadataWithId<true>;
 pub type UnverifiedBlobMetadataWithId = BlobMetadataWithId<false>;
 
 /// Represents the index of a sliver pair.
-pub type SliverPairIndex = u16;
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct SliverPairIndex(pub u16);
+
+impl SliverPairIndex {
+    /// Returns the index as a `usize`.
+    pub fn as_usize(&self) -> usize {
+        self.0 as usize
+    }
+}
+
+impl Display for SliverPairIndex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "SliverPair-{}", self.0)
+    }
+}
 
 /// Metadata associated with a blob.
 ///
@@ -155,11 +173,11 @@ impl BlobMetadata {
     /// Return the hash of the sliver pair at the given index and type.
     pub fn get_sliver_hash(
         &self,
-        sliver_pair_idx: u16,
+        sliver_pair_idx: SliverPairIndex,
         sliver_type: SliverType,
     ) -> Option<&MerkleNode> {
         self.hashes
-            .get(sliver_pair_idx as usize)
+            .get(sliver_pair_idx.as_usize())
             .map(|sliver_pair_metadata| match sliver_type {
                 SliverType::Primary => &sliver_pair_metadata.primary_hash,
                 SliverType::Secondary => &sliver_pair_metadata.secondary_hash,

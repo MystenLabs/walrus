@@ -399,7 +399,7 @@ mod test {
             sliver_pair_idx: SliverPairIndex,
             _sliver: &Sliver,
         ) -> Result<(), StoreSliverError> {
-            if sliver_pair_idx == 0 {
+            if sliver_pair_idx.as_usize() == 0 {
                 Ok(())
             } else {
                 Err(StoreSliverError::Internal(anyhow!("Invalid shard")))
