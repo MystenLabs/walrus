@@ -4,7 +4,7 @@
 use std::{future::Future, num::NonZeroUsize, sync::Arc};
 
 use anyhow::Context;
-use fastcrypto::{bls12381::min_pk::BLS12381PrivateKey, hash::HashFunction, traits::Signer};
+use fastcrypto::{hash::HashFunction, traits::Signer};
 use mysten_metrics::RegistryService;
 use tokio_util::sync::CancellationToken;
 use typed_store::{rocks::MetricConf, DBMetrics};
