@@ -90,7 +90,7 @@ pub fn initialize_encoding_config(
             source_symbols_primary,
             source_symbols_secondary,
             n_shards,
-        ));
+        ))
     });
 }
 
@@ -151,7 +151,7 @@ impl EncodingConfig {
         );
         assert!(
             n_shards <= MAX_N_SHARDS,
-            "the number of shards can be at most `MAX_N_SHARDS`"
+            "the number of shards can be at most `MAX_N_SHARDS`",
         );
         assert!(
             3 * (source_symbols_primary as u32) < n_shards,
@@ -197,7 +197,7 @@ impl EncodingConfig {
     /// The maximum size in bytes of data that can be encoded with this encoding.
     #[inline]
     pub fn max_data_size<T: EncodingAxis>(&self) -> usize {
-        (self.n_source_symbols::<T>() as usize) * MAX_SYMBOL_SIZE
+        self.n_source_symbols::<T>() as usize * MAX_SYMBOL_SIZE
     }
 
     /// The maximum size in bytes of a blob that can be encoded.
@@ -213,7 +213,7 @@ impl EncodingConfig {
     /// The number of symbols a blob is split into.
     #[inline]
     pub fn source_symbols_per_blob(&self) -> usize {
-        (self.source_symbols_primary as usize) * (self.source_symbols_secondary as usize)
+        self.source_symbols_primary as usize * self.source_symbols_secondary as usize
     }
 
     /// The symbol size when encoding a blob of size `blob_size`.
@@ -230,8 +230,8 @@ impl EncodingConfig {
     #[inline]
     pub fn sliver_size_for_blob<T: EncodingAxis>(&self, blob_size: usize) -> Option<usize> {
         Some(
-            (self.n_source_symbols::<T::OrthogonalAxis>() as usize)
-                * (self.symbol_size_for_blob(blob_size)? as usize),
+            self.n_source_symbols::<T::OrthogonalAxis>() as usize
+                * self.symbol_size_for_blob(blob_size)? as usize,
         )
     }
 
