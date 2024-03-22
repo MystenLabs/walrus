@@ -116,7 +116,7 @@ pub trait ServiceState {
         blob_id: &BlobId,
         sliver_pair_idx: u16,
         index: u32,
-    ) -> Result<DecodingSymbol<walrus_core::encoding::Primary, MerkleProof<U>>, RetrieveSymbolError>
+    ) -> Result<DecodingSymbol<Primary, MerkleProof<U>>, RetrieveSymbolError>
     where
         U: HashFunction<DIGEST_LEN>;
     /// Retrieves a recovery symbol for a secondary sliver for a shard held by this storage node.
@@ -125,7 +125,7 @@ pub trait ServiceState {
         blob_id: &BlobId,
         sliver_pair_idx: u16,
         index: u32,
-    ) -> Result<DecodingSymbol<walrus_core::encoding::Secondary, MerkleProof<U>>, RetrieveSymbolError>
+    ) -> Result<DecodingSymbol<Secondary, MerkleProof<U>>, RetrieveSymbolError>
     where
         U: HashFunction<DIGEST_LEN>;
 }
