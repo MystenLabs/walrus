@@ -32,9 +32,10 @@ pub const SECONDARY_SLIVER_ENDPOINT: &str = "/v1/blobs/:blobId/slivers/:sliverPa
 pub const STORAGE_CONFIRMATION_ENDPOINT: &str = "/v1/blobs/:blobId/confirmation";
 /// The path to get secondary symbols for primary recovery.
 pub const PRIMARY_RECOVERY_ENDPOINT: &str =
-    "/v1/blobs/:blobId/slivers/:sliverPairIdx/:slivertype/:index";
-// /// The path to get primary symbols for secondary recovery.
-// pub const SECONDARY_RECOVERY_ENDPOINT: &str = "/v1/blobs/:blobId/secondary-recovery";
+    "/v1/blobs/:blobId/slivers/:sliverPairIdx/secondary/:index";
+/// The path to get primary symbols for secondary recovery.
+pub const SECONDARY_RECOVERY_ENDPOINT: &str =
+    "/v1/blobs/:blobId/slivers/:sliverPairIdx/primary/:index";
 
 /// Error message returned by the service.
 #[derive(Serialize, Deserialize)]
@@ -119,13 +120,13 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
                 STORAGE_CONFIRMATION_ENDPOINT,
                 get(Self::retrieve_storage_confirmation),
             )
-            // .route(
-            //     SECONDARY_RECOVERY_ENDPOINT,
-            //     get(Self::retrieve_primary_symbol_for_secondary_recovery),
-            // )
+            .route(
+                SECONDARY_RECOVERY_ENDPOINT,
+                get(Self::retrieve_secondary_symbol_from_primary_sliver),
+            )
             .route(
                 PRIMARY_RECOVERY_ENDPOINT,
-                get(Self::retrieve_secondary_symbol_for_primary_recovery),
+                get(Self::retrieve_primary_symbol_from_secondary_sliver),
             )
             .with_state(self.state.clone())
             .layer(TraceLayer::new_for_http());
@@ -249,14 +250,9 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
         }
     }
 
-    async fn retrieve_secondary_symbol_for_primary_recovery(
+    async fn retrieve_primary_symbol_from_secondary_sliver(
         State(state): State<Arc<S>>,
-        Path((encoded_blob_id, sliver_pair_idx, slivertype, index)): Path<(
-            String,
-            u16,
-            SliverType,
-            u32,
-        )>,
+        Path((encoded_blob_id, sliver_pair_idx, index)): Path<(String, u16, u32)>,
     ) -> (
         StatusCode,
         Json<ServiceResponse<DecodingSymbol<walrus_core::encoding::Primary, MerkleProof>>>,
@@ -266,9 +262,9 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             return ServiceResponse::serialized_error(StatusCode::BAD_REQUEST, "Invalid blob ID");
         };
 
-        match state.retrieve_sliver(&blob_id, sliver_pair_idx, slivertype) {
+        match state.retrieve_sliver(&blob_id, sliver_pair_idx, SliverType::Secondary) {
             Ok(Some(sliver)) => {
-                tracing::debug!("Retrieved {slivertype:?} sliver for {blob_id:?}");
+                tracing::debug!("Retrieved Secondary sliver for {blob_id:?}");
                 match sliver {
                     Sliver::Secondary(inner) => {
                         match inner.recovery_symbol_for_sliver_with_proof(index){
@@ -288,7 +284,54 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
                 }
             }
             Ok(None) => {
-                tracing::debug!("{slivertype:?} sliver not found for {blob_id:?}");
+                tracing::debug!("Secondary sliver not found for {blob_id:?}");
+                ServiceResponse::serialized_not_found()
+            }
+            Err(message) => {
+                tracing::error!("Internal server error: {message}");
+                ServiceResponse::serialized_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal error",
+                )
+            }
+        }
+    }
+
+    async fn retrieve_secondary_symbol_from_primary_sliver(
+        State(state): State<Arc<S>>,
+        Path((encoded_blob_id, sliver_pair_idx, index)): Path<(String, u16, u32)>,
+    ) -> (
+        StatusCode,
+        Json<ServiceResponse<DecodingSymbol<walrus_core::encoding::Secondary, MerkleProof>>>,
+    ) {
+        let Ok(blob_id) = BlobId::from_str(&encoded_blob_id) else {
+            tracing::debug!("Invalid blob ID {encoded_blob_id}");
+            return ServiceResponse::serialized_error(StatusCode::BAD_REQUEST, "Invalid blob ID");
+        };
+
+        match state.retrieve_sliver(&blob_id, sliver_pair_idx, SliverType::Primary) {
+            Ok(Some(sliver)) => {
+                tracing::debug!("Retrieved Primary sliver for {blob_id:?}");
+                match sliver {
+                    Sliver::Primary(inner) => {
+                        match inner.recovery_symbol_for_sliver_with_proof(index){
+                            Ok(symbol) => {
+                                ServiceResponse::serialized_success(StatusCode::OK, symbol)
+                            }
+                            Err(_) => {
+                                ServiceResponse::serialized_error(
+                                    StatusCode::INTERNAL_SERVER_ERROR,
+                                    "Internal error in recovery symbol",
+                                )                            }
+                        }
+                    }
+                    Sliver::Secondary(_) => {
+                        ServiceResponse::serialized_error(StatusCode::BAD_REQUEST, "Sliver recovered is not Primary, you cannot recover Secondary with Secondary")
+                    }
+                }
+            }
+            Ok(None) => {
+                tracing::debug!("Primary sliver not found for {blob_id:?}");
                 ServiceResponse::serialized_not_found()
             }
             Err(message) => {
