@@ -33,7 +33,7 @@ impl Symbols {
     /// `slice.len() % symbol_size != 0` or if `symbol_size == 0`.
     pub fn new(symbols: Vec<u8>, symbol_size: u16) -> Self {
         assert!(
-            symbols.len() % (symbol_size as usize) == 0,
+            symbols.len() % symbol_size as usize == 0,
             "the slice must contain complete symbols"
         );
         Symbols {
@@ -46,7 +46,7 @@ impl Symbols {
     /// rest. If `len` is greater or equal to the [`Symbols`]’ current number of symbols, this has
     /// no effect.
     pub fn truncate(&mut self, len: usize) {
-        self.data.truncate(len * (self.symbol_size as usize));
+        self.data.truncate(len * self.symbol_size as usize);
     }
 
     /// Creates a new `Symbols` struct with zeroed-out data of specified length.
@@ -151,7 +151,7 @@ impl Symbols {
     pub fn to_decoding_symbols<T: EncodingAxis>(
         &self,
     ) -> Option<impl Iterator<Item = DecodingSymbol<T>> + '_> {
-        if self.len() > (u32::MAX as usize) {
+        if self.len() > u32::MAX as usize {
             None
         } else {
             Some(self.to_symbols().enumerate().map(|(i, s)| {
@@ -388,7 +388,7 @@ mod tests {
     }
     fn correct_symbols_new_empty(n_symbols: usize, symbol_size: u16) {
         let symbols = Symbols::zeros(n_symbols, symbol_size);
-        assert_eq!(symbols.data.len(), n_symbols * (symbol_size as usize));
+        assert_eq!(symbols.data.len(), n_symbols * symbol_size as usize);
         assert_eq!(symbols.symbol_size, symbol_size);
     }
 }
