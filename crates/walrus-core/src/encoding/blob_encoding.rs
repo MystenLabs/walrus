@@ -77,7 +77,7 @@ impl<'a> BlobEncoder<'a> {
                 let copy_index_start = cmp::min(r * row_step + c * symbol_usize, blob.len());
                 let copy_index_end = cmp::min(copy_index_start + symbol_usize, blob.len());
                 target_chunk[..copy_index_end - copy_index_start]
-                    .copy_from_slice(&blob[copy_index_start..copy_index_end]);
+                    .copy_from_slice(&blob[copy_index_start..copy_index_end])
             }
         }
         Ok(Self {
@@ -98,14 +98,14 @@ impl<'a> BlobEncoder<'a> {
         // The first `n_rows` primary slivers and the last `n_columns` secondary slivers can be
         // directly copied from the message matrix.
         for (row, sliver_pair) in self.rows.iter().zip(sliver_pairs.iter_mut()) {
-            sliver_pair.primary.symbols.data_mut().copy_from_slice(row);
+            sliver_pair.primary.symbols.data_mut().copy_from_slice(row)
         }
         for (column, sliver_pair) in self.columns.iter().zip(sliver_pairs.iter_mut().rev()) {
             sliver_pair
                 .secondary
                 .symbols
                 .data_mut()
-                .copy_from_slice(column);
+                .copy_from_slice(column)
         }
 
         // Compute the remaining primary slivers by encoding the columns.
@@ -221,7 +221,7 @@ impl<'a> BlobEncoder<'a> {
                 .encode_all_repair_symbols()
                 .enumerate()
             {
-                row[self.columns.len() + col_idx].copy_from_slice(&symbol);
+                row[self.columns.len() + col_idx].copy_from_slice(&symbol)
             }
         }
     }
@@ -387,7 +387,7 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
             let mut columns: Vec<_> = columns_or_rows.into_iter().map(|c| c.into_iter()).collect();
             (0..self.config.n_source_symbols::<T>())
                 .flat_map(|_| {
-                    ({ columns.iter_mut().map(|c| c.take(self.symbol_size.into())) })
+                    { columns.iter_mut().map(|c| c.take(self.symbol_size.into())) }
                         .flatten()
                         .collect::<Vec<u8>>()
                 })
@@ -507,7 +507,7 @@ mod tests {
         let config = EncodingConfig::new(
             source_symbols_primary,
             source_symbols_secondary,
-            3 * ((source_symbols_primary + source_symbols_secondary) as u32),
+            3 * (source_symbols_primary + source_symbols_secondary) as u32,
         );
         let blob_encoder = config.get_blob_encoder(blob).unwrap();
         assert_eq!(blob_encoder.rows, rows);
@@ -570,7 +570,7 @@ mod tests {
         let blob = random_data(27182);
         let source_symbols_primary = 11;
         let source_symbols_secondary = 23;
-        let n_shards = 3 * ((source_symbols_primary + source_symbols_secondary) as u32);
+        let n_shards = 3 * (source_symbols_primary + source_symbols_secondary) as u32;
 
         initialize_encoding_config(source_symbols_primary, source_symbols_secondary, n_shards);
 
@@ -618,7 +618,7 @@ mod tests {
         let blob = random_data(16180);
         let source_symbols_primary = 11;
         let source_symbols_secondary = 23;
-        let n_shards = 3 * ((source_symbols_primary + source_symbols_secondary) as u32);
+        let n_shards = 3 * (source_symbols_primary + source_symbols_secondary) as u32;
 
         initialize_encoding_config(source_symbols_primary, source_symbols_secondary, n_shards);
 
