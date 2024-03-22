@@ -15,7 +15,7 @@ use walrus_core::{Epoch, KeyPair, PublicKey, ShardIndex};
 
 /// Configuration of a Walrus storage node.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct WalrusNodeConfig {
+pub struct NodeConfig {
     /// Directory in which to persist the database
     pub storage_path: PathBuf,
     /// Key pair used in Walrus protocol messages
@@ -31,7 +31,7 @@ pub struct WalrusNodeConfig {
     pub rest_api_address: SocketAddr,
 }
 
-impl WalrusNodeConfig {
+impl NodeConfig {
     /// Load the configuration from a YAML file located at the provided path.
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, anyhow::Error> {
         let path = path.as_ref();

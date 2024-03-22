@@ -21,7 +21,7 @@ use walrus_core::{
     SliverType,
 };
 
-use crate::{config::WalrusNodeConfig, mapping::shard_index_for_pair, storage::Storage};
+use crate::{config::NodeConfig, mapping::shard_index_for_pair, storage::Storage};
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreMetadataError {
@@ -97,19 +97,16 @@ pub trait ServiceState {
 }
 
 /// A Walrus storage node, responsible for 1 or more shards on Walrus.
-pub struct WalrusStorageNode {
+pub struct StorageNode {
     current_epoch: Epoch,
     storage: Storage,
     n_shards: NonZeroUsize,
     protocol_key_pair: Arc<KeyPair>,
 }
 
-impl WalrusStorageNode {
+impl StorageNode {
     /// Create a new storage node with the provided configuration.
-    pub fn new(
-        config: &WalrusNodeConfig,
-        registry_service: RegistryService,
-    ) -> anyhow::Result<Self> {
+    pub fn new(config: &NodeConfig, registry_service: RegistryService) -> anyhow::Result<Self> {
         DBMetrics::init(&registry_service.default_registry());
         let storage = Storage::open(config.storage_path.as_path(), MetricConf::new("storage"))?;
 
@@ -129,7 +126,7 @@ impl WalrusStorageNode {
     }
 }
 
-impl WalrusStorageNode {
+impl StorageNode {
     /// Run the walrus-node logic until cancelled using the provided cancellation token.
     pub async fn run(&self, cancel_token: CancellationToken) -> anyhow::Result<()> {
         // TODO(jsmith): Run any subtasks such as the HTTP api, shard migration,
@@ -139,7 +136,7 @@ impl WalrusStorageNode {
     }
 }
 
-impl ServiceState for WalrusStorageNode {
+impl ServiceState for StorageNode {
     fn retrieve_metadata(
         &self,
         blob_id: &BlobId,
@@ -287,11 +284,11 @@ mod tests {
 
     const OTHER_BLOB_ID: BlobId = BlobId([247; 32]);
 
-    fn storage_node_with_storage(storage: WithTempDir<Storage>) -> WithTempDir<WalrusStorageNode> {
+    fn storage_node_with_storage(storage: WithTempDir<Storage>) -> WithTempDir<StorageNode> {
         let signing_key = BLS12381KeyPair::generate(&mut rand::thread_rng());
 
         WithTempDir {
-            inner: WalrusStorageNode::new_with_storage(storage.inner, signing_key.into()),
+            inner: StorageNode::new_with_storage(storage.inner, signing_key.into()),
             temp_dir: storage.temp_dir,
         }
     }

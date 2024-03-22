@@ -15,7 +15,7 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
-use walrus_service::{config::WalrusNodeConfig, server::UserServer, WalrusStorageNode};
+use walrus_service::{config::NodeConfig, server::UserServer, StorageNode};
 
 const GIT_REVISION: &str = {
     if let Some(revision) = option_env!("GIT_REVISION") {
@@ -46,7 +46,7 @@ struct Args {
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    let config = WalrusNodeConfig::load(args.config_path)?;
+    let config = NodeConfig::load(args.config_path)?;
 
     let metrics_runtime = MetricsAndLoggingRuntime::start(config.metrics_address)?;
 
@@ -60,7 +60,7 @@ fn main() -> anyhow::Result<()> {
     let cancel_token = CancellationToken::new();
     let (exit_notifier, exit_listener) = oneshot::channel::<()>();
 
-    let mut node_runtime = WalrusNodeRuntime::start(
+    let mut node_runtime = NodeRuntime::start(
         &config,
         metrics_runtime.registry_service.clone(),
         exit_notifier,
@@ -114,16 +114,16 @@ impl MetricsAndLoggingRuntime {
     }
 }
 
-struct WalrusNodeRuntime {
+struct NodeRuntime {
     walrus_node_handle: JoinHandle<anyhow::Result<()>>,
     rest_api_handle: JoinHandle<Result<(), io::Error>>,
     // INV: Runtime must be dropped last
     runtime: Runtime,
 }
 
-impl WalrusNodeRuntime {
+impl NodeRuntime {
     fn start(
-        config: &WalrusNodeConfig,
+        config: &NodeConfig,
         registry_service: RegistryService,
         exit_notifier: oneshot::Sender<()>,
         cancel_token: CancellationToken,
@@ -135,7 +135,7 @@ impl WalrusNodeRuntime {
             .expect("walrus-node runtime creation must succeed");
         let _guard = runtime.enter();
 
-        let walrus_node = Arc::new(WalrusStorageNode::new(config, registry_service)?);
+        let walrus_node = Arc::new(StorageNode::new(config, registry_service)?);
 
         let walrus_node_clone = walrus_node.clone();
         let walrus_node_cancel_token = cancel_token.child_token();
