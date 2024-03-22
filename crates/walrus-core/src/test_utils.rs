@@ -11,9 +11,15 @@ use crate::{
     encoding,
     merkle::Node,
     metadata::{
-        BlobMetadata, SliverPairMetadata, UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId,
+        BlobMetadata,
+        SliverPairMetadata,
+        UnverifiedBlobMetadataWithId,
+        VerifiedBlobMetadataWithId,
     },
-    BlobId, EncodingType, SignedStorageConfirmation, Sliver,
+    BlobId,
+    EncodingType,
+    SignedStorageConfirmation,
+    Sliver,
 };
 
 /// Returns a deterministic fixed key pair for testing.
