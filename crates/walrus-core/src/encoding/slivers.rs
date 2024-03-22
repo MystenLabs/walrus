@@ -426,7 +426,7 @@ mod tests {
         source_symbols_secondary: u16,
         blob: &[u8],
     ) -> Result {
-        let n_shards = 3 * ((source_symbols_primary + source_symbols_secondary) as u32);
+        let n_shards = 3 * (source_symbols_primary + source_symbols_secondary) as u32;
         let pairs = init_config_and_encode_pairs(
             source_symbols_primary,
             source_symbols_secondary,
@@ -495,7 +495,7 @@ mod tests {
         source_symbols_secondary: u16,
         blob: &[u8],
     ) -> Result {
-        let n_shards = 3 * ((source_symbols_primary + source_symbols_secondary) as u32);
+        let n_shards = 3 * (source_symbols_primary + source_symbols_secondary) as u32;
         let pairs = init_config_and_encode_pairs(
             source_symbols_primary,
             source_symbols_secondary,
