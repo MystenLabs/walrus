@@ -5,9 +5,12 @@
 use std::num::NonZeroUsize;
 
 use fastcrypto::hash::HashFunction;
-use serde::{ Deserialize, Serialize };
+use serde::{Deserialize, Serialize};
 
-use crate::{ merkle::{ Node as MerkleNode, DIGEST_LEN }, BlobId, EncodingType, SliverType };
+use crate::{
+    merkle::{Node as MerkleNode, DIGEST_LEN},
+    BlobId, EncodingType, SliverType,
+};
 
 /// Errors returned by [`UnverifiedBlobMetadataWithId::verify`] when unable to verify the metadata.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -54,7 +57,7 @@ impl<const V: bool> BlobMetadataWithId<V> {
     pub fn new_verified_from_metadata(
         sliver_pair_meta: Vec<SliverPairMetadata>,
         encoding: EncodingType,
-        unencoded_length: u64
+        unencoded_length: u64,
     ) -> VerifiedBlobMetadataWithId {
         let blob_metadata = BlobMetadata {
             encoding_type: encoding,
@@ -63,7 +66,7 @@ impl<const V: bool> BlobMetadataWithId<V> {
         };
         Self::new_verified_unchecked(
             BlobId::from_sliver_pair_metadata(&blob_metadata),
-            blob_metadata
+            blob_metadata,
         )
     }
 
@@ -71,7 +74,7 @@ impl<const V: bool> BlobMetadataWithId<V> {
     /// verification.
     pub fn new_verified_unchecked(
         blob_id: BlobId,
-        metadata: BlobMetadata
+        metadata: BlobMetadata,
     ) -> VerifiedBlobMetadataWithId {
         BlobMetadataWithId { blob_id, metadata }
     }
@@ -102,16 +105,22 @@ impl UnverifiedBlobMetadataWithId {
     /// metadata and blob ID. On success, returns a [`VerifiedBlobMetadataWithId`].
     pub fn verify(
         self,
-        n_shards: NonZeroUsize
+        n_shards: NonZeroUsize,
     ) -> Result<VerifiedBlobMetadataWithId, VerificationError> {
         let n_hashes = self.metadata().hashes.len();
-        crate::ensure!(n_hashes == n_shards.get(), VerificationError::InvalidHashCount {
-            actual: n_hashes,
-            expected: n_shards.get(),
-        });
+        crate::ensure!(
+            n_hashes == n_shards.get(),
+            VerificationError::InvalidHashCount {
+                actual: n_hashes,
+                expected: n_shards.get(),
+            }
+        );
 
         let computed_blob_id = BlobId::from_sliver_pair_metadata(&self.metadata);
-        crate::ensure!(computed_blob_id == *self.blob_id(), VerificationError::BlobIdMismatch);
+        crate::ensure!(
+            computed_blob_id == *self.blob_id(),
+            VerificationError::BlobIdMismatch
+        );
 
         Ok(BlobMetadataWithId {
             blob_id: self.blob_id,
@@ -142,14 +151,14 @@ impl BlobMetadata {
     pub fn get_sliver_hash(
         &self,
         sliver_pair_idx: u16,
-        sliver_type: SliverType
+        sliver_type: SliverType,
     ) -> Option<&MerkleNode> {
-        self.hashes.get(sliver_pair_idx as usize).map(|sliver_pair_metadata| {
-            match sliver_type {
+        self.hashes
+            .get(sliver_pair_idx as usize)
+            .map(|sliver_pair_metadata| match sliver_type {
                 SliverType::Primary => &sliver_pair_metadata.primary_hash,
                 SliverType::Secondary => &sliver_pair_metadata.secondary_hash,
-            }
-        })
+            })
     }
 }
 
@@ -244,7 +253,10 @@ mod tests {
                 .verify(NonZeroUsize::new(expected).unwrap())
                 .expect_err("verification should fail");
 
-            assert_eq!(err, VerificationError::InvalidHashCount { actual, expected });
+            assert_eq!(
+                err,
+                VerificationError::InvalidHashCount { actual, expected }
+            );
         }
     }
 }

@@ -1,23 +1,26 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{ net::SocketAddr, str::FromStr, sync::Arc };
+use std::{net::SocketAddr, str::FromStr, sync::Arc};
 
-use axum::{ extract::{ Path, State }, http::StatusCode, routing::get, Json, Router };
-use serde::{ Deserialize, Serialize };
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    routing::get,
+    Json, Router,
+};
+use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 use tower_http::trace::TraceLayer;
 use walrus_core::{
     encoding::DecodingSymbol,
     merkle::MerkleProof,
     messages::StorageConfirmation,
-    metadata::{ BlobMetadata, UnverifiedBlobMetadataWithId },
-    BlobId,
-    Sliver,
-    SliverType,
+    metadata::{BlobMetadata, UnverifiedBlobMetadataWithId},
+    BlobId, Sliver, SliverType,
 };
 
-use crate::node::{ ServiceState, StoreMetadataError, StoreSliverError };
+use crate::node::{ServiceState, StoreMetadataError, StoreSliverError};
 
 /// The path to get and store blob metadata.
 pub const METADATA_ENDPOINT: &str = "/v1/blobs/:blobId/metadata";
@@ -68,7 +71,7 @@ impl<T: Serialize> ServiceResponse<T> {
     /// code (so that axum includes it in the HTTP header) and the JSON response.
     pub fn serialized_error<S: Into<String>>(
         code: StatusCode,
-        message: S
+        message: S,
     ) -> (StatusCode, Json<Self>) {
         let response = Self::Error {
             code: code.as_u16(),
@@ -101,37 +104,48 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
     /// Creates a new user server.
     pub async fn run(self, network_address: &SocketAddr) -> Result<(), std::io::Error> {
         let app = Router::new()
-            .route(METADATA_ENDPOINT, get(Self::retrieve_metadata).put(Self::store_metadata))
+            .route(
+                METADATA_ENDPOINT,
+                get(Self::retrieve_metadata).put(Self::store_metadata),
+            )
             .route(
                 PRIMARY_SLIVER_ENDPOINT,
-                get(Self::retrieve_primary_sliver).put(Self::store_primary_sliver)
+                get(Self::retrieve_primary_sliver).put(Self::store_primary_sliver),
             )
             .route(
                 SECONDARY_SLIVER_ENDPOINT,
-                get(Self::retrieve_secondary_sliver).put(Self::store_secondary_sliver)
+                get(Self::retrieve_secondary_sliver).put(Self::store_secondary_sliver),
             )
-            .route(STORAGE_CONFIRMATION_ENDPOINT, get(Self::retrieve_storage_confirmation))
+            .route(
+                STORAGE_CONFIRMATION_ENDPOINT,
+                get(Self::retrieve_storage_confirmation),
+            )
             .route(
                 SECONDARY_RECOVERY_ENDPOINT,
-                get(Self::retrieve_secondary_symbol_from_primary_sliver)
+                get(Self::retrieve_secondary_symbol_from_primary_sliver),
             )
             .route(
                 PRIMARY_RECOVERY_ENDPOINT,
-                get(Self::retrieve_primary_symbol_from_secondary_sliver)
+                get(Self::retrieve_primary_symbol_from_secondary_sliver),
             )
             .with_state(self.state.clone())
             .layer(TraceLayer::new_for_http());
 
         let listener = tokio::net::TcpListener::bind(network_address).await?;
-        axum::serve(listener, app).with_graceful_shutdown(async move {
-            let _ = self.shutdown_signal.await;
-        }).await
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async move {
+                let _ = self.shutdown_signal.await;
+            })
+            .await
     }
 
     async fn retrieve_metadata(
         State(state): State<Arc<S>>,
-        Path(encoded_blob_id): Path<String>
-    ) -> (StatusCode, Json<ServiceResponse<UnverifiedBlobMetadataWithId>>) {
+        Path(encoded_blob_id): Path<String>,
+    ) -> (
+        StatusCode,
+        Json<ServiceResponse<UnverifiedBlobMetadataWithId>>,
+    ) {
         let Ok(blob_id) = BlobId::from_str(&encoded_blob_id) else {
             tracing::debug!("Invalid blob ID {encoded_blob_id}");
             return ServiceResponse::serialized_error(StatusCode::BAD_REQUEST, "Invalid blob ID");
@@ -150,7 +164,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
                 tracing::error!("Internal server error: {message}");
                 ServiceResponse::serialized_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal error"
+                    "Internal error",
                 )
             }
         }
@@ -159,7 +173,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
     async fn store_metadata(
         State(state): State<Arc<S>>,
         Path(encoded_blob_id): Path<String>,
-        Json(metadata): Json<BlobMetadata>
+        Json(metadata): Json<BlobMetadata>,
     ) -> (StatusCode, Json<ServiceResponse<()>>) {
         let Ok(blob_id) = BlobId::from_str(&encoded_blob_id) else {
             tracing::debug!("Invalid blob ID {encoded_blob_id}");
@@ -180,7 +194,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
                 tracing::error!("Internal server error: {message}");
                 ServiceResponse::serialized_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal error"
+                    "Internal error",
                 )
             }
         }
@@ -188,23 +202,29 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn retrieve_primary_sliver(
         State(state): State<Arc<S>>,
-        Path((encoded_blob_id, sliver_pair_idx)): Path<(String, u16)>
+        Path((encoded_blob_id, sliver_pair_idx)): Path<(String, u16)>,
     ) -> (StatusCode, Json<ServiceResponse<Sliver>>) {
         Self::retrieve_sliver(state, encoded_blob_id, sliver_pair_idx, SliverType::Primary).await
     }
 
     async fn retrieve_secondary_sliver(
         State(state): State<Arc<S>>,
-        Path((encoded_blob_id, sliver_pair_idx)): Path<(String, u16)>
+        Path((encoded_blob_id, sliver_pair_idx)): Path<(String, u16)>,
     ) -> (StatusCode, Json<ServiceResponse<Sliver>>) {
-        Self::retrieve_sliver(state, encoded_blob_id, sliver_pair_idx, SliverType::Secondary).await
+        Self::retrieve_sliver(
+            state,
+            encoded_blob_id,
+            sliver_pair_idx,
+            SliverType::Secondary,
+        )
+        .await
     }
 
     async fn retrieve_sliver(
         state: Arc<S>,
         encoded_blob_id: String,
         sliver_pair_idx: u16,
-        sliver_type: SliverType
+        sliver_type: SliverType,
     ) -> (StatusCode, Json<ServiceResponse<Sliver>>) {
         let Ok(blob_id) = BlobId::from_str(&encoded_blob_id) else {
             tracing::debug!("Invalid blob ID {encoded_blob_id}");
@@ -224,7 +244,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
                 tracing::error!("Internal server error: {message}");
                 ServiceResponse::serialized_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal error"
+                    "Internal error",
                 )
             }
         }
@@ -232,7 +252,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn retrieve_primary_symbol_from_secondary_sliver(
         State(state): State<Arc<S>>,
-        Path((encoded_blob_id, sliver_pair_idx, index)): Path<(String, u16, u32)>
+        Path((encoded_blob_id, sliver_pair_idx, index)): Path<(String, u16, u32)>,
     ) -> (
         StatusCode,
         Json<ServiceResponse<DecodingSymbol<walrus_core::encoding::Primary, MerkleProof>>>,
@@ -275,7 +295,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
                 tracing::error!("Internal server error: {message}");
                 ServiceResponse::serialized_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal error"
+                    "Internal error",
                 )
             }
         }
@@ -283,7 +303,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn retrieve_secondary_symbol_from_primary_sliver(
         State(state): State<Arc<S>>,
-        Path((encoded_blob_id, sliver_pair_idx, index)): Path<(String, u16, u32)>
+        Path((encoded_blob_id, sliver_pair_idx, index)): Path<(String, u16, u32)>,
     ) -> (
         StatusCode,
         Json<ServiceResponse<DecodingSymbol<walrus_core::encoding::Secondary, MerkleProof>>>,
@@ -326,7 +346,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
                 tracing::error!("Internal server error: {message}");
                 ServiceResponse::serialized_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal error"
+                    "Internal error",
                 )
             }
         }
@@ -335,29 +355,31 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
     async fn store_primary_sliver(
         State(state): State<Arc<S>>,
         Path((encoded_blob_id, sliver_pair_idx)): Path<(String, u16)>,
-        Json(sliver): Json<Sliver>
+        Json(sliver): Json<Sliver>,
     ) -> (StatusCode, Json<ServiceResponse<()>>) {
         Self::store_sliver(
             state,
             encoded_blob_id,
             sliver_pair_idx,
             sliver,
-            SliverType::Primary
-        ).await
+            SliverType::Primary,
+        )
+        .await
     }
 
     async fn store_secondary_sliver(
         State(state): State<Arc<S>>,
         Path((encoded_blob_id, sliver_pair_idx)): Path<(String, u16)>,
-        Json(sliver): Json<Sliver>
+        Json(sliver): Json<Sliver>,
     ) -> (StatusCode, Json<ServiceResponse<()>>) {
         Self::store_sliver(
             state,
             encoded_blob_id,
             sliver_pair_idx,
             sliver,
-            SliverType::Secondary
-        ).await
+            SliverType::Secondary,
+        )
+        .await
     }
 
     async fn store_sliver(
@@ -365,12 +387,12 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
         encoded_blob_id: String,
         sliver_pair_idx: u16,
         sliver: Sliver,
-        sliver_type: SliverType
+        sliver_type: SliverType,
     ) -> (StatusCode, Json<ServiceResponse<()>>) {
         if sliver.r#type() != sliver_type {
             return ServiceResponse::serialized_error(
                 StatusCode::MISDIRECTED_REQUEST,
-                "Invalid sliver type"
+                "Invalid sliver type",
             );
         }
 
@@ -388,7 +410,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
                 tracing::error!("Internal server error: {message}");
                 ServiceResponse::serialized_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal error"
+                    "Internal error",
                 )
             }
             Err(client_error) => {
@@ -400,7 +422,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn retrieve_storage_confirmation(
         State(state): State<Arc<S>>,
-        Path(encoded_blob_id): Path<String>
+        Path(encoded_blob_id): Path<String>,
     ) -> (StatusCode, Json<ServiceResponse<StorageConfirmation>>) {
         let Ok(blob_id) = BlobId::from_str(&encoded_blob_id) else {
             tracing::debug!("Invalid blob ID {encoded_blob_id}");
@@ -420,7 +442,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
                 tracing::error!("Internal server error: {message}");
                 ServiceResponse::serialized_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal error"
+                    "Internal error",
                 )
             }
         }
@@ -437,27 +459,19 @@ mod test {
     use tokio::sync::oneshot;
     use walrus_core::{
         encoding::DecodingSymbol,
-        merkle::{ MerkleProof, DIGEST_LEN },
+        merkle::{MerkleProof, DIGEST_LEN},
         messages::StorageConfirmation,
-        metadata::{ UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId },
-        BlobId,
-        Sliver,
-        SliverType,
+        metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
+        BlobId, Sliver, SliverType,
     };
 
     use crate::{
         node::{
-            RetrieveSliverError,
-            RetrieveSymbolError,
-            ServiceState,
-            StoreMetadataError,
+            RetrieveSliverError, RetrieveSymbolError, ServiceState, StoreMetadataError,
             StoreSliverError,
         },
         server::{
-            ServiceResponse,
-            UserServer,
-            METADATA_ENDPOINT,
-            PRIMARY_SLIVER_ENDPOINT,
+            ServiceResponse, UserServer, METADATA_ENDPOINT, PRIMARY_SLIVER_ENDPOINT,
             STORAGE_CONFIRMATION_ENDPOINT,
         },
         test_utils,
@@ -468,10 +482,12 @@ mod test {
     impl ServiceState for MockServiceState {
         fn retrieve_metadata(
             &self,
-            blob_id: &BlobId
+            blob_id: &BlobId,
         ) -> Result<Option<UnverifiedBlobMetadataWithId>, anyhow::Error> {
             if blob_id.0[0] == 0 {
-                Ok(Some(walrus_core::test_utils::verified_blob_metadata().into_unverified()))
+                Ok(Some(
+                    walrus_core::test_utils::verified_blob_metadata().into_unverified(),
+                ))
             } else if blob_id.0[0] == 1 {
                 Ok(None)
             } else {
@@ -481,7 +497,7 @@ mod test {
 
         fn store_metadata(
             &self,
-            _metadata: UnverifiedBlobMetadataWithId
+            _metadata: UnverifiedBlobMetadataWithId,
         ) -> Result<(), StoreMetadataError> {
             Ok(())
         }
@@ -490,7 +506,7 @@ mod test {
             &self,
             _blob_id: &BlobId,
             _sliver_pair_idx: u16,
-            _sliver_type: SliverType
+            _sliver_type: SliverType,
         ) -> Result<Option<Sliver>, RetrieveSliverError> {
             Ok(Some(walrus_core::test_utils::sliver()))
         }
@@ -499,12 +515,13 @@ mod test {
             &self,
             _blob_id: &BlobId,
             _sliver_pair_idx: u16,
-            index: u32
+            index: u32,
         ) -> Result<
-                DecodingSymbol<walrus_core::encoding::Secondary, MerkleProof<U>>,
-                RetrieveSymbolError
-            >
-            where U: HashFunction<DIGEST_LEN>
+            DecodingSymbol<walrus_core::encoding::Secondary, MerkleProof<U>>,
+            RetrieveSymbolError,
+        >
+        where
+            U: HashFunction<DIGEST_LEN>,
         {
             let sliver = walrus_core::test_utils::sliver();
             match sliver {
@@ -521,12 +538,13 @@ mod test {
             &self,
             _blob_id: &BlobId,
             _sliver_pair_idx: u16,
-            index: u32
+            index: u32,
         ) -> Result<
-                DecodingSymbol<walrus_core::encoding::Primary, MerkleProof<U>>,
-                RetrieveSymbolError
-            >
-            where U: HashFunction<DIGEST_LEN>
+            DecodingSymbol<walrus_core::encoding::Primary, MerkleProof<U>>,
+            RetrieveSymbolError,
+        >
+        where
+            U: HashFunction<DIGEST_LEN>,
         {
             let sliver = walrus_core::test_utils::sliver_secondary();
             match sliver {
@@ -543,7 +561,7 @@ mod test {
             &self,
             _blob_id: &BlobId,
             sliver_pair_idx: u16,
-            _sliver: &Sliver
+            _sliver: &Sliver,
         ) -> Result<(), StoreSliverError> {
             if sliver_pair_idx == 0 {
                 Ok(())
@@ -554,7 +572,7 @@ mod test {
 
         async fn compute_storage_confirmation(
             &self,
-            blob_id: &BlobId
+            blob_id: &BlobId,
         ) -> Result<Option<StorageConfirmation>, anyhow::Error> {
             if blob_id.0[0] == 0 {
                 let confirmation = walrus_core::test_utils::signed_storage_confirmation();
@@ -588,7 +606,9 @@ mod test {
         let res = client.get(url).json(&blob_id).send().await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
 
-        let body = res.json::<ServiceResponse<VerifiedBlobMetadataWithId>>().await;
+        let body = res
+            .json::<ServiceResponse<VerifiedBlobMetadataWithId>>()
+            .await;
         match body.unwrap() {
             ServiceResponse::Success { code, data: _data } => {
                 assert_eq!(code, StatusCode::OK.as_u16());
@@ -681,10 +701,9 @@ mod test {
 
         let blob_id = walrus_core::test_utils::random_blob_id();
         let sliver_pair_id = 0; // Triggers an valid response
-        let path = PRIMARY_SLIVER_ENDPOINT.replace(":blobId", &blob_id.to_string()).replace(
-            ":sliverPairIdx",
-            &sliver_pair_id.to_string()
-        );
+        let path = PRIMARY_SLIVER_ENDPOINT
+            .replace(":blobId", &blob_id.to_string())
+            .replace(":sliverPairIdx", &sliver_pair_id.to_string());
         let url = format!("http://{}{path}", test_private_parameters.network_address);
 
         let client = reqwest::Client::new();
@@ -718,10 +737,9 @@ mod test {
 
         let blob_id = walrus_core::test_utils::random_blob_id();
         let sliver_pair_id = 0; // Triggers an ok response
-        let path = PRIMARY_SLIVER_ENDPOINT.replace(":blobId", &blob_id.to_string()).replace(
-            ":sliverPairIdx",
-            &sliver_pair_id.to_string()
-        );
+        let path = PRIMARY_SLIVER_ENDPOINT
+            .replace(":blobId", &blob_id.to_string())
+            .replace(":sliverPairIdx", &sliver_pair_id.to_string());
         let url = format!("http://{}{path}", test_private_parameters.network_address);
 
         let client = reqwest::Client::new();
@@ -745,10 +763,9 @@ mod test {
 
         let blob_id = walrus_core::test_utils::random_blob_id();
         let sliver_pair_id = 1; // Triggers an internal server error
-        let path = PRIMARY_SLIVER_ENDPOINT.replace(":blobId", &blob_id.to_string()).replace(
-            ":sliverPairIdx",
-            &sliver_pair_id.to_string()
-        );
+        let path = PRIMARY_SLIVER_ENDPOINT
+            .replace(":blobId", &blob_id.to_string())
+            .replace(":sliverPairIdx", &sliver_pair_id.to_string());
         let url = format!("http://{}{path}", test_private_parameters.network_address);
 
         let client = reqwest::Client::new();

@@ -2,17 +2,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Core functionality for Walrus.
-use std::{ fmt::{ self, Debug, Display, LowerHex }, str::FromStr };
-
-use encoding::{ PrimarySliver, RecoveryError, SecondarySliver };
-use fastcrypto::{
-    bls12381::min_pk::{ BLS12381KeyPair, BLS12381PublicKey, BLS12381Signature },
-    encoding::{ Encoding, Hex },
-    hash::{ Blake2b256, HashFunction },
+use std::{
+    fmt::{self, Debug, Display, LowerHex},
+    str::FromStr,
 };
-use merkle::{ MerkleTree, Node };
+
+use encoding::{PrimarySliver, RecoveryError, SecondarySliver};
+use fastcrypto::{
+    bls12381::min_pk::{BLS12381KeyPair, BLS12381PublicKey, BLS12381Signature},
+    encoding::{Encoding, Hex},
+    hash::{Blake2b256, HashFunction},
+};
+use merkle::{MerkleTree, Node};
 use metadata::BlobMetadata;
-use serde::{ Deserialize, Serialize };
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub mod encoding;
@@ -62,22 +65,27 @@ impl BlobId {
     /// Computes the Merkle root over the [`SliverPairMetadata`][metadata::SliverPairMetadata],
     /// contained in the `blob_metadata` and then computes the blob ID.
     pub fn from_sliver_pair_metadata(blob_metadata: &BlobMetadata) -> Self {
-        let merkle_root = MerkleTree::<Blake2b256>
-            ::build(blob_metadata.hashes.iter().map(|h| h.pair_leaf_input::<Blake2b256>()))
-            .root();
+        let merkle_root = MerkleTree::<Blake2b256>::build(
+            blob_metadata
+                .hashes
+                .iter()
+                .map(|h| h.pair_leaf_input::<Blake2b256>()),
+        )
+        .root();
         Self::from_metadata(
             merkle_root,
             blob_metadata.encoding_type,
-            blob_metadata.unencoded_length
+            blob_metadata.unencoded_length,
         )
     }
 
     fn new_with_hash_function<T>(
         merkle_root: Node,
         encoding: EncodingType,
-        unencoded_length: u64
+        unencoded_length: u64,
     ) -> BlobId
-        where T: HashFunction<{ Self::LENGTH }>
+    where
+        T: HashFunction<{ Self::LENGTH }>,
     {
         let mut hasher = T::default();
 

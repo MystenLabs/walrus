@@ -3,21 +3,17 @@
 
 //! Walrus shard storage.
 //!
-use std::{ borrow::Borrow, sync::Arc };
+use std::{borrow::Borrow, sync::Arc};
 
-use rocksdb::{ ColumnFamily, ColumnFamilyDescriptor, MergeOperands, Options, DB };
-use serde::{ Deserialize, Serialize };
+use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, MergeOperands, Options, DB};
+use serde::{Deserialize, Serialize};
 use typed_store::{
-    rocks::{ errors::typed_store_err_from_rocks_err, DBMap, ReadWriteOptions, RocksDB },
-    Map,
-    TypedStoreError,
+    rocks::{errors::typed_store_err_from_rocks_err, DBMap, ReadWriteOptions, RocksDB},
+    Map, TypedStoreError,
 };
 use walrus_core::{
-    encoding::{ EncodingAxis, PrimarySliver, SecondarySliver },
-    BlobId,
-    ShardIndex,
-    Sliver,
-    SliverType,
+    encoding::{EncodingAxis, PrimarySliver, SecondarySliver},
+    BlobId, ShardIndex, Sliver, SliverType,
 };
 
 type PrimarySliverKey = SliverKey<true>;
@@ -48,7 +44,7 @@ pub(crate) struct ShardStorage {
 impl ShardStorage {
     pub fn create_or_reopen(
         id: ShardIndex,
-        database: &Arc<RocksDB>
+        database: &Arc<RocksDB>,
     ) -> Result<Self, TypedStoreError> {
         let rw_options = ReadWriteOptions::default();
 
@@ -58,7 +54,9 @@ impl ShardStorage {
 
         if database.cf_handle(&cf_name).is_none() {
             let (_, options) = Self::slivers_column_family_options(id);
-            database.create_cf(&cf_name, &options).map_err(typed_store_err_from_rocks_err)?;
+            database
+                .create_cf(&cf_name, &options)
+                .map_err(typed_store_err_from_rocks_err)?;
         }
 
         // Open both typed storage as maps over the same column family.
@@ -90,19 +88,22 @@ impl ShardStorage {
     pub fn get_sliver(
         &self,
         blob_id: &BlobId,
-        sliver_type: SliverType
+        sliver_type: SliverType,
     ) -> Result<Option<Sliver>, TypedStoreError> {
         match sliver_type {
-            SliverType::Primary => self.get_primary_sliver(blob_id).map(|s| s.map(Sliver::Primary)),
-            SliverType::Secondary =>
-                self.get_secondary_sliver(blob_id).map(|s| s.map(Sliver::Secondary)),
+            SliverType::Primary => self
+                .get_primary_sliver(blob_id)
+                .map(|s| s.map(Sliver::Primary)),
+            SliverType::Secondary => self
+                .get_secondary_sliver(blob_id)
+                .map(|s| s.map(Sliver::Secondary)),
         }
     }
 
     /// Retrieves the stored primary sliver for the given blob ID.
     pub fn get_primary_sliver(
         &self,
-        blob_id: &BlobId
+        blob_id: &BlobId,
     ) -> Result<Option<PrimarySliver>, TypedStoreError> {
         self.primary_slivers.get(&blob_id.into())
     }
@@ -110,17 +111,15 @@ impl ShardStorage {
     /// Retrieves the stored secondary sliver for the given blob ID.
     pub fn get_secondary_sliver(
         &self,
-        blob_id: &BlobId
+        blob_id: &BlobId,
     ) -> Result<Option<SecondarySliver>, TypedStoreError> {
         self.secondary_slivers.get(&blob_id.into())
     }
 
     /// Returns true iff the sliver-pair for the given blob ID is stored by the shard.
     pub fn is_sliver_pair_stored(&self, blob_id: &BlobId) -> Result<bool, TypedStoreError> {
-        Ok(
-            self.primary_slivers.contains_key(&blob_id.into())? &&
-                self.secondary_slivers.contains_key(&blob_id.into())?
-        )
+        Ok(self.primary_slivers.contains_key(&blob_id.into())?
+            && self.secondary_slivers.contains_key(&blob_id.into())?)
     }
 
     fn slivers_column_family_options(id: ShardIndex) -> (String, Options) {
@@ -146,15 +145,11 @@ fn slivers_column_family_name(id: ShardIndex) -> String {
 mod tests {
     use std::fmt;
 
-    use walrus_core::{ Sliver, SliverType };
-    use walrus_test_utils::{ async_param_test, param_test, Result as TestResult, WithTempDir };
+    use walrus_core::{Sliver, SliverType};
+    use walrus_test_utils::{async_param_test, param_test, Result as TestResult, WithTempDir};
 
     use crate::storage::tests::{
-        empty_storage,
-        empty_storage_with_shards,
-        get_sliver,
-        BLOB_ID,
-        OTHER_SHARD_INDEX,
+        empty_storage, empty_storage_with_shards, get_sliver, BLOB_ID, OTHER_SHARD_INDEX,
         SHARD_INDEX,
     };
 
@@ -192,7 +187,11 @@ mod tests {
         let retrieved_secondary = shard.get_sliver(&BLOB_ID, SliverType::Secondary)?;
 
         assert_eq!(retrieved_primary, Some(primary), "invalid primary sliver");
-        assert_eq!(retrieved_secondary, Some(secondary), "invalid secondary sliver");
+        assert_eq!(
+            retrieved_secondary,
+            Some(secondary),
+            "invalid secondary sliver"
+        );
 
         Ok(())
     }
@@ -206,7 +205,7 @@ mod tests {
     }
     async fn stores_and_retrieves_for_multiple_shards(
         type_first: SliverType,
-        type_second: SliverType
+        type_second: SliverType,
     ) -> TestResult {
         let storage = empty_storage_with_shards(&[SHARD_INDEX, OTHER_SHARD_INDEX]);
 
@@ -222,8 +221,16 @@ mod tests {
         let first_retrieved = first_shard.get_sliver(&BLOB_ID, type_first)?;
         let second_retrieved = second_shard.get_sliver(&BLOB_ID, type_second)?;
 
-        assert_eq!(first_retrieved, Some(first_sliver), "invalid sliver from first shard");
-        assert_eq!(second_retrieved, Some(second_sliver), "invalid sliver from second shard");
+        assert_eq!(
+            first_retrieved,
+            Some(first_sliver),
+            "invalid sliver from first shard"
+        );
+        assert_eq!(
+            second_retrieved,
+            Some(second_sliver),
+            "invalid sliver from second shard"
+        );
 
         Ok(())
     }
@@ -238,7 +245,7 @@ mod tests {
     }
     async fn indicates_when_sliver_pair_is_stored(
         store_primary: bool,
-        store_secondary: bool
+        store_secondary: bool,
     ) -> TestResult {
         let is_pair_stored: bool = store_primary & store_secondary;
 

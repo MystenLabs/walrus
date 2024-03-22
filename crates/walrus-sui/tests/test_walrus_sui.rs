@@ -2,20 +2,24 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use fastcrypto::{
-    bls12381::min_pk::{ BLS12381AggregateSignature, BLS12381PrivateKey },
-    traits::{ Signer, ToFromBytes },
+    bls12381::min_pk::{BLS12381AggregateSignature, BLS12381PrivateKey},
+    traits::{Signer, ToFromBytes},
 };
 use test_cluster::TestClusterBuilder;
-use walrus_core::{ messages::{ Confirmation, ConfirmationCertificate }, BlobId, EncodingType };
+use walrus_core::{
+    messages::{Confirmation, ConfirmationCertificate},
+    BlobId, EncodingType,
+};
 use walrus_e2e_tests::publish_package;
-use walrus_sui::{ client::WalrusSuiClient, types::EpochStatus };
+use walrus_sui::{client::WalrusSuiClient, types::EpochStatus};
 
 #[tokio::test]
 async fn test_register_blob() -> anyhow::Result<()> {
     let test_cluster = TestClusterBuilder::new().build().await;
     let mut wallet = test_cluster.wallet;
     let (package_id, system_object) = publish_package(&mut wallet, "blob_store").await?;
-    let walrus_client = WalrusSuiClient::new(wallet, package_id, system_object, 10000000000).await?;
+    let walrus_client =
+        WalrusSuiClient::new(wallet, package_id, system_object, 10000000000).await?;
     let size = 10000;
     let storage_resource = walrus_client.reserve_space(size, 3).await?;
     assert_eq!(storage_resource.start_epoch, 0);
@@ -28,12 +32,9 @@ async fn test_register_blob() -> anyhow::Result<()> {
         1, 2, 3, 4, 5, 6, 7, 8,
         1, 2, 3, 4, 5, 6, 7, 8,
     ]);
-    let blob_obj = walrus_client.register_blob(
-        &storage_resource,
-        blob_id,
-        size,
-        EncodingType::RedStuff
-    ).await?;
+    let blob_obj = walrus_client
+        .register_blob(&storage_resource, blob_id, size, EncodingType::RedStuff)
+        .await?;
     assert_eq!(blob_obj.blob_id, blob_id);
     assert_eq!(blob_obj.encoded_size, size);
     assert_eq!(blob_obj.certified, None);
@@ -61,7 +62,8 @@ async fn test_get_system() -> anyhow::Result<()> {
     let test_cluster = TestClusterBuilder::new().build().await;
     let mut wallet = test_cluster.wallet;
     let (package_id, system_object) = publish_package(&mut wallet, "blob_store").await?;
-    let walrus_client = WalrusSuiClient::new(wallet, package_id, system_object, 10000000000).await?;
+    let walrus_client =
+        WalrusSuiClient::new(wallet, package_id, system_object, 10000000000).await?;
     let system = walrus_client.get_system_object().await?;
     assert_eq!(system.epoch_status, EpochStatus::Done);
     assert_eq!(system.price_per_unit_size, 10);
@@ -79,9 +81,9 @@ async fn test_get_system() -> anyhow::Result<()> {
     assert_eq!(
         storage_node.public_key,
         [
-            149, 234, 204, 58, 220, 9, 200, 39, 89, 63, 88, 30, 142, 45, 224, 104, 191, 76, 245, 208,
-            192, 235, 41, 229, 55, 47, 13, 35, 54, 71, 136, 238, 15, 155, 235, 17, 44, 138, 126, 156,
-            47, 12, 114, 4, 51, 112, 92, 240,
+            149, 234, 204, 58, 220, 9, 200, 39, 89, 63, 88, 30, 142, 45, 224, 104, 191, 76, 245,
+            208, 192, 235, 41, 229, 55, 47, 13, 35, 54, 71, 136, 238, 15, 155, 235, 17, 44, 138,
+            126, 156, 47, 12, 114, 4, 51, 112, 92, 240,
         ]
     );
     Ok(())

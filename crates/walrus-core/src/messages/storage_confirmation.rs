@@ -2,10 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use fastcrypto::bls12381::min_pk::BLS12381Signature;
-use serde::{ de::Error as _, Deserialize, Serialize };
+use serde::{de::Error as _, Deserialize, Serialize};
 
 use super::Intent;
-use crate::{ messages::{ IntentAppId, IntentType, IntentVersion }, BlobId, Epoch };
+use crate::{
+    messages::{IntentAppId, IntentType, IntentVersion},
+    BlobId, Epoch,
+};
 
 /// Confirmation from a storage node that it has stored the sliver pairs for a given blob.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -47,37 +50,29 @@ impl Confirmation {
 }
 
 fn deserialize_storage_confirmation_intent<'de, D>(deserializer: D) -> Result<Intent, D::Error>
-    where D: serde::Deserializer<'de>
+where
+    D: serde::Deserializer<'de>,
 {
     let unverified_intent = Intent::deserialize(deserializer)?;
 
     if unverified_intent.r#type != IntentType::BLOB_CERT_MSG {
-        return Err(
-            D::Error::custom(
-                format!(
-                    "invalid intent type for storage confirmation: {:?}",
-                    unverified_intent.r#type
-                )
-            )
-        );
+        return Err(D::Error::custom(format!(
+            "invalid intent type for storage confirmation: {:?}",
+            unverified_intent.r#type
+        )));
     }
     if unverified_intent.version != IntentVersion::DEFAULT {
-        return Err(
-            D::Error::custom(
-                format!(
-                    "invalid intent version for storage confirmation: {:?}",
-                    unverified_intent.version
-                )
-            )
-        );
+        return Err(D::Error::custom(format!(
+            "invalid intent version for storage confirmation: {:?}",
+            unverified_intent.version
+        )));
     }
 
     if unverified_intent.app_id != IntentAppId::STORAGE {
-        return Err(
-            D::Error::custom(
-                format!("invalid App ID for storage confirmation: {:?}", unverified_intent.app_id)
-            )
-        );
+        return Err(D::Error::custom(format!(
+            "invalid App ID for storage confirmation: {:?}",
+            unverified_intent.app_id
+        )));
     }
 
     Ok(unverified_intent)
@@ -97,11 +92,14 @@ mod tests {
         let confirmation = Confirmation::new(EPOCH, BLOB_ID);
         let encoded = bcs::to_bytes(&confirmation).expect("successful encoding");
 
-        assert_eq!(encoded[..3], [
-            IntentType::BLOB_CERT_MSG.0,
-            IntentVersion::default().0,
-            IntentAppId::STORAGE.0,
-        ]);
+        assert_eq!(
+            encoded[..3],
+            [
+                IntentType::BLOB_CERT_MSG.0,
+                IntentVersion::default().0,
+                IntentAppId::STORAGE.0,
+            ]
+        );
         assert_eq!(encoded[3..11], EPOCH.to_le_bytes());
     }
 
@@ -152,9 +150,8 @@ mod tests {
         let confirmation = Confirmation::new(EPOCH, BLOB_ID);
         let message = bcs::to_bytes(&confirmation).expect("successful encoding");
 
-        let confirmation = bcs
-            ::from_bytes::<Confirmation>(&message)
-            .expect("decoding must succeed");
+        let confirmation =
+            bcs::from_bytes::<Confirmation>(&message).expect("decoding must succeed");
 
         assert_eq!(confirmation.blob_id, BLOB_ID);
         assert_eq!(confirmation.epoch, EPOCH);

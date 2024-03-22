@@ -9,15 +9,8 @@ use std::sync::OnceLock;
 use raptorq::SourceBlockEncodingPlan;
 
 use super::{
-    utils,
-    BlobDecoder,
-    BlobEncoder,
-    DataTooLargeError,
-    EncodeError,
-    Encoder,
-    EncodingAxis,
-    MAX_SOURCE_SYMBOLS_PER_BLOCK,
-    MAX_SYMBOL_SIZE,
+    utils, BlobDecoder, BlobEncoder, DataTooLargeError, EncodeError, Encoder, EncodingAxis,
+    MAX_SOURCE_SYMBOLS_PER_BLOCK, MAX_SYMBOL_SIZE,
 };
 use crate::encoding::common::MAX_N_SHARDS;
 
@@ -71,7 +64,7 @@ thread_local! {
 pub fn initialize_encoding_config(
     source_symbols_primary: u16,
     source_symbols_secondary: u16,
-    n_shards: u32
+    n_shards: u32,
 ) -> &'static EncodingConfig {
     ENCODING_CONFIG.get_or_init(|| {
         EncodingConfig::new(source_symbols_primary, source_symbols_secondary, n_shards)
@@ -83,12 +76,14 @@ pub fn initialize_encoding_config(
 pub fn initialize_encoding_config(
     source_symbols_primary: u16,
     source_symbols_secondary: u16,
-    n_shards: u32
+    n_shards: u32,
 ) {
     ENCODING_CONFIG.with(|f| {
-        *f.borrow_mut() = Some(
-            EncodingConfig::new(source_symbols_primary, source_symbols_secondary, n_shards)
-        );
+        *f.borrow_mut() = Some(EncodingConfig::new(
+            source_symbols_primary,
+            source_symbols_secondary,
+            n_shards,
+        ));
     });
 }
 
@@ -104,15 +99,17 @@ pub fn initialize_encoding_config(
 /// [`initialize_encoding_config`], panics otherwise.
 #[cfg(not(test))]
 pub fn get_encoding_config() -> &'static EncodingConfig {
-    ENCODING_CONFIG.get().expect("must first be initialized with `initialize_encoding_config`")
+    ENCODING_CONFIG
+        .get()
+        .expect("must first be initialized with `initialize_encoding_config`")
 }
 
 /// Test version of getting the "global" (thread local) encoding configuration.
 #[cfg(test)]
 pub fn get_encoding_config() -> EncodingConfig {
-    ENCODING_CONFIG.with(|f| f.borrow().clone()).expect(
-        "must first be initialized with `initialize_encoding_config`"
-    )
+    ENCODING_CONFIG
+        .with(|f| f.borrow().clone())
+        .expect("must first be initialized with `initialize_encoding_config`")
 }
 
 /// Configuration of the Walrus encoding.
@@ -139,13 +136,16 @@ impl EncodingConfig {
     pub(crate) fn new(
         source_symbols_primary: u16,
         source_symbols_secondary: u16,
-        n_shards: u32
+        n_shards: u32,
     ) -> Self {
         assert!(
             source_symbols_primary * source_symbols_secondary > 0,
             "the number of source symbols must not be 0"
         );
-        assert!(n_shards <= MAX_N_SHARDS, "the number of shards can be at most `MAX_N_SHARDS`");
+        assert!(
+            n_shards <= MAX_N_SHARDS,
+            "the number of shards can be at most `MAX_N_SHARDS`"
+        );
         assert!(
             3 * (source_symbols_primary as u32) < n_shards,
             "the primary encoding can be at most a 1/3 encoding"
@@ -155,8 +155,8 @@ impl EncodingConfig {
             "the secondary encoding can be at most a 2/3 encoding"
         );
         assert!(
-            source_symbols_primary < MAX_SOURCE_SYMBOLS_PER_BLOCK &&
-                source_symbols_secondary < MAX_SOURCE_SYMBOLS_PER_BLOCK,
+            source_symbols_primary < MAX_SOURCE_SYMBOLS_PER_BLOCK
+                && source_symbols_secondary < MAX_SOURCE_SYMBOLS_PER_BLOCK,
             "the number of source symbols can be at most `MAX_SOURCE_SYMBOLS_PER_BLOCK`"
         );
 
@@ -171,12 +171,20 @@ impl EncodingConfig {
 
     /// Returns the number of source symbols configured for this type.
     pub fn n_source_symbols<T: EncodingAxis>(&self) -> u16 {
-        if T::IS_PRIMARY { self.source_symbols_primary } else { self.source_symbols_secondary }
+        if T::IS_PRIMARY {
+            self.source_symbols_primary
+        } else {
+            self.source_symbols_secondary
+        }
     }
 
     /// Returns the pre-generated encoding plan this type.
     pub fn encoding_plan<T: EncodingAxis>(&self) -> &SourceBlockEncodingPlan {
-        if T::IS_PRIMARY { &self.encoding_plan_primary } else { &self.encoding_plan_secondary }
+        if T::IS_PRIMARY {
+            &self.encoding_plan_primary
+        } else {
+            &self.encoding_plan_secondary
+        }
     }
 
     /// The maximum size in bytes of data that can be encoded with this encoding.
@@ -215,8 +223,8 @@ impl EncodingConfig {
     #[inline]
     pub fn sliver_size_for_blob<T: EncodingAxis>(&self, blob_size: usize) -> Option<usize> {
         Some(
-            (self.n_source_symbols::<T::OrthogonalAxis>() as usize) *
-                (self.symbol_size_for_blob(blob_size)? as usize)
+            (self.n_source_symbols::<T::OrthogonalAxis>() as usize)
+                * (self.symbol_size_for_blob(blob_size)? as usize),
         )
     }
 
@@ -229,7 +237,11 @@ impl EncodingConfig {
     /// the last sliver pair.
     // TODO(giac): Point to the redstuff documentation when ready!
     pub fn sliver_index_from_pair_index<T: EncodingAxis>(&self, pair_index: u32) -> u32 {
-        if T::IS_PRIMARY { pair_index } else { self.n_shards - pair_index - 1 }
+        if T::IS_PRIMARY {
+            pair_index
+        } else {
+            self.n_shards - pair_index - 1
+        }
     }
 
     /// Returns an [`Encoder`] to perform a single primary or secondary encoding of the provided
@@ -245,7 +257,12 @@ impl EncodingConfig {
     /// Returns an [`EncodeError`] if the `data` cannot be encoded. See [`Encoder::new`] for further
     /// details about the returned errors.
     pub fn get_encoder<E: EncodingAxis>(&self, data: &[u8]) -> Result<Encoder, EncodeError> {
-        Encoder::new(data, self.n_source_symbols::<E>(), self.n_shards, self.encoding_plan::<E>())
+        Encoder::new(
+            data,
+            self.n_source_symbols::<E>(),
+            self.n_shards,
+            self.encoding_plan::<E>(),
+        )
     }
 
     /// Returns a [`BlobEncoder`] to encode a blob into [`SliverPair`s][super::SliverPair].
@@ -273,7 +290,7 @@ impl EncodingConfig {
     /// Returns a [`DataTooLargeError`] if the `blob_size` is too large to be decoded.
     pub fn get_blob_decoder<T: EncodingAxis>(
         &self,
-        blob_size: usize
+        blob_size: usize,
     ) -> Result<BlobDecoder<T>, DataTooLargeError> {
         BlobDecoder::new(self, blob_size)
     }
@@ -297,6 +314,9 @@ mod tests {
     }
     fn test_sliver_size_for_blob(blob_size: usize, expected_primary_sliver_size: Option<usize>) {
         let config = EncodingConfig::new(3, 5, 10);
-        assert_eq!(config.sliver_size_for_blob::<Primary>(blob_size), expected_primary_sliver_size);
+        assert_eq!(
+            config.sliver_size_for_blob::<Primary>(blob_size),
+            expected_primary_sliver_size
+        );
     }
 }

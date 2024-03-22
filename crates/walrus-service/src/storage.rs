@@ -3,26 +3,25 @@
 
 #![allow(unused)]
 
-use std::{ collections::{ hash_map::Entry, HashMap, HashSet }, path::Path, sync::Arc };
+use std::{
+    collections::{hash_map::Entry, HashMap, HashSet},
+    path::Path,
+    sync::Arc,
+};
 
 use anyhow::Context;
-use rocksdb::{ ColumnFamily, ColumnFamilyDescriptor, Options, DB };
-use serde::{ Deserialize, Serialize };
+use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Options, DB};
+use serde::{Deserialize, Serialize};
 use typed_store::{
-    rocks::{ self, DBMap, MetricConf, ReadWriteOptions, RocksDB },
-    Map,
-    TypedStoreError,
+    rocks::{self, DBMap, MetricConf, ReadWriteOptions, RocksDB},
+    Map, TypedStoreError,
 };
 use walrus_core::{
     merkle::Node as MerkleNode,
     metadata::{
-        BlobMetadata,
-        BlobMetadataWithId,
-        UnverifiedBlobMetadataWithId,
-        VerifiedBlobMetadataWithId,
+        BlobMetadata, BlobMetadataWithId, UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId,
     },
-    BlobId,
-    ShardIndex,
+    BlobId, ShardIndex,
 };
 
 use self::shard::ShardStorage;
@@ -54,12 +53,12 @@ impl Storage {
             path,
             Some(db_opts),
             metrics_config,
-            &[(metadata_cf_name, metadata_options)]
+            &[(metadata_cf_name, metadata_options)],
         )?;
         let metadata = DBMap::reopen(
             &database,
             Some(metadata_cf_name),
-            &ReadWriteOptions::default()
+            &ReadWriteOptions::default(),
         )?;
 
         Ok(Self {
@@ -73,7 +72,7 @@ impl Storage {
     /// if it already exists.
     pub fn create_storage_for_shard(
         &mut self,
-        shard: ShardIndex
+        shard: ShardIndex,
     ) -> Result<&ShardStorage, TypedStoreError> {
         match self.shards.entry(shard) {
             Entry::Occupied(entry) => Ok(entry.into_mut()),
@@ -92,7 +91,7 @@ impl Storage {
     /// Store the verified metadata.
     pub fn put_verified_metadata(
         &self,
-        metadata: &VerifiedBlobMetadataWithId
+        metadata: &VerifiedBlobMetadataWithId,
     ) -> Result<(), TypedStoreError> {
         self.put_metadata(metadata.blob_id(), metadata.metadata())
     }
@@ -100,7 +99,7 @@ impl Storage {
     fn put_metadata(
         &self,
         blob_id: &BlobId,
-        metadata: &BlobMetadata
+        metadata: &BlobMetadata,
     ) -> Result<(), TypedStoreError> {
         self.metadata.insert(blob_id, metadata)
     }
@@ -108,13 +107,12 @@ impl Storage {
     /// Gets the metadata for a given [`BlobId`] or None.
     pub fn get_metadata(
         &self,
-        blob_id: &BlobId
+        blob_id: &BlobId,
     ) -> Result<Option<VerifiedBlobMetadataWithId>, TypedStoreError> {
-        Ok(
-            self.metadata
-                .get(blob_id)?
-                .map(|inner| VerifiedBlobMetadataWithId::new_verified_unchecked(*blob_id, inner))
-        )
+        Ok(self
+            .metadata
+            .get(blob_id)?
+            .map(|inner| VerifiedBlobMetadataWithId::new_verified_unchecked(*blob_id, inner)))
     }
 
     /// Returns true if the sliver pairs for the provided blob-id is stored at
@@ -133,7 +131,7 @@ impl Storage {
     /// respective sliver for the specified blob.
     pub fn shards_with_sliver_pairs(
         &self,
-        blob_id: &BlobId
+        blob_id: &BlobId,
     ) -> Result<Vec<ShardIndex>, TypedStoreError> {
         let mut shards_with_sliver_pairs = Vec::with_capacity(self.shards.len());
 
@@ -158,19 +156,16 @@ impl Storage {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::{ fmt, time::Duration };
+    use std::{fmt, time::Duration};
 
     use prometheus::Registry;
     use typed_store::metrics::SamplingInterval;
     use walrus_core::{
-        encoding::{ EncodingAxis, Primary, Secondary, Sliver as TypedSliver },
+        encoding::{EncodingAxis, Primary, Secondary, Sliver as TypedSliver},
         metadata::SliverPairMetadata,
-        test_utils,
-        EncodingType,
-        Sliver,
-        SliverType,
+        test_utils, EncodingType, Sliver, SliverType,
     };
-    use walrus_test_utils::{ param_test, Result as TestResult, WithTempDir };
+    use walrus_test_utils::{param_test, Result as TestResult, WithTempDir};
 
     use super::*;
 
@@ -195,12 +190,13 @@ pub(crate) mod tests {
     /// Returns an empty storage, with the column families for the specified shards already created.
     pub(crate) fn empty_storage_with_shards(shards: &[ShardIndex]) -> WithTempDir<Storage> {
         let temp_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
-        let mut storage = Storage::open(temp_dir.path(), MetricConf::default()).expect(
-            "storage creation must succeed"
-        );
+        let mut storage = Storage::open(temp_dir.path(), MetricConf::default())
+            .expect("storage creation must succeed");
 
         for shard in shards {
-            storage.create_storage_for_shard(*shard).expect("shard should be successfully created");
+            storage
+                .create_storage_for_shard(*shard)
+                .expect("shard should be successfully created");
         }
 
         WithTempDir {
@@ -251,7 +247,7 @@ pub(crate) mod tests {
         let blob_id = metadata.blob_id();
         let expected = VerifiedBlobMetadataWithId::new_verified_unchecked(
             *blob_id,
-            metadata.metadata().clone()
+            metadata.metadata().clone(),
         );
 
         storage.put_metadata(metadata.blob_id(), metadata.metadata())?;
@@ -276,7 +272,7 @@ pub(crate) mod tests {
         }
         async fn returns_shard_if_it_stores_both(
             which: WhichSlivers,
-            is_retrieved: bool
+            is_retrieved: bool,
         ) -> TestResult {
             let storage = populated_storage(&[(SHARD_INDEX, vec![(BLOB_ID, which)])])?;
 
@@ -293,12 +289,10 @@ pub(crate) mod tests {
 
         #[tokio::test]
         async fn identifies_all_shards_storing_sliver_pairs() -> TestResult {
-            let storage = populated_storage(
-                &[
-                    (SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
-                    (OTHER_SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
-                ]
-            )?;
+            let storage = populated_storage(&[
+                (SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
+                (OTHER_SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
+            ])?;
 
             let mut result: Vec<_> = storage.as_ref().shards_with_sliver_pairs(&BLOB_ID)?;
 
@@ -311,12 +305,10 @@ pub(crate) mod tests {
 
         #[tokio::test]
         async fn ignores_shards_without_both_sliver_pairs() -> TestResult {
-            let storage = populated_storage(
-                &[
-                    (SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Primary)]),
-                    (OTHER_SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
-                ]
-            )?;
+            let storage = populated_storage(&[
+                (SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Primary)]),
+                (OTHER_SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
+            ])?;
 
             let result: Vec<_> = storage.as_ref().shards_with_sliver_pairs(&BLOB_ID)?;
 

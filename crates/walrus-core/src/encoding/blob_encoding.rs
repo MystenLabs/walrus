@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{ cmp, marker::PhantomData };
+use std::{cmp, marker::PhantomData};
 
 use fastcrypto::hash::Blake2b256;
 
@@ -21,7 +21,7 @@ use super::{
 };
 use crate::{
     merkle::MerkleTree,
-    metadata::{ SliverPairMetadata, VerifiedBlobMetadataWithId },
+    metadata::{SliverPairMetadata, VerifiedBlobMetadataWithId},
     BlobId,
     EncodingType,
 };
@@ -54,10 +54,9 @@ impl<'a> BlobEncoder<'a> {
     /// This creates the message matrix, padding with zeros if necessary. The actual encoding can be
     /// performed with the [`encode()`][Self::encode] method.
     pub fn new(config: &'a EncodingConfig, blob: &[u8]) -> Result<Self, DataTooLargeError> {
-        let Some(symbol_size) = utils::compute_symbol_size(
-            blob.len(),
-            config.source_symbols_per_blob()
-        ) else {
+        let Some(symbol_size) =
+            utils::compute_symbol_size(blob.len(), config.source_symbols_per_blob())
+        else {
             return Err(DataTooLargeError);
         };
         let symbol_usize = symbol_size as usize;
@@ -77,9 +76,8 @@ impl<'a> BlobEncoder<'a> {
             for (r, target_chunk) in col.chunks_mut(symbol_usize).enumerate() {
                 let copy_index_start = cmp::min(r * row_step + c * symbol_usize, blob.len());
                 let copy_index_end = cmp::min(copy_index_start + symbol_usize, blob.len());
-                target_chunk[..copy_index_end - copy_index_start].copy_from_slice(
-                    &blob[copy_index_start..copy_index_end]
-                );
+                target_chunk[..copy_index_end - copy_index_start]
+                    .copy_from_slice(&blob[copy_index_start..copy_index_end]);
             }
         }
         Ok(Self {
@@ -103,27 +101,35 @@ impl<'a> BlobEncoder<'a> {
             sliver_pair.primary.symbols.data_mut().copy_from_slice(row);
         }
         for (column, sliver_pair) in self.columns.iter().zip(sliver_pairs.iter_mut().rev()) {
-            sliver_pair.secondary.symbols.data_mut().copy_from_slice(column);
+            sliver_pair
+                .secondary
+                .symbols
+                .data_mut()
+                .copy_from_slice(column);
         }
 
         // Compute the remaining primary slivers by encoding the columns.
         for (c, column) in self.columns.iter().enumerate() {
-            for (symbol, sliver_pair) in self.config
+            for (symbol, sliver_pair) in self
+                .config
                 .get_encoder::<Primary>(column)
                 .expect("size has already been checked")
                 .encode_all_repair_symbols() // We only need the repair symbols.
-                .zip(sliver_pairs.iter_mut().skip(n_rows)) {
+                .zip(sliver_pairs.iter_mut().skip(n_rows))
+            {
                 sliver_pair.primary.copy_symbol_to(c, &symbol);
             }
         }
 
         // Compute the remaining secondary slivers by encoding the rows.
         for (r, row) in self.rows.iter().enumerate() {
-            for (symbol, sliver_pair) in self.config
+            for (symbol, sliver_pair) in self
+                .config
                 .get_encoder::<Secondary>(row)
                 .expect("size has already been checked")
                 .encode_all_repair_symbols()
-                .zip(sliver_pairs.iter_mut().rev().skip(n_columns)) {
+                .zip(sliver_pairs.iter_mut().rev().skip(n_columns))
+            {
                 sliver_pair.secondary.copy_symbol_to(r, &symbol);
             }
         }
@@ -192,11 +198,13 @@ impl<'a> BlobEncoder<'a> {
     /// remaining primary slivers.
     fn expand_columns_for_primary(&self, matrix: &mut [Symbols]) {
         for (col_idx, col) in self.columns.iter().enumerate() {
-            for (row_idx, symbol) in self.config
+            for (row_idx, symbol) in self
+                .config
                 .get_encoder::<Primary>(col)
                 .expect("size has already been checked")
                 .encode_all_repair_symbols()
-                .enumerate() {
+                .enumerate()
+            {
                 matrix[self.rows.len() + row_idx][col_idx].copy_from_slice(&symbol);
             }
         }
@@ -206,11 +214,13 @@ impl<'a> BlobEncoder<'a> {
     /// expanded message matrix.
     fn expand_all_rows(&self, matrix: &mut [Symbols]) {
         for row in matrix.iter_mut() {
-            for (col_idx, symbol) in self.config
+            for (col_idx, symbol) in self
+                .config
                 .get_encoder::<Secondary>(&row[0..self.columns.len()])
                 .expect("size has already been checked")
                 .encode_all_repair_symbols()
-                .enumerate() {
+                .enumerate()
+            {
                 row[self.columns.len() + col_idx].copy_from_slice(&symbol);
             }
         }
@@ -224,24 +234,24 @@ impl<'a> BlobEncoder<'a> {
         VerifiedBlobMetadataWithId::new_verified_from_metadata(
             metadata,
             EncodingType::RedStuff,
-            self.blob_size as u64
+            self.blob_size as u64,
         )
     }
 
     fn col_symbols(
         &self,
-        matrix: &'a [Symbols]
+        matrix: &'a [Symbols],
     ) -> impl Iterator<Item = impl ExactSizeIterator<Item = &'a [u8]> + '_> {
         (0..matrix.len()).map(move |col_idx| {
             matrix
                 .iter()
                 // Get the columns in reverse order `n_shards - col_idx - 1`.
                 .map(move |row| {
-                    row[
-                        self.config.sliver_index_from_pair_index::<Secondary>(
-                            col_idx as u32
-                        ) as usize
-                    ].as_ref()
+                    row[self
+                        .config
+                        .sliver_index_from_pair_index::<Secondary>(col_idx as u32)
+                        as usize]
+                        .as_ref()
                 })
         })
     }
@@ -262,9 +272,9 @@ impl<'a> BlobEncoder<'a> {
             .iter_mut()
             .zip(self.col_symbols(matrix))
             .for_each(|(sliver_pair, symbols)| {
-                for (target_slice, symbol) in sliver_pair.secondary.symbols
-                    .to_symbols_mut()
-                    .zip(symbols) {
+                for (target_slice, symbol) in
+                    sliver_pair.secondary.symbols.to_symbols_mut().zip(symbols)
+                {
                     target_slice.copy_from_slice(symbol);
                 }
             })
@@ -343,20 +353,18 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
         let mut decoding_successful = false;
 
         for sliver in slivers {
-            if
-                sliver.symbols.len() != self.decoders.len() ||
-                sliver.symbols.symbol_size() != self.symbol_size
+            if sliver.symbols.len() != self.decoders.len()
+                || sliver.symbols.symbol_size() != self.symbol_size
             {
                 // Ignore slivers of incorrect length or incorrect symbol size.
                 // Question(mlegner): Should we return an error instead? Or at least log this?
                 continue;
             }
             for (decoder, symbol) in self.decoders.iter_mut().zip(sliver.symbols.to_symbols()) {
-                if
-                    let Some(decoded_data) = decoder
-                        // NOTE: The encoding axis of the following symbol is irrelevant, but since we
-                        // are reconstructing from slivers of type `T`, it should be of type `T`.
-                        .decode([DecodingSymbol::<T>::new(sliver.index, symbol.into())])
+                if let Some(decoded_data) = decoder
+                    // NOTE: The encoding axis of the following symbol is irrelevant, but since we
+                    // are reconstructing from slivers of type `T`, it should be of type `T`.
+                    .decode([DecodingSymbol::<T>::new(sliver.index, symbol.into())])
                 {
                     // If one decoding succeeds, all succeed as they have identical
                     // encoding/decoding matrices.
@@ -376,10 +384,7 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
 
         let mut blob: Vec<u8> = if T::IS_PRIMARY {
             // Primary decoding: transpose columns to get to the original blob.
-            let mut columns: Vec<_> = columns_or_rows
-                .into_iter()
-                .map(|c| c.into_iter())
-                .collect();
+            let mut columns: Vec<_> = columns_or_rows.into_iter().map(|c| c.into_iter()).collect();
             (0..self.config.n_source_symbols::<T>())
                 .flat_map(|_| {
                     ({ columns.iter_mut().map(|c| c.take(self.symbol_size.into())) })
@@ -417,10 +422,11 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
     pub fn decode_and_verify(
         &mut self,
         blob_id: &BlobId,
-        slivers: impl IntoIterator<Item = Sliver<T>>
+        slivers: impl IntoIterator<Item = Sliver<T>>,
     ) -> Result<Option<(Vec<u8>, VerifiedBlobMetadataWithId)>, DecodingVerificationError> {
         if let Some(decoded_blob) = self.decode(slivers) {
-            let blob_metadata = self.config
+            let blob_metadata = self
+                .config
                 .get_blob_encoder(&decoded_blob)
                 .expect("the blob size cannot be too large since we were able to decode")
                 .compute_metadata();
@@ -437,11 +443,11 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
 
 #[cfg(test)]
 mod tests {
-    use walrus_test_utils::{ param_test, random_data, random_subset };
+    use walrus_test_utils::{param_test, random_data, random_subset};
 
     use super::*;
     use crate::{
-        encoding::{ get_encoding_config, initialize_encoding_config, EncodingConfig },
+        encoding::{get_encoding_config, initialize_encoding_config, EncodingConfig},
         metadata::UnverifiedBlobMetadataWithId,
     };
 
@@ -496,12 +502,12 @@ mod tests {
         source_symbols_secondary: u16,
         blob: &[u8],
         rows: &[&[u8]],
-        columns: &[&[u8]]
+        columns: &[&[u8]],
     ) {
         let config = EncodingConfig::new(
             source_symbols_primary,
             source_symbols_secondary,
-            3 * ((source_symbols_primary + source_symbols_secondary) as u32)
+            3 * ((source_symbols_primary + source_symbols_secondary) as u32),
         );
         let blob_encoder = config.get_blob_encoder(blob).unwrap();
         assert_eq!(blob_encoder.rows, rows);
@@ -517,12 +523,12 @@ mod tests {
         let config = EncodingConfig::new(
             source_symbols_primary,
             source_symbols_secondary,
-            3 * ((source_symbols_primary + source_symbols_secondary) as u32)
+            3 * ((source_symbols_primary + source_symbols_secondary) as u32),
         );
 
         let slivers_for_decoding = random_subset(
             config.get_blob_encoder(&blob).unwrap().encode(),
-            cmp::max(source_symbols_primary, source_symbols_secondary) as usize
+            cmp::max(source_symbols_primary, source_symbols_secondary) as usize,
         );
 
         let mut primary_decoder = config.get_blob_decoder::<Primary>(blob.len()).unwrap();
@@ -542,7 +548,9 @@ mod tests {
         assert_eq!(
             secondary_decoder
                 .decode(
-                    slivers_for_decoding.map(|p| p.secondary).take(source_symbols_secondary.into())
+                    slivers_for_decoding
+                        .map(|p| p.secondary)
+                        .take(source_symbols_secondary.into())
                 )
                 .unwrap(),
             blob
@@ -567,7 +575,10 @@ mod tests {
         initialize_encoding_config(source_symbols_primary, source_symbols_secondary, n_shards);
 
         // Check that the encoding with and without metadata are identical.
-        let sliver_pairs_1 = get_encoding_config().get_blob_encoder(&blob).unwrap().encode();
+        let sliver_pairs_1 = get_encoding_config()
+            .get_blob_encoder(&blob)
+            .unwrap()
+            .encode();
         let blob_metadata_1 = get_encoding_config()
             .get_blob_encoder(&blob)
             .unwrap()
@@ -583,7 +594,8 @@ mod tests {
         // obtained in the `encode_with_metadata` function.
         for (sliver_pair, pair_meta) in sliver_pairs_2
             .iter()
-            .zip(blob_metadata_2.metadata().hashes.iter()) {
+            .zip(blob_metadata_2.metadata().hashes.iter())
+        {
             let pair_hash = sliver_pair
                 .pair_leaf_input::<Blake2b256>()
                 .expect("should be able to encode");
@@ -594,9 +606,11 @@ mod tests {
         // Check that the blob metadata verifies.
         let unverified = UnverifiedBlobMetadataWithId::new(
             *blob_metadata_2.blob_id(),
-            blob_metadata_2.metadata().clone()
+            blob_metadata_2.metadata().clone(),
         );
-        assert!(unverified.verify((n_shards as usize).try_into().unwrap()).is_ok());
+        assert!(unverified
+            .verify((n_shards as usize).try_into().unwrap())
+            .is_ok());
     }
 
     #[test]

@@ -5,19 +5,17 @@
 //!
 use core::str::FromStr;
 
-use anyhow::{ anyhow, bail, ensure, Result };
+use anyhow::{anyhow, bail, ensure, Result};
 use fastcrypto::traits::ToFromBytes;
 use sui_sdk::{
     rpc_types::{
-        SuiExecutionStatus,
-        SuiObjectDataOptions,
-        SuiTransactionBlockEffectsAPI,
+        SuiExecutionStatus, SuiObjectDataOptions, SuiTransactionBlockEffectsAPI,
         SuiTransactionBlockResponse,
     },
     types::{
-        base_types::{ ObjectID, ObjectRef },
+        base_types::{ObjectID, ObjectRef},
         programmable_transaction_builder::ProgrammableTransactionBuilder,
-        transaction::{ CallArg, TransactionData },
+        transaction::{CallArg, TransactionData},
     },
     wallet_context::WalletContext,
     SuiClient,
@@ -25,21 +23,17 @@ use sui_sdk::{
 use sui_types::{
     base_types::SuiAddress,
     object::Owner,
-    transaction::{ Argument, ProgrammableTransaction },
-    Identifier,
-    TypeTag,
+    transaction::{Argument, ProgrammableTransaction},
+    Identifier, TypeTag,
 };
-use walrus_core::{ messages::ConfirmationCertificate, BlobId, EncodingType };
+use walrus_core::{messages::ConfirmationCertificate, BlobId, EncodingType};
 
 use crate::{
-    contracts::{ self, AssociatedContractStruct, FunctionTag },
-    types::{ Blob, Committee, StorageResource, SystemObject },
+    contracts::{self, AssociatedContractStruct, FunctionTag},
+    types::{Blob, Committee, StorageResource, SystemObject},
     utils::{
-        call_args_to_object_ids,
-        get_created_object_ids_by_type,
-        get_struct_from_object_response,
-        get_type_parameters,
-        handle_pagination,
+        call_args_to_object_ids, get_created_object_ids_by_type, get_struct_from_object_response,
+        get_type_parameters, handle_pagination,
     },
 };
 
@@ -61,12 +55,15 @@ impl WalrusSuiClient {
         mut wallet: WalletContext,
         walrus_pkg: ObjectID,
         system_object: ObjectID,
-        gas_budget: u64
+        gas_budget: u64,
     ) -> Result<Self> {
         let sui_client = wallet.get_client().await?;
         let wallet_address = wallet.active_address()?;
         let type_params = get_type_parameters(&sui_client, system_object).await?;
-        ensure!(type_params.len() == 2, "unexpected number of type parameters in system object");
+        ensure!(
+            type_params.len() == 2,
+            "unexpected number of type parameters in system object"
+        );
         Ok(Self {
             wallet,
             walrus_pkg,
@@ -84,7 +81,7 @@ impl WalrusSuiClient {
     async fn move_call_and_transfer<'a>(
         &self,
         function: FunctionTag<'a>,
-        call_args: Vec<CallArg>
+        call_args: Vec<CallArg>,
     ) -> Result<SuiTransactionBlockResponse> {
         let mut pt_builder = ProgrammableTransactionBuilder::new();
 
@@ -97,7 +94,7 @@ impl WalrusSuiClient {
             Identifier::from_str(function.module)?,
             Identifier::from_str(function.name)?,
             function.type_params,
-            arguments
+            arguments,
         ) else {
             bail!("Result should be Argument::Result")
         };
@@ -111,16 +108,19 @@ impl WalrusSuiClient {
                 .gas_for_owner_budget(
                     self.wallet_address,
                     self.gas_budget,
-                    call_args_to_object_ids(call_args)
-                ).await?
-                .1.object_ref()
-        ).await
+                    call_args_to_object_ids(call_args),
+                )
+                .await?
+                .1
+                .object_ref(),
+        )
+        .await
     }
 
     async fn sign_and_send_ptb(
         &self,
         programmable_transaction: ProgrammableTransaction,
-        gas_coin: ObjectRef
+        gas_coin: ObjectRef,
     ) -> Result<SuiTransactionBlockResponse> {
         let gas_price = self.wallet.get_reference_gas_price().await?;
 
@@ -129,17 +129,20 @@ impl WalrusSuiClient {
             vec![gas_coin],
             programmable_transaction,
             self.gas_budget,
-            gas_price
+            gas_price,
         );
 
         let transaction = self.wallet.sign_transaction(&transaction);
 
-        let response = self.wallet.execute_transaction_may_fail(transaction).await?;
-        match
-            response.effects
-                .as_ref()
-                .ok_or_else(|| anyhow!("No transaction effects in response"))?
-                .status()
+        let response = self
+            .wallet
+            .execute_transaction_may_fail(transaction)
+            .await?;
+        match response
+            .effects
+            .as_ref()
+            .ok_or_else(|| anyhow!("No transaction effects in response"))?
+            .status()
         {
             SuiExecutionStatus::Success => Ok(response),
             SuiExecutionStatus::Failure { error } => {
@@ -149,19 +152,27 @@ impl WalrusSuiClient {
     }
 
     async fn call_arg_from_shared_object_id(&self, id: ObjectID, mutable: bool) -> Result<CallArg> {
-        let Some(Owner::Shared { initial_shared_version }) = self.sui_client
+        let Some(Owner::Shared {
+            initial_shared_version,
+        }) = self
+            .sui_client
             .read_api()
-            .get_object_with_options(id, SuiObjectDataOptions::new().with_owner()).await?
-            .owner() else {
-            bail!("trying to get the initial version of a non-shared object: {}", id)
+            .get_object_with_options(id, SuiObjectDataOptions::new().with_owner())
+            .await?
+            .owner()
+        else {
+            bail!(
+                "trying to get the initial version of a non-shared object: {}",
+                id
+            )
         };
-        Ok(
-            CallArg::Object(sui_types::transaction::ObjectArg::SharedObject {
+        Ok(CallArg::Object(
+            sui_types::transaction::ObjectArg::SharedObject {
                 id,
                 initial_shared_version,
                 mutable,
-            })
-        )
+            },
+        ))
     }
 
     async fn price_per_unit_size(&self) -> Result<u64> {
@@ -169,18 +180,21 @@ impl WalrusSuiClient {
     }
 
     async fn get_object<U>(&self, object_id: ObjectID) -> Result<U>
-        where U: AssociatedContractStruct
+    where
+        U: AssociatedContractStruct,
     {
         let obj_struct = get_struct_from_object_response(
-            &self.sui_client
+            &self
+                .sui_client
                 .read_api()
-                .get_object_with_options(
-                    object_id,
-                    SuiObjectDataOptions::new().with_content()
-                ).await?
+                .get_object_with_options(object_id, SuiObjectDataOptions::new().with_content())
+                .await?,
         )?;
         U::try_from(obj_struct).map_err(|_e| {
-            anyhow!("could not convert object with id {} to expected type", object_id)
+            anyhow!(
+                "could not convert object with id {} to expected type",
+                object_id
+            )
         })
     }
 
@@ -189,38 +203,37 @@ impl WalrusSuiClient {
     pub async fn reserve_space(
         &self,
         encoded_size: u64,
-        periods_ahead: u64
+        periods_ahead: u64,
     ) -> Result<StorageResource> {
         let price = periods_ahead * encoded_size * self.price_per_unit_size().await?;
         let payment_coin = handle_pagination(|cursor| {
-            self.sui_client
-                .coin_read_api()
-                .get_coins(
-                    self.wallet_address,
-                    Some(self.coin_type.to_canonical_string(true)),
-                    cursor,
-                    None
-                )
-        }).await?
-            .find(|coin| coin.balance >= price)
-            .ok_or_else(|| anyhow!("no compatible payment coin found"))?;
-        let res = self.move_call_and_transfer(
-            contracts::system::reserve_space.with_type_params(
-                &[self.system_tag.clone(), self.coin_type.clone()]
-            ),
-            vec![
-                self.call_arg_from_shared_object_id(self.system_object, true).await?,
-                encoded_size.into(),
-                periods_ahead.into(),
-                payment_coin.object_ref().into()
-            ]
-        ).await?;
+            self.sui_client.coin_read_api().get_coins(
+                self.wallet_address,
+                Some(self.coin_type.to_canonical_string(true)),
+                cursor,
+                None,
+            )
+        })
+        .await?
+        .find(|coin| coin.balance >= price)
+        .ok_or_else(|| anyhow!("no compatible payment coin found"))?;
+        let res = self
+            .move_call_and_transfer(
+                contracts::system::reserve_space
+                    .with_type_params(&[self.system_tag.clone(), self.coin_type.clone()]),
+                vec![
+                    self.call_arg_from_shared_object_id(self.system_object, true)
+                        .await?,
+                    encoded_size.into(),
+                    periods_ahead.into(),
+                    payment_coin.object_ref().into(),
+                ],
+            )
+            .await?;
         let storage_id = get_created_object_ids_by_type(
             &res,
-            &contracts::storage_resource::Storage.to_move_struct_tag(
-                self.walrus_pkg,
-                &[self.system_tag.clone()]
-            )?
+            &contracts::storage_resource::Storage
+                .to_move_struct_tag(self.walrus_pkg, &[self.system_tag.clone()])?,
         )?;
         ensure!(
             storage_id.len() == 1,
@@ -240,24 +253,27 @@ impl WalrusSuiClient {
         storage: &StorageResource,
         blob_id: BlobId,
         encoded_size: u64,
-        erasure_code_type: EncodingType
+        erasure_code_type: EncodingType,
     ) -> Result<Blob> {
         let erasure_code_type: u8 = erasure_code_type.into();
-        let res = self.move_call_and_transfer(
-            contracts::blob::register.with_type_params(
-                &[self.system_tag.clone(), self.coin_type.clone()]
-            ),
-            vec![
-                self.call_arg_from_shared_object_id(self.system_object, true).await?,
-                self.wallet.get_object_ref(storage.id).await?.into(),
-                call_arg_pure!(&blob_id),
-                encoded_size.into(),
-                erasure_code_type.into()
-            ]
-        ).await?;
+        let res = self
+            .move_call_and_transfer(
+                contracts::blob::register
+                    .with_type_params(&[self.system_tag.clone(), self.coin_type.clone()]),
+                vec![
+                    self.call_arg_from_shared_object_id(self.system_object, true)
+                        .await?,
+                    self.wallet.get_object_ref(storage.id).await?.into(),
+                    call_arg_pure!(&blob_id),
+                    encoded_size.into(),
+                    erasure_code_type.into(),
+                ],
+            )
+            .await?;
         let blob_obj_id = get_created_object_ids_by_type(
             &res,
-            &contracts::blob::Blob.to_move_struct_tag(self.walrus_pkg, &[self.system_tag.clone()])?
+            &contracts::blob::Blob
+                .to_move_struct_tag(self.walrus_pkg, &[self.system_tag.clone()])?,
         )?;
         ensure!(
             blob_obj_id.len() == 1,
@@ -272,22 +288,27 @@ impl WalrusSuiClient {
     pub async fn certify_blob(
         &self,
         blob: &Blob,
-        certificate: &ConfirmationCertificate
+        certificate: &ConfirmationCertificate,
     ) -> Result<Blob> {
-        let res = self.move_call_and_transfer(
-            contracts::blob::certify.with_type_params(
-                &[self.system_tag.clone(), self.coin_type.clone()]
-            ),
-            vec![
-                self.call_arg_from_shared_object_id(self.system_object, true).await?,
-                self.wallet.get_object_ref(blob.id).await?.into(),
-                call_arg_pure!(certificate.signature.as_bytes()),
-                call_arg_pure!(&certificate.signers),
-                (&certificate.confirmation).into()
-            ]
-        ).await?;
+        let res = self
+            .move_call_and_transfer(
+                contracts::blob::certify
+                    .with_type_params(&[self.system_tag.clone(), self.coin_type.clone()]),
+                vec![
+                    self.call_arg_from_shared_object_id(self.system_object, true)
+                        .await?,
+                    self.wallet.get_object_ref(blob.id).await?.into(),
+                    call_arg_pure!(certificate.signature.as_bytes()),
+                    call_arg_pure!(&certificate.signers),
+                    (&certificate.confirmation).into(),
+                ],
+            )
+            .await?;
         let blob: Blob = self.get_object(blob.id).await?;
-        ensure!(blob.certified.is_some(), format!("could not certify blob: {:?}", res.errors));
+        ensure!(
+            blob.certified.is_some(),
+            format!("could not certify blob: {:?}", res.errors)
+        );
         Ok(blob)
     }
 
