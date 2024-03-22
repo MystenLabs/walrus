@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{net::SocketAddr, str::FromStr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc};
 
 use axum::{
     extract::{Path, State},
@@ -11,6 +11,7 @@ use axum::{
     Router,
 };
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DisplayFromStr};
 use tokio_util::sync::CancellationToken;
 use tower_http::trace::TraceLayer;
 use walrus_core::{
@@ -31,6 +32,17 @@ pub const PRIMARY_SLIVER_ENDPOINT: &str = "/v1/blobs/:blobId/slivers/:sliverPair
 pub const SECONDARY_SLIVER_ENDPOINT: &str = "/v1/blobs/:blobId/slivers/:sliverPairIdx/secondary";
 /// The path to get storage confirmations.
 pub const STORAGE_CONFIRMATION_ENDPOINT: &str = "/v1/blobs/:blobId/confirmation";
+
+/// A blob ID encoded as a hex string designed to be used in URLs.
+#[serde_as]
+#[derive(Deserialize, Serialize)]
+pub struct HexBlobId(#[serde_as(as = "DisplayFromStr")] BlobId);
+
+impl From<HexBlobId> for BlobId {
+    fn from(hex_blob_id: HexBlobId) -> Self {
+        hex_blob_id.0
+    }
+}
 
 /// Error message returned by the service.
 #[derive(Serialize, Deserialize)]
@@ -126,16 +138,12 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn retrieve_metadata(
         State(state): State<Arc<S>>,
-        Path(encoded_blob_id): Path<String>,
+        Path(hex_blob_id): Path<HexBlobId>,
     ) -> (
         StatusCode,
         Json<ServiceResponse<UnverifiedBlobMetadataWithId>>,
     ) {
-        let Ok(blob_id) = BlobId::from_str(&encoded_blob_id) else {
-            tracing::debug!("Invalid blob ID {encoded_blob_id}");
-            return ServiceResponse::serialized_error(StatusCode::BAD_REQUEST, "Invalid blob ID");
-        };
-
+        let blob_id = hex_blob_id.into();
         match state.retrieve_metadata(&blob_id) {
             Ok(Some(metadata)) => {
                 tracing::debug!("Retrieved metadata for {blob_id:?}");
@@ -157,14 +165,10 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn store_metadata(
         State(state): State<Arc<S>>,
-        Path(encoded_blob_id): Path<String>,
+        Path(hex_blob_id): Path<HexBlobId>,
         Json(metadata): Json<BlobMetadata>,
     ) -> (StatusCode, Json<ServiceResponse<()>>) {
-        let Ok(blob_id) = BlobId::from_str(&encoded_blob_id) else {
-            tracing::debug!("Invalid blob ID {encoded_blob_id}");
-            return ServiceResponse::serialized_error(StatusCode::BAD_REQUEST, "Invalid blob ID");
-        };
-
+        let blob_id = hex_blob_id.into();
         let unverified_metadata_with_id = UnverifiedBlobMetadataWithId::new(blob_id, metadata);
         match state.store_metadata(unverified_metadata_with_id) {
             Ok(()) => {
@@ -187,35 +191,25 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn retrieve_primary_sliver(
         State(state): State<Arc<S>>,
-        Path((encoded_blob_id, sliver_pair_idx)): Path<(String, u16)>,
+        Path((hex_blob_id, sliver_pair_idx)): Path<(HexBlobId, u16)>,
     ) -> (StatusCode, Json<ServiceResponse<Sliver>>) {
-        Self::retrieve_sliver(state, encoded_blob_id, sliver_pair_idx, SliverType::Primary).await
+        Self::retrieve_sliver(state, hex_blob_id, sliver_pair_idx, SliverType::Primary).await
     }
 
     async fn retrieve_secondary_sliver(
         State(state): State<Arc<S>>,
-        Path((encoded_blob_id, sliver_pair_idx)): Path<(String, u16)>,
+        Path((hex_blob_id, sliver_pair_idx)): Path<(HexBlobId, u16)>,
     ) -> (StatusCode, Json<ServiceResponse<Sliver>>) {
-        Self::retrieve_sliver(
-            state,
-            encoded_blob_id,
-            sliver_pair_idx,
-            SliverType::Secondary,
-        )
-        .await
+        Self::retrieve_sliver(state, hex_blob_id, sliver_pair_idx, SliverType::Secondary).await
     }
 
     async fn retrieve_sliver(
         state: Arc<S>,
-        encoded_blob_id: String,
+        hex_blob_id: HexBlobId,
         sliver_pair_idx: u16,
         sliver_type: SliverType,
     ) -> (StatusCode, Json<ServiceResponse<Sliver>>) {
-        let Ok(blob_id) = BlobId::from_str(&encoded_blob_id) else {
-            tracing::debug!("Invalid blob ID {encoded_blob_id}");
-            return ServiceResponse::serialized_error(StatusCode::BAD_REQUEST, "Invalid blob ID");
-        };
-
+        let blob_id = hex_blob_id.into();
         match state.retrieve_sliver(&blob_id, sliver_pair_idx, sliver_type) {
             Ok(Some(sliver)) => {
                 tracing::debug!("Retrieved {sliver_type:?} sliver for {blob_id:?}");
@@ -237,12 +231,12 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn store_primary_sliver(
         State(state): State<Arc<S>>,
-        Path((encoded_blob_id, sliver_pair_idx)): Path<(String, u16)>,
+        Path((hex_blob_id, sliver_pair_idx)): Path<(HexBlobId, u16)>,
         Json(sliver): Json<Sliver>,
     ) -> (StatusCode, Json<ServiceResponse<()>>) {
         Self::store_sliver(
             state,
-            encoded_blob_id,
+            hex_blob_id,
             sliver_pair_idx,
             sliver,
             SliverType::Primary,
@@ -252,12 +246,12 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn store_secondary_sliver(
         State(state): State<Arc<S>>,
-        Path((encoded_blob_id, sliver_pair_idx)): Path<(String, u16)>,
+        Path((hex_blob_id, sliver_pair_idx)): Path<(HexBlobId, u16)>,
         Json(sliver): Json<Sliver>,
     ) -> (StatusCode, Json<ServiceResponse<()>>) {
         Self::store_sliver(
             state,
-            encoded_blob_id,
+            hex_blob_id,
             sliver_pair_idx,
             sliver,
             SliverType::Secondary,
@@ -267,7 +261,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn store_sliver(
         state: Arc<S>,
-        encoded_blob_id: String,
+        hex_blob_id: HexBlobId,
         sliver_pair_idx: u16,
         sliver: Sliver,
         sliver_type: SliverType,
@@ -279,11 +273,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             );
         }
 
-        let Ok(blob_id) = BlobId::from_str(&encoded_blob_id) else {
-            tracing::debug!("Invalid blob ID {encoded_blob_id}");
-            return ServiceResponse::serialized_error(StatusCode::BAD_REQUEST, "Invalid blob ID");
-        };
-
+        let blob_id = hex_blob_id.into();
         match state.store_sliver(&blob_id, sliver_pair_idx, &sliver) {
             Ok(()) => {
                 tracing::debug!("Stored {sliver_type:?} sliver for {blob_id:?}");
@@ -305,13 +295,9 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn retrieve_storage_confirmation(
         State(state): State<Arc<S>>,
-        Path(encoded_blob_id): Path<String>,
+        Path(hex_blob_id): Path<HexBlobId>,
     ) -> (StatusCode, Json<ServiceResponse<StorageConfirmation>>) {
-        let Ok(blob_id) = BlobId::from_str(&encoded_blob_id) else {
-            tracing::debug!("Invalid blob ID {encoded_blob_id}");
-            return ServiceResponse::serialized_error(StatusCode::BAD_REQUEST, "Invalid blob ID");
-        };
-
+        let blob_id = hex_blob_id.into();
         match state.compute_storage_confirmation(&blob_id).await {
             Ok(Some(confirmation)) => {
                 tracing::debug!("Retrieved storage confirmation for {blob_id:?}");

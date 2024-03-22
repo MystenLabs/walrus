@@ -2422,7 +2422,7 @@ dependencies = [
  "serde",
  "serde_bytes",
  "serde_json",
- "serde_with",
+ "serde_with 2.3.3",
  "sha2 0.10.8",
  "sha3 0.10.8",
  "signature 2.2.0",
@@ -2481,7 +2481,7 @@ dependencies = [
  "serde",
  "serde_bytes",
  "serde_json",
- "serde_with",
+ "serde_with 2.3.3",
  "sha2 0.10.8",
  "sha3 0.10.8",
  "signature 2.2.0",
@@ -5100,7 +5100,7 @@ dependencies = [
  "roaring",
  "rustversion",
  "serde",
- "serde_with",
+ "serde_with 2.3.3",
  "sui-protocol-config",
  "thiserror",
  "tokio",
@@ -7223,7 +7223,25 @@ dependencies = [
  "indexmap 1.9.3",
  "serde",
  "serde_json",
- "serde_with_macros",
+ "serde_with_macros 2.3.3",
+ "time",
+]
+
+[[package]]
+name = "serde_with"
+version = "3.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee80b0e361bbf88fd2f6e242ccd19cfda072cb0faa6ae694ecee08199938569a"
+dependencies = [
+ "base64 0.21.7",
+ "chrono",
+ "hex",
+ "indexmap 1.9.3",
+ "indexmap 2.2.5",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_with_macros 3.7.0",
  "time",
 ]
 
@@ -7232,6 +7250,18 @@ name = "serde_with_macros"
 version = "2.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "881b6f881b17d13214e5d494c939ebab463d01264ce1811e9d4ac3a882e7695f"
+dependencies = [
+ "darling 0.20.8",
+ "proc-macro2 1.0.79",
+ "quote 1.0.35",
+ "syn 2.0.53",
+]
+
+[[package]]
+name = "serde_with_macros"
+version = "3.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6561dc161a9224638a31d876ccdfefbc1df91d3f3a8342eddb35f055d48c7655"
 dependencies = [
  "darling 0.20.8",
  "proc-macro2 1.0.79",
@@ -7787,7 +7817,7 @@ dependencies = [
  "rand 0.8.5",
  "reqwest",
  "serde",
- "serde_with",
+ "serde_with 2.3.3",
  "serde_yaml 0.8.26",
  "sui-keys",
  "sui-protocol-config",
@@ -7851,7 +7881,7 @@ dependencies = [
  "scopeguard",
  "serde",
  "serde_json",
- "serde_with",
+ "serde_with 2.3.3",
  "shared-crypto",
  "signature 1.6.4",
  "static_assertions",
@@ -7965,7 +7995,7 @@ dependencies = [
  "prometheus",
  "rand 0.8.5",
  "serde",
- "serde_with",
+ "serde_with 2.3.3",
  "serde_yaml 0.8.26",
  "shared-crypto",
  "sui-config",
@@ -8084,7 +8114,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
- "serde_with",
+ "serde_with 2.3.3",
  "sui-enum-compat-util",
  "sui-json",
  "sui-macros",
@@ -8337,7 +8367,7 @@ dependencies = [
  "insta",
  "schemars",
  "serde",
- "serde_with",
+ "serde_with 2.3.3",
  "sui-protocol-config-macros",
  "tracing",
 ]
@@ -8366,7 +8396,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "serde_with",
+ "serde_with 2.3.3",
  "sui-types",
  "tap",
  "thiserror",
@@ -8390,7 +8420,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "serde_with",
+ "serde_with 2.3.3",
  "shared-crypto",
  "sui-config",
  "sui-json",
@@ -8546,7 +8576,7 @@ dependencies = [
  "prometheus",
  "rand 0.8.5",
  "serde",
- "serde_with",
+ "serde_with 2.3.3",
  "serde_yaml 0.8.26",
  "shared-crypto",
  "sui-config",
@@ -8682,7 +8712,7 @@ dependencies = [
  "serde",
  "serde-name",
  "serde_json",
- "serde_with",
+ "serde_with 2.3.3",
  "shared-crypto",
  "signature 1.6.4",
  "static_assertions",
@@ -9881,6 +9911,7 @@ dependencies = [
  "reqwest",
  "rocksdb",
  "serde",
+ "serde_with 3.7.0",
  "serde_yaml 0.9.33",
  "telemetry-subscribers",
  "tempfile",

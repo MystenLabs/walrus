@@ -19,6 +19,7 @@ rand = "0.8.5"
 regex = "1"
 rocksdb = "0.21"
 serde = { workspace = true }
+serde_with = "3.7.0"
 serde_yaml = "0.9.32"
 telemetry-subscribers = { workspace = true }
 thiserror = { workspace = true }
