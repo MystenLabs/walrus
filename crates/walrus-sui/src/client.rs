@@ -414,6 +414,7 @@ where
         {
             Ok(events) => {
                 page_available = events.has_next_page;
+                polling_interval = initial_polling_interval;
                 for event in events.data {
                     last_event = Some(event.id);
                     let event_obj = event.try_into().map_err(|_| {
