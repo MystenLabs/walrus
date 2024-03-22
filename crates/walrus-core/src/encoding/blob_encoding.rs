@@ -523,7 +523,7 @@ mod tests {
         let config = EncodingConfig::new(
             source_symbols_primary,
             source_symbols_secondary,
-            3 * ((source_symbols_primary + source_symbols_secondary) as u32),
+            3 * (source_symbols_primary + source_symbols_secondary) as u32,
         );
 
         let slivers_for_decoding = random_subset(
@@ -618,7 +618,7 @@ mod tests {
         let blob = random_data(16180);
         let source_symbols_primary = 11;
         let source_symbols_secondary = 23;
-        let n_shards = 3 * (source_symbols_primary + source_symbols_secondary) as u32;
+        let n_shards = 3 * (source_symbols_primary + source_symbols_secondary) as u32git co;
 
         initialize_encoding_config(source_symbols_primary, source_symbols_secondary, n_shards);
 
