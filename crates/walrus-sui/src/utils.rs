@@ -4,142 +4,137 @@
 //! Helper functions for the crate.
 //!
 
-use std::{collections::BTreeSet, str::FromStr};
+use std::{ collections::BTreeSet, str::FromStr };
 
-use anyhow::{anyhow, Result};
+use anyhow::{ anyhow, Result };
 use futures::Future;
-use move_core_types::{language_storage::StructTag as MoveStructTag, u256::U256};
+use move_core_types::{ language_storage::StructTag as MoveStructTag, u256::U256 };
 use sui_sdk::{
     rpc_types::{
-        ObjectChange, Page, SuiMoveStruct, SuiMoveValue, SuiObjectDataOptions, SuiObjectResponse,
-        SuiParsedData, SuiTransactionBlockResponse,
+        ObjectChange,
+        Page,
+        SuiMoveStruct,
+        SuiMoveValue,
+        SuiObjectDataOptions,
+        SuiObjectResponse,
+        SuiParsedData,
+        SuiTransactionBlockResponse,
     },
     types::base_types::ObjectID,
     SuiClient,
 };
-use sui_types::{base_types::ObjectType, transaction::CallArg, TypeTag};
+use sui_types::{ base_types::ObjectType, transaction::CallArg, TypeTag };
 use walrus_core::BlobId;
 
 pub(crate) fn get_struct_from_object_response(
-    object_response: &SuiObjectResponse,
+    object_response: &SuiObjectResponse
 ) -> Result<SuiMoveStruct> {
     match object_response {
-        SuiObjectResponse {
-            data: Some(data),
-            error: None,
-        } => match &data.content {
-            Some(SuiParsedData::MoveObject(parsed_object)) => Ok(parsed_object.fields.clone()),
-            _ => Err(anyhow!("Unexpected data in ObjectResponse: {:?}", data)),
-        },
-        SuiObjectResponse {
-            error: Some(error), ..
-        } => Err(anyhow!("Error in ObjectResponse: {:?}", error)),
-        SuiObjectResponse { .. } => Err(anyhow!(
-            "ObjectResponse contains data and error: {:?}",
-            object_response
-        )),
+        SuiObjectResponse { data: Some(data), error: None } =>
+            match &data.content {
+                Some(SuiParsedData::MoveObject(parsed_object)) => Ok(parsed_object.fields.clone()),
+                _ => Err(anyhow!("Unexpected data in ObjectResponse: {:?}", data)),
+            }
+        SuiObjectResponse { error: Some(error), .. } =>
+            Err(anyhow!("Error in ObjectResponse: {:?}", error)),
+        SuiObjectResponse { .. } =>
+            Err(anyhow!("ObjectResponse contains data and error: {:?}", object_response)),
     }
 }
 
 pub(crate) async fn get_type_parameters(
     sui: &SuiClient,
-    object_id: ObjectID,
+    object_id: ObjectID
 ) -> Result<Vec<TypeTag>> {
-    match sui
-        .read_api()
-        .get_object_with_options(object_id, SuiObjectDataOptions::new().with_type())
-        .await?
-        .into_object()?
-        .object_type()?
+    match
+        sui
+            .read_api()
+            .get_object_with_options(object_id, SuiObjectDataOptions::new().with_type()).await?
+            .into_object()?
+            .object_type()?
     {
         ObjectType::Struct(move_obj_type) => Ok(move_obj_type.type_params()),
-        ObjectType::Package => Err(anyhow!(
-            "Object ID points to a package instead of a Move Struct"
-        )),
+        ObjectType::Package =>
+            Err(anyhow!("Object ID points to a package instead of a Move Struct")),
     }
 }
 
 pub(crate) fn get_created_object_ids_by_type(
     response: &SuiTransactionBlockResponse,
-    struct_tag: &MoveStructTag,
+    struct_tag: &MoveStructTag
 ) -> Result<Vec<ObjectID>> {
     match response.object_changes.as_ref() {
-        Some(changes) => Ok(changes
-            .iter()
-            .filter_map(|changed| {
-                if let ObjectChange::Created {
-                    object_type,
-                    object_id,
-                    ..
-                } = changed
-                {
-                    if object_type == struct_tag {
-                        Some(*object_id)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            })
-            .collect()),
-        None => Err(anyhow!(
-            "No object changes in transaction response: {:?}",
-            response.errors
-        )),
+        Some(changes) =>
+            Ok(
+                changes
+                    .iter()
+                    .filter_map(|changed| {
+                        if let ObjectChange::Created { object_type, object_id, .. } = changed {
+                            if object_type == struct_tag { Some(*object_id) } else { None }
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
+            ),
+        None => Err(anyhow!("No object changes in transaction response: {:?}", response.errors)),
     }
 }
 
 /// Attempts to convert a vector of SuiMoveValues to a vector of numeric rust types
 pub(crate) fn sui_move_convert_numeric_vec<T>(sui_move_vec: Vec<SuiMoveValue>) -> Result<Vec<T>>
-where
-    T: TryFrom<u32> + FromStr,
+    where T: TryFrom<u32> + FromStr
 {
     sui_move_vec
         .into_iter()
-        .map(|e| match e {
-            SuiMoveValue::Number(n) => T::try_from(n).map_err(|_| anyhow!("conversion failed")),
-            SuiMoveValue::String(s) => s.parse().map_err(|_| anyhow!("conversion failed")),
-            other => Err(anyhow!("unexpected value in Move vector: {:?}", other)),
+        .map(|e| {
+            match e {
+                SuiMoveValue::Number(n) => T::try_from(n).map_err(|_| anyhow!("conversion failed")),
+                SuiMoveValue::String(s) => s.parse().map_err(|_| anyhow!("conversion failed")),
+                other => Err(anyhow!("unexpected value in Move vector: {:?}", other)),
+            }
         })
         .collect()
 }
 
 /// Attempts to convert a vector of SuiMoveValues to a vector of type T
 pub(crate) fn sui_move_convert_struct_vec<T>(sui_move_vec: Vec<SuiMoveValue>) -> Result<Vec<T>>
-where
-    T: AssociatedContractStruct,
+    where T: AssociatedContractStruct
 {
     sui_move_vec
         .into_iter()
-        .map(|e| match e {
-            SuiMoveValue::Struct(move_struct) => {
-                T::try_from(move_struct).map_err(|_| anyhow!("conversion failed"))
+        .map(|e| {
+            match e {
+                SuiMoveValue::Struct(move_struct) => {
+                    T::try_from(move_struct).map_err(|_| anyhow!("conversion failed"))
+                }
+                other => Err(anyhow!("unexpected value in Move vector: {:?}", other)),
             }
-            other => Err(anyhow!("unexpected value in Move vector: {:?}", other)),
         })
         .collect()
 }
 
 pub(crate) async fn handle_pagination<F, T, C, Fut>(
-    closure: F,
-) -> Result<impl Iterator<Item = T>, sui_sdk::error::Error>
-where
-    F: FnMut(Option<C>) -> Fut,
-    T: 'static,
-    Fut: Future<Output = Result<Page<T, C>, sui_sdk::error::Error>>,
+    closure: F
+)
+    -> Result<impl Iterator<Item = T>, sui_sdk::error::Error>
+    where
+        F: FnMut(Option<C>) -> Fut,
+        T: 'static,
+        Fut: Future<Output = Result<Page<T, C>, sui_sdk::error::Error>>
 {
     handle_pagination_with_cursor(closure, None).await
 }
 
 pub(crate) async fn handle_pagination_with_cursor<F, T, C, Fut>(
     mut closure: F,
-    mut cursor: Option<C>,
-) -> Result<impl Iterator<Item = T>, sui_sdk::error::Error>
-where
-    F: FnMut(Option<C>) -> Fut,
-    T: 'static,
-    Fut: Future<Output = Result<Page<T, C>, sui_sdk::error::Error>>,
+    mut cursor: Option<C>
+)
+    -> Result<impl Iterator<Item = T>, sui_sdk::error::Error>
+    where
+        F: FnMut(Option<C>) -> Fut,
+        T: 'static,
+        Fut: Future<Output = Result<Page<T, C>, sui_sdk::error::Error>>
 {
     let mut cont = true;
     let mut iterators = vec![];
@@ -153,16 +148,17 @@ where
 }
 
 pub(crate) fn call_args_to_object_ids<T>(call_args: T) -> BTreeSet<ObjectID>
-where
-    T: IntoIterator<Item = CallArg>,
+    where T: IntoIterator<Item = CallArg>
 {
     call_args
         .into_iter()
-        .filter_map(|arg| match arg {
-            CallArg::Object(sui_sdk::types::transaction::ObjectArg::ImmOrOwnedObject(obj)) => {
-                Some(obj.0.to_owned())
+        .filter_map(|arg| {
+            match arg {
+                CallArg::Object(sui_sdk::types::transaction::ObjectArg::ImmOrOwnedObject(obj)) => {
+                    Some(obj.0.to_owned())
+                }
+                _ => None,
             }
-            _ => None,
         })
         .collect()
 }
@@ -172,19 +168,19 @@ pub(crate) fn blob_id_from_u256(input: U256) -> BlobId {
 }
 
 macro_rules! call_arg_pure {
-    ($value: expr) => {
+    ($value:expr) => {
         CallArg::Pure(bcs::to_bytes($value)?)
     };
 }
 
 macro_rules! match_for_correct_type {
-    ($value: expr, $field_type: path) => {
+    ($value:expr, $field_type:path) => {
         match $value {
             Some($field_type(x)) => Some(x),
             _ => None,
         }
     };
-    ($value: expr, $field_type: path { $var: ident }) => {
+    ($value:expr, $field_type:path { $var:ident }) => {
         match $value {
             Some($field_type { $var }) => Some($var),
             _ => None,
@@ -193,7 +189,7 @@ macro_rules! match_for_correct_type {
 }
 
 macro_rules! get_dynamic_field {
-    ($struct: expr, $field_name: expr, $field_type: path $({ $var: ident })*) => {
+    ($struct:expr, $field_name:expr, $field_type:path $({ $var:ident })*) => {
         match_for_correct_type!(
             $struct.read_dynamic_field_value($field_name),
             $field_type $({ $var })*
@@ -207,20 +203,20 @@ macro_rules! get_dynamic_field {
 }
 
 macro_rules! get_dynamic_objectid_field {
-    ($struct: expr) => {
+    ($struct:expr) => {
         get_dynamic_field!($struct, "id", SuiMoveValue::UID { id })
     };
 }
 
 macro_rules! get_dynamic_u64_field {
-    ($struct: expr, $field_name: expr) => {
+    ($struct:expr, $field_name:expr) => {
         get_dynamic_field!($struct, $field_name, SuiMoveValue::String)?.parse()
     };
 }
 
 #[allow(unused)]
 macro_rules! get_field_from_event {
-    ($event_object: expr, $field_name: expr, $field_type: path) => {
+    ($event_object:expr, $field_name:expr, $field_type:path) => {
         match_for_correct_type!($event_object.get($field_name), $field_type).ok_or(anyhow!(
             "Event does not contain field {} with expected type {}: {:?}",
             $field_name,

@@ -1,19 +1,22 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use fastcrypto::{
-    bls12381::min_pk::BLS12381KeyPair,
-    traits::{KeyPair, Signer},
-};
-use rand::{rngs::StdRng, RngCore, SeedableRng};
+use fastcrypto::{ bls12381::min_pk::BLS12381KeyPair, traits::{ KeyPair, Signer } };
+use rand::{ rngs::StdRng, RngCore, SeedableRng };
 
 use crate::{
     encoding,
     merkle::Node,
     metadata::{
-        BlobMetadata, SliverPairMetadata, UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId,
+        BlobMetadata,
+        SliverPairMetadata,
+        UnverifiedBlobMetadataWithId,
+        VerifiedBlobMetadataWithId,
     },
-    BlobId, EncodingType, SignedStorageConfirmation, Sliver,
+    BlobId,
+    EncodingType,
+    SignedStorageConfirmation,
+    Sliver,
 };
 
 /// Returns a deterministic fixed key pair for testing.
@@ -91,6 +94,6 @@ pub fn verified_blob_metadata() -> VerifiedBlobMetadataWithId {
     let metadata = blob_metadata();
     VerifiedBlobMetadataWithId::new_verified_unchecked(
         BlobId::from_sliver_pair_metadata(&metadata),
-        metadata,
+        metadata
     )
 }

@@ -3,17 +3,13 @@
 
 //! The representation on encoded symbols.
 
-use std::{
-    marker::PhantomData,
-    ops::{Index, IndexMut, Range},
-    slice::{Chunks, ChunksMut},
-};
+use std::{ marker::PhantomData, ops::{ Index, IndexMut, Range }, slice::{ Chunks, ChunksMut } };
 
-use raptorq::{EncodingPacket, PayloadId};
-use serde::{Deserialize, Serialize};
+use raptorq::{ EncodingPacket, PayloadId };
+use serde::{ Deserialize, Serialize };
 
-use super::{EncodingAxis, Primary, Secondary, WrongSymbolSizeError};
-use crate::merkle::{MerkleAuth, Node};
+use super::{ EncodingAxis, Primary, Secondary, WrongSymbolSizeError };
+use crate::merkle::{ MerkleAuth, Node };
 
 /// A set of encoded symbols.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -33,7 +29,7 @@ impl Symbols {
     /// `slice.len() % symbol_size != 0` or if `symbol_size == 0`.
     pub fn new(symbols: Vec<u8>, symbol_size: u16) -> Self {
         assert!(
-            symbols.len() % symbol_size as usize == 0,
+            symbols.len() % (symbol_size as usize) == 0,
             "the slice must contain complete symbols"
         );
         Symbols {
@@ -46,7 +42,7 @@ impl Symbols {
     /// rest. If `len` is greater or equal to the [`Symbols`]’ current number of symbols, this has
     /// no effect.
     pub fn truncate(&mut self, len: usize) {
-        self.data.truncate(len * self.symbol_size as usize);
+        self.data.truncate(len * (self.symbol_size as usize));
     }
 
     /// Creates a new `Symbols` struct with zeroed-out data of specified length.
@@ -95,11 +91,7 @@ impl Symbols {
     /// set of symbols, `None` otherwise.
     #[inline]
     pub fn get(&self, index: usize) -> Option<&[u8]> {
-        if index >= self.len() {
-            None
-        } else {
-            Some(&self[index])
-        }
+        if index >= self.len() { None } else { Some(&self[index]) }
     }
 
     /// Obtain a mutable reference to the symbol at `index`.
@@ -107,11 +99,7 @@ impl Symbols {
     /// Returns an `Option` with a mutable reference to the symbol at the `index`, if `index` is
     /// within the set of symbols, `None` otherwise.
     pub fn get_mut(&mut self, index: usize) -> Option<&mut [u8]> {
-        if index >= self.len() {
-            None
-        } else {
-            Some(&mut self[index])
-        }
+        if index >= self.len() { None } else { Some(&mut self[index]) }
     }
 
     /// Returns a [`DecodingSymbol`] at the provided index.
@@ -121,12 +109,9 @@ impl Symbols {
     pub fn decoding_symbol_at<T: EncodingAxis>(
         &self,
         data_index: usize,
-        symbol_index: u32,
+        symbol_index: u32
     ) -> Option<DecodingSymbol<T>> {
-        Some(DecodingSymbol::<T>::new(
-            symbol_index,
-            self[data_index].into(),
-        ))
+        Some(DecodingSymbol::<T>::new(symbol_index, self[data_index].into()))
     }
 
     /// Returns an iterator of references to symbols.
@@ -149,14 +134,19 @@ impl Symbols {
     /// Returns `None` if the length of [`self.data`][Self::data] is larger than
     /// `u32::MAX * self.symbol_size`.
     pub fn to_decoding_symbols<T: EncodingAxis>(
-        &self,
+        &self
     ) -> Option<impl Iterator<Item = DecodingSymbol<T>> + '_> {
-        if self.len() > u32::MAX as usize {
+        if self.len() > (u32::MAX as usize) {
             None
         } else {
-            Some(self.to_symbols().enumerate().map(|(i, s)| {
-                DecodingSymbol::new(i.try_into().expect("checked limit above"), s.into())
-            }))
+            Some(
+                self
+                    .to_symbols()
+                    .enumerate()
+                    .map(|(i, s)| {
+                        DecodingSymbol::new(i.try_into().expect("checked limit above"), s.into())
+                    })
+            )
         }
     }
 
@@ -388,7 +378,7 @@ mod tests {
     }
     fn correct_symbols_new_empty(n_symbols: usize, symbol_size: u16) {
         let symbols = Symbols::zeros(n_symbols, symbol_size);
-        assert_eq!(symbols.data.len(), n_symbols * symbol_size as usize);
+        assert_eq!(symbols.data.len(), n_symbols * (symbol_size as usize));
         assert_eq!(symbols.symbol_size, symbol_size);
     }
 }

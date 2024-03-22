@@ -6,15 +6,17 @@
 
 use anyhow::anyhow;
 use move_core_types::u256::U256;
-use sui_sdk::rpc_types::{SuiMoveStruct, SuiMoveValue};
+use sui_sdk::rpc_types::{ SuiMoveStruct, SuiMoveValue };
 use sui_types::base_types::ObjectID;
 use thiserror::Error;
-use walrus_core::{BlobId, EncodingType};
+use walrus_core::{ BlobId, EncodingType };
 
 use crate::{
-    contracts::{self, AssociatedContractStruct, StructTag},
+    contracts::{ self, AssociatedContractStruct, StructTag },
     utils::{
-        blob_id_from_u256, get_dynamic_field, sui_move_convert_numeric_vec,
+        blob_id_from_u256,
+        get_dynamic_field,
+        sui_move_convert_numeric_vec,
         sui_move_convert_struct_vec,
     },
 };
@@ -87,22 +89,21 @@ impl TryFrom<&SuiMoveStruct> for Blob {
 
         let stored_epoch = get_dynamic_u64_field!(sui_move_struct, "stored_epoch")?;
         let blob_id = blob_id_from_u256(
-            get_dynamic_field!(sui_move_struct, "blob_id", SuiMoveValue::String)?
-                .parse::<U256>()?,
+            get_dynamic_field!(sui_move_struct, "blob_id", SuiMoveValue::String)?.parse::<U256>()?
         );
         let encoded_size = get_dynamic_u64_field!(sui_move_struct, "size")?;
-        let erasure_code_type = EncodingType::try_from(u8::try_from(get_dynamic_field!(
-            sui_move_struct,
-            "erasure_code_type",
-            SuiMoveValue::Number
-        )?)?)?;
+        let erasure_code_type = EncodingType::try_from(
+            u8::try_from(
+                get_dynamic_field!(sui_move_struct, "erasure_code_type", SuiMoveValue::Number)?
+            )?
+        )?;
         // `SuiMoveValue::Option` seems to be replaced with `SuiMoveValue::String` directly
         // if it is not `None`.
         let certified = get_dynamic_field!(sui_move_struct, "certified", SuiMoveValue::String)
             .and_then(|s| Ok(Some(s.parse()?)))
             .or_else(|_| {
-                match get_dynamic_field!(sui_move_struct, "certified", SuiMoveValue::Option)?
-                    .as_ref()
+                match
+                    get_dynamic_field!(sui_move_struct, "certified", SuiMoveValue::Option)?.as_ref()
                 {
                     None => Ok(None),
                     // Below would be the expected behaviour in the not-None-case, so we capture
@@ -111,11 +112,9 @@ impl TryFrom<&SuiMoveStruct> for Blob {
                     Some(smv) => Err(anyhow!("unexpected type for field `certified`: {}", smv)),
                 }
             })?;
-        let storage = StorageResource::try_from(get_dynamic_field!(
-            sui_move_struct,
-            "storage",
-            SuiMoveValue::Struct
-        )?)?;
+        let storage = StorageResource::try_from(
+            get_dynamic_field!(sui_move_struct, "storage", SuiMoveValue::Struct)?
+        )?;
         Ok(Self {
             id,
             stored_epoch,
@@ -158,20 +157,22 @@ impl TryFrom<&SuiMoveStruct> for StorageNode {
 
     fn try_from(sui_move_struct: &SuiMoveStruct) -> Result<Self, Self::Error> {
         let name = get_dynamic_field!(sui_move_struct, "name", SuiMoveValue::String)?;
-        let network_address =
-            get_dynamic_field!(sui_move_struct, "network_address", SuiMoveValue::String)?;
-        let public_key_struct =
-            get_dynamic_field!(sui_move_struct, "public_key", SuiMoveValue::Struct)?;
-        let public_key = sui_move_convert_numeric_vec(get_dynamic_field!(
-            public_key_struct,
-            "bytes",
-            SuiMoveValue::Vector
-        )?)?;
-        let shard_ids = sui_move_convert_numeric_vec(get_dynamic_field!(
+        let network_address = get_dynamic_field!(
             sui_move_struct,
-            "shard_ids",
-            SuiMoveValue::Vector
-        )?)?;
+            "network_address",
+            SuiMoveValue::String
+        )?;
+        let public_key_struct = get_dynamic_field!(
+            sui_move_struct,
+            "public_key",
+            SuiMoveValue::Struct
+        )?;
+        let public_key = sui_move_convert_numeric_vec(
+            get_dynamic_field!(public_key_struct, "bytes", SuiMoveValue::Vector)?
+        )?;
+        let shard_ids = sui_move_convert_numeric_vec(
+            get_dynamic_field!(sui_move_struct, "shard_ids", SuiMoveValue::Vector)?
+        )?;
         Ok(Self {
             name,
             network_address,
@@ -209,16 +210,19 @@ impl TryFrom<&SuiMoveStruct> for Committee {
 
     fn try_from(sui_move_struct: &SuiMoveStruct) -> Result<Self, Self::Error> {
         let epoch = get_dynamic_u64_field!(sui_move_struct, "epoch")?;
-        let bls_committee_struct =
-            get_dynamic_field!(sui_move_struct, "bls_committee", SuiMoveValue::Struct)?;
-        let members = sui_move_convert_struct_vec(get_dynamic_field!(
+        let bls_committee_struct = get_dynamic_field!(
+            sui_move_struct,
+            "bls_committee",
+            SuiMoveValue::Struct
+        )?;
+        let members = sui_move_convert_struct_vec(
+            get_dynamic_field!(bls_committee_struct, "members", SuiMoveValue::Vector)?
+        )?;
+        let total_weight = get_dynamic_field!(
             bls_committee_struct,
-            "members",
-            SuiMoveValue::Vector
-        )?)?;
-        let total_weight =
-            get_dynamic_field!(bls_committee_struct, "total_weight", SuiMoveValue::Number)?
-                .try_into()?;
+            "total_weight",
+            SuiMoveValue::Number
+        )?.try_into()?;
         Ok(Self {
             members,
             epoch,
@@ -295,23 +299,20 @@ impl TryFrom<&SuiMoveStruct> for SystemObject {
 
     fn try_from(sui_move_struct: &SuiMoveStruct) -> Result<Self, Self::Error> {
         let id = get_dynamic_objectid_field!(sui_move_struct)?;
-        let current_committee =
-            get_dynamic_field!(sui_move_struct, "current_committee", SuiMoveValue::Struct)?
-                .try_into()?;
-        let epoch_status = u8::try_from(get_dynamic_field!(
+        let current_committee = get_dynamic_field!(
             sui_move_struct,
-            "epoch_status",
-            SuiMoveValue::Number
-        )?)?
-        .try_into()?;
+            "current_committee",
+            SuiMoveValue::Struct
+        )?.try_into()?;
+        let epoch_status = u8
+            ::try_from(get_dynamic_field!(sui_move_struct, "epoch_status", SuiMoveValue::Number)?)?
+            .try_into()?;
         let total_capacity_size = get_dynamic_u64_field!(sui_move_struct, "total_capacity_size")?;
         let used_capacity_size = get_dynamic_u64_field!(sui_move_struct, "used_capacity_size")?;
         let price_per_unit_size = get_dynamic_u64_field!(sui_move_struct, "price_per_unit_size")?;
-        let past_committees_object = get_dynamic_objectid_field!(get_dynamic_field!(
-            sui_move_struct,
-            "past_committees",
-            SuiMoveValue::Struct
-        )?)?;
+        let past_committees_object = get_dynamic_objectid_field!(
+            get_dynamic_field!(sui_move_struct, "past_committees", SuiMoveValue::Struct)?
+        )?;
         Ok(Self {
             id,
             current_committee,
