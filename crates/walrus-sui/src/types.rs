@@ -6,13 +6,14 @@
 
 use anyhow::anyhow;
 use move_core_types::u256::U256;
-use sui_sdk::rpc_types::{SuiMoveStruct, SuiMoveValue};
-use sui_types::base_types::ObjectID;
+use serde_json::Value;
+use sui_sdk::rpc_types::{SuiEvent, SuiMoveStruct, SuiMoveValue};
+use sui_types::{base_types::ObjectID, event::EventID};
 use thiserror::Error;
 use walrus_core::{BlobId, EncodingType};
 
 use crate::{
-    contracts::{self, AssociatedContractStruct, StructTag},
+    contracts::{self, AssociatedContractStruct, AssociatedSuiEvent, StructTag},
     utils::{
         blob_id_from_u256,
         get_dynamic_field,
@@ -336,4 +337,96 @@ impl TryFrom<SuiMoveStruct> for SystemObject {
 
 impl AssociatedContractStruct for SystemObject {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::system::System;
+}
+
+// Events
+
+/// Sui event that blob has been registered
+#[derive(Debug)]
+pub struct BlobRegistered {
+    /// The epoch in which the blob has been registered
+    pub epoch: u64,
+    /// The blob Id
+    pub blob_id: BlobId,
+    /// The total encoded size of the blob
+    pub size: u64,
+    /// The erasure coding type used for the blob
+    pub erasure_code_type: EncodingType,
+    /// The end epoch of the associated storage resource (exclusive)
+    pub end_epoch: u64,
+    /// The ID of the event
+    pub event_id: EventID,
+}
+
+impl TryFrom<SuiEvent> for BlobRegistered {
+    type Error = anyhow::Error;
+
+    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
+        let Value::Object(object) = sui_event.parsed_json else {
+            return Err(anyhow!("Event is not of type object"));
+        };
+
+        let epoch = get_u64_field_from_event!(object, "epoch")?;
+
+        let blob_id =
+            blob_id_from_u256(get_field_from_event!(object, "blob_id", Value::String)?.parse()?);
+        let size = get_u64_field_from_event!(object, "size")?;
+        let erasure_code_type = EncodingType::try_from(u8::try_from(
+            get_field_from_event!(object, "erasure_code_type", Value::Number)?
+                .as_u64()
+                .ok_or_else(|| anyhow!("value is non-integer"))?,
+        )?)?;
+        let end_epoch = get_u64_field_from_event!(object, "end_epoch")?;
+        let event_id = sui_event.id;
+        Ok(Self {
+            epoch,
+            blob_id,
+            size,
+            erasure_code_type,
+            end_epoch,
+            event_id,
+        })
+    }
+}
+
+impl AssociatedSuiEvent for BlobRegistered {
+    const EVENT_STRUCT: StructTag<'static> = contracts::blob::BlobRegistered;
+}
+
+/// Sui event that blob has been certified
+#[derive(Debug)]
+pub struct BlobCertified {
+    /// The epoch in which the blob was certified
+    pub epoch: u64,
+    /// The blob Id
+    pub blob_id: BlobId,
+    /// The end epoch of the associated storage resource (exclusive)
+    pub end_epoch: u64,
+    /// The ID of the event
+    pub event_id: EventID,
+}
+
+impl TryFrom<SuiEvent> for BlobCertified {
+    type Error = anyhow::Error;
+
+    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
+        let Value::Object(object) = sui_event.parsed_json else {
+            return Err(anyhow!("Event is not of type object"));
+        };
+        let epoch = get_u64_field_from_event!(object, "epoch")?;
+        let blob_id =
+            blob_id_from_u256(get_field_from_event!(object, "blob_id", Value::String)?.parse()?);
+        let end_epoch = get_u64_field_from_event!(object, "end_epoch")?;
+        let event_id = sui_event.id;
+        Ok(Self {
+            epoch,
+            blob_id,
+            end_epoch,
+            event_id,
+        })
+    }
+}
+
+impl AssociatedSuiEvent for BlobCertified {
+    const EVENT_STRUCT: StructTag<'static> = contracts::blob::BlobCertified;
 }

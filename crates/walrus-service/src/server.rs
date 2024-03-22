@@ -11,7 +11,7 @@ use axum::{
     Router,
 };
 use serde::{Deserialize, Serialize};
-use tokio::sync::oneshot;
+use tokio_util::sync::CancellationToken;
 use tower_http::trace::TraceLayer;
 use walrus_core::{
     encoding::DecodingSymbol,
@@ -92,15 +92,15 @@ impl<T: Serialize> ServiceResponse<T> {
 /// Represents a user server.
 pub struct UserServer<S> {
     state: Arc<S>,
-    shutdown_signal: oneshot::Receiver<()>,
+    cancel_token: CancellationToken,
 }
 
 impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
     /// Creates a new user server.
-    pub fn new(state: Arc<S>, shutdown_signal: oneshot::Receiver<()>) -> Self {
+    pub fn new(state: Arc<S>, cancel_token: CancellationToken) -> Self {
         Self {
             state,
-            shutdown_signal,
+            cancel_token,
         }
     }
 
@@ -136,9 +136,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
         let listener = tokio::net::TcpListener::bind(network_address).await?;
         axum::serve(listener, app)
-            .with_graceful_shutdown(async move {
-                let _ = self.shutdown_signal.await;
-            })
+            .with_graceful_shutdown(self.cancel_token.cancelled_owned())
             .await
     }
 
@@ -459,7 +457,7 @@ mod test {
     use anyhow::anyhow;
     use fastcrypto::hash::HashFunction;
     use reqwest::StatusCode;
-    use tokio::sync::oneshot;
+    use tokio_util::sync::CancellationToken;
     use walrus_core::{
         encoding::DecodingSymbol,
         merkle::{MerkleProof, DIGEST_LEN},
@@ -598,8 +596,7 @@ mod test {
 
     #[tokio::test]
     async fn retrieve_metadata() {
-        let (_shutdown_tx, shutdown_rx) = oneshot::channel();
-        let server = UserServer::new(Arc::new(MockServiceState), shutdown_rx);
+        let server = UserServer::new(Arc::new(MockServiceState), CancellationToken::new());
         let test_private_parameters = test_utils::storage_node_private_parameters();
         let _handle = tokio::spawn(async move {
             let network_address = test_private_parameters.network_address;
@@ -632,8 +629,7 @@ mod test {
 
     #[tokio::test]
     async fn retrieve_metadata_not_found() {
-        let (_shutdown_tx, shutdown_rx) = oneshot::channel();
-        let server = UserServer::new(Arc::new(MockServiceState), shutdown_rx);
+        let server = UserServer::new(Arc::new(MockServiceState), CancellationToken::new());
         let test_private_parameters = test_utils::storage_node_private_parameters();
         let _handle = tokio::spawn(async move {
             let network_address = test_private_parameters.network_address;
@@ -654,8 +650,7 @@ mod test {
 
     #[tokio::test]
     async fn retrieve_metadata_internal_error() {
-        let (_shutdown_tx, shutdown_rx) = oneshot::channel();
-        let server = UserServer::new(Arc::new(MockServiceState), shutdown_rx);
+        let server = UserServer::new(Arc::new(MockServiceState), CancellationToken::new());
         let test_private_parameters = test_utils::storage_node_private_parameters();
         let _handle = tokio::spawn(async move {
             let network_address = test_private_parameters.network_address;
@@ -676,8 +671,7 @@ mod test {
 
     #[tokio::test]
     async fn store_metadata() {
-        let (_shutdown_tx, shutdown_rx) = oneshot::channel();
-        let server = UserServer::new(Arc::new(MockServiceState), shutdown_rx);
+        let server = UserServer::new(Arc::new(MockServiceState), CancellationToken::new());
         let test_private_parameters = test_utils::storage_node_private_parameters();
         let _handle = tokio::spawn(async move {
             let network_address = test_private_parameters.network_address;
@@ -700,8 +694,7 @@ mod test {
 
     #[tokio::test]
     async fn retrieve_sliver() {
-        let (_shutdown_tx, shutdown_rx) = oneshot::channel();
-        let server = UserServer::new(Arc::new(MockServiceState), shutdown_rx);
+        let server = UserServer::new(Arc::new(MockServiceState), CancellationToken::new());
         let test_private_parameters = test_utils::storage_node_private_parameters();
         let _handle = tokio::spawn(async move {
             let network_address = test_private_parameters.network_address;
@@ -734,8 +727,7 @@ mod test {
 
     #[tokio::test]
     async fn store_sliver() {
-        let (_shutdown_tx, shutdown_rx) = oneshot::channel();
-        let server = UserServer::new(Arc::new(MockServiceState), shutdown_rx);
+        let server = UserServer::new(Arc::new(MockServiceState), CancellationToken::new());
         let test_private_parameters = test_utils::storage_node_private_parameters();
         let _handle = tokio::spawn(async move {
             let network_address = test_private_parameters.network_address;
@@ -760,8 +752,7 @@ mod test {
 
     #[tokio::test]
     async fn store_sliver_error() {
-        let (_shutdown_tx, shutdown_rx) = oneshot::channel();
-        let server = UserServer::new(Arc::new(MockServiceState), shutdown_rx);
+        let server = UserServer::new(Arc::new(MockServiceState), CancellationToken::new());
         let test_private_parameters = test_utils::storage_node_private_parameters();
         let _handle = tokio::spawn(async move {
             let network_address = test_private_parameters.network_address;
@@ -786,8 +777,7 @@ mod test {
 
     #[tokio::test]
     async fn retrieve_storage_confirmation() {
-        let (_shutdown_tx, shutdown_rx) = oneshot::channel();
-        let server = UserServer::new(Arc::new(MockServiceState), shutdown_rx);
+        let server = UserServer::new(Arc::new(MockServiceState), CancellationToken::new());
         let test_private_parameters = test_utils::storage_node_private_parameters();
         let _handle = tokio::spawn(async move {
             let network_address = test_private_parameters.network_address;
@@ -819,8 +809,7 @@ mod test {
 
     #[tokio::test]
     async fn retrieve_storage_confirmation_not_found() {
-        let (_shutdown_tx, shutdown_rx) = oneshot::channel();
-        let server = UserServer::new(Arc::new(MockServiceState), shutdown_rx);
+        let server = UserServer::new(Arc::new(MockServiceState), CancellationToken::new());
         let test_private_parameters = test_utils::storage_node_private_parameters();
         let _handle = tokio::spawn(async move {
             let network_address = test_private_parameters.network_address;
@@ -841,8 +830,7 @@ mod test {
 
     #[tokio::test]
     async fn retrieve_storage_confirmation_internal_error() {
-        let (_shutdown_tx, shutdown_rx) = oneshot::channel();
-        let server = UserServer::new(Arc::new(MockServiceState), shutdown_rx);
+        let server = UserServer::new(Arc::new(MockServiceState), CancellationToken::new());
         let test_private_parameters = test_utils::storage_node_private_parameters();
         let _handle = tokio::spawn(async move {
             let network_address = test_private_parameters.network_address;
@@ -863,15 +851,15 @@ mod test {
 
     #[tokio::test]
     async fn shutdown_server() {
-        let (shutdown_tx, shutdown_rx) = oneshot::channel();
-        let server = UserServer::new(Arc::new(MockServiceState), shutdown_rx);
+        let cancel_token = CancellationToken::new();
+        let server = UserServer::new(Arc::new(MockServiceState), cancel_token.clone());
         let test_private_parameters = test_utils::storage_node_private_parameters();
         let handle = tokio::spawn(async move {
             let network_address = test_private_parameters.network_address;
             server.run(&network_address).await
         });
 
-        drop(shutdown_tx);
+        cancel_token.cancel();
         handle.await.unwrap().unwrap();
     }
 }

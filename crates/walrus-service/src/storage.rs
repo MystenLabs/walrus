@@ -53,23 +53,40 @@ impl Storage {
         db_opts.create_missing_column_families(true);
         db_opts.create_if_missing(true);
 
+        let existing_shards_ids = ShardStorage::existing_shards(path, &db_opts);
+        let mut shard_column_families: Vec<_> = existing_shards_ids
+            .iter()
+            .copied()
+            .map(ShardStorage::slivers_column_family_options)
+            .collect();
+
         let (metadata_cf_name, metadata_options) = Self::metadata_options();
+        let mut expected_column_families: Vec<_> = shard_column_families
+            .iter_mut()
+            .map(|(name, opts)| (name.as_str(), std::mem::take(opts)))
+            .chain(std::iter::once((metadata_cf_name, metadata_options)))
+            .collect();
+
         let database = rocks::open_cf_opts(
             path,
             Some(db_opts),
             metrics_config,
-            &[(metadata_cf_name, metadata_options)],
+            &expected_column_families,
         )?;
         let metadata = DBMap::reopen(
             &database,
             Some(metadata_cf_name),
             &ReadWriteOptions::default(),
         )?;
+        let shards = existing_shards_ids
+            .into_iter()
+            .map(|id| ShardStorage::create_or_reopen(id, &database).map(|shard| (id, shard)))
+            .collect::<Result<_, _>>()?;
 
         Ok(Self {
             database,
             metadata,
-            shards: HashMap::default(),
+            shards,
         })
     }
 
@@ -164,6 +181,8 @@ pub(crate) mod tests {
     use std::{fmt, time::Duration};
 
     use prometheus::Registry;
+    use tempfile::TempDir;
+    use tokio::runtime::Runtime;
     use typed_store::metrics::SamplingInterval;
     use walrus_core::{
         encoding::{EncodingAxis, Primary, Secondary, Sliver as TypedSliver},
@@ -324,5 +343,44 @@ pub(crate) mod tests {
 
             Ok(())
         }
+    }
+
+    /// Open and populate the storage, then close it.
+    ///
+    /// Runs in its own runtime to ensure that all tasked spawned by typed_store
+    /// are dropped to free the storage lock.
+    #[tokio::main(flavor = "current_thread")]
+    async fn populate_storage_then_close(spec: StorageSpec) -> TestResult<TempDir> {
+        let WithTempDir { inner, temp_dir } = populated_storage(spec)?;
+        Ok(temp_dir)
+    }
+
+    #[test]
+    fn can_reopen_storage_with_shards_and_access_data() -> TestResult {
+        let directory = populate_storage_then_close(&[
+            (SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
+            (OTHER_SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
+        ])?;
+
+        let result = Runtime::new()?.block_on(async move {
+            let storage = Storage::open(directory.path(), MetricConf::default())?;
+
+            for shard_id in [SHARD_INDEX, OTHER_SHARD_INDEX] {
+                let Some(shard) = storage.shard_storage(SHARD_INDEX) else {
+                    panic!("shard {shard_id} should exist");
+                };
+
+                for sliver_type in [SliverType::Primary, SliverType::Secondary] {
+                    let _ = shard
+                        .get_sliver(&BLOB_ID, sliver_type)
+                        .expect("sliver lookup should not err")
+                        .expect("sliver should be present");
+                }
+            }
+
+            Result::<(), anyhow::Error>::Ok(())
+        });
+
+        Ok(())
     }
 }

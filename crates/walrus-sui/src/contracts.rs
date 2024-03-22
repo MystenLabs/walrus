@@ -7,7 +7,10 @@
 
 use anyhow::{Context, Result};
 use move_core_types::{identifier::Identifier, language_storage::StructTag as MoveStructTag};
-use sui_sdk::{rpc_types::SuiMoveStruct, types::base_types::ObjectID};
+use sui_sdk::{
+    rpc_types::{SuiEvent, SuiMoveStruct},
+    types::base_types::ObjectID,
+};
 use sui_types::TypeTag;
 
 /// A trait for types that correspond to a contract type.
@@ -16,6 +19,14 @@ use sui_types::TypeTag;
 /// identify their associated contract type.
 pub trait AssociatedContractStruct: TryFrom<SuiMoveStruct> {
     const CONTRACT_STRUCT: StructTag<'static>;
+}
+
+/// A trait for types that correspond to a sui event.
+///
+/// Implementors of this trait are convertible from [SuiEvent]s and can
+/// identify their associated contract type.
+pub trait AssociatedSuiEvent: TryFrom<SuiEvent> {
+    const EVENT_STRUCT: StructTag<'static>;
 }
 
 /// Tag identifying contract functions based on their name and module.

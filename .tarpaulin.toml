@@ -1,0 +1,25 @@
+[default]
+workspace = true
+skip-clean = true
+run-types = [
+  "Bins",
+  "Doctests",
+  "Examples",
+  "Lib",
+  "Tests",
+]
+out = [
+  "Html",
+  "Xml",
+]
+# Don't include test and benchmark code in the coverage result.
+exclude-files = [
+  "crates/**/benches/**/*",
+  "crates/**/tests/**/*",
+  "crates/**/test_utils/**/*",
+  "crates/walrus-test-utils/**/*",
+  "crates/walrus-e2e-tests/**/*",
+]
+args = [
+  "--include-ignored"
+]

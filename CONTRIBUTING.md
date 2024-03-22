@@ -47,13 +47,22 @@ run the tool as follows:
 
 ```sh
 cargo install cargo-tarpaulin
-cargo tarpaulin --workspace --skip-clean --lib --bins --examples --tests --doc --out html
+cargo tarpaulin --out html
 ```
 
 This creates a file `tarpaulin-report.html`, which shows you coverage statistics as well as which individual lines are
 or aren't covered by tests. Other valid output formats are `json`, `stdout`, `xml`, and `lcov`.
 
-The exact command we use in our CI pipeline is visible in [.github/workflows/code.yml](.github/workflows/code.yml).
+The configuration file for Tarpaulin is [.tarpaulin.toml](./.tarpaulin.toml).
+
+## Integration and end-to-end tests
+
+Integration and end-to-end tests are excluded by default when running `cargo test` as they depend on additional packages
+and take longer to run. You can run these test as follows:
+
+```sh
+cargo test -- --ignored
+```
 
 ## Benchmarks
 
@@ -67,7 +76,23 @@ to the command line and also generate HTML reports including plots; the root fil
 [`target/criterion/report/index.html].
 
 Criterion automatically compares the results from multiple runs. To check if your code changes improve or worsen the
-performance, run the benchmarks first on the latest `main` branch and then again with your code changes.
+performance, run the benchmarks first on the latest `main` branch and then again with your code changes or explicitly
+set and use baselines with `--set-baseline` and `--baseline`. See the [Criterion
+documentation](https://bheisler.github.io/criterion.rs/book/user_guide/command_line_options.html#baselines) for further
+details.
+
+### Profiling
+
+To get quick insights into where the program spends most of its time, you can use the [flamegraph
+tool](https://github.com/flamegraph-rs/flamegraph). After installing with `cargo install flamegraph`, you can run
+binaries, tests, or benchmarks and produce SVG outputs. For example to analyze the `blob_encoding` benchmark, you can
+run the following:
+
+```sh
+CARGO_PROFILE_BENCH_DEBUG=true cargo flamegraph --root --bench blob_encoding --open
+```
+
+See [the documentation](https://github.com/flamegraph-rs/flamegraph) for further details and options.
 
 ## Signed commits
 

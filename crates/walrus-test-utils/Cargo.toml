@@ -14,4 +14,4 @@ tempfile = { workspace = true }
 workspace = true
 
 [dev-dependencies]
-tokio = { version = "1.36.0", features = ["macros"] }
+tokio = { workspace = true, features = ["macros"] }

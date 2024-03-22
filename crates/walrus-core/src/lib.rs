@@ -26,6 +26,7 @@ pub mod messages;
 pub use messages::SignedStorageConfirmation;
 
 pub mod metadata;
+pub mod utils;
 
 /// A public key.
 pub type PublicKey = BLS12381PublicKey;
@@ -149,6 +150,12 @@ impl FromStr for BlobId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[repr(transparent)]
 pub struct ShardIndex(pub u16);
+
+impl Display for ShardIndex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "shard-{}", self.0)
+    }
+}
 
 /// A sliver of an erasure-encoded blob.
 ///
