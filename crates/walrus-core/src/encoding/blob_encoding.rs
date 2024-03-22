@@ -618,7 +618,7 @@ mod tests {
         let blob = random_data(16180);
         let source_symbols_primary = 11;
         let source_symbols_secondary = 23;
-        let n_shards = 3 * (source_symbols_primary + source_symbols_secondary) as u32git co;
+        let n_shards = 3 * (source_symbols_primary + source_symbols_secondary) as u32;
 
         initialize_encoding_config(source_symbols_primary, source_symbols_secondary, n_shards);
 
