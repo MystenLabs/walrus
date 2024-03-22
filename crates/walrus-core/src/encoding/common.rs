@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::get_encoding_config;
+use crate::metadata::SliverPairIndex;
 
 /// The maximum length in bytes of a single symbol in RaptorQ.
 pub const MAX_SYMBOL_SIZE: usize = u16::MAX as usize;
@@ -24,7 +25,7 @@ pub trait EncodingAxis: Clone + PartialEq + Eq + Default {
     /// the index of the [`SliverPair`][super::SliverPair].
     ///
     /// See [`super::EncodingConfig::sliver_index_from_pair_index`] for further details.
-    fn sliver_index_from_pair_index(pair_index: u32) -> u32 {
+    fn sliver_index_from_pair_index(pair_index: SliverPairIndex) -> SliverPairIndex {
         get_encoding_config().sliver_index_from_pair_index::<Self>(pair_index)
     }
 }
@@ -36,7 +37,7 @@ impl EncodingAxis for Primary {
     type OrthogonalAxis = Secondary;
     const IS_PRIMARY: bool = true;
 
-    fn sliver_index_from_pair_index(pair_index: u32) -> u32 {
+    fn sliver_index_from_pair_index(pair_index: SliverPairIndex) -> SliverPairIndex {
         pair_index
     }
 }

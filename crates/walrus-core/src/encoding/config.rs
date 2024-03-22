@@ -19,7 +19,7 @@ use super::{
     MAX_SOURCE_SYMBOLS_PER_BLOCK,
     MAX_SYMBOL_SIZE,
 };
-use crate::encoding::common::MAX_N_SHARDS;
+use crate::{encoding::common::MAX_N_SHARDS, metadata::SliverPairIndex};
 
 /// Global encoding configuration with pre-generated encoding plans.
 #[cfg(not(test))]
@@ -243,11 +243,15 @@ impl EncodingConfig {
     /// sliver is contained in the first sliver pair, but the first secondary sliver is contained in
     /// the last sliver pair.
     // TODO(giac): Point to the redstuff documentation when ready!
-    pub fn sliver_index_from_pair_index<T: EncodingAxis>(&self, pair_index: u32) -> u32 {
+    pub fn sliver_index_from_pair_index<T: EncodingAxis>(
+        &self,
+        pair_index: SliverPairIndex,
+    ) -> SliverPairIndex {
         if T::IS_PRIMARY {
             pair_index
         } else {
-            self.n_shards - pair_index - 1
+            let idx = self.n_shards - pair_index.as_u32() - 1;
+            SliverPairIndex(idx.try_into().expect("shard index out of bounds"))
         }
     }
 

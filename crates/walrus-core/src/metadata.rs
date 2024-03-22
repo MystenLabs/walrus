@@ -41,7 +41,7 @@ pub type VerifiedBlobMetadataWithId = BlobMetadataWithId<true>;
 pub type UnverifiedBlobMetadataWithId = BlobMetadataWithId<false>;
 
 /// Represents the index of a sliver pair.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, PartialOrd, Ord)]
 #[serde(transparent)]
 pub struct SliverPairIndex(pub u16);
 
@@ -49,6 +49,27 @@ impl SliverPairIndex {
     /// Returns the index as a `usize`.
     pub fn as_usize(&self) -> usize {
         self.0 as usize
+    }
+
+    /// Returns the index as a `u32`.
+    pub fn as_u32(&self) -> u32 {
+        self.0 as u32
+    }
+}
+
+impl TryFrom<usize> for SliverPairIndex {
+    type Error = std::num::TryFromIntError;
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        Ok(SliverPairIndex(value.try_into()?))
+    }
+}
+
+impl TryFrom<u32> for SliverPairIndex {
+    type Error = std::num::TryFromIntError;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        Ok(SliverPairIndex(value.try_into()?))
     }
 }
 
