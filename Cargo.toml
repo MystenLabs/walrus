@@ -26,6 +26,7 @@ tokio = { version = "1.37.0" }
 tokio-stream = "0.1.14"
 typed-store = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.21.0" }
 walrus-core = { path = "crates/walrus-core" }
+walrus-sui = { path = "crates/walrus-sui" }
 walrus-test-utils = { path = "crates/walrus-test-utils" }
 
 [workspace.lints.rust]

@@ -50,3 +50,9 @@ pub struct WrongSymbolSizeError;
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 #[error("decoding verification failed because the blob ID does not match the provided metadata")]
 pub struct DecodingVerificationError;
+
+/// Error returned when trying to extract the wrong variant (primary or secondary) of
+/// [`Sliver`][super::Sliver] from it.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[error("cannot convert the `Sliver` to the sliver variant requested")]
+pub struct WrongSliverVariantError;

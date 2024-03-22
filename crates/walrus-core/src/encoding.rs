@@ -28,6 +28,7 @@ pub use errors::{
     DecodingVerificationError,
     EncodeError,
     RecoveryError,
+    WrongSliverVariantError,
     WrongSymbolSizeError,
 };
 

@@ -1,9 +1,13 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+// Copyright (c) Mysten Labtypes, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Core functionality for Walrus.
 use std::{
     fmt::{self, Debug, Display, LowerHex},
+    num::TryFromIntError,
     str::FromStr,
 };
 
@@ -12,7 +16,7 @@ use encoding::{
     PrimarySliver,
     RecoveryError,
     SecondaryDecodingSymbol,
-    SecondarySliver,
+    SecondarySliver, WrongSliverVariantError,
 };
 use fastcrypto::{
     bls12381::min_pk::{BLS12381KeyPair, BLS12381PublicKey, BLS12381Signature},
@@ -163,6 +167,14 @@ impl Display for ShardIndex {
     }
 }
 
+impl TryFrom<usize> for ShardIndex {
+    type Error = TryFromIntError;
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        Ok(Self(value.try_into()?))
+    }
+}
+
 /// A sliver of an erasure-encoded blob.
 ///
 /// Can be either a [`PrimarySliver`] or [`SecondarySliver`].
@@ -216,6 +228,31 @@ impl Sliver {
         self.len() == 0
     }
 }
+
+impl TryFrom<Sliver> for PrimarySliver {
+    type Error = WrongSliverVariantError;
+
+    fn try_from(value: Sliver) -> Result<Self, Self::Error> {
+        match value {
+            Sliver::Primary(sliver) => Ok(sliver),
+            Sliver::Secondary(_) => Err(WrongSliverVariantError),
+        }
+    }
+}
+
+impl TryFrom<Sliver> for SecondarySliver {
+    type Error = WrongSliverVariantError;
+
+    fn try_from(value: Sliver) -> Result<Self, Self::Error> {
+        match value {
+            Sliver::Primary(_) => Err(WrongSliverVariantError),
+            Sliver::Secondary(sliver) => Ok(sliver),
+        }
+    }
+}
+
+
+
 
 /// A decoding symbol for recovering a sliver
 ///
@@ -277,6 +314,28 @@ impl SliverType {
             SliverType::Primary => SliverType::Secondary,
             SliverType::Secondary => SliverType::Primary,
         }
+    }
+
+    /// Creates the [`SliverType`] for the [`EncodingAxis`].
+    pub fn for_encoding<T: EncodingAxis>() -> Self {
+        if T::IS_PRIMARY {
+            SliverType::Primary
+        } else {
+            SliverType::Secondary
+        }
+    }
+}
+
+impl Display for SliverType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                SliverType::Primary => "primary",
+                SliverType::Secondary => "secondary",
+            }
+        )
     }
 }
 

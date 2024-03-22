@@ -10012,6 +10012,7 @@ dependencies = [
  "bcs",
  "clap",
  "fastcrypto 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)",
+ "futures",
  "git-version",
  "mysten-metrics",
  "prometheus",
@@ -10032,6 +10033,7 @@ dependencies = [
  "tracing",
  "typed-store",
  "walrus-core",
+ "walrus-sui",
  "walrus-test-utils",
 ]
 
@@ -10044,6 +10046,7 @@ dependencies = [
  "fastcrypto 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures",
  "move-core-types",
+ "serde",
  "serde_json",
  "sui-sdk",
  "sui-types",
