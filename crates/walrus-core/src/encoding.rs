@@ -4,10 +4,10 @@
 //! TODO(mlegner): Describe encoding algorithm in detail (#50).
 
 mod basic_encoding;
-pub use basic_encoding::{ Decoder, Encoder };
+pub use basic_encoding::{Decoder, Encoder};
 
 mod blob_encoding;
-pub use blob_encoding::{ BlobDecoder, BlobEncoder };
+pub use blob_encoding::{BlobDecoder, BlobEncoder};
 
 mod common;
 pub use common::{
@@ -20,7 +20,7 @@ pub use common::{
 };
 
 mod config;
-pub use config::{ get_encoding_config, initialize_encoding_config, EncodingConfig };
+pub use config::{get_encoding_config, initialize_encoding_config, EncodingConfig};
 
 mod errors;
 pub use errors::{
@@ -32,9 +32,9 @@ pub use errors::{
 };
 
 mod slivers;
-pub use slivers::{ PrimarySliver, SecondarySliver, Sliver, SliverPair };
+pub use slivers::{PrimarySliver, SecondarySliver, Sliver, SliverPair};
 
 mod symbols;
-pub use symbols::{ DecodingSymbol, DecodingSymbolPair, Symbols };
+pub use symbols::{DecodingSymbol, DecodingSymbolPair, Symbols};
 
 mod utils;
