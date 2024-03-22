@@ -264,7 +264,7 @@ impl AsMut<[u8]> for Symbols {
 /// symbol. It can either be `U = ()` -- representing "no proof" -- or `U: MerkeAuth`, and defaults
 /// to `()`. This type parameter can only be changed through the functions
 /// [`DecodingSymbol::with_proof`] and [`DecodingSymbol::remove_proof`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DecodingSymbol<T: EncodingAxis, U = ()> {
     /// The index of the symbol.
     ///

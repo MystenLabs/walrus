@@ -7,9 +7,7 @@ use anyhow::Context;
 use fastcrypto::{bls12381::min_pk::BLS12381PrivateKey, hash::HashFunction, traits::Signer};
 use typed_store::rocks::MetricConf;
 use walrus_core::{
-    encoding::{
-        get_encoding_config, DecodingSymbol, EncodingAxis, Primary, RecoveryError, Secondary,
-    },
+    encoding::{get_encoding_config, DecodingSymbol, Primary, RecoveryError, Secondary},
     ensure,
     merkle::{MerkleProof, DIGEST_LEN},
     messages::{Confirmation, SignedStorageConfirmation, StorageConfirmation},
