@@ -36,12 +36,6 @@ pub const STORAGE_CONFIRMATION_ENDPOINT: &str = "/v1/blobs/:blobId/confirmation"
 #[derive(Deserialize, Serialize)]
 pub struct HexBlobId(#[serde_as(as = "DisplayFromStr")] BlobId);
 
-impl From<HexBlobId> for BlobId {
-    fn from(hex_blob_id: HexBlobId) -> Self {
-        hex_blob_id.0
-    }
-}
-
 /// Error message returned by the service.
 #[derive(Serialize, Deserialize)]
 pub enum ServiceResponse<T: Serialize> {
