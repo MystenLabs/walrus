@@ -132,12 +132,11 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn retrieve_metadata(
         State(state): State<Arc<S>>,
-        Path(hex_blob_id): Path<HexBlobId>,
+        Path(HexBlobId(blob_id)): Path<HexBlobId>,
     ) -> (
         StatusCode,
         Json<ServiceResponse<UnverifiedBlobMetadataWithId>>,
     ) {
-        let blob_id = hex_blob_id.into();
         match state.retrieve_metadata(&blob_id) {
             Ok(Some(metadata)) => {
                 tracing::debug!("Retrieved metadata for {blob_id:?}");
@@ -159,10 +158,9 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn store_metadata(
         State(state): State<Arc<S>>,
-        Path(hex_blob_id): Path<HexBlobId>,
+        Path(HexBlobId(blob_id)): Path<HexBlobId>,
         Json(metadata): Json<BlobMetadata>,
     ) -> (StatusCode, Json<ServiceResponse<()>>) {
-        let blob_id = hex_blob_id.into();
         let unverified_metadata_with_id = UnverifiedBlobMetadataWithId::new(blob_id, metadata);
         match state.store_metadata(unverified_metadata_with_id) {
             Ok(()) => {
@@ -185,9 +183,12 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn retrieve_sliver(
         State(state): State<Arc<S>>,
-        Path((hex_blob_id, sliver_pair_idx, sliver_type)): Path<(HexBlobId, u16, SliverType)>,
+        Path((HexBlobId(blob_id), sliver_pair_idx, sliver_type)): Path<(
+            HexBlobId,
+            u16,
+            SliverType,
+        )>,
     ) -> (StatusCode, Json<ServiceResponse<Sliver>>) {
-        let blob_id = hex_blob_id.into();
         match state.retrieve_sliver(&blob_id, sliver_pair_idx, sliver_type) {
             Ok(Some(sliver)) => {
                 tracing::debug!("Retrieved {sliver_type:?} sliver for {blob_id:?}");
@@ -209,7 +210,11 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn store_sliver(
         State(state): State<Arc<S>>,
-        Path((hex_blob_id, sliver_pair_idx, sliver_type)): Path<(HexBlobId, u16, SliverType)>,
+        Path((HexBlobId(blob_id), sliver_pair_idx, sliver_type)): Path<(
+            HexBlobId,
+            u16,
+            SliverType,
+        )>,
         Json(sliver): Json<Sliver>,
     ) -> (StatusCode, Json<ServiceResponse<()>>) {
         if sliver.r#type() != sliver_type {
@@ -219,7 +224,6 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             );
         }
 
-        let blob_id = hex_blob_id.into();
         match state.store_sliver(&blob_id, sliver_pair_idx, &sliver) {
             Ok(()) => {
                 tracing::debug!("Stored {sliver_type:?} sliver for {blob_id:?}");
@@ -241,9 +245,8 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn retrieve_storage_confirmation(
         State(state): State<Arc<S>>,
-        Path(hex_blob_id): Path<HexBlobId>,
+        Path(HexBlobId(blob_id)): Path<HexBlobId>,
     ) -> (StatusCode, Json<ServiceResponse<StorageConfirmation>>) {
-        let blob_id = hex_blob_id.into();
         match state.compute_storage_confirmation(&blob_id).await {
             Ok(Some(confirmation)) => {
                 tracing::debug!("Retrieved storage confirmation for {blob_id:?}");
@@ -279,15 +282,9 @@ mod test {
         SliverType,
     };
 
+    use super::*;
     use crate::{
         node::{RetrieveSliverError, ServiceState, StoreMetadataError, StoreSliverError},
-        server::{
-            ServiceResponse,
-            UserServer,
-            METADATA_ENDPOINT,
-            SLIVER_ENDPOINT,
-            STORAGE_CONFIRMATION_ENDPOINT,
-        },
         test_utils,
     };
 
