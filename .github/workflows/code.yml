@@ -54,7 +54,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Detect Changes
-        uses: dorny/paths-filter@v3.0.1
+        uses: dorny/paths-filter@v3.0.2
         id: diff
         with:
           filters: |
@@ -82,7 +82,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v1.6.1
+      - uses: EmbarkStudios/cargo-deny-action@v1.6.2
         with:
           # do not check advisories on PRs to prevent sudden failure due to new announcement
           command: check bans licenses sources
@@ -94,7 +94,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v1.6.1
+      - uses: EmbarkStudios/cargo-deny-action@v1.6.2
 
   # TODO(mlegner): Currently running all tests on all PRs touching Rust code.
   # If the running time gets too long, we may need to remove the integration and E2E tests and/or
