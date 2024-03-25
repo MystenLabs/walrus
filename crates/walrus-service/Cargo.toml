@@ -8,7 +8,7 @@ license = { workspace = true }
 
 [dependencies]
 anyhow = "1.0.80"
-axum = { version = "0.7.4", features = ["http2"] }
+axum = { version = "0.7.5", features = ["http2"] }
 bcs = { workspace = true }
 clap = { version = "4.5.2", features = ["derive"] }
 fastcrypto = { workspace = true }
@@ -43,7 +43,7 @@ path = "bin/main.rs"
 
 [dev-dependencies]
 rand = { workspace = true }
-reqwest = { version = "0.11.25", features = ["json"] }
+reqwest = { version = "0.12.1", features = ["json"] }
 tempfile = { workspace = true }
 walrus-core = { workspace = true, features = ["test-utils"] }
 walrus-test-utils = { workspace = true }
