@@ -18,7 +18,7 @@ serde = { version = "1.0.197", features = ["derive"] }
 sui-move-build = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.20.0" }
 sui-sdk = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.20.0" }
 sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.20.0" }
-telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.20.0" }
+telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.21.0" }
 tempfile = "3.10.1"
 test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.20.0" }
 thiserror = "1.0.57"
