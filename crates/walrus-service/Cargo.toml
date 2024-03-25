@@ -19,7 +19,7 @@ rand = "0.8.5"
 regex = "1"
 rocksdb = "0.21"
 serde = { workspace = true }
-serde_yaml = "0.9.32"
+serde_yaml = "0.9.34"
 telemetry-subscribers = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
