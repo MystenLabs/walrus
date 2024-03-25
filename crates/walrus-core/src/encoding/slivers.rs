@@ -72,6 +72,8 @@ impl<T: EncodingAxis> Sliver<T> {
 
     /// Creates a new `Sliver` with empty data of specified length.
     ///
+    /// The `length` parameter specifies the number of symbols.
+    ///
     /// # Panics
     ///
     /// Panics if `symbol_size == 0`.

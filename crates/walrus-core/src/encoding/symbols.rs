@@ -29,17 +29,14 @@ impl Symbols {
     ///
     /// # Panics
     ///
-    /// Panics if the slice does not contain complete symbols, i.e., if
-    /// `slice.len() % symbol_size != 0` or if `symbol_size == 0`.
-    pub fn new(symbols: Vec<u8>, symbol_size: u16) -> Self {
+    /// Panics if the `data` does not contain complete symbols, i.e., if
+    /// `data.len() % symbol_size != 0` or if `symbol_size == 0`.
+    pub fn new(data: Vec<u8>, symbol_size: u16) -> Self {
         assert!(
-            symbols.len() % symbol_size as usize == 0,
-            "the slice must contain complete symbols"
+            data.len() % symbol_size as usize == 0,
+            "the provided data must contain complete symbols"
         );
-        Symbols {
-            data: symbols,
-            symbol_size,
-        }
+        Symbols { data, symbol_size }
     }
 
     /// Shortens the `data` in [`Symbols`], keeping the first `len` symbols and dropping the
@@ -63,6 +60,27 @@ impl Symbols {
         assert!(symbol_size != 0);
         Symbols {
             data: vec![0; n_symbols * symbol_size as usize],
+            symbol_size,
+        }
+    }
+
+    /// Creates a new empty `Symbols` struct with an internal vector of provided capacity.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `symbol_size == 0`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use walrus_core::encoding::Symbols;
+    /// #
+    /// assert!(Symbols::with_capacity(42, 1).is_empty());
+    /// ```
+    pub fn with_capacity(capacity: usize, symbol_size: u16) -> Self {
+        assert!(symbol_size != 0);
+        Symbols {
+            data: Vec::<u8>::with_capacity(capacity),
             symbol_size,
         }
     }

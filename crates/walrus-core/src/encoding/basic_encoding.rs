@@ -15,7 +15,6 @@ pub struct Encoder {
     symbol_size: u16,
 }
 
-// TODO(mlegner): Check if memory management and copying can be improved for Encoder (#45).
 impl Encoder {
     /// Creates a new `Encoder` for the provided `data` with the specified arguments.
     ///

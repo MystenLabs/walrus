@@ -135,6 +135,7 @@ pub struct EncodingConfig {
     /// number of symbols per primary sliver. It must be strictly less than 2/3 of `n_shards`.
     pub(crate) source_symbols_secondary: u16,
     /// The number of shards.
+    // INV: n_shards - 1 <= u16::MAX as u32
     pub(crate) n_shards: u32,
     /// Encoding plan to speed up the primary encoding.
     encoding_plan_primary: SourceBlockEncodingPlan,
@@ -290,7 +291,10 @@ impl EncodingConfig {
     /// # Errors
     ///
     /// Returns a [`DataTooLargeError`] if the `blob` is too large to be encoded.
-    pub fn get_blob_encoder(&self, blob: &[u8]) -> Result<BlobEncoder, DataTooLargeError> {
+    pub fn get_blob_encoder<'a>(
+        &'a self,
+        blob: &'a [u8],
+    ) -> Result<BlobEncoder, DataTooLargeError> {
         BlobEncoder::new(self, blob)
     }
 

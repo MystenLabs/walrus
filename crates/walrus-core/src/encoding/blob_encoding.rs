@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{cmp, marker::PhantomData};
+use std::{cmp, marker::PhantomData, slice::Chunks};
 
 use fastcrypto::hash::Blake2b256;
 
@@ -29,118 +29,90 @@ use crate::{
 /// Struct to perform the full blob encoding.
 #[derive(Debug)]
 pub struct BlobEncoder<'a> {
-    /// The size of the unencoded blob to be encoded.
-    blob_size: usize,
-    /// Rows of the message matrix.
-    ///
-    /// The outer vector has length `source_symbols_primary`, and each inner vector has length
-    /// `source_symbols_secondary * symbol_size`.
-    rows: Vec<Vec<u8>>,
-    /// Columns of the message matrix.
-    ///
-    /// The outer vector has length `source_symbols_secondary`, and each inner vector has length
-    /// `source_symbols_primary * symbol_size`.
-    columns: Vec<Vec<u8>>,
+    /// A reference to the blob.
+    blob: &'a [u8],
     /// The size of the encoded and decoded symbols.
     symbol_size: u16,
+    /// The number of rows of the message matrix.
+    n_rows: usize,
+    /// The number of columns of the message matrix.
+    n_columns: usize,
     /// Reference to the encoding configuration of this encoder.
     config: &'a EncodingConfig,
 }
 
-// TODO(mlegner): Improve memory management and copying for BlobEncoder (#45).
 impl<'a> BlobEncoder<'a> {
     /// Creates a new `BlobEncoder` to encode the provided `blob` with the provided configuration.
     ///
     /// This creates the message matrix, padding with zeros if necessary. The actual encoding can be
     /// performed with the [`encode()`][Self::encode] method.
-    pub fn new(config: &'a EncodingConfig, blob: &[u8]) -> Result<Self, DataTooLargeError> {
+    pub fn new(config: &'a EncodingConfig, blob: &'a [u8]) -> Result<Self, DataTooLargeError> {
         let Some(symbol_size) =
             utils::compute_symbol_size(blob.len(), config.source_symbols_per_blob())
         else {
             return Err(DataTooLargeError);
         };
-        let symbol_usize = symbol_size as usize;
-        let n_columns = config.source_symbols_secondary as usize;
-        let n_rows = config.source_symbols_primary as usize;
-        let row_step = n_columns * symbol_usize;
-        let column_step = n_rows * symbol_usize;
+        let n_rows = config.source_symbols_primary.into();
+        let n_columns = config.source_symbols_secondary.into();
 
-        // Initializing rows and columns with 0s implicitly takes care of padding.
-        let mut rows = vec![vec![0u8; row_step]; n_rows];
-        let mut columns = vec![vec![0u8; column_step]; n_columns];
-
-        for (row, chunk) in rows.iter_mut().zip(blob.chunks(row_step)) {
-            row[..chunk.len()].copy_from_slice(chunk);
-        }
-        for (c, col) in columns.iter_mut().enumerate() {
-            for (r, target_chunk) in col.chunks_mut(symbol_usize).enumerate() {
-                let copy_index_start = cmp::min(r * row_step + c * symbol_usize, blob.len());
-                let copy_index_end = cmp::min(copy_index_start + symbol_usize, blob.len());
-                target_chunk[..copy_index_end - copy_index_start]
-                    .copy_from_slice(&blob[copy_index_start..copy_index_end])
-            }
-        }
         Ok(Self {
-            blob_size: blob.len(),
-            rows,
-            columns,
+            blob,
             symbol_size,
+            n_rows,
+            n_columns,
             config,
         })
     }
 
     /// Encodes the blob with which `self` was created to a vector of [`SliverPair`s][SliverPair].
     pub fn encode(&self) -> Vec<SliverPair> {
-        let n_rows = self.rows.len();
-        let n_columns = self.columns.len();
-        let mut sliver_pairs = self.empty_sliver_pairs();
+        let mut primary_slivers: Vec<_> = self.empty_slivers::<Primary>();
+        let mut secondary_slivers: Vec<_> = self.empty_slivers::<Secondary>();
 
         // The first `n_rows` primary slivers and the last `n_columns` secondary slivers can be
-        // directly copied from the message matrix.
-        for (row, sliver_pair) in self.rows.iter().zip(sliver_pairs.iter_mut()) {
-            sliver_pair.primary.symbols.data_mut().copy_from_slice(row)
+        // directly copied from the blob.
+        for (row, sliver) in self.rows().zip(primary_slivers.iter_mut()) {
+            sliver.symbols.data_mut()[..row.len()].copy_from_slice(row);
         }
-        for (column, sliver_pair) in self.columns.iter().zip(sliver_pairs.iter_mut().rev()) {
-            sliver_pair
-                .secondary
+        for (column, sliver) in self.column_symbols().zip(secondary_slivers.iter_mut()) {
+            sliver
                 .symbols
-                .data_mut()
-                .copy_from_slice(column)
+                .to_symbols_mut()
+                .zip(column)
+                .for_each(|(dest, src)| dest[..src.len()].copy_from_slice(src))
         }
 
-        // Compute the remaining primary slivers by encoding the columns.
-        for (c, column) in self.columns.iter().enumerate() {
-            for (symbol, sliver_pair) in self
+        // Compute the remaining primary slivers by encoding the columns (i.e., secondary slivers).
+        for (col_idx, column) in secondary_slivers.iter().take(self.n_columns).enumerate() {
+            for (symbol, sliver) in self
                 .config
-                .get_encoder::<Primary>(column)
-                .expect("size has already been checked")
-                .encode_all_repair_symbols() // We only need the repair symbols.
-                .zip(sliver_pairs.iter_mut().skip(n_rows))
-            {
-                sliver_pair.primary.copy_symbol_to(c, &symbol);
-            }
-        }
-
-        // Compute the remaining secondary slivers by encoding the rows.
-        for (r, row) in self.rows.iter().enumerate() {
-            for (symbol, sliver_pair) in self
-                .config
-                .get_encoder::<Secondary>(row)
+                .get_encoder::<Primary>(column.symbols.data())
                 .expect("size has already been checked")
                 .encode_all_repair_symbols()
-                .zip(sliver_pairs.iter_mut().rev().skip(n_columns))
+                .zip(primary_slivers.iter_mut().skip(self.n_rows))
             {
-                sliver_pair.secondary.copy_symbol_to(r, &symbol);
+                sliver.copy_symbol_to(col_idx, &symbol);
             }
         }
 
-        sliver_pairs
-    }
+        // Compute the remaining secondary slivers by encoding the rows (i.e., primary slivers).
+        for (r, row) in primary_slivers.iter().take(self.n_rows).enumerate() {
+            for (symbol, sliver) in self
+                .config
+                .get_encoder::<Secondary>(row.symbols.data())
+                .expect("size has already been checked")
+                .encode_all_repair_symbols()
+                .zip(secondary_slivers.iter_mut().skip(self.n_columns))
+            {
+                sliver.copy_symbol_to(r, &symbol);
+            }
+        }
 
-    /// Computes the metadata (blob ID, hashes) for the blob, without returning the slivers.
-    pub fn compute_metadata(&self) -> VerifiedBlobMetadataWithId {
-        let expanded_matrix = self.get_expanded_matrix();
-        self.get_metadata(&expanded_matrix)
+        primary_slivers
+            .into_iter()
+            .zip(secondary_slivers.into_iter().rev())
+            .map(|(primary, secondary)| SliverPair { primary, secondary })
+            .collect()
     }
 
     /// Encodes the blob with which `self` was created to a vector of [`SliverPair`s][SliverPair],
@@ -150,19 +122,68 @@ impl<'a> BlobEncoder<'a> {
     /// used to compute the Merkle trees for the metadata, and to extract the sliver pairs. The
     /// returned blob metadata is considered to be verified as it is directly built from the data.
     pub fn encode_with_metadata(&self) -> (Vec<SliverPair>, VerifiedBlobMetadataWithId) {
-        let expanded_matrix = self.get_expanded_matrix();
-        let metadata = self.get_metadata(&expanded_matrix);
+        let mut expanded_matrix = self.get_expanded_matrix();
+        let metadata = expanded_matrix.get_metadata();
+
+        // This is just an optimization to free memory that is no longer needed at this point.
+        expanded_matrix.drop_recovery_symbols();
 
         let mut sliver_pairs = self.empty_sliver_pairs();
         // First compute the secondary slivers -- does not require consuming the matrix.
-        self.write_secondary_slivers(&expanded_matrix, &mut sliver_pairs);
+        expanded_matrix.write_secondary_slivers(&mut sliver_pairs);
         // Then consume the matrix to get the primary slivers.
-        self.write_primary_slivers(expanded_matrix, &mut sliver_pairs);
+        expanded_matrix.write_primary_slivers(&mut sliver_pairs);
 
         (sliver_pairs, metadata)
     }
 
-    /// Return a vector of empty [`SliverPair`] of length `n_shards`. Primary and secondary slivers
+    /// Computes the metadata (blob ID, hashes) for the blob, without returning the slivers.
+    pub fn compute_metadata(&self) -> VerifiedBlobMetadataWithId {
+        self.get_expanded_matrix().get_metadata()
+    }
+
+    fn symbol_usize(&self) -> usize {
+        self.symbol_size.into()
+    }
+
+    /// Returns a reference to the symbol at the provided indices in the message matrix.
+    ///
+    /// The length of the returned slice can be lower than `self.symbol_size` if the blob needs to
+    /// be padded.
+    fn symbol_at(&self, row_idx: usize, col_idx: usize) -> &[u8] {
+        let start_index = cmp::min(
+            self.symbol_usize() * (self.n_columns * row_idx + col_idx),
+            self.blob.len(),
+        );
+        let end_index = cmp::min(start_index + self.symbol_usize(), self.blob.len());
+        self.blob[start_index..end_index].as_ref()
+    }
+
+    fn column_symbols(
+        &self,
+    ) -> impl ExactSizeIterator<Item = impl ExactSizeIterator<Item = &[u8]>> {
+        (0..self.n_columns).map(move |col_idx| {
+            (0..self.n_rows).map(move |row_idx| self.symbol_at(row_idx, col_idx))
+        })
+    }
+
+    fn rows(&self) -> Chunks<u8> {
+        self.blob.chunks(self.n_columns * self.symbol_usize())
+    }
+
+    fn empty_slivers<T: EncodingAxis>(&self) -> Vec<Sliver<T>> {
+        (0..self.config.n_shards)
+            .map(|i| {
+                Sliver::<T>::new_empty(
+                    self.config.n_source_symbols::<T::OrthogonalAxis>(),
+                    self.symbol_size,
+                    i.try_into().expect("size has already been checked"),
+                )
+            })
+            .collect()
+    }
+
+    /// Returns a vector of empty [`SliverPair`] of length `n_shards`. Primary and secondary slivers
     /// are initialized with the appropriate `symbol_size` and `length`.
     fn empty_sliver_pairs(&self) -> Vec<SliverPair> {
         (0..self.config.n_shards)
@@ -176,80 +197,60 @@ impl<'a> BlobEncoder<'a> {
             .collect()
     }
 
-    /// Compute the fully expanded message matrix by encoding rows and columns.
-    ///
-    /// The "matrix" is represented as vector of rows, where each row is a [`Symbols`] object. This
-    /// choice simplifies indexing, and the rows of [`Symbols`] can then be directly truncated into
-    /// primary slivers.
-    fn get_expanded_matrix(&self) -> Vec<Symbols> {
-        let mut expanded_matrix =
-            vec![
-                Symbols::zeros(self.config.n_shards as usize, self.symbol_size);
-                self.config.n_shards as usize
-            ];
-        self.fill_systematic_with_rows(&mut expanded_matrix);
-        self.expand_columns_for_primary(&mut expanded_matrix);
-        self.expand_all_rows(&mut expanded_matrix);
+    /// Computes the fully expanded message matrix by encoding rows and columns.
+    fn get_expanded_matrix(&self) -> ExpandedMessageMatrix {
+        ExpandedMessageMatrix::new(self.config, self.symbol_size, self.blob)
+    }
+}
+
+/// The expanded message matrix is represented as vector of rows, where each row is a [`Symbols`]
+/// object. This choice simplifies indexing, and the rows of [`Symbols`] can then be directly
+/// truncated into primary slivers.
+struct ExpandedMessageMatrix<'a> {
+    matrix: Vec<Symbols>,
+    blob: &'a [u8],
+    config: &'a EncodingConfig,
+    /// The number of rows in the non-expanded message matrix.
+    n_rows: usize,
+    /// The number of columns in the non-expanded message matrix.
+    n_columns: usize,
+    symbol_size: u16,
+}
+
+impl<'a> ExpandedMessageMatrix<'a> {
+    fn new(config: &'a EncodingConfig, symbol_size: u16, blob: &'a [u8]) -> Self {
+        let matrix =
+            vec![Symbols::zeros(config.n_shards as usize, symbol_size); config.n_shards as usize];
+        let mut expanded_matrix = Self {
+            matrix,
+            blob,
+            config,
+            n_rows: config.source_symbols_primary.into(),
+            n_columns: config.source_symbols_secondary.into(),
+            symbol_size,
+        };
+        expanded_matrix.fill_systematic_with_rows();
+        expanded_matrix.expand_columns_for_primary();
+        expanded_matrix.expand_all_rows();
         expanded_matrix
     }
 
     /// Fills the systematic part of the matrix using `self.rows`.
-    fn fill_systematic_with_rows(&self, matrix: &mut [Symbols]) {
-        for (destination_row, row) in matrix.iter_mut().zip(self.rows.iter()) {
-            destination_row[0..self.config.source_symbols_secondary as usize].copy_from_slice(row);
+    fn fill_systematic_with_rows(&mut self) {
+        for (destination_row, row) in self
+            .matrix
+            .iter_mut()
+            .zip(self.blob.chunks(self.n_columns * self.symbol_size as usize))
+        {
+            destination_row.data_mut()[0..row.len()].copy_from_slice(row);
         }
     }
 
-    /// Expands the first `source_symbols_secondary` columns from `self.columns` to get all
-    /// remaining primary slivers.
-    fn expand_columns_for_primary(&self, matrix: &mut [Symbols]) {
-        for (col_idx, col) in self.columns.iter().enumerate() {
-            for (row_idx, symbol) in self
-                .config
-                .get_encoder::<Primary>(col)
-                .expect("size has already been checked")
-                .encode_all_repair_symbols()
-                .enumerate()
-            {
-                matrix[self.rows.len() + row_idx][col_idx].copy_from_slice(&symbol);
-            }
-        }
-    }
-
-    /// Expands all `n_shards` primary slivers (rows) to completely fill the `n_shards * n_shards`
-    /// expanded message matrix.
-    fn expand_all_rows(&self, matrix: &mut [Symbols]) {
-        for row in matrix.iter_mut() {
-            for (col_idx, symbol) in self
-                .config
-                .get_encoder::<Secondary>(&row[0..self.columns.len()])
-                .expect("size has already been checked")
-                .encode_all_repair_symbols()
-                .enumerate()
-            {
-                row[self.columns.len() + col_idx].copy_from_slice(&symbol)
-            }
-        }
-    }
-
-    /// Computes the sliver pair metadata from the expanded message matrix.
-    fn get_metadata(&self, matrix: &[Symbols]) -> VerifiedBlobMetadataWithId {
-        let mut metadata = vec![SliverPairMetadata::new_empty(); matrix.len()];
-        self.write_secondary_metadata(matrix, &mut metadata);
-        self.write_primary_metadata(matrix, &mut metadata);
-        VerifiedBlobMetadataWithId::new_verified_from_metadata(
-            metadata,
-            EncodingType::RedStuff,
-            self.blob_size as u64,
-        )
-    }
-
-    fn col_symbols(
-        &self,
-        matrix: &'a [Symbols],
+    fn expanded_column_symbols(
+        &'a self,
     ) -> impl Iterator<Item = impl ExactSizeIterator<Item = &'a [u8]> + '_> {
-        (0..matrix.len()).map(move |col_idx| {
-            matrix
+        (0..self.matrix.len()).map(move |col_idx| {
+            self.matrix
                 .iter()
                 // Get the columns in reverse order `n_shards - col_idx - 1`.
                 .map(move |row| {
@@ -264,21 +265,70 @@ impl<'a> BlobEncoder<'a> {
         })
     }
 
+    /// Expands the first `source_symbols_secondary` columns from `self.columns` to get all
+    /// remaining primary slivers.
+    fn expand_columns_for_primary(&mut self) {
+        for col_idx in 0..self.n_columns {
+            let mut column = Symbols::with_capacity(self.n_rows, self.symbol_size);
+            self.matrix.iter().take(self.n_rows).for_each(|row| {
+                let _ = column.extend(&row[col_idx]);
+            });
+
+            for (row_idx, symbol) in self
+                .config
+                .get_encoder::<Primary>(column.data())
+                .expect("size has already been checked")
+                .encode_all_repair_symbols()
+                .enumerate()
+            {
+                self.matrix[self.n_rows + row_idx][col_idx].copy_from_slice(&symbol);
+            }
+        }
+    }
+
+    /// Expands all `n_shards` primary slivers (rows) to completely fill the `n_shards * n_shards`
+    /// expanded message matrix.
+    fn expand_all_rows(&mut self) {
+        for row in self.matrix.iter_mut() {
+            for (col_idx, symbol) in self
+                .config
+                .get_encoder::<Secondary>(&row[0..self.n_columns])
+                .expect("size has already been checked")
+                .encode_all_repair_symbols()
+                .enumerate()
+            {
+                row[self.n_columns + col_idx].copy_from_slice(&symbol)
+            }
+        }
+    }
+
+    /// Computes the sliver pair metadata from the expanded message matrix.
+    fn get_metadata(&self) -> VerifiedBlobMetadataWithId {
+        let mut metadata = vec![SliverPairMetadata::new_empty(); self.matrix.len()];
+        self.write_secondary_metadata(&mut metadata);
+        self.write_primary_metadata(&mut metadata);
+        VerifiedBlobMetadataWithId::new_verified_from_metadata(
+            metadata,
+            EncodingType::RedStuff,
+            self.blob.len() as u64,
+        )
+    }
+
     /// Writes the secondary metadata to the provided mutable slice.
-    fn write_secondary_metadata(&self, matrix: &[Symbols], metadata: &mut [SliverPairMetadata]) {
+    fn write_secondary_metadata(&self, metadata: &mut [SliverPairMetadata]) {
         metadata
             .iter_mut()
-            .zip(self.col_symbols(matrix))
+            .zip(self.expanded_column_symbols())
             .for_each(|(metadata, symbols)| {
                 metadata.secondary_hash = MerkleTree::<Blake2b256>::build(symbols).root();
             });
     }
 
     /// Writes the secondary slivers to the provided mutable slice.
-    fn write_secondary_slivers(&self, matrix: &[Symbols], sliver_pairs: &mut [SliverPair]) {
+    fn write_secondary_slivers(&self, sliver_pairs: &mut [SliverPair]) {
         sliver_pairs
             .iter_mut()
-            .zip(self.col_symbols(matrix))
+            .zip(self.expanded_column_symbols())
             .for_each(|(sliver_pair, symbols)| {
                 for (target_slice, symbol) in
                     sliver_pair.secondary.symbols.to_symbols_mut().zip(symbols)
@@ -288,9 +338,24 @@ impl<'a> BlobEncoder<'a> {
             })
     }
 
+    /// Drops the part of the matrix that only contains recovery symbols.
+    ///
+    /// This part is only necessary for the metadata but not for any of the slivers.
+    ///
+    /// After this function is called, the functions [`get_metadata`][Self::get_metadata],
+    /// [`write_secondary_metadata`][Self::write_secondary_metadata], and
+    /// [`write_primary_metadata`][Self::write_primary_metadata] no longer produce meaningful
+    /// results.
+    fn drop_recovery_symbols(&mut self) {
+        self.matrix
+            .iter_mut()
+            .skip(self.n_rows)
+            .for_each(|row| row.truncate(self.n_columns));
+    }
+
     /// Writes the primary metadata to the provided mutable slice.
-    fn write_primary_metadata(&self, matrix: &[Symbols], metadata: &mut [SliverPairMetadata]) {
-        for (metadata, row) in metadata.iter_mut().zip(matrix.iter()) {
+    fn write_primary_metadata(&self, metadata: &mut [SliverPairMetadata]) {
+        for (metadata, row) in metadata.iter_mut().zip(self.matrix.iter()) {
             metadata.primary_hash = MerkleTree::<Blake2b256>::build(row.to_symbols()).root();
         }
     }
@@ -299,9 +364,9 @@ impl<'a> BlobEncoder<'a> {
     ///
     /// Consumes the original matrix, as it creates the primary slivers by truncating the rows of
     /// the matrix.
-    fn write_primary_slivers(&self, matrix: Vec<Symbols>, sliver_pairs: &mut [SliverPair]) {
-        for (sliver_pair, mut row) in sliver_pairs.iter_mut().zip(matrix.into_iter()) {
-            row.truncate(self.columns.len());
+    fn write_primary_slivers(self, sliver_pairs: &mut [SliverPair]) {
+        for (sliver_pair, mut row) in sliver_pairs.iter_mut().zip(self.matrix.into_iter()) {
+            row.truncate(self.config.source_symbols_secondary.into());
             sliver_pair.primary.symbols = row;
         }
     }
@@ -338,7 +403,7 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
             _decoding_axis: PhantomData,
             decoders: vec![
                 Decoder::new(config.n_source_symbols::<T>(), symbol_size);
-                config.n_source_symbols::<T::OrthogonalAxis>() as usize
+                config.n_source_symbols::<T::OrthogonalAxis>().into()
             ],
             blob_size,
             symbol_size,
@@ -393,14 +458,21 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
             return None;
         }
 
-        let mut blob: Vec<u8> = if T::IS_PRIMARY {
+        let mut blob: Vec<_> = if T::IS_PRIMARY {
             // Primary decoding: transpose columns to get to the original blob.
-            let mut columns: Vec<_> = columns_or_rows.into_iter().map(|c| c.into_iter()).collect();
+            let mut columns: Vec<_> = columns_or_rows
+                .into_iter()
+                .map(|col_idx| col_idx.into_iter())
+                .collect();
             (0..self.config.n_source_symbols::<T>())
                 .flat_map(|_| {
-                    { columns.iter_mut().map(|c| c.take(self.symbol_size.into())) }
-                        .flatten()
-                        .collect::<Vec<u8>>()
+                    {
+                        columns
+                            .iter_mut()
+                            .map(|column| column.take(self.symbol_size.into()))
+                    }
+                    .flatten()
+                    .collect::<Vec<u8>>()
                 })
                 .collect()
         } else {
@@ -435,19 +507,18 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
         blob_id: &BlobId,
         slivers: impl IntoIterator<Item = Sliver<T>>,
     ) -> Result<Option<(Vec<u8>, VerifiedBlobMetadataWithId)>, DecodingVerificationError> {
-        if let Some(decoded_blob) = self.decode(slivers) {
-            let blob_metadata = self
-                .config
-                .get_blob_encoder(&decoded_blob)
-                .expect("the blob size cannot be too large since we were able to decode")
-                .compute_metadata();
-            if blob_metadata.blob_id() == blob_id {
-                Ok(Some((decoded_blob, blob_metadata)))
-            } else {
-                Err(DecodingVerificationError)
-            }
+        let Some(decoded_blob) = self.decode(slivers) else {
+            return Ok(None);
+        };
+        let blob_metadata = self
+            .config
+            .get_blob_encoder(&decoded_blob)
+            .expect("the blob size cannot be too large since we were able to decode")
+            .compute_metadata();
+        if blob_metadata.blob_id() == blob_id {
+            Ok(Some((decoded_blob, blob_metadata)))
         } else {
-            Ok(None)
+            Err(DecodingVerificationError)
         }
     }
 }
@@ -512,8 +583,8 @@ mod tests {
         source_symbols_primary: u16,
         source_symbols_secondary: u16,
         blob: &[u8],
-        rows: &[&[u8]],
-        columns: &[&[u8]],
+        expected_rows: &[&[u8]],
+        expected_columns: &[&[u8]],
     ) {
         let config = EncodingConfig::new(
             source_symbols_primary,
@@ -521,8 +592,21 @@ mod tests {
             3 * (source_symbols_primary + source_symbols_secondary) as u32,
         );
         let blob_encoder = config.get_blob_encoder(blob).unwrap();
-        assert_eq!(blob_encoder.rows, rows);
-        assert_eq!(blob_encoder.columns, columns);
+        let sliver_pairs = blob_encoder.encode();
+        let rows: Vec<_> = sliver_pairs
+            .iter()
+            .take(blob_encoder.n_rows)
+            .map(|pair| pair.primary.symbols.data())
+            .collect();
+        let columns: Vec<_> = sliver_pairs
+            .iter()
+            .rev()
+            .take(blob_encoder.n_columns)
+            .map(|pair| pair.secondary.symbols.data())
+            .collect();
+
+        assert_eq!(rows, expected_rows);
+        assert_eq!(columns, expected_columns);
     }
 
     #[test]
@@ -539,7 +623,7 @@ mod tests {
 
         let slivers_for_decoding = random_subset(
             config.get_blob_encoder(&blob).unwrap().encode(),
-            cmp::max(source_symbols_primary, source_symbols_secondary) as usize,
+            cmp::max(source_symbols_primary, source_symbols_secondary).into(),
         );
 
         let mut primary_decoder = config.get_blob_decoder::<Primary>(blob.len()).unwrap();
@@ -637,7 +721,7 @@ mod tests {
             .get_blob_encoder(&blob)
             .unwrap()
             .encode_with_metadata();
-        let slivers_for_decoding = random_subset(slivers, source_symbols_primary as usize)
+        let slivers_for_decoding = random_subset(slivers, source_symbols_primary.into())
             .map(|s| s.primary)
             .collect::<Vec<_>>();
         let (blob_dec, metadata_dec) = get_encoding_config()
