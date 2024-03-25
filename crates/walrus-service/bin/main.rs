@@ -15,7 +15,7 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
-use walrus_service::{config::NodeConfig, server::UserServer, StorageNode};
+use walrus_service::{config::StorageNodeConfig, server::UserServer, StorageNode};
 
 const GIT_REVISION: &str = {
     if let Some(revision) = option_env!("GIT_REVISION") {
@@ -46,7 +46,7 @@ struct Args {
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    let config = NodeConfig::load(args.config_path)?;
+    let config = StorageNodeConfig::load(args.config_path)?;
 
     let metrics_runtime = MetricsAndLoggingRuntime::start(config.metrics_address)?;
 
@@ -60,7 +60,7 @@ fn main() -> anyhow::Result<()> {
     let cancel_token = CancellationToken::new();
     let (exit_notifier, exit_listener) = oneshot::channel::<()>();
 
-    let mut node_runtime = NodeRuntime::start(
+    let mut node_runtime = StorageNodeRuntime::start(
         &config,
         metrics_runtime.registry_service.clone(),
         exit_notifier,
@@ -114,16 +114,16 @@ impl MetricsAndLoggingRuntime {
     }
 }
 
-struct NodeRuntime {
+struct StorageNodeRuntime {
     walrus_node_handle: JoinHandle<anyhow::Result<()>>,
     rest_api_handle: JoinHandle<Result<(), io::Error>>,
     // INV: Runtime must be dropped last
     runtime: Runtime,
 }
 
-impl NodeRuntime {
+impl StorageNodeRuntime {
     fn start(
-        config: &NodeConfig,
+        config: &StorageNodeConfig,
         registry_service: RegistryService,
         exit_notifier: oneshot::Sender<()>,
         cancel_token: CancellationToken,

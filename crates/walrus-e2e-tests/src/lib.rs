@@ -25,7 +25,8 @@ pub fn compile_package(package_path: PathBuf) -> (PackageDependencies, Vec<Vec<u
         .expect("Resolution failed");
     let (_, dependencies) = gather_published_ids(&resolution_graph);
     let compiled_package =
-        build_from_resolution_graph(package_path, resolution_graph, false, false).expect("");
+        build_from_resolution_graph(package_path, resolution_graph, false, false)
+            .expect("Compiling package failed");
     let compiled_modules = compiled_package.get_package_bytes(false);
     (dependencies, compiled_modules)
 }
