@@ -282,14 +282,7 @@ impl ServiceState for StorageNode {
         index: u32,
     ) -> Result<Option<DecodingSymbol>, RetrieveSymbolError> {
         let optional_sliver = self
-            .retrieve_sliver(blob_id, sliver_pair_idx, sliver_type.reverse())
-            .map_err(|_| {
-                RetrieveSymbolError::InvalidShard(shard_index_for_pair(
-                    sliver_pair_idx,
-                    self.n_shards.get(),
-                    blob_id,
-                ))
-            })?;
+            .retrieve_sliver(blob_id, sliver_pair_idx, sliver_type.reverse())?;
         match optional_sliver {
             Some(sliver) => match sliver {
                 Sliver::Primary(inner) => {
