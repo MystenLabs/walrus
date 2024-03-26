@@ -11,6 +11,7 @@ use fastcrypto::hash::HashFunction;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    encoding::EncodingAxis,
     merkle::{Node as MerkleNode, DIGEST_LEN},
     BlobId,
     EncodingType,
@@ -241,6 +242,15 @@ impl SliverPairMetadata {
         concat[0..DIGEST_LEN].copy_from_slice(&self.primary_hash.bytes());
         concat[DIGEST_LEN..2 * DIGEST_LEN].copy_from_slice(&self.secondary_hash.bytes());
         concat
+    }
+
+    /// Returns a reference to the hash for the sliver of the given [`EncodingAxis`].
+    pub fn hash<T: EncodingAxis>(&self) -> &MerkleNode {
+        if T::IS_PRIMARY {
+            &self.primary_hash
+        } else {
+            &self.secondary_hash
+        }
     }
 }
 

@@ -12,7 +12,7 @@ use fastcrypto::{
     hash::Blake2b256,
     traits::{ToFromBytes, VerifyingKey},
 };
-use futures::{stream::FuturesUnordered, Stream, StreamExt};
+use futures::{stream::FuturesUnordered, Future, Stream};
 use reqwest::Client as ReqwestClient;
 use tokio::time::Duration;
 use walrus_core::{
@@ -35,7 +35,7 @@ use walrus_sui::types::{Committee, StorageNode};
 
 use crate::{
     cli::Config,
-    utils::{first_weighted_successes, unwrap_response, WeightedFutures, WeightedResult},
+    utils::{unwrap_response, WeightedFutures, WeightedResult},
 };
 
 /// A client to communicate with Walrus shards and storage nodes.
@@ -43,6 +43,10 @@ pub struct Client {
     client: ReqwestClient,
     committee: Committee,
 }
+
+/// The number of concurrent requests that the client performs towards storage nodes.
+// TODO(giac): add to the configuration.
+const CONCURRENT_REQUESTS: usize = 10;
 
 impl Client {
     /// Creates a new client starting from a config file.
@@ -69,13 +73,16 @@ impl Client {
         );
         let start = Instant::now();
         requests
-            .execute_count(self.committee.quorum_threshold())
-            .await?;
+            .execute_weight(self.committee.quorum_threshold(), CONCURRENT_REQUESTS)
+            .await;
         // Double the execution time, with a minimum of 100 ms. This gives the client time to
         // collect more storage confirmations.
         requests
-            .execute_time(start.elapsed() + Duration::from_millis(100))
-            .await?;
+            .execute_time(
+                start.elapsed() + Duration::from_millis(100),
+                CONCURRENT_REQUESTS,
+            )
+            .await;
         Ok(requests.into_results())
     }
 
@@ -85,7 +92,6 @@ impl Client {
         self.request_slivers_and_decode::<T>(&metadata).await
     }
 
-    // TODO(giac): how to make this generic? I.e., accepting both encoding types?
     async fn request_slivers_and_decode<T: EncodingAxis>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
@@ -94,23 +100,24 @@ impl Client {
         // the encoding.
         let comms = self.node_communications();
         // Create requests to get all slivers from all nodes.
-        let mut requests: FuturesUnordered<_> = comms
-            .iter()
-            .flat_map(|n| {
-                n.node
-                    .shard_ids
-                    .iter()
-                    .map(|s| n.retrieve_verified_sliver::<T>(metadata, ShardIndex(*s)))
-            })
-            .collect();
+        let futures = comms.iter().flat_map(|n| {
+            n.node
+                .shard_ids
+                .iter()
+                .map(|s| n.retrieve_verified_sliver::<T>(metadata, ShardIndex(*s)))
+        });
         let mut decoder = get_encoding_config()
             .get_blob_decoder::<T>(metadata.metadata().unencoded_length.try_into()?)?;
         // Get the first ~1/3 or ~2/3 of slivers directly, and decode with these.
-        let slivers = first_weighted_successes(
-            &mut requests,
-            get_encoding_config().n_source_symbols::<T>().into(),
-        )
-        .await?;
+        let mut requests = WeightedFutures::new(futures);
+        requests
+            .execute_weight(
+                get_encoding_config().n_source_symbols::<T>().into(),
+                CONCURRENT_REQUESTS,
+            )
+            .await;
+
+        let slivers = requests.empty_results();
 
         if let Some((blob, _meta)) = decoder.decode_and_verify(metadata.blob_id(), slivers)? {
             // We have enough to decode the blob.
@@ -124,20 +131,20 @@ impl Client {
 
     /// Decodes the blob of given blob ID by requesting slivers and trying to decode at each new
     /// sliver it receives.
-    async fn decode_sliver_by_sliver<'a, T, U: EncodingAxis>(
-        requests: &mut FuturesUnordered<T>,
-        decoder: &mut BlobDecoder<'a, U>,
+    async fn decode_sliver_by_sliver<'a, I, Fut, T: EncodingAxis>(
+        requests: &mut WeightedFutures<I, Fut, Sliver<T>>,
+        decoder: &mut BlobDecoder<'a, T>,
         blob_id: &BlobId,
     ) -> Result<Vec<u8>>
     where
-        FuturesUnordered<T>: Stream<Item = WeightedResult<Sliver<U>>>,
+        I: Iterator<Item = Fut>,
+        Fut: Future<Output = WeightedResult<Sliver<T>>>,
+        FuturesUnordered<Fut>: Stream<Item = WeightedResult<Sliver<T>>>,
     {
-        while let Some(completed) = requests.next().await {
-            if let Ok((_, sliver)) = completed {
-                let result = decoder.decode_and_verify(blob_id, [sliver])?;
-                if let Some((blob, _meta)) = result {
-                    return Ok(blob);
-                }
+        while let Some(sliver) = requests.execute_next(CONCURRENT_REQUESTS).await {
+            let result = decoder.decode_and_verify(blob_id, [sliver])?;
+            if let Some((blob, _meta)) = result {
+                return Ok(blob);
             }
         }
         // We have exhausted all the slivers but were not able to reconstruct the blob.
@@ -146,24 +153,22 @@ impl Client {
         ))
     }
 
-    /// Requests the metadata from all storage nodes, keeps the first that is received, and
-    /// verifies that it matches the blob ID
+    /// Requests the metadata from all storage nodes, and keeps the first that is correctly verified
+    /// against the blob ID.
     pub async fn retrieve_metadata(&self, blob_id: &BlobId) -> Result<VerifiedBlobMetadataWithId> {
         let comms = self.node_communications();
-        let mut metadata_requests: FuturesUnordered<_> = comms
-            .iter()
-            .map(|n| n.retrieve_verified_metadata(blob_id))
-            .collect();
+        let futures = comms.iter().map(|n| n.retrieve_verified_metadata(blob_id));
         // Wait until the first request succeeds
-        let metadata = first_weighted_successes(&mut metadata_requests, 1)
-            .await?
-            .pop()
-            .expect("if `first_k_successes` returns, there must be an element");
+        let mut requests = WeightedFutures::new(futures);
+        requests.execute_weight(1, CONCURRENT_REQUESTS).await;
+        let metadata = requests.into_results().pop().ok_or(anyhow!(
+            "could not retrieve the metadata from the storage nodes"
+        ))?;
         Ok(metadata)
     }
 
     /// Builds a [`NodeCommunication`] object for the given storage node.
-    fn node_communication_builder<'a>(&'a self, node: &'a StorageNode) -> NodeCommunication {
+    fn new_node_communication<'a>(&'a self, node: &'a StorageNode) -> NodeCommunication {
         NodeCommunication::new(
             self.committee.epoch,
             &self.client,
@@ -176,7 +181,7 @@ impl Client {
         self.committee
             .members
             .iter()
-            .map(|n| self.node_communication_builder(n))
+            .map(|n| self.new_node_communication(n))
             .collect()
     }
 
@@ -301,11 +306,7 @@ impl<'a> NodeCommunication<'a> {
                 metadata.blob_id(),
             ))
             .ok_or(anyhow!("missing hashes for the sliver"))?;
-        Ok(if T::IS_PRIMARY {
-            sliver.get_merkle_root::<Blake2b256>()? == pair_metadata.primary_hash
-        } else {
-            sliver.get_merkle_root::<Blake2b256>()? == pair_metadata.secondary_hash
-        })
+        Ok(sliver.get_merkle_root::<Blake2b256>()? == *pair_metadata.hash::<T>())
     }
 
     // Write operations.
@@ -319,6 +320,7 @@ impl<'a> NodeCommunication<'a> {
         metadata: &VerifiedBlobMetadataWithId,
         pairs: Vec<SliverPair>,
     ) -> WeightedResult<SignedStorageConfirmation> {
+        // TODO(giac): add error handling and retries.
         self.store_metadata(metadata).await?;
         self.store_pairs(metadata.blob_id(), pairs).await?;
         let confirmation = self.retrieve_confirmation(metadata.blob_id()).await?;
@@ -388,22 +390,19 @@ impl<'a> NodeCommunication<'a> {
         blob_id: &BlobId,
         confirmation: &SignedStorageConfirmation,
     ) -> Result<()> {
-        let des: Confirmation = bcs::from_bytes(&confirmation.confirmation)?;
+        let deserialized: Confirmation = bcs::from_bytes(&confirmation.confirmation)?;
         anyhow::ensure!(
             // TODO(giac): when the chain integration is added, ensure that the Epoch checks are
             // consistent and do not cause problems at epoch change.
-            self.epoch == des.epoch && *blob_id == des.blob_id,
+            self.epoch == deserialized.epoch && *blob_id == deserialized.blob_id,
             "the epoch or the blob ID in the storage confirmation are mismatched"
         );
         Ok(self
             .public_key()?
             .verify(&confirmation.confirmation, &confirmation.signature)?)
     }
-}
 
-trait StorageNodeEndpoints {
-    /// Returns the address of the storage node.
-    fn address(&self) -> SocketAddr;
+    // Endpoints.
 
     /// Returns the URL of the storage confirmation endpoint.
     fn storage_confirmation_endpoint(&self, blob_id: &BlobId) -> String {
@@ -446,9 +445,7 @@ trait StorageNodeEndpoints {
     fn request_url(addr: &SocketAddr, path: &str) -> String {
         format!("http://{}{}", addr, path)
     }
-}
 
-impl<'a> StorageNodeEndpoints for NodeCommunication<'a> {
     fn address(&self) -> SocketAddr {
         self.node
             .network_address

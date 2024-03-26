@@ -6,7 +6,12 @@ use std::{net::SocketAddr, path::PathBuf};
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
-use walrus_core::{encoding::Primary, BlobId, PublicKey, ShardIndex};
+use walrus_core::{
+    encoding::{initialize_encoding_config, Primary},
+    BlobId,
+    PublicKey,
+    ShardIndex,
+};
 use walrus_sui::types::Committee;
 
 use super::client::Client;
@@ -26,8 +31,9 @@ struct Args {
 #[derive(Subcommand, Debug, Clone)]
 #[clap(rename_all = "kebab-case")]
 enum Commands {
-    /// Store a new blob into Walrus. At the moment, the client does not interact with the chain;
-    /// therefore, this command only works with storage nodes that blindly accept blobs.
+    /// Store a new blob into Walrus.
+    // TODO(giac): At the moment, the client does not interact with the chain;
+    // therefore, this command only works with storage nodes that blindly accept blobs.
     Store {
         /// The file containing the blob to be published to Walrus.
         file: PathBuf,
@@ -38,9 +44,6 @@ enum Commands {
         blob_id: BlobId,
         /// The file path where to write the blob.
         out: PathBuf,
-        /// Skip the verification of the blob ID once the blob has been recovered.
-        #[clap(short, long, action)]
-        no_verify: bool,
     },
 }
 
@@ -48,6 +51,8 @@ enum Commands {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
     pub committee: Committee,
+    pub source_symbols_primary: u16,
+    pub source_symbols_secondary: u16,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -59,19 +64,19 @@ pub struct NodeConfig {
 
 pub async fn main() -> Result<()> {
     let args = Args::parse();
-    let client = Client::new(serde_yaml::from_str(&std::fs::read_to_string(
-        args.config,
-    )?)?);
+    let config: Config = serde_yaml::from_str(&std::fs::read_to_string(args.config)?)?;
+    initialize_encoding_config(
+        config.source_symbols_primary,
+        config.source_symbols_secondary,
+        config.committee.total_weight.try_into()?,
+    );
+    let client = Client::new(config);
     match args.command {
         Commands::Store { file } => {
             client.store_blob(std::fs::read(file)?).await?;
             Ok(())
         }
-        Commands::Read {
-            blob_id,
-            out,
-            no_verify: _,
-        } => {
+        Commands::Read { blob_id, out } => {
             let blob = client.read_blob::<Primary>(&blob_id).await?;
             Ok(std::fs::write(out, blob)?)
         }
