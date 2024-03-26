@@ -258,11 +258,13 @@ pub struct Committee {
 
 impl Committee {
     /// Returns the number of shards required to reach a quorum (2f+1).
+    #[inline]
     pub fn quorum_threshold(&self) -> usize {
         (self.total_weight * 2 + 2) / 3
     }
 
     /// Returns the number of shards required to reach validity (f+1).
+    #[inline]
     pub fn validity_threshold(&self) -> usize {
         (self.total_weight + 2) / 3
     }
