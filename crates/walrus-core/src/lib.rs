@@ -219,7 +219,7 @@ impl Sliver {
 
 /// A decoding symbol for recovering a sliver
 ///
-/// Can be either a [`PrimaryDecSymbol`] or [`SecondaryDecSymbol`].
+/// Can be either a [`PrimaryDecodingSymbol`] or [`SecondaryDecodingSymbol`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DecodingSymbol {
     /// A primary decoding symbol to recover a primary sliver
