@@ -224,7 +224,7 @@ impl Sliver {
 pub enum DecodingSymbol {
     /// A primary decoding symbol to recover a primary sliver
     Primary(PrimaryDecSymbol),
-    ///    A secondary decoding symbol to recover a secondary sliver
+    /// A secondary decoding symbol to recover a secondary sliver.
     Secondary(SecondaryDecSymbol),
 }
 
