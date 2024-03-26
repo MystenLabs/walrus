@@ -38,8 +38,8 @@ mod symbols;
 pub use symbols::{
     DecodingSymbol,
     DecodingSymbolPair,
-    PrimaryDecSymbol,
-    SecondaryDecSymbol,
+    PrimaryDecodingSymbol,
+    SecondaryDecodingSymbol,
     Symbols,
 };
 

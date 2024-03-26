@@ -8,10 +8,10 @@ use std::{
 };
 
 use encoding::{
-    PrimaryDecSymbol,
+    PrimaryDecodingSymbol,
     PrimarySliver,
     RecoveryError,
-    SecondaryDecSymbol,
+    SecondaryDecodingSymbol,
     SecondarySliver,
 };
 use fastcrypto::{
@@ -223,9 +223,9 @@ impl Sliver {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DecodingSymbol {
     /// A primary decoding symbol to recover a primary sliver
-    Primary(PrimaryDecSymbol),
+    Primary(PrimaryDecodingSymbol),
     /// A secondary decoding symbol to recover a secondary sliver.
-    Secondary(SecondaryDecSymbol),
+    Secondary(SecondaryDecodingSymbol),
 }
 
 impl DecodingSymbol {
