@@ -220,16 +220,11 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn retrieve_primary_symbol_from_secondary_sliver(
         State(state): State<Arc<S>>,
-        Path((encoded_blob_id, sliver_pair_idx, index)): Path<(String, u16, u32)>,
+        Path((HexBlobId(blob_id), sliver_pair_idx, index)): Path<(HexBlobId, u16, u32)>,
     ) -> (
         StatusCode,
         Json<ServiceResponse<DecodingSymbol<walrus_core::encoding::Primary, MerkleProof>>>,
     ) {
-        let Ok(blob_id) = BlobId::from_str(&encoded_blob_id) else {
-            tracing::debug!("Invalid blob ID {encoded_blob_id}");
-            return ServiceResponse::serialized_error(StatusCode::BAD_REQUEST, "Invalid blob ID");
-        };
-
         match state.retrieve_sliver(&blob_id, sliver_pair_idx, SliverType::Secondary) {
             Ok(Some(sliver)) => {
                 tracing::debug!("Retrieved Secondary sliver for {blob_id:?}");
@@ -267,16 +262,11 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn retrieve_secondary_symbol_from_primary_sliver(
         State(state): State<Arc<S>>,
-        Path((encoded_blob_id, sliver_pair_idx, index)): Path<(String, u16, u32)>,
+        Path((HexBlobId(blob_id), sliver_pair_idx, index)): Path<(HexBlobId, u16, u32)>,
     ) -> (
         StatusCode,
         Json<ServiceResponse<DecodingSymbol<walrus_core::encoding::Secondary, MerkleProof>>>,
     ) {
-        let Ok(blob_id) = BlobId::from_str(&encoded_blob_id) else {
-            tracing::debug!("Invalid blob ID {encoded_blob_id}");
-            return ServiceResponse::serialized_error(StatusCode::BAD_REQUEST, "Invalid blob ID");
-        };
-
         match state.retrieve_sliver(&blob_id, sliver_pair_idx, SliverType::Primary) {
             Ok(Some(sliver)) => {
                 tracing::debug!("Retrieved Primary sliver for {blob_id:?}");
@@ -389,7 +379,6 @@ mod test {
         SliverType,
     };
 
-    use super::*;
     use crate::{
         node::{
             RetrieveSliverError,
@@ -402,7 +391,7 @@ mod test {
             ServiceResponse,
             UserServer,
             METADATA_ENDPOINT,
-            PRIMARY_SLIVER_ENDPOINT,
+            SLIVER_ENDPOINT,
             STORAGE_CONFIRMATION_ENDPOINT,
         },
         test_utils,
