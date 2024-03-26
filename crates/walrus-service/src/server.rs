@@ -218,7 +218,6 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
         }
     }
 
-
     async fn retrieve_primary_symbol_from_secondary_sliver(
         State(state): State<Arc<S>>,
         Path((encoded_blob_id, sliver_pair_idx, index)): Path<(String, u16, u32)>,
@@ -313,7 +312,6 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
         }
     }
 
-   
     async fn store_sliver(
         State(state): State<Arc<S>>,
         Path((HexBlobId(blob_id), sliver_pair_idx, sliver_type)): Path<(
@@ -407,7 +405,6 @@ mod test {
             PRIMARY_SLIVER_ENDPOINT,
             STORAGE_CONFIRMATION_ENDPOINT,
         },
-
         test_utils,
     };
 
