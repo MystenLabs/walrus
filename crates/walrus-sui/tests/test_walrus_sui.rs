@@ -13,7 +13,7 @@ use walrus_core::{
     EncodingType,
 };
 use walrus_e2e_tests::publish_package;
-use walrus_sui::{client::WalrusSuiClient, types::EpochStatus};
+use walrus_sui::{client::SuiContractClient, types::EpochStatus};
 
 fn get_blob_cert(blob_id: BlobId, epoch: u64) -> ConfirmationCertificate {
     // Use the same private key that is registered in the committee in
@@ -38,14 +38,16 @@ async fn test_register_blob() -> anyhow::Result<()> {
     let mut wallet = test_cluster.wallet;
     let (package_id, system_object) = publish_package(&mut wallet, "blob_store").await?;
     let walrus_client =
-        WalrusSuiClient::new(wallet, package_id, system_object, 10000000000).await?;
+        SuiContractClient::new(wallet, package_id, system_object, 10000000000).await?;
 
     // Get event streams for the events
     let polling_duration = std::time::Duration::from_millis(50);
     let mut registered_events = walrus_client
+        .read_client
         .blob_registered_events(polling_duration, None)
         .await?;
     let mut certified_events = walrus_client
+        .read_client
         .blob_certified_events(polling_duration, None)
         .await?;
 
@@ -97,9 +99,11 @@ async fn test_register_blob() -> anyhow::Result<()> {
     let _ = certified_events.into_inner();
     // Get new event streams with cursors
     let mut registered_events = walrus_client
+        .read_client
         .blob_registered_events(polling_duration, Some(blob_registered.event_id))
         .await?;
     let mut certified_events = walrus_client
+        .read_client
         .blob_certified_events(polling_duration, Some(blob_certified.event_id))
         .await?;
 
@@ -139,13 +143,13 @@ async fn test_get_system() -> anyhow::Result<()> {
     let mut wallet = test_cluster.wallet;
     let (package_id, system_object) = publish_package(&mut wallet, "blob_store").await?;
     let walrus_client =
-        WalrusSuiClient::new(wallet, package_id, system_object, 10000000000).await?;
-    let system = walrus_client.get_system_object().await?;
+        SuiContractClient::new(wallet, package_id, system_object, 10000000000).await?;
+    let system = walrus_client.read_client.get_system_object().await?;
     assert_eq!(system.epoch_status, EpochStatus::Done);
     assert_eq!(system.price_per_unit_size, 10);
     assert_eq!(system.total_capacity_size, 1000000000);
     assert_eq!(system.used_capacity_size, 0);
-    let committee = walrus_client.current_committee().await?;
+    let committee = walrus_client.read_client.current_committee().await?;
     assert_eq!(system.current_committee, committee);
     assert_eq!(committee.epoch, 0);
     assert_eq!(committee.total_weight, 10);
