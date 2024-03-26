@@ -280,6 +280,12 @@ pub struct DecodingSymbol<T: EncodingAxis, U = ()> {
     _axis: PhantomData<T>,
 }
 
+/// A primary decoding symbol to recover a primary sliver
+pub type PrimaryDecSymbol = DecodingSymbol<Primary>;
+
+///  A secondary decoding symbol to recover a secondary sliver
+pub type SecondaryDecSymbol = DecodingSymbol<Secondary>;
+
 impl<T: EncodingAxis, U> DecodingSymbol<T, U> {
     /// Converts the `DecodingSymbol` to an [`EncodingPacket`] expected by the [`raptorq::Decoder`].
     pub fn into_encoding_packet(self) -> EncodingPacket {

@@ -35,6 +35,12 @@ mod slivers;
 pub use slivers::{PrimarySliver, SecondarySliver, Sliver, SliverPair};
 
 mod symbols;
-pub use symbols::{DecodingSymbol, DecodingSymbolPair, Symbols};
+pub use symbols::{
+    DecodingSymbol,
+    DecodingSymbolPair,
+    PrimaryDecSymbol,
+    SecondaryDecSymbol,
+    Symbols,
+};
 
 mod utils;

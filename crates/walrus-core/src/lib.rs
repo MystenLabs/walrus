@@ -7,7 +7,13 @@ use std::{
     str::FromStr,
 };
 
-use encoding::{PrimarySliver, RecoveryError, SecondarySliver};
+use encoding::{
+    PrimaryDecSymbol,
+    PrimarySliver,
+    RecoveryError,
+    SecondaryDecSymbol,
+    SecondarySliver,
+};
 use fastcrypto::{
     bls12381::min_pk::{BLS12381KeyPair, BLS12381PublicKey, BLS12381Signature},
     encoding::{Encoding, Hex},
@@ -211,6 +217,49 @@ impl Sliver {
     }
 }
 
+/// A decoding symbol for recovering a sliver
+///
+/// Can be either a [`PrimaryDecSymbol`] or [`SecondaryDecSymbol`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DecodingSymbol {
+    /// A primary decoding symbol to recover a primary sliver
+    Primary(PrimaryDecSymbol),
+    ///    A secondary decoding symbol to recover a secondary sliver
+    Secondary(SecondaryDecSymbol),
+}
+
+impl DecodingSymbol {
+    /// Returns true iff this decoding symbol is a [`DecodingSymbol::Primary`].
+    #[inline]
+    pub fn is_primary(&self) -> bool {
+        matches!(self, DecodingSymbol::Primary(_))
+    }
+
+    /// Returns true iff this decoding symbol is a [`DecodingSymbol::Secondary`].
+    #[inline]
+    pub fn is_secondary(&self) -> bool {
+        matches!(self, DecodingSymbol::Secondary(_))
+    }
+
+    /// Returns the associated [`DecodingSymbolType`] of this decoding symbol.
+    pub fn r#type(&self) -> DecodingSymbolType {
+        match self {
+            DecodingSymbol::Primary(_) => DecodingSymbolType::Primary,
+            DecodingSymbol::Secondary(_) => DecodingSymbolType::Secondary,
+        }
+    }
+}
+
+/// A type indicating either a primary or secondary sliver.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DecodingSymbolType {
+    /// Enum indicating a primary decoding symbol.
+    Primary,
+    /// Enum indicating a secondary decoding symbol.
+    Secondary,
+}
+
 /// A type indicating either a primary or secondary sliver.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -219,6 +268,16 @@ pub enum SliverType {
     Primary,
     /// Enum indicating a secondary sliver.
     Secondary,
+}
+
+impl SliverType {
+    /// Returns the opposite sliver type.
+    pub fn reverse(&self) -> SliverType {
+        match self {
+            SliverType::Primary => SliverType::Secondary,
+            SliverType::Secondary => SliverType::Primary,
+        }
+    }
 }
 
 /// Error returned for an invalid conversion to an encoding type.

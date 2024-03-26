@@ -15,11 +15,10 @@ use serde_with::{serde_as, DisplayFromStr};
 use tokio_util::sync::CancellationToken;
 use tower_http::trace::TraceLayer;
 use walrus_core::{
-    encoding::DecodingSymbol,
-    merkle::MerkleProof,
     messages::StorageConfirmation,
     metadata::{BlobMetadata, UnverifiedBlobMetadataWithId},
     BlobId,
+    DecodingSymbol,
     Sliver,
     SliverType,
 };
@@ -32,12 +31,8 @@ pub const METADATA_ENDPOINT: &str = "/v1/blobs/:blobId/metadata";
 pub const SLIVER_ENDPOINT: &str = "/v1/blobs/:blobId/slivers/:sliverPairIdx/:sliverType";
 /// The path to get storage confirmations.
 pub const STORAGE_CONFIRMATION_ENDPOINT: &str = "/v1/blobs/:blobId/confirmation";
-/// The path to get secondary symbols for primary recovery.
-pub const PRIMARY_RECOVERY_ENDPOINT: &str =
-    "/v1/blobs/:blobId/slivers/:sliverPairIdx/secondary/:index";
-/// The path to get primary symbols for secondary recovery.
-pub const SECONDARY_RECOVERY_ENDPOINT: &str =
-    "/v1/blobs/:blobId/slivers/:sliverPairIdx/primary/:index";
+/// The path to get recovery symbols.
+pub const RECOVERY_ENDPOINT: &str = "/v1/blobs/:blobId/slivers/:sliverPairIdx/:Type/:index";
 
 /// A blob ID encoded as a hex string designed to be used in URLs.
 #[serde_as]
@@ -123,14 +118,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
                 STORAGE_CONFIRMATION_ENDPOINT,
                 get(Self::retrieve_storage_confirmation),
             )
-            .route(
-                SECONDARY_RECOVERY_ENDPOINT,
-                get(Self::retrieve_secondary_symbol_from_primary_sliver),
-            )
-            .route(
-                PRIMARY_RECOVERY_ENDPOINT,
-                get(Self::retrieve_primary_symbol_from_secondary_sliver),
-            )
+            .route(RECOVERY_ENDPOINT, get(Self::retrieve_recovery_symbol))
             .with_state(self.state.clone())
             .layer(TraceLayer::new_for_http());
 
@@ -218,78 +206,106 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
         }
     }
 
-    async fn retrieve_primary_symbol_from_secondary_sliver(
-        State(state): State<Arc<S>>,
-        Path((HexBlobId(blob_id), sliver_pair_idx, index)): Path<(HexBlobId, u16, u32)>,
-    ) -> (
-        StatusCode,
-        Json<ServiceResponse<DecodingSymbol<walrus_core::encoding::Primary, MerkleProof>>>,
-    ) {
-        match state.retrieve_sliver(&blob_id, sliver_pair_idx, SliverType::Secondary) {
-            Ok(Some(sliver)) => {
-                tracing::debug!("Retrieved Secondary sliver for {blob_id:?}");
-                match sliver {
-                    Sliver::Secondary(inner) => {
-                        match inner.recovery_symbol_for_sliver_with_proof(index) {
-                            Ok(symbol) => {
-                                ServiceResponse::serialized_success(StatusCode::OK, symbol)
-                            }
-                            Err(_) => ServiceResponse::serialized_error(
-                                StatusCode::INTERNAL_SERVER_ERROR,
-                                "Internal error in recovery symbol",
-                            ),
-                        }
-                    }
-                    Sliver::Primary(_) => ServiceResponse::serialized_error(
-                        StatusCode::BAD_REQUEST,
-                        "Sliver recovered is not Secondary",
-                    ),
-                }
-            }
-            Ok(None) => {
-                tracing::debug!("Secondary sliver not found for {blob_id:?}");
-                ServiceResponse::serialized_not_found()
-            }
-            Err(message) => {
-                tracing::error!("Internal server error: {message}");
-                ServiceResponse::serialized_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal error",
-                )
-            }
-        }
-    }
+    // async fn retrieve_primary_symbol_from_secondary_sliver(
+    //     State(state): State<Arc<S>>,
+    //     Path((HexBlobId(blob_id), sliver_pair_idx, index)): Path<(HexBlobId, u16, u32)>,
+    // ) -> (
+    //     StatusCode,
+    //     Json<ServiceResponse<DecodingSymbol<walrus_core::encoding::Primary, MerkleProof>>>,
+    // ) {
+    //     match state.retrieve_sliver(&blob_id, sliver_pair_idx, SliverType::Secondary) {
+    //         Ok(Some(sliver)) => {
+    //             tracing::debug!("Retrieved Secondary sliver for {blob_id:?}");
+    //             match sliver {
+    //                 Sliver::Secondary(inner) => {
+    //                     match inner.recovery_symbol_for_sliver_with_proof(index) {
+    //                         Ok(symbol) => {
+    //                             ServiceResponse::serialized_success(StatusCode::OK, symbol)
+    //                         }
+    //                         Err(_) => ServiceResponse::serialized_error(
+    //                             StatusCode::INTERNAL_SERVER_ERROR,
+    //                             "Internal error in recovery symbol",
+    //                         ),
+    //                     }
+    //                 }
+    //                 Sliver::Primary(_) => ServiceResponse::serialized_error(
+    //                     StatusCode::BAD_REQUEST,
+    //                     "Sliver recovered is not Secondary",
+    //                 ),
+    //             }
+    //         }
+    //         Ok(None) => {
+    //             tracing::debug!("Secondary sliver not found for {blob_id:?}");
+    //             ServiceResponse::serialized_not_found()
+    //         }
+    //         Err(message) => {
+    //             tracing::error!("Internal server error: {message}");
+    //             ServiceResponse::serialized_error(
+    //                 StatusCode::INTERNAL_SERVER_ERROR,
+    //                 "Internal error",
+    //             )
+    //         }
+    //     }
+    // }
 
-    async fn retrieve_secondary_symbol_from_primary_sliver(
+    // async fn retrieve_secondary_symbol_from_primary_sliver(
+    //     State(state): State<Arc<S>>,
+    //     Path((HexBlobId(blob_id), sliver_pair_idx, index)): Path<(HexBlobId, u16, u32)>,
+    // ) -> (
+    //     StatusCode,
+    //     Json<ServiceResponse<DecodingSymbol<walrus_core::encoding::Secondary, MerkleProof>>>,
+    // ) {
+    //     match state.retrieve_sliver(&blob_id, sliver_pair_idx, SliverType::Primary) {
+    //         Ok(Some(sliver)) => {
+    //             tracing::debug!("Retrieved Primary sliver for {blob_id:?}");
+    //             match sliver {
+    //                 Sliver::Primary(inner) => {
+    //                     match inner.recovery_symbol_for_sliver_with_proof(index) {
+    //                         Ok(symbol) => {
+    //                             ServiceResponse::serialized_success(StatusCode::OK, symbol)
+    //                         }
+    //                         Err(_) => ServiceResponse::serialized_error(
+    //                             StatusCode::INTERNAL_SERVER_ERROR,
+    //                             "Internal error in recovery symbol",
+    //                         ),
+    //                     }
+    //                 }
+    //                 Sliver::Secondary(_) => ServiceResponse::serialized_error(
+    //                     StatusCode::BAD_REQUEST,
+    //                     "Sliver recovered is not Primary",
+    //                 ),
+    //             }
+    //         }
+    //         Ok(None) => {
+    //             tracing::debug!("Primary sliver not found for {blob_id:?}");
+    //             ServiceResponse::serialized_not_found()
+    //         }
+    //         Err(message) => {
+    //             tracing::error!("Internal server error: {message}");
+    //             ServiceResponse::serialized_error(
+    //                 StatusCode::INTERNAL_SERVER_ERROR,
+    //                 "Internal error",
+    //             )
+    //         }
+    //     }
+    // }
+
+    async fn retrieve_recovery_symbol(
         State(state): State<Arc<S>>,
-        Path((HexBlobId(blob_id), sliver_pair_idx, index)): Path<(HexBlobId, u16, u32)>,
-    ) -> (
-        StatusCode,
-        Json<ServiceResponse<DecodingSymbol<walrus_core::encoding::Secondary, MerkleProof>>>,
-    ) {
-        match state.retrieve_sliver(&blob_id, sliver_pair_idx, SliverType::Primary) {
-            Ok(Some(sliver)) => {
-                tracing::debug!("Retrieved Primary sliver for {blob_id:?}");
-                match sliver {
-                    Sliver::Primary(inner) => {
-                        match inner.recovery_symbol_for_sliver_with_proof(index) {
-                            Ok(symbol) => {
-                                ServiceResponse::serialized_success(StatusCode::OK, symbol)
-                            }
-                            Err(_) => ServiceResponse::serialized_error(
-                                StatusCode::INTERNAL_SERVER_ERROR,
-                                "Internal error in recovery symbol",
-                            ),
-                        }
-                    }
-                    Sliver::Secondary(_) => ServiceResponse::serialized_error(
-                        StatusCode::BAD_REQUEST,
-                        "Sliver recovered is not Primary",
-                    ),
-                }
+        Path((HexBlobId(blob_id), sliver_pair_idx, sliver_type, index)): Path<(
+            HexBlobId,
+            u16,
+            SliverType,
+            u32,
+        )>,
+    ) -> (StatusCode, Json<ServiceResponse<Option<DecodingSymbol>>>) {
+        match state.retrieve_recovery_symbol(&blob_id, sliver_pair_idx, sliver_type, index) {
+            Ok(Some(symbol)) => {
+                tracing::debug!("Retrieved recovery symbol for {blob_id:?}");
+                ServiceResponse::serialized_success(StatusCode::OK, Some(symbol))
             }
             Ok(None) => {
-                tracing::debug!("Primary sliver not found for {blob_id:?}");
+                tracing::debug!("Recovery symbol not found for {blob_id:?}");
                 ServiceResponse::serialized_not_found()
             }
             Err(message) => {
@@ -366,15 +382,13 @@ mod test {
     use std::sync::Arc;
 
     use anyhow::anyhow;
-    use fastcrypto::hash::HashFunction;
     use reqwest::StatusCode;
     use tokio_util::sync::CancellationToken;
     use walrus_core::{
-        encoding::DecodingSymbol,
-        merkle::{MerkleProof, DIGEST_LEN},
         messages::StorageConfirmation,
         metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
         BlobId,
+        DecodingSymbol,
         Sliver,
         SliverType,
     };
@@ -430,52 +444,14 @@ mod test {
         ) -> Result<Option<Sliver>, RetrieveSliverError> {
             Ok(Some(walrus_core::test_utils::sliver()))
         }
-
-        fn retrieve_recovery_symbol_secondary<U>(
+        fn retrieve_recovery_symbol(
             &self,
             _blob_id: &BlobId,
             _sliver_pair_idx: u16,
-            index: u32,
-        ) -> Result<
-            DecodingSymbol<walrus_core::encoding::Secondary, MerkleProof<U>>,
-            RetrieveSymbolError,
-        >
-        where
-            U: HashFunction<DIGEST_LEN>,
-        {
-            let sliver = walrus_core::test_utils::sliver();
-            match sliver {
-                Sliver::Primary(inner) => {
-                    let symbol = inner
-                        .recovery_symbol_for_sliver_with_proof(index)
-                        .map_err(|_| RetrieveSymbolError::RecoveryError)?;
-                    Ok(symbol)
-                }
-                Sliver::Secondary(_) => Err(RetrieveSymbolError::WrongAxis),
-            }
-        }
-        fn retrieve_recovery_symbol_primary<U>(
-            &self,
-            _blob_id: &BlobId,
-            _sliver_pair_idx: u16,
-            index: u32,
-        ) -> Result<
-            DecodingSymbol<walrus_core::encoding::Primary, MerkleProof<U>>,
-            RetrieveSymbolError,
-        >
-        where
-            U: HashFunction<DIGEST_LEN>,
-        {
-            let sliver = walrus_core::test_utils::sliver_secondary();
-            match sliver {
-                Sliver::Secondary(inner) => {
-                    let symbol = inner
-                        .recovery_symbol_for_sliver_with_proof(index)
-                        .map_err(|_| RetrieveSymbolError::RecoveryError)?;
-                    Ok(symbol)
-                }
-                Sliver::Primary(_) => Err(RetrieveSymbolError::WrongAxis),
-            }
+            _sliver_type: SliverType,
+            _index: u32,
+        ) -> Result<Option<DecodingSymbol>, RetrieveSymbolError> {
+            Ok(Some(walrus_core::test_utils::recovery_symbol()))
         }
         fn store_sliver(
             &self,
