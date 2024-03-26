@@ -44,10 +44,10 @@ pub enum RetrieveSliverError {
 pub enum RetrieveSymbolError {
     #[error("Invalid shard {0:?}")]
     InvalidShard(ShardIndex),
-    #[error("Symbol Recovery Failed for Index {0:?}")]
-    RecoveryError(u32),
-    #[error("Sliver is not Available for Recovery")]
-    UnavailableSliver,
+    #[error("Symbol Recovery Failed for Sliver {0:?}, Index {0:?} in Blob {2:?}")]
+    RecoveryError(u32, u16, BlobId),
+    #[error("Sliver {0:?} is not Available for Recovery in Blob {1:?}")]
+    UnavailableSliver(u16, BlobId),
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
 }
@@ -293,21 +293,24 @@ impl ServiceState for StorageNode {
         match optional_sliver {
             Some(sliver) => match sliver {
                 Sliver::Primary(inner) => {
-                    let symbol = inner
-                        .recovery_symbol_for_sliver(index)
-                        .map_err(|_| RetrieveSymbolError::RecoveryError(index))?;
+                    let symbol = inner.recovery_symbol_for_sliver(index).map_err(|_| {
+                        RetrieveSymbolError::RecoveryError(index, sliver_pair_idx, *blob_id)
+                    })?;
                     let decoded_symbol = DecodingSymbol::Secondary(symbol);
                     Ok(Some(decoded_symbol))
                 }
                 Sliver::Secondary(inner) => {
-                    let symbol = inner
-                        .recovery_symbol_for_sliver(index)
-                        .map_err(|_| RetrieveSymbolError::RecoveryError(index))?;
+                    let symbol = inner.recovery_symbol_for_sliver(index).map_err(|_| {
+                        RetrieveSymbolError::RecoveryError(index, sliver_pair_idx, *blob_id)
+                    })?;
                     let decoded_symbol = DecodingSymbol::Primary(symbol);
                     Ok(Some(decoded_symbol))
                 }
             },
-            None => Err(RetrieveSymbolError::UnavailableSliver),
+            None => Err(RetrieveSymbolError::UnavailableSliver(
+                sliver_pair_idx,
+                *blob_id,
+            )),
         }
     }
 }
