@@ -16,6 +16,7 @@ error=0
 for dir in contracts/*/; do
     echo -e "\nTesting $dir..."
     cd $dir
+    sui move build
     sui move test --coverage
     [ $? -ne 0 ] && error=1
     cd ../..
