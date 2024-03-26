@@ -272,7 +272,7 @@ pub enum SliverType {
 
 impl SliverType {
     /// Returns the opposite sliver type.
-    pub fn reverse(&self) -> SliverType {
+    pub fn orthogonal(&self) -> SliverType {
         match self {
             SliverType::Primary => SliverType::Secondary,
             SliverType::Secondary => SliverType::Primary,
