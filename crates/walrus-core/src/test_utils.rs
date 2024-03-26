@@ -37,7 +37,7 @@ pub fn primary_sliver() -> Sliver {
 }
 
 /// Returns an arbitrary secondary sliver for testing.
-pub fn sliver_secondary() -> Sliver {
+pub fn secondary_sliver() -> Sliver {
     Sliver::Secondary(encoding::Sliver::new([1, 2, 3, 4], 2, 1))
 }
 
