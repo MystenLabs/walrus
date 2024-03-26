@@ -32,7 +32,7 @@ pub fn keypair() -> BLS12381KeyPair {
 }
 
 /// Returns an arbitrary primary sliver for testing.
-pub fn sliver() -> Sliver {
+pub fn primary_sliver() -> Sliver {
     Sliver::Primary(encoding::Sliver::new([1, 2, 3, 4], 2, 1))
 }
 
