@@ -19,7 +19,7 @@ use fastcrypto::{
     encoding::{Encoding, Hex},
     hash::{Blake2b256, HashFunction},
 };
-use merkle::{MerkleTree, Node};
+use merkle::{MerkleAuth, MerkleTree, Node};
 use metadata::BlobMetadata;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -221,14 +221,14 @@ impl Sliver {
 ///
 /// Can be either a [`PrimaryDecSymbol`] or [`SecondaryDecSymbol`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum DecodingSymbol {
+pub enum DecodingSymbol<U: MerkleAuth> {
     /// A primary decoding symbol to recover a primary sliver
-    Primary(PrimaryDecSymbol),
-    ///    A secondary decoding symbol to recover a secondary sliver
-    Secondary(SecondaryDecSymbol),
+    Primary(PrimaryDecSymbol<U>),
+    /// A secondary decoding symbol to recover a secondary sliver
+    Secondary(SecondaryDecSymbol<U>),
 }
 
-impl DecodingSymbol {
+impl<U: MerkleAuth> DecodingSymbol<U> {
     /// Returns true iff this decoding symbol is a [`DecodingSymbol::Primary`].
     #[inline]
     pub fn is_primary(&self) -> bool {

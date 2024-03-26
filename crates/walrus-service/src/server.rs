@@ -15,6 +15,7 @@ use serde_with::{serde_as, DisplayFromStr};
 use tokio_util::sync::CancellationToken;
 use tower_http::trace::TraceLayer;
 use walrus_core::{
+    merkle::MerkleProof,
     messages::StorageConfirmation,
     metadata::{BlobMetadata, UnverifiedBlobMetadataWithId},
     BlobId,
@@ -214,18 +215,22 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             SliverType,
             u32,
         )>,
-    ) -> (StatusCode, Json<ServiceResponse<Option<DecodingSymbol>>>) {
+    ) -> (
+        StatusCode,
+        Json<ServiceResponse<DecodingSymbol<MerkleProof>>>,
+    ) {
         match state.retrieve_recovery_symbol(&blob_id, sliver_pair_idx, sliver_type, index) {
             Ok(Some(symbol)) => {
-                tracing::debug!("Retrieved recovery symbol for {blob_id:?}");
-                ServiceResponse::serialized_success(StatusCode::OK, Some(symbol))
+                let symbol_type = symbol.r#type();
+                tracing::debug!("Retrieved {symbol_type:?} decoding symbol for {blob_id:?}");
+                ServiceResponse::serialized_success(StatusCode::OK, symbol)
             }
             Ok(None) => {
-                tracing::debug!("Recovery symbol not found for {blob_id:?}");
+                tracing::debug!("Recovery symbol not found for {:?}", blob_id);
                 ServiceResponse::serialized_not_found()
             }
             Err(message) => {
-                tracing::error!("Internal server error: {message}");
+                tracing::error!("Internal server error: {}", message);
                 ServiceResponse::serialized_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "Internal error",
@@ -301,6 +306,7 @@ mod test {
     use reqwest::StatusCode;
     use tokio_util::sync::CancellationToken;
     use walrus_core::{
+        merkle::MerkleProof,
         messages::StorageConfirmation,
         metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
         BlobId,
@@ -367,7 +373,7 @@ mod test {
             _sliver_pair_idx: u16,
             _sliver_type: SliverType,
             _index: u32,
-        ) -> Result<Option<DecodingSymbol>, RetrieveSymbolError> {
+        ) -> Result<Option<DecodingSymbol<MerkleProof>>, RetrieveSymbolError> {
             Ok(Some(walrus_core::test_utils::recovery_symbol()))
         }
         fn store_sliver(
@@ -694,7 +700,9 @@ mod test {
         let res = client.get(url).json(&blob_id).send().await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
 
-        let body = res.json::<ServiceResponse<DecodingSymbol>>().await;
+        let body = res
+            .json::<ServiceResponse<DecodingSymbol<MerkleProof>>>()
+            .await;
         match body.unwrap() {
             ServiceResponse::Success { code, data: _data } => {
                 assert_eq!(code, StatusCode::OK.as_u16());

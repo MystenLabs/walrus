@@ -8,8 +8,8 @@ use fastcrypto::{
 use rand::{rngs::StdRng, RngCore, SeedableRng};
 
 use crate::{
-    encoding,
-    merkle::Node,
+    encoding::{self},
+    merkle::{MerkleProof, Node},
     metadata::{
         BlobMetadata,
         SliverPairMetadata,
@@ -38,8 +38,19 @@ pub fn sliver() -> Sliver {
 }
 /// Returns an arbitrary decoding symbol for testing.
 
-pub fn recovery_symbol() -> DecodingSymbol {
-    DecodingSymbol::Primary(encoding::DecodingSymbol::new(0, vec![1]))
+pub fn recovery_symbol() -> DecodingSymbol<MerkleProof> {
+    let sliver = sliver();
+
+    match sliver {
+        Sliver::Primary(inner) => {
+            if let Ok(symbol) = inner.recovery_symbol_for_sliver_with_proof(0) {
+                DecodingSymbol::Secondary(symbol)
+            } else {
+                panic!("Not reachable")
+            }
+        }
+        Sliver::Secondary(_) => panic!("Not reachable"),
+    }
 }
 
 /// Returns an arbitrary storage confirmation for tests.
