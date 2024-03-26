@@ -44,7 +44,7 @@ pub enum RetrieveSliverError {
 pub enum RetrieveSymbolError {
     #[error("Invalid shard {0:?}")]
     InvalidShard(ShardIndex),
-    #[error("Symbol Recovery Failed for Sliver {0:?}, Index {0:?} in Blob {2:?}")]
+    #[error("Symbol recovery failed for sliver {0:?}, index {0:?} in blob {2:?}")]
     RecoveryError(u32, u16, BlobId),
     #[error("Sliver {0:?} is not Available for Recovery in Blob {1:?}")]
     UnavailableSliver(u16, BlobId),
