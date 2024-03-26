@@ -60,6 +60,14 @@ impl SliverPairIndex {
 /// Represents the index of a sliver.
 pub type SliverIndex = SliverPairIndex;
 
+impl SliverIndex {
+    /// Creates a new sliver index from the given `usize`.
+    #[cfg(test)]
+    pub fn new(index: u16) -> Self {
+        Self(index)
+    }
+}
+
 impl TryFrom<usize> for SliverPairIndex {
     type Error = std::num::TryFromIntError;
 
