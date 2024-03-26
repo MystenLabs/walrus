@@ -283,28 +283,27 @@ impl ServiceState for StorageNode {
     ) -> Result<Option<DecodingSymbol>, RetrieveSymbolError> {
         let optional_sliver = self
             .retrieve_sliver(blob_id, sliver_pair_idx, sliver_type.reverse())?;
-        match optional_sliver {
-            Some(sliver) => match sliver {
-                Sliver::Primary(inner) => {
-                    let symbol = inner.recovery_symbol_for_sliver(index).map_err(|_| {
-                        RetrieveSymbolError::RecoveryError(index, sliver_pair_idx, *blob_id)
-                    })?;
-                    let decoded_symbol = DecodingSymbol::Secondary(symbol);
-                    Ok(Some(decoded_symbol))
-                }
-                Sliver::Secondary(inner) => {
-                    let symbol = inner.recovery_symbol_for_sliver(index).map_err(|_| {
-                        RetrieveSymbolError::RecoveryError(index, sliver_pair_idx, *blob_id)
-                    })?;
-                    let decoded_symbol = DecodingSymbol::Primary(symbol);
-                    Ok(Some(decoded_symbol))
-                }
-            },
-            None => Err(RetrieveSymbolError::UnavailableSliver(
+        let Some(sliver) = optional_sliver else {
+            return Err(RetrieveSymbolError::UnavailableSliver(
                 sliver_pair_idx,
                 *blob_id,
-            )),
-        }
+            ));
+        };
+
+        Ok(Some(match sliver {
+            Sliver::Primary(inner) => {
+                let symbol = inner.recovery_symbol_for_sliver(index).map_err(|_| {
+                    RetrieveSymbolError::RecoveryError(index, sliver_pair_idx, *blob_id)
+                })?;
+                DecodingSymbol::Secondary(symbol)
+            }
+            Sliver::Secondary(inner) => {
+                let symbol = inner.recovery_symbol_for_sliver(index).map_err(|_| {
+                    RetrieveSymbolError::RecoveryError(index, sliver_pair_idx, *blob_id)
+                })?;
+                DecodingSymbol::Primary(symbol)
+            }
+        }))
     }
 }
 
