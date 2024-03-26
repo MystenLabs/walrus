@@ -306,7 +306,6 @@ mod test {
         SliverType,
     };
 
-    use super::*;
     use crate::{
         node::{
             RetrieveSliverError,
