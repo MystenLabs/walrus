@@ -2,27 +2,32 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-    collections::HashMap,
     net::SocketAddr,
     path::{Path, PathBuf},
-    sync::Arc,
 };
 
 use anyhow::Context;
-use fastcrypto::traits::KeyPair as FastKeyPair;
 use serde::{Deserialize, Serialize};
-use walrus_core::{Epoch, KeyPair, PublicKey, ShardIndex};
+use serde_with::{
+    base64::Base64,
+    de::DeserializeAsWrap,
+    ser::SerializeAsWrap,
+    serde_as,
+    DeserializeAs,
+    SerializeAs,
+};
+use walrus_core::{keys::ProtocolKeyPairParseError, ProtocolKeyPair};
 
 /// Configuration of a Walrus storage node.
+#[serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct StorageNodeConfig {
     /// Directory in which to persist the database
     pub storage_path: PathBuf,
     /// Key pair used in Walrus protocol messages
-    // TODO(jsmith): Handle use with files, as well proper key formatting, and remove default (#147)
     // TODO(jsmith): Add a CLI endpoint that can be used to generate a new private key file (#148)
-    #[serde(default = "defaults::protocol_key_pair")]
-    pub protocol_key_pair: Arc<KeyPair>,
+    #[serde_as(as = "PathOrInPlace<Base64>")]
+    pub protocol_key_pair: PathOrInPlace<ProtocolKeyPair>,
     /// Socket address on which to the Prometheus server should export its metrics.
     #[serde(default = "defaults::metrics_address")]
     pub metrics_address: SocketAddr,
@@ -59,69 +64,199 @@ mod defaults {
     pub fn rest_api_address() -> SocketAddr {
         (Ipv4Addr::UNSPECIFIED, REST_API_PORT).into()
     }
+}
 
-    pub fn protocol_key_pair() -> Arc<KeyPair> {
-        Arc::new(KeyPair::generate(&mut rand::thread_rng()))
+/// Enum that represents a configuration value being preset or at a path.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum PathOrInPlace<T> {
+    /// The value was present in-place in the config, without a filename.
+    InPlace(T),
+
+    /// A value that is not present in the config, but at a path on the filesystem.
+    Path {
+        /// The path from which the value can be loaded.
+        #[serde(rename = "path")]
+        path: PathBuf,
+        /// The value loaded from the specified path.
+        #[serde(skip, default = "Option::default")]
+        value: Option<T>,
+    },
+}
+
+impl<T> PathOrInPlace<T> {
+    /// Creates a new `PathOrInPlace::Path` from the provided path.
+    pub fn from_path<P: AsRef<Path>>(path: P) -> Self {
+        Self::Path {
+            path: path.as_ref().to_owned(),
+            value: None,
+        }
+    }
+
+    /// Returns true iff the value has already been loaded into memory.
+    pub const fn is_loaded(&self) -> bool {
+        matches!(
+            self,
+            PathOrInPlace::InPlace(_) | PathOrInPlace::Path { value: Some(_), .. }
+        )
+    }
+
+    /// Gets the value, if already loaded into memory, otherwise returns None.
+    pub const fn get(&self) -> Option<&T> {
+        if let PathOrInPlace::InPlace(value)
+        | PathOrInPlace::Path {
+            value: Some(value), ..
+        } = self
+        {
+            Some(value)
+        } else {
+            None
+        }
     }
 }
 
-/// Represents a storage node identifier.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct StorageNodeIdentifier {
-    /// The public key of the storage node.
-    pub public_key: PublicKey,
-    /// The shards that the storage node is responsible for.
-    pub shards: Vec<ShardIndex>,
-}
-
-/// Represents a committee of storage nodes, that is, the Walrus committee.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Committee {
-    /// The members of the committee.
-    pub members: Vec<StorageNodeIdentifier>,
-    /// The epoch of the committee.
-    pub epoch: Epoch,
-}
-
-impl Committee {
-    /// Returns the total number of shards in the system.
-    pub fn number_of_shards(&self) -> usize {
-        self.members.iter().map(|node| node.shards.len()).sum()
-    }
-
-    /// Returns the number of shards required to reach a quorum (2f+1).
-    pub fn quorum_threshold(&self) -> usize {
-        self.number_of_shards() * 2 / 3 + 1
-    }
-
-    /// Returns the number of shards required to reach validity (f+1).
-    pub fn validity_threshold(&self) -> usize {
-        (self.number_of_shards() + 2) / 3
+impl PathOrInPlace<ProtocolKeyPair> {
+    /// Loads and returns a [`ProtocolKeyPair`] from the path on disk.
+    ///
+    /// If the value was already loaded, it is returned instead.
+    pub fn load(&mut self) -> Result<&ProtocolKeyPair, anyhow::Error> {
+        if let PathOrInPlace::Path {
+            path,
+            value: value @ None,
+        } = self
+        {
+            let base64_string = std::fs::read_to_string(path.as_path())?;
+            let decoded: ProtocolKeyPair = base64_string
+                .parse()
+                .map_err(|err: ProtocolKeyPairParseError| anyhow::anyhow!(err.to_string()))?;
+            *value = Some(decoded)
+        };
+        Ok(self.get().unwrap())
     }
 }
 
-/// Represents the global public parameters of the system.
-pub struct GlobalPublicParameters {
-    /// The network addresses of the shards.
-    pub network_addresses: HashMap<ShardIndex, SocketAddr>,
-    /// The metrics addresses of the shards.
-    pub metrics_addresses: HashMap<ShardIndex, SocketAddr>,
+impl<'de, T> DeserializeAs<'de, PathOrInPlace<T>> for PathOrInPlace<Base64>
+where
+    Base64: DeserializeAs<'de, T>,
+{
+    fn deserialize_as<D>(deserializer: D) -> Result<PathOrInPlace<T>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        match PathOrInPlace::<DeserializeAsWrap<T, Base64>>::deserialize(deserializer)? {
+            PathOrInPlace::InPlace(value) => Ok(PathOrInPlace::InPlace(value.into_inner())),
+            PathOrInPlace::Path { path, value } => Ok(PathOrInPlace::Path {
+                path,
+                value: value.map(DeserializeAsWrap::into_inner),
+            }),
+        }
+    }
 }
 
-/// Represents the private parameters of a shard.
-pub struct ShardPrivateParameters {
-    /// The storage directory of the shard.
-    pub storage_directory: PathBuf,
+impl<T> SerializeAs<PathOrInPlace<T>> for PathOrInPlace<Base64>
+where
+    Base64: SerializeAs<T>,
+{
+    fn serialize_as<S>(source: &PathOrInPlace<T>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let wrapper = match source {
+            PathOrInPlace::InPlace(value) => {
+                PathOrInPlace::InPlace(SerializeAsWrap::<T, Base64>::new(value))
+            }
+            PathOrInPlace::Path { path, value } => PathOrInPlace::Path {
+                path: path.to_path_buf(),
+                value: value.as_ref().map(SerializeAsWrap::new),
+            },
+        };
+        wrapper.serialize(serializer)
+    }
 }
 
-/// Represents the private parameters of a storage node.
-pub struct StorageNodePrivateParameters {
-    /// The keypair of the storage node.
-    pub keypair: KeyPair,
-    /// The network address of the shard.
-    pub network_address: SocketAddr,
-    /// The metrics address of the shard.
-    pub metrics_address: SocketAddr,
-    /// The private parameters shards that the storage node is responsible for.
-    pub shards: HashMap<ShardIndex, ShardPrivateParameters>,
+#[cfg(test)]
+mod tests {
+    use std::{io::Write as _, str::FromStr};
+
+    use tempfile::NamedTempFile;
+    use walrus_core::test_utils;
+    use walrus_test_utils::Result as TestResult;
+
+    use super::*;
+
+    #[test]
+    fn path_or_in_place_parses_value() -> TestResult {
+        assert_eq!(
+            serde_yaml::from_str::<PathOrInPlace<u64>>("2048")?,
+            PathOrInPlace::InPlace(2048)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn path_or_in_place_parses_path() -> TestResult {
+        let path: PathBuf = "/path/to/value.txt".parse()?;
+        assert_eq!(
+            serde_yaml::from_str::<PathOrInPlace<u64>>(&format!("path: {}", path.display()))?,
+            PathOrInPlace::from_path(path)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn path_or_in_place_deserializes_from_base64() -> TestResult {
+        let expected_keypair = test_utils::keypair();
+        let yaml_contents = expected_keypair.to_base64();
+
+        let deserializer = serde_yaml::Deserializer::from_str(&yaml_contents);
+        let decoded: PathOrInPlace<ProtocolKeyPair> =
+            PathOrInPlace::<Base64>::deserialize_as(deserializer)?;
+
+        assert_eq!(decoded, PathOrInPlace::InPlace(expected_keypair));
+
+        Ok(())
+    }
+
+    #[test]
+    fn path_or_in_place_serializes_to_base64() -> TestResult {
+        let keypair = test_utils::keypair();
+        let expected_yaml = keypair.to_base64() + "\n";
+
+        let mut written_yaml = vec![];
+        let mut serializer = serde_yaml::Serializer::new(&mut written_yaml);
+
+        let in_place = PathOrInPlace::<ProtocolKeyPair>::InPlace(keypair);
+        PathOrInPlace::<Base64>::serialize_as(&in_place, &mut serializer)?;
+
+        assert_eq!(String::from_utf8(written_yaml)?, expected_yaml);
+
+        Ok(())
+    }
+
+    #[test]
+    fn loads_base64_protocol_keypair() -> TestResult {
+        let key = test_utils::keypair();
+        let key_file = NamedTempFile::new()?;
+
+        key_file.as_file().write_all(key.to_base64().as_bytes())?;
+
+        let mut path = PathOrInPlace::<ProtocolKeyPair>::from_path(key_file.path());
+
+        assert_eq!(*path.load()?, key);
+
+        Ok(())
+    }
+
+    #[test]
+    fn parses_config_file() -> TestResult {
+        let yaml = "---\n\
+        storage_path: target/storage\n\
+        protocol_key_pair:\n  BBlm7tRefoPuaKoVoxVtnUBBDCfy+BGPREM8B6oSkOEj";
+
+        ProtocolKeyPair::from_str("BBlm7tRefoPuaKoVoxVtnUBBDCfy+BGPREM8B6oSkOEj")?;
+
+        let _: StorageNodeConfig = serde_yaml::from_str(yaml)?;
+
+        Ok(())
+    }
 }

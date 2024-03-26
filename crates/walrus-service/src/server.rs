@@ -301,6 +301,7 @@ mod test {
 
     use anyhow::anyhow;
     use reqwest::StatusCode;
+    use tokio::task::JoinHandle;
     use tokio_util::sync::CancellationToken;
     use walrus_core::{
         encoding::initialize_encoding_config,
@@ -317,8 +318,10 @@ mod test {
         Sliver,
         SliverType,
     };
+    use walrus_test_utils::WithTempDir;
 
     use crate::{
+        config::StorageNodeConfig,
         node::{
             RetrieveSliverError,
             RetrieveSymbolError,
@@ -413,21 +416,34 @@ mod test {
         }
     }
 
-    #[tokio::test]
-    async fn retrieve_metadata() {
+    async fn start_rest_api_with_config(
+        config: &StorageNodeConfig,
+    ) -> JoinHandle<Result<(), std::io::Error>> {
         let server = UserServer::new(Arc::new(MockServiceState), CancellationToken::new());
-        let test_private_parameters = test_utils::storage_node_private_parameters();
-        let _handle = tokio::spawn(async move {
-            let network_address = test_private_parameters.network_address;
-            server.run(&network_address).await
-        });
+        let network_address = config.rest_api_address;
+        let handle = tokio::spawn(async move { server.run(&network_address).await });
 
         tokio::task::yield_now().await;
+        handle
+    }
+
+    async fn start_rest_api_with_test_config() -> (
+        WithTempDir<StorageNodeConfig>,
+        JoinHandle<Result<(), std::io::Error>>,
+    ) {
+        let config = test_utils::storage_node_config();
+        let handle = start_rest_api_with_config(config.as_ref()).await;
+        (config, handle)
+    }
+
+    #[tokio::test]
+    async fn retrieve_metadata() {
+        let (config, _handle) = start_rest_api_with_test_config().await;
 
         let mut blob_id = walrus_core::test_utils::random_blob_id();
         blob_id.0[0] = 0; // Triggers a valid response
         let path = METADATA_ENDPOINT.replace(":blobId", &blob_id.to_string());
-        let url = format!("http://{}{path}", test_private_parameters.network_address);
+        let url = format!("http://{}{path}", config.as_ref().rest_api_address);
 
         let client = reqwest::Client::new();
         let res = client.get(url).json(&blob_id).send().await.unwrap();
@@ -448,19 +464,12 @@ mod test {
 
     #[tokio::test]
     async fn retrieve_metadata_not_found() {
-        let server = UserServer::new(Arc::new(MockServiceState), CancellationToken::new());
-        let test_private_parameters = test_utils::storage_node_private_parameters();
-        let _handle = tokio::spawn(async move {
-            let network_address = test_private_parameters.network_address;
-            server.run(&network_address).await
-        });
-
-        tokio::task::yield_now().await;
+        let (config, _handle) = start_rest_api_with_test_config().await;
 
         let mut blob_id = walrus_core::test_utils::random_blob_id();
         blob_id.0[0] = 1; // Triggers a not found response
         let path = METADATA_ENDPOINT.replace(":blobId", &blob_id.to_string());
-        let url = format!("http://{}{path}", test_private_parameters.network_address);
+        let url = format!("http://{}{path}", config.as_ref().rest_api_address);
 
         let client = reqwest::Client::new();
         let res = client.get(url).json(&blob_id).send().await.unwrap();
@@ -469,19 +478,12 @@ mod test {
 
     #[tokio::test]
     async fn retrieve_metadata_internal_error() {
-        let server = UserServer::new(Arc::new(MockServiceState), CancellationToken::new());
-        let test_private_parameters = test_utils::storage_node_private_parameters();
-        let _handle = tokio::spawn(async move {
-            let network_address = test_private_parameters.network_address;
-            server.run(&network_address).await
-        });
-
-        tokio::task::yield_now().await;
+        let (config, _handle) = start_rest_api_with_test_config().await;
 
         let mut blob_id = walrus_core::test_utils::random_blob_id();
         blob_id.0[0] = 2; // Triggers an internal server error
         let path = METADATA_ENDPOINT.replace(":blobId", &blob_id.to_string());
-        let url = format!("http://{}{path}", test_private_parameters.network_address);
+        let url = format!("http://{}{path}", config.as_ref().rest_api_address);
 
         let client = reqwest::Client::new();
         let res = client.get(url).json(&blob_id).send().await.unwrap();
@@ -490,21 +492,14 @@ mod test {
 
     #[tokio::test]
     async fn store_metadata() {
-        let server = UserServer::new(Arc::new(MockServiceState), CancellationToken::new());
-        let test_private_parameters = test_utils::storage_node_private_parameters();
-        let _handle = tokio::spawn(async move {
-            let network_address = test_private_parameters.network_address;
-            server.run(&network_address).await
-        });
-
-        tokio::task::yield_now().await;
+        let (config, _handle) = start_rest_api_with_test_config().await;
 
         let metadata_with_blob_id = walrus_core::test_utils::unverified_blob_metadata();
         let metadata = metadata_with_blob_id.metadata();
 
         let blob_id = metadata_with_blob_id.blob_id().to_string();
         let path = METADATA_ENDPOINT.replace(":blobId", &blob_id);
-        let url = format!("http://{}{path}", test_private_parameters.network_address);
+        let url = format!("http://{}{path}", config.as_ref().rest_api_address);
 
         let client = reqwest::Client::new();
         let res = client.put(url).json(metadata).send().await.unwrap();
@@ -513,14 +508,7 @@ mod test {
 
     #[tokio::test]
     async fn retrieve_sliver() {
-        let server = UserServer::new(Arc::new(MockServiceState), CancellationToken::new());
-        let test_private_parameters = test_utils::storage_node_private_parameters();
-        let _handle = tokio::spawn(async move {
-            let network_address = test_private_parameters.network_address;
-            server.run(&network_address).await
-        });
-
-        tokio::task::yield_now().await;
+        let (config, _handle) = start_rest_api_with_test_config().await;
 
         let blob_id = walrus_core::test_utils::random_blob_id();
         let sliver_pair_id = 0; // Triggers an valid response
@@ -528,7 +516,7 @@ mod test {
             .replace(":blobId", &blob_id.to_string())
             .replace(":sliverPairIdx", &sliver_pair_id.to_string())
             .replace(":sliverType", "primary");
-        let url = format!("http://{}{path}", test_private_parameters.network_address);
+        let url = format!("http://{}{path}", config.as_ref().rest_api_address);
 
         let client = reqwest::Client::new();
         let res = client.get(url).json(&blob_id).send().await.unwrap();
@@ -547,14 +535,7 @@ mod test {
 
     #[tokio::test]
     async fn store_sliver() {
-        let server = UserServer::new(Arc::new(MockServiceState), CancellationToken::new());
-        let test_private_parameters = test_utils::storage_node_private_parameters();
-        let _handle = tokio::spawn(async move {
-            let network_address = test_private_parameters.network_address;
-            server.run(&network_address).await
-        });
-
-        tokio::task::yield_now().await;
+        let (config, _handle) = start_rest_api_with_test_config().await;
 
         let sliver = walrus_core::test_utils::sliver();
 
@@ -564,7 +545,7 @@ mod test {
             .replace(":blobId", &blob_id.to_string())
             .replace(":sliverPairIdx", &sliver_pair_id.to_string())
             .replace(":sliverType", "primary");
-        let url = format!("http://{}{path}", test_private_parameters.network_address);
+        let url = format!("http://{}{path}", config.as_ref().rest_api_address);
 
         let client = reqwest::Client::new();
         let res = client.put(url).json(&sliver).send().await.unwrap();
@@ -573,14 +554,7 @@ mod test {
 
     #[tokio::test]
     async fn store_sliver_error() {
-        let server = UserServer::new(Arc::new(MockServiceState), CancellationToken::new());
-        let test_private_parameters = test_utils::storage_node_private_parameters();
-        let _handle = tokio::spawn(async move {
-            let network_address = test_private_parameters.network_address;
-            server.run(&network_address).await
-        });
-
-        tokio::task::yield_now().await;
+        let (config, _handle) = start_rest_api_with_test_config().await;
 
         let sliver = walrus_core::test_utils::sliver();
 
@@ -590,7 +564,7 @@ mod test {
             .replace(":blobId", &blob_id.to_string())
             .replace(":sliverPairIdx", &sliver_pair_id.to_string())
             .replace(":sliverType", "primary");
-        let url = format!("http://{}{path}", test_private_parameters.network_address);
+        let url = format!("http://{}{path}", config.as_ref().rest_api_address);
 
         let client = reqwest::Client::new();
         let res = client.put(url).json(&sliver).send().await.unwrap();
@@ -599,19 +573,12 @@ mod test {
 
     #[tokio::test]
     async fn retrieve_storage_confirmation() {
-        let server = UserServer::new(Arc::new(MockServiceState), CancellationToken::new());
-        let test_private_parameters = test_utils::storage_node_private_parameters();
-        let _handle = tokio::spawn(async move {
-            let network_address = test_private_parameters.network_address;
-            server.run(&network_address).await
-        });
-
-        tokio::task::yield_now().await;
+        let (config, _handle) = start_rest_api_with_test_config().await;
 
         let mut blob_id = walrus_core::test_utils::random_blob_id();
         blob_id.0[0] = 0; // Triggers a valid response
         let path = STORAGE_CONFIRMATION_ENDPOINT.replace(":blobId", &blob_id.to_string());
-        let url = format!("http://{}{path}", test_private_parameters.network_address);
+        let url = format!("http://{}{path}", config.as_ref().rest_api_address);
 
         let client = reqwest::Client::new();
         let res = client.get(url).json(&blob_id).send().await.unwrap();
@@ -631,19 +598,12 @@ mod test {
 
     #[tokio::test]
     async fn retrieve_storage_confirmation_not_found() {
-        let server = UserServer::new(Arc::new(MockServiceState), CancellationToken::new());
-        let test_private_parameters = test_utils::storage_node_private_parameters();
-        let _handle = tokio::spawn(async move {
-            let network_address = test_private_parameters.network_address;
-            server.run(&network_address).await
-        });
-
-        tokio::task::yield_now().await;
+        let (config, _handle) = start_rest_api_with_test_config().await;
 
         let mut blob_id = walrus_core::test_utils::random_blob_id();
         blob_id.0[0] = 1; // Triggers a not found response
         let path = STORAGE_CONFIRMATION_ENDPOINT.replace(":blobId", &blob_id.to_string());
-        let url = format!("http://{}{path}", test_private_parameters.network_address);
+        let url = format!("http://{}{path}", config.as_ref().rest_api_address);
 
         let client = reqwest::Client::new();
         let res = client.get(url).json(&blob_id).send().await.unwrap();
@@ -652,19 +612,12 @@ mod test {
 
     #[tokio::test]
     async fn retrieve_storage_confirmation_internal_error() {
-        let server = UserServer::new(Arc::new(MockServiceState), CancellationToken::new());
-        let test_private_parameters = test_utils::storage_node_private_parameters();
-        let _handle = tokio::spawn(async move {
-            let network_address = test_private_parameters.network_address;
-            server.run(&network_address).await
-        });
-
-        tokio::task::yield_now().await;
+        let (config, _handle) = start_rest_api_with_test_config().await;
 
         let mut blob_id = walrus_core::test_utils::random_blob_id();
         blob_id.0[0] = 2; // Triggers an internal server error
         let path = STORAGE_CONFIRMATION_ENDPOINT.replace(":blobId", &blob_id.to_string());
-        let url = format!("http://{}{path}", test_private_parameters.network_address);
+        let url = format!("http://{}{path}", config.as_ref().rest_api_address);
 
         let client = reqwest::Client::new();
         let res = client.get(url).json(&blob_id).send().await.unwrap();
@@ -675,9 +628,9 @@ mod test {
     async fn shutdown_server() {
         let cancel_token = CancellationToken::new();
         let server = UserServer::new(Arc::new(MockServiceState), cancel_token.clone());
-        let test_private_parameters = test_utils::storage_node_private_parameters();
+        let config = test_utils::storage_node_config();
         let handle = tokio::spawn(async move {
-            let network_address = test_private_parameters.network_address;
+            let network_address = config.as_ref().rest_api_address;
             server.run(&network_address).await
         });
 
@@ -690,14 +643,8 @@ mod test {
         // NOTE(giac): this encoding config must match the encoding config of all other tests in the
         // crate (notably, `test_store_and_read_blob`) to avoid errors.
         initialize_encoding_config(2, 4, 10);
-        let server = UserServer::new(Arc::new(MockServiceState), CancellationToken::new());
-        let test_private_parameters = test_utils::storage_node_private_parameters();
-        let _handle = tokio::spawn(async move {
-            let network_address = test_private_parameters.network_address;
-            server.run(&network_address).await
-        });
 
-        tokio::task::yield_now().await;
+        let (config, _handle) = start_rest_api_with_test_config().await;
 
         let blob_id = walrus_core::test_utils::random_blob_id();
         let sliver_pair_id = 0; // Triggers an valid response
@@ -707,7 +654,7 @@ mod test {
             .replace(":sliverPairIdx", &sliver_pair_id.to_string())
             .replace(":sliverType", "primary")
             .replace(":index", &index.to_string());
-        let url = format!("http://{}{path}", test_private_parameters.network_address);
+        let url = format!("http://{}{path}", config.inner.rest_api_address);
         // TODO(lef): Extract the path creation into a function with optional arguments
 
         let client = reqwest::Client::new();
@@ -729,15 +676,7 @@ mod test {
 
     #[tokio::test]
     async fn decoding_symbol_not_found() {
-        // TODO(lef): Extract booting the server into a function
-        let server = UserServer::new(Arc::new(MockServiceState), CancellationToken::new());
-        let test_private_parameters = test_utils::storage_node_private_parameters();
-        let _handle = tokio::spawn(async move {
-            let network_address = test_private_parameters.network_address;
-            server.run(&network_address).await
-        });
-
-        tokio::task::yield_now().await;
+        let (config, _handle) = start_rest_api_with_test_config().await;
 
         let blob_id = walrus_core::test_utils::random_blob_id();
 
@@ -747,7 +686,7 @@ mod test {
             .replace(":sliverPairIdx", &sliver_pair_id.to_string())
             .replace(":sliverType", "primary")
             .replace(":index", "0");
-        let url = format!("http://{}{path}", test_private_parameters.network_address);
+        let url = format!("http://{}{path}", config.inner.rest_api_address);
         let client = reqwest::Client::new();
         let res = client.get(url).json(&blob_id).send().await.unwrap();
         assert_eq!(res.status(), StatusCode::NOT_FOUND);

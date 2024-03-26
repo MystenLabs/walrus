@@ -46,12 +46,15 @@ struct Args {
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    let config = StorageNodeConfig::load(args.config_path)?;
+    let mut config = StorageNodeConfig::load(args.config_path)?;
 
     let metrics_runtime = MetricsAndLoggingRuntime::start(config.metrics_address)?;
 
     tracing::info!("Walrus Node version: {VERSION}");
-    tracing::info!("Walrus public key: {}", config.protocol_key_pair.public());
+    tracing::info!(
+        "Walrus public key: {}",
+        config.protocol_key_pair.load()?.as_ref().public()
+    );
     tracing::info!(
         "Started Prometheus HTTP endpoint at {}",
         config.metrics_address

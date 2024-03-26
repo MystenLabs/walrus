@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{future::Future, num::NonZeroUsize, sync::Arc};
+use std::{future::Future, num::NonZeroUsize};
 
 use anyhow::Context;
 use fastcrypto::traits::Signer;
@@ -17,7 +17,7 @@ use walrus_core::{
     BlobId,
     DecodingSymbol,
     Epoch,
-    KeyPair,
+    ProtocolKeyPair,
     ShardIndex,
     Sliver,
     SliverType,
@@ -142,7 +142,7 @@ pub struct StorageNode {
     current_epoch: Epoch,
     storage: Storage,
     n_shards: NonZeroUsize,
-    protocol_key_pair: Arc<KeyPair>,
+    protocol_key_pair: ProtocolKeyPair,
 }
 
 impl StorageNode {
@@ -153,11 +153,15 @@ impl StorageNode {
     ) -> anyhow::Result<Self> {
         DBMetrics::init(&registry_service.default_registry());
         let storage = Storage::open(config.storage_path.as_path(), MetricConf::new("storage"))?;
+        let protocol_key_pair = config
+            .protocol_key_pair
+            .get()
+            .expect("protocol keypair must already be loaded");
 
         Ok(Self::new_with_storage(
             storage,
             100,
-            config.protocol_key_pair.clone(),
+            protocol_key_pair.clone(),
         ))
     }
 
@@ -165,12 +169,12 @@ impl StorageNode {
     pub fn new_with_storage(
         storage: Storage,
         n_shards: usize,
-        protocol_key_pair: Arc<KeyPair>,
+        protocol_key_pair: ProtocolKeyPair,
     ) -> Self {
         Self {
             storage,
             current_epoch: 0,
-            n_shards: NonZeroUsize::new(n_shards).unwrap(),
+            n_shards: NonZeroUsize::new(n_shards).expect("number of shards must not be zero"),
             protocol_key_pair,
         }
     }
@@ -338,14 +342,14 @@ impl ServiceState for StorageNode {
 
 async fn sign_confirmation(
     confirmation: Confirmation,
-    signer: Arc<KeyPair>,
+    signer: ProtocolKeyPair,
 ) -> Result<SignedStorageConfirmation, anyhow::Error> {
     let signed = tokio::task::spawn_blocking(move || {
         let encoded_confirmation = bcs::to_bytes(&confirmation)
             .expect("bcs encoding a confirmation to a vector should not fail");
 
         SignedStorageConfirmation {
-            signature: signer.sign(&encoded_confirmation),
+            signature: signer.as_ref().sign(&encoded_confirmation),
             confirmation: encoded_confirmation,
         }
     })
@@ -424,6 +428,7 @@ mod tests {
             storage_node
                 .as_ref()
                 .protocol_key_pair
+                .as_ref()
                 .public()
                 .verify(&signed.confirmation, &signed.signature)
                 .expect("message should be verifiable");

@@ -146,6 +146,20 @@ pub struct WithTempDir<T> {
     pub temp_dir: TempDir,
 }
 
+impl<T> WithTempDir<T> {
+    /// Convert a `WithTempDir<T>` to a `WithTempDir<U>` by applying the provided
+    /// function to the inner value, while maintaining the temporary directory.
+    pub fn map<U, F>(self, f: F) -> WithTempDir<U>
+    where
+        F: FnOnce(T) -> U,
+    {
+        WithTempDir {
+            inner: f(self.inner),
+            temp_dir: self.temp_dir,
+        }
+    }
+}
+
 impl<T> AsRef<T> for WithTempDir<T> {
     fn as_ref(&self) -> &T {
         &self.inner

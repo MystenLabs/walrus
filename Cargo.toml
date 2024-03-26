@@ -15,6 +15,8 @@ move-core-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1
 mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.21.0" }
 rand = "0.8.5"
 serde = { version = "1.0.197", features = ["derive"] }
+serde_with = "3.7"
+serde_yaml = "0.9"
 sui-move-build = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.21.0" }
 sui-sdk = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.21.0" }
 sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.21.0" }

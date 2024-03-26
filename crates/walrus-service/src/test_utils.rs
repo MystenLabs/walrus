@@ -1,36 +1,41 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
-use fastcrypto::traits::KeyPair as FCKeyPair;
+use fastcrypto::traits::KeyPair;
+use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
 use typed_store::rocks::MetricConf;
-use walrus_core::{test_utils, KeyPair, PublicKey, ShardIndex};
+use walrus_core::{test_utils, ProtocolKeyPair, PublicKey, ShardIndex};
 use walrus_sui::types::{Committee, NetworkAddress, StorageNode as SuiStorageNode};
 use walrus_test_utils::WithTempDir;
 
 use crate::{
     client::Config,
-    config::StorageNodePrivateParameters,
+    config::{PathOrInPlace, StorageNodeConfig},
     server::UserServer,
     storage::Storage,
     StorageNode,
 };
 
-/// Creates a new [`StorageNodePrivateParameters`] object for testing.
-pub fn storage_node_private_parameters() -> StorageNodePrivateParameters {
-    let network_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let network_address = network_listener.local_addr().unwrap();
+/// Creates a new [`StorageNodeConfig`] object for testing.
+pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
+    let rest_api_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let rest_api_address = rest_api_listener.local_addr().unwrap();
 
     let metrics_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let metrics_address = metrics_listener.local_addr().unwrap();
 
-    StorageNodePrivateParameters {
-        keypair: test_utils::keypair(),
-        network_address,
-        metrics_address,
-        shards: HashMap::new(),
+    let temp_dir = TempDir::new().expect("able to create a temporary directory");
+    WithTempDir {
+        inner: StorageNodeConfig {
+            protocol_key_pair: PathOrInPlace::InPlace(test_utils::keypair()),
+            rest_api_address,
+            metrics_address,
+            storage_path: temp_dir.path().to_path_buf(),
+        },
+        temp_dir,
     }
 }
 
@@ -56,45 +61,42 @@ pub fn empty_storage_with_shards(shards: &[ShardIndex]) -> WithTempDir<Storage> 
 pub fn new_test_storage_node(
     shards: &[ShardIndex],
     n_shards: usize,
-    key_pair: KeyPair,
-) -> StorageNode {
-    let storage = empty_storage_with_shards(shards);
-    StorageNode::new_with_storage(storage.inner, n_shards, Arc::new(key_pair))
+    key_pair: ProtocolKeyPair,
+) -> WithTempDir<StorageNode> {
+    empty_storage_with_shards(shards)
+        .map(|storage| StorageNode::new_with_storage(storage, n_shards, key_pair))
 }
 
 /// Creates a new [`UserServer`].
 pub fn new_test_server(
     shards: &[ShardIndex],
     n_shards: usize,
-    key_pair: KeyPair,
-) -> UserServer<StorageNode> {
-    let storage_node = new_test_storage_node(shards, n_shards, key_pair);
-    UserServer::new(Arc::new(storage_node), CancellationToken::new())
+    key_pair: ProtocolKeyPair,
+) -> WithTempDir<UserServer<StorageNode>> {
+    new_test_storage_node(shards, n_shards, key_pair)
+        .map(|storage_node| UserServer::new(Arc::new(storage_node), CancellationToken::new()))
 }
 
 /// Creates a new [`UserServer`] with parameters.
 pub fn new_test_server_with_address(
     shards: &[ShardIndex],
     n_shards: usize,
-) -> (UserServer<StorageNode>, SocketAddr, PublicKey) {
-    let StorageNodePrivateParameters {
-        keypair,
-        network_address,
-        metrics_address: _,
-        shards: _,
-    } = storage_node_private_parameters();
-    let pk = keypair.public().clone();
+) -> (WithTempDir<UserServer<StorageNode>>, SocketAddr, PublicKey) {
+    let config = storage_node_config();
+    let rest_api_address = config.inner.rest_api_address;
+    let protocol_key_pair = config.inner.protocol_key_pair.get().unwrap();
+
     (
-        new_test_server(shards, n_shards, keypair),
-        network_address,
-        pk,
+        new_test_server(shards, n_shards, protocol_key_pair.clone()),
+        rest_api_address,
+        protocol_key_pair.as_ref().public().clone(),
     )
 }
 
 /// Creates and runs a new [`UserServer`] with parameters.
 pub async fn spawn_test_server(shards: &[ShardIndex], n_shards: usize) -> (SocketAddr, PublicKey) {
     let (server, addr, pk) = new_test_server_with_address(shards, n_shards);
-    let _handle = tokio::spawn(async move { server.run(&addr).await });
+    let _handle = tokio::spawn(async move { server.inner.run(&addr).await });
     tokio::task::yield_now().await;
     (addr, pk)
 }

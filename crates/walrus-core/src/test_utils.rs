@@ -1,10 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
+//! Utility functions for tests.
 
-use fastcrypto::{
-    bls12381::min_pk::BLS12381KeyPair,
-    traits::{KeyPair, Signer},
-};
+use fastcrypto::traits::{KeyPair, Signer};
 use rand::{rngs::StdRng, RngCore, SeedableRng};
 
 use crate::{
@@ -21,6 +19,7 @@ use crate::{
     BlobId,
     DecodingSymbol,
     EncodingType,
+    ProtocolKeyPair,
     SignedStorageConfirmation,
     Sliver,
 };
@@ -29,9 +28,9 @@ use crate::{
 ///
 /// Various testing facilities can use this key and unit-test can re-generate it to verify the
 /// correctness of inputs and outputs.
-pub fn keypair() -> BLS12381KeyPair {
+pub fn keypair() -> ProtocolKeyPair {
     let mut rng = StdRng::seed_from_u64(0);
-    BLS12381KeyPair::generate(&mut rng)
+    ProtocolKeyPair::new(KeyPair::generate(&mut rng))
 }
 
 /// Returns an arbitrary sliver for testing.
@@ -61,7 +60,7 @@ pub fn signed_storage_confirmation() -> SignedStorageConfirmation {
     rng.fill_bytes(&mut confirmation);
 
     let signer = keypair();
-    let signature = signer.sign(&confirmation);
+    let signature = signer.as_ref().sign(&confirmation);
     SignedStorageConfirmation {
         confirmation,
         signature,

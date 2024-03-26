@@ -18,7 +18,7 @@ use encoding::{
     WrongSliverVariantError,
 };
 use fastcrypto::{
-    bls12381::min_pk::{BLS12381KeyPair, BLS12381PublicKey, BLS12381Signature},
+    bls12381::min_pk::{BLS12381PublicKey, BLS12381Signature},
     encoding::{Encoding, Hex},
     hash::{Blake2b256, HashFunction},
 };
@@ -28,34 +28,29 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub mod encoding;
-
 pub mod merkle;
+pub mod metadata;
+pub mod utils;
+
+pub mod keys;
+pub use keys::ProtocolKeyPair;
 
 pub mod messages;
 pub use messages::SignedStorageConfirmation;
 
-pub mod metadata;
-pub mod utils;
-
 /// A public key.
 pub type PublicKey = BLS12381PublicKey;
-/// A key pair.
-pub type KeyPair = BLS12381KeyPair;
 /// A signature for a blob.
 pub type Signature = BLS12381Signature;
 /// A certificate for a blob, represented as a list of signer-signature pairs.
 pub type Certificate = Vec<(PublicKey, Signature)>;
 /// The hash function used for building metadata.
 pub type DefaultHashFunction = Blake2b256;
-
-/// Utility functions for tests.
-///
-/// These are available with the "test-utils" feature.
-#[cfg(feature = "test-utils")]
-pub mod test_utils;
-
 /// The epoch number.
 pub type Epoch = u64;
+
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_utils;
 
 /// The ID of a blob.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]

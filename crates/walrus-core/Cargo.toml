@@ -12,6 +12,7 @@ fastcrypto = { workspace = true }
 rand = { workspace = true, optional = true }
 raptorq = "2.0.0"
 serde = { workspace = true }
+serde_with = { workspace = true, features = ["base64"] }
 thiserror = { workspace = true }
 
 [lints]
@@ -19,6 +20,8 @@ workspace = true
 
 [dev-dependencies]
 criterion = "0.5.1"
+rand = { workspace = true }
+serde_test = "1.0.176"
 walrus-test-utils = { workspace = true }
 
 [features]
