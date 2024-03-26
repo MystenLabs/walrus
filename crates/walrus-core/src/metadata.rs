@@ -57,6 +57,9 @@ impl SliverPairIndex {
     }
 }
 
+/// Represents the index of a sliver.
+pub type SliverIndex = SliverPairIndex;
+
 impl TryFrom<usize> for SliverPairIndex {
     type Error = std::num::TryFromIntError;
 

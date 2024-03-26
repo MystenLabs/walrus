@@ -19,7 +19,9 @@ updates:
           - "patch"
     ignore:
       - dependency-name: move-core-types
+      - dependency-name: mysten-metrics
       - dependency-name: sui-*
+      - dependency-name: telemetry-subscribers
       - dependency-name: test-cluster
       - dependency-name: typed-store
 

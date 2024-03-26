@@ -76,7 +76,23 @@ to the command line and also generate HTML reports including plots; the root fil
 [`target/criterion/report/index.html].
 
 Criterion automatically compares the results from multiple runs. To check if your code changes improve or worsen the
-performance, run the benchmarks first on the latest `main` branch and then again with your code changes.
+performance, run the benchmarks first on the latest `main` branch and then again with your code changes or explicitly
+set and use baselines with `--set-baseline` and `--baseline`. See the [Criterion
+documentation](https://bheisler.github.io/criterion.rs/book/user_guide/command_line_options.html#baselines) for further
+details.
+
+### Profiling
+
+To get quick insights into where the program spends most of its time, you can use the [flamegraph
+tool](https://github.com/flamegraph-rs/flamegraph). After installing with `cargo install flamegraph`, you can run
+binaries, tests, or benchmarks and produce SVG outputs. For example to analyze the `blob_encoding` benchmark, you can
+run the following:
+
+```sh
+CARGO_PROFILE_BENCH_DEBUG=true cargo flamegraph --root --bench blob_encoding --open
+```
+
+See [the documentation](https://github.com/flamegraph-rs/flamegraph) for further details and options.
 
 ## Signed commits
 
