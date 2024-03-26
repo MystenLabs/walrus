@@ -206,6 +206,10 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
         }
     }
 
+    /// Retrieves a recovery symbol for a shard held by this storage node.
+    /// The sliver_type is the target type of the sliver that will be recovered
+    /// The sliver_pair_idx is the index of the sliver pair that we want to access
+    /// Index is the requesters index in the established order of storage nodes
     async fn retrieve_recovery_symbol(
         State(state): State<Arc<S>>,
         Path((HexBlobId(blob_id), sliver_pair_idx, sliver_type, index)): Path<(
@@ -214,11 +218,11 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             SliverType,
             u32,
         )>,
-    ) -> (StatusCode, Json<ServiceResponse<Option<DecodingSymbol>>>) {
+    ) -> (StatusCode, Json<ServiceResponse<DecodingSymbol>>) {
         match state.retrieve_recovery_symbol(&blob_id, sliver_pair_idx, sliver_type, index) {
             Ok(Some(symbol)) => {
                 tracing::debug!("Retrieved recovery symbol for {blob_id:?}");
-                ServiceResponse::serialized_success(StatusCode::OK, Some(symbol))
+                ServiceResponse::serialized_success(StatusCode::OK, symbol)
             }
             Ok(None) => {
                 tracing::debug!("Recovery symbol not found for {blob_id:?}");

@@ -52,6 +52,15 @@ pub enum RetrieveSymbolError {
     Internal(#[from] anyhow::Error),
 }
 
+impl From<RetrieveSliverError> for RetrieveSymbolError {
+    fn from(value: RetrieveSliverError) -> Self {
+        match value {
+            RetrieveSliverError::InvalidShard(s) => Self::InvalidShard(s),
+            RetrieveSliverError::Internal(e) => Self::Internal(e),
+        }
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum StoreSliverError {
     #[error("Missing metadata for {0:?}")]
@@ -109,6 +118,9 @@ pub trait ServiceState {
     ) -> impl Future<Output = Result<Option<StorageConfirmation>, anyhow::Error>> + Send;
 
     /// Retrieves a recovery symbol for a shard held by this storage node.
+    /// The sliver_type is the target type of the sliver that will be recovered
+    /// The sliver_pair_idx is the index of the sliver pair that we want to access
+    /// Index is the requesters index in the established order of storage nodes
     fn retrieve_recovery_symbol(
         &self,
         blob_id: &BlobId,
@@ -273,7 +285,7 @@ impl ServiceState for StorageNode {
         }
     }
 
-    //TODO Add Proof
+    //TODO (lef): Add proof in symbol recovery
     fn retrieve_recovery_symbol(
         &self,
         blob_id: &BlobId,
@@ -281,8 +293,8 @@ impl ServiceState for StorageNode {
         sliver_type: SliverType,
         index: u32,
     ) -> Result<Option<DecodingSymbol>, RetrieveSymbolError> {
-        let optional_sliver = self
-            .retrieve_sliver(blob_id, sliver_pair_idx, sliver_type.reverse())?;
+        let optional_sliver =
+            self.retrieve_sliver(blob_id, sliver_pair_idx, sliver_type.reverse())?;
         let Some(sliver) = optional_sliver else {
             return Err(RetrieveSymbolError::UnavailableSliver(
                 sliver_pair_idx,
