@@ -44,12 +44,10 @@ pub enum RetrieveSliverError {
 pub enum RetrieveSymbolError {
     #[error("Invalid shard {0:?}")]
     InvalidShard(ShardIndex),
-    #[error("Symbol Recovery Failed")]
-    RecoveryError,
+    #[error("Symbol Recovery Failed for Index {0:?}")]
+    RecoveryError(u32),
     #[error("Sliver is not Available for Recovery")]
     UnavailableSliver,
-    #[error("Symbol Recovering the Wrong Axis")]
-    WrongAxis,
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
 }
@@ -297,14 +295,14 @@ impl ServiceState for StorageNode {
                 Sliver::Primary(inner) => {
                     let symbol = inner
                         .recovery_symbol_for_sliver(index)
-                        .map_err(|_| RetrieveSymbolError::RecoveryError)?;
+                        .map_err(|_| RetrieveSymbolError::RecoveryError(index))?;
                     let decoded_symbol = DecodingSymbol::Secondary(symbol);
                     Ok(Some(decoded_symbol))
                 }
                 Sliver::Secondary(inner) => {
                     let symbol = inner
                         .recovery_symbol_for_sliver(index)
-                        .map_err(|_| RetrieveSymbolError::RecoveryError)?;
+                        .map_err(|_| RetrieveSymbolError::RecoveryError(index))?;
                     let decoded_symbol = DecodingSymbol::Primary(symbol);
                     Ok(Some(decoded_symbol))
                 }

@@ -321,6 +321,7 @@ mod test {
             ServiceResponse,
             UserServer,
             METADATA_ENDPOINT,
+            RECOVERY_ENDPOINT,
             SLIVER_ENDPOINT,
             STORAGE_CONFIRMATION_ENDPOINT,
         },
@@ -667,5 +668,40 @@ mod test {
 
         cancel_token.cancel();
         handle.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn get_decoding_symbold() {
+        let server = UserServer::new(Arc::new(MockServiceState), CancellationToken::new());
+        let test_private_parameters = test_utils::storage_node_private_parameters();
+        let _handle = tokio::spawn(async move {
+            let network_address = test_private_parameters.network_address;
+            server.run(&network_address).await
+        });
+
+        tokio::task::yield_now().await;
+
+        let blob_id = walrus_core::test_utils::random_blob_id();
+        let sliver_pair_id = 0; // Triggers an valid response
+        let path = RECOVERY_ENDPOINT
+            .replace(":blobId", &blob_id.to_string())
+            .replace(":sliverPairIdx", &sliver_pair_id.to_string())
+            .replace(":Type", "primary")
+            .replace(":index", "0");
+        let url = format!("http://{}{path}", test_private_parameters.network_address);
+
+        let client = reqwest::Client::new();
+        let res = client.get(url).json(&blob_id).send().await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let body = res.json::<ServiceResponse<DecodingSymbol>>().await;
+        match body.unwrap() {
+            ServiceResponse::Success { code, data: _data } => {
+                assert_eq!(code, StatusCode::OK.as_u16());
+            }
+            ServiceResponse::Error { code, message } => {
+                panic!("Unexpected error response: {code} {message}");
+            }
+        }
     }
 }
