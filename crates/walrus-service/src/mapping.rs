@@ -46,7 +46,9 @@ pub fn rotate_pairs(
     if is_rotation(pairs) {
         if pairs[0].index() == SliverPairIndex::new(0) {
             rotate_by_bytes(pairs, blob_id.as_ref());
-        } else if pairs[0].index().as_usize() != pair_index_for_shard(0, pairs.len(), blob_id) {
+        } else if pairs[0].index().as_usize()
+            != pair_index_for_shard(ShardIndex(0), pairs.len(), blob_id)
+        {
             return Err(SliverAssignmentError::InconsistentRotation);
         }
         Ok(())
@@ -161,7 +163,10 @@ mod tests {
         assert!(pairs
             .iter()
             .enumerate()
-            .all(|(idx, pair)| pair_index_for_shard(idx, 7, &blob_id) == pair.index().as_usize()));
+            .all(
+                |(idx, pair)| pair_index_for_shard(ShardIndex(idx as u16), 7, &blob_id)
+                    == pair.index().as_usize()
+            ));
     }
 
     #[test]
@@ -172,7 +177,7 @@ mod tests {
         // Check that all the pairs are is in the correct spot
         for (idx, pair) in pairs.iter().enumerate() {
             assert_eq!(
-                pair_index_for_shard(idx, 7, &blob_id),
+                pair_index_for_shard(ShardIndex(idx as u16), 7, &blob_id),
                 pair.index().as_usize()
             );
         }
@@ -184,7 +189,7 @@ mod tests {
             .iter()
             .enumerate()
             .all(
-                |(idx, pair)| pair_index_for_shard(idx, 7, &combined_blob_id)
+                |(idx, pair)| pair_index_for_shard(ShardIndex(idx as u16), 7, &combined_blob_id)
                     == pair.index().as_usize()
             ));
     }

@@ -18,7 +18,12 @@ use tokio::time::Duration;
 use walrus_core::{
     encoding::{get_encoding_config, BlobDecoder, EncodingAxis, Sliver, SliverPair},
     messages::Confirmation,
-    metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
+    metadata::{
+        SliverIndex,
+        SliverPairIndex,
+        UnverifiedBlobMetadataWithId,
+        VerifiedBlobMetadataWithId,
+    },
     BlobId,
     Epoch,
     PublicKey,
@@ -197,7 +202,7 @@ impl Client {
             .collect::<HashMap<_, _>>();
         pairs.into_iter().for_each(|p| {
             pairs_per_node[shard_to_node
-                [&shard_index_for_pair(p.index() as u16, self.committee.total_weight, blob_id)]]
+                [&shard_index_for_pair(p.index(), self.committee.total_weight, blob_id)]]
                 .push(p)
         });
         pairs_per_node
@@ -282,7 +287,9 @@ impl<'a> NodeCommunication<'a> {
             .client
             .get(self.sliver_endpoint(
                 metadata.blob_id(),
-                pair_index_for_shard(shard_idx, self.total_weight, metadata.blob_id()) as u32,
+                SliverIndex(
+                    pair_index_for_shard(shard_idx, self.total_weight, metadata.blob_id()) as u16,
+                ),
                 SliverType::for_encoding::<T>(),
             ))
             .send()
@@ -361,7 +368,7 @@ impl<'a> NodeCommunication<'a> {
         &self,
         blob_id: &BlobId,
         sliver: &SliverEnum,
-        pair_index: u32,
+        pair_index: SliverPairIndex,
     ) -> Result<()> {
         let response = self
             .client
@@ -418,7 +425,7 @@ impl<'a> NodeCommunication<'a> {
     fn sliver_endpoint(
         &self,
         blob_id: &BlobId,
-        pair_index: u32,
+        pair_index: SliverPairIndex,
         sliver_type: SliverType,
     ) -> String {
         Self::request_url(
@@ -435,7 +442,11 @@ impl<'a> NodeCommunication<'a> {
         METADATA_ENDPOINT.replace(":blobId", &blob_id.to_string())
     }
 
-    fn sliver_path(blob_id: &BlobId, pair_index: u32, sliver_type: SliverType) -> String {
+    fn sliver_path(
+        blob_id: &BlobId,
+        pair_index: SliverPairIndex,
+        sliver_type: SliverType,
+    ) -> String {
         SLIVER_ENDPOINT
             .replace(":blobId", &blob_id.to_string())
             .replace(":sliverPairIdx", &pair_index.to_string())
