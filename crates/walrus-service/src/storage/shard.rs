@@ -45,7 +45,7 @@ impl<const P: bool, T: Borrow<BlobId>> From<T> for SliverKey<P> {
 }
 
 #[derive(Debug)]
-pub(crate) struct ShardStorage {
+pub struct ShardStorage {
     id: ShardIndex,
     primary_slivers: DBMap<PrimarySliverKey, PrimarySliver>,
     secondary_slivers: DBMap<SecondarySliverKey, SecondarySliver>,
@@ -181,13 +181,9 @@ mod tests {
     use walrus_core::{Sliver, SliverType};
     use walrus_test_utils::{async_param_test, param_test, Result as TestResult, WithTempDir};
 
-    use crate::storage::tests::{
-        empty_storage,
-        empty_storage_with_shards,
-        get_sliver,
-        BLOB_ID,
-        OTHER_SHARD_INDEX,
-        SHARD_INDEX,
+    use crate::{
+        storage::tests::{empty_storage, get_sliver, BLOB_ID, OTHER_SHARD_INDEX, SHARD_INDEX},
+        test_utils::empty_storage_with_shards,
     };
 
     async_param_test! {

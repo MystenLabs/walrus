@@ -226,6 +226,15 @@ impl Sliver {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    /// Returns the [`Sliver<T>`][Sliver] contained within the enum.
+    pub fn to_raw<T>(self) -> Result<encoding::Sliver<T>, WrongSliverVariantError>
+    where
+        Self: TryInto<encoding::Sliver<T>>,
+        T: EncodingAxis,
+    {
+        self.try_into().map_err(|_| WrongSliverVariantError)
+    }
 }
 
 impl TryFrom<Sliver> for PrimarySliver {
