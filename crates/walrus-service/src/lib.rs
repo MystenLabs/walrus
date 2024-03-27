@@ -3,6 +3,8 @@
 
 //! Service functionality for Walrus.
 
+/// Client for the Walrus service.
+mod client;
 /// Configuration module.
 pub mod config;
 /// Encoding utilities.
@@ -11,6 +13,7 @@ pub mod encoding;
 pub mod mapping;
 /// Server for the Walrus service.
 pub mod server;
+pub use client::{Client, Config};
 
 mod node;
 pub use node::StorageNode;

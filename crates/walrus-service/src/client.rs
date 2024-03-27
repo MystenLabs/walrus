@@ -32,16 +32,18 @@ use walrus_core::{
     Sliver as SliverEnum,
     SliverType,
 };
-use walrus_service::{
-    mapping::{pair_index_for_shard, shard_index_for_pair},
-    server::{METADATA_ENDPOINT, SLIVER_ENDPOINT, STORAGE_CONFIRMATION_ENDPOINT},
-};
 use walrus_sui::types::{Committee, StorageNode};
 
 use crate::{
-    cli::Config,
-    utils::{unwrap_response, WeightedFutures, WeightedResult},
+    mapping::{pair_index_for_shard, shard_index_for_pair},
+    server::{METADATA_ENDPOINT, SLIVER_ENDPOINT, STORAGE_CONFIRMATION_ENDPOINT},
 };
+
+mod config;
+mod utils;
+
+pub use self::config::Config;
+use self::utils::{unwrap_response, WeightedFutures, WeightedResult};
 
 /// A client to communicate with Walrus shards and storage nodes.
 pub struct Client {
@@ -64,9 +66,9 @@ impl Client {
     }
 
     /// Encodes and stores a blob into Walrus by sending sliver pairs to at least 2f+1 shards.
-    pub async fn store_blob(&self, blob: Vec<u8>) -> Result<Vec<SignedStorageConfirmation>> {
+    pub async fn store_blob(&self, blob: &[u8]) -> Result<Vec<SignedStorageConfirmation>> {
         let (pairs, metadata) = get_encoding_config()
-            .get_blob_encoder(&blob)?
+            .get_blob_encoder(blob)?
             .encode_with_metadata();
         let pairs_per_node = self.pairs_per_node(metadata.blob_id(), pairs);
         let comms = self.node_communications();
@@ -122,7 +124,7 @@ impl Client {
             )
             .await;
 
-        let slivers = requests.empty_results();
+        let slivers = requests.take_results();
 
         if let Some((blob, _meta)) = decoder.decode_and_verify(metadata.blob_id(), slivers)? {
             // We have enough to decode the blob.
@@ -313,7 +315,15 @@ impl<'a> NodeCommunication<'a> {
                 metadata.blob_id(),
             ))
             .ok_or(anyhow!("missing hashes for the sliver"))?;
-        Ok(sliver.get_merkle_root::<Blake2b256>()? == *pair_metadata.hash::<T>())
+        Ok(
+            sliver.get_merkle_root::<Blake2b256>()? == *pair_metadata.hash::<T>()
+                && sliver.symbols.len()
+                    == get_encoding_config().n_source_symbols::<T::OrthogonalAxis>() as usize
+                && sliver.symbols.symbol_size()
+                    == get_encoding_config()
+                        .symbol_size_for_blob(metadata.metadata().unencoded_length.try_into()?)
+                        .expect("the blob size must not be larger than `MAX_SYMBOL_SIZE`"),
+        )
     }
 
     // Write operations.

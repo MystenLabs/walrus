@@ -7,7 +7,8 @@ use anyhow::{anyhow, Result};
 use futures::{stream::FuturesUnordered, Future, Stream, StreamExt};
 use reqwest::Response;
 use serde::{Deserialize, Serialize};
-use walrus_service::server::ServiceResponse;
+
+use crate::server::ServiceResponse;
 
 /// Takes a [`Response`], deserializes the json content, removes the [`ServiceResponse`] and
 /// returns the contained type.
@@ -126,17 +127,19 @@ where
     ) -> &mut Self {
         let mut total_weight = 0;
         // Refill the in-flight futures.
-        for _ in 0..(n_concurrent - self.being_executed.len()) {
+        while self.being_executed.len() < n_concurrent {
             if let Some(future) = self.futures.next() {
                 self.being_executed.push(future);
+            } else {
+                break;
             }
         }
         while let Some(completed) = self.being_executed.next().await {
             if let Ok((weight, result)) = completed {
                 self.results.push(result);
                 total_weight += weight;
-                if let Some(thrs) = threshold {
-                    if total_weight >= thrs {
+                if let Some(threshold) = threshold {
+                    if total_weight >= threshold {
                         break;
                     }
                 }
@@ -156,7 +159,7 @@ where
     }
 
     /// Gets all the results in the struct, emptying `self.results`.
-    pub fn empty_results(&mut self) -> Vec<T> {
+    pub fn take_results(&mut self) -> Vec<T> {
         std::mem::take(&mut self.results)
     }
 

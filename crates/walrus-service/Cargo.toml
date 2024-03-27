@@ -39,7 +39,7 @@ workspace = true
 
 [[bin]]
 name = "client"
-path = "bin/client/mod.rs"
+path = "bin/client.rs"
 
 [[bin]]
 name = "walrus-node"
