@@ -692,6 +692,7 @@ mod test {
             .replace(":sliverType", "primary")
             .replace(":index", "0");
         let url = format!("http://{}{path}", test_private_parameters.network_address);
+        // TODO(lef): Extract the path creation into a function with optional arguments
 
         let client = reqwest::Client::new();
         let res = client.get(url).json(&blob_id).send().await.unwrap();
@@ -723,7 +724,6 @@ mod test {
         let blob_id = walrus_core::test_utils::random_blob_id();
 
         let sliver_pair_id = 1; // Triggers a not found response
-                                // TODO(lef): Extract the path creation into a function with optional arguments
         let path = RECOVERY_ENDPOINT
             .replace(":blobId", &blob_id.to_string())
             .replace(":sliverPairIdx", &sliver_pair_id.to_string())
