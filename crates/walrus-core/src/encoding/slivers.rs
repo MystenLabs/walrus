@@ -23,7 +23,7 @@ use super::{
 };
 use crate::{
     merkle::{MerkleProof, MerkleTree, Node, DIGEST_LEN},
-    metadata::{SliverIndex, SliverPairMetadata},
+    metadata::{SliverIndex, SliverPairIndex, SliverPairMetadata},
 };
 
 /// A primary sliver resulting from an encoding of a blob.
@@ -145,7 +145,7 @@ impl<T: EncodingAxis> Sliver<T> {
     /// [`RecoveryError::IndexTooLarge`] error if `index > n_shards`.
     pub fn recovery_symbol_for_sliver(
         &self,
-        target_pair_idx: SliverIndex,
+        target_pair_idx: SliverPairIndex,
     ) -> Result<DecodingSymbol<T::OrthogonalAxis>, RecoveryError> {
         check_index!(target_pair_idx.as_u32());
         Ok(DecodingSymbol::new(
@@ -171,7 +171,7 @@ impl<T: EncodingAxis> Sliver<T> {
     /// [`RecoveryError::IndexTooLarge`] error if `index > n_shards`.
     pub fn recovery_symbol_for_sliver_with_proof<U>(
         &self,
-        target_pair_idx: SliverIndex,
+        target_pair_idx: SliverPairIndex,
     ) -> Result<DecodingSymbol<T::OrthogonalAxis, MerkleProof<U>>, RecoveryError>
     where
         U: HashFunction<DIGEST_LEN>,
@@ -275,12 +275,12 @@ impl SliverPair {
     /// Index of this sliver pair.
     ///
     /// Sliver pair `i` contains the primary sliver `i` and the secondary sliver `n_shards-i-1`.
-    pub fn index(&self) -> SliverIndex {
+    pub fn index(&self) -> SliverPairIndex {
         self.primary.index
     }
 
     /// Creates a new sliver pair containing two empty [`Sliver`] instances of the specified size.
-    pub fn new_empty(config: &EncodingConfig, symbol_size: u16, index: SliverIndex) -> Self {
+    pub fn new_empty(config: &EncodingConfig, symbol_size: u16, index: SliverPairIndex) -> Self {
         SliverPair {
             primary: Sliver::new_empty(config.source_symbols_secondary, symbol_size, index),
             secondary: Sliver::new_empty(
@@ -305,7 +305,7 @@ impl SliverPair {
     /// [`RecoveryError::IndexTooLarge`] error if `index > n_shards`.
     pub fn recovery_symbol_pair_for_sliver(
         &self,
-        target_pair_idx: SliverIndex,
+        target_pair_idx: SliverPairIndex,
     ) -> Result<DecodingSymbolPair, RecoveryError> {
         Ok(DecodingSymbolPair {
             primary: self.secondary.recovery_symbol_for_sliver(target_pair_idx)?,
@@ -328,7 +328,7 @@ impl SliverPair {
     /// [`RecoveryError::IndexTooLarge`] error if `index > n_shards`.
     pub fn recovery_symbol_pair_for_sliver_with_proof<T>(
         &self,
-        target_pair_idx: SliverIndex,
+        target_pair_idx: SliverPairIndex,
     ) -> Result<DecodingSymbolPair<MerkleProof<T>>, RecoveryError>
     where
         T: HashFunction<DIGEST_LEN>,
