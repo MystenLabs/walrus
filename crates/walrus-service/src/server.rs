@@ -710,6 +710,7 @@ mod test {
 
     #[tokio::test]
     async fn decoding_symbol_not_found() {
+        // TODO(lef): Extract booting the server into a function
         let server = UserServer::new(Arc::new(MockServiceState), CancellationToken::new());
         let test_private_parameters = test_utils::storage_node_private_parameters();
         let _handle = tokio::spawn(async move {
@@ -722,6 +723,7 @@ mod test {
         let blob_id = walrus_core::test_utils::random_blob_id();
 
         let sliver_pair_id = 1; // Triggers a not found response
+                                // TODO(lef): Extract the path creation into a function with optional arguments
         let path = RECOVERY_ENDPOINT
             .replace(":blobId", &blob_id.to_string())
             .replace(":sliverPairIdx", &sliver_pair_id.to_string())
