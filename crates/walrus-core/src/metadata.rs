@@ -43,9 +43,15 @@ pub type UnverifiedBlobMetadataWithId = BlobMetadataWithId<false>;
 /// Represents the index of a sliver pair.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(transparent)]
-pub struct SliverPairIndex(pub u16);
+pub struct SliverIndex(pub u16);
 
-impl SliverPairIndex {
+impl SliverIndex {
+    /// Creates a new sliver index from the given `usize`.
+
+    pub fn new(index: u16) -> Self {
+        Self(index)
+    }
+
     /// Returns the index as a `usize`.
     pub fn as_usize(&self) -> usize {
         self.0 as usize
@@ -57,38 +63,30 @@ impl SliverPairIndex {
     }
 }
 
-/// Represents the index of a sliver.
-pub type SliverIndex = SliverPairIndex;
-
-impl SliverIndex {
-    /// Creates a new sliver index from the given `usize`.
-    #[cfg(test)]
-    pub fn new(index: u16) -> Self {
-        Self(index)
-    }
-}
-
-impl TryFrom<usize> for SliverPairIndex {
+impl TryFrom<usize> for SliverIndex {
     type Error = std::num::TryFromIntError;
 
     fn try_from(value: usize) -> Result<Self, Self::Error> {
-        Ok(SliverPairIndex(value.try_into()?))
+        Ok(SliverIndex(value.try_into()?))
     }
 }
 
-impl TryFrom<u32> for SliverPairIndex {
+impl TryFrom<u32> for SliverIndex {
     type Error = std::num::TryFromIntError;
 
     fn try_from(value: u32) -> Result<Self, Self::Error> {
-        Ok(SliverPairIndex(value.try_into()?))
+        Ok(SliverIndex(value.try_into()?))
     }
 }
 
-impl Display for SliverPairIndex {
+impl Display for SliverIndex {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "SliverPair-{}", self.0)
+        write!(f, "{}", self.0)
     }
 }
+
+/// Represents the index of a sliver.
+pub type SliverPairIndex = SliverIndex;
 
 /// Metadata associated with a blob.
 ///

@@ -251,7 +251,7 @@ impl EncodingConfig {
             pair_index
         } else {
             let idx = self.n_shards - pair_index.as_u32() - 1;
-            SliverPairIndex(idx.try_into().expect("shard index out of bounds"))
+            SliverPairIndex::new(idx.try_into().expect("shard index out of bounds"))
         }
     }
 

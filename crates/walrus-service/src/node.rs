@@ -12,7 +12,7 @@ use walrus_core::{
     encoding::{get_encoding_config, Primary, RecoveryError, Secondary},
     ensure,
     messages::{Confirmation, SignedStorageConfirmation, StorageConfirmation},
-    metadata::{SliverPairIndex, UnverifiedBlobMetadataWithId, VerificationError},
+    metadata::{SliverIndex, SliverPairIndex, UnverifiedBlobMetadataWithId, VerificationError},
     BlobId,
     DecodingSymbol,
     Epoch,
@@ -45,9 +45,9 @@ pub enum RetrieveSymbolError {
     #[error("Invalid shard {0:?}")]
     InvalidShard(ShardIndex),
     #[error("Symbol recovery failed for sliver {0:?}, index {0:?} in blob {2:?}")]
-    RecoveryError(u32, u16, BlobId),
+    RecoveryError(SliverPairIndex, SliverIndex, BlobId),
     #[error("Sliver {0:?} unavailable for recovery in blob {1:?}")]
-    UnavailableSliver(u16, BlobId),
+    UnavailableSliver(SliverPairIndex, BlobId),
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
 }
@@ -124,9 +124,9 @@ pub trait ServiceState {
     fn retrieve_recovery_symbol(
         &self,
         blob_id: &BlobId,
-        sliver_pair_idx: u16,
+        sliver_pair_idx: SliverPairIndex,
         sliver_type: SliverType,
-        index: u32,
+        index: SliverIndex,
     ) -> Result<DecodingSymbol, RetrieveSymbolError>;
 }
 
@@ -289,9 +289,9 @@ impl ServiceState for StorageNode {
     fn retrieve_recovery_symbol(
         &self,
         blob_id: &BlobId,
-        sliver_pair_idx: u16,
+        sliver_pair_idx: SliverPairIndex,
         sliver_type: SliverType,
-        index: u32,
+        index: SliverIndex,
     ) -> Result<DecodingSymbol, RetrieveSymbolError> {
         let optional_sliver =
             self.retrieve_sliver(blob_id, sliver_pair_idx, sliver_type.orthogonal())?;

@@ -44,7 +44,7 @@ pub fn rotate_pairs(
         return Ok(());
     }
     if is_rotation(pairs) {
-        if pairs[0].index() == SliverPairIndex(0) {
+        if pairs[0].index() == SliverPairIndex::new(0) {
             rotate_by_bytes(pairs, blob_id.as_ref());
         } else if pairs[0].index().as_usize() != pair_index_for_shard(0, pairs.len(), blob_id) {
             return Err(SliverAssignmentError::InconsistentRotation);
@@ -143,14 +143,11 @@ mod tests {
 
     // Fixture
     fn sliver_pairs(num: u32) -> Vec<SliverPair> {
+        let num = num as u16;
         (0..num)
             .map(|n| SliverPair {
-                primary: Sliver::new_empty(0, 1, SliverPairIndex(n.try_into().unwrap())),
-                secondary: Sliver::new_empty(
-                    0,
-                    1,
-                    SliverPairIndex((num - n - 1).try_into().unwrap()),
-                ),
+                primary: Sliver::new_empty(0, 1, SliverPairIndex::new(n)),
+                secondary: Sliver::new_empty(0, 1, SliverPairIndex::new(num - n - 1)),
             })
             .collect()
     }
@@ -243,9 +240,9 @@ mod tests {
 
     param_test! {
         test_shard_index_for_pair: [
-                start: (7, 15, SliverPairIndex(0), ShardIndex(1)),
-                mid: (7, 15, SliverPairIndex(5), ShardIndex(6)),
-                end: (7, 15, SliverPairIndex(6), ShardIndex(0)),
+                start: (7, 15, SliverPairIndex::new(0), ShardIndex(1)),
+                mid: (7, 15, SliverPairIndex::new(5), ShardIndex(6)),
+                end: (7, 15, SliverPairIndex::new(6), ShardIndex(0)),
             ]
     }
 

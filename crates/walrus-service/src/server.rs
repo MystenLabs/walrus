@@ -16,7 +16,7 @@ use tokio_util::sync::CancellationToken;
 use tower_http::trace::TraceLayer;
 use walrus_core::{
     messages::StorageConfirmation,
-    metadata::{BlobMetadata, SliverPairIndex, UnverifiedBlobMetadataWithId},
+    metadata::{BlobMetadata, SliverIndex, SliverPairIndex, UnverifiedBlobMetadataWithId},
     BlobId,
     DecodingSymbol,
     Sliver,
@@ -214,9 +214,9 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
         State(state): State<Arc<S>>,
         Path((HexBlobId(blob_id), sliver_pair_idx, sliver_type, index)): Path<(
             HexBlobId,
-            u16,
+            SliverPairIndex,
             SliverType,
-            u32,
+            SliverIndex,
         )>,
     ) -> (StatusCode, Json<ServiceResponse<DecodingSymbol>>) {
         match state.retrieve_recovery_symbol(&blob_id, sliver_pair_idx, sliver_type, index) {
@@ -299,7 +299,12 @@ mod test {
     use tokio_util::sync::CancellationToken;
     use walrus_core::{
         messages::StorageConfirmation,
-        metadata::{SliverPairIndex, UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
+        metadata::{
+            SliverIndex,
+            SliverPairIndex,
+            UnverifiedBlobMetadataWithId,
+            VerifiedBlobMetadataWithId,
+        },
         BlobId,
         DecodingSymbol,
         Sliver,
@@ -362,11 +367,11 @@ mod test {
         fn retrieve_recovery_symbol(
             &self,
             _blob_id: &BlobId,
-            sliver_pair_idx: u16,
+            sliver_pair_idx: SliverPairIndex,
             _sliver_type: SliverType,
-            _index: u32,
+            _index: SliverIndex,
         ) -> Result<DecodingSymbol, RetrieveSymbolError> {
-            if sliver_pair_idx == 0 {
+            if sliver_pair_idx == SliverPairIndex::new(0) {
                 Ok(walrus_core::test_utils::recovery_symbol())
             } else {
                 Err(RetrieveSymbolError::Internal(anyhow!("Invalid shard")))
