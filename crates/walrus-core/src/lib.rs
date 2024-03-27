@@ -9,11 +9,13 @@ use std::{
 };
 
 use encoding::{
+    EncodingAxis,
     PrimaryDecodingSymbol,
     PrimarySliver,
     RecoveryError,
     SecondaryDecodingSymbol,
-    SecondarySliver, WrongSliverVariantError,
+    SecondarySliver,
+    WrongSliverVariantError,
 };
 use fastcrypto::{
     bls12381::min_pk::{BLS12381KeyPair, BLS12381PublicKey, BLS12381Signature},
@@ -247,9 +249,6 @@ impl TryFrom<Sliver> for SecondarySliver {
         }
     }
 }
-
-
-
 
 /// A decoding symbol for recovering a sliver
 ///
