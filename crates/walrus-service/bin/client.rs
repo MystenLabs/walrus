@@ -1,20 +1,17 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{net::SocketAddr, path::PathBuf};
+//! A client for the Walrus blob store.
+
+use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use serde::{Deserialize, Serialize};
 use walrus_core::{
     encoding::{initialize_encoding_config, Primary},
     BlobId,
-    PublicKey,
-    ShardIndex,
 };
-use walrus_sui::types::Committee;
-
-use super::client::Client;
+use walrus_service::{Client, Config};
 
 #[derive(Parser, Debug, Clone)]
 #[clap(rename_all = "kebab-case")]
@@ -47,21 +44,8 @@ enum Commands {
     },
 }
 
-/// Temporary config for the client
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Config {
-    pub committee: Committee,
-    pub source_symbols_primary: u16,
-    pub source_symbols_secondary: u16,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct NodeConfig {
-    pub public_key: PublicKey,
-    pub address: SocketAddr,
-    pub shards: Vec<ShardIndex>,
-}
-
+/// The client.
+#[tokio::main]
 pub async fn main() -> Result<()> {
     let args = Args::parse();
     let config: Config = serde_yaml::from_str(&std::fs::read_to_string(args.config)?)?;
@@ -73,7 +57,7 @@ pub async fn main() -> Result<()> {
     let client = Client::new(config);
     match args.command {
         Commands::Store { file } => {
-            client.store_blob(std::fs::read(file)?).await?;
+            client.store_blob(&std::fs::read(file)?).await?;
             Ok(())
         }
         Commands::Read { blob_id, out } => {
