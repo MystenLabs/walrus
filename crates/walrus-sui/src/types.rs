@@ -17,7 +17,7 @@ use move_core_types::u256::U256;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sui_sdk::rpc_types::{SuiEvent, SuiMoveStruct, SuiMoveValue};
-use sui_types::{base_types::ObjectID, event::EventID};
+use sui_types::{base_types::ObjectID, digests::TransactionDigest, event::EventID};
 use thiserror::Error;
 use walrus_core::{BlobId, EncodingType, Epoch, PublicKey, ShardIndex};
 
@@ -414,7 +414,7 @@ impl AssociatedContractStruct for SystemObject {
 // Events
 
 /// Sui event that blob has been registered
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlobRegistered {
     /// The epoch in which the blob has been registered
     pub epoch: Epoch,
@@ -465,8 +465,24 @@ impl AssociatedSuiEvent for BlobRegistered {
     const EVENT_STRUCT: StructTag<'static> = contracts::blob::BlobRegistered;
 }
 
+impl BlobRegistered {
+    pub(crate) fn for_testing(blob_id: BlobId) -> Self {
+        Self {
+            epoch: 0,
+            blob_id,
+            size: 10000,
+            erasure_code_type: EncodingType::RedStuff,
+            end_epoch: 42,
+            event_id: EventID {
+                tx_digest: TransactionDigest::random(),
+                event_seq: 0,
+            },
+        }
+    }
+}
+
 /// Sui event that blob has been certified
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlobCertified {
     /// The epoch in which the blob was certified
     pub epoch: Epoch,
@@ -501,4 +517,76 @@ impl TryFrom<SuiEvent> for BlobCertified {
 
 impl AssociatedSuiEvent for BlobCertified {
     const EVENT_STRUCT: StructTag<'static> = contracts::blob::BlobCertified;
+}
+
+impl BlobCertified {
+    pub(crate) fn for_testing(blob_id: BlobId) -> Self {
+        Self {
+            epoch: 0,
+            blob_id,
+            end_epoch: 42,
+            event_id: EventID {
+                tx_digest: TransactionDigest::random(),
+                event_seq: 0,
+            },
+        }
+    }
+}
+
+/// Enum for the event type
+#[non_exhaustive]
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize, Clone, Copy)]
+#[repr(u8)]
+pub enum EventType {
+    /// Blob registered event
+    Registered = 0,
+    /// Blob certified event
+    Certified = 1,
+}
+
+/// Enum to wrap blob events
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BlobEvent {
+    /// A registration event
+    Registered(BlobRegistered),
+    /// A certification event
+    Certified(BlobCertified),
+}
+
+impl From<BlobRegistered> for BlobEvent {
+    fn from(value: BlobRegistered) -> Self {
+        Self::Registered(value)
+    }
+}
+
+impl From<BlobCertified> for BlobEvent {
+    fn from(value: BlobCertified) -> Self {
+        Self::Certified(value)
+    }
+}
+
+impl BlobEvent {
+    /// Returns the blob id contained in the wrapped event
+    pub fn blob_id(&self) -> BlobId {
+        match self {
+            BlobEvent::Registered(event) => event.blob_id,
+            BlobEvent::Certified(event) => event.blob_id,
+        }
+    }
+
+    /// Returns the event id of the wrapped event
+    pub fn event_id(&self) -> EventID {
+        match self {
+            BlobEvent::Registered(event) => event.event_id,
+            BlobEvent::Certified(event) => event.event_id,
+        }
+    }
+
+    /// Returns the event type of the wrapped event
+    pub fn event_type(&self) -> EventType {
+        match self {
+            BlobEvent::Registered(_) => EventType::Registered,
+            BlobEvent::Certified(_) => EventType::Certified,
+        }
+    }
 }

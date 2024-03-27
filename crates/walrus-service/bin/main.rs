@@ -138,7 +138,7 @@ impl StorageNodeRuntime {
             .expect("walrus-node runtime creation must succeed");
         let _guard = runtime.enter();
 
-        let walrus_node = Arc::new(StorageNode::new(config, registry_service)?);
+        let walrus_node = Arc::new(runtime.block_on(StorageNode::new(config, registry_service))?);
 
         let walrus_node_clone = walrus_node.clone();
         let walrus_node_cancel_token = cancel_token.child_token();

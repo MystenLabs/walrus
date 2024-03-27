@@ -30,7 +30,7 @@ use crate::{
 };
 
 mod read_client;
-pub use read_client::SuiReadClient;
+pub use read_client::{MockSuiReadClient, ReadClient, SuiReadClient};
 
 #[derive(Debug, thiserror::Error)]
 /// Error returned by the [`SuiContractClient`] and the [`SuiReadClient`]
@@ -52,6 +52,8 @@ pub enum SuiClientError {
     NoCompatibleGasCoin(anyhow::Error),
 }
 
+type SuiClientResult<T> = Result<T, SuiClientError>;
+
 /// Client implementation for interacting with the Walrus smart contracts
 pub struct SuiContractClient {
     wallet: WalletContext,
@@ -68,7 +70,7 @@ impl SuiContractClient {
         system_pkg: ObjectID,
         system_object: ObjectID,
         gas_budget: u64,
-    ) -> Result<Self, SuiClientError> {
+    ) -> SuiClientResult<Self> {
         let sui_client = wallet.get_client().await?;
         let wallet_address = wallet.active_address()?;
         let read_client = SuiReadClient::new(sui_client, system_pkg, system_object).await?;
@@ -86,7 +88,7 @@ impl SuiContractClient {
         &self,
         function: FunctionTag<'a>,
         call_args: Vec<CallArg>,
-    ) -> Result<SuiTransactionBlockResponse, SuiClientError> {
+    ) -> SuiClientResult<SuiTransactionBlockResponse> {
         let mut pt_builder = ProgrammableTransactionBuilder::new();
 
         let arguments = call_args
@@ -126,7 +128,7 @@ impl SuiContractClient {
         &self,
         programmable_transaction: ProgrammableTransaction,
         gas_coin: ObjectRef,
-    ) -> Result<SuiTransactionBlockResponse, SuiClientError> {
+    ) -> SuiClientResult<SuiTransactionBlockResponse> {
         let gas_price = self.wallet.get_reference_gas_price().await?;
 
         let transaction = TransactionData::new_programmable(
@@ -162,7 +164,7 @@ impl SuiContractClient {
         &self,
         encoded_size: u64,
         periods_ahead: u64,
-    ) -> Result<StorageResource, SuiClientError> {
+    ) -> SuiClientResult<StorageResource> {
         let price = periods_ahead * encoded_size * self.read_client.price_per_unit_size().await?;
         let payment_coin = self
             .read_client
@@ -212,7 +214,7 @@ impl SuiContractClient {
         blob_id: BlobId,
         encoded_size: u64,
         erasure_code_type: EncodingType,
-    ) -> Result<Blob, SuiClientError> {
+    ) -> SuiClientResult<Blob> {
         let erasure_code_type: u8 = erasure_code_type.into();
         let res = self
             .move_call_and_transfer(
@@ -251,7 +253,7 @@ impl SuiContractClient {
         &self,
         blob: &Blob,
         certificate: &ConfirmationCertificate,
-    ) -> Result<Blob, SuiClientError> {
+    ) -> SuiClientResult<Blob> {
         let res = self
             .move_call_and_transfer(
                 contracts::blob::certify.with_type_params(&[

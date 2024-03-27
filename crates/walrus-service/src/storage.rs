@@ -5,15 +5,26 @@
 
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet},
+    fmt::Debug,
     path::Path,
     sync::Arc,
 };
 
 use anyhow::Context;
-use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Options, DB};
+use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, MergeOperands, Options, DB};
 use serde::{Deserialize, Serialize};
+use sui_sdk::types::{digests::TransactionDigest, event::EventID};
+use tracing::instrument;
 use typed_store::{
-    rocks::{self, DBMap, MetricConf, ReadWriteOptions, RocksDB},
+    rocks::{
+        self,
+        errors::typed_store_err_from_bcs_err,
+        util::reference_count_merge_operator,
+        DBMap,
+        MetricConf,
+        ReadWriteOptions,
+        RocksDB,
+    },
     Map,
     TypedStoreError,
 };
@@ -28,9 +39,14 @@ use walrus_core::{
     BlobId,
     ShardIndex,
 };
+use walrus_sui::types::{Blob, BlobEvent, BlobRegistered, EventType};
 
-use self::shard::ShardStorage;
+use self::{
+    blob_info::{BlobCertificationStatus, BlobInfo},
+    shard::ShardStorage,
+};
 
+pub(crate) mod blob_info;
 mod shard;
 
 /// Storage backing a [`StorageNode`][crate::StorageNode].
@@ -41,11 +57,15 @@ mod shard;
 pub struct Storage {
     database: Arc<RocksDB>,
     metadata: DBMap<BlobId, BlobMetadata>,
+    blob_info: DBMap<BlobId, BlobInfo>,
+    event_cursor: DBMap<EventType, EventID>,
     shards: HashMap<ShardIndex, ShardStorage>,
 }
 
 impl Storage {
     const METADATA_COLUMN_FAMILY_NAME: &'static str = "metadata";
+    const BLOBINFO_COLUMN_FAMILY_NAME: &'static str = "blob_info";
+    const EVENT_CURSOR_COLUMN_FAMILY_NAME: &'static str = "event_cursor";
 
     /// Opens the storage database located at the specified path, creating the database if absent.
     pub fn open(path: &Path, metrics_config: MetricConf) -> Result<Self, anyhow::Error> {
@@ -61,10 +81,17 @@ impl Storage {
             .collect();
 
         let (metadata_cf_name, metadata_options) = Self::metadata_options();
+        let (blob_info_cf_name, blob_info_options) = Self::blob_info_options();
+        let (event_cursor_cf_name, event_cursor_options) = Self::event_cursor_options();
+
         let mut expected_column_families: Vec<_> = shard_column_families
             .iter_mut()
             .map(|(name, opts)| (name.as_str(), std::mem::take(opts)))
-            .chain(std::iter::once((metadata_cf_name, metadata_options)))
+            .chain([
+                (metadata_cf_name, metadata_options),
+                (blob_info_cf_name, blob_info_options),
+                (event_cursor_cf_name, event_cursor_options),
+            ])
             .collect();
 
         let database = rocks::open_cf_opts(
@@ -78,6 +105,16 @@ impl Storage {
             Some(metadata_cf_name),
             &ReadWriteOptions::default(),
         )?;
+        let event_cursor = DBMap::reopen(
+            &database,
+            Some(event_cursor_cf_name),
+            &ReadWriteOptions::default(),
+        )?;
+        let blob_info = DBMap::reopen(
+            &database,
+            Some(blob_info_cf_name),
+            &ReadWriteOptions::default(),
+        )?;
         let shards = existing_shards_ids
             .into_iter()
             .map(|id| ShardStorage::create_or_reopen(id, &database).map(|shard| (id, shard)))
@@ -86,6 +123,8 @@ impl Storage {
         Ok(Self {
             database,
             metadata,
+            blob_info,
+            event_cursor,
             shards,
         })
     }
@@ -124,6 +163,48 @@ impl Storage {
         metadata: &BlobMetadata,
     ) -> Result<(), TypedStoreError> {
         self.metadata.insert(blob_id, metadata)
+    }
+
+    /// Get the blob info for `blob_id`
+    pub fn get_blob_info(&self, blob_id: &BlobId) -> Result<Option<BlobInfo>, TypedStoreError> {
+        self.blob_info.get(blob_id)
+    }
+
+    /// Get the event cursor for `event_type`
+    pub fn get_event_cursor(
+        &self,
+        event_type: EventType,
+    ) -> Result<Option<EventID>, TypedStoreError> {
+        self.event_cursor.get(&event_type)
+    }
+
+    /// Update the blob info for a blob based on the `BlobEvent`
+    #[instrument(level = "debug", skip(self))]
+    pub fn update_blob_info(&self, event: BlobEvent) -> Result<(), TypedStoreError> {
+        self.merge_update_blob_info(&event.blob_id(), (&event).into())?;
+        self.update_event_cursor(event.event_type(), &event.event_id())?;
+        Ok(())
+    }
+
+    /// Update the blob info for `blob_id` to `new_state` using the merge operation
+    fn merge_update_blob_info(
+        &self,
+        blob_id: &BlobId,
+        new_state: BlobInfo,
+    ) -> Result<(), TypedStoreError> {
+        tracing::debug!("Updating {blob_id:?} with {new_state:?}");
+        let mut batch = self.blob_info.batch();
+        batch.merge_batch(&self.blob_info, [(blob_id, new_state)])?;
+        batch.write()
+    }
+
+    /// Update the event cursor for `event_type` to `new_cursor`
+    pub fn update_event_cursor(
+        &self,
+        event_type: EventType,
+        new_cursor: &EventID,
+    ) -> Result<(), TypedStoreError> {
+        self.event_cursor.insert(&event_type, new_cursor)
     }
 
     /// Gets the metadata for a given [`BlobId`] or None.
@@ -174,6 +255,61 @@ impl Storage {
 
         (Self::METADATA_COLUMN_FAMILY_NAME, options)
     }
+
+    fn blob_info_options() -> (&'static str, Options) {
+        let mut options = Options::default();
+        options.set_merge_operator_associative("merge blob info", merge_blob_info);
+        (Self::BLOBINFO_COLUMN_FAMILY_NAME, options)
+    }
+
+    fn event_cursor_options() -> (&'static str, Options) {
+        let mut options = Options::default();
+        (Self::EVENT_CURSOR_COLUMN_FAMILY_NAME, options)
+    }
+}
+
+#[instrument(level = "debug", skip(operands))]
+fn merge_blob_info(
+    key: &[u8],
+    existing_val: Option<&[u8]>,
+    operands: &MergeOperands,
+) -> Option<Vec<u8>> {
+    let mut current_val: Option<BlobInfo> = existing_val.and_then(deserialize_from_db);
+
+    for op in operands {
+        let Some(new_val) = deserialize_from_db::<BlobInfo>(op) else {
+            continue;
+        };
+        tracing::debug!("Updating {current_val:?} with {new_val:?}");
+
+        let val = current_val.unwrap_or(new_val);
+        let status = if val.is_certified() || new_val.is_certified() {
+            BlobCertificationStatus::Certified
+        } else {
+            BlobCertificationStatus::Registered
+        };
+        current_val = Some(BlobInfo {
+            end_epoch: val.end_epoch.max(new_val.end_epoch),
+            status,
+        });
+    }
+    current_val.map(|val| match bcs::to_bytes(&val) {
+        Err(e) => panic!("unexpected error when serializing previously deserialized value: {e:?}"),
+        Ok(bytes) => bytes,
+    })
+}
+
+fn deserialize_from_db<'de, T>(val: &'de [u8]) -> Option<T>
+where
+    T: Deserialize<'de>,
+{
+    match bcs::from_bytes::<T>(val) {
+        Ok(val) => Some(val),
+        Err(e) => {
+            tracing::error!("{e:?}");
+            None
+        }
+    }
 }
 
 #[cfg(test)]
@@ -181,6 +317,7 @@ pub(crate) mod tests {
     use std::{fmt, time::Duration};
 
     use prometheus::Registry;
+    use sui_sdk::types::digests::TransactionDigest;
     use tempfile::TempDir;
     use tokio::runtime::Runtime;
     use typed_store::metrics::SamplingInterval;
@@ -195,7 +332,7 @@ pub(crate) mod tests {
     use walrus_test_utils::{param_test, Result as TestResult, WithTempDir};
 
     use super::*;
-    use crate::test_utils::empty_storage_with_shards;
+    use crate::test_utils::{empty_storage_with_shards, event_id_for_testing};
 
     type StorageSpec<'a> = &'a [(ShardIndex, Vec<(BlobId, WhichSlivers)>)];
 
@@ -265,6 +402,50 @@ pub(crate) mod tests {
 
         assert_eq!(retrieved, Some(expected));
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn update_blob_info() -> TestResult {
+        let storage = empty_storage();
+        let storage = storage.as_ref();
+        let blob_id = BLOB_ID;
+
+        let state0 = BlobInfo {
+            end_epoch: 42,
+            status: BlobCertificationStatus::Registered,
+        };
+        let state1 = BlobInfo {
+            end_epoch: 42,
+            status: BlobCertificationStatus::Certified,
+        };
+        storage.merge_update_blob_info(&blob_id, state0)?;
+        assert_eq!(storage.get_blob_info(&blob_id)?, Some(state0));
+        storage.merge_update_blob_info(&blob_id, state1)?;
+        assert_eq!(storage.get_blob_info(&blob_id)?, Some(state1));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn update_event_cursor() -> TestResult {
+        let storage = empty_storage();
+        let storage = storage.as_ref();
+
+        let cursor1 = event_id_for_testing();
+        let cursor2 = event_id_for_testing();
+
+        storage.update_event_cursor(EventType::Registered, &cursor1)?;
+        assert_eq!(
+            storage.get_event_cursor(EventType::Registered)?,
+            Some(cursor1)
+        );
+
+        // update with newer value
+        storage.update_event_cursor(EventType::Registered, &cursor2)?;
+        assert_eq!(
+            storage.get_event_cursor(EventType::Registered)?,
+            Some(cursor2)
+        );
         Ok(())
     }
 

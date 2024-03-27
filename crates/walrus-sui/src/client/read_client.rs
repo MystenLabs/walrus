@@ -4,7 +4,7 @@
 //! Client to call Walrus move functions from rust.
 //!
 
-use std::{fmt::Debug, time::Duration};
+use std::{fmt::Debug, future::Future, time::Duration};
 
 use anyhow::{anyhow, bail, Result};
 use move_core_types::language_storage::StructTag as MoveStructTag;
@@ -16,17 +16,50 @@ use sui_sdk::{
 };
 use sui_types::{base_types::SuiAddress, event::EventID, object::Owner, TypeTag};
 use tokio::sync::mpsc;
-use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
 use tracing::{instrument, Instrument};
+use walrus_core::BlobId;
 
-use super::SuiClientError;
+use super::SuiClientResult;
 use crate::{
     contracts::{AssociatedContractStruct, AssociatedSuiEvent},
     types::{BlobCertified, BlobRegistered, Committee, SystemObject},
     utils::{get_struct_from_object_response, get_type_parameters, handle_pagination},
 };
 
+/// Trait to read system state information and events from chain
+pub trait ReadClient {
+    /// Get the price for one unit of storage per epoch
+    fn price_per_unit_size(&self) -> impl Future<Output = SuiClientResult<u64>> + Send;
+
+    /// Get a stream of new [`BlobRegistered`] events.
+    /// The `polling_interval` defines how often the connected full node is polled for events.
+    /// If a `cursor` is provided, the stream will contain only events that are emitted
+    /// after the event with the provided [`EventID`]. Otherwise the event stream contains all
+    /// events available from the connected full node. Since the full node may prune old
+    /// events, the stream is not guaranteed to contain historic events.
+    fn blob_registered_events(
+        &self,
+        polling_interval: Duration,
+        cursor: Option<EventID>,
+    ) -> impl Future<Output = SuiClientResult<impl Stream<Item = BlobRegistered> + Send>> + Send;
+
+    /// Get a stream of new [`BlobCertified`] events.
+    /// See [`blob_registered_events`][Self::blob_registered_events] for more information.
+    fn blob_certified_events(
+        &self,
+        polling_interval: Duration,
+        cursor: Option<EventID>,
+    ) -> impl Future<Output = SuiClientResult<impl Stream<Item = BlobCertified> + Send>> + Send;
+    /// Get the current Walrus system object
+    fn get_system_object(&self) -> impl Future<Output = SuiClientResult<SystemObject>> + Send;
+
+    /// Get the current committee
+    fn current_committee(&self) -> impl Future<Output = SuiClientResult<Committee>> + Send;
+}
+
 /// Client implementation for interacting with the Walrus smart contracts
+#[derive(Clone)]
 pub struct SuiReadClient {
     pub(crate) system_pkg: ObjectID,
     pub(crate) sui_client: SuiClient,
@@ -44,7 +77,7 @@ impl SuiReadClient {
         sui_client: SuiClient,
         system_pkg: ObjectID,
         system_object: ObjectID,
-    ) -> Result<Self, SuiClientError> {
+    ) -> SuiClientResult<Self> {
         let type_params = get_type_parameters(&sui_client, system_object).await?;
         ensure!(
             type_params.len() == 2,
@@ -61,10 +94,7 @@ impl SuiReadClient {
         })
     }
 
-    pub(crate) async fn call_arg_from_system_obj(
-        &self,
-        mutable: bool,
-    ) -> Result<CallArg, SuiClientError> {
+    pub(crate) async fn call_arg_from_system_obj(&self, mutable: bool) -> SuiClientResult<CallArg> {
         self.call_arg_from_shared_object_id(self.system_object, mutable)
             .await
     }
@@ -88,7 +118,7 @@ impl SuiReadClient {
         &self,
         id: ObjectID,
         mutable: bool,
-    ) -> Result<CallArg, SuiClientError> {
+    ) -> SuiClientResult<CallArg> {
         let Some(Owner::Shared {
             initial_shared_version,
         }) = self
@@ -113,12 +143,7 @@ impl SuiReadClient {
         ))
     }
 
-    /// Get the price for one unit of storage per epoch
-    pub async fn price_per_unit_size(&self) -> Result<u64, SuiClientError> {
-        Ok(self.get_system_object().await?.price_per_unit_size)
-    }
-
-    pub(crate) async fn get_object<U>(&self, object_id: ObjectID) -> Result<U, SuiClientError>
+    pub(crate) async fn get_object<U>(&self, object_id: ObjectID) -> SuiClientResult<U>
     where
         U: AssociatedContractStruct,
     {
@@ -143,7 +168,7 @@ impl SuiReadClient {
         polling_interval: Duration,
         event_type_params: &[TypeTag],
         cursor: Option<EventID>,
-    ) -> Result<ReceiverStream<U>, SuiClientError>
+    ) -> SuiClientResult<ReceiverStream<U>>
     where
         U: AssociatedSuiEvent + Debug + Send + Sync + 'static,
     {
@@ -157,41 +182,111 @@ impl SuiReadClient {
         });
         Ok(ReceiverStream::new(rx_event))
     }
+}
 
-    /// Get a stream of new [`BlobRegistered`] events.
-    /// The `polling_interval` defines how often the connected full node is polled for events.
-    /// If a `cursor` is provided, the stream will contain only events that are emitted
-    /// after the event with the provided [`EventID`]. Otherwise the event stream contains all
-    /// events available from the connected full node. Since the full node may prune old
-    /// events, the stream is not guaranteed to contain historic events.
-    pub async fn blob_registered_events(
+impl ReadClient for SuiReadClient {
+    async fn price_per_unit_size(&self) -> SuiClientResult<u64> {
+        Ok(self.get_system_object().await?.price_per_unit_size)
+    }
+
+    async fn blob_registered_events(
         &self,
         polling_interval: Duration,
         cursor: Option<EventID>,
-    ) -> Result<ReceiverStream<BlobRegistered>, SuiClientError> {
+    ) -> SuiClientResult<impl Stream<Item = BlobRegistered>> {
         self.get_event_stream(polling_interval, &[self.system_tag.clone()], cursor)
             .await
     }
 
-    /// Get a stream of new [`BlobCertified`] events.
-    /// See [`blob_registered_events`][Self::blob_registered_events] for more information.
-    pub async fn blob_certified_events(
+    async fn blob_certified_events(
         &self,
         polling_interval: Duration,
         cursor: Option<EventID>,
-    ) -> Result<ReceiverStream<BlobCertified>, SuiClientError> {
+    ) -> SuiClientResult<impl Stream<Item = BlobCertified>> {
         self.get_event_stream(polling_interval, &[self.system_tag.clone()], cursor)
             .await
     }
 
-    /// Get the current Walrus system object
-    pub async fn get_system_object(&self) -> Result<SystemObject, SuiClientError> {
+    async fn get_system_object(&self) -> SuiClientResult<SystemObject> {
         self.get_object(self.system_object).await
     }
 
-    /// Get the current committee
-    pub async fn current_committee(&self) -> Result<Committee, SuiClientError> {
+    async fn current_committee(&self) -> SuiClientResult<Committee> {
         Ok(self.get_system_object().await?.current_committee)
+    }
+}
+
+/// Mock client for testing
+#[derive(Default, Debug, Clone)]
+pub struct MockSuiReadClient {
+    registered_events: Vec<BlobRegistered>,
+    certified_events: Vec<BlobCertified>,
+}
+
+impl MockSuiReadClient {
+    /// Create a new mock client that returns the provided events in a loop in the event streams.
+    pub fn new_with_events(
+        registered_events: Vec<BlobRegistered>,
+        certified_events: Vec<BlobCertified>,
+    ) -> Self {
+        MockSuiReadClient {
+            registered_events,
+            certified_events,
+        }
+    }
+
+    /// Create a new mock client that returns registered and certified events (in a loop) for
+    /// the given `blob_ids`.
+    pub fn new_with_blob_ids(blob_ids: impl IntoIterator<Item = BlobId>) -> Self {
+        let (registered_events, certified_events) = blob_ids
+            .into_iter()
+            .map(|blob_id| {
+                (
+                    BlobRegistered::for_testing(blob_id),
+                    BlobCertified::for_testing(blob_id),
+                )
+            })
+            .unzip();
+        MockSuiReadClient {
+            registered_events,
+            certified_events,
+        }
+    }
+}
+
+impl ReadClient for MockSuiReadClient {
+    async fn price_per_unit_size(&self) -> SuiClientResult<u64> {
+        Ok(10)
+    }
+
+    async fn blob_registered_events(
+        &self,
+        polling_interval: Duration,
+        _cursor: Option<EventID>,
+    ) -> SuiClientResult<impl Stream<Item = BlobRegistered>> {
+        Ok(
+            tokio_stream::iter(self.registered_events.clone().into_iter().cycle())
+                .throttle(polling_interval),
+        )
+    }
+
+    async fn blob_certified_events(
+        &self,
+        polling_interval: Duration,
+        _cursor: Option<EventID>,
+    ) -> SuiClientResult<impl Stream<Item = BlobCertified>> {
+        Ok(
+            tokio_stream::iter(self.certified_events.clone().into_iter().cycle())
+                .throttle(polling_interval),
+        )
+    }
+
+    async fn get_system_object(&self) -> SuiClientResult<SystemObject> {
+        unimplemented!("this needs to be implemented once it's used by a test")
+    }
+
+    async fn current_committee(&self) -> SuiClientResult<Committee> {
+        unimplemented!("this needs to be implemented once it's used by a test")
     }
 }
 

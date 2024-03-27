@@ -219,6 +219,7 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use walrus_core::encoding::{initialize_encoding_config, Primary};
+    use walrus_sui::client::MockSuiReadClient;
 
     use super::*;
     use crate::test_utils::spawn_test_committee;
@@ -226,17 +227,30 @@ mod tests {
     #[tokio::test]
     #[ignore = "ignore E2E tests by default"]
     async fn test_store_and_read_blob() {
+        let n_symbols_primary = 2;
+        let n_symbols_secondary = 4;
+        let n_shards = 10;
+        initialize_encoding_config(n_symbols_primary, n_symbols_secondary, n_shards as u32);
+        let blob = walrus_test_utils::random_data(31415);
+        let blob_id = get_encoding_config()
+            .get_blob_encoder(&blob)
+            .unwrap()
+            .compute_metadata()
+            .blob_id()
+            .to_owned();
+        let sui_read_client = MockSuiReadClient::new_with_blob_ids([blob_id]);
         // Create a new committee of 4 nodes, 2 with 2 shards and 2 with 3 shards.
-        let config =
-            spawn_test_committee(2, 4, 10, &[&[0, 1], &[2, 3], &[4, 5, 6], &[7, 8, 9]]).await;
-        initialize_encoding_config(
-            config.source_symbols_primary,
-            config.source_symbols_secondary,
-            config.committee.total_weight as u32,
-        );
+        let config = spawn_test_committee(
+            n_symbols_primary,
+            n_symbols_secondary,
+            n_shards,
+            &[&[0, 1], &[2, 3], &[4, 5, 6], &[7, 8, 9]],
+            sui_read_client,
+        )
+        .await;
+        tokio::time::sleep(Duration::from_millis(1)).await;
         let client = Client::new(config).unwrap();
         // Store a blob and get confirmations from each node.
-        let blob = walrus_test_utils::random_data(31415);
         let (metadata, confirmation) = client.store_blob(&blob).await.unwrap();
         assert!(confirmation.len() == 4);
         // Read the blob.

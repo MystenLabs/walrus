@@ -159,16 +159,32 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
         State(state): State<Arc<S>>,
         Path(HexBlobId(blob_id)): Path<HexBlobId>,
         Json(metadata): Json<BlobMetadata>,
-    ) -> (StatusCode, Json<ServiceResponse<()>>) {
+    ) -> (StatusCode, Json<ServiceResponse<String>>) {
         let unverified_metadata_with_id = UnverifiedBlobMetadataWithId::new(blob_id, metadata);
         match state.store_metadata(unverified_metadata_with_id) {
             Ok(()) => {
-                tracing::debug!("Stored metadata for {blob_id:?}");
-                ServiceResponse::serialized_success(StatusCode::OK, ())
+                let msg = format!("Stored metadata for {blob_id:?}");
+                tracing::debug!(msg);
+                ServiceResponse::serialized_success(StatusCode::CREATED, msg)
+            }
+            Err(StoreMetadataError::AlreadyStored) => {
+                let msg = format!("Metadata for {blob_id:?} was already stored");
+                tracing::debug!(msg);
+                ServiceResponse::serialized_success(StatusCode::OK, msg)
             }
             Err(StoreMetadataError::InvalidMetadata(message)) => {
                 tracing::debug!("Received invalid metadata: {message}");
                 ServiceResponse::serialized_error(StatusCode::BAD_REQUEST, message.to_string())
+            }
+            Err(StoreMetadataError::NotRegistered) => {
+                let msg = format!("Blob {blob_id:?} has not been registered");
+                tracing::debug!(msg);
+                ServiceResponse::serialized_error(StatusCode::BAD_REQUEST, msg)
+            }
+            Err(StoreMetadataError::BlobExpired) => {
+                let msg = format!("Blob {blob_id:?} is expired");
+                tracing::debug!(msg);
+                ServiceResponse::serialized_error(StatusCode::BAD_REQUEST, msg)
             }
             Err(StoreMetadataError::Internal(message)) => {
                 tracing::error!("Internal server error: {message}");
@@ -503,7 +519,7 @@ mod test {
 
         let client = reqwest::Client::new();
         let res = client.put(url).json(metadata).send().await.unwrap();
-        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(res.status(), StatusCode::CREATED);
     }
 
     #[tokio::test]
