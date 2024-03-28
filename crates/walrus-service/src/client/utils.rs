@@ -7,6 +7,7 @@ use anyhow::{anyhow, Result};
 use futures::{stream::FuturesUnordered, Future, Stream, StreamExt};
 use reqwest::Response;
 use serde::{Deserialize, Serialize};
+use tokio::time::timeout;
 
 use crate::server::ServiceResponse;
 
@@ -83,11 +84,7 @@ where
     /// * `n_concurrent` - the maximum number of futures that are awaited at any one time to produce
     /// results.
     pub async fn execute_time(&mut self, duration: Duration, n_concurrent: usize) -> &mut Self {
-        let timer_handle = tokio::spawn(async move { tokio::time::sleep(duration).await });
-        tokio::select! {
-            _ =  timer_handle => (),
-            _ = self.execute_all(n_concurrent) => (),
-        }
+        let _ = timeout(duration, self.execute_all(n_concurrent)).await;
         self
     }
 
@@ -211,6 +208,7 @@ mod tests {
             .execute_time(Duration::from_millis(1000), 10)
             .await;
         // `execute_time` should return within ~100 millis.
+        println!("elapsed {:?}", start.elapsed());
         assert!(start.elapsed() < Duration::from_millis(200));
         assert_eq!(
             weighted_futures.results(),
@@ -226,6 +224,7 @@ mod tests {
             // Execute them one by one, for a total of ~50ms
             .execute_time(Duration::from_millis(1000), 1)
             .await;
+        println!("elapsed {:?}", start.elapsed());
         assert!(start.elapsed() < Duration::from_millis(70));
         assert_eq!(weighted_futures.results(), &vec![1, 1, 1, 1, 1]);
     }

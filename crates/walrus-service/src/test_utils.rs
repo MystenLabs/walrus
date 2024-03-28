@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashMap, net::SocketAddr, sync::Arc};
+use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use fastcrypto::traits::{KeyPair as FCKeyPair, ToFromBytes};
 use tokio_util::sync::CancellationToken;
@@ -11,10 +11,10 @@ use walrus_sui::types::{Committee, StorageNode as SuiStorageNode};
 use walrus_test_utils::WithTempDir;
 
 use crate::{
+    client::Config,
     config::StorageNodePrivateParameters,
     server::UserServer,
-    Config,
-    Storage,
+    storage::Storage,
     StorageNode,
 };
 
@@ -127,6 +127,7 @@ pub async fn spawn_test_committee(
         source_symbols_primary: n_symbols_primary,
         source_symbols_secondary: n_symbols_secondary,
         concurrent_requests: n_shards,
+        connection_timeout: Duration::from_secs(10),
     }
 }
 

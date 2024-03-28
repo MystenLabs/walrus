@@ -11,7 +11,7 @@ use walrus_core::{
     encoding::{initialize_encoding_config, Primary},
     BlobId,
 };
-use walrus_service::{Client, Config};
+use walrus_service::client::{Client, Config};
 
 #[derive(Parser, Debug, Clone)]
 #[clap(rename_all = "kebab-case")]
@@ -57,11 +57,11 @@ pub async fn main() -> Result<()> {
     let client = Client::new(config);
     match args.command {
         Commands::Store { file } => {
-            client.store_blob(&std::fs::read(file)?).await?;
+            client?.store_blob(&std::fs::read(file)?).await?;
             Ok(())
         }
         Commands::Read { blob_id, out } => {
-            let blob = client.read_blob::<Primary>(&blob_id).await?;
+            let blob = client?.read_blob::<Primary>(&blob_id).await?;
             Ok(std::fs::write(out, blob)?)
         }
     }

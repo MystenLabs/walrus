@@ -5,7 +5,7 @@ use std::{collections::HashMap, time::Instant};
 
 use anyhow::{anyhow, Result};
 use futures::{stream::FuturesUnordered, Future, Stream};
-use reqwest::Client as ReqwestClient;
+use reqwest::{Client as ReqwestClient, ClientBuilder};
 use tokio::time::Duration;
 use walrus_core::{
     encoding::{get_encoding_config, BlobDecoder, EncodingAxis, Sliver, SliverPair},
@@ -39,12 +39,15 @@ pub struct Client {
 impl Client {
     /// Creates a new client starting from a config file.
     // TODO(giac): Remove once fetching the configuration from the chain is available.
-    pub fn new(config: Config) -> Self {
-        Self {
-            client: ReqwestClient::new(),
+    pub fn new(config: Config) -> Result<Self> {
+        let client = ClientBuilder::new()
+            .timeout(config.connection_timeout)
+            .build()?;
+        Ok(Self {
+            client,
             committee: config.committee,
             concurrent_requests: config.concurrent_requests,
-        }
+        })
     }
 
     /// Encodes and stores a blob into Walrus by sending sliver pairs to at least 2f+1 shards.
@@ -188,7 +191,13 @@ impl Client {
 
     /// Maps the sliver pairs to the node that holds their shard.
     fn pairs_per_node(&self, blob_id: &BlobId, pairs: Vec<SliverPair>) -> Vec<Vec<SliverPair>> {
-        let mut pairs_per_node = vec![vec![]; self.committee.members.len()];
+        let mut pairs_per_node = Vec::with_capacity(self.committee.members.len());
+        pairs_per_node.extend(
+            self.committee
+                .members
+                .iter()
+                .map(|n| Vec::with_capacity(n.shard_ids.len())),
+        );
         let shard_to_node = self
             .committee
             .members
@@ -223,7 +232,7 @@ mod tests {
             config.source_symbols_secondary,
             config.committee.total_weight as u32,
         );
-        let client = Client::new(config);
+        let client = Client::new(config).unwrap();
         // Store a blob and get confirmations from each node.
         let blob = walrus_test_utils::random_data(31415);
         let (metadata, confirmation) = client.store_blob(&blob).await.unwrap();

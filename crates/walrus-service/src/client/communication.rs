@@ -8,6 +8,7 @@ use fastcrypto::{
     hash::Blake2b256,
     traits::{ToFromBytes, VerifyingKey},
 };
+use futures::future::join_all;
 use reqwest::Client as ReqwestClient;
 use walrus_core::{
     encoding::{get_encoding_config, EncodingAxis, Sliver, SliverPair},
@@ -100,10 +101,7 @@ impl<'a> NodeCommunication<'a> {
         Sliver<T>: TryFrom<SliverEnum>,
     {
         let sliver = self.retrieve_sliver::<T>(metadata, shard_idx).await?;
-        anyhow::ensure!(
-            self.verify_sliver(metadata, &sliver, shard_idx)?,
-            "the sliver hash does not match the metadata for the blob id"
-        );
+        self.verify_sliver(metadata, &sliver, shard_idx)?;
         // Each sliver is in this case requested individually, so the weight is 1.
         Ok((1, sliver))
     }
@@ -132,13 +130,15 @@ impl<'a> NodeCommunication<'a> {
         Ok(sliver_enum.to_raw::<T>()?)
     }
 
+    // TODO(giac): this function should be added to `Sliver` as soon as the mapping has been moved
+    // to walrus-core (issue #169). At that point, proper errors should be added.
     /// Checks that the provided sliver matches the corresponding hash in the metadata.
     fn verify_sliver<T: EncodingAxis>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         sliver: &Sliver<T>,
         shard_idx: ShardIndex,
-    ) -> Result<bool> {
+    ) -> Result<()> {
         let pair_metadata = metadata
             .metadata()
             .hashes
@@ -148,15 +148,20 @@ impl<'a> NodeCommunication<'a> {
                 metadata.blob_id(),
             ))
             .ok_or(anyhow!("missing hashes for the sliver"))?;
-        Ok(
-            sliver.get_merkle_root::<Blake2b256>()? == *pair_metadata.hash::<T>()
-                && sliver.symbols.len()
-                    == get_encoding_config().n_source_symbols::<T::OrthogonalAxis>() as usize
+        anyhow::ensure!(
+            sliver.symbols.len()
+                == get_encoding_config().n_source_symbols::<T::OrthogonalAxis>() as usize
                 && sliver.symbols.symbol_size()
                     == get_encoding_config()
                         .symbol_size_for_blob(metadata.metadata().unencoded_length.try_into()?)
-                        .expect("the blob size must not be larger than `MAX_SYMBOL_SIZE`"),
-        )
+                        .ok_or(anyhow!("the blob size in the metadata is too large"))?,
+            "the size of the sliver does not match the expected size for the blob",
+        );
+        anyhow::ensure!(
+            sliver.get_merkle_root::<Blake2b256>()? == *pair_metadata.hash::<T>(),
+            "the sliver's Merkle root does not match the hash in the metadata"
+        );
+        Ok(())
     }
 
     // Write operations.
@@ -195,14 +200,16 @@ impl<'a> NodeCommunication<'a> {
 
     /// Stores the sliver pairs on the node _sequentially_.
     async fn store_pairs(&self, blob_id: &BlobId, pairs: Vec<SliverPair>) -> Result<()> {
-        for pair in pairs.into_iter() {
+        let mut futures = Vec::with_capacity(2 * pairs.len());
+        for pair in pairs {
             let pair_index = pair.index();
             let SliverPair { primary, secondary } = pair;
-            self.store_sliver(blob_id, &SliverEnum::Primary(primary), pair_index)
-                .await?;
-            self.store_sliver(blob_id, &SliverEnum::Secondary(secondary), pair_index)
-                .await?;
+            futures.extend([
+                self.store_sliver(blob_id, SliverEnum::Primary(primary), pair_index),
+                self.store_sliver(blob_id, SliverEnum::Secondary(secondary), pair_index),
+            ]);
         }
+        join_all(futures).await;
         Ok(())
     }
 
@@ -210,13 +217,13 @@ impl<'a> NodeCommunication<'a> {
     async fn store_sliver(
         &self,
         blob_id: &BlobId,
-        sliver: &SliverEnum,
+        sliver: SliverEnum,
         pair_index: SliverPairIndex,
     ) -> Result<()> {
         let response = self
             .client
             .put(self.sliver_endpoint(blob_id, pair_index, sliver.r#type()))
-            .json(sliver)
+            .json(&sliver)
             .send()
             .await?;
         if response.status().is_success() {
@@ -256,12 +263,18 @@ impl<'a> NodeCommunication<'a> {
 
     /// Returns the URL of the storage confirmation endpoint.
     fn storage_confirmation_endpoint(&self, blob_id: &BlobId) -> String {
-        Self::request_url(&self.address(), &Self::storage_confirmation_path(blob_id))
+        Self::request_url(
+            &self.address(),
+            &STORAGE_CONFIRMATION_ENDPOINT.replace(":blobId", &blob_id.to_string()),
+        )
     }
 
     /// Returns the URL of the metadata endpoint.
     fn metadata_endpoint(&self, blob_id: &BlobId) -> String {
-        Self::request_url(&self.address(), &Self::metadata_path(blob_id))
+        Self::request_url(
+            &self.address(),
+            &METADATA_ENDPOINT.replace(":blobId", &blob_id.to_string()),
+        )
     }
 
     /// Returns the URL of the primary/secondary sliver endpoint.
@@ -273,27 +286,11 @@ impl<'a> NodeCommunication<'a> {
     ) -> String {
         Self::request_url(
             &self.address(),
-            &Self::sliver_path(blob_id, pair_index, sliver_type),
+            &SLIVER_ENDPOINT
+                .replace(":blobId", &blob_id.to_string())
+                .replace(":sliverPairIdx", &pair_index.to_string())
+                .replace(":sliverType", &sliver_type.to_string()),
         )
-    }
-
-    fn storage_confirmation_path(blob_id: &BlobId) -> String {
-        STORAGE_CONFIRMATION_ENDPOINT.replace(":blobId", &blob_id.to_string())
-    }
-
-    fn metadata_path(blob_id: &BlobId) -> String {
-        METADATA_ENDPOINT.replace(":blobId", &blob_id.to_string())
-    }
-
-    fn sliver_path(
-        blob_id: &BlobId,
-        pair_index: SliverPairIndex,
-        sliver_type: SliverType,
-    ) -> String {
-        SLIVER_ENDPOINT
-            .replace(":blobId", &blob_id.to_string())
-            .replace(":sliverPairIdx", &pair_index.to_string())
-            .replace(":sliverType", &sliver_type.to_string())
     }
 
     fn request_url(addr: &SocketAddr, path: &str) -> String {

@@ -1,10 +1,9 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::net::SocketAddr;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use walrus_core::{PublicKey, ShardIndex};
 use walrus_sui::types::Committee;
 
 /// Temporary config for the client.
@@ -18,11 +17,6 @@ pub struct Config {
     pub source_symbols_secondary: u16,
     /// The number of parallel requests the client makes.
     pub concurrent_requests: usize,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct NodeConfig {
-    pub public_key: PublicKey,
-    pub address: SocketAddr,
-    pub shards: Vec<ShardIndex>,
+    /// Timeout for the `reqwest` client used by the client,
+    pub connection_timeout: Duration,
 }
