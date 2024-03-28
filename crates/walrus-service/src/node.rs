@@ -120,9 +120,14 @@ pub trait ServiceState {
     ) -> impl Future<Output = Result<Option<StorageConfirmation>, anyhow::Error>> + Send;
 
     /// Retrieves a recovery symbol for a shard held by this storage node.
-    /// The sliver_type is the target type of the sliver that will be recovered
-    /// The sliver_pair_idx is the index of the sliver pair that we want to access
-    /// The `index` is the pair index of the sliver to be recovered.
+    ///
+    /// # Arguments:
+    ///
+    /// * `sliver_type` - The target type of the sliver that will be recovered
+    /// * `sliver_pair_idx` - The index of the sliver pair that we want to access
+    /// * `index` - The pair index of the sliver to be recovered.
+    ///
+    /// Returns the recovery symbol for the requested sliver.
     fn retrieve_recovery_symbol(
         &self,
         blob_id: &BlobId,
