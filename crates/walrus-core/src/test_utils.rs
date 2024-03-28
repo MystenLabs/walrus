@@ -12,7 +12,6 @@ use crate::{
     merkle::{MerkleProof, Node},
     metadata::{
         BlobMetadata,
-        SliverIndex,
         SliverPairIndex,
         SliverPairMetadata,
         UnverifiedBlobMetadataWithId,
@@ -46,11 +45,12 @@ pub fn sliver() -> Sliver {
 /// Returns an arbitrary decoding symbol for testing.
 
 pub fn recovery_symbol() -> DecodingSymbol<MerkleProof> {
+    encoding::initialize_encoding_config(1, 2, 4);
     let sliver = sliver();
-
     match sliver {
         Sliver::Primary(inner) => {
-            if let Ok(symbol) = inner.recovery_symbol_for_sliver_with_proof(SliverIndex(0)) {
+            if let Ok(symbol) = inner.recovery_symbol_for_sliver_with_proof(SliverPairIndex::new(1))
+            {
                 DecodingSymbol::Secondary(symbol)
             } else {
                 panic!("Not reachable")
