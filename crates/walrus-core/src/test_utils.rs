@@ -46,17 +46,12 @@ pub fn sliver() -> Sliver {
 
 pub fn recovery_symbol() -> DecodingSymbol<MerkleProof> {
     encoding::initialize_encoding_config(1, 2, 4);
-    let sliver = sliver();
-    match sliver {
-        Sliver::Primary(inner) => {
-            if let Ok(symbol) = inner.recovery_symbol_for_sliver_with_proof(SliverPairIndex::new(1))
-            {
-                DecodingSymbol::Secondary(symbol)
-            } else {
-                panic!("Not reachable")
-            }
-        }
-        Sliver::Secondary(_) => panic!("Not reachable"),
+    match sliver() {
+        Sliver::Primary(inner) => inner
+            .recovery_symbol_for_sliver_with_proof(SliverPairIndex::new(1))
+            .map(DecodingSymbol::Secondary)
+            .unwrap(),
+        Sliver::Secondary(_) => unreachable!("Primary sliver expected"),
     }
 }
 
