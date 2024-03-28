@@ -292,7 +292,6 @@ impl ServiceState for StorageNode {
         }
     }
 
-    //TODO (lef): Add proof in symbol recovery
     fn retrieve_recovery_symbol(
         &self,
         blob_id: &BlobId,

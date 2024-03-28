@@ -211,7 +211,6 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
     /// The sliver_type is the target type of the sliver that will be recovered
     /// The sliver_pair_idx is the index of the sliver pair that we want to access
     /// Index is the requesters index in the established order of storage nodes
-
     async fn retrieve_recovery_symbol(
         State(state): State<Arc<S>>,
         Path((HexBlobId(blob_id), sliver_pair_idx, sliver_type, index)): Path<(
@@ -685,7 +684,6 @@ mod test {
     }
 
     #[tokio::test]
-
     async fn get_decoding_symbol() {
         let server = UserServer::new(Arc::new(MockServiceState), CancellationToken::new());
         let test_private_parameters = test_utils::storage_node_private_parameters();

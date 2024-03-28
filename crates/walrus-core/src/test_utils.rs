@@ -44,7 +44,6 @@ pub fn sliver() -> Sliver {
 }
 
 /// Returns an arbitrary decoding symbol for testing.
-
 pub fn recovery_symbol() -> DecodingSymbol<MerkleProof> {
     encoding::initialize_encoding_config(1, 2, 4);
     match sliver() {
