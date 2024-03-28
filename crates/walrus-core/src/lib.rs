@@ -221,7 +221,7 @@ impl Sliver {
 ///
 /// Can be either a [`PrimaryDecodingSymbol`] or [`SecondaryDecodingSymbol`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum DecodingSymbol<U: MerkleAuth>  {
+pub enum DecodingSymbol<U: MerkleAuth> {
     /// A primary decoding symbol to recover a primary sliver
     Primary(PrimaryDecodingSymbol<U>),
     /// A secondary decoding symbol to recover a secondary sliver.
@@ -229,7 +229,6 @@ pub enum DecodingSymbol<U: MerkleAuth>  {
 }
 
 impl<U: MerkleAuth> DecodingSymbol<U> {
-
     /// Returns true iff this decoding symbol is a [`DecodingSymbol::Primary`].
     #[inline]
     pub fn is_primary(&self) -> bool {
@@ -274,7 +273,6 @@ pub enum SliverType {
 impl SliverType {
     /// Returns the opposite sliver type.
     pub fn orthogonal(&self) -> SliverType {
-
         match self {
             SliverType::Primary => SliverType::Secondary,
             SliverType::Secondary => SliverType::Primary,
