@@ -25,4 +25,3 @@ dependencies = [
 compiler-version = "1.20.0"
 edition = "legacy"
 flavor = "sui"
-
