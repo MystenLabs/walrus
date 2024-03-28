@@ -17,7 +17,7 @@ use reqwest::Client as ReqwestClient;
 use tokio::time::Duration;
 use walrus_core::{
     encoding::{get_encoding_config, BlobDecoder, EncodingAxis, Sliver, SliverPair},
-    messages::Confirmation,
+    messages::{Confirmation, StorageConfirmation},
     metadata::{
         SliverIndex,
         SliverPairIndex,
@@ -49,11 +49,8 @@ use self::utils::{unwrap_response, WeightedFutures, WeightedResult};
 pub struct Client {
     client: ReqwestClient,
     committee: Committee,
+    concurrent_requests: usize,
 }
-
-/// The number of concurrent requests that the client performs towards storage nodes.
-// TODO(giac): add to the configuration.
-const CONCURRENT_REQUESTS: usize = 10;
 
 impl Client {
     /// Creates a new client starting from a config file.
@@ -62,11 +59,15 @@ impl Client {
         Self {
             client: ReqwestClient::new(),
             committee: config.committee,
+            concurrent_requests: config.concurrent_requests,
         }
     }
 
     /// Encodes and stores a blob into Walrus by sending sliver pairs to at least 2f+1 shards.
-    pub async fn store_blob(&self, blob: &[u8]) -> Result<Vec<SignedStorageConfirmation>> {
+    pub async fn store_blob(
+        &self,
+        blob: &[u8],
+    ) -> Result<(VerifiedBlobMetadataWithId, Vec<SignedStorageConfirmation>)> {
         let (pairs, metadata) = get_encoding_config()
             .get_blob_encoder(blob)?
             .encode_with_metadata();
@@ -80,21 +81,25 @@ impl Client {
         );
         let start = Instant::now();
         requests
-            .execute_weight(self.committee.quorum_threshold(), CONCURRENT_REQUESTS)
+            .execute_weight(self.committee.quorum_threshold(), self.concurrent_requests)
             .await;
         // Double the execution time, with a minimum of 100 ms. This gives the client time to
         // collect more storage confirmations.
         requests
             .execute_time(
                 start.elapsed() + Duration::from_millis(100),
-                CONCURRENT_REQUESTS,
+                self.concurrent_requests,
             )
             .await;
-        Ok(requests.into_results())
+        let results = requests.into_results();
+        Ok((metadata, results))
     }
 
     /// Reconstructs the blob by reading slivers from Walrus shards.
-    pub async fn read_blob<T: EncodingAxis>(&self, blob_id: &BlobId) -> Result<Vec<u8>> {
+    pub async fn read_blob<T: EncodingAxis>(&self, blob_id: &BlobId) -> Result<Vec<u8>>
+    where
+        Sliver<T>: TryFrom<SliverEnum>,
+    {
         let metadata = self.retrieve_metadata(blob_id).await?;
         self.request_slivers_and_decode::<T>(&metadata).await
     }
@@ -102,7 +107,10 @@ impl Client {
     async fn request_slivers_and_decode<T: EncodingAxis>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
-    ) -> Result<Vec<u8>> {
+    ) -> Result<Vec<u8>>
+    where
+        Sliver<T>: TryFrom<SliverEnum>,
+    {
         // TODO(giac): optimize by reading first from the shards that have the systematic part of
         // the encoding.
         let comms = self.node_communications();
@@ -120,7 +128,7 @@ impl Client {
         requests
             .execute_weight(
                 get_encoding_config().n_source_symbols::<T>().into(),
-                CONCURRENT_REQUESTS,
+                self.concurrent_requests,
             )
             .await;
 
@@ -132,13 +140,15 @@ impl Client {
         } else {
             // We were not able to decode. Keep requesting slivers and try decoding as soon as every
             // new sliver is received.
-            Self::decode_sliver_by_sliver(&mut requests, &mut decoder, metadata.blob_id()).await
+            self.decode_sliver_by_sliver(&mut requests, &mut decoder, metadata.blob_id())
+                .await
         }
     }
 
     /// Decodes the blob of given blob ID by requesting slivers and trying to decode at each new
     /// sliver it receives.
     async fn decode_sliver_by_sliver<'a, I, Fut, T: EncodingAxis>(
+        &self,
         requests: &mut WeightedFutures<I, Fut, Sliver<T>>,
         decoder: &mut BlobDecoder<'a, T>,
         blob_id: &BlobId,
@@ -148,7 +158,7 @@ impl Client {
         Fut: Future<Output = WeightedResult<Sliver<T>>>,
         FuturesUnordered<Fut>: Stream<Item = WeightedResult<Sliver<T>>>,
     {
-        while let Some(sliver) = requests.execute_next(CONCURRENT_REQUESTS).await {
+        while let Some(sliver) = requests.execute_next(self.concurrent_requests).await {
             let result = decoder.decode_and_verify(blob_id, [sliver])?;
             if let Some((blob, _meta)) = result {
                 return Ok(blob);
@@ -167,7 +177,7 @@ impl Client {
         let futures = comms.iter().map(|n| n.retrieve_verified_metadata(blob_id));
         // Wait until the first request succeeds
         let mut requests = WeightedFutures::new(futures);
-        requests.execute_weight(1, CONCURRENT_REQUESTS).await;
+        requests.execute_weight(1, self.concurrent_requests).await;
         let metadata = requests.into_results().pop().ok_or(anyhow!(
             "could not retrieve the metadata from the storage nodes"
         ))?;
@@ -258,18 +268,24 @@ impl<'a> NodeCommunication<'a> {
         let response = self
             .client
             .get(self.storage_confirmation_endpoint(blob_id))
+            .json(&blob_id)
             .send()
             .await?;
-        let confirmation = unwrap_response::<SignedStorageConfirmation>(response).await?;
-        self.verify_confirmation(blob_id, &confirmation)?;
-        Ok(confirmation)
+        let confirmation = unwrap_response::<StorageConfirmation>(response).await?;
+        // NOTE(giac): in the future additional values may be possible here.
+        let StorageConfirmation::Signed(signed_confirmation) = confirmation;
+        self.verify_confirmation(blob_id, &signed_confirmation)?;
+        Ok(signed_confirmation)
     }
 
     async fn retrieve_verified_sliver<T: EncodingAxis>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         shard_idx: ShardIndex,
-    ) -> WeightedResult<Sliver<T>> {
+    ) -> WeightedResult<Sliver<T>>
+    where
+        Sliver<T>: TryFrom<SliverEnum>,
+    {
         let sliver = self.retrieve_sliver::<T>(metadata, shard_idx).await?;
         anyhow::ensure!(
             self.verify_sliver(metadata, &sliver, shard_idx)?,
@@ -284,7 +300,10 @@ impl<'a> NodeCommunication<'a> {
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         shard_idx: ShardIndex,
-    ) -> Result<Sliver<T>> {
+    ) -> Result<Sliver<T>>
+    where
+        Sliver<T>: TryFrom<SliverEnum>,
+    {
         let response = self
             .client
             .get(self.sliver_endpoint(
@@ -296,7 +315,8 @@ impl<'a> NodeCommunication<'a> {
             ))
             .send()
             .await?;
-        unwrap_response(response).await
+        let sliver_enum = unwrap_response::<SliverEnum>(response).await?;
+        Ok(sliver_enum.to_raw::<T>()?)
     }
 
     /// Checks that the provided sliver matches the corresponding hash in the metadata.
@@ -350,7 +370,7 @@ impl<'a> NodeCommunication<'a> {
         let response = self
             .client
             .put(self.metadata_endpoint(metadata.blob_id()))
-            .json(metadata)
+            .json(metadata.metadata())
             .send()
             .await?;
         if response.status().is_success() {
@@ -475,5 +495,37 @@ impl<'a> NodeCommunication<'a> {
             .expect("the node addresses could not be parsed")
             .next()
             .expect("there must be one node address")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use walrus_core::encoding::{initialize_encoding_config, Primary};
+
+    use super::*;
+    use crate::test_utils::spawn_test_committee;
+
+    #[tokio::test]
+    #[ignore = "ignore E2E tests by default"]
+    async fn test_store_and_read_blob() {
+        // Create a new committee of 4 nodes, 2 with 2 shards and 2 with 3 shards.
+        let config =
+            spawn_test_committee(2, 4, 10, &[&[0, 1], &[2, 3], &[4, 5, 6], &[7, 8, 9]]).await;
+        initialize_encoding_config(
+            config.source_symbols_primary,
+            config.source_symbols_secondary,
+            config.committee.total_weight as u32,
+        );
+        let client = Client::new(config);
+        // Store a blob and get confirmations from each node.
+        let blob = walrus_test_utils::random_data(31415);
+        let (metadata, confirmation) = client.store_blob(&blob).await.unwrap();
+        assert!(confirmation.len() == 4);
+        // Read the blob.
+        let read_blob = client
+            .read_blob::<Primary>(metadata.blob_id())
+            .await
+            .unwrap();
+        assert_eq!(read_blob, blob);
     }
 }

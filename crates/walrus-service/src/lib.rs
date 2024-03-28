@@ -19,6 +19,7 @@ mod node;
 pub use node::StorageNode;
 
 mod storage;
+pub use storage::Storage;
 
 #[cfg(test)]
 mod test_utils;

@@ -156,15 +156,21 @@ impl StorageNode {
 
         Ok(Self::new_with_storage(
             storage,
+            100,
             config.protocol_key_pair.clone(),
         ))
     }
 
-    fn new_with_storage(storage: Storage, protocol_key_pair: Arc<KeyPair>) -> Self {
+    /// Create a new storage node providing the storage directly.
+    pub fn new_with_storage(
+        storage: Storage,
+        n_shards: usize,
+        protocol_key_pair: Arc<KeyPair>,
+    ) -> Self {
         Self {
             storage,
             current_epoch: 0,
-            n_shards: NonZeroUsize::new(100).unwrap(),
+            n_shards: NonZeroUsize::new(n_shards).unwrap(),
             protocol_key_pair,
         }
     }
@@ -369,7 +375,7 @@ mod tests {
         let signing_key = BLS12381KeyPair::generate(&mut rand::thread_rng());
 
         WithTempDir {
-            inner: StorageNode::new_with_storage(storage.inner, signing_key.into()),
+            inner: StorageNode::new_with_storage(storage.inner, 100, signing_key.into()),
             temp_dir: storage.temp_dir,
         }
     }

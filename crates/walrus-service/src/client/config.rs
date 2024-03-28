@@ -16,6 +16,8 @@ pub struct Config {
     pub source_symbols_primary: u16,
     /// The number of source symbols for the secondary encoding.
     pub source_symbols_secondary: u16,
+    /// The number of parallel requests the client makes.
+    pub concurrent_requests: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

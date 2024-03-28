@@ -38,7 +38,7 @@ mod shard;
 /// Enables storing blob metadata, which is shared across all shards. The method
 /// [`shard_storage()`][Self::shard_storage] can be used to retrieve shard-specific storage.
 #[derive(Debug)]
-pub(crate) struct Storage {
+pub struct Storage {
     database: Arc<RocksDB>,
     metadata: DBMap<BlobId, BlobMetadata>,
     shards: HashMap<ShardIndex, ShardStorage>,
@@ -195,6 +195,7 @@ pub(crate) mod tests {
     use walrus_test_utils::{param_test, Result as TestResult, WithTempDir};
 
     use super::*;
+    use crate::test_utils::empty_storage_with_shards;
 
     type StorageSpec<'a> = &'a [(ShardIndex, Vec<(BlobId, WhichSlivers)>)];
 
@@ -212,24 +213,6 @@ pub(crate) mod tests {
     pub(crate) fn empty_storage() -> WithTempDir<Storage> {
         typed_store::metrics::DBMetrics::init(&Registry::new());
         empty_storage_with_shards(&[SHARD_INDEX])
-    }
-
-    /// Returns an empty storage, with the column families for the specified shards already created.
-    pub(crate) fn empty_storage_with_shards(shards: &[ShardIndex]) -> WithTempDir<Storage> {
-        let temp_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
-        let mut storage = Storage::open(temp_dir.path(), MetricConf::default())
-            .expect("storage creation must succeed");
-
-        for shard in shards {
-            storage
-                .create_storage_for_shard(*shard)
-                .expect("shard should be successfully created");
-        }
-
-        WithTempDir {
-            inner: storage,
-            temp_dir,
-        }
     }
 
     pub(crate) fn get_typed_sliver<E: EncodingAxis>(seed: u8) -> TypedSliver<E> {

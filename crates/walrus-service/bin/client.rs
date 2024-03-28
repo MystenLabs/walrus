@@ -52,7 +52,7 @@ pub async fn main() -> Result<()> {
     initialize_encoding_config(
         config.source_symbols_primary,
         config.source_symbols_secondary,
-        config.committee.total_weight.try_into()?,
+        config.committee.total_weight as u32,
     );
     let client = Client::new(config);
     match args.command {
