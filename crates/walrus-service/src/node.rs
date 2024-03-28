@@ -13,7 +13,7 @@ use walrus_core::{
     ensure,
     merkle::MerkleProof,
     messages::{Confirmation, SignedStorageConfirmation, StorageConfirmation},
-    metadata::{UnverifiedBlobMetadataWithId, VerificationError},
+    metadata::{SliverIndex, SliverPairIndex, UnverifiedBlobMetadataWithId, VerificationError},
     BlobId,
     DecodingSymbol,
     Epoch,
@@ -45,22 +45,33 @@ pub enum RetrieveSliverError {
 pub enum RetrieveSymbolError {
     #[error("Invalid shard {0:?}")]
     InvalidShard(ShardIndex),
-    #[error("Symbol Recovery Failed for Sliver {0:?}, Index {0:?} in Blob {2:?}")]
-    RecoveryError(u32, u16, BlobId),
-    #[error("Sliver {0:?} is not Available for Recovery in Blob {1:?}")]
-    UnavailableSliver(u16, BlobId),
+    #[error("Symbol recovery failed for sliver {0:?}, index {0:?} in blob {2:?}")]
+    RecoveryError(SliverPairIndex, SliverIndex, BlobId),
+    #[error("Sliver {0:?} unavailable for recovery in blob {1:?}")]
+    UnavailableSliver(SliverPairIndex, BlobId),
+
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
+}
+
+
+impl From<RetrieveSliverError> for RetrieveSymbolError {
+    fn from(value: RetrieveSliverError) -> Self {
+        match value {
+            RetrieveSliverError::InvalidShard(s) => Self::InvalidShard(s),
+            RetrieveSliverError::Internal(e) => Self::Internal(e),
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreSliverError {
     #[error("Missing metadata for {0:?}")]
     MissingMetadata(BlobId),
-    #[error("Invalid sliver pair id {0} for {1:?}")]
-    InvalidSliverPairId(u16, BlobId),
-    #[error("Invalid sliver id {0} for {1:?}")]
-    InvalidSliver(u16, BlobId),
+    #[error("Invalid {0} for {1:?}")]
+    InvalidSliverPairId(SliverPairIndex, BlobId),
+    #[error("Invalid {0} for {1:?}")]
+    InvalidSliver(SliverPairIndex, BlobId),
     #[error("Invalid sliver size {0} for {1:?}")]
     IncorrectSize(usize, BlobId),
     #[error("Invalid shard type {0:?} for {1:?}")]
@@ -90,7 +101,7 @@ pub trait ServiceState {
     fn retrieve_sliver(
         &self,
         blob_id: &BlobId,
-        sliver_pair_idx: u16,
+        sliver_pair_idx: SliverPairIndex,
         sliver_type: SliverType,
     ) -> Result<Option<Sliver>, RetrieveSliverError>;
 
@@ -98,7 +109,7 @@ pub trait ServiceState {
     fn store_sliver(
         &self,
         blob_id: &BlobId,
-        sliver_pair_idx: u16,
+        sliver_pair_idx: SliverPairIndex,
         sliver: &Sliver,
     ) -> Result<(), StoreSliverError>;
 
@@ -110,13 +121,16 @@ pub trait ServiceState {
     ) -> impl Future<Output = Result<Option<StorageConfirmation>, anyhow::Error>> + Send;
 
     /// Retrieves a recovery symbol for a shard held by this storage node.
+    /// The sliver_type is the target type of the sliver that will be recovered
+    /// The sliver_pair_idx is the index of the sliver pair that we want to access
+    /// The `index` is the pair index of the sliver to be recovered.
     fn retrieve_recovery_symbol(
         &self,
         blob_id: &BlobId,
-        sliver_pair_idx: u16,
+        sliver_pair_idx: SliverPairIndex,
         sliver_type: SliverType,
-        index: u32,
-    ) -> Result<Option<DecodingSymbol<MerkleProof>>, RetrieveSymbolError>;
+        index: SliverIndex,
+    ) -> Result<DecodingSymbol, RetrieveSymbolError>;
 }
 
 /// A Walrus storage node, responsible for 1 or more shards on Walrus.
@@ -189,7 +203,7 @@ impl ServiceState for StorageNode {
     fn retrieve_sliver(
         &self,
         blob_id: &BlobId,
-        sliver_pair_idx: u16,
+        sliver_pair_idx: SliverPairIndex,
         sliver_type: SliverType,
     ) -> Result<Option<Sliver>, RetrieveSliverError> {
         let shard = shard_index_for_pair(sliver_pair_idx, self.n_shards.get(), blob_id);
@@ -205,7 +219,7 @@ impl ServiceState for StorageNode {
     fn store_sliver(
         &self,
         blob_id: &BlobId,
-        sliver_pair_idx: u16,
+        sliver_pair_idx: SliverPairIndex,
         sliver: &Sliver,
     ) -> Result<(), StoreSliverError> {
         // First determine if the shard that should store this sliver is managed by this node.
@@ -274,51 +288,38 @@ impl ServiceState for StorageNode {
         }
     }
 
-    //TODO Add Proof
+
+    //TODO (lef): Add proof in symbol recovery
     fn retrieve_recovery_symbol(
         &self,
         blob_id: &BlobId,
-        sliver_pair_idx: u16,
+        sliver_pair_idx: SliverPairIndex,
         sliver_type: SliverType,
-        index: u32,
-    ) -> Result<Option<DecodingSymbol<MerkleProof>>, RetrieveSymbolError> {
-        let optional_sliver = self
-            .retrieve_sliver(blob_id, sliver_pair_idx, sliver_type.reverse())
-            .map_err(|_| {
-                RetrieveSymbolError::InvalidShard(shard_index_for_pair(
-                    sliver_pair_idx,
-                    self.n_shards.get(),
-                    blob_id,
-                ))
-            })?;
-        match optional_sliver {
-            Some(sliver) => match sliver {
-                Sliver::Primary(inner) => {
-                    let symbol =
-                        inner
-                            .recovery_symbol_for_sliver_with_proof(index)
-                            .map_err(|_| {
-                                RetrieveSymbolError::RecoveryError(index, sliver_pair_idx, *blob_id)
-                            })?;
-                    let decoded_symbol = DecodingSymbol::Secondary(symbol);
-                    Ok(Some(decoded_symbol))
-                }
-                Sliver::Secondary(inner) => {
-                    let symbol =
-                        inner
-                            .recovery_symbol_for_sliver_with_proof(index)
-                            .map_err(|_| {
-                                RetrieveSymbolError::RecoveryError(index, sliver_pair_idx, *blob_id)
-                            })?;
-                    let decoded_symbol = DecodingSymbol::Primary(symbol);
-                    Ok(Some(decoded_symbol))
-                }
-            },
-            None => Err(RetrieveSymbolError::UnavailableSliver(
+        index: SliverIndex,
+    ) -> Result<DecodingSymbol, RetrieveSymbolError> {
+        let optional_sliver =
+            self.retrieve_sliver(blob_id, sliver_pair_idx, sliver_type.orthogonal())?;
+        let Some(sliver) = optional_sliver else {
+            return Err(RetrieveSymbolError::UnavailableSliver(
                 sliver_pair_idx,
                 *blob_id,
-            )),
-        }
+            ));
+        };
+
+        Ok(match sliver {
+            Sliver::Primary(inner) => {
+                let symbol = inner.recovery_symbol_for_sliver(index).map_err(|_| {
+                    RetrieveSymbolError::RecoveryError(index, sliver_pair_idx, *blob_id)
+                })?;
+                DecodingSymbol::Secondary(symbol)
+            }
+            Sliver::Secondary(inner) => {
+                let symbol = inner.recovery_symbol_for_sliver(index).map_err(|_| {
+                    RetrieveSymbolError::RecoveryError(index, sliver_pair_idx, *blob_id)
+                })?;
+                DecodingSymbol::Primary(symbol)
+            }
+        })
     }
 }
 

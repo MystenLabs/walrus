@@ -186,7 +186,7 @@ pub(crate) mod tests {
     use typed_store::metrics::SamplingInterval;
     use walrus_core::{
         encoding::{EncodingAxis, Primary, Secondary, Sliver as TypedSliver},
-        metadata::SliverPairMetadata,
+        metadata::{SliverPairIndex, SliverPairMetadata},
         test_utils,
         EncodingType,
         Sliver,
@@ -233,7 +233,7 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn get_typed_sliver<E: EncodingAxis>(seed: u8) -> TypedSliver<E> {
-        TypedSliver::new(vec![seed; seed as usize * 512], 16, 0)
+        TypedSliver::new(vec![seed; seed as usize * 512], 16, SliverPairIndex::new(0))
     }
 
     pub(crate) fn get_sliver(sliver_type: SliverType, seed: u8) -> Sliver {

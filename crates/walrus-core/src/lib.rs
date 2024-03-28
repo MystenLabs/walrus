@@ -8,10 +8,10 @@ use std::{
 };
 
 use encoding::{
-    PrimaryDecSymbol,
+    PrimaryDecodingSymbol,
     PrimarySliver,
     RecoveryError,
-    SecondaryDecSymbol,
+    SecondaryDecodingSymbol,
     SecondarySliver,
 };
 use fastcrypto::{
@@ -219,16 +219,17 @@ impl Sliver {
 
 /// A decoding symbol for recovering a sliver
 ///
-/// Can be either a [`PrimaryDecSymbol`] or [`SecondaryDecSymbol`].
+/// Can be either a [`PrimaryDecodingSymbol`] or [`SecondaryDecodingSymbol`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum DecodingSymbol<U: MerkleAuth> {
+pub enum DecodingSymbol<U: MerkleAuth>  {
     /// A primary decoding symbol to recover a primary sliver
-    Primary(PrimaryDecSymbol<U>),
-    /// A secondary decoding symbol to recover a secondary sliver
-    Secondary(SecondaryDecSymbol<U>),
+    Primary(PrimaryDecodingSymbol<U>),
+    /// A secondary decoding symbol to recover a secondary sliver.
+    Secondary(SecondaryDecodingSymbol<U>),
 }
 
 impl<U: MerkleAuth> DecodingSymbol<U> {
+
     /// Returns true iff this decoding symbol is a [`DecodingSymbol::Primary`].
     #[inline]
     pub fn is_primary(&self) -> bool {
@@ -272,7 +273,8 @@ pub enum SliverType {
 
 impl SliverType {
     /// Returns the opposite sliver type.
-    pub fn reverse(&self) -> SliverType {
+    pub fn orthogonal(&self) -> SliverType {
+
         match self {
             SliverType::Primary => SliverType::Secondary,
             SliverType::Secondary => SliverType::Primary,

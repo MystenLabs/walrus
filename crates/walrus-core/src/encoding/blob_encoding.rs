@@ -166,7 +166,13 @@ impl<'a> BlobEncoder<'a> {
     /// are initialized with the appropriate `symbol_size` and `length`.
     fn empty_sliver_pairs(&self) -> Vec<SliverPair> {
         (0..self.config.n_shards)
-            .map(|i| SliverPair::new_empty(self.config, self.symbol_size, i))
+            .map(|i| {
+                SliverPair::new_empty(
+                    self.config,
+                    self.symbol_size,
+                    i.try_into().expect("size has already been checked"),
+                )
+            })
             .collect()
     }
 
@@ -249,9 +255,11 @@ impl<'a> BlobEncoder<'a> {
                 .map(move |row| {
                     row[self
                         .config
-                        .sliver_index_from_pair_index::<Secondary>(col_idx as u32)
-                        as usize]
-                        .as_ref()
+                        .sliver_index_from_pair_index::<Secondary>(
+                            col_idx.try_into().expect("size has already been checked"),
+                        )
+                        .as_usize()]
+                    .as_ref()
                 })
         })
     }
@@ -364,7 +372,10 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
                 if let Some(decoded_data) = decoder
                     // NOTE: The encoding axis of the following symbol is irrelevant, but since we
                     // are reconstructing from slivers of type `T`, it should be of type `T`.
-                    .decode([DecodingSymbol::<T>::new(sliver.index, symbol.into())])
+                    .decode([DecodingSymbol::<T>::new(
+                        sliver.index.as_u32(),
+                        symbol.into(),
+                    )])
                 {
                     // If one decoding succeeds, all succeed as they have identical
                     // encoding/decoding matrices.

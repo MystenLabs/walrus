@@ -12,6 +12,7 @@ use crate::{
     merkle::{MerkleProof, Node},
     metadata::{
         BlobMetadata,
+        SliverPairIndex,
         SliverPairMetadata,
         UnverifiedBlobMetadataWithId,
         VerifiedBlobMetadataWithId,
@@ -34,7 +35,16 @@ pub fn keypair() -> BLS12381KeyPair {
 
 /// Returns an arbitrary sliver for testing.
 pub fn sliver() -> Sliver {
-    Sliver::Primary(encoding::Sliver::new([1, 2, 3, 4], 2, 1))
+    Sliver::Primary(encoding::Sliver::new(
+        [1, 2, 3, 4],
+        2,
+        SliverPairIndex::new(1),
+    ))
+}
+
+/// Returns an arbitrary decoding symbol for testing.
+pub fn recovery_symbol() -> DecodingSymbol {
+    DecodingSymbol::Primary(encoding::DecodingSymbol::new(0, vec![1]))
 }
 /// Returns an arbitrary decoding symbol for testing.
 

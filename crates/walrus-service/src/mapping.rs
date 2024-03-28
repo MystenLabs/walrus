@@ -4,7 +4,7 @@
 //! The mapping between the encoded sliver pairs and shards.
 
 use thiserror::Error;
-use walrus_core::{encoding::SliverPair, BlobId, ShardIndex};
+use walrus_core::{encoding::SliverPair, metadata::SliverPairIndex, BlobId, ShardIndex};
 
 /// Errors returned if the slice of sliver pairs has already been shuffled in a way that is
 /// inconsistent with the provided blob id.
@@ -44,9 +44,9 @@ pub fn rotate_pairs(
         return Ok(());
     }
     if is_rotation(pairs) {
-        if pairs[0].index() == 0 {
+        if pairs[0].index() == SliverPairIndex::new(0) {
             rotate_by_bytes(pairs, blob_id.as_ref());
-        } else if pairs[0].index() as usize != pair_index_for_shard(0, pairs.len(), blob_id) {
+        } else if pairs[0].index().as_usize() != pair_index_for_shard(0, pairs.len(), blob_id) {
             return Err(SliverAssignmentError::InconsistentRotation);
         }
         Ok(())
@@ -77,10 +77,9 @@ pub fn rotate_pairs_unchecked(pairs: &mut [SliverPair], blob_id: &BlobId) {
 /// Check that the slice of sliver pairs is a valid rotation.
 fn is_rotation(pairs: &[SliverPair]) -> bool {
     // TODO(mlegner): also check internal state of pair?
-    pairs
-        .iter()
-        .enumerate()
-        .all(|(idx, pair)| pair.index() as usize == (idx + pairs[0].index() as usize) % pairs.len())
+    pairs.iter().enumerate().all(|(idx, pair)| {
+        pair.index().as_usize() == (idx + pairs[0].index().as_usize()) % pairs.len()
+    })
 }
 
 /// Get the index of the shard on which the sliver pair of the given index is stored.
@@ -94,8 +93,12 @@ fn is_rotation(pairs: &[SliverPair]) -> bool {
 ///
 /// # Panics
 /// Panic if the total number of shards is greater than `u16::MAX`.
-pub fn shard_index_for_pair(pair_idx: u16, total_shards: usize, blob_id: &BlobId) -> ShardIndex {
-    let index = (bytes_mod(blob_id.as_ref(), total_shards) + pair_idx as usize) % total_shards;
+pub fn shard_index_for_pair(
+    pair_idx: SliverPairIndex,
+    total_shards: usize,
+    blob_id: &BlobId,
+) -> ShardIndex {
+    let index = (bytes_mod(blob_id.as_ref(), total_shards) + pair_idx.as_usize()) % total_shards;
     ShardIndex(index as u16)
 }
 
@@ -140,10 +143,11 @@ mod tests {
 
     // Fixture
     fn sliver_pairs(num: u32) -> Vec<SliverPair> {
+        let num = num as u16;
         (0..num)
             .map(|n| SliverPair {
-                primary: Sliver::new_empty(0, 1, n),
-                secondary: Sliver::new_empty(0, 1, num - n - 1),
+                primary: Sliver::new_empty(0, 1, SliverPairIndex::new(n)),
+                secondary: Sliver::new_empty(0, 1, SliverPairIndex::new(num - n - 1)),
             })
             .collect()
     }
@@ -157,7 +161,7 @@ mod tests {
         assert!(pairs
             .iter()
             .enumerate()
-            .all(|(idx, pair)| pair_index_for_shard(idx, 7, &blob_id) == pair.index() as usize));
+            .all(|(idx, pair)| pair_index_for_shard(idx, 7, &blob_id) == pair.index().as_usize()));
     }
 
     #[test]
@@ -169,7 +173,7 @@ mod tests {
         for (idx, pair) in pairs.iter().enumerate() {
             assert_eq!(
                 pair_index_for_shard(idx, 7, &blob_id),
-                pair.index() as usize
+                pair.index().as_usize()
             );
         }
         // Rotate again and check if the two rotations combined have been applied
@@ -181,7 +185,7 @@ mod tests {
             .enumerate()
             .all(
                 |(idx, pair)| pair_index_for_shard(idx, 7, &combined_blob_id)
-                    == pair.index() as usize
+                    == pair.index().as_usize()
             ));
     }
 
@@ -224,7 +228,7 @@ mod tests {
     fn test_shard_index_for_pair(
         total_shards: usize,
         blob_id_value: u64,
-        pair_idx: u16,
+        pair_idx: SliverPairIndex,
         shard_idx: ShardIndex,
     ) {
         let blob_id = test_utils::blob_id_from_u64(blob_id_value);
@@ -236,9 +240,9 @@ mod tests {
 
     param_test! {
         test_shard_index_for_pair: [
-                start: (7, 15, 0, ShardIndex(1)),
-                mid: (7, 15, 5, ShardIndex(6)),
-                end: (7, 15, 6, ShardIndex(0)),
+                start: (7, 15, SliverPairIndex::new(0), ShardIndex(1)),
+                mid: (7, 15, SliverPairIndex::new(5), ShardIndex(6)),
+                end: (7, 15, SliverPairIndex::new(6), ShardIndex(0)),
             ]
     }
 
