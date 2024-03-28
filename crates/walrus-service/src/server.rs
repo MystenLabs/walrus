@@ -207,7 +207,6 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
         }
     }
 
-
     /// Retrieves a recovery symbol for a shard held by this storage node.
     /// The sliver_type is the target type of the sliver that will be recovered
     /// The sliver_pair_idx is the index of the sliver pair that we want to access
@@ -221,7 +220,10 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             SliverType,
             SliverIndex,
         )>,
-    ) -> (StatusCode, Json<ServiceResponse<DecodingSymbol>>) {
+    ) -> (
+        StatusCode,
+        Json<ServiceResponse<DecodingSymbol<MerkleProof>>>,
+    ) {
         match state.retrieve_recovery_symbol(&blob_id, sliver_pair_idx, sliver_type, index) {
             Ok(symbol) => {
                 tracing::debug!("Retrieved recovery symbol for {blob_id:?}");
@@ -229,7 +231,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             }
             Err(message) => {
                 tracing::debug!("Symbol not found with error {message}");
-
+                ServiceResponse::serialized_not_found()
             }
         }
     }
@@ -368,21 +370,19 @@ mod test {
             Ok(Some(walrus_core::test_utils::sliver()))
         }
 
-
         fn retrieve_recovery_symbol(
             &self,
             _blob_id: &BlobId,
             sliver_pair_idx: SliverPairIndex,
             _sliver_type: SliverType,
             _index: SliverIndex,
-        ) -> Result<DecodingSymbol, RetrieveSymbolError> {
+        ) -> Result<DecodingSymbol<MerkleProof>, RetrieveSymbolError> {
             if sliver_pair_idx == SliverPairIndex::new(0) {
                 Ok(walrus_core::test_utils::recovery_symbol())
             } else {
                 Err(RetrieveSymbolError::Internal(anyhow!("Invalid shard")))
             }
         }
-
 
         fn store_sliver(
             &self,
@@ -698,11 +698,12 @@ mod test {
 
         let blob_id = walrus_core::test_utils::random_blob_id();
         let sliver_pair_id = 0; // Triggers an valid response
+        let index = 0;
         let path = RECOVERY_ENDPOINT
             .replace(":blobId", &blob_id.to_string())
             .replace(":sliverPairIdx", &sliver_pair_id.to_string())
             .replace(":sliverType", "primary")
-            .replace(":index", "0");
+            .replace(":index", &index.to_string());
         let url = format!("http://{}{path}", test_private_parameters.network_address);
         // TODO(lef): Extract the path creation into a function with optional arguments
 
@@ -722,7 +723,6 @@ mod test {
             }
         }
     }
-
 
     #[tokio::test]
     async fn decoding_symbol_not_found() {

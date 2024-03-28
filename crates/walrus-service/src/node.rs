@@ -54,7 +54,6 @@ pub enum RetrieveSymbolError {
     Internal(#[from] anyhow::Error),
 }
 
-
 impl From<RetrieveSliverError> for RetrieveSymbolError {
     fn from(value: RetrieveSliverError) -> Self {
         match value {
@@ -130,7 +129,7 @@ pub trait ServiceState {
         sliver_pair_idx: SliverPairIndex,
         sliver_type: SliverType,
         index: SliverIndex,
-    ) -> Result<DecodingSymbol, RetrieveSymbolError>;
+    ) -> Result<DecodingSymbol<MerkleProof>, RetrieveSymbolError>;
 }
 
 /// A Walrus storage node, responsible for 1 or more shards on Walrus.
@@ -288,7 +287,6 @@ impl ServiceState for StorageNode {
         }
     }
 
-
     //TODO (lef): Add proof in symbol recovery
     fn retrieve_recovery_symbol(
         &self,
@@ -296,7 +294,7 @@ impl ServiceState for StorageNode {
         sliver_pair_idx: SliverPairIndex,
         sliver_type: SliverType,
         index: SliverIndex,
-    ) -> Result<DecodingSymbol, RetrieveSymbolError> {
+    ) -> Result<DecodingSymbol<MerkleProof>, RetrieveSymbolError> {
         let optional_sliver =
             self.retrieve_sliver(blob_id, sliver_pair_idx, sliver_type.orthogonal())?;
         let Some(sliver) = optional_sliver else {
@@ -308,15 +306,19 @@ impl ServiceState for StorageNode {
 
         Ok(match sliver {
             Sliver::Primary(inner) => {
-                let symbol = inner.recovery_symbol_for_sliver(index).map_err(|_| {
-                    RetrieveSymbolError::RecoveryError(index, sliver_pair_idx, *blob_id)
-                })?;
+                let symbol = inner
+                    .recovery_symbol_for_sliver_with_proof(index)
+                    .map_err(|_| {
+                        RetrieveSymbolError::RecoveryError(index, sliver_pair_idx, *blob_id)
+                    })?;
                 DecodingSymbol::Secondary(symbol)
             }
             Sliver::Secondary(inner) => {
-                let symbol = inner.recovery_symbol_for_sliver(index).map_err(|_| {
-                    RetrieveSymbolError::RecoveryError(index, sliver_pair_idx, *blob_id)
-                })?;
+                let symbol = inner
+                    .recovery_symbol_for_sliver_with_proof(index)
+                    .map_err(|_| {
+                        RetrieveSymbolError::RecoveryError(index, sliver_pair_idx, *blob_id)
+                    })?;
                 DecodingSymbol::Primary(symbol)
             }
         })
