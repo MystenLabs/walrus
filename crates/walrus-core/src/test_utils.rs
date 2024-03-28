@@ -37,15 +37,14 @@ pub fn keypair() -> BLS12381KeyPair {
 /// Returns an arbitrary sliver for testing.
 pub fn sliver() -> Sliver {
     Sliver::Primary(encoding::Sliver::new(
-        [1, 2, 3, 4],
-        2,
+        [1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4],
+        4,
         SliverPairIndex::new(1),
     ))
 }
 
 /// Returns an arbitrary decoding symbol for testing.
 pub fn recovery_symbol() -> DecodingSymbol<MerkleProof> {
-    encoding::initialize_encoding_config(1, 2, 4);
     match sliver() {
         Sliver::Primary(inner) => inner
             .recovery_symbol_for_sliver_with_proof(SliverIndex::new(1))

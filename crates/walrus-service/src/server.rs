@@ -303,6 +303,7 @@ mod test {
     use reqwest::StatusCode;
     use tokio_util::sync::CancellationToken;
     use walrus_core::{
+        encoding::initialize_encoding_config,
         merkle::MerkleProof,
         messages::StorageConfirmation,
         metadata::{
@@ -685,8 +686,10 @@ mod test {
     }
 
     #[tokio::test]
-
     async fn get_decoding_symbol() {
+        // NOTE(giac): this encoding config must match the encoding config of all other tests in the
+        // crate (notably, `test_store_and_read_blob`) to avoid errors.
+        initialize_encoding_config(2, 4, 10);
         let server = UserServer::new(Arc::new(MockServiceState), CancellationToken::new());
         let test_private_parameters = test_utils::storage_node_private_parameters();
         let _handle = tokio::spawn(async move {
