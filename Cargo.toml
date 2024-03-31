@@ -22,7 +22,7 @@ telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "test
 tempfile = "3.10.1"
 test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.21.0" }
 thiserror = "1.0.57"
-tokio = { version = "1.36.0" }
+tokio = { version = "1.37.0" }
 tokio-stream = "0.1.14"
 typed-store = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.21.0" }
 walrus-core = { path = "crates/walrus-core" }
