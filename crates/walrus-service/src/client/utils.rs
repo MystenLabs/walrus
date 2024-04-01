@@ -184,7 +184,7 @@ mod tests {
         };
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn test_weighted_futures() {
         create_weighted_futures!(weighted_futures, &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
         weighted_futures.execute_weight(3, 10).await;
@@ -198,7 +198,7 @@ mod tests {
         assert_eq!(weighted_futures.results(), &vec![1, 2, 3, 4, 5, 6, 7]);
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn test_return_early() {
         // Ensures that the `WeightedFutures::execute_time` implementation returns once all the
         // futures have completed, and before the timer fires.
@@ -216,7 +216,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn test_execute_time_n_concurrent() {
         create_weighted_futures!(weighted_futures, &[1, 1, 1, 1, 1]);
         let start = Instant::now();
