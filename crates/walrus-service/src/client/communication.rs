@@ -1,13 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::net::{SocketAddr, ToSocketAddrs};
-
 use anyhow::{anyhow, Context, Result};
-use fastcrypto::{
-    hash::Blake2b256,
-    traits::{ToFromBytes, VerifyingKey},
-};
+use fastcrypto::{hash::Blake2b256, traits::VerifyingKey};
 use futures::future::join_all;
 use reqwest::Client as ReqwestClient;
 use walrus_core::{
@@ -236,9 +231,8 @@ impl<'a> NodeCommunication<'a> {
     // Verification flows.
 
     /// Converts the public key of the node.
-    // TODO(giac): remove when we change the key in `StorageNode`.
-    fn public_key(&self) -> Result<PublicKey> {
-        Ok(PublicKey::from_bytes(&self.node.public_key)?)
+    fn public_key(&self) -> &PublicKey {
+        &self.node.public_key
     }
 
     /// Checks the signature and the contents of a storage confirmation.
@@ -255,7 +249,7 @@ impl<'a> NodeCommunication<'a> {
             "the epoch or the blob ID in the storage confirmation are mismatched"
         );
         Ok(self
-            .public_key()?
+            .public_key()
             .verify(&confirmation.confirmation, &confirmation.signature)?)
     }
 
@@ -264,7 +258,7 @@ impl<'a> NodeCommunication<'a> {
     /// Returns the URL of the storage confirmation endpoint.
     fn storage_confirmation_endpoint(&self, blob_id: &BlobId) -> String {
         Self::request_url(
-            &self.address(),
+            &self.node.network_address.to_string(),
             &STORAGE_CONFIRMATION_ENDPOINT.replace(":blobId", &blob_id.to_string()),
         )
     }
@@ -272,7 +266,7 @@ impl<'a> NodeCommunication<'a> {
     /// Returns the URL of the metadata endpoint.
     fn metadata_endpoint(&self, blob_id: &BlobId) -> String {
         Self::request_url(
-            &self.address(),
+            &self.node.network_address.to_string(),
             &METADATA_ENDPOINT.replace(":blobId", &blob_id.to_string()),
         )
     }
@@ -285,7 +279,7 @@ impl<'a> NodeCommunication<'a> {
         sliver_type: SliverType,
     ) -> String {
         Self::request_url(
-            &self.address(),
+            &self.node.network_address.to_string(),
             &SLIVER_ENDPOINT
                 .replace(":blobId", &blob_id.to_string())
                 .replace(":sliverPairIdx", &pair_index.to_string())
@@ -293,17 +287,7 @@ impl<'a> NodeCommunication<'a> {
         )
     }
 
-    fn request_url(addr: &SocketAddr, path: &str) -> String {
+    fn request_url(addr: &str, path: &str) -> String {
         format!("http://{}{}", addr, path)
-    }
-
-    fn address(&self) -> SocketAddr {
-        self.node
-            .network_address
-            .to_socket_addrs()
-            // TODO(giac): Change this when the `StorageNode` type is changed.
-            .expect("the node addresses could not be parsed")
-            .next()
-            .expect("there must be one node address")
     }
 }

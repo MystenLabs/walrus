@@ -11,7 +11,6 @@ use walrus_core::{
     encoding::{get_encoding_config, BlobDecoder, EncodingAxis, Sliver, SliverPair},
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
-    ShardIndex,
     SignedStorageConfirmation,
     Sliver as SliverEnum,
 };
@@ -108,7 +107,7 @@ impl Client {
             n.node
                 .shard_ids
                 .iter()
-                .map(|s| n.retrieve_verified_sliver::<T>(metadata, ShardIndex(*s)))
+                .map(|s| n.retrieve_verified_sliver::<T>(metadata, *s))
         });
         let mut decoder = get_encoding_config()
             .get_blob_decoder::<T>(metadata.metadata().unencoded_length.try_into()?)?;
@@ -206,7 +205,7 @@ impl Client {
             .members
             .iter()
             .enumerate()
-            .flat_map(|(idx, m)| m.shard_ids.iter().map(move |s| (ShardIndex(*s), idx)))
+            .flat_map(|(idx, m)| m.shard_ids.iter().map(move |s| (*s, idx)))
             .collect::<HashMap<_, _>>();
         pairs.into_iter().for_each(|p| {
             pairs_per_node[shard_to_node

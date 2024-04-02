@@ -153,7 +153,7 @@ impl AssociatedContractStruct for Blob {
 }
 
 /// Network address consisting of host name or ip and port
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct NetworkAddress {
     /// Host name or ip address
     pub host: String,
@@ -187,6 +187,15 @@ impl ToSocketAddrs for NetworkAddress {
 impl Display for NetworkAddress {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}:{}", self.host, self.port)
+    }
+}
+
+impl From<SocketAddr> for NetworkAddress {
+    fn from(value: SocketAddr) -> Self {
+        Self {
+            host: value.ip().to_string(),
+            port: value.port(),
+        }
     }
 }
 

@@ -3,11 +3,11 @@
 
 use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 
-use fastcrypto::traits::{KeyPair as FCKeyPair, ToFromBytes};
+use fastcrypto::traits::KeyPair as FCKeyPair;
 use tokio_util::sync::CancellationToken;
 use typed_store::rocks::MetricConf;
 use walrus_core::{test_utils, KeyPair, PublicKey, ShardIndex};
-use walrus_sui::types::{Committee, StorageNode as SuiStorageNode};
+use walrus_sui::types::{Committee, NetworkAddress, StorageNode as SuiStorageNode};
 use walrus_test_utils::WithTempDir;
 
 use crate::{
@@ -115,7 +115,7 @@ pub async fn spawn_test_committee(
     let members = nodes_shards
         .iter()
         .zip(addrs_pks.into_iter())
-        .map(|(shards, (addr, pk))| to_storage_node_config(addr, pk, shards))
+        .map(|(shards, (addr, pk))| to_storage_node_config(addr.into(), pk, &to_shards(shards)))
         .collect::<Vec<_>>();
 
     Config {
@@ -135,11 +135,15 @@ fn to_shards(ids: &[u16]) -> Vec<ShardIndex> {
     ids.iter().map(|&i| ShardIndex(i)).collect()
 }
 
-fn to_storage_node_config(addr: SocketAddr, pk: PublicKey, shard_ids: &[u16]) -> SuiStorageNode {
+fn to_storage_node_config(
+    network_address: NetworkAddress,
+    public_key: PublicKey,
+    shard_ids: &[ShardIndex],
+) -> SuiStorageNode {
     SuiStorageNode {
-        name: addr.to_string(),
-        network_address: addr.to_string(),
-        public_key: pk.as_bytes().to_vec(),
+        name: network_address.to_string(),
+        network_address,
+        public_key,
         shard_ids: shard_ids.to_vec(),
     }
 }
