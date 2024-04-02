@@ -25,7 +25,7 @@ module blob_store::e2e_test  {
         // The one storage node
         let storage_node = storage_node::create_storage_node_info(
             string::utf8(b"Test0"),
-            string::utf8(b"Address0"),
+            string::utf8(b"127.0.0.1:8080"),
             pub_key_bytes,
             vector[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
         );

@@ -4,13 +4,21 @@
 //! Walrus move type bindings. Replicates the move types in Rust.
 //!
 
-use anyhow::anyhow;
+use std::{
+    fmt::Display,
+    net::{SocketAddr, ToSocketAddrs},
+    str::FromStr,
+    vec,
+};
+
+use anyhow::{anyhow, bail};
+use fastcrypto::traits::ToFromBytes;
 use move_core_types::u256::U256;
 use serde_json::Value;
 use sui_sdk::rpc_types::{SuiEvent, SuiMoveStruct, SuiMoveValue};
 use sui_types::{base_types::ObjectID, event::EventID};
 use thiserror::Error;
-use walrus_core::{BlobId, EncodingType};
+use walrus_core::{BlobId, EncodingType, Epoch, PublicKey, ShardIndex};
 
 use crate::{
     contracts::{self, AssociatedContractStruct, AssociatedSuiEvent, StructTag},
@@ -27,9 +35,9 @@ pub struct StorageResource {
     /// Object id of the Sui object
     pub id: ObjectID,
     /// The start epoch of the resource (inclusive)
-    pub start_epoch: u64,
+    pub start_epoch: Epoch,
     /// The end epoch of the resource (exclusive)
-    pub end_epoch: u64,
+    pub end_epoch: Epoch,
     /// The total amount of reserved storage
     pub storage_size: u64,
 }
@@ -69,7 +77,7 @@ pub struct Blob {
     /// Object id of the Sui object
     pub id: ObjectID,
     /// The epoch in which the blob has been registered
-    pub stored_epoch: u64,
+    pub stored_epoch: Epoch,
     /// The blob Id
     pub blob_id: BlobId,
     /// The total encoded size of the blob
@@ -77,7 +85,7 @@ pub struct Blob {
     /// The erasure coding type used for the blob
     pub erasure_code_type: EncodingType,
     /// The epoch in which the blob was first certified, `None` if the blob is uncertified
-    pub certified: Option<u64>,
+    pub certified: Option<Epoch>,
     /// The [`StorageResource`] used to store the blob
     pub storage: StorageResource,
 }
@@ -143,17 +151,55 @@ impl AssociatedContractStruct for Blob {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::blob::Blob;
 }
 
+/// Network address consisting of host name or ip and port
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct NetworkAddress {
+    /// Host name or ip address
+    pub host: String,
+    /// Port
+    pub port: u16,
+}
+
+impl FromStr for NetworkAddress {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let Some((host, port)) = s.split_once(':') else {
+            bail!("invalid network address")
+        };
+        let port = port.parse()?;
+        Ok(Self {
+            host: host.to_owned(),
+            port,
+        })
+    }
+}
+
+impl ToSocketAddrs for NetworkAddress {
+    type Iter = vec::IntoIter<SocketAddr>;
+
+    fn to_socket_addrs(&self) -> std::io::Result<Self::Iter> {
+        (self.host.as_str(), self.port).to_socket_addrs()
+    }
+}
+
+impl Display for NetworkAddress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.host, self.port)
+    }
+}
+
 /// Sui type for storage node
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct StorageNode {
     /// Name of the storage node
     pub name: String,
     /// The network address of the storage node
-    pub network_address: String,
+    pub network_address: NetworkAddress,
     /// The public key of the storage node
-    pub public_key: Vec<u8>,
+    pub public_key: PublicKey,
     /// The indices of the shards held by the storage node
-    pub shard_ids: Vec<u16>,
+    pub shard_ids: Vec<ShardIndex>,
 }
 
 impl TryFrom<&SuiMoveStruct> for StorageNode {
@@ -162,19 +208,21 @@ impl TryFrom<&SuiMoveStruct> for StorageNode {
     fn try_from(sui_move_struct: &SuiMoveStruct) -> Result<Self, Self::Error> {
         let name = get_dynamic_field!(sui_move_struct, "name", SuiMoveValue::String)?;
         let network_address =
-            get_dynamic_field!(sui_move_struct, "network_address", SuiMoveValue::String)?;
+            get_dynamic_field!(sui_move_struct, "network_address", SuiMoveValue::String)?
+                .parse()?;
         let public_key_struct =
             get_dynamic_field!(sui_move_struct, "public_key", SuiMoveValue::Struct)?;
-        let public_key = sui_move_convert_numeric_vec(get_dynamic_field!(
-            public_key_struct,
-            "bytes",
-            SuiMoveValue::Vector
+        let public_key = PublicKey::from_bytes(&sui_move_convert_numeric_vec(
+            get_dynamic_field!(public_key_struct, "bytes", SuiMoveValue::Vector)?,
         )?)?;
         let shard_ids = sui_move_convert_numeric_vec(get_dynamic_field!(
             sui_move_struct,
             "shard_ids",
             SuiMoveValue::Vector
-        )?)?;
+        )?)?
+        .into_iter()
+        .map(ShardIndex)
+        .collect();
         Ok(Self {
             name,
             network_address,
@@ -202,7 +250,7 @@ pub struct Committee {
     /// The members of the committee
     pub members: Vec<StorageNode>,
     /// The current epoch
-    pub epoch: u64,
+    pub epoch: Epoch,
     /// The total weight of the committee (number of shards)
     pub total_weight: usize,
 }
@@ -345,7 +393,7 @@ impl AssociatedContractStruct for SystemObject {
 #[derive(Debug)]
 pub struct BlobRegistered {
     /// The epoch in which the blob has been registered
-    pub epoch: u64,
+    pub epoch: Epoch,
     /// The blob Id
     pub blob_id: BlobId,
     /// The total encoded size of the blob
@@ -353,7 +401,7 @@ pub struct BlobRegistered {
     /// The erasure coding type used for the blob
     pub erasure_code_type: EncodingType,
     /// The end epoch of the associated storage resource (exclusive)
-    pub end_epoch: u64,
+    pub end_epoch: Epoch,
     /// The ID of the event
     pub event_id: EventID,
 }
@@ -397,11 +445,11 @@ impl AssociatedSuiEvent for BlobRegistered {
 #[derive(Debug)]
 pub struct BlobCertified {
     /// The epoch in which the blob was certified
-    pub epoch: u64,
+    pub epoch: Epoch,
     /// The blob Id
     pub blob_id: BlobId,
     /// The end epoch of the associated storage resource (exclusive)
-    pub end_epoch: u64,
+    pub end_epoch: Epoch,
     /// The ID of the event
     pub event_id: EventID,
 }

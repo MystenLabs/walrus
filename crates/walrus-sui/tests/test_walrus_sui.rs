@@ -11,6 +11,7 @@ use walrus_core::{
     messages::{Confirmation, ConfirmationCertificate},
     BlobId,
     EncodingType,
+    ShardIndex,
 };
 use walrus_e2e_tests::publish_package;
 use walrus_sui::{client::SuiContractClient, types::EpochStatus};
@@ -156,10 +157,16 @@ async fn test_get_system() -> anyhow::Result<()> {
     assert_eq!(committee.members.len(), 1);
     let storage_node = &committee.members[0];
     assert_eq!(storage_node.name, "Test0");
-    assert_eq!(storage_node.network_address, "Address0");
-    assert_eq!(storage_node.shard_ids, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    assert_eq!(storage_node.network_address.to_string(), "127.0.0.1:8080");
     assert_eq!(
-        storage_node.public_key,
+        storage_node.shard_ids,
+        [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+            .into_iter()
+            .map(ShardIndex)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        storage_node.public_key.as_bytes(),
         [
             149, 234, 204, 58, 220, 9, 200, 39, 89, 63, 88, 30, 142, 45, 224, 104, 191, 76, 245,
             208, 192, 235, 41, 229, 55, 47, 13, 35, 54, 71, 136, 238, 15, 155, 235, 17, 44, 138,
