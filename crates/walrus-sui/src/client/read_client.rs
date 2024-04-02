@@ -6,7 +6,7 @@
 
 use std::{fmt::Debug, time::Duration};
 
-use anyhow::{anyhow, bail, ensure, Result};
+use anyhow::{anyhow, bail, Result};
 use move_core_types::language_storage::StructTag as MoveStructTag;
 use sui_sdk::{
     apis::EventApi,
@@ -19,6 +19,7 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::{instrument, Instrument};
 
+use super::SuiClientError;
 use crate::{
     contracts::{AssociatedContractStruct, AssociatedSuiEvent},
     types::{BlobCertified, BlobRegistered, Committee, SystemObject},
@@ -43,12 +44,14 @@ impl SuiReadClient {
         sui_client: SuiClient,
         system_pkg: ObjectID,
         system_object: ObjectID,
-    ) -> Result<Self> {
+    ) -> Result<Self, SuiClientError> {
         let type_params = get_type_parameters(&sui_client, system_object).await?;
         ensure!(
             type_params.len() == 2,
-            "unexpected number of type parameters in system object"
+            "unexpected number of type parameters in system object: {}",
+            type_params.len()
         );
+
         Ok(Self {
             system_pkg,
             sui_client,
@@ -58,7 +61,10 @@ impl SuiReadClient {
         })
     }
 
-    pub(crate) async fn call_arg_from_system_obj(&self, mutable: bool) -> Result<CallArg> {
+    pub(crate) async fn call_arg_from_system_obj(
+        &self,
+        mutable: bool,
+    ) -> Result<CallArg, SuiClientError> {
         self.call_arg_from_shared_object_id(self.system_object, mutable)
             .await
     }
@@ -82,7 +88,7 @@ impl SuiReadClient {
         &self,
         id: ObjectID,
         mutable: bool,
-    ) -> Result<CallArg> {
+    ) -> Result<CallArg, SuiClientError> {
         let Some(Owner::Shared {
             initial_shared_version,
         }) = self
@@ -92,10 +98,11 @@ impl SuiReadClient {
             .await?
             .owner()
         else {
-            bail!(
+            return Err(anyhow!(
                 "trying to get the initial version of a non-shared object: {}",
                 id
             )
+            .into());
         };
         Ok(CallArg::Object(
             sui_types::transaction::ObjectArg::SharedObject {
@@ -107,11 +114,11 @@ impl SuiReadClient {
     }
 
     /// Get the price for one unit of storage per epoch
-    pub async fn price_per_unit_size(&self) -> Result<u64> {
+    pub async fn price_per_unit_size(&self) -> Result<u64, SuiClientError> {
         Ok(self.get_system_object().await?.price_per_unit_size)
     }
 
-    pub(crate) async fn get_object<U>(&self, object_id: ObjectID) -> Result<U>
+    pub(crate) async fn get_object<U>(&self, object_id: ObjectID) -> Result<U, SuiClientError>
     where
         U: AssociatedContractStruct,
     {
@@ -127,6 +134,7 @@ impl SuiReadClient {
                 "could not convert object with id {} to expected type",
                 object_id
             )
+            .into()
         })
     }
 
@@ -135,7 +143,7 @@ impl SuiReadClient {
         polling_interval: Duration,
         event_type_params: &[TypeTag],
         cursor: Option<EventID>,
-    ) -> Result<ReceiverStream<U>>
+    ) -> Result<ReceiverStream<U>, SuiClientError>
     where
         U: AssociatedSuiEvent + Debug + Send + Sync + 'static,
     {
@@ -160,7 +168,7 @@ impl SuiReadClient {
         &self,
         polling_interval: Duration,
         cursor: Option<EventID>,
-    ) -> Result<ReceiverStream<BlobRegistered>> {
+    ) -> Result<ReceiverStream<BlobRegistered>, SuiClientError> {
         self.get_event_stream(polling_interval, &[self.system_tag.clone()], cursor)
             .await
     }
@@ -171,18 +179,18 @@ impl SuiReadClient {
         &self,
         polling_interval: Duration,
         cursor: Option<EventID>,
-    ) -> Result<ReceiverStream<BlobCertified>> {
+    ) -> Result<ReceiverStream<BlobCertified>, SuiClientError> {
         self.get_event_stream(polling_interval, &[self.system_tag.clone()], cursor)
             .await
     }
 
     /// Get the current Walrus system object
-    pub async fn get_system_object(&self) -> Result<SystemObject> {
+    pub async fn get_system_object(&self) -> Result<SystemObject, SuiClientError> {
         self.get_object(self.system_object).await
     }
 
     /// Get the current committee
-    pub async fn current_committee(&self) -> Result<Committee> {
+    pub async fn current_committee(&self) -> Result<Committee, SuiClientError> {
         Ok(self.get_system_object().await?.current_committee)
     }
 }

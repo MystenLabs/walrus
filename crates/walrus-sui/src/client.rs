@@ -5,7 +5,7 @@
 //!
 use core::str::FromStr;
 
-use anyhow::{anyhow, bail, ensure, Result};
+use anyhow::{anyhow, Result};
 use fastcrypto::traits::ToFromBytes;
 use sui_sdk::{
     rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI, SuiTransactionBlockResponse},
@@ -31,6 +31,27 @@ use crate::{
 
 mod read_client;
 pub use read_client::SuiReadClient;
+
+#[derive(Debug, thiserror::Error)]
+/// Error returned by the [`SuiContractClient`] and the [`SuiReadClient`]
+pub enum SuiClientError {
+    #[error(transparent)]
+    /// Unexpected internal errors
+    Internal(#[from] anyhow::Error),
+    #[error(transparent)]
+    /// Error resulting from a sui sdk call
+    SuiSdkError(#[from] sui_sdk::error::Error),
+    #[error("transaction execution failed: {0}")]
+    /// Error in a transaction execution
+    TransactionExecutionError(String),
+    #[error("no compatible payment coin found")]
+    /// No matching payment coin found for the transaction
+    NoCompatiblePaymentCoin,
+    #[error("no compatible gas coin found: {0:?}")]
+    /// No matching gas coin found for the transaction
+    NoCompatibleGasCoin(anyhow::Error),
+}
+
 /// Client implementation for interacting with the Walrus smart contracts
 pub struct SuiContractClient {
     wallet: WalletContext,
@@ -47,7 +68,7 @@ impl SuiContractClient {
         system_pkg: ObjectID,
         system_object: ObjectID,
         gas_budget: u64,
-    ) -> Result<Self> {
+    ) -> Result<Self, SuiClientError> {
         let sui_client = wallet.get_client().await?;
         let wallet_address = wallet.active_address()?;
         let read_client = SuiReadClient::new(sui_client, system_pkg, system_object).await?;
@@ -65,7 +86,7 @@ impl SuiContractClient {
         &self,
         function: FunctionTag<'a>,
         call_args: Vec<CallArg>,
-    ) -> Result<SuiTransactionBlockResponse> {
+    ) -> Result<SuiTransactionBlockResponse, SuiClientError> {
         let mut pt_builder = ProgrammableTransactionBuilder::new();
 
         let arguments = call_args
@@ -79,7 +100,7 @@ impl SuiContractClient {
             function.type_params,
             arguments,
         ) else {
-            bail!("Result should be Argument::Result")
+            return Err(anyhow!("Result should be Argument::Result").into());
         };
         for i in 0..function.n_object_outputs {
             pt_builder.transfer_arg(self.wallet_address, Argument::NestedResult(result_index, i));
@@ -93,7 +114,8 @@ impl SuiContractClient {
                     self.gas_budget,
                     call_args_to_object_ids(call_args),
                 )
-                .await?
+                .await
+                .map_err(SuiClientError::NoCompatibleGasCoin)?
                 .1
                 .object_ref(),
         )
@@ -104,7 +126,7 @@ impl SuiContractClient {
         &self,
         programmable_transaction: ProgrammableTransaction,
         gas_coin: ObjectRef,
-    ) -> Result<SuiTransactionBlockResponse> {
+    ) -> Result<SuiTransactionBlockResponse, SuiClientError> {
         let gas_price = self.wallet.get_reference_gas_price().await?;
 
         let transaction = TransactionData::new_programmable(
@@ -129,7 +151,7 @@ impl SuiContractClient {
         {
             SuiExecutionStatus::Success => Ok(response),
             SuiExecutionStatus::Failure { error } => {
-                Err(anyhow!("Error in transaction execution: {}", error))
+                Err(SuiClientError::TransactionExecutionError(error.into()))
             }
         }
     }
@@ -140,14 +162,15 @@ impl SuiContractClient {
         &self,
         encoded_size: u64,
         periods_ahead: u64,
-    ) -> Result<StorageResource> {
+    ) -> Result<StorageResource, SuiClientError> {
         let price = periods_ahead * encoded_size * self.read_client.price_per_unit_size().await?;
         let payment_coin = self
             .read_client
             .get_payment_coins(self.wallet_address)
-            .await?
+            .await
+            .map_err(|_| SuiClientError::NoCompatiblePaymentCoin)?
             .find(|coin| coin.balance >= price)
-            .ok_or_else(|| anyhow!("no compatible payment coin found"))?;
+            .ok_or_else(|| SuiClientError::NoCompatiblePaymentCoin)?;
         let res = self
             .move_call_and_transfer(
                 contracts::system::reserve_space.with_type_params(&[
@@ -169,6 +192,7 @@ impl SuiContractClient {
                 &[self.read_client.system_tag.clone()],
             )?,
         )?;
+
         ensure!(
             storage_id.len() == 1,
             "unexpected number of storage resources created: {}",
@@ -188,7 +212,7 @@ impl SuiContractClient {
         blob_id: BlobId,
         encoded_size: u64,
         erasure_code_type: EncodingType,
-    ) -> Result<Blob> {
+    ) -> Result<Blob, SuiClientError> {
         let erasure_code_type: u8 = erasure_code_type.into();
         let res = self
             .move_call_and_transfer(
@@ -217,6 +241,7 @@ impl SuiContractClient {
             "unexpected number of blob objects created: {}",
             blob_obj_id.len()
         );
+
         self.read_client.get_object(blob_obj_id[0]).await
     }
 
@@ -226,7 +251,7 @@ impl SuiContractClient {
         &self,
         blob: &Blob,
         certificate: &ConfirmationCertificate,
-    ) -> Result<Blob> {
+    ) -> Result<Blob, SuiClientError> {
         let res = self
             .move_call_and_transfer(
                 contracts::blob::certify.with_type_params(&[
@@ -245,7 +270,8 @@ impl SuiContractClient {
         let blob: Blob = self.read_client.get_object(blob.id).await?;
         ensure!(
             blob.certified.is_some(),
-            format!("could not certify blob: {:?}", res.errors)
+            "could not certify blob: {:?}",
+            res.errors
         );
         Ok(blob)
     }

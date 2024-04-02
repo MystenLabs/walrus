@@ -179,7 +179,7 @@ pub(crate) fn blob_id_from_u256(input: U256) -> BlobId {
 
 macro_rules! call_arg_pure {
     ($value:expr) => {
-        CallArg::Pure(bcs::to_bytes($value)?)
+        CallArg::Pure(bcs::to_bytes($value).map_err(|e| anyhow!("bcs conversion failed: {e:?}"))?)
     };
 }
 
@@ -238,6 +238,27 @@ macro_rules! get_field_from_event {
 macro_rules! get_u64_field_from_event {
     ($struct: expr, $field_name: expr) => {
         get_field_from_event!($struct, $field_name, Value::String)?.parse()
+    };
+}
+
+/// Returns an error if the condition evaluates to false.
+/// If a message is provided instead of an error, the message is turned into
+/// an error using [`anyhow!`] and then cast to the expected type
+macro_rules! ensure {
+    ($cond:expr, $err:expr $(,)?) => {
+        if !$cond {
+            return Err($err);
+        }
+    };
+    ($cond:expr, $msg:literal $(,)?) => {
+        if !$cond {
+            return Err(anyhow!($msg).into());
+        }
+    };
+    ($cond:expr, $fmt:expr, $($arg:tt)*) => {
+        if !$cond {
+            return Err(anyhow!($fmt, $($arg)*).into());
+        }
     };
 }
 
