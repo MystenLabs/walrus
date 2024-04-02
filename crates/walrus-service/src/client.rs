@@ -83,19 +83,21 @@ impl Client {
     }
 
     /// Reconstructs the blob by reading slivers from Walrus shards.
-    pub async fn read_blob<T: EncodingAxis>(&self, blob_id: &BlobId) -> Result<Vec<u8>>
+    pub async fn read_blob<T>(&self, blob_id: &BlobId) -> Result<Vec<u8>>
     where
+        T: EncodingAxis,
         Sliver<T>: TryFrom<SliverEnum>,
     {
         let metadata = self.retrieve_metadata(blob_id).await?;
         self.request_slivers_and_decode::<T>(&metadata).await
     }
 
-    async fn request_slivers_and_decode<T: EncodingAxis>(
+    async fn request_slivers_and_decode<T>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
     ) -> Result<Vec<u8>>
     where
+        T: EncodingAxis,
         Sliver<T>: TryFrom<SliverEnum>,
     {
         // TODO(giac): optimize by reading first from the shards that have the systematic part of
@@ -134,13 +136,14 @@ impl Client {
 
     /// Decodes the blob of given blob ID by requesting slivers and trying to decode at each new
     /// sliver it receives.
-    async fn decode_sliver_by_sliver<'a, I, Fut, T: EncodingAxis>(
+    async fn decode_sliver_by_sliver<'a, I, Fut, T>(
         &self,
         requests: &mut WeightedFutures<I, Fut, Sliver<T>>,
         decoder: &mut BlobDecoder<'a, T>,
         blob_id: &BlobId,
     ) -> Result<Vec<u8>>
     where
+        T: EncodingAxis,
         I: Iterator<Item = Fut>,
         Fut: Future<Output = WeightedResult<Sliver<T>>>,
         FuturesUnordered<Fut>: Stream<Item = WeightedResult<Sliver<T>>>,
