@@ -93,11 +93,12 @@ pub fn blob_id_from_u64(num: u64) -> BlobId {
 
 /// Returns an arbitrary metadata object.
 pub fn blob_metadata() -> BlobMetadata {
-    let unencoded_length = 7_000_000_000;
-    let hashes: Vec<_> = (0..100u8)
+    let config = encoding_config();
+    let unencoded_length = 62_831;
+    let hashes: Vec<_> = (0..config.n_shards)
         .map(|i| SliverPairMetadata {
-            primary_hash: Node::Digest([i; 32]),
-            secondary_hash: Node::Digest([i; 32]),
+            primary_hash: Node::Digest([(i % 256) as u8; 32]),
+            secondary_hash: Node::Digest([(i % 256) as u8; 32]),
         })
         .collect();
     BlobMetadata {
