@@ -25,7 +25,6 @@ pub struct StorageNodeConfig {
     /// Directory in which to persist the database
     pub storage_path: PathBuf,
     /// Key pair used in Walrus protocol messages
-    // TODO(jsmith): Add a CLI endpoint that can be used to generate a new private key file (#148)
     #[serde_as(as = "PathOrInPlace<Base64>")]
     pub protocol_key_pair: PathOrInPlace<ProtocolKeyPair>,
     /// Socket address on which to the Prometheus server should export its metrics.
@@ -49,7 +48,8 @@ impl StorageNodeConfig {
     }
 }
 
-mod defaults {
+/// Default values for the storage node configuration.
+pub mod defaults {
     use std::net::Ipv4Addr;
 
     use super::*;
@@ -57,10 +57,12 @@ mod defaults {
     const METRICS_PORT: u16 = 9184;
     const REST_API_PORT: u16 = 9185;
 
+    /// Returns the default metrics address.
     pub fn metrics_address() -> SocketAddr {
         (Ipv4Addr::UNSPECIFIED, METRICS_PORT).into()
     }
 
+    /// Returns the default REST API address.
     pub fn rest_api_address() -> SocketAddr {
         (Ipv4Addr::UNSPECIFIED, REST_API_PORT).into()
     }

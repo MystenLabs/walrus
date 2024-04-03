@@ -2,12 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Walrus Storage Node entry point.
 
-use std::{io, net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{fs, io, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::Context;
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use fastcrypto::traits::KeyPair;
+use futures::future;
 use mysten_metrics::RegistryService;
+use rand::thread_rng;
 use telemetry_subscribers::{TelemetryGuards, TracingHandle};
 use tokio::{
     runtime::{self, Runtime},
@@ -15,7 +17,14 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
-use walrus_service::{config::StorageNodeConfig, server::UserServer, StorageNode};
+use walrus_core::{ProtocolKeyPair, ShardIndex};
+use walrus_service::{
+    client,
+    config::{self, StorageNodeConfig},
+    server::UserServer,
+    StorageNode,
+};
+use walrus_sui::types::StorageNode as SuiStorageNode;
 
 const GIT_REVISION: &str = {
     if let Some(revision) = option_env!("GIT_REVISION") {
@@ -39,15 +48,70 @@ const VERSION: &str = walrus_core::concat_const_str!(env!("CARGO_PKG_VERSION"), 
 #[clap(version = VERSION)]
 #[derive(Debug)]
 struct Args {
-    /// Path to the Walrus node configuration file.
-    config_path: PathBuf,
+    #[command(subcommand)]
+    command: Commands,
 }
 
-fn main() -> anyhow::Result<()> {
+#[derive(Subcommand, Debug, Clone)]
+#[clap(rename_all = "kebab-case")]
+enum Commands {
+    Run {
+        /// Path to the Walrus node configuration file.
+        config_path: PathBuf,
+    },
+    /// Deploy a testbed of storage nodes.
+    Testbed {
+        /// Path to the directory where the testbed will be deployed.
+        #[clap(long, default_value = "./")]
+        working_dir: PathBuf,
+        /// Number of storage nodes to deploy.
+        #[clap(long, default_value_t = 10)]
+        number_of_nodes: u16,
+        /// Number of primary symbols to use.
+        #[clap(long, default_value_t = 2)]
+        n_symbols_primary: u16,
+        /// Number of secondary symbols to use.
+        #[clap(long, default_value_t = 4)]
+        n_symbols_secondary: u16,
+    },
+    KeyGen {
+        /// Path to the directory where the key pair will be saved.
+        out: PathBuf,
+    },
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+    match args.command {
+        Commands::Run { config_path } => {
+            let config = StorageNodeConfig::load(config_path)?;
+            run_storage_node(config)?;
+        }
 
-    let mut config = StorageNodeConfig::load(args.config_path)?;
+        Commands::Testbed {
+            working_dir,
+            number_of_nodes,
+            n_symbols_primary,
+            n_symbols_secondary,
+        } => {
+            deploy_testbed(
+                working_dir,
+                number_of_nodes,
+                n_symbols_primary,
+                n_symbols_secondary,
+            )
+            .await?
+        }
+        Commands::KeyGen { out: _out } => {
+            // TODO(jsmith): Add a CLI endpoint to generate a new private key file (#148)
+            todo!();
+        }
+    }
+    Ok(())
+}
 
+fn run_storage_node(mut config: StorageNodeConfig) -> anyhow::Result<()> {
     let metrics_runtime = MetricsAndLoggingRuntime::start(config.metrics_address)?;
 
     tracing::info!("Walrus Node version: {VERSION}");
@@ -78,6 +142,72 @@ fn main() -> anyhow::Result<()> {
     // Wait for the node runtime to complete, may take a moment as
     // the REST-API waits for open connections to close before exiting.
     node_runtime.join()
+}
+
+async fn deploy_testbed(
+    working_dir: PathBuf,
+    number_of_nodes: u16,
+    n_symbols_primary: u16,
+    n_symbols_secondary: u16,
+) -> anyhow::Result<()> {
+    // Generate storage node configs.
+    let mut storage_node_configs = Vec::new();
+    let mut sui_storage_node_configs = Vec::new();
+    for i in 0..number_of_nodes {
+        let name = format!("node-{i}");
+
+        let mut storage_path = working_dir.clone();
+        storage_path.push("storage");
+        storage_path.push(&name);
+
+        let protocol_key_pair = ProtocolKeyPair::random(&mut thread_rng());
+        let public_key = protocol_key_pair.as_ref().public().clone();
+
+        let mut metrics_address = config::defaults::metrics_address();
+        metrics_address.set_port(metrics_address.port() + i as u16);
+
+        let mut rest_api_address = config::defaults::rest_api_address();
+        rest_api_address.set_port(rest_api_address.port() + i as u16);
+
+        storage_node_configs.push(StorageNodeConfig {
+            storage_path,
+            protocol_key_pair: config::PathOrInPlace::InPlace(protocol_key_pair),
+            metrics_address,
+            rest_api_address,
+        });
+
+        sui_storage_node_configs.push(SuiStorageNode {
+            name,
+            network_address: rest_api_address.into(),
+            public_key,
+            shard_ids: vec![ShardIndex(i)],
+        });
+    }
+
+    // Print client configs.
+    let client_config = client::Config {
+        committee: walrus_sui::types::Committee {
+            members: sui_storage_node_configs,
+            epoch: 0,
+            total_weight: number_of_nodes as usize,
+        },
+        source_symbols_primary: n_symbols_primary,
+        source_symbols_secondary: n_symbols_secondary,
+        concurrent_requests: number_of_nodes as usize,
+        connection_timeout: Duration::from_secs(10),
+    };
+    let client_config_path = working_dir.join("client_config.yaml");
+    let serialized_client_config =
+        serde_yaml::to_string(&client_config).context("Failed to serialize client configs")?;
+    fs::write(&client_config_path, serialized_client_config)
+        .context("Failed to write client configs")?;
+
+    // Start storage nodes.
+    let storage_node_handles = storage_node_configs.into_iter().map(|config| {
+        tokio::spawn(async move { run_storage_node(config).expect("unable to start storage node") })
+    });
+    future::try_join_all(storage_node_handles).await?;
+    Ok(())
 }
 
 struct MetricsAndLoggingRuntime {
