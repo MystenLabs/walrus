@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{future::Future, num::NonZeroUsize, pin::pin, time::Duration};
+use std::{future::Future, pin::pin, time::Duration};
 
 use anyhow::{anyhow, Context};
 use fastcrypto::traits::Signer;
@@ -295,10 +295,7 @@ where
             return Err(StoreMetadataError::BlobExpired);
         }
 
-        let verified_metadata_with_id = metadata.verify(
-            NonZeroUsize::new(self.encoding_config.n_shards() as usize)
-                .expect("guaranteed to be nonzero"),
-        )?;
+        let verified_metadata_with_id = metadata.verify(&self.encoding_config)?;
         self.storage
             .put_verified_metadata(&verified_metadata_with_id)
             .context("unable to store metadata")?;

@@ -695,9 +695,7 @@ mod tests {
             *blob_metadata_2.blob_id(),
             blob_metadata_2.metadata().clone(),
         );
-        assert!(unverified
-            .verify((n_shards as usize).try_into().unwrap())
-            .is_ok());
+        assert!(unverified.verify(&config).is_ok());
     }
 
     #[test]
