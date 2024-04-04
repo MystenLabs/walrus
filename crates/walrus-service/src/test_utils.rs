@@ -8,7 +8,13 @@ use sui_sdk::types::{digests::TransactionDigest, event::EventID};
 use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
 use typed_store::rocks::MetricConf;
-use walrus_core::{test_utils, ProtocolKeyPair, PublicKey, ShardIndex};
+use walrus_core::{
+    encoding::{EncodingConfig, Primary, Secondary},
+    test_utils,
+    ProtocolKeyPair,
+    PublicKey,
+    ShardIndex,
+};
 use walrus_sui::{
     client::ReadClient,
     types::{Committee, NetworkAddress, StorageNode as SuiStorageNode},
@@ -65,7 +71,7 @@ pub fn empty_storage_with_shards(shards: &[ShardIndex]) -> WithTempDir<Storage> 
 /// Creates a new [`StorageNode`] with a [`ReadClient`].
 pub fn new_test_node_with_read_client<T>(
     shards: &[ShardIndex],
-    n_shards: usize,
+    encoding_config: EncodingConfig,
 
     key_pair: ProtocolKeyPair,
     sui_read_client: T,
@@ -76,7 +82,7 @@ where
     empty_storage_with_shards(shards).map(|storage| {
         StorageNode::new_with_storage(
             storage,
-            n_shards,
+            encoding_config,
             key_pair,
             sui_read_client,
             Duration::from_micros(1),
@@ -87,7 +93,7 @@ where
 /// Creates a new [`StorageNode`] with parameters.
 pub fn new_test_node_with_address<T>(
     shards: &[ShardIndex],
-    n_shards: usize,
+    encoding_config: EncodingConfig,
     sui_read_client: T,
 ) -> (WithTempDir<StorageNode<T>>, SocketAddr, PublicKey)
 where
@@ -99,7 +105,7 @@ where
     (
         new_test_node_with_read_client(
             shards,
-            n_shards,
+            encoding_config,
             protocol_key_pair.clone(),
             sui_read_client,
         ),
@@ -111,13 +117,14 @@ where
 /// Creates and runs a new [`UserServer`] with parameters.
 pub async fn spawn_test_server<T>(
     shards: &[ShardIndex],
-    n_shards: usize,
+    encoding_config: EncodingConfig,
     sui_read_client: T,
 ) -> (SocketAddr, PublicKey)
 where
     T: ReadClient + Send + Sync + 'static,
 {
-    let (storage_node, addr, pk) = new_test_node_with_address(shards, n_shards, sui_read_client);
+    let (storage_node, addr, pk) =
+        new_test_node_with_address(shards, encoding_config, sui_read_client);
     let storage_node = storage_node.map(Arc::new);
     let walrus_node_clone = storage_node.inner.clone();
     let _walrus_node_handle =
@@ -132,21 +139,33 @@ where
 }
 
 /// Creates and runs a new committee of [`UserServer`s][UserServer].
+///
+/// The total count of shards in `nodes_shards` must be equal to the number of shards in the
+/// `encoding_config`.
 pub async fn spawn_test_committee<T>(
-    n_symbols_primary: u16,
-    n_symbols_secondary: u16,
-    n_shards: usize,
+    encoding_config: EncodingConfig,
     nodes_shards: &[&[u16]],
     sui_read_client: T,
 ) -> Config
 where
     T: ReadClient + Clone + Send + Sync + 'static,
 {
+    let n_shards = encoding_config.n_shards() as usize;
+    assert_eq!(
+        nodes_shards.iter().map(|s| s.len()).sum::<usize>(),
+        n_shards
+    );
     let mut addrs_pks = vec![];
     // Create the walrus storage nodes.
     for shards in nodes_shards.iter() {
-        addrs_pks
-            .push(spawn_test_server(&to_shards(shards), n_shards, sui_read_client.clone()).await);
+        addrs_pks.push(
+            spawn_test_server(
+                &to_shards(shards),
+                encoding_config.clone(),
+                sui_read_client.clone(),
+            )
+            .await,
+        );
     }
     // Create the config.
     let members = nodes_shards
@@ -161,8 +180,8 @@ where
             epoch: 0,
             total_weight: n_shards,
         },
-        source_symbols_primary: n_symbols_primary,
-        source_symbols_secondary: n_symbols_secondary,
+        source_symbols_primary: encoding_config.n_source_symbols::<Primary>(),
+        source_symbols_secondary: encoding_config.n_source_symbols::<Secondary>(),
         concurrent_requests: n_shards,
         connection_timeout: Duration::from_secs(10),
     }

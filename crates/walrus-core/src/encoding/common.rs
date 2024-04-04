@@ -1,7 +1,6 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use super::get_encoding_config;
 use crate::metadata::{SliverIndex, SliverPairIndex};
 
 /// The maximum length in bytes of a single symbol in RaptorQ.
@@ -25,9 +24,7 @@ pub trait EncodingAxis: Clone + PartialEq + Eq + Default {
     /// the index of the [`SliverPair`][super::SliverPair].
     ///
     /// See [`super::EncodingConfig::sliver_index_from_pair_index`] for further details.
-    fn sliver_index_from_pair_index(pair_index: SliverPairIndex) -> SliverIndex {
-        get_encoding_config().sliver_index_from_pair_index::<Self>(pair_index)
-    }
+    fn sliver_index_from_pair_index(pair_index: SliverPairIndex, n_shards: u32) -> SliverIndex;
 }
 
 /// Marker type to indicate the primary encoding.
@@ -37,7 +34,7 @@ impl EncodingAxis for Primary {
     type OrthogonalAxis = Secondary;
     const IS_PRIMARY: bool = true;
 
-    fn sliver_index_from_pair_index(pair_index: SliverPairIndex) -> SliverIndex {
+    fn sliver_index_from_pair_index(pair_index: SliverPairIndex, _n_shards: u32) -> SliverIndex {
         pair_index
     }
 }
@@ -48,4 +45,9 @@ pub struct Secondary;
 impl EncodingAxis for Secondary {
     type OrthogonalAxis = Primary;
     const IS_PRIMARY: bool = false;
+
+    fn sliver_index_from_pair_index(pair_index: SliverPairIndex, n_shards: u32) -> SliverIndex {
+        let idx = n_shards - pair_index.as_u32() - 1;
+        SliverIndex::new(idx.try_into().expect("shard index out of bounds"))
+    }
 }

@@ -15,6 +15,7 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
+use walrus_core::encoding::EncodingConfig;
 use walrus_service::{config::StorageNodeConfig, server::UserServer, StorageNode};
 
 const GIT_REVISION: &str = {
@@ -46,26 +47,29 @@ struct Args {
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    let mut config = StorageNodeConfig::load(args.config_path)?;
+    let mut node_config = StorageNodeConfig::load(args.config_path)?;
+    // TODO(mlegner): Dummy config; properly read encoding config from file/chain. (#200)
+    let encoding_config = EncodingConfig::new(2, 4, 10);
 
-    let metrics_runtime = MetricsAndLoggingRuntime::start(config.metrics_address)?;
+    let metrics_runtime = MetricsAndLoggingRuntime::start(node_config.metrics_address)?;
 
     tracing::info!("Walrus Node version: {VERSION}");
     tracing::info!(
         "Walrus public key: {}",
-        config.protocol_key_pair.load()?.as_ref().public()
+        node_config.protocol_key_pair.load()?.as_ref().public()
     );
     tracing::info!(
         "Started Prometheus HTTP endpoint at {}",
-        config.metrics_address
+        node_config.metrics_address
     );
 
     let cancel_token = CancellationToken::new();
     let (exit_notifier, exit_listener) = oneshot::channel::<()>();
 
     let mut node_runtime = StorageNodeRuntime::start(
-        &config,
+        &node_config,
         metrics_runtime.registry_service.clone(),
+        encoding_config,
         exit_notifier,
         cancel_token.child_token(),
     )?;
@@ -126,8 +130,9 @@ struct StorageNodeRuntime {
 
 impl StorageNodeRuntime {
     fn start(
-        config: &StorageNodeConfig,
+        node_config: &StorageNodeConfig,
         registry_service: RegistryService,
+        encoding_config: EncodingConfig,
         exit_notifier: oneshot::Sender<()>,
         cancel_token: CancellationToken,
     ) -> anyhow::Result<Self> {
@@ -138,7 +143,11 @@ impl StorageNodeRuntime {
             .expect("walrus-node runtime creation must succeed");
         let _guard = runtime.enter();
 
-        let walrus_node = Arc::new(runtime.block_on(StorageNode::new(config, registry_service))?);
+        let walrus_node = Arc::new(runtime.block_on(StorageNode::new(
+            node_config,
+            registry_service,
+            encoding_config,
+        ))?);
 
         let walrus_node_clone = walrus_node.clone();
         let walrus_node_cancel_token = cancel_token.child_token();
@@ -159,7 +168,7 @@ impl StorageNodeRuntime {
         });
 
         let rest_api = UserServer::new(walrus_node, cancel_token.child_token());
-        let rest_api_address = config.rest_api_address;
+        let rest_api_address = node_config.rest_api_address;
         let rest_api_handle = tokio::spawn(async move {
             let result = rest_api.run(&rest_api_address).await;
             if let Err(ref err) = result {
@@ -167,7 +176,7 @@ impl StorageNodeRuntime {
             }
             result
         });
-        tracing::info!("Started REST API on {}", config.rest_api_address);
+        tracing::info!("Started REST API on {}", node_config.rest_api_address);
 
         Ok(Self {
             runtime,

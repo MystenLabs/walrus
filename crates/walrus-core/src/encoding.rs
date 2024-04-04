@@ -20,7 +20,7 @@ pub use common::{
 };
 
 mod config;
-pub use config::{get_encoding_config, initialize_encoding_config, EncodingConfig};
+pub use config::EncodingConfig;
 
 mod errors;
 pub use errors::{

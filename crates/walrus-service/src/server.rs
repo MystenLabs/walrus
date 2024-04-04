@@ -321,7 +321,6 @@ mod test {
     use tokio::task::JoinHandle;
     use tokio_util::sync::CancellationToken;
     use walrus_core::{
-        encoding::initialize_encoding_config,
         merkle::MerkleProof,
         messages::StorageConfirmation,
         metadata::{
@@ -657,10 +656,6 @@ mod test {
 
     #[tokio::test]
     async fn get_decoding_symbol() {
-        // NOTE(giac): this encoding config must match the encoding config of all other tests in the
-        // crate (notably, `test_store_and_read_blob`) to avoid errors.
-        initialize_encoding_config(2, 4, 10);
-
         let (config, _handle) = start_rest_api_with_test_config().await;
 
         let blob_id = walrus_core::test_utils::random_blob_id();

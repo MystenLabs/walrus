@@ -7,8 +7,6 @@
 pub mod client;
 /// Configuration module.
 pub mod config;
-/// Encoding utilities.
-pub mod encoding;
 /// Mapping from sliver pairs to shards.
 pub mod mapping;
 /// Server for the Walrus service.

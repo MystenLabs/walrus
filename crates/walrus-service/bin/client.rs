@@ -7,10 +7,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use walrus_core::{
-    encoding::{initialize_encoding_config, Primary},
-    BlobId,
-};
+use walrus_core::{encoding::Primary, BlobId};
 use walrus_service::client::{Client, Config};
 
 #[derive(Parser, Debug, Clone)]
@@ -49,12 +46,8 @@ enum Commands {
 pub async fn main() -> Result<()> {
     let args = Args::parse();
     let config: Config = serde_yaml::from_str(&std::fs::read_to_string(args.config)?)?;
-    initialize_encoding_config(
-        config.source_symbols_primary,
-        config.source_symbols_secondary,
-        config.committee.total_weight as u32,
-    );
     let client = Client::new(config);
+
     match args.command {
         Commands::Store { file } => {
             client?.store_blob(&std::fs::read(file)?).await?;

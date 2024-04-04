@@ -528,10 +528,7 @@ mod tests {
     use walrus_test_utils::{param_test, random_data, random_subset};
 
     use super::*;
-    use crate::{
-        encoding::{get_encoding_config, initialize_encoding_config, EncodingConfig},
-        metadata::UnverifiedBlobMetadataWithId,
-    };
+    use crate::metadata::UnverifiedBlobMetadataWithId;
 
     param_test! {
         test_matrix_construction: [
@@ -667,18 +664,13 @@ mod tests {
         let source_symbols_secondary = 23;
         let n_shards = 3 * (source_symbols_primary + source_symbols_secondary) as u32;
 
-        initialize_encoding_config(source_symbols_primary, source_symbols_secondary, n_shards);
+        let config =
+            EncodingConfig::new(source_symbols_primary, source_symbols_secondary, n_shards);
 
         // Check that the encoding with and without metadata are identical.
-        let sliver_pairs_1 = get_encoding_config()
-            .get_blob_encoder(&blob)
-            .unwrap()
-            .encode();
-        let blob_metadata_1 = get_encoding_config()
-            .get_blob_encoder(&blob)
-            .unwrap()
-            .compute_metadata();
-        let (sliver_pairs_2, blob_metadata_2) = get_encoding_config()
+        let sliver_pairs_1 = config.get_blob_encoder(&blob).unwrap().encode();
+        let blob_metadata_1 = config.get_blob_encoder(&blob).unwrap().compute_metadata();
+        let (sliver_pairs_2, blob_metadata_2) = config
             .get_blob_encoder(&blob)
             .unwrap()
             .encode_with_metadata();
@@ -692,7 +684,7 @@ mod tests {
             .zip(blob_metadata_2.metadata().hashes.iter())
         {
             let pair_hash = sliver_pair
-                .pair_leaf_input::<Blake2b256>()
+                .pair_leaf_input::<Blake2b256>(&config)
                 .expect("should be able to encode");
             let meta_hash = pair_meta.pair_leaf_input::<Blake2b256>();
             assert_eq!(pair_hash, meta_hash);
@@ -715,16 +707,17 @@ mod tests {
         let source_symbols_secondary = 23;
         let n_shards = 3 * (source_symbols_primary + source_symbols_secondary) as u32;
 
-        initialize_encoding_config(source_symbols_primary, source_symbols_secondary, n_shards);
+        let config =
+            EncodingConfig::new(source_symbols_primary, source_symbols_secondary, n_shards);
 
-        let (slivers, metadata_enc) = get_encoding_config()
+        let (slivers, metadata_enc) = config
             .get_blob_encoder(&blob)
             .unwrap()
             .encode_with_metadata();
         let slivers_for_decoding = random_subset(slivers, source_symbols_primary.into())
             .map(|s| s.primary)
             .collect::<Vec<_>>();
-        let (blob_dec, metadata_dec) = get_encoding_config()
+        let (blob_dec, metadata_dec) = config
             .get_blob_decoder(blob.len())
             .unwrap()
             .decode_and_verify(metadata_enc.blob_id(), slivers_for_decoding)

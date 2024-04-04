@@ -6,7 +6,7 @@
 use std::time::Duration;
 
 use criterion::{AxisScale, BatchSize, BenchmarkId, Criterion, PlotConfiguration};
-use walrus_core::encoding::{get_encoding_config, initialize_encoding_config, Primary};
+use walrus_core::encoding::{EncodingConfig, Primary};
 use walrus_test_utils::{random_data, random_subset};
 
 mod constants;
@@ -22,7 +22,16 @@ const BLOB_SIZES: [(usize, &str); 6] = [
     (1 << 30, "1GiB"),
 ];
 
+fn encoding_config() -> EncodingConfig {
+    EncodingConfig::new(
+        constants::SOURCE_SYMBOLS_PRIMARY,
+        constants::SOURCE_SYMBOLS_SECONDARY,
+        constants::N_SHARDS,
+    )
+}
+
 fn blob_encoding(c: &mut Criterion) {
+    let config = encoding_config();
     let mut group = c.benchmark_group("blob_encoding");
     group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Logarithmic));
 
@@ -32,7 +41,7 @@ fn blob_encoding(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::new("encode", size_str), &(blob), |b, blob| {
             b.iter(|| {
-                let encoder = get_encoding_config().get_blob_encoder(blob).unwrap();
+                let encoder = config.get_blob_encoder(blob).unwrap();
                 let _sliver_pairs = encoder.encode();
             });
         });
@@ -42,7 +51,7 @@ fn blob_encoding(c: &mut Criterion) {
             &(blob),
             |b, blob| {
                 b.iter(|| {
-                    let encoder = get_encoding_config().get_blob_encoder(blob).unwrap();
+                    let encoder = config.get_blob_encoder(blob).unwrap();
                     let (_sliver_pairs, _metadata) = encoder.encode_with_metadata();
                 });
             },
@@ -53,13 +62,14 @@ fn blob_encoding(c: &mut Criterion) {
 }
 
 fn blob_decoding(c: &mut Criterion) {
+    let config = encoding_config();
     let mut group = c.benchmark_group("blob_decoding");
     group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Logarithmic));
 
     for (blob_size, size_str) in BLOB_SIZES {
         let blob = random_data(blob_size);
         group.throughput(criterion::Throughput::Bytes(blob_size as u64));
-        let encoder = get_encoding_config().get_blob_encoder(&blob).unwrap();
+        let encoder = config.get_blob_encoder(&blob).unwrap();
         let (sliver_pairs, metadata) = encoder.encode_with_metadata();
         let primary_slivers_for_decoding: Vec<_> = random_subset(
             sliver_pairs.into_iter().map(|p| p.primary),
@@ -75,9 +85,7 @@ fn blob_decoding(c: &mut Criterion) {
                 b.iter_batched(
                     || slivers.clone(),
                     |slivers| {
-                        let mut decoder = get_encoding_config()
-                            .get_blob_decoder::<Primary>(*blob_size)
-                            .unwrap();
+                        let mut decoder = config.get_blob_decoder::<Primary>(*blob_size).unwrap();
                         let _blob = decoder.decode(slivers).unwrap();
                     },
                     BatchSize::SmallInput,
@@ -92,9 +100,7 @@ fn blob_decoding(c: &mut Criterion) {
                 b.iter_batched(
                     || slivers.clone(),
                     |slivers| {
-                        let mut decoder = get_encoding_config()
-                            .get_blob_decoder::<Primary>(*blob_size)
-                            .unwrap();
+                        let mut decoder = config.get_blob_decoder::<Primary>(*blob_size).unwrap();
                         let _blob = decoder
                             .decode_and_verify(blob_id, slivers)
                             .unwrap()
@@ -110,11 +116,6 @@ fn blob_decoding(c: &mut Criterion) {
 }
 
 fn main() {
-    initialize_encoding_config(
-        constants::SOURCE_SYMBOLS_PRIMARY,
-        constants::SOURCE_SYMBOLS_SECONDARY,
-        constants::N_SHARDS,
-    );
     let mut criterion = Criterion::default()
         .configure_from_args()
         .sample_size(10) // set sample size to the minimum to limit execution time

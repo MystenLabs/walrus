@@ -1,11 +1,6 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-#[cfg(test)]
-use std::cell::RefCell;
-#[cfg(not(test))]
-use std::sync::OnceLock;
-
 use raptorq::SourceBlockEncodingPlan;
 
 use super::{
@@ -23,104 +18,6 @@ use crate::{
     encoding::common::MAX_N_SHARDS,
     metadata::{SliverIndex, SliverPairIndex},
 };
-
-/// Global encoding configuration with pre-generated encoding plans.
-#[cfg(not(test))]
-static ENCODING_CONFIG: OnceLock<EncodingConfig> = OnceLock::new();
-#[cfg(test)]
-// NOTE: for tests, we need to use the `ENCODING_CONFIG` as a thread-local variable. Tests are run
-// in parallel on separate threads, but still share the static `ENCODING_CONFIG` in the normal case.
-// This creates issues when running tests that require different configs. Therefore, a thread local
-// variable allows us to keep the configs separated during tests.
-// PROBLEM: will this create issues during end-to-end tests?
-thread_local! {
-    static ENCODING_CONFIG: RefCell<Option<EncodingConfig>> = RefCell::new(None);
-}
-
-/// Creates a new global encoding configuration for the provided system parameters.
-///
-/// Performs no action if the global configuration is already initialized.
-///
-/// # Arguments
-///
-/// * `source_symbols_primary` - The number of source symbols for the primary encoding. This
-///   should be slightly below `f`, where `f` is the Byzantine parameter.
-/// * `source_symbols_secondary` - The number of source symbols for the secondary encoding. This
-///   should be slightly below `2f`.
-/// * `n_shards` - The total number of shards.
-///
-/// Ideally, both `source_symbols_primary` and `source_symbols_secondary` should be chosen from the
-/// list of supported values of K' provided in [RFC 6330, Section 5.6][rfc6330s5.6] to avoid the
-/// need for padding symbols.
-///
-/// # Returns
-///
-/// The global encoding configuration.
-///
-/// # Panics
-///
-/// Panics if the parameters are inconsistent with Byzantine fault tolerance; i.e., if the
-/// number of source symbols of the primary encoding is equal to or greater than 1/3 of the
-/// number of shards, or if the number of source symbols of the secondary encoding equal to or
-/// greater than 2/3 of the number of shards.
-///
-/// Panics if the number of primary or secondary source symbols is 0 or larger than
-/// [`MAX_SOURCE_SYMBOLS_PER_BLOCK`].
-///
-/// Panics if the total number of shards `n_shards` is greater than `MAX_N_SHARDS`.
-///
-/// [rfc6330s5.6]: https://datatracker.ietf.org/doc/html/rfc6330#section-5.6
-#[cfg(not(test))]
-pub fn initialize_encoding_config(
-    source_symbols_primary: u16,
-    source_symbols_secondary: u16,
-    n_shards: u32,
-) -> &'static EncodingConfig {
-    ENCODING_CONFIG.get_or_init(|| {
-        EncodingConfig::new(source_symbols_primary, source_symbols_secondary, n_shards)
-    })
-}
-
-/// Test version of encoding config initialization.
-#[cfg(test)]
-pub fn initialize_encoding_config(
-    source_symbols_primary: u16,
-    source_symbols_secondary: u16,
-    n_shards: u32,
-) {
-    ENCODING_CONFIG.with(|f| {
-        *f.borrow_mut() = Some(EncodingConfig::new(
-            source_symbols_primary,
-            source_symbols_secondary,
-            n_shards,
-        ))
-    });
-}
-
-/// Gets the global encoding configuration.
-///
-/// # Returns
-///
-/// The global [`EncodingConfig`].
-///
-/// # Panics
-///
-/// Must only be called after the global encoding configuration was initialized with
-/// [`initialize_encoding_config`], panics otherwise.
-#[cfg(not(test))]
-pub fn get_encoding_config() -> &'static EncodingConfig {
-    ENCODING_CONFIG
-        .get()
-        .expect("must first be initialized with `initialize_encoding_config`")
-}
-
-/// Test version of getting the "global" (thread local) encoding configuration.
-#[cfg(test)]
-pub fn get_encoding_config() -> EncodingConfig {
-    ENCODING_CONFIG
-        .with(|f| f.borrow().clone())
-        .expect("must first be initialized with `initialize_encoding_config`")
-}
 
 /// Configuration of the Walrus encoding.
 ///
@@ -144,11 +41,38 @@ pub struct EncodingConfig {
 }
 
 impl EncodingConfig {
-    pub(crate) fn new(
-        source_symbols_primary: u16,
-        source_symbols_secondary: u16,
-        n_shards: u32,
-    ) -> Self {
+    /// Creates a new encoding configuration for the provided system parameters.
+    ///
+    /// # Arguments
+    ///
+    /// * `source_symbols_primary` - The number of source symbols for the primary encoding. This
+    ///   should be slightly below `f`, where `f` is the Byzantine parameter.
+    /// * `source_symbols_secondary` - The number of source symbols for the secondary encoding. This
+    ///   should be slightly below `2f`.
+    /// * `n_shards` - The total number of shards.
+    ///
+    /// Ideally, both `source_symbols_primary` and `source_symbols_secondary` should be chosen from
+    /// the list of supported values of K' provided in [RFC 6330, Section 5.6][rfc6330s5.6] to avoid
+    /// the need for padding symbols.
+    ///
+    /// # Returns
+    ///
+    /// The encoding configuration.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the parameters are inconsistent with Byzantine fault tolerance; i.e., if the
+    /// number of source symbols of the primary encoding is equal to or greater than 1/3 of the
+    /// number of shards, or if the number of source symbols of the secondary encoding equal to or
+    /// greater than 2/3 of the number of shards.
+    ///
+    /// Panics if the number of primary or secondary source symbols is 0 or larger than
+    /// [`MAX_SOURCE_SYMBOLS_PER_BLOCK`].
+    ///
+    /// Panics if the total number of shards `n_shards` is greater than [`MAX_N_SHARDS`].
+    ///
+    /// [rfc6330s5.6]: https://datatracker.ietf.org/doc/html/rfc6330#section-5.6
+    pub fn new(source_symbols_primary: u16, source_symbols_secondary: u16, n_shards: u32) -> Self {
         assert!(
             source_symbols_primary * source_symbols_secondary > 0,
             "the number of source symbols must not be 0"
@@ -189,6 +113,11 @@ impl EncodingConfig {
         } else {
             self.source_symbols_secondary
         }
+    }
+
+    /// Returns the number of shards.
+    pub fn n_shards(&self) -> u32 {
+        self.n_shards
     }
 
     /// Returns the pre-generated encoding plan this type.
@@ -253,12 +182,7 @@ impl EncodingConfig {
         &self,
         pair_index: SliverPairIndex,
     ) -> SliverIndex {
-        if T::IS_PRIMARY {
-            pair_index
-        } else {
-            let idx = self.n_shards - pair_index.as_u32() - 1;
-            SliverIndex::new(idx.try_into().expect("shard index out of bounds"))
-        }
+        T::sliver_index_from_pair_index(pair_index, self.n_shards)
     }
 
     /// Returns an [`Encoder`] to perform a single primary or secondary encoding of the provided

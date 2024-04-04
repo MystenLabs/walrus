@@ -8,7 +8,7 @@ use futures::{stream::FuturesUnordered, Future, Stream};
 use reqwest::{Client as ReqwestClient, ClientBuilder};
 use tokio::time::Duration;
 use walrus_core::{
-    encoding::{get_encoding_config, BlobDecoder, EncodingAxis, Sliver, SliverPair},
+    encoding::{BlobDecoder, EncodingAxis, EncodingConfig, Sliver, SliverPair},
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
     SignedStorageConfirmation,
@@ -34,6 +34,7 @@ pub struct Client {
     client: ReqwestClient,
     committee: Committee,
     concurrent_requests: usize,
+    encoding_config: EncodingConfig,
 }
 
 impl Client {
@@ -43,10 +44,12 @@ impl Client {
         let client = ClientBuilder::new()
             .timeout(config.connection_timeout)
             .build()?;
+        let encoding_config = config.encoding_config();
         Ok(Self {
             client,
             committee: config.committee,
             concurrent_requests: config.concurrent_requests,
+            encoding_config,
         })
     }
 
@@ -55,7 +58,8 @@ impl Client {
         &self,
         blob: &[u8],
     ) -> Result<(VerifiedBlobMetadataWithId, Vec<SignedStorageConfirmation>)> {
-        let (pairs, metadata) = get_encoding_config()
+        let (pairs, metadata) = self
+            .encoding_config
             .get_blob_encoder(blob)?
             .encode_with_metadata();
         let pairs_per_node = self.pairs_per_node(metadata.blob_id(), pairs);
@@ -110,13 +114,14 @@ impl Client {
                 .iter()
                 .map(|s| n.retrieve_verified_sliver::<T>(metadata, *s))
         });
-        let mut decoder = get_encoding_config()
+        let mut decoder = self
+            .encoding_config
             .get_blob_decoder::<T>(metadata.metadata().unencoded_length.try_into()?)?;
         // Get the first ~1/3 or ~2/3 of slivers directly, and decode with these.
         let mut requests = WeightedFutures::new(futures);
         requests
             .execute_weight(
-                get_encoding_config().n_source_symbols::<T>().into(),
+                self.encoding_config.n_source_symbols::<T>().into(),
                 self.concurrent_requests,
             )
             .await;
@@ -181,6 +186,7 @@ impl Client {
             &self.client,
             node,
             self.committee.total_weight,
+            &self.encoding_config,
         )
     }
 
@@ -219,41 +225,39 @@ impl Client {
 
 #[cfg(test)]
 mod tests {
-    use walrus_core::encoding::{initialize_encoding_config, Primary};
+    use walrus_core::encoding::Primary;
     use walrus_sui::client::MockSuiReadClient;
 
     use super::*;
-    use crate::test_utils::spawn_test_committee;
+    use crate::test_utils;
 
     #[tokio::test]
     #[ignore = "ignore E2E tests by default"]
     async fn test_store_and_read_blob() {
-        let n_symbols_primary = 2;
-        let n_symbols_secondary = 4;
-        let n_shards = 10;
-        initialize_encoding_config(n_symbols_primary, n_symbols_secondary, n_shards as u32);
+        let encoding_config = EncodingConfig::new(2, 4, 10);
         let blob = walrus_test_utils::random_data(31415);
-        let blob_id = get_encoding_config()
+        let blob_id = encoding_config
             .get_blob_encoder(&blob)
             .unwrap()
             .compute_metadata()
             .blob_id()
             .to_owned();
         let sui_read_client = MockSuiReadClient::new_with_blob_ids([blob_id]);
+
         // Create a new committee of 4 nodes, 2 with 2 shards and 2 with 3 shards.
-        let config = spawn_test_committee(
-            n_symbols_primary,
-            n_symbols_secondary,
-            n_shards,
+        let config = test_utils::spawn_test_committee(
+            encoding_config,
             &[&[0, 1], &[2, 3], &[4, 5, 6], &[7, 8, 9]],
             sui_read_client,
         )
         .await;
         tokio::time::sleep(Duration::from_millis(1)).await;
         let client = Client::new(config).unwrap();
+
         // Store a blob and get confirmations from each node.
         let (metadata, confirmation) = client.store_blob(&blob).await.unwrap();
         assert!(confirmation.len() == 4);
+
         // Read the blob.
         let read_blob = client
             .read_blob::<Primary>(metadata.blob_id())

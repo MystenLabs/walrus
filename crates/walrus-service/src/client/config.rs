@@ -4,6 +4,7 @@
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use walrus_core::encoding::EncodingConfig;
 use walrus_sui::types::Committee;
 
 /// Temporary config for the client.
@@ -19,4 +20,15 @@ pub struct Config {
     pub concurrent_requests: usize,
     /// Timeout for the `reqwest` client used by the client,
     pub connection_timeout: Duration,
+}
+
+impl Config {
+    /// Returns the [`EncodingConfig`] for this configuration.
+    pub fn encoding_config(&self) -> EncodingConfig {
+        EncodingConfig::new(
+            self.source_symbols_primary,
+            self.source_symbols_secondary,
+            self.committee.total_weight as u32,
+        )
+    }
 }

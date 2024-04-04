@@ -6,7 +6,7 @@ use fastcrypto::{hash::Blake2b256, traits::VerifyingKey};
 use futures::future::join_all;
 use reqwest::Client as ReqwestClient;
 use walrus_core::{
-    encoding::{get_encoding_config, EncodingAxis, Sliver, SliverPair},
+    encoding::{EncodingAxis, EncodingConfig, Sliver, SliverPair},
     messages::{Confirmation, StorageConfirmation},
     metadata::{
         SliverIndex,
@@ -35,6 +35,7 @@ pub(crate) struct NodeCommunication<'a> {
     pub client: &'a ReqwestClient,
     pub node: &'a StorageNode,
     pub total_weight: usize,
+    pub encoding_config: &'a EncodingConfig,
 }
 
 impl<'a> NodeCommunication<'a> {
@@ -43,12 +44,14 @@ impl<'a> NodeCommunication<'a> {
         client: &'a ReqwestClient,
         node: &'a StorageNode,
         total_weight: usize,
+        encoding_config: &'a EncodingConfig,
     ) -> Self {
         Self {
             epoch,
             client,
             node,
             total_weight,
+            encoding_config,
         }
     }
 
@@ -145,15 +148,17 @@ impl<'a> NodeCommunication<'a> {
             .ok_or(anyhow!("missing hashes for the sliver"))?;
         anyhow::ensure!(
             sliver.symbols.len()
-                == get_encoding_config().n_source_symbols::<T::OrthogonalAxis>() as usize
+                == self.encoding_config.n_source_symbols::<T::OrthogonalAxis>() as usize
                 && sliver.symbols.symbol_size()
-                    == get_encoding_config()
+                    == self
+                        .encoding_config
                         .symbol_size_for_blob(metadata.metadata().unencoded_length.try_into()?)
                         .ok_or(anyhow!("the blob size in the metadata is too large"))?,
             "the size of the sliver does not match the expected size for the blob",
         );
         anyhow::ensure!(
-            sliver.get_merkle_root::<Blake2b256>()? == *pair_metadata.hash::<T>(),
+            sliver.get_merkle_root::<Blake2b256>(self.encoding_config)?
+                == *pair_metadata.hash::<T>(),
             "the sliver's Merkle root does not match the hash in the metadata"
         );
         Ok(())

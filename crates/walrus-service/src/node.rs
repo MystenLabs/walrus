@@ -13,7 +13,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 use typed_store::{rocks::MetricConf, DBMetrics};
 use walrus_core::{
-    encoding::{get_encoding_config, Primary, RecoveryError, Secondary},
+    encoding::{EncodingConfig, RecoveryError},
     ensure,
     merkle::MerkleProof,
     messages::{Confirmation, SignedStorageConfirmation, StorageConfirmation},
@@ -156,7 +156,7 @@ pub trait ServiceState {
 pub struct StorageNode<T> {
     current_epoch: Epoch,
     storage: Storage,
-    n_shards: NonZeroUsize,
+    encoding_config: EncodingConfig,
     protocol_key_pair: ProtocolKeyPair,
     sui_read_client: T,
     event_polling_interval: Duration,
@@ -167,6 +167,7 @@ impl StorageNode<SuiReadClient> {
     pub async fn new(
         config: &StorageNodeConfig,
         registry_service: RegistryService,
+        encoding_config: EncodingConfig,
     ) -> anyhow::Result<Self> {
         DBMetrics::init(&registry_service.default_registry());
         let storage = Storage::open(config.storage_path.as_path(), MetricConf::new("storage"))?;
@@ -186,7 +187,7 @@ impl StorageNode<SuiReadClient> {
 
         Ok(Self::new_with_storage(
             storage,
-            100,
+            encoding_config,
             protocol_key_pair.clone(),
             sui_read_client,
             sui_config.event_polling_interval,
@@ -201,7 +202,7 @@ where
     /// Create a new storage node providing the storage directly.
     pub fn new_with_storage(
         storage: Storage,
-        n_shards: usize,
+        encoding_config: EncodingConfig,
         protocol_key_pair: ProtocolKeyPair,
         sui_read_client: T,
         event_polling_interval: Duration,
@@ -209,7 +210,7 @@ where
         Self {
             storage,
             current_epoch: 0,
-            n_shards: NonZeroUsize::new(n_shards).expect("number of shards must not be zero"),
+            encoding_config,
             protocol_key_pair,
             sui_read_client,
             event_polling_interval,
@@ -294,7 +295,10 @@ where
             return Err(StoreMetadataError::BlobExpired);
         }
 
-        let verified_metadata_with_id = metadata.verify(self.n_shards)?;
+        let verified_metadata_with_id = metadata.verify(
+            NonZeroUsize::new(self.encoding_config.n_shards() as usize)
+                .expect("guaranteed to be nonzero"),
+        )?;
         self.storage
             .put_verified_metadata(&verified_metadata_with_id)
             .context("unable to store metadata")?;
@@ -307,7 +311,11 @@ where
         sliver_pair_idx: SliverPairIndex,
         sliver_type: SliverType,
     ) -> Result<Option<Sliver>, RetrieveSliverError> {
-        let shard = shard_index_for_pair(sliver_pair_idx, self.n_shards.get(), blob_id);
+        let shard = shard_index_for_pair(
+            sliver_pair_idx,
+            self.encoding_config.n_shards() as usize,
+            blob_id,
+        );
         let sliver = self
             .storage
             .shard_storage(shard)
@@ -325,7 +333,11 @@ where
     ) -> Result<(), StoreSliverError> {
         // First determine if the shard that should store this sliver is managed by this node.
         // If not, we can return early without touching the database.
-        let shard = shard_index_for_pair(sliver_pair_idx, self.n_shards.get(), blob_id);
+        let shard = shard_index_for_pair(
+            sliver_pair_idx,
+            self.encoding_config.n_shards() as usize,
+            blob_id,
+        );
         let shard_storage = self
             .storage
             .shard_storage(shard)
@@ -344,14 +356,8 @@ where
             .unencoded_length
             .try_into()
             .expect("The maximum blob size is smaller than `usize::MAX`");
-        let expected_sliver_size = match sliver {
-            Sliver::Primary(_) => get_encoding_config().sliver_size_for_blob::<Primary>(blob_size),
-            Sliver::Secondary(_) => {
-                get_encoding_config().sliver_size_for_blob::<Secondary>(blob_size)
-            }
-        };
         ensure!(
-            expected_sliver_size == Some(sliver.len()),
+            sliver.has_correct_length(&self.encoding_config, blob_size),
             StoreSliverError::IncorrectSize(sliver.len(), *blob_id)
         );
 
@@ -361,7 +367,7 @@ where
             .get_sliver_hash(sliver_pair_idx, sliver.r#type())
             .ok_or_else(|| StoreSliverError::InvalidSliverPairId(sliver_pair_idx, *blob_id))?;
 
-        let computed_sliver_hash = sliver.hash()?;
+        let computed_sliver_hash = sliver.hash(&self.encoding_config)?;
         ensure!(
             &computed_sliver_hash == stored_sliver_hash,
             StoreSliverError::InvalidSliver(sliver_pair_idx, *blob_id)
@@ -409,7 +415,7 @@ where
         Ok(match sliver {
             Sliver::Primary(inner) => {
                 let symbol = inner
-                    .recovery_symbol_for_sliver_with_proof(index)
+                    .recovery_symbol_for_sliver_with_proof(index, &self.encoding_config)
                     .map_err(|_| {
                         RetrieveSymbolError::RecoveryError(index, sliver_pair_idx, *blob_id)
                     })?;
@@ -417,7 +423,7 @@ where
             }
             Sliver::Secondary(inner) => {
                 let symbol = inner
-                    .recovery_symbol_for_sliver_with_proof(index)
+                    .recovery_symbol_for_sliver_with_proof(index, &self.encoding_config)
                     .map_err(|_| {
                         RetrieveSymbolError::RecoveryError(index, sliver_pair_idx, *blob_id)
                     })?;
@@ -472,7 +478,7 @@ mod tests {
         storage.map(|storage| {
             StorageNode::new_with_storage(
                 storage,
-                100,
+                walrus_core::test_utils::encoding_config(),
                 signing_key.into(),
                 sui_read_client,
                 polling_interval,
