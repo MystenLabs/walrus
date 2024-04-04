@@ -85,7 +85,10 @@ impl Client {
             )
             .await;
         let results = requests.into_results();
-        Ok((metadata, results))
+        Ok((
+            metadata,
+            results.into_iter().filter_map(Result::ok).collect(),
+        ))
     }
 
     /// Reconstructs the blob by reading slivers from Walrus shards.
@@ -128,7 +131,11 @@ impl Client {
             )
             .await;
 
-        let slivers = requests.take_results();
+        let slivers = requests
+            .take_results()
+            .into_iter()
+            .filter_map(Result::ok)
+            .collect::<Vec<_>>();
 
         if let Some((blob, _meta)) = decoder.decode_and_verify(metadata.blob_id(), slivers)? {
             // We have enough to decode the blob.
@@ -154,10 +161,15 @@ impl Client {
         I: Iterator<Item = Fut>,
         Fut: Future<Output = WeightedResult<Sliver<T>, SliverRetrieveError>>,
     {
-        while let Some(sliver) = requests.execute_next(self.concurrent_requests).await {
-            let result = decoder.decode_and_verify(blob_id, [sliver])?;
-            if let Some((blob, _meta)) = result {
-                return Ok(blob);
+        while let Some(result) = requests.next(self.concurrent_requests).await {
+            match result {
+                Ok(sliver) => {
+                    let result = decoder.decode_and_verify(blob_id, [sliver])?;
+                    if let Some((blob, _meta)) = result {
+                        return Ok(blob);
+                    }
+                }
+                Err(_e) => (), // TODO(giac): add tracing
             }
         }
         // We have exhausted all the slivers but were not able to reconstruct the blob.
@@ -174,9 +186,13 @@ impl Client {
         // Wait until the first request succeeds
         let mut requests = WeightedFutures::new(futures);
         requests.execute_weight(1, self.concurrent_requests).await;
-        let metadata = requests.into_results().pop().ok_or(anyhow!(
-            "could not retrieve the metadata from the storage nodes"
-        ))?;
+        let metadata = requests
+            .into_results()
+            .into_iter()
+            .find_map(Result::ok)
+            .ok_or(anyhow!(
+                "could not retrieve the metadata from the storage nodes"
+            ))?;
         Ok(metadata)
     }
 
