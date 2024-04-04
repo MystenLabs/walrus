@@ -10,12 +10,10 @@ module blob_store::e2e_test  {
     use std::string;
     use sui::sui::SUI;
 
-    struct TESTTAG has drop {}
-
     fun init(ctx: &mut TxContext) {
 
         // Create a committee caps
-        let committee_cap = committee::create_committee_cap(TESTTAG {});
+        let committee_cap = committee::create_committee_cap();
 
         // Pk corresponding to secret key scalar(117)
         let pub_key_bytes = vector[149, 234, 204, 58, 220, 9, 200, 39, 89, 63, 88, 30, 142, 45,
@@ -38,8 +36,7 @@ module blob_store::e2e_test  {
         );
 
         // Share the new blob store as a shared object
-        system::share_new<TESTTAG, SUI>(
-            &TESTTAG {},
+        system::share_new<SUI>(
             committee_0,
             1000000000,
             10,

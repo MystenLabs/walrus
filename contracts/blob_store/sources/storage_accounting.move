@@ -11,18 +11,18 @@ module blob_store::storage_accounting {
 
     /// Holds information about a future epoch, namely how much
     /// storage needs to be reclaimed and the rewards to be distributed.
-    struct FutureAccounting<phantom TAG, phantom WAL> has store {
+    struct FutureAccounting<phantom WAL> has store {
         epoch: u64,
         storage_to_reclaim: u64,
         rewards_to_distribute: Balance<WAL>,
     }
 
     /// Constructor for FutureAccounting
-    public fun new_future_accounting<TAG, WAL>(
+    public fun new_future_accounting<WAL>(
         epoch: u64,
         storage_to_reclaim: u64,
         rewards_to_distribute: Balance<WAL>,
-    ) : FutureAccounting<TAG, WAL> {
+    ) : FutureAccounting<WAL> {
         FutureAccounting {
             epoch,
             storage_to_reclaim,
@@ -31,34 +31,34 @@ module blob_store::storage_accounting {
     }
 
     /// Accessor for epoch, read-only
-    public fun epoch<TAG, WAL>(accounting: &FutureAccounting<TAG, WAL>) : u64 {
+    public fun epoch<WAL>(accounting: &FutureAccounting<WAL>) : u64 {
         *&accounting.epoch
     }
 
     /// Accessor for storage_to_reclaim, mutable.
-    public fun storage_to_reclaim<TAG, WAL>(
-            accounting: &mut FutureAccounting<TAG, WAL>)
+    public fun storage_to_reclaim<WAL>(
+            accounting: &mut FutureAccounting<WAL>)
             : u64 {
         accounting.storage_to_reclaim
     }
 
     /// Increase storage to reclaim
-    public fun increase_storage_to_reclaim<TAG, WAL>(
-            accounting: &mut FutureAccounting<TAG, WAL>,
+    public fun increase_storage_to_reclaim<WAL>(
+            accounting: &mut FutureAccounting<WAL>,
             amount: u64) {
         accounting.storage_to_reclaim = accounting.storage_to_reclaim + amount;
     }
 
     /// Accessor for rewards_to_distribute, mutable.
-    public fun rewards_to_distribute<TAG, WAL>(
-            accounting: &mut FutureAccounting<TAG, WAL>)
+    public fun rewards_to_distribute<WAL>(
+            accounting: &mut FutureAccounting<WAL>)
             : &mut Balance<WAL> {
         &mut accounting.rewards_to_distribute
     }
 
     /// Destructor for FutureAccounting, when empty.
-    public fun delete_empty_future_accounting<TAG, WAL>(
-        self: FutureAccounting<TAG, WAL>,
+    public fun delete_empty_future_accounting<WAL>(
+        self: FutureAccounting<WAL>,
     ) {
         let FutureAccounting {
             epoch: _,
@@ -70,8 +70,8 @@ module blob_store::storage_accounting {
     }
 
     #[test_only]
-    public fun burn_for_testing<TAG, WAL>(
-        self: FutureAccounting<TAG, WAL>,
+    public fun burn_for_testing<WAL>(
+        self: FutureAccounting<WAL>,
     ) {
         let FutureAccounting {
             epoch: _,
@@ -83,18 +83,18 @@ module blob_store::storage_accounting {
     }
 
     /// A ring buffer holding future accounts for a continuous range of epochs.
-    struct FutureAccountingRingBuffer<phantom TAG, phantom WAL> has store {
+    struct FutureAccountingRingBuffer<phantom WAL> has store {
         current_index : u64,
         length : u64,
-        ring_buffer : vector<FutureAccounting<TAG, WAL>>,
+        ring_buffer : vector<FutureAccounting<WAL>>,
     }
 
     /// Constructor for FutureAccountingRingBuffer
-    public fun ring_new<TAG, WAL>(
+    public fun ring_new<WAL>(
         length: u64,
-    ) : FutureAccountingRingBuffer<TAG, WAL> {
+    ) : FutureAccountingRingBuffer<WAL> {
 
-        let ring_buffer :  vector<FutureAccounting<TAG,WAL>> = vector::empty();
+        let ring_buffer :  vector<FutureAccounting<WAL>> = vector::empty();
         let i = 0;
         while (i < length) {
             vector::push_back(&mut ring_buffer, FutureAccounting {
@@ -113,10 +113,10 @@ module blob_store::storage_accounting {
     }
 
     /// Lookup an entry a number of epochs in the future.
-    public fun ring_lookup_mut<TAG, WAL>(
-        self: &mut FutureAccountingRingBuffer<TAG, WAL>,
+    public fun ring_lookup_mut<WAL>(
+        self: &mut FutureAccountingRingBuffer<WAL>,
         epochs_in_future: u64,
-    ) : &mut FutureAccounting<TAG, WAL> {
+    ) : &mut FutureAccounting<WAL> {
 
         // Check for out-of-bounds access.
         assert!(epochs_in_future < self.length, ERROR_INDEX_OUT_OF_BOUNDS);
@@ -125,9 +125,9 @@ module blob_store::storage_accounting {
         vector::borrow_mut(&mut self.ring_buffer, actual_index)
     }
 
-    public fun ring_pop_expand<TAG,WAL>(
-        self: &mut FutureAccountingRingBuffer<TAG, WAL>)
-        : FutureAccounting<TAG, WAL> {
+    public fun ring_pop_expand<WAL>(
+        self: &mut FutureAccountingRingBuffer<WAL>)
+        : FutureAccounting<WAL> {
 
         // Get current epoch
         let current_index = self.current_index;
