@@ -2,14 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Walrus Storage Node entry point.
 
-use std::{fs, io, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
+use std::{fs, io, net::SocketAddr, path::PathBuf, sync::Arc};
 
-use anyhow::Context;
+use anyhow::{ensure, Context};
 use clap::{Parser, Subcommand};
 use fastcrypto::traits::KeyPair;
-use futures::future;
 use mysten_metrics::RegistryService;
-use rand::thread_rng;
 use telemetry_subscribers::{TelemetryGuards, TracingHandle};
 use tokio::{
     runtime::{self, Runtime},
@@ -17,14 +15,11 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
-use walrus_core::{ProtocolKeyPair, ShardIndex};
 use walrus_service::{
-    client,
-    config::{self, StorageNodeConfig},
+    config::{testbed_configs, StorageNodeConfig},
     server::UserServer,
     StorageNode,
 };
-use walrus_sui::types::StorageNode as SuiStorageNode;
 
 const GIT_REVISION: &str = {
     if let Some(revision) = option_env!("GIT_REVISION") {
@@ -60,18 +55,21 @@ enum Commands {
         config_path: PathBuf,
     },
     /// Deploy a testbed of storage nodes.
-    Testbed {
-        /// Path to the directory where the testbed will be deployed.
-        #[clap(long, default_value = "./")]
+    DryRun {
+        /// The directory where the storage nodes will be deployed.
+        #[clap(long, default_value = "./working_dir")]
         working_dir: PathBuf,
-        /// Number of storage nodes to deploy.
+        /// The index of the storage node to deploy.
+        #[clap(long)]
+        index: u16,
+        /// The number of storage nodes in the committee.
         #[clap(long, default_value_t = 10)]
-        number_of_nodes: u16,
-        /// Number of primary symbols to use.
+        committee_size: u16,
+        /// Number of primary symbols to use (used to generate client config).
         #[clap(long, default_value_t = 2)]
         n_symbols_primary: u16,
-        /// Number of secondary symbols to use.
-        #[clap(long, default_value_t = 4)]
+        /// Number of secondary symbols to use (used to generate client config).
+        #[clap(long, default_value_t = 5)]
         n_symbols_secondary: u16,
     },
     KeyGen {
@@ -80,8 +78,7 @@ enum Commands {
     },
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     match args.command {
         Commands::Run { config_path } => {
@@ -89,19 +86,20 @@ async fn main() -> anyhow::Result<()> {
             run_storage_node(config)?;
         }
 
-        Commands::Testbed {
+        Commands::DryRun {
             working_dir,
-            number_of_nodes,
+            index,
+            committee_size,
             n_symbols_primary,
             n_symbols_secondary,
         } => {
-            deploy_testbed(
+            dry_run(
                 working_dir,
-                number_of_nodes,
+                index,
+                committee_size,
                 n_symbols_primary,
                 n_symbols_secondary,
-            )
-            .await?
+            )?;
         }
         Commands::KeyGen { out: _out } => {
             // TODO(jsmith): Add a CLI endpoint to generate a new private key file (#148)
@@ -144,69 +142,53 @@ fn run_storage_node(mut config: StorageNodeConfig) -> anyhow::Result<()> {
     node_runtime.join()
 }
 
-async fn deploy_testbed(
+fn dry_run(
     working_dir: PathBuf,
-    number_of_nodes: u16,
+    storage_node_index: u16,
+    committee_size: u16,
     n_symbols_primary: u16,
     n_symbols_secondary: u16,
 ) -> anyhow::Result<()> {
-    // Generate storage node configs.
-    let mut storage_node_configs = Vec::new();
-    let mut sui_storage_node_configs = Vec::new();
-    for i in 0..number_of_nodes {
-        let name = format!("node-{i}");
-
-        let mut storage_path = working_dir.clone();
-        storage_path.push("storage");
-        storage_path.push(&name);
-
-        let protocol_key_pair = ProtocolKeyPair::random(&mut thread_rng());
-        let public_key = protocol_key_pair.as_ref().public().clone();
-
-        let mut metrics_address = config::defaults::metrics_address();
-        metrics_address.set_port(metrics_address.port() + i as u16);
-
-        let mut rest_api_address = config::defaults::rest_api_address();
-        rest_api_address.set_port(rest_api_address.port() + i as u16);
-
-        storage_node_configs.push(StorageNodeConfig {
-            storage_path,
-            protocol_key_pair: config::PathOrInPlace::InPlace(protocol_key_pair),
-            metrics_address,
-            rest_api_address,
-        });
-
-        sui_storage_node_configs.push(SuiStorageNode {
-            name,
-            network_address: rest_api_address.into(),
-            public_key,
-            shard_ids: vec![ShardIndex(i)],
-        });
+    ensure!(
+        storage_node_index < committee_size,
+        "Storage node index must be less than the number of nodes"
+    );
+    if let Err(e) = fs::create_dir_all(&working_dir) {
+        return Err(e).context(format!(
+            "Failed to create directory '{}'",
+            working_dir.display()
+        ));
     }
 
-    // Print client configs.
-    let client_config = client::Config {
-        committee: walrus_sui::types::Committee {
-            members: sui_storage_node_configs,
-            epoch: 0,
-            total_weight: number_of_nodes as usize,
-        },
-        source_symbols_primary: n_symbols_primary,
-        source_symbols_secondary: n_symbols_secondary,
-        concurrent_requests: number_of_nodes as usize,
-        connection_timeout: Duration::from_secs(10),
-    };
-    let client_config_path = working_dir.join("client_config.yaml");
+    // Generate testbed configs.
+    let (storage_node_configs, client_config) = testbed_configs(
+        &working_dir,
+        committee_size,
+        n_symbols_primary,
+        n_symbols_secondary,
+    );
+
+    // Write client config to file.
     let serialized_client_config =
         serde_yaml::to_string(&client_config).context("Failed to serialize client configs")?;
-    fs::write(&client_config_path, serialized_client_config)
+    let client_config_path = working_dir.join("client_config.yaml");
+    fs::write(client_config_path, serialized_client_config)
         .context("Failed to write client configs")?;
 
-    // Start storage nodes.
-    let storage_node_handles = storage_node_configs.into_iter().map(|config| {
-        tokio::spawn(async move { run_storage_node(config).expect("unable to start storage node") })
-    });
-    future::try_join_all(storage_node_handles).await?;
+    // Start storage node with index `storage_node_index`.
+    let storage_node_config = storage_node_configs[storage_node_index as usize].clone();
+    let storage_path = &storage_node_config.storage_path;
+    match fs::remove_dir_all(storage_path) {
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => {
+            return Err(e).context(format!(
+                "Failed to remove directory '{}'",
+                storage_path.display()
+            ))
+        }
+    }
+    run_storage_node(storage_node_config)?;
     Ok(())
 }
 

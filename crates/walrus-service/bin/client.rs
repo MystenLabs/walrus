@@ -33,13 +33,16 @@ enum Commands {
     // therefore, this command only works with storage nodes that blindly accept blobs.
     Store {
         /// The file containing the blob to be published to Walrus.
+        #[clap(long)]
         file: PathBuf,
     },
     /// Read a blob from Walrus, given the blob ID.
     Read {
         /// The blob ID to be read.
+        #[clap(long)]
         blob_id: BlobId,
         /// The file path where to write the blob.
+        #[clap(long)]
         out: PathBuf,
     },
 }

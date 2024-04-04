@@ -4,9 +4,12 @@
 use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use anyhow::Context;
+use fastcrypto::traits::KeyPair;
+use rand::{rngs::StdRng, SeedableRng};
 use serde::{Deserialize, Serialize};
 use serde_with::{
     base64::Base64,
@@ -16,7 +19,15 @@ use serde_with::{
     DeserializeAs,
     SerializeAs,
 };
-use walrus_core::{keys::ProtocolKeyPairParseError, ProtocolKeyPair};
+use walrus_core::{
+    encoding::initialize_encoding_config,
+    keys::ProtocolKeyPairParseError,
+    ProtocolKeyPair,
+    ShardIndex,
+};
+use walrus_sui::types::StorageNode as SuiStorageNode;
+
+use crate::client;
 
 /// Configuration of a Walrus storage node.
 #[serde_as]
@@ -174,6 +185,66 @@ where
         };
         wrapper.serialize(serializer)
     }
+}
+
+/// Configuration for the testbed.
+pub fn testbed_configs(
+    working_dir: &Path,
+    committee_size: u16,
+    n_symbols_primary: u16,
+    n_symbols_secondary: u16,
+) -> (Vec<StorageNodeConfig>, client::Config) {
+    let mut rng = StdRng::seed_from_u64(0);
+
+    // Generate all storage node configs from a seed.
+    let mut storage_node_configs = Vec::new();
+    let mut sui_storage_node_configs = Vec::new();
+    for i in 0..committee_size {
+        let name = format!("dryrun-node-{i}");
+
+        let protocol_key_pair = ProtocolKeyPair::random(&mut rng);
+        let public_key = protocol_key_pair.as_ref().public().clone();
+
+        let mut metrics_address = defaults::metrics_address();
+        metrics_address.set_port(metrics_address.port() + i);
+
+        let mut rest_api_address = defaults::rest_api_address();
+        rest_api_address.set_port(rest_api_address.port() + committee_size + i);
+
+        storage_node_configs.push(StorageNodeConfig {
+            storage_path: working_dir.join(&name),
+            protocol_key_pair: PathOrInPlace::InPlace(protocol_key_pair),
+            metrics_address,
+            rest_api_address,
+        });
+
+        sui_storage_node_configs.push(SuiStorageNode {
+            name,
+            network_address: rest_api_address.into(),
+            public_key,
+            shard_ids: vec![ShardIndex(i)],
+        });
+    }
+
+    // Print the client config.
+    let client_config = client::Config {
+        committee: walrus_sui::types::Committee {
+            members: sui_storage_node_configs,
+            epoch: 0,
+            total_weight: committee_size as usize,
+        },
+        source_symbols_primary: n_symbols_primary,
+        source_symbols_secondary: n_symbols_secondary,
+        concurrent_requests: committee_size as usize,
+        connection_timeout: Duration::from_secs(10),
+    };
+    initialize_encoding_config(
+        client_config.source_symbols_primary,
+        client_config.source_symbols_secondary,
+        client_config.committee.total_weight as u32,
+    );
+
+    (storage_node_configs, client_config)
 }
 
 #[cfg(test)]
