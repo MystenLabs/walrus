@@ -226,7 +226,7 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use walrus_core::encoding::Primary;
-    use walrus_sui::client::MockSuiReadClient;
+    use walrus_sui::test_utils::MockSuiReadClient;
 
     use super::*;
     use crate::test_utils;
@@ -242,8 +242,7 @@ mod tests {
             .compute_metadata()
             .blob_id()
             .to_owned();
-        let sui_read_client = MockSuiReadClient::new_with_blob_ids([blob_id]);
-
+        let sui_read_client = MockSuiReadClient::new_with_blob_ids([blob_id], None);
         // Create a new committee of 4 nodes, 2 with 2 shards and 2 with 3 shards.
         let config = test_utils::spawn_test_committee(
             encoding_config,

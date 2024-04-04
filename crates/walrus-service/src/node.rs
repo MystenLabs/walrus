@@ -452,7 +452,7 @@ async fn sign_confirmation(
 #[cfg(test)]
 mod tests {
     use fastcrypto::{bls12381::min_pk::BLS12381KeyPair, traits::KeyPair};
-    use walrus_sui::client::MockSuiReadClient;
+    use walrus_sui::test_utils::MockSuiReadClient;
     use walrus_test_utils::{Result as TestResult, WithTempDir};
 
     use super::*;

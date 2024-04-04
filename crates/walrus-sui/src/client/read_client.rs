@@ -20,9 +20,8 @@ use sui_sdk::{
 };
 use sui_types::{base_types::SuiAddress, event::EventID, object::Owner, TypeTag};
 use tokio::sync::mpsc;
-use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
+use tokio_stream::{wrappers::ReceiverStream, Stream};
 use tracing::{instrument, Instrument};
-use walrus_core::BlobId;
 
 use super::SuiClientResult;
 use crate::{
@@ -31,9 +30,9 @@ use crate::{
     utils::{get_struct_from_object_response, get_type_parameters, handle_pagination},
 };
 
-/// Trait to read system state information and events from chain
+/// Trait to read system state information and events from chain.
 pub trait ReadClient {
-    /// Get the price for one unit of storage per epoch
+    /// Get the price for one unit of storage per epoch.
     fn price_per_unit_size(&self) -> impl Future<Output = SuiClientResult<u64>> + Send;
 
     /// Get a stream of new [`BlobRegistered`] events.
@@ -55,14 +54,14 @@ pub trait ReadClient {
         polling_interval: Duration,
         cursor: Option<EventID>,
     ) -> impl Future<Output = SuiClientResult<impl Stream<Item = BlobCertified> + Send>> + Send;
-    /// Get the current Walrus system object
+    /// Get the current Walrus system object.
     fn get_system_object(&self) -> impl Future<Output = SuiClientResult<SystemObject>> + Send;
 
-    /// Get the current committee
+    /// Get the current committee.
     fn current_committee(&self) -> impl Future<Output = SuiClientResult<Committee>> + Send;
 }
 
-/// Client implementation for interacting with the Walrus smart contracts
+/// Client implementation for interacting with the Walrus smart contracts.
 #[derive(Clone)]
 pub struct SuiReadClient {
     pub(crate) system_pkg: ObjectID,
@@ -75,7 +74,7 @@ const MAX_POLLING_INTERVAL: Duration = Duration::from_secs(5);
 const EVENT_CHANNEL_CAPACITY: usize = 1024;
 
 impl SuiReadClient {
-    /// Constructor for [`SuiReadClient`]
+    /// Constructor for [`SuiReadClient`].
     pub async fn new(
         sui_client: SuiClient,
         system_pkg: ObjectID,
@@ -227,80 +226,6 @@ impl fmt::Debug for SuiReadClient {
     }
 }
 
-/// Mock client for testing
-#[derive(Default, Debug, Clone)]
-pub struct MockSuiReadClient {
-    registered_events: Vec<BlobRegistered>,
-    certified_events: Vec<BlobCertified>,
-}
-
-impl MockSuiReadClient {
-    /// Create a new mock client that returns the provided events in a loop in the event streams.
-    pub fn new_with_events(
-        registered_events: Vec<BlobRegistered>,
-        certified_events: Vec<BlobCertified>,
-    ) -> Self {
-        MockSuiReadClient {
-            registered_events,
-            certified_events,
-        }
-    }
-
-    /// Create a new mock client that returns registered and certified events (in a loop) for
-    /// the given `blob_ids`.
-    pub fn new_with_blob_ids(blob_ids: impl IntoIterator<Item = BlobId>) -> Self {
-        let (registered_events, certified_events) = blob_ids
-            .into_iter()
-            .map(|blob_id| {
-                (
-                    BlobRegistered::for_testing(blob_id),
-                    BlobCertified::for_testing(blob_id),
-                )
-            })
-            .unzip();
-        MockSuiReadClient {
-            registered_events,
-            certified_events,
-        }
-    }
-}
-
-impl ReadClient for MockSuiReadClient {
-    async fn price_per_unit_size(&self) -> SuiClientResult<u64> {
-        Ok(10)
-    }
-
-    async fn blob_registered_events(
-        &self,
-        polling_interval: Duration,
-        _cursor: Option<EventID>,
-    ) -> SuiClientResult<impl Stream<Item = BlobRegistered>> {
-        Ok(
-            tokio_stream::iter(self.registered_events.clone().into_iter().cycle())
-                .throttle(polling_interval),
-        )
-    }
-
-    async fn blob_certified_events(
-        &self,
-        polling_interval: Duration,
-        _cursor: Option<EventID>,
-    ) -> SuiClientResult<impl Stream<Item = BlobCertified>> {
-        Ok(
-            tokio_stream::iter(self.certified_events.clone().into_iter().cycle())
-                .throttle(polling_interval),
-        )
-    }
-
-    async fn get_system_object(&self) -> SuiClientResult<SystemObject> {
-        unimplemented!("this needs to be implemented once it's used by a test")
-    }
-
-    async fn current_committee(&self) -> SuiClientResult<Committee> {
-        unimplemented!("this needs to be implemented once it's used by a test")
-    }
-}
-
 #[instrument(err, skip_all)]
 async fn poll_for_events<U>(
     tx_event: mpsc::Sender<U>,
@@ -361,7 +286,7 @@ where
                 // for a few times and then switch to a different full node.
                 // This logic would need to be handled by a consumer of the
                 // stream. Until that is in place, retry indefinitely.
-                // See https://github.com/MystenLabs/walrus/issues/144
+                // See https://github.com/MystenLabs/walrus/issues/144.
                 polling_interval = polling_interval
                     .saturating_mul(2)
                     .min(MAX_POLLING_INTERVAL)

@@ -329,10 +329,11 @@ pub(crate) mod tests {
         Sliver,
         SliverType,
     };
+    use walrus_sui::test_utils::event_id_for_testing;
     use walrus_test_utils::{param_test, Result as TestResult, WithTempDir};
 
     use super::*;
-    use crate::test_utils::{empty_storage_with_shards, event_id_for_testing};
+    use crate::test_utils::empty_storage_with_shards;
 
     type StorageSpec<'a> = &'a [(ShardIndex, Vec<(BlobId, WhichSlivers)>)];
 
