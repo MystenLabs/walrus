@@ -16,8 +16,13 @@ pub struct Config {
     pub source_symbols_primary: u16,
     /// The number of source symbols for the secondary encoding.
     pub source_symbols_secondary: u16,
-    /// The number of parallel requests the client makes.
-    pub concurrent_requests: usize,
+    /// The number of nodes the client contacts in parallel to store slivers. Since the slivers are
+    /// then stored in parallel, the number of active connections may be higher.
+    pub concurrent_store_requests: usize,
+    /// The number of nodes the client contacts in parallel to retrieve the metadata.
+    pub concurrent_metadata_requests: usize,
+    /// The number of _shards_ the client contacts in parallel to retrieve slivers.
+    pub concurrent_sliver_read_requests: usize,
     /// Timeout for the `reqwest` client used by the client,
     pub connection_timeout: Duration,
 }

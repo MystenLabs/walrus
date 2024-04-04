@@ -181,7 +181,9 @@ where
         },
         source_symbols_primary: encoding_config.n_source_symbols::<Primary>(),
         source_symbols_secondary: encoding_config.n_source_symbols::<Secondary>(),
-        concurrent_requests: n_shards,
+        concurrent_store_requests: n_shards,
+        concurrent_metadata_requests: 2,
+        concurrent_sliver_read_requests: n_shards,
         connection_timeout: Duration::from_secs(10),
     }
 }

@@ -6,7 +6,8 @@ use std::{collections::HashMap, time::Instant};
 use anyhow::{anyhow, Result};
 use futures::{stream::FuturesUnordered, Future, Stream};
 use reqwest::{Client as ReqwestClient, ClientBuilder};
-use tokio::time::Duration;
+use tokio::time::{timeout, Duration};
+use tokio_stream::StreamExt;
 use walrus_core::{
     encoding::{BlobDecoder, EncodingAxis, EncodingConfig, Sliver, SliverPair},
     metadata::VerifiedBlobMetadataWithId,
@@ -26,8 +27,8 @@ mod utils;
 pub use self::config::Config;
 use self::{
     communication::NodeCommunication,
-    error::NodeError,
-    utils::{WeightedFutures, WeightedResult},
+    error::{NodeError, NodeResult},
+    utils::push_futures,
 };
 
 /// A client to communicate with Walrus shards and storage nodes.
@@ -35,8 +36,9 @@ use self::{
 pub struct Client {
     client: ReqwestClient,
     committee: Committee,
-    concurrent_requests: usize,
-    encoding_config: EncodingConfig,
+    concurrent_store_requests: usize,
+    concurrent_metadata_requests: usize,
+    concurrent_sliver_read_requests: usize,
 }
 
 impl Client {
@@ -50,8 +52,9 @@ impl Client {
         Ok(Self {
             client,
             committee: config.committee,
-            concurrent_requests: config.concurrent_requests,
-            encoding_config,
+            concurrent_store_requests: config.concurrent_store_requests,
+            concurrent_metadata_requests: config.concurrent_metadata_requests,
+            concurrent_sliver_read_requests: config.concurrent_sliver_read_requests,
         })
     }
 
@@ -66,26 +69,71 @@ impl Client {
             .encode_with_metadata();
         let pairs_per_node = self.pairs_per_node(metadata.blob_id(), pairs);
         let comms = self.node_communications();
-        let mut requests = WeightedFutures::new(
-            comms
-                .iter()
-                .zip(pairs_per_node.into_iter())
-                .map(|(n, p)| n.store_metadata_and_pairs(&metadata, p)),
-        );
+        let mut futures = comms
+            .iter()
+            .zip(pairs_per_node.into_iter())
+            .map(|(n, p)| n.store_metadata_and_pairs(&metadata, p));
+        let mut requests = FuturesUnordered::new();
+        push_futures(self.concurrent_store_requests, &mut futures, &mut requests);
+
+        let mut confirmations = Vec::with_capacity(self.committee.total_weight);
+        let mut confirmation_weight = 0;
         let start = Instant::now();
-        requests
-            .execute_weight(self.committee.quorum_threshold(), self.concurrent_requests)
-            .await;
+        while let Some((epoch, node, result)) = requests.next().await {
+            match result {
+                Ok(confirmation) => {
+                    tracing::info!(
+                        "storage confirmation obtained from node {:?} for epoch {:?}",
+                        node,
+                        epoch,
+                    );
+                    confirmation_weight += node.shard_ids.len();
+                    confirmations.push(confirmation);
+                    if self.committee.is_quorum(confirmation_weight) {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    tracing::info!(
+                        "storage confirmation could not be obtained from \
+                                    node {node:?} for epoch {epoch} with error: {e:?}"
+                    );
+                }
+            }
+            if let Some(future) = futures.next() {
+                requests.push(future);
+            }
+        }
+
         // Double the execution time, with a minimum of 100 ms. This gives the client time to
         // collect more storage confirmations.
-        requests
-            .execute_time(
-                start.elapsed() + Duration::from_millis(100),
-                self.concurrent_requests,
-            )
-            .await;
-        let results = requests.into_results();
-        Ok((metadata, results))
+        let to_wait = start.elapsed() + Duration::from_millis(100);
+        let _ = timeout(to_wait, async {
+            while let Some((epoch, node, result)) = requests.next().await {
+                match result {
+                    Ok(confirmation) => {
+                        tracing::info!(
+                            "storage confirmation obtained from node {:?} for epoch {:?}",
+                            node,
+                            epoch,
+                        );
+                        confirmations.push(confirmation);
+                    }
+                    Err(e) => {
+                        tracing::info!(
+                            "storage confirmation could not be obtained from \
+                                        node {node:?} for epoch {epoch} with error: {e:?}"
+                        );
+                    }
+                }
+                if let Some(future) = futures.next() {
+                    requests.push(future);
+                }
+            }
+        })
+        .await;
+        drop(requests);
+        Ok((metadata, confirmations))
     }
 
     /// Reconstructs the blob by reading slivers from Walrus shards.
@@ -110,34 +158,56 @@ impl Client {
         // the encoding.
         let comms = self.node_communications();
         // Create requests to get all slivers from all nodes.
-        let futures = comms.iter().flat_map(|n| {
+        let mut futures = comms.iter().flat_map(|n| {
             n.node
                 .shard_ids
                 .iter()
                 .map(|s| n.retrieve_verified_sliver::<T>(metadata, *s))
         });
-        let mut decoder = self
-            .encoding_config
-            .get_blob_decoder::<T>(metadata.metadata().unencoded_length.try_into()?)?;
+        let mut decoder =
+            config.get_blob_decoder::<T>(metadata.metadata().unencoded_length.try_into()?)?;
+        let mut requests = FuturesUnordered::new();
+        push_futures(
+            self.concurrent_sliver_read_requests,
+            &mut futures,
+            &mut requests,
+        );
+
+        let mut slivers = Vec::with_capacity(self.committee.total_weight);
         // Get the first ~1/3 or ~2/3 of slivers directly, and decode with these.
-        let mut requests = WeightedFutures::new(futures);
-        requests
-            .execute_weight(
-                self.encoding_config.n_source_symbols::<T>().into(),
-                self.concurrent_requests,
-            )
-            .await;
-
-        let slivers = requests.take_results();
-
+        while let Some((epoch, node, result)) = requests.next().await {
+            match result {
+                Ok(sliver) => {
+                    tracing::info!("sliver obtained from node {:?} for epoch {:?}", node, epoch,);
+                    slivers.push(sliver);
+                    if self.meets_encoding_threshold::<T>(slivers.len()) {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    tracing::info!(
+                        "sliver could not be obtained from \
+                                    node {node:?} for epoch {epoch} with error: {e:?}"
+                    );
+                }
+            }
+            if let Some(future) = futures.next() {
+                requests.push(future);
+            }
+        }
         if let Some((blob, _meta)) = decoder.decode_and_verify(metadata.blob_id(), slivers)? {
             // We have enough to decode the blob.
             Ok(blob)
         } else {
             // We were not able to decode. Keep requesting slivers and try decoding as soon as every
             // new sliver is received.
-            self.decode_sliver_by_sliver(&mut requests, &mut decoder, metadata.blob_id())
-                .await
+            self.decode_sliver_by_sliver(
+                &mut requests,
+                &mut futures,
+                &mut decoder,
+                metadata.blob_id(),
+            )
+            .await
         }
     }
 
@@ -145,20 +215,35 @@ impl Client {
     /// sliver it receives.
     async fn decode_sliver_by_sliver<'a, I, Fut, T>(
         &self,
-        requests: &mut WeightedFutures<I, Fut, Sliver<T>, NodeError>,
+        requests: &mut FuturesUnordered<Fut>,
+        futures: &mut I,
         decoder: &mut BlobDecoder<'a, T>,
         blob_id: &BlobId,
     ) -> Result<Vec<u8>>
     where
         T: EncodingAxis,
         I: Iterator<Item = Fut>,
-        Fut: Future<Output = WeightedResult<Sliver<T>, NodeError>>,
-        FuturesUnordered<Fut>: Stream<Item = WeightedResult<Sliver<T>, NodeError>>,
+        Fut: Future<Output = NodeResult<Sliver<T>, NodeError>>,
+        FuturesUnordered<Fut>: Stream<Item = NodeResult<Sliver<T>, NodeError>>,
     {
-        while let Some(sliver) = requests.execute_next(self.concurrent_requests).await {
-            let result = decoder.decode_and_verify(blob_id, [sliver])?;
-            if let Some((blob, _meta)) = result {
-                return Ok(blob);
+        while let Some((epoch, node, result)) = requests.next().await {
+            match result {
+                Ok(sliver) => {
+                    tracing::info!("sliver obtained from node {:?} for epoch {:?}", node, epoch,);
+                    let result = decoder.decode_and_verify(blob_id, [sliver])?;
+                    if let Some((blob, _meta)) = result {
+                        return Ok(blob);
+                    }
+                }
+                Err(e) => {
+                    tracing::info!(
+                        "sliver could not be obtained from \
+                                    node {node:?} for epoch {epoch} with error: {e:?}"
+                    );
+                }
+            }
+            if let Some(future) = futures.next() {
+                requests.push(future);
             }
         }
         // We have exhausted all the slivers but were not able to reconstruct the blob.
@@ -171,14 +256,33 @@ impl Client {
     /// against the blob ID.
     pub async fn retrieve_metadata(&self, blob_id: &BlobId) -> Result<VerifiedBlobMetadataWithId> {
         let comms = self.node_communications();
-        let futures = comms.iter().map(|n| n.retrieve_verified_metadata(blob_id));
-        // Wait until the first request succeeds
-        let mut requests = WeightedFutures::new(futures);
-        requests.execute_weight(1, self.concurrent_requests).await;
-        let metadata = requests.into_results().pop().ok_or(anyhow!(
-            "could not retrieve the metadata from the storage nodes"
-        ))?;
-        Ok(metadata)
+        let mut futures = comms.iter().map(|n| n.retrieve_verified_metadata(blob_id));
+        let mut requests = FuturesUnordered::new();
+        push_futures(
+            self.concurrent_metadata_requests,
+            &mut futures,
+            &mut requests,
+        );
+        while let Some((epoch, node, result)) = requests.next().await {
+            if let Ok(metadata) = result {
+                tracing::info!(
+                    "metadata obtained from node {:?} for blob id {:?} and epoch {:?}",
+                    node,
+                    blob_id,
+                    epoch
+                );
+                return Ok(metadata);
+            } else {
+                tracing::info!(
+                    "metadata could not be obtained from node {node:?} for blob id \
+                                {blob_id} and epoch {epoch} with error: {result:?}"
+                );
+                if let Some(future) = futures.next() {
+                    requests.push(future);
+                }
+            }
+        }
+        Err(anyhow!("could not retrieve the metadata from any node"))
     }
 
     /// Builds a [`NodeCommunication`] object for the given storage node.
@@ -222,6 +326,14 @@ impl Client {
                 .push(p)
         });
         pairs_per_node
+    }
+
+    fn meets_encoding_threshold<T: EncodingAxis>(&self, num: usize) -> bool {
+        if T::IS_PRIMARY {
+            self.committee.is_validity(num)
+        } else {
+            self.committee.is_quorum(num)
+        }
     }
 }
 

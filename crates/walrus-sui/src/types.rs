@@ -269,6 +269,18 @@ pub struct Committee {
 impl Committee {
     /// Checks if the number is large enough to reach a quorum (2f+1).
     #[inline]
+    pub fn is_validity(&self, num: usize) -> bool {
+        num >= self.validity_threshold()
+    }
+
+    /// Returns the quorum threshold (2f+1).
+    #[inline]
+    pub fn validity_threshold(&self) -> usize {
+        (self.total_weight + 2) / 3
+    }
+
+    /// Checks if the number is large enough to reach a quorum (2f+1).
+    #[inline]
     pub fn is_quorum(&self, num: usize) -> bool {
         num >= self.quorum_threshold()
     }

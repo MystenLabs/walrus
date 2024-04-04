@@ -8,8 +8,12 @@ use reqwest::StatusCode;
 use walrus_core::{
     encoding::{RecoveryError, WrongSliverVariantError},
     metadata::{SliverPairIndex, VerificationError as MetadataVerificationError},
+    Epoch,
     SliverType,
 };
+use walrus_sui::types::StorageNode;
+
+pub type NodeResult<T, E> = (Epoch, StorageNode, Result<T, E>);
 
 #[derive(Debug, thiserror::Error)]
 pub enum NodeError {
