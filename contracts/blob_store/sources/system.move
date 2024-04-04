@@ -101,10 +101,11 @@ module blob_store::system {
         self.used_capacity_size
     }
 
-    /// A privileged constructor
-    /// an initial system object, at epoch 0 with a given committee, and a given
-    /// capacity and price.
-    public fun new<WAL>( // TODO: MAKE THIS NON PUBLIC!
+    /// A privileged constructor for an initial system object,
+    /// at epoch 0 with a given committee, and a given
+    /// capacity and price. Here ownership of a committee at time 0
+    /// acts as a capability to create a init a new system object.
+    public fun new<WAL>(
         first_committee: Committee,
         capacity: u64,
         price: u64,
@@ -137,7 +138,9 @@ module blob_store::system {
 
     // We actually create a new objects that does not exist before, so all is good.
     #[allow(lint(share_owned))]
-    public fun share_new<WAL>( // TODO: MAKE THIS NON PUBLIC?
+    /// Create and share a new system object, using ownership of a committee
+    /// at epoch 0 as a capability to create a new system object.
+    public fun share_new<WAL>(
         first_committee: Committee,
         capacity: u64,
         price: u64,

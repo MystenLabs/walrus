@@ -5,6 +5,8 @@ module blob_store::committee {
 
     use sui::bcs;
 
+    friend blob_store::e2e_test;
+
     const APP_ID: u8 = 3;
 
     // Errors
@@ -44,7 +46,13 @@ module blob_store::committee {
     struct CreateCommitteeCap has copy, store, drop {}
 
     /// A constructor for the capability to create committees
-    public fun create_committee_cap() : CreateCommitteeCap { // TODO: PROTECT THIS!!
+    public(friend) fun create_committee_cap() : CreateCommitteeCap { // TODO: PROTECT THIS!!
+        CreateCommitteeCap {}
+    }
+
+    #[test_only]
+    /// A constructor for the capability to create committees for tests
+    public fun create_committee_cap_for_tests() : CreateCommitteeCap { // TODO: PROTECT THIS!!
         CreateCommitteeCap {}
     }
 

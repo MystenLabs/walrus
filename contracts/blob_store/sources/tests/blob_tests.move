@@ -159,7 +159,7 @@ module blob_store::blob_tests {
         );
 
         // Create a new committee
-        let cap = committee::create_committee_cap();
+        let cap = committee::create_committee_cap_for_tests();
         let committee = committee::create_committee(&cap, 0, vector[storage_node]);
 
         // Create a new system object
