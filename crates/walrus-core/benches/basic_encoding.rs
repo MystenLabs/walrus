@@ -3,7 +3,7 @@
 
 //! Benchmarks for the basic encoding and decoding.
 
-use std::time::Duration;
+use std::{num::NonZeroU16, time::Duration};
 
 use criterion::{AxisScale, BatchSize, BenchmarkId, Criterion, PlotConfiguration};
 use raptorq::SourceBlockEncodingPlan;
@@ -39,9 +39,13 @@ fn basic_encoding(c: &mut Criterion) {
                 &(symbol_count, data),
                 |b, (symbol_count, data)| {
                     b.iter(|| {
-                        let encoder =
-                            Encoder::new(data, *symbol_count, constants::N_SHARDS, &encoding_plan)
-                                .unwrap();
+                        let encoder = Encoder::new(
+                            data,
+                            (*symbol_count).try_into().unwrap(),
+                            constants::N_SHARDS.try_into().unwrap(),
+                            &encoding_plan,
+                        )
+                        .unwrap();
                         let _encoded_symbols = encoder.encode_all().collect::<Vec<_>>();
                     });
                 },
@@ -62,13 +66,18 @@ fn basic_decoding(c: &mut Criterion) {
             let data_length = symbol_size as usize * symbol_count as usize;
             let data = random_data(data_length);
             group.throughput(criterion::Throughput::Bytes(data_length as u64));
-            let encoder =
-                Encoder::new(&data, symbol_count, constants::N_SHARDS, &encoding_plan).unwrap();
+            let encoder = Encoder::new(
+                &data,
+                symbol_count.try_into().unwrap(),
+                constants::N_SHARDS.try_into().unwrap(),
+                &encoding_plan,
+            )
+            .unwrap();
             let symbols: Vec<_> = random_subset(
                 encoder
                     .encode_all()
                     .enumerate()
-                    .map(|(i, s)| DecodingSymbol::<Primary>::new(i as u32, s)),
+                    .map(|(i, s)| DecodingSymbol::<Primary>::new(i as u16, s)),
                 symbol_count as usize + 1,
             )
             .collect();
@@ -82,7 +91,10 @@ fn basic_decoding(c: &mut Criterion) {
                     b.iter_batched(
                         || symbols.clone(),
                         |symbols| {
-                            let mut decoder = Decoder::new(*symbol_count, *symbol_size);
+                            let mut decoder = Decoder::new(
+                                (*symbol_count).try_into().unwrap(),
+                                (*symbol_size).try_into().unwrap(),
+                            );
                             let _decoded_data = &decoder.decode(symbols).unwrap();
                         },
                         BatchSize::SmallInput,

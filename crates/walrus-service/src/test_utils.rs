@@ -72,7 +72,6 @@ pub fn empty_storage_with_shards(shards: &[ShardIndex]) -> WithTempDir<Storage> 
 pub fn new_test_node_with_read_client<T>(
     shards: &[ShardIndex],
     encoding_config: EncodingConfig,
-
     key_pair: ProtocolKeyPair,
     sui_read_client: T,
 ) -> WithTempDir<StorageNode<T>>
@@ -150,10 +149,9 @@ pub async fn spawn_test_committee<T>(
 where
     T: ReadClient + Clone + Send + Sync + 'static,
 {
-    let n_shards = encoding_config.n_shards() as usize;
     assert_eq!(
         nodes_shards.iter().map(|s| s.len()).sum::<usize>(),
-        n_shards
+        encoding_config.n_shards_as_usize()
     );
     let mut addrs_pks = vec![];
     // Create the walrus storage nodes.
@@ -178,11 +176,11 @@ where
         committee: Committee {
             members,
             epoch: 0,
-            total_weight: n_shards,
+            total_weight: encoding_config.n_shards().get(),
         },
         source_symbols_primary: encoding_config.n_source_symbols::<Primary>(),
         source_symbols_secondary: encoding_config.n_source_symbols::<Secondary>(),
-        concurrent_requests: n_shards,
+        concurrent_requests: encoding_config.n_shards_as_usize(),
         connection_timeout: Duration::from_secs(10),
     }
 }

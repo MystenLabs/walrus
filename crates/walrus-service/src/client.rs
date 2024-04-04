@@ -121,7 +121,7 @@ impl Client {
         let mut requests = WeightedFutures::new(futures);
         requests
             .execute_weight(
-                self.encoding_config.n_source_symbols::<T>().into(),
+                self.encoding_config.n_source_symbols::<T>().get().into(),
                 self.concurrent_requests,
             )
             .await;
@@ -185,7 +185,7 @@ impl Client {
             self.committee.epoch,
             &self.client,
             node,
-            self.committee.total_weight,
+            self.committee.total_weight.into(),
             &self.encoding_config,
         )
     }

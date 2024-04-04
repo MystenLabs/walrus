@@ -5,6 +5,7 @@
 
 use std::{
     marker::PhantomData,
+    num::NonZeroU16,
     ops::{Index, IndexMut, Range},
     slice::{Chunks, ChunksMut},
 };
@@ -16,12 +17,12 @@ use super::{EncodingAxis, Primary, Secondary, WrongSymbolSizeError};
 use crate::merkle::{MerkleAuth, Node};
 
 /// A set of encoded symbols.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Symbols {
     /// The encoded symbols.
     data: Vec<u8>,
     /// The number of bytes for each symbol.
-    symbol_size: u16,
+    symbol_size: NonZeroU16,
 }
 
 impl Symbols {
@@ -30,10 +31,10 @@ impl Symbols {
     /// # Panics
     ///
     /// Panics if the `data` does not contain complete symbols, i.e., if
-    /// `data.len() % symbol_size != 0` or if `symbol_size == 0`.
-    pub fn new(data: Vec<u8>, symbol_size: u16) -> Self {
+    /// `data.len() % symbol_size != 0`.
+    pub fn new(data: Vec<u8>, symbol_size: NonZeroU16) -> Self {
         assert!(
-            data.len() % symbol_size as usize == 0,
+            data.len() % symbol_size.get() as usize == 0,
             "the provided data must contain complete symbols"
         );
         Symbols { data, symbol_size }
@@ -43,7 +44,7 @@ impl Symbols {
     /// rest. If `len` is greater or equal to the [`Symbols`]’ current number of symbols, this has
     /// no effect.
     pub fn truncate(&mut self, len: usize) {
-        self.data.truncate(len * self.symbol_size as usize);
+        self.data.truncate(len * self.symbol_size.get() as usize);
     }
 
     /// Creates a new `Symbols` struct with zeroed-out data of specified length.
@@ -52,33 +53,23 @@ impl Symbols {
     ///
     /// * `n_symbols` - The number of (empty) symbols to create.
     /// * `symbol_size` - The size of each symbol.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `symbol_size == 0`.
-    pub fn zeros(n_symbols: usize, symbol_size: u16) -> Self {
-        assert!(symbol_size != 0);
+    pub fn zeros(n_symbols: usize, symbol_size: NonZeroU16) -> Self {
         Symbols {
-            data: vec![0; n_symbols * symbol_size as usize],
+            data: vec![0; n_symbols * symbol_size.get() as usize],
             symbol_size,
         }
     }
 
     /// Creates a new empty `Symbols` struct with an internal vector of provided capacity.
     ///
-    /// # Panics
-    ///
-    /// Panics if `symbol_size == 0`.
-    ///
     /// # Examples
     ///
     /// ```
     /// # use walrus_core::encoding::Symbols;
     /// #
-    /// assert!(Symbols::with_capacity(42, 1).is_empty());
+    /// assert!(Symbols::with_capacity(42, 1.try_into().unwrap()).is_empty());
     /// ```
-    pub fn with_capacity(capacity: usize, symbol_size: u16) -> Self {
-        assert!(symbol_size != 0);
+    pub fn with_capacity(capacity: usize, symbol_size: NonZeroU16) -> Self {
         Symbols {
             data: Vec::<u8>::with_capacity(capacity),
             symbol_size,
@@ -90,8 +81,8 @@ impl Symbols {
     /// # Panics
     ///
     /// Panics if the slice does not contain complete symbols, i.e., if
-    /// `slice.len() % symbol_size != 0` or if `symbol_size == 0`.
-    pub fn from_slice(slice: &[u8], symbol_size: u16) -> Self {
+    /// `slice.len() % symbol_size != 0`.
+    pub fn from_slice(slice: &[u8], symbol_size: NonZeroU16) -> Self {
         Self::new(slice.into(), symbol_size)
     }
 
@@ -139,7 +130,7 @@ impl Symbols {
     pub fn decoding_symbol_at<T: EncodingAxis>(
         &self,
         data_index: usize,
-        symbol_index: u32,
+        symbol_index: u16,
     ) -> Option<DecodingSymbol<T>> {
         Some(DecodingSymbol::<T>::new(
             symbol_index,
@@ -195,14 +186,14 @@ impl Symbols {
 
     /// Returns the `symbol_size`.
     #[inline]
-    pub fn symbol_size(&self) -> u16 {
+    pub fn symbol_size(&self) -> NonZeroU16 {
         self.symbol_size
     }
 
-    /// Returns the `symbol_size` as a `usize`.
+    /// Returns the `symbol_size` as a `NonZeroUsize`.
     #[inline]
     pub fn symbol_usize(&self) -> usize {
-        self.symbol_size.into()
+        self.symbol_size.get().into()
     }
 
     /// Returns a reference to the inner vector of `data` representing the symbols.
@@ -289,7 +280,7 @@ pub struct DecodingSymbol<T: EncodingAxis, U = ()> {
     /// This is equal to the ESI as defined in [RFC 6330][rfc6330s5.3.1].
     ///
     /// [rfc6330s5.3.1]: https://datatracker.ietf.org/doc/html/rfc6330#section-5.3.1
-    pub index: u32,
+    pub index: u16,
     /// The symbol data as a byte vector.
     pub data: Vec<u8>,
     /// An optional proof that the decoding symbol belongs to a committed sliver.
@@ -307,13 +298,13 @@ pub type SecondaryDecodingSymbol<U> = DecodingSymbol<Secondary, U>;
 impl<T: EncodingAxis, U> DecodingSymbol<T, U> {
     /// Converts the `DecodingSymbol` to an [`EncodingPacket`] expected by the [`raptorq::Decoder`].
     pub fn into_encoding_packet(self) -> EncodingPacket {
-        EncodingPacket::new(PayloadId::new(0, self.index), self.data)
+        EncodingPacket::new(PayloadId::new(0, self.index.into()), self.data)
     }
 }
 
 impl<T: EncodingAxis> DecodingSymbol<T> {
     /// Creates a new `DecodingSymbol`.
-    pub fn new(index: u32, data: Vec<u8>) -> Self {
+    pub fn new(index: u16, data: Vec<u8>) -> Self {
         Self {
             index,
             data,
@@ -377,12 +368,15 @@ mod tests {
         ]
     }
     fn get_correct_symbol(symbols: &[u8], symbol_size: u16, index: usize, target: Option<&[u8]>) {
-        assert_eq!(Symbols::from_slice(symbols, symbol_size).get(index), target)
+        assert_eq!(
+            Symbols::from_slice(symbols, symbol_size.try_into().unwrap()).get(index),
+            target
+        )
     }
 
     #[test]
     fn test_wrong_symbol_size() {
-        let mut symbols = Symbols::new(vec![1, 2, 3, 4, 5, 6], 2);
+        let mut symbols = Symbols::new(vec![1, 2, 3, 4, 5, 6], 2.try_into().unwrap());
         assert_eq!(symbols.extend(&[1]), Err(WrongSymbolSizeError));
     }
 
@@ -397,6 +391,7 @@ mod tests {
         ]
     }
     fn correct_symbols_from_slice(slice: &[u8], symbol_size: u16) {
+        let symbol_size = symbol_size.try_into().unwrap();
         let symbols = Symbols::from_slice(slice, symbol_size);
         assert_eq!(symbols.data, slice.to_vec());
         assert_eq!(symbols.symbol_size, symbol_size);
@@ -411,8 +406,9 @@ mod tests {
         ]
     }
     fn correct_symbols_new_empty(n_symbols: usize, symbol_size: u16) {
+        let symbol_size = symbol_size.try_into().unwrap();
         let symbols = Symbols::zeros(n_symbols, symbol_size);
-        assert_eq!(symbols.data.len(), n_symbols * symbol_size as usize);
+        assert_eq!(symbols.data.len(), n_symbols * symbol_size.get() as usize);
         assert_eq!(symbols.symbol_size, symbol_size);
     }
 }

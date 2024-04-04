@@ -1,16 +1,21 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{cmp, marker::PhantomData, slice::Chunks};
+use std::{
+    cmp,
+    marker::PhantomData,
+    num::{NonZeroU16, NonZeroUsize},
+    slice::Chunks,
+};
 
 use fastcrypto::hash::Blake2b256;
 
 use super::{
     utils,
-    DataTooLargeError,
     Decoder,
     DecodingSymbol,
     DecodingVerificationError,
+    EncodeError,
     EncodingAxis,
     EncodingConfig,
     Primary,
@@ -21,7 +26,7 @@ use super::{
 };
 use crate::{
     merkle::MerkleTree,
-    metadata::{SliverPairMetadata, VerifiedBlobMetadataWithId},
+    metadata::{SliverIndex, SliverPairMetadata, VerifiedBlobMetadataWithId},
     BlobId,
     EncodingType,
 };
@@ -32,10 +37,14 @@ pub struct BlobEncoder<'a> {
     /// A reference to the blob.
     blob: &'a [u8],
     /// The size of the encoded and decoded symbols.
-    symbol_size: u16,
+    symbol_size: NonZeroU16,
     /// The number of rows of the message matrix.
+    ///
+    /// Stored as a `usize` for convenience, but guaranteed to be non-zero.
     n_rows: usize,
     /// The number of columns of the message matrix.
+    ///
+    /// Stored as a `usize` for convenience, but guaranteed to be non-zero.
     n_columns: usize,
     /// Reference to the encoding configuration of this encoder.
     config: &'a EncodingConfig,
@@ -46,14 +55,14 @@ impl<'a> BlobEncoder<'a> {
     ///
     /// This creates the message matrix, padding with zeros if necessary. The actual encoding can be
     /// performed with the [`encode()`][Self::encode] method.
-    pub fn new(config: &'a EncodingConfig, blob: &'a [u8]) -> Result<Self, DataTooLargeError> {
+    pub fn new(config: &'a EncodingConfig, blob: &'a [u8]) -> Result<Self, EncodeError> {
         let Some(symbol_size) =
             utils::compute_symbol_size(blob.len(), config.source_symbols_per_blob())
         else {
-            return Err(DataTooLargeError);
+            return Err(EncodeError::DataTooLarge);
         };
-        let n_rows = config.source_symbols_primary.into();
-        let n_columns = config.source_symbols_secondary.into();
+        let n_rows = config.n_source_symbols::<Primary>().get().into();
+        let n_columns = config.n_source_symbols::<Secondary>().get().into();
 
         Ok(Self {
             blob,
@@ -143,7 +152,7 @@ impl<'a> BlobEncoder<'a> {
     }
 
     fn symbol_usize(&self) -> usize {
-        self.symbol_size.into()
+        self.symbol_size.get().into()
     }
 
     /// Returns a reference to the symbol at the provided indices in the message matrix.
@@ -172,12 +181,12 @@ impl<'a> BlobEncoder<'a> {
     }
 
     fn empty_slivers<T: EncodingAxis>(&self) -> Vec<Sliver<T>> {
-        (0..self.config.n_shards)
+        (0..self.config.n_shards().get())
             .map(|i| {
                 Sliver::<T>::new_empty(
-                    self.config.n_source_symbols::<T::OrthogonalAxis>(),
+                    self.config.n_source_symbols::<T::OrthogonalAxis>().get(),
                     self.symbol_size,
-                    i.try_into().expect("size has already been checked"),
+                    SliverIndex(i),
                 )
             })
             .collect()
@@ -186,14 +195,8 @@ impl<'a> BlobEncoder<'a> {
     /// Returns a vector of empty [`SliverPair`] of length `n_shards`. Primary and secondary slivers
     /// are initialized with the appropriate `symbol_size` and `length`.
     fn empty_sliver_pairs(&self) -> Vec<SliverPair> {
-        (0..self.config.n_shards)
-            .map(|i| {
-                SliverPair::new_empty(
-                    self.config,
-                    self.symbol_size,
-                    i.try_into().expect("size has already been checked"),
-                )
-            })
+        (0..self.config.n_shards().get())
+            .map(|i| SliverPair::new_empty(self.config, self.symbol_size, SliverIndex(i)))
             .collect()
     }
 
@@ -214,19 +217,21 @@ struct ExpandedMessageMatrix<'a> {
     n_rows: usize,
     /// The number of columns in the non-expanded message matrix.
     n_columns: usize,
-    symbol_size: u16,
+    symbol_size: NonZeroU16,
 }
 
 impl<'a> ExpandedMessageMatrix<'a> {
-    fn new(config: &'a EncodingConfig, symbol_size: u16, blob: &'a [u8]) -> Self {
-        let matrix =
-            vec![Symbols::zeros(config.n_shards as usize, symbol_size); config.n_shards as usize];
+    fn new(config: &'a EncodingConfig, symbol_size: NonZeroU16, blob: &'a [u8]) -> Self {
+        let matrix = vec![
+            Symbols::zeros(config.n_shards().get() as usize, symbol_size);
+            config.n_shards().get() as usize
+        ];
         let mut expanded_matrix = Self {
             matrix,
             blob,
             config,
-            n_rows: config.source_symbols_primary.into(),
-            n_columns: config.source_symbols_secondary.into(),
+            n_rows: config.n_source_symbols::<Primary>().get().into(),
+            n_columns: config.n_source_symbols::<Secondary>().get().into(),
             symbol_size,
         };
         expanded_matrix.fill_systematic_with_rows();
@@ -237,11 +242,10 @@ impl<'a> ExpandedMessageMatrix<'a> {
 
     /// Fills the systematic part of the matrix using `self.rows`.
     fn fill_systematic_with_rows(&mut self) {
-        for (destination_row, row) in self
-            .matrix
-            .iter_mut()
-            .zip(self.blob.chunks(self.n_columns * self.symbol_size as usize))
-        {
+        for (destination_row, row) in self.matrix.iter_mut().zip(
+            self.blob
+                .chunks(self.n_columns * self.symbol_size.get() as usize),
+        ) {
             destination_row.data_mut()[0..row.len()].copy_from_slice(row);
         }
     }
@@ -366,7 +370,7 @@ impl<'a> ExpandedMessageMatrix<'a> {
     /// the matrix.
     fn write_primary_slivers(self, sliver_pairs: &mut [SliverPair]) {
         for (sliver_pair, mut row) in sliver_pairs.iter_mut().zip(self.matrix.into_iter()) {
-            row.truncate(self.config.source_symbols_secondary.into());
+            row.truncate(self.config.n_source_symbols::<Secondary>().get().into());
             sliver_pair.primary.symbols = row;
         }
     }
@@ -378,8 +382,8 @@ impl<'a> ExpandedMessageMatrix<'a> {
 pub struct BlobDecoder<'a, T: EncodingAxis = Primary> {
     _decoding_axis: PhantomData<T>,
     decoders: Vec<Decoder>,
-    blob_size: usize,
-    symbol_size: u16,
+    blob_size: NonZeroUsize,
+    symbol_size: NonZeroU16,
     config: &'a EncodingConfig,
 }
 
@@ -394,16 +398,20 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
     ///
     /// # Errors
     ///
-    /// Returns a [`DataTooLargeError`] if the `blob_size` is too large to be decoded.
-    pub fn new(config: &'a EncodingConfig, blob_size: usize) -> Result<Self, DataTooLargeError> {
+    /// Returns an [`EncodeError::DataTooLarge`] if the `blob_size` is too large to be decoded.
+    /// Returns an [`EncodeError::EmptyData`] if `blob_size == 0`.
+    pub fn new(config: &'a EncodingConfig, blob_size: usize) -> Result<Self, EncodeError> {
         let Some(symbol_size) = config.symbol_size_for_blob(blob_size) else {
-            return Err(DataTooLargeError);
+            return Err(EncodeError::DataTooLarge);
+        };
+        let Some(blob_size) = NonZeroUsize::new(blob_size) else {
+            return Err(EncodeError::EmptyData);
         };
         Ok(Self {
             _decoding_axis: PhantomData,
             decoders: vec![
                 Decoder::new(config.n_source_symbols::<T>(), symbol_size);
-                config.n_source_symbols::<T::OrthogonalAxis>().into()
+                config.n_source_symbols::<T::OrthogonalAxis>().get().into()
             ],
             blob_size,
             symbol_size,
@@ -437,10 +445,7 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
                 if let Some(decoded_data) = decoder
                     // NOTE: The encoding axis of the following symbol is irrelevant, but since we
                     // are reconstructing from slivers of type `T`, it should be of type `T`.
-                    .decode([DecodingSymbol::<T>::new(
-                        sliver.index.as_u32(),
-                        symbol.into(),
-                    )])
+                    .decode([DecodingSymbol::<T>::new(sliver.index.0, symbol.into())])
                 {
                     // If one decoding succeeds, all succeed as they have identical
                     // encoding/decoding matrices.
@@ -464,12 +469,12 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
                 .into_iter()
                 .map(|col_idx| col_idx.into_iter())
                 .collect();
-            (0..self.config.n_source_symbols::<T>())
+            (0..self.config.n_source_symbols::<T>().get())
                 .flat_map(|_| {
                     {
                         columns
                             .iter_mut()
-                            .map(|column| column.take(self.symbol_size.into()))
+                            .map(|column| column.take(self.symbol_size.get().into()))
                     }
                     .flatten()
                     .collect::<Vec<u8>>()
@@ -480,7 +485,7 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
             columns_or_rows.into_iter().flatten().collect()
         };
 
-        blob.truncate(self.blob_size);
+        blob.truncate(self.blob_size.get());
         Some(blob)
     }
 
@@ -586,7 +591,7 @@ mod tests {
         let config = EncodingConfig::new(
             source_symbols_primary,
             source_symbols_secondary,
-            3 * (source_symbols_primary + source_symbols_secondary) as u32,
+            3 * (source_symbols_primary + source_symbols_secondary),
         );
         let blob_encoder = config.get_blob_encoder(blob).unwrap();
         let sliver_pairs = blob_encoder.encode();
@@ -615,7 +620,7 @@ mod tests {
         let config = EncodingConfig::new(
             source_symbols_primary,
             source_symbols_secondary,
-            3 * (source_symbols_primary + source_symbols_secondary) as u32,
+            3 * (source_symbols_primary + source_symbols_secondary),
         );
 
         let slivers_for_decoding = random_subset(
@@ -662,7 +667,7 @@ mod tests {
         let blob = random_data(27182);
         let source_symbols_primary = 11;
         let source_symbols_secondary = 23;
-        let n_shards = 3 * (source_symbols_primary + source_symbols_secondary) as u32;
+        let n_shards = 3 * (source_symbols_primary + source_symbols_secondary);
 
         let config =
             EncodingConfig::new(source_symbols_primary, source_symbols_secondary, n_shards);
@@ -695,9 +700,7 @@ mod tests {
             *blob_metadata_2.blob_id(),
             blob_metadata_2.metadata().clone(),
         );
-        assert!(unverified
-            .verify((n_shards as usize).try_into().unwrap())
-            .is_ok());
+        assert!(unverified.verify((n_shards).into()).is_ok());
     }
 
     #[test]
@@ -705,7 +708,7 @@ mod tests {
         let blob = random_data(16180);
         let source_symbols_primary = 11;
         let source_symbols_secondary = 23;
-        let n_shards = 3 * (source_symbols_primary + source_symbols_secondary) as u32;
+        let n_shards = 3 * (source_symbols_primary + source_symbols_secondary);
 
         let config =
             EncodingConfig::new(source_symbols_primary, source_symbols_secondary, n_shards);

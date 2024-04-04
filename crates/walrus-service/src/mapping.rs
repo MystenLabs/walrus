@@ -97,10 +97,11 @@ fn is_rotation(pairs: &[SliverPair]) -> bool {
 /// Panic if the total number of shards is greater than `u16::MAX`.
 pub fn shard_index_for_pair(
     pair_idx: SliverPairIndex,
-    total_shards: usize,
+    total_shards: u16,
     blob_id: &BlobId,
 ) -> ShardIndex {
-    let index = (bytes_mod(blob_id.as_ref(), total_shards) + pair_idx.as_usize()) % total_shards;
+    let index = (bytes_mod(blob_id.as_ref(), total_shards.into()) + pair_idx.as_usize())
+        % total_shards as usize;
     ShardIndex(index as u16)
 }
 
@@ -148,8 +149,12 @@ mod tests {
         let num = num as u16;
         (0..num)
             .map(|n| SliverPair {
-                primary: Sliver::new_empty(0, 1, SliverPairIndex::new(n)),
-                secondary: Sliver::new_empty(0, 1, SliverPairIndex::new(num - n - 1)),
+                primary: Sliver::new_empty(0, 1.try_into().unwrap(), SliverPairIndex::new(n)),
+                secondary: Sliver::new_empty(
+                    0,
+                    1.try_into().unwrap(),
+                    SliverPairIndex::new(num - n - 1),
+                ),
             })
             .collect()
     }
@@ -231,7 +236,7 @@ mod tests {
     }
 
     fn test_shard_index_for_pair(
-        total_shards: usize,
+        total_shards: u16,
         blob_id_value: u64,
         pair_idx: SliverPairIndex,
         shard_idx: ShardIndex,

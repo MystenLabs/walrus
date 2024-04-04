@@ -2,10 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Metadata associated with a Blob and stored by storage nodes.
-use std::{
-    fmt::{self, Display},
-    num::NonZeroUsize,
-};
+use std::fmt::{self, Display};
 
 use fastcrypto::hash::HashFunction;
 use serde::{Deserialize, Serialize};
@@ -157,16 +154,13 @@ impl VerifiedBlobMetadataWithId {
 impl UnverifiedBlobMetadataWithId {
     /// Consumes the metadata and attempts to verify it the relationship between the contained
     /// metadata and blob ID. On success, returns a [`VerifiedBlobMetadataWithId`].
-    pub fn verify(
-        self,
-        n_shards: NonZeroUsize,
-    ) -> Result<VerifiedBlobMetadataWithId, VerificationError> {
+    pub fn verify(self, n_shards: usize) -> Result<VerifiedBlobMetadataWithId, VerificationError> {
         let n_hashes = self.metadata().hashes.len();
         crate::ensure!(
-            n_hashes == n_shards.get(),
+            n_hashes == n_shards,
             VerificationError::InvalidHashCount {
                 actual: n_hashes,
-                expected: n_shards.get(),
+                expected: n_shards,
             }
         );
 
@@ -276,7 +270,7 @@ mod tests {
             };
 
             let err = invalid_metadata
-                .verify(NonZeroUsize::new(n_shards).unwrap())
+                .verify(n_shards)
                 .expect_err("verification should fail");
 
             assert_eq!(err, VerificationError::BlobIdMismatch);
@@ -288,7 +282,7 @@ mod tests {
             let actual = metadata.metadata().hashes.len();
 
             let _ = metadata
-                .verify(NonZeroUsize::new(actual).unwrap())
+                .verify(actual)
                 .expect("verification should succeed");
         }
 
@@ -299,7 +293,7 @@ mod tests {
 
             let verified = unverified
                 .clone()
-                .verify(NonZeroUsize::new(actual).unwrap())
+                .verify(actual)
                 .expect("verification should succeed");
 
             assert_eq!(verified.blob_id(), unverified.blob_id());
@@ -313,7 +307,7 @@ mod tests {
             let expected = actual + 1;
 
             let err = metadata
-                .verify(NonZeroUsize::new(expected).unwrap())
+                .verify(expected)
                 .expect_err("verification should fail");
 
             assert_eq!(

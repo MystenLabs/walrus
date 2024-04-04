@@ -1,19 +1,19 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::ops::Range;
+use std::{num::NonZeroU16, ops::Range};
 
 use raptorq::{SourceBlockDecoder, SourceBlockEncoder, SourceBlockEncodingPlan};
 
-use super::{utils, DecodingSymbol, EncodeError, EncodingAxis, MAX_SYMBOL_SIZE};
+use super::{utils, DecodingSymbol, EncodeError, EncodingAxis};
 
 /// Wrapper to perform a single encoding with RaptorQ for the provided parameters.
 #[derive(Debug)]
 pub struct Encoder {
     raptorq_encoder: SourceBlockEncoder,
-    n_source_symbols: u16,
-    n_shards: u32,
-    symbol_size: u16,
+    n_source_symbols: NonZeroU16,
+    n_shards: NonZeroU16,
+    symbol_size: NonZeroU16,
 }
 
 impl Encoder {
@@ -31,30 +31,27 @@ impl Encoder {
     /// # Errors
     ///
     /// Returns an [`EncodeError`] if the `data` is empty, not a multiple of `n_source_symbols`, or
-    /// too large to be encoded with the provided `n_source_symbols` (this includes the case
-    /// `n_source_symbols == 0`).
+    /// too large to be encoded with the provided `n_source_symbols`.
     ///
     /// If the `encoding_plan` was generated for a different number of source symbols than
     /// `n_source_symbols`, later methods called on the returned `Encoder` may exhibit unexpected
     /// behavior.
     pub fn new(
         data: &[u8],
-        n_source_symbols: u16,
-        n_shards: u32,
+        n_source_symbols: NonZeroU16,
+        n_shards: NonZeroU16,
         encoding_plan: &SourceBlockEncodingPlan,
     ) -> Result<Self, EncodeError> {
         if data.is_empty() {
             return Err(EncodeError::EmptyData);
         }
-        if data.len() % n_source_symbols as usize != 0 {
+        if data.len() % n_source_symbols.get() as usize != 0 {
             return Err(EncodeError::MisalignedData(n_source_symbols));
         }
 
         let Some(symbol_size) = utils::compute_symbol_size(data.len(), n_source_symbols.into())
         else {
-            return Err(EncodeError::DataTooLarge(
-                n_source_symbols as usize * MAX_SYMBOL_SIZE,
-            ));
+            return Err(EncodeError::DataTooLarge);
         };
 
         Ok(Self {
@@ -77,16 +74,16 @@ impl Encoder {
     /// See [`Self::new`] for further details.
     pub fn new_with_new_encoding_plan(
         data: &[u8],
-        n_source_symbols: u16,
-        n_shards: u32,
+        n_source_symbols: NonZeroU16,
+        n_shards: NonZeroU16,
     ) -> Result<Self, EncodeError> {
-        let encoding_plan = SourceBlockEncodingPlan::generate(n_source_symbols);
+        let encoding_plan = SourceBlockEncodingPlan::generate(n_source_symbols.get());
         Self::new(data, n_source_symbols, n_shards, &encoding_plan)
     }
 
     /// Gets the symbol size of this encoder.
     #[inline]
-    pub fn symbol_size(&self) -> u16 {
+    pub fn symbol_size(&self) -> NonZeroU16 {
         self.symbol_size
     }
 
@@ -99,9 +96,9 @@ impl Encoder {
     }
 
     /// Returns an iterator over a range of source and/or repair symbols.
-    pub fn encode_range(&self, range: Range<u32>) -> impl Iterator<Item = Vec<u8>> {
-        let repair_end = if range.end > self.n_source_symbols as u32 {
-            range.end - self.n_source_symbols as u32
+    pub fn encode_range(&self, range: Range<u16>) -> impl Iterator<Item = Vec<u8>> {
+        let repair_end = if range.end > self.n_source_symbols.get() {
+            range.end - self.n_source_symbols.get()
         } else {
             0
         };
@@ -109,7 +106,7 @@ impl Encoder {
         self.raptorq_encoder
             .source_packets()
             .into_iter()
-            .chain(self.raptorq_encoder.repair_packets(0, repair_end))
+            .chain(self.raptorq_encoder.repair_packets(0, repair_end.into()))
             .skip(range.start as usize)
             .take(range.len())
             .map(utils::packet_to_data)
@@ -120,17 +117,20 @@ impl Encoder {
         self.raptorq_encoder
             .source_packets()
             .into_iter()
-            .chain(
-                self.raptorq_encoder
-                    .repair_packets(0, self.n_shards - self.n_source_symbols as u32),
-            )
+            .chain(self.raptorq_encoder.repair_packets(
+                0,
+                (self.n_shards.get() - self.n_source_symbols.get()).into(),
+            ))
             .map(utils::packet_to_data)
     }
 
     /// Returns an iterator over all `n_shards - self.n_source_symbols` repair symbols.
     pub fn encode_all_repair_symbols(&self) -> impl Iterator<Item = Vec<u8>> {
         self.raptorq_encoder
-            .repair_packets(0, self.n_shards - self.n_source_symbols as u32)
+            .repair_packets(
+                0,
+                (self.n_shards.get() - self.n_source_symbols.get()).into(),
+            )
             .into_iter()
             .map(utils::packet_to_data)
     }
@@ -147,12 +147,12 @@ impl Decoder {
     ///
     /// Assumes that the length of the data to be decoded is the product of `n_source_symbols` and
     /// `symbol_size`.
-    pub fn new(n_source_symbols: u16, symbol_size: u16) -> Self {
+    pub fn new(n_source_symbols: NonZeroU16, symbol_size: NonZeroU16) -> Self {
         Self {
             raptorq_decoder: SourceBlockDecoder::new(
                 0,
-                &utils::get_transmission_info(symbol_size as usize),
-                (n_source_symbols as u64) * (symbol_size as u64),
+                &utils::get_transmission_info(symbol_size.into()),
+                (n_source_symbols.get() as u64) * (symbol_size.get() as u64),
             ),
         }
     }
@@ -188,16 +188,25 @@ mod tests {
     #[test]
     fn encoding_empty_data_fails() {
         assert!(matches!(
-            Encoder::new_with_new_encoding_plan(&[], 42, 314),
+            Encoder::new_with_new_encoding_plan(
+                &[],
+                NonZeroU16::new(42).unwrap(),
+                NonZeroU16::new(314).unwrap()
+            ),
             Err(EncodeError::EmptyData)
         ));
     }
 
     #[test]
     fn encoding_misaligned_data_fails() {
+        let n_source_symbols = NonZeroU16::new(3).unwrap();
         assert!(matches!(
-            Encoder::new_with_new_encoding_plan(&[1, 2], 3, 314),
-            Err(EncodeError::MisalignedData(3))
+            Encoder::new_with_new_encoding_plan(
+                &[1, 2],
+                n_source_symbols,
+                NonZeroU16::new(314).unwrap()
+            ),
+            Err(EncodeError::MisalignedData(_n_source_symbols))
         ));
     }
 
@@ -218,17 +227,21 @@ mod tests {
     fn test_encode_decode(
         data: &[u8],
         n_source_symbols: u16,
-        encoded_symbols_range: Range<u32>,
+        encoded_symbols_range: Range<u16>,
         should_succeed: bool,
     ) -> Result {
+        let n_source_symbols = n_source_symbols.try_into().unwrap();
         let start = encoded_symbols_range.start;
 
-        let encoder =
-            Encoder::new_with_new_encoding_plan(data, n_source_symbols, encoded_symbols_range.end)?;
+        let encoder = Encoder::new_with_new_encoding_plan(
+            data,
+            n_source_symbols,
+            encoded_symbols_range.end.try_into().unwrap(),
+        )?;
         let encoded_symbols = encoder
             .encode_range(encoded_symbols_range)
             .enumerate()
-            .map(|(i, symbol)| DecodingSymbol::<Primary>::new(i as u32 + start, symbol));
+            .map(|(i, symbol)| DecodingSymbol::<Primary>::new(i as u16 + start, symbol));
         let mut decoder = Decoder::new(n_source_symbols, encoder.symbol_size());
         let decoding_result = decoder.decode(encoded_symbols);
 
@@ -243,16 +256,17 @@ mod tests {
 
     #[test]
     fn can_decode_in_multiple_steps() -> Result {
-        let n_source_symbols = 3;
+        let n_source_symbols = NonZeroU16::new(3).unwrap();
+        let n_shards = NonZeroU16::new(10).unwrap();
         let data = [1, 2, 3, 4, 5, 6];
-        let encoder = Encoder::new_with_new_encoding_plan(&data, n_source_symbols, 10)?;
+        let encoder = Encoder::new_with_new_encoding_plan(&data, n_source_symbols, n_shards)?;
         let mut encoded_symbols =
             encoder
                 .encode_all_repair_symbols()
                 .enumerate()
                 .map(|(i, symbol)| {
                     vec![DecodingSymbol::<Primary>::new(
-                        i as u32 + n_source_symbols as u32,
+                        i as u16 + n_source_symbols.get(),
                         symbol,
                     )]
                 });

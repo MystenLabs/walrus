@@ -262,7 +262,7 @@ pub struct Committee {
     /// The current epoch
     pub epoch: Epoch,
     /// The total weight of the committee (number of shards)
-    pub total_weight: usize,
+    pub total_weight: u16,
 }
 
 impl Committee {
@@ -275,7 +275,7 @@ impl Committee {
     /// Returns the quorum threshold (2f+1).
     #[inline]
     pub fn quorum_threshold(&self) -> usize {
-        (self.total_weight * 2 + 2) / 3
+        (self.total_weight as usize * 2 + 2) / 3
     }
 }
 

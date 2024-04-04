@@ -1,26 +1,23 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use thiserror::Error;
+use std::num::NonZeroU16;
 
-/// Error returned when the data is too large to be encoded with this encoder.
-#[derive(Debug, Error, PartialEq, Eq)]
-#[error("the data is too large to be encoded")]
-pub struct DataTooLargeError;
+use thiserror::Error;
 
 /// Error type returned when encoding fails.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum EncodeError {
     /// The data is too large to be encoded with this encoder.
-    #[error("the data is to large to be encoded (max size: {0})")]
-    DataTooLarge(usize),
+    #[error("the data is to large to be encoded")]
+    DataTooLarge,
     /// The data to be encoded is empty.
     #[error("empty data cannot be encoded")]
     EmptyData,
     /// The data is not properly aligned; i.e., it is not a multiple of the symbol size or symbol
     /// count.
     #[error("the data is not properly aligned (must be a multiple of {0})")]
-    MisalignedData(u16),
+    MisalignedData(NonZeroU16),
 }
 
 /// Error type returned when sliver recovery fails.
@@ -35,9 +32,6 @@ pub enum RecoveryError {
     /// The underlying [`Encoder`][super::Encoder] returned an error.
     #[error(transparent)]
     EncodeError(#[from] EncodeError),
-    /// The underlying [`Decoder`][super::Decoder] returned an error.
-    #[error(transparent)]
-    DataTooLarge(#[from] DataTooLargeError),
 }
 
 /// Error returned when the size of input symbols does not match the size of existing symbols.

@@ -4,7 +4,7 @@
 //! Core functionality for Walrus.
 use std::{
     fmt::{self, Debug, Display, LowerHex},
-    num::TryFromIntError,
+    num::{NonZeroUsize, TryFromIntError},
     str::FromStr,
 };
 
@@ -237,10 +237,13 @@ impl Sliver {
     /// Returns true iff the sliver has the length expected based on the encoding configuration and
     /// blob size.
     pub fn has_correct_length(&self, config: &EncodingConfig, blob_size: usize) -> bool {
-        Some(self.len()) == self.expected_length(config, blob_size)
+        Some(self.len())
+            == self
+                .expected_length(config, blob_size)
+                .map(NonZeroUsize::get)
     }
 
-    fn expected_length(&self, config: &EncodingConfig, blob_size: usize) -> Option<usize> {
+    fn expected_length(&self, config: &EncodingConfig, blob_size: usize) -> Option<NonZeroUsize> {
         match self {
             Self::Primary(_) => config.sliver_size_for_blob::<Primary>(blob_size),
             Self::Secondary(_) => config.sliver_size_for_blob::<Secondary>(blob_size),

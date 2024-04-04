@@ -70,7 +70,7 @@ impl<'a> NodeCommunication<'a> {
 
         let metadata = unwrap_response::<UnverifiedBlobMetadataWithId>(response)
             .await?
-            .verify(self.total_weight.try_into()?)
+            .verify(self.total_weight)
             .context("blob metadata verification failed")?;
         Ok((self.node.shard_ids.len(), metadata))
     }
@@ -148,7 +148,10 @@ impl<'a> NodeCommunication<'a> {
             .ok_or(anyhow!("missing hashes for the sliver"))?;
         anyhow::ensure!(
             sliver.symbols.len()
-                == self.encoding_config.n_source_symbols::<T::OrthogonalAxis>() as usize
+                == self
+                    .encoding_config
+                    .n_source_symbols::<T::OrthogonalAxis>()
+                    .get() as usize
                 && sliver.symbols.symbol_size()
                     == self
                         .encoding_config

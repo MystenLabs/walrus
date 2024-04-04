@@ -1,23 +1,21 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::num::{NonZeroU16, NonZeroUsize};
+
 use raptorq::SourceBlockEncodingPlan;
 
 use super::{
     utils,
     BlobDecoder,
     BlobEncoder,
-    DataTooLargeError,
     EncodeError,
     Encoder,
     EncodingAxis,
     MAX_SOURCE_SYMBOLS_PER_BLOCK,
     MAX_SYMBOL_SIZE,
 };
-use crate::{
-    encoding::common::MAX_N_SHARDS,
-    metadata::{SliverIndex, SliverPairIndex},
-};
+use crate::metadata::{SliverIndex, SliverPairIndex};
 
 /// Configuration of the Walrus encoding.
 ///
@@ -27,13 +25,12 @@ use crate::{
 pub struct EncodingConfig {
     /// The number of source symbols for the primary encoding, which is, simultaneously, the number
     /// of symbols per secondary sliver. It must be strictly less than 1/3 of `n_shards`.
-    pub(crate) source_symbols_primary: u16,
+    pub(crate) source_symbols_primary: NonZeroU16,
     /// The number of source symbols for the secondary encoding, which is, simultaneously, the
     /// number of symbols per primary sliver. It must be strictly less than 2/3 of `n_shards`.
-    pub(crate) source_symbols_secondary: u16,
+    pub(crate) source_symbols_secondary: NonZeroU16,
     /// The number of shards.
-    // INV: n_shards - 1 <= u16::MAX as u32
-    pub(crate) n_shards: u32,
+    pub(crate) n_shards: NonZeroU16,
     /// Encoding plan to speed up the primary encoding.
     encoding_plan_primary: SourceBlockEncodingPlan,
     /// Encoding plan to speed up the secondary encoding.
@@ -61,53 +58,52 @@ impl EncodingConfig {
     ///
     /// # Panics
     ///
+    /// Panics if any of the parameters are 0.
+    ///
     /// Panics if the parameters are inconsistent with Byzantine fault tolerance; i.e., if the
     /// number of source symbols of the primary encoding is equal to or greater than 1/3 of the
     /// number of shards, or if the number of source symbols of the secondary encoding equal to or
     /// greater than 2/3 of the number of shards.
     ///
-    /// Panics if the number of primary or secondary source symbols is 0 or larger than
+    /// Panics if the number of primary or secondary source symbols is larger than
     /// [`MAX_SOURCE_SYMBOLS_PER_BLOCK`].
     ///
-    /// Panics if the total number of shards `n_shards` is greater than [`MAX_N_SHARDS`].
-    ///
     /// [rfc6330s5.6]: https://datatracker.ietf.org/doc/html/rfc6330#section-5.6
-    pub fn new(source_symbols_primary: u16, source_symbols_secondary: u16, n_shards: u32) -> Self {
-        assert!(
-            source_symbols_primary * source_symbols_secondary > 0,
-            "the number of source symbols must not be 0"
-        );
-        assert!(
-            n_shards <= MAX_N_SHARDS,
-            "the number of shards can be at most `MAX_N_SHARDS`",
-        );
-        assert!(
-            3 * (source_symbols_primary as u32) < n_shards,
-            "the primary encoding can be at most a 1/3 encoding"
-        );
-        assert!(
-            3 * (source_symbols_secondary as u32) < 2 * n_shards,
-            "the secondary encoding can be at most a 2/3 encoding"
-        );
+    pub fn new(source_symbols_primary: u16, source_symbols_secondary: u16, n_shards: u16) -> Self {
         assert!(
             source_symbols_primary < MAX_SOURCE_SYMBOLS_PER_BLOCK
                 && source_symbols_secondary < MAX_SOURCE_SYMBOLS_PER_BLOCK,
             "the number of source symbols can be at most `MAX_SOURCE_SYMBOLS_PER_BLOCK`"
         );
-        let _ = SliverPairIndex::try_from(n_shards - 1)
-            .expect("the number of shards is out of the bounds of SliverPairIndex");
+        assert!(
+            3 * source_symbols_secondary < 2 * n_shards,
+            "the secondary encoding can be at most a 2/3 encoding"
+        );
+        assert!(
+            3 * source_symbols_primary < n_shards,
+            "the primary encoding can be at most a 1/3 encoding"
+        );
+
+        let source_symbols_primary = NonZeroU16::new(source_symbols_primary)
+            .expect("the number of source symbols must not be 0");
+        let source_symbols_secondary = NonZeroU16::new(source_symbols_secondary)
+            .expect("the number of source symbols must not be 0");
+        let n_shards = NonZeroU16::new(n_shards).expect("implied by previous checks");
 
         Self {
             source_symbols_primary,
             source_symbols_secondary,
             n_shards,
-            encoding_plan_primary: SourceBlockEncodingPlan::generate(source_symbols_primary),
-            encoding_plan_secondary: SourceBlockEncodingPlan::generate(source_symbols_secondary),
+            encoding_plan_primary: SourceBlockEncodingPlan::generate(source_symbols_primary.get()),
+            encoding_plan_secondary: SourceBlockEncodingPlan::generate(
+                source_symbols_secondary.get(),
+            ),
         }
     }
 
     /// Returns the number of source symbols configured for this type.
-    pub fn n_source_symbols<T: EncodingAxis>(&self) -> u16 {
+    #[inline]
+    pub fn n_source_symbols<T: EncodingAxis>(&self) -> NonZeroU16 {
         if T::IS_PRIMARY {
             self.source_symbols_primary
         } else {
@@ -115,12 +111,20 @@ impl EncodingConfig {
         }
     }
 
-    /// Returns the number of shards.
-    pub fn n_shards(&self) -> u32 {
+    /// Returns the number of shards as a `NonZeroU16`.
+    #[inline]
+    pub fn n_shards(&self) -> NonZeroU16 {
         self.n_shards
     }
 
+    /// Returns the number of shards as a `NonZeroUsize`.
+    #[inline]
+    pub fn n_shards_as_usize(&self) -> usize {
+        self.n_shards.get().into()
+    }
+
     /// Returns the pre-generated encoding plan this type.
+    #[inline]
     pub fn encoding_plan<T: EncodingAxis>(&self) -> &SourceBlockEncodingPlan {
         if T::IS_PRIMARY {
             &self.encoding_plan_primary
@@ -132,7 +136,7 @@ impl EncodingConfig {
     /// The maximum size in bytes of data that can be encoded with this encoding.
     #[inline]
     pub fn max_data_size<T: EncodingAxis>(&self) -> usize {
-        self.n_source_symbols::<T>() as usize * MAX_SYMBOL_SIZE
+        self.n_source_symbols::<T>().get() as usize * MAX_SYMBOL_SIZE
     }
 
     /// The maximum size in bytes of a blob that can be encoded.
@@ -142,32 +146,33 @@ impl EncodingConfig {
     /// symbol size supported by RaptorQ.
     #[inline]
     pub fn max_blob_size(&self) -> usize {
-        self.source_symbols_per_blob() * MAX_SYMBOL_SIZE
+        self.source_symbols_per_blob().get() * MAX_SYMBOL_SIZE
     }
 
     /// The number of symbols a blob is split into.
     #[inline]
-    pub fn source_symbols_per_blob(&self) -> usize {
-        self.source_symbols_primary as usize * self.source_symbols_secondary as usize
+    pub fn source_symbols_per_blob(&self) -> NonZeroUsize {
+        NonZeroUsize::from(self.source_symbols_primary)
+            .checked_mul(self.source_symbols_secondary.into())
+            .expect("result fits into a usize")
     }
 
     /// The symbol size when encoding a blob of size `blob_size`.
     ///
-    /// Returns `None` if the computed symbol size is larger than [`MAX_SYMBOL_SIZE`].
+    /// Returns `None` if the `blob_size` is 0 or the computed symbol size is larger than
+    /// [`MAX_SYMBOL_SIZE`].
     #[inline]
-    pub fn symbol_size_for_blob(&self, blob_size: usize) -> Option<u16> {
+    pub fn symbol_size_for_blob(&self, blob_size: usize) -> Option<NonZeroU16> {
         utils::compute_symbol_size(blob_size, self.source_symbols_per_blob())
     }
 
     /// The size (in bytes) of a sliver corresponding to a blob of size `blob_size`.
     ///
-    /// Returns `None` if `blob_size > self.max_blob_size()`.
+    /// Returns `None` if `blob_size == 0` or `blob_size > self.max_blob_size()`.
     #[inline]
-    pub fn sliver_size_for_blob<T: EncodingAxis>(&self, blob_size: usize) -> Option<usize> {
-        Some(
-            self.n_source_symbols::<T::OrthogonalAxis>() as usize
-                * self.symbol_size_for_blob(blob_size)? as usize,
-        )
+    pub fn sliver_size_for_blob<T: EncodingAxis>(&self, blob_size: usize) -> Option<NonZeroUsize> {
+        NonZeroUsize::from(self.n_source_symbols::<T::OrthogonalAxis>())
+            .checked_mul(self.symbol_size_for_blob(blob_size)?.into())
     }
 
     /// Computes the index of the [`Sliver`][super::Sliver] of the axis specified by the generic
@@ -182,7 +187,7 @@ impl EncodingConfig {
         &self,
         pair_index: SliverPairIndex,
     ) -> SliverIndex {
-        T::sliver_index_from_pair_index(pair_index, self.n_shards)
+        T::sliver_index_from_pair_index(pair_index, self.n_shards())
     }
 
     /// Returns an [`Encoder`] to perform a single primary or secondary encoding of the provided
@@ -201,7 +206,7 @@ impl EncodingConfig {
         Encoder::new(
             data,
             self.n_source_symbols::<E>(),
-            self.n_shards,
+            self.n_shards(),
             self.encoding_plan::<E>(),
         )
     }
@@ -214,11 +219,8 @@ impl EncodingConfig {
     ///
     /// # Errors
     ///
-    /// Returns a [`DataTooLargeError`] if the `blob` is too large to be encoded.
-    pub fn get_blob_encoder<'a>(
-        &'a self,
-        blob: &'a [u8],
-    ) -> Result<BlobEncoder, DataTooLargeError> {
+    /// Returns a [`EncodeError::DataTooLarge`] if the `blob` is too large to be encoded.
+    pub fn get_blob_encoder<'a>(&'a self, blob: &'a [u8]) -> Result<BlobEncoder, EncodeError> {
         BlobEncoder::new(self, blob)
     }
 
@@ -231,11 +233,11 @@ impl EncodingConfig {
     ///
     /// # Errors
     ///
-    /// Returns a [`DataTooLargeError`] if the `blob_size` is too large to be decoded.
+    /// Returns a [`EncodeError::DataTooLarge`] if the `blob_size` is too large to be decoded.
     pub fn get_blob_decoder<T: EncodingAxis>(
         &self,
         blob_size: usize,
-    ) -> Result<BlobDecoder<T>, DataTooLargeError> {
+    ) -> Result<BlobDecoder<T>, EncodeError> {
         BlobDecoder::new(self, blob_size)
     }
 }
@@ -249,7 +251,7 @@ mod tests {
 
     param_test! {
         test_sliver_size_for_blob: [
-            zero: (0, Some(0)),
+            zero: (0, None),
             one: (1, Some(5)),
             full_matrix: (15, Some(5)),
             full_matrix_plus_1: (16, Some(10)),
@@ -257,10 +259,9 @@ mod tests {
         ]
     }
     fn test_sliver_size_for_blob(blob_size: usize, expected_primary_sliver_size: Option<usize>) {
-        let config = EncodingConfig::new(3, 5, 10);
         assert_eq!(
-            config.sliver_size_for_blob::<Primary>(blob_size),
-            expected_primary_sliver_size
+            EncodingConfig::new(3, 5, 10).sliver_size_for_blob::<Primary>(blob_size),
+            expected_primary_sliver_size.and_then(NonZeroUsize::new)
         );
     }
 }
