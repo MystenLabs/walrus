@@ -69,7 +69,6 @@ pub struct SuiReadClient {
     pub(crate) sui_client: SuiClient,
     pub(crate) system_object: ObjectID,
     pub(crate) coin_type: TypeTag,
-    pub(crate) system_tag: TypeTag,
 }
 
 const MAX_POLLING_INTERVAL: Duration = Duration::from_secs(5);
@@ -84,7 +83,7 @@ impl SuiReadClient {
     ) -> SuiClientResult<Self> {
         let type_params = get_type_parameters(&sui_client, system_object).await?;
         ensure!(
-            type_params.len() == 2,
+            type_params.len() == 1,
             "unexpected number of type parameters in system object: {}",
             type_params.len()
         );
@@ -93,8 +92,7 @@ impl SuiReadClient {
             system_pkg,
             sui_client,
             system_object,
-            coin_type: type_params[1].clone(),
-            system_tag: type_params[0].clone(),
+            coin_type: type_params[0].clone(),
         })
     }
 
@@ -198,7 +196,7 @@ impl ReadClient for SuiReadClient {
         polling_interval: Duration,
         cursor: Option<EventID>,
     ) -> SuiClientResult<impl Stream<Item = BlobRegistered>> {
-        self.get_event_stream(polling_interval, &[self.system_tag.clone()], cursor)
+        self.get_event_stream(polling_interval, &[], cursor)
             .await
     }
 
@@ -207,7 +205,7 @@ impl ReadClient for SuiReadClient {
         polling_interval: Duration,
         cursor: Option<EventID>,
     ) -> SuiClientResult<impl Stream<Item = BlobCertified>> {
-        self.get_event_stream(polling_interval, &[self.system_tag.clone()], cursor)
+        self.get_event_stream(polling_interval, &[], cursor)
             .await
     }
 

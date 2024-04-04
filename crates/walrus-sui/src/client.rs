@@ -176,7 +176,6 @@ impl SuiContractClient {
         let res = self
             .move_call_and_transfer(
                 contracts::system::reserve_space.with_type_params(&[
-                    self.read_client.system_tag.clone(),
                     self.read_client.coin_type.clone(),
                 ]),
                 vec![
@@ -191,7 +190,7 @@ impl SuiContractClient {
             &res,
             &contracts::storage_resource::Storage.to_move_struct_tag(
                 self.read_client.system_pkg,
-                &[self.read_client.system_tag.clone()],
+                &[],
             )?,
         )?;
 
@@ -219,7 +218,6 @@ impl SuiContractClient {
         let res = self
             .move_call_and_transfer(
                 contracts::blob::register.with_type_params(&[
-                    self.read_client.system_tag.clone(),
                     self.read_client.coin_type.clone(),
                 ]),
                 vec![
@@ -235,7 +233,7 @@ impl SuiContractClient {
             &res,
             &contracts::blob::Blob.to_move_struct_tag(
                 self.read_client.system_pkg,
-                &[self.read_client.system_tag.clone()],
+                &[],
             )?,
         )?;
         ensure!(
@@ -257,7 +255,6 @@ impl SuiContractClient {
         let res = self
             .move_call_and_transfer(
                 contracts::blob::certify.with_type_params(&[
-                    self.read_client.system_tag.clone(),
                     self.read_client.coin_type.clone(),
                 ]),
                 vec![
