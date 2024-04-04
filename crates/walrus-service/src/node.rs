@@ -165,6 +165,12 @@ impl StorageNode {
         ))
     }
 
+    /// Set the number of shards managed by this storage node.
+    pub fn with_shards(mut self, n_shards: NonZeroUsize) -> Self {
+        self.n_shards = n_shards;
+        self
+    }
+
     /// Create a new storage node providing the storage directly.
     pub fn new_with_storage(
         storage: Storage,

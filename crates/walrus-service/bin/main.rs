@@ -2,7 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Walrus Storage Node entry point.
 
-use std::{fs, io, net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{
+    fs,
+    io,
+    net::SocketAddr,
+    num::{NonZeroU16, NonZeroUsize},
+    path::PathBuf,
+    sync::Arc,
+};
 
 use anyhow::{ensure, Context};
 use clap::{Parser, Subcommand};
@@ -53,6 +60,9 @@ enum Commands {
     Run {
         /// Path to the Walrus node configuration file.
         config_path: PathBuf,
+        /// The total number of shards.
+        #[clap(long, default_value = "100")]
+        shards: NonZeroUsize,
     },
     /// Deploy a testbed of storage nodes.
     DryRun {
@@ -63,13 +73,16 @@ enum Commands {
         #[clap(long)]
         index: u16,
         /// The number of storage nodes in the committee.
-        #[clap(long, default_value_t = 10)]
-        committee_size: u16,
+        #[clap(long, default_value = "4")]
+        committee_size: NonZeroU16,
+        /// The total number of shards.
+        #[clap(long, default_value = "10")]
+        shards: NonZeroU16,
         /// Number of primary symbols to use (used to generate client config).
         #[clap(long, default_value_t = 2)]
         n_symbols_primary: u16,
         /// Number of secondary symbols to use (used to generate client config).
-        #[clap(long, default_value_t = 5)]
+        #[clap(long, default_value_t = 4)]
         n_symbols_secondary: u16,
     },
     KeyGen {
@@ -81,22 +94,27 @@ enum Commands {
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     match args.command {
-        Commands::Run { config_path } => {
+        Commands::Run {
+            config_path,
+            shards,
+        } => {
             let config = StorageNodeConfig::load(config_path)?;
-            run_storage_node(config)?;
+            run_storage_node(config, shards)?;
         }
 
         Commands::DryRun {
             working_dir,
             index,
             committee_size,
+            shards,
             n_symbols_primary,
             n_symbols_secondary,
         } => {
             dry_run(
                 working_dir,
                 index,
-                committee_size,
+                committee_size.get(),
+                shards.get(),
                 n_symbols_primary,
                 n_symbols_secondary,
             )?;
@@ -109,7 +127,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn run_storage_node(mut config: StorageNodeConfig) -> anyhow::Result<()> {
+fn run_storage_node(mut config: StorageNodeConfig, n_shards: NonZeroUsize) -> anyhow::Result<()> {
     let metrics_runtime = MetricsAndLoggingRuntime::start(config.metrics_address)?;
 
     tracing::info!("Walrus Node version: {VERSION}");
@@ -127,6 +145,7 @@ fn run_storage_node(mut config: StorageNodeConfig) -> anyhow::Result<()> {
 
     let mut node_runtime = StorageNodeRuntime::start(
         &config,
+        n_shards,
         metrics_runtime.registry_service.clone(),
         exit_notifier,
         cancel_token.child_token(),
@@ -146,6 +165,7 @@ fn dry_run(
     working_dir: PathBuf,
     storage_node_index: u16,
     committee_size: u16,
+    shards: u16,
     n_symbols_primary: u16,
     n_symbols_secondary: u16,
 ) -> anyhow::Result<()> {
@@ -164,6 +184,7 @@ fn dry_run(
     let (storage_node_configs, client_config) = testbed_configs(
         &working_dir,
         committee_size,
+        shards,
         n_symbols_primary,
         n_symbols_secondary,
     );
@@ -188,7 +209,9 @@ fn dry_run(
             ))
         }
     }
-    run_storage_node(storage_node_config)?;
+
+    let n_shards = NonZeroUsize::new(shards as usize).unwrap();
+    run_storage_node(storage_node_config, n_shards)?;
     Ok(())
 }
 
@@ -239,6 +262,7 @@ struct StorageNodeRuntime {
 impl StorageNodeRuntime {
     fn start(
         config: &StorageNodeConfig,
+        n_shards: NonZeroUsize,
         registry_service: RegistryService,
         exit_notifier: oneshot::Sender<()>,
         cancel_token: CancellationToken,
@@ -250,7 +274,8 @@ impl StorageNodeRuntime {
             .expect("walrus-node runtime creation must succeed");
         let _guard = runtime.enter();
 
-        let walrus_node = Arc::new(StorageNode::new(config, registry_service)?);
+        let walrus_node =
+            Arc::new(StorageNode::new(config, registry_service)?.with_shards(n_shards));
 
         let walrus_node_clone = walrus_node.clone();
         let walrus_node_cancel_token = cancel_token.child_token();

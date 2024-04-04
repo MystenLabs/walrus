@@ -191,13 +191,17 @@ where
 pub fn testbed_configs(
     working_dir: &Path,
     committee_size: u16,
+    total_shards: u16,
     n_symbols_primary: u16,
     n_symbols_secondary: u16,
 ) -> (Vec<StorageNodeConfig>, client::Config) {
     let mut rng = StdRng::seed_from_u64(0);
+    let mut storage_node_configs = Vec::new();
 
     // Generate all storage node configs from a seed.
-    let mut storage_node_configs = Vec::new();
+    let shards_per_node = total_shards / committee_size;
+    let remainder_shards = total_shards % committee_size;
+    let mut start = 0;
     let mut sui_storage_node_configs = Vec::new();
     for i in 0..committee_size {
         let name = format!("dryrun-node-{i}");
@@ -218,11 +222,19 @@ pub fn testbed_configs(
             rest_api_address,
         });
 
+        let end = if i < remainder_shards {
+            start + shards_per_node + 1
+        } else {
+            start + shards_per_node
+        };
+        let shard_ids = (start..end).map(ShardIndex).collect();
+        start = end;
+
         sui_storage_node_configs.push(SuiStorageNode {
             name,
             network_address: rest_api_address.into(),
             public_key,
-            shard_ids: vec![ShardIndex(i)],
+            shard_ids,
         });
     }
 
@@ -231,7 +243,7 @@ pub fn testbed_configs(
         committee: walrus_sui::types::Committee {
             members: sui_storage_node_configs,
             epoch: 0,
-            total_weight: committee_size as usize,
+            total_weight: total_shards as usize,
         },
         source_symbols_primary: n_symbols_primary,
         source_symbols_secondary: n_symbols_secondary,
