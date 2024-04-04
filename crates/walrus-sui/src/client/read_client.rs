@@ -196,8 +196,7 @@ impl ReadClient for SuiReadClient {
         polling_interval: Duration,
         cursor: Option<EventID>,
     ) -> SuiClientResult<impl Stream<Item = BlobRegistered>> {
-        self.get_event_stream(polling_interval, &[], cursor)
-            .await
+        self.get_event_stream(polling_interval, &[], cursor).await
     }
 
     async fn blob_certified_events(
@@ -205,8 +204,7 @@ impl ReadClient for SuiReadClient {
         polling_interval: Duration,
         cursor: Option<EventID>,
     ) -> SuiClientResult<impl Stream<Item = BlobCertified>> {
-        self.get_event_stream(polling_interval, &[], cursor)
-            .await
+        self.get_event_stream(polling_interval, &[], cursor).await
     }
 
     async fn get_system_object(&self) -> SuiClientResult<SystemObject> {
