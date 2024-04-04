@@ -17,6 +17,31 @@ use super::{
 };
 use crate::{merkle::DIGEST_LEN, BlobId};
 
+const DECODING_SAFETY_LIMIT: u32 = 8;
+
+/// Computes the maximum number of source symbols from the standard, below the provided target.
+fn max_source_symbols(target: u16) -> u16 {
+    let mut prev = 0;
+    let mut n_symbols = 1;
+    while n_symbols < target as u32 - DECODING_SAFETY_LIMIT {
+        prev = n_symbols;
+        n_symbols = raptorq::extended_source_block_symbols(n_symbols + 1);
+    }
+    prev.try_into()
+        .expect("the maximum number of supported symbols is 56403")
+}
+
+/// Computes the number of primary and secondary source symbols starting from the number of shards.
+///
+/// It takes the largest number of source symbols supported by the RaptorQ standard, such that it is
+/// smaller than 1/3 or 2/3 of `n_shards`, minus the `DECODING_SAFETY_LIMIT`.
+pub fn source_symbols_for_n_shards(n_shards: u16) -> (u16, u16) {
+    (
+        max_source_symbols(n_shards / 3),
+        max_source_symbols(2 * n_shards / 3),
+    )
+}
+
 /// Configuration of the Walrus encoding.
 ///
 /// This consists of the number of source symbols for the two encodings, the total number of shards,
@@ -109,6 +134,19 @@ impl EncodingConfig {
                 source_symbols_secondary.get(),
             ),
         }
+    }
+
+    /// Creates a new encoding config with the appropriate number of primary and secondary source
+    /// symbols for the given number of shards.
+    #[allow(dead_code)]
+    pub(crate) fn new_for_n_shards(n_shards: u32) -> Self {
+        // TODO(giac): remove the expect once the change of n_shards to u16 happens.
+        let (primary, secondary) = source_symbols_for_n_shards(
+            n_shards
+                .try_into()
+                .expect("TODO: the number of shards should really be a u16"),
+        );
+        Self::new(primary, secondary, n_shards)
     }
 
     /// Returns the number of source symbols configured for this type.
@@ -274,5 +312,18 @@ mod tests {
             EncodingConfig::new(3, 5, 10).sliver_size_for_blob::<Primary>(blob_size),
             expected_primary_sliver_size.and_then(NonZeroUsize::new)
         );
+    }
+
+    param_test! {
+        test_source_symbols_for_n_shards: [
+            one_hundred: (100, 20, 55),
+            thousand: (1000, 324, 648),
+            ten_thousand: (10000, 3299, 6655),
+        ]
+    }
+    fn test_source_symbols_for_n_shards(n_shards: u16, primary: u16, secondary: u16) {
+        let (p, s) = source_symbols_for_n_shards(n_shards);
+        assert_eq!(p, primary);
+        assert_eq!(s, secondary);
     }
 }
