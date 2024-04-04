@@ -29,6 +29,7 @@ use self::{
 };
 
 /// A client to communicate with Walrus shards and storage nodes.
+#[derive(Debug)]
 pub struct Client {
     client: ReqwestClient,
     committee: Committee,

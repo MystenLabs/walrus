@@ -7,6 +7,10 @@ ignore = [
     "RUSTSEC-2023-0071",
     # difference 2.0.0 is unmaintained
     "RUSTSEC-2020-0095",
+    # rust-yaml is not maintained, but is a dependency in many of our packages.
+    "RUSTSEC-2024-0320",
+    # Ignore the h2 advisory as we do not have control over most of the H2 usage.
+    "RUSTSEC-2024-0332",
 ]
 
 # This section is considered when running `cargo deny check licenses`

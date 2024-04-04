@@ -38,10 +38,10 @@ pub const RECOVERY_ENDPOINT: &str = "/v1/blobs/:blobId/slivers/:sliverPairIdx/:s
 /// A blob ID encoded as a hex string designed to be used in URLs.
 #[serde_as]
 #[derive(Deserialize, Serialize)]
-pub struct HexBlobId(#[serde_as(as = "DisplayFromStr")] BlobId);
+struct HexBlobId(#[serde_as(as = "DisplayFromStr")] BlobId);
 
 /// Error message returned by the service.
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum ServiceResponse<T: Serialize> {
     /// The request was successful.
     Success {
@@ -90,6 +90,7 @@ impl<T: Serialize> ServiceResponse<T> {
 }
 
 /// Represents a user server.
+#[derive(Debug)]
 pub struct UserServer<S> {
     state: Arc<S>,
     cancel_token: CancellationToken,

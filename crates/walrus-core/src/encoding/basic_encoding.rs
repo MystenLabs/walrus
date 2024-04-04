@@ -8,6 +8,7 @@ use raptorq::{SourceBlockDecoder, SourceBlockEncoder, SourceBlockEncodingPlan};
 use super::{utils, DecodingSymbol, EncodeError, EncodingAxis, MAX_SYMBOL_SIZE};
 
 /// Wrapper to perform a single encoding with RaptorQ for the provided parameters.
+#[derive(Debug)]
 pub struct Encoder {
     raptorq_encoder: SourceBlockEncoder,
     n_source_symbols: u16,

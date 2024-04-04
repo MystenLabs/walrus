@@ -152,6 +152,7 @@ pub trait ServiceState {
 }
 
 /// A Walrus storage node, responsible for 1 or more shards on Walrus.
+#[derive(Debug)]
 pub struct StorageNode<T> {
     current_epoch: Epoch,
     storage: Storage,

@@ -4,7 +4,11 @@
 //! Client to call Walrus move functions from rust.
 //!
 
-use std::{fmt::Debug, future::Future, time::Duration};
+use std::{
+    fmt::{self, Debug},
+    future::Future,
+    time::Duration,
+};
 
 use anyhow::{anyhow, bail, Result};
 use move_core_types::language_storage::StructTag as MoveStructTag;
@@ -213,6 +217,18 @@ impl ReadClient for SuiReadClient {
 
     async fn current_committee(&self) -> SuiClientResult<Committee> {
         Ok(self.get_system_object().await?.current_committee)
+    }
+}
+
+impl fmt::Debug for SuiReadClient {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SuiReadClient")
+            .field("system_pkg", &self.system_pkg)
+            .field("sui_client", &"<redacted>")
+            .field("system_object", &self.system_object)
+            .field("coin_type", &self.coin_type)
+            .field("system_tag", &self.system_tag)
+            .finish()
     }
 }
 

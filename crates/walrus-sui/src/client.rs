@@ -3,7 +3,7 @@
 
 //! Client to call Walrus move functions from rust.
 //!
-use core::str::FromStr;
+use core::{fmt, str::FromStr};
 
 use anyhow::{anyhow, Result};
 use fastcrypto::traits::ToFromBytes;
@@ -276,5 +276,16 @@ impl SuiContractClient {
             res.errors
         );
         Ok(blob)
+    }
+}
+
+impl fmt::Debug for SuiContractClient {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SuiContractClient")
+            .field("wallet", &"<redacted>")
+            .field("read_client", &self.read_client)
+            .field("wallet_address", &self.wallet_address)
+            .field("gas_budget", &self.gas_budget)
+            .finish()
     }
 }

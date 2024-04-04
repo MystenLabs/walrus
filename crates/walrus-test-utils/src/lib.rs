@@ -139,6 +139,7 @@ macro_rules! async_param_test {
 }
 
 /// A wrapper for a type along with a temporary directory on which it depends.
+#[derive(Debug)]
 pub struct WithTempDir<T> {
     /// The wrapped inner type.
     pub inner: T,

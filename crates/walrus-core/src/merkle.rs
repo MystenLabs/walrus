@@ -71,7 +71,7 @@ pub trait MerkleAuth {
 }
 
 /// A proof that some data is at index `leaf_index` in a [`MerkleTree`].
-#[derive(Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct MerkleProof<T = Blake2b256> {
     _hash_type: PhantomData<T>,
     /// The sibling hash values on the path from the leaf to the root.
@@ -125,7 +125,7 @@ where
 /// The data of the leaves is prefixed with `0x00` before hashing and hashes of inner nodes are
 /// computed over the concatenation of their children prefixed with `0x01`. Hashes of empty
 /// subtrees (i.e. subtrees without data at their leaves) are replaced with all zeros.
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct MerkleTree<T = Blake2b256> {
     _hash_type: PhantomData<T>,
     // The nodes of the Merkle tree are stored in a vector level by level starting with
