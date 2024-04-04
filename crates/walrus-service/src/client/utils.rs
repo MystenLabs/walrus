@@ -9,12 +9,12 @@ use reqwest::Response;
 use serde::{Deserialize, Serialize};
 use tokio::time::timeout;
 
-use super::error::NodeCommunicationError;
+use super::error::CommunicationError;
 use crate::server::ServiceResponse;
 
 /// Takes a [`Response`], deserializes the json content, removes the [`ServiceResponse`] and
 /// returns the contained type.
-pub(crate) async fn unwrap_response<T>(response: Response) -> Result<T, NodeCommunicationError>
+pub(crate) async fn unwrap_response<T>(response: Response) -> Result<T, CommunicationError>
 where
     T: Serialize + for<'a> Deserialize<'a>,
 {
@@ -23,11 +23,11 @@ where
         match body {
             ServiceResponse::Success { code: _code, data } => Ok(data),
             ServiceResponse::Error { code, message } => {
-                Err(NodeCommunicationError::ServiceResponseError { code, message })
+                Err(CommunicationError::ServiceResponseError { code, message })
             }
         }
     } else {
-        Err(NodeCommunicationError::HttpInsuccess(response.status()))
+        Err(CommunicationError::HttpFailure(response.status()))
     }
 }
 

@@ -11,12 +11,17 @@ use walrus_core::{
     SliverType,
 };
 
+#[derive(Debug, thiserror::Error)]
+pub enum NodeError {
+    #[error(transparent)]
+    CommunicationFailed(#[from] CommunicationError),
+    #[error(transparent)]
+    WrongInfoReceived(#[from] WrongInfoError),
+}
+
 /// Errors returned during the communication with a storage node.
 #[derive(Debug, thiserror::Error)]
-pub enum NodeCommunicationError {
-    /// Errors in sliver verification.
-    #[error(transparent)]
-    SliverVerificationFailed(#[from] SliverVerificationError),
+pub enum CommunicationError {
     /// The sliver could not be stored on the node.
     #[error("the following slivers could not be stored on the node: {0:?}")]
     SliverStoreFailed(Vec<(SliverPairIndex, SliverType)>),
@@ -33,7 +38,16 @@ pub enum NodeCommunicationError {
     ServiceResponseError { code: u16, message: String },
     /// The HTTP request completed, but returned an error code.
     #[error("the HTTP request to the node completed, but was not successful: {0}")]
-    HttpInsuccess(StatusCode),
+    HttpFailure(StatusCode),
+}
+
+/// Errors that are returned when the storage node sends wrong, incomplete, or mismatching
+/// information.
+#[derive(Debug, thiserror::Error)]
+pub enum WrongInfoError {
+    /// Errors in sliver verification.
+    #[error(transparent)]
+    SliverVerificationFailed(#[from] SliverVerificationError),
     /// The storage node sent the wrong sliver variant, wrt what was requested.
     #[error(transparent)]
     WrongSliverVariant(#[from] WrongSliverVariantError),
