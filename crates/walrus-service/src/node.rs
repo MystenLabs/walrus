@@ -165,9 +165,20 @@ impl StorageNode {
         ))
     }
 
-    /// Set the number of shards managed by this storage node.
-    pub fn with_shards(mut self, n_shards: NonZeroUsize) -> Self {
+    /// Set the total number of shards.
+    pub fn with_total_shards(mut self, n_shards: NonZeroUsize) -> Self {
         self.n_shards = n_shards;
+
+        self
+    }
+
+    /// Specify which shards are managed by this storage node.
+    pub fn with_storage_shards(mut self, handled_shards: &[ShardIndex]) -> Self {
+        for shard in handled_shards {
+            self.storage
+                .create_storage_for_shard(*shard)
+                .expect("shard storage should be successfully created");
+        }
         self
     }
 

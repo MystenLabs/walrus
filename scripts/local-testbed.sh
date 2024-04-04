@@ -38,10 +38,16 @@ fi
 for i in $(seq 0 $((committee_size-1))); do
     tmux new -d -s "n$i" \
     "cargo run --bin walrus-node -- \
-    dry-run --committee-size $committee_size --shards $shards --index $i"
+    dry-run --committee-size $committee_size --total-shards $shards --index $i \
+    |& tee n$i.log"
 done
 
 echo "Spawned $committee_size nodes in separate tmux sessions handing a total of $shards shards."
+
+# Instructions to run a client
+echo "\nTo run a client, use the following command:"
+echo "$ echo \"123456\" > blob.txt"
+echo "$ cargo run --bin client -- --config working_dir/client_config.yaml store --file blob.txt"
 
 while true; do
     sleep 1

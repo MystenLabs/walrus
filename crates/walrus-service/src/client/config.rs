@@ -4,6 +4,7 @@
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use walrus_core::ShardIndex;
 use walrus_sui::types::Committee;
 
 /// Temporary config for the client.
@@ -19,4 +20,15 @@ pub struct Config {
     pub concurrent_requests: usize,
     /// Timeout for the `reqwest` client used by the client,
     pub connection_timeout: Duration,
+}
+
+impl Config {
+    /// Return the shards handed by the specified storage node.
+    pub fn shards_by_node(&self, node_id: usize) -> Vec<ShardIndex> {
+        self.committee
+            .members
+            .get(node_id)
+            .map(|node| node.shard_ids.clone())
+            .unwrap_or_default()
+    }
 }
