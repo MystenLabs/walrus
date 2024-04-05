@@ -20,7 +20,9 @@ build/
 # Custom pre-commit configuration
 .custom-pre-commit-config.yaml
 
-# misc
+# Misc
 *.key
 .env
 config.yml
+working_dir
+*.log

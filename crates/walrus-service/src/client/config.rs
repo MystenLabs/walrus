@@ -24,7 +24,7 @@ pub struct Config {
 
 impl Config {
     /// Return the shards handed by the specified storage node.
-    pub fn shards_by_node(&self, node_id: usize) -> Vec<ShardIndex> {
+    pub fn shards_for_node(&self, node_id: usize) -> Vec<ShardIndex> {
         self.committee
             .members
             .get(node_id)

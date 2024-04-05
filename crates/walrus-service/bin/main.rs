@@ -24,8 +24,9 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use walrus_core::ShardIndex;
 use walrus_service::{
-    config::{testbed_configs, StorageNodeConfig},
+    config::StorageNodeConfig,
     server::UserServer,
+    testbed::{node_config_name_prefix, testbed_configs},
     StorageNode,
 };
 
@@ -58,6 +59,7 @@ struct Args {
 #[derive(Subcommand, Debug, Clone)]
 #[clap(rename_all = "kebab-case")]
 enum Commands {
+    /// Run a storage node with the provided configuration.
     Run {
         /// Path to the Walrus node configuration file.
         config_path: PathBuf,
@@ -68,7 +70,7 @@ enum Commands {
         #[clap(long)]
         handled_shards: Vec<u16>,
     },
-    /// Deploy a testbed of storage nodes.
+    /// Deploy a testbed storage node.
     DryRun {
         /// The directory where the storage nodes will be deployed.
         #[clap(long, default_value = "./working_dir")]
@@ -89,6 +91,7 @@ enum Commands {
         #[clap(long, default_value_t = 4)]
         n_symbols_secondary: u16,
     },
+    /// Generate a new key pair.
     KeyGen {
         /// Path to the directory where the key pair will be saved.
         out: PathBuf,
@@ -212,6 +215,14 @@ fn dry_run(
 
     // Start storage node with index `storage_node_index`.
     let storage_node_config = storage_node_configs[storage_node_index as usize].clone();
+    let serialized_storage_node_config = serde_yaml::to_string(&storage_node_config)
+        .context("Failed to serialize storage node configs")?;
+
+    let node_config_path =
+        working_dir.join(node_config_name_prefix(storage_node_index, committee_size));
+    fs::write(node_config_path, serialized_storage_node_config)
+        .context("Failed to write storage node configs")?;
+
     let storage_path = &storage_node_config.storage_path;
     match fs::remove_dir_all(storage_path) {
         Ok(_) => {}
@@ -225,7 +236,7 @@ fn dry_run(
     }
 
     let total_shards = NonZeroUsize::new(shards as usize).unwrap();
-    let handled_shards = client_config.shards_by_node(storage_node_index as usize);
+    let handled_shards = client_config.shards_for_node(storage_node_index as usize);
     tracing::info!("Walrus node handles shards: {:?}", handled_shards);
     run_storage_node(storage_node_config, total_shards, &handled_shards)?;
     Ok(())
