@@ -170,14 +170,8 @@ impl UnverifiedBlobMetadataWithId {
                 expected: config.n_shards as usize,
             }
         );
-        let symbol_size_from_metadata = config.symbol_size_for_blob(
-            self.metadata
-                .unencoded_length
-                .try_into()
-                .map_err(|_| VerificationError::UnencodedLengthTooLarge)?,
-        );
         crate::ensure!(
-            symbol_size_from_metadata.is_some(),
+            self.metadata.unencoded_length <= config.max_blob_size() as u64,
             VerificationError::UnencodedLengthTooLarge
         );
         let computed_blob_id = BlobId::from_sliver_pair_metadata(&self.metadata);
