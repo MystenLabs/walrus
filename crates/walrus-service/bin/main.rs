@@ -11,7 +11,7 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{ensure, Context};
+use anyhow::Context;
 use clap::{Parser, Subcommand};
 use fastcrypto::traits::KeyPair;
 use mysten_metrics::RegistryService;
@@ -24,7 +24,8 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use walrus_core::ShardIndex;
 use walrus_service::{
-    config::StorageNodeConfig,
+    client,
+    config::{LoadConfig, StorageNodeConfig},
     server::UserServer,
     testbed::{node_config_name_prefix, testbed_configs},
     StorageNode,
@@ -63,21 +64,18 @@ enum Commands {
     Run {
         /// Path to the Walrus node configuration file.
         config_path: PathBuf,
-        /// The total number of shards.
-        #[clap(long, default_value = "100")]
-        total_shards: NonZeroUsize,
-        /// The shards to be handled by this node.
-        #[clap(long)]
-        handled_shards: Vec<u16>,
+        /// The committee configuration.
+        #[command(subcommand)]
+        committee_config: CommitteeConfig,
+        /// Whether to cleanup the storage directory before starting the node.
+        #[clap(long, action, default_value_t = false)]
+        cleanup_storage: bool,
     },
-    /// Deploy a testbed storage node.
-    DryRun {
+    /// Generate the configuration files to run a testbed of storage nodes.
+    GenerateDryRunConfigs {
         /// The directory where the storage nodes will be deployed.
         #[clap(long, default_value = "./working_dir")]
         working_dir: PathBuf,
-        /// The index of the storage node to deploy.
-        #[clap(long)]
-        index: u16,
         /// The number of storage nodes in the committee.
         #[clap(long, default_value = "4")]
         committee_size: NonZeroU16,
@@ -98,33 +96,73 @@ enum Commands {
     },
 }
 
+#[derive(Subcommand, Debug, Clone)]
+#[clap(rename_all = "kebab-case")]
+enum CommitteeConfig {
+    OnChain,
+    FromClientConfig {
+        /// The path to the client configuration file.
+        #[clap(long, default_value = "./working_dir/client_config.yaml")]
+        client_config_path: PathBuf,
+        /// The index of the storage node to run.
+        #[clap(long)]
+        storage_node_index: usize,
+    },
+    Manual {
+        /// The total number of shards.
+        #[clap(long, default_value = "100")]
+        total_shards: NonZeroUsize,
+        /// The shards to be handled by this node.
+        #[clap(long)]
+        handled_shards: Vec<u16>,
+    },
+}
+
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     match args.command {
         Commands::Run {
             config_path,
-            total_shards,
-            handled_shards,
+            committee_config,
+            cleanup_storage,
         } => {
             let config = StorageNodeConfig::load(config_path)?;
-            let shards = handled_shards
-                .into_iter()
-                .map(ShardIndex)
-                .collect::<Vec<_>>();
-            run_storage_node(config, total_shards, &shards)?;
+            let (total_shards, shards) = match committee_config {
+                CommitteeConfig::OnChain => {
+                    // TODO(alberto): Get the committee from the chain. (#212)
+                    todo!()
+                }
+                CommitteeConfig::FromClientConfig {
+                    client_config_path,
+                    storage_node_index,
+                } => {
+                    let client_config = client::Config::load(client_config_path)?;
+                    let total_shards = client_config.total_shards();
+                    let handled_shards = client_config.shards_for_node(storage_node_index);
+                    (total_shards, handled_shards)
+                }
+                CommitteeConfig::Manual {
+                    total_shards,
+                    handled_shards,
+                } => (
+                    total_shards,
+                    handled_shards
+                        .into_iter()
+                        .map(ShardIndex)
+                        .collect::<Vec<_>>(),
+                ),
+            };
+            run_storage_node(config, cleanup_storage, total_shards, &shards)?;
         }
-
-        Commands::DryRun {
+        Commands::GenerateDryRunConfigs {
             working_dir,
-            index,
             committee_size,
             total_shards,
             n_symbols_primary,
             n_symbols_secondary,
         } => {
-            dry_run(
+            generate_dry_run_configs(
                 working_dir,
-                index,
                 committee_size.get(),
                 total_shards.get(),
                 n_symbols_primary,
@@ -141,9 +179,24 @@ fn main() -> anyhow::Result<()> {
 
 fn run_storage_node(
     mut config: StorageNodeConfig,
+    cleanup_storage: bool,
     total_shards: NonZeroUsize,
     handled_shards: &[ShardIndex],
 ) -> anyhow::Result<()> {
+    if cleanup_storage {
+        let storage_path = &config.storage_path;
+        match fs::remove_dir_all(storage_path) {
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                return Err(e).context(format!(
+                    "Failed to remove directory '{}'",
+                    storage_path.display()
+                ))
+            }
+        }
+    }
+
     let metrics_runtime = MetricsAndLoggingRuntime::start(config.metrics_address)?;
 
     tracing::info!("Walrus Node version: {VERSION}");
@@ -178,18 +231,13 @@ fn run_storage_node(
     node_runtime.join()
 }
 
-fn dry_run(
+fn generate_dry_run_configs(
     working_dir: PathBuf,
-    storage_node_index: u16,
     committee_size: u16,
     shards: u16,
     n_symbols_primary: u16,
     n_symbols_secondary: u16,
 ) -> anyhow::Result<()> {
-    ensure!(
-        storage_node_index < committee_size,
-        "Storage node index must be less than the number of nodes"
-    );
     if let Err(e) = fs::create_dir_all(&working_dir) {
         return Err(e).context(format!(
             "Failed to create directory '{}'",
@@ -213,32 +261,17 @@ fn dry_run(
     fs::write(client_config_path, serialized_client_config)
         .context("Failed to write client configs")?;
 
-    // Start storage node with index `storage_node_index`.
-    let storage_node_config = storage_node_configs[storage_node_index as usize].clone();
-    let serialized_storage_node_config = serde_yaml::to_string(&storage_node_config)
-        .context("Failed to serialize storage node configs")?;
-
-    let node_config_path =
-        working_dir.join(node_config_name_prefix(storage_node_index, committee_size));
-    fs::write(node_config_path, serialized_storage_node_config)
-        .context("Failed to write storage node configs")?;
-
-    let storage_path = &storage_node_config.storage_path;
-    match fs::remove_dir_all(storage_path) {
-        Ok(_) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => {
-            return Err(e).context(format!(
-                "Failed to remove directory '{}'",
-                storage_path.display()
-            ))
-        }
+    // Write the storage nodes config files.
+    for storage_node_index in 0..committee_size {
+        let storage_node_config = storage_node_configs[storage_node_index as usize].clone();
+        let serialized_storage_node_config = serde_yaml::to_string(&storage_node_config)
+            .context("Failed to serialize storage node configs")?;
+        let node_config_path =
+            working_dir.join(node_config_name_prefix(storage_node_index, committee_size));
+        fs::write(node_config_path, serialized_storage_node_config)
+            .context("Failed to write storage node configs")?;
     }
 
-    let total_shards = NonZeroUsize::new(shards as usize).unwrap();
-    let handled_shards = client_config.shards_for_node(storage_node_index as usize);
-    tracing::info!("Walrus node handles shards: {:?}", handled_shards);
-    run_storage_node(storage_node_config, total_shards, &handled_shards)?;
     Ok(())
 }
 

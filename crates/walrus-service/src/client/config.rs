@@ -1,11 +1,13 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::time::Duration;
+use std::{num::NonZeroUsize, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use walrus_core::ShardIndex;
 use walrus_sui::types::Committee;
+
+use crate::config::LoadConfig;
 
 /// Temporary config for the client.
 #[derive(Debug, Serialize, Deserialize)]
@@ -31,4 +33,18 @@ impl Config {
             .map(|node| node.shard_ids.clone())
             .unwrap_or_default()
     }
+
+    /// Return the total number of shards in the committee.
+    /// Panic if the committee has no shards.
+    pub fn total_shards(&self) -> NonZeroUsize {
+        let shards = self
+            .committee
+            .members
+            .iter()
+            .map(|node| node.shard_ids.len())
+            .sum();
+        NonZeroUsize::new(shards).expect("committee has no shards")
+    }
 }
+
+impl LoadConfig for Config {}

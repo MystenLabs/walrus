@@ -7,7 +7,7 @@ use std::{
 };
 
 use anyhow::Context;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_with::{
     base64::Base64,
     de::DeserializeAsWrap,
@@ -17,6 +17,20 @@ use serde_with::{
     SerializeAs,
 };
 use walrus_core::{keys::ProtocolKeyPairParseError, ProtocolKeyPair};
+
+/// Trait for loading configuration from a YAML file.
+pub trait LoadConfig: DeserializeOwned {
+    /// Load the configuration from a YAML file located at the provided path.
+    fn load<P: AsRef<Path>>(path: P) -> Result<Self, anyhow::Error> {
+        let path = path.as_ref();
+        tracing::trace!("Reading config from {}", path.display());
+
+        let reader = std::fs::File::open(path)
+            .with_context(|| format!("Unable to load config from {}", path.display()))?;
+
+        Ok(serde_yaml::from_reader(reader)?)
+    }
+}
 
 /// Configuration of a Walrus storage node.
 #[serde_as]
@@ -35,18 +49,7 @@ pub struct StorageNodeConfig {
     pub rest_api_address: SocketAddr,
 }
 
-impl StorageNodeConfig {
-    /// Load the configuration from a YAML file located at the provided path.
-    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, anyhow::Error> {
-        let path = path.as_ref();
-        tracing::trace!("Reading config from {}", path.display());
-
-        let reader = std::fs::File::open(path)
-            .with_context(|| format!("Unable to load config from {}", path.display()))?;
-
-        Ok(serde_yaml::from_reader(reader)?)
-    }
-}
+impl LoadConfig for StorageNodeConfig {}
 
 /// Default values for the storage node configuration.
 pub mod defaults {

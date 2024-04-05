@@ -35,6 +35,11 @@ else
     shards=10 # Default value if no argument is provided
 fi
 
+# Print configs
+cargo run --bin walrus-node \
+-- generate-dry-run-configs --committee-size $committee_size --total-shards $shards
+
+# Spawn nodes
 for i in $(seq 0 $((committee_size-1))); do
     tmux new -d -s "n$i" \
     "cargo run --bin walrus-node -- \
