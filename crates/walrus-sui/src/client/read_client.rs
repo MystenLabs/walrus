@@ -223,7 +223,6 @@ impl fmt::Debug for SuiReadClient {
             .field("sui_client", &"<redacted>")
             .field("system_object", &self.system_object)
             .field("coin_type", &self.coin_type)
-            .field("system_tag", &self.system_tag)
             .finish()
     }
 }
