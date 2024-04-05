@@ -46,13 +46,14 @@ module blob_store::committee {
     struct CreateCommitteeCap has copy, store, drop {}
 
     /// A constructor for the capability to create committees
-    public(friend) fun create_committee_cap() : CreateCommitteeCap { // TODO: PROTECT THIS!!
+    /// This is only accessible through friend modules.
+    public(friend) fun create_committee_cap() : CreateCommitteeCap {
         CreateCommitteeCap {}
     }
 
     #[test_only]
     /// A constructor for the capability to create committees for tests
-    public fun create_committee_cap_for_tests() : CreateCommitteeCap { // TODO: PROTECT THIS!!
+    public fun create_committee_cap_for_tests() : CreateCommitteeCap {
         CreateCommitteeCap {}
     }
 
