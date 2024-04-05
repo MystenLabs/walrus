@@ -10,7 +10,7 @@ use axum::{
     Json,
     Router,
 };
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::{serde_as, DisplayFromStr};
 use tokio_util::sync::CancellationToken;
 use tower_http::trace::TraceLayer;
@@ -40,14 +40,20 @@ pub const RECOVERY_ENDPOINT: &str = "/v1/blobs/:blobId/slivers/:sliverPairIdx/:s
 #[derive(Deserialize, Serialize)]
 struct HexBlobId(#[serde_as(as = "DisplayFromStr")] BlobId);
 
+use bcs;
+
 /// Error message returned by the service.
 #[derive(Debug, Serialize, Deserialize)]
-pub enum ServiceResponse<T: Serialize> {
+pub enum ServiceResponse<T: Serialize + DeserializeOwned> {
     /// The request was successful.
     Success {
         /// The success code.
         code: u16,
         /// The data returned by the service.
+        #[serde(
+            serialize_with = "serialize_to_bcs",
+            deserialize_with = "deserialize_from_bcs"
+        )]
         data: T,
     },
     /// The error message returned by the service.
@@ -59,7 +65,36 @@ pub enum ServiceResponse<T: Serialize> {
     },
 }
 
-impl<T: Serialize> ServiceResponse<T> {
+use fastcrypto::encoding::Base64;
+
+fn serialize_to_bcs<T, S>(data: &T, serializer: S) -> Result<S::Ok, S::Error>
+where
+    T: Serialize,
+    S: Serializer,
+{
+    let bcs_bytes = bcs::to_bytes(data).map_err(serde::ser::Error::custom)?;
+    // Serialize to string for compatibility with JSON, which is text only.
+    serializer.serialize_str(&Base64::from_bytes(&bcs_bytes).encoded())
+}
+
+fn deserialize_from_bcs<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: DeserializeOwned,
+{
+    // Deserialize the string from the deserializer, which should be a base64-encoded string
+    let base64_string = String::deserialize(deserializer)?;
+    // Decode the base64 string into bytes
+    let bytes = Base64::try_from(base64_string)
+        .map_err(serde::de::Error::custom)?
+        .to_vec()
+        .map_err(serde::de::Error::custom)?;
+    // Deserialize those bytes into the original type
+    let deserialized: T = bcs::from_bytes(&bytes).map_err(serde::de::Error::custom)?;
+    Ok(deserialized)
+}
+
+impl<T: Serialize + DeserializeOwned> ServiceResponse<T> {
     /// Creates a new serialized success response. This response must be a tuple containing the
     /// status code (so that axum includes it in the HTTP header) and the JSON response.
     pub fn serialized_success(code: StatusCode, data: T) -> (StatusCode, Json<Self>) {
