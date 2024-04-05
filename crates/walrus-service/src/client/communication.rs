@@ -159,7 +159,6 @@ impl<'a> NodeCommunication<'a> {
                                 .try_into()
                                 .expect("checked in `UnverifiedBlobMetadataWithId::verify`")
                         )
-                        .ok_or(anyhow!("the blob size in the metadata is too large"))
                         .expect(
                             "the symbol size is checked in `UnverifiedBlobMetadataWithId::verify`"
                         ),
