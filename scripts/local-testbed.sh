@@ -11,28 +11,17 @@ function ctrl_c() {
 
 (tmux kill-server || true) 2>/dev/null
 
-if [ -n "$1" ]; then
-    if [ "$1" -eq "$1" ] 2>/dev/null; then
-        committee_size=$1
-    else
-        echo "Invalid argument: $1 is not a valid integer."
-        echo "Usage: $0 [<committee_size>] [<shards>]"
-        exit 1
-    fi
-else
-    committee_size=4 # Default value if no argument is provided
+committee_size=${1:-4} # Default value of 4 if no argument is provided
+if ! [ "$committee_size" -gt 0 ] 2>/dev/null; then
+    echo "Invalid argument: $1 is not a valid positive integer."
+    echo "Usage: $0 [<committee_size>] [<shards>]"
+    exit 1
 fi
-
-if [ -n "$2" ]; then
-    if [ "$2" -eq "$2" ] 2>/dev/null; then
-        shards=$2
-    else
-        echo "Invalid argument for shards: $2 is not a valid integer."
-        echo "Usage: $0 [<committee_size>] [<shards>]"
-        exit 1
-    fi
-else
-    shards=10 # Default value if no argument is provided
+shards=${2:-10} # Default value of 10 if no argument is provided
+if ! [ "$shards" -ge "$committee_size" ] 2>/dev/null; then
+    echo "Invalid argument: $2 is not an integer greater than or equal to 'committee_size'."
+    echo "Usage: $0 [<committee_size>] [<shards>]"
+    exit 1
 fi
 
 # Set working directory
