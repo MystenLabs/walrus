@@ -35,16 +35,20 @@ else
     shards=10 # Default value if no argument is provided
 fi
 
+# Set working directory
+working_dir="./working_dir"
+
 # Print configs
-cargo run --bin walrus-node \
--- generate-dry-run-configs --committee-size $committee_size --total-shards $shards
+cargo run --bin walrus-node -- generate-dry-run-configs \
+--working-dir $working_dir --committee-size $committee_size --total-shards $shards
 
 # Spawn nodes
 for i in $(seq 0 $((committee_size-1))); do
     tmux new -d -s "n$i" \
-    "cargo run --bin walrus-node -- \
-    dry-run --committee-size $committee_size --total-shards $shards --index $i \
-    |& tee n$i.log"
+    "cargo run --bin walrus-node -- run \
+    --config-path $working_dir/dryrun-node-$i.yaml --cleanup-storage \
+    from-client-config --client-config-path $working_dir/client_config.yaml \
+    --storage-node-index $i |& tee $working_dir/n$i.log"
 done
 
 echo "Spawned $committee_size nodes in separate tmux sessions handing a total of $shards shards."
@@ -52,7 +56,7 @@ echo "Spawned $committee_size nodes in separate tmux sessions handing a total of
 # Instructions to run a client
 echo "\nTo run a client, use the following command:"
 echo "$ echo \"123456\" > blob.txt"
-echo "$ cargo run --bin client -- --config working_dir/client_config.yaml store --file blob.txt"
+echo "$ cargo run --bin client -- --config working_dir/client_config.yaml store blob.txt"
 
 while true; do
     sleep 1

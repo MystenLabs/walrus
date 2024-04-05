@@ -22,7 +22,7 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
-use walrus_core::ShardIndex;
+use walrus_core::{encoding::initialize_encoding_config, ShardIndex};
 use walrus_service::{
     client,
     config::{LoadConfig, StorageNodeConfig},
@@ -63,6 +63,7 @@ enum Commands {
     /// Run a storage node with the provided configuration.
     Run {
         /// Path to the Walrus node configuration file.
+        #[clap(long)]
         config_path: PathBuf,
         /// The committee configuration.
         #[command(subcommand)]
@@ -137,6 +138,11 @@ fn main() -> anyhow::Result<()> {
                     storage_node_index,
                 } => {
                     let client_config = client::Config::load(client_config_path)?;
+                    initialize_encoding_config(
+                        client_config.source_symbols_primary,
+                        client_config.source_symbols_secondary,
+                        client_config.committee.total_weight as u32,
+                    );
                     let total_shards = client_config.total_shards();
                     let handled_shards = client_config.shards_for_node(storage_node_index);
                     (total_shards, handled_shards)
@@ -266,8 +272,11 @@ fn generate_dry_run_configs(
         let storage_node_config = storage_node_configs[storage_node_index as usize].clone();
         let serialized_storage_node_config = serde_yaml::to_string(&storage_node_config)
             .context("Failed to serialize storage node configs")?;
-        let node_config_path =
-            working_dir.join(node_config_name_prefix(storage_node_index, committee_size));
+        let node_config_name = format!(
+            "{}.yaml",
+            node_config_name_prefix(storage_node_index, committee_size)
+        );
+        let node_config_path = working_dir.join(node_config_name);
         fs::write(node_config_path, serialized_storage_node_config)
             .context("Failed to write storage node configs")?;
     }
