@@ -18,7 +18,7 @@ mysten-metrics = { workspace = true }
 prometheus = "0.13.3"
 rand = "0.8.5"
 regex = "1"
-reqwest = { version = "0.12.1", features = ["json"] }
+reqwest = { version = "0.12.3", features = ["json"] }
 rocksdb = "0.21"
 serde = { workspace = true }
 serde_with = { workspace = true, features = ["base64"] }
@@ -49,7 +49,7 @@ path = "bin/main.rs"
 
 [dev-dependencies]
 rand = { workspace = true }
-reqwest = { version = "0.12.2", features = ["json"] }
+reqwest = { version = "0.12.3", features = ["json"] }
 tempfile = { workspace = true }
 walrus-core = { workspace = true, features = ["test-utils"] }
 walrus-sui = { workspace = true }
