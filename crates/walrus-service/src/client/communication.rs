@@ -31,17 +31,27 @@ use super::{
         ConfirmationRetrieveError,
         MetadataRetrieveError,
         MetadataStoreError,
+        NodeResult,
         SliverRetrieveError,
         SliverVerificationError,
         StoreError,
     },
-    utils::{unwrap_response, WeightedResult},
+    utils::unwrap_response,
 };
 use crate::{
     client::error::SliverStoreError,
     mapping::pair_index_for_shard,
     server::{METADATA_ENDPOINT, SLIVER_ENDPOINT, STORAGE_CONFIRMATION_ENDPOINT},
 };
+
+macro_rules! propagate_node_error {
+    ($self:ident, $weight:expr, $result:expr) => {
+        match $result {
+            Ok(r) => r,
+            Err(e) => return $self.to_node_result($weight, Err(e.into())),
+        }
+    };
+}
 
 pub(crate) struct NodeCommunication<'a> {
     pub epoch: Epoch,
@@ -70,23 +80,38 @@ impl<'a> NodeCommunication<'a> {
         self.encoding_config.n_shards_as_usize()
     }
 
+    fn to_node_result<T, E>(&self, weight: usize, result: Result<T, E>) -> NodeResult<T, E> {
+        (self.epoch, weight, self.node.clone(), result)
+    }
+
     // Read operations.
 
     /// Requests the metadata for a blob ID from the node.
     pub async fn retrieve_verified_metadata(
         &self,
         blob_id: &BlobId,
-    ) -> WeightedResult<VerifiedBlobMetadataWithId, MetadataRetrieveError> {
-        let response = self
-            .client
-            .get(self.metadata_endpoint(blob_id))
-            .send()
-            .await
-            .map_err(CommunicationError::from)?;
-        let metadata = unwrap_response::<UnverifiedBlobMetadataWithId>(response)
-            .await?
-            .verify(self.encoding_config)?;
-        Ok((self.node.shard_ids.len(), metadata))
+    ) -> NodeResult<VerifiedBlobMetadataWithId, MetadataRetrieveError> {
+        const METADATA_RESULT_WEIGHT: usize = 1;
+        let response = propagate_node_error!(
+            self,
+            METADATA_RESULT_WEIGHT,
+            self.client
+                .get(self.metadata_endpoint(blob_id))
+                .send()
+                .await
+                .map_err(CommunicationError::from)
+        );
+        let unverified_metadata = propagate_node_error!(
+            self,
+            METADATA_RESULT_WEIGHT,
+            unwrap_response::<UnverifiedBlobMetadataWithId>(response).await
+        );
+        let metadata = propagate_node_error!(
+            self,
+            METADATA_RESULT_WEIGHT,
+            unverified_metadata.verify(self.encoding_config)
+        );
+        self.to_node_result(METADATA_RESULT_WEIGHT, Ok(metadata))
     }
 
     async fn retrieve_verified_confirmation(
@@ -120,14 +145,23 @@ impl<'a> NodeCommunication<'a> {
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         shard_idx: ShardIndex,
-    ) -> WeightedResult<Sliver<T>, SliverRetrieveError>
+    ) -> NodeResult<Sliver<T>, SliverRetrieveError>
     where
         Sliver<T>: TryFrom<SliverEnum>,
     {
-        let sliver = self.retrieve_sliver::<T>(metadata, shard_idx).await?;
-        self.verify_sliver(metadata, &sliver, shard_idx)?;
+        const SLIVER_RESULT_WEIGHT: usize = 1;
+        let sliver = propagate_node_error!(
+            self,
+            SLIVER_RESULT_WEIGHT,
+            self.retrieve_sliver::<T>(metadata, shard_idx).await
+        );
+        propagate_node_error!(
+            self,
+            SLIVER_RESULT_WEIGHT,
+            self.verify_sliver(metadata, &sliver, shard_idx)
+        );
         // Each sliver is in this case requested individually, so the weight is 1.
-        Ok((1, sliver))
+        self.to_node_result(SLIVER_RESULT_WEIGHT, Ok(sliver))
     }
 
     /// Requests a sliver from a shard.
@@ -217,11 +251,14 @@ impl<'a> NodeCommunication<'a> {
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         pairs: Vec<SliverPair>,
-    ) -> WeightedResult<SignedStorageConfirmation, StoreError> {
-        // TODO(giac): add error handling and retries.
-        self.store_metadata(metadata)
-            .await
-            .map_err(StoreError::MetadataStore)?;
+    ) -> NodeResult<SignedStorageConfirmation, StoreError> {
+        let store_result_weight: usize = self.node.shard_ids.len();
+        // TODO(giac): add retry for metadata.
+        propagate_node_error!(
+            self,
+            store_result_weight,
+            self.store_metadata(metadata).await
+        );
         // TODO(giac): check the slivers that were not successfully stored and possibly retry.
         let results = self.store_pairs(metadata.blob_id(), pairs).await;
         // It is useless to request the confirmation if storing any of the slivers failed.
@@ -229,15 +266,20 @@ impl<'a> NodeCommunication<'a> {
             .into_iter()
             .filter_map(Result::err)
             .collect::<Vec<_>>();
-        ensure!(
-            failed_requests.is_empty(),
-            StoreError::SliverStore(failed_requests)
+        if !failed_requests.is_empty() {
+            return self.to_node_result(
+                store_result_weight,
+                Err(StoreError::SliverStore(failed_requests)),
+            );
+        }
+        let confirmation = propagate_node_error!(
+            self,
+            store_result_weight,
+            self.retrieve_verified_confirmation(metadata.blob_id())
+                .await
+                .map_err(StoreError::ConfirmationRetrieve)
         );
-        let confirmation = self
-            .retrieve_verified_confirmation(metadata.blob_id())
-            .await
-            .map_err(StoreError::ConfirmationRetrieve)?;
-        Ok((self.node.shard_ids.len(), confirmation))
+        self.to_node_result(store_result_weight, Ok(confirmation))
     }
 
     /// Stores the metadata on the node.

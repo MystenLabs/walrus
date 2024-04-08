@@ -26,7 +26,7 @@ mod utils;
 pub use self::config::Config;
 use self::{
     communication::NodeCommunication,
-    error::SliverRetrieveError,
+    error::{NodeResult, SliverRetrieveError},
     utils::{WeightedFutures, WeightedResult},
 };
 
@@ -87,7 +87,7 @@ impl Client {
         let results = requests.into_results();
         Ok((
             metadata,
-            results.into_iter().filter_map(Result::ok).collect(),
+            results.into_iter().filter_map(|res| res.ok()).collect(),
         ))
     }
 
@@ -134,7 +134,7 @@ impl Client {
         let slivers = requests
             .take_results()
             .into_iter()
-            .filter_map(Result::ok)
+            .filter_map(|res| res.ok())
             .collect::<Vec<_>>();
 
         if let Some((blob, _meta)) = decoder.decode_and_verify(metadata.blob_id(), slivers)? {
@@ -152,16 +152,18 @@ impl Client {
     /// sliver it receives.
     async fn decode_sliver_by_sliver<'a, I, Fut, T>(
         &self,
-        requests: &mut WeightedFutures<I, Fut, Sliver<T>, SliverRetrieveError>,
+        requests: &mut WeightedFutures<I, Fut, NodeResult<Sliver<T>, SliverRetrieveError>>,
         decoder: &mut BlobDecoder<'a, T>,
         blob_id: &BlobId,
     ) -> Result<Vec<u8>>
     where
         T: EncodingAxis,
         I: Iterator<Item = Fut>,
-        Fut: Future<Output = WeightedResult<Sliver<T>, SliverRetrieveError>>,
+        Fut: Future<Output = NodeResult<Sliver<T>, SliverRetrieveError>>,
     {
-        while let Some(result) = requests.next(self.concurrent_requests).await {
+        while let Some((_epoch, _weight, _node, result)) =
+            requests.next(self.concurrent_requests).await
+        {
             match result {
                 Ok(sliver) => {
                     let result = decoder.decode_and_verify(blob_id, [sliver])?;
@@ -189,7 +191,7 @@ impl Client {
         let metadata = requests
             .into_results()
             .into_iter()
-            .find_map(Result::ok)
+            .find_map(|res| res.ok())
             .ok_or(anyhow!(
                 "could not retrieve the metadata from the storage nodes"
             ))?;

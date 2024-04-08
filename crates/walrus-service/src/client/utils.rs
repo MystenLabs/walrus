@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use anyhow::Result;
-use futures::{stream::FuturesUnordered, Future, Stream, StreamExt};
+use futures::{stream::FuturesUnordered, Future, StreamExt};
 use reqwest::Response;
 use serde::{Deserialize, Serialize};
 use tokio::time::timeout;
@@ -31,26 +31,35 @@ where
     }
 }
 
-/// A Result that is weighted with an integer.
-///
-/// Used to represent the number of shards owned by the node that returned the result, to keep track
-/// of how many correct responses we received towards the quorum.
-pub(crate) type WeightedResult<T, E> = Result<(usize, T), E>;
+/// A trait representing a result that has a weight.
+pub trait WeightedResult {
+    /// The type `T` in the inner `Result<T,E>`.
+    type Inner;
+    /// Returns true if the inner result is `Ok`.
+    fn is_ok(&self) -> bool;
+    /// Returns true if the inner result is `Err`.
+    fn is_err(&self) -> bool;
+    /// Returns the weight of the `WeightedResult`.
+    fn weight(&self) -> usize;
+    /// Converts `self` into an [`Option<T>`], where `T` is the type of the inner result, consuming
+    /// `self`, and discarding the error, if any.
+    fn ok(self) -> Option<Self::Inner>;
+}
 
 /// A set of weighted futures that return a [`WeightedResult`]. The futures can be awaited on for a
 /// certain time, or until a set cumulative weight of futures return successfully.
-pub(crate) struct WeightedFutures<I, Fut, T, E> {
+pub(crate) struct WeightedFutures<I, Fut, T> {
     futures: I,
     being_executed: FuturesUnordered<Fut>,
-    results: Vec<Result<T, E>>,
+    results: Vec<T>,
     total_weight: usize,
 }
 
-impl<I, Fut, T, E> WeightedFutures<I, Fut, T, E>
+impl<I, Fut, T> WeightedFutures<I, Fut, T>
 where
     I: Iterator<Item = Fut>,
-    Fut: Future<Output = WeightedResult<T, E>>,
-    FuturesUnordered<Fut>: Stream<Item = WeightedResult<T, E>>,
+    Fut: Future<Output = T>,
+    T: WeightedResult,
 {
     /// Creates a new [`WeightedFutures`] struct from an iterator of futures.
     pub fn new(futures: I) -> Self {
@@ -96,7 +105,7 @@ where
     /// results.
     ///
     /// Returns `None` if it cannot produce further results.
-    pub async fn next(&mut self, n_concurrent: usize) -> Option<Result<T, E>> {
+    pub async fn next(&mut self, n_concurrent: usize) -> Option<T> {
         self.next_threshold(n_concurrent, None).await
     }
 
@@ -112,7 +121,7 @@ where
         &mut self,
         n_concurrent: usize,
         threshold: Option<usize>,
-    ) -> Option<Result<T, E>> {
+    ) -> Option<T> {
         if let Some(threshold) = threshold {
             if self.total_weight >= threshold {
                 return None;
@@ -130,13 +139,10 @@ where
             if let Some(future) = self.futures.next() {
                 self.being_executed.push(future);
             }
-            match completed {
-                Ok((weight, result)) => {
-                    self.total_weight += weight;
-                    Some(Ok(result))
-                }
-                Err(e) => Some(Err(e)),
+            if completed.is_ok() {
+                self.total_weight += completed.weight();
             }
+            Some(completed)
         } else {
             None
         }
@@ -144,17 +150,17 @@ where
 
     /// Returns a reference to the `results`.
     #[allow(dead_code)]
-    pub fn results(&self) -> &Vec<Result<T, E>> {
+    pub fn results(&self) -> &Vec<T> {
         &self.results
     }
 
     /// Gets all the results in the struct, emptying `self.results`.
-    pub fn take_results(&mut self) -> Vec<Result<T, E>> {
+    pub fn take_results(&mut self) -> Vec<T> {
         std::mem::take(&mut self.results)
     }
 
     /// Consumes the struct and returns the `results`.
-    pub fn into_results(self) -> Vec<Result<T, E>> {
+    pub fn into_results(self) -> Vec<T> {
         self.results
     }
 }
@@ -167,21 +173,35 @@ mod tests {
 
     use super::*;
 
+    type SimpleWeightedResult = (usize, u64);
+    impl WeightedResult for SimpleWeightedResult {
+        type Inner = u64;
+        fn is_ok(&self) -> bool {
+            true
+        }
+        fn is_err(&self) -> bool {
+            false
+        }
+        fn weight(&self) -> usize {
+            self.0
+        }
+        fn ok(self) -> Option<Self::Inner> {
+            Some(self.1)
+        }
+    }
+
     macro_rules! create_weighted_futures {
         ($var:ident, $iter:expr) => {
             let futures = $iter.into_iter().map(|&i| async move {
                 tokio::time::sleep(Duration::from_millis((i) * 10)).await;
-                Ok((1, i)) // Every result has a weight of 1.
+                (1, i) // Every result has a weight of 1.
             });
-            let mut $var: WeightedFutures<_, _, _, anyhow::Error> = WeightedFutures::new(futures);
+            let mut $var = WeightedFutures::new(futures);
         };
     }
 
-    fn only_ok<T: Clone, E>(results: &[Result<T, E>]) -> Vec<T> {
-        results
-            .iter()
-            .filter_map(|result| result.as_ref().ok().cloned())
-            .collect()
+    fn only_ok(results: &[SimpleWeightedResult]) -> Vec<u64> {
+        results.iter().filter_map(|result| result.ok()).collect()
     }
 
     #[tokio::test(start_paused = true)]
