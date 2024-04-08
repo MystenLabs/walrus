@@ -254,9 +254,11 @@ impl<'a> NodeCommunication<'a> {
         Ok(())
     }
 
-    /// Stores the sliver pairs on the node.  Returns the result of the `store_sliver` operation for
-    /// all the slivers in the storage node. The order of the returned results matches the order of
-    /// the provided pairs, and for every pair the primary sliver precedes the secondary.
+    /// Stores the sliver pairs on the node.
+    ///
+    /// Returns the result of the [`store_sliver`][Self::store_sliver] operation for all the slivers
+    /// in the storage node. The order of the returned results matches the order of the provided
+    /// pairs, and for every pair the primary sliver precedes the secondary.
     async fn store_pairs(
         &self,
         blob_id: &BlobId,
