@@ -40,6 +40,9 @@ module blob_store::e2e_test  {
         // Create a committee caps
         let committee_cap = committee::create_committee_cap();
 
+        // TODO: eventually do not make a n initial committee or system object and fully
+        //       rely on a PTB to create it.
+
         // Pk corresponding to secret key scalar(117)
         let pub_key_bytes = vector[149, 234, 204, 58, 220, 9, 200, 39, 89, 63, 88, 30, 142, 45,
             224, 104, 191, 76, 245, 208, 192, 235, 41, 229, 55, 47, 13, 35, 54, 71, 136, 238, 15,
