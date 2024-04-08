@@ -11,7 +11,7 @@ aws-config = "0.54.1"
 aws-sdk-ec2 = "0.24.0"
 clap = { workspace = true }
 color-eyre = "0.6.3"
-crossterm = "0.26.0"
+crossterm = "0.27.0"
 eyre = "0.6.12"
 futures = { workspace = true }
 prettytable-rs = "0.10"
