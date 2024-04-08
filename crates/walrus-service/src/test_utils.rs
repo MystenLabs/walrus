@@ -4,7 +4,6 @@
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use fastcrypto::traits::KeyPair;
-use sui_sdk::types::{digests::TransactionDigest, event::EventID};
 use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
 use typed_store::rocks::MetricConf;
@@ -201,12 +200,5 @@ fn to_storage_node_config(
         network_address,
         public_key,
         shard_ids: shard_ids.to_vec(),
-    }
-}
-
-pub(crate) fn event_id_for_testing() -> EventID {
-    EventID {
-        tx_digest: TransactionDigest::random(),
-        event_seq: 0,
     }
 }

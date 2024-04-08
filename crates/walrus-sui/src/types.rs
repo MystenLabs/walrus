@@ -17,12 +17,13 @@ use move_core_types::u256::U256;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sui_sdk::rpc_types::{SuiEvent, SuiMoveStruct, SuiMoveValue};
-use sui_types::{base_types::ObjectID, digests::TransactionDigest, event::EventID};
+use sui_types::{base_types::ObjectID, event::EventID};
 use thiserror::Error;
 use walrus_core::{BlobId, EncodingType, Epoch, PublicKey, ShardIndex};
 
 use crate::{
     contracts::{self, AssociatedContractStruct, AssociatedSuiEvent, StructTag},
+    test_utils::event_id_for_testing,
     utils::{
         blob_id_from_u256,
         get_dynamic_field,
@@ -255,7 +256,7 @@ impl AssociatedContractStruct for StorageNode {
 }
 
 /// Sui type for storage committee
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize, Default)]
 pub struct Committee {
     /// The members of the committee
     pub members: Vec<StorageNode>,
@@ -473,10 +474,7 @@ impl BlobRegistered {
             size: 10000,
             erasure_code_type: EncodingType::RedStuff,
             end_epoch: 42,
-            event_id: EventID {
-                tx_digest: TransactionDigest::random(),
-                event_seq: 0,
-            },
+            event_id: event_id_for_testing(),
         }
     }
 }
@@ -525,10 +523,7 @@ impl BlobCertified {
             epoch: 0,
             blob_id,
             end_epoch: 42,
-            event_id: EventID {
-                tx_digest: TransactionDigest::random(),
-                event_seq: 0,
-            },
+            event_id: event_id_for_testing(),
         }
     }
 }

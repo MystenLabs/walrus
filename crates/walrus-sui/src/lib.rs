@@ -7,4 +7,5 @@
 mod utils;
 pub mod client;
 mod contracts;
+pub mod test_utils;
 pub mod types;

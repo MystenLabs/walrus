@@ -4,6 +4,7 @@
 //! Client to call Walrus move functions from rust.
 //!
 use core::{fmt, str::FromStr};
+use std::future::Future;
 
 use anyhow::{anyhow, Result};
 use fastcrypto::traits::ToFromBytes;
@@ -30,10 +31,10 @@ use crate::{
 };
 
 mod read_client;
-pub use read_client::{MockSuiReadClient, ReadClient, SuiReadClient};
+pub use read_client::{ReadClient, SuiReadClient};
 
 #[derive(Debug, thiserror::Error)]
-/// Error returned by the [`SuiContractClient`] and the [`SuiReadClient`]
+/// Error returned by the [`SuiContractClient`] and the [`SuiReadClient`].
 pub enum SuiClientError {
     #[error(transparent)]
     /// Unexpected internal errors
@@ -52,19 +53,55 @@ pub enum SuiClientError {
     NoCompatibleGasCoin(anyhow::Error),
 }
 
-type SuiClientResult<T> = Result<T, SuiClientError>;
+/// Result alias for functions returning a `SuiClientError`.
+pub type SuiClientResult<T> = Result<T, SuiClientError>;
 
-/// Client implementation for interacting with the Walrus smart contracts
+/// Trait for interactions with the walrus contracts.
+pub trait ContractClient {
+    /// Purchases blob storage for the next `epochs_ahead` Walrus epochs and an encoded
+    /// size of `encoded_size` and returns the created storage resource.
+    fn reserve_space(
+        &self,
+        encoded_size: u64,
+        epochs_ahead: u64,
+    ) -> impl Future<Output = SuiClientResult<StorageResource>> + Send;
+
+    /// Registers a blob with the specified [`BlobId`] using the provided [`StorageResource`],
+    /// and returns the created blob object.
+    ///
+    /// `encoded_size` is the size of the encoded blob, must be less than or equal to the size
+    ///  reserved in `storage`.
+    fn register_blob(
+        &self,
+        storage: &StorageResource,
+        blob_id: BlobId,
+        encoded_size: u64,
+        erasure_code_type: EncodingType,
+    ) -> impl Future<Output = SuiClientResult<Blob>> + Send;
+
+    /// Certifies the specified blob on Sui, given a certificate that confirms its storage and
+    /// returns the certified blob.
+    fn certify_blob(
+        &self,
+        blob: &Blob,
+        certificate: &ConfirmationCertificate,
+    ) -> impl Future<Output = SuiClientResult<Blob>> + Send;
+
+    /// Returns a compatible `ReadClient`.
+    fn read_client(&self) -> &impl ReadClient;
+}
+
+/// Client implementation for interacting with the Walrus smart contracts.
 pub struct SuiContractClient {
     wallet: WalletContext,
-    /// Client to read Walrus on-chain state
+    /// Client to read Walrus on-chain state.
     pub read_client: SuiReadClient,
     wallet_address: SuiAddress,
     gas_budget: u64,
 }
 
 impl SuiContractClient {
-    /// Constructor for [`SuiContractClient`]
+    /// Constructor for [`SuiContractClient`].
     pub async fn new(
         mut wallet: WalletContext,
         system_pkg: ObjectID,
@@ -83,7 +120,7 @@ impl SuiContractClient {
     }
 
     /// Executes the move call to `function` with `call_args` and transfers all outputs
-    /// (if any) to the sender
+    /// (if any) to the sender.
     async fn move_call_and_transfer<'a>(
         &self,
         function: FunctionTag<'a>,
@@ -157,15 +194,15 @@ impl SuiContractClient {
             }
         }
     }
+}
 
-    /// Purchases blob storage for the next `periods_ahead` Walrus epochs and an encoded
-    /// size of `encoded_size` and returns the created storage resource.
-    pub async fn reserve_space(
+impl ContractClient for SuiContractClient {
+    async fn reserve_space(
         &self,
         encoded_size: u64,
-        periods_ahead: u64,
+        epochs_ahead: u64,
     ) -> SuiClientResult<StorageResource> {
-        let price = periods_ahead * encoded_size * self.read_client.price_per_unit_size().await?;
+        let price = epochs_ahead * encoded_size * self.read_client.price_per_unit_size().await?;
         let payment_coin = self
             .read_client
             .get_payment_coins(self.wallet_address)
@@ -180,7 +217,7 @@ impl SuiContractClient {
                 vec![
                     self.read_client.call_arg_from_system_obj(true).await?,
                     encoded_size.into(),
-                    periods_ahead.into(),
+                    epochs_ahead.into(),
                     payment_coin.object_ref().into(),
                 ],
             )
@@ -199,12 +236,7 @@ impl SuiContractClient {
         self.read_client.get_object(storage_id[0]).await
     }
 
-    /// Registers a blob with the specified [`BlobId`] using the provided [`StorageResource`],
-    /// and returns the created blob object.
-    ///
-    /// `encoded_size` is the size of the encoded blob, must be less than or equal to the size
-    ///  reserved in `storage`.
-    pub async fn register_blob(
+    async fn register_blob(
         &self,
         storage: &StorageResource,
         blob_id: BlobId,
@@ -237,9 +269,7 @@ impl SuiContractClient {
         self.read_client.get_object(blob_obj_id[0]).await
     }
 
-    /// Certifies the specified blob on Sui, given a certificate that confirms its storage and
-    /// returns the certified blob.
-    pub async fn certify_blob(
+    async fn certify_blob(
         &self,
         blob: &Blob,
         certificate: &ConfirmationCertificate,
@@ -263,6 +293,10 @@ impl SuiContractClient {
             res.errors
         );
         Ok(blob)
+    }
+
+    fn read_client(&self) -> &impl ReadClient {
+        &self.read_client
     }
 }
 

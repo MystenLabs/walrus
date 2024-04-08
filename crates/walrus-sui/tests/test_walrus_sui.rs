@@ -15,7 +15,7 @@ use walrus_core::{
 };
 use walrus_e2e_tests::publish_package;
 use walrus_sui::{
-    client::{ReadClient, SuiContractClient},
+    client::{ContractClient, ReadClient, SuiContractClient},
     types::EpochStatus,
 };
 
