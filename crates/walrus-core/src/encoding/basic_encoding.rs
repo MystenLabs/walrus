@@ -12,6 +12,7 @@ use super::{utils, DecodingSymbol, EncodeError, EncodingAxis};
 pub struct Encoder {
     raptorq_encoder: SourceBlockEncoder,
     n_source_symbols: NonZeroU16,
+    // INV: n_source_symbols <= n_shards.
     n_shards: NonZeroU16,
     symbol_size: NonZeroU16,
 }
@@ -36,12 +37,17 @@ impl Encoder {
     /// If the `encoding_plan` was generated for a different number of source symbols than
     /// `n_source_symbols`, later methods called on the returned `Encoder` may exhibit unexpected
     /// behavior.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `n_source_symbols > n_shards`.
     pub fn new(
         data: &[u8],
         n_source_symbols: NonZeroU16,
         n_shards: NonZeroU16,
         encoding_plan: &SourceBlockEncodingPlan,
     ) -> Result<Self, EncodeError> {
+        assert!(n_shards >= n_source_symbols);
         if data.is_empty() {
             return Err(EncodeError::EmptyData);
         }
@@ -57,7 +63,7 @@ impl Encoder {
         Ok(Self {
             raptorq_encoder: SourceBlockEncoder::with_encoding_plan(
                 0,
-                &utils::get_transmission_info(symbol_size.into()),
+                &utils::get_transmission_info(symbol_size),
                 data,
                 encoding_plan,
             ),
@@ -151,7 +157,7 @@ impl Decoder {
         Self {
             raptorq_decoder: SourceBlockDecoder::new(
                 0,
-                &utils::get_transmission_info(symbol_size.into()),
+                &utils::get_transmission_info(symbol_size),
                 (n_source_symbols.get() as u64) * (symbol_size.get() as u64),
             ),
         }
@@ -221,7 +227,7 @@ mod tests {
                 &random_data(42000), 100, 100..200, true
             ),
             aligned_data_too_few_symbols_1: (&[1, 2], 2, 2..3, false),
-            aligned_data_too_few_symbols_2: (&[1, 2, 3], 3, 0..2, false),
+            aligned_data_too_few_symbols_2: (&[1, 2, 3], 3, 1..3, false),
         ]
     }
     fn test_encode_decode(

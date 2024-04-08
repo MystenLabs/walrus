@@ -49,7 +49,6 @@ pub struct SliverIndex(pub u16);
 
 impl SliverIndex {
     /// Creates a new sliver index from the given `usize`.
-
     pub fn new(index: u16) -> Self {
         Self(index)
     }

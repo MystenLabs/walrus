@@ -3,6 +3,8 @@
 
 //! The mapping between the encoded sliver pairs and shards.
 
+use std::num::NonZeroU16;
+
 use thiserror::Error;
 use walrus_core::{encoding::SliverPair, metadata::SliverPairIndex, BlobId, ShardIndex};
 
@@ -36,18 +38,28 @@ pub enum SliverAssignmentError {
 ///
 /// Returns a [`SliverAssignmentError`] if the `pairs` have already been shuffled in a way that is
 /// inconsistent with the provided `blob_id`.
+///
+/// # Panics
+///
+/// Panics if the length of the provided slice is larger than `u16::MAX`.
 pub fn rotate_pairs(
     pairs: &mut [SliverPair],
     blob_id: &BlobId,
 ) -> Result<(), SliverAssignmentError> {
-    if pairs.is_empty() {
+    let Some(n_pairs) = NonZeroU16::new(
+        pairs
+            .len()
+            .try_into()
+            .expect("there shouldn't be more than `u16::MAX` sliver pairs"),
+    ) else {
+        // Nothing to do for an empty slice.
         return Ok(());
-    }
+    };
     if is_rotation(pairs) {
         if pairs[0].index() == SliverPairIndex::new(0) {
             rotate_by_bytes(pairs, blob_id.as_ref());
         } else if pairs[0].index().as_usize()
-            != pair_index_for_shard(ShardIndex(0), pairs.len(), blob_id)
+            != pair_index_for_shard(ShardIndex(0), n_pairs.get().into(), blob_id)
         {
             return Err(SliverAssignmentError::InconsistentRotation);
         }
@@ -92,9 +104,6 @@ fn is_rotation(pairs: &[SliverPair]) -> bool {
 /// * `n_shards` - The total number of shards in the system.
 /// * `blob_id` - The Blob ID that produced the sliver. It is interpreted as a big-endian unsigned
 /// integer, and then used to compute the offset for the sliver pair index.
-///
-/// # Panics
-/// Panic if the total number of shards is greater than `u16::MAX`.
 pub fn shard_index_for_pair(
     pair_idx: SliverPairIndex,
     n_shards: u16,
@@ -139,22 +148,21 @@ fn bytes_mod(bytes: &[u8], modulus: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use walrus_core::{encoding::Sliver, test_utils};
+    use walrus_core::{encoding::EncodingConfig, test_utils};
     use walrus_test_utils::param_test;
 
     use super::*;
 
     // Fixture
-    fn sliver_pairs(num: u32) -> Vec<SliverPair> {
-        let num = num as u16;
+    fn sliver_pairs(num: u16) -> Vec<SliverPair> {
+        let encoding_config = EncodingConfig::new(1, 1, num);
         (0..num)
-            .map(|n| SliverPair {
-                primary: Sliver::new_empty(0, 1.try_into().unwrap(), SliverPairIndex::new(n)),
-                secondary: Sliver::new_empty(
-                    0,
+            .map(|n| {
+                SliverPair::new_empty(
+                    &encoding_config,
                     1.try_into().unwrap(),
-                    SliverPairIndex::new(num - n - 1),
-                ),
+                    SliverPairIndex::new(n),
+                )
             })
             .collect()
     }

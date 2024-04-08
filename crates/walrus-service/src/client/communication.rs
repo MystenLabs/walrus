@@ -34,7 +34,6 @@ pub(crate) struct NodeCommunication<'a> {
     pub epoch: Epoch,
     pub client: &'a ReqwestClient,
     pub node: &'a StorageNode,
-    pub total_weight: usize,
     pub encoding_config: &'a EncodingConfig,
 }
 
@@ -43,16 +42,19 @@ impl<'a> NodeCommunication<'a> {
         epoch: Epoch,
         client: &'a ReqwestClient,
         node: &'a StorageNode,
-        total_weight: usize,
         encoding_config: &'a EncodingConfig,
     ) -> Self {
         Self {
             epoch,
             client,
             node,
-            total_weight,
             encoding_config,
         }
+    }
+
+    /// Returns the total weight (number of shards) as a `usize`.
+    pub fn total_weight(&self) -> usize {
+        self.encoding_config.n_shards_as_usize()
     }
 
     // Read operations.
@@ -118,7 +120,7 @@ impl<'a> NodeCommunication<'a> {
             .get(self.sliver_endpoint(
                 metadata.blob_id(),
                 SliverIndex(
-                    pair_index_for_shard(shard_idx, self.total_weight, metadata.blob_id()) as u16,
+                    pair_index_for_shard(shard_idx, self.total_weight(), metadata.blob_id()) as u16,
                 ),
                 SliverType::for_encoding::<T>(),
             ))
@@ -142,7 +144,7 @@ impl<'a> NodeCommunication<'a> {
             .hashes
             .get(pair_index_for_shard(
                 shard_idx,
-                self.total_weight,
+                self.total_weight(),
                 metadata.blob_id(),
             ))
             .ok_or(anyhow!("missing hashes for the sliver"))?;

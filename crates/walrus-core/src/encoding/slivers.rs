@@ -48,7 +48,7 @@ impl<T: EncodingAxis> Sliver<T> {
     /// # Panics
     ///
     /// Panics if the slice does not contain complete symbols, i.e., if
-    /// `slice.len() % symbol_size != 0`.
+    /// `data.len() % symbol_size != 0`.
     pub fn new<U: Into<Vec<u8>>>(data: U, symbol_size: NonZeroU16, index: SliverIndex) -> Self {
         Self {
             symbols: Symbols::new(data.into(), symbol_size),
@@ -222,12 +222,11 @@ impl<T: EncodingAxis> Sliver<T> {
         if symbol_size == 0 || inner_iter.any(|s| s.data.len() != symbol_size) {
             return Err(RecoveryError::InvalidSymbolSizes);
         }
-        let symbol_size = NonZeroU16::new(
-            symbol_size
-                .try_into()
-                .map_err(|_| EncodeError::DataTooLarge)?,
-        )
-        .expect("already checked size above");
+        let symbol_size = symbol_size
+            .try_into()
+            .ok()
+            .and_then(NonZeroU16::new)
+            .ok_or(EncodeError::DataTooLarge)?;
 
         // Pass the symbols to the decoder.
         Ok(Decoder::new(Self::n_source_symbols(config), symbol_size)

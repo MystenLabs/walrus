@@ -6,21 +6,8 @@ use std::num::{NonZeroU16, NonZeroUsize};
 use raptorq::{EncodingPacket, ObjectTransmissionInformation};
 
 /// Creates a new [`ObjectTransmissionInformation`] for the given `symbol_size`.
-///
-/// # Panics
-///
-/// Panics if the `symbol_size` is larger than [`MAX_SYMBOL_SIZE`][super::MAX_SYMBOL_SIZE].
-pub fn get_transmission_info(symbol_size: NonZeroUsize) -> ObjectTransmissionInformation {
-    ObjectTransmissionInformation::new(
-        0,
-        symbol_size
-            .get()
-            .try_into()
-            .expect("`symbol_size` must not be larger than `MAX_SYMBOL_SIZE`"),
-        0,
-        1,
-        1,
-    )
+pub fn get_transmission_info(symbol_size: NonZeroU16) -> ObjectTransmissionInformation {
+    ObjectTransmissionInformation::new(0, symbol_size.get(), 0, 1, 1)
 }
 
 /// Computes the correct symbol size given the number of source symbols, `n_symbols`, and the
@@ -46,23 +33,16 @@ mod tests {
     use walrus_test_utils::param_test;
 
     use super::*;
-    use crate::encoding::MAX_SYMBOL_SIZE;
 
     param_test! {
         get_transmission_info_succeeds: [
             symbol_size_1: (1),
             symbol_size_random: (42),
-            max_symbol_size: (MAX_SYMBOL_SIZE),
+            max_symbol_size: (u16::MAX),
         ]
     }
-    fn get_transmission_info_succeeds(symbol_size: usize) {
-        get_transmission_info(NonZeroUsize::new(symbol_size).unwrap());
-    }
-
-    #[test]
-    #[should_panic]
-    fn get_transmission_info_panics_above_max_symbol_size() {
-        get_transmission_info(NonZeroUsize::new(MAX_SYMBOL_SIZE + 1).unwrap());
+    fn get_transmission_info_succeeds(symbol_size: u16) {
+        get_transmission_info(NonZeroU16::new(symbol_size).unwrap());
     }
 
     param_test! {

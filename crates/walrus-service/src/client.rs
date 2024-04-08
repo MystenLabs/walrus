@@ -185,7 +185,6 @@ impl Client {
             self.committee.epoch,
             &self.client,
             node,
-            self.committee.total_weight.into(),
             &self.encoding_config,
         )
     }

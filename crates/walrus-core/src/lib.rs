@@ -237,17 +237,15 @@ impl Sliver {
     /// Returns true iff the sliver has the length expected based on the encoding configuration and
     /// blob size.
     pub fn has_correct_length(&self, config: &EncodingConfig, blob_size: usize) -> bool {
-        Some(self.len())
-            == self
-                .expected_length(config, blob_size)
-                .map(NonZeroUsize::get)
+        Some(self.len()) == self.expected_length(config, blob_size)
     }
 
-    fn expected_length(&self, config: &EncodingConfig, blob_size: usize) -> Option<NonZeroUsize> {
+    fn expected_length(&self, config: &EncodingConfig, blob_size: usize) -> Option<usize> {
         match self {
             Self::Primary(_) => config.sliver_size_for_blob::<Primary>(blob_size),
             Self::Secondary(_) => config.sliver_size_for_blob::<Secondary>(blob_size),
         }
+        .map(NonZeroUsize::get)
     }
 }
 
