@@ -10,15 +10,15 @@ license = { workspace = true }
 anyhow = "1.0.80"
 axum = { version = "0.7.5", features = ["http2"] }
 bcs = { workspace = true }
-clap = { version = "4.5.4", features = ["derive"] }
+clap = { workspace = true }
 fastcrypto = { workspace = true }
-futures = "0.3.30"
+futures = { workspace = true }
 git-version = "0.3.9"
 mysten-metrics = { workspace = true }
 prometheus = "0.13.3"
 rand = { workspace = true }
 regex = "1"
-reqwest = { version = "0.12.3", features = ["json"] }
+reqwest = { workspace = true, features = ["json"] }
 rocksdb = "0.21"
 serde = { workspace = true }
 serde_with = { workspace = true, features = ["base64"] }
@@ -49,7 +49,6 @@ path = "bin/main.rs"
 
 [dev-dependencies]
 rand = { workspace = true }
-reqwest = { version = "0.12.3", features = ["json"] }
 tempfile = { workspace = true }
 walrus-core = { workspace = true, features = ["test-utils"] }
 walrus-test-utils = { workspace = true }
