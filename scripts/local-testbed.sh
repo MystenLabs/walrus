@@ -32,7 +32,7 @@ cargo run --bin walrus-node -- generate-dry-run-configs \
 --working-dir $working_dir --committee-size $committee_size --total-shards $shards
 
 # Spawn nodes
-for i in $(seq 0 $((committee_size-1))); do
+for i in $(seq -w 0 $((committee_size-1))); do
     tmux new -d -s "n$i" \
     "cargo run --bin walrus-node -- run \
     --config-path $working_dir/dryrun-node-$i.yaml --cleanup-storage \
