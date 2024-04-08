@@ -11,49 +11,58 @@ use walrus_core::{
     SliverType,
 };
 
+/// Storing the metadata and the set of sliver pairs onto the storage node, and retrieving the
+/// storage confirmation, failed.
 #[derive(Debug, thiserror::Error)]
-pub enum NodeError {
+pub enum StoreError {
+    /// One ore more slivers could not be stored on the node
+    #[error("one ore more slivers could not be stored on the node")]
+    SliverStore(Vec<SliverStoreError>),
+    /// The sliver could not be stored on the node.
+    #[error(transparent)]
+    MetadataStore(#[from] MetadataStoreError),
+    /// A valid storage confirmation could not retrieved from the node.
+    #[error(transparent)]
+    ConfirmationRetrieve(#[from] ConfirmationRetrieveError),
+}
+
+/// The sliver could not be stored on the node.
+#[derive(Debug, thiserror::Error)]
+#[error("the sliver could not be stored on the node")]
+pub struct SliverStoreError {
+    pub pair_idx: SliverPairIndex,
+    pub sliver_type: SliverType,
+    pub error: CommunicationError,
+}
+
+/// The metadata could not be stored on the node.
+#[derive(Debug, thiserror::Error)]
+pub enum MetadataStoreError {
+    /// The communication failed.
     #[error(transparent)]
     CommunicationFailed(#[from] CommunicationError),
-    #[error(transparent)]
-    WrongInfoReceived(#[from] WrongInfoError),
 }
 
-/// Errors returned during the communication with a storage node.
+/// The sliver could not be retrieved from the node.
 #[derive(Debug, thiserror::Error)]
-pub enum CommunicationError {
-    /// The sliver could not be stored on the node.
-    #[error("the following slivers could not be stored on the node: {0:?}")]
-    SliverStoreFailed(Vec<(SliverPairIndex, SliverType)>),
-    /// The metadata could not be stored on the node.
-    #[error("the metadata could not be stored on the node")]
-    MetadataStoreFailed,
-    /// Errors in the communication with the storage node.
+pub enum SliverRetrieveError {
+    /// The communication failed.
     #[error(transparent)]
-    ReqwestError(#[from] reqwest::Error),
-    /// The service response received from the storage node contains an error.
-    #[error(
-        "the request to the node completed, but the service response was error {code}: {message}"
-    )]
-    ServiceResponseError { code: u16, message: String },
-    /// The HTTP request completed, but returned an error code.
-    #[error("the HTTP request to the node completed, but was not successful: {0}")]
-    HttpFailure(StatusCode),
-}
-
-/// Errors that are returned when the storage node sends wrong, incomplete, or mismatching
-/// information.
-#[derive(Debug, thiserror::Error)]
-pub enum WrongInfoError {
-    /// Errors in sliver verification.
+    CommunicationFailed(#[from] CommunicationError),
+    /// There were errors in sliver verification.
     #[error(transparent)]
     SliverVerificationFailed(#[from] SliverVerificationError),
     /// The storage node sent the wrong sliver variant, wrt what was requested.
     #[error(transparent)]
     WrongSliverVariant(#[from] WrongSliverVariantError),
-    /// The signature verification on the storage confirmation failed.
+}
+
+/// The metadata could not be retrieved from the node.
+#[derive(Debug, thiserror::Error)]
+pub enum MetadataRetrieveError {
+    /// The communication failed.
     #[error(transparent)]
-    ConfirmationVerificationFailed(#[from] ConfirmationVerificationError),
+    CommunicationFailed(#[from] CommunicationError),
     /// The metadata verification failed.
     #[error(transparent)]
     MetadataVerificationFailed(#[from] MetadataVerificationError),
@@ -65,9 +74,6 @@ pub enum SliverVerificationError {
     /// The shard index provided is too large for the number of shards in the metadata.
     #[error("the shard index provided is too large for the number of shards in the metadata")]
     ShardIndexTooLarge,
-    /// The number of hashes in the metadata does not match the number of shards.
-    #[error("the number of hashes in the metadata does not match the number of shards")]
-    WrongNumberOfHashes,
     /// The length of the provided sliver does not match the number of source symbols in the
     /// metadata.
     #[error("the length of the provided sliver does not match the metadata")]
@@ -86,7 +92,7 @@ pub enum SliverVerificationError {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum ConfirmationVerificationError {
+pub enum ConfirmationRetrieveError {
     /// The confirmation could not be deserialized from BCS bytes.
     #[error(transparent)]
     DeserializationFailed(#[from] bcs::Error),
@@ -96,4 +102,23 @@ pub enum ConfirmationVerificationError {
     /// The signature verification on the storage confirmation failed.
     #[error(transparent)]
     SignatureVerification(#[from] FastCryptoError),
+    /// The communication failed.
+    #[error(transparent)]
+    CommunicationFailed(#[from] CommunicationError),
+}
+
+/// Errors returned during the communication with a storage node.
+#[derive(Debug, thiserror::Error)]
+pub enum CommunicationError {
+    /// Errors in the communication with the storage node.
+    #[error(transparent)]
+    ReqwestError(#[from] reqwest::Error),
+    /// The service response received from the storage node contains an error.
+    #[error(
+        "the request to the node completed, but the service response was error {code}: {message}"
+    )]
+    ServiceResponseError { code: u16, message: String },
+    /// The HTTP request completed, but returned an error code.
+    #[error("the HTTP request to the node completed, but was not successful: {0}")]
+    HttpFailure(StatusCode),
 }

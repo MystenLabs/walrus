@@ -28,14 +28,17 @@ use walrus_sui::types::StorageNode;
 use super::{
     error::{
         CommunicationError,
-        ConfirmationVerificationError,
-        NodeError,
+        ConfirmationRetrieveError,
+        MetadataRetrieveError,
+        MetadataStoreError,
+        SliverRetrieveError,
         SliverVerificationError,
-        WrongInfoError,
+        StoreError,
     },
     utils::{unwrap_response, WeightedResult},
 };
 use crate::{
+    client::error::SliverStoreError,
     mapping::pair_index_for_shard,
     server::{METADATA_ENDPOINT, SLIVER_ENDPOINT, STORAGE_CONFIRMATION_ENDPOINT},
 };
@@ -71,7 +74,7 @@ impl<'a> NodeCommunication<'a> {
     pub async fn retrieve_verified_metadata(
         &self,
         blob_id: &BlobId,
-    ) -> WeightedResult<VerifiedBlobMetadataWithId, NodeError> {
+    ) -> WeightedResult<VerifiedBlobMetadataWithId, MetadataRetrieveError> {
         let response = self
             .client
             .get(self.metadata_endpoint(blob_id))
@@ -80,16 +83,24 @@ impl<'a> NodeCommunication<'a> {
             .map_err(CommunicationError::from)?;
         let metadata = unwrap_response::<UnverifiedBlobMetadataWithId>(response)
             .await?
-            .verify(self.encoding_config)
-            .map_err(WrongInfoError::from)?;
+            .verify(self.encoding_config)?;
         Ok((self.node.shard_ids.len(), metadata))
+    }
+
+    async fn retrieve_verified_confirmation(
+        &self,
+        blob_id: &BlobId,
+    ) -> Result<SignedStorageConfirmation, ConfirmationRetrieveError> {
+        let confirmation = self.retrieve_confirmation(blob_id).await?;
+        self.verify_confirmation(blob_id, &confirmation)?;
+        Ok(confirmation)
     }
 
     /// Requests the storage confirmation from the node.
     async fn retrieve_confirmation(
         &self,
         blob_id: &BlobId,
-    ) -> Result<SignedStorageConfirmation, NodeError> {
+    ) -> Result<SignedStorageConfirmation, CommunicationError> {
         let response = self
             .client
             .get(self.storage_confirmation_endpoint(blob_id))
@@ -107,13 +118,12 @@ impl<'a> NodeCommunication<'a> {
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         shard_idx: ShardIndex,
-    ) -> WeightedResult<Sliver<T>, NodeError>
+    ) -> WeightedResult<Sliver<T>, SliverRetrieveError>
     where
         Sliver<T>: TryFrom<SliverEnum>,
     {
         let sliver = self.retrieve_sliver::<T>(metadata, shard_idx).await?;
-        self.verify_sliver(metadata, &sliver, shard_idx)
-            .map_err(WrongInfoError::from)?;
+        self.verify_sliver(metadata, &sliver, shard_idx)?;
         // Each sliver is in this case requested individually, so the weight is 1.
         Ok((1, sliver))
     }
@@ -123,7 +133,7 @@ impl<'a> NodeCommunication<'a> {
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         shard_idx: ShardIndex,
-    ) -> Result<Sliver<T>, NodeError>
+    ) -> Result<Sliver<T>, SliverRetrieveError>
     where
         Sliver<T>: TryFrom<SliverEnum>,
     {
@@ -140,7 +150,7 @@ impl<'a> NodeCommunication<'a> {
             .await
             .map_err(CommunicationError::from)?;
         let sliver_enum = unwrap_response::<SliverEnum>(response).await?;
-        Ok(sliver_enum.to_raw::<T>().map_err(WrongInfoError::from)?)
+        Ok(sliver_enum.to_raw::<T>()?)
     }
 
     // TODO(giac): this function should be added to `Sliver` as soon as the mapping has been moved
@@ -157,10 +167,6 @@ impl<'a> NodeCommunication<'a> {
             SliverVerificationError::ShardIndexTooLarge
         );
         ensure!(
-            metadata.metadata().hashes.len() == self.encoding_config.n_shards() as usize,
-            SliverVerificationError::WrongNumberOfHashes
-        );
-        ensure!(
             sliver.symbols.len()
                 == self.encoding_config.n_source_symbols::<T::OrthogonalAxis>() as usize,
             SliverVerificationError::SliverSizeMismatch
@@ -172,7 +178,7 @@ impl<'a> NodeCommunication<'a> {
                     .metadata()
                     .unencoded_length
                     .try_into()
-                    .expect("checked in `UnverifiedBlobMetadataWithId::verify`"),
+                    .expect("conversion u64 -> usize failed"),
             )
             .expect("the symbol size is checked in `UnverifiedBlobMetadataWithId::verify`");
         ensure!(
@@ -206,28 +212,26 @@ impl<'a> NodeCommunication<'a> {
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         pairs: Vec<SliverPair>,
-    ) -> WeightedResult<SignedStorageConfirmation, NodeError> {
+    ) -> WeightedResult<SignedStorageConfirmation, StoreError> {
         // TODO(giac): add error handling and retries.
-        self.store_metadata(metadata).await?;
+        self.store_metadata(metadata)
+            .await
+            .map_err(StoreError::MetadataStore)?;
         // TODO(giac): check the slivers that were not successfully stored and possibly retry.
         let results = self.store_pairs(metadata.blob_id(), pairs).await;
         // It is useless to request the confirmation if storing any of the slivers failed.
-        let failed_requests: Vec<(SliverPairIndex, SliverType)> = results
+        let failed_requests = results
             .into_iter()
-            .filter_map(|r| match r {
-                Err(CommunicationError::SliverStoreFailed(mut v)) => {
-                    Some(v.pop().expect("there is exactly one pair per error"))
-                }
-                _ => None,
-            })
-            .collect();
+            .filter_map(Result::err)
+            .collect::<Vec<_>>();
         ensure!(
             failed_requests.is_empty(),
-            CommunicationError::SliverStoreFailed(failed_requests).into()
+            StoreError::SliverStore(failed_requests)
         );
-        let confirmation = self.retrieve_confirmation(metadata.blob_id()).await?;
-        self.verify_confirmation(metadata.blob_id(), &confirmation)
-            .map_err(WrongInfoError::from)?;
+        let confirmation = self
+            .retrieve_verified_confirmation(metadata.blob_id())
+            .await
+            .map_err(StoreError::ConfirmationRetrieve)?;
         Ok((self.node.shard_ids.len(), confirmation))
     }
 
@@ -235,26 +239,29 @@ impl<'a> NodeCommunication<'a> {
     async fn store_metadata(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
-    ) -> Result<(), CommunicationError> {
+    ) -> Result<(), MetadataStoreError> {
         let response = self
             .client
             .put(self.metadata_endpoint(metadata.blob_id()))
             .json(metadata.metadata())
             .send()
-            .await?;
+            .await
+            .map_err(CommunicationError::from)?;
         ensure!(
             response.status().is_success(),
-            CommunicationError::MetadataStoreFailed,
+            CommunicationError::HttpFailure(response.status()).into(),
         );
         Ok(())
     }
 
-    /// Stores the sliver pairs on the node _sequentially_.
+    /// Stores the sliver pairs on the node.  Returns the result of the `store_sliver` operation for
+    /// all the slivers in the storage node. The order of the returned results matches the order of
+    /// the provided pairs, and for every pair the primary sliver precedes the secondary.
     async fn store_pairs(
         &self,
         blob_id: &BlobId,
         pairs: Vec<SliverPair>,
-    ) -> Vec<Result<(), CommunicationError>> {
+    ) -> Vec<Result<(), SliverStoreError>> {
         let mut futures = Vec::with_capacity(2 * pairs.len());
         for pair in pairs {
             let pair_index = pair.index();
@@ -273,16 +280,25 @@ impl<'a> NodeCommunication<'a> {
         blob_id: &BlobId,
         sliver: SliverEnum,
         pair_index: SliverPairIndex,
-    ) -> Result<(), CommunicationError> {
+    ) -> Result<(), SliverStoreError> {
         let response = self
             .client
             .put(self.sliver_endpoint(blob_id, pair_index, sliver.r#type()))
             .json(&sliver)
             .send()
-            .await?;
+            .await
+            .map_err(|e| SliverStoreError {
+                pair_idx: pair_index,
+                sliver_type: sliver.r#type(),
+                error: e.into(),
+            })?;
         ensure!(
             response.status().is_success(),
-            CommunicationError::SliverStoreFailed(vec![(pair_index, sliver.r#type())])
+            SliverStoreError {
+                pair_idx: pair_index,
+                sliver_type: sliver.r#type(),
+                error: CommunicationError::HttpFailure(response.status())
+            }
         );
         Ok(())
     }
@@ -299,13 +315,13 @@ impl<'a> NodeCommunication<'a> {
         &self,
         blob_id: &BlobId,
         confirmation: &SignedStorageConfirmation,
-    ) -> Result<(), ConfirmationVerificationError> {
+    ) -> Result<(), ConfirmationRetrieveError> {
         let deserialized: Confirmation = bcs::from_bytes(&confirmation.confirmation)?;
         ensure!(
             // TODO(giac): when the chain integration is added, ensure that the Epoch checks are
             // consistent and do not cause problems at epoch change.
             self.epoch == deserialized.epoch && *blob_id == deserialized.blob_id,
-            ConfirmationVerificationError::EpochBlobIdMismatch
+            ConfirmationRetrieveError::EpochBlobIdMismatch
         );
         Ok(self
             .public_key()
