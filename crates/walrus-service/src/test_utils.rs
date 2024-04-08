@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Test utilities for using storage nodes in tests.
 
-use std::{borrow::Borrow, net::SocketAddr, num::NonZeroUsize, sync::Arc};
+use std::{borrow::Borrow, net::SocketAddr, sync::Arc};
 
 use fastcrypto::{bls12381::min_pk::BLS12381PublicKey, traits::KeyPair};
 use mysten_metrics::RegistryService;
@@ -104,7 +104,6 @@ impl AsRef<StorageNode> for StorageNodeHandle {
 /// See function level documentation for details on the various configuration settings.
 #[derive(Debug)]
 pub struct StorageNodeHandleBuilder {
-    n_shards: NonZeroUsize,
     storage: Option<WithTempDir<Storage>>,
     event_provider: Box<dyn SystemEventProvider>,
     run_rest_api: bool,
@@ -119,10 +118,6 @@ impl StorageNodeHandleBuilder {
 
     /// Sets the storage associated with the node.
     pub fn with_storage(mut self, storage: WithTempDir<Storage>) -> Self {
-        assert!(
-            storage.as_ref().shards().len() <= self.n_shards.get(),
-            "storage must have less shards than in the system"
-        );
         self.storage = Some(storage);
         self
     }
@@ -141,12 +136,6 @@ impl StorageNodeHandleBuilder {
         event_provider: Box<dyn SystemEventProvider>,
     ) -> Self {
         self.event_provider = event_provider;
-        self
-    }
-
-    /// Sets the total number of shards in the system.
-    pub fn with_total_shards_in_system(mut self, n_shards: usize) -> Self {
-        self.n_shards = NonZeroUsize::new(n_shards).expect("number of shards must be non-zero");
         self
     }
 
@@ -228,7 +217,6 @@ impl StorageNodeHandleBuilder {
 impl Default for StorageNodeHandleBuilder {
     fn default() -> Self {
         Self {
-            n_shards: NonZeroUsize::new(10).unwrap(),
             event_provider: Box::<Vec<BlobEvent>>::default(),
             storage: Default::default(),
             run_rest_api: Default::default(),
@@ -341,7 +329,6 @@ impl TestClusterBuilder {
     /// Creates the configured `TestCluster`.
     pub async fn build(self, encoding_config: EncodingConfig) -> anyhow::Result<TestCluster> {
         let mut nodes = vec![];
-        let n_shards = self.shard_assignment.iter().flatten().count();
 
         for (shards, event_provider) in self
             .shard_assignment
@@ -350,7 +337,6 @@ impl TestClusterBuilder {
         {
             let mut builder = StorageNodeHandle::builder()
                 .with_storage(empty_storage_with_shards(&shards))
-                .with_total_shards_in_system(n_shards)
                 .with_rest_api_started(true)
                 .with_node_started(true);
 
