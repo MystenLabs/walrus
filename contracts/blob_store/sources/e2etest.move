@@ -68,18 +68,13 @@ module blob_store::e2e_test  {
             ctx,
         );
 
-        // We drop the committee cap
+        // We send the wrapped cap to the creator of the package
         transfer::public_transfer(
             CommitteeCapHolder {
                 id:  object::new(ctx),
                 cap: committee_cap,
             },
-
             tx_context::sender(ctx),
-
         );
-
-
     }
-
 }
