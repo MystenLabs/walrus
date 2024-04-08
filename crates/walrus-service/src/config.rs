@@ -8,7 +8,7 @@ use std::{
 };
 
 use anyhow::Context;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_with::{
     base64::Base64,
     de::DeserializeAsWrap,
@@ -20,6 +20,20 @@ use serde_with::{
 use sui_sdk::types::base_types::ObjectID;
 use walrus_core::{keys::ProtocolKeyPairParseError, ProtocolKeyPair};
 
+/// Trait for loading configuration from a YAML file.
+pub trait LoadConfig: DeserializeOwned {
+    /// Load the configuration from a YAML file located at the provided path.
+    fn load<P: AsRef<Path>>(path: P) -> Result<Self, anyhow::Error> {
+        let path = path.as_ref();
+        tracing::trace!("Reading config from {}", path.display());
+
+        let reader = std::fs::File::open(path)
+            .with_context(|| format!("Unable to load config from {}", path.display()))?;
+
+        Ok(serde_yaml::from_reader(reader)?)
+    }
+}
+
 /// Configuration of a Walrus storage node.
 #[serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -27,7 +41,6 @@ pub struct StorageNodeConfig {
     /// Directory in which to persist the database
     pub storage_path: PathBuf,
     /// Key pair used in Walrus protocol messages
-    // TODO(jsmith): Add a CLI endpoint that can be used to generate a new private key file (#148)
     #[serde_as(as = "PathOrInPlace<Base64>")]
     pub protocol_key_pair: PathOrInPlace<ProtocolKeyPair>,
     /// Socket address on which to the Prometheus server should export its metrics.
@@ -40,18 +53,7 @@ pub struct StorageNodeConfig {
     pub sui: Option<SuiConfig>,
 }
 
-impl StorageNodeConfig {
-    /// Load the configuration from a YAML file located at the provided path.
-    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, anyhow::Error> {
-        let path = path.as_ref();
-        tracing::trace!("Reading config from {}", path.display());
-
-        let reader = std::fs::File::open(path)
-            .with_context(|| format!("Unable to load config from {}", path.display()))?;
-
-        Ok(serde_yaml::from_reader(reader)?)
-    }
-}
+impl LoadConfig for StorageNodeConfig {}
 
 /// Sui-specific configuration for Walrus
 #[serde_with::serde_as]
@@ -69,7 +71,8 @@ pub struct SuiConfig {
     pub event_polling_interval: Duration,
 }
 
-mod defaults {
+/// Default values for the storage-node configuration.
+pub(crate) mod defaults {
     use std::net::Ipv4Addr;
 
     use super::*;
@@ -77,14 +80,17 @@ mod defaults {
     const METRICS_PORT: u16 = 9184;
     const REST_API_PORT: u16 = 9185;
 
+    /// Returns the default metrics address.
     pub fn metrics_address() -> SocketAddr {
         (Ipv4Addr::UNSPECIFIED, METRICS_PORT).into()
     }
 
+    /// Returns the default REST API address.
     pub fn rest_api_address() -> SocketAddr {
         (Ipv4Addr::UNSPECIFIED, REST_API_PORT).into()
     }
 
+    /// Returns the default polling interval.
     pub fn polling_interval() -> Duration {
         Duration::from_millis(400)
     }

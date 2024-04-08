@@ -202,7 +202,4 @@ module blob_store::bls_tests {
         committee
 
     }
-
-
-
 }

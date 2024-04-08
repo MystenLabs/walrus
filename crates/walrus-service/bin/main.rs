@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Walrus Storage Node entry point.
 
-use std::{io, net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{fs, io, net::SocketAddr, num::NonZeroU16, path::PathBuf, sync::Arc};
 
 use anyhow::Context;
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use fastcrypto::traits::KeyPair;
 use mysten_metrics::RegistryService;
 use telemetry_subscribers::{TelemetryGuards, TracingHandle};
@@ -15,8 +15,14 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
-use walrus_core::encoding::EncodingConfig;
-use walrus_service::{config::StorageNodeConfig, server::UserServer, StorageNode};
+use walrus_core::{encoding::EncodingConfig, ShardIndex};
+use walrus_service::{
+    client,
+    config::{LoadConfig, StorageNodeConfig},
+    server::UserServer,
+    testbed::{node_config_name_prefix, testbed_configs},
+    StorageNode,
+};
 
 const GIT_REVISION: &str = {
     if let Some(revision) = option_env!("GIT_REVISION") {
@@ -40,16 +46,162 @@ const VERSION: &str = walrus_core::concat_const_str!(env!("CARGO_PKG_VERSION"), 
 #[clap(version = VERSION)]
 #[derive(Debug)]
 struct Args {
-    /// Path to the Walrus node configuration file.
-    config_path: PathBuf,
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+#[clap(rename_all = "kebab-case")]
+enum Commands {
+    /// Run a storage node with the provided configuration.
+    Run {
+        /// Path to the Walrus node configuration file.
+        #[clap(long)]
+        config_path: PathBuf,
+        /// The committee configuration.
+        #[command(subcommand)]
+        committee_config: CommitteeConfig,
+        /// Whether to cleanup the storage directory before starting the node.
+        #[clap(long, action, default_value_t = false)]
+        cleanup_storage: bool,
+    },
+    /// Generate the configuration files to run a testbed of storage nodes.
+    GenerateDryRunConfigs {
+        /// The directory where the storage nodes will be deployed.
+        #[clap(long, default_value = "./working_dir")]
+        working_dir: PathBuf,
+        /// The number of storage nodes in the committee.
+        #[clap(long, default_value = "4")]
+        committee_size: NonZeroU16,
+        /// The total number of shards.
+        #[clap(long, default_value = "10")]
+        n_shards: NonZeroU16,
+        /// Number of primary symbols to use (used to generate client config).
+        #[clap(long, default_value = "2")]
+        n_symbols_primary: NonZeroU16,
+        /// Number of secondary symbols to use (used to generate client config).
+        #[clap(long, default_value = "4")]
+        n_symbols_secondary: NonZeroU16,
+    },
+    /// Generate a new key pair.
+    KeyGen {
+        /// Path to the directory where the key pair will be saved.
+        out: PathBuf,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone)]
+#[clap(rename_all = "kebab-case")]
+enum CommitteeConfig {
+    OnChain,
+    FromClientConfig {
+        /// The path to the client configuration file.
+        #[clap(long, default_value = "./working_dir/client_config.yaml")]
+        client_config_path: PathBuf,
+        /// The index of the storage node to run.
+        #[clap(long)]
+        storage_node_index: usize,
+    },
+    Manual {
+        /// The total number of shards.
+        #[clap(long, default_value = "100")]
+        n_shards: NonZeroU16,
+        /// The number of source symbols for the primary encoding.
+        #[clap(long, default_value = "30")]
+        source_symbols_primary: NonZeroU16,
+        /// The number of source symbols for the secondary encoding.
+        #[clap(long, default_value = "62")]
+        source_symbols_secondary: NonZeroU16,
+        /// The shards to be handled by this node.
+        #[clap(long)]
+        handled_shards: Vec<u16>,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+    match args.command {
+        Commands::Run {
+            config_path,
+            committee_config,
+            cleanup_storage,
+        } => {
+            let config = StorageNodeConfig::load(config_path)?;
+            let (encoding_config, shards) = match committee_config {
+                CommitteeConfig::OnChain => {
+                    // TODO(alberto): Get the committee from the chain. (#212)
+                    todo!()
+                }
+                CommitteeConfig::FromClientConfig {
+                    client_config_path,
+                    storage_node_index,
+                } => {
+                    let client_config = client::Config::load(client_config_path)?;
+                    let encoding_config = client_config.encoding_config();
+                    let handled_shards = client_config.shards_for_node(storage_node_index);
+                    (encoding_config, handled_shards)
+                }
+                CommitteeConfig::Manual {
+                    n_shards,
+                    source_symbols_primary,
+                    source_symbols_secondary,
+                    handled_shards,
+                } => (
+                    EncodingConfig::new(
+                        source_symbols_primary.get(),
+                        source_symbols_secondary.get(),
+                        n_shards.get(),
+                    ),
+                    handled_shards
+                        .into_iter()
+                        .map(ShardIndex)
+                        .collect::<Vec<_>>(),
+                ),
+            };
+            run_storage_node(config, encoding_config, cleanup_storage, &shards)?;
+        }
+        Commands::GenerateDryRunConfigs {
+            working_dir,
+            committee_size,
+            n_shards,
+            n_symbols_primary,
+            n_symbols_secondary,
+        } => {
+            generate_dry_run_configs(
+                working_dir,
+                committee_size,
+                n_shards,
+                n_symbols_primary,
+                n_symbols_secondary,
+            )?;
+        }
+        Commands::KeyGen { out: _out } => {
+            // TODO(jsmith): Add a CLI endpoint to generate a new private key file (#148)
+            todo!();
+        }
+    }
+    Ok(())
+}
 
-    let mut node_config = StorageNodeConfig::load(args.config_path)?;
-    // TODO(mlegner): Dummy config; properly read encoding config from file/chain. (#200)
-    let encoding_config = EncodingConfig::new(2, 4, 10);
+fn run_storage_node(
+    mut node_config: StorageNodeConfig,
+    encoding_config: EncodingConfig,
+    cleanup_storage: bool,
+    handled_shards: &[ShardIndex],
+) -> anyhow::Result<()> {
+    if cleanup_storage {
+        let storage_path = &node_config.storage_path;
+        match fs::remove_dir_all(storage_path) {
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                return Err(e).context(format!(
+                    "Failed to remove directory '{}'",
+                    storage_path.display()
+                ))
+            }
+        }
+    }
 
     let metrics_runtime = MetricsAndLoggingRuntime::start(node_config.metrics_address)?;
 
@@ -68,6 +220,7 @@ fn main() -> anyhow::Result<()> {
 
     let mut node_runtime = StorageNodeRuntime::start(
         &node_config,
+        handled_shards,
         metrics_runtime.registry_service.clone(),
         encoding_config,
         exit_notifier,
@@ -82,6 +235,53 @@ fn main() -> anyhow::Result<()> {
     // Wait for the node runtime to complete, may take a moment as
     // the REST-API waits for open connections to close before exiting.
     node_runtime.join()
+}
+
+fn generate_dry_run_configs(
+    working_dir: PathBuf,
+    committee_size: NonZeroU16,
+    shards: NonZeroU16,
+    n_symbols_primary: NonZeroU16,
+    n_symbols_secondary: NonZeroU16,
+) -> anyhow::Result<()> {
+    if let Err(e) = fs::create_dir_all(&working_dir) {
+        return Err(e).context(format!(
+            "Failed to create directory '{}'",
+            working_dir.display()
+        ));
+    }
+
+    // Generate testbed configs.
+    let (storage_node_configs, client_config) = testbed_configs(
+        &working_dir,
+        committee_size,
+        shards,
+        n_symbols_primary,
+        n_symbols_secondary,
+    );
+
+    // Write client config to file.
+    let serialized_client_config =
+        serde_yaml::to_string(&client_config).context("Failed to serialize client configs")?;
+    let client_config_path = working_dir.join("client_config.yaml");
+    fs::write(client_config_path, serialized_client_config)
+        .context("Failed to write client configs")?;
+
+    // Write the storage nodes config files.
+    for storage_node_index in 0..committee_size.get() {
+        let storage_node_config = storage_node_configs[storage_node_index as usize].clone();
+        let serialized_storage_node_config = serde_yaml::to_string(&storage_node_config)
+            .context("Failed to serialize storage node configs")?;
+        let node_config_name = format!(
+            "{}.yaml",
+            node_config_name_prefix(storage_node_index, committee_size)
+        );
+        let node_config_path = working_dir.join(node_config_name);
+        fs::write(node_config_path, serialized_storage_node_config)
+            .context("Failed to write storage node configs")?;
+    }
+
+    Ok(())
 }
 
 struct MetricsAndLoggingRuntime {
@@ -131,6 +331,7 @@ struct StorageNodeRuntime {
 impl StorageNodeRuntime {
     fn start(
         node_config: &StorageNodeConfig,
+        handled_shards: &[ShardIndex],
         registry_service: RegistryService,
         encoding_config: EncodingConfig,
         exit_notifier: oneshot::Sender<()>,
@@ -143,11 +344,15 @@ impl StorageNodeRuntime {
             .expect("walrus-node runtime creation must succeed");
         let _guard = runtime.enter();
 
-        let walrus_node = Arc::new(runtime.block_on(StorageNode::new(
-            node_config,
-            registry_service,
-            encoding_config,
-        ))?);
+        let walrus_node = Arc::new(
+            runtime
+                .block_on(StorageNode::new(
+                    node_config,
+                    registry_service,
+                    encoding_config,
+                ))?
+                .with_storage_shards(handled_shards),
+        );
 
         let walrus_node_clone = walrus_node.clone();
         let walrus_node_cancel_token = cancel_token.child_token();

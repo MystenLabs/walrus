@@ -190,7 +190,7 @@ impl Symbols {
         self.symbol_size
     }
 
-    /// Returns the `symbol_size` as a `NonZeroUsize`.
+    /// Returns the `symbol_size` as a `usize`.
     #[inline]
     pub fn symbol_usize(&self) -> usize {
         self.symbol_size.get().into()

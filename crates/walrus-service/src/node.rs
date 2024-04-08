@@ -219,6 +219,16 @@ where
             event_polling_interval,
         }
     }
+
+    /// Specify which shards are managed by this storage node.
+    pub fn with_storage_shards(mut self, handled_shards: &[ShardIndex]) -> Self {
+        for shard in handled_shards {
+            self.storage
+                .create_storage_for_shard(*shard)
+                .expect("shard storage should be successfully created");
+        }
+        self
+    }
 }
 
 impl<T> StorageNode<T>
@@ -298,8 +308,7 @@ where
             return Err(StoreMetadataError::BlobExpired);
         }
 
-        let verified_metadata_with_id =
-            metadata.verify(self.encoding_config.n_shards_as_usize())?;
+        let verified_metadata_with_id = metadata.verify(&self.encoding_config)?;
         self.storage
             .put_verified_metadata(&verified_metadata_with_id)
             .context("unable to store metadata")?;
@@ -456,7 +465,7 @@ async fn sign_confirmation(
 #[cfg(test)]
 mod tests {
     use fastcrypto::{bls12381::min_pk::BLS12381KeyPair, traits::KeyPair};
-    use walrus_sui::client::MockSuiReadClient;
+    use walrus_sui::test_utils::MockSuiReadClient;
     use walrus_test_utils::{Result as TestResult, WithTempDir};
 
     use super::*;

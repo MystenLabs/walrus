@@ -70,7 +70,7 @@ impl<'a> NodeCommunication<'a> {
 
         let metadata = unwrap_response::<UnverifiedBlobMetadataWithId>(response)
             .await?
-            .verify(self.total_weight)
+            .verify(self.encoding_config)
             .context("blob metadata verification failed")?;
         Ok((self.node.shard_ids.len(), metadata))
     }
@@ -155,8 +155,16 @@ impl<'a> NodeCommunication<'a> {
                 && sliver.symbols.symbol_size()
                     == self
                         .encoding_config
-                        .symbol_size_for_blob(metadata.metadata().unencoded_length.try_into()?)
-                        .ok_or(anyhow!("the blob size in the metadata is too large"))?,
+                        .symbol_size_for_blob(
+                            metadata
+                                .metadata()
+                                .unencoded_length
+                                .try_into()
+                                .expect("checked in `UnverifiedBlobMetadataWithId::verify`")
+                        )
+                        .expect(
+                            "the symbol size is checked in `UnverifiedBlobMetadataWithId::verify`"
+                        ),
             "the size of the sliver does not match the expected size for the blob",
         );
         anyhow::ensure!(

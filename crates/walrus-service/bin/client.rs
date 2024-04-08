@@ -37,6 +37,7 @@ enum Commands {
         /// The blob ID to be read.
         blob_id: BlobId,
         /// The file path where to write the blob.
+        #[clap(long)]
         out: PathBuf,
     },
 }

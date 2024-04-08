@@ -8,7 +8,7 @@ use fastcrypto::hash::HashFunction;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    encoding::EncodingAxis,
+    encoding::{EncodingAxis, EncodingConfig},
     merkle::{Node as MerkleNode, DIGEST_LEN},
     BlobId,
     EncodingType,
@@ -29,6 +29,10 @@ pub enum VerificationError {
     /// The blob ID does not match the value computed from the provided metadata.
     #[error("the blob ID does not match the provided metadata")]
     BlobIdMismatch,
+    /// The unencoded blob length in the metadata cannot be encoded with the number of symbols
+    /// available in the configuration provided.
+    #[error("the unencoded blob length is too large for the given config")]
+    UnencodedLengthTooLarge,
 }
 
 /// [`BlobMetadataWithId`] that has been verified with [`UnverifiedBlobMetadataWithId::verify`].
@@ -154,8 +158,12 @@ impl VerifiedBlobMetadataWithId {
 impl UnverifiedBlobMetadataWithId {
     /// Consumes the metadata and attempts to verify it the relationship between the contained
     /// metadata and blob ID. On success, returns a [`VerifiedBlobMetadataWithId`].
-    pub fn verify(self, n_shards: usize) -> Result<VerifiedBlobMetadataWithId, VerificationError> {
+    pub fn verify(
+        self,
+        config: &EncodingConfig,
+    ) -> Result<VerifiedBlobMetadataWithId, VerificationError> {
         let n_hashes = self.metadata().hashes.len();
+        let n_shards = config.n_shards.get().into();
         crate::ensure!(
             n_hashes == n_shards,
             VerificationError::InvalidHashCount {
@@ -163,13 +171,15 @@ impl UnverifiedBlobMetadataWithId {
                 expected: n_shards,
             }
         );
-
+        crate::ensure!(
+            self.metadata.unencoded_length <= config.max_blob_size() as u64,
+            VerificationError::UnencodedLengthTooLarge
+        );
         let computed_blob_id = BlobId::from_sliver_pair_metadata(&self.metadata);
         crate::ensure!(
             computed_blob_id == *self.blob_id(),
             VerificationError::BlobIdMismatch
         );
-
         Ok(BlobMetadataWithId {
             blob_id: self.blob_id,
             metadata: self.metadata,
@@ -261,7 +271,6 @@ mod tests {
         #[test]
         fn fails_for_incorrect_blob_id() {
             let valid_metadata = test_utils::unverified_blob_metadata();
-            let n_shards = valid_metadata.metadata().hashes.len();
             assert_ne!(*valid_metadata.blob_id(), BLOB_ID);
 
             let invalid_metadata = UnverifiedBlobMetadataWithId {
@@ -270,7 +279,7 @@ mod tests {
             };
 
             let err = invalid_metadata
-                .verify(n_shards)
+                .verify(&test_utils::encoding_config())
                 .expect_err("verification should fail");
 
             assert_eq!(err, VerificationError::BlobIdMismatch);
@@ -279,21 +288,17 @@ mod tests {
         #[test]
         fn succeeds_for_correct_metadata() {
             let metadata = test_utils::unverified_blob_metadata();
-            let actual = metadata.metadata().hashes.len();
-
             let _ = metadata
-                .verify(actual)
+                .verify(&test_utils::encoding_config())
                 .expect("verification should succeed");
         }
 
         #[test]
         fn verified_metadata_has_the_same_data_as_unverified() {
             let unverified = test_utils::unverified_blob_metadata();
-            let actual = unverified.metadata().hashes.len();
-
             let verified = unverified
                 .clone()
-                .verify(actual)
+                .verify(&test_utils::encoding_config())
                 .expect("verification should succeed");
 
             assert_eq!(verified.blob_id(), unverified.blob_id());
@@ -302,18 +307,38 @@ mod tests {
 
         #[test]
         fn fails_for_hash_count_mismatch() {
-            let metadata = test_utils::unverified_blob_metadata();
+            let mut metadata = test_utils::unverified_blob_metadata();
+            let expected = metadata.metadata().hashes.len();
+            metadata.metadata.hashes.push(SliverPairMetadata {
+                primary_hash: MerkleNode::Digest([42u8; 32]),
+                secondary_hash: MerkleNode::Digest([23u8; 32]),
+            });
             let actual = metadata.metadata().hashes.len();
-            let expected = actual + 1;
 
             let err = metadata
-                .verify(expected)
+                .verify(&test_utils::encoding_config())
                 .expect_err("verification should fail");
 
             assert_eq!(
                 err,
                 VerificationError::InvalidHashCount { actual, expected }
             );
+        }
+
+        #[test]
+        fn fails_for_unencoded_length_too_large() {
+            let config = test_utils::encoding_config();
+            let mut metadata = test_utils::unverified_blob_metadata();
+            metadata.metadata.unencoded_length = u16::MAX as u64
+                * config.source_symbols_primary.get() as u64
+                * config.source_symbols_secondary.get() as u64
+                + 1;
+
+            let err = metadata
+                .verify(&config)
+                .expect_err("verification should fail");
+
+            assert_eq!(err, VerificationError::UnencodedLengthTooLarge);
         }
     }
 }

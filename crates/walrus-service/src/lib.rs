@@ -11,6 +11,8 @@ pub mod config;
 pub mod mapping;
 /// Server for the Walrus service.
 pub mod server;
+/// Facilities to deploy a demo testbed.
+pub mod testbed;
 
 mod node;
 pub use node::StorageNode;

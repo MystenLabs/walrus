@@ -117,7 +117,7 @@ impl EncodingConfig {
         self.n_shards
     }
 
-    /// Returns the number of shards as a `NonZeroUsize`.
+    /// Returns the number of shards as a `usize`.
     #[inline]
     pub fn n_shards_as_usize(&self) -> usize {
         self.n_shards.get().into()

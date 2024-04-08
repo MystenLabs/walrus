@@ -89,7 +89,7 @@ fn is_rotation(pairs: &[SliverPair]) -> bool {
 /// # Arguments
 ///
 /// * `pair_idx` - The index of the sliver pair, as returned by the blob-encoding function.
-/// * `total_shards` - The total number of shards in the system.
+/// * `n_shards` - The total number of shards in the system.
 /// * `blob_id` - The Blob ID that produced the sliver. It is interpreted as a big-endian unsigned
 /// integer, and then used to compute the offset for the sliver pair index.
 ///
@@ -97,11 +97,11 @@ fn is_rotation(pairs: &[SliverPair]) -> bool {
 /// Panic if the total number of shards is greater than `u16::MAX`.
 pub fn shard_index_for_pair(
     pair_idx: SliverPairIndex,
-    total_shards: u16,
+    n_shards: u16,
     blob_id: &BlobId,
 ) -> ShardIndex {
-    let index = (bytes_mod(blob_id.as_ref(), total_shards.into()) + pair_idx.as_usize())
-        % total_shards as usize;
+    let index =
+        (bytes_mod(blob_id.as_ref(), n_shards.into()) + pair_idx.as_usize()) % n_shards as usize;
     ShardIndex(index as u16)
 }
 
@@ -110,11 +110,11 @@ pub fn shard_index_for_pair(
 /// # Arguments
 ///
 /// * `shard_idx` - The index of the shard.
-/// * `total_shards` - The total number of shards in the system.
+/// * `n_shards` - The total number of shards in the system.
 /// * `blob_id` - The Blob ID that produced the sliver pair. It is interpreted as a big-endian
 /// unsigned integer, and the used to compute the offset for the sliver pair index.
-pub fn pair_index_for_shard(shard_idx: ShardIndex, total_shards: usize, blob_id: &BlobId) -> usize {
-    (total_shards - bytes_mod(blob_id.as_ref(), total_shards) + shard_idx.0 as usize) % total_shards
+pub fn pair_index_for_shard(shard_idx: ShardIndex, n_shards: usize, blob_id: &BlobId) -> usize {
+    (n_shards - bytes_mod(blob_id.as_ref(), n_shards) + shard_idx.0 as usize) % n_shards
 }
 
 /// Rotate the input slice in place, based on the rotation specified by the byte array.
@@ -236,14 +236,14 @@ mod tests {
     }
 
     fn test_shard_index_for_pair(
-        total_shards: u16,
+        n_shards: u16,
         blob_id_value: u64,
         pair_idx: SliverPairIndex,
         shard_idx: ShardIndex,
     ) {
         let blob_id = test_utils::blob_id_from_u64(blob_id_value);
         assert_eq!(
-            shard_index_for_pair(pair_idx, total_shards, &blob_id),
+            shard_index_for_pair(pair_idx, n_shards, &blob_id),
             shard_idx
         );
     }
@@ -257,14 +257,14 @@ mod tests {
     }
 
     fn test_pair_index_for_shard(
-        total_shards: usize,
+        n_shards: usize,
         blob_id_value: u64,
         shard_idx: ShardIndex,
         pair_idx: usize,
     ) {
         let blob_id = test_utils::blob_id_from_u64(blob_id_value);
         assert_eq!(
-            pair_index_for_shard(shard_idx, total_shards, &blob_id),
+            pair_index_for_shard(shard_idx, n_shards, &blob_id),
             pair_idx
         );
     }

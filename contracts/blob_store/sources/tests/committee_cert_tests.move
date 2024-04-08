@@ -13,10 +13,8 @@ module blob_store::committee_cert_tests {
     use blob_store::committee::{Self, Committee, committee_for_testing_with_bls , verify_quorum_in_epoch};
     use blob_store::storage_node;
 
-    struct TESTTYPE has drop {}
-
    #[test]
-    public fun test_basic_correct() : Committee<TESTTYPE> {
+    public fun test_basic_correct() : Committee {
 
         let pub_key_bytes = vector[142, 78, 70, 3, 179, 142, 145, 75, 170, 36, 5, 232, 153, 164, 205, 57, 24, 216, 208, 34, 87, 213, 225, 76, 5, 157, 212, 88, 161, 34, 75, 145, 206, 144, 85, 11, 197, 110, 75, 175, 215, 194, 78, 51, 192, 196, 59, 204];
         let message = vector[1, 0, 3, 5, 0, 0, 0, 0, 0, 0, 0, 104, 101, 108, 108, 111];
@@ -36,7 +34,7 @@ module blob_store::committee_cert_tests {
 
         // actual committee
 
-        let committee_at_5 : Committee<TESTTYPE> = committee_for_testing_with_bls(5, bls_committee);
+        let committee_at_5 : Committee = committee_for_testing_with_bls(5, bls_committee);
         let cert = verify_quorum_in_epoch(&committee_at_5, signature, vector[0], message);
 
         assert!(committee::intent_type(&cert) == 1, 0);
@@ -45,7 +43,7 @@ module blob_store::committee_cert_tests {
     }
 
     #[test, expected_failure]
-    public fun test_incorrect_epoch() : Committee<TESTTYPE> {
+    public fun test_incorrect_epoch() : Committee {
 
         let pub_key_bytes = vector[142, 78, 70, 3, 179, 142, 145, 75, 170, 36, 5, 232, 153, 164, 205, 57, 24, 216, 208, 34, 87, 213, 225, 76, 5, 157, 212, 88, 161, 34, 75, 145, 206, 144, 85, 11, 197, 110, 75, 175, 215, 194, 78, 51, 192, 196, 59, 204];
         let message = vector[1, 0, 3, 5, 0, 0, 0, 0, 0, 0, 0, 104, 101, 108, 108, 111];
@@ -66,7 +64,7 @@ module blob_store::committee_cert_tests {
         // actual committee
 
         // INCORRECT EPOCH
-        let committee_at_6 : Committee<TESTTYPE> = committee_for_testing_with_bls(6, bls_committee);
+        let committee_at_6 : Committee = committee_for_testing_with_bls(6, bls_committee);
         let cert = verify_quorum_in_epoch(&committee_at_6, signature, vector[0], message);
 
         assert!(committee::intent_type(&cert) == 1, 0);

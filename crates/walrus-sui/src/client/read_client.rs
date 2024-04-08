@@ -18,11 +18,15 @@ use sui_sdk::{
     types::{base_types::ObjectID, transaction::CallArg},
     SuiClient,
 };
-use sui_types::{base_types::SuiAddress, event::EventID, object::Owner, TypeTag};
-use tokio::sync::mpsc;
-use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
+use sui_types::{
+    base_types::{SequenceNumber, SuiAddress},
+    event::EventID,
+    object::Owner,
+    TypeTag,
+};
+use tokio::sync::{mpsc, OnceCell};
+use tokio_stream::{wrappers::ReceiverStream, Stream};
 use tracing::{instrument, Instrument};
-use walrus_core::BlobId;
 
 use super::SuiClientResult;
 use crate::{
@@ -31,9 +35,9 @@ use crate::{
     utils::{get_struct_from_object_response, get_type_parameters, handle_pagination},
 };
 
-/// Trait to read system state information and events from chain
+/// Trait to read system state information and events from chain.
 pub trait ReadClient {
-    /// Get the price for one unit of storage per epoch
+    /// Get the price for one unit of storage per epoch.
     fn price_per_unit_size(&self) -> impl Future<Output = SuiClientResult<u64>> + Send;
 
     /// Get a stream of new [`BlobRegistered`] events.
@@ -55,28 +59,28 @@ pub trait ReadClient {
         polling_interval: Duration,
         cursor: Option<EventID>,
     ) -> impl Future<Output = SuiClientResult<impl Stream<Item = BlobCertified> + Send>> + Send;
-    /// Get the current Walrus system object
+    /// Get the current Walrus system object.
     fn get_system_object(&self) -> impl Future<Output = SuiClientResult<SystemObject>> + Send;
 
-    /// Get the current committee
+    /// Get the current committee.
     fn current_committee(&self) -> impl Future<Output = SuiClientResult<Committee>> + Send;
 }
 
-/// Client implementation for interacting with the Walrus smart contracts
+/// Client implementation for interacting with the Walrus smart contracts.
 #[derive(Clone)]
 pub struct SuiReadClient {
-    pub(crate) system_pkg: ObjectID,
+    pub(crate) system_pkg_id: ObjectID,
     pub(crate) sui_client: SuiClient,
-    pub(crate) system_object: ObjectID,
+    pub(crate) system_object_id: ObjectID,
+    sys_obj_initial_version: OnceCell<SequenceNumber>,
     pub(crate) coin_type: TypeTag,
-    pub(crate) system_tag: TypeTag,
 }
 
 const MAX_POLLING_INTERVAL: Duration = Duration::from_secs(5);
 const EVENT_CHANNEL_CAPACITY: usize = 1024;
 
 impl SuiReadClient {
-    /// Constructor for [`SuiReadClient`]
+    /// Constructor for [`SuiReadClient`].
     pub async fn new(
         sui_client: SuiClient,
         system_pkg: ObjectID,
@@ -84,23 +88,55 @@ impl SuiReadClient {
     ) -> SuiClientResult<Self> {
         let type_params = get_type_parameters(&sui_client, system_object).await?;
         ensure!(
-            type_params.len() == 2,
+            type_params.len() == 1,
             "unexpected number of type parameters in system object: {}",
             type_params.len()
         );
 
         Ok(Self {
-            system_pkg,
+            system_pkg_id: system_pkg,
             sui_client,
-            system_object,
-            coin_type: type_params[1].clone(),
-            system_tag: type_params[0].clone(),
+            system_object_id: system_object,
+            sys_obj_initial_version: OnceCell::new(),
+            coin_type: type_params[0].clone(),
         })
     }
 
     pub(crate) async fn call_arg_from_system_obj(&self, mutable: bool) -> SuiClientResult<CallArg> {
-        self.call_arg_from_shared_object_id(self.system_object, mutable)
-            .await
+        let initial_shared_version = self.system_object_initial_version().await?;
+        Ok(CallArg::Object(
+            sui_types::transaction::ObjectArg::SharedObject {
+                id: self.system_object_id,
+                initial_shared_version,
+                mutable,
+            },
+        ))
+    }
+
+    async fn system_object_initial_version(&self) -> SuiClientResult<SequenceNumber> {
+        let initial_shared_version = self
+            .sys_obj_initial_version
+            .get_or_try_init(|| self.get_shared_object_initial_version(self.system_object_id))
+            .await?;
+        Ok(*initial_shared_version)
+    }
+
+    async fn get_shared_object_initial_version(
+        &self,
+        object_id: ObjectID,
+    ) -> SuiClientResult<SequenceNumber> {
+        let Some(Owner::Shared {
+            initial_shared_version,
+        }) = self
+            .sui_client
+            .read_api()
+            .get_object_with_options(object_id, SuiObjectDataOptions::new().with_owner())
+            .await?
+            .owner()
+        else {
+            return Err(anyhow!("trying to get the initial version of a non-shared object").into());
+        };
+        Ok(initial_shared_version)
     }
 
     pub(crate) async fn get_payment_coins(
@@ -116,35 +152,6 @@ impl SuiReadClient {
             )
         })
         .await
-    }
-
-    pub(crate) async fn call_arg_from_shared_object_id(
-        &self,
-        id: ObjectID,
-        mutable: bool,
-    ) -> SuiClientResult<CallArg> {
-        let Some(Owner::Shared {
-            initial_shared_version,
-        }) = self
-            .sui_client
-            .read_api()
-            .get_object_with_options(id, SuiObjectDataOptions::new().with_owner())
-            .await?
-            .owner()
-        else {
-            return Err(anyhow!(
-                "trying to get the initial version of a non-shared object: {}",
-                id
-            )
-            .into());
-        };
-        Ok(CallArg::Object(
-            sui_types::transaction::ObjectArg::SharedObject {
-                id,
-                initial_shared_version,
-                mutable,
-            },
-        ))
     }
 
     pub(crate) async fn get_object<U>(&self, object_id: ObjectID) -> SuiClientResult<U>
@@ -177,7 +184,8 @@ impl SuiReadClient {
         U: AssociatedSuiEvent + Debug + Send + Sync + 'static,
     {
         let (tx_event, rx_event) = mpsc::channel::<U>(EVENT_CHANNEL_CAPACITY);
-        let event_tag = U::EVENT_STRUCT.to_move_struct_tag(self.system_pkg, event_type_params)?;
+        let event_tag =
+            U::EVENT_STRUCT.to_move_struct_tag(self.system_pkg_id, event_type_params)?;
 
         let event_api = self.sui_client.event_api().clone();
 
@@ -198,8 +206,7 @@ impl ReadClient for SuiReadClient {
         polling_interval: Duration,
         cursor: Option<EventID>,
     ) -> SuiClientResult<impl Stream<Item = BlobRegistered>> {
-        self.get_event_stream(polling_interval, &[self.system_tag.clone()], cursor)
-            .await
+        self.get_event_stream(polling_interval, &[], cursor).await
     }
 
     async fn blob_certified_events(
@@ -207,12 +214,11 @@ impl ReadClient for SuiReadClient {
         polling_interval: Duration,
         cursor: Option<EventID>,
     ) -> SuiClientResult<impl Stream<Item = BlobCertified>> {
-        self.get_event_stream(polling_interval, &[self.system_tag.clone()], cursor)
-            .await
+        self.get_event_stream(polling_interval, &[], cursor).await
     }
 
     async fn get_system_object(&self) -> SuiClientResult<SystemObject> {
-        self.get_object(self.system_object).await
+        self.get_object(self.system_object_id).await
     }
 
     async fn current_committee(&self) -> SuiClientResult<Committee> {
@@ -223,86 +229,11 @@ impl ReadClient for SuiReadClient {
 impl fmt::Debug for SuiReadClient {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SuiReadClient")
-            .field("system_pkg", &self.system_pkg)
+            .field("system_pkg", &self.system_pkg_id)
             .field("sui_client", &"<redacted>")
-            .field("system_object", &self.system_object)
+            .field("system_object", &self.system_object_id)
             .field("coin_type", &self.coin_type)
-            .field("system_tag", &self.system_tag)
             .finish()
-    }
-}
-
-/// Mock client for testing
-#[derive(Default, Debug, Clone)]
-pub struct MockSuiReadClient {
-    registered_events: Vec<BlobRegistered>,
-    certified_events: Vec<BlobCertified>,
-}
-
-impl MockSuiReadClient {
-    /// Create a new mock client that returns the provided events in a loop in the event streams.
-    pub fn new_with_events(
-        registered_events: Vec<BlobRegistered>,
-        certified_events: Vec<BlobCertified>,
-    ) -> Self {
-        MockSuiReadClient {
-            registered_events,
-            certified_events,
-        }
-    }
-
-    /// Create a new mock client that returns registered and certified events (in a loop) for
-    /// the given `blob_ids`.
-    pub fn new_with_blob_ids(blob_ids: impl IntoIterator<Item = BlobId>) -> Self {
-        let (registered_events, certified_events) = blob_ids
-            .into_iter()
-            .map(|blob_id| {
-                (
-                    BlobRegistered::for_testing(blob_id),
-                    BlobCertified::for_testing(blob_id),
-                )
-            })
-            .unzip();
-        MockSuiReadClient {
-            registered_events,
-            certified_events,
-        }
-    }
-}
-
-impl ReadClient for MockSuiReadClient {
-    async fn price_per_unit_size(&self) -> SuiClientResult<u64> {
-        Ok(10)
-    }
-
-    async fn blob_registered_events(
-        &self,
-        polling_interval: Duration,
-        _cursor: Option<EventID>,
-    ) -> SuiClientResult<impl Stream<Item = BlobRegistered>> {
-        Ok(
-            tokio_stream::iter(self.registered_events.clone().into_iter().cycle())
-                .throttle(polling_interval),
-        )
-    }
-
-    async fn blob_certified_events(
-        &self,
-        polling_interval: Duration,
-        _cursor: Option<EventID>,
-    ) -> SuiClientResult<impl Stream<Item = BlobCertified>> {
-        Ok(
-            tokio_stream::iter(self.certified_events.clone().into_iter().cycle())
-                .throttle(polling_interval),
-        )
-    }
-
-    async fn get_system_object(&self) -> SuiClientResult<SystemObject> {
-        unimplemented!("this needs to be implemented once it's used by a test")
-    }
-
-    async fn current_committee(&self) -> SuiClientResult<Committee> {
-        unimplemented!("this needs to be implemented once it's used by a test")
     }
 }
 
@@ -366,7 +297,7 @@ where
                 // for a few times and then switch to a different full node.
                 // This logic would need to be handled by a consumer of the
                 // stream. Until that is in place, retry indefinitely.
-                // See https://github.com/MystenLabs/walrus/issues/144
+                // See https://github.com/MystenLabs/walrus/issues/144.
                 polling_interval = polling_interval
                     .saturating_mul(2)
                     .min(MAX_POLLING_INTERVAL)

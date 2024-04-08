@@ -8,7 +8,7 @@ use std::{str::FromStr, sync::Arc};
 use fastcrypto::{
     bls12381::min_pk::BLS12381KeyPair,
     encoding::{Base64, Encoding},
-    traits::ToFromBytes,
+    traits::{AllowedRng, KeyPair, ToFromBytes},
 };
 use serde::{
     de::{Error, Unexpected},
@@ -48,6 +48,11 @@ impl ProtocolKeyPair {
     /// Create a new `ProtocolKeyPair` from a [`BLS12381KeyPair`].
     pub fn new(keypair: BLS12381KeyPair) -> Self {
         Self(Arc::new(keypair))
+    }
+
+    /// Generate a new random `ProtocolKeyPair`.
+    pub fn random<R: AllowedRng>(rng: &mut R) -> Self {
+        Self::new(BLS12381KeyPair::generate(rng))
     }
 
     /// Encodes the keypair as `flag || bytes` in base64.
