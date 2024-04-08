@@ -133,7 +133,7 @@ impl SuiContractClient {
             .map(|arg| pt_builder.input(arg.to_owned()))
             .collect::<Result<Vec<_>>>()?;
         let Argument::Result(result_index) = pt_builder.programmable_move_call(
-            self.read_client.system_pkg,
+            self.read_client.system_pkg_id,
             Identifier::from_str(function.module)?,
             Identifier::from_str(function.name)?,
             function.type_params,
@@ -225,7 +225,7 @@ impl ContractClient for SuiContractClient {
         let storage_id = get_created_object_ids_by_type(
             &res,
             &contracts::storage_resource::Storage
-                .to_move_struct_tag(self.read_client.system_pkg, &[])?,
+                .to_move_struct_tag(self.read_client.system_pkg_id, &[])?,
         )?;
 
         ensure!(
@@ -258,7 +258,7 @@ impl ContractClient for SuiContractClient {
             .await?;
         let blob_obj_id = get_created_object_ids_by_type(
             &res,
-            &contracts::blob::Blob.to_move_struct_tag(self.read_client.system_pkg, &[])?,
+            &contracts::blob::Blob.to_move_struct_tag(self.read_client.system_pkg_id, &[])?,
         )?;
         ensure!(
             blob_obj_id.len() == 1,

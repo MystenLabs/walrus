@@ -18,8 +18,13 @@ use sui_sdk::{
     types::{base_types::ObjectID, transaction::CallArg},
     SuiClient,
 };
-use sui_types::{base_types::SuiAddress, event::EventID, object::Owner, TypeTag};
-use tokio::sync::mpsc;
+use sui_types::{
+    base_types::{SequenceNumber, SuiAddress},
+    event::EventID,
+    object::Owner,
+    TypeTag,
+};
+use tokio::sync::{mpsc, OnceCell};
 use tokio_stream::{wrappers::ReceiverStream, Stream};
 use tracing::{instrument, Instrument};
 
@@ -64,9 +69,10 @@ pub trait ReadClient {
 /// Client implementation for interacting with the Walrus smart contracts.
 #[derive(Clone)]
 pub struct SuiReadClient {
-    pub(crate) system_pkg: ObjectID,
+    pub(crate) system_pkg_id: ObjectID,
     pub(crate) sui_client: SuiClient,
-    pub(crate) system_object: ObjectID,
+    pub(crate) system_object_id: ObjectID,
+    sys_obj_initial_version: OnceCell<SequenceNumber>,
     pub(crate) coin_type: TypeTag,
 }
 
@@ -88,16 +94,49 @@ impl SuiReadClient {
         );
 
         Ok(Self {
-            system_pkg,
+            system_pkg_id: system_pkg,
             sui_client,
-            system_object,
+            system_object_id: system_object,
+            sys_obj_initial_version: OnceCell::new(),
             coin_type: type_params[0].clone(),
         })
     }
 
     pub(crate) async fn call_arg_from_system_obj(&self, mutable: bool) -> SuiClientResult<CallArg> {
-        self.call_arg_from_shared_object_id(self.system_object, mutable)
-            .await
+        let initial_shared_version = self.system_object_initial_version().await?;
+        Ok(CallArg::Object(
+            sui_types::transaction::ObjectArg::SharedObject {
+                id: self.system_object_id,
+                initial_shared_version,
+                mutable,
+            },
+        ))
+    }
+
+    async fn system_object_initial_version(&self) -> SuiClientResult<SequenceNumber> {
+        let initial_shared_version = self
+            .sys_obj_initial_version
+            .get_or_try_init(|| self.get_shared_object_initial_version(self.system_object_id))
+            .await?;
+        Ok(*initial_shared_version)
+    }
+
+    async fn get_shared_object_initial_version(
+        &self,
+        object_id: ObjectID,
+    ) -> SuiClientResult<SequenceNumber> {
+        let Some(Owner::Shared {
+            initial_shared_version,
+        }) = self
+            .sui_client
+            .read_api()
+            .get_object_with_options(object_id, SuiObjectDataOptions::new().with_owner())
+            .await?
+            .owner()
+        else {
+            return Err(anyhow!("trying to get the initial version of a non-shared object").into());
+        };
+        Ok(initial_shared_version)
     }
 
     pub(crate) async fn get_payment_coins(
@@ -113,35 +152,6 @@ impl SuiReadClient {
             )
         })
         .await
-    }
-
-    pub(crate) async fn call_arg_from_shared_object_id(
-        &self,
-        id: ObjectID,
-        mutable: bool,
-    ) -> SuiClientResult<CallArg> {
-        let Some(Owner::Shared {
-            initial_shared_version,
-        }) = self
-            .sui_client
-            .read_api()
-            .get_object_with_options(id, SuiObjectDataOptions::new().with_owner())
-            .await?
-            .owner()
-        else {
-            return Err(anyhow!(
-                "trying to get the initial version of a non-shared object: {}",
-                id
-            )
-            .into());
-        };
-        Ok(CallArg::Object(
-            sui_types::transaction::ObjectArg::SharedObject {
-                id,
-                initial_shared_version,
-                mutable,
-            },
-        ))
     }
 
     pub(crate) async fn get_object<U>(&self, object_id: ObjectID) -> SuiClientResult<U>
@@ -174,7 +184,8 @@ impl SuiReadClient {
         U: AssociatedSuiEvent + Debug + Send + Sync + 'static,
     {
         let (tx_event, rx_event) = mpsc::channel::<U>(EVENT_CHANNEL_CAPACITY);
-        let event_tag = U::EVENT_STRUCT.to_move_struct_tag(self.system_pkg, event_type_params)?;
+        let event_tag =
+            U::EVENT_STRUCT.to_move_struct_tag(self.system_pkg_id, event_type_params)?;
 
         let event_api = self.sui_client.event_api().clone();
 
@@ -207,7 +218,7 @@ impl ReadClient for SuiReadClient {
     }
 
     async fn get_system_object(&self) -> SuiClientResult<SystemObject> {
-        self.get_object(self.system_object).await
+        self.get_object(self.system_object_id).await
     }
 
     async fn current_committee(&self) -> SuiClientResult<Committee> {
@@ -218,9 +229,9 @@ impl ReadClient for SuiReadClient {
 impl fmt::Debug for SuiReadClient {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SuiReadClient")
-            .field("system_pkg", &self.system_pkg)
+            .field("system_pkg", &self.system_pkg_id)
             .field("sui_client", &"<redacted>")
-            .field("system_object", &self.system_object)
+            .field("system_object", &self.system_object_id)
             .field("coin_type", &self.coin_type)
             .finish()
     }
