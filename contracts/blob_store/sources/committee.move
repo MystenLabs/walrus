@@ -2,10 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 module blob_store::committee {
-
     use sui::bcs;
-
-    friend blob_store::e2e_test;
 
     const APP_ID: u8 = 3;
 
@@ -32,7 +29,7 @@ module blob_store::committee {
     /// can take care of the epoch management including the committee formation, and
     /// the System object can simply receive a committee of the correct type as a
     /// signal that the new epoch has started.
-    struct Committee has store {
+    public struct Committee has store {
         epoch: u64,
         bls_committee : BlsCommittee,
     }
@@ -43,11 +40,11 @@ module blob_store::committee {
     }
 
     /// A capability that allows the creation of committees
-    struct CreateCommitteeCap has copy, store, drop {}
+    public struct CreateCommitteeCap has copy, store, drop {}
 
     /// A constructor for the capability to create committees
     /// This is only accessible through friend modules.
-    public(friend) fun create_committee_cap() : CreateCommitteeCap {
+    public(package) fun create_committee_cap() : CreateCommitteeCap {
         CreateCommitteeCap {}
     }
 
@@ -86,7 +83,7 @@ module blob_store::committee {
         Committee { epoch, bls_committee }
     }
 
-    struct CertifiedMessage has drop {
+    public struct CertifiedMessage has drop {
         intent_type: u8,
         intent_version: u8,
         cert_epoch: u64,
@@ -148,7 +145,7 @@ module blob_store::committee {
 
         // Here we BCS decode the header of the message to check intents, epochs, etc.
 
-        let bcs_message = bcs::new(message);
+        let mut bcs_message = bcs::new(message);
         let intent_type = bcs::peel_u8(&mut bcs_message);
         let intent_version = bcs::peel_u8(&mut bcs_message);
 
@@ -162,6 +159,4 @@ module blob_store::committee {
 
         CertifiedMessage { intent_type, intent_version, cert_epoch, stake_support, message }
     }
-
-
 }

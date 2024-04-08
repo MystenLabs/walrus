@@ -3,8 +3,7 @@
 
 #[test_only]
 module blob_store::ringbuffer_tests {
-
-    struct TESTCOIN has store, drop {}
+    public struct TESTCOIN has store, drop {}
 
     use blob_store::storage_accounting as sa;
     use blob_store::storage_accounting::FutureAccountingRingBuffer;
@@ -14,7 +13,7 @@ module blob_store::ringbuffer_tests {
     #[test]
     public fun test_basic_ring_buffer() : FutureAccountingRingBuffer<TESTCOIN>{
 
-        let buffer : FutureAccountingRingBuffer<TESTCOIN>
+        let mut buffer : FutureAccountingRingBuffer<TESTCOIN>
             = sa::ring_new(3);
 
         assert!(sa::epoch(sa::ring_lookup_mut(&mut buffer, 0)) == 0, 100);
@@ -39,7 +38,7 @@ module blob_store::ringbuffer_tests {
     #[test, expected_failure]
     public fun test_oob_fail_ring_buffer() : FutureAccountingRingBuffer<TESTCOIN>{
 
-        let buffer : FutureAccountingRingBuffer<TESTCOIN>
+        let mut buffer : FutureAccountingRingBuffer<TESTCOIN>
             = sa::ring_new(3);
 
         sa::epoch(sa::ring_lookup_mut(&mut buffer, 3));

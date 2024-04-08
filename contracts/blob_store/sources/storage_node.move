@@ -5,7 +5,6 @@ module blob_store::storage_node {
     use std::string::String;
     #[test_only]
     use std::string;
-    use std::vector;
     use sui::group_ops::Element;
     use sui::bls12381::{G1, g1_from_bytes};
 
@@ -14,7 +13,7 @@ module blob_store::storage_node {
     /// Creation and deletion of storage node info is an
     /// uncontrolled operation, but it lacks key so cannot
     /// be stored outside the context of another object.
-    struct StorageNodeInfo has store, drop {
+    public struct StorageNodeInfo has store, drop {
         name: String,
         network_address: String,
         public_key: Element<G1>,
@@ -54,8 +53,8 @@ module blob_store::storage_node {
         public_key: vector<u8>,
         weight: u16,
     ) : StorageNodeInfo {
-        let i: u16 = 0;
-        let shard_ids = vector::empty();
+        let mut i: u16 = 0;
+        let mut shard_ids = vector::empty();
         while (i < weight) {
             vector::push_back(&mut shard_ids, i);
             i = i + 1;

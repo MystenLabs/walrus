@@ -2,13 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 module blob_store::blob {
-
-    use sui::object::{Self, UID};
-    use sui::tx_context::TxContext;
     use sui::bcs;
     use sui::event;
-
-    use std::option::{Self, Option};
 
     use blob_store::committee::{Self, CertifiedMessage};
     use blob_store::system::{Self, System};
@@ -35,7 +30,7 @@ module blob_store::blob {
     // Event definitions
 
     // Signals a blob with meta-data is registered.
-    struct BlobRegistered has copy, drop {
+    public struct BlobRegistered has copy, drop {
         epoch: u64,
         blob_id: u256,
         size: u64,
@@ -44,18 +39,17 @@ module blob_store::blob {
     }
 
     // Signals a blob is certified.
-    struct BlobCertified has copy, drop {
+    public struct BlobCertified has copy, drop {
         epoch: u64,
         blob_id: u256,
         end_epoch: u64,
     }
 
-
     // Object definitions
 
     /// The blob structure represents a blob that has been registered to with some storage,
     /// and then may eventually be certified as being available in the system.
-    struct Blob has key, store {
+    public struct Blob has key, store {
         id: UID,
         stored_epoch: u64,
         blob_id: u256,
@@ -134,11 +128,10 @@ module blob_store::blob {
 
     }
 
-    struct CertifiedBlobMessage has drop {
+    public struct CertifiedBlobMessage has drop {
         epoch: u64,
         blob_id: u256,
     }
-
 
     /// Construct the certified blob message, note that constructing
     /// implies a certified message, that is already checked.
@@ -154,7 +147,7 @@ module blob_store::blob {
         let epoch = committee::cert_epoch(&message);
         let message_body = committee::into_message(message);
 
-        let bcs_body = bcs::new(message_body);
+        let mut bcs_body = bcs::new(message_body);
         let blob_id = bcs::peel_u256(&mut bcs_body);
 
         // On purpose we do not check that nothing is left in the message
@@ -302,7 +295,6 @@ module blob_store::blob {
     public fun message_blob_id(m: &CertifiedBlobMessage) : u256 {
         m.blob_id
     }
-
 
     #[test_only]
     public fun certified_blob_message_for_testing(

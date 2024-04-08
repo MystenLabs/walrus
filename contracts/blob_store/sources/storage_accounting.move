@@ -2,16 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 module blob_store::storage_accounting {
-
     use sui::balance::{Self, Balance};
-    use std::vector::{Self};
 
     // Errors
     const ERROR_INDEX_OUT_OF_BOUNDS : u64 = 3;
 
     /// Holds information about a future epoch, namely how much
     /// storage needs to be reclaimed and the rewards to be distributed.
-    struct FutureAccounting<phantom WAL> has store {
+    public struct FutureAccounting<phantom WAL> has store {
         epoch: u64,
         storage_to_reclaim: u64,
         rewards_to_distribute: Balance<WAL>,
@@ -83,7 +81,7 @@ module blob_store::storage_accounting {
     }
 
     /// A ring buffer holding future accounts for a continuous range of epochs.
-    struct FutureAccountingRingBuffer<phantom WAL> has store {
+    public struct FutureAccountingRingBuffer<phantom WAL> has store {
         current_index : u64,
         length : u64,
         ring_buffer : vector<FutureAccounting<WAL>>,
@@ -94,8 +92,8 @@ module blob_store::storage_accounting {
         length: u64,
     ) : FutureAccountingRingBuffer<WAL> {
 
-        let ring_buffer :  vector<FutureAccounting<WAL>> = vector::empty();
-        let i = 0;
+        let mut ring_buffer :  vector<FutureAccounting<WAL>> = vector::empty();
+        let mut i = 0;
         while (i < length) {
             vector::push_back(&mut ring_buffer, FutureAccounting {
                 epoch: i,

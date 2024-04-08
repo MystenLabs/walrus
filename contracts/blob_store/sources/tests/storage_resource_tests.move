@@ -23,7 +23,7 @@ module blob_store::storage_resource_tests {
     public fun test_split_epoch(){
         let ctx = &mut tx_context::dummy();
         let storage_amount = 5_000_000;
-        let storage = create_for_test(0, 10, storage_amount, ctx);
+        let mut storage = create_for_test(0, 10, storage_amount, ctx);
         let new_storage = split_by_epoch(&mut storage, 7, ctx);
         assert!(start_epoch(&storage) == 0 && end_epoch(&storage) == 7
             && start_epoch(&new_storage) == 7 && end_epoch(&new_storage) == 10, 0);
@@ -39,7 +39,7 @@ module blob_store::storage_resource_tests {
     #[test]
     public fun test_split_size(){
         let ctx = &mut tx_context::dummy();
-        let storage = create_for_test(0, 10, 5_000_000, ctx);
+        let mut storage = create_for_test(0, 10, 5_000_000, ctx);
         let new_storage = split_by_size(&mut storage, 1_000_000, ctx);
         assert!(start_epoch(&storage) == 0 && end_epoch(&storage) == 10
             && start_epoch(&new_storage) == 0 && end_epoch(&new_storage) == 10, 0);
@@ -52,7 +52,7 @@ module blob_store::storage_resource_tests {
     #[expected_failure(abort_code=EInvalidAmount)]
     public fun test_split_size_invalid(){
         let ctx = &mut tx_context::dummy();
-        let storage = create_for_test(0, 10, 5_000_000, ctx);
+        let mut storage = create_for_test(0, 10, 5_000_000, ctx);
         let new_storage = split_by_size(&mut storage, 4_500_000, ctx);
         destroy(storage);
         destroy(new_storage);
@@ -62,7 +62,7 @@ module blob_store::storage_resource_tests {
     #[expected_failure(abort_code=EInvalidEpoch)]
     public fun test_split_epoch_invalid_end(){
         let ctx = &mut tx_context::dummy();
-        let storage = create_for_test(0, 10, 5_000_000, ctx);
+        let mut storage = create_for_test(0, 10, 5_000_000, ctx);
         let new_storage = split_by_epoch(&mut storage, 11, ctx);
         destroy(storage);
         destroy(new_storage);
@@ -72,7 +72,7 @@ module blob_store::storage_resource_tests {
     #[expected_failure(abort_code=EInvalidEpoch)]
     public fun test_split_epoch_invalid_start(){
         let ctx = &mut tx_context::dummy();
-        let storage = create_for_test(1, 10, 5_000_000, ctx);
+        let mut storage = create_for_test(1, 10, 5_000_000, ctx);
         let new_storage = split_by_epoch(&mut storage, 0, ctx);
         destroy(storage);
         destroy(new_storage);
@@ -81,7 +81,7 @@ module blob_store::storage_resource_tests {
     #[test]
     public fun test_fuse_size(){
         let ctx = &mut tx_context::dummy();
-        let first = create_for_test(0, 10, 1_000_000, ctx);
+        let mut first = create_for_test(0, 10, 1_000_000, ctx);
         let second = create_for_test(0, 10, 2_000_000, ctx);
         fuse(&mut first, second);
         assert!(start_epoch(&first) == 0 && end_epoch(&first) == 10, 0);
@@ -92,14 +92,14 @@ module blob_store::storage_resource_tests {
     #[test]
     public fun test_fuse_epochs(){
         let ctx = &mut tx_context::dummy();
-        let first = create_for_test(0, 5, 1_000_000, ctx);
+        let mut first = create_for_test(0, 5, 1_000_000, ctx);
         let second = create_for_test(5, 10, 1_000_000, ctx);
         // list the `earlier` resource first
         fuse(&mut first, second);
         assert!(start_epoch(&first) == 0 && end_epoch(&first) == 10, 0);
         assert!(storage_size(&first) == 1_000_000, 0);
 
-        let second = create_for_test(10, 15, 1_000_000, ctx);
+        let mut second = create_for_test(10, 15, 1_000_000, ctx);
         // list the `latter` resource first
         fuse(&mut second, first);
         assert!(start_epoch(&second) == 0 && end_epoch(&second) == 15, 0);
@@ -111,7 +111,7 @@ module blob_store::storage_resource_tests {
     #[expected_failure(abort_code=EIncompatibleAmount)]
     public fun test_fuse_incompatible_size(){
         let ctx = &mut tx_context::dummy();
-        let first = create_for_test(0, 5, 1_000_000, ctx);
+        let mut first = create_for_test(0, 5, 1_000_000, ctx);
         let second = create_for_test(5, 10, 2_000_000, ctx);
         fuse(&mut first, second);
         destroy(first);
@@ -121,7 +121,7 @@ module blob_store::storage_resource_tests {
     #[expected_failure(abort_code=EIncompatibleEpochs)]
     public fun test_fuse_incompatible_epochs(){
         let ctx = &mut tx_context::dummy();
-        let first = create_for_test(0, 6, 1_000_000, ctx);
+        let mut first = create_for_test(0, 6, 1_000_000, ctx);
         let second = create_for_test(5, 10, 1_000_000, ctx);
         fuse(&mut first, second);
         destroy(first);

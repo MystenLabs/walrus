@@ -2,17 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 module blob_store::e2e_test  {
+    use std::string;
+    use sui::sui::SUI;
 
-    use sui::tx_context::{Self, TxContext};
-    use sui::object::{Self, UID};
     use blob_store::committee::{Self, CreateCommitteeCap};
     use blob_store::system;
     use blob_store::storage_node;
-    use std::string;
-    use sui::sui::SUI;
-    use sui::transfer;
 
-    struct CommitteeCapHolder has key, store  {
+    public struct CommitteeCapHolder has key, store  {
         id: UID,
         cap: CreateCommitteeCap,
     }

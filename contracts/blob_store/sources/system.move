@@ -2,16 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 module blob_store::system {
-
-    use sui::object::{Self, UID};
     use sui::balance::{Self};
     use sui::coin::{Self, Coin};
     use sui::table::{Self, Table};
-    use sui::tx_context::{TxContext};
     use sui::event;
-    use sui::transfer;
-
-    use std::option::{Self, Option};
 
     use blob_store::committee::{Self, Committee};
     use blob_store::storage_accounting::{Self, FutureAccounting, FutureAccountingRingBuffer};
@@ -41,21 +35,21 @@ module blob_store::system {
     // Event types
 
     /// Signals an epoch change, and entering the SYNC state for the new epoch.
-    struct EpochChangeSync has copy, drop {
+    public struct EpochChangeSync has copy, drop {
         epoch: u64,
         total_capacity_size: u64,
         used_capacity_size: u64,
     }
 
     /// Signals that the epoch change is DONE now.
-    struct EpochChangeDone has copy, drop {
+    public struct EpochChangeDone has copy, drop {
         epoch: u64,
     }
 
     // Object definitions
 
     #[allow(unused_field)]
-    struct System<phantom WAL> has key, store {
+    public struct System<phantom WAL> has key, store {
 
         id: UID,
 
@@ -183,7 +177,9 @@ module blob_store::system {
         self.price_per_unit_size = new_price;
         self.epoch_status = EPOCH_STATUS_SYNC;
 
-        let accounts_old_epoch = storage_accounting::ring_pop_expand(&mut self.future_accounting);
+        let mut accounts_old_epoch = storage_accounting::ring_pop_expand(
+            &mut self.future_accounting
+        );
         assert!(storage_accounting::epoch(&accounts_old_epoch) == old_epoch,
             ERROR_SYNC_EPOCH_CHANGE);
 
@@ -206,7 +202,7 @@ module blob_store::system {
         self: &mut System<WAL>,
         storage_amount: u64,
         periods_ahead: u64,
-        payment: Coin<WAL>,
+        mut payment: Coin<WAL>,
         ctx: &mut TxContext,
         ) : (Storage, Coin<WAL>) {
 
@@ -223,7 +219,7 @@ module blob_store::system {
         let period_payment_due = self.price_per_unit_size * storage_amount;
         let coin_balance = coin::balance_mut(&mut payment);
 
-        let i = 0;
+        let mut i = 0;
         while (i < periods_ahead) {
             let accounts = storage_accounting::ring_lookup_mut(&mut self.future_accounting, i);
 
@@ -266,7 +262,7 @@ module blob_store::system {
     /// Define a message type for the SyncDone message.
     /// It may only be constructed when a valid certified message is
     /// passed in.
-    struct CertifiedSyncDone has drop {
+    public struct CertifiedSyncDone has drop {
         epoch: u64,
     }
 
@@ -294,7 +290,6 @@ module blob_store::system {
     ) : CertifiedSyncDone {
         CertifiedSyncDone { epoch }
     }
-
 
     /// Use the certified message to advance the epoch status to DONE.
     public fun sync_done_for_epoch<WAL>(

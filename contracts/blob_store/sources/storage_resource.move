@@ -2,11 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 module blob_store::storage_resource {
-    use sui::object::{Self, UID};
-    use sui::tx_context::{TxContext};
-
-    friend blob_store::system;
-
     /// Maximum and minimum storage per storage object
     const MAX_STORAGE_AMOUNT : u64 = 1_000_000_000; // about 1GB
     const MIN_STORAGE_AMOUNT : u64 = 1_000_000; // about 1MB
@@ -27,7 +22,7 @@ module blob_store::storage_resource {
     }
 
     /// Reservation for storage for a given period, which is inclusive start, exclusive end.
-    struct Storage has key, store {
+    public struct Storage has key, store {
         id: UID,
         start_epoch: u64,
         end_epoch: u64,
@@ -49,7 +44,7 @@ module blob_store::storage_resource {
     /// Constructor for [Storage] objects.
     /// Necessary to allow `blob_store::system` to create storage objects.
     /// Cannot be called outside of the current module and [blob_store::system].
-    public(friend) fun create_storage(
+    public(package) fun create_storage(
         start_epoch: u64,
         end_epoch: u64,
         storage_size: u64,

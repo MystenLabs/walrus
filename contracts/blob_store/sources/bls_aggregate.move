@@ -2,10 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 module blob_store::bls_aggregate {
-
     use sui::group_ops::Self;
     use sui::bls12381::{Self, bls12381_min_pk_verify};
-    use std::vector;
 
     use blob_store::storage_node::{Self, StorageNodeInfo};
 
@@ -17,7 +15,7 @@ module blob_store::bls_aggregate {
 
     /// This represents a BLS signing committee.
     /// The total_weight is the sum of the number of shards of each member.
-    struct BlsCommittee has store, drop {
+    public struct BlsCommittee has store, drop {
         /// A vector of committee members
         members: vector<StorageNodeInfo>,
         /// The total weight of the committee
@@ -30,8 +28,8 @@ module blob_store::bls_aggregate {
     ) : BlsCommittee {
 
         // Compute the total weight
-        let total_weight = 0;
-        let i = 0;
+        let mut total_weight = 0;
+        let mut i = 0;
         while (i < vector::length(&members)) {
             let added_weight = storage_node::weight(vector::borrow(&members, i));
             assert!(added_weight > 0, ERROR_INCORRECT_COMMITTEE);
@@ -68,11 +66,11 @@ module blob_store::bls_aggregate {
         // Use the signers flags to construct the key and the weights.
 
         // Lower bound for the next `member_idx` to ensure they are monotonically increasing
-        let min_next_member_idx = 0;
-        let i = 0;
+        let mut min_next_member_idx = 0;
+        let mut i = 0;
 
-        let aggregate_key = bls12381::g1_identity();
-        let aggregate_weight = 0;
+        let mut aggregate_key = bls12381::g1_identity();
+        let mut aggregate_weight = 0;
 
         while (i < vector::length(signers)) {
             let member_idx = (*vector::borrow(signers, i) as u64);
