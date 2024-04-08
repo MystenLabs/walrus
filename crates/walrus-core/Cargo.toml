@@ -9,7 +9,7 @@ license = { workspace = true }
 [dependencies]
 bcs = { workspace = true }
 fastcrypto = { workspace = true }
-rand = { workspace = true, optional = true }
+rand = { workspace = true }
 raptorq = "2.0.0"
 serde = { workspace = true }
 serde_with = { workspace = true, features = ["base64"] }
@@ -21,12 +21,11 @@ workspace = true
 [dev-dependencies]
 anyhow = { workspace = true }
 criterion = "0.5.1"
-rand = { workspace = true }
 serde_test = "1.0.176"
 walrus-test-utils = { workspace = true }
 
 [features]
-test-utils = ["rand"]
+test-utils = []
 
 [lib]
 bench = false

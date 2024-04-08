@@ -172,6 +172,18 @@ impl TryFrom<usize> for ShardIndex {
     }
 }
 
+impl From<u16> for ShardIndex {
+    fn from(value: u16) -> Self {
+        Self(value)
+    }
+}
+
+impl From<&u16> for ShardIndex {
+    fn from(value: &u16) -> Self {
+        Self(*value)
+    }
+}
+
 /// A sliver of an erasure-encoded blob.
 ///
 /// Can be either a [`PrimarySliver`] or [`SecondarySliver`].

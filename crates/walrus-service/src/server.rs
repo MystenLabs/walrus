@@ -106,7 +106,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
     }
 
     /// Creates a new user server.
-    pub async fn run(self, network_address: &SocketAddr) -> Result<(), std::io::Error> {
+    pub async fn run(&self, network_address: &SocketAddr) -> Result<(), std::io::Error> {
         let app = Router::new()
             .route(
                 METADATA_ENDPOINT,
@@ -126,7 +126,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
         let listener = tokio::net::TcpListener::bind(network_address).await?;
         axum::serve(listener, app)
-            .with_graceful_shutdown(self.cancel_token.cancelled_owned())
+            .with_graceful_shutdown(self.cancel_token.clone().cancelled_owned())
             .await
     }
 

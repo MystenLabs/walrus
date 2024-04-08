@@ -6,8 +6,13 @@ version = { workspace = true }
 edition = { workspace = true }
 license = { workspace = true }
 
+[features]
+default = ["test-utils"]
+test-utils = ["dep:tempfile", "dep:walrus-test-utils", "walrus-core/test-utils"]
+
 [dependencies]
 anyhow = { workspace = true }
+async-trait = "0.1.79"
 axum = { version = "0.7.5", features = ["http2"] }
 bcs = { workspace = true }
 clap = { workspace = true }
@@ -26,6 +31,7 @@ serde_yaml = { workspace = true }
 sui-sdk = { workspace = true }
 sui-types = { workspace = true }
 telemetry-subscribers = { workspace = true }
+tempfile = { workspace = true, optional = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tokio-stream = { workspace = true }
@@ -35,6 +41,7 @@ tracing = "0.1.40"
 typed-store = { workspace = true }
 walrus-core = { workspace = true }
 walrus-sui = { workspace = true }
+walrus-test-utils = { workspace = true, optional = true }
 
 [lints]
 workspace = true
