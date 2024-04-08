@@ -1,15 +1,19 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{future::Future, num::NonZeroUsize};
+use std::{future::Future, pin::pin, time::Duration};
 
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use fastcrypto::traits::Signer;
 use mysten_metrics::RegistryService;
+use sui_sdk::SuiClientBuilder;
+use tokio::select;
+use tokio_stream::StreamExt;
 use tokio_util::sync::CancellationToken;
+use tracing::instrument;
 use typed_store::{rocks::MetricConf, DBMetrics};
 use walrus_core::{
-    encoding::{get_encoding_config, Primary, RecoveryError, Secondary},
+    encoding::{EncodingConfig, RecoveryError},
     ensure,
     merkle::MerkleProof,
     messages::{Confirmation, SignedStorageConfirmation, StorageConfirmation},
@@ -22,6 +26,10 @@ use walrus_core::{
     Sliver,
     SliverType,
 };
+use walrus_sui::{
+    client::{ReadClient, SuiReadClient},
+    types::{BlobEvent, EventType},
+};
 
 use crate::{config::StorageNodeConfig, mapping::shard_index_for_pair, storage::Storage};
 
@@ -31,6 +39,12 @@ pub enum StoreMetadataError {
     InvalidMetadata(#[from] VerificationError),
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
+    #[error("metadata was already stored")]
+    AlreadyStored,
+    #[error("blob for this metadata has already expired")]
+    BlobExpired,
+    #[error("blob for this metadata has not been registered")]
+    NotRegistered,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -138,18 +152,22 @@ pub trait ServiceState {
 }
 
 /// A Walrus storage node, responsible for 1 or more shards on Walrus.
-pub struct StorageNode {
+#[derive(Debug)]
+pub struct StorageNode<T> {
     current_epoch: Epoch,
     storage: Storage,
-    n_shards: NonZeroUsize,
+    encoding_config: EncodingConfig,
     protocol_key_pair: ProtocolKeyPair,
+    sui_read_client: T,
+    event_polling_interval: Duration,
 }
 
-impl StorageNode {
+impl StorageNode<SuiReadClient> {
     /// Create a new storage node with the provided configuration.
-    pub fn new(
+    pub async fn new(
         config: &StorageNodeConfig,
         registry_service: RegistryService,
+        encoding_config: EncodingConfig,
     ) -> anyhow::Result<Self> {
         DBMetrics::init(&registry_service.default_registry());
         let storage = Storage::open(config.storage_path.as_path(), MetricConf::new("storage"))?;
@@ -158,18 +176,45 @@ impl StorageNode {
             .get()
             .expect("protocol keypair must already be loaded");
 
+        let sui_config = config
+            .sui
+            .as_ref()
+            .ok_or_else(|| anyhow!("sui config must be present"))?;
+
+        let sui_client = SuiClientBuilder::default().build(&sui_config.rpc).await?;
+        let sui_read_client =
+            SuiReadClient::new(sui_client, sui_config.pkg_id, sui_config.system_object).await?;
+
         Ok(Self::new_with_storage(
             storage,
-            100,
+            encoding_config,
             protocol_key_pair.clone(),
+            sui_read_client,
+            sui_config.event_polling_interval,
         ))
     }
+}
 
-    /// Set the total number of shards.
-    pub fn with_total_shards(mut self, n_shards: NonZeroUsize) -> Self {
-        self.n_shards = n_shards;
-
-        self
+impl<T> StorageNode<T>
+where
+    T: ReadClient,
+{
+    /// Create a new storage node providing the storage directly.
+    pub fn new_with_storage(
+        storage: Storage,
+        encoding_config: EncodingConfig,
+        protocol_key_pair: ProtocolKeyPair,
+        sui_read_client: T,
+        event_polling_interval: Duration,
+    ) -> Self {
+        Self {
+            storage,
+            current_epoch: 0,
+            encoding_config,
+            protocol_key_pair,
+            sui_read_client,
+            event_polling_interval,
+        }
     }
 
     /// Specify which shards are managed by this storage node.
@@ -181,33 +226,58 @@ impl StorageNode {
         }
         self
     }
-
-    /// Create a new storage node providing the storage directly.
-    pub fn new_with_storage(
-        storage: Storage,
-        n_shards: usize,
-        protocol_key_pair: ProtocolKeyPair,
-    ) -> Self {
-        Self {
-            storage,
-            current_epoch: 0,
-            n_shards: NonZeroUsize::new(n_shards).expect("number of shards must not be zero"),
-            protocol_key_pair,
-        }
-    }
 }
 
-impl StorageNode {
+impl<T> StorageNode<T>
+where
+    T: ReadClient,
+{
     /// Run the walrus-node logic until cancelled using the provided cancellation token.
     pub async fn run(&self, cancel_token: CancellationToken) -> anyhow::Result<()> {
         // TODO(jsmith): Run any subtasks such as the HTTP api, shard migration,
         // etc until cancelled.
-        cancel_token.cancelled().await;
+
+        let mut blob_events = pin!(self.combined_blob_events().await?);
+        loop {
+            select! {
+                blob_event = blob_events.next() => {
+                    let event = blob_event.ok_or_else(
+                        || anyhow!("event stream for blob events stopped")
+                    )?;
+                    self.storage.update_blob_info(event)?;
+                }
+                () = cancel_token.cancelled() => break,
+            };
+        }
         Ok(())
+    }
+
+    #[instrument(skip_all)]
+    async fn combined_blob_events(
+        &self,
+    ) -> anyhow::Result<impl tokio_stream::Stream<Item = BlobEvent> + '_> {
+        let registered_cursor = self.storage.get_event_cursor(EventType::Registered)?;
+        tracing::info!("resuming from registered event: {registered_cursor:?}");
+        let registered_events = self
+            .sui_read_client
+            .blob_registered_events(self.event_polling_interval, registered_cursor)
+            .await?
+            .map(BlobEvent::from);
+        let certified_cursor = self.storage.get_event_cursor(EventType::Certified)?;
+        tracing::info!("resuming from certified event: {certified_cursor:?}");
+        let certified_events = self
+            .sui_read_client
+            .blob_certified_events(self.event_polling_interval, certified_cursor)
+            .await?
+            .map(BlobEvent::from);
+        Ok(registered_events.merge(certified_events))
     }
 }
 
-impl ServiceState for StorageNode {
+impl<T> ServiceState for StorageNode<T>
+where
+    T: Sync + Send,
+{
     fn retrieve_metadata(
         &self,
         blob_id: &BlobId,
@@ -224,7 +294,18 @@ impl ServiceState for StorageNode {
         &self,
         metadata: UnverifiedBlobMetadataWithId,
     ) -> Result<(), StoreMetadataError> {
-        let verified_metadata_with_id = metadata.verify(self.n_shards)?;
+        let Some(blob_info) = self
+            .storage
+            .get_blob_info(metadata.blob_id())
+            .map_err(|err| anyhow!("could not retrieve blob info: {}", err))?
+        else {
+            return Err(StoreMetadataError::NotRegistered);
+        };
+        if blob_info.end_epoch <= self.current_epoch {
+            return Err(StoreMetadataError::BlobExpired);
+        }
+
+        let verified_metadata_with_id = metadata.verify(&self.encoding_config)?;
         self.storage
             .put_verified_metadata(&verified_metadata_with_id)
             .context("unable to store metadata")?;
@@ -237,7 +318,11 @@ impl ServiceState for StorageNode {
         sliver_pair_idx: SliverPairIndex,
         sliver_type: SliverType,
     ) -> Result<Option<Sliver>, RetrieveSliverError> {
-        let shard = shard_index_for_pair(sliver_pair_idx, self.n_shards.get(), blob_id);
+        let shard = shard_index_for_pair(
+            sliver_pair_idx,
+            self.encoding_config.n_shards() as usize,
+            blob_id,
+        );
         let sliver = self
             .storage
             .shard_storage(shard)
@@ -255,7 +340,11 @@ impl ServiceState for StorageNode {
     ) -> Result<(), StoreSliverError> {
         // First determine if the shard that should store this sliver is managed by this node.
         // If not, we can return early without touching the database.
-        let shard = shard_index_for_pair(sliver_pair_idx, self.n_shards.get(), blob_id);
+        let shard = shard_index_for_pair(
+            sliver_pair_idx,
+            self.encoding_config.n_shards() as usize,
+            blob_id,
+        );
         let shard_storage = self
             .storage
             .shard_storage(shard)
@@ -274,14 +363,8 @@ impl ServiceState for StorageNode {
             .unencoded_length
             .try_into()
             .expect("The maximum blob size is smaller than `usize::MAX`");
-        let expected_sliver_size = match sliver {
-            Sliver::Primary(_) => get_encoding_config().sliver_size_for_blob::<Primary>(blob_size),
-            Sliver::Secondary(_) => {
-                get_encoding_config().sliver_size_for_blob::<Secondary>(blob_size)
-            }
-        };
         ensure!(
-            expected_sliver_size == Some(sliver.len()),
+            sliver.has_correct_length(&self.encoding_config, blob_size),
             StoreSliverError::IncorrectSize(sliver.len(), *blob_id)
         );
 
@@ -291,7 +374,7 @@ impl ServiceState for StorageNode {
             .get_sliver_hash(sliver_pair_idx, sliver.r#type())
             .ok_or_else(|| StoreSliverError::InvalidSliverPairId(sliver_pair_idx, *blob_id))?;
 
-        let computed_sliver_hash = sliver.hash()?;
+        let computed_sliver_hash = sliver.hash(&self.encoding_config)?;
         ensure!(
             &computed_sliver_hash == stored_sliver_hash,
             StoreSliverError::InvalidSliver(sliver_pair_idx, *blob_id)
@@ -339,7 +422,7 @@ impl ServiceState for StorageNode {
         Ok(match sliver {
             Sliver::Primary(inner) => {
                 let symbol = inner
-                    .recovery_symbol_for_sliver_with_proof(index)
+                    .recovery_symbol_for_sliver_with_proof(index, &self.encoding_config)
                     .map_err(|_| {
                         RetrieveSymbolError::RecoveryError(index, sliver_pair_idx, *blob_id)
                     })?;
@@ -347,7 +430,7 @@ impl ServiceState for StorageNode {
             }
             Sliver::Secondary(inner) => {
                 let symbol = inner
-                    .recovery_symbol_for_sliver_with_proof(index)
+                    .recovery_symbol_for_sliver_with_proof(index, &self.encoding_config)
                     .map_err(|_| {
                         RetrieveSymbolError::RecoveryError(index, sliver_pair_idx, *blob_id)
                     })?;
@@ -379,6 +462,7 @@ async fn sign_confirmation(
 #[cfg(test)]
 mod tests {
     use fastcrypto::{bls12381::min_pk::BLS12381KeyPair, traits::KeyPair};
+    use walrus_sui::client::MockSuiReadClient;
     use walrus_test_utils::{Result as TestResult, WithTempDir};
 
     use super::*;
@@ -392,13 +476,21 @@ mod tests {
 
     const OTHER_BLOB_ID: BlobId = BlobId([247; 32]);
 
-    fn storage_node_with_storage(storage: WithTempDir<Storage>) -> WithTempDir<StorageNode> {
+    fn storage_node_with_storage(
+        storage: WithTempDir<Storage>,
+    ) -> WithTempDir<StorageNode<MockSuiReadClient>> {
         let signing_key = BLS12381KeyPair::generate(&mut rand::thread_rng());
-
-        WithTempDir {
-            inner: StorageNode::new_with_storage(storage.inner, 100, signing_key.into()),
-            temp_dir: storage.temp_dir,
-        }
+        let sui_read_client = MockSuiReadClient::default();
+        let polling_interval = Duration::from_millis(1);
+        storage.map(|storage| {
+            StorageNode::new_with_storage(
+                storage,
+                walrus_core::test_utils::encoding_config(),
+                signing_key.into(),
+                sui_read_client,
+                polling_interval,
+            )
+        })
     }
 
     mod get_storage_confirmation {

@@ -14,7 +14,10 @@ use walrus_core::{
     ShardIndex,
 };
 use walrus_e2e_tests::publish_package;
-use walrus_sui::{client::SuiContractClient, types::EpochStatus};
+use walrus_sui::{
+    client::{ReadClient, SuiContractClient},
+    types::EpochStatus,
+};
 
 fn get_blob_cert(blob_id: BlobId, epoch: u64) -> ConfirmationCertificate {
     // Use the same private key that is registered in the committee in
@@ -95,9 +98,9 @@ async fn test_register_blob() -> anyhow::Result<()> {
     assert_eq!(Some(blob_registered.epoch), blob_obj.certified);
     assert_eq!(blob_certified.end_epoch, storage_resource.end_epoch);
 
-    // Close event streams
-    let _ = registered_events.into_inner();
-    let _ = certified_events.into_inner();
+    // Drop event streams
+    let _ = registered_events;
+    let _ = certified_events;
     // Get new event streams with cursors
     let mut registered_events = walrus_client
         .read_client

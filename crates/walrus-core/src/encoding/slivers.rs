@@ -7,7 +7,6 @@ use fastcrypto::hash::HashFunction;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    get_encoding_config,
     DataTooLargeError,
     Decoder,
     DecodingSymbol,
@@ -31,17 +30,6 @@ pub type PrimarySliver = Sliver<Primary>;
 
 /// A secondary sliver resulting from an encoding of a blob.
 pub type SecondarySliver = Sliver<Secondary>;
-
-#[macro_export]
-/// Ensures the index provided is smaller than `n_shards`, or returns
-/// [`RecoveryError::IndexTooLarge`].
-macro_rules! check_index {
-    ($index:expr) => {
-        if $index >= get_encoding_config().n_shards {
-            return Err(RecoveryError::IndexTooLarge);
-        }
-    };
-}
 
 /// Encoded data corresponding to a single [`EncodingAxis`] assigned to one shard.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -106,9 +94,12 @@ impl<T: EncodingAxis> Sliver<T> {
     ///
     /// Returns an [`RecoveryError::EncodeError`] if the `symbols` cannot be encoded. See
     /// [`Encoder::new`] for further details about the returned errors.
-    pub fn recovery_symbols(&self) -> Result<Symbols, RecoveryError> {
+    pub fn recovery_symbols(&self, config: &EncodingConfig) -> Result<Symbols, RecoveryError> {
         Ok(Symbols::new(
-            self.get_sliver_encoder()?.encode_all().flatten().collect(),
+            self.get_sliver_encoder(config)?
+                .encode_all()
+                .flatten()
+                .collect(),
             self.symbols.symbol_size(), // The symbol size remains unvaried when re-encoding.
         ))
     }
@@ -119,11 +110,15 @@ impl<T: EncodingAxis> Sliver<T> {
     ///
     /// Returns an [`RecoveryError::EncodeError`] error if the `symbols` cannot be encoded. See
     /// [`Encoder::new`] for further details about the returned errors. Returns a
-    /// [`RecoveryError::IndexTooLarge`] error if `index > n_shards`.
-    pub fn single_recovery_symbol(&self, index: u32) -> Result<Vec<u8>, RecoveryError> {
-        check_index!(index);
+    /// [`RecoveryError::IndexTooLarge`] error if `index >= n_shards`.
+    pub fn single_recovery_symbol(
+        &self,
+        index: u32,
+        config: &EncodingConfig,
+    ) -> Result<Vec<u8>, RecoveryError> {
+        Self::check_index(index, config.n_shards)?;
         Ok(self
-            .get_sliver_encoder()?
+            .get_sliver_encoder(config)?
             // TODO(mlegner): add more efficient function to encode a single symbol
             .encode_range(index..index + 1)
             .next()
@@ -139,21 +134,25 @@ impl<T: EncodingAxis> Sliver<T> {
     ///
     /// * `target_pair_idx` - the index of the [`SliverPair`] to which the sliver to be recovered
     /// belongs.
+    /// * `config` - the system's encoding configuration.
     ///
     /// # Errors
     ///
     /// Returns a [`RecoveryError::EncodeError`] if the sliver cannot be encoded. See
-    /// [`Encoder::new`] for further details about the returned errors.  Returns a
-    /// [`RecoveryError::IndexTooLarge`] error if `index > n_shards`.
+    /// [`Encoder::new`] for further details about the returned errors. Returns a
+    /// [`RecoveryError::IndexTooLarge`] error if `target_pair_idx >= n_shards`.
     pub fn recovery_symbol_for_sliver(
         &self,
         target_pair_idx: SliverPairIndex,
+        config: &EncodingConfig,
     ) -> Result<DecodingSymbol<T::OrthogonalAxis>, RecoveryError> {
-        check_index!(target_pair_idx.as_u32());
+        Self::check_index(target_pair_idx.as_u32(), config.n_shards)?;
         Ok(DecodingSymbol::new(
             self.index.as_u32(),
             self.single_recovery_symbol(
-                T::OrthogonalAxis::sliver_index_from_pair_index(target_pair_idx).as_u32(),
+                T::OrthogonalAxis::sliver_index_from_pair_index(target_pair_idx, config.n_shards)
+                    .as_u32(),
+                config,
             )?,
         ))
     }
@@ -165,24 +164,27 @@ impl<T: EncodingAxis> Sliver<T> {
     ///
     /// * `target_pair_idx` - the index of the [`SliverPair`] to which the sliver to be recovered
     /// belongs.
+    /// * `config` - the system's encoding configuration.
     ///
     /// # Errors
     ///
     /// Returns a [`RecoveryError::EncodeError`] if the sliver cannot be encoded. See
     /// [`Encoder::new`] for further details about the returned errors. Returns a
-    /// [`RecoveryError::IndexTooLarge`] error if `index > n_shards`.
+    /// [`RecoveryError::IndexTooLarge`] error if `target_pair_idx >= n_shards`.
     pub fn recovery_symbol_for_sliver_with_proof<U>(
         &self,
         target_pair_idx: SliverPairIndex,
+        config: &EncodingConfig,
     ) -> Result<DecodingSymbol<T::OrthogonalAxis, MerkleProof<U>>, RecoveryError>
     where
         U: HashFunction<DIGEST_LEN>,
     {
-        check_index!(target_pair_idx.as_u32());
-        let recovery_symbols = self.recovery_symbols()?;
+        Self::check_index(target_pair_idx.as_u32(), config.n_shards)?;
+        let recovery_symbols = self.recovery_symbols(config)?;
         Ok(recovery_symbols
             .decoding_symbol_at(
-                T::OrthogonalAxis::sliver_index_from_pair_index(target_pair_idx).as_usize(),
+                T::OrthogonalAxis::sliver_index_from_pair_index(target_pair_idx, config.n_shards)
+                    .as_usize(),
                 self.index.as_u32(),
             )
             .expect("we have exactly `n_shards` symbols and the bound was checked")
@@ -207,6 +209,7 @@ impl<T: EncodingAxis> Sliver<T> {
     pub fn recover_sliver<I, V>(
         recovery_symbols: I,
         index: SliverIndex,
+        config: &EncodingConfig,
     ) -> Result<Option<Self>, RecoveryError>
     where
         I: IntoIterator,
@@ -227,7 +230,7 @@ impl<T: EncodingAxis> Sliver<T> {
         let symbol_size: u16 = symbol_size.try_into().map_err(|_| DataTooLargeError)?;
 
         // Pass the symbols to the decoder.
-        Ok(Decoder::new(Self::n_source_symbols(), symbol_size)
+        Ok(Decoder::new(Self::n_source_symbols(config), symbol_size)
             .decode(recovery_iter)
             .map(|data| Sliver::new(data, symbol_size, index)))
     }
@@ -239,18 +242,21 @@ impl<T: EncodingAxis> Sliver<T> {
     ///
     /// Returns an [`RecoveryError::EncodeError`] if the `symbols` cannot be encoded. See
     /// [`Encoder::new`] for further details about the returned errors.
-    pub fn get_merkle_root<U: HashFunction<DIGEST_LEN>>(&self) -> Result<Node, RecoveryError> {
-        Ok(MerkleTree::<U>::build(self.recovery_symbols()?.to_symbols()).root())
+    pub fn get_merkle_root<U: HashFunction<DIGEST_LEN>>(
+        &self,
+        config: &EncodingConfig,
+    ) -> Result<Node, RecoveryError> {
+        Ok(MerkleTree::<U>::build(self.recovery_symbols(config)?.to_symbols()).root())
     }
 
     /// Returns the number of source symbol for the current sliver's [`EncodingAxis`].
-    fn n_source_symbols() -> u16 {
-        get_encoding_config().n_source_symbols::<T::OrthogonalAxis>()
+    fn n_source_symbols(config: &EncodingConfig) -> u16 {
+        config.n_source_symbols::<T::OrthogonalAxis>()
     }
 
     /// Creates an encoder for the current sliver.
-    fn get_sliver_encoder(&self) -> Result<Encoder, EncodeError> {
-        get_encoding_config().get_encoder::<T::OrthogonalAxis>(self.symbols.data())
+    fn get_sliver_encoder(&self, config: &EncodingConfig) -> Result<Encoder, EncodeError> {
+        config.get_encoder::<T::OrthogonalAxis>(self.symbols.data())
     }
 
     /// Returns the sliver size in bytes.
@@ -261,6 +267,16 @@ impl<T: EncodingAxis> Sliver<T> {
     /// Returns true iff the sliver length is 0.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// Ensures the provided index is smaller than the number of shards; otherwise returns a
+    /// [`RecoveryError::IndexTooLarge`].
+    fn check_index(index: u32, n_shards: u32) -> Result<(), RecoveryError> {
+        if index >= n_shards {
+            Err(RecoveryError::IndexTooLarge)
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -299,19 +315,25 @@ impl SliverPair {
     /// # Arguments
     ///
     /// * `target_pair_idx` - the index of the target [`SliverPair`] (the one to be recovered).
+    /// * `n_shards` - the number of shards in the system.
     ///
     /// # Errors
     ///
     /// Returns a [`RecoveryError::EncodeError`] if any of the the slivers cannot be encoded. See
     /// [`Encoder::new`] for further details about the returned errors. Returns a
-    /// [`RecoveryError::IndexTooLarge`] error if `index > n_shards`.
+    /// [`RecoveryError::IndexTooLarge`] error if `target_pair_idx >= n_shards`.
     pub fn recovery_symbol_pair_for_sliver(
         &self,
         target_pair_idx: SliverPairIndex,
+        config: &EncodingConfig,
     ) -> Result<DecodingSymbolPair, RecoveryError> {
         Ok(DecodingSymbolPair {
-            primary: self.secondary.recovery_symbol_for_sliver(target_pair_idx)?,
-            secondary: self.primary.recovery_symbol_for_sliver(target_pair_idx)?,
+            primary: self
+                .secondary
+                .recovery_symbol_for_sliver(target_pair_idx, config)?,
+            secondary: self
+                .primary
+                .recovery_symbol_for_sliver(target_pair_idx, config)?,
         })
     }
 
@@ -322,15 +344,17 @@ impl SliverPair {
     /// # Arguments
     ///
     /// * `target_pair_idx` - the index of the target [`SliverPair`] (the one to be recovered).
+    /// * `config` - the encoding configuration.
     ///
     /// # Errors
     ///
     /// Returns a [`RecoveryError::EncodeError`] if any of the the slivers cannot be encoded. See
     /// [`Encoder::new`] for further details about the returned errors. Returns a
-    /// [`RecoveryError::IndexTooLarge`] error if `index > n_shards`.
+    /// [`RecoveryError::IndexTooLarge`] error if `target_pair_idx >= n_shards`.
     pub fn recovery_symbol_pair_for_sliver_with_proof<T>(
         &self,
         target_pair_idx: SliverPairIndex,
+        config: &EncodingConfig,
     ) -> Result<DecodingSymbolPair<MerkleProof<T>>, RecoveryError>
     where
         T: HashFunction<DIGEST_LEN>,
@@ -338,10 +362,10 @@ impl SliverPair {
         Ok(DecodingSymbolPair {
             primary: self
                 .secondary
-                .recovery_symbol_for_sliver_with_proof(target_pair_idx)?,
+                .recovery_symbol_for_sliver_with_proof(target_pair_idx, config)?,
             secondary: self
                 .primary
-                .recovery_symbol_for_sliver_with_proof(target_pair_idx)?,
+                .recovery_symbol_for_sliver_with_proof(target_pair_idx, config)?,
         })
     }
 
@@ -356,10 +380,11 @@ impl SliverPair {
     /// [`Encoder::new`] for further details about the returned errors.
     pub fn pair_leaf_input<T: HashFunction<DIGEST_LEN>>(
         &self,
+        config: &EncodingConfig,
     ) -> Result<[u8; 2 * DIGEST_LEN], RecoveryError> {
         Ok(SliverPairMetadata {
-            primary_hash: self.primary.get_merkle_root::<T>()?,
-            secondary_hash: self.secondary.get_merkle_root::<T>()?,
+            primary_hash: self.primary.get_merkle_root::<T>(config)?,
+            secondary_hash: self.secondary.get_merkle_root::<T>(config)?,
         }
         .pair_leaf_input::<T>())
     }
@@ -371,17 +396,18 @@ mod tests {
     use walrus_test_utils::{param_test, random_subset, Result};
 
     use super::*;
-    use crate::encoding::initialize_encoding_config;
+    use crate::test_utils;
 
-    fn init_config_and_encode_pairs(
+    fn create_config_and_encode_pairs(
         source_symbols_primary: u16,
         source_symbols_secondary: u16,
         n_shards: u32,
         blob: &[u8],
-    ) -> Vec<SliverPair> {
-        initialize_encoding_config(source_symbols_primary, source_symbols_secondary, n_shards);
-        let config = get_encoding_config();
-        config.get_blob_encoder(blob).unwrap().encode()
+    ) -> (EncodingConfig, Vec<SliverPair>) {
+        let config =
+            EncodingConfig::new(source_symbols_primary, source_symbols_secondary, n_shards);
+        let pairs = config.get_blob_encoder(blob).unwrap().encode();
+        (config, pairs)
     }
 
     param_test! {
@@ -434,7 +460,7 @@ mod tests {
         blob: &[u8],
     ) -> Result {
         let n_shards = 3 * (source_symbols_primary + source_symbols_secondary) as u32;
-        let pairs = init_config_and_encode_pairs(
+        let (config, pairs) = create_config_and_encode_pairs(
             source_symbols_primary,
             source_symbols_secondary,
             n_shards,
@@ -444,15 +470,15 @@ mod tests {
         // Check that the whole expansion is correct.
         for (idx, sliver) in pairs.iter().enumerate() {
             // Check the expansion of the primary sliver.
-            let expanded_primary = sliver.primary.recovery_symbols()?;
+            let expanded_primary = sliver.primary.recovery_symbols(&config)?;
             for (col, other_pair) in pairs.iter().rev().enumerate() {
-                let rec = other_pair.secondary.recovery_symbols()?;
+                let rec = other_pair.secondary.recovery_symbols(&config)?;
                 assert_eq!(expanded_primary[col], rec[idx]);
             }
             // Check the expansion of the secondary sliver.
-            let expanded_secondary = sliver.secondary.recovery_symbols()?;
+            let expanded_secondary = sliver.secondary.recovery_symbols(&config)?;
             for (row, other_pair) in pairs.iter().enumerate() {
-                let rec = other_pair.primary.recovery_symbols()?;
+                let rec = other_pair.primary.recovery_symbols(&config)?;
                 assert_eq!(expanded_secondary[row], rec[n_shards as usize - 1 - idx]);
             }
         }
@@ -474,7 +500,7 @@ mod tests {
         n_source_symbols: u16,
         result: std::result::Result<Option<Sliver<Primary>>, RecoveryError>,
     ) {
-        initialize_encoding_config(
+        let config = EncodingConfig::new(
             n_source_symbols,
             n_source_symbols,
             n_source_symbols as u32 * 3 + 1,
@@ -484,7 +510,8 @@ mod tests {
             .enumerate()
             .map(|(idx, &s)| DecodingSymbol::new(idx as u32, s.into()))
             .collect::<Vec<_>>();
-        let recovered = Sliver::<Primary>::recover_sliver(recovery_symbols, SliverIndex::new(0));
+        let recovered =
+            Sliver::<Primary>::recover_sliver(recovery_symbols, SliverIndex::new(0), &config);
         assert_eq!(recovered, result);
     }
 
@@ -503,7 +530,7 @@ mod tests {
         blob: &[u8],
     ) -> Result {
         let n_shards = 3 * (source_symbols_primary + source_symbols_secondary) as u32;
-        let pairs = init_config_and_encode_pairs(
+        let (config, pairs) = create_config_and_encode_pairs(
             source_symbols_primary,
             source_symbols_secondary,
             n_shards,
@@ -514,9 +541,10 @@ mod tests {
         for pair in pairs.iter() {
             // Get a random subset of recovery symbols.
             let recovery_symbols: Vec<_> = random_subset(
-                pairs
-                    .iter()
-                    .map(|p| p.recovery_symbol_pair_for_sliver(pair.index()).unwrap()),
+                pairs.iter().map(|p| {
+                    p.recovery_symbol_pair_for_sliver(pair.index(), &config)
+                        .unwrap()
+                }),
                 n_to_recover_from,
             )
             .collect();
@@ -525,6 +553,7 @@ mod tests {
             let recovered = Sliver::recover_sliver(
                 recovery_symbols.iter().map(|s| s.primary.clone()),
                 pair.primary.index,
+                &config,
             )?;
             assert_eq!(recovered.unwrap(), pair.primary);
 
@@ -532,6 +561,7 @@ mod tests {
             let recovered = Sliver::recover_sliver(
                 recovery_symbols.iter().map(|s| s.secondary.clone()),
                 pair.secondary.index,
+                &config,
             )?;
             assert_eq!(recovered.unwrap(), pair.secondary);
         }
@@ -552,43 +582,48 @@ mod tests {
         source_symbols_secondary: u16,
         n_shards: u32,
     ) -> Result {
-        initialize_encoding_config(source_symbols_primary, source_symbols_secondary, n_shards);
+        let config =
+            EncodingConfig::new(source_symbols_primary, source_symbols_secondary, n_shards);
 
         // Interpret the sliver as both primary and secondary for testing.
         let primary = Sliver::<Primary>::new(sliver_bytes, symbol_size, SliverIndex::new(0));
         let secondary = Sliver::<Secondary>::new(sliver_bytes, symbol_size, SliverIndex::new(0));
 
-        for (idx, symbol) in primary.recovery_symbols()?.to_symbols().enumerate() {
-            assert_eq!(primary.single_recovery_symbol(idx as u32)?, symbol)
+        for (idx, symbol) in primary.recovery_symbols(&config)?.to_symbols().enumerate() {
+            assert_eq!(primary.single_recovery_symbol(idx as u32, &config)?, symbol)
         }
-        for (idx, symbol) in secondary.recovery_symbols()?.to_symbols().enumerate() {
-            assert_eq!(primary.single_recovery_symbol(idx as u32)?, symbol)
+        for (idx, symbol) in secondary
+            .recovery_symbols(&config)?
+            .to_symbols()
+            .enumerate()
+        {
+            assert_eq!(primary.single_recovery_symbol(idx as u32, &config)?, symbol)
         }
         Ok(())
     }
 
     #[test]
     fn test_single_recovery_symbol_empty_sliver() {
-        initialize_encoding_config(3, 3, 10);
+        let config = test_utils::encoding_config();
         assert_eq!(
-            Sliver::<Primary>::new([], 1, SliverIndex::new(0)).single_recovery_symbol(9),
+            Sliver::<Primary>::new([], 1, SliverIndex::new(0)).single_recovery_symbol(3, &config),
             Err(RecoveryError::EncodeError(EncodeError::EmptyData))
         );
         assert_eq!(
-            Sliver::<Secondary>::new([], 1, SliverIndex::new(0)).single_recovery_symbol(9),
+            Sliver::<Secondary>::new([], 1, SliverIndex::new(0)).single_recovery_symbol(3, &config),
             Err(RecoveryError::EncodeError(EncodeError::EmptyData))
         );
     }
 
     #[test]
     fn test_recovery_symbols_empty_sliver() {
-        initialize_encoding_config(3, 3, 10);
+        let config = EncodingConfig::new(3, 3, 10);
         assert_eq!(
-            Sliver::<Primary>::new([], 1, SliverIndex::new(0)).recovery_symbols(),
+            Sliver::<Primary>::new([], 1, SliverIndex::new(0)).recovery_symbols(&config),
             Err(RecoveryError::EncodeError(EncodeError::EmptyData))
         );
         assert_eq!(
-            Sliver::<Secondary>::new([], 1, SliverIndex::new(0)).recovery_symbols(),
+            Sliver::<Secondary>::new([], 1, SliverIndex::new(0)).recovery_symbols(&config),
             Err(RecoveryError::EncodeError(EncodeError::EmptyData))
         );
     }
@@ -603,9 +638,9 @@ mod tests {
         ]
     }
     fn test_single_recovery_symbol_indexes(index: u32, n_shards: u32, is_ok: bool) {
-        initialize_encoding_config(3, 3, n_shards);
+        let config = EncodingConfig::new(3, 3, n_shards);
         let result = Sliver::<Primary>::new([1, 2, 3, 4, 5, 6], 2, SliverIndex::new(0))
-            .single_recovery_symbol(index);
+            .single_recovery_symbol(index, &config);
         if is_ok {
             assert!(result.is_ok());
         } else {
@@ -629,22 +664,15 @@ mod tests {
             ]),
         ]
     }
-    fn test_recover_all_slivers_from_f_plus_1(f: usize, blob: &[u8]) {
-        let n_shards = 3 * f + 1;
-        let source_symbols_primary = f as u16;
-        let source_symbols_secondary = 2 * f as u16;
-        let pairs = init_config_and_encode_pairs(
-            source_symbols_primary,
-            source_symbols_secondary,
-            n_shards as u32,
-            blob,
-        );
+    fn test_recover_all_slivers_from_f_plus_1(f: u16, blob: &[u8]) {
+        let n_shards = (3 * f + 1).into();
+        let (config, pairs) = create_config_and_encode_pairs(f, 2 * f, n_shards, blob);
 
         // Keep only the first `to_reconstruct_from` primary slivers.
         let to_reconstruct_from = f + 1;
         let mut primary_slivers = pairs
             .iter()
-            .take(to_reconstruct_from)
+            .take(to_reconstruct_from.into())
             .map(|p| p.primary.clone())
             .collect::<Vec<_>>();
 
@@ -657,12 +685,13 @@ mod tests {
                 Sliver::<Secondary>::recover_sliver(
                     primary_slivers
                         .iter()
-                        .map(|p| p.recovery_symbol_for_sliver(idx).unwrap()),
+                        .map(|p| p.recovery_symbol_for_sliver(idx, &config).unwrap()),
                     SliverIndex::new(
                         (n_shards - 1 - target_idx)
                             .try_into()
                             .expect("number of shards should be below SliverIndex limit"),
                     ),
+                    &config,
                 )
                 .unwrap()
                 .unwrap()
@@ -670,16 +699,17 @@ mod tests {
             .collect::<Vec<_>>();
 
         // Recover the missing primary slivers from 2f+1 of the reconstructed secondary slivers.
-        primary_slivers.extend((to_reconstruct_from..n_shards).map(|target_idx| {
+        primary_slivers.extend((to_reconstruct_from as u32..n_shards).map(|target_idx| {
             let idx = target_idx
                 .try_into()
                 .expect("number of shards should be below SliverIndex limit");
             Sliver::<Primary>::recover_sliver(
                 secondary_slivers
                     .iter()
-                    .take(2 * f + 1)
-                    .map(|s| s.recovery_symbol_for_sliver(idx).unwrap()),
+                    .take(config.source_symbols_secondary.into())
+                    .map(|s| s.recovery_symbol_for_sliver(idx, &config).unwrap()),
                 idx,
+                &config,
             )
             .unwrap()
             .unwrap()
@@ -700,17 +730,17 @@ mod tests {
         ]
     }
     fn test_recovery_symbol_proof(slice: &[u8], f: u16, symbol_size: u16) {
-        let n_shards = 3 * f as u32 + 1;
-        initialize_encoding_config(f, 2 * f, n_shards);
+        let n_shards = (3 * f + 1).into();
+        let config = EncodingConfig::new(f, 2 * f, n_shards);
         let sliver = Sliver::<Secondary>::new(slice, symbol_size, SliverIndex::new(0));
         let merkle_tree =
-            MerkleTree::<Blake2b256>::build(sliver.recovery_symbols().unwrap().to_symbols());
+            MerkleTree::<Blake2b256>::build(sliver.recovery_symbols(&config).unwrap().to_symbols());
         for idx in 0..n_shards {
             let shard_pair_index = idx
                 .try_into()
                 .expect("number of shards should be below SliverIndex limit");
             assert!(sliver
-                .recovery_symbol_for_sliver_with_proof::<Blake2b256>(shard_pair_index)
+                .recovery_symbol_for_sliver_with_proof::<Blake2b256>(shard_pair_index, &config)
                 .unwrap()
                 .verify_proof(&merkle_tree.root()));
         }

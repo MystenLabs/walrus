@@ -38,10 +38,10 @@ pub const RECOVERY_ENDPOINT: &str = "/v1/blobs/:blobId/slivers/:sliverPairIdx/:s
 /// A blob ID encoded as a hex string designed to be used in URLs.
 #[serde_as]
 #[derive(Deserialize, Serialize)]
-pub struct HexBlobId(#[serde_as(as = "DisplayFromStr")] BlobId);
+struct HexBlobId(#[serde_as(as = "DisplayFromStr")] BlobId);
 
 /// Error message returned by the service.
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum ServiceResponse<T: Serialize> {
     /// The request was successful.
     Success {
@@ -90,6 +90,7 @@ impl<T: Serialize> ServiceResponse<T> {
 }
 
 /// Represents a user server.
+#[derive(Debug)]
 pub struct UserServer<S> {
     state: Arc<S>,
     cancel_token: CancellationToken,
@@ -159,16 +160,32 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
         State(state): State<Arc<S>>,
         Path(HexBlobId(blob_id)): Path<HexBlobId>,
         Json(metadata): Json<BlobMetadata>,
-    ) -> (StatusCode, Json<ServiceResponse<()>>) {
+    ) -> (StatusCode, Json<ServiceResponse<String>>) {
         let unverified_metadata_with_id = UnverifiedBlobMetadataWithId::new(blob_id, metadata);
         match state.store_metadata(unverified_metadata_with_id) {
             Ok(()) => {
-                tracing::debug!("Stored metadata for {blob_id:?}");
-                ServiceResponse::serialized_success(StatusCode::OK, ())
+                let msg = format!("Stored metadata for {blob_id:?}");
+                tracing::debug!(msg);
+                ServiceResponse::serialized_success(StatusCode::CREATED, msg)
+            }
+            Err(StoreMetadataError::AlreadyStored) => {
+                let msg = format!("Metadata for {blob_id:?} was already stored");
+                tracing::debug!(msg);
+                ServiceResponse::serialized_success(StatusCode::OK, msg)
             }
             Err(StoreMetadataError::InvalidMetadata(message)) => {
                 tracing::debug!("Received invalid metadata: {message}");
                 ServiceResponse::serialized_error(StatusCode::BAD_REQUEST, message.to_string())
+            }
+            Err(StoreMetadataError::NotRegistered) => {
+                let msg = format!("Blob {blob_id:?} has not been registered");
+                tracing::debug!(msg);
+                ServiceResponse::serialized_error(StatusCode::BAD_REQUEST, msg)
+            }
+            Err(StoreMetadataError::BlobExpired) => {
+                let msg = format!("Blob {blob_id:?} is expired");
+                tracing::debug!(msg);
+                ServiceResponse::serialized_error(StatusCode::BAD_REQUEST, msg)
             }
             Err(StoreMetadataError::Internal(message)) => {
                 tracing::error!("Internal server error: {message}");
@@ -304,7 +321,6 @@ mod test {
     use tokio::task::JoinHandle;
     use tokio_util::sync::CancellationToken;
     use walrus_core::{
-        encoding::initialize_encoding_config,
         merkle::MerkleProof,
         messages::StorageConfirmation,
         metadata::{
@@ -503,7 +519,7 @@ mod test {
 
         let client = reqwest::Client::new();
         let res = client.put(url).json(metadata).send().await.unwrap();
-        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(res.status(), StatusCode::CREATED);
     }
 
     #[tokio::test]
@@ -640,10 +656,6 @@ mod test {
 
     #[tokio::test]
     async fn get_decoding_symbol() {
-        // NOTE(giac): this encoding config must match the encoding config of all other tests in the
-        // crate (notably, `test_store_and_read_blob`) to avoid errors.
-        initialize_encoding_config(2, 4, 10);
-
         let (config, _handle) = start_rest_api_with_test_config().await;
 
         let blob_id = walrus_core::test_utils::random_blob_id();

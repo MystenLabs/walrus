@@ -4,7 +4,7 @@
 use std::{num::NonZeroUsize, time::Duration};
 
 use serde::{Deserialize, Serialize};
-use walrus_core::ShardIndex;
+use walrus_core::{encoding::EncodingConfig, ShardIndex};
 use walrus_sui::types::Committee;
 
 use crate::config::LoadConfig;
@@ -44,6 +44,15 @@ impl Config {
             .map(|node| node.shard_ids.len())
             .sum();
         NonZeroUsize::new(shards).expect("committee has no shards")
+    }
+
+    /// Returns the [`EncodingConfig`] for this configuration.
+    pub fn encoding_config(&self) -> EncodingConfig {
+        EncodingConfig::new(
+            self.source_symbols_primary,
+            self.source_symbols_secondary,
+            self.committee.total_weight as u32,
+        )
     }
 }
 

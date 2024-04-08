@@ -33,3 +33,4 @@ walrus-test-utils = { path = "crates/walrus-test-utils" }
 
 [workspace.lints.rust]
 missing_docs = "warn"
+missing_debug_implementations = "warn"

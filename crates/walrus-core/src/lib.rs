@@ -10,9 +10,12 @@ use std::{
 
 use encoding::{
     EncodingAxis,
+    EncodingConfig,
+    Primary,
     PrimaryDecodingSymbol,
     PrimarySliver,
     RecoveryError,
+    Secondary,
     SecondaryDecodingSymbol,
     SecondarySliver,
     WrongSliverVariantError,
@@ -202,10 +205,10 @@ impl Sliver {
     }
 
     /// Returns the hash of the sliver, i.e., the Merkle root of the tree computed over the symbols.
-    pub fn hash(&self) -> Result<Node, RecoveryError> {
+    pub fn hash(&self, config: &EncodingConfig) -> Result<Node, RecoveryError> {
         match self {
-            Sliver::Primary(inner) => inner.get_merkle_root::<DefaultHashFunction>(),
-            Sliver::Secondary(inner) => inner.get_merkle_root::<DefaultHashFunction>(),
+            Sliver::Primary(inner) => inner.get_merkle_root::<DefaultHashFunction>(config),
+            Sliver::Secondary(inner) => inner.get_merkle_root::<DefaultHashFunction>(config),
         }
     }
 
@@ -229,6 +232,19 @@ impl Sliver {
         T: EncodingAxis,
     {
         self.try_into().map_err(|_| WrongSliverVariantError)
+    }
+
+    /// Returns true iff the sliver has the length expected based on the encoding configuration and
+    /// blob size.
+    pub fn has_correct_length(&self, config: &EncodingConfig, blob_size: usize) -> bool {
+        Some(self.len()) == self.expected_length(config, blob_size)
+    }
+
+    fn expected_length(&self, config: &EncodingConfig, blob_size: usize) -> Option<usize> {
+        match self {
+            Self::Primary(_) => config.sliver_size_for_blob::<Primary>(blob_size),
+            Self::Secondary(_) => config.sliver_size_for_blob::<Secondary>(blob_size),
+        }
     }
 }
 
@@ -361,6 +377,7 @@ impl From<EncodingType> for u8 {
 
 impl TryFrom<u8> for EncodingType {
     type Error = InvalidEncodingType;
+
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(EncodingType::RedStuff),

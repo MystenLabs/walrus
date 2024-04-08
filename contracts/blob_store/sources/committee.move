@@ -5,6 +5,8 @@ module blob_store::committee {
 
     use sui::bcs;
 
+    friend blob_store::e2e_test;
+
     const APP_ID: u8 = 3;
 
     // Errors
@@ -17,7 +19,7 @@ module blob_store::committee {
     use blob_store::bls_aggregate::{BlsCommittee, new_bls_committee, verify_certificate};
     use blob_store::storage_node::StorageNodeInfo;
 
-    /// Represents a committee for a given epoch, for a phantom type TAG.
+    /// Represents a committee for a given epoch
     ///
     /// The construction of a committee for a type is a controlled operation
     /// and signifies that the committee is valid for the given epoch. It has
@@ -26,35 +28,42 @@ module blob_store::committee {
     /// It must never be stored outside controlled places.
     ///
     /// The above restrictions allow us to implement a separation between committee
-    /// formation and the actual System object for a phantom type TAG. One structure
+    /// formation and the actual System object. One structure
     /// can take care of the epoch management including the committee formation, and
     /// the System object can simply receive a committee of the correct type as a
     /// signal that the new epoch has started.
-    struct Committee<phantom TAG> has store {
+    struct Committee has store {
         epoch: u64,
         bls_committee : BlsCommittee,
     }
 
     /// Get the epoch of the committee.
-    public fun epoch<TAG>(self: &Committee<TAG>) : u64 {
+    public fun epoch(self: &Committee) : u64 {
         self.epoch
     }
 
-    /// A capability that allows the creation of committees for a given phantom type TAG.
-    struct CreateCommitteeCap<phantom TAG> has copy, store, drop {}
+    /// A capability that allows the creation of committees
+    struct CreateCommitteeCap has copy, store, drop {}
 
-    /// A constructor for the capability to create committees for a given phantom type TAG.
-    public fun create_committee_cap<TAG : drop>(_witness : TAG) : CreateCommitteeCap<TAG> {
+    /// A constructor for the capability to create committees
+    /// This is only accessible through friend modules.
+    public(friend) fun create_committee_cap() : CreateCommitteeCap {
+        CreateCommitteeCap {}
+    }
+
+    #[test_only]
+    /// A constructor for the capability to create committees for tests
+    public fun create_committee_cap_for_tests() : CreateCommitteeCap {
         CreateCommitteeCap {}
     }
 
     /// Creating a committee for a given epoch.
-    /// Requires a capability for the phantom type TAG.
-    public fun create_committee<TAG>(
-        _cap: &CreateCommitteeCap<TAG>,
+    /// Requires a capability
+    public fun create_committee(
+        _cap: &CreateCommitteeCap,
         epoch: u64,
         members: vector<StorageNodeInfo>,
-    ) : Committee<TAG> {
+    ) : Committee {
         // Make BlsCommittee
         let bls_committee = new_bls_committee(members);
 
@@ -62,22 +71,22 @@ module blob_store::committee {
     }
 
     #[test_only]
-    public fun committee_for_testing<TAG>(
+    public fun committee_for_testing(
         epoch: u64,
-    ) : Committee<TAG> {
+    ) : Committee {
         let bls_committee = new_bls_committee_for_testing();
         Committee { epoch, bls_committee }
     }
 
     #[test_only]
-    public fun committee_for_testing_with_bls<TAG>(
+    public fun committee_for_testing_with_bls(
         epoch: u64,
         bls_committee: BlsCommittee,
-    ) : Committee<TAG> {
+    ) : Committee {
         Committee { epoch, bls_committee }
     }
 
-    struct CertifiedMessage<phantom TAG> has drop {
+    struct CertifiedMessage has drop {
         intent_type: u8,
         intent_version: u8,
         cert_epoch: u64,
@@ -86,39 +95,39 @@ module blob_store::committee {
     }
 
     #[test_only]
-    public fun certified_message_for_testing<TAG>(
+    public fun certified_message_for_testing(
         intent_type: u8,
         intent_version: u8,
         cert_epoch: u64,
         stake_support: u16,
         message: vector<u8>,
-    ) : CertifiedMessage<TAG> {
+    ) : CertifiedMessage {
         CertifiedMessage { intent_type, intent_version, cert_epoch, stake_support, message }
     }
 
     // Make accessors for the CertifiedMessage
-    public fun intent_type<TAG>(self: &CertifiedMessage<TAG>) : u8 {
+    public fun intent_type(self: &CertifiedMessage) : u8 {
         self.intent_type
     }
 
-    public fun intent_version<TAG>(self: &CertifiedMessage<TAG>) : u8 {
+    public fun intent_version(self: &CertifiedMessage) : u8 {
         self.intent_version
     }
 
-    public fun cert_epoch<TAG>(self: &CertifiedMessage<TAG>) : u64 {
+    public fun cert_epoch(self: &CertifiedMessage) : u64 {
         self.cert_epoch
     }
 
-    public fun stake_support<TAG>(self: &CertifiedMessage<TAG>) : u16 {
+    public fun stake_support(self: &CertifiedMessage) : u16 {
         self.stake_support
     }
 
-    public fun message<TAG>(self: &CertifiedMessage<TAG>) : &vector<u8> {
+    public fun message(self: &CertifiedMessage) : &vector<u8> {
         &self.message
     }
 
     // Deconstruct into the vector of message bytes
-    public fun into_message<TAG>(self: CertifiedMessage<TAG>) : vector<u8> {
+    public fun into_message(self: CertifiedMessage) : vector<u8> {
         self.message
     }
 
@@ -127,12 +136,12 @@ module blob_store::committee {
     /// The members are listed in increasing order and with no repetitions. And the signatures
     /// match the order of the members. The total stake is returned, but if a quorum is not reached
     /// the function aborts with an error.
-    public fun verify_quorum_in_epoch<TAG>(
-        committee: &Committee<TAG>,
+    public fun verify_quorum_in_epoch(
+        committee: &Committee,
         signature: vector<u8>,
         members: vector<u16>,
         message: vector<u8>,
-        ) : CertifiedMessage<TAG> {
+        ) : CertifiedMessage {
 
         let stake_support =
             verify_certificate(&committee.bls_committee, &signature, &members, &message);
@@ -151,7 +160,7 @@ module blob_store::committee {
 
         let message = bcs::into_remainder_bytes(bcs_message);
 
-        CertifiedMessage<TAG> { intent_type, intent_version, cert_epoch, stake_support, message }
+        CertifiedMessage { intent_type, intent_version, cert_epoch, stake_support, message }
     }
 
 

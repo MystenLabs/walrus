@@ -4,10 +4,9 @@
 //! Helper functions for the crate.
 //!
 
-use std::{collections::BTreeSet, str::FromStr};
+use std::{collections::BTreeSet, future::Future, str::FromStr};
 
 use anyhow::{anyhow, Result};
-use futures::Future;
 use move_core_types::{language_storage::StructTag as MoveStructTag, u256::U256};
 use sui_sdk::{
     rpc_types::{

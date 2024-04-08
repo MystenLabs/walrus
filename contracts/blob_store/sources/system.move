@@ -41,27 +41,27 @@ module blob_store::system {
     // Event types
 
     /// Signals an epoch change, and entering the SYNC state for the new epoch.
-    struct EpochChangeSync<phantom TAG> has copy, drop {
+    struct EpochChangeSync has copy, drop {
         epoch: u64,
         total_capacity_size: u64,
         used_capacity_size: u64,
     }
 
     /// Signals that the epoch change is DONE now.
-    struct EpochChangeDone<phantom TAG> has copy, drop {
+    struct EpochChangeDone has copy, drop {
         epoch: u64,
     }
 
     // Object definitions
 
     #[allow(unused_field)]
-    struct System<phantom TAG, phantom WAL> has key, store {
+    struct System<phantom WAL> has key, store {
 
         id: UID,
 
         /// The current committee, with the current epoch.
         /// The option is always Some, but need it for swap.
-        current_committee: Option<Committee<TAG>>,
+        current_committee: Option<Committee>,
 
         /// When we first enter the current epoch we SYNC,
         /// and then we are DONE after a cert from a quorum.
@@ -76,51 +76,51 @@ module blob_store::system {
         price_per_unit_size: u64,
 
         /// Tables about the future and the past.
-        past_committees: Table<u64, Committee<TAG>>,
-        future_accounting: FutureAccountingRingBuffer<TAG,WAL>,
+        past_committees: Table<u64, Committee>,
+        future_accounting: FutureAccountingRingBuffer<WAL>,
     }
 
     /// Get epoch. Uses the committee to get the epoch.
-    public fun epoch<TAG, WAL>(
-        self: &System<TAG, WAL>
+    public fun epoch<WAL>(
+        self: &System<WAL>
     ) : u64 {
         committee::epoch(option::borrow(&self.current_committee))
     }
 
     /// Accessor for total capacity size.
-    public fun total_capacity_size<TAG, WAL>(
-        self: &System<TAG, WAL>
+    public fun total_capacity_size<WAL>(
+        self: &System<WAL>
     ) : u64 {
         self.total_capacity_size
     }
 
     /// Accessor for used capacity size.
-    public fun used_capacity_size<TAG, WAL>(
-        self: &System<TAG, WAL>
+    public fun used_capacity_size<WAL>(
+        self: &System<WAL>
     ) : u64 {
         self.used_capacity_size
     }
 
-    /// A privileged constructor ensures we can build the type TAG and provides
-    /// an initial system object, at epoch 0 with a given committee, and a given
-    /// capacity and price.
-    public fun new<TAG, WAL>(
-        _witness: &TAG, // Ensures the caller can construct this type.
-        first_committee: Committee<TAG>,
+    /// A privileged constructor for an initial system object,
+    /// at epoch 0 with a given committee, and a given
+    /// capacity and price. Here ownership of a committee at time 0
+    /// acts as a capability to create a init a new system object.
+    public fun new<WAL>(
+        first_committee: Committee,
         capacity: u64,
         price: u64,
         ctx: &mut TxContext
-    ) : System<TAG, WAL> {
+    ) : System<WAL> {
 
         assert!(committee::epoch(&first_committee) == 0, ERROR_INCORRECT_COMMITTEE);
 
         // We emit both sync and done events for the first epoch.
-        event::emit(EpochChangeSync<TAG> {
+        event::emit(EpochChangeSync {
             epoch: 0,
             total_capacity_size: capacity,
             used_capacity_size: 0,
         });
-        event::emit(EpochChangeDone<TAG> {
+        event::emit(EpochChangeDone {
             epoch: 0,
         });
 
@@ -138,31 +138,32 @@ module blob_store::system {
 
     // We actually create a new objects that does not exist before, so all is good.
     #[allow(lint(share_owned))]
-    public fun share_new<TAG, WAL>(
-        _witness: &TAG, // Ensures the caller can construct this type.
-        first_committee: Committee<TAG>,
+    /// Create and share a new system object, using ownership of a committee
+    /// at epoch 0 as a capability to create a new system object.
+    public fun share_new<WAL>(
+        first_committee: Committee,
         capacity: u64,
         price: u64,
         ctx: &mut TxContext
     ) {
-        let sys : System<TAG, WAL> = new(_witness, first_committee, capacity, price, ctx);
+        let sys : System<WAL> = new(first_committee, capacity, price, ctx);
         transfer::share_object(sys);
     }
 
     /// An accessor for the current committee.
-    public fun current_committee<TAG, WAL>(
-        self: &System<TAG, WAL>
-    ) : &Committee<TAG> {
+    public fun current_committee<WAL>(
+        self: &System<WAL>
+    ) : &Committee {
         option::borrow(&self.current_committee)
     }
 
     /// Update epoch to next epoch, and also update the committee, price and capacity.
-    public fun next_epoch<TAG, WAL>(
-        self: &mut System<TAG, WAL>,
-        new_committee: Committee<TAG>,
+    public fun next_epoch<WAL>(
+        self: &mut System<WAL>,
+        new_committee: Committee,
         new_capacity: u64,
         new_price: u64,
-    ) : FutureAccounting<TAG, WAL> {
+    ) : FutureAccounting<WAL> {
 
         // Must be in DONE state to move epochs. This is the way.
         assert!(self.epoch_status == EPOCH_STATUS_DONE, ERROR_SYNC_EPOCH_CHANGE);
@@ -191,7 +192,7 @@ module blob_store::system {
             - storage_accounting::storage_to_reclaim(&mut accounts_old_epoch);
 
         // Emit Sync event.
-        event::emit(EpochChangeSync<TAG> {
+        event::emit(EpochChangeSync {
             epoch: new_epoch,
             total_capacity_size: self.total_capacity_size,
             used_capacity_size: self.used_capacity_size,
@@ -201,13 +202,13 @@ module blob_store::system {
     }
 
     /// Allow buying a storage reservation for a given period of epochs.
-    public fun reserve_space<TAG, WAL>(
-        self: &mut System<TAG, WAL>,
+    public fun reserve_space<WAL>(
+        self: &mut System<WAL>,
         storage_amount: u64,
         periods_ahead: u64,
         payment: Coin<WAL>,
         ctx: &mut TxContext,
-        ) : (Storage<TAG>, Coin<WAL>) {
+        ) : (Storage, Coin<WAL>) {
 
         // Check the period is within the allowed range.
         assert!(periods_ahead > 0, ERROR_INVALID_PERIODS_AHEAD);
@@ -254,8 +255,8 @@ module blob_store::system {
     }
 
     #[test_only]
-    public fun set_done_for_testing<TAG, WAL>(
-        self: &mut System<TAG, WAL>
+    public fun set_done_for_testing<WAL>(
+        self: &mut System<WAL>
     ) {
         self.epoch_status = EPOCH_STATUS_DONE;
     }
@@ -265,15 +266,15 @@ module blob_store::system {
     /// Define a message type for the SyncDone message.
     /// It may only be constructed when a valid certified message is
     /// passed in.
-    struct CertifiedSyncDone<phantom TAG> has drop {
+    struct CertifiedSyncDone has drop {
         epoch: u64,
     }
 
     /// Construct the certified sync done message, note that constructing
     /// implies a certified message, that is already checked.
-    public fun certify_sync_done_message<TAG>(
-        message: committee::CertifiedMessage<TAG>
-        ) : CertifiedSyncDone<TAG> {
+    public fun certify_sync_done_message(
+        message: committee::CertifiedMessage
+        ) : CertifiedSyncDone {
 
         // Assert type is correct
         assert!(committee::intent_type(&message) == EPOCH_DONE_MSG_TYPE,
@@ -288,17 +289,17 @@ module blob_store::system {
 
     // make a test only certified message.
     #[test_only]
-    public fun make_sync_done_message_for_testing<TAG>(
+    public fun make_sync_done_message_for_testing(
         epoch: u64
-    ) : CertifiedSyncDone<TAG> {
+    ) : CertifiedSyncDone {
         CertifiedSyncDone { epoch }
     }
 
 
     /// Use the certified message to advance the epoch status to DONE.
-    public fun sync_done_for_epoch<TAG, WAL>(
-        system: &mut System<TAG, WAL>,
-        message: CertifiedSyncDone<TAG>,
+    public fun sync_done_for_epoch<WAL>(
+        system: &mut System<WAL>,
+        message: CertifiedSyncDone,
     )
     {
         // Assert the epoch is correct.
@@ -310,7 +311,7 @@ module blob_store::system {
         // Move to done state.
         system.epoch_status = EPOCH_STATUS_DONE;
 
-        event::emit(EpochChangeDone<TAG> {
+        event::emit(EpochChangeDone {
             epoch: message.epoch,
         });
     }

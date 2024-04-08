@@ -27,34 +27,34 @@ module blob_store::storage_resource {
     }
 
     /// Reservation for storage for a given period, which is inclusive start, exclusive end.
-    struct Storage<phantom TAG> has key, store {
+    struct Storage has key, store {
         id: UID,
         start_epoch: u64,
         end_epoch: u64,
         storage_size: u64,
     }
 
-    public fun start_epoch<TAG>(self: &Storage<TAG>) : u64 {
+    public fun start_epoch(self: &Storage) : u64 {
         self.start_epoch
     }
 
-    public fun end_epoch<TAG>(self: &Storage<TAG>) : u64 {
+    public fun end_epoch(self: &Storage) : u64 {
         self.end_epoch
     }
 
-    public fun storage_size<TAG>(self: &Storage<TAG>) : u64 {
+    public fun storage_size(self: &Storage) : u64 {
         self.storage_size
     }
 
     /// Constructor for [Storage] objects.
-    /// Necessary to allow `blob_store::system` to create storage objects for the specific TAG.
+    /// Necessary to allow `blob_store::system` to create storage objects.
     /// Cannot be called outside of the current module and [blob_store::system].
-    public(friend) fun create_storage<TAG>(
+    public(friend) fun create_storage(
         start_epoch: u64,
         end_epoch: u64,
         storage_size: u64,
         ctx: &mut TxContext,
-    ) : Storage<TAG> {
+    ) : Storage {
         Storage {
             id: object::new(ctx),
             start_epoch,
@@ -67,11 +67,11 @@ module blob_store::storage_resource {
     ///
     /// `storage` is modified to cover the period from `start_epoch` to `split_epoch`
     /// and a new storage object covering `split_epoch` to `end_epoch` is returned.
-    public fun split_by_epoch<TAG>(
-        storage: &mut Storage<TAG>,
+    public fun split_by_epoch(
+        storage: &mut Storage,
         split_epoch: u64,
         ctx: &mut TxContext,
-    ) : Storage<TAG> {
+    ) : Storage {
         assert!(
             split_epoch >= storage.start_epoch && split_epoch <= storage.end_epoch,
             EInvalidEpoch
@@ -90,11 +90,11 @@ module blob_store::storage_resource {
     ///
     /// `storage` is modified to cover `split_size` and a new object covering
     /// `storage.storage_size - split_size` is created.
-    public fun split_by_size<TAG>(
-        storage: &mut Storage<TAG>,
+    public fun split_by_size(
+        storage: &mut Storage,
         split_size: u64,
         ctx: &mut TxContext,
-    ) : Storage<TAG> {
+    ) : Storage {
         assert!(
             split_size >= MIN_STORAGE_AMOUNT
             && storage.storage_size - split_size >= MIN_STORAGE_AMOUNT,
@@ -111,9 +111,9 @@ module blob_store::storage_resource {
     }
 
     /// Fuse two storage objects that cover adjacent periods with the same storage size.
-    public fun fuse_periods<TAG>(
-        first: &mut Storage<TAG>,
-        second: Storage<TAG>,
+    public fun fuse_periods(
+        first: &mut Storage,
+        second: Storage,
     ) {
         let Storage {
                 id,
@@ -132,9 +132,9 @@ module blob_store::storage_resource {
     }
 
     /// Fuse two storage objects that cover the same period
-    public fun fuse_amount<TAG>(
-        first: &mut Storage<TAG>,
-        second: Storage<TAG>,
+    public fun fuse_amount(
+        first: &mut Storage,
+        second: Storage,
     ) {
         let Storage {
                 id,
@@ -153,9 +153,9 @@ module blob_store::storage_resource {
 
     /// Fuse two storage objects that either cover the same period
     /// or adjacent periods with the same storage size.
-    public fun fuse<TAG>(
-        first: &mut Storage<TAG>,
-        second: Storage<TAG>,
+    public fun fuse(
+        first: &mut Storage,
+        second: Storage,
     ) {
         if (first.start_epoch == second.start_epoch) {
             // Fuse by storage_size
@@ -168,12 +168,12 @@ module blob_store::storage_resource {
 
     #[test_only]
     /// Constructor for [Storage] objects for tests
-    public fun create_for_test<TAG>(
+    public fun create_for_test(
         start_epoch: u64,
         end_epoch: u64,
         storage_size: u64,
         ctx: &mut TxContext,
-    ) : Storage<TAG> {
+    ) : Storage {
         Storage {
             id: object::new(ctx),
             start_epoch,
@@ -183,8 +183,8 @@ module blob_store::storage_resource {
     }
 
     /// Destructor for [Storage] objects
-    public fun destroy<TAG>(
-        storage: Storage<TAG>,
+    public fun destroy(
+        storage: Storage,
     ) {
         let Storage {
             id,

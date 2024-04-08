@@ -20,14 +20,12 @@ module blob_store::blob_tests {
         split_by_epoch,
         destroy};
 
-    struct TESTTAG has drop {}
     struct TESTWAL has store, drop {}
 
     #[test]
-    public fun test_blob_register_happy_path() : system::System<TESTTAG, TESTWAL> {
+    public fun test_blob_register_happy_path() : system::System<TESTWAL> {
 
         let ctx = tx_context::dummy();
-        let tag2 = TESTTAG{};
 
         // A test coin.
         let fake_coin = coin::mint_for_testing<TESTWAL>(100000000, &mut ctx);
@@ -36,7 +34,7 @@ module blob_store::blob_tests {
         let committee = committee::committee_for_testing(0);
 
         // Create a new system object
-        let system : system::System<TESTTAG,TESTWAL> = system::new(&tag2, committee,
+        let system : system::System<TESTWAL> = system::new(committee,
             1000000000, 5, &mut ctx);
 
         // Get some space for a few epochs
@@ -52,10 +50,9 @@ module blob_store::blob_tests {
     }
 
     #[test, expected_failure(abort_code=blob::ERROR_RESOURCE_SIZE)]
-    public fun test_blob_insufficient_space() : system::System<TESTTAG, TESTWAL> {
+    public fun test_blob_insufficient_space() : system::System<TESTWAL> {
 
         let ctx = tx_context::dummy();
-        let tag2 = TESTTAG{};
 
         // A test coin.
         let fake_coin = coin::mint_for_testing<TESTWAL>(100000000, &mut ctx);
@@ -64,7 +61,7 @@ module blob_store::blob_tests {
         let committee = committee::committee_for_testing(0);
 
         // Create a new system object
-        let system : system::System<TESTTAG,TESTWAL> = system::new(&tag2, committee,
+        let system : system::System<TESTWAL> = system::new(committee,
             1000000000, 5, &mut ctx);
 
         // Get some space for a few epochs - TOO LITTLE SPACE
@@ -80,10 +77,9 @@ module blob_store::blob_tests {
     }
 
     #[test]
-    public fun test_blob_certify_happy_path() : system::System<TESTTAG, TESTWAL> {
+    public fun test_blob_certify_happy_path() : system::System<TESTWAL> {
 
         let ctx = tx_context::dummy();
-        let tag2 = TESTTAG{};
 
         // A test coin.
         let fake_coin = coin::mint_for_testing<TESTWAL>(100000000, &mut ctx);
@@ -92,7 +88,7 @@ module blob_store::blob_tests {
         let committee = committee::committee_for_testing(0);
 
         // Create a new system object
-        let system : system::System<TESTTAG,TESTWAL> = system::new(&tag2, committee,
+        let system : system::System<TESTWAL> = system::new(committee,
             1000000000, 5, &mut ctx);
 
         // Get some space for a few epochs
@@ -102,7 +98,7 @@ module blob_store::blob_tests {
         // Register a Blob
         let blob1 = blob::register(&system, storage, 0xABC, 5000, 0x1, &mut ctx);
 
-        let certify_message = blob::certified_blob_message_for_testing<TESTTAG>(0, 0xABC);
+        let certify_message = blob::certified_blob_message_for_testing(0, 0xABC);
 
         // Set certify
         blob::certify_with_certified_msg(&system, certify_message, &mut blob1);
@@ -116,11 +112,9 @@ module blob_store::blob_tests {
     }
 
     #[test]
-    public fun test_blob_certify_single_function() : system::System<TESTTAG, TESTWAL> {
+    public fun test_blob_certify_single_function() : system::System<TESTWAL> {
 
         let ctx = tx_context::dummy();
-        let tag1 = TESTTAG{};
-        let tag2 = TESTTAG{};
 
         let blob_id = 0x0807060504030201080706050403020108070605040302010807060504030201;
 
@@ -165,11 +159,11 @@ module blob_store::blob_tests {
         );
 
         // Create a new committee
-        let cap = committee::create_committee_cap(tag1);
+        let cap = committee::create_committee_cap_for_tests();
         let committee = committee::create_committee(&cap, 0, vector[storage_node]);
 
         // Create a new system object
-        let system : system::System<TESTTAG,TESTWAL> = system::new(&tag2, committee,
+        let system : system::System<TESTWAL> = system::new(committee,
             1000000000, 5, &mut ctx);
 
         // Get some space for a few epochs
@@ -197,10 +191,9 @@ module blob_store::blob_tests {
 
 
     #[test, expected_failure(abort_code=blob::ERROR_WRONG_EPOCH)]
-    public fun test_blob_certify_bad_epoch() : system::System<TESTTAG, TESTWAL> {
+    public fun test_blob_certify_bad_epoch() : system::System<TESTWAL> {
 
         let ctx = tx_context::dummy();
-        let tag2 = TESTTAG{};
 
         // A test coin.
         let fake_coin = coin::mint_for_testing<TESTWAL>(100000000, &mut ctx);
@@ -209,7 +202,7 @@ module blob_store::blob_tests {
         let committee = committee::committee_for_testing(0);
 
         // Create a new system object
-        let system : system::System<TESTTAG,TESTWAL> = system::new(&tag2, committee,
+        let system : system::System<TESTWAL> = system::new(committee,
             1000000000, 5, &mut ctx);
 
         // Get some space for a few epochs
@@ -220,7 +213,7 @@ module blob_store::blob_tests {
         let blob1 = blob::register(&system, storage, 0xABC, 5000, 0x1, &mut ctx);
 
         // Set INCORRECT EPOCH TO 1
-        let certify_message = blob::certified_blob_message_for_testing<TESTTAG>(1, 0xABC);
+        let certify_message = blob::certified_blob_message_for_testing(1, 0xABC);
 
         // Set certify
         blob::certify_with_certified_msg(&system, certify_message, &mut blob1);
@@ -231,10 +224,9 @@ module blob_store::blob_tests {
     }
 
     #[test, expected_failure(abort_code=blob::ERROR_INVALID_BLOB_ID)]
-    public fun test_blob_certify_bad_blob_id() : system::System<TESTTAG, TESTWAL> {
+    public fun test_blob_certify_bad_blob_id() : system::System<TESTWAL> {
 
         let ctx = tx_context::dummy();
-        let tag2 = TESTTAG{};
 
         // A test coin.
         let fake_coin = coin::mint_for_testing<TESTWAL>(100000000, &mut ctx);
@@ -243,7 +235,7 @@ module blob_store::blob_tests {
         let committee = committee::committee_for_testing(0);
 
         // Create a new system object
-        let system : system::System<TESTTAG,TESTWAL> = system::new(&tag2, committee,
+        let system : system::System<TESTWAL> = system::new(committee,
             1000000000, 5, &mut ctx);
 
         // Get some space for a few epochs
@@ -254,7 +246,7 @@ module blob_store::blob_tests {
         let blob1 = blob::register(&system, storage, 0xABC, 5000, 0x1, &mut ctx);
 
         // DIFFERENT blob id
-        let certify_message = blob::certified_blob_message_for_testing<TESTTAG>(0, 0xFFF);
+        let certify_message = blob::certified_blob_message_for_testing(0, 0xFFF);
 
         // Set certify
         blob::certify_with_certified_msg(&system, certify_message, &mut blob1);
@@ -265,10 +257,9 @@ module blob_store::blob_tests {
     }
 
     #[test, expected_failure(abort_code=blob::ERROR_RESOURCE_BOUNDS)]
-    public fun test_blob_certify_past_epoch() : system::System<TESTTAG, TESTWAL> {
+    public fun test_blob_certify_past_epoch() : system::System<TESTWAL> {
 
         let ctx = tx_context::dummy();
-        let tag2 = TESTTAG{};
 
         // A test coin.
         let fake_coin = coin::mint_for_testing<TESTWAL>(100000000, &mut ctx);
@@ -277,7 +268,7 @@ module blob_store::blob_tests {
         let committee = committee::committee_for_testing(0);
 
         // Create a new system object
-        let system : system::System<TESTTAG,TESTWAL> = system::new(&tag2, committee,
+        let system : system::System<TESTWAL> = system::new(committee,
             1000000000, 5, &mut ctx);
 
         // Get some space for a few epochs
@@ -307,7 +298,7 @@ module blob_store::blob_tests {
 
 
         // Set certify -- EPOCH BEYOND RESOURCE BOUND
-        let certify_message = blob::certified_blob_message_for_testing<TESTTAG>(3, 0xABC);
+        let certify_message = blob::certified_blob_message_for_testing(3, 0xABC);
         blob::certify_with_certified_msg(&system, certify_message, &mut blob1);
 
         coin::burn_for_testing(fake_coin);
@@ -316,10 +307,9 @@ module blob_store::blob_tests {
     }
 
     #[test]
-    public fun test_blob_happy_destroy() : system::System<TESTTAG, TESTWAL> {
+    public fun test_blob_happy_destroy() : system::System<TESTWAL> {
 
         let ctx = tx_context::dummy();
-        let tag2 = TESTTAG{};
 
         // A test coin.
         let fake_coin = coin::mint_for_testing<TESTWAL>(100000000, &mut ctx);
@@ -328,7 +318,7 @@ module blob_store::blob_tests {
         let committee = committee::committee_for_testing(0);
 
         // Create a new system object
-        let system : system::System<TESTTAG,TESTWAL> = system::new(&tag2, committee,
+        let system : system::System<TESTWAL> = system::new(committee,
             1000000000, 5, &mut ctx);
 
         // Get some space for a few epochs
@@ -339,7 +329,7 @@ module blob_store::blob_tests {
         let blob1 = blob::register(&system, storage, 0xABC, 5000, 0x1, &mut ctx);
 
         // Set certify
-        let certify_message = blob::certified_blob_message_for_testing<TESTTAG>(0, 0xABC);
+        let certify_message = blob::certified_blob_message_for_testing(0, 0xABC);
         blob::certify_with_certified_msg(&system, certify_message, &mut blob1);
 
         // Advance epoch -- to epoch 1
@@ -367,10 +357,9 @@ module blob_store::blob_tests {
     }
 
     #[test, expected_failure(abort_code=blob::ERROR_RESOURCE_BOUNDS)]
-    public fun test_blob_unhappy_destroy() : system::System<TESTTAG, TESTWAL> {
+    public fun test_blob_unhappy_destroy() : system::System<TESTWAL> {
 
         let ctx = tx_context::dummy();
-        let tag2 = TESTTAG{};
 
         // A test coin.
         let fake_coin = coin::mint_for_testing<TESTWAL>(100000000, &mut ctx);
@@ -379,7 +368,7 @@ module blob_store::blob_tests {
         let committee = committee::committee_for_testing(0);
 
         // Create a new system object
-        let system : system::System<TESTTAG,TESTWAL> = system::new(&tag2, committee,
+        let system : system::System<TESTWAL> = system::new(committee,
             1000000000, 5, &mut ctx);
 
         // Get some space for a few epochs
@@ -398,7 +387,7 @@ module blob_store::blob_tests {
 
     #[test]
     public fun test_certified_blob_message() {
-        let msg = committee::certified_message_for_testing<TESTTAG>(
+        let msg = committee::certified_message_for_testing(
             1, 0, 10, 100, vector[
                 0xAA, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0,
@@ -413,7 +402,7 @@ module blob_store::blob_tests {
 
     #[test, expected_failure]
     public fun test_certified_blob_message_too_short() {
-        let msg = committee::certified_message_for_testing<TESTTAG>(
+        let msg = committee::certified_message_for_testing(
             1, 0, 10, 100, vector[
                 0xAA, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0,
@@ -426,10 +415,9 @@ module blob_store::blob_tests {
     }
 
     #[test]
-    public fun test_blob_extend_happy_path() : system::System<TESTTAG, TESTWAL> {
+    public fun test_blob_extend_happy_path() : system::System<TESTWAL> {
 
         let ctx = tx_context::dummy();
-        let tag2 = TESTTAG{};
 
         // A test coin.
         let fake_coin = coin::mint_for_testing<TESTWAL>(100000000, &mut ctx);
@@ -438,7 +426,7 @@ module blob_store::blob_tests {
         let committee = committee::committee_for_testing(0);
 
         // Create a new system object
-        let system : system::System<TESTTAG,TESTWAL> = system::new(&tag2, committee,
+        let system : system::System<TESTWAL> = system::new(committee,
             1000000000, 5, &mut ctx);
 
         // Get some space for a few epochs
@@ -455,7 +443,7 @@ module blob_store::blob_tests {
 
         // Register a Blob
         let blob1 = blob::register(&system, storage, 0xABC, 5000, 0x1, &mut ctx);
-        let certify_message = blob::certified_blob_message_for_testing<TESTTAG>(0, 0xABC);
+        let certify_message = blob::certified_blob_message_for_testing(0, 0xABC);
 
         // Set certify
         blob::certify_with_certified_msg(&system, certify_message, &mut blob1);
@@ -473,10 +461,9 @@ module blob_store::blob_tests {
     }
 
     #[test, expected_failure]
-    public fun test_blob_extend_bad_period() : system::System<TESTTAG, TESTWAL> {
+    public fun test_blob_extend_bad_period() : system::System<TESTWAL> {
 
         let ctx = tx_context::dummy();
-        let tag2 = TESTTAG{};
 
         // A test coin.
         let fake_coin = coin::mint_for_testing<TESTWAL>(100000000, &mut ctx);
@@ -485,7 +472,7 @@ module blob_store::blob_tests {
         let committee = committee::committee_for_testing(0);
 
         // Create a new system object
-        let system : system::System<TESTTAG,TESTWAL> = system::new(&tag2, committee,
+        let system : system::System<TESTWAL> = system::new(committee,
             1000000000, 5, &mut ctx);
 
         // Get some space for a few epochs
@@ -502,7 +489,7 @@ module blob_store::blob_tests {
 
         // Register a Blob
         let blob1 = blob::register(&system, storage, 0xABC, 5000, 0x1, &mut ctx);
-        let certify_message = blob::certified_blob_message_for_testing<TESTTAG>(0, 0xABC);
+        let certify_message = blob::certified_blob_message_for_testing(0, 0xABC);
 
         // Set certify
         blob::certify_with_certified_msg(&system, certify_message, &mut blob1);
@@ -517,10 +504,9 @@ module blob_store::blob_tests {
     }
 
     #[test,expected_failure(abort_code=blob::ERROR_RESOURCE_BOUNDS)]
-    public fun test_blob_unhappy_extend() : system::System<TESTTAG, TESTWAL> {
+    public fun test_blob_unhappy_extend() : system::System<TESTWAL> {
 
         let ctx = tx_context::dummy();
-        let tag2 = TESTTAG{};
 
         // A test coin.
         let fake_coin = coin::mint_for_testing<TESTWAL>(100000000, &mut ctx);
@@ -529,7 +515,7 @@ module blob_store::blob_tests {
         let committee = committee::committee_for_testing(0);
 
         // Create a new system object
-        let system : system::System<TESTTAG,TESTWAL> = system::new(&tag2, committee,
+        let system : system::System<TESTWAL> = system::new(committee,
             1000000000, 5, &mut ctx);
 
         // Get some space for a few epochs
@@ -549,7 +535,7 @@ module blob_store::blob_tests {
         let blob1 = blob::register(&system, storage, 0xABC, 5000, 0x1, &mut ctx);
 
         // Set certify
-        let certify_message = blob::certified_blob_message_for_testing<TESTTAG>(0, 0xABC);
+        let certify_message = blob::certified_blob_message_for_testing(0, 0xABC);
         blob::certify_with_certified_msg(&system, certify_message, &mut blob1);
 
         // Advance epoch -- to epoch 1

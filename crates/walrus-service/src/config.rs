@@ -4,6 +4,7 @@
 use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use anyhow::Context;
@@ -16,6 +17,7 @@ use serde_with::{
     DeserializeAs,
     SerializeAs,
 };
+use sui_sdk::types::base_types::ObjectID;
 use walrus_core::{keys::ProtocolKeyPairParseError, ProtocolKeyPair};
 
 /// Trait for loading configuration from a YAML file.
@@ -47,12 +49,30 @@ pub struct StorageNodeConfig {
     /// Socket address on which the REST API listens.
     #[serde(default = "defaults::rest_api_address")]
     pub rest_api_address: SocketAddr,
+    /// Sui config for the node
+    pub sui: Option<SuiConfig>,
 }
 
 impl LoadConfig for StorageNodeConfig {}
 
-/// Default values for the storage node configuration.
-pub mod defaults {
+/// Sui-specific configuration for Walrus
+#[serde_with::serde_as]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct SuiConfig {
+    /// HTTP URL of the Sui full-node RPC endpoint (including scheme)
+    pub rpc: String,
+    /// Object ID of the walrus package
+    pub pkg_id: ObjectID,
+    /// Object ID of walrus system object
+    pub system_object: ObjectID,
+    /// Interval with which events are polled, in milliseconds
+    #[serde_as(as = "serde_with::DurationMilliSeconds")]
+    #[serde(default = "defaults::polling_interval")]
+    pub event_polling_interval: Duration,
+}
+
+/// Default values for the storage-node configuration.
+pub(crate) mod defaults {
     use std::net::Ipv4Addr;
 
     use super::*;
@@ -68,6 +88,11 @@ pub mod defaults {
     /// Returns the default REST API address.
     pub fn rest_api_address() -> SocketAddr {
         (Ipv4Addr::UNSPECIFIED, REST_API_PORT).into()
+    }
+
+    /// Returns the default polling interval.
+    pub fn polling_interval() -> Duration {
+        Duration::from_millis(400)
     }
 }
 

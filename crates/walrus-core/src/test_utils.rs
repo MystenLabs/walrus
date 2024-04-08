@@ -6,7 +6,7 @@ use fastcrypto::traits::{KeyPair, Signer};
 use rand::{rngs::StdRng, RngCore, SeedableRng};
 
 use crate::{
-    encoding,
+    encoding::{self, EncodingConfig, PrimarySliver},
     merkle::{MerkleProof, Node},
     metadata::{
         BlobMetadata,
@@ -35,22 +35,31 @@ pub fn keypair() -> ProtocolKeyPair {
 
 /// Returns an arbitrary sliver for testing.
 pub fn sliver() -> Sliver {
-    Sliver::Primary(encoding::Sliver::new(
-        [1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4],
+    Sliver::Primary(primary_sliver())
+}
+
+/// Returns an arbitrary primary sliver for testing.
+pub fn primary_sliver() -> PrimarySliver {
+    encoding::Sliver::new(
+        [
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+        ],
         4,
         SliverPairIndex::new(1),
-    ))
+    )
+}
+
+/// Returns a BFT-compatible encoding configuration.
+pub fn encoding_config() -> EncodingConfig {
+    EncodingConfig::new(2, 5, 10)
 }
 
 /// Returns an arbitrary decoding symbol for testing.
 pub fn recovery_symbol() -> DecodingSymbol<MerkleProof> {
-    match sliver() {
-        Sliver::Primary(inner) => inner
-            .recovery_symbol_for_sliver_with_proof(SliverIndex::new(1))
-            .map(DecodingSymbol::Secondary)
-            .unwrap(),
-        Sliver::Secondary(_) => unreachable!("Primary sliver expected"),
-    }
+    primary_sliver()
+        .recovery_symbol_for_sliver_with_proof(SliverIndex::new(1), &encoding_config())
+        .map(DecodingSymbol::Secondary)
+        .unwrap()
 }
 
 /// Returns an arbitrary storage confirmation for tests.
@@ -84,11 +93,12 @@ pub fn blob_id_from_u64(num: u64) -> BlobId {
 
 /// Returns an arbitrary metadata object.
 pub fn blob_metadata() -> BlobMetadata {
-    let unencoded_length = 7_000_000_000;
-    let hashes: Vec<_> = (0..100u8)
+    let config = encoding_config();
+    let unencoded_length = 62_831;
+    let hashes: Vec<_> = (0..config.n_shards)
         .map(|i| SliverPairMetadata {
-            primary_hash: Node::Digest([i; 32]),
-            secondary_hash: Node::Digest([i; 32]),
+            primary_hash: Node::Digest([(i % 256) as u8; 32]),
+            secondary_hash: Node::Digest([(i % 256) as u8; 32]),
         })
         .collect();
     BlobMetadata {

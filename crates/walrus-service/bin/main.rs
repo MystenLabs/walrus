@@ -6,7 +6,7 @@ use std::{
     fs,
     io,
     net::SocketAddr,
-    num::{NonZeroU16, NonZeroUsize},
+    num::{NonZeroU16, NonZeroU32},
     path::PathBuf,
     sync::Arc,
 };
@@ -22,7 +22,7 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
-use walrus_core::{encoding::initialize_encoding_config, ShardIndex};
+use walrus_core::{encoding::EncodingConfig, ShardIndex};
 use walrus_service::{
     client,
     config::{LoadConfig, StorageNodeConfig},
@@ -112,7 +112,13 @@ enum CommitteeConfig {
     Manual {
         /// The total number of shards.
         #[clap(long, default_value = "100")]
-        total_shards: NonZeroUsize,
+        total_shards: NonZeroU32,
+        /// The number of source symbols for the primary encoding.
+        #[clap(long, default_value = "30")]
+        source_symbols_primary: NonZeroU16,
+        /// The number of source symbols for the secondary encoding.
+        #[clap(long, default_value = "62")]
+        source_symbols_secondary: NonZeroU16,
         /// The shards to be handled by this node.
         #[clap(long)]
         handled_shards: Vec<u16>,
@@ -128,7 +134,7 @@ fn main() -> anyhow::Result<()> {
             cleanup_storage,
         } => {
             let config = StorageNodeConfig::load(config_path)?;
-            let (total_shards, shards) = match committee_config {
+            let (encoding_config, shards) = match committee_config {
                 CommitteeConfig::OnChain => {
                     // TODO(alberto): Get the committee from the chain. (#212)
                     todo!()
@@ -138,27 +144,28 @@ fn main() -> anyhow::Result<()> {
                     storage_node_index,
                 } => {
                     let client_config = client::Config::load(client_config_path)?;
-                    initialize_encoding_config(
-                        client_config.source_symbols_primary,
-                        client_config.source_symbols_secondary,
-                        client_config.committee.total_weight as u32,
-                    );
-                    let total_shards = client_config.total_shards();
+                    let encoding_config = client_config.encoding_config();
                     let handled_shards = client_config.shards_for_node(storage_node_index);
-                    (total_shards, handled_shards)
+                    (encoding_config, handled_shards)
                 }
                 CommitteeConfig::Manual {
                     total_shards,
+                    source_symbols_primary,
+                    source_symbols_secondary,
                     handled_shards,
                 } => (
-                    total_shards,
+                    EncodingConfig::new(
+                        source_symbols_primary.get(),
+                        source_symbols_secondary.get(),
+                        total_shards.get(),
+                    ),
                     handled_shards
                         .into_iter()
                         .map(ShardIndex)
                         .collect::<Vec<_>>(),
                 ),
             };
-            run_storage_node(config, cleanup_storage, total_shards, &shards)?;
+            run_storage_node(config, encoding_config, cleanup_storage, &shards)?;
         }
         Commands::GenerateDryRunConfigs {
             working_dir,
@@ -184,13 +191,13 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn run_storage_node(
-    mut config: StorageNodeConfig,
+    mut node_config: StorageNodeConfig,
+    encoding_config: EncodingConfig,
     cleanup_storage: bool,
-    total_shards: NonZeroUsize,
     handled_shards: &[ShardIndex],
 ) -> anyhow::Result<()> {
     if cleanup_storage {
-        let storage_path = &config.storage_path;
+        let storage_path = &node_config.storage_path;
         match fs::remove_dir_all(storage_path) {
             Ok(_) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -203,26 +210,26 @@ fn run_storage_node(
         }
     }
 
-    let metrics_runtime = MetricsAndLoggingRuntime::start(config.metrics_address)?;
+    let metrics_runtime = MetricsAndLoggingRuntime::start(node_config.metrics_address)?;
 
     tracing::info!("Walrus Node version: {VERSION}");
     tracing::info!(
         "Walrus public key: {}",
-        config.protocol_key_pair.load()?.as_ref().public()
+        node_config.protocol_key_pair.load()?.as_ref().public()
     );
     tracing::info!(
         "Started Prometheus HTTP endpoint at {}",
-        config.metrics_address
+        node_config.metrics_address
     );
 
     let cancel_token = CancellationToken::new();
     let (exit_notifier, exit_listener) = oneshot::channel::<()>();
 
     let mut node_runtime = StorageNodeRuntime::start(
-        &config,
-        total_shards,
+        &node_config,
         handled_shards,
         metrics_runtime.registry_service.clone(),
+        encoding_config,
         exit_notifier,
         cancel_token.child_token(),
     )?;
@@ -330,10 +337,10 @@ struct StorageNodeRuntime {
 
 impl StorageNodeRuntime {
     fn start(
-        config: &StorageNodeConfig,
-        total_shards: NonZeroUsize,
+        node_config: &StorageNodeConfig,
         handled_shards: &[ShardIndex],
         registry_service: RegistryService,
+        encoding_config: EncodingConfig,
         exit_notifier: oneshot::Sender<()>,
         cancel_token: CancellationToken,
     ) -> anyhow::Result<Self> {
@@ -345,8 +352,12 @@ impl StorageNodeRuntime {
         let _guard = runtime.enter();
 
         let walrus_node = Arc::new(
-            StorageNode::new(config, registry_service)?
-                .with_total_shards(total_shards)
+            runtime
+                .block_on(StorageNode::new(
+                    node_config,
+                    registry_service,
+                    encoding_config,
+                ))?
                 .with_storage_shards(handled_shards),
         );
 
@@ -369,7 +380,7 @@ impl StorageNodeRuntime {
         });
 
         let rest_api = UserServer::new(walrus_node, cancel_token.child_token());
-        let rest_api_address = config.rest_api_address;
+        let rest_api_address = node_config.rest_api_address;
         let rest_api_handle = tokio::spawn(async move {
             let result = rest_api.run(&rest_api_address).await;
             if let Err(ref err) = result {
@@ -377,7 +388,7 @@ impl StorageNodeRuntime {
             }
             result
         });
-        tracing::info!("Started REST API on {}", config.rest_api_address);
+        tracing::info!("Started REST API on {}", node_config.rest_api_address);
 
         Ok(Self {
             runtime,

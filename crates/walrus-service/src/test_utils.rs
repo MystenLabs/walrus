@@ -4,11 +4,21 @@
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use fastcrypto::traits::KeyPair;
+use sui_sdk::types::{digests::TransactionDigest, event::EventID};
 use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
 use typed_store::rocks::MetricConf;
-use walrus_core::{test_utils, ProtocolKeyPair, PublicKey, ShardIndex};
-use walrus_sui::types::{Committee, NetworkAddress, StorageNode as SuiStorageNode};
+use walrus_core::{
+    encoding::{EncodingConfig, Primary, Secondary},
+    test_utils,
+    ProtocolKeyPair,
+    PublicKey,
+    ShardIndex,
+};
+use walrus_sui::{
+    client::ReadClient,
+    types::{Committee, NetworkAddress, StorageNode as SuiStorageNode},
+};
 use walrus_test_utils::WithTempDir;
 
 use crate::{
@@ -34,6 +44,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             rest_api_address,
             metrics_address,
             storage_path: temp_dir.path().to_path_buf(),
+            sui: None,
         },
         temp_dir,
     }
@@ -57,61 +68,104 @@ pub fn empty_storage_with_shards(shards: &[ShardIndex]) -> WithTempDir<Storage> 
     }
 }
 
-/// Creates a new [`StorageNode`].
-pub fn new_test_storage_node(
+/// Creates a new [`StorageNode`] with a [`ReadClient`].
+pub fn new_test_node_with_read_client<T>(
     shards: &[ShardIndex],
-    n_shards: usize,
+    encoding_config: EncodingConfig,
+
     key_pair: ProtocolKeyPair,
-) -> WithTempDir<StorageNode> {
-    empty_storage_with_shards(shards)
-        .map(|storage| StorageNode::new_with_storage(storage, n_shards, key_pair))
+    sui_read_client: T,
+) -> WithTempDir<StorageNode<T>>
+where
+    T: ReadClient,
+{
+    empty_storage_with_shards(shards).map(|storage| {
+        StorageNode::new_with_storage(
+            storage,
+            encoding_config,
+            key_pair,
+            sui_read_client,
+            Duration::from_micros(1),
+        )
+    })
 }
 
-/// Creates a new [`UserServer`].
-pub fn new_test_server(
+/// Creates a new [`StorageNode`] with parameters.
+pub fn new_test_node_with_address<T>(
     shards: &[ShardIndex],
-    n_shards: usize,
-    key_pair: ProtocolKeyPair,
-) -> WithTempDir<UserServer<StorageNode>> {
-    new_test_storage_node(shards, n_shards, key_pair)
-        .map(|storage_node| UserServer::new(Arc::new(storage_node), CancellationToken::new()))
-}
-
-/// Creates a new [`UserServer`] with parameters.
-pub fn new_test_server_with_address(
-    shards: &[ShardIndex],
-    n_shards: usize,
-) -> (WithTempDir<UserServer<StorageNode>>, SocketAddr, PublicKey) {
+    encoding_config: EncodingConfig,
+    sui_read_client: T,
+) -> (WithTempDir<StorageNode<T>>, SocketAddr, PublicKey)
+where
+    T: ReadClient + Send + Sync + 'static,
+{
     let config = storage_node_config();
     let rest_api_address = config.inner.rest_api_address;
     let protocol_key_pair = config.inner.protocol_key_pair.get().unwrap();
-
     (
-        new_test_server(shards, n_shards, protocol_key_pair.clone()),
+        new_test_node_with_read_client(
+            shards,
+            encoding_config,
+            protocol_key_pair.clone(),
+            sui_read_client,
+        ),
         rest_api_address,
         protocol_key_pair.as_ref().public().clone(),
     )
 }
 
 /// Creates and runs a new [`UserServer`] with parameters.
-pub async fn spawn_test_server(shards: &[ShardIndex], n_shards: usize) -> (SocketAddr, PublicKey) {
-    let (server, addr, pk) = new_test_server_with_address(shards, n_shards);
-    let _handle = tokio::spawn(async move { server.inner.run(&addr).await });
+pub async fn spawn_test_server<T>(
+    shards: &[ShardIndex],
+    encoding_config: EncodingConfig,
+    sui_read_client: T,
+) -> (SocketAddr, PublicKey)
+where
+    T: ReadClient + Send + Sync + 'static,
+{
+    let (storage_node, addr, pk) =
+        new_test_node_with_address(shards, encoding_config, sui_read_client);
+    let storage_node = storage_node.map(Arc::new);
+    let walrus_node_clone = storage_node.inner.clone();
+    let _walrus_node_handle =
+        tokio::spawn(async move { walrus_node_clone.run(CancellationToken::new()).await });
+    let _handle = tokio::spawn(async move {
+        UserServer::new(storage_node.inner, CancellationToken::new())
+            .run(&addr)
+            .await
+    });
     tokio::task::yield_now().await;
     (addr, pk)
 }
 
 /// Creates and runs a new committee of [`UserServer`s][UserServer].
-pub async fn spawn_test_committee(
-    n_symbols_primary: u16,
-    n_symbols_secondary: u16,
-    n_shards: usize,
+///
+/// The total count of shards in `nodes_shards` must be equal to the number of shards in the
+/// `encoding_config`.
+pub async fn spawn_test_committee<T>(
+    encoding_config: EncodingConfig,
     nodes_shards: &[&[u16]],
-) -> Config {
+    sui_read_client: T,
+) -> Config
+where
+    T: ReadClient + Clone + Send + Sync + 'static,
+{
+    let n_shards = encoding_config.n_shards() as usize;
+    assert_eq!(
+        nodes_shards.iter().map(|s| s.len()).sum::<usize>(),
+        n_shards
+    );
     let mut addrs_pks = vec![];
     // Create the walrus storage nodes.
     for shards in nodes_shards.iter() {
-        addrs_pks.push(spawn_test_server(&to_shards(shards), n_shards).await);
+        addrs_pks.push(
+            spawn_test_server(
+                &to_shards(shards),
+                encoding_config.clone(),
+                sui_read_client.clone(),
+            )
+            .await,
+        );
     }
     // Create the config.
     let members = nodes_shards
@@ -126,8 +180,8 @@ pub async fn spawn_test_committee(
             epoch: 0,
             total_weight: n_shards,
         },
-        source_symbols_primary: n_symbols_primary,
-        source_symbols_secondary: n_symbols_secondary,
+        source_symbols_primary: encoding_config.n_source_symbols::<Primary>(),
+        source_symbols_secondary: encoding_config.n_source_symbols::<Secondary>(),
         concurrent_requests: n_shards,
         connection_timeout: Duration::from_secs(10),
     }
@@ -147,5 +201,12 @@ fn to_storage_node_config(
         network_address,
         public_key,
         shard_ids: shard_ids.to_vec(),
+    }
+}
+
+pub(crate) fn event_id_for_testing() -> EventID {
+    EventID {
+        tx_digest: TransactionDigest::random(),
+        event_seq: 0,
     }
 }

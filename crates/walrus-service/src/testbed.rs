@@ -5,7 +5,7 @@ use std::{path::Path, time::Duration};
 
 use fastcrypto::traits::KeyPair;
 use rand::{rngs::StdRng, SeedableRng};
-use walrus_core::{encoding::initialize_encoding_config, ProtocolKeyPair, ShardIndex};
+use walrus_core::{ProtocolKeyPair, ShardIndex};
 use walrus_sui::types::StorageNode as SuiStorageNode;
 
 use crate::{
@@ -54,6 +54,7 @@ pub fn testbed_configs(
             protocol_key_pair: PathOrInPlace::InPlace(protocol_key_pair),
             metrics_address,
             rest_api_address,
+            sui: None,
         });
 
         let end = if i < remainder_shards {
@@ -84,11 +85,6 @@ pub fn testbed_configs(
         concurrent_requests: committee_size as usize,
         connection_timeout: Duration::from_secs(10),
     };
-    initialize_encoding_config(
-        client_config.source_symbols_primary,
-        client_config.source_symbols_secondary,
-        client_config.committee.total_weight as u32,
-    );
 
     (storage_node_configs, client_config)
 }
