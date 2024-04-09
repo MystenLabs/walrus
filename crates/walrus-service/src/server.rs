@@ -25,7 +25,10 @@ use walrus_core::{
     SliverType,
 };
 
+use self::extract::Bcs;
 use crate::node::{ServiceState, StoreMetadataError, StoreSliverError};
+
+mod extract;
 
 /// The path to get and store blob metadata.
 pub const METADATA_ENDPOINT: &str = "/v1/blobs/:blobId/metadata";
@@ -60,7 +63,8 @@ pub enum ServiceResponse<T> {
     },
 }
 
-// TODO(jsmith): u16 to StatusCode
+// TODO(jsmith): u16 to http::StatusCode
+// TODO(jsmith): Replace unveritifed with verified
 
 impl<T: Serialize> IntoResponse for ServiceResponse<T> {
     fn into_response(self) -> axum::response::Response {
@@ -165,7 +169,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
     async fn store_metadata(
         State(state): State<Arc<S>>,
         Path(HexBlobId(blob_id)): Path<HexBlobId>,
-        Json(metadata): Json<BlobMetadata>,
+        Bcs(metadata): Bcs<BlobMetadata>,
     ) -> ServiceResponse<String> {
         let unverified_metadata_with_id = UnverifiedBlobMetadataWithId::new(blob_id, metadata);
         match state.store_metadata(unverified_metadata_with_id) {
@@ -505,7 +509,12 @@ mod test {
         let url = format!("http://{}{path}", config.as_ref().rest_api_address);
 
         let client = reqwest::Client::new();
-        let res = client.put(url).json(metadata).send().await.unwrap();
+        let res = client
+            .put(url)
+            .body(bcs::to_bytes(metadata).expect("can serialize metadata"))
+            .send()
+            .await
+            .unwrap();
         assert_eq!(res.status(), StatusCode::CREATED);
     }
 

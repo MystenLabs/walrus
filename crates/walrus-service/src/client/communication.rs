@@ -276,13 +276,15 @@ impl<'a> NodeCommunication<'a> {
         &self,
         metadata: &VerifiedBlobMetadataWithId,
     ) -> Result<(), MetadataStoreError> {
-        let response = self
-            .client
-            .put(self.metadata_endpoint(metadata.blob_id()))
-            .json(metadata.metadata())
-            .send()
-            .await
-            .map_err(CommunicationError::from)?;
+        let response =
+            self.client
+                .put(self.metadata_endpoint(metadata.blob_id()))
+                .body(bcs::to_bytes(metadata.metadata()).expect(
+                    "sane objects to not exceed isize::MAX elements or 500 levels of nesting",
+                ))
+                .send()
+                .await
+                .map_err(CommunicationError::from)?;
         ensure!(
             response.status().is_success(),
             CommunicationError::HttpFailure(response.status()).into(),

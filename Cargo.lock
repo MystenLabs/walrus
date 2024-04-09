@@ -10528,6 +10528,7 @@ dependencies = [
  "fastcrypto 0.1.8",
  "futures",
  "git-version",
+ "mime",
  "mysten-metrics",
  "prometheus",
  "rand 0.8.5",
