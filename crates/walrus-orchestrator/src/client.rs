@@ -8,7 +8,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use super::error::CloudProviderResult;
+use crate::error::CloudProviderResult;
 
 pub mod aws;
 pub mod vultr;

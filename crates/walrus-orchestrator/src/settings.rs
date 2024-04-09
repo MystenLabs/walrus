@@ -109,10 +109,10 @@ impl Settings {
     where
         P: AsRef<Path> + Display + Clone,
     {
-        let reader = || -> Result<Self, std::io::Error> {
+        let reader = || -> Result<Self, Box<dyn std::error::Error>> {
             let data = fs::read(path.clone())?;
-            let data = Self::resolve_env(&path, std::str::from_utf8(&data).unwrap())?;
-            let settings: Settings = serde_json::from_slice(data.as_bytes())?;
+            let data = Self::resolve_env(&path, std::str::from_utf8(&data)?)?;
+            let settings: Settings = serde_yaml::from_slice(data.as_bytes())?;
 
             fs::create_dir_all(&settings.results_dir)?;
             fs::create_dir_all(&settings.logs_dir)?;
