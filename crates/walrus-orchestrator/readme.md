@@ -41,33 +41,7 @@ programmatically.
 ## Step 2. Specify the testbed configuration
 
 Create a file called `settings.yaml` that contains all the configuration parameters for the testbed
-deployment. You can find an example file at `./assets/settings-template.yaml` with the following
-content:
-
-```yaml
----
-testbed_id: "${USER}-walrus"
-cloud_provider: aws
-token_file: "/Users/${USER}/.aws/credentials"
-ssh_private_key_file: "/Users/${USER}/.ssh/aws"
-regions:
-- us-east-1
-- us-west-2
-- ca-central-1
-- eu-central-1
-- ap-northeast-1
-- eu-west-1
-- eu-west-2
-- ap-south-1
-- ap-southeast-1
-- ap-southeast-2
-specs: m5d.8xlarge
-repository:
-  url: https://github.com/mystenlabs/walrus.git
-  commit: main
-results_directory: "./results",
-logs_directory: "./logs"
-```
+deployment. You can find an example file at [`./assets/settings-template.yaml`][./assets/settings-template.yaml].
 
 The documentation of the `Settings` struct in `./src/settings.rs` provides detailed information
 about each field and indicates which ones are optional. If you're working with a private GitHub
