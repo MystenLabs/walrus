@@ -48,7 +48,7 @@ impl Instance {
 
     /// Return the ssh address to connect to the instance.
     pub fn ssh_address(&self) -> SocketAddr {
-        format!("{}:22", self.main_ip).parse().unwrap()
+        SocketAddr::new(self.main_ip.into(), 22)
     }
 
     #[cfg(test)]
