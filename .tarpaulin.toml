@@ -17,8 +17,9 @@ exclude-files = [
   "crates/**/benches/**/*",
   "crates/**/tests/**/*",
   "crates/**/test_utils/**/*",
-  "crates/walrus-test-utils/**/*",
   "crates/walrus-e2e-tests/**/*",
+  "crates/walrus-orchestrator/**/*",
+  "crates/walrus-test-utils/**/*",
 ]
 args = [
   "--include-ignored"
