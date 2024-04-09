@@ -304,7 +304,7 @@ impl LocalGrafana {
 }
 
 /// Generate the commands to setup node exporter on the given instances.
-pub struct NodeExporter;
+struct NodeExporter;
 
 impl NodeExporter {
     const RELEASE: &'static str = "0.18.1";
