@@ -15,6 +15,7 @@ mod client;
 mod display;
 mod error;
 mod faults;
+mod monitor;
 mod protocol;
 mod settings;
 mod ssh;
