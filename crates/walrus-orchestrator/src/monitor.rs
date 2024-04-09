@@ -165,7 +165,7 @@ impl Prometheus {
             &format!("  - job_name: instance-node-exporter-{index}"),
             "    static_configs:",
             "      - targets:",
-            &format!("        - {ip}:9200"),
+            &format!("        - {ip}:{}", NodeExporter::DEFAULT_PORT),
         ]
         .join("\n")
     }
