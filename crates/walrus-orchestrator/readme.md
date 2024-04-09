@@ -102,6 +102,13 @@ cargo run --bin orchestrator testbed status
 Instances listed with a green number are available and ready for use, while instances listed with a
 red number are stopped.
 
+When utilizing a testbed on AWS, a common approach involves configuring the desired parameters and
+maintaining all machines in a stopped state until necessary. This strategy helps control costs, as
+keeping AWS instances stopped typically incurs minimal expenses, while starting them can lead to
+significant charges. It's important to note that cost dynamics may vary among providers, so it's
+advisable to thoroughly examine the associated costs for each operation before initiating
+benchmarks.
+
 ## Step 4. Deploying a testbed
 
 TBD
