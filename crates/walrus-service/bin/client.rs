@@ -45,12 +45,14 @@ enum Commands {
 /// The client.
 #[tokio::main]
 pub async fn main() -> Result<()> {
+    tracing_subscriber::fmt::init();
     let args = Args::parse();
     let config: Config = serde_yaml::from_str(&std::fs::read_to_string(args.config)?)?;
     let client = Client::new(config);
 
     match args.command {
         Commands::Store { file } => {
+            tracing::info!("User requested to store blob at path {file:?}");
             client?.store_blob(&std::fs::read(file)?).await?;
             Ok(())
         }

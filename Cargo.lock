@@ -10538,6 +10538,7 @@ dependencies = [
  "tokio-util 0.7.10 (registry+https://github.com/rust-lang/crates.io-index)",
  "tower-http 0.5.2",
  "tracing",
+ "tracing-subscriber",
  "typed-store",
  "walrus-core",
  "walrus-sui",

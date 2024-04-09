@@ -250,6 +250,16 @@ impl TryFrom<SuiMoveStruct> for StorageNode {
     }
 }
 
+impl Display for StorageNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "node-({}, pk: {}, addr: {})",
+            self.name, self.public_key, self.network_address
+        )
+    }
+}
+
 impl AssociatedContractStruct for StorageNode {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::storage_node::StorageNodeInfo;
 }

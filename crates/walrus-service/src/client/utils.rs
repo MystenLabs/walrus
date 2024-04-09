@@ -200,6 +200,11 @@ where
         }
     }
 
+    /// Gets all the results in the struct, consumin `self`.
+    pub fn into_results(self) -> Vec<T> {
+        self.results
+    }
+
     /// Gets all the results in the struct, emptying `self.results`.
     pub fn take_results(&mut self) -> Vec<T> {
         std::mem::take(&mut self.results)
