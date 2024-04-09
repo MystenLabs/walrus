@@ -6,6 +6,7 @@ use std::{net::SocketAddr, sync::Arc};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
+    response::IntoResponse,
     routing::get,
     Json,
     Router,
@@ -42,7 +43,7 @@ struct HexBlobId(#[serde_as(as = "DisplayFromStr")] BlobId);
 
 /// Error message returned by the service.
 #[derive(Debug, Serialize, Deserialize)]
-pub enum ServiceResponse<T: Serialize> {
+pub enum ServiceResponse<T> {
     /// The request was successful.
     Success {
         /// The success code.
@@ -59,33 +60,44 @@ pub enum ServiceResponse<T: Serialize> {
     },
 }
 
+// TODO(jsmith): u16 to StatusCode
+
+impl<T: Serialize> IntoResponse for ServiceResponse<T> {
+    fn into_response(self) -> axum::response::Response {
+        (
+            StatusCode::from_u16(self.code()).expect("valid u16 status code"),
+            Json(self),
+        )
+            .into_response()
+    }
+}
+
 impl<T: Serialize> ServiceResponse<T> {
-    /// Creates a new serialized success response. This response must be a tuple containing the
-    /// status code (so that axum includes it in the HTTP header) and the JSON response.
-    pub fn serialized_success(code: StatusCode, data: T) -> (StatusCode, Json<Self>) {
-        let response = Self::Success {
+    fn code(&self) -> u16 {
+        match self {
+            ServiceResponse::Success { code, .. } | ServiceResponse::Error { code, .. } => *code,
+        }
+    }
+
+    /// Creates a new success response.
+    fn success(code: StatusCode, data: T) -> Self {
+        Self::Success {
             code: code.as_u16(),
             data,
-        };
-        (code, Json(response))
+        }
     }
 
-    /// Creates a new serialized error response. This response must be a tuple containing the status
-    /// code (so that axum includes it in the HTTP header) and the JSON response.
-    pub fn serialized_error<S: Into<String>>(
-        code: StatusCode,
-        message: S,
-    ) -> (StatusCode, Json<Self>) {
-        let response = Self::Error {
+    /// Creates a new error response.
+    fn error<S: Into<String>>(code: StatusCode, message: S) -> Self {
+        Self::Error {
             code: code.as_u16(),
             message: message.into(),
-        };
-        (code, Json(response))
+        }
     }
 
-    /// Creates a new serialized bad request response for 'not found' errors.
-    pub fn serialized_not_found() -> (StatusCode, Json<Self>) {
-        Self::serialized_error(StatusCode::NOT_FOUND, "Not found")
+    /// Creates a new 404 'not found' error.
+    fn not_found() -> Self {
+        Self::error(StatusCode::NOT_FOUND, "Not found")
     }
 }
 
@@ -133,25 +145,19 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
     async fn retrieve_metadata(
         State(state): State<Arc<S>>,
         Path(HexBlobId(blob_id)): Path<HexBlobId>,
-    ) -> (
-        StatusCode,
-        Json<ServiceResponse<UnverifiedBlobMetadataWithId>>,
-    ) {
+    ) -> ServiceResponse<UnverifiedBlobMetadataWithId> {
         match state.retrieve_metadata(&blob_id) {
             Ok(Some(metadata)) => {
                 tracing::debug!("Retrieved metadata for {blob_id:?}");
-                ServiceResponse::serialized_success(StatusCode::OK, metadata)
+                ServiceResponse::success(StatusCode::OK, metadata)
             }
             Ok(None) => {
                 tracing::debug!("Metadata not found for {blob_id:?}");
-                ServiceResponse::serialized_not_found()
+                ServiceResponse::not_found()
             }
             Err(message) => {
                 tracing::error!("Internal server error: {message}");
-                ServiceResponse::serialized_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal error",
-                )
+                ServiceResponse::error(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
             }
         }
     }
@@ -160,39 +166,36 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
         State(state): State<Arc<S>>,
         Path(HexBlobId(blob_id)): Path<HexBlobId>,
         Json(metadata): Json<BlobMetadata>,
-    ) -> (StatusCode, Json<ServiceResponse<String>>) {
+    ) -> ServiceResponse<String> {
         let unverified_metadata_with_id = UnverifiedBlobMetadataWithId::new(blob_id, metadata);
         match state.store_metadata(unverified_metadata_with_id) {
             Ok(()) => {
                 let msg = format!("Stored metadata for {blob_id:?}");
                 tracing::debug!(msg);
-                ServiceResponse::serialized_success(StatusCode::CREATED, msg)
+                ServiceResponse::success(StatusCode::CREATED, msg)
             }
             Err(StoreMetadataError::AlreadyStored) => {
                 let msg = format!("Metadata for {blob_id:?} was already stored");
                 tracing::debug!(msg);
-                ServiceResponse::serialized_success(StatusCode::OK, msg)
+                ServiceResponse::success(StatusCode::OK, msg)
             }
             Err(StoreMetadataError::InvalidMetadata(message)) => {
                 tracing::debug!("Received invalid metadata: {message}");
-                ServiceResponse::serialized_error(StatusCode::BAD_REQUEST, message.to_string())
+                ServiceResponse::error(StatusCode::BAD_REQUEST, message.to_string())
             }
             Err(StoreMetadataError::NotRegistered) => {
                 let msg = format!("Blob {blob_id:?} has not been registered");
                 tracing::debug!(msg);
-                ServiceResponse::serialized_error(StatusCode::BAD_REQUEST, msg)
+                ServiceResponse::error(StatusCode::BAD_REQUEST, msg)
             }
             Err(StoreMetadataError::BlobExpired) => {
                 let msg = format!("Blob {blob_id:?} is expired");
                 tracing::debug!(msg);
-                ServiceResponse::serialized_error(StatusCode::BAD_REQUEST, msg)
+                ServiceResponse::error(StatusCode::BAD_REQUEST, msg)
             }
             Err(StoreMetadataError::Internal(message)) => {
                 tracing::error!("Internal server error: {message}");
-                ServiceResponse::serialized_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal error",
-                )
+                ServiceResponse::error(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
             }
         }
     }
@@ -204,22 +207,19 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             SliverPairIndex,
             SliverType,
         )>,
-    ) -> (StatusCode, Json<ServiceResponse<Sliver>>) {
+    ) -> ServiceResponse<Sliver> {
         match state.retrieve_sliver(&blob_id, sliver_pair_idx, sliver_type) {
             Ok(Some(sliver)) => {
                 tracing::debug!("Retrieved {sliver_type:?} sliver for {blob_id:?}");
-                ServiceResponse::serialized_success(StatusCode::OK, sliver)
+                ServiceResponse::success(StatusCode::OK, sliver)
             }
             Ok(None) => {
                 tracing::debug!("{sliver_type:?} sliver not found for {blob_id:?}");
-                ServiceResponse::serialized_not_found()
+                ServiceResponse::not_found()
             }
             Err(message) => {
                 tracing::error!("Internal server error: {message}");
-                ServiceResponse::serialized_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal error",
-                )
+                ServiceResponse::error(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
             }
         }
     }
@@ -228,7 +228,6 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
     /// The sliver_type is the target type of the sliver that will be recovered
     /// The sliver_pair_idx is the index of the sliver pair that we want to access
     /// Index is the requesters index in the established order of storage nodes
-
     async fn retrieve_recovery_symbol(
         State(state): State<Arc<S>>,
         Path((HexBlobId(blob_id), sliver_pair_idx, sliver_type, index)): Path<(
@@ -237,18 +236,15 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             SliverType,
             SliverIndex,
         )>,
-    ) -> (
-        StatusCode,
-        Json<ServiceResponse<DecodingSymbol<MerkleProof>>>,
-    ) {
+    ) -> ServiceResponse<DecodingSymbol<MerkleProof>> {
         match state.retrieve_recovery_symbol(&blob_id, sliver_pair_idx, sliver_type, index) {
             Ok(symbol) => {
                 tracing::debug!("Retrieved recovery symbol for {blob_id:?}");
-                ServiceResponse::serialized_success(StatusCode::OK, symbol)
+                ServiceResponse::success(StatusCode::OK, symbol)
             }
             Err(message) => {
                 tracing::debug!("Symbol not found with error {message}");
-                ServiceResponse::serialized_not_found()
+                ServiceResponse::not_found()
             }
         }
     }
@@ -261,29 +257,23 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             SliverType,
         )>,
         Json(sliver): Json<Sliver>,
-    ) -> (StatusCode, Json<ServiceResponse<()>>) {
+    ) -> ServiceResponse<()> {
         if sliver.r#type() != sliver_type {
-            return ServiceResponse::serialized_error(
-                StatusCode::MISDIRECTED_REQUEST,
-                "Invalid sliver type",
-            );
+            return ServiceResponse::error(StatusCode::MISDIRECTED_REQUEST, "Invalid sliver type");
         }
 
         match state.store_sliver(&blob_id, sliver_pair_idx, &sliver) {
             Ok(()) => {
                 tracing::debug!("Stored {sliver_type:?} sliver for {blob_id:?}");
-                ServiceResponse::serialized_success(StatusCode::OK, ())
+                ServiceResponse::success(StatusCode::OK, ())
             }
             Err(StoreSliverError::Internal(message)) => {
                 tracing::error!("Internal server error: {message}");
-                ServiceResponse::serialized_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal error",
-                )
+                ServiceResponse::error(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
             }
             Err(client_error) => {
                 tracing::debug!("Received invalid {sliver_type:?} sliver: {client_error}");
-                ServiceResponse::serialized_error(StatusCode::BAD_REQUEST, client_error.to_string())
+                ServiceResponse::error(StatusCode::BAD_REQUEST, client_error.to_string())
             }
         }
     }
@@ -291,22 +281,19 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
     async fn retrieve_storage_confirmation(
         State(state): State<Arc<S>>,
         Path(HexBlobId(blob_id)): Path<HexBlobId>,
-    ) -> (StatusCode, Json<ServiceResponse<StorageConfirmation>>) {
+    ) -> ServiceResponse<StorageConfirmation> {
         match state.compute_storage_confirmation(&blob_id).await {
             Ok(Some(confirmation)) => {
                 tracing::debug!("Retrieved storage confirmation for {blob_id:?}");
-                ServiceResponse::serialized_success(StatusCode::OK, confirmation)
+                ServiceResponse::success(StatusCode::OK, confirmation)
             }
             Ok(None) => {
                 tracing::debug!("Storage confirmation not found for {blob_id:?}");
-                ServiceResponse::serialized_not_found()
+                ServiceResponse::not_found()
             }
             Err(message) => {
                 tracing::error!("Internal server error: {message}");
-                ServiceResponse::serialized_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal error",
-                )
+                ServiceResponse::error(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
             }
         }
     }
