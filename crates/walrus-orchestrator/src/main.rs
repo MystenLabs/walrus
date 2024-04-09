@@ -6,15 +6,25 @@
 use clap::Parser;
 use client::{aws::AwsClient, vultr::VultrClient, ServerProviderClient};
 use eyre::Context;
+use protocol::walrus::{WalrusClientParameters, WalrusNodeParameters, WalrusProtocol};
 use settings::{CloudProvider, Settings};
 use testbed::Testbed;
 
+mod benchmark;
 mod client;
 mod display;
 mod error;
+mod faults;
+mod protocol;
 mod settings;
 mod ssh;
 mod testbed;
+
+/// NOTE: Link these types to the correct protocol.
+#[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
+type Protocol = WalrusProtocol;
+type NodeParameters = WalrusNodeParameters;
+type ClientParameters = WalrusClientParameters;
 
 /// The orchestrator command line options.
 #[derive(Parser, Debug)]
