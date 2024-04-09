@@ -125,7 +125,9 @@ impl AwsClient {
                     .expect("AWS instance should have a state")
                     .name()
                     .expect("AWS status should have a name")
-            ),
+            )
+            .as_str()
+            .into(),
         }
     }
 

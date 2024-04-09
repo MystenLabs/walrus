@@ -26,7 +26,7 @@ pub struct Opts {
     #[clap(
         long,
         value_name = "FILE",
-        default_value = "orchestrator/assets/settings-template.yaml",
+        default_value = "orchestrator/assets/settings.yaml",
         global = true
     )]
     settings_path: String,

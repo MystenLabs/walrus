@@ -13,6 +13,23 @@ use crate::error::CloudProviderResult;
 pub mod aws;
 pub mod vultr;
 
+#[derive(Debug, Deserialize, Clone, Eq, PartialEq, Hash)]
+pub enum InstanceStatus {
+    Active,
+    Inactive,
+    Terminated,
+}
+
+impl From<&str> for InstanceStatus {
+    fn from(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "running" => Self::Active,
+            "terminated" => Self::Terminated,
+            _ => Self::Inactive,
+        }
+    }
+}
+
 /// Represents a cloud provider instance.
 #[derive(Debug, Deserialize, Clone, Eq, PartialEq, Hash)]
 pub struct Instance {
@@ -27,13 +44,13 @@ pub struct Instance {
     /// The specs of the instance.
     pub specs: String,
     /// The current status of the instance.
-    pub status: String,
+    pub status: InstanceStatus,
 }
 
 impl Instance {
     /// Return whether the instance is active and running.
     pub fn is_active(&self) -> bool {
-        self.status.to_lowercase() == "running"
+        matches!(self.status, InstanceStatus::Active)
     }
 
     /// Return whether the instance is inactive and not ready for use.
@@ -43,7 +60,7 @@ impl Instance {
 
     /// Return whether the instance is terminated and in the process of being deleted.
     pub fn is_terminated(&self) -> bool {
-        self.status.to_lowercase() == "terminated"
+        matches!(self.status, InstanceStatus::Terminated)
     }
 
     /// Return the ssh address to connect to the instance.
@@ -60,7 +77,7 @@ impl Instance {
             main_ip: Ipv4Addr::LOCALHOST,
             tags: Default::default(),
             specs: Default::default(),
-            status: Default::default(),
+            status: InstanceStatus::Active,
         }
     }
 }
@@ -104,7 +121,7 @@ pub mod test_client {
 
     use serde::Serialize;
 
-    use super::{Instance, ServerProviderClient};
+    use super::{Instance, InstanceStatus, ServerProviderClient};
     use crate::{error::CloudProviderResult, settings::Settings};
 
     pub struct TestClient {
@@ -142,7 +159,7 @@ pub mod test_client {
             let instance_ids: Vec<_> = instances.map(|x| x.id.clone()).collect();
             let mut guard = self.instances.lock().unwrap();
             for instance in guard.iter_mut().filter(|x| instance_ids.contains(&x.id)) {
-                instance.status = "running".into();
+                instance.status = InstanceStatus::Active;
             }
             Ok(())
         }
@@ -154,7 +171,7 @@ pub mod test_client {
             let instance_ids: Vec<_> = instances.map(|x| x.id.clone()).collect();
             let mut guard = self.instances.lock().unwrap();
             for instance in guard.iter_mut().filter(|x| instance_ids.contains(&x.id)) {
-                instance.status = "stopped".into();
+                instance.status = InstanceStatus::Inactive;
             }
             Ok(())
         }
@@ -171,7 +188,7 @@ pub mod test_client {
                 main_ip: format!("0.0.0.{id}").parse().unwrap(),
                 tags: Vec::new(),
                 specs: self.settings.specs.clone(),
-                status: "running".into(),
+                status: InstanceStatus::Active,
             };
             guard.push(instance.clone());
             Ok(instance)
