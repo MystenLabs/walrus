@@ -16,11 +16,9 @@ use serde_with::{serde_as, DisplayFromStr};
 use tokio_util::sync::CancellationToken;
 use tower_http::trace::TraceLayer;
 use walrus_core::{
-    merkle::MerkleProof,
     messages::StorageConfirmation,
     metadata::{BlobMetadata, SliverIndex, SliverPairIndex, UnverifiedBlobMetadataWithId},
     BlobId,
-    DecodingSymbol,
     Sliver,
     SliverType,
 };
@@ -245,15 +243,15 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             SliverType,
             SliverIndex,
         )>,
-    ) -> ServiceResponse<DecodingSymbol<MerkleProof>> {
+    ) -> Response {
         match state.retrieve_recovery_symbol(&blob_id, sliver_pair_idx, sliver_type, index) {
             Ok(symbol) => {
                 tracing::debug!("Retrieved recovery symbol for {blob_id:?}");
-                ServiceResponse::success(StatusCode::OK, symbol)
+                (StatusCode::OK, Bcs(symbol)).into_response()
             }
             Err(message) => {
                 tracing::debug!("Symbol not found with error {message}");
-                ServiceResponse::not_found()
+                ServiceResponse::<()>::not_found().into_response()
             }
         }
     }
@@ -675,17 +673,13 @@ mod test {
         let res = client.get(url).send().await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
 
-        let body = res
-            .json::<ServiceResponse<DecodingSymbol<MerkleProof>>>()
-            .await;
-        match body.unwrap() {
-            ServiceResponse::Success { code, data: _data } => {
-                assert_eq!(code, StatusCode::OK.as_u16());
-            }
-            ServiceResponse::Error { code, message } => {
-                panic!("Unexpected error response: {code} {message}");
-            }
-        }
+        let bytes = res
+            .bytes()
+            .await
+            .expect("must be able to retrieve the body as binary data");
+
+        let _symbol: DecodingSymbol<MerkleProof> =
+            bcs::from_bytes(&bytes).expect("symbol should successfully decode");
     }
 
     #[tokio::test]
