@@ -1,19 +1,20 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::time::Duration;
+use std::{marker::PhantomData, time::Duration};
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use futures::{stream::FuturesUnordered, Future, Stream, StreamExt};
 use reqwest::Response;
 use serde::{Deserialize, Serialize};
 use tokio::time::timeout;
 
+use super::error::CommunicationError;
 use crate::server::ServiceResponse;
 
 /// Takes a [`Response`], deserializes the json content, removes the [`ServiceResponse`] and
 /// returns the contained type.
-pub(crate) async fn unwrap_response<T>(response: Response) -> Result<T>
+pub(crate) async fn unwrap_response<T>(response: Response) -> Result<T, CommunicationError>
 where
     T: Serialize + for<'a> Deserialize<'a>,
 {
@@ -21,12 +22,12 @@ where
         let body = response.json::<ServiceResponse<T>>().await?;
         match body {
             ServiceResponse::Success { code: _code, data } => Ok(data),
-            ServiceResponse::Error { code, message } => Err(anyhow!(
-                "unexpected error in the response: {code} {message}"
-            )),
+            ServiceResponse::Error { code, message } => {
+                Err(CommunicationError::ServiceResponseError { code, message })
+            }
         }
     } else {
-        Err(anyhow!("request failed with status: {}", response.status()))
+        Err(CommunicationError::HttpFailure(response.status()))
     }
 }
 
@@ -34,21 +35,23 @@ where
 ///
 /// Used to represent the number of shards owned by the node that returned the result, to keep track
 /// of how many correct responses we received towards the quorum.
-pub(crate) type WeightedResult<T> = Result<(usize, T)>;
+pub(crate) type WeightedResult<T, E> = Result<(usize, T), E>;
 
 /// A set of weighted futures that return a [`WeightedResult`]. The futures can be awaited on for a
 /// certain time, or until a set cumulative weight of futures return successfully.
-pub(crate) struct WeightedFutures<I, Fut, T> {
+pub(crate) struct WeightedFutures<I, Fut, T, E> {
     futures: I,
     being_executed: FuturesUnordered<Fut>,
     results: Vec<T>,
+    // TODO(giac): remove phantomdata when the error propagation is completed.
+    error: PhantomData<E>,
 }
 
-impl<I, Fut, T> WeightedFutures<I, Fut, T>
+impl<I, Fut, T, E> WeightedFutures<I, Fut, T, E>
 where
     I: Iterator<Item = Fut>,
-    Fut: Future<Output = WeightedResult<T>>,
-    FuturesUnordered<Fut>: Stream<Item = WeightedResult<T>>,
+    Fut: Future<Output = WeightedResult<T, E>>,
+    FuturesUnordered<Fut>: Stream<Item = WeightedResult<T, E>>,
 {
     /// Creates a new [`WeightedFutures`] struct from an iterator of futures.
     pub fn new(futures: I) -> Self {
@@ -56,6 +59,7 @@ where
             futures,
             being_executed: FuturesUnordered::new(),
             results: vec![],
+            error: PhantomData,
         }
     }
 
@@ -180,7 +184,7 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis((i) * 10)).await;
                 Ok((1, i)) // Every result has a weight of 1.
             });
-            let mut $var = WeightedFutures::new(futures);
+            let mut $var: WeightedFutures<_, _, _, anyhow::Error> = WeightedFutures::new(futures);
         };
     }
 

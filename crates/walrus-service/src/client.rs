@@ -4,7 +4,7 @@
 use std::{collections::HashMap, time::Instant};
 
 use anyhow::{anyhow, Result};
-use futures::{stream::FuturesUnordered, Future, Stream};
+use futures::Future;
 use reqwest::{Client as ReqwestClient, ClientBuilder};
 use tokio::time::Duration;
 use walrus_core::{
@@ -20,11 +20,13 @@ use crate::mapping::shard_index_for_pair;
 
 mod communication;
 mod config;
+mod error;
 mod utils;
 
 pub use self::config::Config;
 use self::{
     communication::NodeCommunication,
+    error::SliverRetrieveError,
     utils::{WeightedFutures, WeightedResult},
 };
 
@@ -143,15 +145,14 @@ impl Client {
     /// sliver it receives.
     async fn decode_sliver_by_sliver<'a, I, Fut, T>(
         &self,
-        requests: &mut WeightedFutures<I, Fut, Sliver<T>>,
+        requests: &mut WeightedFutures<I, Fut, Sliver<T>, SliverRetrieveError>,
         decoder: &mut BlobDecoder<'a, T>,
         blob_id: &BlobId,
     ) -> Result<Vec<u8>>
     where
         T: EncodingAxis,
         I: Iterator<Item = Fut>,
-        Fut: Future<Output = WeightedResult<Sliver<T>>>,
-        FuturesUnordered<Fut>: Stream<Item = WeightedResult<Sliver<T>>>,
+        Fut: Future<Output = WeightedResult<Sliver<T>, SliverRetrieveError>>,
     {
         while let Some(sliver) = requests.execute_next(self.concurrent_requests).await {
             let result = decoder.decode_and_verify(blob_id, [sliver])?;
