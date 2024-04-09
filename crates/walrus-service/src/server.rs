@@ -453,7 +453,7 @@ mod test {
         let url = format!("http://{}{path}", config.as_ref().rest_api_address);
 
         let client = reqwest::Client::new();
-        let res = client.get(url).json(&blob_id).send().await.unwrap();
+        let res = client.get(url).send().await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
 
         assert_eq!(
@@ -478,7 +478,7 @@ mod test {
         let url = format!("http://{}{path}", config.as_ref().rest_api_address);
 
         let client = reqwest::Client::new();
-        let res = client.get(url).json(&blob_id).send().await.unwrap();
+        let res = client.get(url).send().await.unwrap();
         assert_eq!(res.status(), StatusCode::NOT_FOUND);
     }
 
@@ -492,7 +492,7 @@ mod test {
         let url = format!("http://{}{path}", config.as_ref().rest_api_address);
 
         let client = reqwest::Client::new();
-        let res = client.get(url).json(&blob_id).send().await.unwrap();
+        let res = client.get(url).send().await.unwrap();
         assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 
@@ -530,7 +530,7 @@ mod test {
         let url = format!("http://{}{path}", config.as_ref().rest_api_address);
 
         let client = reqwest::Client::new();
-        let res = client.get(url).json(&blob_id).send().await.unwrap();
+        let res = client.get(url).send().await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
 
         let _sliver: Sliver = bcs::from_bytes(
@@ -599,7 +599,7 @@ mod test {
         let url = format!("http://{}{path}", config.as_ref().rest_api_address);
 
         let client = reqwest::Client::new();
-        let res = client.get(url).json(&blob_id).send().await.unwrap();
+        let res = client.get(url).send().await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
 
         let body = res.json::<ServiceResponse<StorageConfirmation>>().await;
@@ -624,7 +624,7 @@ mod test {
         let url = format!("http://{}{path}", config.as_ref().rest_api_address);
 
         let client = reqwest::Client::new();
-        let res = client.get(url).json(&blob_id).send().await.unwrap();
+        let res = client.get(url).send().await.unwrap();
         assert_eq!(res.status(), StatusCode::NOT_FOUND);
     }
 
@@ -638,7 +638,7 @@ mod test {
         let url = format!("http://{}{path}", config.as_ref().rest_api_address);
 
         let client = reqwest::Client::new();
-        let res = client.get(url).json(&blob_id).send().await.unwrap();
+        let res = client.get(url).send().await.unwrap();
         assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 
@@ -672,7 +672,7 @@ mod test {
         // TODO(lef): Extract the path creation into a function with optional arguments
 
         let client = reqwest::Client::new();
-        let res = client.get(url).json(&blob_id).send().await.unwrap();
+        let res = client.get(url).send().await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
 
         let body = res
@@ -702,7 +702,7 @@ mod test {
             .replace(":index", "0");
         let url = format!("http://{}{path}", config.inner.rest_api_address);
         let client = reqwest::Client::new();
-        let res = client.get(url).json(&blob_id).send().await.unwrap();
+        let res = client.get(url).send().await.unwrap();
         assert_eq!(res.status(), StatusCode::NOT_FOUND);
     }
 }
