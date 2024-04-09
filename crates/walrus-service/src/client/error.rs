@@ -121,4 +121,7 @@ pub enum CommunicationError {
     /// The HTTP request completed, but returned an error code.
     #[error("the HTTP request to the node completed, but was not successful: {0}")]
     HttpFailure(StatusCode),
+    /// Unable to deserialize a BCS response.
+    #[error(transparent)]
+    DeserializationFailed(#[from] bcs::Error),
 }

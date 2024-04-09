@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use futures::{stream::FuturesUnordered, Future, StreamExt};
-use reqwest::Response;
+use reqwest::{header, Response};
 use serde::{Deserialize, Serialize};
 use tokio::time::timeout;
 
@@ -18,7 +18,7 @@ pub(crate) async fn unwrap_response<T>(response: Response) -> Result<T, Communic
 where
     T: Serialize + for<'a> Deserialize<'a>,
 {
-    if response.status().is_success() {
+    if has_json_content_type(response.headers()) {
         let body = response.json::<ServiceResponse<T>>().await?;
         match body {
             ServiceResponse::Success { code: _code, data } => Ok(data),
@@ -26,9 +26,33 @@ where
                 Err(CommunicationError::ServiceResponseError { code, message })
             }
         }
+    } else if response.status().is_success() {
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(CommunicationError::ReqwestError)?;
+
+        Ok(bcs::from_bytes(&bytes)?)
     } else {
         Err(CommunicationError::HttpFailure(response.status()))
     }
+}
+
+fn has_json_content_type(headers: &header::HeaderMap) -> bool {
+    let Some(content_type) = headers.get(header::CONTENT_TYPE) else {
+        return false;
+    };
+
+    let Some(media_type) = content_type
+        .to_str()
+        .ok()
+        .and_then(|s| s.parse::<mime::Mime>().ok())
+    else {
+        return false;
+    };
+
+    // Check the media type and subtype, but allow any params.
+    media_type.type_() == mime::APPLICATION && media_type.subtype() == mime::JSON
 }
 
 /// A trait representing a result that has a weight.

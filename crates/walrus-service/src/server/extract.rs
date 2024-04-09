@@ -5,10 +5,10 @@ use axum::{
     async_trait,
     body::Bytes,
     extract::{rejection::BytesRejection, FromRequest, Request},
-    http::{header, HeaderMap, StatusCode},
-    response::IntoResponse,
+    http::{header, HeaderMap, HeaderValue, StatusCode},
+    response::{IntoResponse, Response},
 };
-use serde::de::DeserializeOwned;
+use serde::{de::DeserializeOwned, Serialize};
 
 use crate::server::ServiceResponse;
 
@@ -56,7 +56,7 @@ where
     async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
         if has_bcs_content_type(req.headers()) {
             let bytes = Bytes::from_request(req, state).await?;
-            Self::from_bytes(&bytes)
+            Ok(Bcs(bcs::from_bytes(&bytes)?))
         } else {
             Err(BcsRejection::UnsupportedContentType)
         }
@@ -81,11 +81,30 @@ fn has_bcs_content_type(headers: &HeaderMap) -> bool {
     media_type.type_() == mime::APPLICATION && media_type.subtype() == mime::OCTET_STREAM
 }
 
-impl<T> Bcs<T>
+impl<T> IntoResponse for Bcs<T>
 where
-    T: DeserializeOwned,
+    T: Serialize,
 {
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, BcsRejection> {
-        Ok(Bcs(bcs::from_bytes(bytes)?))
+    fn into_response(self) -> Response {
+        // Use a small initial capacity of 128 bytes like serde_json::to_vec
+        // https://docs.rs/serde_json/1.0.82/src/serde_json/ser.rs.html#2189
+        let mut buf = Vec::with_capacity(128);
+        match bcs::serialize_into(&mut buf, &self.0) {
+            Ok(()) => (
+                [(
+                    header::CONTENT_TYPE,
+                    HeaderValue::from_static(mime::APPLICATION_OCTET_STREAM.as_ref()),
+                )],
+                buf,
+            )
+                .into_response(),
+            Err(err) => {
+                tracing::error!(
+                    ?err,
+                    "failed to BCS encode an internal response type to the user"
+                );
+                ServiceResponse::<()>::internal_error().into_response()
+            }
+        }
     }
 }

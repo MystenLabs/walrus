@@ -6,7 +6,7 @@ use std::{net::SocketAddr, sync::Arc};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     routing::get,
     Json,
     Router,
@@ -77,17 +77,19 @@ impl<T: Serialize> IntoResponse for ServiceResponse<T> {
 }
 
 impl<T: Serialize> ServiceResponse<T> {
-    fn code(&self) -> u16 {
-        match self {
-            ServiceResponse::Success { code, .. } | ServiceResponse::Error { code, .. } => *code,
-        }
-    }
-
     /// Creates a new success response.
     fn success(code: StatusCode, data: T) -> Self {
         Self::Success {
             code: code.as_u16(),
             data,
+        }
+    }
+}
+
+impl<T> ServiceResponse<T> {
+    fn code(&self) -> u16 {
+        match self {
+            ServiceResponse::Success { code, .. } | ServiceResponse::Error { code, .. } => *code,
         }
     }
 
@@ -102,6 +104,10 @@ impl<T: Serialize> ServiceResponse<T> {
     /// Creates a new 404 'not found' error.
     fn not_found() -> Self {
         Self::error(StatusCode::NOT_FOUND, "Not found")
+    }
+
+    fn internal_error() -> Self {
+        Self::error(StatusCode::INTERNAL_SERVER_ERROR, "Internal Error")
     }
 }
 
@@ -149,19 +155,19 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
     async fn retrieve_metadata(
         State(state): State<Arc<S>>,
         Path(HexBlobId(blob_id)): Path<HexBlobId>,
-    ) -> ServiceResponse<UnverifiedBlobMetadataWithId> {
+    ) -> Response {
         match state.retrieve_metadata(&blob_id) {
             Ok(Some(metadata)) => {
                 tracing::debug!("Retrieved metadata for {blob_id:?}");
-                ServiceResponse::success(StatusCode::OK, metadata)
+                (StatusCode::OK, Bcs(metadata)).into_response()
             }
             Ok(None) => {
                 tracing::debug!("Metadata not found for {blob_id:?}");
-                ServiceResponse::not_found()
+                ServiceResponse::<()>::not_found().into_response()
             }
             Err(message) => {
                 tracing::error!("Internal server error: {message}");
-                ServiceResponse::error(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
+                ServiceResponse::<()>::internal_error().into_response()
             }
         }
     }
@@ -199,7 +205,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             }
             Err(StoreMetadataError::Internal(message)) => {
                 tracing::error!("Internal server error: {message}");
-                ServiceResponse::error(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
+                ServiceResponse::internal_error()
             }
         }
     }
@@ -314,12 +320,7 @@ mod test {
     use walrus_core::{
         merkle::MerkleProof,
         messages::StorageConfirmation,
-        metadata::{
-            SliverIndex,
-            SliverPairIndex,
-            UnverifiedBlobMetadataWithId,
-            VerifiedBlobMetadataWithId,
-        },
+        metadata::{SliverIndex, SliverPairIndex, UnverifiedBlobMetadataWithId},
         BlobId,
         DecodingSymbol,
         Sliver,
@@ -456,17 +457,16 @@ mod test {
         let res = client.get(url).json(&blob_id).send().await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
 
-        let body = res
-            .json::<ServiceResponse<VerifiedBlobMetadataWithId>>()
-            .await;
-        match body.unwrap() {
-            ServiceResponse::Success { code, data: _data } => {
-                assert_eq!(code, StatusCode::OK.as_u16());
-            }
-            ServiceResponse::Error { code, message } => {
-                panic!("Unexpected error response: {code} {message}");
-            }
-        }
+        assert_eq!(
+            res.headers().get(reqwest::header::CONTENT_TYPE),
+            Some(&reqwest::header::HeaderValue::from_static(
+                "application/octet-stream"
+            ))
+        );
+
+        let bytes = res.bytes().await.expect("valid response with bytes");
+        let _data: UnverifiedBlobMetadataWithId =
+            bcs::from_bytes(&bytes).expect("metadata must decode");
     }
 
     #[tokio::test]
