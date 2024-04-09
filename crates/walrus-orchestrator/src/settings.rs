@@ -87,7 +87,7 @@ mod defaults {
     use std::path::PathBuf;
 
     pub fn default_working_dir() -> PathBuf {
-        ["~/", "working_dir"].iter().collect()
+        "~/working_dir".into()
     }
 
     pub fn default_results_dir() -> PathBuf {
