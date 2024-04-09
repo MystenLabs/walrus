@@ -30,6 +30,8 @@ use crate::node::{ServiceState, StoreMetadataError, StoreSliverError};
 
 mod extract;
 
+// TODO(jsmith): Remove json calls on gets
+
 /// The path to get and store blob metadata.
 pub const METADATA_ENDPOINT: &str = "/v1/blobs/:blobId/metadata";
 /// The path to get and store slivers.
@@ -62,9 +64,6 @@ pub enum ServiceResponse<T> {
         message: String,
     },
 }
-
-// TODO(jsmith): u16 to http::StatusCode
-// TODO(jsmith): Replace unveritifed with verified
 
 impl<T: Serialize> IntoResponse for ServiceResponse<T> {
     fn into_response(self) -> axum::response::Response {
@@ -217,19 +216,19 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             SliverPairIndex,
             SliverType,
         )>,
-    ) -> ServiceResponse<Sliver> {
+    ) -> Response {
         match state.retrieve_sliver(&blob_id, sliver_pair_idx, sliver_type) {
             Ok(Some(sliver)) => {
                 tracing::debug!("Retrieved {sliver_type:?} sliver for {blob_id:?}");
-                ServiceResponse::success(StatusCode::OK, sliver)
+                (StatusCode::OK, Bcs(sliver)).into_response()
             }
             Ok(None) => {
                 tracing::debug!("{sliver_type:?} sliver not found for {blob_id:?}");
-                ServiceResponse::not_found()
+                ServiceResponse::<()>::not_found().into_response()
             }
             Err(message) => {
                 tracing::error!("Internal server error: {message}");
-                ServiceResponse::error(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
+                ServiceResponse::<()>::internal_error().into_response()
             }
         }
     }
@@ -266,7 +265,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             SliverPairIndex,
             SliverType,
         )>,
-        Json(sliver): Json<Sliver>,
+        Bcs(sliver): Bcs<Sliver>,
     ) -> ServiceResponse<()> {
         if sliver.r#type() != sliver_type {
             return ServiceResponse::error(StatusCode::MISDIRECTED_REQUEST, "Invalid sliver type");
@@ -534,15 +533,12 @@ mod test {
         let res = client.get(url).json(&blob_id).send().await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
 
-        let body = res.json::<ServiceResponse<Sliver>>().await;
-        match body.unwrap() {
-            ServiceResponse::Success { code, data: _data } => {
-                assert_eq!(code, StatusCode::OK.as_u16());
-            }
-            ServiceResponse::Error { code, message } => {
-                panic!("Unexpected error response: {code} {message}");
-            }
-        }
+        let _sliver: Sliver = bcs::from_bytes(
+            &res.bytes()
+                .await
+                .expect("result should contain parsable bytes"),
+        )
+        .expect("sliver should successfully parse");
     }
 
     #[tokio::test]
@@ -560,7 +556,12 @@ mod test {
         let url = format!("http://{}{path}", config.as_ref().rest_api_address);
 
         let client = reqwest::Client::new();
-        let res = client.put(url).json(&sliver).send().await.unwrap();
+        let res = client
+            .put(url)
+            .body(bcs::to_bytes(&sliver).unwrap())
+            .send()
+            .await
+            .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
     }
 
@@ -579,7 +580,12 @@ mod test {
         let url = format!("http://{}{path}", config.as_ref().rest_api_address);
 
         let client = reqwest::Client::new();
-        let res = client.put(url).json(&sliver).send().await.unwrap();
+        let res = client
+            .put(url)
+            .body(bcs::to_bytes(&sliver).unwrap())
+            .send()
+            .await
+            .unwrap();
         assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 

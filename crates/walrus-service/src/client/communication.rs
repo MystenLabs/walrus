@@ -324,7 +324,7 @@ impl<'a> NodeCommunication<'a> {
         let response = self
             .client
             .put(self.sliver_endpoint(blob_id, pair_index, sliver.r#type()))
-            .json(&sliver)
+            .body(bcs::to_bytes(&sliver).expect("internal types to be bcs encodable"))
             .send()
             .await
             .map_err(|e| SliverStoreError {
