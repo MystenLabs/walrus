@@ -10497,10 +10497,13 @@ name = "walrus-e2e-tests"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "fastcrypto 0.1.8",
  "sui-move-build",
  "sui-sdk",
  "test-cluster",
  "tokio",
+ "walrus-core",
+ "walrus-sui",
 ]
 
 [[package]]

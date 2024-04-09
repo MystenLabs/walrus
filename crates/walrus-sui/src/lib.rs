@@ -6,6 +6,8 @@
 #[macro_use]
 mod utils;
 pub mod client;
-mod contracts;
+pub mod contracts;
 pub mod test_utils;
 pub mod types;
+
+pub use utils::get_created_sui_object_ids_by_type;

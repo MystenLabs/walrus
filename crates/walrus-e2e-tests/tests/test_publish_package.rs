@@ -3,7 +3,7 @@
 
 use sui_sdk::rpc_types::EventFilter;
 use test_cluster::TestClusterBuilder;
-use walrus_e2e_tests::publish_package;
+use walrus_e2e_tests::publish_with_default_system;
 
 #[tokio::test]
 #[ignore = "ignore E2E tests by default"]
@@ -11,7 +11,7 @@ async fn test_publish_blob_storage_package_and_check_events() -> anyhow::Result<
     let mut test_cluster = TestClusterBuilder::new().build().await;
     let wallet = &mut test_cluster.wallet;
     let sender = wallet.active_address()?;
-    publish_package(wallet, "blob_store").await?;
+    publish_with_default_system(wallet, "blob_store").await?;
 
     // Read the system creation event
 

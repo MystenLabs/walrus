@@ -27,7 +27,7 @@ use walrus_core::{messages::ConfirmationCertificate, BlobId, EncodingType};
 use crate::{
     contracts::{self, FunctionTag},
     types::{Blob, StorageResource},
-    utils::{call_args_to_object_ids, get_created_object_ids_by_type},
+    utils::{call_args_to_object_ids, get_created_sui_object_ids_by_type, get_sui_object},
 };
 
 mod read_client;
@@ -222,7 +222,7 @@ impl ContractClient for SuiContractClient {
                 ],
             )
             .await?;
-        let storage_id = get_created_object_ids_by_type(
+        let storage_id = get_created_sui_object_ids_by_type(
             &res,
             &contracts::storage_resource::Storage
                 .to_move_struct_tag(self.read_client.system_pkg_id, &[])?,
@@ -233,7 +233,7 @@ impl ContractClient for SuiContractClient {
             "unexpected number of storage resources created: {}",
             storage_id.len()
         );
-        self.read_client.get_object(storage_id[0]).await
+        get_sui_object(&self.read_client.sui_client, storage_id[0]).await
     }
 
     async fn register_blob(
@@ -256,7 +256,7 @@ impl ContractClient for SuiContractClient {
                 ],
             )
             .await?;
-        let blob_obj_id = get_created_object_ids_by_type(
+        let blob_obj_id = get_created_sui_object_ids_by_type(
             &res,
             &contracts::blob::Blob.to_move_struct_tag(self.read_client.system_pkg_id, &[])?,
         )?;
@@ -266,7 +266,7 @@ impl ContractClient for SuiContractClient {
             blob_obj_id.len()
         );
 
-        self.read_client.get_object(blob_obj_id[0]).await
+        get_sui_object(&self.read_client.sui_client, blob_obj_id[0]).await
     }
 
     async fn certify_blob(
@@ -290,7 +290,7 @@ impl ContractClient for SuiContractClient {
                 ],
             )
             .await?;
-        let blob: Blob = self.read_client.get_object(blob.id).await?;
+        let blob: Blob = get_sui_object(&self.read_client.sui_client, blob.id).await?;
         ensure!(
             blob.certified.is_some(),
             "could not certify blob: {:?}",

@@ -64,7 +64,9 @@ pub(crate) async fn get_type_parameters(
     }
 }
 
-pub(crate) fn get_created_object_ids_by_type(
+/// Retrieves the objects of the given type that were created in a transaction
+/// from a [`SuiTransactionBlockResponse`]
+pub fn get_created_sui_object_ids_by_type(
     response: &SuiTransactionBlockResponse,
     struct_tag: &MoveStructTag,
 ) -> Result<Vec<ObjectID>> {
@@ -93,6 +95,25 @@ pub(crate) fn get_created_object_ids_by_type(
             response.errors
         )),
     }
+}
+
+pub async fn get_sui_object<U>(sui_client: &SuiClient, object_id: ObjectID) -> SuiClientResult<U>
+where
+    U: AssociatedContractStruct,
+{
+    let obj_struct = get_struct_from_object_response(
+        &sui_client
+            .read_api()
+            .get_object_with_options(object_id, SuiObjectDataOptions::new().with_content())
+            .await?,
+    )?;
+    U::try_from(obj_struct).map_err(|_e| {
+        anyhow!(
+            "could not convert object with id {} to expected type",
+            object_id
+        )
+        .into()
+    })
 }
 
 /// Attempts to convert a vector of SuiMoveValues to a vector of numeric rust types
@@ -265,4 +286,4 @@ pub(crate) use get_dynamic_field;
 #[allow(unused)]
 pub(crate) use get_field_from_event;
 
-use crate::contracts::AssociatedContractStruct;
+use crate::{client::SuiClientResult, contracts::AssociatedContractStruct};
