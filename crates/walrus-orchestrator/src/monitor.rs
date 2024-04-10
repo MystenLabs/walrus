@@ -53,18 +53,13 @@ impl Monitor {
         protocol_commands: &P,
     ) -> MonitorResult<()> {
         // Select the instances to monitor.
-        let instances: Vec<_> = if self.dedicated_clients {
-            self.clients
-                .iter()
-                .cloned()
-                .chain(self.nodes.iter().cloned())
-                .collect()
-        } else {
-            self.nodes.clone()
-        };
+        let mut instances = self.nodes.clone();
+        if self.dedicated_clients {
+            instances.extend(self.clients.iter().cloned())
+        }
 
         // Configure and reload prometheus.
-        let instance = std::iter::once(self.instance.clone());
+        let instance = [self.instance.clone()];
         let commands = Prometheus::setup_commands(instances, protocol_commands);
         self.ssh_manager
             .execute(instance, commands, CommandContext::default())
@@ -124,15 +119,11 @@ impl Prometheus {
         }
 
         // Make the command to configure and restart prometheus.
-        [
-            &format!(
-                "sudo echo \"{}\" > {}",
-                config.join("\n"),
-                Self::DEFAULT_PROMETHEUS_CONFIG_PATH
-            ),
-            "sudo service prometheus restart",
-        ]
-        .join(" && ")
+        format!(
+            "sudo echo \"{}\" > {} && sudo service prometheus restart",
+            config.join("\n"),
+            Self::DEFAULT_PROMETHEUS_CONFIG_PATH
+        )
     }
 
     /// Generate the global prometheus configuration.
@@ -183,9 +174,12 @@ impl Grafana {
     pub fn install_commands() -> Vec<String> {
         vec![
             "sudo apt-get install -y apt-transport-https software-properties-common wget".into(),
-            "sudo wget -q -O /usr/share/keyrings/grafana.key https://apt.grafana.com/gpg.key".into(),
+            "sudo wget -q -O /etc/apt/keyrings/grafana.key https://apt.grafana.com/gpg.key".into(),
             "(sudo rm /etc/apt/sources.list.d/grafana.list || true)".into(),
-            "echo \"deb [signed-by=/usr/share/keyrings/grafana.key] https://apt.grafana.com stable main\" | sudo tee -a /etc/apt/sources.list.d/grafana.list".into(),
+            "echo
+            \"deb [signed-by=/usr/share/keyrings/grafana.key] https://apt.grafana.com stable main\"
+            | sudo tee -a /etc/apt/sources.list.d/grafana.list"
+                .into(),
             "sudo apt-get update".into(),
             "sudo apt-get install -y grafana".into(),
             "sudo chmod 777 -R /etc/grafana/".into(),
@@ -229,9 +223,10 @@ impl Grafana {
 
 #[allow(dead_code)] // TODO(Alberto): Will be used to observe local testbeds (#236)
 /// Bootstrap the grafana with datasource to connect to the given instances.
-/// NOTE: Only for macOS. Grafana must be installed through homebrew (and not from source). Deeper grafana
-/// configuration can be done through the grafana.ini file (/opt/homebrew/etc/grafana/grafana.ini) or the
-/// plist file (~/Library/LaunchAgents/homebrew.mxcl.grafana.plist).
+/// NOTE: Only for macOS. Grafana must be installed through homebrew (and not from source).
+/// Deeper grafana configuration can be done through the grafana.ini file
+/// (/opt/homebrew/etc/grafana/grafana.ini) or the plist file
+/// (~/Library/LaunchAgents/homebrew.mxcl.grafana.plist).
 pub struct LocalGrafana;
 
 #[allow(dead_code)] // TODO(Alberto): Will be used to observe local testbeds (#236)
@@ -277,8 +272,8 @@ impl LocalGrafana {
         Ok(())
     }
 
-    /// Generate the content of the datasource file for the given instance. This grafana instance takes
-    /// one datasource per instance and assumes one prometheus server runs per instance.
+    /// Generate the content of the datasource file for the given instance. This grafana instance
+    /// takes one datasource per instance and assumes one prometheus server runs per instance.
     /// NOTE: The datasource file is a yaml file so spaces are important.
     fn datasource(instance: &Instance, index: usize) -> String {
         [
@@ -312,11 +307,23 @@ impl NodeExporter {
     const SERVICE_PATH: &'static str = "/etc/systemd/system/node_exporter.service";
 
     pub fn install_commands() -> Vec<String> {
+        let build = format!("node_exporter-{}.linux-amd64", Self::RELEASE);
+        let source = format!(
+            "https://github.com/prometheus/node_exporter/releases/download/v{}/{build}.tar.gz",
+            Self::RELEASE
+        );
+
         vec![
             "(sudo systemctl status node_exporter && exit 0)".into(),
-            format!("curl -LO https://github.com/prometheus/node_exporter/releases/download/v{v}/node_exporter-{v}.linux-amd64.tar.gz", v=Self::RELEASE),
-            format!("tar -xvf node_exporter-{}.linux-amd64.tar.gz", Self::RELEASE),
-            format!("sudo mv node_exporter-{}.linux-amd64/node_exporter /usr/local/bin/", Self::RELEASE),
+            format!("curl -LO {source}"),
+            format!(
+                "tar -xvf node_exporter-{}.linux-amd64.tar.gz",
+                Self::RELEASE
+            ),
+            format!(
+                "sudo mv node_exporter-{}.linux-amd64/node_exporter /usr/local/bin/",
+                Self::RELEASE
+            ),
             "sudo useradd -rs /bin/false node_exporter || true".into(),
             format!(
                 "sudo echo \"{}\" > {}",
