@@ -6,6 +6,7 @@ module blob_store::system {
     use sui::coin::{Self, Coin};
     use sui::table::{Self, Table};
     use sui::event;
+    use sui::bcs;
 
     use blob_store::committee::{Self, Committee};
     use blob_store::storage_accounting::{Self, FutureAccounting, FutureAccountingRingBuffer};
@@ -20,6 +21,7 @@ module blob_store::system {
 
     // Message types:
     const EPOCH_DONE_MSG_TYPE: u8 = 0;
+    const INVALID_BLOB_ID_MSG_TYPE : u8 = 2;
 
     // Epoch status values
     #[allow(unused_const)]
@@ -44,6 +46,12 @@ module blob_store::system {
     /// Signals that the epoch change is DONE now.
     public struct EpochChangeDone has copy, drop {
         epoch: u64,
+    }
+
+    /// Signals that a BlobID is invalid.
+    public struct InvalidBlobID has copy, drop {
+        epoch: u64, // The epoch in which the blob ID is first registered as invalid
+        blob_id: u256,
     }
 
     // Object definitions
@@ -309,6 +317,45 @@ module blob_store::system {
         event::emit(EpochChangeDone {
             epoch: message.epoch,
         });
+    }
+
+    // The logic to register and invalid Blob ID
+
+    /// Define a message type for the InvalidBlobID message.
+    /// It may only be constructed when a valid certified message is
+    /// passed in.
+    public struct CertifiedInvalidBlobID has drop {
+        blob_id: u256,
+    }
+
+    /// Construct the certified invalid Blob ID message, note that constructing
+    /// implies a certified message, that is already checked.
+    public fun certify_invalid_blob_id_message(
+        message: committee::CertifiedMessage
+        ) : CertifiedInvalidBlobID {
+
+        // Assert type is correct
+        assert!(committee::intent_type(&message) == INVALID_BLOB_ID_MSG_TYPE,
+            ERROR_INVALID_MSG_TYPE);
+
+        // The InvalidBlobID message has no payload besides the blob_id.
+        // The certified blob message contain a blob_id : u256
+        let epoch = committee::cert_epoch(&message);
+        let message_body = committee::into_message(message);
+
+        let mut bcs_body = bcs::new(message_body);
+        let blob_id = bcs::peel_u256(&mut bcs_body);
+
+        // Emit the event about a blob id being invalid here.
+        event::emit(InvalidBlobID {
+            epoch,
+            blob_id
+        });
+
+        // This output is provided as a service in case anything else needs to rely on
+        // certified invalid blob ID information in the future. But out base design only
+        // uses the event emitted here.
+        CertifiedInvalidBlobID { blob_id }
     }
 
 }
