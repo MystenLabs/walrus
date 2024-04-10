@@ -41,7 +41,7 @@ async fn test_store_and_read_blob() {
         .blob_id()
         .to_owned();
 
-    let assignment = vec![[0, 1].as_slice(), &[2, 3], &[4, 5, 6], &[7, 8, 9]];
+    let assignment: Vec<&[u16]> = vec![&[0, 1], &[2, 3], &[4, 5, 6], &[7, 8, 9]];
     let cluster = TestCluster::builder()
         .with_shard_assignment(&assignment)
         .with_system_event_providers(vec![
