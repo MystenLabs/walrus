@@ -1,7 +1,10 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 //! Test utilities for using storage nodes in tests.
-
+//!
+//! For creating an instance of a single storage node in a test, see [`StorageNodeHandleBuilder`] .
+//!
+//! For creating a cluster of test storage nodes, see [`TestClusterBuilder`].
 use std::{borrow::Borrow, net::SocketAddr, sync::Arc};
 
 use fastcrypto::{bls12381::min_pk::BLS12381PublicKey, traits::KeyPair};
@@ -97,12 +100,51 @@ impl AsRef<StorageNode> for StorageNodeHandle {
 
 /// Builds a new [`StorageNodeHandle`] with custom configuration values.
 ///
+/// Can be created with the methods [`StorageNodeHandle::builder()`] or with
+/// [`StorageNodeHandleBuilder::new()`].
+///
 /// Methods can be chained in order to set the configuration values, with the `StorageNode` being
 /// constructed by calling [`build`][Self::build`].
 ///
-/// By default, creates a storage node with no pre-assigned shards of 10.
-///
 /// See function level documentation for details on the various configuration settings.
+///
+/// # Examples
+///
+/// The following would create a storage node, and start its REST API and event loop:
+///
+/// ```
+/// use walrus_core::encoding::EncodingConfig;
+/// use walrus_service::test_utils::StorageNodeHandleBuilder;
+///
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let encoding_config = EncodingConfig::new(2, 5, 10);
+/// let handle = StorageNodeHandleBuilder::default()
+///     .with_rest_api_started(true)
+///     .with_node_started(true)
+///     .build(encoding_config)
+///     .await?;
+/// # Ok(())
+/// # }
+/// ```
+///
+/// Whereas the following will create a storage node with no blobs stored and responsible
+/// for shards 0 and 4.
+///
+/// ```
+/// use walrus_core::{encoding::EncodingConfig, ShardIndex};
+/// use walrus_service::test_utils::{self, StorageNodeHandleBuilder};
+///
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let encoding_config = EncodingConfig::new(2, 5, 10);
+/// let handle = StorageNodeHandleBuilder::default()
+///     .with_storage(test_utils::empty_storage_with_shards(&[ShardIndex(0), ShardIndex(4)]))
+///     .build(encoding_config)
+///     .await?;
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug)]
 pub struct StorageNodeHandleBuilder {
     storage: Option<WithTempDir<Storage>>,
@@ -112,7 +154,8 @@ pub struct StorageNodeHandleBuilder {
 }
 
 impl StorageNodeHandleBuilder {
-    /// Creates a new builder.
+    /// Creates a new builder, which by default creates a storage node without any assigned shards
+    /// and without its REST API or event loop running.
     pub fn new() -> Self {
         Self::default()
     }
