@@ -3,12 +3,14 @@
 
 //! A client for the Walrus blob store.
 
-use std::path::PathBuf;
+use std::{env, path::PathBuf};
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use sui_sdk::wallet_context::WalletContext;
 use walrus_core::{encoding::Primary, BlobId};
 use walrus_service::client::{Client, Config};
+use walrus_sui::client::SuiContractClient;
 
 #[derive(Parser, Debug, Clone)]
 #[clap(rename_all = "kebab-case")]
@@ -18,6 +20,12 @@ struct Args {
     /// The configuration file with the committee information.
     #[clap(short, long, default_value = "config.yml")]
     config: PathBuf,
+    /// The path to the wallet config file.
+    #[clap(short, long, default_value = default_client_config().into_os_string())]
+    wallet: PathBuf,
+    /// The gas budget for the transactions.
+    #[clap(short, long, default_value = "1_000_000_000")]
+    gas_budget: u64,
     #[command(subcommand)]
     command: Commands,
 }
@@ -31,6 +39,8 @@ enum Commands {
     Store {
         /// The file containing the blob to be published to Walrus.
         file: PathBuf,
+        /// The number of epochs ahead for which to store the blob.
+        epochs_ahead: u64,
     },
     /// Read a blob from Walrus, given the blob ID.
     Read {
@@ -42,22 +52,40 @@ enum Commands {
     },
 }
 
+fn default_client_config() -> PathBuf {
+    PathBuf::from(env::var("HOME").expect("environment variable HOME should be set"))
+        .join(".sui")
+        .join("sui_config")
+        .join("client.yaml")
+}
+
 /// The client.
 #[tokio::main]
 pub async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
     let args = Args::parse();
     let config: Config = serde_yaml::from_str(&std::fs::read_to_string(args.config)?)?;
-    let client = Client::new(config);
+    // NOTE(giac): at the moment the wallet is needed for both reading and storing, because is also
+    // configures the RPC. In the future, it could be nice to have a "read only" client.
+    let sui_client = SuiContractClient::new(
+        WalletContext::new(&args.wallet, None, None)?,
+        config.system_pkg,
+        config.system_object,
+        args.gas_budget,
+    )
+    .await?;
+    let client = Client::new(config, sui_client).await?;
 
     match args.command {
-        Commands::Store { file } => {
+        Commands::Store { file, epochs_ahead } => {
             tracing::info!(?file, "Storing blob read from the filesystem");
-            client?.store_blob(&std::fs::read(file)?).await?;
+            client
+                .reserve_and_store_blob(&std::fs::read(file)?, epochs_ahead)
+                .await?;
             Ok(())
         }
         Commands::Read { blob_id, out } => {
-            let blob = client?.read_blob::<Primary>(&blob_id).await?;
+            let blob = client.read_blob::<Primary>(&blob_id).await?;
             Ok(std::fs::write(out, blob)?)
         }
     }

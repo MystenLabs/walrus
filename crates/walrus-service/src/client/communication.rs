@@ -40,12 +40,15 @@ use crate::{
     server::{METADATA_ENDPOINT, SLIVER_ENDPOINT, STORAGE_CONFIRMATION_ENDPOINT},
 };
 
+/// Represents the index of the node in the vector of members of the committee.
+pub type NodeIndex = usize;
+
 /// Represents the result of an interaction with a storage node. Contains the epoch, the "weight" of
 /// the interaction (e.g., the number of shards for which an operation was performed), the storage
 /// node that issued it, and the result of the operation.
 // NOTE(giac): the `StorageNode` in the following will be changed to the node index in the members
 // vector in PR #243.
-pub struct NodeResult<T, E>(pub Epoch, pub usize, pub StorageNode, pub Result<T, E>);
+pub struct NodeResult<T, E>(pub Epoch, pub usize, pub NodeIndex, pub Result<T, E>);
 
 impl<T, E> WeightedResult for NodeResult<T, E> {
     type Inner = T;
@@ -62,6 +65,7 @@ impl<T, E> WeightedResult for NodeResult<T, E> {
 }
 
 pub(crate) struct NodeCommunication<'a> {
+    pub node_index: NodeIndex,
     pub epoch: Epoch,
     pub client: &'a ReqwestClient,
     pub node: &'a StorageNode,
@@ -71,12 +75,14 @@ pub(crate) struct NodeCommunication<'a> {
 
 impl<'a> NodeCommunication<'a> {
     pub fn new(
+        node_index: NodeIndex,
         epoch: Epoch,
         client: &'a ReqwestClient,
         node: &'a StorageNode,
         encoding_config: &'a EncodingConfig,
     ) -> Self {
         Self {
+            node_index,
             epoch,
             client,
             node,
@@ -91,7 +97,7 @@ impl<'a> NodeCommunication<'a> {
     }
 
     fn to_node_result<T, E>(&self, weight: usize, result: Result<T, E>) -> NodeResult<T, E> {
-        NodeResult(self.epoch, weight, self.node.clone(), result)
+        NodeResult(self.epoch, weight, self.node_index, result)
     }
 
     // Read operations.

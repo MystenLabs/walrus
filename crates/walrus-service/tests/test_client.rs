@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use sui_types::{digests::TransactionDigest, event::EventID};
+use sui_types::{base_types::ObjectID, digests::TransactionDigest, event::EventID};
 use walrus_core::{
     encoding::{EncodingConfig, Primary, Secondary},
     BlobId,
@@ -14,23 +14,23 @@ use walrus_service::{
     client::{Client, Config},
     test_utils::TestCluster,
 };
-use walrus_sui::types::{BlobCertified, BlobRegistered, Committee, StorageNode as SuiStorageNode};
+use walrus_sui::{
+    test_utils::{MockContractClient, MockSuiReadClient},
+    types::{BlobCertified, BlobRegistered, Committee, StorageNode as SuiStorageNode},
+};
 
 #[tokio::test]
 #[ignore = "ignore E2E tests by default"]
 async fn test_store_and_read_blob() {
     let encoding_config = EncodingConfig::new(2, 4, 10);
 
-    let mut config = Config {
-        committee: Committee {
-            members: vec![],
-            epoch: 0,
-            total_weight: encoding_config.n_shards().into(),
-        },
+    let config = Config {
         source_symbols_primary: encoding_config.n_source_symbols::<Primary>(),
         source_symbols_secondary: encoding_config.n_source_symbols::<Secondary>(),
         concurrent_requests: 10,
         connection_timeout: Duration::from_secs(10),
+        system_pkg: ObjectID::random(),
+        system_object: ObjectID::random(),
     };
 
     let blob = walrus_test_utils::random_data(31415);
@@ -52,7 +52,13 @@ async fn test_store_and_read_blob() {
         .await
         .expect("cluster construction must succeed");
 
-    config.committee.members = cluster
+    let mut committee = Committee {
+        members: vec![],
+        total_weight: 0,
+        epoch: 0,
+    };
+
+    committee.members = cluster
         .nodes
         .iter()
         .zip(assignment)
@@ -64,17 +70,28 @@ async fn test_store_and_read_blob() {
             shard_ids: shard_ids.iter().map(ShardIndex::from).collect(),
         })
         .collect();
+    committee.total_weight = committee
+        .members
+        .iter()
+        .map(|m| m.shard_ids.len())
+        .sum::<usize>()
+        .try_into()
+        .unwrap();
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let client = Client::new(config).unwrap();
+    let sui_contract_client = MockContractClient::new_with_read_client(
+        0,
+        MockSuiReadClient::new_with_blob_ids([blob_id], Some(committee)),
+    );
+    let client = Client::new(config, sui_contract_client).await.unwrap();
 
     // Store a blob and get confirmations from each node.
-    let (metadata, confirmation) = client.store_blob(&blob).await.unwrap();
-    assert!(confirmation.len() == 4);
+    let blob_confirmation = client.reserve_and_store_blob(&blob, 1).await;
+    assert!(blob_confirmation.is_ok());
 
     // Read the blob.
     let read_blob = client
-        .read_blob::<Primary>(metadata.blob_id())
+        .read_blob::<Primary>(&blob_confirmation.unwrap().blob_id)
         .await
         .unwrap();
     assert_eq!(read_blob, blob);

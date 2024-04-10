@@ -4,16 +4,17 @@
 use std::{num::NonZeroU16, time::Duration};
 
 use serde::{Deserialize, Serialize};
-use walrus_core::{encoding::EncodingConfig, ShardIndex};
+use sui_types::base_types::ObjectID;
+use walrus_core::encoding::EncodingConfig;
 use walrus_sui::types::Committee;
 
 use crate::config::LoadConfig;
 
-/// Temporary config for the client.
+/// Config for the client.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
-    /// The committee.
-    pub committee: Committee,
+    // TODO(giac): the number of symbols will be computable from the number of shards after #206
+    // lands. This information can then be removed.
     /// The number of source symbols for the primary encoding.
     pub source_symbols_primary: NonZeroU16,
     /// The number of source symbols for the secondary encoding.
@@ -22,32 +23,29 @@ pub struct Config {
     pub concurrent_requests: usize,
     /// Timeout for the `reqwest` client used by the client,
     pub connection_timeout: Duration,
+    /// The walrus package id.
+    pub system_pkg: ObjectID,
+    /// The system walrus system object id.
+    pub system_object: ObjectID,
 }
 
-impl Config {
-    /// Return the shards handed by the specified storage node.
-    pub fn shards_for_node(&self, node_id: usize) -> Vec<ShardIndex> {
-        self.committee
-            .members
-            .get(node_id)
-            .map(|node| node.shard_ids.clone())
-            .unwrap_or_default()
-    }
+impl LoadConfig for Config {}
 
-    /// Return the total number of shards in the committee.
-    /// Panic if the committee has no shards.
-    pub fn n_shards(&self) -> NonZeroU16 {
-        let shards = self
-            .committee
-            .members
-            .iter()
-            .map(|node| node.shard_ids.len())
-            .sum::<usize>()
-            .try_into()
-            .expect("should fit into a `u16`");
-        NonZeroU16::new(shards).expect("committee has no shards")
-    }
+/// Temporary config with information that can be eventually fetched from the chain.
+// TODO: remove as soon as the information is fetched from the chain.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LocalCommitteeConfig {
+    /// The committee information.
+    pub committee: Committee,
+    /// The number of source symbols for the primary encoding.
+    pub source_symbols_primary: NonZeroU16,
+    /// The number of source symbols for the secondary encoding.
+    pub source_symbols_secondary: NonZeroU16,
+}
 
+impl LoadConfig for LocalCommitteeConfig {}
+
+impl LocalCommitteeConfig {
     /// Returns the [`EncodingConfig`] for this configuration.
     pub fn encoding_config(&self) -> EncodingConfig {
         EncodingConfig::new(
@@ -57,5 +55,3 @@ impl Config {
         )
     }
 }
-
-impl LoadConfig for Config {}

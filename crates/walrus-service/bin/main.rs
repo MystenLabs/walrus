@@ -103,7 +103,7 @@ enum Commands {
 #[clap(rename_all = "kebab-case")]
 enum CommitteeConfig {
     OnChain,
-    FromClientConfig {
+    FromLocalConfig {
         /// The path to the client configuration file.
         #[clap(long, default_value = "./working_dir/client_config.yaml")]
         client_config_path: PathBuf,
@@ -141,13 +141,14 @@ fn main() -> anyhow::Result<()> {
                     // TODO(alberto): Get the committee from the chain. (#212)
                     todo!()
                 }
-                CommitteeConfig::FromClientConfig {
+                CommitteeConfig::FromLocalConfig {
                     client_config_path,
                     storage_node_index,
                 } => {
-                    let client_config = client::Config::load(client_config_path)?;
+                    let client_config = client::LocalCommitteeConfig::load(client_config_path)?;
                     let encoding_config = client_config.encoding_config();
-                    let handled_shards = client_config.shards_for_node(storage_node_index);
+                    let handled_shards =
+                        client_config.committee.shards_for_node(storage_node_index);
                     (encoding_config, handled_shards)
                 }
                 CommitteeConfig::Manual {

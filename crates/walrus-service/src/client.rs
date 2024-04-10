@@ -4,82 +4,127 @@
 use std::{collections::HashMap, time::Instant};
 
 use anyhow::{anyhow, Result};
+use fastcrypto::{bls12381::min_pk::BLS12381AggregateSignature, traits::AggregateAuthenticator};
 use futures::Future;
 use reqwest::{Client as ReqwestClient, ClientBuilder};
 use tokio::time::Duration;
 use tracing::Instrument;
 use walrus_core::{
     encoding::{BlobDecoder, EncodingAxis, EncodingConfig, Sliver, SliverPair},
+    messages::{Confirmation, ConfirmationCertificate},
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
     SignedStorageConfirmation,
     Sliver as SliverEnum,
 };
-use walrus_sui::types::{Committee, StorageNode};
+use walrus_sui::{
+    client::{ContractClient, ReadClient},
+    types::{Blob, Committee, StorageNode},
+};
 
 mod communication;
 mod config;
 mod error;
 mod utils;
 
-pub use self::config::Config;
+pub use self::config::{Config, LocalCommitteeConfig};
 use self::{
     communication::{NodeCommunication, NodeResult},
-    error::SliverRetrieveError,
+    error::{SliverRetrieveError, StoreError},
     utils::WeightedFutures,
 };
 
 /// A client to communicate with Walrus shards and storage nodes.
 #[derive(Debug)]
-pub struct Client {
-    client: ReqwestClient,
+pub struct Client<T> {
+    reqwest_client: ReqwestClient,
+    sui_client: T,
     // INV: committee.total_weight > 0
     committee: Committee,
     concurrent_requests: usize,
     encoding_config: EncodingConfig,
 }
 
-impl Client {
+impl<T: ContractClient> Client<T> {
     /// Creates a new client starting from a config file.
     ///
     /// # Panics
     ///
     /// Panics if `config.committee.total_weight == 0`.
-    // TODO(giac): Remove once fetching the configuration from the chain is available.
-    pub fn new(config: Config) -> Result<Self> {
-        let encoding_config = config.encoding_config();
-        let committee = config.committee;
-        assert!(committee.total_weight != 0);
-        let client = ClientBuilder::new()
+    pub async fn new(config: Config, sui_client: T) -> Result<Self> {
+        let reqwest_client = ClientBuilder::new()
             .timeout(config.connection_timeout)
             .build()?;
+        let committee = sui_client.read_client().current_committee().await?;
+        assert!(committee.total_weight != 0);
+        let encoding_config = EncodingConfig::new(
+            config.source_symbols_primary.get(),
+            config.source_symbols_secondary.get(),
+            committee.total_weight,
+        );
+
         Ok(Self {
-            client,
+            reqwest_client,
+            sui_client,
             committee,
             concurrent_requests: config.concurrent_requests,
             encoding_config,
         })
     }
 
-    /// Encodes and stores a blob into Walrus by sending sliver pairs to at least 2f+1 shards.
+    /// Encodes the blob, reserves & registers the space on chain, and stores the slivers to the
+    /// storage nodes. Finally, the function aggregates the storage confirmations and posts the
+    /// [`ConfirmationCertificate`] on chain.
     #[tracing::instrument(skip_all, fields(blob_id_prefix))]
-    pub async fn store_blob(
-        &self,
-        blob: &[u8],
-    ) -> Result<(VerifiedBlobMetadataWithId, Vec<SignedStorageConfirmation>)> {
+    pub async fn reserve_and_store_blob(&self, blob: &[u8], epochs_ahead: u64) -> Result<Blob> {
         let (pairs, metadata) = self
             .encoding_config
             .get_blob_encoder(blob)?
             .encode_with_metadata();
         tracing::Span::current().record("blob_id_prefix", truncate_blob_id(metadata.blob_id()));
-        tracing::debug!(blob_id = %metadata.blob_id(), "computed blob pairs and metadata");
+        let encoded_length = metadata
+            .encoded_blob_length(&self.encoding_config)
+            .expect("the metadata was computed above");
+        tracing::debug!(blob_id = %metadata.blob_id(), ?encoded_length,
+                        "computed blob pairs and metadata");
+
+        let storage_resource = self
+            .sui_client
+            .reserve_space(encoded_length, epochs_ahead)
+            .await?;
+        let blob_sui_object = self
+            .sui_client
+            .register_blob(
+                &storage_resource,
+                *metadata.blob_id(),
+                encoded_length,
+                metadata.metadata().encoding_type,
+            )
+            .await?;
+        let certificate = self.store_metadata_and_pairs(&metadata, pairs).await?;
+        self.sui_client
+            .certify_blob(&blob_sui_object, &certificate)
+            .await
+            .map_err(|e| anyhow!("blob certification failed: {e}"))
+    }
+
+    /// Stores the already-encoded metadata and sliver pairs for a blob into Walrus, by sending
+    /// sliver pairs to at least 2f+1 shards.
+    ///
+    /// Assumes the blob ID has already been registered, with an appropriate blob size.
+    #[tracing::instrument(skip_all)]
+    pub async fn store_metadata_and_pairs(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+        pairs: Vec<SliverPair>,
+    ) -> Result<ConfirmationCertificate> {
         let pairs_per_node = self.pairs_per_node(metadata.blob_id(), pairs);
         let comms = self.node_communications();
         let mut requests = WeightedFutures::new(
             comms
                 .iter()
                 .zip(pairs_per_node.into_iter())
-                .map(|(n, p)| n.store_metadata_and_pairs(&metadata, p)),
+                .map(|(n, p)| n.store_metadata_and_pairs(metadata, p)),
         );
         let start = Instant::now();
         requests
@@ -94,38 +139,73 @@ impl Client {
             )
             .await;
         let results = requests.into_results();
-        let valid_confirmations = results
-            .into_iter()
-            .filter_map(|NodeResult(_, _, node, result)| {
-                result
-                    .map_err(|err| {
-                        tracing::error!(?node, ?err, "storing metadata and pairs failed")
-                    })
-                    .ok()
-            })
-            .collect();
-        Ok((metadata, valid_confirmations))
+        self.confirmations_to_certificate(metadata.blob_id(), results)
+    }
+
+    /// Combines the received storage confimrations into a single certificate.
+    ///
+    /// This function _does not_ check that the received confirmations match the current epoch and
+    /// blob ID, as it assumes that the storage confirmations were received through
+    /// `NodeCommunication::store_metadata_and_pairs`, which internally uses `verify_confirmation`
+    /// to check blob ID and epoch.
+    fn confirmations_to_certificate(
+        &self,
+        blob_id: &BlobId,
+        confirmations: Vec<NodeResult<SignedStorageConfirmation, StoreError>>,
+    ) -> Result<ConfirmationCertificate> {
+        let mut total_weight = 0;
+        let mut signers = Vec::with_capacity(confirmations.len());
+        let mut valid_signatures = Vec::with_capacity(confirmations.len());
+        for NodeResult(_, weight, node, result) in confirmations {
+            match result {
+                Ok(confirmation) => {
+                    total_weight += weight;
+                    valid_signatures.push(confirmation.signature);
+                    signers.push(
+                        u16::try_from(node)
+                            .expect("the node index is computed from the vector of members"),
+                    );
+                }
+                Err(err) => tracing::error!(?node, ?err, "storing metadata and pairs failed"),
+            }
+        }
+
+        anyhow::ensure!(
+            self.committee.is_quorum(total_weight),
+            "not enough confirmations for the blob id were retrieved"
+        );
+        // The signers must sorted in the `ConfirmationCertificate`.
+        // TODO(giac): remove when #238 is closed.
+        signers.sort_unstable();
+        let aggregate = BLS12381AggregateSignature::aggregate(&valid_signatures)?;
+        let cert = ConfirmationCertificate {
+            signers,
+            confirmation: bcs::to_bytes(&Confirmation::new(self.committee.epoch, *blob_id))
+                .expect("serialization should always succeed"),
+            signature: aggregate,
+        };
+        Ok(cert)
     }
 
     /// Reconstructs the blob by reading slivers from Walrus shards.
-    #[tracing::instrument(skip_all, fields(blob_id_prefix = truncate_blob_id(blob_id)))]
-    pub async fn read_blob<T>(&self, blob_id: &BlobId) -> Result<Vec<u8>>
+    #[tracing::instrument(skip_all, fields(blob_id_prefix))]
+    pub async fn read_blob<U>(&self, blob_id: &BlobId) -> Result<Vec<u8>>
     where
-        T: EncodingAxis,
-        Sliver<T>: TryFrom<SliverEnum>,
+        U: EncodingAxis,
+        Sliver<U>: TryFrom<SliverEnum>,
     {
         tracing::debug!(%blob_id, "starting to read blob");
         let metadata = self.retrieve_metadata(blob_id).await?;
-        self.request_slivers_and_decode::<T>(&metadata).await
+        self.request_slivers_and_decode::<U>(&metadata).await
     }
 
-    async fn request_slivers_and_decode<T>(
+    async fn request_slivers_and_decode<U>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
     ) -> Result<Vec<u8>>
     where
-        T: EncodingAxis,
-        Sliver<T>: TryFrom<SliverEnum>,
+        U: EncodingAxis,
+        Sliver<U>: TryFrom<SliverEnum>,
     {
         // TODO(giac): optimize by reading first from the shards that have the systematic part of
         // the encoding.
@@ -133,18 +213,18 @@ impl Client {
         // Create requests to get all slivers from all nodes.
         let futures = comms.iter().flat_map(|n| {
             n.node.shard_ids.iter().map(|s| {
-                n.retrieve_verified_sliver::<T>(metadata, *s)
+                n.retrieve_verified_sliver::<U>(metadata, *s)
                     .instrument(n.span.clone())
             })
         });
         let mut decoder = self
             .encoding_config
-            .get_blob_decoder::<T>(metadata.metadata().unencoded_length.try_into()?)?;
+            .get_blob_decoder::<U>(metadata.metadata().unencoded_length.try_into()?)?;
         // Get the first ~1/3 or ~2/3 of slivers directly, and decode with these.
         let mut requests = WeightedFutures::new(futures);
         requests
             .execute_weight(
-                self.encoding_config.n_source_symbols::<T>().get().into(),
+                self.encoding_config.n_source_symbols::<U>().get().into(),
                 self.concurrent_requests,
             )
             .await;
@@ -175,16 +255,16 @@ impl Client {
     /// Decodes the blob of given blob ID by requesting slivers and trying to decode at each new
     /// sliver it receives.
     #[tracing::instrument(skip_all)]
-    async fn decode_sliver_by_sliver<'a, I, Fut, T>(
+    async fn decode_sliver_by_sliver<'a, I, Fut, U>(
         &self,
-        requests: &mut WeightedFutures<I, Fut, NodeResult<Sliver<T>, SliverRetrieveError>>,
-        decoder: &mut BlobDecoder<'a, T>,
+        requests: &mut WeightedFutures<I, Fut, NodeResult<Sliver<U>, SliverRetrieveError>>,
+        decoder: &mut BlobDecoder<'a, U>,
         blob_id: &BlobId,
     ) -> Result<Vec<u8>>
     where
-        T: EncodingAxis,
+        U: EncodingAxis,
         I: Iterator<Item = Fut>,
-        Fut: Future<Output = NodeResult<Sliver<T>, SliverRetrieveError>>,
+        Fut: Future<Output = NodeResult<Sliver<U>, SliverRetrieveError>>,
     {
         while let Some(NodeResult(_, _, node, result)) =
             requests.next(self.concurrent_requests).await
@@ -225,10 +305,15 @@ impl Client {
     }
 
     /// Builds a [`NodeCommunication`] object for the given storage node.
-    fn new_node_communication<'a>(&'a self, node: &'a StorageNode) -> NodeCommunication {
+    fn new_node_communication<'a>(
+        &'a self,
+        idx: usize,
+        node: &'a StorageNode,
+    ) -> NodeCommunication {
         NodeCommunication::new(
+            idx,
             self.committee.epoch,
-            &self.client,
+            &self.reqwest_client,
             node,
             &self.encoding_config,
         )
@@ -238,7 +323,8 @@ impl Client {
         self.committee
             .members
             .iter()
-            .map(|n| self.new_node_communication(n))
+            .enumerate()
+            .map(|(idx, node)| self.new_node_communication(idx, node))
             .collect()
     }
 

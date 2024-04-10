@@ -5,6 +5,7 @@ use std::{num::NonZeroU16, path::Path, time::Duration};
 
 use fastcrypto::traits::KeyPair;
 use rand::{rngs::StdRng, SeedableRng};
+use sui_types::base_types::ObjectID;
 use walrus_core::{ProtocolKeyPair, ShardIndex};
 use walrus_sui::types::StorageNode as SuiStorageNode;
 
@@ -75,15 +76,12 @@ pub fn testbed_configs(
 
     // Print the client config.
     let client_config = client::Config {
-        committee: walrus_sui::types::Committee {
-            members: sui_storage_node_configs,
-            epoch: 0,
-            total_weight: n_shards.get(),
-        },
         source_symbols_primary,
         source_symbols_secondary,
         concurrent_requests: committee_size.get().into(),
         connection_timeout: Duration::from_secs(10),
+        system_pkg: ObjectID::random(),
+        system_object: ObjectID::random(),
     };
 
     (storage_node_configs, client_config)

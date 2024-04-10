@@ -1,44 +1,8 @@
-committee:
-  members:
-  - name: 127.0.0.1:52528
-    network_address:
-      host: 127.0.0.1
-      port: 52528
-    public_key: inUksVO7WbLQe9o/KN6khe1PdBfzNu3zgkozskYPTkACc4l3ETBnBQk6dT0WIRdU
-    shard_ids:
-    - 0
-    - 1
-  - name: 127.0.0.1:52530
-    network_address:
-      host: 127.0.0.1
-      port: 52530
-    public_key: inUksVO7WbLQe9o/KN6khe1PdBfzNu3zgkozskYPTkACc4l3ETBnBQk6dT0WIRdU
-    shard_ids:
-    - 2
-    - 3
-  - name: 127.0.0.1:52532
-    network_address:
-      host: 127.0.0.1
-      port: 52532
-    public_key: inUksVO7WbLQe9o/KN6khe1PdBfzNu3zgkozskYPTkACc4l3ETBnBQk6dT0WIRdU
-    shard_ids:
-    - 4
-    - 5
-    - 6
-  - name: 127.0.0.1:52534
-    network_address:
-      host: 127.0.0.1
-      port: 52534
-    public_key: inUksVO7WbLQe9o/KN6khe1PdBfzNu3zgkozskYPTkACc4l3ETBnBQk6dT0WIRdU
-    shard_ids:
-    - 7
-    - 8
-    - 9
-  epoch: 0
-  total_weight: 10
 source_symbols_primary: 2
 source_symbols_secondary: 4
 concurrent_requests: 10
 connection_timeout:
   secs: 10
   nanos: 0
+system_pkg: 0x1234
+system_object: 0xcoffee

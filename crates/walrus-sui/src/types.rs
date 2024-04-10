@@ -7,6 +7,7 @@
 use std::{
     fmt::Display,
     net::{SocketAddr, ToSocketAddrs},
+    num::NonZeroU16,
     str::FromStr,
     vec,
 };
@@ -283,6 +284,27 @@ impl Committee {
     #[inline]
     pub fn quorum_threshold(&self) -> usize {
         (self.total_weight as usize * 2 + 2) / 3
+    }
+
+    /// Return the shards handed by the specified storage node.
+    pub fn shards_for_node(&self, node_id: usize) -> Vec<ShardIndex> {
+        self.members
+            .get(node_id)
+            .map(|node| node.shard_ids.clone())
+            .unwrap_or_default()
+    }
+
+    /// Return the total number of shards in the committee.
+    /// Panic if the committee has no shards.
+    pub fn n_shards(&self) -> NonZeroU16 {
+        let shards = self
+            .members
+            .iter()
+            .map(|node| node.shard_ids.len())
+            .sum::<usize>()
+            .try_into()
+            .expect("should fit into a `u16`");
+        NonZeroU16::new(shards).expect("committee has no shards")
     }
 }
 
