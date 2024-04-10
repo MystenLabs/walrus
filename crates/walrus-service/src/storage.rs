@@ -247,11 +247,6 @@ impl Storage {
         Ok(shards_with_sliver_pairs)
     }
 
-    /// Returns a list of the shards IDs currently contained in the storage.
-    pub fn shards(&self) -> Vec<ShardIndex> {
-        self.shards.keys().copied().collect()
-    }
-
     fn metadata_options() -> (&'static str, Options) {
         let mut options = Options::default();
 
