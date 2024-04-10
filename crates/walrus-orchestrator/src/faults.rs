@@ -122,12 +122,14 @@ impl CrashRecoverySchedule {
         }
     }
     pub fn update(&mut self) -> CrashRecoveryAction {
+        let mut instances = self.instances.clone();
+
         match &self.faults_type {
             // Permanently crash the specified number of nodes.
             FaultsType::Permanent { faults } => {
                 if self.dead == 0 {
                     self.dead = *faults;
-                    CrashRecoveryAction::kill(self.instances.clone().drain(0..*faults))
+                    CrashRecoveryAction::kill(instances.drain(0..*faults))
                 } else {
                     CrashRecoveryAction::no_op()
                 }
