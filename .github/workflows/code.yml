@@ -71,7 +71,6 @@ jobs:
               - '.github/workflows/code.yml'
             relevantForE2eTests:
               - 'crates/walrus-sui/**'
-              - 'crates/walrus-e2e-tests/**'
               - 'crates/walrus-service/**'
               - 'contracts/**'
               - '.github/workflows/code.yml'
@@ -152,7 +151,7 @@ jobs:
       - uses: actions/checkout@v4
       # Don't cache as this shouldn't be run too often and would bring us above GitHub's 10GB limit.
       - name: Run E2E tests
-        run: cargo test -p walrus-sui -p walrus-e2e-tests -p walrus-service -- --ignored
+        run: cargo test -p walrus-sui -p walrus-service -- --ignored
 
   lint:
     name: Lint Rust code

@@ -10493,20 +10493,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "walrus-e2e-tests"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "fastcrypto 0.1.8",
- "sui-move-build",
- "sui-sdk",
- "test-cluster",
- "tokio",
- "walrus-core",
- "walrus-sui",
-]
-
-[[package]]
 name = "walrus-orchestrator"
 version = "0.1.0"
 dependencies = [
@@ -10574,6 +10560,7 @@ dependencies = [
  "move-core-types",
  "serde",
  "serde_json",
+ "sui-move-build",
  "sui-sdk",
  "sui-types",
  "test-cluster",
@@ -10583,7 +10570,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "walrus-core",
- "walrus-e2e-tests",
 ]
 
 [[package]]

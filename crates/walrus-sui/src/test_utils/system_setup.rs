@@ -1,9 +1,11 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Utilities to publish the walrus contracts and deploy a system object for testing.
+
 use std::{collections::BTreeSet, path::PathBuf, str::FromStr};
 
-use anyhow::{anyhow, bail, ensure, Result};
+use anyhow::{anyhow, bail, Result};
 use fastcrypto::{bls12381::min_pk::BLS12381PublicKey, traits::ToFromBytes};
 use sui_move_build::{BuildConfig, PackageDependencies};
 use sui_sdk::{
@@ -19,10 +21,11 @@ use sui_sdk::{
     SUI_COIN_TYPE,
 };
 use walrus_core::ShardIndex;
-use walrus_sui::{
+
+use crate::{
     contracts::{self, StructTag},
-    get_created_sui_object_ids_by_type,
     types::{Committee, NetworkAddress, StorageNode},
+    utils::get_created_sui_object_ids_by_type,
 };
 
 const DEFAULT_GAS_BUDGET: u64 = 10000000000;
@@ -38,9 +41,13 @@ const COMMITTEE_CAP_HOLDER_TAG: StructTag<'_> = StructTag {
 /// Parameters for test system deployment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SystemParameters {
+    /// The committee to use for creating the system object.
     pub committee: Committee,
+    /// The storage capacity of the system.
     pub capacity: u64,
+    /// The price per unit of storage and time to use in the system.
     pub price: u64,
+    /// The coin type of the system.
     pub coin_type: TypeTag,
 }
 
@@ -56,7 +63,7 @@ impl SystemParameters {
     }
 }
 
-pub fn compile_package(package_path: PathBuf) -> (PackageDependencies, Vec<Vec<u8>>) {
+fn compile_package(package_path: PathBuf) -> (PackageDependencies, Vec<Vec<u8>>) {
     let build_config = BuildConfig::new_for_testing();
     let compiled_package = build_config
         .build(package_path)
@@ -65,7 +72,7 @@ pub fn compile_package(package_path: PathBuf) -> (PackageDependencies, Vec<Vec<u
     (compiled_package.dependency_ids, compiled_modules)
 }
 
-pub fn contract_path(contract: &str) -> anyhow::Result<PathBuf> {
+fn contract_path(contract: &str) -> anyhow::Result<PathBuf> {
     Ok(std::env::current_dir()?
         .parent()
         .unwrap()
@@ -75,8 +82,9 @@ pub fn contract_path(contract: &str) -> anyhow::Result<PathBuf> {
         .join(contract))
 }
 
-// Publish the package with the e2e test setup and return the IDs of the package
-// and the `CommitteeCapHolder`
+/// Publish the package with the default e2e test setup and return the IDs of the package
+/// and the `CommitteeCapHolder`. The default test setup currently uses a single storage
+/// node with sk = 117.
 pub async fn publish_package(
     wallet: &mut WalletContext,
     contract: &str,

@@ -1,9 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
-
 use sui_sdk::rpc_types::EventFilter;
 use test_cluster::TestClusterBuilder;
-use walrus_e2e_tests::publish_with_default_system;
+use walrus_sui::test_utils::system_setup::publish_with_default_system;
 
 #[tokio::test]
 #[ignore = "ignore E2E tests by default"]

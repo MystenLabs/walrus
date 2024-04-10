@@ -265,11 +265,6 @@ macro_rules! get_u64_field_from_event {
 /// If a message is provided instead of an error, the message is turned into
 /// an error using [`anyhow!`] and then cast to the expected type
 macro_rules! ensure {
-    ($cond:expr, $err:expr $(,)?) => {
-        if !$cond {
-            return Err($err);
-        }
-    };
     ($cond:expr, $msg:literal $(,)?) => {
         if !$cond {
             return Err(anyhow!($msg).into());
@@ -278,6 +273,11 @@ macro_rules! ensure {
     ($cond:expr, $fmt:expr, $($arg:tt)*) => {
         if !$cond {
             return Err(anyhow!($fmt, $($arg)*).into());
+        }
+    };
+    ($cond:expr, $err:expr $(,)?) => {
+        if !$cond {
+            return Err($err);
         }
     };
 }
