@@ -279,7 +279,7 @@ impl<P: ProtocolCommands<N, C> + ProtocolMetrics, N, C> Orchestrator<P, N, C> {
         Ok(())
     }
 
-    /// Reload prometheus on all instances.
+    /// Reload prometheus and grafana.
     pub async fn start_monitoring(&self, parameters: &BenchmarkParameters) -> TestbedResult<()> {
         let (clients, nodes, instance) = self.select_instances(parameters)?;
         if let Some(instance) = instance {
