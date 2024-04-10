@@ -173,11 +173,9 @@ impl<P: ProtocolCommands<N, C> + ProtocolMetrics, N, C> Orchestrator<P, N, C> {
             &format!("(git clone {url} || true)"),
         ];
 
-        let monitoring_tools_dependencies = Monitor::dependencies();
-
         let command = [
             &basic_commands[..],
-            &monitoring_tools_dependencies
+            &Monitor::dependencies()
                 .iter()
                 .map(|x| x.as_str())
                 .collect::<Vec<_>>()[..],
@@ -302,7 +300,7 @@ impl<P: ProtocolCommands<N, C> + ProtocolMetrics, N, C> Orchestrator<P, N, C> {
         Ok(())
     }
 
-    /// Boot one node per instance.
+    /// Boot a node on the specified instances.
     async fn boot_nodes(
         &self,
         instances: Vec<Instance>,
