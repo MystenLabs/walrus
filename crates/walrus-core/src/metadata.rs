@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Metadata associated with a Blob and stored by storage nodes.
-use std::fmt::{self, Display};
 
 use fastcrypto::hash::HashFunction;
 use serde::{Deserialize, Serialize};
@@ -12,6 +11,7 @@ use crate::{
     merkle::{Node as MerkleNode, DIGEST_LEN},
     BlobId,
     EncodingType,
+    SliverPairIndex,
     SliverType,
 };
 
@@ -41,53 +41,6 @@ pub type VerifiedBlobMetadataWithId = BlobMetadataWithId<true>;
 /// [`BlobMetadataWithId`] that has yet to be verified, this is the default
 /// type of [`BlobMetadataWithId`].
 pub type UnverifiedBlobMetadataWithId = BlobMetadataWithId<false>;
-
-/// Represents the index of a sliver pair.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(transparent)]
-pub struct SliverIndex(pub u16);
-
-impl SliverIndex {
-    /// Creates a new sliver index from the given `usize`.
-    pub fn new(index: u16) -> Self {
-        Self(index)
-    }
-
-    /// Returns the index as a `usize`.
-    pub fn as_usize(&self) -> usize {
-        self.0 as usize
-    }
-
-    /// Returns the index as a `u32`.
-    pub fn as_u32(&self) -> u32 {
-        self.0 as u32
-    }
-}
-
-impl TryFrom<usize> for SliverIndex {
-    type Error = std::num::TryFromIntError;
-
-    fn try_from(value: usize) -> Result<Self, Self::Error> {
-        Ok(SliverIndex(value.try_into()?))
-    }
-}
-
-impl TryFrom<u32> for SliverIndex {
-    type Error = std::num::TryFromIntError;
-
-    fn try_from(value: u32) -> Result<Self, Self::Error> {
-        Ok(SliverIndex(value.try_into()?))
-    }
-}
-
-impl Display for SliverIndex {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-/// Represents the index of a sliver.
-pub type SliverPairIndex = SliverIndex;
 
 /// Metadata associated with a blob.
 ///

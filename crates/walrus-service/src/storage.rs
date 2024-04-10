@@ -314,19 +314,14 @@ where
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::{fmt, time::Duration};
-
     use prometheus::Registry;
     use sui_sdk::types::digests::TransactionDigest;
     use tempfile::TempDir;
     use tokio::runtime::Runtime;
-    use typed_store::metrics::SamplingInterval;
     use walrus_core::{
-        encoding::{EncodingAxis, Primary, Secondary, Sliver as TypedSliver},
-        metadata::{SliverPairIndex, SliverPairMetadata},
-        test_utils,
-        EncodingType,
+        encoding::{EncodingAxis, Sliver as TypedSliver},
         Sliver,
+        SliverIndex,
         SliverType,
     };
     use walrus_sui::test_utils::event_id_for_testing;
@@ -357,7 +352,7 @@ pub(crate) mod tests {
         TypedSliver::new(
             vec![seed; seed as usize * 512],
             16.try_into().unwrap(),
-            SliverPairIndex::new(0),
+            SliverIndex(0),
         )
     }
 
@@ -395,7 +390,7 @@ pub(crate) mod tests {
     async fn can_write_then_read_metadata() -> TestResult {
         let storage = empty_storage();
         let storage = storage.as_ref();
-        let metadata = test_utils::verified_blob_metadata();
+        let metadata = walrus_core::test_utils::verified_blob_metadata();
         let blob_id = metadata.blob_id();
         let expected = VerifiedBlobMetadataWithId::new_verified_unchecked(
             *blob_id,

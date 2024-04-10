@@ -26,9 +26,11 @@ use super::{
 };
 use crate::{
     merkle::MerkleTree,
-    metadata::{SliverIndex, SliverPairMetadata, VerifiedBlobMetadataWithId},
+    metadata::{SliverPairMetadata, VerifiedBlobMetadataWithId},
     BlobId,
     EncodingType,
+    SliverIndex,
+    SliverPairIndex,
 };
 
 /// Struct to perform the full blob encoding.
@@ -196,7 +198,7 @@ impl<'a> BlobEncoder<'a> {
     /// are initialized with the appropriate `symbol_size` and `length`.
     fn empty_sliver_pairs(&self) -> Vec<SliverPair> {
         (0..self.config.n_shards().get())
-            .map(|i| SliverPair::new_empty(self.config, self.symbol_size, SliverIndex(i)))
+            .map(|i| SliverPair::new_empty(self.config, self.symbol_size, SliverPairIndex(i)))
             .collect()
     }
 
@@ -258,11 +260,9 @@ impl<'a> ExpandedMessageMatrix<'a> {
                 .iter()
                 // Get the columns in reverse order `n_shards - col_idx - 1`.
                 .map(move |row| {
-                    row[self
-                        .config
-                        .sliver_index_from_pair_index::<Secondary>(
-                            col_idx.try_into().expect("size has already been checked"),
-                        )
+                    row[SliverPairIndex::try_from(col_idx)
+                        .expect("size has already been checked")
+                        .to_sliver_index::<Secondary>(self.config.n_shards)
                         .as_usize()]
                     .as_ref()
                 })

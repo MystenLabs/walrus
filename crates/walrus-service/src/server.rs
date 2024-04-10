@@ -17,10 +17,11 @@ use tower_http::trace::TraceLayer;
 use walrus_core::{
     merkle::MerkleProof,
     messages::StorageConfirmation,
-    metadata::{BlobMetadata, SliverIndex, SliverPairIndex, UnverifiedBlobMetadataWithId},
+    metadata::{BlobMetadata, UnverifiedBlobMetadataWithId},
     BlobId,
     DecodingSymbol,
     Sliver,
+    SliverPairIndex,
     SliverType,
 };
 
@@ -33,7 +34,8 @@ pub const SLIVER_ENDPOINT: &str = "/v1/blobs/:blobId/slivers/:sliverPairIdx/:sli
 /// The path to get storage confirmations.
 pub const STORAGE_CONFIRMATION_ENDPOINT: &str = "/v1/blobs/:blobId/confirmation";
 /// The path to get recovery symbols.
-pub const RECOVERY_ENDPOINT: &str = "/v1/blobs/:blobId/slivers/:sliverPairIdx/:sliverType/:index";
+pub const RECOVERY_ENDPOINT: &str =
+    "/v1/blobs/:blobId/slivers/:sliverPairIdx/:sliverType/:targetPairIndex";
 
 /// A blob ID encoded as a hex string designed to be used in URLs.
 #[serde_as]
@@ -231,17 +233,22 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn retrieve_recovery_symbol(
         State(state): State<Arc<S>>,
-        Path((HexBlobId(blob_id), sliver_pair_idx, sliver_type, index)): Path<(
+        Path((HexBlobId(blob_id), sliver_pair_idx, sliver_type, target_pair_index)): Path<(
             HexBlobId,
             SliverPairIndex,
             SliverType,
-            SliverIndex,
+            SliverPairIndex,
         )>,
     ) -> (
         StatusCode,
         Json<ServiceResponse<DecodingSymbol<MerkleProof>>>,
     ) {
-        match state.retrieve_recovery_symbol(&blob_id, sliver_pair_idx, sliver_type, index) {
+        match state.retrieve_recovery_symbol(
+            &blob_id,
+            sliver_pair_idx,
+            sliver_type,
+            target_pair_index,
+        ) {
             Ok(symbol) => {
                 tracing::debug!("Retrieved recovery symbol for {blob_id:?}");
                 ServiceResponse::serialized_success(StatusCode::OK, symbol)
@@ -314,45 +321,15 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
-
     use anyhow::anyhow;
-    use reqwest::StatusCode;
     use tokio::task::JoinHandle;
-    use tokio_util::sync::CancellationToken;
-    use walrus_core::{
-        merkle::MerkleProof,
-        messages::StorageConfirmation,
-        metadata::{
-            SliverIndex,
-            SliverPairIndex,
-            UnverifiedBlobMetadataWithId,
-            VerifiedBlobMetadataWithId,
-        },
-        BlobId,
-        DecodingSymbol,
-        Sliver,
-        SliverType,
-    };
+    use walrus_core::metadata::VerifiedBlobMetadataWithId;
     use walrus_test_utils::WithTempDir;
 
+    use super::*;
     use crate::{
         config::StorageNodeConfig,
-        node::{
-            RetrieveSliverError,
-            RetrieveSymbolError,
-            ServiceState,
-            StoreMetadataError,
-            StoreSliverError,
-        },
-        server::{
-            ServiceResponse,
-            UserServer,
-            METADATA_ENDPOINT,
-            RECOVERY_ENDPOINT,
-            SLIVER_ENDPOINT,
-            STORAGE_CONFIRMATION_ENDPOINT,
-        },
+        node::{RetrieveSliverError, RetrieveSymbolError},
         test_utils,
     };
 
@@ -395,9 +372,9 @@ mod test {
             _blob_id: &BlobId,
             sliver_pair_idx: SliverPairIndex,
             _sliver_type: SliverType,
-            _index: SliverIndex,
+            _target_pair_index: SliverPairIndex,
         ) -> Result<DecodingSymbol<MerkleProof>, RetrieveSymbolError> {
-            if sliver_pair_idx == SliverPairIndex::new(0) {
+            if sliver_pair_idx == SliverPairIndex(0) {
                 Ok(walrus_core::test_utils::recovery_symbol())
             } else {
                 Err(RetrieveSymbolError::Internal(anyhow!("Invalid shard")))
@@ -665,7 +642,7 @@ mod test {
             .replace(":blobId", &blob_id.to_string())
             .replace(":sliverPairIdx", &sliver_pair_id.to_string())
             .replace(":sliverType", "primary")
-            .replace(":index", &index.to_string());
+            .replace(":targetPairIndex", &index.to_string());
         let url = format!("http://{}{path}", config.inner.rest_api_address);
         // TODO(lef): Extract the path creation into a function with optional arguments
 
@@ -697,7 +674,7 @@ mod test {
             .replace(":blobId", &blob_id.to_string())
             .replace(":sliverPairIdx", &sliver_pair_id.to_string())
             .replace(":sliverType", "primary")
-            .replace(":index", "0");
+            .replace(":targetPairIndex", "0");
         let url = format!("http://{}{path}", config.inner.rest_api_address);
         let client = reqwest::Client::new();
         let res = client.get(url).json(&blob_id).send().await.unwrap();

@@ -10,8 +10,6 @@ use crate::{
     merkle::{MerkleProof, Node},
     metadata::{
         BlobMetadata,
-        SliverIndex,
-        SliverPairIndex,
         SliverPairMetadata,
         UnverifiedBlobMetadataWithId,
         VerifiedBlobMetadataWithId,
@@ -22,6 +20,8 @@ use crate::{
     ProtocolKeyPair,
     SignedStorageConfirmation,
     Sliver,
+    SliverIndex,
+    SliverPairIndex,
 };
 
 /// Returns a deterministic fixed key pair for testing.
@@ -45,7 +45,7 @@ pub fn primary_sliver() -> PrimarySliver {
             1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
         ],
         4.try_into().unwrap(),
-        SliverPairIndex::new(1),
+        SliverIndex(1),
     )
 }
 
@@ -57,7 +57,7 @@ pub fn encoding_config() -> EncodingConfig {
 /// Returns an arbitrary decoding symbol for testing.
 pub fn recovery_symbol() -> DecodingSymbol<MerkleProof> {
     primary_sliver()
-        .recovery_symbol_for_sliver_with_proof(SliverIndex::new(1), &encoding_config())
+        .recovery_symbol_for_sliver_with_proof(SliverPairIndex(1), &encoding_config())
         .map(DecodingSymbol::Secondary)
         .unwrap()
 }

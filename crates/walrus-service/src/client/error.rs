@@ -7,7 +7,8 @@ use fastcrypto::error::FastCryptoError;
 use reqwest::StatusCode;
 use walrus_core::{
     encoding::{RecoveryError, WrongSliverVariantError},
-    metadata::{SliverPairIndex, VerificationError as MetadataVerificationError},
+    metadata::VerificationError as MetadataVerificationError,
+    SliverPairIndex,
     SliverType,
 };
 

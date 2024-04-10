@@ -4,7 +4,7 @@
 //! Core functionality for Walrus.
 use std::{
     fmt::{self, Debug, Display, LowerHex},
-    num::{NonZeroUsize, TryFromIntError},
+    num::{NonZeroU16, NonZeroUsize},
     str::FromStr,
 };
 
@@ -54,6 +54,8 @@ pub type Epoch = u64;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
+
+// Blob ID.
 
 /// The ID of a blob.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -153,24 +155,100 @@ impl FromStr for BlobId {
     }
 }
 
-/// Represents the index of a shard.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[repr(transparent)]
-pub struct ShardIndex(pub u16);
+// Sliver and shard indices.
 
-impl Display for ShardIndex {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "shard-{}", self.0)
+macro_rules! index {
+    (
+        $(#[$outer:meta])*
+        $name:ident($display_prefix:expr)
+    ) => {
+        wrapped_uint!(
+            $(#[$outer])*
+            #[derive(Default)]
+            pub struct $name(pub u16) {
+                /// Returns the index as a `usize`.
+                pub fn as_usize(&self) -> usize {
+                    self.0.into()
+                }
+
+                /// Returns the index as a `u32`.
+                pub fn as_u32(&self) -> u32 {
+                    self.0.into()
+                }
+            }
+        );
+
+        impl fmt::Display for $name {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "{}-{}", $display_prefix, self.0)
+            }
+        }
+    };
+}
+
+index!(
+    /// Represents the index of a (primary or secondary) sliver.
+    SliverIndex("sliver")
+);
+
+index!(
+    /// Represents the index of a sliver pair.
+    SliverPairIndex("sliver-pair")
+);
+
+impl From<SliverIndex> for SliverPairIndex {
+    fn from(value: SliverIndex) -> Self {
+        Self(value.0)
     }
 }
 
-impl TryFrom<usize> for ShardIndex {
-    type Error = TryFromIntError;
-
-    fn try_from(value: usize) -> Result<Self, Self::Error> {
-        Ok(Self(value.try_into()?))
+impl From<SliverPairIndex> for SliverIndex {
+    fn from(value: SliverPairIndex) -> Self {
+        Self(value.0)
     }
 }
+
+macro_rules! inverse_for_secondary {
+    ($self:expr, $encoding_axis:ty, $n_shards:expr) => {
+        if <$encoding_axis>::IS_PRIMARY {
+            $self.into()
+        } else {
+            ($n_shards.get() - $self.0 - 1).into()
+        }
+    };
+}
+
+impl SliverPairIndex {
+    /// Computes the index of the [`Sliver`] of the corresponding axis starting from the index of
+    /// the [`SliverPair`][encoding::SliverPair].
+    ///
+    /// This is needed because primary slivers are assigned in ascending `pair_index` order, while
+    /// secondary slivers are assigned in descending `pair_index` order. I.e., the first primary
+    /// sliver is contained in the first sliver pair, but the first secondary sliver is contained in
+    /// the last sliver pair.
+    pub fn to_sliver_index<E: EncodingAxis>(self, n_shards: NonZeroU16) -> SliverIndex {
+        inverse_for_secondary!(self, E, n_shards)
+    }
+}
+
+impl SliverIndex {
+    /// Computes the index of the [`SliverPair`][encoding::SliverPair] of the corresponding axis
+    /// starting from the index of the [`Sliver`].
+    ///
+    /// This is the inverse of [`SliverPairIndex::to_sliver_index`]; see that function for further
+    /// information.
+    pub fn to_pair_index<E: EncodingAxis>(self, n_shards: NonZeroU16) -> SliverPairIndex {
+        inverse_for_secondary!(self, E, n_shards)
+    }
+}
+
+index!(
+    /// Represents the index of a shard.
+    #[derive(PartialOrd, Ord)]
+    ShardIndex("shard")
+);
+
+// Slivers.
 
 /// A sliver of an erasure-encoded blob.
 ///
@@ -271,39 +349,6 @@ impl TryFrom<Sliver> for SecondarySliver {
     }
 }
 
-/// A decoding symbol for recovering a sliver
-///
-/// Can be either a [`PrimaryDecodingSymbol`] or [`SecondaryDecodingSymbol`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum DecodingSymbol<U: MerkleAuth> {
-    /// A primary decoding symbol to recover a primary sliver
-    Primary(PrimaryDecodingSymbol<U>),
-    /// A secondary decoding symbol to recover a secondary sliver.
-    Secondary(SecondaryDecodingSymbol<U>),
-}
-
-impl<U: MerkleAuth> DecodingSymbol<U> {
-    /// Returns true iff this decoding symbol is a [`DecodingSymbol::Primary`].
-    #[inline]
-    pub fn is_primary(&self) -> bool {
-        matches!(self, DecodingSymbol::Primary(_))
-    }
-
-    /// Returns true iff this decoding symbol is a [`DecodingSymbol::Secondary`].
-    #[inline]
-    pub fn is_secondary(&self) -> bool {
-        matches!(self, DecodingSymbol::Secondary(_))
-    }
-
-    /// Returns the associated [`DecodingSymbolType`] of this decoding symbol.
-    pub fn r#type(&self) -> DecodingSymbolType {
-        match self {
-            DecodingSymbol::Primary(_) => DecodingSymbolType::Primary,
-            DecodingSymbol::Secondary(_) => DecodingSymbolType::Secondary,
-        }
-    }
-}
-
 /// A type indicating either a primary or secondary sliver.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -353,6 +398,41 @@ impl Display for SliverType {
                 SliverType::Secondary => "secondary",
             }
         )
+    }
+}
+
+// Symbols.
+
+/// A decoding symbol for recovering a sliver
+///
+/// Can be either a [`PrimaryDecodingSymbol`] or [`SecondaryDecodingSymbol`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DecodingSymbol<U: MerkleAuth> {
+    /// A primary decoding symbol to recover a primary sliver
+    Primary(PrimaryDecodingSymbol<U>),
+    /// A secondary decoding symbol to recover a secondary sliver.
+    Secondary(SecondaryDecodingSymbol<U>),
+}
+
+impl<U: MerkleAuth> DecodingSymbol<U> {
+    /// Returns true iff this decoding symbol is a [`DecodingSymbol::Primary`].
+    #[inline]
+    pub fn is_primary(&self) -> bool {
+        matches!(self, DecodingSymbol::Primary(_))
+    }
+
+    /// Returns true iff this decoding symbol is a [`DecodingSymbol::Secondary`].
+    #[inline]
+    pub fn is_secondary(&self) -> bool {
+        matches!(self, DecodingSymbol::Secondary(_))
+    }
+
+    /// Returns the associated [`DecodingSymbolType`] of this decoding symbol.
+    pub fn r#type(&self) -> DecodingSymbolType {
+        match self {
+            DecodingSymbol::Primary(_) => DecodingSymbolType::Primary,
+            DecodingSymbol::Secondary(_) => DecodingSymbolType::Secondary,
+        }
     }
 }
 

@@ -11,35 +11,7 @@ pub use storage_confirmation::{Confirmation, SignedStorageConfirmation, StorageC
 mod certificate;
 pub use certificate::ConfirmationCertificate;
 
-macro_rules! wrapped_uint {
-    (
-        $(#[$outer:meta])*
-        $vis:vis struct $name:ident($visinner:vis $uint:ty) {
-            $( $inner:tt )*
-        }
-    ) => {
-        $(#[$outer])*
-        #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
-        #[repr(transparent)]
-        $vis struct $name($visinner $uint);
-
-        impl $name {
-            $( $inner )*
-        }
-
-        impl From<$name> for $uint {
-            fn from(value: $name) -> Self {
-                value.0
-            }
-        }
-
-        impl From<$uint> for $name {
-            fn from(value: $uint) -> Self {
-                Self(value)
-            }
-        }
-    };
-}
+use crate::wrapped_uint;
 
 wrapped_uint! {
     /// Type for the intent type of signed messages.

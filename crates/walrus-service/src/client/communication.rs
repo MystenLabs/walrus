@@ -1,6 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::num::NonZeroU16;
+
 use anyhow::Result;
 use fastcrypto::{hash::Blake2b256, traits::VerifyingKey};
 use futures::future::join_all;
@@ -9,18 +11,14 @@ use walrus_core::{
     encoding::{EncodingAxis, EncodingConfig, Sliver, SliverPair},
     ensure,
     messages::{Confirmation, StorageConfirmation},
-    metadata::{
-        SliverIndex,
-        SliverPairIndex,
-        UnverifiedBlobMetadataWithId,
-        VerifiedBlobMetadataWithId,
-    },
+    metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
     BlobId,
     Epoch,
     PublicKey,
     ShardIndex,
     SignedStorageConfirmation,
     Sliver as SliverEnum,
+    SliverPairIndex,
     SliverType,
 };
 use walrus_sui::types::StorageNode;
@@ -65,9 +63,9 @@ impl<'a> NodeCommunication<'a> {
         }
     }
 
-    /// Returns the total weight (number of shards) as a `usize`.
-    pub fn total_weight(&self) -> usize {
-        self.encoding_config.n_shards_as_usize()
+    /// Returns the number of shards.
+    pub fn n_shards(&self) -> NonZeroU16 {
+        self.encoding_config.n_shards()
     }
 
     // Read operations.
@@ -143,9 +141,7 @@ impl<'a> NodeCommunication<'a> {
             .client
             .get(self.sliver_endpoint(
                 metadata.blob_id(),
-                SliverIndex(
-                    pair_index_for_shard(shard_idx, self.total_weight(), metadata.blob_id()) as u16,
-                ),
+                pair_index_for_shard(shard_idx, self.n_shards(), metadata.blob_id()),
                 SliverType::for_encoding::<T>(),
             ))
             .send()
@@ -193,11 +189,7 @@ impl<'a> NodeCommunication<'a> {
         let pair_metadata = metadata
             .metadata()
             .hashes
-            .get(pair_index_for_shard(
-                shard_idx,
-                self.total_weight(),
-                metadata.blob_id(),
-            ))
+            .get(pair_index_for_shard(shard_idx, self.n_shards(), metadata.blob_id()).as_usize())
             .expect("n_shards and shard_index < n_shards are checked above");
         ensure!(
             sliver.get_merkle_root::<Blake2b256>(self.encoding_config)?
@@ -364,7 +356,7 @@ impl<'a> NodeCommunication<'a> {
             &self.node.network_address.to_string(),
             &SLIVER_ENDPOINT
                 .replace(":blobId", &blob_id.to_string())
-                .replace(":sliverPairIdx", &pair_index.to_string())
+                .replace(":sliverPairIdx", &pair_index.0.to_string())
                 .replace(":sliverType", &sliver_type.to_string()),
         )
     }

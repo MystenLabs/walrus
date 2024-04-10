@@ -45,3 +45,59 @@ macro_rules! concat_const_str {
         unsafe { core::str::from_utf8_unchecked(&OUTPUT) }
     }};
 }
+
+/// Creates a new struct transparently wrapping an unsigned integer.
+///
+/// Derives some default traits and implements standard conversions.
+#[macro_export]
+macro_rules! wrapped_uint {
+    (
+        $(#[$outer:meta])*
+        $vis:vis struct $name:ident($visinner:vis $uint:ty) $({
+            $( $inner:tt )*
+        })?
+    ) => {
+        $(#[$outer])*
+        #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+        #[repr(transparent)]
+        #[serde(transparent)]
+        $vis struct $name($visinner $uint);
+
+        $(impl $name {
+            /// Creates a new object from the given value.
+            pub fn new(value: $uint) -> Self {
+                Self(value)
+            }
+
+            $( $inner )*
+        })?
+
+        impl From<$name> for $uint {
+            fn from(value: $name) -> Self {
+                value.0
+            }
+        }
+
+        impl From<$uint> for $name {
+            fn from(value: $uint) -> Self {
+                Self(value)
+            }
+        }
+
+        impl TryFrom<usize> for $name {
+            type Error = std::num::TryFromIntError;
+
+            fn try_from(value: usize) -> Result<Self, Self::Error> {
+                Ok($name(value.try_into()?))
+            }
+        }
+
+        impl TryFrom<u32> for $name {
+            type Error = std::num::TryFromIntError;
+
+            fn try_from(value: u32) -> Result<Self, Self::Error> {
+                Ok($name(value.try_into()?))
+            }
+        }
+    };
+}

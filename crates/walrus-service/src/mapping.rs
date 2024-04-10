@@ -6,7 +6,7 @@
 use std::num::NonZeroU16;
 
 use thiserror::Error;
-use walrus_core::{encoding::SliverPair, metadata::SliverPairIndex, BlobId, ShardIndex};
+use walrus_core::{encoding::SliverPair, BlobId, ShardIndex, SliverPairIndex};
 
 /// Errors returned if the slice of sliver pairs has already been shuffled in a way that is
 /// inconsistent with the provided blob id.
@@ -56,11 +56,9 @@ pub fn rotate_pairs(
         return Ok(());
     };
     if is_rotation(pairs) {
-        if pairs[0].index() == SliverPairIndex::new(0) {
+        if pairs[0].index() == SliverPairIndex(0) {
             rotate_by_bytes(pairs, blob_id.as_ref());
-        } else if pairs[0].index().as_usize()
-            != pair_index_for_shard(ShardIndex(0), n_pairs.get().into(), blob_id)
-        {
+        } else if pairs[0].index() != pair_index_for_shard(ShardIndex(0), n_pairs, blob_id) {
             return Err(SliverAssignmentError::InconsistentRotation);
         }
         Ok(())
@@ -106,12 +104,12 @@ fn is_rotation(pairs: &[SliverPair]) -> bool {
 /// integer, and then used to compute the offset for the sliver pair index.
 pub fn shard_index_for_pair(
     pair_idx: SliverPairIndex,
-    n_shards: u16,
+    n_shards: NonZeroU16,
     blob_id: &BlobId,
 ) -> ShardIndex {
-    let index =
-        (bytes_mod(blob_id.as_ref(), n_shards.into()) + pair_idx.as_usize()) % n_shards as usize;
-    ShardIndex(index as u16)
+    ((pair_idx.as_usize() + rotation_offset(n_shards, blob_id)) % usize::from(n_shards.get()))
+        .try_into()
+        .expect("definitely fits into a u16 because `n_shards` is a u16")
 }
 
 /// Get the index of the sliver pair which is store on the shard of the given index.
@@ -122,8 +120,19 @@ pub fn shard_index_for_pair(
 /// * `n_shards` - The total number of shards in the system.
 /// * `blob_id` - The Blob ID that produced the sliver pair. It is interpreted as a big-endian
 /// unsigned integer, and the used to compute the offset for the sliver pair index.
-pub fn pair_index_for_shard(shard_idx: ShardIndex, n_shards: usize, blob_id: &BlobId) -> usize {
-    (n_shards - bytes_mod(blob_id.as_ref(), n_shards) + shard_idx.0 as usize) % n_shards
+pub fn pair_index_for_shard(
+    shard_idx: ShardIndex,
+    n_shards: NonZeroU16,
+    blob_id: &BlobId,
+) -> SliverPairIndex {
+    let n_shards_usize = usize::from(n_shards.get());
+    ((n_shards_usize + shard_idx.as_usize() - rotation_offset(n_shards, blob_id)) % n_shards_usize)
+        .try_into()
+        .expect("definitely fits into a u16 because `n_shards` is a u16")
+}
+
+fn rotation_offset(n_shards: NonZeroU16, blob_id: &BlobId) -> usize {
+    bytes_mod(blob_id.as_ref(), n_shards.get().into())
 }
 
 /// Rotate the input slice in place, based on the rotation specified by the byte array.
@@ -158,13 +167,38 @@ mod tests {
         let encoding_config = EncodingConfig::new(1, 1, num);
         (0..num)
             .map(|n| {
-                SliverPair::new_empty(
-                    &encoding_config,
-                    1.try_into().unwrap(),
-                    SliverPairIndex::new(n),
-                )
+                SliverPair::new_empty(&encoding_config, 1.try_into().unwrap(), SliverPairIndex(n))
             })
             .collect()
+    }
+
+    param_test! {
+        shard_index_pair_index_conversion_works: [
+            zero: (0, 0),
+            one_1: (1, 0),
+            one_2: (0, 1),
+            arbitrary: (11, 27),
+        ]
+    }
+    fn shard_index_pair_index_conversion_works(index: u16, blob_id: u64) {
+        let n_shards = 13.try_into().unwrap();
+        let blob_id = &test_utils::blob_id_from_u64(blob_id);
+        assert_eq!(
+            ShardIndex(index),
+            shard_index_for_pair(
+                pair_index_for_shard(ShardIndex(index), n_shards, blob_id),
+                n_shards,
+                blob_id
+            )
+        );
+        assert_eq!(
+            SliverPairIndex(index),
+            pair_index_for_shard(
+                shard_index_for_pair(SliverPairIndex(index), n_shards, blob_id),
+                n_shards,
+                blob_id
+            )
+        );
     }
 
     #[test]
@@ -176,10 +210,11 @@ mod tests {
         assert!(pairs
             .iter()
             .enumerate()
-            .all(
-                |(idx, pair)| pair_index_for_shard(ShardIndex(idx as u16), 7, &blob_id)
-                    == pair.index().as_usize()
-            ));
+            .all(|(idx, pair)| pair_index_for_shard(
+                ShardIndex(idx as u16),
+                7.try_into().unwrap(),
+                &blob_id
+            ) == pair.index()));
     }
 
     #[test]
@@ -190,8 +225,8 @@ mod tests {
         // Check that all the pairs are is in the correct spot
         for (idx, pair) in pairs.iter().enumerate() {
             assert_eq!(
-                pair_index_for_shard(ShardIndex(idx as u16), 7, &blob_id),
-                pair.index().as_usize()
+                pair_index_for_shard(ShardIndex(idx as u16), 7.try_into().unwrap(), &blob_id),
+                pair.index()
             );
         }
         // Rotate again and check if the two rotations combined have been applied
@@ -201,10 +236,11 @@ mod tests {
         assert!(pairs
             .iter()
             .enumerate()
-            .all(
-                |(idx, pair)| pair_index_for_shard(ShardIndex(idx as u16), 7, &combined_blob_id)
-                    == pair.index().as_usize()
-            ));
+            .all(|(idx, pair)| pair_index_for_shard(
+                ShardIndex(idx as u16),
+                7.try_into().unwrap(),
+                &combined_blob_id
+            ) == pair.index()));
     }
 
     #[test]
@@ -243,6 +279,13 @@ mod tests {
         assert_eq!(cloned, pairs);
     }
 
+    param_test! {
+        test_shard_index_for_pair: [
+                start: (7, 15, SliverPairIndex(0), ShardIndex(1)),
+                mid: (7, 15, SliverPairIndex(5), ShardIndex(6)),
+                end: (7, 15, SliverPairIndex(6), ShardIndex(0)),
+            ]
+    }
     fn test_shard_index_for_pair(
         n_shards: u16,
         blob_id_value: u64,
@@ -251,38 +294,28 @@ mod tests {
     ) {
         let blob_id = test_utils::blob_id_from_u64(blob_id_value);
         assert_eq!(
-            shard_index_for_pair(pair_idx, n_shards, &blob_id),
+            shard_index_for_pair(pair_idx, n_shards.try_into().unwrap(), &blob_id),
             shard_idx
         );
     }
 
     param_test! {
-        test_shard_index_for_pair: [
-                start: (7, 15, SliverPairIndex::new(0), ShardIndex(1)),
-                mid: (7, 15, SliverPairIndex::new(5), ShardIndex(6)),
-                end: (7, 15, SliverPairIndex::new(6), ShardIndex(0)),
+            test_pair_index_for_shard: [
+                start: (7, 16, 0, 5),
+                mid: (7, 16, 1, 6),
+                end: (7, 16, 6, 4),
             ]
     }
-
-    fn test_pair_index_for_shard(
-        n_shards: usize,
-        blob_id_value: u64,
-        shard_idx: ShardIndex,
-        pair_idx: usize,
-    ) {
+    fn test_pair_index_for_shard(n_shards: u16, blob_id_value: u64, shard_idx: u16, pair_idx: u16) {
         let blob_id = test_utils::blob_id_from_u64(blob_id_value);
         assert_eq!(
-            pair_index_for_shard(shard_idx, n_shards, &blob_id),
-            pair_idx
+            pair_index_for_shard(
+                ShardIndex(shard_idx),
+                n_shards.try_into().unwrap(),
+                &blob_id
+            ),
+            SliverPairIndex(pair_idx)
         );
-    }
-
-    param_test! {
-            test_pair_index_for_shard: [
-                start: (7, 16, ShardIndex(0), 5),
-                mid: (7, 16, ShardIndex(1), 6),
-                end: (7, 16, ShardIndex(6), 4),
-            ]
     }
 
     #[test]

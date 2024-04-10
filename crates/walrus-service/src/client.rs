@@ -34,6 +34,7 @@ use self::{
 #[derive(Debug)]
 pub struct Client {
     client: ReqwestClient,
+    // INV: committee.total_weight > 0
     committee: Committee,
     concurrent_requests: usize,
     encoding_config: EncodingConfig,
@@ -41,15 +42,21 @@ pub struct Client {
 
 impl Client {
     /// Creates a new client starting from a config file.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `config.committee.total_weight == 0`.
     // TODO(giac): Remove once fetching the configuration from the chain is available.
     pub fn new(config: Config) -> Result<Self> {
+        let encoding_config = config.encoding_config();
+        let committee = config.committee;
+        assert!(committee.total_weight != 0);
         let client = ClientBuilder::new()
             .timeout(config.connection_timeout)
             .build()?;
-        let encoding_config = config.encoding_config();
         Ok(Self {
             client,
-            committee: config.committee,
+            committee,
             concurrent_requests: config.concurrent_requests,
             encoding_config,
         })
@@ -215,8 +222,14 @@ impl Client {
             .flat_map(|(idx, m)| m.shard_ids.iter().map(move |s| (*s, idx)))
             .collect::<HashMap<_, _>>();
         pairs.into_iter().for_each(|p| {
-            pairs_per_node[shard_to_node
-                [&shard_index_for_pair(p.index(), self.committee.total_weight, blob_id)]]
+            pairs_per_node[shard_to_node[&shard_index_for_pair(
+                p.index(),
+                self.committee
+                    .total_weight
+                    .try_into()
+                    .expect("checked in constructor"),
+                blob_id,
+            )]]
                 .push(p)
         });
         pairs_per_node

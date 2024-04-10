@@ -15,7 +15,6 @@ use super::{
     MAX_SOURCE_SYMBOLS_PER_BLOCK,
     MAX_SYMBOL_SIZE,
 };
-use crate::metadata::{SliverIndex, SliverPairIndex};
 
 /// Configuration of the Walrus encoding.
 ///
@@ -173,21 +172,6 @@ impl EncodingConfig {
     pub fn sliver_size_for_blob<T: EncodingAxis>(&self, blob_size: usize) -> Option<NonZeroUsize> {
         NonZeroUsize::from(self.n_source_symbols::<T::OrthogonalAxis>())
             .checked_mul(self.symbol_size_for_blob(blob_size)?.into())
-    }
-
-    /// Computes the index of the [`Sliver`][super::Sliver] of the axis specified by the generic
-    /// parameter starting from the index of the [`SliverPair`][super::SliverPair].
-    ///
-    /// This is needed because primary slivers are assigned in ascending `pair_index` order, while
-    /// secondary slivers are assigned in descending `pair_index` order. I.e., the first primary
-    /// sliver is contained in the first sliver pair, but the first secondary sliver is contained in
-    /// the last sliver pair.
-    // TODO(giac): Point to the redstuff documentation when ready!
-    pub fn sliver_index_from_pair_index<T: EncodingAxis>(
-        &self,
-        pair_index: SliverPairIndex,
-    ) -> SliverIndex {
-        T::sliver_index_from_pair_index(pair_index, self.n_shards())
     }
 
     /// Returns an [`Encoder`] to perform a single primary or secondary encoding of the provided

@@ -1,10 +1,6 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::num::NonZeroU16;
-
-use crate::metadata::{SliverIndex, SliverPairIndex};
-
 /// The maximum length in bytes of a single symbol in RaptorQ.
 pub const MAX_SYMBOL_SIZE: usize = u16::MAX as usize;
 
@@ -17,15 +13,6 @@ pub trait EncodingAxis: Clone + PartialEq + Eq + Default {
     type OrthogonalAxis: EncodingAxis;
     /// Whether this corresponds to the primary (true) or secondary (false) encoding.
     const IS_PRIMARY: bool;
-
-    /// Computes the index of the [`Sliver`][super::Sliver] of the corresponding axis starting from
-    /// the index of the [`SliverPair`][super::SliverPair].
-    ///
-    /// See [`super::EncodingConfig::sliver_index_from_pair_index`] for further details.
-    fn sliver_index_from_pair_index(
-        pair_index: SliverPairIndex,
-        n_shards: NonZeroU16,
-    ) -> SliverIndex;
 }
 
 /// Marker type to indicate the primary encoding.
@@ -34,13 +21,6 @@ pub struct Primary;
 impl EncodingAxis for Primary {
     type OrthogonalAxis = Secondary;
     const IS_PRIMARY: bool = true;
-
-    fn sliver_index_from_pair_index(
-        pair_index: SliverPairIndex,
-        _n_shards: NonZeroU16,
-    ) -> SliverIndex {
-        pair_index
-    }
 }
 
 /// Marker type to indicate the secondary encoding.
@@ -49,12 +29,4 @@ pub struct Secondary;
 impl EncodingAxis for Secondary {
     type OrthogonalAxis = Primary;
     const IS_PRIMARY: bool = false;
-
-    fn sliver_index_from_pair_index(
-        pair_index: SliverPairIndex,
-        n_shards: NonZeroU16,
-    ) -> SliverIndex {
-        let idx = n_shards.get() - pair_index.0 - 1;
-        SliverIndex::new(idx)
-    }
 }
