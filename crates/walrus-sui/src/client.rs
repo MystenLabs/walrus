@@ -274,6 +274,10 @@ impl ContractClient for SuiContractClient {
         blob: &Blob,
         certificate: &ConfirmationCertificate,
     ) -> SuiClientResult<Blob> {
+        // Sort the list of signers, since the move contract requires them to be in
+        // ascending order (see `blob_store::bls_aggregate::verify_certificate`)
+        let mut signers = certificate.signers.clone();
+        signers.sort_unstable();
         let res = self
             .move_call_and_transfer(
                 contracts::blob::certify.with_type_params(&[self.read_client.coin_type.clone()]),
@@ -281,7 +285,7 @@ impl ContractClient for SuiContractClient {
                     self.read_client.call_arg_from_system_obj(true).await?,
                     self.wallet.get_object_ref(blob.id).await?.into(),
                     call_arg_pure!(certificate.signature.as_bytes()),
-                    call_arg_pure!(&certificate.signers),
+                    call_arg_pure!(&signers),
                     (&certificate.confirmation).into(),
                 ],
             )
