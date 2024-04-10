@@ -30,9 +30,9 @@ use tracing::{instrument, Instrument};
 
 use super::SuiClientResult;
 use crate::{
-    contracts::{AssociatedContractStruct, AssociatedSuiEvent},
+    contracts::AssociatedSuiEvent,
     types::{BlobCertified, BlobRegistered, Committee, SystemObject},
-    utils::{get_struct_from_object_response, get_type_parameters, handle_pagination},
+    utils::{get_sui_object, get_type_parameters, handle_pagination},
 };
 
 /// Trait to read system state information and events from chain.
@@ -154,26 +154,6 @@ impl SuiReadClient {
         .await
     }
 
-    pub(crate) async fn get_object<U>(&self, object_id: ObjectID) -> SuiClientResult<U>
-    where
-        U: AssociatedContractStruct,
-    {
-        let obj_struct = get_struct_from_object_response(
-            &self
-                .sui_client
-                .read_api()
-                .get_object_with_options(object_id, SuiObjectDataOptions::new().with_content())
-                .await?,
-        )?;
-        U::try_from(obj_struct).map_err(|_e| {
-            anyhow!(
-                "could not convert object with id {} to expected type",
-                object_id
-            )
-            .into()
-        })
-    }
-
     async fn get_event_stream<U>(
         &self,
         polling_interval: Duration,
@@ -218,7 +198,7 @@ impl ReadClient for SuiReadClient {
     }
 
     async fn get_system_object(&self) -> SuiClientResult<SystemObject> {
-        self.get_object(self.system_object_id).await
+        get_sui_object(&self.sui_client, self.system_object_id).await
     }
 
     async fn current_committee(&self) -> SuiClientResult<Committee> {

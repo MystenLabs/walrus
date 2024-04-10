@@ -3,7 +3,6 @@
 
 #[test_only]
 module blob_store::epoch_change_tests {
-    use sui::tx_context::{Self};
     use sui::coin;
     use sui::balance;
 

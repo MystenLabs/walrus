@@ -6,6 +6,10 @@ version = { workspace = true }
 edition = { workspace = true }
 license = { workspace = true }
 
+[features]
+default = ["test-utils"]
+test-utils = []
+
 [dependencies]
 anyhow = "1.0.80"
 bcs = { workspace = true }
@@ -13,6 +17,7 @@ fastcrypto = { workspace = true }
 move-core-types = { workspace = true }
 serde = { workspace = true }
 serde_json = "1.0.115"
+sui-move-build = { workspace = true }
 sui-sdk = { workspace = true }
 sui-types = { workspace = true }
 thiserror = { workspace = true }
@@ -27,4 +32,3 @@ workspace = true
 [dev-dependencies]
 test-cluster = { workspace = true }
 tracing-subscriber = "0.3.18"
-walrus-e2e-tests = { path = "../walrus-e2e-tests" }

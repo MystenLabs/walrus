@@ -18,6 +18,7 @@ use sui_types::TypeTag;
 /// Implementors of this trait are convertible from [SuiMoveStruct]s and can
 /// identify their associated contract type.
 pub trait AssociatedContractStruct: TryFrom<SuiMoveStruct> {
+    /// [`StructTag`] corresponding to the move struct associated type
     const CONTRACT_STRUCT: StructTag<'static>;
 }
 
@@ -26,14 +27,20 @@ pub trait AssociatedContractStruct: TryFrom<SuiMoveStruct> {
 /// Implementors of this trait are convertible from [SuiEvent]s and can
 /// identify their associated contract type.
 pub trait AssociatedSuiEvent: TryFrom<SuiEvent> {
+    /// [`StructTag`] corresponding to the move struct of the associated event
     const EVENT_STRUCT: StructTag<'static>;
 }
 
 /// Tag identifying contract functions based on their name and module.
+#[derive(Debug)]
 pub struct FunctionTag<'a> {
+    /// Move function name
     pub name: &'a str,
+    /// Move module of the function
     pub module: &'a str,
+    /// Type parameters of the function
     pub type_params: Vec<TypeTag>,
+    /// Number of sui objects that are outputs of the function
     pub n_object_outputs: u16,
 }
 
@@ -50,7 +57,9 @@ impl<'a> FunctionTag<'a> {
 /// Tag identifying contract structs based on their name and module.
 #[derive(Debug)]
 pub struct StructTag<'a> {
+    /// Move struct name
     pub name: &'a str,
+    /// Move module of the struct
     pub module: &'a str,
 }
 
@@ -77,6 +86,7 @@ impl<'a> StructTag<'a> {
 macro_rules! contract_ident {
     (struct $modname:ident::$itemname:ident) => {
         #[allow(non_upper_case_globals)]
+        #[doc=stringify!([StructTag] for the move struct $modname::$itemname)]
         pub const $itemname: StructTag = StructTag {
             module: stringify!($modname),
             name: stringify!($itemname),
@@ -87,6 +97,7 @@ macro_rules! contract_ident {
     };
     (fn $modname:ident::$itemname:ident, $n_out:expr) => {
         #[allow(non_upper_case_globals)]
+        #[doc=stringify!([FunctionTag] for the move function $modname::$itemname)]
         pub const $itemname: FunctionTag = FunctionTag {
             module: stringify!($modname),
             name: stringify!($itemname),
@@ -96,7 +107,7 @@ macro_rules! contract_ident {
     };
 }
 
-#[allow(unused)]
+/// Module for tags corresponding to the move module `storage_resource`
 pub mod storage_resource {
     use super::*;
 
@@ -108,26 +119,31 @@ pub mod storage_resource {
     contract_ident!(struct storage_resource::Storage);
 }
 
+/// Module for tags corresponding to the move module `system`
 pub mod system {
     use super::*;
 
     contract_ident!(struct system::System);
     contract_ident!(fn system::reserve_space, 2);
+    contract_ident!(fn system::share_new);
 }
 
+/// Module for tags corresponding to the move module `committee`
 pub mod committee {
     use super::*;
 
     contract_ident!(struct committee::Committee);
 }
 
+/// Module for tags corresponding to the move module `storage_node`
 pub mod storage_node {
     use super::*;
 
     contract_ident!(struct storage_node::StorageNodeInfo);
+    contract_ident!(fn storage_node::create_storage_node_info, 1);
 }
 
-#[allow(unused)]
+/// Module for tags corresponding to the move module `blob`
 pub mod blob {
     use super::*;
 
