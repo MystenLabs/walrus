@@ -8,14 +8,23 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::{faults::FaultsType, protocol::ProtocolParameters, ClientParameters, NodeParameters};
+use crate::{
+    faults::FaultsType,
+    protocol::ProtocolParameters,
+    settings::Settings,
+    ClientParameters,
+    NodeParameters,
+};
 
 /// Shortcut avoiding to use the generic version of the benchmark parameters.
 pub type BenchmarkParameters = BenchmarkParametersGeneric<NodeParameters, ClientParameters>;
 
-/// The benchmark parameters for a run.
+/// The benchmark parameters for a run. These parameters are stored along with the performance data
+/// and should be used to reproduce the results.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct BenchmarkParametersGeneric<N, C> {
+    /// The testbed settings.
+    pub settings: Settings,
     /// The node's configuration parameters.
     pub node_parameters: N,
     /// The client's configuration parameters.
@@ -54,6 +63,7 @@ impl<N: ProtocolParameters, C: ProtocolParameters> BenchmarkParametersGeneric<N,
     /// Make a new benchmark parameters.
     #[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
     pub fn new_from_loads(
+        settings: Settings,
         node_parameters: N,
         client_parameters: C,
         nodes: usize,
@@ -64,6 +74,7 @@ impl<N: ProtocolParameters, C: ProtocolParameters> BenchmarkParametersGeneric<N,
         loads
             .into_iter()
             .map(|load| Self {
+                settings: settings.clone(),
                 node_parameters: node_parameters.clone(),
                 client_parameters: client_parameters.clone(),
                 nodes,
@@ -78,6 +89,7 @@ impl<N: ProtocolParameters, C: ProtocolParameters> BenchmarkParametersGeneric<N,
     #[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
     pub fn new_for_tests() -> Self {
         Self {
+            settings: Settings::new_for_test(),
             node_parameters: N::default(),
             client_parameters: C::default(),
             nodes: 4,
