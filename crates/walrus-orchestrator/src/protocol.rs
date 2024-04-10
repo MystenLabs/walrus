@@ -10,7 +10,7 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{benchmark::BenchmarkParameters, client::Instance};
 
-pub mod walrus;
+pub mod target;
 
 #[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222)
 pub const CARGO_FLAGS: &str = "--release";
