@@ -40,7 +40,7 @@ pub const RECOVERY_ENDPOINT: &str = "/v1/blobs/:blobId/slivers/:sliverPairIdx/:s
 /// A blob ID encoded as a hex string designed to be used in URLs.
 #[serde_as]
 #[derive(Deserialize, Serialize)]
-struct HexBlobId(#[serde_as(as = "DisplayFromStr")] BlobId);
+struct BlobIdString(#[serde_as(as = "DisplayFromStr")] BlobId);
 
 /// Error message returned by the service.
 #[derive(Debug, Serialize, Deserialize)]
@@ -147,7 +147,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn retrieve_metadata(
         State(state): State<Arc<S>>,
-        Path(HexBlobId(blob_id)): Path<HexBlobId>,
+        Path(BlobIdString(blob_id)): Path<BlobIdString>,
     ) -> Response {
         match state.retrieve_metadata(&blob_id) {
             Ok(Some(metadata)) => {
@@ -167,7 +167,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn store_metadata(
         State(state): State<Arc<S>>,
-        Path(HexBlobId(blob_id)): Path<HexBlobId>,
+        Path(BlobIdString(blob_id)): Path<BlobIdString>,
         Bcs(metadata): Bcs<BlobMetadata>,
     ) -> ServiceResponse<String> {
         let unverified_metadata_with_id = UnverifiedBlobMetadataWithId::new(blob_id, metadata);
@@ -205,8 +205,8 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn retrieve_sliver(
         State(state): State<Arc<S>>,
-        Path((HexBlobId(blob_id), sliver_pair_idx, sliver_type)): Path<(
-            HexBlobId,
+        Path((BlobIdString(blob_id), sliver_pair_idx, sliver_type)): Path<(
+            BlobIdString,
             SliverPairIndex,
             SliverType,
         )>,
@@ -233,8 +233,8 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
     /// Index is the requesters index in the established order of storage nodes
     async fn retrieve_recovery_symbol(
         State(state): State<Arc<S>>,
-        Path((HexBlobId(blob_id), sliver_pair_idx, sliver_type, index)): Path<(
-            HexBlobId,
+        Path((BlobIdString(blob_id), sliver_pair_idx, sliver_type, index)): Path<(
+            BlobIdString,
             SliverPairIndex,
             SliverType,
             SliverIndex,
@@ -254,8 +254,8 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn store_sliver(
         State(state): State<Arc<S>>,
-        Path((HexBlobId(blob_id), sliver_pair_idx, sliver_type)): Path<(
-            HexBlobId,
+        Path((BlobIdString(blob_id), sliver_pair_idx, sliver_type)): Path<(
+            BlobIdString,
             SliverPairIndex,
             SliverType,
         )>,
@@ -283,7 +283,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn retrieve_storage_confirmation(
         State(state): State<Arc<S>>,
-        Path(HexBlobId(blob_id)): Path<HexBlobId>,
+        Path(BlobIdString(blob_id)): Path<BlobIdString>,
     ) -> ServiceResponse<StorageConfirmation> {
         match state.compute_storage_confirmation(&blob_id).await {
             Ok(Some(confirmation)) => {
