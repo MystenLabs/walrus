@@ -5,6 +5,7 @@
 use std::{borrow::Borrow, net::SocketAddr, sync::Arc};
 
 use fastcrypto::{bls12381::min_pk::BLS12381PublicKey, traits::KeyPair};
+use futures::StreamExt;
 use mysten_metrics::RegistryService;
 use prometheus::Registry;
 use tempfile::TempDir;
@@ -237,7 +238,9 @@ impl SystemEventProvider for Vec<BlobEvent> {
         &self,
         _cursors: SystemEventCursorSet,
     ) -> Result<Box<dyn Stream<Item = BlobEvent> + Send + Sync + 'life0>, anyhow::Error> {
-        Ok(Box::new(tokio_stream::iter(self.clone())))
+        Ok(Box::new(
+            tokio_stream::iter(self.clone()).chain(tokio_stream::pending()),
+        ))
     }
 }
 
