@@ -9,7 +9,7 @@ use std::{
     str::FromStr,
 };
 
-use base64::{display::Base64Display, engine::general_purpose::URL_SAFE, Engine};
+use base64::{display::Base64Display, engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use encoding::{
     EncodingAxis,
     EncodingConfig,
@@ -116,7 +116,7 @@ impl AsRef<[u8]> for BlobId {
 
 impl Display for BlobId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        Base64Display::new(self.as_ref(), &URL_SAFE).fmt(f)
+        Base64Display::new(self.as_ref(), &URL_SAFE_NO_PAD).fmt(f)
     }
 }
 
@@ -145,7 +145,7 @@ impl FromStr for BlobId {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut blob_id = Self([0; Self::LENGTH]);
-        if let Ok(Self::LENGTH) = URL_SAFE.decode_slice(s, &mut blob_id.0) {
+        if let Ok(Self::LENGTH) = URL_SAFE_NO_PAD.decode_slice(s, &mut blob_id.0) {
             Ok(blob_id)
         } else {
             Err(BlobIdParseError)
