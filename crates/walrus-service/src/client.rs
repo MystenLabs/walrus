@@ -25,9 +25,9 @@ mod utils;
 
 pub use self::config::Config;
 use self::{
-    communication::NodeCommunication,
+    communication::{NodeCommunication, NodeResult},
     error::SliverRetrieveError,
-    utils::{WeightedFutures, WeightedResult},
+    utils::WeightedFutures,
 };
 
 /// A client to communicate with Walrus shards and storage nodes.
@@ -84,7 +84,8 @@ impl Client {
                 self.concurrent_requests,
             )
             .await;
-        let results = requests.into_results();
+        let results = requests.take_inner_ok();
+        drop(requests);
         Ok((metadata, results))
     }
 
@@ -128,8 +129,7 @@ impl Client {
             )
             .await;
 
-        let slivers = requests.take_results();
-
+        let slivers = requests.take_inner_ok();
         if let Some((blob, _meta)) = decoder.decode_and_verify(metadata.blob_id(), slivers)? {
             // We have enough to decode the blob.
             Ok(blob)
@@ -145,19 +145,25 @@ impl Client {
     /// sliver it receives.
     async fn decode_sliver_by_sliver<'a, I, Fut, T>(
         &self,
-        requests: &mut WeightedFutures<I, Fut, Sliver<T>, SliverRetrieveError>,
+        requests: &mut WeightedFutures<I, Fut, NodeResult<Sliver<T>, SliverRetrieveError>>,
         decoder: &mut BlobDecoder<'a, T>,
         blob_id: &BlobId,
     ) -> Result<Vec<u8>>
     where
         T: EncodingAxis,
         I: Iterator<Item = Fut>,
-        Fut: Future<Output = WeightedResult<Sliver<T>, SliverRetrieveError>>,
+        Fut: Future<Output = NodeResult<Sliver<T>, SliverRetrieveError>>,
     {
-        while let Some(sliver) = requests.execute_next(self.concurrent_requests).await {
-            let result = decoder.decode_and_verify(blob_id, [sliver])?;
-            if let Some((blob, _meta)) = result {
-                return Ok(blob);
+        while let Some(NodeResult(_, _, _, result)) = requests.next(self.concurrent_requests).await
+        {
+            match result {
+                Ok(sliver) => {
+                    let result = decoder.decode_and_verify(blob_id, [sliver])?;
+                    if let Some((blob, _meta)) = result {
+                        return Ok(blob);
+                    }
+                }
+                Err(_e) => (), // TODO(giac): add tracing
             }
         }
         // We have exhausted all the slivers but were not able to reconstruct the blob.
@@ -174,7 +180,7 @@ impl Client {
         // Wait until the first request succeeds
         let mut requests = WeightedFutures::new(futures);
         requests.execute_weight(1, self.concurrent_requests).await;
-        let metadata = requests.into_results().pop().ok_or(anyhow!(
+        let metadata = requests.take_inner_ok().pop().ok_or(anyhow!(
             "could not retrieve the metadata from the storage nodes"
         ))?;
         Ok(metadata)
