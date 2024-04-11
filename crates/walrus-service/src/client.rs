@@ -25,9 +25,9 @@ mod utils;
 
 pub use self::config::Config;
 use self::{
-    communication::NodeCommunication,
-    error::{NodeResult, SliverRetrieveError},
-    utils::{WeightedFutures, WeightedResult},
+    communication::{NodeCommunication, NodeResult},
+    error::SliverRetrieveError,
+    utils::WeightedFutures,
 };
 
 /// A client to communicate with Walrus shards and storage nodes.
@@ -84,11 +84,9 @@ impl Client {
                 self.concurrent_requests,
             )
             .await;
-        let results = requests.into_results();
-        Ok((
-            metadata,
-            results.into_iter().filter_map(|res| res.ok()).collect(),
-        ))
+        let results = requests.take_inner_ok();
+        drop(requests);
+        Ok((metadata, results))
     }
 
     /// Reconstructs the blob by reading slivers from Walrus shards.
@@ -131,12 +129,7 @@ impl Client {
             )
             .await;
 
-        let slivers = requests
-            .take_results()
-            .into_iter()
-            .filter_map(|res| res.ok())
-            .collect::<Vec<_>>();
-
+        let slivers = requests.take_inner_ok();
         if let Some((blob, _meta)) = decoder.decode_and_verify(metadata.blob_id(), slivers)? {
             // We have enough to decode the blob.
             Ok(blob)
@@ -161,8 +154,7 @@ impl Client {
         I: Iterator<Item = Fut>,
         Fut: Future<Output = NodeResult<Sliver<T>, SliverRetrieveError>>,
     {
-        while let Some((_epoch, _weight, _node, result)) =
-            requests.next(self.concurrent_requests).await
+        while let Some(NodeResult(_, _, _, result)) = requests.next(self.concurrent_requests).await
         {
             match result {
                 Ok(sliver) => {
@@ -188,13 +180,9 @@ impl Client {
         // Wait until the first request succeeds
         let mut requests = WeightedFutures::new(futures);
         requests.execute_weight(1, self.concurrent_requests).await;
-        let metadata = requests
-            .into_results()
-            .into_iter()
-            .find_map(|res| res.ok())
-            .ok_or(anyhow!(
-                "could not retrieve the metadata from the storage nodes"
-            ))?;
+        let metadata = requests.take_inner_ok().pop().ok_or(anyhow!(
+            "could not retrieve the metadata from the storage nodes"
+        ))?;
         Ok(metadata)
     }
 

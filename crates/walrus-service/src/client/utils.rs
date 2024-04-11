@@ -35,15 +35,42 @@ where
 pub trait WeightedResult {
     /// The type `T` in the inner `Result<T,E>`.
     type Inner;
+    /// The type `E` in the inner `Result<T,E>`.
+    type Error;
     /// Returns true if the inner result is `Ok`.
-    fn is_ok(&self) -> bool;
+    fn is_ok(&self) -> bool {
+        self.inner_result().is_ok()
+    }
     /// Returns true if the inner result is `Err`.
-    fn is_err(&self) -> bool;
+    fn is_err(&self) -> bool {
+        self.inner_result().is_err()
+    }
     /// Returns the weight of the `WeightedResult`.
     fn weight(&self) -> usize;
+    /// Converts `self` into an [`Option<Self>`], consuming `self`, and returning `None` if
+    /// `self.is_err()`.
+    fn ok(self) -> Option<Self>
+    where
+        Self: Sized,
+    {
+        if self.is_ok() {
+            Some(self)
+        } else {
+            None
+        }
+    }
     /// Converts `self` into an [`Option<T>`], where `T` is the type of the inner result, consuming
     /// `self`, and discarding the error, if any.
-    fn ok(self) -> Option<Self::Inner>;
+    fn inner_ok(self) -> Option<Self::Inner>
+    where
+        Self: Sized,
+    {
+        self.take_inner_result().ok()
+    }
+    /// Returns a reference tothe inner result.
+    fn inner_result(&self) -> &Result<Self::Inner, Self::Error>;
+    /// Returns the inner result, consuming `self`.
+    fn take_inner_result(self) -> Result<Self::Inner, Self::Error>;
 }
 
 /// A set of weighted futures that return a [`WeightedResult`]. The futures can be awaited on for a
@@ -52,6 +79,10 @@ pub(crate) struct WeightedFutures<I, Fut, T> {
     futures: I,
     being_executed: FuturesUnordered<Fut>,
     results: Vec<T>,
+    /// The cumulative weight of successful `WeightedResult`s that have been executed.
+    ///
+    /// This is necessary to to keep track of the weight of successful results across calls to
+    /// `next_threshold`. Calls to `execute_weight` begin by resetting `total_weight = 0`.
     total_weight: usize,
 }
 
@@ -148,20 +179,19 @@ where
         }
     }
 
-    /// Returns a reference to the `results`.
-    #[allow(dead_code)]
-    pub fn results(&self) -> &Vec<T> {
-        &self.results
-    }
-
     /// Gets all the results in the struct, emptying `self.results`.
     pub fn take_results(&mut self) -> Vec<T> {
         std::mem::take(&mut self.results)
     }
 
-    /// Consumes the struct and returns the `results`.
-    pub fn into_results(self) -> Vec<T> {
-        self.results
+    /// Gets all the `Ok` results in the struct, returning `T::Inner`, while discarding the errors
+    /// and emptying `self.results`.
+    pub fn take_inner_ok(&mut self) -> Vec<T::Inner> {
+        let results = self.take_results();
+        results
+            .into_iter()
+            .filter_map(WeightedResult::inner_ok)
+            .collect()
     }
 }
 
@@ -173,20 +203,18 @@ mod tests {
 
     use super::*;
 
-    type SimpleWeightedResult = (usize, u64);
+    type SimpleWeightedResult = (usize, Result<u64>);
     impl WeightedResult for SimpleWeightedResult {
         type Inner = u64;
-        fn is_ok(&self) -> bool {
-            true
-        }
-        fn is_err(&self) -> bool {
-            false
-        }
+        type Error = anyhow::Error;
         fn weight(&self) -> usize {
             self.0
         }
-        fn ok(self) -> Option<Self::Inner> {
-            Some(self.1)
+        fn take_inner_result(self) -> Result<Self::Inner, Self::Error> {
+            self.1
+        }
+        fn inner_result(&self) -> &Result<Self::Inner, Self::Error> {
+            &self.1
         }
     }
 
@@ -194,31 +222,24 @@ mod tests {
         ($var:ident, $iter:expr) => {
             let futures = $iter.into_iter().map(|&i| async move {
                 tokio::time::sleep(Duration::from_millis((i) * 10)).await;
-                (1, i) // Every result has a weight of 1.
+                (1, Ok(i)) // Every result has a weight of 1.
             });
             let mut $var = WeightedFutures::new(futures);
         };
-    }
-
-    fn only_ok(results: &[SimpleWeightedResult]) -> Vec<u64> {
-        results.iter().filter_map(|result| result.ok()).collect()
     }
 
     #[tokio::test(start_paused = true)]
     async fn test_weighted_futures() {
         create_weighted_futures!(weighted_futures, &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
         weighted_futures.execute_weight(3, 10).await;
-        assert_eq!(only_ok(weighted_futures.results()), vec![1, 2, 3]);
+        assert_eq!(weighted_futures.take_inner_ok(), vec![1, 2, 3]);
         // Add to the existing runtime (~30ms) another 32ms to get to ~62ms of total execution.
         weighted_futures
             .execute_time(Duration::from_millis(32), 10)
             .await;
-        assert_eq!(only_ok(weighted_futures.results()), vec![1, 2, 3, 4, 5, 6]);
+        assert_eq!(weighted_futures.take_inner_ok(), vec![4, 5, 6]);
         weighted_futures.execute_weight(1, 10).await;
-        assert_eq!(
-            only_ok(weighted_futures.results()),
-            vec![1, 2, 3, 4, 5, 6, 7]
-        );
+        assert_eq!(weighted_futures.take_inner_ok(), vec![7]);
     }
 
     #[tokio::test(start_paused = true)]
@@ -234,7 +255,7 @@ mod tests {
         println!("elapsed {:?}", start.elapsed());
         assert!(start.elapsed() < Duration::from_millis(200));
         assert_eq!(
-            only_ok(weighted_futures.results()),
+            weighted_futures.take_inner_ok(),
             vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
         );
     }
@@ -249,6 +270,6 @@ mod tests {
             .await;
         println!("elapsed {:?}", start.elapsed());
         assert!(start.elapsed() < Duration::from_millis(70));
-        assert_eq!(only_ok(weighted_futures.results()), vec![1, 1, 1, 1, 1]);
+        assert_eq!(weighted_futures.take_inner_ok(), vec![1, 1, 1, 1, 1]);
     }
 }

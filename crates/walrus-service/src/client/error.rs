@@ -8,42 +8,8 @@ use reqwest::StatusCode;
 use walrus_core::{
     encoding::{RecoveryError, WrongSliverVariantError},
     metadata::{SliverPairIndex, VerificationError as MetadataVerificationError},
-    Epoch,
     SliverType,
 };
-use walrus_sui::types::StorageNode;
-
-use super::utils::WeightedResult;
-
-/// Represents the result of an interaction with a storage node. Contains the epoch, the "weight" of
-/// the interaction (e.g., the number of shards for which an operation was performed), the storage
-/// node that issued it, and the result of the operation.
-// TODO(giac): change `StorageNode` to something more sensible. The public key? The index of the
-// storage node in the `self.committee.members` vec?
-pub type NodeResult<T, E> = (Epoch, usize, StorageNode, Result<T, E>);
-
-impl<T, E> WeightedResult for NodeResult<T, E> {
-    type Inner = T;
-
-    fn is_ok(&self) -> bool {
-        self.3.is_ok()
-    }
-
-    fn is_err(&self) -> bool {
-        self.3.is_err()
-    }
-
-    fn weight(&self) -> usize {
-        self.1
-    }
-
-    fn ok(self) -> Option<Self::Inner> {
-        match self.3 {
-            Ok(res) => Some(res),
-            Err(_) => None,
-        }
-    }
-}
 
 /// Storing the metadata and the set of sliver pairs onto the storage node, and retrieving the
 /// storage confirmation, failed.
