@@ -59,9 +59,11 @@ impl<P, N, C> Orchestrator<P, N, C> {
         }
     }
 
-    /// Select on which instances of the testbed to run the benchmarks. This function returns two
-    /// vector of instances; the first contains the instances on which to run the load generators
-    /// and the second contains the instances on which to run the nodes.
+    /// Returns the instances of the testbed on which to run the benchmarks. 
+    /// 
+    /// This function returns two vectors of instances; the first contains the instances on which to
+    /// run the load generators and the second contains the instances on which to run the nodes.
+    /// Additionally returns an optional monitoring instance.
     pub fn select_instances(
         &self,
         parameters: &BenchmarkParameters,
