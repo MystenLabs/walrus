@@ -1,38 +1,15 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use fastcrypto::{
-    bls12381::min_pk::{BLS12381AggregateSignature, BLS12381PrivateKey},
-    traits::{Signer, ToFromBytes},
-};
+use fastcrypto::traits::ToFromBytes;
 use test_cluster::TestClusterBuilder;
 use tokio_stream::StreamExt;
-use walrus_core::{
-    messages::{Confirmation, ConfirmationCertificate},
-    BlobId,
-    EncodingType,
-    ShardIndex,
-};
-use walrus_e2e_tests::publish_package;
+use walrus_core::{BlobId, EncodingType, ShardIndex};
 use walrus_sui::{
     client::{ContractClient, ReadClient, SuiContractClient},
+    test_utils::{get_default_blob_certificate, system_setup::publish_with_default_system},
     types::EpochStatus,
 };
-
-fn get_blob_cert(blob_id: BlobId, epoch: u64) -> ConfirmationCertificate {
-    // Use the same private key that is registered in the committee in
-    // `contracts/blob_store/e2etest.move`
-    let mut sk = [0; 32];
-    sk[31] = 117;
-    let sk = BLS12381PrivateKey::from_bytes(&sk).unwrap();
-    let confirmation = bcs::to_bytes(&Confirmation::new(epoch, blob_id)).unwrap();
-    let signature = BLS12381AggregateSignature::from(sk.sign(&confirmation));
-    ConfirmationCertificate {
-        confirmation,
-        signature,
-        signers: vec![0],
-    }
-}
 
 #[tokio::test]
 #[ignore = "ignore integration tests by default"]
@@ -40,7 +17,8 @@ async fn test_register_blob() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
     let test_cluster = TestClusterBuilder::new().build().await;
     let mut wallet = test_cluster.wallet;
-    let (package_id, system_object) = publish_package(&mut wallet, "blob_store").await?;
+    let (package_id, system_object) =
+        publish_with_default_system(&mut wallet, "blob_store").await?;
     let walrus_client =
         SuiContractClient::new(wallet, package_id, system_object, 10000000000).await?;
 
@@ -88,7 +66,7 @@ async fn test_register_blob() -> anyhow::Result<()> {
     assert_eq!(blob_registered.size, blob_obj.encoded_size);
 
     let blob_obj = walrus_client
-        .certify_blob(&blob_obj, &get_blob_cert(blob_id, 0))
+        .certify_blob(&blob_obj, &get_default_blob_certificate(blob_id, 0))
         .await?;
     assert_eq!(blob_obj.certified, Some(0));
 
@@ -130,7 +108,7 @@ async fn test_register_blob() -> anyhow::Result<()> {
     assert_eq!(blob_registered.blob_id, blob_id);
 
     let _blob_obj = walrus_client
-        .certify_blob(&blob_obj, &get_blob_cert(blob_id, 0))
+        .certify_blob(&blob_obj, &get_default_blob_certificate(blob_id, 0))
         .await?;
 
     // Make sure that we got the expected event
@@ -145,7 +123,8 @@ async fn test_register_blob() -> anyhow::Result<()> {
 async fn test_get_system() -> anyhow::Result<()> {
     let test_cluster = TestClusterBuilder::new().build().await;
     let mut wallet = test_cluster.wallet;
-    let (package_id, system_object) = publish_package(&mut wallet, "blob_store").await?;
+    let (package_id, system_object) =
+        publish_with_default_system(&mut wallet, "blob_store").await?;
     let walrus_client =
         SuiContractClient::new(wallet, package_id, system_object, 10000000000).await?;
     let system = walrus_client.read_client.get_system_object().await?;

@@ -145,6 +145,12 @@ impl<T> PathOrInPlace<T> {
     }
 }
 
+impl<T> From<T> for PathOrInPlace<T> {
+    fn from(value: T) -> Self {
+        PathOrInPlace::InPlace(value)
+    }
+}
+
 impl PathOrInPlace<ProtocolKeyPair> {
     /// Loads and returns a [`ProtocolKeyPair`] from the path on disk.
     ///

@@ -5,6 +5,7 @@
 use std::{
     fmt::{self, Debug, Display, LowerHex},
     num::{NonZeroUsize, TryFromIntError},
+    ops::{Bound, Range, RangeBounds},
     str::FromStr,
 };
 
@@ -153,10 +154,48 @@ impl FromStr for BlobId {
     }
 }
 
+/// A range of shards.
+///
+/// Created with the [`ShardIndex::range()`] method.
+pub type ShardRange = std::iter::Map<Range<u16>, fn(u16) -> ShardIndex>;
+
 /// Represents the index of a shard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[repr(transparent)]
 pub struct ShardIndex(pub u16);
+
+impl ShardIndex {
+    /// A range of shard indices.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use walrus_core::ShardIndex;
+    ///
+    /// assert!(ShardIndex::range(0..3).eq([ShardIndex(0), ShardIndex(1), ShardIndex(2)]));
+    /// assert!(ShardIndex::range(0..3).eq(ShardIndex::range(..3)));
+    /// assert!(ShardIndex::range(0..3).eq(ShardIndex::range(..=2)));
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if a range with an unbounded end is specified (i.e., `range(3..)`)
+    pub fn range(range: impl RangeBounds<u16>) -> ShardRange {
+        let start = match range.start_bound() {
+            Bound::Included(left) => *left,
+            Bound::Excluded(left) => *left + 1,
+            Bound::Unbounded => 0,
+        };
+        let end = match range.end_bound() {
+            Bound::Included(right) => *right + 1,
+            Bound::Excluded(right) => *right,
+            Bound::Unbounded => {
+                unimplemented!("cannot create a ShardIndex range with an unbounded end")
+            }
+        };
+        (start..end).map(ShardIndex)
+    }
+}
 
 impl Display for ShardIndex {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -169,6 +208,18 @@ impl TryFrom<usize> for ShardIndex {
 
     fn try_from(value: usize) -> Result<Self, Self::Error> {
         Ok(Self(value.try_into()?))
+    }
+}
+
+impl From<u16> for ShardIndex {
+    fn from(value: u16) -> Self {
+        Self(value)
+    }
+}
+
+impl From<&u16> for ShardIndex {
+    fn from(value: &u16) -> Self {
+        Self(*value)
     }
 }
 
@@ -388,11 +439,54 @@ impl TryFrom<u8> for EncodingType {
 }
 
 /// Returns an error if the condition evaluates to false.
+///
+/// Instead of an error, a message can be provided as a single string literal or as a format string
+/// with additional parameters. In those cases, the message is turned into an error using
+/// anyhow and then converted to the expected type.
+///
+/// # Examples
+///
+/// ```
+/// # use thiserror::Error;
+/// # use walrus_core::ensure;
+/// #
+/// # #[derive(Debug, Error, PartialEq)]
+/// #[error("some error has occurred")]
+/// struct MyError;
+///
+/// let function = |condition: bool| -> Result::<usize, MyError> {
+///     ensure!(condition, MyError);
+///     Ok(42)
+/// };
+/// assert_eq!(function(true).unwrap(), 42);
+/// assert_eq!(function(false).unwrap_err(), MyError);
+/// ```
+///
+/// ```
+/// # use anyhow;
+/// # use walrus_core::ensure;
+/// let function = |condition: bool| -> anyhow::Result::<()> {
+///     ensure!(condition, "some error message");
+///     Ok(())
+/// };
+/// assert!(function(true).is_ok());
+/// assert_eq!(function(false).unwrap_err().to_string(), "some error message");
+/// ```
 #[macro_export]
 macro_rules! ensure {
+    ($cond:expr, $msg:literal $(,)?) => {
+        if !$cond {
+            return Err(anyhow::anyhow!($msg).into());
+        }
+    };
     ($cond:expr, $err:expr $(,)?) => {
         if !$cond {
             return Err($err);
+        }
+    };
+    ($cond:expr, $fmt:expr, $($arg:tt)*) => {
+        if !$cond {
+            return Err(anyhow::anyhow!($fmt, $($arg)*).into());
         }
     };
 }

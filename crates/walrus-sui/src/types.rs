@@ -23,7 +23,6 @@ use walrus_core::{BlobId, EncodingType, Epoch, PublicKey, ShardIndex};
 
 use crate::{
     contracts::{self, AssociatedContractStruct, AssociatedSuiEvent, StructTag},
-    test_utils::event_id_for_testing,
     utils::{
         blob_id_from_u256,
         get_dynamic_field,
@@ -466,19 +465,6 @@ impl AssociatedSuiEvent for BlobRegistered {
     const EVENT_STRUCT: StructTag<'static> = contracts::blob::BlobRegistered;
 }
 
-impl BlobRegistered {
-    pub(crate) fn for_testing(blob_id: BlobId) -> Self {
-        Self {
-            epoch: 0,
-            blob_id,
-            size: 10000,
-            erasure_code_type: EncodingType::RedStuff,
-            end_epoch: 42,
-            event_id: event_id_for_testing(),
-        }
-    }
-}
-
 /// Sui event that blob has been certified
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlobCertified {
@@ -515,17 +501,6 @@ impl TryFrom<SuiEvent> for BlobCertified {
 
 impl AssociatedSuiEvent for BlobCertified {
     const EVENT_STRUCT: StructTag<'static> = contracts::blob::BlobCertified;
-}
-
-impl BlobCertified {
-    pub(crate) fn for_testing(blob_id: BlobId) -> Self {
-        Self {
-            epoch: 0,
-            blob_id,
-            end_epoch: 42,
-            event_id: event_id_for_testing(),
-        }
-    }
 }
 
 /// Enum for the event type
