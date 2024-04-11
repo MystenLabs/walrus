@@ -6,7 +6,7 @@
 use fastcrypto::error::FastCryptoError;
 use reqwest::StatusCode;
 use walrus_core::{
-    encoding::{RecoveryError, WrongSliverVariantError},
+    encoding::{SliverVerificationError, WrongSliverVariantError},
     metadata::VerificationError as MetadataVerificationError,
     SliverPairIndex,
     SliverType,
@@ -67,29 +67,6 @@ pub enum MetadataRetrieveError {
     /// The metadata verification failed.
     #[error(transparent)]
     MetadataVerificationFailed(#[from] MetadataVerificationError),
-}
-
-/// Error returned when the client fails to verify a sliver fetched from a storage node.
-#[derive(Debug, thiserror::Error)]
-pub enum SliverVerificationError {
-    /// The shard index provided is too large for the number of shards in the metadata.
-    #[error("the shard index provided is too large for the number of shards in the metadata")]
-    ShardIndexTooLarge,
-    /// The length of the provided sliver does not match the number of source symbols in the
-    /// metadata.
-    #[error("the length of the provided sliver does not match the metadata")]
-    SliverSizeMismatch,
-    /// The symbol size of the provided sliver does not match the symbol size that can be computed
-    /// from the metadata.
-    #[error("the symbol size of the provided sliver does not match the metadata")]
-    SymbolSizeMismatch,
-    /// The recomputed Merkle root of the provided sliver does not match the root stored in the
-    /// metadata.
-    #[error("the recomputed Merkle root of the provided sliver does not match the metadata")]
-    MerkleRootMismatch,
-    /// Error resulting from the Merkle tree computation. The Merkle root could not be computed.
-    #[error(transparent)]
-    RecoveryFailed(#[from] RecoveryError),
 }
 
 #[derive(Debug, thiserror::Error)]

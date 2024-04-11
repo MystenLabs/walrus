@@ -20,9 +20,13 @@ pub use errors::{
     DecodingVerificationError,
     EncodeError,
     RecoveryError,
+    SliverVerificationError,
     WrongSliverVariantError,
     WrongSymbolSizeError,
 };
+
+mod mapping;
+pub use mapping::{rotate_pairs, rotate_pairs_unchecked, SliverAssignmentError};
 
 mod slivers;
 pub use slivers::{PrimarySliver, SecondarySliver, Sliver, SliverPair};

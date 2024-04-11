@@ -3,10 +3,11 @@
 
 use std::{marker::PhantomData, num::NonZeroU16};
 
-use fastcrypto::hash::HashFunction;
+use fastcrypto::hash::{Blake2b256, HashFunction};
 use serde::{Deserialize, Serialize};
 
 use super::{
+    errors::SliverVerificationError,
     Decoder,
     DecodingSymbol,
     DecodingSymbolPair,
@@ -20,8 +21,10 @@ use super::{
     Symbols,
 };
 use crate::{
+    ensure,
     merkle::{MerkleProof, MerkleTree, Node, DIGEST_LEN},
-    metadata::SliverPairMetadata,
+    metadata::{SliverPairMetadata, VerifiedBlobMetadataWithId},
+    ShardIndex,
     SliverIndex,
     SliverPairIndex,
 };
@@ -82,6 +85,53 @@ impl<T: EncodingAxis> Sliver<T> {
         self
     }
 
+    /// Checks that the provided sliver matches the corresponding hash in the metadata.
+    pub fn verify(
+        &self,
+        encoding_config: &EncodingConfig,
+        metadata: &VerifiedBlobMetadataWithId,
+        shard_idx: ShardIndex,
+    ) -> Result<(), SliverVerificationError> {
+        ensure!(
+            shard_idx.as_usize() < metadata.metadata().hashes.len(),
+            SliverVerificationError::ShardIndexTooLarge
+        );
+        ensure!(
+            self.symbols.len()
+                == encoding_config
+                    .n_source_symbols::<T::OrthogonalAxis>()
+                    .get() as usize,
+            SliverVerificationError::SliverSizeMismatch
+        );
+        let symbol_size_from_metadata = encoding_config
+            .symbol_size_for_blob(
+                metadata
+                    .metadata()
+                    .unencoded_length
+                    .try_into()
+                    .expect("conversion u64 -> usize failed"),
+            )
+            .expect("the symbol size is checked in `UnverifiedBlobMetadataWithId::verify`");
+        ensure!(
+            self.symbols.symbol_size() == symbol_size_from_metadata,
+            SliverVerificationError::SymbolSizeMismatch
+        );
+        let pair_metadata = metadata
+            .metadata()
+            .hashes
+            .get(
+                shard_idx
+                    .to_pair_index(encoding_config.n_shards, metadata.blob_id())
+                    .as_usize(),
+            )
+            .expect("n_shards and shard_index < n_shards are checked above");
+        ensure!(
+            self.get_merkle_root::<Blake2b256>(encoding_config)? == *pair_metadata.hash::<T>(),
+            SliverVerificationError::MerkleRootMismatch
+        );
+        Ok(())
+    }
+
     /// Creates the first `n_shards` recovery symbols from the sliver.
     ///
     /// [`Primary`] slivers are encoded with the [`Secondary`] encoding, and vice versa, to obtain
@@ -105,7 +155,7 @@ impl<T: EncodingAxis> Sliver<T> {
     ///
     /// # Errors
     ///
-    /// Returns an [`RecoveryError::EncodeError`] error if the `symbols` cannot be encoded. See
+    /// Returns a [`RecoveryError::EncodeError`] error if the `symbols` cannot be encoded. See
     /// [`Encoder::new`] for further details about the returned errors. Returns a
     /// [`RecoveryError::IndexTooLarge`] error if `index >= n_shards`.
     pub fn single_recovery_symbol(
@@ -143,13 +193,13 @@ impl<T: EncodingAxis> Sliver<T> {
         target_pair_idx: SliverPairIndex,
         config: &EncodingConfig,
     ) -> Result<DecodingSymbol<T::OrthogonalAxis>, RecoveryError> {
-        Self::check_index(target_pair_idx.0, config.n_shards)?;
+        Self::check_index(target_pair_idx.into(), config.n_shards)?;
         Ok(DecodingSymbol::new(
-            self.index.0,
+            self.index.into(),
             self.single_recovery_symbol(
                 target_pair_idx
                     .to_sliver_index::<T::OrthogonalAxis>(config.n_shards)
-                    .0,
+                    .into(),
                 config,
             )?,
         ))
@@ -177,14 +227,14 @@ impl<T: EncodingAxis> Sliver<T> {
     where
         U: HashFunction<DIGEST_LEN>,
     {
-        Self::check_index(target_pair_idx.0, config.n_shards)?;
+        Self::check_index(target_pair_idx.into(), config.n_shards)?;
         let recovery_symbols = self.recovery_symbols(config)?;
         Ok(recovery_symbols
             .decoding_symbol_at(
                 target_pair_idx
                     .to_sliver_index::<T::OrthogonalAxis>(config.n_shards)
                     .as_usize(),
-                self.index.0,
+                self.index.into(),
             )
             .expect("we have exactly `n_shards` symbols and the bound was checked")
             .with_proof(

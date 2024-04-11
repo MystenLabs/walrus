@@ -4,7 +4,7 @@
 use std::num::NonZeroU16;
 
 use anyhow::Result;
-use fastcrypto::{hash::Blake2b256, traits::VerifyingKey};
+use fastcrypto::traits::VerifyingKey;
 use futures::future::join_all;
 use reqwest::Client as ReqwestClient;
 use walrus_core::{
@@ -30,14 +30,12 @@ use super::{
         MetadataRetrieveError,
         MetadataStoreError,
         SliverRetrieveError,
-        SliverVerificationError,
         StoreError,
     },
     utils::{unwrap_response, WeightedResult},
 };
 use crate::{
     client::error::SliverStoreError,
-    mapping::pair_index_for_shard,
     server::{METADATA_ENDPOINT, SLIVER_ENDPOINT, STORAGE_CONFIRMATION_ENDPOINT},
 };
 
@@ -153,7 +151,7 @@ impl<'a> NodeCommunication<'a> {
     {
         let inner = || async {
             let sliver = self.retrieve_sliver::<T>(metadata, shard_idx).await?;
-            self.verify_sliver(metadata, &sliver, shard_idx)?;
+            sliver.verify(self.encoding_config, metadata, shard_idx)?;
             Ok(sliver)
         };
         // Each sliver is in this case requested individually, so the weight is 1.
@@ -173,7 +171,7 @@ impl<'a> NodeCommunication<'a> {
             .client
             .get(self.sliver_endpoint(
                 metadata.blob_id(),
-                pair_index_for_shard(shard_idx, self.n_shards(), metadata.blob_id()),
+                shard_idx.to_pair_index(self.n_shards(), metadata.blob_id()),
                 SliverType::for_encoding::<T>(),
             ))
             .send()
@@ -181,54 +179,6 @@ impl<'a> NodeCommunication<'a> {
             .map_err(CommunicationError::from)?;
         let sliver_enum = unwrap_response::<SliverEnum>(response).await?;
         Ok(sliver_enum.to_raw::<T>()?)
-    }
-
-    // TODO(giac): this function should be added to `Sliver` as soon as the mapping has been moved
-    // to walrus-core (issue #169). At that point, proper errors should be added.
-    /// Checks that the provided sliver matches the corresponding hash in the metadata.
-    fn verify_sliver<T: EncodingAxis>(
-        &self,
-        metadata: &VerifiedBlobMetadataWithId,
-        sliver: &Sliver<T>,
-        shard_idx: ShardIndex,
-    ) -> Result<(), SliverVerificationError> {
-        ensure!(
-            (shard_idx.0 as usize) < metadata.metadata().hashes.len(),
-            SliverVerificationError::ShardIndexTooLarge
-        );
-        ensure!(
-            sliver.symbols.len()
-                == self
-                    .encoding_config
-                    .n_source_symbols::<T::OrthogonalAxis>()
-                    .get() as usize,
-            SliverVerificationError::SliverSizeMismatch
-        );
-        let symbol_size_from_metadata = self
-            .encoding_config
-            .symbol_size_for_blob(
-                metadata
-                    .metadata()
-                    .unencoded_length
-                    .try_into()
-                    .expect("conversion u64 -> usize failed"),
-            )
-            .expect("the symbol size is checked in `UnverifiedBlobMetadataWithId::verify`");
-        ensure!(
-            sliver.symbols.symbol_size() == symbol_size_from_metadata,
-            SliverVerificationError::SymbolSizeMismatch
-        );
-        let pair_metadata = metadata
-            .metadata()
-            .hashes
-            .get(pair_index_for_shard(shard_idx, self.n_shards(), metadata.blob_id()).as_usize())
-            .expect("n_shards and shard_index < n_shards are checked above");
-        ensure!(
-            sliver.get_merkle_root::<Blake2b256>(self.encoding_config)?
-                == *pair_metadata.hash::<T>(),
-            SliverVerificationError::MerkleRootMismatch
-        );
-        Ok(())
     }
 
     // Write operations.

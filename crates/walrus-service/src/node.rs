@@ -29,7 +29,6 @@ use walrus_sui::types::EventType;
 
 use crate::{
     config::StorageNodeConfig,
-    mapping::shard_index_for_pair,
     storage::Storage,
     system_events::{SuiSystemEventProvider, SystemEventCursorSet, SystemEventProvider},
 };
@@ -315,7 +314,7 @@ impl ServiceState for StorageNode {
         sliver_pair_idx: SliverPairIndex,
         sliver_type: SliverType,
     ) -> Result<Option<Sliver>, RetrieveSliverError> {
-        let shard = shard_index_for_pair(sliver_pair_idx, self.encoding_config.n_shards(), blob_id);
+        let shard = sliver_pair_idx.to_shard_index(self.encoding_config.n_shards(), blob_id);
         let sliver = self
             .storage
             .shard_storage(shard)
@@ -333,7 +332,7 @@ impl ServiceState for StorageNode {
     ) -> Result<(), StoreSliverError> {
         // First determine if the shard that should store this sliver is managed by this node.
         // If not, we can return early without touching the database.
-        let shard = shard_index_for_pair(sliver_pair_idx, self.encoding_config.n_shards(), blob_id);
+        let shard = sliver_pair_idx.to_shard_index(self.encoding_config.n_shards(), blob_id);
         let shard_storage = self
             .storage
             .shard_storage(shard)

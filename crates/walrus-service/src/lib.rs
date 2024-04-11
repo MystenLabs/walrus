@@ -7,8 +7,6 @@
 pub mod client;
 /// Configuration module.
 pub mod config;
-/// Mapping from sliver pairs to shards.
-pub mod mapping;
 /// Server for the Walrus service.
 pub mod server;
 /// Facilities to deploy a demo testbed.
