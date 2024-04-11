@@ -28,8 +28,6 @@ use crate::node::{ServiceState, StoreMetadataError, StoreSliverError};
 
 mod extract;
 
-// TODO(jsmith): Remove json calls on gets
-
 /// The path to get and store blob metadata.
 pub const METADATA_ENDPOINT: &str = "/v1/blobs/:blobId/metadata";
 /// The path to get and store slivers.
@@ -86,11 +84,10 @@ impl<T: Serialize> ServiceResponse<T> {
 impl<T> ServiceResponse<T> {
     fn code(&self) -> u16 {
         match self {
-            ServiceResponse::Success { code, .. } | ServiceResponse::Error { code, .. } => *code,
+            Self::Success { code, .. } | Self::Error { code, .. } => *code,
         }
     }
 
-    /// Creates a new error response.
     fn error<S: Into<String>>(code: StatusCode, message: S) -> Self {
         Self::Error {
             code: code.as_u16(),
@@ -98,7 +95,6 @@ impl<T> ServiceResponse<T> {
         }
     }
 
-    /// Creates a new 404 'not found' error.
     fn not_found() -> Self {
         Self::error(StatusCode::NOT_FOUND, "Not found")
     }
@@ -508,7 +504,7 @@ mod test {
         let client = reqwest::Client::new();
         let res = client
             .put(url)
-            .body(bcs::to_bytes(metadata).expect("can serialize metadata"))
+            .body(bcs::to_bytes(metadata).unwrap())
             .send()
             .await
             .unwrap();
