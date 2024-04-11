@@ -53,11 +53,7 @@ pub trait WeightedResult {
     where
         Self: Sized,
     {
-        if self.is_ok() {
-            Some(self)
-        } else {
-            None
-        }
+        self.is_ok().then_some(self)
     }
     /// Converts `self` into an [`Option<T>`], where `T` is the type of the inner result, consuming
     /// `self`, and discarding the error, if any.
