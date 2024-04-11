@@ -11,10 +11,10 @@ use std::{
 use futures::future::try_join_all;
 use ssh2::{Channel, Session};
 use tokio::{net::TcpStream, runtime::Handle, task::JoinHandle, time::sleep};
+use walrus_core::ensure;
 
 use crate::{
     client::Instance,
-    ensure,
     error::{SshError, SshResult},
 };
 

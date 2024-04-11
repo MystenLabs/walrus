@@ -261,27 +261,6 @@ macro_rules! get_u64_field_from_event {
     };
 }
 
-/// Returns an error if the condition evaluates to false.
-/// If a message is provided instead of an error, the message is turned into
-/// an error using [`anyhow!`] and then cast to the expected type
-macro_rules! ensure {
-    ($cond:expr, $msg:literal $(,)?) => {
-        if !$cond {
-            return Err(anyhow!($msg).into());
-        }
-    };
-    ($cond:expr, $fmt:expr, $($arg:tt)*) => {
-        if !$cond {
-            return Err(anyhow!($fmt, $($arg)*).into());
-        }
-    };
-    ($cond:expr, $err:expr $(,)?) => {
-        if !$cond {
-            return Err($err);
-        }
-    };
-}
-
 pub(crate) use get_dynamic_field;
 #[allow(unused)]
 pub(crate) use get_field_from_event;

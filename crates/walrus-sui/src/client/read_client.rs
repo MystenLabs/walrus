@@ -27,6 +27,7 @@ use sui_types::{
 use tokio::sync::{mpsc, OnceCell};
 use tokio_stream::{wrappers::ReceiverStream, Stream};
 use tracing::{instrument, Instrument};
+use walrus_core::ensure;
 
 use super::SuiClientResult;
 use crate::{

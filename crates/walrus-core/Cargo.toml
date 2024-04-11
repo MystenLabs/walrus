@@ -19,6 +19,7 @@ thiserror = { workspace = true }
 workspace = true
 
 [dev-dependencies]
+anyhow = { workspace = true }
 criterion = "0.5.1"
 rand = { workspace = true }
 serde_test = "1.0.176"

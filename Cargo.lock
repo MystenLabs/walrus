@@ -10480,6 +10480,7 @@ dependencies = [
 name = "walrus-core"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bcs",
  "criterion",
  "fastcrypto 0.1.8",
@@ -10512,6 +10513,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "walrus-core",
 ]
 
 [[package]]

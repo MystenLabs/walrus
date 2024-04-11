@@ -7,7 +7,7 @@ edition = { workspace = true }
 license = { workspace = true }
 
 [dependencies]
-anyhow = "1.0.80"
+anyhow = { workspace = true }
 axum = { version = "0.7.5", features = ["http2"] }
 bcs = { workspace = true }
 clap = { workspace = true }

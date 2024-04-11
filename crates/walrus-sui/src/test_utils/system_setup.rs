@@ -20,7 +20,7 @@ use sui_sdk::{
     wallet_context::WalletContext,
     SUI_COIN_TYPE,
 };
-use walrus_core::ShardIndex;
+use walrus_core::{ensure, ShardIndex};
 
 use crate::{
     contracts::{self, StructTag},
