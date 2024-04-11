@@ -3,7 +3,7 @@
 
 //! Core functionality for Walrus.
 use std::{
-    fmt::{self, Debug, Display, LowerHex},
+    fmt::{self, Debug, Display},
     num::{NonZeroUsize, TryFromIntError},
     ops::{Bound, Range, RangeBounds},
     str::FromStr,
