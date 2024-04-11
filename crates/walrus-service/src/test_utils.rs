@@ -307,7 +307,7 @@ impl TestCluster {
 /// constructed by calling [`build`][Self::build`].
 ///
 /// Without further configuration, this will build a test cluster of 4 storage nodes with shards
-/// being assigned as {0}, {1, 2}, {3, 4, 5}, {6, 7, 8, 9} to the nodes.
+/// being assigned as {0}, {1, 2}, {3, 4, 5}, {6, 7, 8}, {9, 10, 11, 12} to the nodes.
 ///
 /// See function level documentation for details on the various configuration settings.
 #[derive(Debug)]
@@ -399,14 +399,16 @@ impl TestClusterBuilder {
 
 impl Default for TestClusterBuilder {
     fn default() -> Self {
+        let shard_assignment = vec![
+            vec![ShardIndex(0)],
+            vec![ShardIndex(1), ShardIndex(2)],
+            ShardIndex::range(3..6).collect(),
+            ShardIndex::range(6..9).collect(),
+            ShardIndex::range(9..13).collect(),
+        ];
         Self {
-            shard_assignment: vec![
-                vec![ShardIndex(0)],
-                vec![ShardIndex(1), ShardIndex(2)],
-                vec![ShardIndex(3), ShardIndex(4), ShardIndex(5)],
-                vec![ShardIndex(6), ShardIndex(7), ShardIndex(8), ShardIndex(9)],
-            ],
-            event_providers: (0..10).map(|_| None).collect(),
+            event_providers: shard_assignment.iter().map(|_| None).collect(),
+            shard_assignment,
         }
     }
 }

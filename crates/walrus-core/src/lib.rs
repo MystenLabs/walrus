@@ -5,6 +5,7 @@
 use std::{
     fmt::{self, Debug, Display, LowerHex},
     num::{NonZeroUsize, TryFromIntError},
+    ops::Range,
     str::FromStr,
 };
 
@@ -153,10 +154,23 @@ impl FromStr for BlobId {
     }
 }
 
+/// A range of shards.
+///
+/// Created with the [`ShardIndex::range()`] method.
+pub type ShardRange = std::iter::Map<Range<u16>, fn(u16) -> ShardIndex>;
+
 /// Represents the index of a shard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[repr(transparent)]
 pub struct ShardIndex(pub u16);
+
+impl ShardIndex {
+    /// A range of shard indices.
+    #[inline]
+    pub fn range(range: Range<u16>) -> ShardRange {
+        range.map(ShardIndex)
+    }
+}
 
 impl Display for ShardIndex {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
