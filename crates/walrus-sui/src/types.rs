@@ -250,13 +250,10 @@ impl TryFrom<SuiMoveStruct> for StorageNode {
     }
 }
 
+// TODO(giac): remove if unused in #243
 impl Display for StorageNode {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(
-            f,
-            "node-({}, pk: {}, addr: {})",
-            self.name, self.public_key, self.network_address
-        )
+        write!(f, "node-pk: {}", self.public_key)
     }
 }
 

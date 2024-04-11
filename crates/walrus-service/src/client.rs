@@ -63,7 +63,7 @@ impl Client {
     }
 
     /// Encodes and stores a blob into Walrus by sending sliver pairs to at least 2f+1 shards.
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip_all, fields(blob_id_prefix))]
     pub async fn store_blob(
         &self,
         blob: &[u8],
@@ -72,6 +72,7 @@ impl Client {
             .encoding_config
             .get_blob_encoder(blob)?
             .encode_with_metadata();
+        Self::trace_blob_id_prefix(metadata.blob_id());
         tracing::debug!(
             "computed blob pairs and metadata. New blob ID: {}",
             metadata.blob_id()
@@ -115,18 +116,18 @@ impl Client {
     }
 
     /// Reconstructs the blob by reading slivers from Walrus shards.
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip_all, fields(blob_id_prefix))]
     pub async fn read_blob<T>(&self, blob_id: &BlobId) -> Result<Vec<u8>>
     where
         T: EncodingAxis,
         Sliver<T>: TryFrom<SliverEnum>,
     {
+        Self::trace_blob_id_prefix(blob_id);
         tracing::debug!("starting to read blob with blob ID: {blob_id}");
         let metadata = self.retrieve_metadata(blob_id).await?;
         self.request_slivers_and_decode::<T>(&metadata).await
     }
 
-    #[tracing::instrument(skip_all)]
     async fn request_slivers_and_decode<T>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
@@ -279,5 +280,13 @@ impl Client {
                 .push(p)
         });
         pairs_per_node
+    }
+
+    /// Records the first 8 characters of the blob ID in the current span.
+    fn trace_blob_id_prefix(blob_id: &BlobId) {
+        tracing::Span::current().record(
+            "blob_id_prefix",
+            &tracing::field::debug(&blob_id.to_string()[0..8]),
+        );
     }
 }

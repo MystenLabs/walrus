@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::num::NonZeroU16;
+use std::{fmt::Display, num::NonZeroU16};
 
 use anyhow::Result;
 use fastcrypto::{hash::Blake2b256, traits::VerifyingKey};
@@ -96,15 +96,12 @@ impl<'a> NodeCommunication<'a> {
     // Read operations.
 
     /// Requests the metadata for a blob ID from the node.
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip_all, fields(node=self.to_string()))]
     pub async fn retrieve_verified_metadata(
         &self,
         blob_id: &BlobId,
     ) -> NodeResult<VerifiedBlobMetadataWithId, MetadataRetrieveError> {
-        tracing::debug!(
-            "retrieving metadata for blob ID {blob_id} from node: {}",
-            self.node
-        );
+        tracing::trace!("retrieving metadata",);
         let inner = || async {
             let response = self
                 .client
@@ -130,15 +127,11 @@ impl<'a> NodeCommunication<'a> {
     }
 
     /// Requests the storage confirmation from the node.
-    #[tracing::instrument(skip_all)]
     async fn retrieve_confirmation(
         &self,
         blob_id: &BlobId,
     ) -> Result<SignedStorageConfirmation, CommunicationError> {
-        tracing::debug!(
-            "retrieving storage confirmation for blob ID {blob_id} from node: {}",
-            self.node
-        );
+        tracing::trace!("retrieving storage confirmation");
         let response = self
             .client
             .get(self.storage_confirmation_endpoint(blob_id))
@@ -154,7 +147,7 @@ impl<'a> NodeCommunication<'a> {
 
     /// Requests a sliver from the storage node, and verifies that it matches the metadata and
     /// encoding config.
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip_all, fields(node=self.to_string(), shard=shard_idx.0))]
     pub async fn retrieve_verified_sliver<T: EncodingAxis>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
@@ -163,11 +156,7 @@ impl<'a> NodeCommunication<'a> {
     where
         Sliver<T>: TryFrom<SliverEnum>,
     {
-        tracing::debug!(
-            "retrieving sliver for blob ID {} from shard {shard_idx} from node: {}",
-            metadata.blob_id(),
-            self.node
-        );
+        tracing::trace!("retrieving sliver from shard",);
         let inner = || async {
             let sliver = self.retrieve_sliver::<T>(metadata, shard_idx).await?;
             self.verify_sliver(metadata, &sliver, shard_idx)?;
@@ -254,17 +243,13 @@ impl<'a> NodeCommunication<'a> {
     ///
     /// Returns a [`NodeResult`], where the weight is the number of shards for which the storage
     /// confirmation was issued.
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip_all, fields(node=self.to_string()))]
     pub async fn store_metadata_and_pairs(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         pairs: Vec<SliverPair>,
     ) -> NodeResult<SignedStorageConfirmation, StoreError> {
-        tracing::debug!(
-            "storing metadata and sliver pairs for blob ID {} on node: {}",
-            metadata.blob_id(),
-            self.node
-        );
+        tracing::trace!("storing metadata and sliver pairs",);
         let inner = || async {
             // TODO(giac): add retry for metadata.
             self.store_metadata(metadata).await?;
@@ -419,5 +404,12 @@ impl<'a> NodeCommunication<'a> {
 
     fn request_url(addr: &str, path: &str) -> String {
         format!("http://{}{}", addr, path)
+    }
+}
+
+impl<'a> Display for NodeCommunication<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // TODO(giac): after or in PR #243, move to node index, public key prefix, and epoch.
+        write!(f, "ID: {}; Epoch: {};", self.node.public_key, self.epoch)
     }
 }
