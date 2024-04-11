@@ -21,10 +21,11 @@ struct Args {
     #[clap(short, long, default_value = "config.yml")]
     config: PathBuf,
     /// The path to the wallet config file.
-    #[clap(short, long, default_value = default_client_config().into_os_string())]
+    #[clap(short, long, default_value_os_t = default_client_config())]
     wallet: PathBuf,
     /// The gas budget for the transactions.
-    #[clap(short, long, default_value = "1_000_000_000")]
+    #[clap(short, long, default_value_t = 1_000_000_000)]
+
     gas_budget: u64,
     #[command(subcommand)]
     command: Commands,

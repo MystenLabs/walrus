@@ -174,9 +174,6 @@ impl<T: ContractClient> Client<T> {
             self.committee.is_quorum(total_weight),
             "not enough confirmations for the blob id were retrieved"
         );
-        // The signers must sorted in the `ConfirmationCertificate`.
-        // TODO(giac): remove when #238 is closed.
-        signers.sort_unstable();
         let aggregate = BLS12381AggregateSignature::aggregate(&valid_signatures)?;
         let cert = ConfirmationCertificate {
             signers,
