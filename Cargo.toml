@@ -9,6 +9,7 @@ edition = "2021"
 license = "Apache-2.0"
 
 [workspace.dependencies]
+anyhow = "1.0.80"
 bcs = "0.1.6"
 fastcrypto = "0.1"
 move-core-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.22.0" }

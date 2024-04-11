@@ -3,16 +3,6 @@
 
 use std::net::SocketAddr;
 
-/// Raise an error if the condition is not met.
-#[macro_export(local_inner_macros)]
-macro_rules! ensure {
-    ($cond:expr, $e:expr) => {
-        if !($cond) {
-            return Err($e);
-        }
-    };
-}
-
 pub type SettingsResult<T> = Result<T, SettingsError>;
 
 #[derive(thiserror::Error, Debug)]

@@ -22,7 +22,7 @@ use sui_types::{
     transaction::{Argument, ProgrammableTransaction},
     Identifier,
 };
-use walrus_core::{messages::ConfirmationCertificate, BlobId, EncodingType};
+use walrus_core::{ensure, messages::ConfirmationCertificate, BlobId, EncodingType};
 
 use crate::{
     contracts::{self, FunctionTag},

@@ -11,7 +11,7 @@ default = ["test-utils"]
 test-utils = []
 
 [dependencies]
-anyhow = "1.0.80"
+anyhow = { workspace = true }
 bcs = { workspace = true }
 fastcrypto = { workspace = true }
 move-core-types = { workspace = true }

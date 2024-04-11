@@ -388,11 +388,54 @@ impl TryFrom<u8> for EncodingType {
 }
 
 /// Returns an error if the condition evaluates to false.
+///
+/// Instead of an error, a message can be provided as a single string literal or as a format string
+/// with additional parameters. In those cases, the message is turned into an error using
+/// anyhow and then converted to the expected type.
+///
+/// # Examples
+///
+/// ```
+/// # use thiserror::Error;
+/// # use walrus_core::ensure;
+/// #
+/// # #[derive(Debug, Error, PartialEq)]
+/// #[error("some error has occurred")]
+/// struct MyError;
+///
+/// let function = |condition: bool| -> Result::<usize, MyError> {
+///     ensure!(condition, MyError);
+///     Ok(42)
+/// };
+/// assert_eq!(function(true).unwrap(), 42);
+/// assert_eq!(function(false).unwrap_err(), MyError);
+/// ```
+///
+/// ```
+/// # use anyhow;
+/// # use walrus_core::ensure;
+/// let function = |condition: bool| -> anyhow::Result::<()> {
+///     ensure!(condition, "some error message");
+///     Ok(())
+/// };
+/// assert!(function(true).is_ok());
+/// assert_eq!(function(false).unwrap_err().to_string(), "some error message");
+/// ```
 #[macro_export]
 macro_rules! ensure {
+    ($cond:expr, $msg:literal $(,)?) => {
+        if !$cond {
+            return Err(anyhow::anyhow!($msg).into());
+        }
+    };
     ($cond:expr, $err:expr $(,)?) => {
         if !$cond {
             return Err($err);
+        }
+    };
+    ($cond:expr, $fmt:expr, $($arg:tt)*) => {
+        if !$cond {
+            return Err(anyhow::anyhow!($fmt, $($arg)*).into());
         }
     };
 }

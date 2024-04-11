@@ -6,11 +6,12 @@ use std::{
     marker::PhantomData,
 };
 
+use walrus_core::ensure;
+
 use crate::{
     benchmark::BenchmarkParameters,
     client::Instance,
     display,
-    ensure,
     error::{TestbedError, TestbedResult},
     monitor::Monitor,
     protocol::{ProtocolCommands, ProtocolMetrics},
