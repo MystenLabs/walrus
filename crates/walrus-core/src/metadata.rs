@@ -95,21 +95,6 @@ impl<const V: bool> BlobMetadataWithId<V> {
     pub fn metadata(&self) -> &BlobMetadata {
         &self.metadata
     }
-
-    /// Returns the encoded length of the blob for which this metadata was generated.
-    ///
-    /// Returns `None` if the blob size cannot be computed.
-    pub fn encoded_blob_length(&self, config: &EncodingConfig) -> Option<u64> {
-        let n_shards = config.n_shards_as_usize();
-        let symbol_size = config
-            .symbol_size_for_blob(self.metadata.unencoded_length.try_into().ok()?)?
-            .get() as u64;
-        let slivers_size = (config.source_symbols_primary.get() as u64
-            + config.source_symbols_secondary.get() as u64)
-            * symbol_size;
-        let metadata_size = n_shards * DIGEST_LEN * 2 + BlobId::LENGTH;
-        Some(n_shards as u64 * (slivers_size + metadata_size as u64))
-    }
 }
 
 impl VerifiedBlobMetadataWithId {

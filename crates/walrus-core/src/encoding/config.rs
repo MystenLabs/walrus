@@ -15,6 +15,7 @@ use super::{
     MAX_SOURCE_SYMBOLS_PER_BLOCK,
     MAX_SYMBOL_SIZE,
 };
+use crate::{merkle::DIGEST_LEN, BlobId};
 
 /// Configuration of the Walrus encoding.
 ///
@@ -172,6 +173,22 @@ impl EncodingConfig {
     pub fn sliver_size_for_blob<T: EncodingAxis>(&self, blob_size: usize) -> Option<NonZeroUsize> {
         NonZeroUsize::from(self.n_source_symbols::<T::OrthogonalAxis>())
             .checked_mul(self.symbol_size_for_blob(blob_size)?.into())
+    }
+
+    /// Computes the length of a blob of given `unencoded_length`, once encoded.
+    ///
+    /// The output length includes the metadata and the blob ID sizes.
+    /// Returns `None` if the blob size cannot be computed.
+    pub fn encoded_blob_length(&self, unencoded_length: usize) -> Option<u64> {
+        let slivers_size = (self.source_symbols_primary.get() as u64
+            + self.source_symbols_secondary.get() as u64)
+            * self.symbol_size_for_blob(unencoded_length)?.get() as u64;
+        Some(self.n_shards_as_usize() as u64 * (slivers_size + self.metadata_length()))
+    }
+
+    /// Computes the length of the metadata for a blob of given `unencoded_length`, once encoded.
+    pub fn metadata_length(&self) -> u64 {
+        (self.n_shards_as_usize() * DIGEST_LEN * 2 + BlobId::LENGTH) as u64
     }
 
     /// Returns an [`Encoder`] to perform a single primary or secondary encoding of the provided

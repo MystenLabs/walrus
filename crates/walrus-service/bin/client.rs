@@ -25,7 +25,6 @@ struct Args {
     wallet: PathBuf,
     /// The gas budget for the transactions.
     #[clap(short, long, default_value_t = 1_000_000_000)]
-
     gas_budget: u64,
     #[command(subcommand)]
     command: Commands,

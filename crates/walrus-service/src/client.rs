@@ -82,9 +82,10 @@ impl<T: ContractClient> Client<T> {
             .get_blob_encoder(blob)?
             .encode_with_metadata();
         tracing::Span::current().record("blob_id_prefix", truncate_blob_id(metadata.blob_id()));
-        let encoded_length = metadata
-            .encoded_blob_length(&self.encoding_config)
-            .expect("the metadata was computed above");
+        let encoded_length = self
+            .encoding_config
+            .encoded_blob_length(blob.len())
+            .expect("valid for metadata created from the same config");
         tracing::debug!(blob_id = %metadata.blob_id(), ?encoded_length,
                         "computed blob pairs and metadata");
 

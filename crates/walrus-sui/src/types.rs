@@ -286,7 +286,8 @@ impl Committee {
         (self.total_weight as usize * 2 + 2) / 3
     }
 
-    /// Return the shards handed by the specified storage node, based on its index in the committee list.
+    /// Return the shards handed by the specified storage node, based on its index in the committee
+    /// list.
     pub fn shards_for_node(&self, node_id: usize) -> Vec<ShardIndex> {
         self.members
             .get(node_id)
