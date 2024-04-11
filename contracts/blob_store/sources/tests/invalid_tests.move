@@ -4,26 +4,15 @@
 #[test_only]
 module blob_store::invalid_tests {
 
-    use sui::tx_context::{Self};
-    use sui::coin;
-
-    use std::option;
     use std::string;
 
     use blob_store::committee;
     use blob_store::system;
-    use blob_store::storage_accounting as sa;
-    use blob_store::blob;
     use blob_store::storage_node;
 
-    use blob_store::storage_resource::{
-        split_by_epoch,
-        destroy};
 
     #[test]
     public fun test_invalid_blob_ok() : committee::Committee {
-
-        let mut ctx = tx_context::dummy();
 
         let blob_id : u256 = 0xabababababababababababababababababababababababababababababababab;
 
@@ -66,7 +55,7 @@ module blob_store::invalid_tests {
 
         // Now check this is a invalid blob message
         let invalid_blob = system::invalid_blob_id_message(certified_message);
-        assert(system::invalid_blob_id(&invalid_blob) == blob_id, 0);
+        assert!(system::invalid_blob_id(&invalid_blob) == blob_id, 0);
 
         committee
     }
@@ -74,8 +63,6 @@ module blob_store::invalid_tests {
     #[test]
     #[expected_failure]
     public fun test_invalid_blob_bad_epoch() : committee::Committee {
-
-        let mut ctx = tx_context::dummy();
 
         let blob_id : u256 = 0xabababababababababababababababababababababababababababababababab;
 
@@ -118,7 +105,7 @@ module blob_store::invalid_tests {
 
         // Now check this is a invalid blob message
         let invalid_blob = system::invalid_blob_id_message(certified_message);
-        assert(system::invalid_blob_id(&invalid_blob) == blob_id, 0);
+        assert!(system::invalid_blob_id(&invalid_blob) == blob_id, 0);
 
         committee
     }
