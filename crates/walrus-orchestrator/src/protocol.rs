@@ -24,7 +24,7 @@ pub trait ProtocolParameters:
 
 /// The minimum interface that the protocol should implement to allow benchmarks from
 /// the orchestrator.
-pub trait ProtocolCommands<N, C> {
+pub trait ProtocolCommands {
     /// The list of dependencies to install (e.g., through apt-get).
     fn protocol_dependencies(&self) -> Vec<&'static str>;
 

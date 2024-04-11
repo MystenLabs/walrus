@@ -31,7 +31,7 @@ impl ProtocolParameters for ProtocolClientParameters {}
 
 pub struct TargetProtocol;
 
-impl ProtocolCommands<ProtocolNodeParameters, ProtocolClientParameters> for TargetProtocol {
+impl ProtocolCommands for TargetProtocol {
     fn protocol_dependencies(&self) -> Vec<&'static str> {
         todo!("Alberto: Implement once Walrus parameters are stable (#234)")
     }

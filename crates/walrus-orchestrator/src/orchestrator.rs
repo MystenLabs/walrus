@@ -1,10 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{
-    collections::{HashMap, VecDeque},
-    marker::PhantomData,
-};
+use std::collections::{HashMap, VecDeque};
 
 use walrus_core::ensure;
 
@@ -21,15 +18,11 @@ use crate::{
 
 /// An orchestrator to deploy nodes and run benchmarks on a testbed.
 #[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222)
-pub struct Orchestrator<P, N, C> {
+pub struct Orchestrator<P> {
     /// The testbed's settings.
     settings: Settings,
     /// The state of the testbed (reflecting accurately the state of the machines).
     instances: Vec<Instance>,
-    /// The node's configuration parameters.
-    node_config: PhantomData<N>,
-    /// The client's configuration parameters.
-    client_config: PhantomData<C>,
     /// Provider-specific commands to install on the instance.
     instance_setup_commands: Vec<String>,
     /// Protocol-specific commands generator to generate the protocol configuration files,
@@ -40,7 +33,7 @@ pub struct Orchestrator<P, N, C> {
 }
 
 #[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222)
-impl<P, N, C> Orchestrator<P, N, C> {
+impl<P> Orchestrator<P> {
     /// Make a new orchestrator.
     pub fn new(
         settings: Settings,
@@ -52,8 +45,6 @@ impl<P, N, C> Orchestrator<P, N, C> {
         Self {
             settings,
             instances,
-            node_config: PhantomData,
-            client_config: PhantomData,
             instance_setup_commands,
             protocol_commands,
             ssh_manager,
@@ -136,7 +127,7 @@ impl<P, N, C> Orchestrator<P, N, C> {
 }
 
 #[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222)
-impl<P: ProtocolCommands<N, C> + ProtocolMetrics, N, C> Orchestrator<P, N, C> {
+impl<P: ProtocolCommands + ProtocolMetrics> Orchestrator<P> {
     /// Install the codebase and its dependencies on the testbed.
     pub async fn install(&self) -> TestbedResult<()> {
         display::action("Installing dependencies on all machines");
