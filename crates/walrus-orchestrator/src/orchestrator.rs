@@ -59,8 +59,8 @@ impl<P, N, C> Orchestrator<P, N, C> {
         }
     }
 
-    /// Returns the instances of the testbed on which to run the benchmarks. 
-    /// 
+    /// Returns the instances of the testbed on which to run the benchmarks.
+    ///
     /// This function returns two vectors of instances; the first contains the instances on which to
     /// run the load generators and the second contains the instances on which to run the nodes.
     /// Additionally returns an optional monitoring instance.
@@ -155,7 +155,8 @@ impl<P: ProtocolCommands<N, C> + ProtocolMetrics, N, C> Orchestrator<P, N, C> {
             // * build-essential: prevent the error: [error: linker `cc` not found].
             // * sysstat - for getting disk stats
             // * iftop - for getting network stats
-            // * libssl-dev - Required to compile the orchestrator, todo remove this dependency
+            // * libssl-dev - Required to compile the orchestrator
+            // TODO(alberto): Remove libssl-dev dependency #221
             "sudo apt-get -y install build-essential sysstat iftop libssl-dev",
             // * linux-tools-common linux-tools-generic linux-tools-* - installs perf
             // Perf is optional as sometimes AWS releases new kernels without publishing a new
@@ -254,7 +255,7 @@ impl<P: ProtocolCommands<N, C> + ProtocolMetrics, N, C> Orchestrator<P, N, C> {
     }
 
     /// Cleanup all instances and optionally delete their log files.
-    pub async fn cleanup(&self, cleanup: bool) -> TestbedResult<()> {
+    pub async fn cleanup(&self, delete_logs: bool) -> TestbedResult<()> {
         display::action("Cleaning up testbed");
 
         // Kill all tmux servers and delete the nodes dbs. Optionally clear logs.
@@ -263,7 +264,7 @@ impl<P: ProtocolCommands<N, C> + ProtocolMetrics, N, C> Orchestrator<P, N, C> {
         for path in self.protocol_commands.db_directories() {
             command.push(format!("(rm -rf {} || true)", path.display()));
         }
-        if cleanup {
+        if delete_logs {
             command.push("(rm -rf ~/*log* || true)".into());
         }
         let command = command.join(" ; ");
