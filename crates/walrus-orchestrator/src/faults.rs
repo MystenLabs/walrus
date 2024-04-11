@@ -141,7 +141,6 @@ impl CrashRecoverySchedule {
 
             // Periodically crash and recover nodes.
             FaultsType::CrashRecovery { max_faults, .. } => {
-                let mut instances = self.instances.clone();
                 let min_faults = max_faults / 3;
 
                 // Recover all nodes if we already crashed them all.
