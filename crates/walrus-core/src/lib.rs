@@ -5,7 +5,7 @@
 use std::{
     fmt::{self, Debug, Display, LowerHex},
     num::{NonZeroUsize, TryFromIntError},
-    ops::Range,
+    ops::{Bound, Range, RangeBounds},
     str::FromStr,
 };
 
@@ -166,9 +166,34 @@ pub struct ShardIndex(pub u16);
 
 impl ShardIndex {
     /// A range of shard indices.
-    #[inline]
-    pub fn range(range: Range<u16>) -> ShardRange {
-        range.map(ShardIndex)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use walrus_core::ShardIndex;
+    ///
+    /// assert!(ShardIndex::range(0..3).eq([ShardIndex(0), ShardIndex(1), ShardIndex(2)]));
+    /// assert!(ShardIndex::range(0..3).eq(ShardIndex::range(..3)));
+    /// assert!(ShardIndex::range(0..3).eq(ShardIndex::range(..=2)));
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if a range with an unbounded end is specified (i.e., `range(3..)`)
+    pub fn range(range: impl RangeBounds<u16>) -> ShardRange {
+        let start = match range.start_bound() {
+            Bound::Included(left) => *left,
+            Bound::Excluded(left) => *left + 1,
+            Bound::Unbounded => 0,
+        };
+        let end = match range.end_bound() {
+            Bound::Included(right) => *right + 1,
+            Bound::Excluded(right) => *right,
+            Bound::Unbounded => {
+                unimplemented!("cannot create a ShardIndex range with an unbounded end")
+            }
+        };
+        (start..end).map(ShardIndex)
     }
 }
 
