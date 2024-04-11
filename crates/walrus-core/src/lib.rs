@@ -5,6 +5,7 @@
 use std::{
     fmt::{self, Debug, Display, LowerHex},
     num::{NonZeroUsize, TryFromIntError},
+    ops::{Bound, Range, RangeBounds},
     str::FromStr,
 };
 
@@ -153,10 +154,48 @@ impl FromStr for BlobId {
     }
 }
 
+/// A range of shards.
+///
+/// Created with the [`ShardIndex::range()`] method.
+pub type ShardRange = std::iter::Map<Range<u16>, fn(u16) -> ShardIndex>;
+
 /// Represents the index of a shard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[repr(transparent)]
 pub struct ShardIndex(pub u16);
+
+impl ShardIndex {
+    /// A range of shard indices.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use walrus_core::ShardIndex;
+    ///
+    /// assert!(ShardIndex::range(0..3).eq([ShardIndex(0), ShardIndex(1), ShardIndex(2)]));
+    /// assert!(ShardIndex::range(0..3).eq(ShardIndex::range(..3)));
+    /// assert!(ShardIndex::range(0..3).eq(ShardIndex::range(..=2)));
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if a range with an unbounded end is specified (i.e., `range(3..)`)
+    pub fn range(range: impl RangeBounds<u16>) -> ShardRange {
+        let start = match range.start_bound() {
+            Bound::Included(left) => *left,
+            Bound::Excluded(left) => *left + 1,
+            Bound::Unbounded => 0,
+        };
+        let end = match range.end_bound() {
+            Bound::Included(right) => *right + 1,
+            Bound::Excluded(right) => *right,
+            Bound::Unbounded => {
+                unimplemented!("cannot create a ShardIndex range with an unbounded end")
+            }
+        };
+        (start..end).map(ShardIndex)
+    }
+}
 
 impl Display for ShardIndex {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -169,6 +208,18 @@ impl TryFrom<usize> for ShardIndex {
 
     fn try_from(value: usize) -> Result<Self, Self::Error> {
         Ok(Self(value.try_into()?))
+    }
+}
+
+impl From<u16> for ShardIndex {
+    fn from(value: u16) -> Self {
+        Self(value)
+    }
+}
+
+impl From<&u16> for ShardIndex {
+    fn from(value: &u16) -> Self {
+        Self(*value)
     }
 }
 

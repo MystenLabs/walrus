@@ -50,14 +50,19 @@ impl ProtocolKeyPair {
         Self(Arc::new(keypair))
     }
 
-    /// Generate a new random `ProtocolKeyPair`.
-    pub fn random<R: AllowedRng>(rng: &mut R) -> Self {
-        Self::new(BLS12381KeyPair::generate(rng))
-    }
-
     /// Encodes the keypair as `flag || bytes` in base64.
     pub fn to_base64(&self) -> String {
         Base64::encode(Vec::from(self))
+    }
+
+    /// Generates a new key-pair using the specified random number generator.
+    pub fn generate_with_rng(rng: &mut impl AllowedRng) -> Self {
+        Self::new(BLS12381KeyPair::generate(rng))
+    }
+
+    /// Generates a new key-pair using thread-local randomness.
+    pub fn generate() -> Self {
+        Self::generate_with_rng(&mut rand::thread_rng())
     }
 }
 

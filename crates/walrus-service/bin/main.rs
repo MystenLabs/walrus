@@ -2,7 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Walrus Storage Node entry point.
 
-use std::{fs, io, net::SocketAddr, num::NonZeroU16, path::PathBuf, sync::Arc};
+use std::{
+    fs,
+    io,
+    net::SocketAddr,
+    num::NonZeroU16,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
@@ -15,12 +22,14 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
+use typed_store::rocks::MetricConf;
 use walrus_core::{encoding::EncodingConfig, ShardIndex};
 use walrus_service::{
     client,
     config::{LoadConfig, StorageNodeConfig},
     server::UserServer,
     testbed::{node_config_name_prefix, testbed_configs},
+    Storage,
     StorageNode,
 };
 
@@ -321,6 +330,18 @@ impl MetricsAndLoggingRuntime {
     }
 }
 
+/// Returns an empty storage, with the column families for the specified shards already created.
+// TODO(jsmith): Remove once we get the shard list from chain.
+pub fn storage_with_shards(path: &Path, shards: &[ShardIndex]) -> anyhow::Result<Storage> {
+    let mut storage = Storage::open(path, MetricConf::default())?;
+
+    for shard in shards {
+        storage.create_storage_for_shard(*shard)?;
+    }
+
+    Ok(storage)
+}
+
 struct StorageNodeRuntime {
     walrus_node_handle: JoinHandle<anyhow::Result<()>>,
     rest_api_handle: JoinHandle<Result<(), io::Error>>,
@@ -345,13 +366,14 @@ impl StorageNodeRuntime {
         let _guard = runtime.enter();
 
         let walrus_node = Arc::new(
-            runtime
-                .block_on(StorageNode::new(
-                    node_config,
-                    registry_service,
-                    encoding_config,
-                ))?
-                .with_storage_shards(handled_shards),
+            runtime.block_on(
+                StorageNode::builder()
+                    .with_storage(storage_with_shards(
+                        &node_config.storage_path,
+                        handled_shards,
+                    )?)
+                    .build(node_config, registry_service, encoding_config),
+            )?,
         );
 
         let walrus_node_clone = walrus_node.clone();

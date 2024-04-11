@@ -40,7 +40,7 @@ pub fn testbed_configs(
     for i in 0..committee_size.get() {
         let name = node_config_name_prefix(i, committee_size);
 
-        let protocol_key_pair = ProtocolKeyPair::random(&mut rng);
+        let protocol_key_pair = ProtocolKeyPair::generate_with_rng(&mut rng);
         let public_key = protocol_key_pair.as_ref().public().clone();
 
         let mut metrics_address = config::defaults::metrics_address();
