@@ -89,17 +89,14 @@ impl<P, N, C> Orchestrator<P, N, C> {
                 .push_back(instance);
         }
 
-        // Select the instance to host the monitoring stack.
+        // Select the instance to host the monitoring stack. We select this instance from the region
+        // with the most instances.
         let mut monitoring_instance = None;
         if self.settings.monitoring {
-            for region in &self.settings.regions {
-                if let Some(regional_instances) = instances_by_regions.get_mut(region) {
-                    if let Some(instance) = regional_instances.pop_front() {
-                        monitoring_instance = Some(instance.clone());
-                    }
-                    break;
-                }
-            }
+            monitoring_instance = instances_by_regions
+                .values_mut()
+                .max_by_key(|instances| instances.len())
+                .map(|instances| instances.pop_front().unwrap().clone());
         }
 
         // Select the instances to host exclusively load generators.
