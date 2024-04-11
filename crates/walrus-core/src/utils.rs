@@ -69,6 +69,11 @@ macro_rules! wrapped_uint {
                 Self(value)
             }
 
+            /// Returns the wrapped value.
+            pub fn get(self) -> $uint {
+                self.0
+            }
+
             $( $inner )*
         })?
 

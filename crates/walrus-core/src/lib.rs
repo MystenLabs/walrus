@@ -157,7 +157,13 @@ impl FromStr for BlobId {
 
 // Sliver and shard indices.
 
-macro_rules! index {
+/// This macro is used to create separate types for specific indices.
+///
+/// While those could all be represented by the same type (`u16`), having separate types helps
+/// finding bugs; for example, when a sliver index is not properly converted to a sliver-pair index.
+///
+/// The macro adds additional implementations on top of the [`wrapped_uint`] macro.
+macro_rules! index_type {
     (
         $(#[$outer:meta])*
         $name:ident($display_prefix:expr)
@@ -186,12 +192,12 @@ macro_rules! index {
     };
 }
 
-index!(
+index_type!(
     /// Represents the index of a (primary or secondary) sliver.
     SliverIndex("sliver")
 );
 
-index!(
+index_type!(
     /// Represents the index of a sliver pair.
     SliverPairIndex("sliver-pair")
 );
@@ -208,16 +214,6 @@ impl From<SliverPairIndex> for SliverIndex {
     }
 }
 
-macro_rules! inverse_for_secondary {
-    ($self:expr, $encoding_axis:ty, $n_shards:expr) => {
-        if <$encoding_axis>::IS_PRIMARY {
-            $self.into()
-        } else {
-            ($n_shards.get() - $self.0 - 1).into()
-        }
-    };
-}
-
 impl SliverPairIndex {
     /// Computes the index of the [`Sliver`] of the corresponding axis starting from the index of
     /// the [`SliverPair`][encoding::SliverPair].
@@ -227,7 +223,11 @@ impl SliverPairIndex {
     /// sliver is contained in the first sliver pair, but the first secondary sliver is contained in
     /// the last sliver pair.
     pub fn to_sliver_index<E: EncodingAxis>(self, n_shards: NonZeroU16) -> SliverIndex {
-        inverse_for_secondary!(self, E, n_shards)
+        if E::IS_PRIMARY {
+            self.into()
+        } else {
+            (n_shards.get() - self.0 - 1).into()
+        }
     }
 }
 
@@ -238,11 +238,15 @@ impl SliverIndex {
     /// This is the inverse of [`SliverPairIndex::to_sliver_index`]; see that function for further
     /// information.
     pub fn to_pair_index<E: EncodingAxis>(self, n_shards: NonZeroU16) -> SliverPairIndex {
-        inverse_for_secondary!(self, E, n_shards)
+        if E::IS_PRIMARY {
+            self.into()
+        } else {
+            (n_shards.get() - self.0 - 1).into()
+        }
     }
 }
 
-index!(
+index_type!(
     /// Represents the index of a shard.
     #[derive(PartialOrd, Ord)]
     ShardIndex("shard")
