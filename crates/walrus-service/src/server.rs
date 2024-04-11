@@ -37,7 +37,7 @@ pub const STORAGE_CONFIRMATION_ENDPOINT: &str = "/v1/blobs/:blobId/confirmation"
 /// The path to get recovery symbols.
 pub const RECOVERY_ENDPOINT: &str = "/v1/blobs/:blobId/slivers/:sliverPairIdx/:sliverType/:index";
 
-/// A blob ID encoded as a hex string designed to be used in URLs.
+/// A blob ID encoded as a Base64 string designed to be used in URLs.
 #[serde_as]
 #[derive(Deserialize, Serialize)]
 struct BlobIdString(#[serde_as(as = "DisplayFromStr")] BlobId);
