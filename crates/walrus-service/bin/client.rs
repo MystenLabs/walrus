@@ -52,7 +52,7 @@ pub async fn main() -> Result<()> {
 
     match args.command {
         Commands::Store { file } => {
-            tracing::info!("User requested to store blob at path {file:?}");
+            tracing::info!(?file, "Storing blob read from the filesystem");
             client?.store_blob(&std::fs::read(file)?).await?;
             Ok(())
         }
