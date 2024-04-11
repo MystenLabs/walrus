@@ -140,11 +140,12 @@ where
         self.next_threshold(n_concurrent, None).await
     }
 
-    /// Returns the next result returned by the futures, up to the given cumulative threshold.  If
-    /// `threshold` is not `None`, the function will return the results as long as the total weight
-    /// of the _valid_ results (`Ok`) is _strictly_ `< threshold`.  Otherwise, if `threshold` is
-    /// `None`, the function will return results until there are no more futures to await.  Returns
-    /// `None` if it cannot produce further results or if the threshold has been passed.
+    /// Returns the next result returned by the futures, up to the given cumulative threshold.
+    ///
+    /// If `threshold` is not `None`, the function will return the results as long as the total
+    /// weight of the _valid_ results (`Ok`) is _strictly_ `< threshold`. Otherwise, if `threshold`
+    /// is `None`, the function will return results until there are no more futures to await.
+    /// Returns `None` if it cannot produce further results or if the threshold has been passed.
     ///
     /// `n_concurrent` is the maximum number of futures that are awaited at any one time to produce
     /// results.
