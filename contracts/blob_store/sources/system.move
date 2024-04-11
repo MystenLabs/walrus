@@ -325,12 +325,20 @@ module blob_store::system {
     /// It may only be constructed when a valid certified message is
     /// passed in.
     public struct CertifiedInvalidBlobID has drop {
+        epoch: u64,
         blob_id: u256,
+    }
+
+    // read the blob id
+    public fun invalid_blob_id(
+        self: &CertifiedInvalidBlobID
+    ) : u256 {
+        self.blob_id
     }
 
     /// Construct the certified invalid Blob ID message, note that constructing
     /// implies a certified message, that is already checked.
-    public fun certify_invalid_blob_id_message(
+    public fun invalid_blob_id_message(
         message: committee::CertifiedMessage
         ) : CertifiedInvalidBlobID {
 
@@ -346,16 +354,34 @@ module blob_store::system {
         let mut bcs_body = bcs::new(message_body);
         let blob_id = bcs::peel_u256(&mut bcs_body);
 
-        // Emit the event about a blob id being invalid here.
-        event::emit(InvalidBlobID {
-            epoch,
-            blob_id
-        });
-
         // This output is provided as a service in case anything else needs to rely on
         // certified invalid blob ID information in the future. But out base design only
         // uses the event emitted here.
-        CertifiedInvalidBlobID { blob_id }
+        CertifiedInvalidBlobID { epoch, blob_id }
     }
+
+    /// System call to process invalid blob id message. This checks that the epoch
+    /// in which the message was certified is correct, before emitting an event. Correct
+    /// nodes will only certify invalid blob ids within their period of validity, and this
+    /// endures we are not flooded with invalid events from past epochs.
+    public fun declare_invalid_blob_idh<WAL>(
+        system: &System<WAL>,
+        message: CertifiedInvalidBlobID,
+    ) {
+
+        // Assert the epoch is correct.
+        let epoch = message.epoch;
+        assert!(epoch == epoch(system), ERROR_SYNC_EPOCH_CHANGE);
+
+        // Emit the event about a blob id being invalid here.
+        event::emit(InvalidBlobID {
+            epoch,
+            blob_id: message.blob_id,
+        });
+
+    }
+
+
+
 
 }

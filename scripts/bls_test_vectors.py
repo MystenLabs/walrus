@@ -112,3 +112,12 @@ pk1 = G2Basic.SkToPk(sk1)
 
 print(f"let secret_key_bytes = {sk1};")
 print(f"let pub_key_bytes = vector{list(pk1)};")
+
+# Invalid epoch message
+invalid_message = bytes([2, 0, 3, 5, 0, 0, 0, 0, 0, 0, 0] +  [0xAB] * 32)
+invalid_message_sig = G2Basic.Sign(sk1, invalid_message)
+
+print("---- Invalid blob message ----")
+
+print(f"let invalid_message = vector[{list(invalid_message)}];")
+print(f"let invalid_message_signature = vector{list(invalid_message_sig)};")
