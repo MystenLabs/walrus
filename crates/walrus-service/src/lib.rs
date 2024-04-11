@@ -15,9 +15,12 @@ pub mod server;
 pub mod testbed;
 
 mod node;
-pub use node::StorageNode;
+pub use node::{StorageNode, StorageNodeBuilder};
 
 mod storage;
+pub use storage::Storage;
 
-#[cfg(test)]
-mod test_utils;
+pub mod system_events;
+
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_utils;

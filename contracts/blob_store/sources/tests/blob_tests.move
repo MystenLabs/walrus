@@ -4,10 +4,8 @@
 #[test_only]
 module blob_store::blob_tests {
 
-    use sui::tx_context::{Self};
     use sui::coin;
 
-    use std::option;
     use std::string;
 
     use blob_store::committee;

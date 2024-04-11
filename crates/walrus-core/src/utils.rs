@@ -89,6 +89,12 @@ macro_rules! wrapped_uint {
             }
         }
 
+        impl From<&$uint> for $name {
+            fn from(value: &$uint) -> Self {
+                Self(*value)
+            }
+        }
+
         impl TryFrom<usize> for $name {
             type Error = std::num::TryFromIntError;
 

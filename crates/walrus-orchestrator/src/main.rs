@@ -6,15 +6,26 @@
 use clap::Parser;
 use client::{aws::AwsClient, vultr::VultrClient, ServerProviderClient};
 use eyre::Context;
+use protocol::target::{ProtocolClientParameters, ProtocolNodeParameters, TargetProtocol};
 use settings::{CloudProvider, Settings};
 use testbed::Testbed;
 
+mod benchmark;
 mod client;
 mod display;
 mod error;
+mod faults;
+mod monitor;
+mod protocol;
 mod settings;
 mod ssh;
 mod testbed;
+
+/// NOTE: Link these types to the correct protocol.
+#[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
+type Protocol = TargetProtocol;
+type NodeParameters = ProtocolNodeParameters;
+type ClientParameters = ProtocolClientParameters;
 
 /// The orchestrator command line options.
 #[derive(Parser, Debug)]
