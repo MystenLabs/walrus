@@ -613,31 +613,31 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_single_recovery_symbol_empty_sliver() {
+    param_test! {
+        test_single_recovery_symbol_empty_sliver: [
+            primary: <Primary>(),
+            secondary: <Secondary>(),
+        ]
+    }
+    fn test_single_recovery_symbol_empty_sliver<T: EncodingAxis>() {
         let config = test_utils::encoding_config();
         assert_eq!(
-            Sliver::<Primary>::new([], 1.try_into().unwrap(), SliverIndex::new(0))
-                .single_recovery_symbol(3, &config),
-            Err(RecoveryError::EncodeError(EncodeError::EmptyData))
-        );
-        assert_eq!(
-            Sliver::<Secondary>::new([], 1.try_into().unwrap(), SliverIndex::new(0))
+            Sliver::<T>::new([], 1.try_into().unwrap(), SliverIndex::new(0))
                 .single_recovery_symbol(3, &config),
             Err(RecoveryError::EncodeError(EncodeError::EmptyData))
         );
     }
 
-    #[test]
-    fn test_recovery_symbols_empty_sliver() {
+    param_test! {
+        test_recovery_symbols_empty_sliver: [
+            primary: <Primary>(),
+            secondary: <Secondary>(),
+        ]
+    }
+    fn test_recovery_symbols_empty_sliver<T: EncodingAxis>() {
         let config = EncodingConfig::new(3, 3, 10);
         assert_eq!(
-            Sliver::<Primary>::new([], 1.try_into().unwrap(), SliverIndex::new(0))
-                .recovery_symbols(&config),
-            Err(RecoveryError::EncodeError(EncodeError::EmptyData))
-        );
-        assert_eq!(
-            Sliver::<Secondary>::new([], 1.try_into().unwrap(), SliverIndex::new(0))
+            Sliver::<T>::new([], 1.try_into().unwrap(), SliverIndex::new(0))
                 .recovery_symbols(&config),
             Err(RecoveryError::EncodeError(EncodeError::EmptyData))
         );
