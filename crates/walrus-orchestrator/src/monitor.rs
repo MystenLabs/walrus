@@ -177,7 +177,7 @@ impl Grafana {
             "sudo wget -q -O /etc/apt/keyrings/grafana.key https://apt.grafana.com/gpg.key".into(),
             "(sudo rm /etc/apt/sources.list.d/grafana.list || true)".into(),
             "echo \
-            \"deb [signed-by=/usr/share/keyrings/grafana.key] https://apt.grafana.com stable main\" \
+            \"deb [signed-by=/etc/apt/keyrings/grafana.key] https://apt.grafana.com stable main\" \
             | sudo tee -a /etc/apt/sources.list.d/grafana.list"
                 .into(),
             "sudo apt-get update".into(),
