@@ -5,7 +5,7 @@
 
 use std::{env, path::PathBuf};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use sui_sdk::wallet_context::WalletContext;
 use walrus_core::{encoding::Primary, BlobId};
@@ -21,8 +21,8 @@ struct Args {
     #[clap(short, long, default_value = "config.yml")]
     config: PathBuf,
     /// The path to the wallet config file.
-    #[clap(short, long, default_value_os_t = default_client_config())]
-    wallet: PathBuf,
+    #[clap(short, long, default_value = None)]
+    wallet: Option<PathBuf>,
     /// The gas budget for the transactions.
     #[clap(short, long, default_value_t = 1_000_000_000)]
     gas_budget: u64,
@@ -52,11 +52,35 @@ enum Commands {
     },
 }
 
-fn default_client_config() -> PathBuf {
-    PathBuf::from(env::var("HOME").expect("environment variable HOME should be set"))
-        .join(".sui")
-        .join("sui_config")
-        .join("client.yaml")
+/// Loads the wallet context from the given path.
+///
+/// If no path is provided, tries to load the configuration first from the local folder, and then
+/// from the home folder.
+fn load_wallet_context(path: &Option<PathBuf>) -> Result<WalletContext> {
+    let path = path
+        .as_ref()
+        .cloned()
+        .or(local_client_config())
+        .or(home_client_config())
+        .ok_or(anyhow!("could not find a valid Wallet config file"))?;
+    WalletContext::new(&path, None, None)
+}
+
+fn local_client_config() -> Option<PathBuf> {
+    let path: PathBuf = "./client.yaml".into();
+    path.exists().then_some(path)
+}
+
+fn home_client_config() -> Option<PathBuf> {
+    env::var("HOME")
+        .map(|home| {
+            PathBuf::from(home)
+                .join(".sui")
+                .join("sui_config")
+                .join("client.yaml")
+        })
+        .ok()
+        .filter(|path| path.exists())
 }
 
 /// The client.
@@ -68,7 +92,7 @@ pub async fn main() -> Result<()> {
     // NOTE(giac): at the moment the wallet is needed for both reading and storing, because is also
     // configures the RPC. In the future, it could be nice to have a "read only" client.
     let sui_client = SuiContractClient::new(
-        WalletContext::new(&args.wallet, None, None)?,
+        load_wallet_context(&args.wallet)?,
         config.system_pkg,
         config.system_object,
         args.gas_budget,
