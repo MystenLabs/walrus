@@ -70,11 +70,9 @@ impl<P, N, C> Orchestrator<P, N, C> {
     ) -> TestbedResult<(Vec<Instance>, Vec<Instance>, Option<Instance>)> {
         // Ensure there are enough active instances.
         let available_instances: Vec<_> = self.instances.iter().filter(|x| x.is_active()).collect();
-        let minimum_instances = if self.settings.monitoring {
-            parameters.nodes + self.settings.dedicated_clients + 1
-        } else {
-            parameters.nodes + self.settings.dedicated_clients
-        };
+        let minimum_instances = parameters.nodes
+            + self.settings.dedicated_clients
+            + if self.settings.monitoring { 1 } else { 0 };
         ensure!(
             available_instances.len() >= minimum_instances,
             TestbedError::InsufficientCapacity(minimum_instances - available_instances.len())
