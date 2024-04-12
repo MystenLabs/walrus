@@ -73,10 +73,7 @@ impl Client {
             .get_blob_encoder(blob)?
             .encode_with_metadata();
         Self::trace_blob_id_prefix(metadata.blob_id());
-        tracing::debug!(
-            "computed blob pairs and metadata. New blob ID: {}",
-            metadata.blob_id()
-        );
+        tracing::debug!(blob_id = %metadata.blob_id(), "computed blob pairs and metadata");
         let pairs_per_node = self.pairs_per_node(metadata.blob_id(), pairs);
         let comms = self.node_communications();
         let mut requests = WeightedFutures::new(
@@ -102,12 +99,8 @@ impl Client {
             .into_iter()
             .filter_map(|NodeResult(_, _, node, result)| {
                 result
-                    .map_err(|e| {
-                        tracing::error!(
-                            "storing metadata and pairs to node {} failed with error: {}",
-                            node,
-                            e
-                        )
+                    .map_err(|err| {
+                        tracing::error!(?node, ?err, "storing metadata and pairs failed")
                     })
                     .ok()
             })

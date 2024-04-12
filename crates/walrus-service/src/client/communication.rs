@@ -147,7 +147,7 @@ impl<'a> NodeCommunication<'a> {
 
     /// Requests a sliver from the storage node, and verifies that it matches the metadata and
     /// encoding config.
-    #[tracing::instrument(skip_all, fields(node=self.to_string(), shard=shard_idx.0))]
+    #[tracing::instrument(skip_all, fields(node = %self, ?shard_idx))]
     pub async fn retrieve_verified_sliver<T: EncodingAxis>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
