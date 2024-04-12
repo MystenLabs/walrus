@@ -1,6 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use anyhow::bail;
 use fastcrypto::traits::ToFromBytes;
 use test_cluster::TestClusterBuilder;
 use tokio_stream::StreamExt;
@@ -8,7 +9,7 @@ use walrus_core::{BlobId, EncodingType, ShardIndex};
 use walrus_sui::{
     client::{ContractClient, ReadClient, SuiContractClient},
     test_utils::{get_default_blob_certificate, system_setup::publish_with_default_system},
-    types::EpochStatus,
+    types::{BlobEvent, EpochStatus},
 };
 
 #[tokio::test]
@@ -24,13 +25,9 @@ async fn test_register_blob() -> anyhow::Result<()> {
 
     // Get event streams for the events
     let polling_duration = std::time::Duration::from_millis(50);
-    let mut registered_events = walrus_client
+    let mut events = walrus_client
         .read_client
-        .blob_registered_events(polling_duration, None)
-        .await?;
-    let mut certified_events = walrus_client
-        .read_client
-        .blob_certified_events(polling_duration, None)
+        .blob_events(polling_duration, None)
         .await?;
 
     let size = 10000;
@@ -55,7 +52,9 @@ async fn test_register_blob() -> anyhow::Result<()> {
     assert_eq!(blob_obj.stored_epoch, 0);
 
     // Make sure that we got the expected event
-    let blob_registered = registered_events.next().await.unwrap();
+    let BlobEvent::Registered(blob_registered) = events.next().await.unwrap() else {
+        bail!("unexpected event type");
+    };
     assert_eq!(blob_registered.blob_id, blob_id);
     assert_eq!(blob_registered.epoch, blob_obj.stored_epoch);
     assert_eq!(
@@ -71,22 +70,19 @@ async fn test_register_blob() -> anyhow::Result<()> {
     assert_eq!(blob_obj.certified, Some(0));
 
     // Make sure that we got the expected event
-    let blob_certified = certified_events.next().await.unwrap();
+    let BlobEvent::Certified(blob_certified) = events.next().await.unwrap() else {
+        bail!("unexpected event type");
+    };
     assert_eq!(blob_certified.blob_id, blob_id);
     assert_eq!(Some(blob_registered.epoch), blob_obj.certified);
     assert_eq!(blob_certified.end_epoch, storage_resource.end_epoch);
 
-    // Drop event streams
-    let _ = registered_events;
-    let _ = certified_events;
-    // Get new event streams with cursors
-    let mut registered_events = walrus_client
+    // Drop event stream
+    drop(events);
+    // Get new event stream with cursors
+    let mut events = walrus_client
         .read_client
-        .blob_registered_events(polling_duration, Some(blob_registered.event_id))
-        .await?;
-    let mut certified_events = walrus_client
-        .read_client
-        .blob_certified_events(polling_duration, Some(blob_certified.event_id))
+        .blob_events(polling_duration, Some(blob_certified.event_id))
         .await?;
 
     // Now register and certify a blob with a different blob id again to check that
@@ -104,7 +100,9 @@ async fn test_register_blob() -> anyhow::Result<()> {
         .await?;
 
     // Make sure that we got the expected event
-    let blob_registered = registered_events.next().await.unwrap();
+    let BlobEvent::Registered(blob_registered) = events.next().await.unwrap() else {
+        bail!("unexpected event type");
+    };
     assert_eq!(blob_registered.blob_id, blob_id);
 
     let _blob_obj = walrus_client
@@ -112,7 +110,9 @@ async fn test_register_blob() -> anyhow::Result<()> {
         .await?;
 
     // Make sure that we got the expected event
-    let blob_certified = certified_events.next().await.unwrap();
+    let BlobEvent::Certified(blob_certified) = events.next().await.unwrap() else {
+        bail!("unexpected event type");
+    };
     assert_eq!(blob_certified.blob_id, blob_id);
 
     Ok(())

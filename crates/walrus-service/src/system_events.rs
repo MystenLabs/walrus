@@ -8,7 +8,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use sui_sdk::SuiClientBuilder;
 use sui_types::event::EventID;
-use tokio_stream::{Stream, StreamExt};
+use tokio_stream::Stream;
 use walrus_sui::{
     client::{ReadClient, SuiReadClient},
     types::BlobEvent,
@@ -16,22 +16,13 @@ use walrus_sui::{
 
 use crate::config::SuiConfig;
 
-/// Set of cursors indicating the starting point for events returned by a [`SystemEventProvider`].
-#[derive(Debug, Copy, Clone)]
-pub struct SystemEventCursorSet {
-    /// The cursor for [`BlobRegistered`][walrus_sui::types::BlobRegistered] events.
-    pub registered: Option<EventID>,
-    /// The cursor for [`BlobCertified`][walrus_sui::types::BlobCertified] events.
-    pub certified: Option<EventID>,
-}
-
 /// A provider of system events to a storage node.
 #[async_trait]
 pub trait SystemEventProvider: std::fmt::Debug + Sync + Send {
     /// Return a new stream over [`BlobEvent`]s starting from those specified by `from`.
     async fn events(
         &self,
-        cursors: SystemEventCursorSet,
+        cursors: Option<EventID>,
     ) -> Result<Box<dyn Stream<Item = BlobEvent> + Send + Sync + 'life0>, anyhow::Error>;
 }
 
@@ -59,22 +50,15 @@ impl SuiSystemEventProvider {
 impl SystemEventProvider for SuiSystemEventProvider {
     async fn events(
         &self,
-        cursors: SystemEventCursorSet,
+        cursor: Option<EventID>,
     ) -> Result<Box<dyn Stream<Item = BlobEvent> + Send + Sync + 'life0>, anyhow::Error> {
-        tracing::info!("resuming from events: {cursors:?}");
+        tracing::info!("resuming from events: {cursor:?}");
 
-        let registered_events = self
+        let events = self
             .read_client
-            .blob_registered_events(self.polling_interval, cursors.registered)
-            .await?
-            .map(BlobEvent::from);
+            .blob_events(self.polling_interval, cursor)
+            .await?;
 
-        let certified_events = self
-            .read_client
-            .blob_registered_events(self.polling_interval, cursors.certified)
-            .await?
-            .map(BlobEvent::from);
-
-        Ok(Box::new(registered_events.merge(certified_events)))
+        Ok(Box::new(events))
     }
 }

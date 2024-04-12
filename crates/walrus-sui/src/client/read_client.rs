@@ -11,7 +11,6 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, Result};
-use move_core_types::language_storage::StructTag as MoveStructTag;
 use sui_sdk::{
     apis::EventApi,
     rpc_types::{Coin, EventFilter, SuiEvent, SuiObjectDataOptions},
@@ -22,6 +21,7 @@ use sui_types::{
     base_types::{SequenceNumber, SuiAddress},
     event::EventID,
     object::Owner,
+    Identifier,
     TypeTag,
 };
 use tokio::sync::{mpsc, OnceCell};
@@ -31,35 +31,29 @@ use walrus_core::ensure;
 
 use super::SuiClientResult;
 use crate::{
-    contracts::AssociatedSuiEvent,
-    types::{BlobCertified, BlobRegistered, Committee, SystemObject},
+    types::{BlobEvent, Committee, SystemObject},
     utils::{get_sui_object, get_type_parameters, handle_pagination},
 };
+
+const EVENT_MODULE: &str = "blob";
 
 /// Trait to read system state information and events from chain.
 pub trait ReadClient {
     /// Get the price for one unit of storage per epoch.
     fn price_per_unit_size(&self) -> impl Future<Output = SuiClientResult<u64>> + Send;
 
-    /// Get a stream of new [`BlobRegistered`] events.
+    /// Get a stream of new blob events.
     /// The `polling_interval` defines how often the connected full node is polled for events.
     /// If a `cursor` is provided, the stream will contain only events that are emitted
     /// after the event with the provided [`EventID`]. Otherwise the event stream contains all
     /// events available from the connected full node. Since the full node may prune old
     /// events, the stream is not guaranteed to contain historic events.
-    fn blob_registered_events(
+    fn blob_events(
         &self,
         polling_interval: Duration,
         cursor: Option<EventID>,
-    ) -> impl Future<Output = SuiClientResult<impl Stream<Item = BlobRegistered> + Send>> + Send;
+    ) -> impl Future<Output = SuiClientResult<impl Stream<Item = BlobEvent> + Send>> + Send;
 
-    /// Get a stream of new [`BlobCertified`] events.
-    /// See [`blob_registered_events`][Self::blob_registered_events] for more information.
-    fn blob_certified_events(
-        &self,
-        polling_interval: Duration,
-        cursor: Option<EventID>,
-    ) -> impl Future<Output = SuiClientResult<impl Stream<Item = BlobCertified> + Send>> + Send;
     /// Get the current Walrus system object.
     fn get_system_object(&self) -> impl Future<Output = SuiClientResult<SystemObject>> + Send;
 
@@ -154,27 +148,6 @@ impl SuiReadClient {
         })
         .await
     }
-
-    async fn get_event_stream<U>(
-        &self,
-        polling_interval: Duration,
-        event_type_params: &[TypeTag],
-        cursor: Option<EventID>,
-    ) -> SuiClientResult<ReceiverStream<U>>
-    where
-        U: AssociatedSuiEvent + Debug + Send + Sync + 'static,
-    {
-        let (tx_event, rx_event) = mpsc::channel::<U>(EVENT_CHANNEL_CAPACITY);
-        let event_tag =
-            U::EVENT_STRUCT.to_move_struct_tag(self.system_pkg_id, event_type_params)?;
-
-        let event_api = self.sui_client.event_api().clone();
-
-        tokio::spawn(async move {
-            poll_for_events(tx_event, polling_interval, event_api, event_tag, cursor).await
-        });
-        Ok(ReceiverStream::new(rx_event))
-    }
 }
 
 impl ReadClient for SuiReadClient {
@@ -182,20 +155,23 @@ impl ReadClient for SuiReadClient {
         Ok(self.get_system_object().await?.price_per_unit_size)
     }
 
-    async fn blob_registered_events(
+    async fn blob_events(
         &self,
         polling_interval: Duration,
         cursor: Option<EventID>,
-    ) -> SuiClientResult<impl Stream<Item = BlobRegistered>> {
-        self.get_event_stream(polling_interval, &[], cursor).await
-    }
+    ) -> SuiClientResult<impl Stream<Item = BlobEvent>> {
+        let (tx_event, rx_event) = mpsc::channel::<BlobEvent>(EVENT_CHANNEL_CAPACITY);
 
-    async fn blob_certified_events(
-        &self,
-        polling_interval: Duration,
-        cursor: Option<EventID>,
-    ) -> SuiClientResult<impl Stream<Item = BlobCertified>> {
-        self.get_event_stream(polling_interval, &[], cursor).await
+        let event_api = self.sui_client.event_api().clone();
+
+        let event_filter = EventFilter::MoveEventModule {
+            package: self.system_pkg_id,
+            module: Identifier::new(EVENT_MODULE)?,
+        };
+        tokio::spawn(async move {
+            poll_for_events(tx_event, polling_interval, event_api, event_filter, cursor).await
+        });
+        Ok(ReceiverStream::new(rx_event))
     }
 
     async fn get_system_object(&self) -> SuiClientResult<SystemObject> {
@@ -223,7 +199,7 @@ async fn poll_for_events<U>(
     tx_event: mpsc::Sender<U>,
     initial_polling_interval: Duration,
     event_api: EventApi,
-    event_tag: MoveStructTag,
+    event_filter: EventFilter,
     mut last_event: Option<EventID>,
 ) -> Result<()>
 where
@@ -231,7 +207,6 @@ where
 {
     // The actual interval with which we poll, increases if there is an RPC error
     let mut polling_interval = initial_polling_interval;
-    let event_filter = EventFilter::MoveEventType(event_tag.clone());
     let mut page_available = false;
     while !tx_event.is_closed() {
         // only wait if no event pages were left in the last iteration
@@ -248,15 +223,19 @@ where
                 polling_interval = initial_polling_interval;
                 for event in events.data {
                     last_event = Some(event.id);
-                    let event_obj = event.try_into().map_err(|_| {
-                        anyhow!(
-                            "event matching the event type {:?} could not be converted",
-                            &event_tag,
-                        )
-                    })?;
-                    // unwrap safe because we wrap it in `Some()` above
-                    let span = tracing::debug_span!("sui-event", event_id = ?last_event.unwrap());
+                    let span = tracing::debug_span!(
+                        "sui-event",
+                        event_id = ?event.id,
+                        event_type = ?event.type_
+                    );
                     let _guard = span.enter();
+                    let event_obj = match event.try_into() {
+                        Ok(event_obj) => event_obj,
+                        Err(_) => {
+                            tracing::error!("could not convert event");
+                            continue;
+                        }
+                    };
                     match tx_event.send(event_obj).in_current_span().await {
                         Ok(()) => tracing::debug!("received event"),
                         Err(_) => {

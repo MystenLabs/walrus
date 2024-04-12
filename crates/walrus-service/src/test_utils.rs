@@ -11,6 +11,7 @@ use fastcrypto::{bls12381::min_pk::BLS12381PublicKey, traits::KeyPair};
 use futures::StreamExt;
 use mysten_metrics::RegistryService;
 use prometheus::Registry;
+use sui_types::event::EventID;
 use tempfile::TempDir;
 use tokio_stream::Stream;
 use tokio_util::sync::CancellationToken;
@@ -23,7 +24,7 @@ use crate::{
     config::{PathOrInPlace, StorageNodeConfig},
     server::UserServer,
     storage::Storage,
-    system_events::{SystemEventCursorSet, SystemEventProvider},
+    system_events::SystemEventProvider,
     StorageNode,
 };
 
@@ -279,7 +280,7 @@ pub fn unused_socket_address() -> SocketAddr {
 impl SystemEventProvider for Vec<BlobEvent> {
     async fn events(
         &self,
-        _cursors: SystemEventCursorSet,
+        _cursor: Option<EventID>,
     ) -> Result<Box<dyn Stream<Item = BlobEvent> + Send + Sync + 'life0>, anyhow::Error> {
         Ok(Box::new(
             tokio_stream::iter(self.clone()).chain(tokio_stream::pending()),

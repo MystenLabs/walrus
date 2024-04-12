@@ -58,9 +58,13 @@ pub struct Storage {
     database: Arc<RocksDB>,
     metadata: DBMap<BlobId, BlobMetadata>,
     blob_info: DBMap<BlobId, BlobInfo>,
-    event_cursor: DBMap<EventType, EventID>,
+    event_cursor: DBMap<EventCursorKey, EventID>,
     shards: HashMap<ShardIndex, ShardStorage>,
 }
+
+/// Type with a single value to be used as key for the event cursor in the DB
+#[derive(Debug, Serialize, Deserialize)]
+struct EventCursorKey;
 
 impl Storage {
     const METADATA_COLUMN_FAMILY_NAME: &'static str = "metadata";
@@ -171,18 +175,15 @@ impl Storage {
     }
 
     /// Get the event cursor for `event_type`
-    pub fn get_event_cursor(
-        &self,
-        event_type: EventType,
-    ) -> Result<Option<EventID>, TypedStoreError> {
-        self.event_cursor.get(&event_type)
+    pub fn get_event_cursor(&self) -> Result<Option<EventID>, TypedStoreError> {
+        self.event_cursor.get(&EventCursorKey)
     }
 
     /// Update the blob info for a blob based on the `BlobEvent`
     #[instrument(level = "debug", skip(self))]
     pub fn update_blob_info(&self, event: BlobEvent) -> Result<(), TypedStoreError> {
         self.merge_update_blob_info(&event.blob_id(), (&event).into())?;
-        self.update_event_cursor(event.event_type(), &event.event_id())?;
+        self.update_event_cursor(&event.event_id())?;
         Ok(())
     }
 
@@ -199,12 +200,8 @@ impl Storage {
     }
 
     /// Update the event cursor for `event_type` to `new_cursor`
-    pub fn update_event_cursor(
-        &self,
-        event_type: EventType,
-        new_cursor: &EventID,
-    ) -> Result<(), TypedStoreError> {
-        self.event_cursor.insert(&event_type, new_cursor)
+    pub fn update_event_cursor(&self, new_cursor: &EventID) -> Result<(), TypedStoreError> {
+        self.event_cursor.insert(&EventCursorKey, new_cursor)
     }
 
     /// Gets the metadata for a given [`BlobId`] or None.
@@ -434,18 +431,12 @@ pub(crate) mod tests {
         let cursor1 = event_id_for_testing();
         let cursor2 = event_id_for_testing();
 
-        storage.update_event_cursor(EventType::Registered, &cursor1)?;
-        assert_eq!(
-            storage.get_event_cursor(EventType::Registered)?,
-            Some(cursor1)
-        );
+        storage.update_event_cursor(&cursor1)?;
+        assert_eq!(storage.get_event_cursor()?, Some(cursor1));
 
         // update with newer value
-        storage.update_event_cursor(EventType::Registered, &cursor2)?;
-        assert_eq!(
-            storage.get_event_cursor(EventType::Registered)?,
-            Some(cursor2)
-        );
+        storage.update_event_cursor(&cursor2)?;
+        assert_eq!(storage.get_event_cursor()?, Some(cursor2));
         Ok(())
     }
 

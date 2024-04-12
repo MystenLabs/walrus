@@ -20,6 +20,7 @@ use crate::{
     types::{
         Blob,
         BlobCertified,
+        BlobEvent,
         BlobRegistered,
         Committee,
         EpochStatus,
@@ -31,23 +32,18 @@ use crate::{
 /// Mock `ReadClient` for testing.
 #[derive(Debug, Clone)]
 pub struct MockSuiReadClient {
-    registered_events: Arc<Mutex<Vec<BlobRegistered>>>,
-    certified_events: Arc<Mutex<Vec<BlobCertified>>>,
-    registered_events_channel: Sender<BlobRegistered>,
-    certified_events_channel: Sender<BlobCertified>,
+    events: Arc<Mutex<Vec<BlobEvent>>>,
+    events_channel: Sender<BlobEvent>,
     committee: Committee,
 }
 
 impl Default for MockSuiReadClient {
     fn default() -> Self {
         // A channel capacity of 1024 should be enough capacity to not feel backpressure for testing
-        let (registered_events_channel, _) = broadcast::channel(1024);
-        let (certified_events_channel, _) = broadcast::channel(1024);
+        let (events_channel, _) = broadcast::channel(1024);
         Self {
-            registered_events: Arc::default(),
-            certified_events: Arc::default(),
-            registered_events_channel,
-            certified_events_channel,
+            events: Arc::default(),
+            events_channel,
             committee: Committee::default(),
         }
     }
@@ -55,19 +51,12 @@ impl Default for MockSuiReadClient {
 
 impl MockSuiReadClient {
     /// Create a new mock client that returns the provided events in the event streams.
-    fn new_with_events(
-        registered_events: Vec<BlobRegistered>,
-        certified_events: Vec<BlobCertified>,
-        committee: Committee,
-    ) -> Self {
+    fn new_with_events(events: Vec<BlobEvent>, committee: Committee) -> Self {
         // A channel capacity of 1024 should be enough capacity to not feel backpressure for testing
-        let (registered_events_channel, _) = broadcast::channel(1024);
-        let (certified_events_channel, _) = broadcast::channel(1024);
+        let (events_channel, _) = broadcast::channel(1024);
         Self {
-            registered_events: Arc::new(Mutex::new(registered_events)),
-            certified_events: Arc::new(Mutex::new(certified_events)),
-            registered_events_channel,
-            certified_events_channel,
+            events: Arc::new(Mutex::new(events)),
+            events_channel,
             committee,
         }
     }
@@ -78,38 +67,25 @@ impl MockSuiReadClient {
         blob_ids: impl IntoIterator<Item = BlobId>,
         committee: Option<Committee>,
     ) -> Self {
-        let (registered_events, certified_events) = blob_ids
+        let events = blob_ids
             .into_iter()
-            .map(|blob_id| {
-                (
-                    BlobRegistered::for_testing(blob_id),
-                    BlobCertified::for_testing(blob_id),
-                )
+            .flat_map(|blob_id| {
+                [
+                    BlobRegistered::for_testing(blob_id).into(),
+                    BlobCertified::for_testing(blob_id).into(),
+                ]
             })
-            .unzip();
-        Self::new_with_events(
-            registered_events,
-            certified_events,
-            committee.unwrap_or_default(),
-        )
+            .collect();
+        Self::new_with_events(events, committee.unwrap_or_default())
     }
 
-    /// Add a `BlobRegistered` event to the event streams provided by this client.
-    pub fn add_registered_event(&self, event: BlobRegistered) {
+    /// Add a `BlobEvent` to the event streams provided by this client.
+    pub fn add_event(&self, event: BlobEvent) {
         // ignore unsuccessful sends, we might have new receivers in the future
-        let _ = self.registered_events_channel.send(event.clone());
+        let _ = self.events_channel.send(event.clone());
         // unwrap `LockResult` since we are not expecting
         // threads to ever fail while holding the lock.
-        (*self.registered_events.lock().unwrap()).push(event);
-    }
-
-    /// Add a `BlobCertified` event to the event streams provided by this client.
-    pub fn add_certified_event(&self, event: BlobCertified) {
-        // ignore unsuccessful sends, we might have new receivers in the future
-        let _ = self.certified_events_channel.send(event.clone());
-        // unwrap `LockResult` since we are not expecting
-        // threads to ever fail while holding the lock.
-        (*self.certified_events.lock().unwrap()).push(event);
+        (*self.events.lock().unwrap()).push(event);
     }
 }
 
@@ -118,35 +94,17 @@ impl ReadClient for MockSuiReadClient {
         Ok(10)
     }
 
-    async fn blob_registered_events(
+    async fn blob_events(
         &self,
         polling_interval: Duration,
         _cursor: Option<EventID>,
-    ) -> SuiClientResult<impl Stream<Item = BlobRegistered>> {
-        let rx = self.registered_events_channel.subscribe();
+    ) -> SuiClientResult<impl Stream<Item = BlobEvent>> {
+        let rx = self.events_channel.subscribe();
 
-        let registered_events_guard = self.registered_events.lock().unwrap();
-        let old_event_stream = tokio_stream::iter((*registered_events_guard).clone());
+        let events_guard = self.events.lock().unwrap();
+        let old_event_stream = tokio_stream::iter((*events_guard).clone());
         // release lock
-        drop(registered_events_guard);
-        Ok(old_event_stream.chain(
-            BroadcastStream::from(rx)
-                .filter_map(|res| res.ok())
-                .throttle(polling_interval),
-        ))
-    }
-
-    async fn blob_certified_events(
-        &self,
-        polling_interval: Duration,
-        _cursor: Option<EventID>,
-    ) -> SuiClientResult<impl Stream<Item = BlobCertified>> {
-        let rx = self.certified_events_channel.subscribe();
-
-        let certified_events_guard = self.certified_events.lock().unwrap();
-        let old_event_stream = tokio_stream::iter((*certified_events_guard).clone());
-        // release lock
-        drop(certified_events_guard);
+        drop(events_guard);
         Ok(old_event_stream.chain(
             BroadcastStream::from(rx)
                 .filter_map(|res| res.ok())
@@ -218,14 +176,17 @@ impl ContractClient for MockContractClient {
         encoded_size: u64,
         erasure_code_type: EncodingType,
     ) -> SuiClientResult<Blob> {
-        self.read_client.add_registered_event(BlobRegistered {
-            epoch: self.current_epoch,
-            blob_id,
-            size: encoded_size,
-            erasure_code_type,
-            end_epoch: storage.end_epoch,
-            event_id: event_id_for_testing(),
-        });
+        self.read_client.add_event(
+            BlobRegistered {
+                epoch: self.current_epoch,
+                blob_id,
+                size: encoded_size,
+                erasure_code_type,
+                end_epoch: storage.end_epoch,
+                event_id: event_id_for_testing(),
+            }
+            .into(),
+        );
         Ok(Blob {
             id: ObjectID::random(),
             stored_epoch: self.current_epoch,
@@ -242,12 +203,15 @@ impl ContractClient for MockContractClient {
         blob: &Blob,
         _certificate: &ConfirmationCertificate,
     ) -> SuiClientResult<Blob> {
-        self.read_client.add_certified_event(BlobCertified {
-            epoch: self.current_epoch,
-            blob_id: blob.blob_id,
-            end_epoch: blob.storage.end_epoch,
-            event_id: event_id_for_testing(),
-        });
+        self.read_client.add_event(
+            BlobCertified {
+                epoch: self.current_epoch,
+                blob_id: blob.blob_id,
+                end_epoch: blob.storage.end_epoch,
+                event_id: event_id_for_testing(),
+            }
+            .into(),
+        );
         let mut blob = blob.clone();
         blob.certified = Some(self.current_epoch);
         Ok(blob)
@@ -274,6 +238,7 @@ fn system_object_from_committee(committee: Committee) -> SystemObject {
 mod tests {
     use std::pin::pin;
 
+    use anyhow::bail;
     use fastcrypto::bls12381::min_pk::BLS12381AggregateSignature;
 
     use super::*;
@@ -284,16 +249,10 @@ mod tests {
 
         // Get event streams for the events
         let polling_duration = std::time::Duration::from_millis(1);
-        let mut registered_events = pin!(
+        let mut events = pin!(
             walrus_client
                 .read_client()
-                .blob_registered_events(polling_duration, None)
-                .await?
-        );
-        let mut certified_events = pin!(
-            walrus_client
-                .read_client()
-                .blob_certified_events(polling_duration, None)
+                .blob_events(polling_duration, None)
                 .await?
         );
 
@@ -319,7 +278,9 @@ mod tests {
         assert_eq!(blob_obj.stored_epoch, 0);
 
         // Make sure that we got the expected event
-        let blob_registered = registered_events.next().await.unwrap();
+        let BlobEvent::Registered(blob_registered) = events.next().await.unwrap() else {
+            bail!("unexpected event type");
+        };
         assert_eq!(blob_registered.blob_id, blob_id);
         assert_eq!(blob_registered.epoch, blob_obj.stored_epoch);
         assert_eq!(
@@ -343,22 +304,24 @@ mod tests {
         assert_eq!(blob_obj.certified, Some(0));
 
         // Make sure that we got the expected event
-        let blob_certified = certified_events.next().await.unwrap();
+        let BlobEvent::Certified(blob_certified) = events.next().await.unwrap() else {
+            bail!("unexpected event type");
+        };
         assert_eq!(blob_certified.blob_id, blob_id);
         assert_eq!(Some(blob_registered.epoch), blob_obj.certified);
         assert_eq!(blob_certified.end_epoch, storage_resource.end_epoch);
 
         // Get new event stream to check if we receive previous events
-        let mut certified_events = pin!(
+        let mut events = pin!(
             walrus_client
                 .read_client
-                .blob_certified_events(polling_duration, None)
+                .blob_events(polling_duration, None)
                 .await?
         );
 
         // Make sure that we got the expected event
-        let blob_certified = certified_events.next().await.unwrap();
-        assert_eq!(blob_certified.blob_id, blob_id);
+        let blob_event = events.next().await.unwrap();
+        assert_eq!(blob_event.blob_id(), blob_id);
 
         Ok(())
     }

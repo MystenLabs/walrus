@@ -55,7 +55,7 @@ impl<'a> FunctionTag<'a> {
 }
 
 /// Tag identifying contract structs based on their name and module.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct StructTag<'a> {
     /// Move struct name
     pub name: &'a str,
@@ -80,6 +80,15 @@ impl<'a> StructTag<'a> {
             })?,
             type_params: type_params.into(),
         })
+    }
+}
+
+impl<'a> From<&'a MoveStructTag> for StructTag<'a> {
+    fn from(value: &'a MoveStructTag) -> Self {
+        Self {
+            name: value.name.as_str(),
+            module: value.module.as_str(),
+        }
     }
 }
 

@@ -560,3 +560,15 @@ impl BlobEvent {
         }
     }
 }
+
+impl TryFrom<SuiEvent> for BlobEvent {
+    type Error = anyhow::Error;
+
+    fn try_from(value: SuiEvent) -> Result<Self, Self::Error> {
+        match (&value.type_).into() {
+            contracts::blob::BlobRegistered => Ok(BlobEvent::Registered(value.try_into()?)),
+            contracts::blob::BlobCertified => Ok(BlobEvent::Certified(value.try_into()?)),
+            _ => Err(anyhow!("could not convert event: {}", value)),
+        }
+    }
+}
