@@ -72,7 +72,7 @@ impl Client {
             .encoding_config
             .get_blob_encoder(blob)?
             .encode_with_metadata();
-        Self::trace_blob_id_prefix(metadata.blob_id());
+        tracing::Span::current().record("blob_id_prefix", truncate_blob_id(metadata.blob_id()));
         tracing::debug!(blob_id = %metadata.blob_id(), "computed blob pairs and metadata");
         let pairs_per_node = self.pairs_per_node(metadata.blob_id(), pairs);
         let comms = self.node_communications();
@@ -109,14 +109,13 @@ impl Client {
     }
 
     /// Reconstructs the blob by reading slivers from Walrus shards.
-    #[tracing::instrument(skip_all, fields(blob_id_prefix))]
+    #[tracing::instrument(skip_all, fields(blob_id_prefix = truncate_blob_id(blob_id)))]
     pub async fn read_blob<T>(&self, blob_id: &BlobId) -> Result<Vec<u8>>
     where
         T: EncodingAxis,
         Sliver<T>: TryFrom<SliverEnum>,
     {
-        Self::trace_blob_id_prefix(blob_id);
-        tracing::debug!("starting to read blob with blob ID: {blob_id}");
+        tracing::debug!(%blob_id, "starting to read blob");
         let metadata = self.retrieve_metadata(blob_id).await?;
         self.request_slivers_and_decode::<T>(&metadata).await
     }
@@ -156,12 +155,8 @@ impl Client {
             .into_iter()
             .filter_map(|NodeResult(_, _, node, result)| {
                 result
-                    .map_err(|e| {
-                        tracing::error!(
-                            "retrieving sliver from node {} failed with error: {}",
-                            node,
-                            e
-                        )
+                    .map_err(|err| {
+                        tracing::error!(?node, ?err, "retrieving sliver failed");
                     })
                     .ok()
             })
@@ -202,8 +197,8 @@ impl Client {
                         return Ok(blob);
                     }
                 }
-                Err(e) => {
-                    tracing::error!("could not retrieve sliver from node {node:?}, with error: {e}")
+                Err(err) => {
+                    tracing::error!(?node, ?err, "retrieving sliver failed");
                 }
             }
         }
@@ -274,12 +269,11 @@ impl Client {
         });
         pairs_per_node
     }
+}
 
-    /// Records the first 8 characters of the blob ID in the current span.
-    fn trace_blob_id_prefix(blob_id: &BlobId) {
-        tracing::Span::current().record(
-            "blob_id_prefix",
-            &tracing::field::debug(&blob_id.to_string()[0..8]),
-        );
-    }
+/// Returns the 8 characters of the blob ID.
+fn truncate_blob_id(blob_id: &BlobId) -> String {
+    let mut blob_id_string = blob_id.to_string();
+    blob_id_string.truncate(8);
+    blob_id_string
 }

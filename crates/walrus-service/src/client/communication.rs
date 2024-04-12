@@ -7,6 +7,7 @@ use anyhow::Result;
 use fastcrypto::{hash::Blake2b256, traits::VerifyingKey};
 use futures::future::join_all;
 use reqwest::Client as ReqwestClient;
+use tracing::{Level, Span};
 use walrus_core::{
     encoding::{EncodingAxis, EncodingConfig, Sliver, SliverPair},
     ensure,
@@ -41,6 +42,20 @@ use crate::{
     server::{METADATA_ENDPOINT, SLIVER_ENDPOINT, STORAGE_CONFIRMATION_ENDPOINT},
 };
 
+/// This macro enables flexible instrumentation of tracing messages.
+///
+/// The two tracing spans that this macro enters ensure that:
+/// 1. The parent span of the `NodeCommunication`, containing the node information, is always
+///    present in the logs.
+/// 2. The span for the called function, with optional fields, is only visible for the specified log
+///    level.
+macro_rules! instrument_node_tracing {
+    ($self:ident, $lvl:expr, $name:expr $(, $($fields:tt)*)? ) => {
+        let _guard = $self.span.clone().entered();
+        let _inner_guard = tracing::span!($lvl, $name $(, $($fields)*)? ).entered();
+    };
+}
+
 /// Represents the result of an interaction with a storage node. Contains the epoch, the "weight" of
 /// the interaction (e.g., the number of shards for which an operation was performed), the storage
 /// node that issued it, and the result of the operation.
@@ -67,6 +82,7 @@ pub(crate) struct NodeCommunication<'a> {
     pub client: &'a ReqwestClient,
     pub node: &'a StorageNode,
     pub encoding_config: &'a EncodingConfig,
+    pub span: Span,
 }
 
 impl<'a> NodeCommunication<'a> {
@@ -81,6 +97,7 @@ impl<'a> NodeCommunication<'a> {
             client,
             node,
             encoding_config,
+            span: tracing::span!(Level::ERROR, "node", ?epoch, ?node.public_key),
         }
     }
 
@@ -96,12 +113,12 @@ impl<'a> NodeCommunication<'a> {
     // Read operations.
 
     /// Requests the metadata for a blob ID from the node.
-    #[tracing::instrument(skip_all, fields(node=self.to_string()))]
     pub async fn retrieve_verified_metadata(
         &self,
         blob_id: &BlobId,
     ) -> NodeResult<VerifiedBlobMetadataWithId, MetadataRetrieveError> {
-        tracing::trace!("retrieving metadata",);
+        instrument_node_tracing!(self, Level::TRACE, "retrieve_verified_metadata");
+        tracing::debug!("retrieving metadata");
         let inner = || async {
             let response = self
                 .client
@@ -131,7 +148,7 @@ impl<'a> NodeCommunication<'a> {
         &self,
         blob_id: &BlobId,
     ) -> Result<SignedStorageConfirmation, CommunicationError> {
-        tracing::trace!("retrieving storage confirmation");
+        tracing::debug!("retrieving storage confirmation");
         let response = self
             .client
             .get(self.storage_confirmation_endpoint(blob_id))
@@ -147,7 +164,6 @@ impl<'a> NodeCommunication<'a> {
 
     /// Requests a sliver from the storage node, and verifies that it matches the metadata and
     /// encoding config.
-    #[tracing::instrument(skip_all, fields(node = %self, ?shard_idx))]
     pub async fn retrieve_verified_sliver<T: EncodingAxis>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
@@ -156,7 +172,8 @@ impl<'a> NodeCommunication<'a> {
     where
         Sliver<T>: TryFrom<SliverEnum>,
     {
-        tracing::trace!("retrieving sliver from shard",);
+        instrument_node_tracing!(self, Level::TRACE, "retrieve_verified_sliver", ?shard_idx);
+        tracing::debug!("retrieving sliver from shard",);
         let inner = || async {
             let sliver = self.retrieve_sliver::<T>(metadata, shard_idx).await?;
             self.verify_sliver(metadata, &sliver, shard_idx)?;
@@ -243,13 +260,13 @@ impl<'a> NodeCommunication<'a> {
     ///
     /// Returns a [`NodeResult`], where the weight is the number of shards for which the storage
     /// confirmation was issued.
-    #[tracing::instrument(skip_all, fields(node=self.to_string()))]
     pub async fn store_metadata_and_pairs(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         pairs: Vec<SliverPair>,
     ) -> NodeResult<SignedStorageConfirmation, StoreError> {
-        tracing::trace!("storing metadata and sliver pairs",);
+        instrument_node_tracing!(self, Level::TRACE, "store_metadata_and_pairs");
+        tracing::debug!("storing metadata and sliver pairs",);
         let inner = || async {
             // TODO(giac): add retry for metadata.
             self.store_metadata(metadata).await?;
