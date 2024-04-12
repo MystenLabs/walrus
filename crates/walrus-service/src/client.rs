@@ -11,6 +11,7 @@ use tokio::time::Duration;
 use tracing::Instrument;
 use walrus_core::{
     encoding::{BlobDecoder, EncodingAxis, EncodingConfig, Sliver, SliverPair},
+    ensure,
     messages::{Confirmation, ConfirmationCertificate},
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
@@ -171,7 +172,7 @@ impl<T: ContractClient> Client<T> {
             }
         }
 
-        anyhow::ensure!(
+        ensure!(
             self.committee.is_quorum(total_weight),
             "not enough confirmations for the blob id were retrieved"
         );
