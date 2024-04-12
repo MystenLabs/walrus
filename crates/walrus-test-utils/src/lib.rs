@@ -15,11 +15,14 @@ pub type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 /// names and their arguments. It expands to a module with a `#[test]` function for each of the
 /// cases. Each test case calls the existing, named function with their provided arguments.
 ///
+/// In addition to function arguments, you can also use this with generic functions by providing a
+/// list of type parameters.
+///
 /// See [`async_param_test`] for a similar macro that works with `async` function.
 ///
 /// # Examples
 ///
-/// Calling a simple test function can be done as follows
+/// Calling a simple test function can be done as follows:
 ///
 /// ```
 /// # use walrus_test_utils::param_test;
@@ -44,12 +47,28 @@ pub type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 /// param_test! {
 ///     test_parses -> Result<(), Box<dyn Error>>: [
 ///         positive: ("21", 21),
-///         negative: ("-17", -17)
+///         negative: ("-17", -17),
 ///     ]
 /// }
 /// fn test_parses(to_parse: &str, expected: i32) -> Result<(), Box<dyn Error>> {
 ///     assert_eq!(expected, to_parse.parse::<i32>()?);
 ///     Ok(())
+/// }
+/// ```
+///
+/// You can also use this with generic functions:
+///
+/// ```
+/// # use walrus_test_utils::param_test;
+/// #
+/// param_test! {
+///     test_generic: [
+///         comparison_u32: <u32>(10, 7, false),
+///         comparison_i32: <i32>(-5, -5, true),
+///     ]
+/// }
+/// fn test_generic<T: std::fmt::Debug + PartialEq>(lhs: T, rhs: T, equal: bool) {
+///     assert_eq!(lhs == rhs, equal);
 /// }
 /// ```
 ///
@@ -62,7 +81,7 @@ pub type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 /// param_test! {
 ///     test_parses -> Result<(), Box<dyn Error>>: [
 ///         #[ignore] positive: ("21", 21),
-///         negative: ("-17", -17)
+///         negative: ("-17", -17),
 ///     ]
 /// }
 /// fn test_parses(to_parse: &str, expected: i32) -> Result<(), Box<dyn Error>> {
@@ -73,7 +92,8 @@ pub type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 #[macro_export]
 macro_rules! param_test {
     ($func_name:ident -> $return_ty:ty: [
-        $( $(#[$outer:meta])* $case_name:ident: ( $($args:expr),+ )  ),+$(,)?
+        $( $(#[$outer:meta])* $case_name:ident:
+            $(<$($type_args:ty),+>)?( $($args:expr),* )  ),+$(,)?
     ]) => {
         mod $func_name {
             use super::*;
@@ -82,15 +102,19 @@ macro_rules! param_test {
                 #[test]
                 $(#[$outer])*
                 fn $case_name() -> $return_ty {
-                    $func_name($($args),+)
+                    $func_name$(::<$($type_args),+>)?($($args),*)
                 }
             )*
         }
     };
     ($func_name:ident: [
-        $( $(#[$outer:meta])* $case_name:ident: ( $($args:expr),+ ) ),+$(,)?
+        $( $(#[$outer:meta])* $case_name:ident:
+            $(<$($type_args:ty),+>)?( $($args:expr),* )  ),+$(,)?
     ]) => {
-        param_test!($func_name -> (): [ $( $(#[$outer])* $case_name: ( $($args),+ ) ),+ ]);
+        param_test!(
+            $func_name -> ():
+            [ $( $(#[$outer])* $case_name: $(<$($type_args),+>)?( $($args),* ) ),+ ]
+        );
     };
 }
 
@@ -100,6 +124,8 @@ macro_rules! param_test {
 /// `async` function. For convenience, the macro expands the test cases with the `#[tokio::test]`
 /// attribute. If specifying any additional attributes to any test case, it is necessary to
 /// re-specify the `#[tokio::test]` macro for *every* test case.
+///
+/// In contrast to [`param_test`], this does not currently support type parameters.
 ///
 /// See [`param_test`] for more information and examples.
 #[macro_export]
