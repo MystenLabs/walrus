@@ -22,7 +22,7 @@ pub trait SystemEventProvider: std::fmt::Debug + Sync + Send {
     /// Return a new stream over [`BlobEvent`]s starting from those specified by `from`.
     async fn events(
         &self,
-        cursors: Option<EventID>,
+        cursor: Option<EventID>,
     ) -> Result<Box<dyn Stream<Item = BlobEvent> + Send + Sync + 'life0>, anyhow::Error>;
 }
 
@@ -52,7 +52,7 @@ impl SystemEventProvider for SuiSystemEventProvider {
         &self,
         cursor: Option<EventID>,
     ) -> Result<Box<dyn Stream<Item = BlobEvent> + Send + Sync + 'life0>, anyhow::Error> {
-        tracing::info!("resuming from events: {cursor:?}");
+        tracing::info!("resuming from event: {cursor:?}");
 
         let events = self
             .read_client

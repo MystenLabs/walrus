@@ -58,18 +58,15 @@ pub struct Storage {
     database: Arc<RocksDB>,
     metadata: DBMap<BlobId, BlobMetadata>,
     blob_info: DBMap<BlobId, BlobInfo>,
-    event_cursor: DBMap<EventCursorKey, EventID>,
+    event_cursor: DBMap<String, EventID>,
     shards: HashMap<ShardIndex, ShardStorage>,
 }
-
-/// Type with a single value to be used as key for the event cursor in the DB
-#[derive(Debug, Serialize, Deserialize)]
-struct EventCursorKey;
 
 impl Storage {
     const METADATA_COLUMN_FAMILY_NAME: &'static str = "metadata";
     const BLOBINFO_COLUMN_FAMILY_NAME: &'static str = "blob_info";
     const EVENT_CURSOR_COLUMN_FAMILY_NAME: &'static str = "event_cursor";
+    const EVENT_CURSOR_KEY: &'static str = "event_cursor";
 
     /// Opens the storage database located at the specified path, creating the database if absent.
     pub fn open(path: &Path, metrics_config: MetricConf) -> Result<Self, anyhow::Error> {
@@ -176,7 +173,7 @@ impl Storage {
 
     /// Get the event cursor for `event_type`
     pub fn get_event_cursor(&self) -> Result<Option<EventID>, TypedStoreError> {
-        self.event_cursor.get(&EventCursorKey)
+        self.event_cursor.get(&Self::EVENT_CURSOR_KEY.to_string())
     }
 
     /// Update the blob info for a blob based on the `BlobEvent`
@@ -201,7 +198,8 @@ impl Storage {
 
     /// Update the event cursor for `event_type` to `new_cursor`
     pub fn update_event_cursor(&self, new_cursor: &EventID) -> Result<(), TypedStoreError> {
-        self.event_cursor.insert(&EventCursorKey, new_cursor)
+        self.event_cursor
+            .insert(&Self::EVENT_CURSOR_KEY.to_string(), new_cursor)
     }
 
     /// Gets the metadata for a given [`BlobId`] or None.
