@@ -222,6 +222,10 @@ impl SliverPairIndex {
     /// secondary slivers are assigned in descending `pair_index` order. I.e., the first primary
     /// sliver is contained in the first sliver pair, but the first secondary sliver is contained in
     /// the last sliver pair.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is greater than or equal to `n_shards`.
     pub fn to_sliver_index<E: EncodingAxis>(self, n_shards: NonZeroU16) -> SliverIndex {
         if E::IS_PRIMARY {
             self.into()
@@ -237,6 +241,10 @@ impl SliverIndex {
     ///
     /// This is the inverse of [`SliverPairIndex::to_sliver_index`]; see that function for further
     /// information.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is greater than or equal to `n_shards`.
     pub fn to_pair_index<E: EncodingAxis>(self, n_shards: NonZeroU16) -> SliverPairIndex {
         if E::IS_PRIMARY {
             self.into()

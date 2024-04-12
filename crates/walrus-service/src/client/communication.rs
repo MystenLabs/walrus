@@ -151,7 +151,7 @@ impl<'a> NodeCommunication<'a> {
     {
         let inner = || async {
             let sliver = self.retrieve_sliver::<T>(metadata, shard_idx).await?;
-            sliver.verify(self.encoding_config, metadata, shard_idx)?;
+            sliver.verify(self.encoding_config, metadata)?;
             Ok(sliver)
         };
         // Each sliver is in this case requested individually, so the weight is 1.

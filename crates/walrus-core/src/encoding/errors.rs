@@ -54,9 +54,9 @@ pub struct WrongSliverVariantError;
 /// Error returned when sliver verification fails.
 #[derive(Debug, Error)]
 pub enum SliverVerificationError {
-    /// The shard index provided is too large for the number of shards in the metadata.
-    #[error("the shard index provided is too large for the number of shards in the metadata")]
-    ShardIndexTooLarge,
+    /// The sliver index is too large for the number of shards in the metadata.
+    #[error("the sliver index is too large for the number of shards in the metadata")]
+    IndexTooLarge,
     /// The length of the provided sliver does not match the number of source symbols in the
     /// metadata.
     #[error("the length of the provided sliver does not match the metadata")]

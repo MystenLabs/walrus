@@ -24,7 +24,6 @@ use crate::{
     ensure,
     merkle::{MerkleProof, MerkleTree, Node, DIGEST_LEN},
     metadata::{SliverPairMetadata, VerifiedBlobMetadataWithId},
-    ShardIndex,
     SliverIndex,
     SliverPairIndex,
 };
@@ -85,16 +84,18 @@ impl<T: EncodingAxis> Sliver<T> {
         self
     }
 
-    /// Checks that the provided sliver matches the corresponding hash in the metadata.
+    /// Checks that the provided sliver is authenticated by the metadata.
+    ///
+    /// The checks include verifying that the sliver has the correct number of symbols and symbol
+    /// size, and that the hash in the metadata matches the Merkle root over the sliver's symbols.
     pub fn verify(
         &self,
         encoding_config: &EncodingConfig,
         metadata: &VerifiedBlobMetadataWithId,
-        shard_idx: ShardIndex,
     ) -> Result<(), SliverVerificationError> {
         ensure!(
-            shard_idx.as_usize() < metadata.metadata().hashes.len(),
-            SliverVerificationError::ShardIndexTooLarge
+            self.index.as_usize() < metadata.metadata().hashes.len(),
+            SliverVerificationError::IndexTooLarge
         );
         ensure!(
             self.symbols.len()
@@ -120,8 +121,8 @@ impl<T: EncodingAxis> Sliver<T> {
             .metadata()
             .hashes
             .get(
-                shard_idx
-                    .to_pair_index(encoding_config.n_shards, metadata.blob_id())
+                self.index
+                    .to_pair_index::<T>(encoding_config.n_shards)
                     .as_usize(),
             )
             .expect("n_shards and shard_index < n_shards are checked above");
