@@ -7,6 +7,7 @@ use anyhow::{anyhow, Result};
 use futures::Future;
 use reqwest::{Client as ReqwestClient, ClientBuilder};
 use tokio::time::Duration;
+use tracing::Instrument;
 use walrus_core::{
     encoding::{BlobDecoder, EncodingAxis, EncodingConfig, Sliver, SliverPair},
     metadata::VerifiedBlobMetadataWithId,
@@ -133,10 +134,10 @@ impl Client {
         let comms = self.node_communications();
         // Create requests to get all slivers from all nodes.
         let futures = comms.iter().flat_map(|n| {
-            n.node
-                .shard_ids
-                .iter()
-                .map(|s| n.retrieve_verified_sliver::<T>(metadata, *s))
+            n.node.shard_ids.iter().map(|s| {
+                n.retrieve_verified_sliver::<T>(metadata, *s)
+                    .instrument(n.span.clone())
+            })
         });
         let mut decoder = self
             .encoding_config
@@ -212,7 +213,10 @@ impl Client {
     /// against the blob ID.
     pub async fn retrieve_metadata(&self, blob_id: &BlobId) -> Result<VerifiedBlobMetadataWithId> {
         let comms = self.node_communications();
-        let futures = comms.iter().map(|n| n.retrieve_verified_metadata(blob_id));
+        let futures = comms.iter().map(|n| {
+            n.retrieve_verified_metadata(blob_id)
+                .instrument(n.span.clone())
+        });
         // Wait until the first request succeeds
         let mut requests = WeightedFutures::new(futures);
         requests.execute_weight(1, self.concurrent_requests).await;
