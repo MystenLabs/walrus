@@ -117,8 +117,9 @@ module blob_store::invalid_tests {
             0, // Intent version
             5, // Epoch
             6, // Stake support
-            vector[171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171,
-            171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171], // Data
+            // Data
+            vector[171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171,
+            171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171],
 
         );
 
@@ -199,7 +200,8 @@ module blob_store::invalid_tests {
 
 
 
-        let expected_blob_id : u256 = 0xabababababababababababababababababababababababababababababababab;
+        let expected_blob_id : u256
+            = 0xabababababababababababababababababababababababababababababababab;
 
         // Now check this is a invalid blob message
         let blob_id = system::invalidate_blob_id(
@@ -268,8 +270,9 @@ module blob_store::invalid_tests {
             0, // Intent version
             50, // Epoch WRONG
             6, // Stake support
-            vector[171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171,
-            171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171], // Data
+            // Data
+            vector[171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171,
+            171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171],
 
         );
 
