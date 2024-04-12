@@ -1,0 +1,85 @@
+name: Test Coverage
+
+on:
+  # Run workflow on every PR.
+  pull_request:
+    types:
+      - labeled
+      - opened
+      - synchronize
+      - reopened
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CLICOLOR_FORCE: 1
+  # Disable incremental compilation.
+  #
+  # Incremental compilation is useful as part of an edit-build-test-edit cycle,
+  # as it lets the compiler avoid recompiling code that hasn't changed. However,
+  # on CI, we're not making small edits; we're almost always building the entire
+  # project from scratch. Thus, incremental compilation on CI actually
+  # introduces *additional* overhead to support making future builds
+  # faster...but no future builds will ever occur in any given CI environment.
+  #
+  # See https://matklad.github.io/2021/09/04/fast-rust-builds.html#ci-workflow
+  # for details.
+  CARGO_INCREMENTAL: 0
+  # Allow more retries for network requests in cargo (downloading crates) and
+  # rustup (installing toolchains). This should help to reduce flaky CI failures
+  # from transient network timeouts or other issues.
+  CARGO_NET_RETRY: 10
+  RUSTUP_MAX_RETRIES: 10
+  # Don't emit giant backtraces in the CI logs.
+  RUST_BACKTRACE: short
+  RUSTDOCFLAGS: -D warnings
+  SUI_TAG: testnet-v1.22.0
+
+jobs:
+  dummy:
+    name: Dummy job to prevent empty workflow
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 42
+
+  test-coverage:
+    name: Run all Rust tests and report coverage
+    if: contains(github.event.pull_request.labels.*.name, 'report_coverage')
+    runs-on: ubuntu-ghcloud
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      RUSTC_BOOTSTRAP: 1
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo install cargo-tarpaulin@0.27.3
+
+      - name: Run tests (including integration E2E tests) and record coverage
+        run: cargo tarpaulin
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: Coverage report
+          path: tarpaulin-report.html
+      - name: Code-coverage report
+        uses: irongut/CodeCoverageSummary@v1.3.0
+        with:
+          filename: cobertura.xml
+          badge: true
+          fail_below_min: false
+          format: markdown
+          hide_branch_rate: false
+          hide_complexity: true
+          indicators: true
+          output: both
+          thresholds: '50 75'
+      - name: Add coverage PR comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        if: ${{ github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' }}
+        with:
+          path: code-coverage-results.md

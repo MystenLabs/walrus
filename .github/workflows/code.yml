@@ -8,9 +8,6 @@ on:
   push:
     branches:
       - main
-  # Run workflow on the main branch every Sunday.
-  schedule:
-    - cron: '14 3 * * 0'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -19,18 +16,12 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CLICOLOR_FORCE: 1
-  # Disable incremental compilation.
-  #
-  # Incremental compilation is useful as part of an edit-build-test-edit cycle,
-  # as it lets the compiler avoid recompiling code that hasn't changed. However,
-  # on CI, we're not making small edits; we're almost always building the entire
-  # project from scratch. Thus, incremental compilation on CI actually
-  # introduces *additional* overhead to support making future builds
-  # faster...but no future builds will ever occur in any given CI environment.
-  #
-  # See https://matklad.github.io/2021/09/04/fast-rust-builds.html#ci-workflow
-  # for details.
-  CARGO_INCREMENTAL: 0
+  # Incremental compilation is useful as part of an edit-build-test-edit cycle, as it lets the
+  # compiler avoid recompiling code that hasn't changed. The setting does not improve the current
+  # compilation but instead saves additional information to speed up future compilations (see
+  # https://doc.rust-lang.org/cargo/reference/profiles.html#incremental). Thus, this is only useful
+  # in CI if the result is cached, which we only do on the `main` branch.
+  CARGO_INCREMENTAL: ${{ github.ref == 'refs/heads/main' && '1' || '0' }}
   # Allow more retries for network requests in cargo (downloading crates) and
   # rustup (installing toolchains). This should help to reduce flaky CI failures
   # from transient network timeouts or other issues.
@@ -69,11 +60,6 @@ jobs:
               - 'rust-toolchain'
               - 'deny.toml'
               - '.github/workflows/code.yml'
-            relevantForE2eTests:
-              - 'crates/walrus-sui/**'
-              - 'crates/walrus-service/**'
-              - 'contracts/**'
-              - '.github/workflows/code.yml'
 
   dependencies:
     name: Check dependencies
@@ -87,76 +73,18 @@ jobs:
           # do not check advisories on PRs to prevent sudden failure due to new announcement
           command: check bans licenses sources
 
-  dependencies-schedule:
+  dependencies-main:
     name: Check dependencies (including vulnerabilities)
-    needs: diff
-    if: ${{ github.event_name == 'schedule' }}
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: EmbarkStudios/cargo-deny-action@v1.6.2
 
-  # TODO(mlegner): Currently running all tests on all PRs touching Rust code.
-  # If the running time gets too long, we may need to remove the integration and E2E tests and/or
-  # not do the coverage analysis on PRs.
-  test-coverage:
-    name: Run all Rust tests and report coverage
-    needs: diff
-    if: ${{ github.event_name == 'schedule' || needs.diff.outputs.isRust == 'true' }}
-    runs-on: ubuntu-ghcloud
-    permissions:
-      contents: read
-      pull-requests: write
-    env:
-      RUSTC_BOOTSTRAP: 1
-    steps:
-      - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2.7.3
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
-      - run: cargo install cargo-tarpaulin@0.27.3
-
-      - name: Run tests (including integration E2E tests) and record coverage
-        run: cargo tarpaulin
-
-      - name: Upload coverage report
-        uses: actions/upload-artifact@v4
-        with:
-          name: Coverage report
-          path: tarpaulin-report.html
-      - name: Code-coverage report
-        uses: irongut/CodeCoverageSummary@v1.3.0
-        with:
-          filename: cobertura.xml
-          badge: true
-          fail_below_min: false
-          format: markdown
-          hide_branch_rate: false
-          hide_complexity: true
-          indicators: true
-          output: both
-          thresholds: '50 75'
-      - name: Add coverage PR comment
-        uses: marocchino/sticky-pull-request-comment@v2
-        if: ${{ github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' }}
-        with:
-          path: code-coverage-results.md
-
-  e2e-tests:
-    name: End-to-end tests
-    needs: diff
-    if: ${{ github.event_name == 'schedule' || needs.diff.outputs.relevantForE2eTests == 'true' }}
-    runs-on: ubuntu-ghcloud
-    steps:
-      - uses: actions/checkout@v4
-      # Don't cache as this shouldn't be run too often and would bring us above GitHub's 10GB limit.
-      - name: Run E2E tests
-        run: cargo test -p walrus-sui -p walrus-service -- --ignored
-
   lint:
     name: Lint Rust code
     needs: diff
-    if: ${{ github.event_name == 'schedule' || needs.diff.outputs.isRust == 'true' }}
+    if: ${{ needs.diff.outputs.isRust == 'true' }}
     runs-on: ubuntu-ghcloud
     steps:
       - uses: actions/checkout@v4
@@ -181,7 +109,7 @@ jobs:
   build:
     name: Build Rust code
     needs: diff
-    if: ${{ github.event_name == 'schedule' || needs.diff.outputs.isRust == 'true' }}
+    if: ${{ needs.diff.outputs.isRust == 'true' }}
     runs-on: ubuntu-ghcloud
     steps:
       - uses: actions/checkout@v4
@@ -191,10 +119,25 @@ jobs:
       - name: Build Rust code
         run: cargo build --verbose
 
+  # TODO(mlegner): Currently running all tests on all PRs touching Rust code.
+  # If the running time gets too long, we may need to separate the integration and E2E tests.
+  test:
+    name: Test Rust code
+    needs: diff
+    if: ${{ needs.diff.outputs.isRust == 'true' }}
+    runs-on: ubuntu-ghcloud
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2.7.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
+      - name: Run tests
+        run: cargo test -- --include-ignored
+
   test-move:
     name: Test Move code
     needs: diff
-    if: ${{ github.event_name == 'schedule' || needs.diff.outputs.isMove == 'true' }}
+    if: ${{ needs.diff.outputs.isMove == 'true' }}
     runs-on: ubuntu-ghcloud
     env:
       SUI_BIN: "/home/runner/.cargo/bin/sui"
@@ -226,10 +169,9 @@ jobs:
     needs:
       - diff
       - dependencies
-      - test-coverage
-      - e2e-tests
       - lint
       - build
+      - test
       - test-move
     runs-on: ubuntu-latest
     steps:
