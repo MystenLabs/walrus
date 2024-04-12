@@ -17,13 +17,34 @@ use super::{
 };
 use crate::{merkle::DIGEST_LEN, BlobId};
 
-const DECODING_SAFETY_LIMIT: u32 = 8;
+/// The minimum difference between the number of primary source symbols and 1/3rd of the number of
+/// shards, and between the number of secondary source symbols and 2/3rds of the number of shards.
+///
+/// This safety limit ensures that, when collecting symbols for reconstruction or recovery, f+1
+/// replies (for primary symbols) or 2f+1 replies (for secondary symbols) from a committee of 3f+1
+/// nodes have at least `DECODING_SAFETY_LIMIT` redundant symbols to increase the probability of
+/// recovery.
+///
+/// For RaptorQ, the proability of successful reconstruction for K source symbols when K + H symbols
+/// are received is greater than `(1 / 256)^(H + 1)`. Therefore, e.g, the probability of
+/// reconstruction after receiving f+1 primary slivers is at least:
+/// `(1 / 256)^(DECODING_SAFETY_LIMIT + 2)`.
+const DECODING_SAFETY_LIMIT: u16 = 5;
+/// Below this threshold `n_shards`, the computed number of source symbols, based on the number of
+/// shards, may require padding. In other words, the computation does not provide number of source
+/// symbols that are without padding.
+const TESTING_THRESHOLD: u16 = 101;
 
-/// Computes the maximum number of source symbols from the standard, below the provided target.
+/// Computes the maximum number of source symbols, below the provided target, that do not require
+/// padding in the RaptorQ standard.
+///
+/// # Panics
+///
+/// Panics if `target < DECODING_SAFETY_LIMIT`.
 fn max_source_symbols(target: u16) -> u16 {
-    let mut prev = 0;
-    let mut n_symbols = 1;
-    while n_symbols < target as u32 - DECODING_SAFETY_LIMIT {
+    let mut prev: u32 = 0;
+    let mut n_symbols: u32 = 1;
+    while n_symbols <= (target - DECODING_SAFETY_LIMIT) as u32 {
         prev = n_symbols;
         n_symbols = raptorq::extended_source_block_symbols(n_symbols + 1);
     }
@@ -33,13 +54,32 @@ fn max_source_symbols(target: u16) -> u16 {
 
 /// Computes the number of primary and secondary source symbols starting from the number of shards.
 ///
-/// It takes the largest number of source symbols supported by the RaptorQ standard, such that it is
-/// smaller than 1/3 or 2/3 of `n_shards`, minus the `DECODING_SAFETY_LIMIT`.
+/// If the number of shards is strictly lower than `TESTING_THRESHOLD`, the config is assumed to be
+/// for testing, and the testing, and the computation is as follows:
+/// - `source_symbols_primary = n_shards / 3 - DECODING_SAFETY_LIMIT`
+/// - `source_symbols_secondary = 2 * source_symbols_primary`
+///
+/// If the number of shards is `TESTING_THRESHOLD` or above, it takes the largest number of source
+/// symbols supported by the RaptorQ standard _without padding_, such that it is smaller than 1/3 or
+/// 2/3 of `n_shards`, minus the `DECODING_SAFETY_LIMIT`.
+///
+/// # Panics
+///
+/// Panics if `n_shards / 3 <= DECODING_SAFETY_LIMIT`.
 pub fn source_symbols_for_n_shards(n_shards: u16) -> (u16, u16) {
-    (
-        max_source_symbols(n_shards / 3),
-        max_source_symbols(2 * n_shards / 3),
-    )
+    assert!(
+        n_shards / 3 > DECODING_SAFETY_LIMIT,
+        "`n_shards / 3` must be greater than `DECODING_SAFETY_LIMIT`"
+    );
+    if n_shards < TESTING_THRESHOLD {
+        let source_symbols_primary = n_shards / 3 - DECODING_SAFETY_LIMIT;
+        (source_symbols_primary, 2 * source_symbols_primary)
+    } else {
+        (
+            max_source_symbols(n_shards / 3),
+            max_source_symbols(2 * n_shards / 3),
+        )
+    }
 }
 
 /// Configuration of the Walrus encoding.
@@ -138,15 +178,17 @@ impl EncodingConfig {
 
     /// Creates a new encoding config with the appropriate number of primary and secondary source
     /// symbols for the given number of shards.
+    ///
+    /// The decoding probability is given by the [`DECODING_SAFETY_LIMIT`]. See the documentation of
+    /// [`DECODING_SAFETY_LIMIT`] and [`Self::source_symbols_for_n_shards`] for more details.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `n_shards / 3 <= DECODING_SAFETY_LIMIT`.
     #[allow(dead_code)]
-    pub(crate) fn new_for_n_shards(n_shards: u32) -> Self {
-        // TODO(giac): remove the expect once the change of n_shards to u16 happens.
-        let (primary, secondary) = source_symbols_for_n_shards(
-            n_shards
-                .try_into()
-                .expect("TODO: the number of shards should really be a u16"),
-        );
-        Self::new(primary, secondary, n_shards)
+    pub(crate) fn new_for_n_shards(n_shards: NonZeroU16) -> Self {
+        let (primary, secondary) = source_symbols_for_n_shards(n_shards.get());
+        Self::new(primary, secondary, n_shards.get())
     }
 
     /// Returns the number of source symbols configured for this type.
@@ -316,7 +358,11 @@ mod tests {
 
     param_test! {
         test_source_symbols_for_n_shards: [
-            one_hundred: (100, 20, 55),
+            #[should_panic(expected="`n_shards / 3` must be greater than `DECODING_SAFETY_LIMIT`")]
+                panic_n_shards_low: (DECODING_SAFETY_LIMIT * 3 + 2, 0, 0),
+            fifty_for_testing: (50, 11, 22),
+            one_hundred_for_testing: (100, 28, 56),
+            one_hundred_and_one: (TESTING_THRESHOLD, 26, 62),
             thousand: (1000, 324, 648),
             ten_thousand: (10000, 3299, 6655),
         ]
