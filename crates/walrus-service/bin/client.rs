@@ -60,8 +60,8 @@ fn load_wallet_context(path: &Option<PathBuf>) -> Result<WalletContext> {
     let path = path
         .as_ref()
         .cloned()
-        .or(local_client_config())
-        .or(home_client_config())
+        .or_else(local_client_config)
+        .or_else(home_client_config)
         .ok_or(anyhow!("could not find a valid Wallet config file"))?;
     WalletContext::new(&path, None, None)
 }
