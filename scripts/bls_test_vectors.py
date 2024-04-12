@@ -120,4 +120,4 @@ invalid_message_sig = G2Basic.Sign(sk1, invalid_message)
 print("---- Invalid blob message ----")
 
 print(f"let invalid_message = vector[{list(invalid_message)}];")
-print(f"let invalid_message_signature = vector{list(invalid_message_sig)};")
+print(f"let message_signature = vector{list(invalid_message_sig)};")

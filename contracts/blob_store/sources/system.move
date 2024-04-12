@@ -18,6 +18,7 @@ module blob_store::system {
     const ERROR_INVALID_PERIODS_AHEAD : u64 = 2;
     const ERROR_STORAGE_EXCEEDED : u64 = 3;
     const ERROR_INVALID_MSG_TYPE : u64 = 4;
+    const ERROR_INVALID_ID_EPOCH : u64 = 5;
 
     // Message types:
     const EPOCH_DONE_MSG_TYPE: u8 = 0;
@@ -319,7 +320,7 @@ module blob_store::system {
         });
     }
 
-    // The logic to register and invalid Blob ID
+    // The logic to register an invalid Blob ID
 
     /// Define a message type for the InvalidBlobID message.
     /// It may only be constructed when a valid certified message is
@@ -360,28 +361,47 @@ module blob_store::system {
         CertifiedInvalidBlobID { epoch, blob_id }
     }
 
-    /// System call to process invalid blob id message. This checks that the epoch
+    /// Private System call to process invalid blob id message. This checks that the epoch
     /// in which the message was certified is correct, before emitting an event. Correct
     /// nodes will only certify invalid blob ids within their period of validity, and this
     /// endures we are not flooded with invalid events from past epochs.
-    public fun declare_invalid_blob_idh<WAL>(
+    public(package) fun inner_declare_invalid_blob_id<WAL>(
         system: &System<WAL>,
         message: CertifiedInvalidBlobID,
     ) {
 
         // Assert the epoch is correct.
         let epoch = message.epoch;
-        assert!(epoch == epoch(system), ERROR_SYNC_EPOCH_CHANGE);
+        assert!(epoch == epoch(system), ERROR_INVALID_ID_EPOCH);
 
         // Emit the event about a blob id being invalid here.
         event::emit(InvalidBlobID {
             epoch,
             blob_id: message.blob_id,
         });
-
     }
 
+    /// Public system call to process invalid blob id message. Will check the
+    /// the certificate in the current committee and ensure that the epoch is
+    /// correct as well.
+    public fun invalidate_blob_id<WAL>(
+        system: &System<WAL>,
+        signature: vector<u8>,
+        members: vector<u16>,
+        message: vector<u8>,
+    ) : u256 {
+        let committee = option::borrow(&system.current_committee);
 
+        let certified_message = committee::verify_quorum_in_epoch(
+            committee,
+            signature,
+            members,
+            message);
 
+        let invalid_blob_message = invalid_blob_id_message(certified_message);
+        let blob_id = invalid_blob_message.blob_id;
+        inner_declare_invalid_blob_id(system, invalid_blob_message);
+        blob_id
+    }
 
 }
