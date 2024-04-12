@@ -11,10 +11,11 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use clap::{Parser, Subcommand};
 use fastcrypto::traits::KeyPair;
 use mysten_metrics::RegistryService;
+use sui_sdk::SuiClientBuilder;
 use telemetry_subscribers::{TelemetryGuards, TracingHandle};
 use tokio::{
     runtime::{self, Runtime},
@@ -32,6 +33,7 @@ use walrus_service::{
     Storage,
     StorageNode,
 };
+use walrus_sui::client::{ReadClient, SuiReadClient};
 
 const GIT_REVISION: &str = {
     if let Some(revision) = option_env!("GIT_REVISION") {
@@ -102,7 +104,18 @@ enum Commands {
 #[derive(Subcommand, Debug, Clone)]
 #[clap(rename_all = "kebab-case")]
 enum CommitteeConfig {
-    OnChain,
+    OnChain {
+        /// The index of the storage node to run.
+        #[clap(long)]
+        storage_node_index: usize,
+        // TODO(giac): these parameters can be removed once #205 is ready.
+        /// The number of primary source symbols.
+        #[clap(long)]
+        source_symbols_primary: NonZeroU16,
+        /// The number of secondary source symbols.
+        #[clap(long)]
+        source_symbols_secondary: NonZeroU16,
+    },
     FromLocalConfig {
         /// The path to the client configuration file.
         #[clap(long, default_value = "./working_dir/client_config.yaml")]
@@ -137,9 +150,31 @@ fn main() -> anyhow::Result<()> {
         } => {
             let config = StorageNodeConfig::load(config_path)?;
             let (encoding_config, shards) = match committee_config {
-                CommitteeConfig::OnChain => {
-                    // TODO(alberto): Get the committee from the chain. (#212)
-                    todo!()
+                CommitteeConfig::OnChain {
+                    storage_node_index,
+                    source_symbols_primary,
+                    source_symbols_secondary,
+                } => {
+                    let sui_config = config.clone().sui.ok_or(anyhow!(
+                        "please provide a storage node config with a `SuiConfig`"
+                    ))?;
+                    let committee = Runtime::new()?.block_on(async {
+                        SuiReadClient::new(
+                            SuiClientBuilder::default().build(sui_config.rpc).await?,
+                            sui_config.pkg_id,
+                            sui_config.system_object,
+                        )
+                        .await?
+                        .current_committee()
+                        .await
+                    })?;
+                    let encoding_config = EncodingConfig::new(
+                        source_symbols_primary.get(),
+                        source_symbols_secondary.get(),
+                        committee.total_weight,
+                    );
+                    let handled_shards = committee.shards_for_node(storage_node_index);
+                    (encoding_config, handled_shards)
                 }
                 CommitteeConfig::FromLocalConfig {
                     client_config_path,
