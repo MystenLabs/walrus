@@ -4,12 +4,14 @@
 use std::{
     env,
     fmt::Display,
-    fs::{self},
+    fs,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use reqwest::Url;
-use serde::{de::Error, Deserialize, Deserializer};
+use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DisplayFromStr, DurationSeconds};
 
 use crate::{
     client::Instance,
@@ -17,31 +19,29 @@ use crate::{
 };
 
 /// The git repository holding the codebase.
-#[derive(Deserialize, Clone)]
+#[serde_as]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Repository {
     /// The url of the repository.
-    #[serde(deserialize_with = "parse_url")]
+    #[serde_as(as = "DisplayFromStr")]
     pub url: Url,
     /// The commit (or branch name) to deploy.
     pub commit: String,
 }
 
-fn parse_url<'de, D>(deserializer: D) -> Result<Url, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let s: &str = Deserialize::deserialize(deserializer)?;
-    let url = Url::parse(s).map_err(D::Error::custom)?;
-
-    match url.path_segments().map(|x| x.count() >= 2) {
-        None | Some(false) => Err(D::Error::custom(SettingsError::MalformedRepositoryUrl(url))),
-        _ => Ok(url),
+impl Default for Repository {
+    fn default() -> Self {
+        Self {
+            url: Url::parse("https://example.com/author/repo").unwrap(),
+            commit: "main".into(),
+        }
     }
 }
 
 /// The list of supported cloud providers.
-#[derive(Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Default)]
 pub enum CloudProvider {
+    #[default]
     #[serde(alias = "aws")]
     Aws,
     #[serde(alias = "vultr")]
@@ -49,7 +49,8 @@ pub enum CloudProvider {
 }
 
 /// The testbed settings. Those are topically specified in a file.
-#[derive(Deserialize, Clone)]
+#[serde_as]
+#[derive(Serialize, Deserialize, Clone, Default)]
 pub struct Settings {
     /// The testbed unique id. This allows multiple users to run concurrent testbeds on the
     /// same cloud provider's account without interference with each others.
@@ -57,8 +58,10 @@ pub struct Settings {
     /// The cloud provider hosting the testbed.
     pub cloud_provider: CloudProvider,
     /// The path to the secret token for authentication with the cloud provider.
+    #[serde(skip_serializing)]
     pub token_file: PathBuf,
     /// The ssh private key to access the instances.
+    #[serde(skip_serializing)]
     pub ssh_private_key_file: PathBuf,
     /// The corresponding ssh public key registered on the instances. If not specified. the
     /// public key defaults the same path as the private key with an added extension 'pub'.
@@ -79,12 +82,27 @@ pub struct Settings {
     /// The directory (on the local machine) where to download logs files from the instances.
     #[serde(default = "defaults::default_logs_dir")]
     pub logs_dir: PathBuf,
+    /// Whether to use NVMe drives for data storage (if available).
     #[serde(default = "defaults::default_use_nvme")]
     pub nvme: bool,
+    /// The interval between measurements collection.
+    #[serde(default = "defaults::default_scrape_interval")]
+    #[serde_as(as = "DurationSeconds")]
+    pub scrape_interval: Duration,
+    /// Whether to downloading and analyze the client and node log files.
+    #[serde(default = "defaults::default_log_processing")]
+    pub log_processing: bool,
+    /// Number of instances running only load generators (not nodes). If this value is set
+    /// to zero, the orchestrator runs a load generate collocated with each node.
+    #[serde(default = "defaults::default_dedicated_clients")]
+    pub dedicated_clients: usize,
+    /// Whether to start a grafana and prometheus instance on a dedicate machine.
+    #[serde(default = "defaults::default_monitoring")]
+    pub monitoring: bool,
 }
 
 mod defaults {
-    use std::path::PathBuf;
+    use std::{path::PathBuf, time::Duration};
 
     pub fn default_working_dir() -> PathBuf {
         "~/working_dir".into()
@@ -99,6 +117,22 @@ mod defaults {
     }
 
     pub fn default_use_nvme() -> bool {
+        true
+    }
+
+    pub fn default_scrape_interval() -> Duration {
+        Duration::from_secs(15)
+    }
+
+    pub fn default_log_processing() -> bool {
+        false
+    }
+
+    pub fn default_dedicated_clients() -> usize {
+        0
+    }
+
+    pub fn default_monitoring() -> bool {
         true
     }
 }
@@ -164,7 +198,7 @@ impl Settings {
     pub fn load_token(&self) -> SettingsResult<String> {
         match fs::read_to_string(&self.token_file) {
             Ok(token) => Ok(token.trim_end_matches('\n').to_string()),
-            Err(e) => Err(SettingsError::InvalidTokenFile {
+            Err(e) => Err(SettingsError::TokenFileError {
                 file: self.token_file.display().to_string(),
                 message: e.to_string(),
             }),
@@ -180,7 +214,7 @@ impl Settings {
         });
         match fs::read_to_string(&ssh_public_key_file) {
             Ok(token) => Ok(token.trim_end_matches('\n').to_string()),
-            Err(e) => Err(SettingsError::InvalidSshPublicKeyFile {
+            Err(e) => Err(SettingsError::SshPublicKeyFileError {
                 file: ssh_public_key_file.display().to_string(),
                 message: e.to_string(),
             }),
@@ -212,20 +246,10 @@ impl Settings {
         // Return set settings.
         Self {
             testbed_id: "testbed".into(),
-            cloud_provider: CloudProvider::Aws,
             token_file: "/path/to/token/file".into(),
             ssh_private_key_file: "/path/to/private/key/file".into(),
             ssh_public_key_file: Some(path),
-            regions: vec!["London".into(), "New York".into()],
-            specs: "small".into(),
-            repository: Repository {
-                url: Url::parse("https://example.net/author/repo").unwrap(),
-                commit: "main".into(),
-            },
-            working_dir: "/path/to/working_dir".into(),
-            results_dir: "results".into(),
-            logs_dir: "logs".into(),
-            nvme: true,
+            ..Default::default()
         }
     }
 }
@@ -235,6 +259,13 @@ mod test {
     use reqwest::Url;
 
     use crate::settings::Settings;
+
+    #[test]
+    fn load_ssh_public_key() {
+        let settings = Settings::new_for_test();
+        let public_key = settings.load_ssh_public_key().unwrap();
+        assert_eq!(public_key, "This is a fake public key for tests");
+    }
 
     #[test]
     fn repository_name() {

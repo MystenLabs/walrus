@@ -3,12 +3,13 @@
 
 //! Core functionality for Walrus.
 use std::{
-    fmt::{self, Debug, Display, LowerHex},
+    fmt::{self, Debug, Display},
     num::{NonZeroU16, NonZeroUsize},
     ops::{Bound, Range, RangeBounds},
     str::FromStr,
 };
 
+use base64::{display::Base64Display, engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use encoding::{
     EncodingAxis,
     EncodingConfig,
@@ -23,7 +24,6 @@ use encoding::{
 };
 use fastcrypto::{
     bls12381::min_pk::{BLS12381PublicKey, BLS12381Signature},
-    encoding::{Encoding, Hex},
     hash::{Blake2b256, HashFunction},
 };
 use merkle::{MerkleAuth, MerkleTree, Node};
@@ -110,12 +110,6 @@ impl BlobId {
     }
 }
 
-impl LowerHex for BlobId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", Hex::encode(self.0))
-    }
-}
-
 impl AsRef<[u8]> for BlobId {
     fn as_ref(&self) -> &[u8] {
         &self.0
@@ -124,13 +118,13 @@ impl AsRef<[u8]> for BlobId {
 
 impl Display for BlobId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{self:#x}")
+        Base64Display::new(self.as_ref(), &URL_SAFE_NO_PAD).fmt(f)
     }
 }
 
 impl Debug for BlobId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "BlobId({self:#x})")
+        write!(f, "BlobId({self})")
     }
 }
 
@@ -152,7 +146,12 @@ impl FromStr for BlobId {
     type Err = BlobIdParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        fastcrypto::encoding::decode_bytes_hex(s).map_err(|_| BlobIdParseError)
+        let mut blob_id = Self([0; Self::LENGTH]);
+        if let Ok(Self::LENGTH) = URL_SAFE_NO_PAD.decode_slice(s, &mut blob_id.0) {
+            Ok(blob_id)
+        } else {
+            Err(BlobIdParseError)
+        }
     }
 }
 

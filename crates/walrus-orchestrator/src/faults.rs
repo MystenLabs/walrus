@@ -10,6 +10,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::client::Instance;
 
+/// The default interval to crash nodes.
+#[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222)
+pub const DEFAULT_CRASH_INTERVAL: Duration = Duration::from_secs(60);
+
 #[derive(Clone, Serialize, Deserialize, Hash, PartialEq, Eq)]
 pub enum FaultsType {
     /// Permanently crash the maximum number of nodes from the beginning.
@@ -137,7 +141,6 @@ impl CrashRecoverySchedule {
 
             // Periodically crash and recover nodes.
             FaultsType::CrashRecovery { max_faults, .. } => {
-                let mut instances = self.instances.clone();
                 let min_faults = max_faults / 3;
 
                 // Recover all nodes if we already crashed them all.

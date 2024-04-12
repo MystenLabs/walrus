@@ -19,6 +19,7 @@ clap = { workspace = true }
 fastcrypto = { workspace = true }
 futures = { workspace = true }
 git-version = "0.3.9"
+mime = "0.3.17"
 mysten-metrics = { workspace = true }
 prometheus = "0.13.3"
 rand = { workspace = true }

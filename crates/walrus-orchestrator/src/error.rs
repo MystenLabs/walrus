@@ -3,8 +3,6 @@
 
 use std::net::SocketAddr;
 
-use reqwest::Url;
-
 pub type SettingsResult<T> = Result<T, SettingsError>;
 
 #[derive(thiserror::Error, Debug)]
@@ -13,13 +11,10 @@ pub enum SettingsError {
     InvalidSettings { file: String, message: String },
 
     #[error("Failed to read token file '{file:?}': {message}")]
-    InvalidTokenFile { file: String, message: String },
+    TokenFileError { file: String, message: String },
 
     #[error("Failed to read ssh public key file '{file:?}': {message}")]
-    InvalidSshPublicKeyFile { file: String, message: String },
-
-    #[error("Malformed repository url: {0:?}")]
-    MalformedRepositoryUrl(Url),
+    SshPublicKeyFileError { file: String, message: String },
 }
 
 pub type CloudProviderResult<T> = Result<T, CloudProviderError>;
