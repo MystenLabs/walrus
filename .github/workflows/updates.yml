@@ -14,6 +14,8 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+    env:
+      SUI_TAG: testnet-v1.22.0
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -21,7 +23,25 @@ jobs:
           python-version: '3.12'
       - run: rustup update stable
       - run: pip install pre-commit
-      - run: pre-commit autoupdate
+      - name: Run pre-commit autoupdate
+        run: >
+          pre-commit autoupdate
+          --repo https://github.com/pre-commit/pre-commit-hooks
+          --repo https://github.com/editorconfig-checker/editorconfig-checker.python
+          --repo https://github.com/crate-ci/typos
+          --repo https://github.com/DevinR528/cargo-sort
+          --repo https://github.com/EmbarkStudios/cargo-deny
+
+      - name: Restore cached sui binary
+        id: cache-sui-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: "/home/runner/.cargo/bin/sui"
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ env.SUI_TAG }}
+      - name: Install sui
+        if: steps.cache-sui-restore.outputs.cache-hit != 'true'
+        run: cargo install --locked --git https://github.com/MystenLabs/sui.git --tag $SUI_TAG --debug sui
+
       - run: pre-commit run --all-files
       - uses: peter-evans/create-pull-request@v6.0.2
         with:
