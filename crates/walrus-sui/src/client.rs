@@ -22,7 +22,7 @@ use sui_types::{
     transaction::{Argument, ProgrammableTransaction},
     Identifier,
 };
-use walrus_core::{ensure, messages::ConfirmationCertificate, BlobId, EncodingType};
+use walrus_core::{ensure, messages::ConfirmationCertificate, BlobId, EncodingType, merkle::DIGEST_LEN};
 
 use crate::{
     contracts::{self, FunctionTag},
@@ -75,6 +75,7 @@ pub trait ContractClient {
         &self,
         storage: &StorageResource,
         blob_id: BlobId,
+        root_digest: [u8; DIGEST_LEN],
         encoded_size: u64,
         erasure_code_type: EncodingType,
     ) -> impl Future<Output = SuiClientResult<Blob>> + Send;
@@ -240,6 +241,7 @@ impl ContractClient for SuiContractClient {
         &self,
         storage: &StorageResource,
         blob_id: BlobId,
+        root_digest: [u8; DIGEST_LEN],
         encoded_size: u64,
         erasure_code_type: EncodingType,
     ) -> SuiClientResult<Blob> {
@@ -251,6 +253,7 @@ impl ContractClient for SuiContractClient {
                     self.read_client.call_arg_from_system_obj(true).await?,
                     self.wallet.get_object_ref(storage.id).await?.into(),
                     call_arg_pure!(&blob_id),
+                    call_arg_pure!(&root_digest),
                     encoded_size.into(),
                     erasure_code_type.into(),
                 ],

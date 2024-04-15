@@ -85,6 +85,9 @@ impl<T: ContractClient> Client<T> {
         tracing::debug!(blob_id = %metadata.blob_id(), ?encoded_length,
                         "computed blob pairs and metadata");
 
+        // Get the root hash of the blob.
+        let root_hash = metadata.metadata().get_root_hash();
+
         let storage_resource = self
             .sui_client
             .reserve_space(encoded_length, epochs_ahead)
@@ -94,6 +97,7 @@ impl<T: ContractClient> Client<T> {
             .register_blob(
                 &storage_resource,
                 *metadata.blob_id(),
+                root_hash.bytes(),
                 encoded_length,
                 metadata.metadata().encoding_type,
             )

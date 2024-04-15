@@ -14,6 +14,8 @@ use tokio::sync::broadcast::{self, Sender};
 use tokio_stream::{wrappers::BroadcastStream, Stream, StreamExt};
 use walrus_core::{messages::ConfirmationCertificate, BlobId, EncodingType, Epoch};
 
+const DIGEST_LEN: usize = 32;
+
 use super::event_id_for_testing;
 use crate::{
     client::{ContractClient, ReadClient, SuiClientResult},
@@ -153,6 +155,7 @@ impl ContractClient for MockContractClient {
         &self,
         storage: &StorageResource,
         blob_id: BlobId,
+        _root_digest: [u8; DIGEST_LEN],
         encoded_size: u64,
         erasure_code_type: EncodingType,
     ) -> SuiClientResult<Blob> {

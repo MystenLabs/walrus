@@ -3,12 +3,12 @@
 
 //! Metadata associated with a Blob and stored by storage nodes.
 
-use fastcrypto::hash::HashFunction;
+use fastcrypto::hash::{Blake2b256, HashFunction};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     encoding::{EncodingAxis, EncodingConfig},
-    merkle::{Node as MerkleNode, DIGEST_LEN},
+    merkle::{Node as MerkleNode, DIGEST_LEN, MerkleTree},
     BlobId,
     EncodingType,
     SliverPairIndex,
@@ -170,6 +170,18 @@ impl BlobMetadata {
                 SliverType::Secondary => &sliver_pair_metadata.secondary_hash,
             })
     }
+
+    /// Returns the root hash of the Merkle tree over the sliver pairs.
+    pub fn get_root_hash(&self) -> MerkleNode {
+        MerkleTree::<Blake2b256>::build(
+            self
+                .hashes
+                .iter()
+                .map(|h| h.pair_leaf_input::<Blake2b256>()),
+        )
+        .root()
+    }
+
 }
 
 /// Metadata about a sliver pair, i.e., the root hashes of the primary and secondary slivers.

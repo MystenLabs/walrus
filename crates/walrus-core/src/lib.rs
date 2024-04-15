@@ -26,7 +26,7 @@ use fastcrypto::{
     bls12381::min_pk::{BLS12381PublicKey, BLS12381Signature},
     hash::{Blake2b256, HashFunction},
 };
-use merkle::{MerkleAuth, MerkleTree, Node};
+use merkle::{MerkleAuth, Node};
 use metadata::BlobMetadata;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -76,13 +76,7 @@ impl BlobId {
     /// Computes the Merkle root over the [`SliverPairMetadata`][metadata::SliverPairMetadata],
     /// contained in the `blob_metadata` and then computes the blob ID.
     pub fn from_sliver_pair_metadata(blob_metadata: &BlobMetadata) -> Self {
-        let merkle_root = MerkleTree::<Blake2b256>::build(
-            blob_metadata
-                .hashes
-                .iter()
-                .map(|h| h.pair_leaf_input::<Blake2b256>()),
-        )
-        .root();
+        let merkle_root = blob_metadata.get_root_hash();
         Self::from_metadata(
             merkle_root,
             blob_metadata.encoding_type,
@@ -108,6 +102,7 @@ impl BlobId {
 
         Self(hasher.finalize().into())
     }
+
 }
 
 impl AsRef<[u8]> for BlobId {
