@@ -26,8 +26,8 @@ jobs:
     name: Check editorconfig
     steps:
       - uses: actions/checkout@v4
-      - uses: editorconfig-checker/action-editorconfig-checker@v2.0.0
-      - run: editorconfig-checker
+      - run: pip install editorconfig-checker=="2.7.3"
+      - run: ec
 
   typos:
     runs-on: ubuntu-latest

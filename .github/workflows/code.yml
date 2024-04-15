@@ -73,14 +73,6 @@ jobs:
           # do not check advisories on PRs to prevent sudden failure due to new announcement
           command: check bans licenses sources
 
-  dependencies-main:
-    name: Check dependencies (including vulnerabilities)
-    if: ${{ github.ref == 'refs/heads/main' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v1.6.2
-
   lint:
     name: Lint Rust code
     needs: diff
@@ -133,6 +125,23 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
       - name: Run tests
         run: cargo test -- --include-ignored
+
+  test-coverage:
+    name: Run all Rust tests and report coverage
+    if: contains(github.event.pull_request.labels.*.name, 'report_coverage')
+    runs-on: ubuntu-ghcloud
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      RUSTC_BOOTSTRAP: 1
+    steps:
+      - uses: ./actions/run_tarpaulin
+      - name: Add coverage PR comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        if: ${{ github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' }}
+        with:
+          path: code-coverage-results.md
 
   test-move:
     name: Test Move code
