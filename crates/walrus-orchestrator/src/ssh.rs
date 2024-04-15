@@ -401,7 +401,7 @@ impl SshConnection {
     }
 
     /// Upload a file to the remote machines through scp.
-    #[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222)
+    #[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#234)
     pub fn upload<P: AsRef<Path>>(&self, path: P, content: &[u8]) -> SshResult<()> {
         let size = content.len() as u64;
         let mut error = None;
