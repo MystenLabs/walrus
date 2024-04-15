@@ -42,7 +42,7 @@ async fn test_register_blob() -> anyhow::Result<()> {
         1, 2, 3, 4, 5, 6, 7, 8,
     ]);
     let blob_obj = walrus_client
-        .register_blob(&storage_resource, blob_id, size, EncodingType::RedStuff)
+        .register_blob(&storage_resource, blob_id, [0; 32], size, EncodingType::RedStuff)
         .await?;
     assert_eq!(blob_obj.blob_id, blob_id);
     assert_eq!(blob_obj.encoded_size, size);
@@ -95,7 +95,7 @@ async fn test_register_blob() -> anyhow::Result<()> {
         1, 2, 3, 4, 5, 6, 7, 0,
     ]);
     let blob_obj = walrus_client
-        .register_blob(&storage_resource, blob_id, size, EncodingType::RedStuff)
+        .register_blob(&storage_resource, blob_id, [0; 32], size, EncodingType::RedStuff)
         .await?;
 
     // Make sure that we got the expected event
