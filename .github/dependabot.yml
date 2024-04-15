@@ -18,6 +18,7 @@ updates:
           - "minor"
           - "patch"
     ignore:
+      - dependency-name: aws-*
       - dependency-name: move-core-types
       - dependency-name: mysten-metrics
       - dependency-name: sui-*
