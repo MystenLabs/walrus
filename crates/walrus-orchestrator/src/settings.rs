@@ -80,7 +80,8 @@ pub struct Settings {
     /// The path to the client's configuration file. If not specified, the orchestrator uses the
     /// default configurations.
     pub client_parameters_path: Option<String>,
-    /// The duration of the benchmark.
+    /// The duration of the benchmark. The orchestrator stops the benchmark after this duration.
+    /// If this value is set to zero, the orchestrator runs the benchmark indefinitely.
     #[serde(default = "defaults::default_benchmark_duration")]
     #[serde_as(as = "DurationSeconds")]
     pub benchmark_duration: Duration,

@@ -360,6 +360,11 @@ impl<P: ProtocolCommands + ProtocolMetrics> Orchestrator<P> {
 
     /// Deploy the load generators.
     pub async fn run_clients(&self, parameters: &BenchmarkParameters) -> TestbedResult<()> {
+        if parameters.load == 0 {
+            display::action("Skipping load generators deployment (load = 0)");
+            return Ok(());
+        }
+
         display::action("Setting up load generators");
 
         // Select the instances to run.
@@ -440,7 +445,8 @@ impl<P: ProtocolCommands + ProtocolMetrics> Orchestrator<P> {
                     fs::create_dir_all(&path).expect("Failed to create log directory");
                     aggregator.save(path);
 
-                    if elapsed > parameters.settings.benchmark_duration.as_secs() {
+                    let benchmark_duration = parameters.settings.benchmark_duration.as_secs();
+                    if benchmark_duration != 0 && elapsed > benchmark_duration {
                         break;
                     }
                 },
