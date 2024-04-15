@@ -176,10 +176,10 @@ fn main_with_args(args: Args) -> anyhow::Result<()> {
                         .current_committee()
                         .await
                     })?;
-                    let encoding_config = EncodingConfig::new(
-                        source_symbols_primary.get(),
-                        source_symbols_secondary.get(),
-                        committee.n_shards().get(),
+                    let encoding_config = EncodingConfig::new_from_nonzero(
+                        source_symbols_primary,
+                        source_symbols_secondary,
+                        committee.n_shards(),
                     );
                     let handled_shards = committee.shards_for_node(storage_node_index);
                     (encoding_config, handled_shards)

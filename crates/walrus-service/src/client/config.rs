@@ -48,10 +48,10 @@ impl LoadConfig for LocalCommitteeConfig {}
 impl LocalCommitteeConfig {
     /// Returns the [`EncodingConfig`] for this configuration.
     pub fn encoding_config(&self) -> EncodingConfig {
-        EncodingConfig::new(
-            self.source_symbols_primary.get(),
-            self.source_symbols_secondary.get(),
-            self.committee.n_shards().get(),
+        EncodingConfig::new_from_nonzero(
+            self.source_symbols_primary,
+            self.source_symbols_secondary,
+            self.committee.n_shards(),
         )
     }
 }

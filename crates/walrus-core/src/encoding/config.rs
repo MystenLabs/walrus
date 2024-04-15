@@ -101,6 +101,37 @@ impl EncodingConfig {
         }
     }
 
+    /// See [Self::new].
+    pub fn new_from_nonzero(
+        source_symbols_primary: NonZeroU16,
+        source_symbols_secondary: NonZeroU16,
+        n_shards: NonZeroU16,
+    ) -> Self {
+        assert!(
+            source_symbols_primary.get() < MAX_SOURCE_SYMBOLS_PER_BLOCK
+                && source_symbols_secondary.get() < MAX_SOURCE_SYMBOLS_PER_BLOCK,
+            "the number of source symbols can be at most `MAX_SOURCE_SYMBOLS_PER_BLOCK`"
+        );
+        assert!(
+            3 * (source_symbols_secondary.get() - 1) <= 2 * (n_shards.get() - 1),
+            "the secondary encoding can be at most a 2f+1 encoding"
+        );
+        assert!(
+            3 * (source_symbols_primary.get() - 1) <= (n_shards.get() - 1),
+            "the primary encoding can be at most an f+1 encoding"
+        );
+
+        Self {
+            source_symbols_primary,
+            source_symbols_secondary,
+            n_shards,
+            encoding_plan_primary: SourceBlockEncodingPlan::generate(source_symbols_primary.get()),
+            encoding_plan_secondary: SourceBlockEncodingPlan::generate(
+                source_symbols_secondary.get(),
+            ),
+        }
+    }
+
     /// Returns the number of source symbols configured for this type.
     #[inline]
     pub fn n_source_symbols<T: EncodingAxis>(&self) -> NonZeroU16 {
