@@ -128,11 +128,9 @@ impl<T: ContractClient> Client<T> {
                 .map(|(n, p)| n.store_metadata_and_pairs(metadata, p)),
         );
         let start = Instant::now();
+        let quorum_check = |weight| self.committee.is_quorum(weight);
         requests
-            .execute_weight(
-                self.committee.min_n_correct_shards().get() as usize,
-                self.concurrent_requests,
-            )
+            .execute_weight(&quorum_check, self.concurrent_requests)
             .await;
         // Double the execution time, with a minimum of 100 ms. This gives the client time to
         // collect more storage confirmations.
@@ -223,11 +221,10 @@ impl<T: ContractClient> Client<T> {
             .get_blob_decoder::<U>(metadata.metadata().unencoded_length.try_into()?)?;
         // Get the first ~1/3 or ~2/3 of slivers directly, and decode with these.
         let mut requests = WeightedFutures::new(futures);
+        let enough_source_symbols =
+            |weight| weight >= self.encoding_config.n_source_symbols::<U>().get().into();
         requests
-            .execute_weight(
-                self.encoding_config.n_source_symbols::<U>().get().into(),
-                self.concurrent_requests,
-            )
+            .execute_weight(&enough_source_symbols, self.concurrent_requests)
             .await;
 
         let slivers = requests
@@ -298,7 +295,10 @@ impl<T: ContractClient> Client<T> {
         });
         // Wait until the first request succeeds
         let mut requests = WeightedFutures::new(futures);
-        requests.execute_weight(1, self.concurrent_requests).await;
+        let just_one = |weight| weight >= 1;
+        requests
+            .execute_weight(&just_one, self.concurrent_requests)
+            .await;
         let metadata = requests.take_inner_ok().pop().ok_or(anyhow!(
             "could not retrieve the metadata from the storage nodes"
         ))?;

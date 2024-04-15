@@ -122,14 +122,18 @@ where
         }
     }
 
-    /// Executes the futures until futures that have a total weight of at least `threshold` return
-    /// successfully without error.
+    /// Executes the futures until the total weight of _successful_ futures gets the `threshold`
+    /// function to return `true`.
     ///
     /// `n_concurrent` is the maximum number of futures that are awaited at any one time to produce
     /// results.
-    pub async fn execute_weight(&mut self, threshold: usize, n_concurrent: usize) {
+    pub async fn execute_weight(
+        &mut self,
+        threshold: &impl Fn(usize) -> bool,
+        n_concurrent: usize,
+    ) {
         self.total_weight = 0;
-        while let Some(result) = self.next_threshold(n_concurrent, Some(threshold)).await {
+        while let Some(result) = self.next_threshold(n_concurrent, threshold).await {
             self.results.push(result);
         }
     }
@@ -138,6 +142,7 @@ where
     /// return without error within this time.
     ///
     /// If all futures complete before the `duration` is elapsed, the function returns early.
+    ///
     /// `n_concurrent` is the maximum number of futures that are awaited at any one time to produce
     /// results.
     pub async fn execute_time(&mut self, duration: Duration, n_concurrent: usize) {
@@ -157,28 +162,26 @@ where
     ///
     /// Returns `None` if it cannot produce further results.
     pub async fn next(&mut self, n_concurrent: usize) -> Option<T> {
-        self.next_threshold(n_concurrent, None).await
+        self.next_threshold(n_concurrent, &|_weight| false).await
     }
 
     /// Returns the next result returned by the futures, up to the given cumulative threshold.
     ///
-    /// If `threshold` is not `None`, the function will return the results as long as the total
-    /// weight of the _valid_ results (`Ok`) is _strictly_ `< threshold`. Otherwise, if `threshold`
-    /// is `None`, the function will return results until there are no more futures to await.
-    /// Returns `None` if it cannot produce further results or if the threshold has been passed.
+    /// Executes the futures, returns the results, and accumulate the weight of the _successful_
+    /// results (`Ok`) in `total_weight`, as long as `threshold(total_weight) == false`. Then, when
+    /// `threshold(total_weight) == true`, the function returns `None`.
     ///
     /// `n_concurrent` is the maximum number of futures that are awaited at any one time to produce
     /// results.
     pub async fn next_threshold(
         &mut self,
         n_concurrent: usize,
-        threshold: Option<usize>,
+        threshold: &impl Fn(usize) -> bool,
     ) -> Option<T> {
-        if let Some(threshold) = threshold {
-            if self.total_weight >= threshold {
-                return None;
-            }
+        if threshold(self.total_weight) {
+            return None;
         }
+
         while self.being_executed.len() < n_concurrent {
             if let Some(future) = self.futures.next() {
                 self.being_executed.push(future);
@@ -257,14 +260,14 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn test_weighted_futures() {
         create_weighted_futures!(weighted_futures, &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-        weighted_futures.execute_weight(3, 10).await;
+        weighted_futures.execute_weight(&|w| w >= 3, 10).await;
         assert_eq!(weighted_futures.take_inner_ok(), vec![1, 2, 3]);
         // Add to the existing runtime (~30ms) another 32ms to get to ~62ms of total execution.
         weighted_futures
             .execute_time(Duration::from_millis(32), 10)
             .await;
         assert_eq!(weighted_futures.take_inner_ok(), vec![4, 5, 6]);
-        weighted_futures.execute_weight(1, 10).await;
+        weighted_futures.execute_weight(&|w| w >= 1, 10).await;
         assert_eq!(weighted_futures.take_inner_ok(), vec![7]);
     }
 
