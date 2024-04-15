@@ -4,6 +4,7 @@
 module blob_store::blob {
     use sui::bcs;
     use sui::event;
+    use sui::hash;
 
     use blob_store::committee::{Self, CertifiedMessage};
     use blob_store::system::{Self, System};
@@ -85,11 +86,34 @@ module blob_store::blob {
         &b.storage
     }
 
+    public struct BlobIdDerivation has drop {
+        root_hash: u256,
+        erasure_code_type: u8,
+        size: u64,
+    }
+
+    /// Derive the blob_id for a blob given the root_hash, erasure_code_type and size.
+    public fun derive_blob_id(root_hash: u256, erasure_code_type: u8, size : u64) : u256 {
+
+        let blob_id_struct = BlobIdDerivation {
+            root_hash,
+            erasure_code_type,
+            size,
+        };
+
+        let encoded = hash::blake2b256(&bcs::to_bytes(&blob_id_struct));
+        let mut decoder = bcs::new(encoded);
+        let blob_id = bcs::peel_u256(&mut decoder);
+
+        blob_id
+    }
+
     /// Register a new blob in the system.
     public fun register<WAL>(
         sys: &System<WAL>,
         storage: Storage,
         blob_id: u256,
+        root_hash: u256,
         size: u64,
         erasure_code_type: u8,
         ctx: &mut TxContext,
@@ -103,8 +127,11 @@ module blob_store::blob {
         assert!(stored_epoch < end_epoch(&storage), ERROR_RESOURCE_BOUNDS);
         assert!(size <= storage_size(&storage), ERROR_RESOURCE_SIZE);
 
-        // TODO(#42): cryptographically verify that the Blob ID authenticates
+        // Cryptographically verify that the Blob ID authenticates
         // both the size and fe_type.
+        assert!(derive_blob_id(root_hash, erasure_code_type, size) == blob_id,
+            ERROR_INVALID_BLOB_ID);
+
 
         // Emit register event
         event::emit(BlobRegistered {

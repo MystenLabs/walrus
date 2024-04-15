@@ -40,7 +40,8 @@ module blob_store::blob_tests {
             &mut system, 10000, 3, fake_coin, &mut ctx);
 
         // Register a Blob
-        let blob1 = blob::register(&system, storage, 0xABC, 5000, 0x1, &mut ctx);
+        let blob_id = blob::derive_blob_id(0xABC, 0x1, 5000);
+        let blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, 0x1, &mut ctx);
 
         coin::burn_for_testing(fake_coin);
         blob::drop_for_testing(blob1);
@@ -67,7 +68,8 @@ module blob_store::blob_tests {
             &mut system, 100, 3, fake_coin, &mut ctx);
 
         // Register a Blob
-        let blob1 = blob::register(&system, storage, 0xABC, 5000, 0x1, &mut ctx);
+        let blob_id = blob::derive_blob_id(0xABC, 0x1, 5000);
+        let blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, 0x1, &mut ctx);
 
         coin::burn_for_testing(fake_coin);
         blob::drop_for_testing(blob1);
@@ -94,9 +96,10 @@ module blob_store::blob_tests {
                 &mut system, 10000, 3, fake_coin, &mut ctx);
 
         // Register a Blob
-        let mut blob1 = blob::register(&system, storage, 0xABC, 5000, 0x1, &mut ctx);
+        let blob_id = blob::derive_blob_id(0xABC, 0x1, 5000);
+        let mut blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, 0x1, &mut ctx);
 
-        let certify_message = blob::certified_blob_message_for_testing(0, 0xABC);
+        let certify_message = blob::certified_blob_message_for_testing(0, blob_id);
 
         // Set certify
         blob::certify_with_certified_msg(&system, certify_message, &mut blob1);
@@ -174,7 +177,7 @@ module blob_store::blob_tests {
         );
 
         // Register a Blob
-        let mut blob1 = blob::register(&system, storage, blob_id, 10000, 0x1, &mut ctx);
+        let mut blob1 = blob::register(&system, storage, blob_id, blob_id, 10000, 0x1, &mut ctx);
 
         // Set certify
         blob::certify(&system, &mut blob1, signature, vector[0], confirmation);
@@ -207,10 +210,11 @@ module blob_store::blob_tests {
                 &mut system, 10000, 3, fake_coin, &mut ctx);
 
         // Register a Blob
-        let mut blob1 = blob::register(&system, storage, 0xABC, 5000, 0x1, &mut ctx);
+        let blob_id = blob::derive_blob_id(0xABC, 0x1, 5000);
+        let mut blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, 0x1, &mut ctx);
 
         // Set INCORRECT EPOCH TO 1
-        let certify_message = blob::certified_blob_message_for_testing(1, 0xABC);
+        let certify_message = blob::certified_blob_message_for_testing(1, blob_id);
 
         // Set certify
         blob::certify_with_certified_msg(&system, certify_message, &mut blob1);
@@ -240,7 +244,8 @@ module blob_store::blob_tests {
                 &mut system, 10000, 3, fake_coin, &mut ctx);
 
         // Register a Blob
-        let mut blob1 = blob::register(&system, storage, 0xABC, 5000, 0x1, &mut ctx);
+        let blob_id = blob::derive_blob_id(0xABC, 0x1, 5000);
+        let mut blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, 0x1, &mut ctx);
 
         // DIFFERENT blob id
         let certify_message = blob::certified_blob_message_for_testing(0, 0xFFF);
@@ -273,7 +278,8 @@ module blob_store::blob_tests {
                 &mut system, 10000, 3, fake_coin, &mut ctx);
 
         // Register a Blob
-        let mut blob1 = blob::register(&system, storage, 0xABC, 5000, 0x1, &mut ctx);
+        let blob_id = blob::derive_blob_id(0xABC, 0x1, 5000);
+        let mut blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, 0x1, &mut ctx);
 
         // Advance epoch -- to epoch 1
         let committee = committee::committee_for_testing(1);
@@ -293,7 +299,7 @@ module blob_store::blob_tests {
         sa::burn_for_testing(epoch_accounts);
 
         // Set certify -- EPOCH BEYOND RESOURCE BOUND
-        let certify_message = blob::certified_blob_message_for_testing(3, 0xABC);
+        let certify_message = blob::certified_blob_message_for_testing(3, blob_id);
         blob::certify_with_certified_msg(&system, certify_message, &mut blob1);
 
         coin::burn_for_testing(fake_coin);
@@ -321,10 +327,11 @@ module blob_store::blob_tests {
                 &mut system, 10000, 3, fake_coin, &mut ctx);
 
         // Register a Blob
-        let mut blob1 = blob::register(&system, storage, 0xABC, 5000, 0x1, &mut ctx);
+        let blob_id = blob::derive_blob_id(0xABC, 0x1, 5000);
+        let mut blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, 0x1, &mut ctx);
 
         // Set certify
-        let certify_message = blob::certified_blob_message_for_testing(0, 0xABC);
+        let certify_message = blob::certified_blob_message_for_testing(0, blob_id);
         blob::certify_with_certified_msg(&system, certify_message, &mut blob1);
 
         // Advance epoch -- to epoch 1
@@ -371,7 +378,8 @@ module blob_store::blob_tests {
                 &mut system, 10000, 3, fake_coin, &mut ctx);
 
         // Register a Blob
-        let blob1 = blob::register(&system, storage, 0xABC, 5000, 0x1, &mut ctx);
+        let blob_id = blob::derive_blob_id(0xABC, 0x1, 5000);
+        let blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, 0x1, &mut ctx);
 
         // Destroy the blob
         blob::destroy_blob(&system, blob1);
@@ -436,8 +444,9 @@ module blob_store::blob_tests {
             split_by_epoch(&mut storage_long, 3, &mut ctx);
 
         // Register a Blob
-        let mut blob1 = blob::register(&system, storage, 0xABC, 5000, 0x1, &mut ctx);
-        let certify_message = blob::certified_blob_message_for_testing(0, 0xABC);
+        let blob_id = blob::derive_blob_id(0xABC, 0x1, 5000);
+        let mut blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, 0x1, &mut ctx);
+        let certify_message = blob::certified_blob_message_for_testing(0, blob_id);
 
         // Set certify
         blob::certify_with_certified_msg(&system, certify_message, &mut blob1);
@@ -482,7 +491,8 @@ module blob_store::blob_tests {
             split_by_epoch(&mut storage_long, 4, &mut ctx);
 
         // Register a Blob
-        let mut blob1 = blob::register(&system, storage, 0xABC, 5000, 0x1, &mut ctx);
+        let blob_id = blob::derive_blob_id(0xABC, 0x1, 5000);
+        let mut blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, 0x1, &mut ctx);
         let certify_message = blob::certified_blob_message_for_testing(0, 0xABC);
 
         // Set certify
@@ -525,10 +535,11 @@ module blob_store::blob_tests {
             split_by_epoch(&mut storage_long, 3, &mut ctx);
 
         // Register a Blob
-        let mut blob1 = blob::register(&system, storage, 0xABC, 5000, 0x1, &mut ctx);
+        let blob_id = blob::derive_blob_id(0xABC, 0x1, 5000);
+        let mut blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, 0x1, &mut ctx);
 
         // Set certify
-        let certify_message = blob::certified_blob_message_for_testing(0, 0xABC);
+        let certify_message = blob::certified_blob_message_for_testing(0, blob_id);
         blob::certify_with_certified_msg(&system, certify_message, &mut blob1);
 
         // Advance epoch -- to epoch 1
