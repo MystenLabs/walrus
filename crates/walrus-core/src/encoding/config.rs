@@ -43,49 +43,30 @@ pub fn decoding_safety_limit(n_shards: NonZeroU16) -> u16 {
     }
 }
 
-/// Below this threshold `n_shards`, the computed number of source symbols, based on the number of
-/// shards, may require padding. In other words, the computation does not provide number of source
-/// symbols that are without padding.
-pub const TESTING_THRESHOLD: u16 = 101;
+/// Returns the maximum number of Byzantine failures in a BFT system with `n` components.
+///
+/// This number is equal to `floor((n - 1) / 3.0)`.
+pub fn max_n_byzantine(n: u16) -> u16 {
+    (n - 1) / 3
+}
 
-/// Computes the maximum number of source symbols, below the provided target, that do not require
-/// padding in the RaptorQ standard.
-///
-/// # Panics
-///
-/// Panics if `target < safety_limit`.
-fn max_source_symbols(target: u16, safety_limit: u16) -> u16 {
-    let mut prev: u32 = 0;
-    let mut n_symbols: u32 = 1;
-    while n_symbols <= (target - safety_limit) as u32 {
-        prev = n_symbols;
-        n_symbols = raptorq::extended_source_block_symbols(n_symbols + 1);
-    }
-    prev.try_into()
-        .expect("the maximum number of supported symbols is 56403")
+/// Returns the minimum number of non-faulty instances in a BFT system with `n` components.
+pub fn min_n_correct(n: u16) -> u16 {
+    n - max_n_byzantine(n)
 }
 
 /// Computes the number of primary and secondary source symbols starting from the number of shards.
 ///
-/// If the number of shards is strictly lower than `TESTING_THRESHOLD`, the config is assumed to be
-/// for testing, and the testing, and the computation is as follows:
-/// - `source_symbols_primary = n_shards / 3 - decoding_safety_limit(n_shards)`
-/// - `source_symbols_secondary = 2 * source_symbols_primary`
-///
-/// If the number of shards is `TESTING_THRESHOLD` or above, it takes the largest number of source
-/// symbols supported by the RaptorQ standard _without padding_, such that it is smaller than 1/3 or
-/// 2/3 of `n_shards`, minus `decoding_safety_limit(n_shards)`.
+/// The computation is as follows:
+/// - `source_symbols_primary = n_shards - f - decoding_safety_limit(n_shards)`
+/// - `source_symbols_secondary = n_shards - 2f - decoding_safety_limit(n_shards)`
 pub fn source_symbols_for_n_shards(n_shards: NonZeroU16) -> (u16, u16) {
     let safety_limit = decoding_safety_limit(n_shards);
-    if n_shards.get() < TESTING_THRESHOLD {
-        let source_symbols_primary = n_shards.get() / 3 - safety_limit;
-        (source_symbols_primary, 2 * source_symbols_primary)
-    } else {
-        (
-            max_source_symbols(n_shards.get() / 3, safety_limit),
-            max_source_symbols(2 * n_shards.get() / 3, safety_limit),
-        )
-    }
+    let min_correct = min_n_correct(n_shards.get());
+    (
+        min_correct - max_n_byzantine(n_shards.get()) - safety_limit,
+        min_correct - safety_limit,
+    )
 }
 
 /// Configuration of the Walrus encoding.
@@ -95,10 +76,12 @@ pub fn source_symbols_for_n_shards(n_shards: NonZeroU16) -> (u16, u16) {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EncodingConfig {
     /// The number of source symbols for the primary encoding, which is, simultaneously, the number
-    /// of symbols per secondary sliver. It must be strictly less than 1/3 of `n_shards`.
+    /// of symbols per secondary sliver. It must be strictly less than `n_shards - 2f`, where `f` is
+    /// the Byzantine parameter.
     pub(crate) source_symbols_primary: NonZeroU16,
     /// The number of source symbols for the secondary encoding, which is, simultaneously, the
-    /// number of symbols per primary sliver. It must be strictly less than 2/3 of `n_shards`.
+    /// number of symbols per primary sliver.It must be strictly less than `n_shards - f`, where `f`
+    /// is the Byzantine parameter.
     pub(crate) source_symbols_secondary: NonZeroU16,
     /// The number of shards.
     pub(crate) n_shards: NonZeroU16,
@@ -114,9 +97,9 @@ impl EncodingConfig {
     /// # Arguments
     ///
     /// * `source_symbols_primary` - The number of source symbols for the primary encoding. This
-    ///   should be slightly below `f`, where `f` is the Byzantine parameter.
+    ///   should be slightly below `n_shards - 2f`, where `f` is the Byzantine parameter.
     /// * `source_symbols_secondary` - The number of source symbols for the secondary encoding. This
-    ///   should be slightly below `2f`.
+    ///   should be slightly below `n_shards - f`.
     /// * `n_shards` - The total number of shards.
     ///
     /// Ideally, both `source_symbols_primary` and `source_symbols_secondary` should be chosen from
@@ -132,9 +115,9 @@ impl EncodingConfig {
     /// Panics if any of the parameters are 0.
     ///
     /// Panics if the parameters are inconsistent with Byzantine fault tolerance; i.e., if the
-    /// number of source symbols of the primary encoding is equal to or greater than 1/3 of the
-    /// number of shards, or if the number of source symbols of the secondary encoding equal to or
-    /// greater than 2/3 of the number of shards.
+    /// number of source symbols of the primary encoding is equal to or greater than `n_shards -
+    /// 2f`, or if the number of source symbols of the secondary encoding equal to or greater than
+    /// `n_shards - f` of the number of shards.
     ///
     /// Panics if the number of primary or secondary source symbols is larger than
     /// [`MAX_SOURCE_SYMBOLS_PER_BLOCK`].
@@ -360,17 +343,35 @@ mod tests {
 
     param_test! {
         test_source_symbols_for_n_shards: [
-            one_for_testing: (1, 0, 0),
-            fifty_for_testing: (50, 13, 26),
-            one_hundred_for_testing: (100, 28, 56),
-            one_hundred_and_one: (TESTING_THRESHOLD, 26, 62),
-            thousand: (1000, 324, 648),
-            ten_thousand: (10000, 3299, 6655),
+            one: (1, 1, 1),
+            three: (3, 3, 3),
+            four: (4, 2, 3),
+            nine: (9, 5, 7),
+            ten: (10, 4, 7),
+            fifty: (51, 16, 32),
+            one_hundred_and_one: (101, 30, 63),
         ]
     }
     fn test_source_symbols_for_n_shards(n_shards: u16, primary: u16, secondary: u16) {
         let (p, s) = source_symbols_for_n_shards(n_shards.try_into().unwrap());
         assert_eq!(p, primary);
         assert_eq!(s, secondary);
+    }
+
+    param_test! {
+        test_new_for_n_shards: [
+            one: (1, 1, 1),
+            three: (3, 3, 3),
+            four: (4, 2, 3),
+            nine: (9, 5, 7),
+            ten: (10, 4, 7),
+            fifty: (51, 16, 32),
+            one_hundred_and_one: (101, 30, 63),
+        ]
+    }
+    fn test_new_for_n_shards(n_shards: u16, primary: u16, secondary: u16) {
+        let config = EncodingConfig::new_for_n_shards(n_shards.try_into().unwrap());
+        assert_eq!(config.source_symbols_primary.get(), primary);
+        assert_eq!(config.source_symbols_secondary.get(), secondary);
     }
 }
