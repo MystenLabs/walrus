@@ -130,7 +130,7 @@ impl<T: ContractClient> Client<T> {
         let start = Instant::now();
         requests
             .execute_weight(
-                self.committee.min_n_correct_nodes().get() as usize,
+                self.committee.min_n_correct_shards().get() as usize,
                 self.concurrent_requests,
             )
             .await;

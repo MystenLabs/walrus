@@ -127,7 +127,7 @@ pub struct MockContractClient {
 
 impl MockContractClient {
     /// Construct a [`MockContractClient`] with a provided [`MockSuiReadClient`].
-    pub fn new_with_read_client(current_epoch: Epoch, read_client: MockSuiReadClient) -> Self {
+    pub fn new(current_epoch: Epoch, read_client: MockSuiReadClient) -> Self {
         Self {
             read_client,
             current_epoch,
@@ -226,7 +226,7 @@ mod tests {
     #[tokio::test]
     async fn test_register_mock_clients() -> anyhow::Result<()> {
         let read_client = MockSuiReadClient::new_with_blob_ids([], None);
-        let walrus_client = MockContractClient::new_with_read_client(0, read_client);
+        let walrus_client = MockContractClient::new(0, read_client);
 
         // Get event streams for the events
         let polling_duration = std::time::Duration::from_millis(1);

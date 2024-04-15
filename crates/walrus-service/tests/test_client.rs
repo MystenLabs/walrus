@@ -67,7 +67,7 @@ async fn test_store_and_read_blob() {
     let committee = Committee::new(members, 0).unwrap();
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let sui_contract_client = MockContractClient::new_with_read_client(
+    let sui_contract_client = MockContractClient::new(
         0,
         MockSuiReadClient::new_with_blob_ids([blob_id], Some(committee)),
     );

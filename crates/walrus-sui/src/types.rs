@@ -291,20 +291,20 @@ impl Committee {
     }
 
     /// Checks if the number is large enough to reach a quorum (`n_shards - f`) where `f`
-    /// is the maximum number of faulty nodes, given [`n_shards`][Self::n_shards].
+    /// is the maximum number of faulty shards, given [`n_shards`][Self::n_shards].
     #[inline]
     pub fn is_quorum(&self, num: usize) -> bool {
-        num >= self.min_n_correct_nodes().get() as usize
+        num >= self.min_n_correct_shards().get() as usize
     }
 
     /// Returns the minimum number of correct nodes, which is calculated as
-    /// (`n_shards - f`) where `f` is the maximum number of faulty nodes,
+    /// (`n_shards - f`) where `f` is the maximum number of faulty shards,
     /// given [`n_shards`][Self::n_shards]. If `n_shards == 3f+1` for some `f`, this is
     /// exactly `2f+1`, otherwise it will be slightly (<=2) larger.
     #[inline]
-    pub fn min_n_correct_nodes(&self) -> NonZeroU16 {
-        // unwrap safe, because the right side of the subtraction is always strictly smaller
-        NonZeroU16::new(self.total_weight.get() - (self.total_weight.get() - 1) / 3).unwrap()
+    pub fn min_n_correct_shards(&self) -> NonZeroU16 {
+        NonZeroU16::new(self.total_weight.get() - (self.total_weight.get() - 1) / 3)
+            .expect("the right side of the subtraction should always be strictly smaller")
     }
 
     /// Return the shards handed by the specified storage node, based on its index in the committee
