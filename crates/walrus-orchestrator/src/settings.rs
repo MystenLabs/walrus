@@ -39,6 +39,15 @@ impl Default for Repository {
     }
 }
 
+impl Repository {
+    /// Set the commit to 'unknown'. This options is useful when the orchestrator cannot
+    /// be certain of the commit that is running on the instances. This is a failsafe against
+    /// reporting wrong commit values in the measurements.
+    pub fn set_unknown_commit(&mut self) {
+        self.commit = "unknown".into();
+    }
+}
+
 /// The list of supported cloud providers.
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub enum CloudProvider {

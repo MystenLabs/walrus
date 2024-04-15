@@ -37,9 +37,11 @@ pub struct Orchestrator<P> {
     protocol_commands: P,
     /// Handle ssh connections to instances.
     ssh_manager: SshConnectionManager,
-    /// Skip the testbed update.
+    /// Skip the testbed update. Setting this value to true is dangerous and may lead to
+    /// unexpected behavior.
     skip_testbed_update: bool,
-    /// Skip the testbed configuration.
+    /// Skip the testbed configuration. Setting this value to true is dangerous and may
+    /// lead to unexpected behavior.
     skip_testbed_configuration: bool,
 }
 
@@ -66,6 +68,7 @@ impl<P> Orchestrator<P> {
     /// Skip the testbed update.
     pub fn skip_testbed_update(mut self, skip_testbed_update: bool) -> Self {
         display::warn("Skipping testbed update! Use with care!");
+        self.settings.repository.set_unknown_commit();
         self.skip_testbed_update = skip_testbed_update;
         self
     }
