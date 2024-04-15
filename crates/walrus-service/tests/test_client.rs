@@ -52,13 +52,7 @@ async fn test_store_and_read_blob() {
         .await
         .expect("cluster construction must succeed");
 
-    let mut committee = Committee {
-        members: vec![],
-        total_weight: 0,
-        epoch: 0,
-    };
-
-    committee.members = cluster
+    let members = cluster
         .nodes
         .iter()
         .zip(assignment)
@@ -70,13 +64,7 @@ async fn test_store_and_read_blob() {
             shard_ids: shard_ids.iter().map(ShardIndex::from).collect(),
         })
         .collect();
-    committee.total_weight = committee
-        .members
-        .iter()
-        .map(|m| m.shard_ids.len())
-        .sum::<usize>()
-        .try_into()
-        .unwrap();
+    let committee = Committee::new(members, 0).unwrap();
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let sui_contract_client = MockContractClient::new_with_read_client(

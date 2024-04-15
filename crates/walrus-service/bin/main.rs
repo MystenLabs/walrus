@@ -179,7 +179,7 @@ fn main_with_args(args: Args) -> anyhow::Result<()> {
                     let encoding_config = EncodingConfig::new(
                         source_symbols_primary.get(),
                         source_symbols_secondary.get(),
-                        committee.total_weight,
+                        committee.n_shards().get(),
                     );
                     let handled_shards = committee.shards_for_node(storage_node_index);
                     (encoding_config, handled_shards)

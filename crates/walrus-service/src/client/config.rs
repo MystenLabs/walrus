@@ -51,7 +51,7 @@ impl LocalCommitteeConfig {
         EncodingConfig::new(
             self.source_symbols_primary.get(),
             self.source_symbols_secondary.get(),
-            self.committee.total_weight,
+            self.committee.n_shards().get(),
         )
     }
 }

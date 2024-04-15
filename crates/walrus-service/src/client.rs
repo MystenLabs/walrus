@@ -57,11 +57,10 @@ impl<T: ContractClient> Client<T> {
             .timeout(config.connection_timeout)
             .build()?;
         let committee = sui_client.read_client().current_committee().await?;
-        assert!(committee.total_weight != 0);
         let encoding_config = EncodingConfig::new(
             config.source_symbols_primary.get(),
             config.source_symbols_secondary.get(),
-            committee.total_weight,
+            committee.n_shards().get(),
         );
 
         Ok(Self {
@@ -131,7 +130,7 @@ impl<T: ContractClient> Client<T> {
         let start = Instant::now();
         requests
             .execute_weight(
-                self.committee.min_n_correct_nodes(),
+                self.committee.min_n_correct_nodes().get() as usize,
                 self.concurrent_requests,
             )
             .await;
@@ -323,7 +322,7 @@ impl<T: ContractClient> Client<T> {
 
     fn node_communications(&self) -> Vec<NodeCommunication> {
         self.committee
-            .members
+            .members()
             .iter()
             .enumerate()
             .map(|(idx, node)| self.new_node_communication(idx, node))
@@ -332,28 +331,23 @@ impl<T: ContractClient> Client<T> {
 
     /// Maps the sliver pairs to the node that holds their shard.
     fn pairs_per_node(&self, blob_id: &BlobId, pairs: Vec<SliverPair>) -> Vec<Vec<SliverPair>> {
-        let mut pairs_per_node = Vec::with_capacity(self.committee.members.len());
+        let mut pairs_per_node = Vec::with_capacity(self.committee.members().len());
         pairs_per_node.extend(
             self.committee
-                .members
+                .members()
                 .iter()
                 .map(|n| Vec::with_capacity(n.shard_ids.len())),
         );
         let shard_to_node = self
             .committee
-            .members
+            .members()
             .iter()
             .enumerate()
             .flat_map(|(idx, m)| m.shard_ids.iter().map(move |s| (*s, idx)))
             .collect::<HashMap<_, _>>();
         pairs.into_iter().for_each(|p| {
-            pairs_per_node[shard_to_node[&p.index().to_shard_index(
-                self.committee
-                    .total_weight
-                    .try_into()
-                    .expect("checked in constructor"),
-                blob_id,
-            )]]
+            pairs_per_node
+                [shard_to_node[&p.index().to_shard_index(self.committee.n_shards(), blob_id)]]
                 .push(p)
         });
         pairs_per_node

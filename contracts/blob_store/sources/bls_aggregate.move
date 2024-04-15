@@ -36,6 +36,7 @@ module blob_store::bls_aggregate {
             total_weight = total_weight + added_weight;
             i = i + 1;
         };
+        assert!(total_weight != 0, ERROR_INCORRECT_COMMITTEE);
 
         BlsCommittee {
             members,
@@ -46,8 +47,18 @@ module blob_store::bls_aggregate {
     #[test_only]
     /// Test committee
     public fun new_bls_committee_for_testing() : BlsCommittee {
+        // Pk corresponding to secret key scalar(117)
+        let pub_key_bytes = vector[
+            149, 234, 204, 58, 220, 9, 200, 39,
+            89, 63, 88, 30, 142, 45, 224, 104,
+            191, 76, 245, 208, 192, 235, 41, 229,
+            55, 47, 13, 35, 54, 71, 136, 238,
+            15, 155, 235, 17, 44, 138, 126, 156,
+            47, 12, 114, 4, 51, 112, 92, 240,
+        ];
+        let storage_node = storage_node::new_for_testing(pub_key_bytes, 100);
         BlsCommittee {
-            members: vector[],
+            members: vector[storage_node],
             total_weight: 100,
         }
     }

@@ -147,7 +147,7 @@ pub async fn create_system_object(
     // prepare the arguments to create the `StorageNodeInfo`s
     let storage_node_args = system_params
         .committee
-        .members
+        .members()
         .iter()
         .map(|node| {
             Ok(vec![
@@ -275,11 +275,7 @@ pub async fn publish_with_default_system(
             .map(ShardIndex)
             .collect(),
     };
-    let committee = Committee {
-        members: vec![node],
-        epoch: 0,
-        total_weight: 10,
-    };
+    let committee = Committee::new(vec![node], 0)?;
     let system_params = SystemParameters::new_with_sui(committee, DEFAULT_CAPACITY, DEFAULT_PRICE);
 
     // Create system object

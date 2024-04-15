@@ -135,9 +135,9 @@ async fn test_get_system() -> anyhow::Result<()> {
     let committee = walrus_client.read_client.current_committee().await?;
     assert_eq!(system.current_committee, committee);
     assert_eq!(committee.epoch, 0);
-    assert_eq!(committee.total_weight, 10);
-    assert_eq!(committee.members.len(), 1);
-    let storage_node = &committee.members[0];
+    assert_eq!(committee.n_shards().get(), 10);
+    assert_eq!(committee.members().len(), 1);
+    let storage_node = &committee.members()[0];
     assert_eq!(storage_node.name, "Test0");
     assert_eq!(storage_node.network_address.to_string(), "127.0.0.1:8080");
     assert_eq!(

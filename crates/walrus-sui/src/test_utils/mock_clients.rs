@@ -8,6 +8,7 @@ use std::{
     time::Duration,
 };
 
+use anyhow::anyhow;
 use sui_types::{base_types::ObjectID, event::EventID};
 use tokio::sync::broadcast::{self, Sender};
 use tokio_stream::{wrappers::BroadcastStream, Stream, StreamExt};
@@ -34,24 +35,12 @@ use crate::{
 pub struct MockSuiReadClient {
     events: Arc<Mutex<Vec<BlobEvent>>>,
     events_channel: Sender<BlobEvent>,
-    committee: Committee,
-}
-
-impl Default for MockSuiReadClient {
-    fn default() -> Self {
-        // A channel capacity of 1024 should be enough capacity to not feel backpressure for testing
-        let (events_channel, _) = broadcast::channel(1024);
-        Self {
-            events: Arc::default(),
-            events_channel,
-            committee: Committee::default(),
-        }
-    }
+    committee: Option<Committee>,
 }
 
 impl MockSuiReadClient {
     /// Create a new mock client that returns the provided events in the event streams.
-    fn new_with_events(events: Vec<BlobEvent>, committee: Committee) -> Self {
+    pub fn new_with_events(events: Vec<BlobEvent>, committee: Option<Committee>) -> Self {
         // A channel capacity of 1024 should be enough capacity to not feel backpressure for testing
         let (events_channel, _) = broadcast::channel(1024);
         Self {
@@ -76,7 +65,7 @@ impl MockSuiReadClient {
                 ]
             })
             .collect();
-        Self::new_with_events(events, committee.unwrap_or_default())
+        Self::new_with_events(events, committee)
     }
 
     /// Add a `BlobEvent` to the event streams provided by this client.
@@ -113,11 +102,17 @@ impl ReadClient for MockSuiReadClient {
     }
 
     async fn get_system_object(&self) -> SuiClientResult<SystemObject> {
-        Ok(system_object_from_committee(self.committee.to_owned()))
+        Ok(system_object_from_committee(
+            self.current_committee().await?,
+        ))
     }
 
     async fn current_committee(&self) -> SuiClientResult<Committee> {
-        Ok(self.committee.to_owned())
+        Ok(self
+            .committee
+            .as_ref()
+            .ok_or_else(|| anyhow!("no committee set in mock client"))?
+            .to_owned())
     }
 }
 
@@ -131,27 +126,12 @@ pub struct MockContractClient {
 }
 
 impl MockContractClient {
-    /// Constructor for [`MockContractClient`].
-    pub fn new(current_epoch: Epoch) -> Self {
-        let read_client = MockSuiReadClient::default();
-        Self {
-            read_client,
-            current_epoch,
-        }
-    }
-
     /// Construct a [`MockContractClient`] with a provided [`MockSuiReadClient`].
     pub fn new_with_read_client(current_epoch: Epoch, read_client: MockSuiReadClient) -> Self {
         Self {
             read_client,
             current_epoch,
         }
-    }
-}
-
-impl Default for MockContractClient {
-    fn default() -> Self {
-        Self::new(0)
     }
 }
 
@@ -245,7 +225,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_register_mock_clients() -> anyhow::Result<()> {
-        let walrus_client = MockContractClient::default();
+        let read_client = MockSuiReadClient::new_with_blob_ids([], None);
+        let walrus_client = MockContractClient::new_with_read_client(0, read_client);
 
         // Get event streams for the events
         let polling_duration = std::time::Duration::from_millis(1);

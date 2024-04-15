@@ -20,7 +20,7 @@ use serde_json::Value;
 use sui_sdk::rpc_types::{SuiEvent, SuiMoveStruct, SuiMoveValue};
 use sui_types::{base_types::ObjectID, event::EventID};
 use thiserror::Error;
-use walrus_core::{BlobId, EncodingType, Epoch, PublicKey, ShardIndex};
+use walrus_core::{ensure, BlobId, EncodingType, Epoch, PublicKey, ShardIndex};
 
 use crate::{
     contracts::{self, AssociatedContractStruct, AssociatedSuiEvent, StructTag},
@@ -263,31 +263,48 @@ impl AssociatedContractStruct for StorageNode {
 }
 
 /// Sui type for storage committee
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Committee {
     /// The members of the committee
-    pub members: Vec<StorageNode>,
+    members: Vec<StorageNode>,
     /// The current epoch
     pub epoch: Epoch,
     /// The total weight of the committee (number of shards)
-    pub total_weight: u16,
+    total_weight: NonZeroU16,
 }
 
 impl Committee {
-    /// Checks if the number is large enough to reach a quorum (`total_weight - f`) where `f`
-    /// is the maximum number of faulty nodes, given `total_weight`.
-    #[inline]
-    pub fn is_quorum(&self, num: usize) -> bool {
-        num >= self.min_n_correct_nodes()
+    /// Create a new committee for `epoch` consisting of `members`. `members` must contain at
+    /// least one storage node holding at least one shard.
+    pub fn new(members: Vec<StorageNode>, epoch: Epoch) -> Result<Self, InvalidCommittee> {
+        let total_weight = members
+            .iter()
+            .fold(0, |acc, node| node.shard_ids.len() + acc);
+        let total_weight =
+            u16::try_from(total_weight).map_err(|_| InvalidCommittee::TooManyShards)?;
+        let total_weight = NonZeroU16::new(total_weight).ok_or(InvalidCommittee::EmptyCommittee)?;
+        Ok(Self {
+            members,
+            epoch,
+            total_weight,
+        })
     }
 
-    /// Returns the quorum threshold, which is calculated as `total_weight - f` where `f`
-    /// is the maximum number of faulty nodes, given `total_weight`. If `total_weight == 3f+1`
-    /// for some `f`, this is exactly `2f+1`, otherwise it will be slightly (<=2) larger.
+    /// Checks if the number is large enough to reach a quorum (`n_shards - f`) where `f`
+    /// is the maximum number of faulty nodes, given [`n_shards`][Self::n_shards].
     #[inline]
-    pub fn min_n_correct_nodes(&self) -> usize {
-        let total_weight = self.total_weight as usize;
-        total_weight - (total_weight - 1) / 3
+    pub fn is_quorum(&self, num: usize) -> bool {
+        num >= self.min_n_correct_nodes().get() as usize
+    }
+
+    /// Returns the minimum number of correct nodes, which is calculated as
+    /// (`n_shards - f`) where `f` is the maximum number of faulty nodes,
+    /// given [`n_shards`][Self::n_shards]. If `n_shards == 3f+1` for some `f`, this is
+    /// exactly `2f+1`, otherwise it will be slightly (<=2) larger.
+    #[inline]
+    pub fn min_n_correct_nodes(&self) -> NonZeroU16 {
+        // unwrap safe, because the right side of the subtraction is always strictly smaller
+        NonZeroU16::new(self.total_weight.get() - (self.total_weight.get() - 1) / 3).unwrap()
     }
 
     /// Return the shards handed by the specified storage node, based on its index in the committee
@@ -300,16 +317,13 @@ impl Committee {
     }
 
     /// Return the total number of shards in the committee.
-    /// Panic if the committee has no shards.
     pub fn n_shards(&self) -> NonZeroU16 {
-        let shards = self
-            .members
-            .iter()
-            .map(|node| node.shard_ids.len())
-            .sum::<usize>()
-            .try_into()
-            .expect("should fit into a `u16`");
-        NonZeroU16::new(shards).expect("committee to have at least 1 shard")
+        self.total_weight
+    }
+
+    /// Returns the members of the committee
+    pub fn members(&self) -> &[StorageNode] {
+        &self.members
     }
 }
 
@@ -325,14 +339,15 @@ impl TryFrom<&SuiMoveStruct> for Committee {
             "members",
             SuiMoveValue::Vector
         )?)?;
-        let total_weight =
+        let committee = Self::new(members, epoch)?;
+        let total_weight: u16 =
             get_dynamic_field!(bls_committee_struct, "total_weight", SuiMoveValue::Number)?
                 .try_into()?;
-        Ok(Self {
-            members,
-            epoch,
-            total_weight,
-        })
+        ensure!(
+            committee.total_weight.get() == total_weight,
+            "struct total_weight does not correspond to actual total weight"
+        );
+        Ok(committee)
     }
 }
 
@@ -352,6 +367,17 @@ impl AssociatedContractStruct for Committee {
 #[derive(Debug, Error, PartialEq, Eq)]
 #[error("the provided value is not a valid EpochStatus")]
 pub struct InvalidEpochStatus;
+
+/// Error returned when trying to create a committee with a zero total weight.
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum InvalidCommittee {
+    #[error("too many shards for a valid committee")]
+    /// Error resulting if the total number of shards in the committee exceeds u16::MAX.
+    TooManyShards,
+    #[error("trying to create an empty committee")]
+    /// Error resulting if the committee contains no shards.
+    EmptyCommittee,
+}
 
 /// The status of the epoch
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
