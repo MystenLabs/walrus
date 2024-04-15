@@ -29,11 +29,11 @@ use crate::{merkle::DIGEST_LEN, BlobId};
 /// are received is greater than `(1 / 256)^(H + 1)`. Therefore, e.g, the probability of
 /// reconstruction after receiving f+1 primary slivers is at least:
 /// `(1 / 256)^(DECODING_SAFETY_LIMIT + 2)`.
-const DECODING_SAFETY_LIMIT: u16 = 5;
+pub const DECODING_SAFETY_LIMIT: u16 = 5;
 /// Below this threshold `n_shards`, the computed number of source symbols, based on the number of
 /// shards, may require padding. In other words, the computation does not provide number of source
 /// symbols that are without padding.
-const TESTING_THRESHOLD: u16 = 101;
+pub const TESTING_THRESHOLD: u16 = 101;
 
 /// Computes the maximum number of source symbols, below the provided target, that do not require
 /// padding in the RaptorQ standard.
@@ -180,13 +180,13 @@ impl EncodingConfig {
     /// symbols for the given number of shards.
     ///
     /// The decoding probability is given by the [`DECODING_SAFETY_LIMIT`]. See the documentation of
-    /// [`DECODING_SAFETY_LIMIT`] and [`Self::source_symbols_for_n_shards`] for more details.
+    /// [`DECODING_SAFETY_LIMIT`] and [`source_symbols_for_n_shards`] for more details.
     ///
     /// # Panics
     ///
     /// Panics if `n_shards / 3 <= DECODING_SAFETY_LIMIT`.
     #[allow(dead_code)]
-    pub(crate) fn new_for_n_shards(n_shards: NonZeroU16) -> Self {
+    pub fn new_for_n_shards(n_shards: NonZeroU16) -> Self {
         let (primary, secondary) = source_symbols_for_n_shards(n_shards.get());
         Self::new(primary, secondary, n_shards.get())
     }

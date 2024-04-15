@@ -13,7 +13,12 @@ mod common;
 pub use common::{EncodingAxis, Primary, Secondary, MAX_SOURCE_SYMBOLS_PER_BLOCK, MAX_SYMBOL_SIZE};
 
 mod config;
-pub use config::EncodingConfig;
+pub use config::{
+    source_symbols_for_n_shards,
+    EncodingConfig,
+    DECODING_SAFETY_LIMIT,
+    TESTING_THRESHOLD,
+};
 
 mod errors;
 pub use errors::{
