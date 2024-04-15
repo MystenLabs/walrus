@@ -86,7 +86,7 @@ impl<T: ContractClient> Client<T> {
                         "computed blob pairs and metadata");
 
         // Get the root hash of the blob.
-        let root_hash = metadata.metadata().get_root_hash();
+        let root_hash = metadata.metadata().compute_root_hash();
 
         let storage_resource = self
             .sui_client

@@ -172,7 +172,7 @@ impl BlobMetadata {
     }
 
     /// Returns the root hash of the Merkle tree over the sliver pairs.
-    pub fn get_root_hash(&self) -> MerkleNode {
+    pub fn compute_root_hash(&self) -> MerkleNode {
         MerkleTree::<Blake2b256>::build(
             self
                 .hashes

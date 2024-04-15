@@ -5,7 +5,7 @@ use anyhow::bail;
 use fastcrypto::traits::ToFromBytes;
 use test_cluster::TestClusterBuilder;
 use tokio_stream::StreamExt;
-use walrus_core::{BlobId, EncodingType, ShardIndex};
+use walrus_core::{merkle::Node, BlobId, EncodingType, ShardIndex};
 use walrus_sui::{
     client::{ContractClient, ReadClient, SuiContractClient},
     test_utils::{get_default_blob_certificate, system_setup::publish_with_default_system},
@@ -35,14 +35,18 @@ async fn test_register_blob() -> anyhow::Result<()> {
     assert_eq!(storage_resource.end_epoch, 3);
     assert_eq!(storage_resource.storage_size, size);
     #[rustfmt::skip]
-    let blob_id = BlobId([
+    let root_hash = [
         1, 2, 3, 4, 5, 6, 7, 8,
         1, 2, 3, 4, 5, 6, 7, 8,
         1, 2, 3, 4, 5, 6, 7, 8,
         1, 2, 3, 4, 5, 6, 7, 8,
-    ]);
+    ];
+
+    let blob_id = BlobId::from_metadata(
+        Node::from(root_hash), EncodingType::RedStuff, size);
+
     let blob_obj = walrus_client
-        .register_blob(&storage_resource, blob_id, [0; 32], size, EncodingType::RedStuff)
+        .register_blob(&storage_resource, blob_id, root_hash, size, EncodingType::RedStuff)
         .await?;
     assert_eq!(blob_obj.blob_id, blob_id);
     assert_eq!(blob_obj.encoded_size, size);
@@ -88,14 +92,17 @@ async fn test_register_blob() -> anyhow::Result<()> {
     // we receive the event
     let storage_resource = walrus_client.reserve_space(size, 3).await?;
     #[rustfmt::skip]
-    let blob_id = BlobId([
+    let root_hash = [
         1, 2, 3, 4, 5, 6, 7, 0,
         1, 2, 3, 4, 5, 6, 7, 0,
         1, 2, 3, 4, 5, 6, 7, 0,
         1, 2, 3, 4, 5, 6, 7, 0,
-    ]);
+    ];
+    let blob_id = BlobId::from_metadata(
+        Node::from(root_hash), EncodingType::RedStuff, size);
+
     let blob_obj = walrus_client
-        .register_blob(&storage_resource, blob_id, [0; 32], size, EncodingType::RedStuff)
+        .register_blob(&storage_resource, blob_id, root_hash, size, EncodingType::RedStuff)
         .await?;
 
     // Make sure that we got the expected event

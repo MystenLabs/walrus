@@ -76,7 +76,7 @@ impl BlobId {
     /// Computes the Merkle root over the [`SliverPairMetadata`][metadata::SliverPairMetadata],
     /// contained in the `blob_metadata` and then computes the blob ID.
     pub fn from_sliver_pair_metadata(blob_metadata: &BlobMetadata) -> Self {
-        let merkle_root = blob_metadata.get_root_hash();
+        let merkle_root = blob_metadata.compute_root_hash();
         Self::from_metadata(
             merkle_root,
             blob_metadata.encoding_type,
