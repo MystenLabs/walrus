@@ -14,9 +14,9 @@ pub use common::{EncodingAxis, Primary, Secondary, MAX_SOURCE_SYMBOLS_PER_BLOCK,
 
 mod config;
 pub use config::{
+    decoding_safety_limit,
     source_symbols_for_n_shards,
     EncodingConfig,
-    DECODING_SAFETY_LIMIT,
     TESTING_THRESHOLD,
 };
 
