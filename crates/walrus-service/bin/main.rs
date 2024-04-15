@@ -4,7 +4,7 @@
 
 use std::{
     fs,
-    io,
+    io::{self, Write},
     net::SocketAddr,
     num::NonZeroU16,
     path::{Path, PathBuf},
@@ -24,7 +24,7 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 use typed_store::rocks::MetricConf;
-use walrus_core::{encoding::EncodingConfig, ShardIndex};
+use walrus_core::{encoding::EncodingConfig, ProtocolKeyPair, ShardIndex};
 use walrus_service::{
     client,
     config::{LoadConfig, StorageNodeConfig},
@@ -94,9 +94,12 @@ enum Commands {
         #[clap(long, default_value = "4")]
         n_symbols_secondary: NonZeroU16,
     },
-    /// Generate a new key pair.
+
+    /// Generates a new key for use with the Walrus protocol, and writes it to a file.
     KeyGen {
-        /// Path to the directory where the key pair will be saved.
+        /// Path to the file at which the key will be created. If the file already exists, it is
+        /// not overwrriten and the operation will fail.
+        #[clap(default_value = "protocol.key")]
         out: PathBuf,
     },
 }
@@ -142,6 +145,11 @@ enum CommitteeConfig {
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+
+    main_with_args(args)
+}
+
+fn main_with_args(args: Args) -> anyhow::Result<()> {
     match args.command {
         Commands::Run {
             config_path,
@@ -220,9 +228,14 @@ fn main() -> anyhow::Result<()> {
                 n_symbols_secondary,
             )?;
         }
-        Commands::KeyGen { out: _out } => {
-            // TODO(jsmith): Add a CLI endpoint to generate a new private key file (#148)
-            todo!();
+        Commands::KeyGen { out } => {
+            let mut file = std::fs::OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(out.as_path())
+                .with_context(|| format!("Cannot create a the keyfile '{}'", out.display()))?;
+
+            file.write_all(ProtocolKeyPair::generate().to_base64().as_bytes())?;
         }
     }
     Ok(())
@@ -485,5 +498,63 @@ async fn wait_until_terminated(mut exit_listener: oneshot::Receiver<()>) {
             Err(_) => tracing::info!("exit notification sender was dropped"),
             Ok(_) => tracing::info!("exit notification received"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tempfile::TempDir;
+    use walrus_test_utils::Result;
+
+    use super::*;
+
+    #[test]
+    fn generate_key_pair_saves_base64_key_to_file() -> Result<()> {
+        let dir = TempDir::new()?;
+        let filename = dir.path().join("keyfile.key");
+
+        let args = Args {
+            command: Commands::KeyGen {
+                out: filename.clone(),
+            },
+        };
+
+        main_with_args(args)?;
+
+        let file_content = std::fs::read_to_string(filename)
+            .expect("a file should have been created with the key");
+
+        assert_eq!(
+            file_content.len(),
+            44,
+            "33-byte key should be 44 characters in base64"
+        );
+
+        let _: ProtocolKeyPair = file_content
+            .parse()
+            .expect("a protocol keypair must be parseable from the the file's contents");
+
+        Ok(())
+    }
+
+    #[test]
+    fn generate_key_pair_does_not_overwrite_files() -> Result<()> {
+        let dir = TempDir::new()?;
+        let filename = dir.path().join("keyfile.key");
+
+        std::fs::write(filename.as_path(), "original-file-contents".as_bytes())?;
+
+        let args = Args {
+            command: Commands::KeyGen {
+                out: filename.clone(),
+            },
+        };
+
+        main_with_args(args).expect_err("must fail as the file already exists");
+
+        let file_content = std::fs::read_to_string(filename).expect("the file should still exist");
+        assert_eq!(file_content, "original-file-contents");
+
+        Ok(())
     }
 }

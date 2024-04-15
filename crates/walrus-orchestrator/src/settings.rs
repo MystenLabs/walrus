@@ -187,7 +187,6 @@ impl Settings {
             .path_segments()
             .expect("Url should already be checked when loading settings")
             .collect::<Vec<_>>()[1]
-            .to_string()
             .split('.')
             .next()
             .unwrap()
