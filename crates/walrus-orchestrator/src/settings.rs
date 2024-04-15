@@ -16,6 +16,7 @@ use serde_with::{serde_as, DisplayFromStr, DurationSeconds};
 use crate::{
     client::Instance,
     error::{SettingsError, SettingsResult},
+    faults::FaultsType,
 };
 
 /// The git repository holding the codebase.
@@ -73,6 +74,19 @@ pub struct Settings {
     pub specs: String,
     /// The details of the git reposit to deploy.
     pub repository: Repository,
+    /// The path to the node's configuration file. If not specified, the orchestrator uses the
+    /// default configurations.
+    pub node_parameters_path: Option<String>,
+    /// The path to the client's configuration file. If not specified, the orchestrator uses the
+    /// default configurations.
+    pub client_parameters_path: Option<String>,
+    /// The duration of the benchmark.
+    #[serde(default = "defaults::default_benchmark_duration")]
+    #[serde_as(as = "DurationSeconds")]
+    pub benchmark_duration: Duration,
+    /// The default faults type to apply to the testbed's nodes.
+    #[serde(default = "defaults::default_faults_type")]
+    pub faults: FaultsType,
     /// The working directory on the remote instance (containing all configuration files).
     #[serde(default = "defaults::default_working_dir")]
     pub working_dir: PathBuf,
@@ -99,10 +113,27 @@ pub struct Settings {
     /// Whether to start a grafana and prometheus instance on a dedicate machine.
     #[serde(default = "defaults::default_monitoring")]
     pub monitoring: bool,
+    /// The timeout duration for ssh commands (in seconds).
+    #[serde(default = "defaults::default_ssh_timeout")]
+    #[serde_as(as = "DurationSeconds")]
+    pub ssh_timeout: Duration,
+    /// The number of times the orchestrator should retry an ssh command.
+    #[serde(default = "defaults::default_ssh_retries")]
+    pub ssh_retries: usize,
 }
 
 mod defaults {
     use std::{path::PathBuf, time::Duration};
+
+    use crate::faults::FaultsType;
+
+    pub fn default_benchmark_duration() -> Duration {
+        Duration::from_secs(300)
+    }
+
+    pub fn default_faults_type() -> FaultsType {
+        FaultsType::default()
+    }
 
     pub fn default_working_dir() -> PathBuf {
         "~/working_dir".into()
@@ -134,6 +165,14 @@ mod defaults {
 
     pub fn default_monitoring() -> bool {
         true
+    }
+
+    pub fn default_ssh_timeout() -> Duration {
+        Duration::from_secs(30)
+    }
+
+    pub fn default_ssh_retries() -> usize {
+        3
     }
 }
 
@@ -180,7 +219,6 @@ impl Settings {
     }
 
     /// Get the name of the repository (from its url).
-    #[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
     pub fn repository_name(&self) -> String {
         self.repository
             .url

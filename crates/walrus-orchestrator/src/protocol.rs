@@ -3,23 +3,31 @@
 
 use std::{
     fmt::{Debug, Display},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
+use eyre::Context;
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{benchmark::BenchmarkParameters, client::Instance};
 
 pub mod target;
 
-#[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222)
+#[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#234)
 pub const CARGO_FLAGS: &str = "--release";
-#[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222)
+#[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#234)
 pub const RUST_FLAGS: &str = "RUSTFLAGS=-C\\ target-cpu=native";
 
 pub trait ProtocolParameters:
     Default + Clone + Serialize + DeserializeOwned + Debug + Display
 {
+    /// Load the configuration from a YAML file located at the provided path.
+    fn load<P: AsRef<Path>>(path: P) -> Result<Self, eyre::Error> {
+        let path = path.as_ref();
+        let error_message = format!("Unable to load config from {}", path.display());
+        let reader = std::fs::File::open(path).wrap_err(error_message)?;
+        Ok(serde_yaml::from_reader(reader)?)
+    }
 }
 
 /// The minimum interface that the protocol should implement to allow benchmarks from

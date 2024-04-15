@@ -25,6 +25,7 @@ ssh2 = "0.9.4"
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 walrus-core = { workspace = true }
+prometheus-parse = { git = "https://github.com/asonnino/prometheus-parser.git", rev = "75334db" }
 
 [dev-dependencies]
 tempfile = { workspace = true }

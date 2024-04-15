@@ -10,10 +10,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::client::Instance;
 
-/// The default interval to crash nodes.
-#[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222)
-pub const DEFAULT_CRASH_INTERVAL: Duration = Duration::from_secs(60);
-
 #[derive(Clone, Serialize, Deserialize, Hash, PartialEq, Eq)]
 pub enum FaultsType {
     /// Permanently crash the maximum number of nodes from the beginning.
@@ -61,6 +57,17 @@ impl Display for FaultsType {
     }
 }
 
+impl FaultsType {
+    /// The interval between crashes. If the type is `Permanent`, the interval is 1s
+    /// to crash the nodes as fast as possible.
+    pub fn crash_interval(&self) -> Duration {
+        match self {
+            Self::Permanent { .. } => Duration::from_secs(1),
+            Self::CrashRecovery { interval, .. } => *interval,
+        }
+    }
+}
+
 /// The actions to apply to the testbed, i.e., which instances to crash and recover.
 #[derive(Default)]
 pub struct CrashRecoveryAction {
@@ -85,7 +92,6 @@ impl Display for CrashRecoveryAction {
     }
 }
 
-#[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
 impl CrashRecoveryAction {
     pub fn boot(instances: impl Iterator<Item = Instance>) -> Self {
         Self {
@@ -106,7 +112,6 @@ impl CrashRecoveryAction {
     }
 }
 
-#[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
 pub struct CrashRecoverySchedule {
     /// The number of faulty nodes and the crash-recovery pattern to follow.
     faults_type: FaultsType,
@@ -116,7 +121,6 @@ pub struct CrashRecoverySchedule {
     dead: usize,
 }
 
-#[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
 impl CrashRecoverySchedule {
     pub fn new(faults_type: FaultsType, instances: Vec<Instance>) -> Self {
         Self {

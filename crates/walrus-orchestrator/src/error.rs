@@ -58,7 +58,6 @@ pub enum SshError {
     },
 }
 
-#[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
 pub type MonitorResult<T> = Result<T, MonitorError>;
 
 #[derive(thiserror::Error, Debug)]
@@ -67,7 +66,6 @@ pub enum MonitorError {
     SshError(#[from] SshError),
 
     #[error("Failed to start Grafana: {0}")]
-    #[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
     GrafanaError(String),
 }
 
@@ -85,7 +83,6 @@ pub enum TestbedError {
     SshError(#[from] SshError),
 
     #[error("Not enough instances: missing {0} instances")]
-    #[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
     InsufficientCapacity(usize),
 
     #[error(transparent)]

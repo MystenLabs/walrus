@@ -3,11 +3,20 @@
 
 //! Orchestrator entry point.
 
+use std::path::PathBuf;
+
+use benchmark::BenchmarkParameters;
 use clap::Parser;
 use client::{aws::AwsClient, vultr::VultrClient, ServerProviderClient};
 use eyre::Context;
-use protocol::target::{ProtocolClientParameters, ProtocolNodeParameters, TargetProtocol};
+use measurements::MeasurementsCollection;
+use orchestrator::Orchestrator;
+use protocol::{
+    target::{ProtocolClientParameters, ProtocolNodeParameters, TargetProtocol},
+    ProtocolParameters,
+};
 use settings::{CloudProvider, Settings};
+use ssh::SshConnectionManager;
 use testbed::Testbed;
 
 mod benchmark;
@@ -15,6 +24,8 @@ mod client;
 mod display;
 mod error;
 mod faults;
+mod logs;
+mod measurements;
 mod monitor;
 mod orchestrator;
 mod protocol;
@@ -23,7 +34,6 @@ mod ssh;
 mod testbed;
 
 /// NOTE: Link these types to the correct protocol.
-#[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
 type Protocol = TargetProtocol;
 type NodeParameters = ProtocolNodeParameters;
 type ClientParameters = ProtocolClientParameters;
@@ -59,7 +69,33 @@ pub enum Operation {
         action: TestbedAction,
     },
     /// Deploy nodes and run a benchmark on the specified testbed.
-    Benchmark,
+    Benchmark {
+        /// The committee size to deploy.
+        #[clap(long, value_name = "INT", global = true)]
+        committee: usize,
+
+        /// The set of loads to submit to the system (tx/s).
+        #[clap(long, value_name = "[INT]", default_value = "200", global = true)]
+        loads: Vec<usize>,
+
+        /// Whether to skip testbed updates before running benchmarks. This is a dangerous
+        /// operation as it may lead to running benchmarks on outdated nodes. It is however
+        /// useful when debugging in some specific scenarios.
+        #[clap(long, action, default_value_t = false, global = true)]
+        skip_testbed_update: bool,
+
+        /// Whether to skip testbed configuration before running benchmarks. This is a dangerous
+        /// operation as it may lead to running benchmarks on misconfigured nodes. It is however
+        /// useful when debugging in some specific scenarios.
+        #[clap(long, action, default_value_t = false, global = true)]
+        skip_testbed_configuration: bool,
+    },
+    /// Print a summary of the specified measurements collection.
+    Summarize {
+        /// The path to the settings file.
+        #[clap(long, value_name = "FILE")]
+        path: PathBuf,
+    },
 }
 
 /// The action to perform on the testbed.
@@ -163,9 +199,64 @@ async fn run<C: ServerProviderClient>(
         },
 
         // Run benchmarks.
-        Operation::Benchmark => {
-            todo!("Alberto: Implement the benchmark operation. (#222)")
+        Operation::Benchmark {
+            committee,
+            loads,
+            skip_testbed_update,
+            skip_testbed_configuration,
+        } => {
+            // Create a new orchestrator to instruct the testbed.
+            let username = testbed.username();
+            let private_key_file = settings.ssh_private_key_file.clone();
+            let ssh_manager = SshConnectionManager::new(username.into(), private_key_file)
+                .with_timeout(settings.ssh_timeout)
+                .with_retries(settings.ssh_retries);
+
+            let instances = testbed.instances();
+
+            let setup_commands = testbed
+                .setup_commands()
+                .await
+                .wrap_err("Failed to load testbed setup commands")?;
+
+            let protocol_commands = Protocol {};
+            let node_parameters = match &settings.node_parameters_path {
+                Some(path) => {
+                    NodeParameters::load(path).wrap_err("Failed to load node's parameters")?
+                }
+                None => NodeParameters::default(),
+            };
+            let client_parameters = match &settings.client_parameters_path {
+                Some(path) => {
+                    ClientParameters::load(path).wrap_err("Failed to load client's parameters")?
+                }
+                None => ClientParameters::default(),
+            };
+
+            let set_of_benchmark_parameters = BenchmarkParameters::new_from_loads(
+                settings.clone(),
+                node_parameters,
+                client_parameters,
+                committee,
+                loads,
+            );
+
+            Orchestrator::new(
+                settings,
+                instances,
+                setup_commands,
+                protocol_commands,
+                ssh_manager,
+            )
+            .skip_testbed_update(skip_testbed_update)
+            .skip_testbed_configuration(skip_testbed_configuration)
+            .run_benchmarks(set_of_benchmark_parameters)
+            .await
+            .wrap_err("Failed to run benchmarks")?;
         }
+
+        // Print a summary of the specified measurements collection.
+        Operation::Summarize { path } => MeasurementsCollection::load(path)?.display_summary(),
     }
     Ok(())
 }

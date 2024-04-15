@@ -1,20 +1,11 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{
-    fmt::{Debug, Display},
-    time::Duration,
-};
+use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    faults::FaultsType,
-    protocol::ProtocolParameters,
-    settings::Settings,
-    ClientParameters,
-    NodeParameters,
-};
+use crate::{protocol::ProtocolParameters, settings::Settings, ClientParameters, NodeParameters};
 
 /// Shortcut avoiding to use the generic version of the benchmark parameters.
 pub type BenchmarkParameters = BenchmarkParametersGeneric<NodeParameters, ClientParameters>;
@@ -31,12 +22,8 @@ pub struct BenchmarkParametersGeneric<N, C> {
     pub client_parameters: C,
     /// The committee size.
     pub nodes: usize,
-    /// The number of (crash-)faults.
-    pub faults: FaultsType,
     /// The total load (tx/s) to submit to the system.
     pub load: usize,
-    /// The duration of the benchmark.
-    pub duration: Duration,
 }
 
 impl<N: Debug, C> Debug for BenchmarkParametersGeneric<N, C> {
@@ -44,7 +31,7 @@ impl<N: Debug, C> Debug for BenchmarkParametersGeneric<N, C> {
         write!(
             f,
             "{:?}-{:?}-{}-{}",
-            self.node_parameters, self.faults, self.nodes, self.load
+            self.node_parameters, self.settings.faults, self.nodes, self.load
         )
     }
 }
@@ -54,22 +41,19 @@ impl<N, C> Display for BenchmarkParametersGeneric<N, C> {
         write!(
             f,
             "{} nodes ({}) - {} tx/s",
-            self.nodes, self.faults, self.load
+            self.nodes, self.settings.faults, self.load
         )
     }
 }
 
 impl<N: ProtocolParameters, C: ProtocolParameters> BenchmarkParametersGeneric<N, C> {
     /// Make a new benchmark parameters.
-    #[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
     pub fn new_from_loads(
         settings: Settings,
         node_parameters: N,
         client_parameters: C,
         nodes: usize,
-        faults: FaultsType,
         loads: Vec<usize>,
-        duration: Duration,
     ) -> Vec<Self> {
         loads
             .into_iter()
@@ -78,24 +62,19 @@ impl<N: ProtocolParameters, C: ProtocolParameters> BenchmarkParametersGeneric<N,
                 node_parameters: node_parameters.clone(),
                 client_parameters: client_parameters.clone(),
                 nodes,
-                faults: faults.clone(),
                 load,
-                duration,
             })
             .collect()
     }
 
     #[cfg(test)]
-    #[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
     pub fn new_for_tests() -> Self {
         Self {
             settings: Settings::new_for_test(),
             node_parameters: N::default(),
             client_parameters: C::default(),
             nodes: 4,
-            faults: FaultsType::default(),
             load: 500,
-            duration: Duration::from_secs(60),
         }
     }
 }

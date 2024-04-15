@@ -41,13 +41,11 @@ impl<C: ServerProviderClient> Testbed<C> {
     }
 
     /// Return the username to connect to the instances through ssh.
-    #[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
     pub fn username(&self) -> &'static str {
         C::USERNAME
     }
 
     /// Return the list of instances of the testbed.
-    #[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
     pub fn instances(&self) -> Vec<Instance> {
         self.instances
             .iter()
@@ -57,7 +55,6 @@ impl<C: ServerProviderClient> Testbed<C> {
     }
 
     /// Return the list of provider-specific instance setup commands.
-    #[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
     pub async fn setup_commands(&self) -> TestbedResult<Vec<String>> {
         self.client
             .instance_setup_commands()

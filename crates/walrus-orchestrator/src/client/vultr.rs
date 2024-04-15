@@ -132,25 +132,6 @@ impl VultrClient {
             .into_iter()
             .find(|x| x.name == self.settings.testbed_id))
     }
-
-    /// Delete all copies of the public key.
-    #[allow(dead_code)]
-    pub async fn remove_key(&self) -> CloudProviderResult<()> {
-        while let Some(key) = self.get_key().await? {
-            let url = self.base_url.join(&format!("ssh-keys/{}", key.id)).unwrap();
-
-            let response = self
-                .client
-                .delete(url)
-                .bearer_auth(&self.token)
-                .send()
-                .await?;
-
-            let json: Value = response.json().await?;
-            Self::check_response(&json)?;
-        }
-        Ok(())
-    }
 }
 
 impl ServerProviderClient for VultrClient {

@@ -10,7 +10,6 @@ use crate::{
     ssh::{CommandContext, SshConnectionManager},
 };
 
-#[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
 pub struct Monitor {
     instance: Instance,
     clients: Vec<Instance>,
@@ -19,7 +18,6 @@ pub struct Monitor {
     dedicated_clients: bool,
 }
 
-#[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
 impl Monitor {
     /// Create a new monitor.
     pub fn new(

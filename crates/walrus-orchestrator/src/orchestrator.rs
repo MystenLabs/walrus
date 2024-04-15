@@ -1,8 +1,13 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::{HashMap, VecDeque};
+use std::{
+    collections::{HashMap, VecDeque},
+    fs,
+    path::PathBuf,
+};
 
+use tokio::time::{self, Instant};
 use walrus_core::ensure;
 
 use crate::{
@@ -10,6 +15,9 @@ use crate::{
     client::Instance,
     display,
     error::{TestbedError, TestbedResult},
+    faults::CrashRecoverySchedule,
+    logs::LogsAnalyzer,
+    measurements::{Measurement, MeasurementsCollection},
     monitor::Monitor,
     protocol::{ProtocolCommands, ProtocolMetrics},
     settings::Settings,
@@ -17,7 +25,6 @@ use crate::{
 };
 
 /// An orchestrator to deploy nodes and run benchmarks on a testbed.
-#[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222)
 pub struct Orchestrator<P> {
     /// The testbed's settings.
     settings: Settings,
@@ -30,9 +37,12 @@ pub struct Orchestrator<P> {
     protocol_commands: P,
     /// Handle ssh connections to instances.
     ssh_manager: SshConnectionManager,
+    /// Skip the testbed update.
+    skip_testbed_update: bool,
+    /// Skip the testbed configuration.
+    skip_testbed_configuration: bool,
 }
 
-#[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222)
 impl<P> Orchestrator<P> {
     /// Make a new orchestrator.
     pub fn new(
@@ -48,7 +58,23 @@ impl<P> Orchestrator<P> {
             instance_setup_commands,
             protocol_commands,
             ssh_manager,
+            skip_testbed_update: false,
+            skip_testbed_configuration: false,
         }
+    }
+
+    /// Skip the testbed update.
+    pub fn skip_testbed_update(mut self, skip_testbed_update: bool) -> Self {
+        display::warn("Skipping testbed update! Use with care!");
+        self.skip_testbed_update = skip_testbed_update;
+        self
+    }
+
+    /// Skip the testbed configuration.
+    pub fn skip_testbed_configuration(mut self, skip_testbed_configuration: bool) -> Self {
+        display::warn("Skipping testbed configuration! Use with care!");
+        self.skip_testbed_configuration = skip_testbed_configuration;
+        self
     }
 
     /// Returns the instances of the testbed on which to run the benchmarks.
@@ -126,7 +152,6 @@ impl<P> Orchestrator<P> {
     }
 }
 
-#[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222)
 impl<P: ProtocolCommands + ProtocolMetrics> Orchestrator<P> {
     /// Install the codebase and its dependencies on the testbed.
     pub async fn install(&self) -> TestbedResult<()> {
@@ -359,6 +384,215 @@ impl<P: ProtocolCommands + ProtocolMetrics> Orchestrator<P> {
         self.ssh_manager.wait_for_success(commands).await;
 
         display::done();
+        Ok(())
+    }
+
+    /// Collect metrics from the load generators.
+    pub async fn run(
+        &self,
+        parameters: &BenchmarkParameters,
+    ) -> TestbedResult<MeasurementsCollection> {
+        display::action(format!(
+            "Scraping metrics (at least {}s)",
+            self.settings.benchmark_duration.as_secs()
+        ));
+
+        // Select the instances to run.
+        let (clients, nodes, _) = self.select_instances(parameters)?;
+        let mut killed_nodes: Vec<Instance> = Vec::new();
+
+        // Regularly scrape the client metrics.
+        let metrics_commands = self.protocol_commands.clients_metrics_command(clients);
+
+        let mut aggregator = MeasurementsCollection::new(parameters.clone());
+        let mut metrics_interval = time::interval(self.settings.scrape_interval);
+        metrics_interval.tick().await; // The first tick returns immediately.
+
+        let faults_type = parameters.settings.faults.clone();
+        let mut faults_schedule = CrashRecoverySchedule::new(faults_type, nodes.clone());
+        let mut faults_interval = time::interval(self.settings.faults.crash_interval());
+        faults_interval.tick().await; // The first tick returns immediately.
+
+        let start = Instant::now();
+        loop {
+            tokio::select! {
+                // Scrape metrics.
+                now = metrics_interval.tick() => {
+                    let elapsed = now.duration_since(start).as_secs_f64().ceil() as u64;
+                    display::status(format!("{elapsed}s"));
+
+                    let mut instances = metrics_commands.clone();
+                    instances.retain(|(instance, _)| !killed_nodes.contains(instance));
+
+                    let stdio = self
+                        .ssh_manager
+                        .execute_per_instance(instances, CommandContext::default())
+                        .await?;
+                    for (i, (stdout, _stderr)) in stdio.iter().enumerate() {
+                        for (label, measurement) in Measurement::from_prometheus::<P>(stdout) {
+                            aggregator.add(i, label,measurement);
+                        }
+                    }
+
+                    let results_directory = &self.settings.results_dir;
+                    let commit = &self.settings.repository.commit;
+                    let path: PathBuf = results_directory.join(&format!("results-{commit}"));
+                    fs::create_dir_all(&path).expect("Failed to create log directory");
+                    aggregator.save(path);
+
+                    if elapsed > parameters.settings.benchmark_duration.as_secs() {
+                        break;
+                    }
+                },
+
+                // Kill and recover nodes according to the input schedule.
+                _ = faults_interval.tick() => {
+                    let action = faults_schedule.update();
+                    if !action.kill.is_empty() {
+                        killed_nodes.extend(action.kill.clone());
+                        self.ssh_manager.kill(action.kill.clone(), "node").await?;
+                    }
+                    if !action.boot.is_empty() {
+                        // Monitor not yet supported for this
+                        killed_nodes.retain(|instance| !action.boot.contains(instance));
+                        self.boot_nodes(action.boot.clone(), parameters).await?;
+                    }
+                    if !action.kill.is_empty() || !action.boot.is_empty() {
+                        display::newline();
+                        display::config("Testbed update", action);
+                    }
+                }
+            }
+        }
+
+        display::done();
+        Ok(aggregator)
+    }
+
+    /// Download the log files from the nodes and clients.
+    pub async fn download_logs(
+        &self,
+        parameters: &BenchmarkParameters,
+    ) -> TestbedResult<LogsAnalyzer> {
+        // Select the instances to run.
+        let (clients, nodes, _) = self.select_instances(parameters)?;
+
+        // Create a log sub-directory for this run.
+        let commit = &self.settings.repository.commit;
+        let path: PathBuf = [
+            &self.settings.logs_dir,
+            &format!("logs-{commit}").into(),
+            &format!("logs-{parameters:?}").into(),
+        ]
+        .iter()
+        .collect();
+        fs::create_dir_all(&path).expect("Failed to create log directory");
+
+        // NOTE: Our ssh library does not seem to be able to transfers files in parallel reliably.
+        let mut log_parsers = Vec::new();
+
+        // Download the clients log files.
+        display::action("Downloading clients logs");
+        for (i, instance) in clients.iter().enumerate() {
+            display::status(format!("{}/{}", i + 1, clients.len()));
+
+            let connection = self.ssh_manager.connect(instance.ssh_address()).await?;
+            let client_log_content = connection.download("client.log")?;
+
+            let client_log_file = [path.clone(), format!("client-{i}.log").into()]
+                .iter()
+                .collect::<PathBuf>();
+            fs::write(&client_log_file, client_log_content.as_bytes())
+                .expect("Cannot write log file");
+
+            let mut log_parser = LogsAnalyzer::default();
+            log_parser.set_client_errors(&client_log_content);
+            log_parsers.push(log_parser)
+        }
+        display::done();
+
+        display::action("Downloading nodes logs");
+        for (i, instance) in nodes.iter().enumerate() {
+            display::status(format!("{}/{}", i + 1, nodes.len()));
+
+            let connection = self.ssh_manager.connect(instance.ssh_address()).await?;
+            let node_log_content = connection.download("node.log")?;
+
+            let node_log_file = [path.clone(), format!("node-{i}.log").into()]
+                .iter()
+                .collect::<PathBuf>();
+            fs::write(&node_log_file, node_log_content.as_bytes()).expect("Cannot write log file");
+
+            let mut log_parser = LogsAnalyzer::default();
+            log_parser.set_node_errors(&node_log_content);
+            log_parsers.push(log_parser)
+        }
+        display::done();
+
+        Ok(LogsAnalyzer::aggregate(log_parsers))
+    }
+
+    /// Run all the benchmarks specified by the benchmark generator.
+    pub async fn run_benchmarks(
+        &mut self,
+        set_of_parameters: Vec<BenchmarkParameters>,
+    ) -> TestbedResult<()> {
+        display::header("Preparing testbed");
+        display::config("Commit", format!("'{}'", &self.settings.repository.commit));
+        display::newline();
+
+        // Cleanup the testbed (in case the previous run was not completed).
+        self.cleanup(true).await?;
+
+        // Update the software on all instances.
+        if !self.skip_testbed_update {
+            self.install().await?;
+            self.update().await?;
+        }
+
+        // Run all benchmarks.
+        let mut i = 1;
+        let mut latest_committee_size = 0;
+        for parameters in set_of_parameters {
+            display::header(format!("Starting benchmark {i}"));
+            display::config("Node Parameters", &parameters.node_parameters);
+            display::config("Benchmark Parameters", &parameters);
+            display::newline();
+
+            // Cleanup the testbed (in case the previous run was not completed).
+            self.cleanup(true).await?;
+            // Start the instance monitoring tools.
+            self.start_monitoring(&parameters).await?;
+
+            // Configure all instances (if needed).
+            if !self.skip_testbed_configuration && latest_committee_size != parameters.nodes {
+                self.configure(&parameters).await?;
+                latest_committee_size = parameters.nodes;
+            }
+
+            // Deploy the validators.
+            self.run_nodes(&parameters).await?;
+
+            // Deploy the load generators.
+            self.run_clients(&parameters).await?;
+
+            // Wait for the benchmark to terminate. Then save the results and print a summary.
+            let aggregator = self.run(&parameters).await?;
+            aggregator.display_summary();
+
+            // Kill the nodes and clients (without deleting the log files).
+            self.cleanup(false).await?;
+
+            // Download the log files.
+            if self.settings.log_processing {
+                let error_counter = self.download_logs(&parameters).await?;
+                error_counter.print_summary();
+            }
+
+            i += 1;
+        }
+
+        display::header("Benchmark completed");
         Ok(())
     }
 }

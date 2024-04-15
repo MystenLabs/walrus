@@ -10,7 +10,6 @@ use crossterm::{
 };
 use prettytable::format::{self};
 
-#[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
 pub fn header<S: Display>(message: S) {
     if cfg!(not(test)) {
         crossterm::execute!(
@@ -21,7 +20,6 @@ pub fn header<S: Display>(message: S) {
     }
 }
 
-#[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
 pub fn error<S: Display>(message: S) {
     if cfg!(not(test)) {
         crossterm::execute!(
@@ -32,7 +30,6 @@ pub fn error<S: Display>(message: S) {
     }
 }
 
-#[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
 pub fn warn<S: Display>(message: S) {
     if cfg!(not(test)) {
         crossterm::execute!(

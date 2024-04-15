@@ -49,7 +49,6 @@ pub struct CommandContext {
     pub log_file: Option<PathBuf>,
 }
 
-#[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
 impl CommandContext {
     /// Create a new ssh command.
     pub fn new() -> Self {
@@ -111,7 +110,6 @@ impl SshConnectionManager {
     const RETRY_DELAY: Duration = Duration::from_secs(5);
 
     /// Create a new ssh manager from the instances username and private keys.
-    #[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
     pub fn new(username: String, private_key_file: PathBuf) -> Self {
         Self {
             username,
@@ -122,14 +120,12 @@ impl SshConnectionManager {
     }
 
     /// Set a timeout duration for the connections.
-    #[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
         self
     }
 
     /// Set the maximum number of times to retries to establish a connection and execute commands.
-    #[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
     pub fn with_retries(mut self, retries: usize) -> Self {
         self.retries = retries;
         self
@@ -212,7 +208,6 @@ impl SshConnectionManager {
     }
 
     /// Wait until a command running in the background returns or started.
-    #[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
     pub async fn wait_for_command<I>(
         &self,
         instances: I,
@@ -242,7 +237,6 @@ impl SshConnectionManager {
         Ok(())
     }
 
-    #[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
     pub async fn wait_for_success<I, S>(&self, instances: I)
     where
         I: IntoIterator<Item = (Instance, S)> + Clone,
@@ -262,7 +256,6 @@ impl SshConnectionManager {
     }
 
     /// Kill a command running in the background of the specified instances.
-    #[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
     pub async fn kill<I>(&self, instances: I, command_id: &str) -> SshResult<()>
     where
         I: IntoIterator<Item = Instance>,
@@ -319,7 +312,6 @@ impl SshConnection {
 
     /// Set a timeout for the ssh connection. If no timeouts are specified, reset it to the
     /// default value.
-    #[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
     pub fn with_timeout(self, timeout: &Option<Duration>) -> Self {
         let duration = match timeout {
             Some(value) => value,
@@ -330,7 +322,6 @@ impl SshConnection {
     }
 
     /// Set the maximum number of times to retries to establish a connection and execute commands.
-    #[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
     pub fn with_retries(mut self, retries: usize) -> Self {
         self.retries = retries;
         self
@@ -353,7 +344,6 @@ impl SshConnection {
     }
 
     /// Execute a ssh command on the remote machine.
-    #[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
     pub fn execute(&self, command: String) -> SshResult<(String, String)> {
         let mut error = None;
         for _ in 0..self.retries + 1 {
@@ -373,7 +363,6 @@ impl SshConnection {
     }
 
     /// Execute an ssh command on the remote machine and return both stdout and stderr.
-    #[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
     fn execute_impl(&self, mut channel: Channel, command: String) -> SshResult<(String, String)> {
         channel
             .exec(&command)
@@ -412,7 +401,7 @@ impl SshConnection {
     }
 
     /// Upload a file to the remote machines through scp.
-    #[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
+    #[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222)
     pub fn upload<P: AsRef<Path>>(&self, path: P, content: &[u8]) -> SshResult<()> {
         let size = content.len() as u64;
         let mut error = None;
@@ -436,7 +425,6 @@ impl SshConnection {
     }
 
     /// Download a file from the remote machines through scp.
-    #[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
     pub fn download<P: AsRef<Path>>(&self, path: P) -> SshResult<String> {
         let mut error = None;
         for _ in 0..self.retries + 1 {

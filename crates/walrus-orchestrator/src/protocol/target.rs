@@ -5,7 +5,7 @@ use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
 
-use super::{ProtocolCommands, ProtocolParameters};
+use super::{ProtocolCommands, ProtocolMetrics, ProtocolParameters};
 
 #[derive(Default, Clone, Serialize, Deserialize, Debug)]
 pub struct ProtocolNodeParameters;
@@ -78,6 +78,28 @@ impl ProtocolCommands for TargetProtocol {
         _instances: I,
         _parameters: &crate::benchmark::BenchmarkParameters,
     ) -> Vec<(crate::client::Instance, String)>
+    where
+        I: IntoIterator<Item = crate::client::Instance>,
+    {
+        todo!("Alberto: Implement once Walrus parameters are stable (#234)")
+    }
+}
+
+impl ProtocolMetrics for TargetProtocol {
+    const BENCHMARK_DURATION: &'static str = "benchmark_duration";
+    const TOTAL_TRANSACTIONS: &'static str = "total_transactions";
+    const LATENCY_BUCKETS: &'static str = "latency_buckets";
+    const LATENCY_SUM: &'static str = "latency_sum";
+    const LATENCY_SQUARED_SUM: &'static str = "latency_squared_sum";
+
+    fn nodes_metrics_path<I>(&self, _instances: I) -> Vec<(crate::client::Instance, String)>
+    where
+        I: IntoIterator<Item = crate::client::Instance>,
+    {
+        todo!("Alberto: Implement once Walrus parameters are stable (#234)")
+    }
+
+    fn clients_metrics_path<I>(&self, _instances: I) -> Vec<(crate::client::Instance, String)>
     where
         I: IntoIterator<Item = crate::client::Instance>,
     {

@@ -69,7 +69,6 @@ impl Instance {
     }
 
     #[cfg(test)]
-    #[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#222")
     pub fn new_for_test(id: String) -> Self {
         Self {
             id,

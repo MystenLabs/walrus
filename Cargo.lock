@@ -6552,6 +6552,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "prometheus-parse"
+version = "0.2.3"
+source = "git+https://github.com/asonnino/prometheus-parser.git?rev=75334db#75334dbe2d286edf6d4424abba92a74643333096"
+dependencies = [
+ "chrono",
+ "itertools 0.10.5",
+ "lazy_static",
+ "regex",
+]
+
+[[package]]
 name = "proptest"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10499,6 +10510,7 @@ dependencies = [
  "eyre",
  "futures",
  "prettytable-rs",
+ "prometheus-parse",
  "reqwest 0.12.3",
  "serde",
  "serde_json",
