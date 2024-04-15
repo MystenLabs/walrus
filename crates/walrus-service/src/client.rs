@@ -130,7 +130,10 @@ impl<T: ContractClient> Client<T> {
         );
         let start = Instant::now();
         requests
-            .execute_weight(self.committee.quorum_threshold(), self.concurrent_requests)
+            .execute_weight(
+                self.committee.min_n_correct_nodes(),
+                self.concurrent_requests,
+            )
             .await;
         // Double the execution time, with a minimum of 100 ms. This gives the client time to
         // collect more storage confirmations.

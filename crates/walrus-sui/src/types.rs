@@ -274,18 +274,18 @@ pub struct Committee {
 }
 
 impl Committee {
-    /// Checks if the number is large enough to reach a quorum (`total_weight - f`)where `f`
+    /// Checks if the number is large enough to reach a quorum (`total_weight - f`) where `f`
     /// is the maximum number of faulty nodes, given `total_weight`.
     #[inline]
     pub fn is_quorum(&self, num: usize) -> bool {
-        num >= self.quorum_threshold()
+        num >= self.min_n_correct_nodes()
     }
 
     /// Returns the quorum threshold, which is calculated as `total_weight - f` where `f`
-    /// is the maximum number of faulty nodes, given `total_weight`. If `total_weight = 3f+1`
+    /// is the maximum number of faulty nodes, given `total_weight`. If `total_weight == 3f+1`
     /// for some `f`, this is exactly `2f+1`, otherwise it will be slightly (<=2) larger.
     #[inline]
-    pub fn quorum_threshold(&self) -> usize {
+    pub fn min_n_correct_nodes(&self) -> usize {
         let total_weight = self.total_weight as usize;
         total_weight - (total_weight - 1) / 3
     }
