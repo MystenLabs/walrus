@@ -98,7 +98,7 @@ enum Commands {
     /// Generates a new key for use with the Walrus protocol, and writes it to a file.
     KeyGen {
         /// Path to the file at which the key will be created. If the file already exists, it is
-        /// not overwrriten and the operation will fail.
+        /// not overwritten and the operation will fail.
         #[clap(default_value = "protocol.key")]
         out: PathBuf,
     },
