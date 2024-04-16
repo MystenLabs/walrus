@@ -1,17 +1,25 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{num::NonZeroU16, path::Path, time::Duration};
+use std::{
+    num::NonZeroU16,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use fastcrypto::traits::KeyPair;
+use futures::future::try_join_all;
 use rand::{rngs::StdRng, SeedableRng};
-use sui_types::base_types::ObjectID;
-use walrus_core::{ProtocolKeyPair, ShardIndex};
-use walrus_sui::types::StorageNode as SuiStorageNode;
+use walrus_core::{encoding::source_symbols_for_n_shards, ProtocolKeyPair, ShardIndex};
+use walrus_sui::{
+    system_setup::{create_system_object, publish_package, SystemParameters},
+    types::{Committee, StorageNode as SuiStorageNode},
+    utils::{create_wallet, request_sui_from_faucet, SuiNetwork},
+};
 
 use crate::{
     client,
-    config::{self, PathOrInPlace, StorageNodeConfig},
+    config::{self, PathOrInPlace, StorageNodeConfig, SuiConfig},
 };
 
 /// Prefix for the node configuration file name.
@@ -22,14 +30,13 @@ pub fn node_config_name_prefix(node_index: u16, committee_size: NonZeroU16) -> S
     )
 }
 
-/// Configuration for the testbed.
-pub fn testbed_configs(
+/// Deterministically generate storage node configurations without a `SuiConfig` for a
+/// total of `committee_size` nodes and `n_shards`.
+pub fn create_storage_node_configs(
     working_dir: &Path,
     committee_size: NonZeroU16,
     n_shards: NonZeroU16,
-    source_symbols_primary: NonZeroU16,
-    source_symbols_secondary: NonZeroU16,
-) -> (Vec<StorageNodeConfig>, client::Config) {
+) -> (Vec<StorageNodeConfig>, Vec<SuiStorageNode>) {
     let mut rng = StdRng::seed_from_u64(0);
     let mut storage_node_configs = Vec::new();
 
@@ -73,16 +80,80 @@ pub fn testbed_configs(
             shard_ids,
         });
     }
+    (storage_node_configs, sui_storage_node_configs)
+}
 
-    // Print the client config.
+/// Configuration for the testbed.
+pub async fn testbed_configs(
+    working_dir: &Path,
+    committee_size: NonZeroU16,
+    n_shards: NonZeroU16,
+    sui_network: SuiNetwork,
+    contract_path: PathBuf,
+    gas_budget: u64,
+) -> anyhow::Result<(Vec<StorageNodeConfig>, client::Config)> {
+    let (mut storage_node_configs, sui_storage_nodes) =
+        create_storage_node_configs(working_dir, committee_size, n_shards);
+
+    // Create wallet for publishing contracts on sui and setting up system object
+    let mut admin_wallet = create_wallet(
+        &working_dir.join("sui_admin.yaml"),
+        &sui_network,
+        Some("sui_admin.keystore"),
+    )?;
+
+    // Create wallet for the client
+    let mut client_wallet = create_wallet(
+        &working_dir.join("sui_client.yaml"),
+        &sui_network,
+        Some("sui_client.keystore"),
+    )?;
+
+    let sui_client = admin_wallet.get_client().await?;
+    // Get coins from faucet for the wallets.
+    let faucet_requests = [
+        request_sui_from_faucet(admin_wallet.active_address()?, sui_network, &sui_client),
+        request_sui_from_faucet(client_wallet.active_address()?, sui_network, &sui_client),
+    ];
+    try_join_all(faucet_requests).await?;
+
+    // Publish package and set up system object
+    let (pkg_id, committee_cap) =
+        publish_package(&mut admin_wallet, contract_path, gas_budget).await?;
+    let committee = Committee::new(sui_storage_nodes, 0)?;
+    let system_params = SystemParameters::new_with_sui(committee, 1_000_000_000_000, 10);
+    let system_object = create_system_object(
+        &mut admin_wallet,
+        pkg_id,
+        committee_cap,
+        &system_params,
+        gas_budget,
+    )
+    .await?;
+
+    // Update the storage node configs with the sui config
+    let sui_config = Some(SuiConfig {
+        rpc: admin_wallet.config.get_active_env()?.rpc.clone(),
+        pkg_id,
+        system_object,
+        event_polling_interval: config::defaults::polling_interval(),
+    });
+    storage_node_configs
+        .iter_mut()
+        .for_each(|conf| conf.sui = sui_config.clone());
+
+    // Create the client config.
+    let (source_symbols_primary, source_symbols_secondary) = source_symbols_for_n_shards(n_shards);
     let client_config = client::Config {
-        source_symbols_primary,
-        source_symbols_secondary,
+        source_symbols_primary: NonZeroU16::new(source_symbols_primary)
+            .expect("number of source symbols to be nonzero"),
+        source_symbols_secondary: NonZeroU16::new(source_symbols_secondary)
+            .expect("number of source symbols to be nonzero"),
         concurrent_requests: committee_size.get().into(),
         connection_timeout: Duration::from_secs(10),
-        system_pkg: ObjectID::random(),
-        system_object: ObjectID::random(),
+        system_pkg: pkg_id,
+        system_object,
     };
 
-    (storage_node_configs, client_config)
+    Ok((storage_node_configs, client_config))
 }

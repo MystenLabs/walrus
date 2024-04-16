@@ -5,7 +5,7 @@
 //!
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeSet, HashSet},
     future::Future,
     path::{Path, PathBuf},
     str::FromStr,
@@ -38,6 +38,7 @@ use sui_types::{
     transaction::CallArg,
     TypeTag,
 };
+use tracing::instrument;
 use walrus_core::BlobId;
 
 use crate::{client::SuiClientResult, contracts::AssociatedContractStruct};
@@ -225,7 +226,7 @@ const DEVNET_FAUCET: &str = "https://faucet.devnet.sui.io/v1/gas";
 const TESTNET_FAUCET: &str = "https://faucet.testnet.sui.io/v1/gas";
 
 /// Enum for the different sui networks.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SuiNetwork {
     /// Local sui network
     Localnet,
@@ -268,29 +269,26 @@ impl SuiNetwork {
     }
 }
 
-/// Loads a sui wallet from `config_path` and if none exists, creates one on `network`.
-/// `network` must be specified if the wallet does not exist yet.
-pub async fn load_wallet(
-    config_path: Option<PathBuf>,
-    network: Option<&SuiNetwork>,
-) -> Result<WalletContext> {
+/// Loads a sui wallet from `config_path`.
+pub fn load_wallet(config_path: Option<PathBuf>) -> Result<WalletContext> {
     let config_path = config_path.unwrap_or(sui_config_dir()?.join(SUI_CLIENT_CONFIG));
-    if !config_path.exists() {
-        create_wallet(
-            &config_path,
-            network.ok_or_else(|| anyhow!("could not create wallet, no network specified"))?,
-        )
-        .await?;
-    }
     WalletContext::new(&config_path, None, None)
 }
 
-async fn create_wallet(config_path: &Path, network: &SuiNetwork) -> Result<()> {
+/// Creates a wallet on `network` and stores its config at `config_path`. The keystore will
+/// be stored in the same directory as the wallet config and named `keystore_filename`
+/// (if provided) and `sui.keystore` otherwise.
+/// Returns the created Wallet.
+pub fn create_wallet(
+    config_path: &Path,
+    network: &SuiNetwork,
+    keystore_filename: Option<&str>,
+) -> Result<WalletContext> {
     let env = network.env();
     let keystore_path = config_path
         .parent()
         .unwrap_or(&sui_config_dir()?)
-        .join(SUI_KEYSTORE_FILENAME);
+        .join(keystore_filename.unwrap_or(SUI_KEYSTORE_FILENAME));
     let mut keystore = Keystore::from(FileBasedKeystore::new(&keystore_path)?);
 
     let (new_address, _phrase, _scheme) =
@@ -304,12 +302,41 @@ async fn create_wallet(config_path: &Path, network: &SuiNetwork) -> Result<()> {
     }
     .persisted(config_path)
     .save()?;
-    Ok(())
+    load_wallet(Some(config_path.to_owned()))
 }
 
 /// Requests sui for `address` on `network` from a faucet.
-pub async fn request_sui_from_faucet(address: SuiAddress, network: &SuiNetwork) -> Result<()> {
-    request_tokens_from_faucet(address, network.faucet().to_string()).await
+#[instrument(skip(network, sui_client))]
+pub async fn request_sui_from_faucet(
+    address: SuiAddress,
+    network: SuiNetwork,
+    sui_client: &SuiClient,
+) -> Result<()> {
+    let coins: HashSet<_> = handle_pagination(|cursor| {
+        sui_client
+            .coin_read_api()
+            .get_coins(address.to_owned(), None, cursor, None)
+    })
+    .await?
+    .map(|coin| coin.coin_object_id)
+    .collect();
+    request_tokens_from_faucet(address, network.faucet().to_string()).await?;
+    tracing::info!("waiting to receive tokens from faucet");
+    loop {
+        let new_coin = handle_pagination(|cursor| {
+            sui_client
+                .coin_read_api()
+                .get_coins(address.to_owned(), None, cursor, None)
+        })
+        .await?
+        .any(|coin| !coins.contains(&coin.coin_object_id));
+        if new_coin {
+            break;
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    }
+    tracing::info!("received tokens from faucet");
+    Ok(())
 }
 
 // Macros

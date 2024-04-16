@@ -35,8 +35,6 @@ const COMMITTEE_CAP_HOLDER_TAG: StructTag<'_> = StructTag {
     module: E2E_MOVE_MODULE,
 };
 
-const PACKAGE_NAME: &str = "blob_store";
-
 /// Parameters for test system deployment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SystemParameters {
@@ -71,28 +69,17 @@ fn compile_package(package_path: PathBuf) -> (PackageDependencies, Vec<Vec<u8>>)
     (compiled_package.dependency_ids, compiled_modules)
 }
 
-fn contract_path(contract: &str) -> anyhow::Result<PathBuf> {
-    // TODO: change to relative path compared to the source file location instead
-    // of working directory or include contracts in binary (include_bytes ??)
-    Ok(std::env::current_dir()?
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("contracts")
-        .join(contract))
-}
-
 /// Publish the `blob_store` package and return the IDs of the created package
 /// and the `CommitteeCapHolder`.
 pub async fn publish_package(
     wallet: &mut WalletContext,
+    contract_path: PathBuf,
     gas_budget: u64,
 ) -> Result<(ObjectID, ObjectID)> {
     let sender = wallet.active_address()?;
     let sui = wallet.get_client().await?;
 
-    let (dependencies, compiled_modules) = compile_package(contract_path(PACKAGE_NAME)?);
+    let (dependencies, compiled_modules) = compile_package(contract_path);
 
     let dep_ids: Vec<ObjectID> = dependencies.published.values().cloned().collect();
 

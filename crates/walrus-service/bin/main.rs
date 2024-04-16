@@ -33,7 +33,10 @@ use walrus_service::{
     Storage,
     StorageNode,
 };
-use walrus_sui::client::{ReadClient, SuiReadClient};
+use walrus_sui::{
+    client::{ReadClient, SuiReadClient},
+    utils::SuiNetwork,
+};
 
 const GIT_REVISION: &str = {
     if let Some(revision) = option_env!("GIT_REVISION") {
@@ -87,12 +90,15 @@ enum Commands {
         /// The total number of shards.
         #[clap(long, default_value = "10")]
         n_shards: NonZeroU16,
-        /// Number of primary symbols to use (used to generate client config).
-        #[clap(long, default_value = "2")]
-        n_symbols_primary: NonZeroU16,
-        /// Number of secondary symbols to use (used to generate client config).
-        #[clap(long, default_value = "4")]
-        n_symbols_secondary: NonZeroU16,
+        /// Sui network for which the config is generated.
+        #[clap(long, default_value = "devnet")]
+        sui_network: SuiNetwork,
+        /// The directory in which the contracts are located.
+        #[clap(long, default_value = "./contracts/blob_store")]
+        contract_path: PathBuf,
+        /// Gas budget for sui transactions to publish the contracts and set up the system.
+        #[arg(short, long, default_value_t = 500_000_000)]
+        gas_budget: u64,
     },
 
     /// Generates a new key for use with the Walrus protocol, and writes it to a file.
@@ -217,16 +223,19 @@ fn main_with_args(args: Args) -> anyhow::Result<()> {
             working_dir,
             committee_size,
             n_shards,
-            n_symbols_primary,
-            n_symbols_secondary,
+            sui_network,
+            contract_path,
+            gas_budget,
         } => {
-            generate_dry_run_configs(
+            tracing_subscriber::fmt::init();
+            Runtime::new()?.block_on(generate_dry_run_configs(
                 working_dir,
                 committee_size,
                 n_shards,
-                n_symbols_primary,
-                n_symbols_secondary,
-            )?;
+                sui_network,
+                contract_path,
+                gas_budget,
+            ))?;
         }
         Commands::KeyGen { out } => {
             let mut file = std::fs::OpenOptions::new()
@@ -295,12 +304,13 @@ fn run_storage_node(
     node_runtime.join()
 }
 
-fn generate_dry_run_configs(
+async fn generate_dry_run_configs(
     working_dir: PathBuf,
     committee_size: NonZeroU16,
     shards: NonZeroU16,
-    n_symbols_primary: NonZeroU16,
-    n_symbols_secondary: NonZeroU16,
+    sui_network: SuiNetwork,
+    contract_path: PathBuf,
+    gas_budget: u64,
 ) -> anyhow::Result<()> {
     if let Err(e) = fs::create_dir_all(&working_dir) {
         return Err(e).context(format!(
@@ -314,9 +324,11 @@ fn generate_dry_run_configs(
         &working_dir,
         committee_size,
         shards,
-        n_symbols_primary,
-        n_symbols_secondary,
-    );
+        sui_network,
+        contract_path,
+        gas_budget,
+    )
+    .await?;
 
     // Write client config to file.
     let serialized_client_config =

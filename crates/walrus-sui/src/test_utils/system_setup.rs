@@ -3,7 +3,7 @@
 
 //! Utilities to publish the walrus contracts and deploy a system object for testing.
 
-use std::str::FromStr;
+use std::{path::PathBuf, str::FromStr};
 
 use anyhow::Result;
 use fastcrypto::{bls12381::min_pk::BLS12381PublicKey, traits::ToFromBytes};
@@ -19,13 +19,28 @@ const DEFAULT_GAS_BUDGET: u64 = 10000000000;
 const DEFAULT_CAPACITY: u64 = 1000000000;
 const DEFAULT_PRICE: u64 = 10;
 
+fn contract_path_for_testing(contract: &str) -> anyhow::Result<PathBuf> {
+    Ok(std::env::current_dir()?
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("contracts")
+        .join(contract))
+}
+
 /// Publish the package, create a system object with the default e2e test setup (compatible with
 /// the current tests), and return the IDs of the package and the system object. The default
 /// test setup currently uses a single storage node with sk = 117.
 pub async fn publish_with_default_system(
     wallet: &mut WalletContext,
 ) -> Result<(ObjectID, ObjectID)> {
-    let (pkg_id, cap_id) = publish_package(wallet, DEFAULT_GAS_BUDGET).await?;
+    let (pkg_id, cap_id) = publish_package(
+        wallet,
+        contract_path_for_testing("blob_store")?,
+        DEFAULT_GAS_BUDGET,
+    )
+    .await?;
 
     // Default system config, compatible with current tests
 
