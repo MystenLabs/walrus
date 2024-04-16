@@ -71,12 +71,12 @@ pub enum Operation {
     /// Deploy nodes and run a benchmark on the specified testbed.
     Benchmark {
         /// The committee size to deploy.
-        #[clap(long, value_name = "INT", global = true)]
+        #[clap(long, value_name = "INT")]
         committee: usize,
 
-        /// The set of loads to submit to the system (tx/s). Setting this parameter to zero
-        /// will not deploy any benchmark clients. This is useful to boot testbeds designed
-        /// to run with external clients and load generators.
+        /// The set of loads to submit to the system (tx/s). Each load triggers a separate
+        /// benchmark run. Setting a load to zero will not deploy any benchmark clients
+        /// (useful to boot testbeds designed to run with external clients and load generators).
         #[clap(long, value_name = "[INT]", default_value = "200", global = true)]
         loads: Vec<usize>,
 
