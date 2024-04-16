@@ -52,9 +52,9 @@ impl Measurement {
                 .collect::<Vec<_>>()
                 .join(",");
 
-            if sample.metric == M::LATENCY_BUCKETS {
-                let measurement = measurements.entry(label).or_insert_with(Self::default);
-                match &sample.value {
+            let measurement = measurements.entry(label).or_insert_with(Self::default);
+            match &sample.metric {
+                x if x == M::LATENCY_BUCKETS => match &sample.value {
                     prometheus_parse::Value::Histogram(values) => {
                         for value in values {
                             let bucket_id = value.less_than.to_string();
@@ -63,25 +63,26 @@ impl Measurement {
                         }
                     }
                     _ => panic!("Unexpected scraped value"),
+                },
+                x if x == M::LATENCY_SUM => {
+                    measurement.sum = match sample.value {
+                        prometheus_parse::Value::Untyped(value) => Duration::from_secs_f64(value),
+                        _ => panic!("Unexpected scraped value"),
+                    };
                 }
-            } else if sample.metric == M::LATENCY_SUM {
-                let measurement = measurements.entry(label).or_insert_with(Self::default);
-                measurement.sum = match sample.value {
-                    prometheus_parse::Value::Untyped(value) => Duration::from_secs_f64(value),
-                    _ => panic!("Unexpected scraped value"),
-                };
-            } else if sample.metric == M::TOTAL_TRANSACTIONS {
-                let measurement = measurements.entry(label).or_insert_with(Self::default);
-                measurement.count = match sample.value {
-                    prometheus_parse::Value::Untyped(value) => value as usize,
-                    _ => panic!("Unexpected scraped value"),
-                };
-            } else if sample.metric == M::LATENCY_SQUARED_SUM {
-                let measurement = measurements.entry(label).or_insert_with(Self::default);
-                measurement.squared_sum = match sample.value {
-                    prometheus_parse::Value::Counter(value) => Duration::from_secs_f64(value),
-                    _ => panic!("Unexpected scraped value"),
-                };
+                x if x == M::TOTAL_TRANSACTIONS => {
+                    measurement.count = match sample.value {
+                        prometheus_parse::Value::Untyped(value) => value as usize,
+                        _ => panic!("Unexpected scraped value"),
+                    };
+                }
+                x if x == M::LATENCY_SQUARED_SUM => {
+                    measurement.squared_sum = match sample.value {
+                        prometheus_parse::Value::Counter(value) => Duration::from_secs_f64(value),
+                        _ => panic!("Unexpected scraped value"),
+                    };
+                }
+                _ => (),
             }
         }
 
@@ -372,7 +373,7 @@ mod test {
             aggregator.add(scraper_id, label, measurement);
         }
 
-        assert_eq!(aggregator.data.len(), 2);
+        assert_eq!(aggregator.data.keys().filter(|x| !x.is_empty()).count(), 2);
         for label in &["owned".to_string(), "shared".to_string()] {
             let data_points = aggregator
                 .data
