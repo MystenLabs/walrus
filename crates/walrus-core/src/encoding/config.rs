@@ -70,35 +70,13 @@ impl EncodingConfig {
     ///
     /// [rfc6330s5.6]: https://datatracker.ietf.org/doc/html/rfc6330#section-5.6
     pub fn new(source_symbols_primary: u16, source_symbols_secondary: u16, n_shards: u16) -> Self {
-        assert!(
-            source_symbols_primary < MAX_SOURCE_SYMBOLS_PER_BLOCK
-                && source_symbols_secondary < MAX_SOURCE_SYMBOLS_PER_BLOCK,
-            "the number of source symbols can be at most `MAX_SOURCE_SYMBOLS_PER_BLOCK`"
-        );
-        assert!(
-            3 * source_symbols_secondary < 2 * n_shards,
-            "the secondary encoding can be at most a 2/3 encoding"
-        );
-        assert!(
-            3 * source_symbols_primary < n_shards,
-            "the primary encoding can be at most a 1/3 encoding"
-        );
-
         let source_symbols_primary = NonZeroU16::new(source_symbols_primary)
             .expect("the number of source symbols must not be 0");
         let source_symbols_secondary = NonZeroU16::new(source_symbols_secondary)
             .expect("the number of source symbols must not be 0");
         let n_shards = NonZeroU16::new(n_shards).expect("implied by previous checks");
 
-        Self {
-            source_symbols_primary,
-            source_symbols_secondary,
-            n_shards,
-            encoding_plan_primary: SourceBlockEncodingPlan::generate(source_symbols_primary.get()),
-            encoding_plan_secondary: SourceBlockEncodingPlan::generate(
-                source_symbols_secondary.get(),
-            ),
-        }
+        Self::new_from_nonzero(source_symbols_primary, source_symbols_secondary, n_shards)
     }
 
     /// See [Self::new].
@@ -107,18 +85,19 @@ impl EncodingConfig {
         source_symbols_secondary: NonZeroU16,
         n_shards: NonZeroU16,
     ) -> Self {
+        let f = (n_shards.get() - 1) / 3;
         assert!(
             source_symbols_primary.get() < MAX_SOURCE_SYMBOLS_PER_BLOCK
                 && source_symbols_secondary.get() < MAX_SOURCE_SYMBOLS_PER_BLOCK,
             "the number of source symbols can be at most `MAX_SOURCE_SYMBOLS_PER_BLOCK`"
         );
         assert!(
-            3 * (source_symbols_secondary.get() - 1) <= 2 * (n_shards.get() - 1),
-            "the secondary encoding can be at most a 2f+1 encoding"
+            source_symbols_secondary.get() <= n_shards.get() - f,
+            "the secondary encoding can be at most a n-f encoding"
         );
         assert!(
-            3 * (source_symbols_primary.get() - 1) <= (n_shards.get() - 1),
-            "the primary encoding can be at most an f+1 encoding"
+            source_symbols_primary.get() <= n_shards.get() - 2 * f,
+            "the primary encoding can be at most an n-2f encoding"
         );
 
         Self {
