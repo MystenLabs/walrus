@@ -13,7 +13,6 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use move_core_types::{language_storage::StructTag as MoveStructTag, u256::U256};
-use sui::client_commands::request_tokens_from_faucet;
 use sui_config::{sui_config_dir, Config, SUI_CLIENT_CONFIG, SUI_KEYSTORE_FILENAME};
 use sui_keys::keystore::{AccountKeystore, FileBasedKeystore, Keystore};
 use sui_sdk::{
@@ -312,6 +311,7 @@ pub async fn request_sui_from_faucet(
     network: SuiNetwork,
     sui_client: &SuiClient,
 ) -> Result<()> {
+    // Set of coins to allow checking if we have received a new coin from the faucet
     let coins: HashSet<_> = handle_pagination(|cursor| {
         sui_client
             .coin_read_api()
@@ -320,8 +320,22 @@ pub async fn request_sui_from_faucet(
     .await?
     .map(|coin| coin.coin_object_id)
     .collect();
-    request_tokens_from_faucet(address, network.faucet().to_string()).await?;
+
+    // send the request to the faucet
+    let client = reqwest::Client::new();
+    let data_raw = format!(
+        "{{\"FixedAmountRequest\": {{ \"recipient\": \"{}\" }} }} ",
+        address
+    );
+    let _result = client
+        .post(network.faucet())
+        .header("Content-Type", "application/json")
+        .body(data_raw)
+        .send()
+        .await?;
+
     tracing::info!("waiting to receive tokens from faucet");
+    // check if we have received a new coin from the faucet
     loop {
         let new_coin = handle_pagination(|cursor| {
             sui_client
