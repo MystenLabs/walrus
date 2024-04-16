@@ -294,9 +294,9 @@ impl Committee {
     /// is the maximum number of faulty shards, given `total_weight`.
     #[inline]
     pub fn is_quorum(&self, num: usize) -> bool {
-        // This expression checks that `num >= 2g + 1`, assuming `total_weight = 3g + 1` with a
-        // possibly fractionary `g` and `f <= g < f+1`.  This in turn always implies that
-        // `num >= total_weight - f`.
+        // Given `total_weight == 3g + 1` with a possibly fractionary `g`, this expression checks
+        // that `num >= 2g + 1`. This in turn always implies that `num >= total_weight - f`, where
+        // `f == floor(g)` is the maximum number of faulty shards.
         3 * num >= 2 * self.total_weight.get() as usize + 1
     }
 
