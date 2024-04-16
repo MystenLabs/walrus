@@ -32,7 +32,7 @@ pub struct Measurement {
     sum: Duration,
     /// Total number of finalized transactions
     count: usize,
-    /// Square of the latencies of all finalized transactions.
+    /// Sum of the squares of the latencies of all finalized transactions
     squared_sum: Duration,
 }
 

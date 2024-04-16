@@ -67,15 +67,19 @@ impl<P> Orchestrator<P> {
 
     /// Skip the testbed update.
     pub fn skip_testbed_update(mut self, skip_testbed_update: bool) -> Self {
-        display::warn("Skipping testbed update! Use with care!");
-        self.settings.repository.set_unknown_commit();
+        if skip_testbed_update {
+            display::warn("Skipping testbed update! Use with care!");
+            self.settings.repository.set_unknown_commit();
+        }
         self.skip_testbed_update = skip_testbed_update;
         self
     }
 
     /// Skip the testbed configuration.
     pub fn skip_testbed_configuration(mut self, skip_testbed_configuration: bool) -> Self {
-        display::warn("Skipping testbed configuration! Use with care!");
+        if skip_testbed_configuration {
+            display::warn("Skipping testbed configuration! Use with care!");
+        }
         self.skip_testbed_configuration = skip_testbed_configuration;
         self
     }
