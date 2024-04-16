@@ -12,7 +12,7 @@ pub struct LogsAnalyzer {
     pub node_errors: usize,
     /// Whether a node panicked.
     pub node_panic: bool,
-    /// The number of errors int he clients' log files.
+    /// The number of errors in the clients' log files.
     pub client_errors: usize,
     /// Whether a client panicked.
     pub client_panic: bool,
