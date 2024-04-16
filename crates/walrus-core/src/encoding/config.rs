@@ -29,7 +29,7 @@ use crate::{merkle::DIGEST_LEN, BlobId};
 /// For RaptorQ, the proability of successful reconstruction for K source symbols when K + H symbols
 /// are received is greater than `(1 / 256)^(H + 1)`. Therefore, e.g, the probability of
 /// reconstruction after receiving f+1 primary slivers is at least:
-/// `(1 / 256)^(decoding_safety_limit(n_shards) + 2)`.
+/// `(1 / 256)^(decoding_safety_limit(n_shards) + 1)`.
 pub fn decoding_safety_limit(n_shards: NonZeroU16) -> u16 {
     // These ranges are chosen to ensure that the safety limit is at most 20% of f, up to a safety
     // limit of 5.
@@ -97,9 +97,9 @@ impl EncodingConfig {
     /// # Arguments
     ///
     /// * `source_symbols_primary` - The number of source symbols for the primary encoding. This
-    ///   should be slightly below `n_shards - 2f`, where `f` is the Byzantine parameter.
+    ///   should be equal or below `n_shards - 2f`, where `f` is the Byzantine parameter.
     /// * `source_symbols_secondary` - The number of source symbols for the secondary encoding. This
-    ///   should be slightly below `n_shards - f`.
+    ///   should be equal or below `n_shards - f`.
     /// * `n_shards` - The total number of shards.
     ///
     /// Ideally, both `source_symbols_primary` and `source_symbols_secondary` should be chosen from
@@ -139,7 +139,7 @@ impl EncodingConfig {
         source_symbols_secondary: NonZeroU16,
         n_shards: NonZeroU16,
     ) -> Self {
-        let f = (n_shards.get() - 1) / 3;
+        let f = max_n_byzantine(n_shards.get());
         assert!(
             source_symbols_primary.get() < MAX_SOURCE_SYMBOLS_PER_BLOCK
                 && source_symbols_secondary.get() < MAX_SOURCE_SYMBOLS_PER_BLOCK,
