@@ -4,9 +4,10 @@
 //! Bindings to call the Walrus contracts from Rust.
 
 #[macro_use]
-mod utils;
+pub mod utils;
 pub mod client;
 pub mod contracts;
+pub mod system_setup;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;

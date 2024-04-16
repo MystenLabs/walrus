@@ -11,7 +11,7 @@ use sui_sdk::{types::base_types::ObjectID, wallet_context::WalletContext};
 use walrus_core::ShardIndex;
 
 use crate::{
-    client::system_setup::{create_system_object, publish_package, SystemParameters},
+    system_setup::{create_system_object, publish_package, SystemParameters},
     types::{Committee, NetworkAddress, StorageNode},
 };
 

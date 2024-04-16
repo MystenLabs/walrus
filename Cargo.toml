@@ -18,9 +18,12 @@ rand = "0.8.5"
 serde = { version = "1.0.197", features = ["derive"] }
 serde_with = "3.7"
 serde_yaml = "0.9"
+sui = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.22.0" }
+sui-keys = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.22.0" }
 sui-move-build = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.22.0" }
 sui-sdk = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.22.0" }
 sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.22.0" }
+sui-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.22.0" }
 telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.22.0" }
 tempfile = "3.10.1"
 test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.22.0" }

@@ -4,10 +4,18 @@
 //! Helper functions for the crate.
 //!
 
-use std::{collections::BTreeSet, future::Future, str::FromStr};
+use std::{
+    collections::BTreeSet,
+    future::Future,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
 use anyhow::{anyhow, Result};
 use move_core_types::{language_storage::StructTag as MoveStructTag, u256::U256};
+use sui::client_commands::request_tokens_from_faucet;
+use sui_config::{sui_config_dir, Config, SUI_CLIENT_CONFIG, SUI_KEYSTORE_FILENAME};
+use sui_keys::keystore::{AccountKeystore, FileBasedKeystore, Keystore};
 use sui_sdk::{
     rpc_types::{
         ObjectChange,
@@ -19,11 +27,20 @@ use sui_sdk::{
         SuiParsedData,
         SuiTransactionBlockResponse,
     },
+    sui_client_config::{SuiClientConfig, SuiEnv},
     types::base_types::ObjectID,
+    wallet_context::WalletContext,
     SuiClient,
 };
-use sui_types::{base_types::ObjectType, transaction::CallArg, TypeTag};
+use sui_types::{
+    base_types::{ObjectType, SuiAddress},
+    crypto::SignatureScheme,
+    transaction::CallArg,
+    TypeTag,
+};
 use walrus_core::BlobId;
+
+use crate::{client::SuiClientResult, contracts::AssociatedContractStruct};
 
 pub(crate) fn get_struct_from_object_response(
     object_response: &SuiObjectResponse,
@@ -66,7 +83,7 @@ pub(crate) async fn get_type_parameters(
 
 /// Retrieves the objects of the given type that were created in a transaction
 /// from a [`SuiTransactionBlockResponse`]
-pub fn get_created_sui_object_ids_by_type(
+pub(crate) fn get_created_sui_object_ids_by_type(
     response: &SuiTransactionBlockResponse,
     struct_tag: &MoveStructTag,
 ) -> Result<Vec<ObjectID>> {
@@ -97,7 +114,10 @@ pub fn get_created_sui_object_ids_by_type(
     }
 }
 
-pub async fn get_sui_object<U>(sui_client: &SuiClient, object_id: ObjectID) -> SuiClientResult<U>
+pub(crate) async fn get_sui_object<U>(
+    sui_client: &SuiClient,
+    object_id: ObjectID,
+) -> SuiClientResult<U>
 where
     U: AssociatedContractStruct,
 {
@@ -197,6 +217,103 @@ pub(crate) fn blob_id_from_u256(input: U256) -> BlobId {
     BlobId(input.to_le_bytes())
 }
 
+// Wallet setup
+
+// Faucets
+const LOCALNET_FAUCET: &str = "http://127.0.0.1:9123/gas";
+const DEVNET_FAUCET: &str = "https://faucet.devnet.sui.io/v1/gas";
+const TESTNET_FAUCET: &str = "https://faucet.testnet.sui.io/v1/gas";
+
+/// Enum for the different sui networks.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SuiNetwork {
+    /// Local sui network
+    Localnet,
+    /// Sui Devnet
+    Devnet,
+    /// Sui Testnet
+    Testnet,
+}
+
+impl FromStr for SuiNetwork {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "localnet" => Ok(SuiNetwork::Localnet),
+            "devnet" => Ok(SuiNetwork::Devnet),
+            "testnet" => Ok(SuiNetwork::Testnet),
+            _ => Err(anyhow!(
+                "network must be 'localnet', 'devnet', or 'testnet'"
+            )),
+        }
+    }
+}
+
+impl SuiNetwork {
+    fn faucet(&self) -> &str {
+        match self {
+            SuiNetwork::Localnet => LOCALNET_FAUCET,
+            SuiNetwork::Devnet => DEVNET_FAUCET,
+            SuiNetwork::Testnet => TESTNET_FAUCET,
+        }
+    }
+
+    fn env(&self) -> SuiEnv {
+        match self {
+            SuiNetwork::Localnet => SuiEnv::localnet(),
+            SuiNetwork::Devnet => SuiEnv::devnet(),
+            SuiNetwork::Testnet => SuiEnv::testnet(),
+        }
+    }
+}
+
+/// Loads a sui wallet from `config_path` and if none exists, creates one on `network`.
+/// `network` must be specified if the wallet does not exist yet.
+pub async fn load_wallet(
+    config_path: Option<PathBuf>,
+    network: Option<&SuiNetwork>,
+) -> Result<WalletContext> {
+    let config_path = config_path.unwrap_or(sui_config_dir()?.join(SUI_CLIENT_CONFIG));
+    if !config_path.exists() {
+        create_wallet(
+            &config_path,
+            network.ok_or_else(|| anyhow!("could not create wallet, no network specified"))?,
+        )
+        .await?;
+    }
+    WalletContext::new(&config_path, None, None)
+}
+
+async fn create_wallet(config_path: &Path, network: &SuiNetwork) -> Result<()> {
+    let env = network.env();
+    let keystore_path = config_path
+        .parent()
+        .unwrap_or(&sui_config_dir()?)
+        .join(SUI_KEYSTORE_FILENAME);
+    let mut keystore = Keystore::from(FileBasedKeystore::new(&keystore_path)?);
+
+    let (new_address, _phrase, _scheme) =
+        keystore.generate_and_add_new_key(SignatureScheme::ED25519, None, None, None)?;
+    let alias = env.alias.clone();
+    SuiClientConfig {
+        keystore,
+        envs: vec![env],
+        active_address: Some(new_address),
+        active_env: Some(alias),
+    }
+    .persisted(config_path)
+    .save()?;
+    Ok(())
+}
+
+/// Requests sui for `address` on `network` from a faucet.
+pub async fn request_sui_from_faucet(address: SuiAddress, network: &SuiNetwork) -> Result<()> {
+    request_tokens_from_faucet(address, network.faucet().to_string()).await
+}
+
+// Macros
+
 macro_rules! call_arg_pure {
     ($value:expr) => {
         CallArg::Pure(bcs::to_bytes($value).map_err(|e| anyhow!("bcs conversion failed: {e:?}"))?)
@@ -264,5 +381,3 @@ macro_rules! get_u64_field_from_event {
 pub(crate) use get_dynamic_field;
 #[allow(unused)]
 pub(crate) use get_field_from_event;
-
-use crate::{client::SuiClientResult, contracts::AssociatedContractStruct};
