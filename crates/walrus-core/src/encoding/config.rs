@@ -102,10 +102,6 @@ impl EncodingConfig {
     ///   should be equal or below `n_shards - f`.
     /// * `n_shards` - The total number of shards.
     ///
-    /// Ideally, both `source_symbols_primary` and `source_symbols_secondary` should be chosen from
-    /// the list of supported values of K' provided in [RFC 6330, Section 5.6][rfc6330s5.6] to avoid
-    /// the need for padding symbols.
-    ///
     /// # Returns
     ///
     /// The encoding configuration.
@@ -121,24 +117,17 @@ impl EncodingConfig {
     ///
     /// Panics if the number of primary or secondary source symbols is larger than
     /// [`MAX_SOURCE_SYMBOLS_PER_BLOCK`].
-    ///
-    /// [rfc6330s5.6]: https://datatracker.ietf.org/doc/html/rfc6330#section-5.6
-    pub fn new(source_symbols_primary: u16, source_symbols_secondary: u16, n_shards: u16) -> Self {
+    pub(crate) fn new_from_n_source_symbols(
+        source_symbols_primary: u16,
+        source_symbols_secondary: u16,
+        n_shards: u16,
+    ) -> Self {
         let source_symbols_primary = NonZeroU16::new(source_symbols_primary)
             .expect("the number of source symbols must not be 0");
         let source_symbols_secondary = NonZeroU16::new(source_symbols_secondary)
             .expect("the number of source symbols must not be 0");
         let n_shards = NonZeroU16::new(n_shards).expect("implied by previous checks");
 
-        Self::new_from_nonzero(source_symbols_primary, source_symbols_secondary, n_shards)
-    }
-
-    /// See [Self::new].
-    pub fn new_from_nonzero(
-        source_symbols_primary: NonZeroU16,
-        source_symbols_secondary: NonZeroU16,
-        n_shards: NonZeroU16,
-    ) -> Self {
         let f = max_n_byzantine(n_shards.get());
         assert!(
             source_symbols_primary.get() < MAX_SOURCE_SYMBOLS_PER_BLOCK
@@ -170,10 +159,14 @@ impl EncodingConfig {
     ///
     /// The decoding probability is given by the [`decoding_safety_limit`]. See the documentation of
     /// [`decoding_safety_limit`] and [`source_symbols_for_n_shards`] for more details.
-    #[allow(dead_code)]
-    pub fn new_for_n_shards(n_shards: NonZeroU16) -> Self {
+    ///
+    /// # Panics
+    ///
+    /// Panics if the number of shards causes the number of primary or secondary source symbols
+    /// to be larger than [`MAX_SOURCE_SYMBOLS_PER_BLOCK`].
+    pub fn new(n_shards: NonZeroU16) -> Self {
         let (primary, secondary) = source_symbols_for_n_shards(n_shards);
-        Self::new(primary, secondary, n_shards.get())
+        Self::new_from_n_source_symbols(primary, secondary, n_shards.get())
     }
 
     /// Returns the number of source symbols configured for this type.
@@ -184,6 +177,18 @@ impl EncodingConfig {
         } else {
             self.source_symbols_secondary
         }
+    }
+
+    /// Returns the number of primary source symbols as a `NonZeroU16`.
+    #[inline]
+    pub fn n_primary_source_symbols(&self) -> NonZeroU16 {
+        self.source_symbols_primary
+    }
+
+    /// Returns the number of secondary source symbols as a `NonZeroU16`.
+    #[inline]
+    pub fn n_secondary_source_symbols(&self) -> NonZeroU16 {
+        self.source_symbols_secondary
     }
 
     /// Returns the number of shards as a `NonZeroU16`.
@@ -336,7 +341,8 @@ mod tests {
     }
     fn test_sliver_size_for_blob(blob_size: usize, expected_primary_sliver_size: Option<usize>) {
         assert_eq!(
-            EncodingConfig::new(3, 5, 10).sliver_size_for_blob::<Primary>(blob_size),
+            EncodingConfig::new_from_n_source_symbols(3, 5, 10)
+                .sliver_size_for_blob::<Primary>(blob_size),
             expected_primary_sliver_size.and_then(NonZeroUsize::new)
         );
     }
@@ -370,7 +376,7 @@ mod tests {
         ]
     }
     fn test_new_for_n_shards(n_shards: u16, primary: u16, secondary: u16) {
-        let config = EncodingConfig::new_for_n_shards(n_shards.try_into().unwrap());
+        let config = EncodingConfig::new(n_shards.try_into().unwrap());
         assert_eq!(config.source_symbols_primary.get(), primary);
         assert_eq!(config.source_symbols_secondary.get(), secondary);
     }

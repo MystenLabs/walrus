@@ -466,8 +466,11 @@ mod tests {
         n_shards: u16,
         blob: &[u8],
     ) -> (EncodingConfig, Vec<SliverPair>) {
-        let config =
-            EncodingConfig::new(source_symbols_primary, source_symbols_secondary, n_shards);
+        let config = EncodingConfig::new_from_n_source_symbols(
+            source_symbols_primary,
+            source_symbols_secondary,
+            n_shards,
+        );
         let pairs = config.get_blob_encoder(blob).unwrap().encode();
         (config, pairs)
     }
@@ -566,8 +569,11 @@ mod tests {
         n_source_symbols: u16,
         result: std::result::Result<Option<Sliver<Primary>>, RecoveryError>,
     ) {
-        let config =
-            EncodingConfig::new(n_source_symbols, n_source_symbols, n_source_symbols * 3 + 1);
+        let config = EncodingConfig::new_from_n_source_symbols(
+            n_source_symbols,
+            n_source_symbols,
+            n_source_symbols * 3 + 1,
+        );
         let recovery_symbols = symbols
             .iter()
             .enumerate()
@@ -646,8 +652,11 @@ mod tests {
         n_shards: u16,
     ) -> Result {
         let symbol_size = symbol_size.try_into().unwrap();
-        let config =
-            EncodingConfig::new(source_symbols_primary, source_symbols_secondary, n_shards);
+        let config = EncodingConfig::new_from_n_source_symbols(
+            source_symbols_primary,
+            source_symbols_secondary,
+            n_shards,
+        );
 
         // Interpret the sliver as both primary and secondary for testing.
         let primary = Sliver::<Primary>::new(sliver_bytes, symbol_size, SliverIndex(0));
@@ -694,7 +703,7 @@ mod tests {
         ]
     }
     fn test_recovery_symbols_empty_sliver<T: EncodingAxis>() {
-        let config = EncodingConfig::new(3, 3, 10);
+        let config = EncodingConfig::new_from_n_source_symbols(3, 3, 10);
         assert_eq!(
             Sliver::<T>::new([], 1.try_into().unwrap(), SliverIndex::new(0))
                 .recovery_symbols(&config),
@@ -712,7 +721,7 @@ mod tests {
         ]
     }
     fn test_single_recovery_symbol_indexes(index: u32, n_shards: u16, is_ok: bool) {
-        let config = EncodingConfig::new(3, 3, n_shards);
+        let config = EncodingConfig::new_from_n_source_symbols(3, 3, n_shards);
         let result =
             Sliver::<Primary>::new([1, 2, 3, 4, 5, 6], 2.try_into().unwrap(), SliverIndex(0))
                 .single_recovery_symbol(index.try_into().unwrap(), &config);
@@ -798,7 +807,7 @@ mod tests {
     }
     fn test_recovery_symbol_proof(slice: &[u8], f: u16, symbol_size: u16) {
         let n_shards = 3 * f + 1;
-        let config = EncodingConfig::new(f, 2 * f, n_shards);
+        let config = EncodingConfig::new_from_n_source_symbols(f, 2 * f, n_shards);
         let sliver =
             Sliver::<Secondary>::new(slice, symbol_size.try_into().unwrap(), SliverIndex(0));
         let merkle_tree =

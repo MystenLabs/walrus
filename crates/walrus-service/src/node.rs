@@ -453,6 +453,8 @@ async fn sign_confirmation(
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroU16;
+
     use fastcrypto::traits::KeyPair;
     use walrus_test_utils::{Result as TestResult, WithTempDir};
 
@@ -473,7 +475,7 @@ mod tests {
     async fn storage_node_with_storage(storage: WithTempDir<Storage>) -> StorageNodeHandle {
         StorageNodeHandle::builder()
             .with_storage(storage)
-            .build(EncodingConfig::new(2, 5, 10))
+            .build(EncodingConfig::new(NonZeroU16::new(10).unwrap()))
             .await
             .expect("storage node creation in setup should not fail")
     }

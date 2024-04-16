@@ -57,11 +57,7 @@ impl<T: ContractClient> Client<T> {
             .timeout(config.connection_timeout)
             .build()?;
         let committee = sui_client.read_client().current_committee().await?;
-        let encoding_config = EncodingConfig::new_from_nonzero(
-            config.source_symbols_primary,
-            config.source_symbols_secondary,
-            committee.n_shards(),
-        );
+        let encoding_config = EncodingConfig::new(committee.n_shards());
 
         Ok(Self {
             reqwest_client,

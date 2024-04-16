@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{num::NonZeroU16, time::Duration};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use sui_types::base_types::ObjectID;
@@ -13,12 +13,6 @@ use crate::config::LoadConfig;
 /// Config for the client.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
-    // TODO(giac): the number of symbols will be computable from the number of shards after #206
-    // lands. This information can then be removed.
-    /// The number of source symbols for the primary encoding.
-    pub source_symbols_primary: NonZeroU16,
-    /// The number of source symbols for the secondary encoding.
-    pub source_symbols_secondary: NonZeroU16,
     /// The number of parallel requests the client makes.
     pub concurrent_requests: usize,
     /// Timeout for the `reqwest` client used by the client,
@@ -37,10 +31,6 @@ impl LoadConfig for Config {}
 pub struct LocalCommitteeConfig {
     /// The committee information.
     pub committee: Committee,
-    /// The number of source symbols for the primary encoding.
-    pub source_symbols_primary: NonZeroU16,
-    /// The number of source symbols for the secondary encoding.
-    pub source_symbols_secondary: NonZeroU16,
 }
 
 impl LoadConfig for LocalCommitteeConfig {}
@@ -48,10 +38,6 @@ impl LoadConfig for LocalCommitteeConfig {}
 impl LocalCommitteeConfig {
     /// Returns the [`EncodingConfig`] for this configuration.
     pub fn encoding_config(&self) -> EncodingConfig {
-        EncodingConfig::new_from_nonzero(
-            self.source_symbols_primary,
-            self.source_symbols_secondary,
-            self.committee.n_shards(),
-        )
+        EncodingConfig::new(self.committee.n_shards())
     }
 }

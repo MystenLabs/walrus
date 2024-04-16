@@ -588,7 +588,7 @@ mod tests {
         expected_rows: &[&[u8]],
         expected_columns: &[&[u8]],
     ) {
-        let config = EncodingConfig::new(
+        let config = EncodingConfig::new_from_n_source_symbols(
             source_symbols_primary,
             source_symbols_secondary,
             3 * (source_symbols_primary + source_symbols_secondary),
@@ -614,18 +614,16 @@ mod tests {
     #[test]
     fn test_blob_encode_decode() {
         let blob = random_data(31415);
-        let source_symbols_primary = 11;
-        let source_symbols_secondary = 23;
 
-        let config = EncodingConfig::new(
-            source_symbols_primary,
-            source_symbols_secondary,
-            3 * (source_symbols_primary + source_symbols_secondary),
-        );
+        let config = EncodingConfig::new(NonZeroU16::new(102).unwrap());
 
         let slivers_for_decoding = random_subset(
             config.get_blob_encoder(&blob).unwrap().encode(),
-            cmp::max(source_symbols_primary, source_symbols_secondary).into(),
+            cmp::max(
+                config.source_symbols_primary.get(),
+                config.source_symbols_secondary.get(),
+            )
+            .into(),
         );
 
         let mut primary_decoder = config.get_blob_decoder::<Primary>(blob.len()).unwrap();
@@ -635,7 +633,7 @@ mod tests {
                     slivers_for_decoding
                         .clone()
                         .map(|p| p.primary)
-                        .take(source_symbols_primary.into())
+                        .take(config.source_symbols_primary.get().into())
                 )
                 .unwrap(),
             blob
@@ -647,7 +645,7 @@ mod tests {
                 .decode(
                     slivers_for_decoding
                         .map(|p| p.secondary)
-                        .take(source_symbols_secondary.into())
+                        .take(config.source_symbols_secondary.get().into())
                 )
                 .unwrap(),
             blob
@@ -665,12 +663,9 @@ mod tests {
         //    the metadata produced by `compute_metadata_only`.
         // Takes long (O(1s)) to run.
         let blob = random_data(27182);
-        let source_symbols_primary = 11;
-        let source_symbols_secondary = 23;
-        let n_shards = 3 * (source_symbols_primary + source_symbols_secondary);
+        let n_shards = 102;
 
-        let config =
-            EncodingConfig::new(source_symbols_primary, source_symbols_secondary, n_shards);
+        let config = EncodingConfig::new(NonZeroU16::new(n_shards).unwrap());
 
         // Check that the encoding with and without metadata are identical.
         let sliver_pairs_1 = config.get_blob_encoder(&blob).unwrap().encode();
@@ -706,20 +701,18 @@ mod tests {
     #[test]
     fn test_encode_decode_and_verify() {
         let blob = random_data(16180);
-        let source_symbols_primary = 11;
-        let source_symbols_secondary = 23;
-        let n_shards = 3 * (source_symbols_primary + source_symbols_secondary);
+        let n_shards = 102;
 
-        let config =
-            EncodingConfig::new(source_symbols_primary, source_symbols_secondary, n_shards);
+        let config = EncodingConfig::new(NonZeroU16::new(n_shards).unwrap());
 
         let (slivers, metadata_enc) = config
             .get_blob_encoder(&blob)
             .unwrap()
             .encode_with_metadata();
-        let slivers_for_decoding = random_subset(slivers, source_symbols_primary.into())
-            .map(|s| s.primary)
-            .collect::<Vec<_>>();
+        let slivers_for_decoding =
+            random_subset(slivers, config.source_symbols_primary.get().into())
+                .map(|s| s.primary)
+                .collect::<Vec<_>>();
         let (blob_dec, metadata_dec) = config
             .get_blob_decoder(blob.len())
             .unwrap()

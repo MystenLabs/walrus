@@ -36,5 +36,3 @@ committee:
     - 9
   epoch: 0
   total_weight: 10
-source_symbols_primary: 2
-source_symbols_secondary: 4

@@ -10,12 +10,14 @@ use raptorq::SourceBlockEncodingPlan;
 use walrus_core::encoding::{Decoder, DecodingSymbol, Encoder, Primary};
 use walrus_test_utils::{random_data, random_subset};
 
-mod constants;
+const N_SHARDS: u16 = 1000;
+// Likely values for the number of source symbols for the primary and secondary encoding.
+// These values are consistent with BFT and are supported source-block sizes that do not require
+// padding, see https://datatracker.ietf.org/doc/html/rfc6330#section-5.6.
+const SOURCE_SYMBOLS_PRIMARY: u16 = 329;
+const SOURCE_SYMBOLS_SECONDARY: u16 = 662;
 
-const SYMBOL_COUNTS: [u16; 2] = [
-    constants::SOURCE_SYMBOLS_PRIMARY,
-    constants::SOURCE_SYMBOLS_SECONDARY,
-];
+const SYMBOL_COUNTS: [u16; 2] = [SOURCE_SYMBOLS_PRIMARY, SOURCE_SYMBOLS_SECONDARY];
 // Can be at most `u16::MAX`.
 const SYMBOL_SIZES: [u16; 5] = [1, 16, 256, 4096, u16::MAX];
 
@@ -42,7 +44,7 @@ fn basic_encoding(c: &mut Criterion) {
                         let encoder = Encoder::new(
                             data,
                             (*symbol_count).try_into().unwrap(),
-                            constants::N_SHARDS.try_into().unwrap(),
+                            N_SHARDS.try_into().unwrap(),
                             &encoding_plan,
                         )
                         .unwrap();
@@ -69,7 +71,7 @@ fn basic_decoding(c: &mut Criterion) {
             let encoder = Encoder::new(
                 &data,
                 symbol_count.try_into().unwrap(),
-                constants::N_SHARDS.try_into().unwrap(),
+                N_SHARDS.try_into().unwrap(),
                 &encoding_plan,
             )
             .unwrap();

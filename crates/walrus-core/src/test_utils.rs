@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Utility functions for tests.
 
+use std::num::NonZeroU16;
+
 use fastcrypto::traits::{KeyPair, Signer};
 use rand::{rngs::StdRng, RngCore, SeedableRng};
 
@@ -38,20 +40,22 @@ pub fn sliver() -> Sliver {
     Sliver::Primary(primary_sliver())
 }
 
-/// Returns an arbitrary primary sliver for testing.
+/// Returns an arbitrary primary sliver with 7 symbols (compatible with 10 shards) for testing.
 pub fn primary_sliver() -> PrimarySliver {
     encoding::Sliver::new(
         [
-            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+            25, 26, 27, 28,
         ],
         4.try_into().unwrap(),
         SliverIndex(1),
     )
 }
 
-/// Returns a BFT-compatible encoding configuration.
+/// Returns a BFT-compatible encoding configuration with 10 shards,
+/// i.e. with 7 secondary symbols and 4 primary symbols.
 pub fn encoding_config() -> EncodingConfig {
-    EncodingConfig::new(2, 5, 10)
+    EncodingConfig::new(NonZeroU16::new(10).unwrap())
 }
 
 /// Returns an arbitrary decoding symbol for testing.

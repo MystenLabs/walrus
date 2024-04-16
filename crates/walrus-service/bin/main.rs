@@ -117,13 +117,6 @@ enum CommitteeConfig {
         /// The index of the storage node to run.
         #[clap(long)]
         storage_node_index: usize,
-        // TODO(giac): these parameters can be removed once #205 is ready.
-        /// The number of primary source symbols.
-        #[clap(long)]
-        source_symbols_primary: NonZeroU16,
-        /// The number of secondary source symbols.
-        #[clap(long)]
-        source_symbols_secondary: NonZeroU16,
     },
     FromLocalConfig {
         /// The path to the client configuration file.
@@ -137,12 +130,6 @@ enum CommitteeConfig {
         /// The total number of shards.
         #[clap(long, default_value = "100")]
         n_shards: NonZeroU16,
-        /// The number of source symbols for the primary encoding.
-        #[clap(long, default_value = "30")]
-        source_symbols_primary: NonZeroU16,
-        /// The number of source symbols for the secondary encoding.
-        #[clap(long, default_value = "62")]
-        source_symbols_secondary: NonZeroU16,
         /// The shards to be handled by this node.
         #[clap(long)]
         handled_shards: Vec<u16>,
@@ -164,11 +151,7 @@ fn main_with_args(args: Args) -> anyhow::Result<()> {
         } => {
             let config = StorageNodeConfig::load(config_path)?;
             let (encoding_config, shards) = match committee_config {
-                CommitteeConfig::OnChain {
-                    storage_node_index,
-                    source_symbols_primary,
-                    source_symbols_secondary,
-                } => {
+                CommitteeConfig::OnChain { storage_node_index } => {
                     let sui_config = config.clone().sui.ok_or(anyhow!(
                         "please provide a storage node config with a `SuiConfig`"
                     ))?;
@@ -182,11 +165,7 @@ fn main_with_args(args: Args) -> anyhow::Result<()> {
                         .current_committee()
                         .await
                     })?;
-                    let encoding_config = EncodingConfig::new_from_nonzero(
-                        source_symbols_primary,
-                        source_symbols_secondary,
-                        committee.n_shards(),
-                    );
+                    let encoding_config = EncodingConfig::new(committee.n_shards());
                     let handled_shards = committee.shards_for_node(storage_node_index);
                     (encoding_config, handled_shards)
                 }
@@ -202,15 +181,9 @@ fn main_with_args(args: Args) -> anyhow::Result<()> {
                 }
                 CommitteeConfig::Manual {
                     n_shards,
-                    source_symbols_primary,
-                    source_symbols_secondary,
                     handled_shards,
                 } => (
-                    EncodingConfig::new(
-                        source_symbols_primary.get(),
-                        source_symbols_secondary.get(),
-                        n_shards.get(),
-                    ),
+                    EncodingConfig::new(n_shards),
                     handled_shards
                         .into_iter()
                         .map(ShardIndex)

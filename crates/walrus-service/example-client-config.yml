@@ -1,5 +1,3 @@
-source_symbols_primary: 2
-source_symbols_secondary: 4
 concurrent_requests: 10
 connection_timeout:
   secs: 10

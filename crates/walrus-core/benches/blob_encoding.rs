@@ -3,13 +3,13 @@
 
 //! Benchmarks for the blob encoding and decoding with and without authentication.
 
-use std::time::Duration;
+use std::{num::NonZeroU16, time::Duration};
 
 use criterion::{AxisScale, BatchSize, BenchmarkId, Criterion, PlotConfiguration};
 use walrus_core::encoding::{EncodingConfig, Primary};
 use walrus_test_utils::{random_data, random_subset};
 
-mod constants;
+const N_SHARDS: u16 = 1000;
 
 // The maximum symbol size is `u16::MAX`, which means a maximum blob size of ~13 GiB.
 // The blob size does not have to be a multiple of the number of symbols as we pad with 0s.
@@ -23,11 +23,7 @@ const BLOB_SIZES: [(usize, &str); 6] = [
 ];
 
 fn encoding_config() -> EncodingConfig {
-    EncodingConfig::new(
-        constants::SOURCE_SYMBOLS_PRIMARY,
-        constants::SOURCE_SYMBOLS_SECONDARY,
-        constants::N_SHARDS,
-    )
+    EncodingConfig::new(NonZeroU16::new(N_SHARDS).unwrap())
 }
 
 fn blob_encoding(c: &mut Criterion) {
@@ -73,7 +69,7 @@ fn blob_decoding(c: &mut Criterion) {
         let (sliver_pairs, metadata) = encoder.encode_with_metadata();
         let primary_slivers_for_decoding: Vec<_> = random_subset(
             sliver_pairs.into_iter().map(|p| p.primary),
-            constants::SOURCE_SYMBOLS_PRIMARY.into(),
+            config.n_primary_source_symbols().get().into(),
         )
         .collect();
         let blob_id = metadata.blob_id();

@@ -116,10 +116,11 @@ impl AsRef<StorageNode> for StorageNodeHandle {
 /// ```
 /// use walrus_core::encoding::EncodingConfig;
 /// use walrus_service::test_utils::StorageNodeHandleBuilder;
+/// use std::num::NonZeroU16;
 ///
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// let encoding_config = EncodingConfig::new(2, 5, 10);
+/// let encoding_config = EncodingConfig::new(NonZeroU16::new(10).unwrap());
 /// let handle = StorageNodeHandleBuilder::default()
 ///     .with_rest_api_started(true)
 ///     .with_node_started(true)
@@ -135,10 +136,11 @@ impl AsRef<StorageNode> for StorageNodeHandle {
 /// ```
 /// use walrus_core::{encoding::EncodingConfig, ShardIndex};
 /// use walrus_service::test_utils::{self, StorageNodeHandleBuilder};
+/// use std::num::NonZeroU16;
 ///
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// let encoding_config = EncodingConfig::new(2, 5, 10);
+/// let encoding_config = EncodingConfig::new(NonZeroU16::new(10).unwrap());
 /// let handle = StorageNodeHandleBuilder::default()
 ///     .with_storage(test_utils::empty_storage_with_shards(&[ShardIndex(0), ShardIndex(4)]))
 ///     .build(encoding_config)

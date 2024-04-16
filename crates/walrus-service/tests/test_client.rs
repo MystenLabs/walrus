@@ -1,11 +1,11 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::time::Duration;
+use std::{num::NonZeroU16, time::Duration};
 
 use sui_types::{base_types::ObjectID, digests::TransactionDigest, event::EventID};
 use walrus_core::{
-    encoding::{EncodingConfig, Primary, Secondary},
+    encoding::{EncodingConfig, Primary},
     BlobId,
     EncodingType,
     ShardIndex,
@@ -22,11 +22,9 @@ use walrus_sui::{
 #[tokio::test]
 #[ignore = "ignore E2E tests by default"]
 async fn test_store_and_read_blob() {
-    let encoding_config = EncodingConfig::new(2, 4, 10);
+    let encoding_config = EncodingConfig::new(NonZeroU16::new(10).unwrap());
 
     let config = Config {
-        source_symbols_primary: encoding_config.n_source_symbols::<Primary>(),
-        source_symbols_secondary: encoding_config.n_source_symbols::<Secondary>(),
         concurrent_requests: 10,
         connection_timeout: Duration::from_secs(10),
         system_pkg: ObjectID::random(),

@@ -10,7 +10,7 @@ use std::{
 use fastcrypto::traits::KeyPair;
 use futures::future::try_join_all;
 use rand::{rngs::StdRng, SeedableRng};
-use walrus_core::{encoding::source_symbols_for_n_shards, ProtocolKeyPair, ShardIndex};
+use walrus_core::{ProtocolKeyPair, ShardIndex};
 use walrus_sui::{
     system_setup::{create_system_object, publish_package, SystemParameters},
     types::{Committee, StorageNode as SuiStorageNode},
@@ -143,12 +143,7 @@ pub async fn testbed_configs(
         .for_each(|conf| conf.sui = sui_config.clone());
 
     // Create the client config.
-    let (source_symbols_primary, source_symbols_secondary) = source_symbols_for_n_shards(n_shards);
     let client_config = client::Config {
-        source_symbols_primary: NonZeroU16::new(source_symbols_primary)
-            .expect("number of source symbols to be nonzero"),
-        source_symbols_secondary: NonZeroU16::new(source_symbols_secondary)
-            .expect("number of source symbols to be nonzero"),
         concurrent_requests: committee_size.get().into(),
         connection_timeout: Duration::from_secs(10),
         system_pkg: pkg_id,

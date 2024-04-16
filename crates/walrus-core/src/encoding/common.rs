@@ -5,6 +5,8 @@
 pub const MAX_SYMBOL_SIZE: usize = u16::MAX as usize;
 
 /// The maximum number of source symbols per block for RaptorQ.
+/// See `K'_max` in
+/// [RFC 6330, Section 5.1.2](<https://datatracker.ietf.org/doc/html/rfc6330#section-5.1.2>)
 pub const MAX_SOURCE_SYMBOLS_PER_BLOCK: u16 = 56403;
 
 /// Marker trait to indicate the encoding axis (primary or secondary).
