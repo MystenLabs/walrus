@@ -18,8 +18,7 @@ async fn test_register_blob() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
     let test_cluster = TestClusterBuilder::new().build().await;
     let mut wallet = test_cluster.wallet;
-    let (package_id, system_object) =
-        publish_with_default_system(&mut wallet, "blob_store").await?;
+    let (package_id, system_object) = publish_with_default_system(&mut wallet).await?;
     let walrus_client =
         SuiContractClient::new(wallet, package_id, system_object, 10000000000).await?;
 
@@ -123,8 +122,7 @@ async fn test_register_blob() -> anyhow::Result<()> {
 async fn test_get_system() -> anyhow::Result<()> {
     let test_cluster = TestClusterBuilder::new().build().await;
     let mut wallet = test_cluster.wallet;
-    let (package_id, system_object) =
-        publish_with_default_system(&mut wallet, "blob_store").await?;
+    let (package_id, system_object) = publish_with_default_system(&mut wallet).await?;
     let walrus_client =
         SuiContractClient::new(wallet, package_id, system_object, 10000000000).await?;
     let system = walrus_client.read_client.get_system_object().await?;

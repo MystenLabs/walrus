@@ -32,6 +32,7 @@ use crate::{
 
 mod read_client;
 pub use read_client::{ReadClient, SuiReadClient};
+pub mod system_setup;
 
 #[derive(Debug, thiserror::Error)]
 /// Error returned by the [`SuiContractClient`] and the [`SuiReadClient`].

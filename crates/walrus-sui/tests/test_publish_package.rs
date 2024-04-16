@@ -10,7 +10,7 @@ async fn test_publish_blob_storage_package_and_check_events() -> anyhow::Result<
     let mut test_cluster = TestClusterBuilder::new().build().await;
     let wallet = &mut test_cluster.wallet;
     let sender = wallet.active_address()?;
-    publish_with_default_system(wallet, "blob_store").await?;
+    publish_with_default_system(wallet).await?;
 
     // Read the system creation event
 
