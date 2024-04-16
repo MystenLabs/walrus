@@ -542,7 +542,10 @@ impl<P: ProtocolCommands + ProtocolMetrics> Orchestrator<P> {
         }
         display::done();
 
-        Ok(LogsAnalyzer::aggregate(log_parsers))
+        Ok(log_parsers
+            .into_iter()
+            .max()
+            .expect("At least one log parser"))
     }
 
     /// Run all the benchmarks specified by the benchmark generator.

@@ -102,12 +102,6 @@ impl Measurement {
         measurements
     }
 
-    /// Compute the tps.
-    pub fn tps(&self, duration: &Duration) -> u64 {
-        let tps = self.count.checked_div(duration.as_secs() as usize);
-        tps.unwrap_or_default() as u64
-    }
-
     /// Compute the average latency.
     pub fn average_latency(&self) -> Duration {
         self.sum.checked_div(self.count as u32).unwrap_or_default()
@@ -118,13 +112,13 @@ impl Measurement {
     pub fn stdev_latency(&self) -> Duration {
         // Compute `squared_sum / count`.
         let first_term = if self.count == 0 {
-            0.0
+            return Duration::from_secs(0);
         } else {
             self.squared_sum.as_secs_f64() / self.count as f64
         };
 
         // Compute `avg^2`.
-        let squared_avg = self.average_latency().as_secs_f64().powf(2.0);
+        let squared_avg = self.average_latency().as_secs_f64().powi(2_i32);
 
         // Compute `squared_sum / count - avg^2`.
         let variance = if squared_avg > first_term {
@@ -189,36 +183,33 @@ impl MeasurementsCollection {
         self.data.keys()
     }
 
+    /// Get the maximum result of a function applied to the measurements.
+    fn max_result<T: Default + Ord>(
+        &self,
+        label: &Label,
+        function: impl Fn(&Measurement) -> T,
+    ) -> T {
+        self.all_measurements(label)
+            .iter()
+            .filter_map(|x| x.last())
+            .map(function)
+            .max()
+            .unwrap_or_default()
+    }
+
     /// Aggregate the benchmark duration of multiple data points by taking the max.
     pub fn benchmark_duration(&self) -> Duration {
         self.labels()
-            .map(|label| {
-                self.all_measurements(label)
-                    .iter()
-                    .filter_map(|x| x.last())
-                    .map(|x| x.timestamp)
-                    .max()
-                    .unwrap_or_default()
-            })
+            .map(|label| self.max_result(label, |x| x.timestamp))
             .max()
             .unwrap_or_default()
     }
 
     /// Aggregate the tps of multiple data points.
     pub fn aggregate_tps(&self, label: &Label) -> u64 {
-        let duration = self
-            .all_measurements(label)
-            .iter()
-            .filter_map(|x| x.last())
-            .map(|x| x.timestamp)
-            .max()
-            .unwrap_or_default();
-        self.all_measurements(label)
-            .iter()
-            .filter_map(|x| x.last())
-            .map(|x| x.tps(&duration))
-            .max()
-            .unwrap_or_default()
+        self.max_result(label, |x| x.count)
+            .checked_div(self.max_result(label, |x| x.timestamp.as_secs_f64() as usize))
+            .unwrap_or_default() as u64
     }
 
     /// Aggregate the average latency of multiple data points by taking the average.
@@ -234,13 +225,8 @@ impl MeasurementsCollection {
     }
 
     /// Aggregate the stdev latency of multiple data points by taking the max.
-    pub fn aggregate_stdev_latency(&self, label: &Label) -> Duration {
-        self.all_measurements(label)
-            .iter()
-            .filter_map(|x| x.last())
-            .map(|x| x.stdev_latency())
-            .max()
-            .unwrap_or_default()
+    pub fn max_stdev_latency(&self, label: &Label) -> Duration {
+        self.max_result(label, |x| x.stdev_latency())
     }
 
     /// Save the collection of measurements as a json file.
@@ -271,7 +257,7 @@ impl MeasurementsCollection {
         for label in labels {
             let total_tps = self.aggregate_tps(label);
             let average_latency = self.aggregate_average_latency(label);
-            let stdev_latency = self.aggregate_stdev_latency(label);
+            let stdev_latency = self.max_stdev_latency(label);
 
             table.add_row(row![bH2->""]);
             table.add_row(row![b->"Workload:", label]);
