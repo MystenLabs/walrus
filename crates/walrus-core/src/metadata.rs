@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     encoding::{EncodingAxis, EncodingConfig},
-    merkle::{Node as MerkleNode, DIGEST_LEN, MerkleTree},
+    merkle::{MerkleTree, Node as MerkleNode, DIGEST_LEN},
     BlobId,
     EncodingType,
     SliverPairIndex,
@@ -174,14 +174,12 @@ impl BlobMetadata {
     /// Returns the root hash of the Merkle tree over the sliver pairs.
     pub fn compute_root_hash(&self) -> MerkleNode {
         MerkleTree::<Blake2b256>::build(
-            self
-                .hashes
+            self.hashes
                 .iter()
                 .map(|h| h.pair_leaf_input::<Blake2b256>()),
         )
         .root()
     }
-
 }
 
 /// Metadata about a sliver pair, i.e., the root hashes of the primary and secondary slivers.

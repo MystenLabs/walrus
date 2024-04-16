@@ -42,11 +42,16 @@ async fn test_register_blob() -> anyhow::Result<()> {
         1, 2, 3, 4, 5, 6, 7, 8,
     ];
 
-    let blob_id = BlobId::from_metadata(
-        Node::from(root_hash), EncodingType::RedStuff, size);
+    let blob_id = BlobId::from_metadata(Node::from(root_hash), EncodingType::RedStuff, size);
 
     let blob_obj = walrus_client
-        .register_blob(&storage_resource, blob_id, root_hash, size, EncodingType::RedStuff)
+        .register_blob(
+            &storage_resource,
+            blob_id,
+            root_hash,
+            size,
+            EncodingType::RedStuff,
+        )
         .await?;
     assert_eq!(blob_obj.blob_id, blob_id);
     assert_eq!(blob_obj.encoded_size, size);
@@ -98,11 +103,16 @@ async fn test_register_blob() -> anyhow::Result<()> {
         1, 2, 3, 4, 5, 6, 7, 0,
         1, 2, 3, 4, 5, 6, 7, 0,
     ];
-    let blob_id = BlobId::from_metadata(
-        Node::from(root_hash), EncodingType::RedStuff, size);
+    let blob_id = BlobId::from_metadata(Node::from(root_hash), EncodingType::RedStuff, size);
 
     let blob_obj = walrus_client
-        .register_blob(&storage_resource, blob_id, root_hash, size, EncodingType::RedStuff)
+        .register_blob(
+            &storage_resource,
+            blob_id,
+            root_hash,
+            size,
+            EncodingType::RedStuff,
+        )
         .await?;
 
     // Make sure that we got the expected event

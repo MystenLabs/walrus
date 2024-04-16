@@ -102,7 +102,6 @@ impl BlobId {
 
         Self(hasher.finalize().into())
     }
-
 }
 
 impl AsRef<[u8]> for BlobId {

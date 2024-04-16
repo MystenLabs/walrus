@@ -22,7 +22,13 @@ use sui_types::{
     transaction::{Argument, ProgrammableTransaction},
     Identifier,
 };
-use walrus_core::{ensure, messages::ConfirmationCertificate, BlobId, EncodingType, merkle::DIGEST_LEN};
+use walrus_core::{
+    ensure,
+    merkle::DIGEST_LEN,
+    messages::ConfirmationCertificate,
+    BlobId,
+    EncodingType,
+};
 
 use crate::{
     contracts::{self, FunctionTag},
