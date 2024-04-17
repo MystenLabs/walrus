@@ -7,7 +7,7 @@ use anyhow::{anyhow, Result};
 use fastcrypto::{bls12381::min_pk::BLS12381AggregateSignature, traits::AggregateAuthenticator};
 use futures::Future;
 use reqwest::{Client as ReqwestClient, ClientBuilder};
-use tokio::time::Duration;
+use tokio::time::{sleep, Duration};
 use tracing::Instrument;
 use walrus_core::{
     encoding::{BlobDecoder, EncodingAxis, EncodingConfig, Sliver, SliverPair},
@@ -98,6 +98,10 @@ impl<T: ContractClient> Client<T> {
                 metadata.metadata().encoding_type,
             )
             .await?;
+
+        // We need to wait to be sure that the storage nodes received the registration event.
+        sleep(Duration::from_secs(1)).await;
+
         let certificate = self.store_metadata_and_pairs(&metadata, pairs).await?;
         self.sui_client
             .certify_blob(&blob_sui_object, &certificate)

@@ -111,10 +111,16 @@ pub async fn testbed_configs(
 
     let sui_client = admin_wallet.get_client().await?;
     // Get coins from faucet for the wallets.
-    let faucet_requests = [
-        request_sui_from_faucet(admin_wallet.active_address()?, sui_network, &sui_client),
-        request_sui_from_faucet(client_wallet.active_address()?, sui_network, &sui_client),
-    ];
+    let mut faucet_requests = Vec::with_capacity(4);
+    for wallet in [&mut admin_wallet, &mut client_wallet] {
+        for _ in 0..2 {
+            faucet_requests.push(request_sui_from_faucet(
+                wallet.active_address()?,
+                sui_network,
+                &sui_client,
+            ))
+        }
+    }
     try_join_all(faucet_requests).await?;
 
     // Publish package and set up system object
