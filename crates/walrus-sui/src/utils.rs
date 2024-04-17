@@ -336,17 +336,14 @@ pub async fn request_sui_from_faucet(
 
     tracing::info!("waiting to receive tokens from faucet");
     // check if we have received a new coin from the faucet
-    loop {
-        let new_coin = handle_pagination(|cursor| {
-            sui_client
-                .coin_read_api()
-                .get_coins(address.to_owned(), None, cursor, None)
-        })
-        .await?
-        .any(|coin| !coins.contains(&coin.coin_object_id));
-        if new_coin {
-            break;
-        }
+    while handle_pagination(|cursor| {
+        sui_client
+            .coin_read_api()
+            .get_coins(address.to_owned(), None, cursor, None)
+    })
+    .await?
+    .all(|coin| coins.contains(&coin.coin_object_id))
+    {
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
     }
     tracing::info!("received tokens from faucet");

@@ -15,12 +15,12 @@ use crate::{
     types::{Committee, NetworkAddress, StorageNode},
 };
 
-const DEFAULT_GAS_BUDGET: u64 = 10000000000;
-const DEFAULT_CAPACITY: u64 = 1000000000;
+const DEFAULT_GAS_BUDGET: u64 = 1_000_000_000;
+const DEFAULT_CAPACITY: u64 = 1_000_000_000;
 const DEFAULT_PRICE: u64 = 10;
 
 fn contract_path_for_testing(contract: &str) -> anyhow::Result<PathBuf> {
-    Ok(std::env::current_dir()?
+    Ok(PathBuf::from_str(env!("CARGO_MANIFEST_DIR"))?
         .parent()
         .unwrap()
         .parent()

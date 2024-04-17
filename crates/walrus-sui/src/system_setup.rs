@@ -97,7 +97,8 @@ pub async fn publish_package(
 
     ensure!(
         transaction_response.status_ok() == Some(true),
-        "Status not ok"
+        "Error during transaction execution: {:?}",
+        transaction_response.errors
     );
 
     // get package id and CommitteeCapHolder id
