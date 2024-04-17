@@ -21,6 +21,9 @@ max_line_length = 150
 indent_size = 2
 max_line_length = 150
 
+[crates/walrus-orchestrator/src/monitor.rs]
+indent_size = unset
+
 # Ignore paths
 [{.git/**/*,**/*.lock,**/Move.toml,LICENSE}]
 charset = unset

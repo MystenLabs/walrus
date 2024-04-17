@@ -3,6 +3,8 @@
 
 use std::{fs, net::SocketAddr, path::PathBuf};
 
+use indoc::{formatdoc, indoc};
+
 use crate::{
     client::Instance,
     error::{MonitorError, MonitorResult},
@@ -38,9 +40,9 @@ impl Monitor {
 
     /// Dependencies to install.
     pub fn dependencies() -> Vec<String> {
-        let mut commands = Vec::new();
-        commands.extend(Prometheus::install_commands());
-        commands.extend(Grafana::install_commands());
+        let mut commands: Vec<String> = Vec::new();
+        commands.extend(Prometheus::install_commands().into_iter().map(String::from));
+        commands.extend(Grafana::install_commands().into_iter().map(String::from));
         commands.extend(NodeExporter::install_commands());
         commands
     }
@@ -70,7 +72,7 @@ impl Monitor {
     pub async fn start_grafana(&self) -> MonitorResult<()> {
         // Configure and reload grafana.
         let instance = std::iter::once(self.instance.clone());
-        let commands = Grafana::setup_commands().join("\n");
+        let commands = Grafana::setup_commands();
         self.ssh_manager
             .execute(instance, commands, CommandContext::default())
             .await?;
@@ -94,10 +96,10 @@ impl Prometheus {
     pub const DEFAULT_PORT: u16 = 9090;
 
     /// The commands to install prometheus.
-    pub fn install_commands() -> Vec<String> {
+    pub fn install_commands() -> Vec<&'static str> {
         vec![
-            "sudo apt-get -y install prometheus".into(),
-            "sudo chmod 777 -R /var/lib/prometheus/ /etc/prometheus/".into(),
+            "sudo apt-get -y install prometheus",
+            "sudo chmod 777 -R /var/lib/prometheus/ /etc/prometheus/",
         ]
     }
 
@@ -108,7 +110,7 @@ impl Prometheus {
         P: ProtocolMetrics,
     {
         // Generate the prometheus configuration.
-        let mut config = vec![Self::global_configuration()];
+        let mut config = vec![Self::global_configuration().into()];
 
         let nodes_metrics_path = protocol.nodes_metrics_path(instances);
         for (i, (_, nodes_metrics_path)) in nodes_metrics_path.into_iter().enumerate() {
@@ -126,14 +128,13 @@ impl Prometheus {
 
     /// Generate the global prometheus configuration.
     /// NOTE: The configuration file is a yaml file so spaces are important.
-    fn global_configuration() -> String {
-        [
-            "global:",
-            "  scrape_interval: 5s",
-            "  evaluation_interval: 5s",
-            "scrape_configs:",
-        ]
-        .join("\n")
+    fn global_configuration() -> &'static str {
+        indoc! {"
+            global:
+              scrape_interval: 5s
+              evaluation_interval: 5s
+            scrape_configs:
+        "}
     }
 
     /// Generate the prometheus configuration from the given metrics path.
@@ -145,18 +146,21 @@ impl Prometheus {
         let port = address.port();
         let path = parts[1];
 
-        [
-            &format!("  - job_name: instance-{index}"),
-            &format!("    metrics_path: /{path}"),
-            "    static_configs:",
-            "      - targets:",
-            &format!("        - {ip}:{port}"),
-            &format!("  - job_name: instance-node-exporter-{index}"),
-            "    static_configs:",
-            "      - targets:",
-            &format!("        - {ip}:{}", NodeExporter::DEFAULT_PORT),
-        ]
-        .join("\n")
+        // As `formatdoc` doesn't support custom ident levels, we define the indent via a `#`
+        // character (signifying a comment) on the first line.
+        formatdoc! {"
+            #
+              - job_name: instance-{index}
+                metrics_path: /{path}
+                static_configs:
+                  - targets:
+                    - {ip}:{port}
+              - job_name: instance-node-exporter-{index}
+                static_configs:
+                  - targets:
+                    - {ip}:{}",
+            NodeExporter::DEFAULT_PORT,
+        }
     }
 }
 
@@ -169,53 +173,51 @@ impl Grafana {
     pub const DEFAULT_PORT: u16 = 3000;
 
     /// The commands to install grafana.
-    pub fn install_commands() -> Vec<String> {
+    pub fn install_commands() -> Vec<&'static str> {
         vec![
-            "sudo apt-get install -y apt-transport-https software-properties-common wget".into(),
-            "sudo wget -q -O /etc/apt/keyrings/grafana.key https://apt.grafana.com/gpg.key".into(),
-            "(sudo rm /etc/apt/sources.list.d/grafana.list || true)".into(),
+            "sudo apt-get install -y apt-transport-https software-properties-common wget",
+            "sudo wget -q -O /etc/apt/keyrings/grafana.key https://apt.grafana.com/gpg.key",
+            "(sudo rm /etc/apt/sources.list.d/grafana.list || true)",
             "echo \
-            \"deb [signed-by=/etc/apt/keyrings/grafana.key] https://apt.grafana.com stable main\" \
-            | sudo tee -a /etc/apt/sources.list.d/grafana.list"
-                .into(),
-            "sudo apt-get update".into(),
-            "sudo apt-get install -y grafana".into(),
-            "sudo chmod 777 -R /etc/grafana/".into(),
+                \"deb [signed-by=/etc/apt/keyrings/grafana.key] \
+                https://apt.grafana.com stable main\" \
+                | sudo tee -a /etc/apt/sources.list.d/grafana.list",
+            "sudo apt-get update",
+            "sudo apt-get install -y grafana",
+            "sudo chmod 777 -R /etc/grafana/",
         ]
     }
 
     /// Generate the commands to update the grafana datasource and restart grafana.
-    pub fn setup_commands() -> Vec<String> {
-        vec![
-            format!("(rm -r {} || true)", Self::DATASOURCES_PATH),
-            format!("mkdir -p {}", Self::DATASOURCES_PATH),
-            format!(
-                "sudo echo \"{}\" > {}/testbed.yml",
-                Self::datasource(),
-                Self::DATASOURCES_PATH
-            ),
-            "sudo service grafana-server restart".into(),
-        ]
+    pub fn setup_commands() -> String {
+        formatdoc! {"
+            (rm -r {0} || true)
+            mkdir -p {0}
+            sudo echo \"{1}\" > {0}/testbed.yml
+            sudo service grafana-server restart",
+            Self::DATASOURCES_PATH,
+            Self::datasource(),
+        }
     }
 
     /// Generate the content of the datasource file for the given instance.
     /// NOTE: The datasource file is a yaml file so spaces are important.
     fn datasource() -> String {
-        [
-            "apiVersion: 1",
-            "deleteDatasources:",
-            "  - name: testbed",
-            "    orgId: 1",
-            "datasources:",
-            "  - name: testbed",
-            "    type: prometheus",
-            "    access: proxy",
-            "    orgId: 1",
-            &format!("    url: http://localhost:{}", Prometheus::DEFAULT_PORT),
-            "    editable: true",
-            "    uid: Fixed-UID-testbed",
-        ]
-        .join("\n")
+        formatdoc! {"
+            apiVersion: 1
+            deleteDatasources:
+              - name: testbed
+                orgId: 1
+            datasources:
+              - name: testbed
+                type: prometheus
+                access: proxy
+                orgId: 1
+                url: http://localhost:{}
+                editable: true
+                uid: Fixed-UID-testbed",
+            Prometheus::DEFAULT_PORT,
+        }
     }
 }
 
@@ -274,25 +276,22 @@ impl LocalGrafana {
     /// takes one datasource per instance and assumes one prometheus server runs per instance.
     /// NOTE: The datasource file is a yaml file so spaces are important.
     fn datasource(instance: &Instance, index: usize) -> String {
-        [
-            "apiVersion: 1",
-            "deleteDatasources:",
-            &format!("  - name: instance-{index}"),
-            "    orgId: 1",
-            "datasources:",
-            &format!("  - name: instance-{index}"),
-            "    type: prometheus",
-            "    access: proxy",
-            "    orgId: 1",
-            &format!(
-                "    url: http://{}:{}",
-                instance.main_ip,
-                Prometheus::DEFAULT_PORT
-            ),
-            "    editable: true",
-            &format!("    uid: UID-{index}"),
-        ]
-        .join("\n")
+        formatdoc! {"
+            apiVersion: 1
+            deleteDatasources:
+              - name: instance-{index}
+                orgId: 1
+            datasources:
+              - name: instance-{index}
+                type: prometheus
+                access: proxy
+                orgId: 1
+                url: http://{}:{}
+                editable: true
+                uid: UID-{index}",
+            instance.main_ip,
+            Prometheus::DEFAULT_PORT,
+        }
     }
 }
 
@@ -311,45 +310,38 @@ impl NodeExporter {
             Self::RELEASE
         );
 
-        vec![
-            "(sudo systemctl status node_exporter && exit 0)".into(),
-            format!("curl -LO {source}"),
-            format!(
-                "tar -xvf node_exporter-{}.linux-amd64.tar.gz",
-                Self::RELEASE
-            ),
-            format!(
-                "sudo mv node_exporter-{}.linux-amd64/node_exporter /usr/local/bin/",
-                Self::RELEASE
-            ),
-            "sudo useradd -rs /bin/false node_exporter || true".into(),
-            format!(
-                "sudo echo \"{}\" > {}",
-                Self::service_config(),
-                Self::SERVICE_PATH
-            ),
-            "sudo systemctl daemon-reload".into(),
-            "sudo systemctl start node_exporter".into(),
-            "sudo systemctl enable node_exporter".into(),
-        ]
+        formatdoc! {"
+            (sudo systemctl status node_exporter && exit 0)
+            curl -LO {source}
+            tar -xvf node_exporter-{0}.linux-amd64.tar.gz
+            sudo mv node_exporter-{0}.linux-amd64/node_exporter /usr/local/bin/
+            sudo useradd -rs /bin/false node_exporter || true
+            sudo echo \"{1}\" > {2}
+            sudo systemctl daemon-reload
+            sudo systemctl start node_exporter
+            sudo systemctl enable node_exporter",
+            Self::RELEASE,
+            Self::service_config(),
+            Self::SERVICE_PATH,
+        }
+        .split('\n')
+        .map(String::from)
+        .collect()
     }
 
     fn service_config() -> String {
-        [
-            "[Unit]",
-            "Description=Node Exporter",
-            "After=network.target",
-            "[Service]",
-            "User=node_exporter",
-            "Group=node_exporter",
-            "Type=simple",
-            &format!(
-                "ExecStart=/usr/local/bin/node_exporter --web.listen-address=:{}",
-                Self::DEFAULT_PORT
-            ),
-            "[Install]",
-            "WantedBy=multi-user.target",
-        ]
-        .join("\n")
+        formatdoc! {"
+            [Unit]
+            Description=Node Exporter
+            After=network.target
+            [Service]
+            User=node_exporter
+            Group=node_exporter
+            Type=simple
+            ExecStart=/usr/local/bin/node_exporter --web.listen-address=:{0}
+            [Install]
+            WantedBy=multi-user.target",
+            Self::DEFAULT_PORT,
+        }
     }
 }
