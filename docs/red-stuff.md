@@ -306,28 +306,24 @@ We therefore set the following parameters in our encoding configuration:
 Currently, $\sigma$ is selected depending on the number of shards as follows:
 
 | N shards from | N shards to (incl) | $\sigma$ |
-|---------------|--------------------|----------|
-| 0             | 15                 | 0        |
-| 16            | 30                 | 1        |
-| 31            | 45                 | 2        |
-| 46            | 60                 | 3        |
-| 61            | 75                 | 4        |
-| 76            | inf                | 5        |
+|--------------:|-------------------:|---------:|
+|             0 |                 15 |        0 |
+|            16 |                 30 |        1 |
+|            31 |                 45 |        2 |
+|            46 |                 60 |        3 |
+|            61 |                 75 |        4 |
+|            76 |                inf |        5 |
 
 For example, then, we have the following settings:
 
-| N shards | f   | $\sigma$ | # primary | # secondary |
-|----------|-----|----------|-----------|-------------|
-| 7        | 2   | 0        | 3         | 5           |
-| 10       | 3   | 0        | 4         | 7           |
-| 11       | 3   | 0        | 5         | 8           |
-| 15       | 4   | 0        | 7         | 11          |
-| 16       | 5   | 1        | 5         | 10          |
-| 31       | 10  | 2        | 9         | 19          |
-| 50       | 16  | 3        | 15        | 31          |
-| 51       | 16  | 3        | 16        | 32          |
-| 100      | 33  | 5        | 29        | 62          |
-| 1000     | 333 | 5        | 329       | 662         |
+| N shards |   f | $\sigma$ | # primary | # secondary |
+|---------:|----:|---------:|----------:|------------:|
+|        7 |   2 |        0 |         3 |           5 |
+|       10 |   3 |        0 |         4 |           7 |
+|       31 |  10 |        2 |         9 |          19 |
+|      100 |  33 |        5 |        29 |          62 |
+|      300 |  99 |        5 |        97 |         196 |
+|     1000 | 333 |        5 |       329 |         662 |
 
 
 ## Blob Size Considerations
@@ -339,19 +335,13 @@ Since the blob is encoded in the rectangular message matrix, the blob size is up
 u16::MAX` and lowerbound by `source_symbols_primary * source_symbols_secondary`. A few examples for the same configurations as above:
 
 | N shards | Min blob size | Max blob size |
-|----------|---------------|---------------|
-| 7        | 15 B          | 0.983025 MB   |
-| 10       | 28 B          | 1.83498 MB    |
-| 11       | 40 B          | 2.6214 MB     |
-| 15       | 77 B          | 5.046195 MB   |
-| 16       | 50 B          | 3.27675 MB    |
-| 31       | 171B          | 11.206485 MB  |
-| 50       | 465B          | 30.473775 MB  |
-| 51       | 512B          | 33.55392 MB   |
-| 100      | 1798 B        | 117.83193 MB  |
-| ...      | ...           | ...           |
-| 1000     | 217.798 KB    | 14.273392 GB  |
-
+|---------:|--------------:|--------------:|
+|        7 |        15.0 B |      983.0 KB |
+|       10 |        28.0 B |       1.83 MB |
+|       31 |       171.0 B |       11.2 MB |
+|      100 |        1.8 KB |      118.0 MB |
+|      300 |       19.0 KB |       1.25 GB |
+|     1000 |      218.0 KB |       14.3 GB |
 
 ## Sliver Authentication, Blob Metadata, and the Blob ID
 
@@ -383,18 +373,21 @@ Merkle root of the tree over the slivers are hashed together to obtain the _blob
 As seen above, each storage node needs to store the full metadata for the blob. The metadata consists of a `32 B` hash for each primary and secondary
 sliver, which can be a considerable overhead if the number of shards is high:
 
-| N shards | Metadata size (one node) | Metadata size (system) | % of min size | % of max size |
-|----------|--------------------------|------------------------|---------------|---------------|
-| 7        | 448                      | 3136                   | 20906.667     | 0.31901528    |
-| 10       | 640                      | 6400                   | 22857.143     | 0.34877764    |
-| 11       | 704                      | 7744                   | 19360.        | 0.29541466    |
-| 15       | 960                      | 14400                  | 18701.299     | 0.28536353    |
-| 16       | 1024                     | 16384                  | 32768.        | 0.50000763    |
-| 31       | 1984                     | 61504                  | 35967.251     | 0.54882508    |
-| 50       | 3200                     | 160000                 | 34408.602     | 0.52504161    |
-| 51       | 3264                     | 166464                 | 32512.5       | 0.49610895    |
-| 100      | 6400                     | 640000                 | 35595.106     | 0.54314650    |
-| 1000     | 64000                    | 64000000               | 29385.026     | 0.44838676    |
+| N shards | Metadata size (one node) | Metadata size (N/log(N) nodes) | Metadata size (N nodes) |
+|---------:|-------------------------:|-------------------------------:|------------------------:|
+|        7 |                  448.0 B |                        3.71 KB |                 3.14 KB |
+|       10 |                  640.0 B |                         6.4 KB |                  6.4 KB |
+|       31 |                  1.98 KB |                        41.2 KB |                 61.5 KB |
+|      100 |                   6.4 KB |                       320.0 KB |                640.0 KB |
+|      300 |                  19.2 KB |                        2.33 MB |                 5.76 MB |
+|     1000 |                  64.0 KB |                        21.3 MB |                 64.0 MB |
+
+| N=1000             | Total metadata size | Factor min blob | Factor max blob |
+|--------------------|--------------------:|----------------:|----------------:|
+| Single node        |             64.0 KB |           0.294 |        4.48e-06 |
+| N / log10(N) nodes |             21.3 MB |            98.0 |         0.00149 |
+| N nodes            |             64.0 MB |           294.0 |         0.00448 |
+
 
 As we can see, the metadata size in the case of 1000 nodes (1 node per shard), is 64KB per node, or 64MB for the whole system.  The last two columns
 of the table show the percent ratio of the size of the metadata stored on the system ("Metadata size (system)") to the minimum and maximum blob sizes
