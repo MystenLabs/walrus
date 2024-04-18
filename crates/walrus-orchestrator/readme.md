@@ -47,12 +47,11 @@ The documentation of the `Settings` struct in `./src/settings.rs` provides detai
 about each field and indicates which ones are optional. If you're working with a private GitHub
 repository, you can include a [private access
 token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)
-in the repository URL. For example, if your access token is
-`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`, the repository URL should be formatted as follows:
+in the repository URL. Your access token starts with `ghp_` and the repository URL should be formatted as follows:
 
 ```yaml
 repository:
-  url: http://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@github.com/mystenlabs/walrus.git
+  url: https://$GITHUB_ACCESS_TOKEN@github.com/mystenlabs/walrus.git
   commit: main
 ```
 
