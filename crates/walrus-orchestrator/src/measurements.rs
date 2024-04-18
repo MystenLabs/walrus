@@ -33,7 +33,7 @@ pub struct Measurement {
     /// Total number of finalized transactions
     count: usize,
     /// Sum of the squares of the latencies of all finalized transactions
-    squared_sum: Duration,
+    squared_sum: f64,
 }
 
 impl Measurement {
@@ -78,7 +78,7 @@ impl Measurement {
                 }
                 x if x == M::LATENCY_SQUARED_SUM => {
                     measurement.squared_sum = match sample.value {
-                        prometheus_parse::Value::Counter(value) => Duration::from_secs_f64(value),
+                        prometheus_parse::Value::Counter(value) => value,
                         _ => panic!("Unexpected scraped value"),
                     };
                 }
@@ -115,7 +115,7 @@ impl Measurement {
         let first_term = if self.count == 0 {
             return Duration::from_secs(0);
         } else {
-            self.squared_sum.as_secs_f64() / self.count as f64
+            self.squared_sum / self.count as f64
         };
 
         // Compute `avg^2`.
@@ -287,7 +287,7 @@ mod test {
             buckets: HashMap::new(),
             sum: Duration::from_secs(2),
             count: 100,
-            squared_sum: Duration::from_secs(0),
+            squared_sum: 0.0,
         };
 
         assert_eq!(data.average_latency(), Duration::from_millis(20));
@@ -300,14 +300,11 @@ mod test {
             buckets: HashMap::new(),
             sum: Duration::from_secs(50),
             count: 100,
-            squared_sum: Duration::from_secs(75),
+            squared_sum: 75.0,
         };
 
         // squared_sum / count
-        assert_eq!(
-            data.squared_sum.checked_div(data.count as u32),
-            Some(Duration::from_secs_f64(0.75))
-        );
+        assert_eq!(data.squared_sum / data.count as f64, 0.75);
         // avg^2
         assert_eq!(data.average_latency().as_secs_f64().powf(2.0), 0.25);
         // sqrt( squared_sum / count - avg^2 )
@@ -413,7 +410,7 @@ mod test {
                 assert_eq!(data.sum.as_secs(), 1265);
                 assert_eq!(data.count, 1860);
                 assert_eq!(data.timestamp.as_secs(), 30);
-                assert_eq!(data.squared_sum.as_secs(), 952);
+                assert_eq!(data.squared_sum as u64, 952);
             }
         }
     }
