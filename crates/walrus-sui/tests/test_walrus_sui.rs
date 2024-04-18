@@ -43,6 +43,8 @@ async fn test_register_blob() -> anyhow::Result<()> {
     ];
 
     let blob_id = BlobId::from_metadata(Node::from(root_hash), EncodingType::RedStuff, size);
+    println!("root_hash: {:?}", root_hash);
+    println!("blob_id: {:?}", blob_id.0);
 
     let blob_obj = walrus_client
         .register_blob(
