@@ -45,9 +45,17 @@ done
 echo "\nSpawned $committee_size nodes in separate tmux sessions handing a total of $shards shards."
 
 # Instructions to run a client
-echo "\nTo store a file (e.g., the README.md) on the testbed, use the following command:"
-echo "$ cargo run --bin client --\
-    --config working_dir/client_config.yaml --wallet working_dir/sui_client.yaml store README.md 1"
+cat << EOF
+
+To store a file (e.g., the README.md) on the testbed, use the following command:
+$ cargo run --bin client -- \
+--config working_dir/client_config.yaml --wallet working_dir/sui_client.yaml store README.md 1
+
+You can then read the stored file by running the following (replacing "\$ID" by the blob ID \
+returned by the store operation):
+$ cargo run --bin client -- \
+--config working_dir/client_config.yaml read --rpc-url https://fullnode.devnet.sui.io:443 \$ID
+EOF
 
 while true; do
     sleep 1

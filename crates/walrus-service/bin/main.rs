@@ -26,7 +26,6 @@ use tokio_util::sync::CancellationToken;
 use typed_store::rocks::MetricConf;
 use walrus_core::{encoding::EncodingConfig, ProtocolKeyPair, ShardIndex};
 use walrus_service::{
-    client,
     config::{LoadConfig, StorageNodeConfig},
     server::UserServer,
     testbed::{node_config_name_prefix, testbed_configs},
@@ -113,19 +112,13 @@ enum Commands {
 #[derive(Subcommand, Debug, Clone)]
 #[clap(rename_all = "kebab-case")]
 enum CommitteeConfig {
+    /// Get the committee configuration from chain.
     OnChain {
         /// The index of the storage node to run.
         #[clap(long)]
         storage_node_index: usize,
     },
-    FromLocalConfig {
-        /// The path to the client configuration file.
-        #[clap(long, default_value = "./working_dir/client_config.yaml")]
-        client_config_path: PathBuf,
-        /// The index of the storage node to run.
-        #[clap(long)]
-        storage_node_index: usize,
-    },
+    /// Manually provide the configuration for the storage node.
     Manual {
         /// The total number of shards.
         #[clap(long, default_value = "100")]
@@ -167,16 +160,6 @@ fn main_with_args(args: Args) -> anyhow::Result<()> {
                     })?;
                     let encoding_config = EncodingConfig::new(committee.n_shards());
                     let handled_shards = committee.shards_for_node(storage_node_index);
-                    (encoding_config, handled_shards)
-                }
-                CommitteeConfig::FromLocalConfig {
-                    client_config_path,
-                    storage_node_index,
-                } => {
-                    let client_config = client::LocalCommitteeConfig::load(client_config_path)?;
-                    let encoding_config = client_config.encoding_config();
-                    let handled_shards =
-                        client_config.committee.shards_for_node(storage_node_index);
                     (encoding_config, handled_shards)
                 }
                 CommitteeConfig::Manual {

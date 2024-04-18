@@ -28,7 +28,7 @@ mod config;
 mod error;
 mod utils;
 
-pub use self::config::{Config, LocalCommitteeConfig};
+pub use self::config::Config;
 use self::{
     communication::{NodeCommunication, NodeResult},
     error::{SliverRetrieveError, StoreError},
@@ -46,26 +46,53 @@ pub struct Client<T> {
     encoding_config: EncodingConfig,
 }
 
-impl<T: ContractClient> Client<T> {
-    /// Creates a new client starting from a config file.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `config.committee.total_weight == 0`.
-    pub async fn new(config: Config, sui_client: T) -> Result<Self> {
+impl Client<()> {
+    /// Creates a new read client starting from a config file.
+    pub async fn new_read_client(
+        config: Config,
+        sui_read_client: &impl ReadClient,
+    ) -> Result<Self> {
         let reqwest_client = ClientBuilder::new()
             .timeout(config.connection_timeout)
             .build()?;
-        let committee = sui_client.read_client().current_committee().await?;
+        let committee = sui_read_client.current_committee().await?;
         let encoding_config = EncodingConfig::new(committee.n_shards());
 
         Ok(Self {
             reqwest_client,
-            sui_client,
+            sui_client: (),
             committee,
             concurrent_requests: config.concurrent_requests,
             encoding_config,
         })
+    }
+
+    /// Converts `self` to a [`Client::<T>`] by adding the `sui_client`.
+    pub async fn with_client<T: ContractClient>(self, sui_client: T) -> Client<T> {
+        let Self {
+            reqwest_client,
+            sui_client: _,
+            committee,
+            concurrent_requests,
+            encoding_config,
+        } = self;
+        Client::<T> {
+            reqwest_client,
+            sui_client,
+            committee,
+            concurrent_requests,
+            encoding_config,
+        }
+    }
+}
+
+impl<T: ContractClient> Client<T> {
+    /// Creates a new client starting from a config file.
+    pub async fn new(config: Config, sui_client: T) -> Result<Self> {
+        Ok(Client::new_read_client(config, sui_client.read_client())
+            .await?
+            .with_client(sui_client)
+            .await)
     }
 
     /// Encodes the blob, reserves & registers the space on chain, and stores the slivers to the
@@ -108,7 +135,9 @@ impl<T: ContractClient> Client<T> {
             .await
             .map_err(|e| anyhow!("blob certification failed: {e}"))
     }
+}
 
+impl<T> Client<T> {
     /// Stores the already-encoded metadata and sliver pairs for a blob into Walrus, by sending
     /// sliver pairs to at least 2f+1 shards.
     ///
@@ -144,7 +173,7 @@ impl<T: ContractClient> Client<T> {
         self.confirmations_to_certificate(metadata.blob_id(), results)
     }
 
-    /// Combines the received storage confimrations into a single certificate.
+    /// Combines the received storage confirmations into a single certificate.
     ///
     /// This function _does not_ check that the received confirmations match the current epoch and
     /// blob ID, as it assumes that the storage confirmations were received through

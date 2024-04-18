@@ -10539,6 +10539,7 @@ dependencies = [
  "axum 0.7.5",
  "bcs",
  "clap",
+ "colored",
  "fastcrypto 0.1.8",
  "futures",
  "git-version",

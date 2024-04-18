@@ -5,8 +5,6 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use sui_types::base_types::ObjectID;
-use walrus_core::encoding::EncodingConfig;
-use walrus_sui::types::Committee;
 
 use crate::config::LoadConfig;
 
@@ -24,20 +22,3 @@ pub struct Config {
 }
 
 impl LoadConfig for Config {}
-
-/// Temporary config with information that can be eventually fetched from the chain.
-// TODO: remove as soon as the information is fetched from the chain.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct LocalCommitteeConfig {
-    /// The committee information.
-    pub committee: Committee,
-}
-
-impl LoadConfig for LocalCommitteeConfig {}
-
-impl LocalCommitteeConfig {
-    /// Returns the [`EncodingConfig`] for this configuration.
-    pub fn encoding_config(&self) -> EncodingConfig {
-        EncodingConfig::new(self.committee.n_shards())
-    }
-}
