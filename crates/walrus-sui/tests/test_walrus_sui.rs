@@ -14,7 +14,7 @@ use walrus_sui::{
 
 #[tokio::test]
 #[ignore = "ignore integration tests by default"]
-async fn test_register_blob() -> anyhow::Result<()> {
+async fn test_register_certify_blob() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
     let test_cluster = TestClusterBuilder::new().build().await;
     let mut wallet = test_cluster.wallet;
@@ -74,8 +74,17 @@ async fn test_register_blob() -> anyhow::Result<()> {
     assert_eq!(blob_registered.end_epoch, storage_resource.end_epoch);
     assert_eq!(blob_registered.size, blob_obj.encoded_size);
 
+
+    let certificate = get_default_blob_certificate(blob_id, 0);
+
+    // Values printed here should match move test `test_blob_certify_single_function`
+    //
+    // println!("certificate signature: {:?}", certificate.signature.as_bytes());
+    // let bytes : Vec<u8> = certificate.confirmation.clone().into();
+    // println!("certificate message: {:?}", bytes);
+
     let blob_obj = walrus_client
-        .certify_blob(&blob_obj, &get_default_blob_certificate(blob_id, 0))
+        .certify_blob(&blob_obj, &certificate)
         .await?;
     assert_eq!(blob_obj.certified, Some(0));
 

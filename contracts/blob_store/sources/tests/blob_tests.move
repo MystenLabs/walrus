@@ -5,6 +5,7 @@
 module blob_store::blob_tests {
 
     use sui::coin;
+    use sui::bcs;
 
     use std::string;
 
@@ -117,31 +118,45 @@ module blob_store::blob_tests {
 
         let mut ctx = tx_context::dummy();
 
-        let blob_id = 0x0807060504030201080706050403020108070605040302010807060504030201;
+        // Derive blob ID and root_hash from bytes
+        let root_hash_vec = vector[
+            1, 2, 3, 4, 5, 6, 7, 8,
+            1, 2, 3, 4, 5, 6, 7, 8,
+            1, 2, 3, 4, 5, 6, 7, 8,
+            1, 2, 3, 4, 5, 6, 7, 8,
+        ];
+
+        let mut encode = bcs::new(root_hash_vec);
+        let root_hash = bcs::peel_u256(&mut encode);
+
+        let blob_id_vec = vector[
+            119, 174, 25, 167, 128, 57, 96, 1,
+            163, 56, 61, 132, 191, 35, 44, 18,
+            231, 224, 79, 178, 85, 51, 69, 53,
+            214, 95, 198, 203, 56, 221, 111, 83];
+
+        let mut encode = bcs::new(blob_id_vec);
+        let blob_id = bcs::peel_u256(&mut encode);
+
+        // Derive and check blob ID
+        let blob_id_bis = blob::derive_blob_id(root_hash, 0x0, 10000);
+        assert!(blob_id == blob_id_bis, 0);
 
         // BCS confirmation message for epoch 0 and blob id `blob_id` with intents
         let confirmation = vector[
-            1, 0, 3, 0, 0, 0, 0, 0,
-            0, 0, 0, 1, 2, 3, 4, 5,
-            6, 7, 8, 1, 2, 3, 4, 5,
-            6, 7, 8, 1, 2, 3, 4, 5,
-            6, 7, 8, 1, 2, 3, 4, 5,
-            6, 7, 8
+            1, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0,
+            119, 174, 25, 167, 128, 57, 96, 1, 163, 56, 61, 132,
+            191, 35, 44, 18, 231, 224, 79, 178, 85, 51, 69, 53, 214,
+            95, 198, 203, 56, 221, 111, 83
         ];
         // Signature from private key scalar(117) on `confirmation`
         let signature = vector[
-            128, 62, 224, 78, 156, 217, 159, 1,
-            190, 168, 80, 144, 85, 79, 82, 23,
-            4, 146, 248, 165, 127, 252, 137, 171,
-            8, 105, 155, 147, 216, 36, 206, 221,
-            222, 241, 110, 27, 208, 230, 121, 167,
-            185, 195, 150, 184, 164, 123, 203, 200,
-            15, 156, 65, 247, 115, 213, 30, 219,
-            164, 24, 134, 245, 219, 234, 195, 129,
-            150, 162, 237, 124, 51, 243, 151, 186,
-            203, 123, 253, 2, 121, 17, 242, 153,
-            225, 16, 110, 117, 172, 163, 55, 147,
-            192, 128, 223, 68, 206, 144, 103, 11
+            184, 138, 78, 92, 221, 170, 180, 107, 75, 249, 222, 177, 183, 25, 107, 214, 237,
+            214, 213, 12, 239, 65, 88, 112, 65, 229, 225, 23, 62, 158, 144, 67, 206, 37, 148,
+            1, 69, 64, 190, 180, 121, 153, 39, 149, 41, 2, 112, 69, 23, 68, 69, 159, 192, 116,
+            41, 113, 21, 116, 123, 169, 204, 165, 232, 70, 146, 1, 175, 70, 126, 14, 20, 206,
+            113, 234, 141, 195, 218, 52, 172, 56, 78, 168, 114, 213, 241, 83, 188, 215, 123,
+            191, 111, 136, 26, 193, 60, 246
         ];
 
         // A test coin.
@@ -177,7 +192,7 @@ module blob_store::blob_tests {
         );
 
         // Register a Blob
-        let mut blob1 = blob::register(&system, storage, blob_id, blob_id, 10000, 0x1, &mut ctx);
+        let mut blob1 = blob::register(&system, storage, blob_id, root_hash, 10000, 0x0, &mut ctx);
 
         // Set certify
         blob::certify(&system, &mut blob1, signature, vector[0], confirmation);
