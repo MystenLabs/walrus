@@ -43,9 +43,6 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
     ];
 
     let blob_id = BlobId::from_metadata(Node::from(root_hash), EncodingType::RedStuff, size);
-    println!("root_hash: {:?}", root_hash);
-    println!("blob_id: {:?}", blob_id.0);
-
     let blob_obj = walrus_client
         .register_blob(
             &storage_resource,
@@ -77,6 +74,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
     let certificate = get_default_blob_certificate(blob_id, 0);
 
     // Values printed here should match move test `test_blob_certify_single_function`
+    // Note: we keep these commented in case we ever need to recompute them to update tests.
     //
     // println!("certificate signature: {:?}", certificate.signature.as_bytes());
     // let bytes : Vec<u8> = certificate.confirmation.clone().into();
