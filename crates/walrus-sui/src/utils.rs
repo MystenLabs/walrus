@@ -288,10 +288,12 @@ pub fn create_wallet(
         .parent()
         .unwrap_or(&sui_config_dir()?)
         .join(keystore_filename.unwrap_or(SUI_KEYSTORE_FILENAME));
-    let mut keystore = Keystore::from(FileBasedKeystore::new(&keystore_path)?);
-
+    let mut keystore = FileBasedKeystore::new(&keystore_path)?;
     let (new_address, _phrase, _scheme) =
         keystore.generate_and_add_new_key(SignatureScheme::ED25519, None, None, None)?;
+    keystore.set_path(&keystore_path.canonicalize()?);
+    let keystore = Keystore::from(keystore);
+
     let alias = env.alias.clone();
     SuiClientConfig {
         keystore,
