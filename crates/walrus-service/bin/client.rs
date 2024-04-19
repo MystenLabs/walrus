@@ -3,14 +3,14 @@
 
 //! A client for the Walrus blob store.
 
-use std::{env, path::PathBuf};
+use std::{io::Write, path::PathBuf};
 
 use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand};
 use colored::{ColoredString, Colorize};
 use sui_sdk::{wallet_context::WalletContext, SuiClientBuilder};
 use walrus_core::{encoding::Primary, BlobId};
-use walrus_service::client::{Client, Config};
+use walrus_service::client::{default_configuration_paths, Client, Config};
 use walrus_sui::client::{SuiContractClient, SuiReadClient};
 
 /// Default URL of the devnet RPC node.
@@ -20,10 +20,29 @@ pub const DEVNET_RPC: &str = "https://fullnode.devnet.sui.io:443";
 #[clap(rename_all = "kebab-case")]
 #[command(author, version, about = "Walrus client", long_about = None)]
 struct Args {
-    /// The path to the configuration file with the system information ([`Config`]).
-    #[clap(short, long, default_value = "config.yml")]
-    config: PathBuf,
     /// The path to the wallet configuration file.
+    ///
+    /// The Walrus configuration is taken from the following locations:
+    ///
+    /// 1. From this configuration parameter, if set.
+    /// 1. From `./config.yaml`.
+    /// 1. From `~/.walrus/config.yaml`.
+    ///
+    /// If an invalid path is specified through this option, an error is returned.
+    #[clap(short, long)]
+    config: Option<PathBuf>,
+    /// The path to the Sui wallet configuration file.
+    ///
+    /// The wallet configuration is taken from the following locations:
+    ///
+    /// 1. From this configuration parameter, if set.
+    /// 1. From the path specified in the Walrus configuration, if set.
+    /// 1. From `./client.yaml`.
+    /// 1. From `./sui_config.yaml`.
+    /// 1. From `~/.sui/sui_config/client.yaml`.
+    ///
+    /// If an invalid path is specified through this option or in the configuration file, an error
+    /// is returned.
     #[clap(short, long, default_value = None)]
     wallet: Option<PathBuf>,
     /// The gas budget for transactions.
@@ -41,7 +60,8 @@ enum Commands {
         /// The file containing the blob to be published to Walrus.
         file: PathBuf,
         /// The number of epochs ahead for which to store the blob.
-        epochs_ahead: u64,
+        #[clap(short, long, default_value_t = 1)]
+        epochs: u64,
     },
     /// Read a blob from Walrus, given the blob ID.
     Read {
@@ -54,58 +74,68 @@ enum Commands {
         out: Option<PathBuf>,
         /// The URL of the Sui RPC node to use.
         ///
-        /// If unset, the wallet configuration is applied (if set), or the default [`DEVNET_RPC`]
-        /// is used.
+        /// If unset, the wallet configuration is applied (if set), or the fullnode at
+        /// `fullnode.devnet.sui.io:443` is used.
         #[clap(short, long, default_value = None)]
         rpc_url: Option<String>,
     },
 }
 
+/// Returns the path if it is `Some` or any of the default paths if they exist (attempt in order).
+fn path_or_defaults_if_exist(path: &Option<PathBuf>, defaults: &[PathBuf]) -> Option<PathBuf> {
+    let mut path = path.clone();
+    for default in defaults {
+        if path.is_some() {
+            break;
+        }
+        path = default.exists().then_some(default.clone());
+    }
+    path
+}
+
 /// Loads the wallet context from the given path.
 ///
 /// If no path is provided, tries to load the configuration first from the local folder, and then
-/// from the home folder.
+/// from the standard Sui configuration directory.
 fn load_wallet_context(path: &Option<PathBuf>) -> Result<WalletContext> {
-    let path = path
-        .as_ref()
-        .cloned()
-        .or_else(local_client_config)
-        .or_else(home_client_config)
+    let mut default_paths = vec!["./client.yaml".into(), "./sui_config.yaml".into()];
+    if let Some(home_dir) = home::home_dir() {
+        default_paths.push(home_dir.join(".sui").join("sui_config").join("client.yaml"))
+    }
+    let path = path_or_defaults_if_exist(path, &default_paths)
         .ok_or(anyhow!("Could not find a valid wallet config file."))?;
     tracing::info!("Using wallet configuration from {}", path.display());
     WalletContext::new(&path, None, None)
 }
 
-fn local_client_config() -> Option<PathBuf> {
-    let path: PathBuf = "./client.yaml".into();
-    path.exists().then_some(path)
-}
+/// Loads the Walrus configuration from the given path.
+///
+/// If no path is provided, tries to load the configuration first from the local folder, and then
+/// from the standard Walrus configuration directory.
+fn load_configuration(path: &Option<PathBuf>) -> Result<Config> {
+    let path = path_or_defaults_if_exist(path, &default_configuration_paths())
+        .ok_or(anyhow!("Could not find a valid Walrus configuration file."))?;
+    tracing::info!("Using Walrus configuration from {}", path.display());
 
-fn home_client_config() -> Option<PathBuf> {
-    env::var("HOME")
-        .map(|home| {
-            PathBuf::from(home)
-                .join(".sui")
-                .join("sui_config")
-                .join("client.yaml")
-        })
-        .ok()
-        .filter(|path| path.exists())
+    serde_yaml::from_str(&std::fs::read_to_string(&path).context(format!(
+        "Unable to read Walrus configuration from {}",
+        path.display()
+    ))?)
+    .context(format!(
+        "Parsing Walrus configuration from {} failed",
+        path.display()
+    ))
 }
 
 async fn client() -> Result<()> {
     tracing_subscriber::fmt::init();
     let args = Args::parse();
-    let config: Config =
-        serde_yaml::from_str(&std::fs::read_to_string(&args.config).context(format!(
-            "Unable to read client configuration from {}",
-            args.config.display()
-        ))?)?;
+    let config: Config = load_configuration(&args.config)?;
     tracing::debug!(?args, ?config);
 
     match args.command {
-        Commands::Store { file, epochs_ahead } => {
-            let wallet = load_wallet_context(&args.wallet)?;
+        Commands::Store { file, epochs } => {
+            let wallet = load_wallet_context(&args.wallet.or(config.wallet_config.clone()))?;
             let sui_client = SuiContractClient::new(
                 wallet,
                 config.system_pkg,
@@ -117,7 +147,7 @@ async fn client() -> Result<()> {
 
             tracing::info!(?file, "Storing blob read from the filesystem");
             let blob = client
-                .reserve_and_store_blob(&std::fs::read(file)?, epochs_ahead)
+                .reserve_and_store_blob(&std::fs::read(file)?, epochs)
                 .await?;
             println!(
                 "{} Blob stored successfully.\nBlob ID: {}",
@@ -165,7 +195,7 @@ async fn client() -> Result<()> {
                         path.display()
                     )
                 }
-                None => println!("{}", std::str::from_utf8(&blob)?),
+                None => std::io::stdout().write_all(&blob)?,
             }
         }
     }

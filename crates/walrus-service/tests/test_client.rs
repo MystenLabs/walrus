@@ -29,6 +29,7 @@ async fn test_store_and_read_blob() {
         connection_timeout: Duration::from_secs(10),
         system_pkg: ObjectID::random(),
         system_object: ObjectID::random(),
+        wallet_config: None,
     };
 
     let blob = walrus_test_utils::random_data(31415);

@@ -103,8 +103,9 @@ pub async fn testbed_configs(
     )?;
 
     // Create wallet for the client
+    let client_wallet_path = working_dir.join("sui_client.yaml");
     let mut client_wallet = create_wallet(
-        &working_dir.join("sui_client.yaml"),
+        &client_wallet_path,
         &sui_network,
         Some("sui_client.keystore"),
     )?;
@@ -154,6 +155,7 @@ pub async fn testbed_configs(
         connection_timeout: Duration::from_secs(10),
         system_pkg: pkg_id,
         system_object,
+        wallet_config: Some(std::fs::canonicalize(client_wallet_path)?),
     };
 
     Ok((storage_node_configs, client_config))

@@ -25,15 +25,13 @@ use walrus_sui::{
 
 mod communication;
 mod config;
+pub use config::{default_configuration_paths, Config};
 mod error;
 mod utils;
 
-pub use self::config::Config;
-use self::{
-    communication::{NodeCommunication, NodeResult},
-    error::{SliverRetrieveError, StoreError},
-    utils::WeightedFutures,
-};
+use communication::{NodeCommunication, NodeResult};
+use error::{SliverRetrieveError, StoreError};
+use utils::WeightedFutures;
 
 /// A client to communicate with Walrus shards and storage nodes.
 #[derive(Debug)]
