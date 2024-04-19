@@ -146,6 +146,7 @@ impl Encoder {
 #[derive(Debug, Clone)]
 pub struct Decoder {
     raptorq_decoder: SourceBlockDecoder,
+    symbol_size: NonZeroU16,
 }
 
 impl Decoder {
@@ -160,6 +161,7 @@ impl Decoder {
                 &utils::get_transmission_info(symbol_size),
                 (n_source_symbols.get() as u64) * (symbol_size.get() as u64),
             ),
+            symbol_size,
         }
     }
 
@@ -174,10 +176,24 @@ impl Decoder {
     where
         T: IntoIterator<Item = DecodingSymbol<U, V>>,
         U: EncodingAxis,
+        V: std::fmt::Debug,
     {
-        let packets = symbols
-            .into_iter()
-            .map(DecodingSymbol::<U, V>::into_encoding_packet);
+        let expected_symbol_size = self.symbol_size.get() as usize;
+        let packets = symbols.into_iter().filter_map(|symbol| {
+            let actual_symbol_size = symbol.len();
+            if actual_symbol_size == expected_symbol_size {
+                Some(symbol.into_encoding_packet())
+            } else {
+                // Drop symbols of incorrect length and log a warning.
+                tracing::warn!(
+                    ?symbol,
+                    expected_symbol_size,
+                    actual_symbol_size,
+                    "Input to decoder has incorrect length",
+                );
+                None
+            }
+        });
         self.raptorq_decoder.decode(packets)
     }
 }

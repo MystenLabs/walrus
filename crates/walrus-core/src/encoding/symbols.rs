@@ -300,6 +300,16 @@ impl<T: EncodingAxis, U> DecodingSymbol<T, U> {
     pub fn into_encoding_packet(self) -> EncodingPacket {
         EncodingPacket::new(PayloadId::new(0, self.index.into()), self.data)
     }
+
+    /// Returns the symbol size in bytes.
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    /// Returns true iff the symbol size is 0.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 impl<T: EncodingAxis> DecodingSymbol<T> {

@@ -264,6 +264,7 @@ impl<T: EncodingAxis> Sliver<T> {
     where
         I: IntoIterator,
         I::IntoIter: Iterator<Item = DecodingSymbol<T, V>> + Clone,
+        V: std::fmt::Debug,
     {
         let recovery_iter = recovery_symbols.into_iter();
 

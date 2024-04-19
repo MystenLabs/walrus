@@ -427,18 +427,29 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
     ///
     /// If decoding failed due to an insufficient number of provided slivers, it can be continued
     /// by additional calls to [`decode`][Self::decode] providing more slivers.
-    pub fn decode(&mut self, slivers: impl IntoIterator<Item = Sliver<T>>) -> Option<Vec<u8>> {
+    pub fn decode<S>(&mut self, slivers: S) -> Option<Vec<u8>>
+    where
+        S: IntoIterator<Item = Sliver<T>>,
+        T: EncodingAxis,
+    {
         // Depending on the decoding axis, this represents the message matrix's columns (primary)
         // or rows (secondary).
         let mut columns_or_rows = Vec::with_capacity(self.decoders.len());
         let mut decoding_successful = false;
 
         for sliver in slivers {
-            if sliver.symbols.len() != self.decoders.len()
-                || sliver.symbols.symbol_size() != self.symbol_size
+            let expected_len = self.decoders.len();
+            let expected_symbol_size = self.symbol_size;
+            if sliver.symbols.len() != expected_len
+                || sliver.symbols.symbol_size() != expected_symbol_size
             {
-                // Ignore slivers of incorrect length or incorrect symbol size.
-                // Question(mlegner): Should we return an error instead? Or at least log this?
+                // Drop slivers of incorrect length or incorrect symbol size and log a warning.
+                tracing::warn!(
+                    ?sliver,
+                    expected_len,
+                    expected_symbol_size,
+                    "Sliver has incorrect length or symbol size"
+                );
                 continue;
             }
             for (decoder, symbol) in self.decoders.iter_mut().zip(sliver.symbols.to_symbols()) {
