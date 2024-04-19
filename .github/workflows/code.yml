@@ -83,7 +83,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2.7.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
-      - run: cargo install cargo-sort@1.0.9
+      - run: >
+          cargo install cargo-sort --git https://github.com/DevinR528/cargo-sort
+          --rev 55ec89082466f6bb246d870a8d56d166a8e1f08b
 
       - name: Check formatting with rustfmt
         run: >

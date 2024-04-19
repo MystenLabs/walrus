@@ -11,11 +11,15 @@ license = "Apache-2.0"
 [workspace.dependencies]
 anyhow = "1.0.82"
 bcs = "0.1.6"
+clap = { version = "4.5.4", features = ["derive"] }
 fastcrypto = "0.1"
+futures = "0.3.30"
 move-core-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.23.0" }
 mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.23.0" }
 rand = "0.8.5"
+reqwest = "0.12.4"
 serde = { version = "1.0.198", features = ["derive"] }
+serde_json = "1.0.116"
 serde_with = "3.7"
 serde_yaml = "0.9"
 sui-keys = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.23.0" }
@@ -27,15 +31,14 @@ telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "test
 tempfile = "3.10.1"
 test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.23.0" }
 thiserror = "1.0.59"
-tokio = { version = "1.37.0" }
+tokio = "1.37.0"
 tokio-stream = "0.1.15"
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
 typed-store = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.23.0" }
 walrus-core = { path = "crates/walrus-core" }
 walrus-sui = { path = "crates/walrus-sui" }
 walrus-test-utils = { path = "crates/walrus-test-utils" }
-clap = { version = "4.5.4", features = ["derive"] }
-reqwest = { version = "0.12.4" }
-futures = "0.3.30"
 
 [workspace.lints.rust]
 missing_docs = "warn"

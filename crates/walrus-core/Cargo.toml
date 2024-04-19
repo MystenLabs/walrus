@@ -1,29 +1,29 @@
 [package]
 name = "walrus-core"
 publish = false
-authors = { workspace = true }
-version = { workspace = true }
-edition = { workspace = true }
-license = { workspace = true }
+authors.workspace = true
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 
 [dependencies]
 base64 = "0.22.0"
-bcs = { workspace = true }
-fastcrypto = { workspace = true }
-rand = { workspace = true }
+bcs.workspace = true
+fastcrypto.workspace = true
+rand.workspace = true
 raptorq = "2.0.0"
-serde = { workspace = true }
+serde.workspace = true
 serde_with = { workspace = true, features = ["base64"] }
-thiserror = { workspace = true }
+thiserror.workspace = true
 
 [lints]
 workspace = true
 
 [dev-dependencies]
-anyhow = { workspace = true }
+anyhow.workspace = true
 criterion = "0.5.1"
 serde_test = "1.0.176"
-walrus-test-utils = { workspace = true }
+walrus-test-utils.workspace = true
 
 [features]
 test-utils = []

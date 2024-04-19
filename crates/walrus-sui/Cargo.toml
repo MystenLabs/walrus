@@ -1,37 +1,37 @@
 [package]
 name = "walrus-sui"
 publish = false
-authors = { workspace = true }
-version = { workspace = true }
-edition = { workspace = true }
-license = { workspace = true }
+authors.workspace = true
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 
 [features]
 default = ["test-utils"]
 test-utils = []
 
 [dependencies]
-anyhow = { workspace = true }
-bcs = { workspace = true }
-fastcrypto = { workspace = true }
-move-core-types = { workspace = true }
-reqwest = { workspace = true }
-serde = { workspace = true }
-serde_json = "1.0.116"
-sui-config = { workspace = true }
-sui-keys = { workspace = true }
-sui-move-build = { workspace = true }
-sui-sdk = { workspace = true }
-sui-types = { workspace = true }
-thiserror = { workspace = true }
+anyhow.workspace = true
+bcs.workspace = true
+fastcrypto.workspace = true
+move-core-types.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sui-config.workspace = true
+sui-keys.workspace = true
+sui-move-build.workspace = true
+sui-sdk.workspace = true
+sui-types.workspace = true
+thiserror.workspace = true
 tokio = { workspace = true, features = ["sync"] }
-tokio-stream = { workspace = true }
-tracing = "0.1.40"
-walrus-core = { workspace = true }
+tokio-stream.workspace = true
+tracing.workspace = true
+walrus-core.workspace = true
 
 [lints]
 workspace = true
 
 [dev-dependencies]
-test-cluster = { workspace = true }
-tracing-subscriber = "0.3.18"
+test-cluster.workspace = true
+tracing-subscriber.workspace = true

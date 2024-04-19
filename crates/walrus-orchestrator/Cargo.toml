@@ -1,36 +1,36 @@
 [package]
 name = "walrus-orchestrator"
 publish = false
-version = { workspace = true }
-authors = { workspace = true }
-edition = { workspace = true }
-license = { workspace = true }
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
 
 [dependencies]
 aws-config = "1.2.0"
 aws-runtime = "1.2.0"
 aws-sdk-ec2 = "1.34.0"
-clap = { workspace = true }
+clap.workspace = true
 color-eyre = "0.6.3"
 crossterm = "0.27.0"
 eyre = "0.6.12"
-futures = { workspace = true }
+futures.workspace = true
 indoc = "2.0.5"
 prettytable-rs = "0.10"
 # TODO(alberto): Remove this dependency again (#284).
 prometheus-parse = { git = "https://github.com/asonnino/prometheus-parser", rev = "75334db" }
 reqwest = { workspace = true, features = ["json"] }
-serde = { workspace = true }
-serde_json = "1.0.116"
-serde_with = { workspace = true }
-serde_yaml = { workspace = true }
+serde.workspace = true
+serde_json.workspace = true
+serde_with.workspace = true
+serde_yaml.workspace = true
 ssh2 = "0.9.4"
-thiserror = { workspace = true }
+thiserror.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
-walrus-core = { workspace = true }
+walrus-core.workspace = true
 
 [dev-dependencies]
-tempfile = { workspace = true }
+tempfile.workspace = true
 
 [lints]
 workspace = true
