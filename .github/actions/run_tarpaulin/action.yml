@@ -4,7 +4,6 @@ description: Run all tests and report coverage
 runs:
   using: "composite"
   steps:
-    - uses: actions/checkout@v4
     - run: cargo install cargo-tarpaulin@0.27.3
       shell: bash
 

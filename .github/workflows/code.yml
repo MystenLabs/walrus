@@ -136,6 +136,7 @@ jobs:
     env:
       RUSTC_BOOTSTRAP: 1
     steps:
+      - uses: actions/checkout@v4
       - uses: ./actions/run_tarpaulin
       - name: Add coverage PR comment
         uses: marocchino/sticky-pull-request-comment@v2

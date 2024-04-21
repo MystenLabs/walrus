@@ -37,6 +37,7 @@ jobs:
     env:
       RUSTC_BOOTSTRAP: 1
     steps:
+      - uses: actions/checkout@v4
       - uses: ./actions/run_tarpaulin
 
   dependencies:
