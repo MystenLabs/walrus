@@ -12,7 +12,7 @@ test-utils = ["dep:tempfile", "dep:walrus-test-utils", "walrus-core/test-utils"]
 
 [dependencies]
 anyhow = { workspace = true }
-async-trait = "0.1.79"
+async-trait = "0.1.80"
 axum = { version = "0.7.5", features = ["http2"] }
 bcs = { workspace = true }
 clap = { workspace = true, features = ["string"] }
