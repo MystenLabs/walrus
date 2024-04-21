@@ -17,7 +17,7 @@ fastcrypto = { workspace = true }
 move-core-types = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
-serde_json = "1.0.115"
+serde_json = "1.0.116"
 sui-config = { workspace = true }
 sui-keys = { workspace = true }
 sui-move-build = { workspace = true }
