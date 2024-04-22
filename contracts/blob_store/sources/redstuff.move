@@ -16,6 +16,8 @@ module blob_store::redstuff {
     /// Computes the encoded length of a blob for the Red Stuff encoding, given its
     /// unencoded size and the number of shards. The output length includes the
     /// size of the metadata hashes and the blob ID.
+    /// This computation is the same as done by the function of the same name in
+    /// `crates/walrus_core/encoding/config.rs` and should be kept in sync.
     public(package) fun encoded_blob_length(unencoded_length: u64, n_shards: u16) : u64 {
         let slivers_size = ((source_symbols_primary(n_shards) as u64)
             + (source_symbols_secondary(n_shards) as u64))
@@ -83,7 +85,9 @@ module blob_store::redstuff {
     }
 
     #[test]
-    fun test_encoded_size_() {
+    /// These tests replicate the tests for `encoded_blob_length` in
+    /// `crates/walrus_core/encoding/config.rs` and should be kept in sync.
+    fun test_encoded_size() {
         assert_encoded_size(1, 10, 10*((4+7) + 10*2*32 + 32));
         assert_encoded_size(1, 1000, 1000*((329+662) + 1000*2*32 + 32));
         assert_encoded_size((4*7)*100, 10, 10*((4+7)*100 + 10*2*32 + 32));
