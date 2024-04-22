@@ -10516,6 +10516,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "walrus-sdk"
+version = "0.1.0"
+dependencies = [
+ "bcs",
+ "mime",
+ "reqwest 0.12.3",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tower-service",
+ "tracing",
+ "walrus-core",
+]
+
+[[package]]
 name = "walrus-service"
 version = "0.1.0"
 dependencies = [
