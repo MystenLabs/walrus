@@ -3,6 +3,7 @@
 
 use std::{num::NonZeroU16, time::Duration};
 
+use anyhow::Context;
 use sui_types::{base_types::ObjectID, digests::TransactionDigest, event::EventID};
 use walrus_core::{
     encoding::{EncodingConfig, Primary},
@@ -18,10 +19,13 @@ use walrus_sui::{
     test_utils::{MockContractClient, MockSuiReadClient},
     types::{BlobCertified, BlobRegistered, Committee, StorageNode as SuiStorageNode},
 };
+use walrus_test_utils::Result as TestResult;
 
 #[tokio::test]
 #[ignore = "ignore E2E tests by default"]
-async fn test_store_and_read_blob() {
+async fn test_store_and_read_blob() -> TestResult {
+    let _ = tracing_subscriber::fmt::try_init();
+
     let encoding_config = EncodingConfig::new(NonZeroU16::new(10).unwrap());
 
     let config = Config {
@@ -34,8 +38,7 @@ async fn test_store_and_read_blob() {
 
     let blob = walrus_test_utils::random_data(31415);
     let blob_id = encoding_config
-        .get_blob_encoder(&blob)
-        .unwrap()
+        .get_blob_encoder(&blob)?
         .compute_metadata()
         .blob_id()
         .to_owned();
@@ -48,8 +51,7 @@ async fn test_store_and_read_blob() {
             blob_certified_event(blob_id).into(),
         ])
         .build(encoding_config)
-        .await
-        .expect("cluster construction must succeed");
+        .await?;
 
     let members = cluster
         .nodes
@@ -63,25 +65,29 @@ async fn test_store_and_read_blob() {
             shard_ids: shard_ids.iter().map(ShardIndex::from).collect(),
         })
         .collect();
-    let committee = Committee::new(members, 0).unwrap();
+    let committee = Committee::new(members, 0)?;
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let sui_contract_client = MockContractClient::new(
         0,
         MockSuiReadClient::new_with_blob_ids([blob_id], Some(committee)),
     );
-    let client = Client::new(config, sui_contract_client).await.unwrap();
+    let client = Client::new(config, sui_contract_client).await?;
 
     // Store a blob and get confirmations from each node.
-    let blob_confirmation = client.reserve_and_store_blob(&blob, 1).await;
-    assert!(blob_confirmation.is_ok());
+    let blob_confirmation = client
+        .reserve_and_store_blob(&blob, 1)
+        .await
+        .context("unable to reserve and store blob")?;
 
     // Read the blob.
     let read_blob = client
-        .read_blob::<Primary>(&blob_confirmation.unwrap().blob_id)
-        .await
-        .unwrap();
+        .read_blob::<Primary>(&blob_confirmation.blob_id)
+        .await?;
+
     assert_eq!(read_blob, blob);
+
+    Ok(())
 }
 
 fn blob_registered_event(blob_id: BlobId) -> BlobRegistered {

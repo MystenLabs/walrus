@@ -45,6 +45,7 @@ tracing-subscriber.workspace = true
 typed-store.workspace = true
 walrus-core.workspace = true
 walrus-sui.workspace = true
+walrus-sdk.workspace = true
 walrus-test-utils = { workspace = true, optional = true }
 
 [lints]

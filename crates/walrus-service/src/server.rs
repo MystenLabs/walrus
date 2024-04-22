@@ -24,7 +24,7 @@ use walrus_core::{
     SliverType,
 };
 
-use self::extract::Bcs;
+use self::extract::{Bcs, BcsRejection};
 use crate::node::{ServiceState, StoreMetadataError, StoreSliverError};
 
 mod extract;
@@ -216,7 +216,16 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
         match state.retrieve_sliver(&blob_id, sliver_pair_idx, sliver_type) {
             Ok(Some(sliver)) => {
                 tracing::debug!("Retrieved {sliver_type:?} sliver for {blob_id:?}");
-                (StatusCode::OK, Bcs(sliver)).into_response()
+                assert_eq!(
+                    sliver.r#type(),
+                    sliver_type,
+                    "service must never return a invalid type"
+                );
+
+                match sliver {
+                    Sliver::Primary(inner) => (StatusCode::OK, Bcs(inner)).into_response(),
+                    Sliver::Secondary(inner) => (StatusCode::OK, Bcs(inner)).into_response(),
+                }
             }
             Ok(None) => {
                 tracing::debug!("{sliver_type:?} sliver not found for {blob_id:?}");
@@ -266,11 +275,12 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             SliverPairIndex,
             SliverType,
         )>,
-        Bcs(sliver): Bcs<Sliver>,
-    ) -> ServiceResponse<()> {
-        if sliver.r#type() != sliver_type {
-            return ServiceResponse::error(StatusCode::MISDIRECTED_REQUEST, "Invalid sliver type");
-        }
+        body: axum::body::Bytes,
+    ) -> Response {
+        let sliver = match decode_sliver(body, sliver_type) {
+            Ok(sliver) => sliver,
+            Err(rejection) => return rejection.into_response(),
+        };
 
         match state.store_sliver(&blob_id, sliver_pair_idx, &sliver) {
             Ok(()) => {
@@ -286,6 +296,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
                 ServiceResponse::error(StatusCode::BAD_REQUEST, client_error.to_string())
             }
         }
+        .into_response()
     }
 
     async fn retrieve_storage_confirmation(
@@ -309,12 +320,23 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
     }
 }
 
+fn decode_sliver(
+    bytes: axum::body::Bytes,
+    sliver_type: SliverType,
+) -> Result<Sliver, BcsRejection> {
+    Ok(match sliver_type {
+        SliverType::Primary => Sliver::Primary(Bcs::from_bytes(&bytes)?.0),
+        SliverType::Secondary => Sliver::Secondary(Bcs::from_bytes(&bytes)?.0),
+    })
+}
+
 #[cfg(test)]
 mod test {
     use anyhow::anyhow;
     use tokio::task::JoinHandle;
     use tokio_util::sync::CancellationToken;
     use walrus_core::{
+        encoding::{Primary, PrimarySliver},
         merkle::MerkleProof,
         messages::StorageConfirmation,
         metadata::UnverifiedBlobMetadataWithId,
@@ -519,7 +541,7 @@ mod test {
         let res = client.get(url).send().await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
 
-        let _sliver: Sliver = bcs::from_bytes(
+        let _sliver: PrimarySliver = bcs::from_bytes(
             &res.bytes()
                 .await
                 .expect("result should contain parsable bytes"),
@@ -544,7 +566,7 @@ mod test {
         let client = reqwest::Client::new();
         let res = client
             .put(url)
-            .body(bcs::to_bytes(&sliver).unwrap())
+            .body(bcs::to_bytes(&sliver.to_raw::<Primary>().unwrap()).unwrap())
             .send()
             .await
             .unwrap();
@@ -568,7 +590,7 @@ mod test {
         let client = reqwest::Client::new();
         let res = client
             .put(url)
-            .body(bcs::to_bytes(&sliver).unwrap())
+            .body(bcs::to_bytes(&sliver.to_raw::<Primary>().unwrap()).unwrap())
             .send()
             .await
             .unwrap();

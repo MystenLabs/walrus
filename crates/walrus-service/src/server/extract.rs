@@ -45,6 +45,14 @@ impl IntoResponse for BcsRejection {
 #[must_use]
 pub struct Bcs<T>(pub T);
 
+impl<T: DeserializeOwned> Bcs<T> {
+    /// Construct a `Bcs<T>` from a byte slice. Prefer the use the `FromRequest` impl but special
+    /// cases may require extracting a Request into Bytes then optionally constructing a `Bcs<T>`.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, BcsRejection> {
+        Ok(Bcs(bcs::from_bytes(bytes)?))
+    }
+}
+
 #[async_trait]
 impl<T, S> FromRequest<S> for Bcs<T>
 where
@@ -56,7 +64,7 @@ where
     async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
         if has_bcs_content_type(req.headers()) {
             let bytes = Bytes::from_request(req, state).await?;
-            Ok(Bcs(bcs::from_bytes(&bytes)?))
+            Self::from_bytes(&bytes)
         } else {
             Err(BcsRejection::UnsupportedContentType)
         }

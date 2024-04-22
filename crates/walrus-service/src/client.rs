@@ -18,6 +18,7 @@ use walrus_core::{
     SignedStorageConfirmation,
     Sliver as SliverEnum,
 };
+use walrus_sdk::error::NodeError;
 use walrus_sui::{
     client::{ContractClient, ReadClient},
     types::{Blob, Committee, StorageNode},
@@ -30,7 +31,7 @@ mod error;
 mod utils;
 
 use communication::{NodeCommunication, NodeResult};
-use error::{SliverRetrieveError, StoreError};
+use error::StoreError;
 use utils::WeightedFutures;
 
 /// A client to communicate with Walrus shards and storage nodes.
@@ -286,14 +287,14 @@ impl<T> Client<T> {
     #[tracing::instrument(skip_all)]
     async fn decode_sliver_by_sliver<'a, I, Fut, U>(
         &self,
-        requests: &mut WeightedFutures<I, Fut, NodeResult<Sliver<U>, SliverRetrieveError>>,
+        requests: &mut WeightedFutures<I, Fut, NodeResult<Sliver<U>, NodeError>>,
         decoder: &mut BlobDecoder<'a, U>,
         blob_id: &BlobId,
     ) -> Result<Vec<u8>>
     where
         U: EncodingAxis,
         I: Iterator<Item = Fut>,
-        Fut: Future<Output = NodeResult<Sliver<U>, SliverRetrieveError>>,
+        Fut: Future<Output = NodeResult<Sliver<U>, NodeError>>,
     {
         while let Some(NodeResult(_, _, node, result)) =
             requests.next(self.concurrent_requests).await

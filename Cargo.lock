@@ -10521,7 +10521,7 @@ version = "0.1.0"
 dependencies = [
  "bcs",
  "mime",
- "reqwest 0.12.3",
+ "reqwest 0.12.4",
  "serde",
  "serde_json",
  "thiserror",
@@ -10568,6 +10568,7 @@ dependencies = [
  "tracing-subscriber",
  "typed-store",
  "walrus-core",
+ "walrus-sdk",
  "walrus-sui",
  "walrus-test-utils",
 ]

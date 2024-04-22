@@ -3,14 +3,8 @@
 
 //! The errors for the storage client and the communication with storage nodes.
 
-use fastcrypto::error::FastCryptoError;
-use reqwest::StatusCode;
-use walrus_core::{
-    encoding::{SliverVerificationError, WrongSliverVariantError},
-    metadata::VerificationError as MetadataVerificationError,
-    SliverPairIndex,
-    SliverType,
-};
+use walrus_core::{SliverPairIndex, SliverType};
+use walrus_sdk::error::NodeError;
 
 /// Storing the metadata and the set of sliver pairs onto the storage node, and retrieving the
 /// storage confirmation, failed.
@@ -21,10 +15,10 @@ pub enum StoreError {
     SliverStore(Vec<SliverStoreError>),
     /// The sliver could not be stored on the node.
     #[error(transparent)]
-    MetadataStore(#[from] MetadataStoreError),
+    Metadata(NodeError),
     /// A valid storage confirmation could not retrieved from the node.
     #[error(transparent)]
-    ConfirmationRetrieve(#[from] ConfirmationRetrieveError),
+    Confirmation(NodeError),
 }
 
 /// The sliver could not be stored on the node.
@@ -33,73 +27,5 @@ pub enum StoreError {
 pub struct SliverStoreError {
     pub pair_idx: SliverPairIndex,
     pub sliver_type: SliverType,
-    pub error: CommunicationError,
-}
-
-/// The metadata could not be stored on the node.
-#[derive(Debug, thiserror::Error)]
-pub enum MetadataStoreError {
-    /// The communication failed.
-    #[error(transparent)]
-    CommunicationFailed(#[from] CommunicationError),
-}
-
-/// The sliver could not be retrieved from the node.
-#[derive(Debug, thiserror::Error)]
-pub enum SliverRetrieveError {
-    /// The communication failed.
-    #[error(transparent)]
-    CommunicationFailed(#[from] CommunicationError),
-    /// There were errors in sliver verification.
-    #[error(transparent)]
-    SliverVerificationFailed(#[from] SliverVerificationError),
-    /// The storage node sent the wrong sliver variant, wrt what was requested.
-    #[error(transparent)]
-    WrongSliverVariant(#[from] WrongSliverVariantError),
-}
-
-/// The metadata could not be retrieved from the node.
-#[derive(Debug, thiserror::Error)]
-pub enum MetadataRetrieveError {
-    /// The communication failed.
-    #[error(transparent)]
-    CommunicationFailed(#[from] CommunicationError),
-    /// The metadata verification failed.
-    #[error(transparent)]
-    MetadataVerificationFailed(#[from] MetadataVerificationError),
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum ConfirmationRetrieveError {
-    /// The confirmation could not be deserialized from BCS bytes.
-    #[error(transparent)]
-    DeserializationFailed(#[from] bcs::Error),
-    /// The storage confirmation is for the wrong blob ID or epoch.
-    #[error("the storage confirmation is for the wrong blob ID or epoch")]
-    EpochBlobIdMismatch,
-    /// The signature verification on the storage confirmation failed.
-    #[error(transparent)]
-    SignatureVerification(#[from] FastCryptoError),
-    /// The communication failed.
-    #[error(transparent)]
-    CommunicationFailed(#[from] CommunicationError),
-}
-
-/// Errors returned during the communication with a storage node.
-#[derive(Debug, thiserror::Error)]
-pub enum CommunicationError {
-    /// Errors in the communication with the storage node.
-    #[error(transparent)]
-    ReqwestError(#[from] reqwest::Error),
-    /// The service response received from the storage node contains an error.
-    #[error(
-        "the request to the node completed, but the service response was error {code}: {message}"
-    )]
-    ServiceResponseError { code: u16, message: String },
-    /// The HTTP request completed, but returned an error code.
-    #[error("the HTTP request to the node completed, but was not successful: {0}")]
-    HttpFailure(StatusCode),
-    /// Unable to deserialize a BCS response.
-    #[error(transparent)]
-    DeserializationFailed(#[from] bcs::Error),
+    pub error: NodeError,
 }
