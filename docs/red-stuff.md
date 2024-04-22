@@ -29,12 +29,14 @@ by fetching only $O(S/N)$ data, i.e., only in the order of the size of the lost 
 
 We provide here the essential background on the coding schemes used in RedStuff.
 
-### Erasure Codes, Fountain Codes, & RaptorQ
+### Erasure Codes
 
 Erasure coding considers the problem of error correction in the case of _bit erasures_, i.e., some bits in the message are lost, as in the case of a
 lossy channel. In general, an erasure code divides a blob (or message) of $S$ bytes into $k$ _symbols_ (bitstrings of fixed length $~S/k$), which are
 then encoded to form a longer message of $N$ symbols, such that the original blob can be recovered from any subset $k'$ of the $N$ symbols. $k/N$ is
 called _code rate_.
+
+### Fountain Codes
 
 Fountain codes are a class of erasure codes. The key property of fountain codes is that the encoding process is _rateless_, i.e., the encoder can
 produce an arbitrary number of encoded parts on the fly, without knowing the total number of parts that will be produced. This is useful for the
@@ -42,61 +44,65 @@ RedStuff use case, as it allows us to specify the rate of the encoder (e.g., by 
 that any subset of $f+1$ symbols can reconstruct the source). Further, fountain codes are extremely efficient as they typically require XOR operations
 to encode and decode the data.
 
-RedStuff is based on the RaptorQ fountain code. RaptorQ is one of the most fast and efficient fountain codes, and has the following properties:
-1. It is _systematic_, i.e., the firs $k$ symbols of the encoded message correspond to the original message;
+### RaptorQ
+
+RedStuff is based on the RaptorQ fountain code. RaptorQ is one of the fastest and most efficient fountain codes, and has the following properties:
+1. It is _systematic_, i.e., the first $k$ symbols of the encoded message correspond to the original message;
 2. it is a _linear_ code, i.e., the encoding process is a linear transformation of the input symbols, or in other words, the encoded symbols are
    linear combinations of the input symbols;
 3. it is _almost optimal_, meaning that the $k' ~ k$. Specifically, the probability of decoding failure for $k' = k + H$ symbols received is
    $< 1/256^{H+1}$
 
-### The Twin-Code Framework
+## RedStuff Encoding
 
 An old idea in distributed storage is to use an erasure code to encode blobs of data across multiple storage nodes. Thus, by using $k/N$ rate erasure
 code, for $N$ nodes and $k$ source symbols, the system can tolerate $N - k$ node failures, with just an $N/k$ factor of storage overhead. However, in
 the case of a node failure, the recovery process is inefficient: the failed node needs to fetch $k$ other parts, reconstruct the blob, and then
 re-encode its own part. Therefore, the communication overhead for recovery is on the order of the size of the whole blob, $S$.
 
-The Twin-Code Framework aims to solve this issue by allowing for efficient node recovery. We briefly describe the idea here, and refer to the original
-paper for more details.
-
-First of all, the framework divides the storage nodes in _Type 0_ and _Type 1_ nodes. Type 0 nodes recover their share of the data by querying Type 1
-nodes, and vice versa.
-
-The framework utilizes two linear erasure codes (not necessarily distinct), $C_0, C_1$, with rates $k/N_0, k/N_1$; column $l$ in the matrix $C_i$ is
-denoted as $g_{il}$ (a linear code can always be represented as a matrix, and encoding is a multiplication between the vector of symbols and the code
-matrix). A blob of size $S$ is subdivided into $k^2$ symbols (by padding it if necessary), and arranged into a square _message matrix_ $M_0$. $M_1 =
-M_O^t$ is the transpose of the message matrix. Encoding the columns of $M_i$ by $C_i$ results in the data stored on Type $i$ nodes. Specifically, the
-$l$ th storage node of type $i$ will store the vector of encoded symbols $M_i g_{il}$.
-
-Recovery of a failed node then works as follows. Assume we are recovering node $f$ of Type 0, and therefore need to reconstruct $M_0 g_{0l}$.
-
-- The node connects to $k$ nodes of Type 1, and requests a _recovery symbol_ form them. The recovery symbol for node $j$ of Type 1 is computed as
-  $g_{0l}^t M_1 g_{1j}$. Recall that $M_1 g_{1j}$ is the vector stored on node $j$.
-- After collecting $k$ such recovery symbols (wlog, assume indices $1$ to $k$), the node has access to the vector
-  $$g_{0l}^t M_1 \left[g_{11}..g_{1k}\right]$$
-  which corresponds to $k$ symbols of the encoding of $\mu^t = g_{0l}^t M_1$ under $C_1$.
-- Since $k$ encoding symbols are sufficient to decode the source symbols, the node then erasure-decodes $\mu^t$.
-- Once decoded, we have that $\mu = \left( g_{0l}^t M_1 \right)^t = \left( g_{0l}^t M_0^t \right)^t = M_0 g_{0l}$, which are the symbols the node
-  needs to reconstruct.
-
-## RedStuff Encoding
-
-The RedStuff encoding algorithm is an adaptation of the Twin-Code framework, which allows for efficient node recovery in erasure-coded storage
-systems.
+The Twin-Code Framework aims to solve this issue by allowing for efficient node recovery. We briefly describe here how the framework is used in
+RedStuff, and refer to the original paper for the specific details.  The RedStuff encoding algorithm is an adaptation of the Twin-Code framework,
+which allows for efficient node recovery in erasure-coded storage systems.
 
 We consider a scenario in which a blob of data is encoded and stored across $N$ _shards_—multiple shards can be mapped to the same storage node—in a
 Byzantine setting. Thus, we assume that up to $f$ of the shards can be corrupted by an adversary, with $f < 1/3 N$, and that the remaining $N - f$
 shards are honest.
 
-The key modifications in RedStuff, compared to the Twin-Code framework, are the following:
+### Encoding and Recovery
 
-- RedStuff uses the RaptorQ fountain code for both the Type 0 and Type 1 encoding. The rates are about $(N-2f)/N$ and $(N-f)/N$ respectively. We later
-  discuss more in detail the exact rates and the decoding probability. We call the Type 0 encoding the _primary encoding_, and the Type 1 encoding the
-  _secondary encoding_.
-- The blob is not laid out in a square message matrix, but in a rectangular one. As we explain in the following, this is an optimization for the
-  specific BFT setting we are considering.
-- Both "Type 0" and "Type 1" encodings are stored on each shard. In our terminology these are called "slivers", and the two together form a "sliver
-  pair".
+The RedStuff encoding and recovery process works as follows:
+
+- First, in RedStuff, the data blob of size $S$ is divided into symbols and arranged in a rectangular _message matrix_, of up to $N - 2f$ rows and
+  $N - f$ columns of symbols. The number of rows ($n_R$) and columns ($n_C$) is fixed, and determines the symbol size $s$ as follows:
+
+$$
+s = \left\lceil \frac{S}{n_R \cdot n_C } \right\rceil
+$$
+
+- Then, the columns and the rows of such message matrix are encoded separately with RaptorQ.
+  - The _primary encoding_, performed on columns, expands the $n_R$ symbols of each column to $N$ symbols (as mentioned above, the rateless nature of
+  RaptorQ allows us to choose the number of encoded symbols).
+  - The _secondary encoding_, performed on rows, expands the $n_C$ symbols of each row to $N$ symbols.
+- Thus, $n_R$ is also called the number of "primary source symbols", and $n_C$ the number of "secondary source symbols". Clearly, the primary encoding
+  has rate $n_R / N$, and the secondary encoding has rate $n_C / N$.
+- The encoded rows and columns are then used to obtain primary and secondary _slivers_, which are distributed to shards and used for blob
+  reconstruction and sliver recovery:
+  - Primary slivers are the rows of the matrix of size $N \times n_C$ obtained with the primary encoding of the message matrix. Each primary sliver is
+    therefore composed of $n_C$ symbols.
+  - Secondary slivers are the columns of the matrix of size $n_R \times N$ obtained with the primary encoding of the message matrix. Each secondary
+    sliver is therefore composed of $n_R$ symbols.
+- Each shard receives a primary and a secondary sliver, based on the shard number and the row and column numbers of the slivers (see the
+  [section on sliver-to-shard mapping](#sliver-pair-to-shard-mapping) for more details).
+- The fundamental property we achieve with this construction, and thanks to the linearity of RaptorQ, is that encoding the primary slivers (as rows)
+  with the secondary encoding and the secondary slivers (as columns) with the primary encoding results in the same $N \times N$ expanded message
+  matrix. This property can then be used for lost sliver recovery:
+  - If a shard is trying reconstruct a lost primary sliver, it can request $N-f$ symbols from the encodings of the secondary slivers of other shards,
+    because, as mentioned above, the primary encoding of secondary slivers results in the symbols for primary slivers. Then, since the secondary
+    encoding has $n_C$ source symbols, and $n_C \leq N-2f$, we can decode the original primary sliver from the obtained recovery symbols with high
+    probability (see the later [discussion on recovery probability](#decoding-probability-and-decoding-safety-limit)).
+  - The reconstruction of secondary slivers is identical, but inverting the role of primary and secondary slivers and encodings.
+
+The following example concretely shows this process in action.
 
 ### Worked Example
 
@@ -276,6 +282,19 @@ Assume for simplicity that $N=3f+1$. Then, the original blob is divided into rou
 The system has to store $N \cdot 2f$ primary sliver symbols, and $N \cdot f$ secondary sliver symbols, for a total storage of about $9f^2$ symbols.
 
 Therefore, the storage overhead due to RedStuff encoding is about $9f^2 / 2f^2 = 4.5$ times the original blob size.
+
+
+#### Differences with the Twin-Code Framework
+
+The key modifications in RedStuff, compared to the original Twin-Code framework, are the following:
+
+- RedStuff uses the RaptorQ fountain code for both the "Type 0" and "Type 1" encoding, as they are called in the paper. The rates are about $(N-2f)/N$
+  and $(N-f)/N$ respectively. We later discuss more in detail the exact rates and the decoding probability. We call the Type 0 encoding the _primary
+  encoding_, and the Type 1 encoding the _secondary encoding_.
+- The blob is not laid out in a square message matrix, but in a rectangular one. As we explain in the following, this is an optimization for the
+  specific BFT setting we are considering.
+- Both "Type 0" and "Type 1" encodings are stored on each shard. In our terminology these are called "slivers", and the two together form a "sliver
+  pair".
 
 ## Walrus-specific Parameters & Considerations
 
