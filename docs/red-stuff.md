@@ -327,14 +327,14 @@ We therefore set the following parameters in our encoding configuration:
 
 Currently, $\sigma$ is selected depending on the number of shards as follows:
 
-| N shards from | N shards to (incl) | $\sigma$ |
-|--------------:|-------------------:|---------:|
-|             0 |                 15 |        0 |
-|            16 |                 30 |        1 |
-|            31 |                 45 |        2 |
-|            46 |                 60 |        3 |
-|            61 |                 75 |        4 |
-|            76 |                inf |        5 |
+| N shards from | N shards to (incl) | $\sigma$ | Prob. failure |
+|--------------:|-------------------:|---------:|--------------:|
+|             0 |                 15 |        0 |       0.00391 |
+|            16 |                 30 |        1 |      1.53e-05 |
+|            31 |                 45 |        2 |      5.96e-08 |
+|            46 |                 60 |        3 |      2.33e-10 |
+|            61 |                 75 |        4 |      9.09e-13 |
+|            76 |                inf |        5 |      3.55e-15 |
 
 For example, then, we have the following settings:
 
