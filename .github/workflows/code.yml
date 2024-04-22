@@ -68,7 +68,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v1.6.2
+      - uses: EmbarkStudios/cargo-deny-action@v1.6.3
         with:
           # do not check advisories on PRs to prevent sudden failure due to new announcement
           command: check bans licenses sources

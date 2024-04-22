@@ -44,7 +44,7 @@ confidence-threshold = 0.8
 name = "ring"
 expression = "LicenseRef-ring"
 license-files = [
-    { path = "LICENSE", hash = 0xbd0eed23 }
+    { path = "LICENSE", hash = 0xbd0eed23 },
 ]
 
 [licenses.private]
@@ -68,7 +68,7 @@ skip-tree = [
     { name = "fastcrypto", depth = 4 },
     { name = "typed-store", depth = 6},
     { name = "test-cluster", depth = 6},
-    # several crate depend on an older version of windows-sys
+    # several crates depend on an older version of windows-sys
     { name = "windows-sys", depth = 3, version = "0.48" },
 ]
 
@@ -91,8 +91,7 @@ allow-git = [
 ]
 
 [sources.allow-org]
-# 1 or more github.com organizations to allow git sources for
+# github.com organizations to allow git sources for
 github = [
     "MystenLabs",
-    "mystenlabs",
 ]
