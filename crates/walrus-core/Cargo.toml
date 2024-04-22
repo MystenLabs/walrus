@@ -6,6 +6,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+test-utils = []
+
 [dependencies]
 base64 = "0.22.0"
 bcs.workspace = true
@@ -24,9 +27,6 @@ anyhow.workspace = true
 criterion = "0.5.1"
 serde_test = "1.0.176"
 walrus-test-utils.workspace = true
-
-[features]
-test-utils = []
 
 [lib]
 bench = false

@@ -89,9 +89,15 @@ pub fn random_blob_id() -> BlobId {
 }
 
 /// Returns a blob ID of given number for testing.
-pub fn blob_id_from_u64(num: u64) -> BlobId {
+pub const fn blob_id_from_u64(num: u64) -> BlobId {
     let mut blob_id = [0u8; 32];
-    blob_id[24..].copy_from_slice(&num.to_be_bytes());
+    let u64_bytes = num.to_be_bytes();
+
+    let mut i = 0usize;
+    while i < 8 {
+        blob_id[24 + i] = u64_bytes[i];
+        i += 1;
+    }
     BlobId(blob_id)
 }
 
