@@ -6,7 +6,12 @@
 use serde::{Deserialize, Serialize};
 
 mod storage_confirmation;
-pub use storage_confirmation::{Confirmation, SignedStorageConfirmation, StorageConfirmation};
+pub use storage_confirmation::{
+    Confirmation,
+    SignedStorageConfirmation,
+    StorageConfirmation,
+    VerificationError,
+};
 
 mod certificate;
 pub use certificate::ConfirmationCertificate;

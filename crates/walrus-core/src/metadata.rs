@@ -3,11 +3,13 @@
 
 //! Metadata associated with a Blob and stored by storage nodes.
 
+use std::num::NonZeroU16;
+
 use fastcrypto::hash::{Blake2b256, HashFunction};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    encoding::{EncodingAxis, EncodingConfig},
+    encoding::{source_symbols_for_n_shards, EncodingAxis, EncodingConfig},
     merkle::{MerkleTree, Node as MerkleNode, DIGEST_LEN},
     BlobId,
     EncodingType,
@@ -105,6 +107,26 @@ impl VerifiedBlobMetadataWithId {
             metadata: self.metadata,
         }
     }
+
+    /// Returns true if the number of symbols and number of shards in the provided encoding config,
+    /// matches that which was used to verify the metadata.
+    pub fn is_encoding_config_applicable(&self, config: &EncodingConfig) -> bool {
+        let (n_primary, n_secondary) = source_symbols_for_n_shards(self.n_shards());
+
+        self.metadata.encoding_type == EncodingType::RedStuff
+            && self.n_shards() == config.n_shards()
+            && n_primary == config.n_primary_source_symbols().get()
+            && n_secondary == config.n_secondary_source_symbols().get()
+    }
+
+    /// Returns the number of shards in the committee for which this metadata was constructed.
+    ///
+    /// As this metadata has been verified, this is guaranteed to correspond to the number
+    /// of shards in the encoding config with which this was verified.
+    pub fn n_shards(&self) -> NonZeroU16 {
+        let n_hashes = self.metadata.hashes.len();
+        NonZeroU16::new(n_hashes as u16).expect("verified metadata has a valid number of shards")
+    }
 }
 
 impl UnverifiedBlobMetadataWithId {
@@ -141,7 +163,7 @@ impl UnverifiedBlobMetadataWithId {
 
 impl<const V: bool> AsRef<BlobMetadata> for BlobMetadataWithId<V> {
     fn as_ref(&self) -> &BlobMetadata {
-        self.metadata()
+        &self.metadata
     }
 }
 

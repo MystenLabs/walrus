@@ -1,14 +1,20 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use fastcrypto::bls12381::min_pk::BLS12381Signature;
+use fastcrypto::{
+    bls12381::min_pk::BLS12381Signature,
+    error::FastCryptoError,
+    traits::VerifyingKey,
+};
 use serde::{de::Error as _, Deserialize, Serialize};
 
 use super::Intent;
 use crate::{
+    ensure,
     messages::{IntentAppId, IntentType, IntentVersion},
     BlobId,
     Epoch,
+    PublicKey,
 };
 
 /// Confirmation from a storage node that it has stored the sliver pairs for a given blob.
@@ -25,6 +31,56 @@ pub struct SignedStorageConfirmation {
     pub confirmation: Vec<u8>,
     /// The signature over the BCS encoded confirmation.
     pub signature: BLS12381Signature,
+}
+
+impl SignedStorageConfirmation {
+    /// Verifies that this confirmation is valid for the specified public key, epoch, and blob.
+    pub fn verify(
+        &self,
+        public_key: &PublicKey,
+        blob_id: &BlobId,
+        epoch: Epoch,
+    ) -> Result<Confirmation, VerificationError> {
+        let intent: Confirmation = bcs::from_bytes(&self.confirmation)?;
+
+        // TODO(giac): when the chain integration is added, ensure that the Epoch checks are
+        // consistent and do not cause problems at epoch change.
+        ensure!(intent.blob_id == *blob_id, VerificationError::InvalidBlobId);
+        ensure!(
+            intent.epoch == epoch,
+            VerificationError::EpochMismatch {
+                actual: intent.epoch,
+                expected: epoch,
+            }
+        );
+
+        // Perform the asymmetric verification last, as it is the most expensive operation.
+        public_key.verify(&self.confirmation, &self.signature)?;
+
+        Ok(intent)
+    }
+}
+
+/// Error raised by [`SignedStorageConfirmation::verify`] when unable to verify the
+#[derive(Debug, thiserror::Error)]
+pub enum VerificationError {
+    /// The confirmation could not be decoded.
+    #[error(transparent)]
+    Decode(#[from] bcs::Error),
+    /// The epoch did not match the expected epoch.
+    #[error("expected epoch ({expected}) does not match that of the confirmation: {actual}")]
+    EpochMismatch {
+        /// Epoch for which the confirmation was expected.
+        expected: Epoch,
+        /// Epoch of the confirmation
+        actual: Epoch,
+    },
+    /// The confirmation was not for the expected blob ID.
+    #[error("the confirmation was not for the expected blob ID")]
+    InvalidBlobId,
+    /// The signature verification on the storage confirmation failed.
+    #[error(transparent)]
+    Signature(#[from] FastCryptoError),
 }
 
 /// A non-empty list of shards, confirmed as storing their sliver
