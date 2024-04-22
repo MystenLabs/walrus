@@ -3,7 +3,7 @@
 
 //! Blob encoding functionality, using the RedStuff algorithm.
 
-#![doc = include_str!("../../../docs/red-stuff.md")]
+// TODO(giac): Link or import the `../../../docs/red-stuff.md` documentation here.
 
 mod basic_encoding;
 pub use basic_encoding::{Decoder, Encoder};
