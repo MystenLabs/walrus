@@ -17,8 +17,8 @@ _subset_ $k$ of these parts is sufficient to recover the original blob. We forma
 coding already allows us to achieve goals (1) and (2) above, because:
 
 1. Erasure coding allows to recover a blob even if $N - k$ storage nodes fail, providing high availability and durability to the data;
-2. the overall storage overhead is much smaller than for full replication, as for a blob of size $S$, the total storage used in the system is $S * c$
-  instead of $S * N$, where $c << N$ is a small constant (4.5 in Walrus's case).
+2. the overall storage overhead is much smaller than for full replication, as for a blob of size $S$, the total storage used in the system is
+   $S \cdot c$ instead of $S \cdot N$, where $c \ll N$ is a small constant (4.5 in Walrus's case).
 
 To achieve the third requirement, however, simple erasure coding is insufficient: A failed node that wants to reconstruct its part of the encoding
 needs to first fetch at least $k$ other parts, reconstruct the blob, and then re-encode its own part. Therefore, the communication overhead for
@@ -29,7 +29,7 @@ by fetching only $O(S/N)$ data, i.e., only in the order of the size of the lost 
 
 We provide here the essential background on the coding schemes used in RedStuff.
 
-### Erasure Codes, Fountain Codes, & RaptoQ
+### Erasure Codes, Fountain Codes, & RaptorQ
 
 Erasure coding considers the problem of error correction in the case of _bit erasures_, i.e., some bits in the message are lost, as in the case of a
 lossy channel. In general, an erasure code divides a blob (or message) of $S$ bytes into $k$ _symbols_ (bitstrings of fixed length $~S/k$), which are
@@ -37,22 +37,24 @@ then encoded to form a longer message of $N$ symbols, such that the original blo
 called _code rate_.
 
 Fountain codes are a class of erasure codes. The key property of fountain codes is that the encoding process is _rateless_, i.e., the encoder can
-produce an arbitrary number of encoded parts on the fly, without knowing the total number of parts that will be produced. Further, fountain codes are
-extremely efficient as they typically require XOR operations to encode and decode the data.
+produce an arbitrary number of encoded parts on the fly, without knowing the total number of parts that will be produced. This is useful for the
+RedStuff use case, as it allows us to specify the rate of the encoder (e.g., by encoding $f+1$ source symbols into $N$ recovery symbols, we guarantee
+that any subset of $f+1$ symbols can reconstruct the source). Further, fountain codes are extremely efficient as they typically require XOR operations
+to encode and decode the data.
 
-RedStuff is based on the RaptoQ fountain code. RaptoQ is one of the most fast and efficient fountain codes, and has the following properties:
+RedStuff is based on the RaptorQ fountain code. RaptorQ is one of the most fast and efficient fountain codes, and has the following properties:
 1. It is _systematic_, i.e., the firs $k$ symbols of the encoded message correspond to the original message;
 2. it is a _linear_ code, i.e., the encoding process is a linear transformation of the input symbols, or in other words, the encoded symbols are
    linear combinations of the input symbols;
 3. it is _almost optimal_, meaning that the $k' ~ k$. Specifically, the probability of decoding failure for $k' = k + H$ symbols received is
-   $O(256^{-(H+1)})$
+   $< 1/256^{H+1}$
 
 ### The Twin-Code Framework
 
 An old idea in distributed storage is to use an erasure code to encode blobs of data across multiple storage nodes. Thus, by using $k/N$ rate erasure
-code, for $N$ nodes and $k$ source symbols, the system can tolerate $N - k$ node failures, with just an $N/k$ factor of storage overhead.  However, in
+code, for $N$ nodes and $k$ source symbols, the system can tolerate $N - k$ node failures, with just an $N/k$ factor of storage overhead. However, in
 the case of a node failure, the recovery process is inefficient: the failed node needs to fetch $k$ other parts, reconstruct the blob, and then
-re-encode its own part.  Therefore, the communication overhead for recovery is on the order of the size of the whole blob, $S$.
+re-encode its own part. Therefore, the communication overhead for recovery is on the order of the size of the whole blob, $S$.
 
 The Twin-Code Framework aims to solve this issue by allowing for efficient node recovery. We briefly describe the idea here, and refer to the original
 paper for more details.
@@ -72,7 +74,7 @@ Recovery of a failed node then works as follows. Assume we are recovering node $
   $g_{0l}^t M_1 g_{1j}$. Recall that $M_1 g_{1j}$ is the vector stored on node $j$.
 - After collecting $k$ such recovery symbols (wlog, assume indices $1$ to $k$), the node has access to the vector
   $$g_{0l}^t M_1 \left[g_{11}..g_{1k}\right]$$
-  which corresponds to $k$ symbols of the encoding of  $\mu^t = g_{0l}^t M_1$ under $C_1$.
+  which corresponds to $k$ symbols of the encoding of $\mu^t = g_{0l}^t M_1$ under $C_1$.
 - Since $k$ encoding symbols are sufficient to decode the source symbols, the node then erasure-decodes $\mu^t$.
 - Once decoded, we have that $\mu = \left( g_{0l}^t M_1 \right)^t = \left( g_{0l}^t M_0^t \right)^t = M_0 g_{0l}$, which are the symbols the node
   needs to reconstruct.
@@ -88,10 +90,11 @@ shards are honest.
 
 The key modifications in RedStuff, compared to the Twin-Code framework, are the following:
 
-- RedStuff uses the RaptoQ fountain code for both the Type 0 and Type 1 encoding. The rates are about $(N-2f)/N$ and $(N-f)/N$ respectively. We later
-  discuss more in detail the exact rates and the decoding probability.
-- however, the blob is not laid out in a square message matrix, but in a rectangular one. As we explain in the following, this is an optimization for
-  the specific BFT setting we are considering.
+- RedStuff uses the RaptorQ fountain code for both the Type 0 and Type 1 encoding. The rates are about $(N-2f)/N$ and $(N-f)/N$ respectively. We later
+  discuss more in detail the exact rates and the decoding probability. We call the Type 0 encoding the _primary encoding_, and the Type 1 encoding the
+  _secondary encoding_.
+- The blob is not laid out in a square message matrix, but in a rectangular one. As we explain in the following, this is an optimization for the
+  specific BFT setting we are considering.
 - Both "Type 0" and "Type 1" encodings are stored on each shard. In our terminology these are called "slivers", and the two together form a "sliver
   pair".
 
@@ -100,7 +103,7 @@ The key modifications in RedStuff, compared to the Twin-Code framework, are the 
 #### Encoding
 
 Consider a Walrus instance with $N = 7 = 3f + 1$ shards. This entails that the number of primary source symbols is $N - 2f = 3$, and secondary
-$N - f = 5$. A blob of size $S = 15 * s$ can therefore be divided into 15 symbols of size $s$, and arranged in the matrix as follows.
+$N - f = 5$. A blob of size $S = 15 \cdot s$ can therefore be divided into 15 symbols of size $s$, and arranged in the matrix as follows.
 
 $$
 \left[
@@ -113,7 +116,7 @@ s_{2,0} & s_{2,1} & s_{2,2} & s_{2,3} & s_{2,4} \\
 $$
 
 Then, the primary encoding acts on the columns of the matrix, expanding them such that each column is composed of 4 source symbols and 6 recovery
-symbols.
+symbols ($s_{i,j}$ indicates source symbols, while $r_{i,j}$ indicates recovery symbols).
 
 $$
 \left[
@@ -129,7 +132,7 @@ s_{2,0} & s_{2,1} & s_{2,2} & s_{2,3} & s_{2,4} \\
 \right]
 $$
 
-Each of the _rows_ of this column expansion is a _primary sliver_. E.g.,  $[r_{5,0}, r_{5,1}, r_{5,2}, r_{5,3}, r_{5,4}, r_{5,5}, r_{5,6}]$.
+Each of the _rows_ of this column expansion is a _primary sliver_. E.g., $[r_{5,0}, r_{5,1}, r_{5,2}, r_{5,3}, r_{5,4}, r_{5,5}, r_{5,6}]$.
 
 Similarly, the secondary encoding on the rows of the matrix produces the expanded rows.
 
@@ -175,7 +178,7 @@ r_{6,0} & r_{6,1} & r_{6,2} & r_{6,3} & r_{6,4} & \textcolor{blue}{r_{6,5}} & \t
 $$
 
 Note again that these symbols do not need to be stored on any node because they can always be recomputed by expanding either a primary or secondary
-symbol. E.g, `s45` can be obtained by:
+symbol. E.g, $r_{4,5}` can be obtained by:
 
 - the secondary-encoding expansion of the 4th primary sliver: $[r_{4,0}, r_{4,1}, r_{4,2}, r_{4,3}, r_{4,4}, \textcolor{blue}{r_{4,5}}, r_{4,6}]$; or
 - the primary-encoding expansion of the 5th secondary sliver: $[r_{0,5}, r_{1,5}, r_{2,5}, r_{3,5}, \textcolor{blue}{r_{4,5}}, r_{5,5}, r_{6,5}]$.
@@ -193,14 +196,14 @@ s_{1,0} & s_{1,1} & s_{1,2} & \textcolor{red}{s_{1,3}} & s_{1,4} & r_{1,5} & r_{
 s_{2,0} & s_{2,1} & s_{2,2} & \textcolor{red}{s_{2,3}} & s_{2,4} & r_{2,5} & r_{2,6} \\
 \hline
 \textcolor{red}{r_{3,0}} & \textcolor{red}{r_{3,1}} & \textcolor{red}{r_{3,2}} & \textcolor{red}{r_{3,3}} & \textcolor{red}{r_{3,4}} & & \\
-r_{4,0} & r_{4,1} & r_{4,2} & \textcolor{red}{r_{4,3}} & r_{4,4} & & \\
-r_{5,0} & r_{5,1} & r_{5,2} & \textcolor{red}{r_{5,3}} & r_{5,4} & & \\
-r_{6,0} & r_{6,1} & r_{6,2} & \textcolor{red}{r_{6,3}} & r_{6,4} & & \\
+r_{4,0} & r_{4,1} & r_{4,2} & r_{4,3} & r_{4,4} & & \\
+r_{5,0} & r_{5,1} & r_{5,2} & r_{5,3} & r_{5,4} & & \\
+r_{6,0} & r_{6,1} & r_{6,2} & r_{6,3} & r_{6,4} & & \\
 \end{array}
 \right]
 $$
 
-To recover the primary sliver, the node needs to contact 5 other shards and request the recovery symbols for the 3rd primary slivers.  Since the
+To recover the primary sliver, the node needs to contact 5 other shards and request the recovery symbols for the 3rd primary slivers. Since the
 symbols of the sliver are recovery symbols, the shards need to encode their secondary slivers (here highlighted as columns) to obtain them. For
 example, shards 0, 1, 2, 4, 6 provide the symbols:
 
@@ -248,7 +251,7 @@ asking these shards, shard 3 does not even need to decode the symbols to recover
 
 The rectangular layout of the message matrix is an optimization for the Byzantine setting. When storing the blob, a client can only await $N - f$
 responses, as the remaining $f$ shards can be Byzantine. Yet, $f$ of these $N-f$ may be the Byzantine ones, and the $f$ that did not reply were only
-slow because of asynchrony in the network.  Therefore, the blob needs to be encoded in such a way that $N-2f$ symbols are sufficient to recover the
+slow because of asynchrony in the network. Therefore, the blob needs to be encoded in such a way that $N-2f$ symbols are sufficient to recover the
 original blob. This is achieved by the primary encoding.
 
 However, after this initial sharing phase, the honest shards share and reconstruct the missing slivers from each other. At a steady state, therefore,
@@ -269,8 +272,8 @@ with $N-f$ shards, $f$ of which are Byzantine (and, e.g., drop them).
 
 #### Storage Overhead
 
-Assume for simplicity that $N=3f+1$. Then, the original blob is divided into roughly $f * 2f = 2f^2$ symbols.
-The system has to store $N * 2f$ primary sliver symbols, and $N * f$ secondary sliver symbols, for a total storage of about $9f^2$ symbols.
+Assume for simplicity that $N=3f+1$. Then, the original blob is divided into roughly $f \cdot 2f = 2f^2$ symbols.
+The system has to store $N \cdot 2f$ primary sliver symbols, and $N \cdot f$ secondary sliver symbols, for a total storage of about $9f^2$ symbols.
 
 Therefore, the storage overhead due to RedStuff encoding is about $9f^2 / 2f^2 = 4.5$ times the original blob size.
 
@@ -291,14 +294,14 @@ $(i + \text{offset}) \mod N$.
 
 ### Decoding Probability and Decoding Safety Limit
 
-As mentioned above, the reconstruction failure probability of the RaptoQ code is $O(256^{-(H+1)})$, where $H$ is the number of extra symbols received.
-Therefore, it is beneficial that in a system with $f$ Byzantine shards, the number of source symbols for the primary encoding is slightly below
-$N-2f$, and for the secondary encoding slightly below $N-f$. This ensures that whenever a validity or quorum threshold of messages is received, there
-is always a positive $H$ for a low failure probability.
+As mentioned above, the reconstruction failure probability of the RaptorQ code is $O(256^{-(H+1)})$, where $H$ is the number of extra symbols
+received.  Therefore, it is beneficial that in a system with $f$ Byzantine shards, the number of source symbols for the primary encoding is slightly
+below $N-2f$, and for the secondary encoding slightly below $N-f$. This ensures that whenever a validity or quorum threshold of messages is received,
+there is always a positive $H$ for a low failure probability.
 
 We therefore set the following parameters in our encoding configuration:
 
-- $f$, the maximum number of byzantine shards is $\lfloor (N-1) / 3 \rfloor$.
+- $f$, the maximum number of Byzantine shards is $\lfloor (N-1) / 3 \rfloor$.
 - The _safety limit_ for the encoding, $\sigma$, to ensure high reconstruction probability, is set as a function of $N$ (see table below).
 - The number of primary source symbols (equivalent to the number of symbols in a secondary sliver) is $N - 2f -\sigma$
 - The number of secondary source symbols (equivalent to the number of symbols in a primary sliver) is $N - f -\sigma$
@@ -348,7 +351,7 @@ u16::MAX` and lowerbound by `source_symbols_primary * source_symbols_secondary`.
 Alongside the efficient encoding performed by RedStuff, we want to enable shards to authenticate that the slivers and encoding symbols they receive
 indeed belong to the blob they wanted. We briefly outline here how this is achieved.
 
-For each sliver, primary and secondary, a Merkle tree is constructed:
+For each sliver, primary or secondary, a Merkle tree is constructed.
 
 ![](./assets/sliver-hash.png)
 
@@ -358,7 +361,7 @@ to the root hash, which every node has as part of the metadata.
 
 Then, a Merkle tree over the sliver hashes is computed to obtain a blob hash. This is computed by concatenating primary and secondary sliver hashes
 (computed as above) for each sliver pair, and then constructing the Merle tree over the concatenations ($c_i$ in the figure). This construction was
-chosen to roughly halve the number of hashing operations compared to hashing each sliver hash individually.
+chosen to reduce the number of hashing operations compared to hashing each sliver Merkle root individually.
 
 ![](./assets/blob-hash.png)
 
@@ -370,17 +373,30 @@ Merkle root of the tree over the slivers are hashed together to obtain the _blob
 
 ### Metadata Overhead
 
-As seen above, each storage node needs to store the full metadata for the blob. The metadata consists of a `32 B` hash for each primary and secondary
-sliver, which can be a considerable overhead if the number of shards is high:
+As seen above, each storage node needs to store the full metadata for the blob.
+The metadata consists of:
 
-| N shards | Metadata size (one node) | Metadata size (N/log(N) nodes) | Metadata size (N nodes) |
-|---------:|-------------------------:|-------------------------------:|------------------------:|
-|        7 |                  448.0 B |                        3.71 KB |                 3.14 KB |
-|       10 |                  640.0 B |                         6.4 KB |                  6.4 KB |
-|       31 |                  1.98 KB |                        41.2 KB |                 61.5 KB |
-|      100 |                   6.4 KB |                       320.0 KB |                640.0 KB |
-|      300 |                  19.2 KB |                        2.33 MB |                 5.76 MB |
-|     1000 |                  64.0 KB |                        21.3 MB |                 64.0 MB |
+- A `32 B` Merkle root hash for each primary and secondary sliver;
+- the `32 B` blob ID, computed as above;
+- the erasure code type (`1 B`);
+- the length of the unencoded blob size (`8 B`).
+
+Of these, the hashes for the primary and secondary slivers can be a considerable overhead, if the number of shards is high. We show here the
+cumulative size of the hashes stored on the system, depending on the number of nodes and the number of shards.
+
+| N shards | One node | N/log(N) nodes |  N nodes |
+|---------:|---------:|---------------:|---------:|
+|        7 |  448.0 B |        3.71 KB |  3.14 KB |
+|       10 |  640.0 B |         6.4 KB |   6.4 KB |
+|       31 |  1.98 KB |        41.2 KB |  61.5 KB |
+|      100 |   6.4 KB |       320.0 KB | 640.0 KB |
+|      300 |  19.2 KB |        2.33 MB |  5.76 MB |
+|     1000 |  64.0 KB |        21.3 MB |  64.0 MB |
+
+We see that the cumulative size of the hashes in the case of 1000 nodes (1 node per shard), is 64KB per node, or 64MB for a system of 1000 nodes.
+However, recall that the number of shards is set and constant, while the number of nodes may vary (each node has one or more shards), potentially
+lowering the overhead on the system.  We therefore show here the ratio between the size of the hashes stored on the system to the minimum and maximum
+blob sizes, for `N=1000` shards and different number of nodes (1 node, N/log10(N) = 333, 1000).
 
 | N=1000             | Total metadata size | Factor min blob | Factor max blob |
 |--------------------|--------------------:|----------------:|----------------:|
@@ -389,10 +405,8 @@ sliver, which can be a considerable overhead if the number of shards is high:
 | N nodes            |             64.0 MB |           294.0 |         0.00448 |
 
 
-As we can see, the metadata size in the case of 1000 nodes (1 node per shard), is 64KB per node, or 64MB for the whole system.  The last two columns
-of the table show the percent ratio of the size of the metadata stored on the system ("Metadata size (system)") to the minimum and maximum blob sizes
-for that number of shards (as in the previous table).  We see that the total metadata overhead goes from `~0.5%` for large blobs to almost `360x` for
-the smallest blobs.
+We see that for realistic node counts and small blob sizes, the total metadata overhead goes can be multiple times the size of the initial unencoded
+blob.
 
 [^twincode]: K. V. Rashmi, N. B. Shah and P. V . Kumar, "Enabling node repair in any erasure code for distributed storage," 2011 IEEE International
     Symposium on Information Theory Proceedings, St. Petersburg, Russia, 2011, pp. 1235-1239, doi: 10.1109/ISIT.2011.6033732.
