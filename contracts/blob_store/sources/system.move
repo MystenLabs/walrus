@@ -160,6 +160,12 @@ module blob_store::system {
         option::borrow(&self.current_committee)
     }
 
+    public fun n_shards<WAL>(
+        self: &System<WAL>
+    ) : u16 {
+        committee::n_shards(current_committee(self))
+    }
+
     /// Update epoch to next epoch, and also update the committee, price and capacity.
     public fun next_epoch<WAL>(
         self: &mut System<WAL>,
@@ -220,7 +226,6 @@ module blob_store::system {
         assert!(periods_ahead <= MAX_PERIODS_AHEAD, ERROR_INVALID_PERIODS_AHEAD);
 
         // Check capacity is available.
-        assert!(storage_amount <= storage_resource::max_storage_amount(), ERROR_STORAGE_EXCEEDED);
         assert!(self.used_capacity_size + storage_amount <= self.total_capacity_size,
             ERROR_STORAGE_EXCEEDED);
 

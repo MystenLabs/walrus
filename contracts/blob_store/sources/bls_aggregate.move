@@ -44,6 +44,11 @@ module blob_store::bls_aggregate {
         }
     }
 
+    /// Returns the number of shards held by the committee.
+    public fun n_shards(self: &BlsCommittee) : u16 {
+        self.total_weight
+    }
+
     #[test_only]
     /// Test committee
     public fun new_bls_committee_for_testing() : BlsCommittee {

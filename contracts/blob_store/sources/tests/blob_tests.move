@@ -19,6 +19,8 @@ module blob_store::blob_tests {
         split_by_epoch,
         destroy};
 
+    const RED_STUFF: u8 = 0;
+
     public struct TESTWAL has store, drop {}
 
     #[test]
@@ -38,11 +40,11 @@ module blob_store::blob_tests {
 
         // Get some space for a few epochs
         let (storage, fake_coin) = system::reserve_space(
-            &mut system, 10000, 3, fake_coin, &mut ctx);
+            &mut system, 1_000_000, 3, fake_coin, &mut ctx);
 
         // Register a Blob
-        let blob_id = blob::derive_blob_id(0xABC, 0x1, 5000);
-        let blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, 0x1, &mut ctx);
+        let blob_id = blob::derive_blob_id(0xABC, RED_STUFF, 5000);
+        let blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, RED_STUFF, &mut ctx);
 
         coin::burn_for_testing(fake_coin);
         blob::drop_for_testing(blob1);
@@ -66,11 +68,11 @@ module blob_store::blob_tests {
 
         // Get some space for a few epochs - TOO LITTLE SPACE
         let (storage, fake_coin) = system::reserve_space(
-            &mut system, 100, 3, fake_coin, &mut ctx);
+            &mut system, 5000, 3, fake_coin, &mut ctx);
 
         // Register a Blob
-        let blob_id = blob::derive_blob_id(0xABC, 0x1, 5000);
-        let blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, 0x1, &mut ctx);
+        let blob_id = blob::derive_blob_id(0xABC, RED_STUFF, 5000);
+        let blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, RED_STUFF, &mut ctx);
 
         coin::burn_for_testing(fake_coin);
         blob::drop_for_testing(blob1);
@@ -94,11 +96,11 @@ module blob_store::blob_tests {
 
         // Get some space for a few epochs
         let (storage, fake_coin) = system::reserve_space(
-                &mut system, 10000, 3, fake_coin, &mut ctx);
+                &mut system, 1_000_000, 3, fake_coin, &mut ctx);
 
         // Register a Blob
-        let blob_id = blob::derive_blob_id(0xABC, 0x1, 5000);
-        let mut blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, 0x1, &mut ctx);
+        let blob_id = blob::derive_blob_id(0xABC, RED_STUFF, 5000);
+        let mut blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, RED_STUFF, &mut ctx);
 
         let certify_message = blob::certified_blob_message_for_testing(0, blob_id);
 
@@ -139,7 +141,7 @@ module blob_store::blob_tests {
         let blob_id = bcs::peel_u256(&mut encode);
 
         // Derive and check blob ID
-        let blob_id_bis = blob::derive_blob_id(root_hash, 0x0, 10000);
+        let blob_id_bis = blob::derive_blob_id(root_hash, RED_STUFF, 10000);
         assert!(blob_id == blob_id_bis, 0);
 
         // BCS confirmation message for epoch 0 and blob id `blob_id` with intents
@@ -185,14 +187,22 @@ module blob_store::blob_tests {
         // Get some space for a few epochs
         let (storage, fake_coin) = system::reserve_space(
             &mut system,
-            10000,
+            1_000_000,
             3,
             fake_coin,
             &mut ctx
         );
 
         // Register a Blob
-        let mut blob1 = blob::register(&system, storage, blob_id, root_hash, 10000, 0x0, &mut ctx);
+        let mut blob1 = blob::register(
+            &system,
+            storage,
+            blob_id,
+            root_hash,
+            10000,
+            RED_STUFF,
+            &mut ctx
+        );
 
         // Set certify
         blob::certify(&system, &mut blob1, signature, vector[0], confirmation);
@@ -222,11 +232,11 @@ module blob_store::blob_tests {
 
         // Get some space for a few epochs
         let (storage, fake_coin) = system::reserve_space(
-                &mut system, 10000, 3, fake_coin, &mut ctx);
+                &mut system, 1_000_000, 3, fake_coin, &mut ctx);
 
         // Register a Blob
-        let blob_id = blob::derive_blob_id(0xABC, 0x1, 5000);
-        let mut blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, 0x1, &mut ctx);
+        let blob_id = blob::derive_blob_id(0xABC, RED_STUFF, 5000);
+        let mut blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, RED_STUFF, &mut ctx);
 
         // Set INCORRECT EPOCH TO 1
         let certify_message = blob::certified_blob_message_for_testing(1, blob_id);
@@ -256,11 +266,11 @@ module blob_store::blob_tests {
 
         // Get some space for a few epochs
         let (storage, fake_coin) = system::reserve_space(
-                &mut system, 10000, 3, fake_coin, &mut ctx);
+                &mut system, 1_000_000, 3, fake_coin, &mut ctx);
 
         // Register a Blob
-        let blob_id = blob::derive_blob_id(0xABC, 0x1, 5000);
-        let mut blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, 0x1, &mut ctx);
+        let blob_id = blob::derive_blob_id(0xABC, RED_STUFF, 5000);
+        let mut blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, RED_STUFF, &mut ctx);
 
         // DIFFERENT blob id
         let certify_message = blob::certified_blob_message_for_testing(0, 0xFFF);
@@ -290,11 +300,11 @@ module blob_store::blob_tests {
 
         // Get some space for a few epochs
         let (storage, fake_coin) = system::reserve_space(
-                &mut system, 10000, 3, fake_coin, &mut ctx);
+                &mut system, 1_000_000, 3, fake_coin, &mut ctx);
 
         // Register a Blob
-        let blob_id = blob::derive_blob_id(0xABC, 0x1, 5000);
-        let mut blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, 0x1, &mut ctx);
+        let blob_id = blob::derive_blob_id(0xABC, RED_STUFF, 5000);
+        let mut blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, RED_STUFF, &mut ctx);
 
         // Advance epoch -- to epoch 1
         let committee = committee::committee_for_testing(1);
@@ -339,11 +349,11 @@ module blob_store::blob_tests {
 
         // Get some space for a few epochs
         let (storage, fake_coin) = system::reserve_space(
-                &mut system, 10000, 3, fake_coin, &mut ctx);
+                &mut system, 1_000_000, 3, fake_coin, &mut ctx);
 
         // Register a Blob
-        let blob_id = blob::derive_blob_id(0xABC, 0x1, 5000);
-        let mut blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, 0x1, &mut ctx);
+        let blob_id = blob::derive_blob_id(0xABC, RED_STUFF, 5000);
+        let mut blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, RED_STUFF, &mut ctx);
 
         // Set certify
         let certify_message = blob::certified_blob_message_for_testing(0, blob_id);
@@ -390,11 +400,11 @@ module blob_store::blob_tests {
 
         // Get some space for a few epochs
         let (storage, fake_coin) = system::reserve_space(
-                &mut system, 10000, 3, fake_coin, &mut ctx);
+                &mut system, 1_000_000, 3, fake_coin, &mut ctx);
 
         // Register a Blob
-        let blob_id = blob::derive_blob_id(0xABC, 0x1, 5000);
-        let blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, 0x1, &mut ctx);
+        let blob_id = blob::derive_blob_id(0xABC, RED_STUFF, 5000);
+        let blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, RED_STUFF, &mut ctx);
 
         // Destroy the blob
         blob::destroy_blob(&system, blob1);
@@ -448,19 +458,19 @@ module blob_store::blob_tests {
 
         // Get some space for a few epochs
         let (storage, fake_coin) = system::reserve_space(
-                &mut system, 10000, 3, fake_coin, &mut ctx);
+                &mut system, 1_000_000, 3, fake_coin, &mut ctx);
 
         // Get a longer storage period
         let (mut storage_long, fake_coin) = system::reserve_space(
-                &mut system, 10000, 5, fake_coin, &mut ctx);
+                &mut system, 1_000_000, 5, fake_coin, &mut ctx);
 
         // Split by period
         let trailing_storage =
             split_by_epoch(&mut storage_long, 3, &mut ctx);
 
         // Register a Blob
-        let blob_id = blob::derive_blob_id(0xABC, 0x1, 5000);
-        let mut blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, 0x1, &mut ctx);
+        let blob_id = blob::derive_blob_id(0xABC, RED_STUFF, 5000);
+        let mut blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, RED_STUFF, &mut ctx);
         let certify_message = blob::certified_blob_message_for_testing(0, blob_id);
 
         // Set certify
@@ -495,19 +505,19 @@ module blob_store::blob_tests {
 
         // Get some space for a few epochs
         let (storage, fake_coin) = system::reserve_space(
-                &mut system, 10000, 3, fake_coin, &mut ctx);
+                &mut system, 1_000_000, 3, fake_coin, &mut ctx);
 
         // Get a longer storage period
         let (mut storage_long, fake_coin) = system::reserve_space(
-                &mut system, 10000, 5, fake_coin, &mut ctx);
+                &mut system, 1_000_000, 5, fake_coin, &mut ctx);
 
         // Split by period
         let trailing_storage =
             split_by_epoch(&mut storage_long, 4, &mut ctx);
 
         // Register a Blob
-        let blob_id = blob::derive_blob_id(0xABC, 0x1, 5000);
-        let mut blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, 0x1, &mut ctx);
+        let blob_id = blob::derive_blob_id(0xABC, RED_STUFF, 5000);
+        let mut blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, RED_STUFF, &mut ctx);
         let certify_message = blob::certified_blob_message_for_testing(0, 0xABC);
 
         // Set certify
@@ -539,19 +549,19 @@ module blob_store::blob_tests {
 
         // Get some space for a few epochs
         let (storage, fake_coin) = system::reserve_space(
-                &mut system, 10000, 3, fake_coin, &mut ctx);
+                &mut system, 1_000_000, 3, fake_coin, &mut ctx);
 
         // Get a longer storage period
         let (mut storage_long, fake_coin) = system::reserve_space(
-                &mut system, 10000, 5, fake_coin, &mut ctx);
+                &mut system, 1_000_000, 5, fake_coin, &mut ctx);
 
         // Split by period
         let trailing_storage =
             split_by_epoch(&mut storage_long, 3, &mut ctx);
 
         // Register a Blob
-        let blob_id = blob::derive_blob_id(0xABC, 0x1, 5000);
-        let mut blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, 0x1, &mut ctx);
+        let blob_id = blob::derive_blob_id(0xABC, RED_STUFF, 5000);
+        let mut blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, RED_STUFF, &mut ctx);
 
         // Set certify
         let certify_message = blob::certified_blob_message_for_testing(0, blob_id);

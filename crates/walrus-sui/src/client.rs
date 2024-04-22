@@ -75,14 +75,14 @@ pub trait ContractClient {
     /// Registers a blob with the specified [`BlobId`] using the provided [`StorageResource`],
     /// and returns the created blob object.
     ///
-    /// `encoded_size` is the size of the encoded blob, must be less than or equal to the size
-    ///  reserved in `storage`.
+    /// `blob_size` is the size of the unencoded blob. The encoded size of the blob must be
+    /// less than or equal to the size reserved in `storage`.
     fn register_blob(
         &self,
         storage: &StorageResource,
         blob_id: BlobId,
         root_digest: [u8; DIGEST_LEN],
-        encoded_size: u64,
+        blob_size: u64,
         erasure_code_type: EncodingType,
     ) -> impl Future<Output = SuiClientResult<Blob>> + Send;
 
@@ -248,7 +248,7 @@ impl ContractClient for SuiContractClient {
         storage: &StorageResource,
         blob_id: BlobId,
         root_digest: [u8; DIGEST_LEN],
-        encoded_size: u64,
+        blob_size: u64,
         erasure_code_type: EncodingType,
     ) -> SuiClientResult<Blob> {
         let erasure_code_type: u8 = erasure_code_type.into();
@@ -260,7 +260,7 @@ impl ContractClient for SuiContractClient {
                     self.wallet.get_object_ref(storage.id).await?.into(),
                     call_arg_pure!(&blob_id),
                     call_arg_pure!(&root_digest),
-                    encoded_size.into(),
+                    blob_size.into(),
                     erasure_code_type.into(),
                 ],
             )

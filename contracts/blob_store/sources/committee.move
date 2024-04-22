@@ -13,7 +13,7 @@ module blob_store::committee {
     #[test_only]
     use blob_store::bls_aggregate::new_bls_committee_for_testing;
 
-    use blob_store::bls_aggregate::{BlsCommittee, new_bls_committee, verify_certificate};
+    use blob_store::bls_aggregate::{Self, BlsCommittee, new_bls_committee, verify_certificate};
     use blob_store::storage_node::StorageNodeInfo;
 
     /// Represents a committee for a given epoch
@@ -46,6 +46,11 @@ module blob_store::committee {
     /// This is only accessible through friend modules.
     public(package) fun create_committee_cap() : CreateCommitteeCap {
         CreateCommitteeCap {}
+    }
+
+    /// Returns the number of shards held by the committee.
+    public fun n_shards(self: &Committee) : u16 {
+        bls_aggregate::n_shards(&self.bls_committee)
     }
 
     #[test_only]

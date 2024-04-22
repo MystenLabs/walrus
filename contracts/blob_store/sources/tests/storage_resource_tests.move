@@ -13,7 +13,6 @@ module blob_store::storage_resource_tests {
         start_epoch,
         end_epoch,
         storage_size,
-        EInvalidAmount,
         EInvalidEpoch,
         EIncompatibleAmount,
         EIncompatibleEpochs,
@@ -44,16 +43,6 @@ module blob_store::storage_resource_tests {
         assert!(start_epoch(&storage) == 0 && end_epoch(&storage) == 10
             && start_epoch(&new_storage) == 0 && end_epoch(&new_storage) == 10, 0);
         assert!(storage_size(&storage) == 1_000_000 && storage_size(&new_storage) == 4_000_000, 0);
-        destroy(storage);
-        destroy(new_storage);
-    }
-
-    #[test]
-    #[expected_failure(abort_code=EInvalidAmount)]
-    public fun test_split_size_invalid(){
-        let ctx = &mut tx_context::dummy();
-        let mut storage = create_for_test(0, 10, 5_000_000, ctx);
-        let new_storage = split_by_size(&mut storage, 4_500_000, ctx);
         destroy(storage);
         destroy(new_storage);
     }

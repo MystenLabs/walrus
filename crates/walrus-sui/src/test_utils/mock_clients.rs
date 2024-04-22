@@ -156,14 +156,14 @@ impl ContractClient for MockContractClient {
         storage: &StorageResource,
         blob_id: BlobId,
         _root_digest: [u8; DIGEST_LEN],
-        encoded_size: u64,
+        blob_size: u64,
         erasure_code_type: EncodingType,
     ) -> SuiClientResult<Blob> {
         self.read_client.add_event(
             BlobRegistered {
                 epoch: self.current_epoch,
                 blob_id,
-                size: encoded_size,
+                size: blob_size,
                 erasure_code_type,
                 end_epoch: storage.end_epoch,
                 event_id: event_id_for_testing(),
@@ -174,7 +174,7 @@ impl ContractClient for MockContractClient {
             id: ObjectID::random(),
             stored_epoch: self.current_epoch,
             blob_id,
-            encoded_size,
+            size: blob_size,
             erasure_code_type,
             certified: None,
             storage: storage.clone(),
@@ -240,11 +240,12 @@ mod tests {
                 .await?
         );
 
-        let size = 10000;
-        let storage_resource = walrus_client.reserve_space(size, 3).await?;
+        let resource_size = 10_000_000;
+        let size = 10_000;
+        let storage_resource = walrus_client.reserve_space(resource_size, 3).await?;
         assert_eq!(storage_resource.start_epoch, 0);
         assert_eq!(storage_resource.end_epoch, 3);
-        assert_eq!(storage_resource.storage_size, size);
+        assert_eq!(storage_resource.storage_size, resource_size);
         #[rustfmt::skip]
         let blob_id = BlobId([
             1, 2, 3, 4, 5, 6, 7, 8,
@@ -262,7 +263,7 @@ mod tests {
             )
             .await?;
         assert_eq!(blob_obj.blob_id, blob_id);
-        assert_eq!(blob_obj.encoded_size, size);
+        assert_eq!(blob_obj.size, size);
         assert_eq!(blob_obj.certified, None);
         assert_eq!(blob_obj.storage, storage_resource);
         assert_eq!(blob_obj.stored_epoch, 0);
@@ -278,7 +279,7 @@ mod tests {
             blob_obj.erasure_code_type
         );
         assert_eq!(blob_registered.end_epoch, storage_resource.end_epoch);
-        assert_eq!(blob_registered.size, blob_obj.encoded_size);
+        assert_eq!(blob_registered.size, blob_obj.size);
 
         let blob_obj = walrus_client
             .certify_blob(

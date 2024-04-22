@@ -2,24 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 module blob_store::storage_resource {
-    /// Maximum and minimum storage per storage object
-    const MAX_STORAGE_AMOUNT : u64 = 1_000_000_000; // about 1GB
-    const MIN_STORAGE_AMOUNT : u64 = 1_000_000; // about 1MB
 
     const EInvalidEpoch: u64 = 0;
-    const EInvalidAmount: u64 = 1;
-    const EIncompatibleEpochs: u64 = 2;
-    const EIncompatibleAmount: u64 = 3;
-
-    /// Allow other modules to read MIN_STORAGE_AMOUNT
-    public fun min_storage_amount() : u64 {
-        MIN_STORAGE_AMOUNT
-    }
-
-    /// Allow other modules to read MAX_STORAGE_AMOUNT
-    public fun max_storage_amount() : u64 {
-        MAX_STORAGE_AMOUNT
-    }
+    const EIncompatibleEpochs: u64 = 1;
+    const EIncompatibleAmount: u64 = 2;
 
     /// Reservation for storage for a given period, which is inclusive start, exclusive end.
     public struct Storage has key, store {
@@ -90,11 +76,6 @@ module blob_store::storage_resource {
         split_size: u64,
         ctx: &mut TxContext,
     ) : Storage {
-        assert!(
-            split_size >= MIN_STORAGE_AMOUNT
-            && storage.storage_size - split_size >= MIN_STORAGE_AMOUNT,
-            EInvalidAmount
-        );
         let storage_size = storage.storage_size - split_size;
         storage.storage_size = split_size;
         Storage {
@@ -142,7 +123,6 @@ module blob_store::storage_resource {
             first.start_epoch == second_start && first.end_epoch == second_end,
             EIncompatibleEpochs
         );
-        assert!(first.storage_size + second_size <= MAX_STORAGE_AMOUNT, EIncompatibleAmount);
         first.storage_size = first.storage_size + second_size;
     }
 

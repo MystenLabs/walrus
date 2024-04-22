@@ -348,6 +348,27 @@ mod tests {
     }
 
     param_test! {
+        test_encoded_size: [
+            zero: (0, 10, None),
+            one_small_committee: (1, 10, Some(10*((4+7) + 10*2*32 + 32))),
+            one_large_committee: (1, 1000, Some(1000*((329+662) + 1000*2*32 + 32))),
+            larger_blob_small_committee: ((4*7)*100, 10, Some(10*((4+7)*100 + 10*2*32 + 32))),
+            larger_blob_large_committee: (
+                (329*662)*100,
+                1000,
+                Some(1000*((329+662)*100 + 1000*2*32 + 32))
+            ),
+
+        ]
+    }
+    fn test_encoded_size(blob_size: usize, n_shards: u16, expected_encoded_size: Option<u64>) {
+        assert_eq!(
+            EncodingConfig::new(NonZeroU16::new(n_shards).unwrap()).encoded_blob_length(blob_size),
+            expected_encoded_size,
+        );
+    }
+
+    param_test! {
         test_source_symbols_for_n_shards: [
             one: (1, 1, 1),
             three: (3, 3, 3),

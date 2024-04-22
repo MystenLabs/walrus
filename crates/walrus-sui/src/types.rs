@@ -82,8 +82,8 @@ pub struct Blob {
     pub stored_epoch: Epoch,
     /// The blob Id
     pub blob_id: BlobId,
-    /// The total encoded size of the blob
-    pub encoded_size: u64,
+    /// The (unencoded) size of the blob
+    pub size: u64,
     /// The erasure coding type used for the blob
     pub erasure_code_type: EncodingType,
     /// The epoch in which the blob was first certified, `None` if the blob is uncertified
@@ -103,7 +103,7 @@ impl TryFrom<&SuiMoveStruct> for Blob {
             get_dynamic_field!(sui_move_struct, "blob_id", SuiMoveValue::String)?
                 .parse::<U256>()?,
         );
-        let encoded_size = get_dynamic_u64_field!(sui_move_struct, "size")?;
+        let size = get_dynamic_u64_field!(sui_move_struct, "size")?;
         let erasure_code_type = EncodingType::try_from(u8::try_from(get_dynamic_field!(
             sui_move_struct,
             "erasure_code_type",
@@ -133,7 +133,7 @@ impl TryFrom<&SuiMoveStruct> for Blob {
             id,
             stored_epoch,
             blob_id,
-            encoded_size,
+            size,
             erasure_code_type,
             certified,
             storage,
@@ -473,7 +473,7 @@ pub struct BlobRegistered {
     pub epoch: Epoch,
     /// The blob Id
     pub blob_id: BlobId,
-    /// The total encoded size of the blob
+    /// The (unencoded) size of the blob
     pub size: u64,
     /// The erasure coding type used for the blob
     pub erasure_code_type: EncodingType,

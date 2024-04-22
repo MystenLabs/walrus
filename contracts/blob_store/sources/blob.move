@@ -15,6 +15,7 @@ module blob_store::blob {
         storage_size,
         fuse_periods,
         destroy};
+    use blob_store::encoding;
 
     // A certify blob message structure
     const BLOB_CERT_MSG_TYPE: u8 = 1;
@@ -109,6 +110,8 @@ module blob_store::blob {
     }
 
     /// Register a new blob in the system.
+    /// `size` is the size of the unencoded blob. The reserved space in `storage` must be at
+    /// least the size of the encoded blob.
     public fun register<WAL>(
         sys: &System<WAL>,
         storage: Storage,
@@ -125,7 +128,14 @@ module blob_store::blob {
         // Check resource bounds.
         assert!(stored_epoch >= start_epoch(&storage), ERROR_RESOURCE_BOUNDS);
         assert!(stored_epoch < end_epoch(&storage), ERROR_RESOURCE_BOUNDS);
-        assert!(size <= storage_size(&storage), ERROR_RESOURCE_SIZE);
+
+        // check that the encoded size is less than the storage size
+        let encoded_size = encoding::encoded_blob_length(
+            size,
+            erasure_code_type,
+            system::n_shards(sys)
+        );
+        assert!(encoded_size <= storage_size(&storage), ERROR_RESOURCE_SIZE);
 
         // Cryptographically verify that the Blob ID authenticates
         // both the size and fe_type.

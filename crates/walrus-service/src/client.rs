@@ -123,7 +123,7 @@ impl<T: ContractClient> Client<T> {
                 &storage_resource,
                 *metadata.blob_id(),
                 root_hash.bytes(),
-                encoded_length,
+                blob.len() as u64,
                 metadata.metadata().encoding_type,
             )
             .await?;
