@@ -296,7 +296,7 @@ The key modifications in RedStuff, compared to the original Twin-Code framework,
 - Both "Type 0" and "Type 1" encodings are stored on each shard. In our terminology these are called "slivers", and the two together form a "sliver
   pair".
 
-## Walrus-specific Parameters & Considerations
+## Walrus-specific Parameters and Considerations
 
 ### Sliver-Pair-to-Shard Mapping
 
@@ -348,7 +348,7 @@ For example, then, we have the following settings:
 |     1000 | 333 |        5 |       329 |         662 |
 
 
-## Blob Size Considerations
+## Blob Size Limits
 
 In RaptorQ, the size of a symbol is encoded as a 16-bit integer. Therefore, the maximum size of a blob that can be encoded is $2^{16} - 1 = 65535$
 bytes. As a minimum, a symbol must be at least 1 byte.
