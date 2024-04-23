@@ -347,7 +347,6 @@ For example, then, we have the following settings:
 |      300 |  99 |        5 |        97 |         196 |
 |     1000 | 333 |        5 |       329 |         662 |
 
-
 ## Blob Size Limits
 
 In RaptorQ, the size of a symbol is encoded as a 16-bit integer. Therefore, the maximum size of a blob that can be encoded is $2^{16} - 1 = 65535$
@@ -356,14 +355,14 @@ bytes. As a minimum, a symbol must be at least 1 byte.
 Since the blob is encoded in the rectangular message matrix, the blob size is upperbound by `source_symbols_primary * source_symbols_secondary *
 u16::MAX` and lowerbound by `source_symbols_primary * source_symbols_secondary`. A few examples for the same configurations as above:
 
-| N shards | Min blob size | Max blob size |
-|---------:|--------------:|--------------:|
-|        7 |        15.0 B |        983 KB |
-|       10 |        28.0 B |       1.83 MB |
-|       31 |         171 B |       11.2 MB |
-|      100 |       1.80 KB |        118 MB |
-|      300 |       19.0 KB |       1.25 GB |
-|     1000 |        218 KB |       14.3 GB |
+| N shards | Min blob size | Max blob size | Min encoded blob size | Max encoded blob size |
+|---------:|--------------:|--------------:|----------------------:|----------------------:|
+|        7 |        15.0 B |        983 KB |                56.0 B |               3.67 MB |
+|       10 |        28.0 B |       1.83 MB |                 110 B |               7.21 MB |
+|       31 |         171 B |       11.2 MB |                 868 B |               56.9 MB |
+|      100 |       1.80 KB |        118 MB |               9.10 KB |                596 MB |
+|      300 |       19.0 KB |       1.25 GB |               87.9 KB |               5.76 GB |
+|     1000 |        218 KB |       14.3 GB |                991 KB |               64.9 GB |
 
 ## Sliver Authentication, Blob Metadata, and the Blob ID
 
@@ -388,7 +387,6 @@ Therefore, to prove that a sliver is indeed part of a blob, it is sufficient to 
 
 Finally, the encoding type tag (representing the RedStuff version, or alternative encoding), the length of the blob _before_ the encoding, and the
 Merkle root of the tree over the slivers are hashed together to obtain the _blob ID_.
-
 
 ### Metadata Overhead
 
@@ -417,14 +415,14 @@ However, recall that the number of shards is set and constant, while the number 
 lowering the overhead on the system.  We therefore show here the ratio between the size of the hashes stored on the system to the minimum and maximum
 blob sizes, for `N=1000` shards and different number of nodes (1 node, floor(N/floor(log2(N))) = 111, 1000).
 
-| N=1000                       | Total metadata size | Factor min blob | Factor max blob |
-|------------------------------|--------------------:|----------------:|----------------:|
-| Single node                  |             64.0 KB |           0.294 |        4.48e-06 |
-| floor(N/floor(log2(N)) nodes |             7.10 MB |            32.6 |        0.000498 |
-| N nodes                      |             64.0 MB |             294 |         0.00448 |
+| N = 1000                     | Total metadata size | Factor min blob | Factor max blob | Factor min encoded blob | Factor max encoded blob |
+|------------------------------|--------------------:|----------------:|----------------:|------------------------:|------------------------:|
+| Single node                  |             64.0 KB |           0.294 |        4.48e-06 |                  0.0646 |                9.85e-07 |
+| floor(N/floor(log2(N)) nodes |             7.10 MB |            32.6 |        0.000498 |                    7.17 |                0.000109 |
+| N nodes                      |             64.0 MB |             294 |         0.00448 |                    64.6 |                0.000985 |
 
 We see that for realistic node counts and small blob sizes, the total metadata overhead goes can be multiple times the size of the initial unencoded
-blob.
+blob. However, for larger blob sizes, the overhead is negligible.
 
 [^twincode]: K. V. Rashmi, N. B. Shah and P. V . Kumar, "Enabling node repair in any erasure code for distributed storage," 2011 IEEE International
     Symposium on Information Theory Proceedings, St. Petersburg, Russia, 2011, pp. 1235-1239, doi: 10.1109/ISIT.2011.6033732.
