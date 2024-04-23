@@ -347,7 +347,7 @@ mod test {
         SliverPairIndex,
         SliverType,
     };
-    use walrus_sdk::storage_node::Client;
+    use walrus_sdk::client::Client;
     use walrus_test_utils::{async_param_test, WithTempDir};
 
     use super::*;
