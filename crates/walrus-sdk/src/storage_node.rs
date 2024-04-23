@@ -22,9 +22,6 @@ use crate::{
     node_response::NodeResponse as _,
 };
 
-#[cfg(feature = "service")]
-pub mod service;
-
 #[derive(Debug, Clone)]
 struct UrlEndpoints(Url);
 

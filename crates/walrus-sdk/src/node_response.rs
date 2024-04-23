@@ -53,7 +53,6 @@ impl NodeResponse for Response {
         Ok(bcs::from_bytes(&body).map_err(Kind::Bcs)?)
     }
 
-    #[inline]
     async fn service_response<T: DeserializeOwned>(self) -> Result<T, NodeError> {
         let non_error_response = self.response_error_for_status().await?;
 
@@ -75,7 +74,6 @@ impl NodeResponse for Response {
     }
 }
 
-// TODO(jsmith): Remove from `extract` module
 fn is_content_type_octet_stream(headers: &HeaderMap) -> bool {
     let Some(content_type) = headers.get(header::CONTENT_TYPE) else {
         // No media-type is often just bytes.

@@ -53,8 +53,7 @@ pub(crate) struct NodeCommunication<'a> {
     pub node: &'a StorageNode,
     pub encoding_config: &'a EncodingConfig,
     pub span: Span,
-
-    client: StorageNodeClient,
+    pub client: StorageNodeClient,
 }
 
 impl<'a> NodeCommunication<'a> {
@@ -113,8 +112,7 @@ impl<'a> NodeCommunication<'a> {
     where
         Sliver<T>: TryFrom<SliverEnum>,
     {
-        let blob_id = metadata.blob_id();
-        let sliver_pair_index = shard_idx.to_pair_index(self.n_shards(), blob_id);
+        let sliver_pair_index = shard_idx.to_pair_index(self.n_shards(), metadata.blob_id());
         let sliver = self
             .client
             .get_and_verify_sliver(sliver_pair_index, metadata, self.encoding_config)

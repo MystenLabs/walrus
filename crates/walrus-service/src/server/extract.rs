@@ -46,8 +46,8 @@ impl IntoResponse for BcsRejection {
 pub struct Bcs<T>(pub T);
 
 impl<T: DeserializeOwned> Bcs<T> {
-    /// Construct a `Bcs<T>` from a byte slice. Prefer the use the `FromRequest` impl but special
-    /// cases may require extracting a Request into Bytes then optionally constructing a `Bcs<T>`.
+    /// Construct a `Bcs<T>` from a byte slice. The `FromRequest` impl should be preferred, but
+    /// special cases may require extracting a Request into Bytes then constructing a `Bcs<T>`.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, BcsRejection> {
         Ok(Bcs(bcs::from_bytes(bytes)?))
     }

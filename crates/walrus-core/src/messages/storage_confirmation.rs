@@ -61,7 +61,8 @@ impl SignedStorageConfirmation {
     }
 }
 
-/// Error raised by [`SignedStorageConfirmation::verify`] when unable to verify the
+/// Error raised by [`SignedStorageConfirmation::verify`] when unable to verify
+/// the storage confirmation.
 #[derive(Debug, thiserror::Error)]
 pub enum VerificationError {
     /// The confirmation could not be decoded.
