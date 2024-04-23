@@ -403,26 +403,25 @@ The metadata consists of:
 Of these, the hashes for the primary and secondary slivers can be a considerable overhead, if the number of shards is high. We show here the
 cumulative size of the hashes stored on the system, depending on the number of nodes and the number of shards.
 
-| N shards | One node | N/log(N) nodes | N nodes |
-|---------:|---------:|---------------:|--------:|
-|        7 |    448 B |        3.71 KB | 3.14 KB |
-|       10 |    640 B |        6.40 KB | 6.40 KB |
-|       31 |  1.98 KB |        41.2 KB | 61.5 KB |
-|      100 |  6.40 KB |         320 KB |  640 KB |
-|      300 |  19.2 KB |        2.33 MB | 5.76 MB |
-|     1000 |  64.0 KB |        21.3 MB | 64.0 MB |
+| N shards | One node | floor(N/floor(log2(N)) nodes | N nodes |
+|---------:|---------:|-----------------------------:|--------:|
+|        7 |    448 B |                      1.34 KB | 3.14 KB |
+|       10 |    640 B |                      1.92 KB | 6.40 KB |
+|       31 |  1.98 KB |                      13.9 KB | 61.5 KB |
+|      100 |  6.40 KB |                       102 KB |  640 KB |
+|      300 |  19.2 KB |                       710 KB | 5.76 MB |
+|     1000 |  64.0 KB |                      7.10 MB | 64.0 MB |
 
 We see that the cumulative size of the hashes in the case of 1000 nodes (1 node per shard), is 64KB per node, or 64MB for a system of 1000 nodes.
 However, recall that the number of shards is set and constant, while the number of nodes may vary (each node has one or more shards), potentially
 lowering the overhead on the system.  We therefore show here the ratio between the size of the hashes stored on the system to the minimum and maximum
-blob sizes, for `N=1000` shards and different number of nodes (1 node, N/log10(N) = 333, 1000).
+blob sizes, for `N=1000` shards and different number of nodes (1 node, floor(N/floor(log2(N))) = 111, 1000).
 
-| N=1000             | Total metadata size | Factor min blob | Factor max blob |
-|--------------------|--------------------:|----------------:|----------------:|
-| Single node        |             64.0 KB |           0.294 |        4.48e-06 |
-| N / log10(N) nodes |             21.3 MB |            98.0 |         0.00149 |
-| N nodes            |             64.0 MB |             294 |         0.00448 |
-
+| N=1000                       | Total metadata size | Factor min blob | Factor max blob |
+|------------------------------|--------------------:|----------------:|----------------:|
+| Single node                  |             64.0 KB |           0.294 |        4.48e-06 |
+| floor(N/floor(log2(N)) nodes |             7.10 MB |            32.6 |        0.000498 |
+| N nodes                      |             64.0 MB |             294 |         0.00448 |
 
 We see that for realistic node counts and small blob sizes, the total metadata overhead goes can be multiple times the size of the initial unencoded
 blob.
