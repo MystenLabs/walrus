@@ -65,6 +65,11 @@ impl Client {
         }
     }
 
+    /// Converts this to the inner client.
+    pub fn into_inner(self) -> ReqwestClient {
+        self.inner
+    }
+
     /// Requests the metadata for a blob ID from the node.
     pub async fn get_metadata(
         &self,

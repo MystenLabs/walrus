@@ -333,10 +333,11 @@ fn decode_sliver(
 #[cfg(test)]
 mod test {
     use anyhow::anyhow;
+    use reqwest::Url;
     use tokio::task::JoinHandle;
     use tokio_util::sync::CancellationToken;
     use walrus_core::{
-        encoding::{Primary, PrimarySliver},
+        encoding::Primary,
         merkle::MerkleProof,
         messages::StorageConfirmation,
         metadata::UnverifiedBlobMetadataWithId,
@@ -346,7 +347,8 @@ mod test {
         SliverPairIndex,
         SliverType,
     };
-    use walrus_test_utils::WithTempDir;
+    use walrus_sdk::storage_node::Client;
+    use walrus_test_utils::{async_param_test, WithTempDir};
 
     use super::*;
     use crate::{
@@ -451,57 +453,75 @@ mod test {
         (config, handle)
     }
 
+    fn storage_node_client(config: &StorageNodeConfig) -> Client {
+        let network_address = config.rest_api_address;
+        let url = Url::parse(&format!("http://{network_address}")).unwrap();
+
+        // Do not load any proxy information from the system, as it's slow (at least on MacOs).
+        let inner = reqwest::Client::builder().no_proxy().build().unwrap();
+
+        Client::from_url(url, inner)
+    }
+
+    fn blob_id_for_valid_response() -> BlobId {
+        let mut blob_id = walrus_core::test_utils::random_blob_id();
+        blob_id.0[0] = 0; // Triggers a valid response
+        blob_id
+    }
+
+    fn blob_id_for_not_found() -> BlobId {
+        let mut blob_id = walrus_core::test_utils::random_blob_id();
+        blob_id.0[0] = 1; // Triggers a not found response
+        blob_id
+    }
+
+    fn blob_id_for_internal_server_error() -> BlobId {
+        let mut blob_id = walrus_core::test_utils::random_blob_id();
+        blob_id.0[0] = 2; // Triggers an internal server error.
+        blob_id
+    }
+
     #[tokio::test]
     async fn retrieve_metadata() {
         let (config, _handle) = start_rest_api_with_test_config().await;
+        let client = storage_node_client(config.as_ref());
 
-        let mut blob_id = walrus_core::test_utils::random_blob_id();
-        blob_id.0[0] = 0; // Triggers a valid response
-        let path = METADATA_ENDPOINT.replace(":blobId", &blob_id.to_string());
-        let url = format!("http://{}{path}", config.as_ref().rest_api_address);
-
-        let client = reqwest::Client::new();
-        let res = client.get(url).send().await.unwrap();
-        assert_eq!(res.status(), StatusCode::OK);
-
-        assert_eq!(
-            res.headers().get(reqwest::header::CONTENT_TYPE),
-            Some(&reqwest::header::HeaderValue::from_static(
-                "application/octet-stream"
-            ))
-        );
-
-        let bytes = res.bytes().await.expect("valid response with bytes");
-        let _data: UnverifiedBlobMetadataWithId =
-            bcs::from_bytes(&bytes).expect("metadata must decode");
+        let blob_id = blob_id_for_valid_response();
+        let _metadata = client
+            .get_metadata(&blob_id)
+            .await
+            .expect("should successfully return metadata");
     }
 
     #[tokio::test]
     async fn retrieve_metadata_not_found() {
         let (config, _handle) = start_rest_api_with_test_config().await;
+        let client = storage_node_client(config.as_ref());
 
-        let mut blob_id = walrus_core::test_utils::random_blob_id();
-        blob_id.0[0] = 1; // Triggers a not found response
-        let path = METADATA_ENDPOINT.replace(":blobId", &blob_id.to_string());
-        let url = format!("http://{}{path}", config.as_ref().rest_api_address);
+        let blob_id = blob_id_for_not_found();
+        let err = client
+            .get_metadata(&blob_id)
+            .await
+            .expect_err("metadata request mut fail");
 
-        let client = reqwest::Client::new();
-        let res = client.get(url).send().await.unwrap();
-        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+        assert_eq!(err.http_status_code(), Some(StatusCode::NOT_FOUND));
     }
 
     #[tokio::test]
     async fn retrieve_metadata_internal_error() {
         let (config, _handle) = start_rest_api_with_test_config().await;
+        let client = storage_node_client(config.as_ref());
 
-        let mut blob_id = walrus_core::test_utils::random_blob_id();
-        blob_id.0[0] = 2; // Triggers an internal server error
-        let path = METADATA_ENDPOINT.replace(":blobId", &blob_id.to_string());
-        let url = format!("http://{}{path}", config.as_ref().rest_api_address);
+        let blob_id = blob_id_for_internal_server_error();
+        let err = client
+            .get_metadata(&blob_id)
+            .await
+            .expect_err("metadata request must fail");
 
-        let client = reqwest::Client::new();
-        let res = client.get(url).send().await.unwrap();
-        assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            err.http_status_code(),
+            Some(StatusCode::INTERNAL_SERVER_ERROR)
+        );
     }
 
     #[tokio::test]
@@ -515,7 +535,7 @@ mod test {
         let path = METADATA_ENDPOINT.replace(":blobId", &blob_id);
         let url = format!("http://{}{path}", config.as_ref().rest_api_address);
 
-        let client = reqwest::Client::new();
+        let client = storage_node_client(config.as_ref()).into_inner();
         let res = client
             .put(url)
             .body(bcs::to_bytes(metadata).unwrap())
@@ -528,126 +548,81 @@ mod test {
     #[tokio::test]
     async fn retrieve_sliver() {
         let (config, _handle) = start_rest_api_with_test_config().await;
+        let client = storage_node_client(config.as_ref());
 
         let blob_id = walrus_core::test_utils::random_blob_id();
-        let sliver_pair_id = 0; // Triggers an valid response
-        let path = SLIVER_ENDPOINT
-            .replace(":blobId", &blob_id.to_string())
-            .replace(":sliverPairIdx", &sliver_pair_id.to_string())
-            .replace(":sliverType", "primary");
-        let url = format!("http://{}{path}", config.as_ref().rest_api_address);
+        let sliver_pair_id = SliverPairIndex(0); // Triggers an valid response
 
-        let client = reqwest::Client::new();
-        let res = client.get(url).send().await.unwrap();
-        assert_eq!(res.status(), StatusCode::OK);
-
-        let _sliver: PrimarySliver = bcs::from_bytes(
-            &res.bytes()
-                .await
-                .expect("result should contain parsable bytes"),
-        )
-        .expect("sliver should successfully parse");
+        let _sliver = client
+            .get_sliver::<Primary>(&blob_id, sliver_pair_id)
+            .await
+            .expect("should successfully retrieve sliver");
     }
 
     #[tokio::test]
     async fn store_sliver() {
         let (config, _handle) = start_rest_api_with_test_config().await;
+        let client = storage_node_client(config.as_ref());
 
         let sliver = walrus_core::test_utils::sliver();
 
         let blob_id = walrus_core::test_utils::random_blob_id();
-        let sliver_pair_id = 0; // Triggers an ok response
-        let path = SLIVER_ENDPOINT
-            .replace(":blobId", &blob_id.to_string())
-            .replace(":sliverPairIdx", &sliver_pair_id.to_string())
-            .replace(":sliverType", "primary");
-        let url = format!("http://{}{path}", config.as_ref().rest_api_address);
+        let sliver_pair_id = SliverPairIndex(0); // Triggers an ok response
 
-        let client = reqwest::Client::new();
-        let res = client
-            .put(url)
-            .body(bcs::to_bytes(&sliver.to_raw::<Primary>().unwrap()).unwrap())
-            .send()
+        client
+            .store_sliver(&blob_id, sliver_pair_id, &sliver)
             .await
-            .unwrap();
-        assert_eq!(res.status(), StatusCode::OK);
+            .expect("sliver should be successfully stored");
     }
 
     #[tokio::test]
     async fn store_sliver_error() {
         let (config, _handle) = start_rest_api_with_test_config().await;
-
-        let sliver = walrus_core::test_utils::sliver();
+        let client = storage_node_client(config.as_ref());
 
         let blob_id = walrus_core::test_utils::random_blob_id();
-        let sliver_pair_id = 1; // Triggers an internal server error
-        let path = SLIVER_ENDPOINT
-            .replace(":blobId", &blob_id.to_string())
-            .replace(":sliverPairIdx", &sliver_pair_id.to_string())
-            .replace(":sliverType", "primary");
-        let url = format!("http://{}{path}", config.as_ref().rest_api_address);
+        let sliver = walrus_core::test_utils::sliver();
+        let sliver_pair_id = SliverPairIndex(1); // Triggers an internal server error
 
-        let client = reqwest::Client::new();
-        let res = client
-            .put(url)
-            .body(bcs::to_bytes(&sliver.to_raw::<Primary>().unwrap()).unwrap())
-            .send()
+        let err = client
+            .store_sliver(&blob_id, sliver_pair_id, &sliver)
             .await
-            .unwrap();
-        assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
+            .expect_err("store sliver should fail");
+
+        assert_eq!(
+            err.http_status_code(),
+            Some(StatusCode::INTERNAL_SERVER_ERROR)
+        );
     }
 
     #[tokio::test]
     async fn retrieve_storage_confirmation() {
         let (config, _handle) = start_rest_api_with_test_config().await;
+        let client = storage_node_client(config.as_ref());
 
-        let mut blob_id = walrus_core::test_utils::random_blob_id();
-        blob_id.0[0] = 0; // Triggers a valid response
-        let path = STORAGE_CONFIRMATION_ENDPOINT.replace(":blobId", &blob_id.to_string());
-        let url = format!("http://{}{path}", config.as_ref().rest_api_address);
-
-        let client = reqwest::Client::new();
-        let res = client.get(url).send().await.unwrap();
-        assert_eq!(res.status(), StatusCode::OK);
-
-        let body = res.json::<ServiceResponse<StorageConfirmation>>().await;
-        match body.unwrap() {
-            ServiceResponse::Success { code, data } => {
-                assert_eq!(code, StatusCode::OK.as_u16());
-                assert!(matches!(data, StorageConfirmation::Signed(_)));
-            }
-            ServiceResponse::Error { code, message } => {
-                panic!("Unexpected error response: {code} {message}");
-            }
-        }
+        let blob_id = blob_id_for_valid_response();
+        let _confirmation = client
+            .get_confirmation(&blob_id)
+            .await
+            .expect("should return a signed confirmation");
     }
 
-    #[tokio::test]
-    async fn retrieve_storage_confirmation_not_found() {
-        let (config, _handle) = start_rest_api_with_test_config().await;
-
-        let mut blob_id = walrus_core::test_utils::random_blob_id();
-        blob_id.0[0] = 1; // Triggers a not found response
-        let path = STORAGE_CONFIRMATION_ENDPOINT.replace(":blobId", &blob_id.to_string());
-        let url = format!("http://{}{path}", config.as_ref().rest_api_address);
-
-        let client = reqwest::Client::new();
-        let res = client.get(url).send().await.unwrap();
-        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    async_param_test! {
+        retrieve_storage_confirmation_fails: [
+            not_found: (blob_id_for_not_found(), StatusCode::NOT_FOUND),
+            internal_error: (blob_id_for_internal_server_error(), StatusCode::INTERNAL_SERVER_ERROR)
+        ]
     }
-
-    #[tokio::test]
-    async fn retrieve_storage_confirmation_internal_error() {
+    async fn retrieve_storage_confirmation_fails(blob_id: BlobId, code: StatusCode) {
         let (config, _handle) = start_rest_api_with_test_config().await;
+        let client = storage_node_client(config.as_ref());
 
-        let mut blob_id = walrus_core::test_utils::random_blob_id();
-        blob_id.0[0] = 2; // Triggers an internal server error
-        let path = STORAGE_CONFIRMATION_ENDPOINT.replace(":blobId", &blob_id.to_string());
-        let url = format!("http://{}{path}", config.as_ref().rest_api_address);
+        let err = client
+            .get_confirmation(&blob_id)
+            .await
+            .expect_err("confirmation request should fail");
 
-        let client = reqwest::Client::new();
-        let res = client.get(url).send().await.unwrap();
-        assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(err.http_status_code(), Some(code));
     }
 
     #[tokio::test]
@@ -679,7 +654,7 @@ mod test {
         let url = format!("http://{}{path}", config.inner.rest_api_address);
         // TODO(lef): Extract the path creation into a function with optional arguments
 
-        let client = reqwest::Client::new();
+        let client = storage_node_client(config.as_ref()).into_inner();
         let res = client.get(url).send().await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
 
@@ -705,7 +680,7 @@ mod test {
             .replace(":sliverType", "primary")
             .replace(":targetPairIndex", "0");
         let url = format!("http://{}{path}", config.inner.rest_api_address);
-        let client = reqwest::Client::new();
+        let client = storage_node_client(config.as_ref()).into_inner();
         let res = client.get(url).send().await.unwrap();
         assert_eq!(res.status(), StatusCode::NOT_FOUND);
     }

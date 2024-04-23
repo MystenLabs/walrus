@@ -3,6 +3,8 @@
 
 //! Errors that may be encountered while interacting with a storage node.
 
+use reqwest::StatusCode;
+
 /// Error raised during communication with a node.
 #[derive(Debug, thiserror::Error)]
 #[error(transparent)]
@@ -12,6 +14,15 @@ pub struct NodeError {
 }
 
 impl NodeError {
+    /// Returns the HTTP error status code associated with the error, if any.
+    pub fn http_status_code(&self) -> Option<StatusCode> {
+        if let Kind::Reqwest(inner) | Kind::StatusWithMessage { inner, .. } = &self.kind {
+            inner.status()
+        } else {
+            None
+        }
+    }
+
     pub(crate) fn other<E>(err: E) -> Self
     where
         E: std::error::Error + Send + Sync + 'static,
