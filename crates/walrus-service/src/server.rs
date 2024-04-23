@@ -360,6 +360,8 @@ mod test {
     pub struct MockServiceState;
 
     impl ServiceState for MockServiceState {
+        /// Returns a valid response only for blob IDs with the first byte 0, None for those
+        /// starting with 1, and otherwise an error.
         fn retrieve_metadata(
             &self,
             blob_id: &BlobId,
@@ -391,6 +393,8 @@ mod test {
             Ok(Some(walrus_core::test_utils::sliver()))
         }
 
+        /// Returns a valid response only for the pair index 0, otherwise, returns
+        /// an internal error.
         fn retrieve_recovery_symbol(
             &self,
             _blob_id: &BlobId,
@@ -405,6 +409,7 @@ mod test {
             }
         }
 
+        /// Successful only for the pair index 0, otherwise, returns an internal error.
         fn store_sliver(
             &self,
             _blob_id: &BlobId,
@@ -418,6 +423,8 @@ mod test {
             }
         }
 
+        /// Returns a confirmation for blob ID starting with zero, None when starting with 1,
+        /// and otherwise an error.
         async fn compute_storage_confirmation(
             &self,
             blob_id: &BlobId,
