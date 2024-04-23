@@ -6,13 +6,14 @@
 
 use serde::{Deserialize, Serialize};
 use walrus_core::{Epoch, ShardIndex};
-use walrus_sui::types::{BlobCertified, BlobEvent, BlobRegistered};
+use walrus_sui::types::{BlobCertified, BlobEvent, BlobRegistered, InvalidBlobID};
 
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
 #[repr(u8)]
 pub enum BlobCertificationStatus {
     Registered = 0,
     Certified = 1,
+    Invalid = 2,
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy)]
@@ -39,11 +40,21 @@ impl From<&BlobCertified> for BlobInfo {
     }
 }
 
+impl From<&InvalidBlobID> for BlobInfo {
+    fn from(value: &InvalidBlobID) -> Self {
+        Self {
+            end_epoch: value.epoch,
+            status: BlobCertificationStatus::Invalid,
+        }
+    }
+}
+
 impl From<&BlobEvent> for BlobInfo {
     fn from(value: &BlobEvent) -> Self {
         match value {
             BlobEvent::Registered(event) => event.into(),
             BlobEvent::Certified(event) => event.into(),
+            BlobEvent::InvalidBlobID(event) => event.into(),
         }
     }
 }

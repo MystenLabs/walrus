@@ -135,6 +135,7 @@ pub mod system {
     contract_ident!(struct system::System);
     contract_ident!(fn system::reserve_space, 2);
     contract_ident!(fn system::share_new);
+    contract_ident!(fn system::invalidate_blob_id);
 }
 
 /// Module for tags corresponding to the move module `committee`
@@ -158,7 +159,14 @@ pub mod blob {
 
     contract_ident!(fn blob::register, 1);
     contract_ident!(fn blob::certify);
-    contract_ident!(struct blob::BlobCertified);
-    contract_ident!(struct blob::BlobRegistered);
     contract_ident!(struct blob::Blob);
+}
+
+/// Module for tags corresponding to the move module `blob_events`
+pub mod blob_events {
+    use super::*;
+
+    contract_ident!(struct blob_events::BlobCertified);
+    contract_ident!(struct blob_events::BlobRegistered);
+    contract_ident!(struct blob_events::InvalidBlobID);
 }

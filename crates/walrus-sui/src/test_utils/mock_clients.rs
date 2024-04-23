@@ -12,7 +12,12 @@ use anyhow::anyhow;
 use sui_types::{base_types::ObjectID, event::EventID};
 use tokio::sync::broadcast::{self, Sender};
 use tokio_stream::{wrappers::BroadcastStream, Stream, StreamExt};
-use walrus_core::{messages::ConfirmationCertificate, BlobId, EncodingType, Epoch};
+use walrus_core::{
+    messages::{ConfirmationCertificate, InvalidBlobCertificate, InvalidBlobIdMsg},
+    BlobId,
+    EncodingType,
+    Epoch,
+};
 
 const DIGEST_LEN: usize = 32;
 
@@ -27,6 +32,7 @@ use crate::{
         BlobRegistered,
         Committee,
         EpochStatus,
+        InvalidBlobID,
         StorageResource,
         SystemObject,
     },
@@ -198,6 +204,23 @@ impl ContractClient for MockContractClient {
         let mut blob = blob.clone();
         blob.certified = Some(self.current_epoch);
         Ok(blob)
+    }
+
+    async fn invalidate_blob_id(
+        &self,
+        certificate: &InvalidBlobCertificate,
+    ) -> SuiClientResult<()> {
+        let msg: InvalidBlobIdMsg = bcs::from_bytes(&certificate.invalid_blob_id_msg)
+            .map_err(|_| anyhow!("could not deserialize invalid blob message"))?;
+        self.read_client.add_event(
+            InvalidBlobID {
+                epoch: msg.epoch,
+                blob_id: msg.blob_id,
+                event_id: event_id_for_testing(),
+            }
+            .into(),
+        );
+        Ok(())
     }
 
     fn read_client(&self) -> &impl ReadClient {

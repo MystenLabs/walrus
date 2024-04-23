@@ -35,7 +35,7 @@ use crate::{
     utils::{get_sui_object, get_type_parameters, handle_pagination},
 };
 
-const EVENT_MODULE: &str = "blob";
+const EVENT_MODULE: &str = "blob_events";
 
 /// Trait to read system state information and events from chain.
 pub trait ReadClient {

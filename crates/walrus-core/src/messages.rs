@@ -13,8 +13,11 @@ pub use storage_confirmation::{
     VerificationError,
 };
 
+mod invalid_blob_id;
+pub use invalid_blob_id::InvalidBlobIdMsg;
+
 mod certificate;
-pub use certificate::ConfirmationCertificate;
+pub use certificate::{ConfirmationCertificate, InvalidBlobCertificate};
 
 use crate::wrapped_uint;
 
@@ -23,6 +26,8 @@ wrapped_uint! {
     pub struct IntentType(pub u8) {
         /// Intent type for blob-certification messages.
         pub const BLOB_CERT_MSG: Self = Self(1);
+        /// Intent type for invalid blob id messages.
+        pub const INVALID_BLOB_ID_MSG: Self = Self(2);
     }
 }
 

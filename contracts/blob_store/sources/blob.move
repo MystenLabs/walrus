@@ -3,7 +3,6 @@
 
 module blob_store::blob {
     use sui::bcs;
-    use sui::event;
     use sui::hash;
 
     use blob_store::committee::{Self, CertifiedMessage};
@@ -16,6 +15,7 @@ module blob_store::blob {
         fuse_periods,
         destroy};
     use blob_store::encoding;
+    use blob_store::blob_events::{emit_blob_registered, emit_blob_certified};
 
     // A certify blob message structure
     const BLOB_CERT_MSG_TYPE: u8 = 1;
@@ -28,24 +28,6 @@ module blob_store::blob {
     const ERROR_ALREADY_CERTIFIED: u64 = 5;
     const ERROR_INVALID_BLOB_ID: u64 = 6;
     const ERROR_NOT_CERTIFIED : u64 = 7;
-
-    // Event definitions
-
-    // Signals a blob with meta-data is registered.
-    public struct BlobRegistered has copy, drop {
-        epoch: u64,
-        blob_id: u256,
-        size: u64,
-        erasure_code_type: u8,
-        end_epoch: u64,
-    }
-
-    // Signals a blob is certified.
-    public struct BlobCertified has copy, drop {
-        epoch: u64,
-        blob_id: u256,
-        end_epoch: u64,
-    }
 
     // Object definitions
 
@@ -144,13 +126,13 @@ module blob_store::blob {
 
 
         // Emit register event
-        event::emit(BlobRegistered {
-            epoch: stored_epoch,
+        emit_blob_registered(
+            stored_epoch,
             blob_id,
             size,
             erasure_code_type,
-            end_epoch: end_epoch(&storage),
-        });
+            end_epoch(&storage),
+        );
 
         Blob {
             id,
@@ -220,11 +202,11 @@ module blob_store::blob {
         blob.certified = option::some(message.epoch);
 
         // Emit certified event
-        event::emit(BlobCertified {
-            epoch: message.epoch,
-            blob_id: message.blob_id,
-            end_epoch: end_epoch(storage(blob)),
-        });
+        emit_blob_certified(
+            message.epoch,
+            message.blob_id,
+            end_epoch(storage(blob)),
+        );
     }
 
     /// Certify that a blob will be available in the storage system until the end epoch of the
@@ -300,11 +282,11 @@ module blob_store::blob {
         // Note: We use the original certified period since for the purposes of
         // reconfiguration this is the committee that has a quorum that hold the
         // resource.
-        event::emit(BlobCertified {
-            epoch: *option::borrow(&blob.certified),
-            blob_id: blob.blob_id,
-            end_epoch: end_epoch(storage(blob)),
-        });
+        emit_blob_certified(
+            *option::borrow(&blob.certified),
+            blob.blob_id,
+            end_epoch(storage(blob)),
+        );
 
     }
 

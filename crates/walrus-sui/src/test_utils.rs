@@ -13,7 +13,7 @@ use fastcrypto::{
 pub use mock_clients::{MockContractClient, MockSuiReadClient};
 use sui_types::{digests::TransactionDigest, event::EventID};
 use walrus_core::{
-    messages::{Confirmation, ConfirmationCertificate},
+    messages::{Confirmation, ConfirmationCertificate, InvalidBlobCertificate, InvalidBlobIdMsg},
     BlobId,
     EncodingType,
     Epoch,
@@ -32,16 +32,32 @@ pub fn event_id_for_testing() -> EventID {
 /// Returns a certificate on the provided `blob_id` from the default test committee.
 /// The default test committee is currently a single storage node with sk = 117.
 pub fn get_default_blob_certificate(blob_id: BlobId, epoch: Epoch) -> ConfirmationCertificate {
-    let mut sk = [0; 32];
-    sk[31] = 117;
-    let sk = BLS12381PrivateKey::from_bytes(&sk).unwrap();
     let confirmation = bcs::to_bytes(&Confirmation::new(epoch, blob_id)).unwrap();
-    let signature = BLS12381AggregateSignature::from(sk.sign(&confirmation));
+    let signature = sign_with_default_committee(&confirmation);
     ConfirmationCertificate {
         confirmation,
         signature,
         signers: vec![0],
     }
+}
+
+/// Returns a certificate from the default test committee that marks `blob_id` as invalid.
+/// The default test committee is currently a single storage node with sk = 117.
+pub fn get_default_invalid_certificate(blob_id: BlobId, epoch: Epoch) -> InvalidBlobCertificate {
+    let invalid_blob_id_msg = bcs::to_bytes(&InvalidBlobIdMsg::new(epoch, blob_id)).unwrap();
+    let signature = sign_with_default_committee(&invalid_blob_id_msg);
+    InvalidBlobCertificate {
+        invalid_blob_id_msg,
+        signature,
+        signers: vec![0],
+    }
+}
+
+fn sign_with_default_committee(msg: &[u8]) -> BLS12381AggregateSignature {
+    let mut sk = [0; 32];
+    sk[31] = 117;
+    let sk = BLS12381PrivateKey::from_bytes(&sk).unwrap();
+    BLS12381AggregateSignature::from(sk.sign(msg))
 }
 
 /// Trait to provide an event with the specified `blob_id` for testing.

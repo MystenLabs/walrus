@@ -515,7 +515,7 @@ impl TryFrom<SuiEvent> for BlobRegistered {
 }
 
 impl AssociatedSuiEvent for BlobRegistered {
-    const EVENT_STRUCT: StructTag<'static> = contracts::blob::BlobRegistered;
+    const EVENT_STRUCT: StructTag<'static> = contracts::blob_events::BlobRegistered;
 }
 
 /// Sui event that blob has been certified
@@ -553,18 +553,41 @@ impl TryFrom<SuiEvent> for BlobCertified {
 }
 
 impl AssociatedSuiEvent for BlobCertified {
-    const EVENT_STRUCT: StructTag<'static> = contracts::blob::BlobCertified;
+    const EVENT_STRUCT: StructTag<'static> = contracts::blob_events::BlobCertified;
 }
 
-/// Enum for the event type
-#[non_exhaustive]
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize, Clone, Copy)]
-#[repr(u8)]
-pub enum EventType {
-    /// Blob registered event
-    Registered = 0,
-    /// Blob certified event
-    Certified = 1,
+/// Sui event that a blob id is invalid.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InvalidBlobID {
+    /// The epoch in which the blob was marked as invalid
+    pub epoch: Epoch,
+    /// The blob Id
+    pub blob_id: BlobId,
+    /// The ID of the event
+    pub event_id: EventID,
+}
+
+impl TryFrom<SuiEvent> for InvalidBlobID {
+    type Error = anyhow::Error;
+
+    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
+        let Value::Object(object) = sui_event.parsed_json else {
+            return Err(anyhow!("Event is not of type object"));
+        };
+        let epoch = get_u64_field_from_event!(object, "epoch")?;
+        let blob_id =
+            blob_id_from_u256(get_field_from_event!(object, "blob_id", Value::String)?.parse()?);
+        let event_id = sui_event.id;
+        Ok(Self {
+            epoch,
+            blob_id,
+            event_id,
+        })
+    }
+}
+
+impl AssociatedSuiEvent for InvalidBlobID {
+    const EVENT_STRUCT: StructTag<'static> = contracts::blob_events::InvalidBlobID;
 }
 
 /// Enum to wrap blob events
@@ -574,6 +597,8 @@ pub enum BlobEvent {
     Registered(BlobRegistered),
     /// A certification event
     Certified(BlobCertified),
+    /// An invalid blob id event
+    InvalidBlobID(InvalidBlobID),
 }
 
 impl From<BlobRegistered> for BlobEvent {
@@ -588,12 +613,19 @@ impl From<BlobCertified> for BlobEvent {
     }
 }
 
+impl From<InvalidBlobID> for BlobEvent {
+    fn from(value: InvalidBlobID) -> Self {
+        Self::InvalidBlobID(value)
+    }
+}
+
 impl BlobEvent {
     /// Returns the blob id contained in the wrapped event
     pub fn blob_id(&self) -> BlobId {
         match self {
             BlobEvent::Registered(event) => event.blob_id,
             BlobEvent::Certified(event) => event.blob_id,
+            BlobEvent::InvalidBlobID(event) => event.blob_id,
         }
     }
 
@@ -602,14 +634,7 @@ impl BlobEvent {
         match self {
             BlobEvent::Registered(event) => event.event_id,
             BlobEvent::Certified(event) => event.event_id,
-        }
-    }
-
-    /// Returns the event type of the wrapped event
-    pub fn event_type(&self) -> EventType {
-        match self {
-            BlobEvent::Registered(_) => EventType::Registered,
-            BlobEvent::Certified(_) => EventType::Certified,
+            BlobEvent::InvalidBlobID(event) => event.event_id,
         }
     }
 }
@@ -619,8 +644,11 @@ impl TryFrom<SuiEvent> for BlobEvent {
 
     fn try_from(value: SuiEvent) -> Result<Self, Self::Error> {
         match (&value.type_).into() {
-            contracts::blob::BlobRegistered => Ok(BlobEvent::Registered(value.try_into()?)),
-            contracts::blob::BlobCertified => Ok(BlobEvent::Certified(value.try_into()?)),
+            contracts::blob_events::BlobRegistered => Ok(BlobEvent::Registered(value.try_into()?)),
+            contracts::blob_events::BlobCertified => Ok(BlobEvent::Certified(value.try_into()?)),
+            contracts::blob_events::InvalidBlobID => {
+                Ok(BlobEvent::InvalidBlobID(value.try_into()?))
+            }
             _ => Err(anyhow!("could not convert event: {}", value)),
         }
     }

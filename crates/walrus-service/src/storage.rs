@@ -39,7 +39,7 @@ use walrus_core::{
     BlobId,
     ShardIndex,
 };
-use walrus_sui::types::{Blob, BlobEvent, BlobRegistered, EventType};
+use walrus_sui::types::{Blob, BlobEvent, BlobRegistered};
 
 use self::{
     blob_info::{BlobCertificationStatus, BlobInfo},
@@ -278,10 +278,11 @@ fn merge_blob_info(
         tracing::debug!("Updating {current_val:?} with {new_val:?}");
 
         let val = current_val.unwrap_or(new_val);
-        let status = if val.is_certified() || new_val.is_certified() {
-            BlobCertificationStatus::Certified
+        let status = val.status.max(new_val.status);
+        let end_epoch = if status == BlobCertificationStatus::Invalid {
+            val.end_epoch.min(new_val.end_epoch)
         } else {
-            BlobCertificationStatus::Registered
+            val.end_epoch.max(new_val.end_epoch)
         };
         current_val = Some(BlobInfo {
             end_epoch: val.end_epoch.max(new_val.end_epoch),

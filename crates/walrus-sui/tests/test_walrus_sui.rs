@@ -10,14 +10,18 @@ use tokio_stream::StreamExt;
 use walrus_core::{encoding::EncodingConfig, merkle::Node, BlobId, EncodingType, ShardIndex};
 use walrus_sui::{
     client::{ContractClient, ReadClient, SuiContractClient},
-    test_utils::{get_default_blob_certificate, system_setup::publish_with_default_system},
+    test_utils::{
+        get_default_blob_certificate,
+        get_default_invalid_certificate,
+        system_setup::publish_with_default_system,
+    },
     types::{BlobEvent, EpochStatus},
 };
 
 #[tokio::test]
 #[ignore = "ignore integration tests by default"]
 async fn test_register_certify_blob() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
+    _ = tracing_subscriber::fmt::try_init();
     let test_cluster = TestClusterBuilder::new().build().await;
     let mut wallet = test_cluster.wallet;
     let (package_id, system_object) = publish_with_default_system(&mut wallet).await?;
@@ -143,6 +147,44 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
     };
     assert_eq!(blob_certified.blob_id, blob_id);
 
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "ignore integration tests by default"]
+async fn test_invalidate_blob() -> anyhow::Result<()> {
+    _ = tracing_subscriber::fmt::try_init();
+    let test_cluster = TestClusterBuilder::new().build().await;
+    let mut wallet = test_cluster.wallet;
+    let (package_id, system_object) = publish_with_default_system(&mut wallet).await?;
+    let walrus_client =
+        SuiContractClient::new(wallet, package_id, system_object, 10000000000).await?;
+
+    // Get event streams for the events
+    let polling_duration = std::time::Duration::from_millis(50);
+    let mut events = walrus_client
+        .read_client
+        .blob_events(polling_duration, None)
+        .await?;
+
+    #[rustfmt::skip]
+    let blob_id = BlobId([
+        1, 2, 3, 4, 5, 6, 7, 8,
+        1, 2, 3, 4, 5, 6, 7, 8,
+        1, 2, 3, 4, 5, 6, 7, 8,
+        1, 2, 3, 4, 5, 6, 7, 8,
+    ]);
+
+    let certificate = get_default_invalid_certificate(blob_id, 0);
+
+    walrus_client.invalidate_blob_id(&certificate).await?;
+
+    // Make sure that we got the expected event
+    let BlobEvent::InvalidBlobID(invalid_blob_id) = events.next().await.unwrap() else {
+        bail!("unexpected event type");
+    };
+    assert_eq!(invalid_blob_id.blob_id, blob_id);
+    assert_eq!(invalid_blob_id.epoch, 0);
     Ok(())
 }
 

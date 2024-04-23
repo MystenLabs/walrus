@@ -14,3 +14,14 @@ pub struct ConfirmationCertificate {
     /// The aggregate signature over the BCS encoded confirmation.
     pub signature: BLS12381AggregateSignature,
 }
+
+/// A certificate from storage nodes over a [`super::invalid_blob_id::InvalidBlobIdMsg`]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct InvalidBlobCertificate {
+    /// The indices of the signing nodes
+    pub signers: Vec<u16>,
+    /// The BCS-encoded [`super::invalid_blob_id::InvalidBlobIdMsg`].
+    pub invalid_blob_id_msg: Vec<u8>,
+    /// The aggregate signature over the BCS encoded confirmation.
+    pub signature: BLS12381AggregateSignature,
+}

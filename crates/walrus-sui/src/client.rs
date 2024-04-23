@@ -25,7 +25,7 @@ use sui_types::{
 use walrus_core::{
     ensure,
     merkle::DIGEST_LEN,
-    messages::ConfirmationCertificate,
+    messages::{ConfirmationCertificate, InvalidBlobCertificate},
     BlobId,
     EncodingType,
 };
@@ -93,6 +93,13 @@ pub trait ContractClient {
         blob: &Blob,
         certificate: &ConfirmationCertificate,
     ) -> impl Future<Output = SuiClientResult<Blob>> + Send;
+
+    /// Invalidates the specified blob id on Sui, given a certificate that confirms that it is
+    /// invalid.
+    fn invalidate_blob_id(
+        &self,
+        certificate: &InvalidBlobCertificate,
+    ) -> impl Future<Output = SuiClientResult<()>> + Send;
 
     /// Returns a compatible `ReadClient`.
     fn read_client(&self) -> &impl ReadClient;
@@ -306,6 +313,28 @@ impl ContractClient for SuiContractClient {
             res.errors
         );
         Ok(blob)
+    }
+
+    async fn invalidate_blob_id(
+        &self,
+        certificate: &InvalidBlobCertificate,
+    ) -> SuiClientResult<()> {
+        // Sort the list of signers, since the move contract requires them to be in
+        // ascending order (see `blob_store::bls_aggregate::verify_certificate`)
+        let mut signers = certificate.signers.clone();
+        signers.sort_unstable();
+        self.move_call_and_transfer(
+            contracts::system::invalidate_blob_id
+                .with_type_params(&[self.read_client.coin_type.clone()]),
+            vec![
+                self.read_client.call_arg_from_system_obj(true).await?,
+                call_arg_pure!(certificate.signature.as_bytes()),
+                call_arg_pure!(&signers),
+                (&certificate.invalid_blob_id_msg).into(),
+            ],
+        )
+        .await?;
+        Ok(())
     }
 
     fn read_client(&self) -> &impl ReadClient {

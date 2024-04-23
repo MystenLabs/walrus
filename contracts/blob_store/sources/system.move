@@ -4,13 +4,14 @@
 module blob_store::system {
     use sui::balance::{Self};
     use sui::coin::{Self, Coin};
-    use sui::table::{Self, Table};
     use sui::event;
+    use sui::table::{Self, Table};
     use sui::bcs;
 
     use blob_store::committee::{Self, Committee};
     use blob_store::storage_accounting::{Self, FutureAccounting, FutureAccountingRingBuffer};
     use blob_store::storage_resource::{Self, Storage};
+    use blob_store::blob_events::emit_invalid_blob_id;
 
     // Errors
     const ERROR_INCORRECT_COMMITTEE : u64 = 0;
@@ -47,12 +48,6 @@ module blob_store::system {
     /// Signals that the epoch change is DONE now.
     public struct EpochChangeDone has copy, drop {
         epoch: u64,
-    }
-
-    /// Signals that a BlobID is invalid.
-    public struct InvalidBlobID has copy, drop {
-        epoch: u64, // The epoch in which the blob ID is first registered as invalid
-        blob_id: u256,
     }
 
     // Object definitions
@@ -380,10 +375,10 @@ module blob_store::system {
         assert!(epoch == epoch(system), ERROR_INVALID_ID_EPOCH);
 
         // Emit the event about a blob id being invalid here.
-        event::emit(InvalidBlobID {
+        emit_invalid_blob_id(
             epoch,
-            blob_id: message.blob_id,
-        });
+            message.blob_id
+        );
     }
 
     /// Public system call to process invalid blob id message. Will check the
