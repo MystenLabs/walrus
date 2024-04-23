@@ -10,16 +10,16 @@ license = { workspace = true }
 service = ["dep:tower-service"]
 
 [dependencies]
-bcs = { workspace = true }
+bcs.workspace = true
 mime = "0.3.17"
 reqwest = { workspace = true, features = ["json"] }
-serde = { workspace = true }
+serde.workspace = true
 serde_json = "1.0.116"
-thiserror = { workspace = true }
-tokio = { workspace = true }
+thiserror.workspace = true
+tokio.workspace = true
 tower-service = { version = "0.3.2", optional = true }
 tracing = "0.1.40"
-walrus-core = { workspace = true }
+walrus-core.workspace = true
 
 [dev-dependencies]
 walrus-core = { workspace = true, features = ["test-utils"] }
