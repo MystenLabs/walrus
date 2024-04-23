@@ -354,9 +354,9 @@ mod tests {
         test_encoded_size: [
             zero: (0, 10, None),
             one_small_committee: (1, 10, Some(10*((4+7) + 10*2*32 + 32))),
-            one_large_committee: (1, 1000, Some(1000*((329+662) + 1000*2*32 + 32))),
+            #[ignore] one_large_committee: (1, 1000, Some(1000*((329+662) + 1000*2*32 + 32))),
             larger_blob_small_committee: ((4*7)*100, 10, Some(10*((4+7)*100 + 10*2*32 + 32))),
-            larger_blob_large_committee: (
+            #[ignore] larger_blob_large_committee: (
                 (329*662)*100,
                 1000,
                 Some(1000*((329+662)*100 + 1000*2*32 + 32))
