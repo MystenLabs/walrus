@@ -19,7 +19,7 @@ use walrus_core::{
     Sliver as SliverEnum,
     SliverPairIndex,
 };
-use walrus_sdk::{error::NodeError, storage_node::Client as StorageNodeClient};
+use walrus_sdk::{client::Client as StorageNodeClient, error::NodeError};
 use walrus_sui::types::StorageNode;
 
 use super::{error::StoreError, utils::WeightedResult};

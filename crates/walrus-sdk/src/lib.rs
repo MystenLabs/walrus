@@ -4,7 +4,7 @@
 //! Code for interacting with the Walrus system.
 
 pub mod api;
+pub mod client;
 pub mod error;
-pub mod storage_node;
 
 mod node_response;
