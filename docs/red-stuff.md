@@ -358,12 +358,12 @@ u16::MAX` and lowerbound by `source_symbols_primary * source_symbols_secondary`.
 
 | N shards | Min blob size | Max blob size |
 |---------:|--------------:|--------------:|
-|        7 |        15.0 B |      983.0 KB |
+|        7 |        15.0 B |        983 KB |
 |       10 |        28.0 B |       1.83 MB |
-|       31 |       171.0 B |       11.2 MB |
-|      100 |        1.8 KB |      118.0 MB |
+|       31 |         171 B |       11.2 MB |
+|      100 |       1.80 KB |        118 MB |
 |      300 |       19.0 KB |       1.25 GB |
-|     1000 |      218.0 KB |       14.3 GB |
+|     1000 |        218 KB |       14.3 GB |
 
 ## Sliver Authentication, Blob Metadata, and the Blob ID
 
@@ -403,14 +403,14 @@ The metadata consists of:
 Of these, the hashes for the primary and secondary slivers can be a considerable overhead, if the number of shards is high. We show here the
 cumulative size of the hashes stored on the system, depending on the number of nodes and the number of shards.
 
-| N shards | One node | N/log(N) nodes |  N nodes |
-|---------:|---------:|---------------:|---------:|
-|        7 |  448.0 B |        3.71 KB |  3.14 KB |
-|       10 |  640.0 B |         6.4 KB |   6.4 KB |
-|       31 |  1.98 KB |        41.2 KB |  61.5 KB |
-|      100 |   6.4 KB |       320.0 KB | 640.0 KB |
-|      300 |  19.2 KB |        2.33 MB |  5.76 MB |
-|     1000 |  64.0 KB |        21.3 MB |  64.0 MB |
+| N shards | One node | N/log(N) nodes | N nodes |
+|---------:|---------:|---------------:|--------:|
+|        7 |    448 B |        3.71 KB | 3.14 KB |
+|       10 |    640 B |        6.40 KB | 6.40 KB |
+|       31 |  1.98 KB |        41.2 KB | 61.5 KB |
+|      100 |  6.40 KB |         320 KB |  640 KB |
+|      300 |  19.2 KB |        2.33 MB | 5.76 MB |
+|     1000 |  64.0 KB |        21.3 MB | 64.0 MB |
 
 We see that the cumulative size of the hashes in the case of 1000 nodes (1 node per shard), is 64KB per node, or 64MB for a system of 1000 nodes.
 However, recall that the number of shards is set and constant, while the number of nodes may vary (each node has one or more shards), potentially
@@ -421,7 +421,7 @@ blob sizes, for `N=1000` shards and different number of nodes (1 node, N/log10(N
 |--------------------|--------------------:|----------------:|----------------:|
 | Single node        |             64.0 KB |           0.294 |        4.48e-06 |
 | N / log10(N) nodes |             21.3 MB |            98.0 |         0.00149 |
-| N nodes            |             64.0 MB |           294.0 |         0.00448 |
+| N nodes            |             64.0 MB |             294 |         0.00448 |
 
 
 We see that for realistic node counts and small blob sizes, the total metadata overhead goes can be multiple times the size of the initial unencoded
