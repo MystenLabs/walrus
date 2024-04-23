@@ -5,8 +5,10 @@
 //! For creating an instance of a single storage node in a test, see [`StorageNodeHandleBuilder`] .
 //!
 //! For creating a cluster of test storage nodes, see [`TestClusterBuilder`].
-use std::{borrow::Borrow, net::SocketAddr, sync::Arc};
+use std::{borrow::Borrow, net::SocketAddr, num::NonZeroU16, sync::Arc};
 
+use anyhow::anyhow;
+use async_trait::async_trait;
 use fastcrypto::{bls12381::min_pk::BLS12381PublicKey, traits::KeyPair};
 use futures::StreamExt;
 use mysten_metrics::RegistryService;
@@ -16,11 +18,12 @@ use tempfile::TempDir;
 use tokio_stream::Stream;
 use tokio_util::sync::CancellationToken;
 use typed_store::rocks::MetricConf;
-use walrus_core::{encoding::EncodingConfig, test_utils, ProtocolKeyPair, ShardIndex};
-use walrus_sui::types::BlobEvent;
+use walrus_core::{test_utils, Epoch, ProtocolKeyPair, PublicKey, ShardIndex};
+use walrus_sui::types::{BlobEvent, Committee, NetworkAddress, StorageNode as SuiStorageNode};
 use walrus_test_utils::WithTempDir;
 
 use crate::{
+    committee::{CommitteeService, CommitteeServiceFactory},
     config::{PathOrInPlace, StorageNodeConfig},
     server::UserServer,
     storage::Storage,
@@ -120,11 +123,10 @@ impl AsRef<StorageNode> for StorageNodeHandle {
 ///
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// let encoding_config = EncodingConfig::new(NonZeroU16::new(10).unwrap());
 /// let handle = StorageNodeHandleBuilder::default()
 ///     .with_rest_api_started(true)
 ///     .with_node_started(true)
-///     .build(encoding_config)
+///     .build()
 ///     .await?;
 /// # Ok(())
 /// # }
@@ -140,10 +142,9 @@ impl AsRef<StorageNode> for StorageNodeHandle {
 ///
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// let encoding_config = EncodingConfig::new(NonZeroU16::new(10).unwrap());
 /// let handle = StorageNodeHandleBuilder::default()
 ///     .with_storage(test_utils::empty_storage_with_shards(&[ShardIndex(0), ShardIndex(4)]))
-///     .build(encoding_config)
+///     .build()
 ///     .await?;
 /// # Ok(())
 /// # }
@@ -152,6 +153,7 @@ impl AsRef<StorageNode> for StorageNodeHandle {
 pub struct StorageNodeHandleBuilder {
     storage: Option<WithTempDir<Storage>>,
     event_provider: Box<dyn SystemEventProvider>,
+    committee_service_factory: Option<Box<dyn CommitteeServiceFactory>>,
     run_rest_api: bool,
     run_node: bool,
 }
@@ -164,6 +166,10 @@ impl StorageNodeHandleBuilder {
     }
 
     /// Sets the storage associated with the node.
+    ///
+    /// If a committee service factory is *not* provided with
+    /// [`Self::with_committee_service_factory`], then the storage also dictates the shard
+    /// assignment to this storage node in the created committee.
     pub fn with_storage(mut self, storage: WithTempDir<Storage>) -> Self {
         self.storage = Some(storage);
         self
@@ -186,6 +192,19 @@ impl StorageNodeHandleBuilder {
         self
     }
 
+    /// Sets the [`CommitteeServiceFactory`] used with the node.
+    ///
+    /// If not provided, defaults to [`StubCommitteeServiceFactory`] created with a valid committee
+    /// constructed over at most 1 other node. Note that if the node has no shards assigned to it
+    /// (as inferred from the storage), it will not be in the committee.
+    pub fn with_committee_service_factory(
+        mut self,
+        factory: Box<dyn CommitteeServiceFactory>,
+    ) -> Self {
+        self.committee_service_factory = Some(factory);
+        self
+    }
+
     /// Enable or disable the node's event loop being started on build.
     pub fn with_node_started(mut self, run_node: bool) -> Self {
         self.run_node = run_node;
@@ -199,9 +218,11 @@ impl StorageNodeHandleBuilder {
     }
 
     /// Creates the configured [`StorageNodeHandle`].
-    pub async fn build(self, encoding_config: EncodingConfig) -> anyhow::Result<StorageNodeHandle> {
+    pub async fn build(self) -> anyhow::Result<StorageNodeHandle> {
         let registry_service = RegistryService::new(Registry::default());
 
+        // Identify the storage being used, as it allows us to extract the shards
+        // that should be assigned to this storage node.
         let WithTempDir {
             inner: storage,
             temp_dir,
@@ -209,28 +230,49 @@ impl StorageNodeHandleBuilder {
             .storage
             .unwrap_or_else(|| empty_storage_with_shards(&[]));
 
+        // Get the shards assigned to this storage node, since we now manage the committee, if the
+        // node will be present in the committee, it must have at least one shard assigned to it.
+        let shard_assignment = storage.shards_present();
+        let is_in_committee = shard_assignment.is_empty();
+
+        // Generate key and address parameters for the node.
+        let node_info = StorageNodeTestConfig::new(shard_assignment);
+        let public_key = node_info.key_pair.as_ref().public().clone();
+
+        // Create a list of the committee members, that contains one or two nodes.
+        let committee_members = [
+            if is_in_committee {
+                Some(node_info.to_storage_node_info("node-under-test"))
+            } else {
+                None
+            },
+            committee_partner(&node_info).map(|info| info.to_storage_node_info("other-node")),
+        ];
+        debug_assert!(committee_members[0].is_some() || committee_members[1].is_some());
+
+        let committee_service_factory = self.committee_service_factory.unwrap_or_else(|| {
+            Box::new(StubCommitteeServiceFactory::from_members(
+                // Remove the possible None in the members list
+                committee_members.into_iter().flatten().collect(),
+            ))
+        });
+
+        // Create the node's config using the previously generated keypair and address.
         let config = StorageNodeConfig {
             storage_path: temp_dir.as_ref().to_path_buf(),
-            protocol_key_pair: ProtocolKeyPair::generate().into(),
+            protocol_key_pair: node_info.key_pair.into(),
+            rest_api_address: node_info.rest_api_address,
             metrics_address: unused_socket_address(),
-            rest_api_address: unused_socket_address(),
             sui: None,
         };
 
         let node = StorageNode::builder()
             .with_storage(storage)
             .with_system_event_provider(self.event_provider)
-            .build(&config, registry_service, encoding_config)
+            .with_committee_service_factory(committee_service_factory)
+            .build(&config, registry_service)
             .await?;
         let node = Arc::new(node);
-
-        let public_key = config
-            .protocol_key_pair
-            .get()
-            .unwrap()
-            .as_ref()
-            .public()
-            .clone();
 
         let cancel_token = CancellationToken::new();
         let rest_api = Arc::new(UserServer::new(node.clone(), cancel_token.clone()));
@@ -265,10 +307,90 @@ impl Default for StorageNodeHandleBuilder {
     fn default() -> Self {
         Self {
             event_provider: Box::<Vec<BlobEvent>>::default(),
+            committee_service_factory: None,
             storage: Default::default(),
             run_rest_api: Default::default(),
             run_node: Default::default(),
         }
+    }
+}
+
+/// Returns with a a test config for a storage node that would make a valid committee when paired
+/// with the provided node, if necessary.
+///
+/// The number of shards in the system inferred from the shards assigned in the provided config.
+/// It is at least 3 and is defined as `n = max(max(shard_ids) + 1, 3)`. If the shards `0..n` are
+/// assigned to the existing node, then this function returns `None`. Otherwise, there must be a
+/// second node in the committee with the shards not managed by the provided node.
+fn committee_partner(node_config: &StorageNodeTestConfig) -> Option<StorageNodeTestConfig> {
+    const MIN_SHARDS: u16 = 3;
+    let n_shards = node_config
+        .shards
+        .iter()
+        .max()
+        .map(|index| index.get() + 1)
+        .unwrap_or(MIN_SHARDS)
+        .max(MIN_SHARDS);
+
+    let other_shards: Vec<_> = ShardIndex::range(..n_shards)
+        .filter(|id| !node_config.shards.contains(id))
+        .collect();
+
+    if !other_shards.is_empty() {
+        Some(StorageNodeTestConfig::new(other_shards))
+    } else {
+        None
+    }
+}
+
+/// A [`CommitteeServiceFactory`] implementation that constructs [`StubCommitteeService`] instances.
+///
+/// This wraps a [`Committee`] and answers queries based on the contained data.
+#[derive(Debug, Clone)]
+pub struct StubCommitteeServiceFactory(Committee);
+
+impl StubCommitteeServiceFactory {
+    fn from_members(members: Vec<SuiStorageNode>) -> Self {
+        Self(Committee::new(members, 0).expect("valid members to be provided for tests"))
+    }
+}
+
+#[async_trait]
+impl CommitteeServiceFactory for StubCommitteeServiceFactory {
+    async fn new_for_epoch(
+        &self,
+        epoch: Option<Epoch>,
+    ) -> Result<Box<dyn CommitteeService>, anyhow::Error> {
+        if let Some(0) | None = epoch {
+            Ok(Box::new(StubCommitteeService(self.0.clone())))
+        } else {
+            Err(anyhow!("stub factory only returns for epoch 0"))
+        }
+    }
+}
+
+/// A stub [`CommitteeService`].
+///
+/// Does not perform any network operations.
+#[derive(Debug)]
+pub struct StubCommitteeService(pub Committee);
+
+#[async_trait]
+impl CommitteeService for StubCommitteeService {
+    fn get_epoch(&self) -> Epoch {
+        0
+    }
+
+    fn get_shard_count(&self) -> NonZeroU16 {
+        self.0.n_shards()
+    }
+
+    fn exclude_member(&mut self, identity: &PublicKey) -> bool {
+        // Nothing to exclude, but return true if the member is present in the committee.
+        self.0
+            .members()
+            .iter()
+            .any(|info| info.public_key == *identity)
     }
 }
 
@@ -376,16 +498,29 @@ impl TestClusterBuilder {
     }
 
     /// Creates the configured `TestCluster`.
-    pub async fn build(self, encoding_config: EncodingConfig) -> anyhow::Result<TestCluster> {
+    pub async fn build(self) -> anyhow::Result<TestCluster> {
         let mut nodes = vec![];
 
-        for (shards, event_provider) in self
+        let node_test_configs: Vec<_> = self
             .shard_assignment
+            .into_iter()
+            .map(StorageNodeTestConfig::new)
+            .collect();
+
+        let committee_members = node_test_configs
+            .iter()
+            .enumerate()
+            .map(|(i, info)| info.to_storage_node_info(&format!("node-{i}")))
+            .collect();
+        let factory = StubCommitteeServiceFactory::from_members(committee_members);
+
+        for (config, event_provider) in node_test_configs
             .into_iter()
             .zip(self.event_providers.into_iter())
         {
             let mut builder = StorageNodeHandle::builder()
-                .with_storage(empty_storage_with_shards(&shards))
+                .with_storage(empty_storage_with_shards(&config.shards))
+                .with_committee_service_factory(Box::new(factory.clone()))
                 .with_rest_api_started(true)
                 .with_node_started(true);
 
@@ -393,10 +528,38 @@ impl TestClusterBuilder {
                 builder = builder.with_boxed_system_event_provider(provider);
             }
 
-            nodes.push(builder.build(encoding_config.clone()).await?);
+            nodes.push(builder.build().await?);
         }
 
         Ok(TestCluster { nodes })
+    }
+}
+
+struct StorageNodeTestConfig {
+    key_pair: ProtocolKeyPair,
+    shards: Vec<ShardIndex>,
+    rest_api_address: SocketAddr,
+}
+
+impl StorageNodeTestConfig {
+    fn new(shards: Vec<ShardIndex>) -> Self {
+        Self {
+            key_pair: ProtocolKeyPair::generate(),
+            rest_api_address: unused_socket_address(),
+            shards,
+        }
+    }
+
+    fn to_storage_node_info(&self, name: &str) -> SuiStorageNode {
+        SuiStorageNode {
+            name: name.into(),
+            network_address: NetworkAddress {
+                host: self.rest_api_address.ip().to_string(),
+                port: self.rest_api_address.port(),
+            },
+            public_key: self.key_pair.as_ref().public().clone(),
+            shard_ids: self.shards.clone(),
+        }
     }
 }
 

@@ -50,7 +50,7 @@ async fn test_store_and_read_blob() -> TestResult {
             blob_registered_event(blob_id).into(),
             blob_certified_event(blob_id).into(),
         ])
-        .build(encoding_config)
+        .build()
         .await?;
 
     let members = cluster

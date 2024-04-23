@@ -27,6 +27,7 @@ use walrus_core::{
 };
 
 use crate::{
+    committee::{CommitteeService, CommitteeServiceFactory},
     config::StorageNodeConfig,
     storage::Storage,
     system_events::{SuiSystemEventProvider, SystemEventProvider},
@@ -155,6 +156,7 @@ pub trait ServiceState {
 pub struct StorageNodeBuilder {
     storage: Option<Storage>,
     event_provider: Option<Box<dyn SystemEventProvider>>,
+    committee_service_factory: Option<Box<dyn CommitteeServiceFactory>>,
 }
 
 impl StorageNodeBuilder {
@@ -178,6 +180,15 @@ impl StorageNodeBuilder {
         self
     }
 
+    /// Sets the [`CommitteeServiceFactory`] used with the node.
+    pub fn with_committee_service_factory(
+        mut self,
+        factory: Box<dyn CommitteeServiceFactory>,
+    ) -> Self {
+        self.committee_service_factory = Some(factory);
+        self
+    }
+
     /// Consumes the builder and constructs a new [`StorageNode`].
     ///
     /// The constructed storage node will use dependent services provided to the builder, otherwise,
@@ -193,15 +204,14 @@ impl StorageNodeBuilder {
         self,
         config: &StorageNodeConfig,
         registry_service: RegistryService,
-        // TODO(jsmith): Move to an optional argument once this can be fetched from the chain.
-        encoding_config: EncodingConfig,
     ) -> Result<StorageNode, anyhow::Error> {
         DBMetrics::init(&registry_service.default_registry());
 
         let protocol_key_pair = config
             .protocol_key_pair
             .get()
-            .expect("protocol keypair must already be loaded");
+            .expect("protocol keypair must already be loaded")
+            .clone();
 
         let storage = if let Some(storage) = self.storage {
             storage
@@ -219,12 +229,26 @@ impl StorageNodeBuilder {
             Box::new(SuiSystemEventProvider::new(sui_config).await?)
         };
 
+        let committee_service_factory = if let Some(factory) = self.committee_service_factory {
+            factory
+        } else {
+            todo!("implement a factory around Sui")
+        };
+
+        let committee_service = committee_service_factory
+            .new_for_epoch(None)
+            .await
+            .context("unable to construct a committee service for the storage node")?;
+
+        let encoding_config = EncodingConfig::new(committee_service.get_shard_count());
+
         Ok(StorageNode {
-            current_epoch: 0,
-            protocol_key_pair: protocol_key_pair.clone(),
+            protocol_key_pair,
             storage,
             event_provider,
             encoding_config,
+            committee_service,
+            _committee_service_factory: committee_service_factory,
         })
     }
 }
@@ -232,11 +256,12 @@ impl StorageNodeBuilder {
 /// A Walrus storage node, responsible for 1 or more shards on Walrus.
 #[derive(Debug)]
 pub struct StorageNode {
-    current_epoch: Epoch,
     protocol_key_pair: ProtocolKeyPair,
     storage: Storage,
-    event_provider: Box<dyn SystemEventProvider>,
     encoding_config: EncodingConfig,
+    event_provider: Box<dyn SystemEventProvider>,
+    committee_service: Box<dyn CommitteeService>,
+    _committee_service_factory: Box<dyn CommitteeServiceFactory>,
 }
 
 impl StorageNode {
@@ -267,6 +292,10 @@ impl StorageNode {
         }
         bail!("event stream for blob events stopped")
     }
+
+    fn current_epoch(&self) -> Epoch {
+        self.committee_service.get_epoch()
+    }
 }
 
 impl ServiceState for StorageNode {
@@ -293,7 +322,7 @@ impl ServiceState for StorageNode {
         else {
             return Err(StoreMetadataError::NotRegistered);
         };
-        if blob_info.end_epoch <= self.current_epoch {
+        if blob_info.end_epoch <= self.current_epoch() {
             return Err(StoreMetadataError::BlobExpired);
         }
 
@@ -377,7 +406,7 @@ impl ServiceState for StorageNode {
         blob_id: &BlobId,
     ) -> Result<Option<StorageConfirmation>, anyhow::Error> {
         if self.storage.is_stored_at_all_shards(blob_id)? {
-            let confirmation = Confirmation::new(self.current_epoch, *blob_id);
+            let confirmation = Confirmation::new(self.current_epoch(), *blob_id);
             sign_confirmation(confirmation, self.protocol_key_pair.clone())
                 .await
                 .map(|signed| Some(StorageConfirmation::Signed(signed)))
@@ -453,8 +482,6 @@ async fn sign_confirmation(
 
 #[cfg(test)]
 mod tests {
-    use std::num::NonZeroU16;
-
     use fastcrypto::traits::KeyPair;
     use walrus_test_utils::{Result as TestResult, WithTempDir};
 
@@ -475,7 +502,7 @@ mod tests {
     async fn storage_node_with_storage(storage: WithTempDir<Storage>) -> StorageNodeHandle {
         StorageNodeHandle::builder()
             .with_storage(storage)
-            .build(EncodingConfig::new(NonZeroU16::new(10).unwrap()))
+            .build()
             .await
             .expect("storage node creation in setup should not fail")
     }
@@ -534,7 +561,7 @@ mod tests {
             let confirmation: Confirmation =
                 bcs::from_bytes(&signed.confirmation).expect("message should be decodable");
 
-            assert_eq!(confirmation.epoch, storage_node.as_ref().current_epoch);
+            assert_eq!(confirmation.epoch, storage_node.as_ref().current_epoch());
             assert_eq!(confirmation.blob_id, BLOB_ID);
 
             Ok(())

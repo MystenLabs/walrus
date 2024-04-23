@@ -143,7 +143,7 @@ fn main_with_args(args: Args) -> anyhow::Result<()> {
             cleanup_storage,
         } => {
             let config = StorageNodeConfig::load(config_path)?;
-            let (encoding_config, shards) = match committee_config {
+            let (_, shards) = match committee_config {
                 CommitteeConfig::OnChain { storage_node_index } => {
                     let sui_config = config.clone().sui.ok_or(anyhow!(
                         "please provide a storage node config with a `SuiConfig`"
@@ -173,7 +173,7 @@ fn main_with_args(args: Args) -> anyhow::Result<()> {
                         .collect::<Vec<_>>(),
                 ),
             };
-            run_storage_node(config, encoding_config, cleanup_storage, &shards)?;
+            run_storage_node(config, cleanup_storage, &shards)?;
         }
         Commands::GenerateDryRunConfigs {
             working_dir,
@@ -208,7 +208,6 @@ fn main_with_args(args: Args) -> anyhow::Result<()> {
 
 fn run_storage_node(
     mut node_config: StorageNodeConfig,
-    encoding_config: EncodingConfig,
     cleanup_storage: bool,
     handled_shards: &[ShardIndex],
 ) -> anyhow::Result<()> {
@@ -245,7 +244,6 @@ fn run_storage_node(
         &node_config,
         handled_shards,
         metrics_runtime.registry_service.clone(),
-        encoding_config,
         exit_notifier,
         cancel_token.child_token(),
     )?;
@@ -371,7 +369,6 @@ impl StorageNodeRuntime {
         node_config: &StorageNodeConfig,
         handled_shards: &[ShardIndex],
         registry_service: RegistryService,
-        encoding_config: EncodingConfig,
         exit_notifier: oneshot::Sender<()>,
         cancel_token: CancellationToken,
     ) -> anyhow::Result<Self> {
@@ -389,7 +386,7 @@ impl StorageNodeRuntime {
                         &node_config.storage_path,
                         handled_shards,
                     )?)
-                    .build(node_config, registry_service, encoding_config),
+                    .build(node_config, registry_service),
             )?,
         );
 

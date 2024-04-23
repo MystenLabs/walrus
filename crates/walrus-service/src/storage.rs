@@ -261,6 +261,11 @@ impl Storage {
         let mut options = Options::default();
         (Self::EVENT_CURSOR_COLUMN_FAMILY_NAME, options)
     }
+
+    /// Returns the shards currently present in the storage.
+    pub(crate) fn shards_present(&self) -> Vec<ShardIndex> {
+        self.shards.keys().copied().collect()
+    }
 }
 
 #[instrument(level = "debug", skip(operands))]
