@@ -11,11 +11,10 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{anyhow, Context};
+use anyhow::Context;
 use clap::{Parser, Subcommand};
 use fastcrypto::traits::KeyPair;
 use mysten_metrics::RegistryService;
-use sui_sdk::SuiClientBuilder;
 use telemetry_subscribers::{TelemetryGuards, TracingHandle};
 use tokio::{
     runtime::{self, Runtime},
@@ -23,19 +22,14 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
-use typed_store::rocks::MetricConf;
-use walrus_core::{encoding::EncodingConfig, ProtocolKeyPair, ShardIndex};
+use walrus_core::ProtocolKeyPair;
 use walrus_service::{
     config::{LoadConfig, StorageNodeConfig},
     server::UserServer,
     testbed::{node_config_name_prefix, testbed_configs},
-    Storage,
     StorageNode,
 };
-use walrus_sui::{
-    client::{ReadClient, SuiReadClient},
-    utils::SuiNetwork,
-};
+use walrus_sui::utils::SuiNetwork;
 
 const GIT_REVISION: &str = {
     if let Some(revision) = option_env!("GIT_REVISION") {
@@ -71,34 +65,13 @@ enum Commands {
         /// Path to the Walrus node configuration file.
         #[clap(long)]
         config_path: PathBuf,
-        /// The committee configuration.
-        #[command(subcommand)]
-        committee_config: CommitteeConfig,
         /// Whether to cleanup the storage directory before starting the node.
         #[clap(long, action, default_value_t = false)]
         cleanup_storage: bool,
     },
+
     /// Generate the configuration files to run a testbed of storage nodes.
-    GenerateDryRunConfigs {
-        /// The directory where the storage nodes will be deployed.
-        #[clap(long, default_value = "./working_dir")]
-        working_dir: PathBuf,
-        /// The number of storage nodes in the committee.
-        #[clap(long, default_value = "4")]
-        committee_size: NonZeroU16,
-        /// The total number of shards.
-        #[clap(long, default_value = "10")]
-        n_shards: NonZeroU16,
-        /// Sui network for which the config is generated.
-        #[clap(long, default_value = "devnet")]
-        sui_network: SuiNetwork,
-        /// The directory in which the contracts are located.
-        #[clap(long, default_value = "./contracts/blob_store")]
-        contract_path: PathBuf,
-        /// Gas budget for sui transactions to publish the contracts and set up the system.
-        #[arg(short, long, default_value_t = 500_000_000)]
-        gas_budget: u64,
-    },
+    GenerateDryRunConfigs(GenerateDryRunConfigsArgs),
 
     /// Generates a new key for use with the Walrus protocol, and writes it to a file.
     KeyGen {
@@ -109,203 +82,155 @@ enum Commands {
     },
 }
 
-#[derive(Subcommand, Debug, Clone)]
-#[clap(rename_all = "kebab-case")]
-enum CommitteeConfig {
-    /// Get the committee configuration from chain.
-    OnChain {
-        /// The index of the storage node to run.
-        #[clap(long)]
-        storage_node_index: usize,
-    },
-    /// Manually provide the configuration for the storage node.
-    Manual {
-        /// The total number of shards.
-        #[clap(long, default_value = "100")]
-        n_shards: NonZeroU16,
-        /// The shards to be handled by this node.
-        #[clap(long)]
-        handled_shards: Vec<u16>,
-    },
+#[derive(Debug, Clone, clap::Args)]
+struct GenerateDryRunConfigsArgs {
+    /// The directory where the storage nodes will be deployed.
+    #[clap(long, default_value = "./working_dir")]
+    working_dir: PathBuf,
+    /// The number of storage nodes in the committee.
+    #[clap(long, default_value = "4")]
+    committee_size: NonZeroU16,
+    /// The total number of shards.
+    #[clap(long, default_value = "10")]
+    n_shards: NonZeroU16,
+    /// Sui network for which the config is generated.
+    #[clap(long, default_value = "devnet")]
+    sui_network: SuiNetwork,
+    /// The directory in which the contracts are located.
+    #[clap(long, default_value = "./contracts/blob_store")]
+    contract_path: PathBuf,
+    /// Gas budget for sui transactions to publish the contracts and set up the system.
+    #[arg(short, long, default_value_t = 500_000_000)]
+    gas_budget: u64,
 }
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    main_with_args(args)
-}
-
-fn main_with_args(args: Args) -> anyhow::Result<()> {
     match args.command {
         Commands::Run {
             config_path,
-            committee_config,
             cleanup_storage,
-        } => {
-            let config = StorageNodeConfig::load(config_path)?;
-            let (_, shards) = match committee_config {
-                CommitteeConfig::OnChain { storage_node_index } => {
-                    let sui_config = config.clone().sui.ok_or(anyhow!(
-                        "please provide a storage node config with a `SuiConfig`"
-                    ))?;
-                    let committee = Runtime::new()?.block_on(async {
-                        SuiReadClient::new(
-                            SuiClientBuilder::default().build(sui_config.rpc).await?,
-                            sui_config.pkg_id,
-                            sui_config.system_object,
-                        )
-                        .await?
-                        .current_committee()
-                        .await
-                    })?;
-                    let encoding_config = EncodingConfig::new(committee.n_shards());
-                    let handled_shards = committee.shards_for_node(storage_node_index);
-                    (encoding_config, handled_shards)
-                }
-                CommitteeConfig::Manual {
-                    n_shards,
-                    handled_shards,
-                } => (
-                    EncodingConfig::new(n_shards),
-                    handled_shards
-                        .into_iter()
-                        .map(ShardIndex)
-                        .collect::<Vec<_>>(),
-                ),
-            };
-            run_storage_node(config, cleanup_storage, &shards)?;
-        }
-        Commands::GenerateDryRunConfigs {
+        } => commands::run(StorageNodeConfig::load(config_path)?, cleanup_storage)?,
+
+        Commands::GenerateDryRunConfigs(args) => commands::generate_dry_run_configs(args)?,
+
+        Commands::KeyGen { out } => commands::keygen(&out)?,
+    }
+    Ok(())
+}
+
+mod commands {
+    use std::io;
+
+    use super::*;
+
+    #[tokio::main]
+    pub(super) async fn generate_dry_run_configs(
+        GenerateDryRunConfigsArgs {
             working_dir,
             committee_size,
             n_shards,
             sui_network,
             contract_path,
             gas_budget,
-        } => {
-            tracing_subscriber::fmt::init();
-            Runtime::new()?.block_on(generate_dry_run_configs(
-                working_dir,
-                committee_size,
-                n_shards,
-                sui_network,
-                contract_path,
-                gas_budget,
-            ))?;
-        }
-        Commands::KeyGen { out } => {
-            let mut file = std::fs::OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .open(out.as_path())
-                .with_context(|| format!("Cannot create a the keyfile '{}'", out.display()))?;
+        }: GenerateDryRunConfigsArgs,
+    ) -> anyhow::Result<()> {
+        tracing_subscriber::fmt::init();
 
-            file.write_all(ProtocolKeyPair::generate().to_base64().as_bytes())?;
+        fs::create_dir_all(&working_dir)
+            .with_context(|| format!("Failed to create directory '{}'", working_dir.display()))?;
+
+        // Generate testbed configs.
+        let (storage_node_configs, client_config) = testbed_configs(
+            &working_dir,
+            committee_size,
+            n_shards,
+            sui_network,
+            contract_path,
+            gas_budget,
+        )
+        .await?;
+
+        // Write client config to file.
+        let serialized_client_config =
+            serde_yaml::to_string(&client_config).context("Failed to serialize client configs")?;
+        let client_config_path = working_dir.join("client_config.yaml");
+        fs::write(client_config_path, serialized_client_config)
+            .context("Failed to write client configs")?;
+
+        // Write the storage nodes config files.
+        for storage_node_index in 0..committee_size.get() {
+            let storage_node_config = storage_node_configs[storage_node_index as usize].clone();
+            let serialized_storage_node_config = serde_yaml::to_string(&storage_node_config)
+                .context("Failed to serialize storage node configs")?;
+            let node_config_name = format!(
+                "{}.yaml",
+                node_config_name_prefix(storage_node_index, committee_size)
+            );
+            let node_config_path = working_dir.join(node_config_name);
+            fs::write(node_config_path, serialized_storage_node_config)
+                .context("Failed to write storage node configs")?;
         }
+
+        Ok(())
     }
-    Ok(())
-}
 
-fn run_storage_node(
-    mut node_config: StorageNodeConfig,
-    cleanup_storage: bool,
-    handled_shards: &[ShardIndex],
-) -> anyhow::Result<()> {
-    if cleanup_storage {
-        let storage_path = &node_config.storage_path;
-        match fs::remove_dir_all(storage_path) {
-            Ok(_) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => {
-                return Err(e).context(format!(
-                    "Failed to remove directory '{}'",
-                    storage_path.display()
-                ))
+    pub(super) fn keygen(path: &Path) -> anyhow::Result<()> {
+        let mut file = std::fs::File::create_new(path)
+            .with_context(|| format!("Cannot create a the keyfile '{}'", path.display()))?;
+
+        file.write_all(ProtocolKeyPair::generate().to_base64().as_bytes())?;
+
+        Ok(())
+    }
+
+    pub(super) fn run(mut config: StorageNodeConfig, cleanup_storage: bool) -> anyhow::Result<()> {
+        if cleanup_storage {
+            let storage_path = &config.storage_path;
+
+            match fs::remove_dir_all(storage_path) {
+                Err(e) if e.kind() != io::ErrorKind::NotFound => {
+                    return Err(e).context(format!(
+                        "Failed to remove directory '{}'",
+                        storage_path.display()
+                    ))
+                }
+                _ => (),
             }
         }
-    }
 
-    let metrics_runtime = MetricsAndLoggingRuntime::start(node_config.metrics_address)?;
+        let metrics_runtime = MetricsAndLoggingRuntime::start(config.metrics_address)?;
 
-    tracing::info!("Walrus Node version: {VERSION}");
-    tracing::info!(
-        "Walrus public key: {}",
-        node_config.protocol_key_pair.load()?.as_ref().public()
-    );
-    tracing::info!(
-        "Started Prometheus HTTP endpoint at {}",
-        node_config.metrics_address
-    );
-
-    let cancel_token = CancellationToken::new();
-    let (exit_notifier, exit_listener) = oneshot::channel::<()>();
-
-    let mut node_runtime = StorageNodeRuntime::start(
-        &node_config,
-        handled_shards,
-        metrics_runtime.registry_service.clone(),
-        exit_notifier,
-        cancel_token.child_token(),
-    )?;
-
-    wait_until_terminated(exit_listener);
-
-    // Cancel the node runtime, if it is still executing.
-    cancel_token.cancel();
-
-    // Wait for the node runtime to complete, may take a moment as
-    // the REST-API waits for open connections to close before exiting.
-    node_runtime.join()
-}
-
-async fn generate_dry_run_configs(
-    working_dir: PathBuf,
-    committee_size: NonZeroU16,
-    shards: NonZeroU16,
-    sui_network: SuiNetwork,
-    contract_path: PathBuf,
-    gas_budget: u64,
-) -> anyhow::Result<()> {
-    if let Err(e) = fs::create_dir_all(&working_dir) {
-        return Err(e).context(format!(
-            "Failed to create directory '{}'",
-            working_dir.display()
-        ));
-    }
-
-    // Generate testbed configs.
-    let (storage_node_configs, client_config) = testbed_configs(
-        &working_dir,
-        committee_size,
-        shards,
-        sui_network,
-        contract_path,
-        gas_budget,
-    )
-    .await?;
-
-    // Write client config to file.
-    let serialized_client_config =
-        serde_yaml::to_string(&client_config).context("Failed to serialize client configs")?;
-    let client_config_path = working_dir.join("client_config.yaml");
-    fs::write(client_config_path, serialized_client_config)
-        .context("Failed to write client configs")?;
-
-    // Write the storage nodes config files.
-    for storage_node_index in 0..committee_size.get() {
-        let storage_node_config = storage_node_configs[storage_node_index as usize].clone();
-        let serialized_storage_node_config = serde_yaml::to_string(&storage_node_config)
-            .context("Failed to serialize storage node configs")?;
-        let node_config_name = format!(
-            "{}.yaml",
-            node_config_name_prefix(storage_node_index, committee_size)
+        tracing::info!("Walrus Node version: {VERSION}");
+        tracing::info!(
+            "Walrus public key: {}",
+            config.protocol_key_pair.load()?.as_ref().public()
         );
-        let node_config_path = working_dir.join(node_config_name);
-        fs::write(node_config_path, serialized_storage_node_config)
-            .context("Failed to write storage node configs")?;
-    }
+        tracing::info!(
+            "Started Prometheus HTTP endpoint at {}",
+            config.metrics_address
+        );
 
-    Ok(())
+        let cancel_token = CancellationToken::new();
+        let (exit_notifier, exit_listener) = oneshot::channel::<()>();
+
+        let mut node_runtime = StorageNodeRuntime::start(
+            &config,
+            metrics_runtime.registry_service.clone(),
+            exit_notifier,
+            cancel_token.child_token(),
+        )?;
+
+        wait_until_terminated(exit_listener);
+
+        // Cancel the node runtime, if it is still executing.
+        cancel_token.cancel();
+
+        // Wait for the node runtime to complete, may take a moment as
+        // the REST-API waits for open connections to close before exiting.
+        node_runtime.join()
+    }
 }
 
 struct MetricsAndLoggingRuntime {
@@ -345,18 +270,6 @@ impl MetricsAndLoggingRuntime {
     }
 }
 
-/// Returns an empty storage, with the column families for the specified shards already created.
-// TODO(jsmith): Remove once we get the shard list from chain.
-pub fn storage_with_shards(path: &Path, shards: &[ShardIndex]) -> anyhow::Result<Storage> {
-    let mut storage = Storage::open(path, MetricConf::default())?;
-
-    for shard in shards {
-        storage.create_storage_for_shard(*shard)?;
-    }
-
-    Ok(storage)
-}
-
 struct StorageNodeRuntime {
     walrus_node_handle: JoinHandle<anyhow::Result<()>>,
     rest_api_handle: JoinHandle<Result<(), io::Error>>,
@@ -367,7 +280,6 @@ struct StorageNodeRuntime {
 impl StorageNodeRuntime {
     fn start(
         node_config: &StorageNodeConfig,
-        handled_shards: &[ShardIndex],
         registry_service: RegistryService,
         exit_notifier: oneshot::Sender<()>,
         cancel_token: CancellationToken,
@@ -380,14 +292,7 @@ impl StorageNodeRuntime {
         let _guard = runtime.enter();
 
         let walrus_node = Arc::new(
-            runtime.block_on(
-                StorageNode::builder()
-                    .with_storage(storage_with_shards(
-                        &node_config.storage_path,
-                        handled_shards,
-                    )?)
-                    .build(node_config, registry_service),
-            )?,
+            runtime.block_on(StorageNode::builder().build(node_config, registry_service))?,
         );
 
         let walrus_node_clone = walrus_node.clone();
@@ -478,13 +383,7 @@ mod tests {
         let dir = TempDir::new()?;
         let filename = dir.path().join("keyfile.key");
 
-        let args = Args {
-            command: Commands::KeyGen {
-                out: filename.clone(),
-            },
-        };
-
-        main_with_args(args)?;
+        commands::keygen(&filename)?;
 
         let file_content = std::fs::read_to_string(filename)
             .expect("a file should have been created with the key");
@@ -509,13 +408,7 @@ mod tests {
 
         std::fs::write(filename.as_path(), "original-file-contents".as_bytes())?;
 
-        let args = Args {
-            command: Commands::KeyGen {
-                out: filename.clone(),
-            },
-        };
-
-        main_with_args(args).expect_err("must fail as the file already exists");
+        commands::keygen(&filename).expect_err("must fail as the file already exists");
 
         let file_content = std::fs::read_to_string(filename).expect("the file should still exist");
         assert_eq!(file_content, "original-file-contents");
