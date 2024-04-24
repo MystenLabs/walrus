@@ -20,11 +20,7 @@ use walrus_sui::{
 };
 use walrus_test_utils::Result as TestResult;
 
-#[tokio::test]
-#[ignore = "ignore E2E tests by default"]
-async fn test_store_and_read_blob() -> TestResult {
-    let _ = tracing_subscriber::fmt::try_init();
-
+async fn prepare_test_cluster(blob: &[u8]) -> TestResult<(BlobId, Config, TestCluster)> {
     // The default `TestCluster` has 13 shards.
     let encoding_config = EncodingConfig::new(NonZeroU16::new(13).unwrap());
 
@@ -36,7 +32,6 @@ async fn test_store_and_read_blob() -> TestResult {
         wallet_config: None,
     };
 
-    let blob = walrus_test_utils::random_data(31415);
     let blob_id = encoding_config
         .get_blob_encoder(&blob)?
         .compute_metadata()
@@ -51,7 +46,16 @@ async fn test_store_and_read_blob() -> TestResult {
         .build()
         .await?;
 
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    Ok((blob_id, config, cluster))
+}
+
+#[tokio::test]
+#[ignore = "ignore E2E tests by default"]
+async fn test_store_and_read_blob() -> TestResult {
+    let _ = tracing_subscriber::fmt::try_init();
+
+    let blob = walrus_test_utils::random_data(31415);
+    let (blob_id, config, cluster) = prepare_test_cluster(&blob).await?;
 
     let sui_contract_client = MockContractClient::new(
         0,
