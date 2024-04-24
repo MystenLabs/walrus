@@ -3,7 +3,7 @@
 
 use std::{num::NonZeroU16, time::Duration};
 
-use anyhow::Context;
+use anyhow::anyhow;
 use sui_types::{base_types::ObjectID, digests::TransactionDigest, event::EventID};
 use walrus_core::{
     encoding::{EncodingConfig, Primary},
@@ -18,9 +18,58 @@ use walrus_sui::{
     test_utils::{MockContractClient, MockSuiReadClient},
     types::{BlobCertified, BlobRegistered},
 };
-use walrus_test_utils::Result as TestResult;
+use walrus_test_utils::async_param_test;
 
-async fn prepare_test_cluster(blob: &[u8]) -> TestResult<(BlobId, Config, TestCluster)> {
+async_param_test! {
+    test_store_and_read_blob_with_crash_failures : [
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] no_failures: (&[], Ok(()), 0),
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] shard_failure: (&[0], Ok(()), 1),
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] f_shard_failure: (&[4], Ok(()), 2),
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] f_plus_one_shard_failure:
+            (&[0, 4], Err(anyhow!("not enough confirmations for the blob id were retrieved")), 3),
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] all_shard_failure:
+            (
+                &[0, 1, 2, 3, 4],
+                Err(anyhow!("not enough confirmations for the blob id were retrieved")),
+                4
+            ),
+    ]
+}
+async fn test_store_and_read_blob_with_crash_failures(
+    failed_nodes: &[usize],
+    expected: anyhow::Result<()>,
+    // HACK: This index is needed to ensure that there is no race condition between the
+    // initialization of the `DBMetrics` in the typed-store.
+    unique_idx_to_avoid_race_condition: u64,
+) {
+    // HACK: Sleep according to the unique index to avoid race conditions. The 20ms increments were
+    // selected to ensure that the race condition did not occur even with different sleep times.
+    tokio::time::sleep(Duration::from_millis(
+        unique_idx_to_avoid_race_condition * 20,
+    ))
+    .await;
+
+    let result = run_store_and_read_with_crash_failures(failed_nodes).await;
+    match (result, expected) {
+        (Ok(()), Ok(())) => (),
+        (Err(actual_err), Err(expected_err)) => {
+            assert_eq!(
+                format!("{}", actual_err.root_cause()),
+                format!("{}", expected_err.root_cause())
+            )
+        }
+        (act, exp) => panic!(
+            "test result mismatch; expected=({:?}); actual=({:?});",
+            exp, act
+        ),
+    }
+}
+
+async fn run_store_and_read_with_crash_failures(failed_nodes: &[usize]) -> anyhow::Result<()> {
+    let _ = tracing_subscriber::fmt::try_init();
+
+    let blob = walrus_test_utils::random_data(31415);
+
     // The default `TestCluster` has 13 shards.
     let encoding_config = EncodingConfig::new(NonZeroU16::new(13).unwrap());
 
@@ -38,7 +87,7 @@ async fn prepare_test_cluster(blob: &[u8]) -> TestResult<(BlobId, Config, TestCl
         .blob_id()
         .to_owned();
 
-    let cluster = TestCluster::builder()
+    let mut cluster = TestCluster::builder()
         .with_system_event_providers(vec![
             blob_registered_event(blob_id).into(),
             blob_certified_event(blob_id).into(),
@@ -46,28 +95,19 @@ async fn prepare_test_cluster(blob: &[u8]) -> TestResult<(BlobId, Config, TestCl
         .build()
         .await?;
 
-    Ok((blob_id, config, cluster))
-}
-
-#[tokio::test]
-#[ignore = "ignore E2E tests by default"]
-async fn test_store_and_read_blob() -> TestResult {
-    let _ = tracing_subscriber::fmt::try_init();
-
-    let blob = walrus_test_utils::random_data(31415);
-    let (blob_id, config, cluster) = prepare_test_cluster(&blob).await?;
-
     let sui_contract_client = MockContractClient::new(
         0,
         MockSuiReadClient::new_with_blob_ids([blob_id], Some(cluster.committee()?)),
     );
     let client = Client::new(config, sui_contract_client).await?;
 
+    // Stop the nodes in the failure set.
+    failed_nodes
+        .iter()
+        .for_each(|&idx| cluster.cancel_node(idx));
+
     // Store a blob and get confirmations from each node.
-    let blob_confirmation = client
-        .reserve_and_store_blob(&blob, 1)
-        .await
-        .context("unable to reserve and store blob")?;
+    let blob_confirmation = client.reserve_and_store_blob(&blob, 1).await?;
 
     // Read the blob.
     let read_blob = client

@@ -458,6 +458,15 @@ impl TestCluster {
             .collect();
         Committee::new(members, 0)
     }
+
+    /// Stops the storage node with index `idx` by cancelling its task.
+    pub fn cancel_node(&mut self, idx: usize) {
+        assert!(
+            idx < self.nodes.len(),
+            "the index of the node to be dropped must be within the node vector"
+        );
+        self.nodes[idx].cancel.cancel();
+    }
 }
 
 /// Builds a new [`TestCluster`] with custom configuration values.
