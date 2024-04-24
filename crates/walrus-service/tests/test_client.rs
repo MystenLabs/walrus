@@ -25,7 +25,8 @@ use walrus_test_utils::Result as TestResult;
 async fn test_store_and_read_blob() -> TestResult {
     let _ = tracing_subscriber::fmt::try_init();
 
-    let encoding_config = EncodingConfig::new(NonZeroU16::new(10).unwrap());
+    // The default `TestCluster` has 13 shards.
+    let encoding_config = EncodingConfig::new(NonZeroU16::new(13).unwrap());
 
     let config = Config {
         concurrent_requests: 10,
@@ -42,9 +43,7 @@ async fn test_store_and_read_blob() -> TestResult {
         .blob_id()
         .to_owned();
 
-    let assignment: Vec<&[u16]> = vec![&[0, 1], &[2, 3], &[4, 5, 6], &[7, 8, 9]];
     let cluster = TestCluster::builder()
-        .with_shard_assignment(&assignment)
         .with_system_event_providers(vec![
             blob_registered_event(blob_id).into(),
             blob_certified_event(blob_id).into(),
