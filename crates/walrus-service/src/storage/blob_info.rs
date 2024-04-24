@@ -4,16 +4,46 @@
 //! Blob status for the walrus shard storage
 //!
 
+use std::cmp::Ordering;
+
 use serde::{Deserialize, Serialize};
 use walrus_core::{Epoch, ShardIndex};
 use walrus_sui::types::{BlobCertified, BlobEvent, BlobRegistered, InvalidBlobID};
 
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy)]
 #[repr(u8)]
 pub enum BlobCertificationStatus {
     Registered = 0,
     Certified = 1,
     Invalid = 2,
+}
+
+impl PartialOrd for BlobCertificationStatus {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// Explicitly implement `Ord` to prevent issues from extending or otherwise
+/// changing `BlobCertificationStatus` in the future.
+impl Ord for BlobCertificationStatus {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self {
+            BlobCertificationStatus::Invalid => match other {
+                BlobCertificationStatus::Invalid => Ordering::Equal,
+                _ => Ordering::Greater,
+            },
+            BlobCertificationStatus::Certified => match other {
+                BlobCertificationStatus::Invalid => Ordering::Less,
+                BlobCertificationStatus::Certified => Ordering::Equal,
+                BlobCertificationStatus::Registered => Ordering::Greater,
+            },
+            BlobCertificationStatus::Registered => match other {
+                BlobCertificationStatus::Registered => Ordering::Equal,
+                _ => Ordering::Less,
+            },
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy)]

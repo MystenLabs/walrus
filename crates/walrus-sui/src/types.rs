@@ -16,7 +16,7 @@ use anyhow::{anyhow, bail};
 use fastcrypto::traits::ToFromBytes;
 use move_core_types::u256::U256;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use sui_sdk::rpc_types::{SuiEvent, SuiMoveStruct, SuiMoveValue};
 use sui_types::{base_types::ObjectID, event::EventID};
 use thiserror::Error;
@@ -466,6 +466,23 @@ impl AssociatedContractStruct for SystemObject {
 
 // Events
 
+fn field_map_from_event(sui_event: &SuiEvent) -> anyhow::Result<&Map<String, Value>> {
+    let Value::Object(object) = &sui_event.parsed_json else {
+        return Err(anyhow!("Event is not of type object"));
+    };
+    Ok(object)
+}
+
+fn ensure_event_type(sui_event: &SuiEvent, struct_tag: &StructTag) -> anyhow::Result<()> {
+    ensure!(
+        sui_event.type_.name.as_str() == struct_tag.name
+            && sui_event.type_.module.as_str() == struct_tag.module,
+        "event is not of type {:?}",
+        struct_tag
+    );
+    Ok(())
+}
+
 /// Sui event that blob has been registered
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlobRegistered {
@@ -487,9 +504,8 @@ impl TryFrom<SuiEvent> for BlobRegistered {
     type Error = anyhow::Error;
 
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
-        let Value::Object(object) = sui_event.parsed_json else {
-            return Err(anyhow!("Event is not of type object"));
-        };
+        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+        let object = field_map_from_event(&sui_event)?;
 
         let epoch = get_u64_field_from_event!(object, "epoch")?;
 
@@ -502,14 +518,14 @@ impl TryFrom<SuiEvent> for BlobRegistered {
                 .ok_or_else(|| anyhow!("value is non-integer"))?,
         )?)?;
         let end_epoch = get_u64_field_from_event!(object, "end_epoch")?;
-        let event_id = sui_event.id;
+
         Ok(Self {
             epoch,
             blob_id,
             size,
             erasure_code_type,
             end_epoch,
-            event_id,
+            event_id: sui_event.id,
         })
     }
 }
@@ -535,19 +551,19 @@ impl TryFrom<SuiEvent> for BlobCertified {
     type Error = anyhow::Error;
 
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
-        let Value::Object(object) = sui_event.parsed_json else {
-            return Err(anyhow!("Event is not of type object"));
-        };
+        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+        let object = field_map_from_event(&sui_event)?;
+
         let epoch = get_u64_field_from_event!(object, "epoch")?;
         let blob_id =
             blob_id_from_u256(get_field_from_event!(object, "blob_id", Value::String)?.parse()?);
         let end_epoch = get_u64_field_from_event!(object, "end_epoch")?;
-        let event_id = sui_event.id;
+
         Ok(Self {
             epoch,
             blob_id,
             end_epoch,
-            event_id,
+            event_id: sui_event.id,
         })
     }
 }
@@ -571,17 +587,17 @@ impl TryFrom<SuiEvent> for InvalidBlobID {
     type Error = anyhow::Error;
 
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
-        let Value::Object(object) = sui_event.parsed_json else {
-            return Err(anyhow!("Event is not of type object"));
-        };
+        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+        let object = field_map_from_event(&sui_event)?;
+
         let epoch = get_u64_field_from_event!(object, "epoch")?;
         let blob_id =
             blob_id_from_u256(get_field_from_event!(object, "blob_id", Value::String)?.parse()?);
-        let event_id = sui_event.id;
+
         Ok(Self {
             epoch,
             blob_id,
-            event_id,
+            event_id: sui_event.id,
         })
     }
 }
