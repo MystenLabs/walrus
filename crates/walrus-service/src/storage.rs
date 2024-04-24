@@ -145,6 +145,11 @@ impl Storage {
         }
     }
 
+    /// Returns the indices of the shards managed by the storage.
+    pub fn shards(&self) -> Vec<ShardIndex> {
+        self.shards.keys().copied().collect()
+    }
+
     /// Returns a handle over the storage for a single shard.
     pub fn shard_storage(&self, shard: ShardIndex) -> Option<&ShardStorage> {
         self.shards.get(&shard)

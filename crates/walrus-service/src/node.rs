@@ -348,6 +348,11 @@ impl StorageNode {
     fn current_epoch(&self) -> Epoch {
         self.committee_service.get_epoch()
     }
+
+    /// Returns the shards currently owned by the storage node.
+    pub fn shards(&self) -> Vec<ShardIndex> {
+        self.storage.shards()
+    }
 }
 
 impl ServiceState for StorageNode {

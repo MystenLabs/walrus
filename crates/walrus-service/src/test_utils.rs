@@ -17,8 +17,21 @@ use tempfile::TempDir;
 use tokio_stream::Stream;
 use tokio_util::sync::CancellationToken;
 use typed_store::rocks::MetricConf;
-use walrus_core::{test_utils, Epoch, ProtocolKeyPair, PublicKey, ShardIndex};
-use walrus_sui::types::{BlobEvent, Committee, NetworkAddress, StorageNode as SuiStorageNode};
+use walrus_core::{
+    encoding::EncodingConfig,
+    test_utils,
+    Epoch,
+    ProtocolKeyPair,
+    PublicKey,
+    ShardIndex,
+};
+use walrus_sui::types::{
+    BlobEvent,
+    Committee,
+    InvalidCommittee,
+    NetworkAddress,
+    StorageNode as SuiStorageNode,
+};
 use walrus_test_utils::WithTempDir;
 
 use crate::{
@@ -428,6 +441,22 @@ impl TestCluster {
     /// Returns a new builder to create the [`TestCluster`].
     pub fn builder() -> TestClusterBuilder {
         TestClusterBuilder::default()
+    }
+
+    /// Returns the [`Committee`] configuration for the current cluster.
+    pub fn committee(&self) -> Result<Committee, InvalidCommittee> {
+        let members = self
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(i, node)| SuiStorageNode {
+                name: format!("node-{i}"),
+                network_address: node.rest_api_address.into(),
+                public_key: node.public_key.clone(),
+                shard_ids: node.storage_node.shards(),
+            })
+            .collect();
+        Committee::new(members, 0)
     }
 }
 

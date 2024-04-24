@@ -9,7 +9,6 @@ use walrus_core::{
     encoding::{EncodingConfig, Primary},
     BlobId,
     EncodingType,
-    ShardIndex,
 };
 use walrus_service::{
     client::{Client, Config},
@@ -17,7 +16,7 @@ use walrus_service::{
 };
 use walrus_sui::{
     test_utils::{MockContractClient, MockSuiReadClient},
-    types::{BlobCertified, BlobRegistered, Committee, StorageNode as SuiStorageNode},
+    types::{BlobCertified, BlobRegistered},
 };
 use walrus_test_utils::Result as TestResult;
 
@@ -53,24 +52,11 @@ async fn test_store_and_read_blob() -> TestResult {
         .build()
         .await?;
 
-    let members = cluster
-        .nodes
-        .iter()
-        .zip(assignment)
-        .enumerate()
-        .map(|(i, (node, shard_ids))| SuiStorageNode {
-            name: format!("node-{i}"),
-            network_address: node.rest_api_address.into(),
-            public_key: node.public_key.clone(),
-            shard_ids: shard_ids.iter().map(ShardIndex::from).collect(),
-        })
-        .collect();
-    let committee = Committee::new(members, 0)?;
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let sui_contract_client = MockContractClient::new(
         0,
-        MockSuiReadClient::new_with_blob_ids([blob_id], Some(committee)),
+        MockSuiReadClient::new_with_blob_ids([blob_id], Some(cluster.committee()?)),
     );
     let client = Client::new(config, sui_contract_client).await?;
 
