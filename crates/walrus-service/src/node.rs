@@ -227,22 +227,18 @@ impl StorageNodeBuilder {
                 None
             };
 
-        let event_provider = if let Some(event_provider) = self.event_provider {
-            event_provider
-        } else {
+        let event_provider = self.event_provider.unwrap_or_else(|| {
             let (read_client, sui_config) = sui_config_and_client.as_ref().unwrap();
             Box::new(SuiSystemEventProvider::new(
                 read_client.clone(),
                 sui_config.event_polling_interval,
             ))
-        };
+        });
 
-        let committee_service_factory = if let Some(factory) = self.committee_service_factory {
-            factory
-        } else {
+        let committee_service_factory = self.committee_service_factory.unwrap_or_else(|| {
             let (read_client, _) = sui_config_and_client.unwrap();
             Box::new(SuiCommitteeServiceFactory::new(read_client))
-        };
+        });
 
         let committee_service = committee_service_factory
             .new_for_epoch()
