@@ -25,10 +25,11 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
+use walrus_sui::client::SuiReadClient;
 
 use crate::{
-    committee::{CommitteeService, CommitteeServiceFactory},
-    config::StorageNodeConfig,
+    committee::{CommitteeService, CommitteeServiceFactory, SuiCommitteeServiceFactory},
+    config::{StorageNodeConfig, SuiConfig},
     storage::Storage,
     system_events::{SuiSystemEventProvider, SystemEventProvider},
 };
@@ -219,24 +220,32 @@ impl StorageNodeBuilder {
             Storage::open(config.storage_path.as_path(), MetricConf::new("storage"))?
         };
 
+        let sui_config_and_client =
+            if self.event_provider.is_none() || self.committee_service_factory.is_none() {
+                Some(create_read_client(config).await?)
+            } else {
+                None
+            };
+
         let event_provider = if let Some(event_provider) = self.event_provider {
             event_provider
         } else {
-            let sui_config = config
-                .sui
-                .as_ref()
-                .expect("either a sui config or event provider must be specified");
-            Box::new(SuiSystemEventProvider::new(sui_config).await?)
+            let (read_client, sui_config) = sui_config_and_client.as_ref().unwrap();
+            Box::new(SuiSystemEventProvider::new(
+                read_client.clone(),
+                sui_config.event_polling_interval,
+            ))
         };
 
         let committee_service_factory = if let Some(factory) = self.committee_service_factory {
             factory
         } else {
-            todo!("implement a factory around Sui")
+            let (read_client, _) = sui_config_and_client.unwrap();
+            Box::new(SuiCommitteeServiceFactory::new(read_client))
         };
 
         let committee_service = committee_service_factory
-            .new_for_epoch(None)
+            .new_for_epoch()
             .await
             .context("unable to construct a committee service for the storage node")?;
 
@@ -251,6 +260,24 @@ impl StorageNodeBuilder {
             _committee_service_factory: committee_service_factory,
         })
     }
+}
+
+async fn create_read_client(
+    config: &StorageNodeConfig,
+) -> Result<(SuiReadClient, &SuiConfig), anyhow::Error> {
+    let sui_config @ SuiConfig {
+        rpc,
+        pkg_id,
+        system_object,
+        ..
+    } = config
+        .sui
+        .as_ref()
+        .expect("either a sui config or event provider must be specified");
+
+    let client = SuiReadClient::new_for_rpc(&rpc, *pkg_id, *system_object).await?;
+
+    Ok((client, sui_config))
 }
 
 /// A Walrus storage node, responsible for 1 or more shards on Walrus.

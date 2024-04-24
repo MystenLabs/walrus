@@ -7,7 +7,6 @@
 //! For creating a cluster of test storage nodes, see [`TestClusterBuilder`].
 use std::{borrow::Borrow, net::SocketAddr, num::NonZeroU16, sync::Arc};
 
-use anyhow::anyhow;
 use async_trait::async_trait;
 use fastcrypto::{bls12381::min_pk::BLS12381PublicKey, traits::KeyPair};
 use futures::StreamExt;
@@ -357,15 +356,8 @@ impl StubCommitteeServiceFactory {
 
 #[async_trait]
 impl CommitteeServiceFactory for StubCommitteeServiceFactory {
-    async fn new_for_epoch(
-        &self,
-        epoch: Option<Epoch>,
-    ) -> Result<Box<dyn CommitteeService>, anyhow::Error> {
-        if let Some(0) | None = epoch {
-            Ok(Box::new(StubCommitteeService(self.0.clone())))
-        } else {
-            Err(anyhow!("stub factory only returns for epoch 0"))
-        }
+    async fn new_for_epoch(&self) -> Result<Box<dyn CommitteeService>, anyhow::Error> {
+        Ok(Box::new(StubCommitteeService(self.0.clone())))
     }
 }
 

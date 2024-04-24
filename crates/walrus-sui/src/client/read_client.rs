@@ -16,6 +16,7 @@ use sui_sdk::{
     rpc_types::{Coin, EventFilter, SuiEvent, SuiObjectDataOptions},
     types::{base_types::ObjectID, transaction::CallArg},
     SuiClient,
+    SuiClientBuilder,
 };
 use sui_types::{
     base_types::{SequenceNumber, SuiAddress},
@@ -75,7 +76,7 @@ const MAX_POLLING_INTERVAL: Duration = Duration::from_secs(5);
 const EVENT_CHANNEL_CAPACITY: usize = 1024;
 
 impl SuiReadClient {
-    /// Constructor for [`SuiReadClient`].
+    /// Constructor for `SuiReadClient`.
     pub async fn new(
         sui_client: SuiClient,
         system_pkg: ObjectID,
@@ -95,6 +96,17 @@ impl SuiReadClient {
             sys_obj_initial_version: OnceCell::new(),
             coin_type: type_params[0].clone(),
         })
+    }
+
+    /// Constructs a new `SuiReadClient` around a [`SuiClient`] constructed for the
+    /// provided fullnode's RPC address.
+    pub async fn new_for_rpc<S: AsRef<str>>(
+        rpc_address: S,
+        system_pkg: ObjectID,
+        system_object: ObjectID,
+    ) -> SuiClientResult<Self> {
+        let client = SuiClientBuilder::default().build(rpc_address).await?;
+        Self::new(client, system_pkg, system_object).await
     }
 
     pub(crate) async fn call_arg_from_system_obj(&self, mutable: bool) -> SuiClientResult<CallArg> {

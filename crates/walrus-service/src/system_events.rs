@@ -6,7 +6,6 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
-use sui_sdk::SuiClientBuilder;
 use sui_types::event::EventID;
 use tokio_stream::Stream;
 use walrus_sui::{
@@ -34,15 +33,20 @@ pub struct SuiSystemEventProvider {
 }
 
 impl SuiSystemEventProvider {
-    /// Creates a new provider with for a [`SuiReadClient`] constructed from the config.
-    pub async fn new(config: &SuiConfig) -> Result<Self, anyhow::Error> {
-        let client = SuiClientBuilder::default().build(&config.rpc).await?;
-        let read_client = SuiReadClient::new(client, config.pkg_id, config.system_object).await?;
-
-        Ok(Self {
+    /// Creates a new provider with the supplied [`SuiReadClient`], which polls
+    /// for new events every polling_interval.
+    pub fn new(read_client: SuiReadClient, polling_interval: Duration) -> Self {
+        Self {
             read_client,
-            polling_interval: config.event_polling_interval,
-        })
+            polling_interval,
+        }
+    }
+
+    /// Creates a new provider with for a [`SuiReadClient`] constructed from the config.
+    pub async fn from_config(config: &SuiConfig) -> Result<Self, anyhow::Error> {
+        let client =
+            SuiReadClient::new_for_rpc(&config.rpc, config.pkg_id, config.system_object).await?;
+        Ok(Self::new(client, config.event_polling_interval))
     }
 }
 
