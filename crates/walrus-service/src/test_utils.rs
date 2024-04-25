@@ -232,24 +232,20 @@ impl StorageNodeHandleBuilder {
         // Get the shards assigned to this storage node, since we now manage the committee, if the
         // node will be present in the committee, it must have at least one shard assigned to it.
         let shard_assignment = storage.shards_present();
-        let is_in_committee = shard_assignment.is_empty();
+        let is_in_committee = !shard_assignment.is_empty();
 
         // Generate key and address parameters for the node.
         let node_info = StorageNodeTestConfig::new(shard_assignment);
         let public_key = node_info.key_pair.as_ref().public().clone();
 
-        // Create a list of the committee members, that contains one or two nodes.
-        let committee_members = [
-            if is_in_committee {
-                Some(node_info.to_storage_node_info("node-under-test"))
-            } else {
-                None
-            },
-            committee_partner(&node_info).map(|info| info.to_storage_node_info("other-node")),
-        ];
-        debug_assert!(committee_members[0].is_some() || committee_members[1].is_some());
-
         let committee_service_factory = self.committee_service_factory.unwrap_or_else(|| {
+            // Create a list of the committee members, that contains one or two nodes.
+            let committee_members = [
+                is_in_committee.then(|| node_info.to_storage_node_info("node-under-test")),
+                committee_partner(&node_info).map(|info| info.to_storage_node_info("other-node")),
+            ];
+            debug_assert!(committee_members[0].is_some() || committee_members[1].is_some());
+
             Box::new(StubCommitteeServiceFactory::from_members(
                 // Remove the possible None in the members list
                 committee_members.into_iter().flatten().collect(),
