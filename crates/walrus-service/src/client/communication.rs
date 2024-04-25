@@ -107,12 +107,12 @@ impl<'a> NodeCommunication<'a> {
     pub async fn retrieve_verified_sliver<T: EncodingAxis>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
-        shard_idx: ShardIndex,
+        shard_index: ShardIndex,
     ) -> NodeResult<Sliver<T>, NodeError>
     where
         Sliver<T>: TryFrom<SliverEnum>,
     {
-        let sliver_pair_index = shard_idx.to_pair_index(self.n_shards(), metadata.blob_id());
+        let sliver_pair_index = shard_index.to_pair_index(self.n_shards(), metadata.blob_id());
         let sliver = self
             .client
             .get_and_verify_sliver(sliver_pair_index, metadata, self.encoding_config)
@@ -201,7 +201,7 @@ impl<'a> NodeCommunication<'a> {
             .store_sliver(blob_id, pair_index, &sliver)
             .await
             .map_err(|error| SliverStoreError {
-                pair_idx: pair_index,
+                pair_index,
                 sliver_type: sliver.r#type(),
                 error,
             })

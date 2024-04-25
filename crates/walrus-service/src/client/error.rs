@@ -25,7 +25,7 @@ pub enum StoreError {
 #[derive(Debug, thiserror::Error)]
 #[error("the sliver could not be stored on the node")]
 pub struct SliverStoreError {
-    pub pair_idx: SliverPairIndex,
+    pub pair_index: SliverPairIndex,
     pub sliver_type: SliverType,
     pub error: NodeError,
 }

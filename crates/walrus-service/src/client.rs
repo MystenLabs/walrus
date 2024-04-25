@@ -39,7 +39,7 @@ use utils::WeightedFutures;
 pub struct Client<T> {
     reqwest_client: ReqwestClient,
     sui_client: T,
-    // INV: committee.total_weight > 0
+    // INV: committee.n_shards > 0
     committee: Committee,
     concurrent_requests: usize,
     encoding_config: EncodingConfig,
@@ -187,13 +187,13 @@ impl<T> Client<T> {
         blob_id: &BlobId,
         confirmations: Vec<NodeResult<SignedStorageConfirmation, StoreError>>,
     ) -> Result<ConfirmationCertificate> {
-        let mut total_weight = 0;
+        let mut aggregate_weight = 0;
         let mut signers = Vec::with_capacity(confirmations.len());
         let mut valid_signatures = Vec::with_capacity(confirmations.len());
         for NodeResult(_, weight, node, result) in confirmations {
             match result {
                 Ok(confirmation) => {
-                    total_weight += weight;
+                    aggregate_weight += weight;
                     valid_signatures.push(confirmation.signature);
                     signers.push(
                         u16::try_from(node)
@@ -205,7 +205,7 @@ impl<T> Client<T> {
         }
 
         ensure!(
-            self.committee.is_quorum(total_weight),
+            self.committee.is_quorum(aggregate_weight),
             "not enough confirmations for the blob id were retrieved"
         );
         let aggregate = BLS12381AggregateSignature::aggregate(&valid_signatures)?;
@@ -340,11 +340,11 @@ impl<T> Client<T> {
     /// Builds a [`NodeCommunication`] object for the given storage node.
     fn new_node_communication<'a>(
         &'a self,
-        idx: usize,
+        index: usize,
         node: &'a StorageNode,
     ) -> NodeCommunication {
         NodeCommunication::new(
-            idx,
+            index,
             self.committee.epoch,
             &self.reqwest_client,
             node,
@@ -357,7 +357,7 @@ impl<T> Client<T> {
             .members()
             .iter()
             .enumerate()
-            .map(|(idx, node)| self.new_node_communication(idx, node))
+            .map(|(index, node)| self.new_node_communication(index, node))
             .collect()
     }
 
@@ -375,7 +375,7 @@ impl<T> Client<T> {
             .members()
             .iter()
             .enumerate()
-            .flat_map(|(idx, m)| m.shard_ids.iter().map(move |s| (*s, idx)))
+            .flat_map(|(index, m)| m.shard_ids.iter().map(move |s| (*s, index)))
             .collect::<HashMap<_, _>>();
         pairs.into_iter().for_each(|p| {
             pairs_per_node

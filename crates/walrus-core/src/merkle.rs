@@ -103,10 +103,10 @@ where
 {
     fn compute_root(&self, leaf: &[u8]) -> Node {
         let mut current_hash = leaf_hash::<T>(leaf);
-        let mut level_idx = self.leaf_index;
+        let mut level_index = self.leaf_index;
         for sibling in self.path.iter() {
             // The sibling hash of the current node
-            if level_idx % 2 == 0 {
+            if level_index % 2 == 0 {
                 // The current node is a left child
                 current_hash = inner_hash::<T>(&current_hash, sibling);
             } else {
@@ -114,7 +114,7 @@ where
                 current_hash = inner_hash::<T>(sibling, &current_hash);
             };
             // Update to the level index one level up in the tree
-            level_idx /= 2;
+            level_index /= 2;
         }
         current_hash
     }
@@ -200,21 +200,21 @@ where
             return Err(LeafIndexOutOfBounds(leaf_index));
         }
         let mut path = Vec::with_capacity(self.n_leaves.ilog2() as usize + 1);
-        let mut level_idx = leaf_index;
+        let mut level_index = leaf_index;
         let mut n_level = self.n_leaves;
-        let mut level_base_idx = 0;
+        let mut level_base_index = 0;
         while n_level > 1 {
             // All levels contain an even number of nodes
             n_level = n_level.next_multiple_of(2);
-            let sibling_idx = if level_idx % 2 == 0 {
-                level_base_idx + level_idx + 1
+            let sibling_index = if level_index % 2 == 0 {
+                level_base_index + level_index + 1
             } else {
-                level_base_idx + level_idx - 1
+                level_base_index + level_index - 1
             };
-            path.push(self.nodes[sibling_idx].clone());
+            path.push(self.nodes[sibling_index].clone());
             // Index of the parent on the next level
-            level_idx /= 2;
-            level_base_idx += n_level;
+            level_index /= 2;
+            level_base_index += n_level;
             n_level /= 2;
         }
         Ok(MerkleProof {
@@ -327,8 +327,8 @@ mod test {
         .collect();
         for i in 0..test_inp.len() {
             let mt: MerkleTree = MerkleTree::build(&test_inp[..i]);
-            for (idx, leaf_data) in test_inp[..i].iter().enumerate() {
-                let proof = mt.get_proof(idx).unwrap();
+            for (index, leaf_data) in test_inp[..i].iter().enumerate() {
+                let proof = mt.get_proof(index).unwrap();
                 assert!(proof.verify_proof(&mt.root(), leaf_data));
             }
         }

@@ -14,12 +14,11 @@ module blob_store::bls_aggregate {
     const ERROR_INCORRECT_COMMITTEE: u64 = 3;
 
     /// This represents a BLS signing committee.
-    /// The total_weight is the sum of the number of shards of each member.
     public struct BlsCommittee has store, drop {
         /// A vector of committee members
         members: vector<StorageNodeInfo>,
-        /// The total weight of the committee
-        total_weight: u16,
+        /// The total number of shards held by the committee
+        n_shards: u16,
     }
 
     /// Constructor
@@ -27,26 +26,26 @@ module blob_store::bls_aggregate {
         members: vector<StorageNodeInfo>
     ) : BlsCommittee {
 
-        // Compute the total weight
-        let mut total_weight = 0;
+        // Compute the total number of shards
+        let mut n_shards = 0;
         let mut i = 0;
         while (i < vector::length(&members)) {
             let added_weight = storage_node::weight(vector::borrow(&members, i));
             assert!(added_weight > 0, ERROR_INCORRECT_COMMITTEE);
-            total_weight = total_weight + added_weight;
+            n_shards = n_shards + added_weight;
             i = i + 1;
         };
-        assert!(total_weight != 0, ERROR_INCORRECT_COMMITTEE);
+        assert!(n_shards != 0, ERROR_INCORRECT_COMMITTEE);
 
         BlsCommittee {
             members,
-            total_weight
+            n_shards
         }
     }
 
     /// Returns the number of shards held by the committee.
     public fun n_shards(self: &BlsCommittee) : u16 {
-        self.total_weight
+        self.n_shards
     }
 
     #[test_only]
@@ -64,7 +63,7 @@ module blob_store::bls_aggregate {
         let storage_node = storage_node::new_for_testing(pub_key_bytes, 100);
         BlsCommittee {
             members: vector[storage_node],
-            total_weight: 100,
+            n_shards: 100,
         }
     }
 
@@ -81,20 +80,20 @@ module blob_store::bls_aggregate {
     {
         // Use the signers flags to construct the key and the weights.
 
-        // Lower bound for the next `member_idx` to ensure they are monotonically increasing
-        let mut min_next_member_idx = 0;
+        // Lower bound for the next `member_index` to ensure they are monotonically increasing
+        let mut min_next_member_index = 0;
         let mut i = 0;
 
         let mut aggregate_key = bls12381::g1_identity();
         let mut aggregate_weight = 0;
 
         while (i < vector::length(signers)) {
-            let member_idx = (*vector::borrow(signers, i) as u64);
-            assert!(member_idx >= min_next_member_idx, ERROR_TOTAL_MEMBER_ORDER);
-            min_next_member_idx = member_idx + 1;
+            let member_index = (*vector::borrow(signers, i) as u64);
+            assert!(member_index >= min_next_member_index, ERROR_TOTAL_MEMBER_ORDER);
+            min_next_member_index = member_index + 1;
 
             // Bounds check happens here
-            let member = vector::borrow(&self.members, member_idx);
+            let member = vector::borrow(&self.members, member_index);
             let key = storage_node::public_key(member);
             let weight = storage_node::weight(member);
 
@@ -105,9 +104,9 @@ module blob_store::bls_aggregate {
         };
 
         // The expression below is the solution to the inequality:
-        // total_weight = 3 f + 1
+        // n_shards = 3 f + 1
         // stake >= 2f + 1
-        assert!(3 * (aggregate_weight as u64) >= 2 * (self.total_weight as u64) + 1,
+        assert!(3 * (aggregate_weight as u64) >= 2 * (self.n_shards as u64) + 1,
             ERROR_NOT_ENOUGH_STAKE);
 
         // Verify the signature

@@ -94,7 +94,7 @@ impl<'a> BlobEncoder<'a> {
         }
 
         // Compute the remaining primary slivers by encoding the columns (i.e., secondary slivers).
-        for (col_idx, column) in secondary_slivers.iter().take(self.n_columns).enumerate() {
+        for (col_index, column) in secondary_slivers.iter().take(self.n_columns).enumerate() {
             for (symbol, sliver) in self
                 .config
                 .get_encoder::<Primary>(column.symbols.data())
@@ -102,7 +102,7 @@ impl<'a> BlobEncoder<'a> {
                 .encode_all_repair_symbols()
                 .zip(primary_slivers.iter_mut().skip(self.n_rows))
             {
-                sliver.copy_symbol_to(col_idx, &symbol);
+                sliver.copy_symbol_to(col_index, &symbol);
             }
         }
 
@@ -161,9 +161,9 @@ impl<'a> BlobEncoder<'a> {
     ///
     /// The length of the returned slice can be lower than `self.symbol_size` if the blob needs to
     /// be padded.
-    fn symbol_at(&self, row_idx: usize, col_idx: usize) -> &[u8] {
+    fn symbol_at(&self, row_index: usize, col_index: usize) -> &[u8] {
         let start_index = cmp::min(
-            self.symbol_usize() * (self.n_columns * row_idx + col_idx),
+            self.symbol_usize() * (self.n_columns * row_index + col_index),
             self.blob.len(),
         );
         let end_index = cmp::min(start_index + self.symbol_usize(), self.blob.len());
@@ -173,8 +173,8 @@ impl<'a> BlobEncoder<'a> {
     fn column_symbols(
         &self,
     ) -> impl ExactSizeIterator<Item = impl ExactSizeIterator<Item = &[u8]>> {
-        (0..self.n_columns).map(move |col_idx| {
-            (0..self.n_rows).map(move |row_idx| self.symbol_at(row_idx, col_idx))
+        (0..self.n_columns).map(move |col_index| {
+            (0..self.n_rows).map(move |row_index| self.symbol_at(row_index, col_index))
         })
     }
 
@@ -255,12 +255,12 @@ impl<'a> ExpandedMessageMatrix<'a> {
     fn expanded_column_symbols(
         &'a self,
     ) -> impl Iterator<Item = impl ExactSizeIterator<Item = &'a [u8]> + '_> {
-        (0..self.matrix.len()).map(move |col_idx| {
+        (0..self.matrix.len()).map(move |col_index| {
             self.matrix
                 .iter()
-                // Get the columns in reverse order `n_shards - col_idx - 1`.
+                // Get the columns in reverse order `n_shards - col_index - 1`.
                 .map(move |row| {
-                    row[SliverPairIndex::try_from(col_idx)
+                    row[SliverPairIndex::try_from(col_index)
                         .expect("size has already been checked")
                         .to_sliver_index::<Secondary>(self.config.n_shards)
                         .as_usize()]
@@ -272,20 +272,20 @@ impl<'a> ExpandedMessageMatrix<'a> {
     /// Expands the first `source_symbols_secondary` columns from `self.columns` to get all
     /// remaining primary slivers.
     fn expand_columns_for_primary(&mut self) {
-        for col_idx in 0..self.n_columns {
+        for col_index in 0..self.n_columns {
             let mut column = Symbols::with_capacity(self.n_rows, self.symbol_size);
             self.matrix.iter().take(self.n_rows).for_each(|row| {
-                let _ = column.extend(&row[col_idx]);
+                let _ = column.extend(&row[col_index]);
             });
 
-            for (row_idx, symbol) in self
+            for (row_index, symbol) in self
                 .config
                 .get_encoder::<Primary>(column.data())
                 .expect("size has already been checked")
                 .encode_all_repair_symbols()
                 .enumerate()
             {
-                self.matrix[self.n_rows + row_idx][col_idx].copy_from_slice(&symbol);
+                self.matrix[self.n_rows + row_index][col_index].copy_from_slice(&symbol);
             }
         }
     }
@@ -294,14 +294,14 @@ impl<'a> ExpandedMessageMatrix<'a> {
     /// expanded message matrix.
     fn expand_all_rows(&mut self) {
         for row in self.matrix.iter_mut() {
-            for (col_idx, symbol) in self
+            for (col_index, symbol) in self
                 .config
                 .get_encoder::<Secondary>(&row[0..self.n_columns])
                 .expect("size has already been checked")
                 .encode_all_repair_symbols()
                 .enumerate()
             {
-                row[self.n_columns + col_idx].copy_from_slice(&symbol)
+                row[self.n_columns + col_index].copy_from_slice(&symbol)
             }
         }
     }
@@ -467,7 +467,7 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
             // Primary decoding: transpose columns to get to the original blob.
             let mut columns: Vec<_> = columns_or_rows
                 .into_iter()
-                .map(|col_idx| col_idx.into_iter())
+                .map(|col_index| col_index.into_iter())
                 .collect();
             (0..self.config.n_source_symbols::<T>().get())
                 .flat_map(|_| {

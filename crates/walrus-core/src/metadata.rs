@@ -182,15 +182,15 @@ impl BlobMetadata {
     /// Return the hash of the sliver pair at the given index and type.
     pub fn get_sliver_hash(
         &self,
-        sliver_pair_idx: SliverPairIndex,
+        sliver_pair_index: SliverPairIndex,
         sliver_type: SliverType,
     ) -> Option<&MerkleNode> {
-        self.hashes
-            .get(sliver_pair_idx.as_usize())
-            .map(|sliver_pair_metadata| match sliver_type {
+        self.hashes.get(sliver_pair_index.as_usize()).map(
+            |sliver_pair_metadata| match sliver_type {
                 SliverType::Primary => &sliver_pair_metadata.primary_hash,
                 SliverType::Secondary => &sliver_pair_metadata.secondary_hash,
-            })
+            },
+        )
     }
 
     /// Returns the root hash of the Merkle tree over the sliver pairs.

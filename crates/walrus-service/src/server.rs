@@ -32,12 +32,12 @@ mod extract;
 /// The path to get and store blob metadata.
 pub const METADATA_ENDPOINT: &str = "/v1/blobs/:blobId/metadata";
 /// The path to get and store slivers.
-pub const SLIVER_ENDPOINT: &str = "/v1/blobs/:blobId/slivers/:sliverPairIdx/:sliverType";
+pub const SLIVER_ENDPOINT: &str = "/v1/blobs/:blobId/slivers/:sliverPairindex/:sliverType";
 /// The path to get storage confirmations.
 pub const STORAGE_CONFIRMATION_ENDPOINT: &str = "/v1/blobs/:blobId/confirmation";
 /// The path to get recovery symbols.
 pub const RECOVERY_ENDPOINT: &str =
-    "/v1/blobs/:blobId/slivers/:sliverPairIdx/:sliverType/:targetPairIndex";
+    "/v1/blobs/:blobId/slivers/:sliverPairindex/:sliverType/:targetPairIndex";
 
 /// A blob ID encoded as a Base64 string designed to be used in URLs.
 #[serde_as]
@@ -207,13 +207,13 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn retrieve_sliver(
         State(state): State<Arc<S>>,
-        Path((BlobIdString(blob_id), sliver_pair_idx, sliver_type)): Path<(
+        Path((BlobIdString(blob_id), sliver_pair_index, sliver_type)): Path<(
             BlobIdString,
             SliverPairIndex,
             SliverType,
         )>,
     ) -> Response {
-        match state.retrieve_sliver(&blob_id, sliver_pair_idx, sliver_type) {
+        match state.retrieve_sliver(&blob_id, sliver_pair_index, sliver_type) {
             Ok(Some(sliver)) => {
                 tracing::debug!("Retrieved {sliver_type:?} sliver for {blob_id:?}");
                 assert_eq!(
@@ -240,11 +240,11 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     /// Retrieves a recovery symbol for a shard held by this storage node.
     /// The sliver_type is the target type of the sliver that will be recovered
-    /// The sliver_pair_idx is the index of the sliver pair that we want to access
+    /// The sliver_pair_index is the index of the sliver pair that we want to access
     /// Index is the requesters index in the established order of storage nodes
     async fn retrieve_recovery_symbol(
         State(state): State<Arc<S>>,
-        Path((BlobIdString(blob_id), sliver_pair_idx, sliver_type, target_pair_index)): Path<(
+        Path((BlobIdString(blob_id), sliver_pair_index, sliver_type, target_pair_index)): Path<(
             BlobIdString,
             SliverPairIndex,
             SliverType,
@@ -253,7 +253,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
     ) -> Response {
         match state.retrieve_recovery_symbol(
             &blob_id,
-            sliver_pair_idx,
+            sliver_pair_index,
             sliver_type,
             target_pair_index,
         ) {
@@ -270,7 +270,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
     async fn store_sliver(
         State(state): State<Arc<S>>,
-        Path((BlobIdString(blob_id), sliver_pair_idx, sliver_type)): Path<(
+        Path((BlobIdString(blob_id), sliver_pair_index, sliver_type)): Path<(
             BlobIdString,
             SliverPairIndex,
             SliverType,
@@ -282,7 +282,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             Err(rejection) => return rejection.into_response(),
         };
 
-        match state.store_sliver(&blob_id, sliver_pair_idx, &sliver) {
+        match state.store_sliver(&blob_id, sliver_pair_index, &sliver) {
             Ok(()) => {
                 tracing::debug!("Stored {sliver_type:?} sliver for {blob_id:?}");
                 ServiceResponse::success(StatusCode::OK, ())
@@ -387,7 +387,7 @@ mod test {
         fn retrieve_sliver(
             &self,
             _blob_id: &BlobId,
-            _sliver_pair_idx: SliverPairIndex,
+            _sliver_pair_index: SliverPairIndex,
             _sliver_type: SliverType,
         ) -> Result<Option<Sliver>, RetrieveSliverError> {
             Ok(Some(walrus_core::test_utils::sliver()))
@@ -398,11 +398,11 @@ mod test {
         fn retrieve_recovery_symbol(
             &self,
             _blob_id: &BlobId,
-            sliver_pair_idx: SliverPairIndex,
+            sliver_pair_index: SliverPairIndex,
             _sliver_type: SliverType,
             _target_pair_index: SliverPairIndex,
         ) -> Result<DecodingSymbol<MerkleProof>, RetrieveSymbolError> {
-            if sliver_pair_idx == SliverPairIndex(0) {
+            if sliver_pair_index == SliverPairIndex(0) {
                 Ok(walrus_core::test_utils::recovery_symbol())
             } else {
                 Err(RetrieveSymbolError::Internal(anyhow!("Invalid shard")))
@@ -413,10 +413,10 @@ mod test {
         fn store_sliver(
             &self,
             _blob_id: &BlobId,
-            sliver_pair_idx: SliverPairIndex,
+            sliver_pair_index: SliverPairIndex,
             _sliver: &Sliver,
         ) -> Result<(), StoreSliverError> {
-            if sliver_pair_idx.as_usize() == 0 {
+            if sliver_pair_index.as_usize() == 0 {
                 Ok(())
             } else {
                 Err(StoreSliverError::Internal(anyhow!("Invalid shard")))
@@ -655,7 +655,7 @@ mod test {
         let index = 0;
         let path = RECOVERY_ENDPOINT
             .replace(":blobId", &blob_id.to_string())
-            .replace(":sliverPairIdx", &sliver_pair_id.to_string())
+            .replace(":sliverPairindex", &sliver_pair_id.to_string())
             .replace(":sliverType", "primary")
             .replace(":targetPairIndex", &index.to_string());
         let url = format!("http://{}{path}", config.inner.rest_api_address);
@@ -683,7 +683,7 @@ mod test {
         let sliver_pair_id = 1; // Triggers a not found response
         let path = RECOVERY_ENDPOINT
             .replace(":blobId", &blob_id.to_string())
-            .replace(":sliverPairIdx", &sliver_pair_id.to_string())
+            .replace(":sliverPairindex", &sliver_pair_id.to_string())
             .replace(":sliverType", "primary")
             .replace(":targetPairIndex", "0");
         let url = format!("http://{}{path}", config.inner.rest_api_address);
