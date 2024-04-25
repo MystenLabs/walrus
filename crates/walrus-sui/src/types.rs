@@ -20,7 +20,7 @@ use serde_json::{Map, Value};
 use sui_sdk::rpc_types::{SuiEvent, SuiMoveStruct, SuiMoveValue};
 use sui_types::{base_types::ObjectID, event::EventID};
 use thiserror::Error;
-use walrus_core::{ensure, BlobId, EncodingType, Epoch, PublicKey, ShardIndex};
+use walrus_core::{bft, ensure, BlobId, EncodingType, Epoch, PublicKey, ShardIndex};
 
 use crate::{
     contracts::{self, AssociatedContractStruct, AssociatedSuiEvent, StructTag},
@@ -251,13 +251,6 @@ impl TryFrom<SuiMoveStruct> for StorageNode {
     }
 }
 
-// TODO(giac): remove if unused in #243
-impl Display for StorageNode {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "node-pk: {}", self.public_key)
-    }
-}
-
 impl AssociatedContractStruct for StorageNode {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::storage_node::StorageNodeInfo;
 }
@@ -289,14 +282,13 @@ impl Committee {
         })
     }
 
-    /// Checks if the number is large enough to reach a quorum (`n_shards - f`) where `f`
-    /// is the maximum number of faulty shards, given `n_shards`.
+    /// Checks if the number is large enough to reach a quorum (`n_shards - f`) where `f` is the
+    /// maximum number of faulty shards, given `n_shards`.
+    ///
+    /// See [walrus_core::bft] for further details.
     #[inline]
     pub fn is_quorum(&self, num: usize) -> bool {
-        // Given `n_shards == 3g + 1` with a possibly fractionary `g`, this expression checks
-        // that `num >= 2g + 1`. This in turn always implies that `num >= n_shards - f`, where
-        // `f == floor(g)` is the maximum number of faulty shards.
-        3 * num >= 2 * self.n_shards.get() as usize + 1
+        num >= bft::min_n_correct(self.n_shards).get().into()
     }
 
     /// Return the shards handed by the specified storage node, based on its index in the committee

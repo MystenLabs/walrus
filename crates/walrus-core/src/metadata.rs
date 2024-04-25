@@ -115,8 +115,8 @@ impl VerifiedBlobMetadataWithId {
 
         self.metadata.encoding_type == EncodingType::RedStuff
             && self.n_shards() == config.n_shards()
-            && n_primary == config.n_primary_source_symbols().get()
-            && n_secondary == config.n_secondary_source_symbols().get()
+            && n_primary == config.n_primary_source_symbols()
+            && n_secondary == config.n_secondary_source_symbols()
     }
 
     /// Returns the number of shards in the committee for which this metadata was constructed.

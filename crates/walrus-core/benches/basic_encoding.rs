@@ -11,9 +11,8 @@ use walrus_core::encoding::{Decoder, DecodingSymbol, Encoder, Primary};
 use walrus_test_utils::{random_data, random_subset};
 
 const N_SHARDS: u16 = 1000;
-// Likely values for the number of source symbols for the primary and secondary encoding.
-// These values are consistent with BFT and are supported source-block sizes that do not require
-// padding, see https://datatracker.ietf.org/doc/html/rfc6330#section-5.6.
+// Likely values for the number of source symbols for the primary and secondary encoding, which are
+// consistent with BFT.
 const SOURCE_SYMBOLS_PRIMARY: u16 = 329;
 const SOURCE_SYMBOLS_SECONDARY: u16 = 662;
 

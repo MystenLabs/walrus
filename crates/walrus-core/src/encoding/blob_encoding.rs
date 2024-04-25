@@ -588,7 +588,7 @@ mod tests {
         expected_rows: &[&[u8]],
         expected_columns: &[&[u8]],
     ) {
-        let config = EncodingConfig::new_from_n_source_symbols(
+        let config = EncodingConfig::new_for_test(
             source_symbols_primary,
             source_symbols_secondary,
             3 * (source_symbols_primary + source_symbols_secondary),

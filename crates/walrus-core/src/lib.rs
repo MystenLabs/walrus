@@ -31,6 +31,7 @@ use metadata::BlobMetadata;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+pub mod bft;
 pub mod encoding;
 pub mod merkle;
 pub mod metadata;

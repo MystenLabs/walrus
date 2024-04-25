@@ -153,7 +153,7 @@ mod tests {
 
     // Fixture
     fn sliver_pairs(num: u16) -> Vec<SliverPair> {
-        let encoding_config = EncodingConfig::new_from_n_source_symbols(1, 1, num);
+        let encoding_config = EncodingConfig::new_for_test(1, 1, num);
         (0..num)
             .map(|n| {
                 SliverPair::new_empty(&encoding_config, 1.try_into().unwrap(), SliverPairIndex(n))

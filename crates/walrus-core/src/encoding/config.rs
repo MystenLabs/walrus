@@ -15,59 +15,7 @@ use super::{
     MAX_SOURCE_SYMBOLS_PER_BLOCK,
     MAX_SYMBOL_SIZE,
 };
-use crate::{merkle::DIGEST_LEN, BlobId};
-
-/// Returns the minimum difference between the number of primary source symbols and 1/3rd of the
-/// number of shards, and between the number of secondary source symbols and 2/3rds of the number of
-/// shards.
-///
-/// This safety limit ensures that, when collecting symbols for reconstruction or recovery, f+1
-/// replies (for primary symbols) or 2f+1 replies (for secondary symbols) from a committee of 3f+1
-/// nodes have at least `decoding_safety_limit(n_shards)` redundant symbols to increase the
-/// probability of recovery.
-///
-/// For RaptorQ, the proability of successful reconstruction for K source symbols when K + H symbols
-/// are received is greater than `(1 / 256)^(H + 1)`. Therefore, e.g, the probability of
-/// reconstruction after receiving f+1 primary slivers is at least:
-/// `(1 / 256)^(decoding_safety_limit(n_shards) + 1)`.
-pub fn decoding_safety_limit(n_shards: NonZeroU16) -> u16 {
-    // These ranges are chosen to ensure that the safety limit is at most 20% of f, up to a safety
-    // limit of 5.
-    match n_shards.get() {
-        0..=15 => 0,
-        16..=30 => 1, // f=5, 3f+1=16, 0.2*f=1
-        31..=45 => 2, // f=10, 3f+1=31, 0.2*f=2
-        46..=60 => 3, // f=15, 3f+1=46, 0.2*f=3
-        61..=75 => 4, // f=20, 3f+1=61, 0.2*f=4
-        76.. => 5,    // f=25, 3f+1=76, 0.2*f=5
-    }
-}
-
-/// Returns the maximum number of Byzantine failures in a BFT system with `n` components.
-///
-/// This number is equal to `floor((n - 1) / 3.0)`.
-pub fn max_n_byzantine(n: u16) -> u16 {
-    (n - 1) / 3
-}
-
-/// Returns the minimum number of non-faulty instances in a BFT system with `n` components.
-pub fn min_n_correct(n: u16) -> u16 {
-    n - max_n_byzantine(n)
-}
-
-/// Computes the number of primary and secondary source symbols starting from the number of shards.
-///
-/// The computation is as follows:
-/// - `source_symbols_primary = n_shards - f - decoding_safety_limit(n_shards)`
-/// - `source_symbols_secondary = n_shards - 2f - decoding_safety_limit(n_shards)`
-pub fn source_symbols_for_n_shards(n_shards: NonZeroU16) -> (u16, u16) {
-    let safety_limit = decoding_safety_limit(n_shards);
-    let min_correct = min_n_correct(n_shards.get());
-    (
-        min_correct - max_n_byzantine(n_shards.get()) - safety_limit,
-        min_correct - safety_limit,
-    )
-}
+use crate::{bft, merkle::DIGEST_LEN, BlobId};
 
 /// Configuration of the Walrus encoding.
 ///
@@ -92,14 +40,29 @@ pub struct EncodingConfig {
 }
 
 impl EncodingConfig {
+    /// Creates a new encoding config with the appropriate number of primary and secondary source
+    /// symbols for the given number of shards.
+    ///
+    /// The decoding probability is given by the [`decoding_safety_limit`]. See the documentation of
+    /// [`decoding_safety_limit`] and [`source_symbols_for_n_shards`] for more details.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the number of shards causes the number of primary or secondary source symbols
+    /// to be larger than [`MAX_SOURCE_SYMBOLS_PER_BLOCK`].
+    pub fn new(n_shards: NonZeroU16) -> Self {
+        let (primary, secondary) = source_symbols_for_n_shards(n_shards);
+        Self::new_from_nonzero_parameters(primary, secondary, n_shards)
+    }
+
     /// Creates a new encoding configuration for the provided system parameters.
     ///
     /// # Arguments
     ///
     /// * `source_symbols_primary` - The number of source symbols for the primary encoding. This
-    ///   should be equal or below `n_shards - 2f`, where `f` is the Byzantine parameter.
+    ///   should be equal to or below `n_shards - 2f`, where `f` is the Byzantine parameter.
     /// * `source_symbols_secondary` - The number of source symbols for the secondary encoding. This
-    ///   should be equal or below `n_shards - f`.
+    ///   should be equal to or below `n_shards - f`.
     /// * `n_shards` - The total number of shards.
     ///
     /// # Returns
@@ -108,8 +71,6 @@ impl EncodingConfig {
     ///
     /// # Panics
     ///
-    /// Panics if any of the parameters are 0.
-    ///
     /// Panics if the parameters are inconsistent with Byzantine fault tolerance; i.e., if the
     /// number of source symbols of the primary encoding is equal to or greater than `n_shards -
     /// 2f`, or if the number of source symbols of the secondary encoding equal to or greater than
@@ -117,18 +78,12 @@ impl EncodingConfig {
     ///
     /// Panics if the number of primary or secondary source symbols is larger than
     /// [`MAX_SOURCE_SYMBOLS_PER_BLOCK`].
-    pub(crate) fn new_from_n_source_symbols(
-        source_symbols_primary: u16,
-        source_symbols_secondary: u16,
-        n_shards: u16,
+    pub(crate) fn new_from_nonzero_parameters(
+        source_symbols_primary: NonZeroU16,
+        source_symbols_secondary: NonZeroU16,
+        n_shards: NonZeroU16,
     ) -> Self {
-        let source_symbols_primary = NonZeroU16::new(source_symbols_primary)
-            .expect("the number of source symbols must not be 0");
-        let source_symbols_secondary = NonZeroU16::new(source_symbols_secondary)
-            .expect("the number of source symbols must not be 0");
-        let n_shards = NonZeroU16::new(n_shards).expect("implied by previous checks");
-
-        let f = max_n_byzantine(n_shards.get());
+        let f = bft::max_n_faulty(n_shards);
         assert!(
             source_symbols_primary.get() < MAX_SOURCE_SYMBOLS_PER_BLOCK
                 && source_symbols_secondary.get() < MAX_SOURCE_SYMBOLS_PER_BLOCK,
@@ -154,19 +109,23 @@ impl EncodingConfig {
         }
     }
 
-    /// Creates a new encoding config with the appropriate number of primary and secondary source
-    /// symbols for the given number of shards.
-    ///
-    /// The decoding probability is given by the [`decoding_safety_limit`]. See the documentation of
-    /// [`decoding_safety_limit`] and [`source_symbols_for_n_shards`] for more details.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the number of shards causes the number of primary or secondary source symbols
-    /// to be larger than [`MAX_SOURCE_SYMBOLS_PER_BLOCK`].
-    pub fn new(n_shards: NonZeroU16) -> Self {
-        let (primary, secondary) = source_symbols_for_n_shards(n_shards);
-        Self::new_from_n_source_symbols(primary, secondary, n_shards.get())
+    #[cfg(test)]
+    pub(crate) fn new_for_test(
+        source_symbols_primary: u16,
+        source_symbols_secondary: u16,
+        n_shards: u16,
+    ) -> Self {
+        let source_symbols_primary = NonZeroU16::new(source_symbols_primary)
+            .expect("the number of source symbols must not be 0");
+        let source_symbols_secondary = NonZeroU16::new(source_symbols_secondary)
+            .expect("the number of source symbols must not be 0");
+        let n_shards = NonZeroU16::new(n_shards).expect("implied by previous checks");
+
+        Self::new_from_nonzero_parameters(
+            source_symbols_primary,
+            source_symbols_secondary,
+            n_shards,
+        )
     }
 
     /// Returns the number of source symbols configured for this type.
@@ -326,6 +285,50 @@ impl EncodingConfig {
     }
 }
 
+/// Returns the minimum difference between the number of primary source symbols and 1/3rd of the
+/// number of shards, and between the number of secondary source symbols and 2/3rds of the number of
+/// shards.
+///
+/// This safety limit ensures that, when collecting symbols for reconstruction or recovery, f+1
+/// replies (for primary symbols) or 2f+1 replies (for secondary symbols) from a committee of 3f+1
+/// nodes have at least `decoding_safety_limit(n_shards)` redundant symbols to increase the
+/// probability of recovery.
+///
+/// For RaptorQ, the probability of successful reconstruction for K source symbols when K + H
+/// symbols are received is greater than `1 - (1 / 256)^(H + 1)`. Therefore, e.g, the probability of
+/// reconstruction after receiving f+1 primary slivers is at least
+/// `1 - (1 / 256)^(decoding_safety_limit(n_shards) + 1)`.
+pub fn decoding_safety_limit(n_shards: NonZeroU16) -> u16 {
+    // These ranges are chosen to ensure that the safety limit is at most 20% of f, up to a safety
+    // limit of 5.
+    match n_shards.get() {
+        0..=15 => 0,
+        16..=30 => 1, // f=5, 3f+1=16, 0.2*f=1
+        31..=45 => 2, // f=10, 3f+1=31, 0.2*f=2
+        46..=60 => 3, // f=15, 3f+1=46, 0.2*f=3
+        61..=75 => 4, // f=20, 3f+1=61, 0.2*f=4
+        76.. => 5,    // f=25, 3f+1=76, 0.2*f=5
+    }
+}
+
+/// Computes the number of primary and secondary source symbols starting from the number of shards.
+///
+/// The computation is as follows:
+/// - `source_symbols_primary = n_shards - f - decoding_safety_limit(n_shards)`
+/// - `source_symbols_secondary = n_shards - 2f - decoding_safety_limit(n_shards)`
+pub fn source_symbols_for_n_shards(n_shards: NonZeroU16) -> (NonZeroU16, NonZeroU16) {
+    let safety_limit = decoding_safety_limit(n_shards);
+    let min_n_correct = bft::min_n_correct(n_shards).get();
+    (
+        (min_n_correct - bft::max_n_faulty(n_shards) - safety_limit)
+            .try_into()
+            .expect("implied by BFT computations and definition of safety_limit"),
+        (min_n_correct - safety_limit)
+            .try_into()
+            .expect("implied by BFT computations and definition of safety_limit"),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use walrus_test_utils::param_test;
@@ -344,8 +347,7 @@ mod tests {
     }
     fn test_sliver_size_for_blob(blob_size: usize, expected_primary_sliver_size: Option<usize>) {
         assert_eq!(
-            EncodingConfig::new_from_n_source_symbols(3, 5, 10)
-                .sliver_size_for_blob::<Primary>(blob_size),
+            EncodingConfig::new_for_test(3, 5, 10).sliver_size_for_blob::<Primary>(blob_size),
             expected_primary_sliver_size.and_then(NonZeroUsize::new)
         );
     }
@@ -384,10 +386,15 @@ mod tests {
             one_hundred_and_one: (101, 30, 63),
         ]
     }
-    fn test_source_symbols_for_n_shards(n_shards: u16, primary: u16, secondary: u16) {
-        let (p, s) = source_symbols_for_n_shards(n_shards.try_into().unwrap());
-        assert_eq!(p, primary);
-        assert_eq!(s, secondary);
+    fn test_source_symbols_for_n_shards(
+        n_shards: u16,
+        expected_primary: u16,
+        expected_secondary: u16,
+    ) {
+        let (actual_primary, actual_secondary) =
+            source_symbols_for_n_shards(n_shards.try_into().unwrap());
+        assert_eq!(actual_primary.get(), expected_primary);
+        assert_eq!(actual_secondary.get(), expected_secondary);
     }
 
     param_test! {

@@ -52,8 +52,7 @@ pub fn primary_sliver() -> PrimarySliver {
     )
 }
 
-/// Returns a BFT-compatible encoding configuration with 10 shards,
-/// i.e. with 7 secondary symbols and 4 primary symbols.
+/// Returns a BFT-compatible encoding configuration with 10 shards.
 pub fn encoding_config() -> EncodingConfig {
     EncodingConfig::new(NonZeroU16::new(10).unwrap())
 }
