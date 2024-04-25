@@ -186,7 +186,7 @@ impl Decoder {
             } else {
                 // Drop symbols of incorrect length and log a warning.
                 tracing::warn!(
-                    ?symbol,
+                    %symbol,
                     expected_symbol_size,
                     actual_symbol_size,
                     "Input to decoder has incorrect length",

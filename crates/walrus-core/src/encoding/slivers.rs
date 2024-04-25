@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{marker::PhantomData, num::NonZeroU16};
+use std::{fmt::Display, marker::PhantomData, num::NonZeroU16};
 
 use fastcrypto::hash::{Blake2b256, HashFunction};
 use serde::{Deserialize, Serialize};
@@ -24,6 +24,7 @@ use crate::{
     ensure,
     merkle::{MerkleProof, MerkleTree, Node, DIGEST_LEN},
     metadata::{SliverPairMetadata, VerifiedBlobMetadataWithId},
+    utils,
     SliverIndex,
     SliverPairIndex,
 };
@@ -332,6 +333,18 @@ impl<T: EncodingAxis> Sliver<T> {
         } else {
             Ok(())
         }
+    }
+}
+
+impl<T: EncodingAxis> Display for Sliver<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Sliver{{ type: {}, index: {}, {} }}",
+            T::NAME,
+            self.index,
+            utils::data_prefix_string(self.symbols.data(), 5),
+        )
     }
 }
 

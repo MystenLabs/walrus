@@ -445,7 +445,7 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
             {
                 // Drop slivers of incorrect length or incorrect symbol size and log a warning.
                 tracing::warn!(
-                    ?sliver,
+                    %sliver,
                     expected_len,
                     expected_symbol_size,
                     "Sliver has incorrect length or symbol size"

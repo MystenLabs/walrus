@@ -4,6 +4,7 @@
 //! The representation on encoded symbols.
 
 use std::{
+    fmt::Display,
     marker::PhantomData,
     num::NonZeroU16,
     ops::{Index, IndexMut, Range},
@@ -14,7 +15,10 @@ use raptorq::{EncodingPacket, PayloadId};
 use serde::{Deserialize, Serialize};
 
 use super::{EncodingAxis, Primary, Secondary, WrongSymbolSizeError};
-use crate::merkle::{MerkleAuth, Node};
+use crate::{
+    merkle::{MerkleAuth, Node},
+    utils,
+};
 
 /// A set of encoded symbols.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -312,6 +316,19 @@ impl<T: EncodingAxis, U> DecodingSymbol<T, U> {
     }
 }
 
+impl<T: EncodingAxis, U> Display for DecodingSymbol<T, U> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "DecodingSymbol{{ type: {}, index: {}, proof_type: {}, {} }}",
+            T::NAME,
+            self.index,
+            std::any::type_name::<U>(),
+            utils::data_prefix_string(&self.data, 5),
+        )
+    }
+}
+
 impl<T: EncodingAxis> DecodingSymbol<T> {
     /// Creates a new `DecodingSymbol`.
     pub fn new(index: u16, data: Vec<u8>) -> Self {
@@ -420,5 +437,40 @@ mod tests {
         let symbols = Symbols::zeros(n_symbols, symbol_size);
         assert_eq!(symbols.data.len(), n_symbols * symbol_size.get() as usize);
         assert_eq!(symbols.symbol_size, symbol_size);
+    }
+
+    param_test! {
+        correct_display_for_decoding_symbol: [
+            empty_primary: (
+                PrimaryDecodingSymbol::new(0, vec![]),
+                "DecodingSymbol{ type: primary, index: 0, proof_type: (), data: [] }",
+            ),
+            empty_secondary: (
+                SecondaryDecodingSymbol::new(0, vec![]),
+                "DecodingSymbol{ type: secondary, index: 0, proof_type: (), data: [] }",
+            ),
+            primary_with_short_data: (
+                PrimaryDecodingSymbol::new(0, vec![1, 2, 3, 4, 5]),
+                "DecodingSymbol{ type: primary, index: 0, proof_type: (), data: [1, 2, 3, 4, 5] }",
+            ),
+            primary_with_long_data: (
+                PrimaryDecodingSymbol::new(3, vec![1, 2, 3, 4, 5, 6]),
+                "DecodingSymbol{ type: primary, index: 3, proof_type: (), \
+                    data_prefix: [1, 2, 3, 4, 5, ...] }",
+            ),
+            with_proof: (
+                PrimaryDecodingSymbol::new(2, vec![1, 2, 3,]).with_proof(
+                    crate::merkle::MerkleProof::<fastcrypto::hash::Blake2b256>::new(&[], 0).unwrap()
+                ),
+                "DecodingSymbol{ type: primary, index: 2, proof_type: \
+                    walrus_core::merkle::MerkleProof, data: [1, 2, 3] }",
+            )
+        ]
+    }
+    fn correct_display_for_decoding_symbol<T: EncodingAxis, U>(
+        symbol: DecodingSymbol<T, U>,
+        expected_display_string: &str,
+    ) {
+        assert_eq!(format!("{}", symbol), expected_display_string);
     }
 }

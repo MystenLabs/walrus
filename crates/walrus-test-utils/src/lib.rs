@@ -93,7 +93,7 @@ pub type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 macro_rules! param_test {
     ($func_name:ident -> $return_ty:ty: [
         $( $(#[$outer:meta])* $case_name:ident:
-            $(<$($type_args:ty),+>)?( $($args:expr),* )  ),+$(,)?
+            $(<$($type_args:ty),+>)?( $($args:expr),* $(,)? ) ),+$(,)?
     ]) => {
         mod $func_name {
             use super::*;
@@ -109,7 +109,7 @@ macro_rules! param_test {
     };
     ($func_name:ident: [
         $( $(#[$outer:meta])* $case_name:ident:
-            $(<$($type_args:ty),+>)?( $($args:expr),* )  ),+$(,)?
+            $(<$($type_args:ty),+>)?( $($args:expr),* $(,)? ) ),+$(,)?
     ]) => {
         param_test!(
             $func_name -> ():
