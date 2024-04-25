@@ -267,7 +267,7 @@ impl ShardIndex {
     ///
     /// ```
     /// # use walrus_core::ShardIndex;
-    ///
+    /// #
     /// assert!(ShardIndex::range(0..3).eq([ShardIndex(0), ShardIndex(1), ShardIndex(2)]));
     /// assert!(ShardIndex::range(0..3).eq(ShardIndex::range(..3)));
     /// assert!(ShardIndex::range(0..3).eq(ShardIndex::range(..=2)));

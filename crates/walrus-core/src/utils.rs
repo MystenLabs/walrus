@@ -115,6 +115,24 @@ macro_rules! wrapped_uint {
 
 /// Returns a string that either contains the full `data` slice or its first few values separated by
 /// commas.
+///
+/// # Examples
+///
+/// ```
+/// # use walrus_core::utils::data_prefix_string;
+/// #
+/// assert_eq!(data_prefix_string(&Vec::<u8>::new(), 0), "data: []");
+/// assert_eq!(data_prefix_string(&Vec::<u8>::new(), 1), "data: []");
+/// assert_eq!(data_prefix_string(&Vec::<String>::new(), 0), "data: []");
+/// assert_eq!(data_prefix_string(&[1], 1), "data: [1]");
+/// assert_eq!(data_prefix_string(&[1], 2), "data: [1]");
+/// assert_eq!(data_prefix_string(&[1, 2, 3, 4], 4), "data: [1, 2, 3, 4]");
+/// assert_eq!(data_prefix_string(&[1, 2, 3, 4], 10), "data: [1, 2, 3, 4]");
+/// assert_eq!(data_prefix_string(&["1", "2", "3", "x"], 10), "data: [1, 2, 3, x]");
+/// assert_eq!(data_prefix_string(&[1, 2, 3, 4], 1), "data_prefix: [1, ...]");
+/// assert_eq!(data_prefix_string(&[1, 2, 3, 4], 3), "data_prefix: [1, 2, 3, ...]");
+/// assert_eq!(data_prefix_string(&["x", "y", "z"], 1), "data_prefix: [x, ...]");
+/// ```
 #[inline]
 pub fn data_prefix_string<T: ToString>(data: &[T], max_values_printed: usize) -> String {
     let data_items = data[..data.len().min(max_values_printed)]
@@ -126,38 +144,5 @@ pub fn data_prefix_string<T: ToString>(data: &[T], max_values_printed: usize) ->
         format!("data: [{}]", data_items)
     } else {
         format!("data_prefix: [{}, ...]", data_items)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use walrus_test_utils::param_test;
-
-    use super::*;
-
-    param_test! {
-        correct_data_prefix_string: [
-            empty_u8_0: (&Vec::<u8>::new(), 0, "data: []"),
-            empty_u8_1: (&Vec::<u8>::new(), 1, "data: []"),
-            empty_str: (&Vec::<String>::new(), 0, "data: []"),
-            full_slice_0: (&[1], 1, "data: [1]"),
-            full_slice_1: (&[1], 2, "data: [1]"),
-            full_slice_2: (&[1, 2, 3, 4], 4, "data: [1, 2, 3, 4]"),
-            full_slice_3: (&[1, 2, 3, 4], 10, "data: [1, 2, 3, 4]"),
-            full_slice_4: (&["1", "2", "3", "x"], 10, "data: [1, 2, 3, x]"),
-            partial_slice_0: (&[1, 2, 3, 4], 1, "data_prefix: [1, ...]"),
-            partial_slice_1: (&[1, 2, 3, 4], 3, "data_prefix: [1, 2, 3, ...]"),
-            partial_slice_2: (&["x", "y", "z"], 1, "data_prefix: [x, ...]"),
-        ]
-    }
-    fn correct_data_prefix_string<T: ToString>(
-        data: &[T],
-        max_values_printed: usize,
-        expected_string: &str,
-    ) {
-        assert_eq!(
-            data_prefix_string(data, max_values_printed),
-            expected_string
-        );
     }
 }
