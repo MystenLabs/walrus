@@ -12,36 +12,104 @@ function ctrl_c() {
 
 (tmux kill-server || true) 2>/dev/null
 
-committee_size=${1:-4} # Default value of 4 if no argument is provided
+function usage() {
+    echo "Usage: $0 [OPTIONS]"
+    echo "OPTIONS:"
+    echo "  -c <committee_size>   Specify number of storage nodes (default: 4)"
+    echo "  -s <n_shards>         Specify number of shards (default: 10)"
+    echo "  -n <network>          Specify network to generate configs for (default: devnet)"
+    echo "  -e                    Use existing config"
+    echo "  -h                    Print this usage message"
+}
+
+
+
+function run_node() {
+    cmd="cargo run --bin walrus-node -- run \
+    --config-path $working_dir/$1.yaml \
+    ${2:-} \
+    |& tee $working_dir/$1.log"
+    echo $cmd
+    tmux new -d -s "$1" "$cmd"
+}
+
+existing=false
+committee_size=4 # Default value of 4 if no argument is provided
+shards=10 # Default value of 4 if no argument is provided
+network=devnet
+
+while getopts ":n:c:she" arg; do
+    case "${arg}" in
+        n)
+            network=${OPTARG}
+            ;;
+        c)
+            committee_size=${OPTARG}
+            ;;
+        s)
+            shards=${OPTARG}
+            ;;
+        e)
+            existing=true
+            ;;
+        h)
+            usage
+            exit 0
+            ;;
+        *)
+            usage
+            exit 1
+    esac
+done
+
 if ! [ "$committee_size" -gt 0 ] 2>/dev/null; then
-    echo "Invalid argument: $1 is not a valid positive integer."
-    echo "Usage: $0 [<committee_size>] [<shards>]"
+    echo "Invalid argument: $committee_size is not a valid positive integer."
+    usage
     exit 1
 fi
-shards=${2:-10} # Default value of 10 if no argument is provided
+
 if ! [ "$shards" -ge "$committee_size" ] 2>/dev/null; then
-    echo "Invalid argument: $2 is not an integer greater than or equal to 'committee_size'."
-    echo "Usage: $0 [<committee_size>] [<shards>]"
+    echo "Invalid argument: $shards is not an integer greater than or equal to 'committee_size'."
+    usage
     exit 1
 fi
+
+networks=("devnet", "testnet", "localnet")
+if ! [[ ${networks[@]} =~ $network ]]; then
+    echo "Invalid argument: $network is not a valid network (${networks[@]})."
+    usage
+    exit 1
+fi
+
 
 # Set working directory
 working_dir="./working_dir"
 
-# Print configs
-echo Generating configuration...
-cargo run --bin walrus-node -- generate-dry-run-configs \
---working-dir $working_dir --committee-size $committee_size --n-shards $shards
+if ! $existing; then
+    # Generate configs
+    echo Generating configuration...
+    cargo run --bin walrus-node -- generate-dry-run-configs \
+    --working-dir $working_dir --committee-size $committee_size --n-shards $shards \
+    --sui-network $network
+    # Spawn nodes
+    for i in $(seq -w 0 $((committee_size-1))); do
+        run_node "dryrun-node-$i" "--cleanup-storage"
+    done
 
-# Spawn nodes
-for i in $(seq -w 0 $((committee_size-1))); do
-    tmux new -d -s "n$i" \
-    "cargo run --bin walrus-node -- run \
-    --config-path $working_dir/dryrun-node-$i.yaml --cleanup-storage \
-    |& tee $working_dir/n$i.log"
-done
+    echo "Spawned $committee_size nodes with a total of $shards shards in separate tmux sessions."
+else
+    i=0
+    for config in $( ls $working_dir/dryrun-node-*.yaml ); do
+        node_name=$(basename -- "$config")
+        node_name="${node_name%.*}"
+        run_node $node_name
+        ((i++))
+    done
 
-echo "\nSpawned $committee_size nodes in separate tmux sessions handing a total of $shards shards."
+    echo "\nSpawned $i existing nodes in separate tmux sessions."
+fi
+
+
 
 # Instructions to run a client
 cat << EOF
