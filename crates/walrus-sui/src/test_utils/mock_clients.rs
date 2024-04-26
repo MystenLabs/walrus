@@ -39,6 +39,9 @@ use crate::{
 };
 
 /// Mock `ReadClient` for testing.
+/// All events added to a `MockSuiReadClient` are provided in all event streams returned
+/// from any clone of the `MockSuiReadClient`. This includes events added using the `add_event`
+/// function after creating the client.
 #[derive(Debug, Clone)]
 pub struct MockSuiReadClient {
     events: Arc<Mutex<Vec<BlobEvent>>>,
@@ -47,7 +50,10 @@ pub struct MockSuiReadClient {
 }
 
 impl MockSuiReadClient {
-    /// Create a new mock client that returns the provided events in the event streams.
+    /// Create a new mock client that returns the provided events as the initial sequence of
+    /// events in the event streams.
+    /// The provided `committee` is returned when calling `current_committee` on
+    /// the client.
     pub fn new_with_events(events: Vec<BlobEvent>, committee: Option<Committee>) -> Self {
         // A channel capacity of 1024 should be enough capacity to not feel backpressure for testing
         let (events_channel, _) = broadcast::channel(1024);
@@ -59,7 +65,9 @@ impl MockSuiReadClient {
     }
 
     /// Create a new mock client that returns registered and certified events for
-    /// the given `blob_ids` with the specified committee (if provided, default otherwise).
+    /// the given `blob_ids` as the initial sequence of events in the event streams.
+    /// The provided `committee` is returned when calling `current_committee` on
+    /// the client.
     pub fn new_with_blob_ids(
         blob_ids: impl IntoIterator<Item = BlobId>,
         committee: Option<Committee>,
@@ -76,7 +84,7 @@ impl MockSuiReadClient {
         Self::new_with_events(events, committee)
     }
 
-    /// Add a `BlobEvent` to the event streams provided by this client.
+    /// Add a `BlobEvent` to the event streams provided by this client and its clones.
     pub fn add_event(&self, event: BlobEvent) {
         // ignore unsuccessful sends, we might have new receivers in the future
         let _ = self.events_channel.send(event.clone());
@@ -126,6 +134,9 @@ impl ReadClient for MockSuiReadClient {
 
 /// Mock `ContractClient` for testing.
 /// Currently only covers the happy case, i.e. every call succeeds.
+/// Calling its functions will add corresponding events to the event
+/// streams returned by its read client (returned by `read_client()`)
+/// as well as by any clones thereof.
 #[derive(Debug)]
 pub struct MockContractClient {
     /// Client to read Walrus on-chain state
@@ -252,16 +263,12 @@ mod tests {
     #[tokio::test]
     async fn test_register_mock_clients() -> anyhow::Result<()> {
         let read_client = MockSuiReadClient::new_with_blob_ids([], None);
-        let walrus_client = MockContractClient::new(0, read_client);
+        // Pass a clone of `read_client` to test that events are replicated between clones
+        let walrus_client = MockContractClient::new(0, read_client.clone());
 
         // Get event streams for the events
         let polling_duration = std::time::Duration::from_millis(1);
-        let mut events = pin!(
-            walrus_client
-                .read_client()
-                .blob_events(polling_duration, None)
-                .await?
-        );
+        let mut events = pin!(read_client.blob_events(polling_duration, None).await?);
 
         let resource_size = 10_000_000;
         let size = 10_000;
@@ -326,12 +333,7 @@ mod tests {
         assert_eq!(blob_certified.end_epoch, storage_resource.end_epoch);
 
         // Get new event stream to check if we receive previous events
-        let mut events = pin!(
-            walrus_client
-                .read_client
-                .blob_events(polling_duration, None)
-                .await?
-        );
+        let mut events = pin!(read_client.blob_events(polling_duration, None).await?);
 
         // Make sure that we got the expected event
         let blob_event = events.next().await.unwrap();
