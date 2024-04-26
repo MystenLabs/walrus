@@ -29,6 +29,9 @@ pub trait CommitteeService: std::fmt::Debug + Send + Sync {
     /// Returns the number of shards in the committee.
     fn get_shard_count(&self) -> NonZeroU16;
 
+    /// Returns the committee used by the service.
+    fn committee(&self) -> &Committee;
+
     /// Excludes a member from calls made to the committee.
     ///
     /// An excluded member will not be contacted when making calls against the committee. Returns
@@ -91,5 +94,9 @@ impl CommitteeService for NodeCommitteeService {
             .members()
             .iter()
             .any(|member| member.public_key == *identity)
+    }
+
+    fn committee(&self) -> &Committee {
+        &self.committee
     }
 }

@@ -291,12 +291,21 @@ impl Committee {
         num >= bft::min_n_correct(self.n_shards).get().into()
     }
 
-    /// Return the shards handed by the specified storage node, based on its index in the committee
-    /// list.
+    /// Return the shards handed by the specified storage node,
+    /// based on its index in the committee list.
     pub fn shards_for_node(&self, node_id: usize) -> Vec<ShardIndex> {
         self.members
             .get(node_id)
             .map(|node| node.shard_ids.clone())
+            .unwrap_or_default()
+    }
+
+    /// Return the shards handed by the specified storage node, based on its public key.
+    /// If empty, the node is not in the committee.
+    pub fn shards_for_node_public_key(&self, public_key: &PublicKey) -> &[ShardIndex] {
+        self.members
+            .iter()
+            .find_map(|node| (node.public_key == *public_key).then_some(node.shard_ids.as_slice()))
             .unwrap_or_default()
     }
 

@@ -4,7 +4,7 @@
 use std::future::Future;
 
 use anyhow::{anyhow, bail, Context};
-use fastcrypto::traits::Signer;
+use fastcrypto::traits::{KeyPair, Signer};
 use mysten_metrics::RegistryService;
 use tokio::select;
 use tokio_stream::StreamExt;
@@ -50,16 +50,16 @@ pub enum StoreMetadataError {
 
 #[derive(Debug, thiserror::Error)]
 pub enum RetrieveSliverError {
-    #[error("Invalid shard {0:?}")]
-    InvalidShard(ShardIndex),
+    #[error("this storage node does not currently manage shard {shard}, epoch {epoch}")]
+    InvalidShard { shard: ShardIndex, epoch: Epoch },
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum RetrieveSymbolError {
-    #[error("Invalid shard {0:?}")]
-    InvalidShard(ShardIndex),
+    #[error("this storage node does not currently manage shard {shard}, epoch {epoch}")]
+    InvalidShard { shard: ShardIndex, epoch: Epoch },
     #[error("Symbol recovery failed for sliver {0:?}, target index {0:?} in blob {2:?}")]
     RecoveryError(SliverPairIndex, SliverPairIndex, BlobId),
     #[error("Sliver {0:?} unavailable for recovery in blob {1:?}")]
@@ -72,7 +72,9 @@ pub enum RetrieveSymbolError {
 impl From<RetrieveSliverError> for RetrieveSymbolError {
     fn from(value: RetrieveSliverError) -> Self {
         match value {
-            RetrieveSliverError::InvalidShard(s) => Self::InvalidShard(s),
+            RetrieveSliverError::InvalidShard { shard, epoch } => {
+                Self::InvalidShard { shard, epoch }
+            }
             RetrieveSliverError::Internal(e) => Self::Internal(e),
         }
     }
@@ -90,8 +92,8 @@ pub enum StoreSliverError {
     IncorrectSize(usize, BlobId),
     #[error("Invalid shard type {0:?} for {1:?}")]
     InvalidSliverType(SliverType, BlobId),
-    #[error("Invalid shard {0:?}")]
-    InvalidShard(ShardIndex),
+    #[error("this storage node does not currently manage shard {shard}, epoch {epoch}")]
+    InvalidShard { shard: ShardIndex, epoch: Epoch },
     #[error(transparent)]
     MalformedSliver(#[from] RecoveryError),
     #[error(transparent)]
@@ -240,21 +242,13 @@ impl StorageNodeBuilder {
             Box::new(SuiCommitteeServiceFactory::new(read_client))
         });
 
-        let committee_service = committee_service_factory
-            .new_for_epoch()
-            .await
-            .context("unable to construct a committee service for the storage node")?;
-
-        let encoding_config = EncodingConfig::new(committee_service.get_shard_count());
-
-        Ok(StorageNode {
+        StorageNode::new(
             protocol_key_pair,
             storage,
             event_provider,
-            encoding_config,
-            committee_service,
-            _committee_service_factory: committee_service_factory,
-        })
+            committee_service_factory,
+        )
+        .await
     }
 }
 
@@ -288,6 +282,41 @@ pub struct StorageNode {
 }
 
 impl StorageNode {
+    async fn new(
+        key_pair: ProtocolKeyPair,
+        mut storage: Storage,
+        event_provider: Box<dyn SystemEventProvider>,
+        committee_service_factory: Box<dyn CommitteeServiceFactory>,
+    ) -> Result<Self, anyhow::Error> {
+        let committee_service = committee_service_factory
+            .new_for_epoch()
+            .await
+            .context("unable to construct a committee service for the storage node")?;
+
+        let encoding_config = EncodingConfig::new(committee_service.get_shard_count());
+
+        let committee = committee_service.committee();
+        let managed_shards = committee.shards_for_node_public_key(key_pair.as_ref().public());
+        if managed_shards.is_empty() {
+            tracing::info!(epoch = committee.epoch, "node does not manage any shards");
+        }
+
+        for shard in managed_shards {
+            storage
+                .create_storage_for_shard(*shard)
+                .with_context(|| format!("unable to initialize storage for shard {}", shard))?;
+        }
+
+        Ok(StorageNode {
+            protocol_key_pair: key_pair,
+            storage,
+            event_provider,
+            encoding_config,
+            committee_service,
+            _committee_service_factory: committee_service_factory,
+        })
+    }
+
     /// Creates a new [`StorageNodeBuilder`] for constructing a `StorageNode`.
     pub fn builder() -> StorageNodeBuilder {
         StorageNodeBuilder::default()
@@ -366,7 +395,10 @@ impl ServiceState for StorageNode {
         let sliver = self
             .storage
             .shard_storage(shard)
-            .ok_or_else(|| RetrieveSliverError::InvalidShard(shard))?
+            .ok_or_else(|| RetrieveSliverError::InvalidShard {
+                shard,
+                epoch: self.current_epoch(),
+            })?
             .get_sliver(blob_id, sliver_type)
             .context("unable to retrieve sliver")?;
         Ok(sliver)
@@ -381,10 +413,13 @@ impl ServiceState for StorageNode {
         // First determine if the shard that should store this sliver is managed by this node.
         // If not, we can return early without touching the database.
         let shard = sliver_pair_index.to_shard_index(self.encoding_config.n_shards(), blob_id);
-        let shard_storage = self
-            .storage
-            .shard_storage(shard)
-            .ok_or_else(|| StoreSliverError::InvalidShard(shard))?;
+        let shard_storage =
+            self.storage
+                .shard_storage(shard)
+                .ok_or_else(|| StoreSliverError::InvalidShard {
+                    shard,
+                    epoch: self.current_epoch(),
+                })?;
 
         // Ensure we already received metadata for this sliver.
         let metadata = self
@@ -506,6 +541,10 @@ async fn sign_confirmation(
 #[cfg(test)]
 mod tests {
     use fastcrypto::traits::KeyPair;
+    use walrus_sui::{
+        test_utils::EventForTesting,
+        types::{BlobEvent, BlobRegistered},
+    };
     use walrus_test_utils::{Result as TestResult, WithTempDir};
 
     use super::*;
@@ -589,5 +628,26 @@ mod tests {
 
             Ok(())
         }
+    }
+
+    #[tokio::test]
+    async fn services_slivers_for_shards_managed_according_to_committee() -> TestResult {
+        let shard_for_node = ShardIndex(0);
+        let node = StorageNodeHandle::builder()
+            .with_system_event_provider(vec![BlobEvent::Registered(BlobRegistered::for_testing(
+                BLOB_ID,
+            ))])
+            .with_shard_assignment(&[shard_for_node])
+            .with_node_started(true)
+            .build()
+            .await?;
+        let n_shards = node.as_ref().committee_service.get_shard_count();
+        let sliver_pair_index = shard_for_node.to_pair_index(n_shards, &BLOB_ID);
+
+        node.as_ref()
+            .retrieve_sliver(&BLOB_ID, sliver_pair_index, SliverType::Primary)
+            .expect("should not err, but instead return 'None'");
+
+        Ok(())
     }
 }

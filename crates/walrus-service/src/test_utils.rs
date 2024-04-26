@@ -155,6 +155,7 @@ pub struct StorageNodeHandleBuilder {
     committee_service_factory: Option<Box<dyn CommitteeServiceFactory>>,
     run_rest_api: bool,
     run_node: bool,
+    shard_assignment: Option<Vec<ShardIndex>>,
 }
 
 impl StorageNodeHandleBuilder {
@@ -216,6 +217,15 @@ impl StorageNodeHandleBuilder {
         self
     }
 
+    /// Specify the shard assignment for this node.
+    ///
+    /// If specified, it will determine the the shard assignment for the node in the committee. If
+    /// not, the shard assignment will be inferred from the shards present in the storage.
+    pub fn with_shard_assignment(mut self, shards: &[ShardIndex]) -> Self {
+        self.shard_assignment = Some(shards.into());
+        self
+    }
+
     /// Creates the configured [`StorageNodeHandle`].
     pub async fn build(self) -> anyhow::Result<StorageNodeHandle> {
         let registry_service = RegistryService::new(Registry::default());
@@ -231,7 +241,9 @@ impl StorageNodeHandleBuilder {
 
         // Get the shards assigned to this storage node, since we now manage the committee, if the
         // node will be present in the committee, it must have at least one shard assigned to it.
-        let shard_assignment = storage.shards_present();
+        let shard_assignment = self
+            .shard_assignment
+            .unwrap_or_else(|| storage.shards_present());
         let is_in_committee = !shard_assignment.is_empty();
 
         // Generate key and address parameters for the node.
@@ -306,6 +318,7 @@ impl Default for StorageNodeHandleBuilder {
             storage: Default::default(),
             run_rest_api: Default::default(),
             run_node: Default::default(),
+            shard_assignment: None,
         }
     }
 }
@@ -379,6 +392,10 @@ impl CommitteeService for StubCommitteeService {
             .members()
             .iter()
             .any(|info| info.public_key == *identity)
+    }
+
+    fn committee(&self) -> &Committee {
+        &self.0
     }
 }
 
