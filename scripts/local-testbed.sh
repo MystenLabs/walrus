@@ -12,12 +12,14 @@ function ctrl_c() {
 
 (tmux kill-server || true) 2>/dev/null
 
+nets=("devnet", "testnet", "localnet")
+
 function usage() {
     echo "Usage: $0 [OPTIONS]"
     echo "OPTIONS:"
-    echo "  -c <committee_size>   Specify number of storage nodes (default: 4)"
-    echo "  -s <n_shards>         Specify number of shards (default: 10)"
-    echo "  -n <network>          Specify network to generate configs for (default: devnet)"
+    echo "  -c <committee_size>   Number of storage nodes (default: 4)"
+    echo "  -s <n_shards>         Number of shards (default: 10)"
+    echo "  -n <network>          Network (${nets[@]}; default: devnet) to generate configs for"
     echo "  -e                    Use existing config"
     echo "  -h                    Print this usage message"
 }
@@ -38,7 +40,7 @@ committee_size=4 # Default value of 4 if no argument is provided
 shards=10 # Default value of 4 if no argument is provided
 network=devnet
 
-while getopts ":n:c:she" arg; do
+while getopts "n:c:s:eh" arg; do
     case "${arg}" in
         n)
             network=${OPTARG}
@@ -74,9 +76,8 @@ if ! [ "$shards" -ge "$committee_size" ] 2>/dev/null; then
     exit 1
 fi
 
-networks=("devnet", "testnet", "localnet")
-if ! [[ ${networks[@]} =~ $network ]]; then
-    echo "Invalid argument: $network is not a valid network (${networks[@]})."
+if ! [[ ${nets[@]} =~ $network ]]; then
+    echo "Invalid argument: $network is not a valid network (${nets[@]})."
     usage
     exit 1
 fi
@@ -85,29 +86,31 @@ fi
 # Set working directory
 working_dir="./working_dir"
 
+# Initialize cleanup to be empty
+cleanup=
+
 if ! $existing; then
+    # Cleanup
+    rm -f $working_dir/dryrun-node-*.yaml
+    cleanup="--cleanup-storage"
+
     # Generate configs
     echo Generating configuration...
     cargo run --bin walrus-node -- generate-dry-run-configs \
     --working-dir $working_dir --committee-size $committee_size --n-shards $shards \
     --sui-network $network
-    # Spawn nodes
-    for i in $(seq -w 0 $((committee_size-1))); do
-        run_node "dryrun-node-$i" "--cleanup-storage"
-    done
-
-    echo "Spawned $committee_size nodes with a total of $shards shards in separate tmux sessions."
-else
-    i=0
-    for config in $( ls $working_dir/dryrun-node-*.yaml ); do
-        node_name=$(basename -- "$config")
-        node_name="${node_name%.*}"
-        run_node $node_name
-        ((i++))
-    done
-
-    echo "\nSpawned $i existing nodes in separate tmux sessions."
 fi
+
+i=0
+for config in $( ls $working_dir/dryrun-node-*.yaml ); do
+    node_name=$(basename -- "$config")
+    node_name="${node_name%.*}"
+    run_node $node_name $cleanup
+    ((i++))
+done
+
+echo "\nSpawned $i nodes in separate tmux sessions."
+
 
 
 
