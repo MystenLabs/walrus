@@ -41,7 +41,7 @@ pub trait CommitteeService: std::fmt::Debug + Send + Sync {
 }
 
 /// Constructs [`NodeCommitteeService`]s by reading the current storage committee from the chain.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SuiCommitteeServiceFactory<T> {
     read_client: T,
 }

@@ -161,7 +161,7 @@ pub struct StorageNodeHandleBuilder {
     committee_service_factory: Option<Box<dyn CommitteeServiceFactory>>,
     run_rest_api: bool,
     run_node: bool,
-    shard_assignment: Option<Vec<ShardIndex>>,
+    test_config: Option<StorageNodeTestConfig>,
 }
 
 impl StorageNodeHandleBuilder {
@@ -227,8 +227,21 @@ impl StorageNodeHandleBuilder {
     ///
     /// If specified, it will determine the the shard assignment for the node in the committee. If
     /// not, the shard assignment will be inferred from the shards present in the storage.
+    ///
+    /// Resets any prior calls to [`Self::with_test_config`].
     pub fn with_shard_assignment(mut self, shards: &[ShardIndex]) -> Self {
-        self.shard_assignment = Some(shards.into());
+        self.test_config = Some(StorageNodeTestConfig::new(shards.into()));
+        self
+    }
+
+    /// Specify the test config for this node.
+    ///
+    /// If specified, it will determine the the shard assignment for the node in the committee
+    /// as well as the network address and the protocol key.
+    ///
+    /// Resets any prior calls to [`Self::with_shard_assignment`].
+    pub fn with_test_config(mut self, test_config: StorageNodeTestConfig) -> Self {
+        self.test_config = Some(test_config);
         self
     }
 
@@ -245,15 +258,12 @@ impl StorageNodeHandleBuilder {
             .storage
             .unwrap_or_else(|| empty_storage_with_shards(&[]));
 
-        // Get the shards assigned to this storage node, since we now manage the committee, if the
-        // node will be present in the committee, it must have at least one shard assigned to it.
-        let shard_assignment = self
-            .shard_assignment
-            .unwrap_or_else(|| storage.shards_present());
-        let is_in_committee = !shard_assignment.is_empty();
+        let node_info = self
+            .test_config
+            .unwrap_or_else(|| StorageNodeTestConfig::new(storage.shards_present()));
+        // To be in the committee, the node must have at least one shard assigned to it.
+        let is_in_committee = !node_info.shards.is_empty();
 
-        // Generate key and address parameters for the node.
-        let node_info = StorageNodeTestConfig::new(shard_assignment);
         let public_key = node_info.key_pair.as_ref().public().clone();
 
         let committee_service_factory = self.committee_service_factory.unwrap_or_else(|| {
@@ -324,7 +334,7 @@ impl Default for StorageNodeHandleBuilder {
             storage: Default::default(),
             run_rest_api: Default::default(),
             run_node: Default::default(),
-            shard_assignment: None,
+            test_config: None,
         }
     }
 }
@@ -473,9 +483,10 @@ impl TestCluster {
 /// See function level documentation for details on the various configuration settings.
 #[derive(Debug)]
 pub struct TestClusterBuilder {
-    shard_assignment: Vec<Vec<ShardIndex>>,
+    storage_node_configs: Vec<StorageNodeTestConfig>,
     // INV: Reset if shard_assignment is changed.
     event_providers: Vec<Option<Box<dyn SystemEventProvider>>>,
+    committee_factories: Vec<Option<Box<dyn CommitteeServiceFactory>>>,
 }
 
 impl TestClusterBuilder {
@@ -487,34 +498,29 @@ impl TestClusterBuilder {
     /// Sets the number of storage nodes and their shard assignments from a sequence of the shards
     /// assignmened to each storage.
     ///
-    /// Resets any prior calls to [`Self::with_system_event_providers`].
+    /// Resets any prior calls to [`Self::with_test_configs`],
+    /// [`Self::with_system_event_providers`], and [`Self::with_committee_service_factories`].
     pub fn with_shard_assignment<S, I>(mut self, assignment: &[S]) -> Self
     where
         S: Borrow<[I]>,
         for<'a> &'a I: Into<ShardIndex>,
     {
-        let mut shard_assignment = vec![];
+        let configs = storage_node_test_configs_from_shard_assignment(assignment);
 
-        for node_shard_assignment in assignment {
-            let shards: Vec<ShardIndex> = node_shard_assignment
-                .borrow()
-                .iter()
-                .map(|i| i.into())
-                .collect();
+        self.event_providers = configs.iter().map(|_| None).collect();
+        self.committee_factories = configs.iter().map(|_| None).collect();
+        self.storage_node_configs = configs;
+        self
+    }
 
-            assert!(
-                !shards.is_empty(),
-                "shard assignments to nodes must be non-empty"
-            );
-            shard_assignment.push(shards);
-        }
-        assert!(
-            !shard_assignment.is_empty(),
-            "assignments for at least 1 node must be specified"
-        );
-
-        self.event_providers = shard_assignment.iter().map(|_| None).collect();
-        self.shard_assignment = shard_assignment;
+    /// Sets the configurations for each storage node based on `configs`.
+    ///
+    /// Resets any prior calls to [`Self::with_shard_assignment`],
+    /// [`Self::with_system_event_providers`], and [`Self::with_committee_service_factories`].
+    pub fn with_test_configs(mut self, configs: Vec<StorageNodeTestConfig>) -> Self {
+        self.event_providers = configs.iter().map(|_| None).collect();
+        self.committee_factories = configs.iter().map(|_| None).collect();
+        self.storage_node_configs = configs;
         self
     }
 
@@ -526,9 +532,24 @@ impl TestClusterBuilder {
         T: SystemEventProvider + Clone + 'static,
     {
         self.event_providers = self
-            .shard_assignment
+            .storage_node_configs
             .iter()
             .map(|_| Some(Box::new(event_provider.clone()) as _))
+            .collect();
+        self
+    }
+
+    /// Sets the [`CommitteeServiceFactory`] used for each storage node.
+    ///
+    /// Should be called after the storage nodes have been specified.
+    pub fn with_committee_service_factories<T>(mut self, factory: T) -> Self
+    where
+        T: CommitteeServiceFactory + Clone + 'static,
+    {
+        self.committee_factories = self
+            .storage_node_configs
+            .iter()
+            .map(|_| Some(Box::new(factory.clone()) as _))
             .collect();
         self
     }
@@ -537,31 +558,35 @@ impl TestClusterBuilder {
     pub async fn build(self) -> anyhow::Result<TestCluster> {
         let mut nodes = vec![];
 
-        let node_test_configs: Vec<_> = self
-            .shard_assignment
-            .into_iter()
-            .map(StorageNodeTestConfig::new)
-            .collect();
-
-        let committee_members = node_test_configs
+        let committee_members: Vec<_> = self
+            .storage_node_configs
             .iter()
             .enumerate()
             .map(|(i, info)| info.to_storage_node_info(&format!("node-{i}")))
             .collect();
-        let factory = StubCommitteeServiceFactory::from_members(committee_members);
 
-        for (config, event_provider) in node_test_configs
+        for ((config, event_provider), factory) in self
+            .storage_node_configs
             .into_iter()
             .zip(self.event_providers.into_iter())
+            .zip(self.committee_factories.into_iter())
         {
             let mut builder = StorageNodeHandle::builder()
                 .with_storage(empty_storage_with_shards(&config.shards))
-                .with_committee_service_factory(Box::new(factory.clone()))
+                .with_test_config(config)
                 .with_rest_api_started(true)
                 .with_node_started(true);
 
             if let Some(provider) = event_provider {
                 builder = builder.with_boxed_system_event_provider(provider);
+            }
+
+            if let Some(factory) = factory {
+                builder = builder.with_committee_service_factory(factory);
+            } else {
+                builder = builder.with_committee_service_factory(Box::new(
+                    StubCommitteeServiceFactory::from_members(committee_members.clone()),
+                ));
             }
 
             nodes.push(builder.build().await?);
@@ -571,7 +596,9 @@ impl TestClusterBuilder {
     }
 }
 
-struct StorageNodeTestConfig {
+/// Configuration for a test cluster storage node.
+#[derive(Debug)]
+pub struct StorageNodeTestConfig {
     key_pair: ProtocolKeyPair,
     shards: Vec<ShardIndex>,
     rest_api_address: SocketAddr,
@@ -586,7 +613,8 @@ impl StorageNodeTestConfig {
         }
     }
 
-    fn to_storage_node_info(&self, name: &str) -> SuiStorageNode {
+    /// Creates a `SuiStorageNode` from `self`.
+    pub fn to_storage_node_info(&self, name: &str) -> SuiStorageNode {
         SuiStorageNode {
             name: name.into(),
             network_address: NetworkAddress {
@@ -597,6 +625,41 @@ impl StorageNodeTestConfig {
             shard_ids: self.shards.clone(),
         }
     }
+}
+
+fn test_config_from_node_shard_assignment<I>(shards: &[I]) -> StorageNodeTestConfig
+where
+    for<'a> &'a I: Into<ShardIndex>,
+{
+    let shards: Vec<ShardIndex> = shards.iter().map(|i| i.into()).collect();
+    assert!(
+        !shards.is_empty(),
+        "shard assignments to nodes must be non-empty"
+    );
+    StorageNodeTestConfig::new(shards)
+}
+
+/// Returns storage node test configs for the given `shard_assignment`.
+pub fn storage_node_test_configs_from_shard_assignment<S, I>(
+    shard_assignment: &[S],
+) -> Vec<StorageNodeTestConfig>
+where
+    S: Borrow<[I]>,
+    for<'a> &'a I: Into<ShardIndex>,
+{
+    let storage_node_configs: Vec<_> = shard_assignment
+        .iter()
+        .map(|node_shard_assignment| {
+            test_config_from_node_shard_assignment(node_shard_assignment.borrow())
+        })
+        .collect();
+
+    assert!(
+        !storage_node_configs.is_empty(),
+        "assignments for at least 1 node must be specified"
+    );
+
+    storage_node_configs
 }
 
 impl Default for TestClusterBuilder {
@@ -610,7 +673,11 @@ impl Default for TestClusterBuilder {
         ];
         Self {
             event_providers: shard_assignment.iter().map(|_| None).collect(),
-            shard_assignment,
+            committee_factories: shard_assignment.iter().map(|_| None).collect(),
+            storage_node_configs: shard_assignment
+                .into_iter()
+                .map(StorageNodeTestConfig::new)
+                .collect(),
         }
     }
 }

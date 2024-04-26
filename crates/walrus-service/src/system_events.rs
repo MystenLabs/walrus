@@ -26,7 +26,7 @@ pub trait SystemEventProvider: std::fmt::Debug + Sync + Send {
 }
 
 /// A [`SystemEventProvider`] that uses a [`SuiReadClient`] to fetch events.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SuiSystemEventProvider {
     read_client: SuiReadClient,
     polling_interval: Duration,

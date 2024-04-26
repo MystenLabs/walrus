@@ -19,14 +19,15 @@ const DEFAULT_GAS_BUDGET: u64 = 1_000_000_000;
 const DEFAULT_CAPACITY: u64 = 1_000_000_000;
 const DEFAULT_PRICE: u64 = 10;
 
-fn contract_path_for_testing(contract: &str) -> anyhow::Result<PathBuf> {
+/// Provides the default contract path for testing for the package with name `package`.
+pub fn contract_path_for_testing(package: &str) -> anyhow::Result<PathBuf> {
     Ok(PathBuf::from_str(env!("CARGO_MANIFEST_DIR"))?
         .parent()
         .unwrap()
         .parent()
         .unwrap()
         .join("contracts")
-        .join(contract))
+        .join(package))
 }
 
 /// Publish the package, create a system object with the default e2e test setup (compatible with
