@@ -495,6 +495,11 @@ impl TestClusterBuilder {
         Self::default()
     }
 
+    /// Returns a reference to the storage node test configs of the builder.
+    pub fn storage_node_test_configs(&self) -> &Vec<StorageNodeTestConfig> {
+        &self.storage_node_configs
+    }
+
     /// Sets the number of storage nodes and their shard assignments from a sequence of the shards
     /// assignmened to each storage.
     ///

@@ -11,7 +11,7 @@ use walrus_service::{
     client::{Client, Config},
     committee::SuiCommitteeServiceFactory,
     system_events::SuiSystemEventProvider,
-    test_utils::{storage_node_test_configs_from_shard_assignment, TestCluster},
+    test_utils::TestCluster,
 };
 use walrus_sui::{
     client::{SuiContractClient, SuiReadClient},
@@ -58,11 +58,11 @@ async fn test_store_and_read_blob_with_crash_failures(
 async fn run_store_and_read_with_crash_failures(failed_nodes: &[usize]) -> anyhow::Result<()> {
     let _ = tracing_subscriber::fmt::try_init();
 
-    // Set up the committee
-    let assignment: Vec<&[u16]> = vec![&[0], &[1, 2], &[3, 4, 5], &[6, 7, 8], &[9, 10, 11, 12]];
-    let storage_node_configs = storage_node_test_configs_from_shard_assignment(&assignment);
+    let cluster_builder = TestCluster::builder();
 
-    let members = storage_node_configs
+    // Get the default committee from the test cluster builder
+    let members = cluster_builder
+        .storage_node_test_configs()
         .iter()
         .enumerate()
         .map(|(i, info)| info.to_storage_node_info(&format!("node-{i}")))
@@ -94,8 +94,7 @@ async fn run_store_and_read_with_crash_failures(failed_nodes: &[usize]) -> anyho
     // Build the walrus cluster
     let sui_read_client =
         SuiReadClient::new(wallet.get_client().await?, system_pkg, system_object).await?;
-    let cluster_builder = TestCluster::builder()
-        .with_test_configs(storage_node_configs)
+    let cluster_builder = cluster_builder
         .with_committee_service_factories(SuiCommitteeServiceFactory::new(sui_read_client.clone()))
         .with_system_event_providers(SuiSystemEventProvider::new(
             sui_read_client,
