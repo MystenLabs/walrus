@@ -10,6 +10,7 @@ use reqwest::{Client as ReqwestClient, ClientBuilder};
 use tokio::time::{sleep, Duration};
 use tracing::Instrument;
 use walrus_core::{
+    bft,
     encoding::{BlobDecoder, EncodingAxis, EncodingConfig, Sliver, SliverPair},
     ensure,
     messages::{Confirmation, ConfirmationCertificate},
@@ -56,12 +57,14 @@ impl Client<()> {
             .build()?;
         let committee = sui_read_client.current_committee().await?;
         let encoding_config = EncodingConfig::new(committee.n_shards());
-
+        let concurrent_requests = config
+                .concurrent_requests
+                .unwrap_or(bft::max_n_faulty(committee.n_shards()) as usize + 1);
         Ok(Self {
             reqwest_client,
             sui_client: (),
             committee,
-            concurrent_requests: config.concurrent_requests,
+            concurrent_requests,
             encoding_config,
         })
     }

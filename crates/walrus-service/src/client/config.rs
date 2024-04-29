@@ -13,7 +13,7 @@ use crate::config::LoadConfig;
 pub struct Config {
     /// The number of parallel requests the client makes.
     #[serde(default = "defaults::default_concurrent_requests")]
-    pub concurrent_requests: usize,
+    pub concurrent_requests: Option<usize>,
     /// Timeout for the `reqwest` client used by the client,
     #[serde(default = "defaults::default_connection_timeout")]
     pub connection_timeout: Duration,
@@ -58,8 +58,8 @@ pub fn default_configuration_paths() -> Vec<PathBuf> {
 mod defaults {
     use std::time::Duration;
 
-    pub fn default_concurrent_requests() -> usize {
-        10
+    pub fn default_concurrent_requests() -> Option<usize> {
+        None
     }
 
     pub fn default_connection_timeout() -> Duration {
