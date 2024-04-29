@@ -139,7 +139,7 @@ jobs:
       RUSTC_BOOTSTRAP: 1
     steps:
       - uses: actions/checkout@v4
-      - uses: ./actions/run_tarpaulin
+      - uses: ./.github/actions/run_tarpaulin
       - name: Add coverage PR comment
         uses: marocchino/sticky-pull-request-comment@v2
         if: ${{ github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' }}
