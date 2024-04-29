@@ -1,10 +1,11 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{num::NonZeroU16, time::Duration};
+use std::{num::NonZeroU16, sync::OnceLock, time::Duration};
 
 use anyhow::anyhow;
 use sui_types::{base_types::ObjectID, digests::TransactionDigest, event::EventID};
+use tokio::sync::Mutex;
 use walrus_core::{
     encoding::{EncodingConfig, Primary},
     BlobId,
@@ -22,33 +23,22 @@ use walrus_test_utils::async_param_test;
 
 async_param_test! {
     test_store_and_read_blob_with_crash_failures : [
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] no_failures: (&[], Ok(()), 0),
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] shard_failure: (&[0], Ok(()), 1),
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] f_shard_failure: (&[4], Ok(()), 2),
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] no_failures: (&[], Ok(())),
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] shard_failure: (&[0], Ok(())),
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] f_shard_failure: (&[4], Ok(())),
         #[ignore = "ignore E2E tests by default"] #[tokio::test] f_plus_one_shard_failure:
-            (&[0, 4], Err(anyhow!("not enough confirmations for the blob id were retrieved")), 3),
+            (&[0, 4], Err(anyhow!("not enough confirmations for the blob id were retrieved"))),
         #[ignore = "ignore E2E tests by default"] #[tokio::test] all_shard_failure:
             (
                 &[0, 1, 2, 3, 4],
-                Err(anyhow!("not enough confirmations for the blob id were retrieved")),
-                4
+                Err(anyhow!("not enough confirmations for the blob id were retrieved"))
             ),
     ]
 }
 async fn test_store_and_read_blob_with_crash_failures(
     failed_nodes: &[usize],
     expected: anyhow::Result<()>,
-    // HACK: This index is needed to ensure that there is no race condition between the
-    // initialization of the `DBMetrics` in the typed-store.
-    unique_idx_to_avoid_race_condition: u64,
 ) {
-    // HACK: Sleep according to the unique index to avoid race conditions. The 20ms increments were
-    // selected to ensure that the race condition did not occur even with different sleep times.
-    tokio::time::sleep(Duration::from_millis(
-        unique_idx_to_avoid_race_condition * 20,
-    ))
-    .await;
-
     let result = run_store_and_read_with_crash_failures(failed_nodes).await;
     match (result, expected) {
         (Ok(()), Ok(())) => (),
@@ -87,13 +77,15 @@ async fn run_store_and_read_with_crash_failures(failed_nodes: &[usize]) -> anyho
         .blob_id()
         .to_owned();
 
-    let mut cluster = TestCluster::builder()
-        .with_system_event_providers(vec![
-            blob_registered_event(blob_id).into(),
-            blob_certified_event(blob_id).into(),
-        ])
-        .build()
-        .await?;
+    let cluster_builder = TestCluster::builder().with_system_event_providers(vec![
+        blob_registered_event(blob_id).into(),
+        blob_certified_event(blob_id).into(),
+    ]);
+    let mut cluster = {
+        // Lock to avoid race conditions.
+        let _lock = global_test_lock().lock().await;
+        cluster_builder.build().await?
+    };
 
     let sui_contract_client = MockContractClient::new(
         0,
@@ -117,6 +109,12 @@ async fn run_store_and_read_with_crash_failures(failed_nodes: &[usize]) -> anyho
     assert_eq!(read_blob, blob);
 
     Ok(())
+}
+
+// Prevent tests running simultaneously to avoid interferences or race conditions.
+fn global_test_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(Mutex::default)
 }
 
 fn blob_registered_event(blob_id: BlobId) -> BlobRegistered {

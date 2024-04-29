@@ -17,14 +17,7 @@ use tempfile::TempDir;
 use tokio_stream::Stream;
 use tokio_util::sync::CancellationToken;
 use typed_store::rocks::MetricConf;
-use walrus_core::{
-    encoding::EncodingConfig,
-    test_utils,
-    Epoch,
-    ProtocolKeyPair,
-    PublicKey,
-    ShardIndex,
-};
+use walrus_core::{test_utils, Epoch, ProtocolKeyPair, PublicKey, ShardIndex};
 use walrus_sui::types::{
     BlobEvent,
     Committee,
