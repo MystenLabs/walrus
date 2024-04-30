@@ -11,14 +11,14 @@ use crate::config::LoadConfig;
 /// Config for the client.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
-    /// The number of storage nodes the client contacts in parallel to write slivers and
+    /// The maximum number of storage nodes the client contacts in parallel to write slivers and
     /// metadata. If `None`, the value is set by the client to `n - f`, depending on the number of
     /// shards `n`.
     pub concurrent_writes: Option<usize>,
-    /// The number of slivers the client requests in parallel. If `None`, the value is set by the
-    /// client to `n - 2f`, depending on the number of shards `n`.
+    /// The maximum number of slivers the client requests in parallel. If `None`, the value is set
+    /// by the client to `n - 2f`, depending on the number of shards `n`.
     pub concurrent_sliver_reads: Option<usize>,
-    /// The number of nodes the client contacts to get the blob metadata in parallel.
+    /// The maximum number of nodes the client contacts to get the blob metadata in parallel.
     #[serde(default = "defaults::default_concurrent_metadata_reads")]
     pub concurrent_metadata_reads: usize,
     /// Timeout for the `reqwest` client used by the client,

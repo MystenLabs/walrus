@@ -11,7 +11,7 @@ use colored::{ColoredString, Colorize};
 use sui_sdk::{wallet_context::WalletContext, SuiClientBuilder};
 use walrus_core::{encoding::Primary, BlobId};
 use walrus_service::client::{default_configuration_paths, Client, Config};
-use walrus_sui::client::{SuiContractClient, SuiReadClient, ReadClient};
+use walrus_sui::client::{SuiContractClient, SuiReadClient};
 
 /// Default URL of the devnet RPC node.
 pub const DEVNET_RPC: &str = "https://fullnode.devnet.sui.io:443";
@@ -198,11 +198,8 @@ async fn client() -> Result<()> {
                     }
                 }
             }?;
-            tracing::info!("HELLOOO");
             let read_client =
                 SuiReadClient::new(sui_client, config.system_pkg, config.system_object).await?;
-            let res = read_client.current_committee().await?;
-            tracing::info!(?res);
             let client = Client::new_read_client(config, &read_client).await?;
             let blob = client.read_blob::<Primary>(&blob_id).await?;
             match out {

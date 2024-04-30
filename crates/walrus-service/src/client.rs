@@ -42,8 +42,11 @@ pub struct Client<T> {
     sui_client: T,
     // INV: committee.n_shards > 0
     committee: Committee,
+    // The maximum number of nodes to contact in parallel when writing.
     concurrent_writes: usize,
+    // The maximum number of shards to contact in parallel when reading slivers.
     concurrent_sliver_reads: usize,
+    // The maximum number of shards to contact in parallel when reading metadata.
     concurrent_metadata_reads: usize,
     encoding_config: EncodingConfig,
 }
@@ -59,11 +62,11 @@ impl Client<()> {
             .build()?;
         let committee = sui_read_client.current_committee().await?;
         let encoding_config = EncodingConfig::new(committee.n_shards());
-        // Try to store in parallel on 2f+1 nodes, as the work to store slivers is never wasted.
+        // Try to store on n-f nodes concurrently, as the work to store is never wasted.
         let concurrent_writes = config.concurrent_writes.unwrap_or(
             (committee.n_shards().get() - bft::max_n_faulty(committee.n_shards())) as usize,
         );
-        // Read f+1 slivers concurrently to avoid wasted work on the storage nodes.
+        // Read n-2f slivers concurrently to avoid wasted work on the storage nodes.
         let concurrent_sliver_reads = config.concurrent_writes.unwrap_or(
             (committee.n_shards().get() - 2 * bft::max_n_faulty(committee.n_shards())) as usize,
         );
@@ -272,7 +275,7 @@ impl<T> Client<T> {
         let enough_source_symbols =
             |weight| weight >= self.encoding_config.n_source_symbols::<U>().get().into();
         requests
-            .execute_weight(&enough_source_symbols, self.concurrent_writes)
+            .execute_weight(&enough_source_symbols, self.concurrent_sliver_reads)
             .await;
 
         let slivers = requests
@@ -313,7 +316,7 @@ impl<T> Client<T> {
         Fut: Future<Output = NodeResult<Sliver<U>, NodeError>>,
     {
         while let Some(NodeResult(_, _, node, result)) =
-            requests.next(self.concurrent_writes).await
+            requests.next(self.concurrent_sliver_reads).await
         {
             match result {
                 Ok(sliver) => {
@@ -345,7 +348,7 @@ impl<T> Client<T> {
         let mut requests = WeightedFutures::new(futures);
         let just_one = |weight| weight >= 1;
         requests
-            .execute_weight(&just_one, self.concurrent_writes)
+            .execute_weight(&just_one, self.concurrent_metadata_reads)
             .await;
         let metadata = requests.take_inner_ok().pop().ok_or(anyhow!(
             "could not retrieve the metadata from the storage nodes"
