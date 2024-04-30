@@ -123,7 +123,7 @@ impl<T: ContractClient> Client<T> {
             .encoding_config
             .get_blob_encoder(blob)?
             .encode_with_metadata();
-        tracing::Span::current().record("blob_id_prefix", truncate_blob_id(metadata.blob_id()));
+        tracing::Span::current().record("blob_id_prefix", string_prefix(metadata.blob_id()));
         let encoded_length = self
             .encoding_config
             .encoded_blob_length(blob.len())
@@ -184,14 +184,22 @@ impl<T> Client<T> {
         requests
             .execute_weight(&quorum_check, self.concurrent_writes)
             .await;
+        tracing::debug!(
+            elapsed_time=?start.elapsed(), "stored metadata and slivers onto a quorum of nodes"
+        );
         // Double the execution time, with a minimum of 100 ms. This gives the client time to
         // collect more storage confirmations.
-        requests
+        let completed_reason = requests
             .execute_time(
                 start.elapsed() + Duration::from_millis(100),
                 self.concurrent_writes,
             )
             .await;
+        tracing::debug!(
+            elapsed_time=?start.elapsed(),
+            %completed_reason,
+            "stored metadata and slivers onto additional nodes"
+        );
         let results = requests.into_results();
         self.confirmations_to_certificate(metadata.blob_id(), results)
     }
@@ -239,7 +247,7 @@ impl<T> Client<T> {
     }
 
     /// Reconstructs the blob by reading slivers from Walrus shards.
-    #[tracing::instrument(skip_all, fields(blob_id_prefix))]
+    #[tracing::instrument(skip_all, fields(blob_id_prefix=string_prefix(blob_id)))]
     pub async fn read_blob<U>(&self, blob_id: &BlobId) -> Result<Vec<u8>>
     where
         U: EncodingAxis,
@@ -406,9 +414,8 @@ impl<T> Client<T> {
     }
 }
 
-/// Returns the 8 characters of the blob ID.
-fn truncate_blob_id(blob_id: &BlobId) -> String {
-    let mut blob_id_string = blob_id.to_string();
-    blob_id_string.truncate(8);
-    blob_id_string
+pub(crate) fn string_prefix<T: ToString>(s: &T) -> String {
+    let mut string = s.to_string();
+    string.truncate(8);
+    format!("{}...", string)
 }

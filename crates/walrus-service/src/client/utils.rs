@@ -1,7 +1,10 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::time::Duration;
+use std::{
+    fmt::{self, Display},
+    time::Duration,
+};
 
 use anyhow::Result;
 use futures::{stream::FuturesUnordered, Future, StreamExt};
@@ -97,8 +100,15 @@ where
     ///
     /// `n_concurrent` is the maximum number of futures that are awaited at any one time to produce
     /// results.
-    pub async fn execute_time(&mut self, duration: Duration, n_concurrent: usize) {
-        let _ = timeout(duration, self.execute_all(n_concurrent)).await;
+    pub async fn execute_time(
+        &mut self,
+        duration: Duration,
+        n_concurrent: usize,
+    ) -> CompletedReason {
+        match timeout(duration, self.execute_all(n_concurrent)).await {
+            Ok(_) => CompletedReason::FuturesConsumed,
+            Err(_) => CompletedReason::Timeout,
+        }
     }
 
     pub async fn execute_all(&mut self, n_concurrent: usize) {
@@ -173,6 +183,22 @@ where
             .into_iter()
             .filter_map(WeightedResult::inner_ok)
             .collect()
+    }
+}
+
+/// Represents the reason why the [`WeightedFutures::execute_time`] completed.
+pub enum CompletedReason {
+    Timeout,
+    FuturesConsumed,
+}
+
+impl Display for CompletedReason {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let reason = match self {
+            CompletedReason::Timeout => "timeout elapsed",
+            CompletedReason::FuturesConsumed => "all futures consumed",
+        };
+        write!(f, "{}", reason)
     }
 }
 

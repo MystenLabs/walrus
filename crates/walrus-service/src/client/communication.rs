@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{fmt::Display, num::NonZeroU16};
+use std::num::NonZeroU16;
 
 use anyhow::Result;
 use futures::future::join_all;
@@ -22,7 +22,7 @@ use walrus_core::{
 use walrus_sdk::{client::Client as StorageNodeClient, error::NodeError};
 use walrus_sui::types::StorageNode;
 
-use super::{error::StoreError, utils::WeightedResult};
+use super::{error::StoreError, string_prefix, utils::WeightedResult};
 use crate::client::error::SliverStoreError;
 
 /// Represents the index of the node in the vector of members of the committee.
@@ -71,7 +71,13 @@ impl<'a> NodeCommunication<'a> {
             epoch,
             node,
             encoding_config,
-            span: tracing::span!(Level::ERROR, "node", ?epoch, public_key=?node.public_key),
+            span: tracing::span!(
+                Level::ERROR,
+                "node",
+                index=?node_index,
+                ?epoch,
+                pk_prefix=string_prefix(&node.public_key)
+            ),
             client: StorageNodeClient::from_url(url, client.clone()),
         }
     }
@@ -112,6 +118,7 @@ impl<'a> NodeCommunication<'a> {
     where
         Sliver<T>: TryFrom<SliverEnum>,
     {
+        tracing::debug!("retrieving verified sliver");
         let sliver_pair_index = shard_index.to_pair_index(self.n_shards(), metadata.blob_id());
         let sliver = self
             .client
@@ -212,12 +219,5 @@ impl<'a> NodeCommunication<'a> {
     /// Converts the public key of the node.
     fn public_key(&self) -> &PublicKey {
         &self.node.public_key
-    }
-}
-
-impl<'a> Display for NodeCommunication<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // TODO(giac): after or in PR #243, move to node index, public key prefix, and epoch.
-        write!(f, "ID: {}; Epoch: {};", self.node.public_key, self.epoch)
     }
 }
