@@ -123,6 +123,9 @@ $ cargo run --bin client -- --config working_dir/client_config.yaml store README
 You can then read the stored file by running the following (replacing "\$BLOB_ID" by the blob ID \
 returned by the store operation):
 $ cargo run --bin client -- --config working_dir/client_config.yaml read \$BLOB_ID
+
+For further insights and debugging, you can increase the logging level for the Walrus code:
+$ export RUST_LOG="client=DEBUG,walrus=DEBUG"
 EOF
 
 while true; do

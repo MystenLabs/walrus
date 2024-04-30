@@ -15,6 +15,8 @@ use walrus_sui::client::{SuiContractClient, SuiReadClient};
 
 /// Default URL of the devnet RPC node.
 pub const DEVNET_RPC: &str = "https://fullnode.devnet.sui.io:443";
+/// Default RPC URL to connect to if none is specified explicitly or in the wallet config.
+pub const DEFAULT_RPC_URL: &str = DEVNET_RPC;
 
 #[derive(Parser, Debug, Clone)]
 #[clap(rename_all = "kebab-case")]
@@ -132,12 +134,12 @@ async fn client() -> Result<()> {
     let args = Args::parse();
     let config: Config = load_configuration(&args.config)?;
     tracing::debug!(?args, ?config);
+    let wallet = load_wallet_context(&args.wallet.clone().or(config.wallet_config.clone()));
 
     match args.command {
         Commands::Store { file, epochs } => {
-            let wallet = load_wallet_context(&args.wallet.or(config.wallet_config.clone()))?;
             let sui_client = SuiContractClient::new(
-                wallet,
+                wallet?,
                 config.system_pkg,
                 config.system_object,
                 args.gas_budget,
@@ -161,25 +163,40 @@ async fn client() -> Result<()> {
             rpc_url,
         } => {
             let sui_client = match rpc_url {
-                Some(url) => SuiClientBuilder::default()
-                    .build(&url)
-                    .await
-                    .context(format!("cannot connect to Sui RPC node at {url}")),
-                None => match load_wallet_context(&args.wallet) {
-                    Ok(wallet) => wallet.get_client().await.context(
-                        "cannot connect to Sui RPC node specified in the wallet configuration",
-                    ),
-                    Err(e) => match args.wallet {
-                        Some(_) => {
-                            // A wallet config was explicitly set, but couldn't be read.
-                            return Err(e);
+                Some(url) => {
+                    tracing::info!("Using explicitly set RPC URL {url}");
+                    SuiClientBuilder::default()
+                        .build(&url)
+                        .await
+                        .context(format!("cannot connect to Sui RPC node at {url}"))
+                }
+                None => {
+                    match wallet {
+                        Ok(wallet) => {
+                            tracing::info!("Using RPC URL set in wallet configuration");
+                            wallet.get_client().await.context(
+                            "cannot connect to Sui RPC node specified in the wallet configuration",
+                        )
                         }
-                        None => SuiClientBuilder::default()
-                            .build(DEVNET_RPC)
-                            .await
-                            .context(format!("cannot connect to Sui RPC node at {DEVNET_RPC}")),
-                    },
-                },
+                        Err(e) => {
+                            match args.wallet {
+                                Some(_) => {
+                                    // A wallet config was explicitly set, but couldn't be read.
+                                    return Err(e);
+                                }
+                                None => {
+                                    tracing::info!("Using default RPC URL {DEFAULT_RPC_URL}");
+                                    SuiClientBuilder::default()
+                                        .build(DEFAULT_RPC_URL)
+                                        .await
+                                        .context(format!(
+                                            "cannot connect to Sui RPC node at {DEFAULT_RPC_URL}"
+                                        ))
+                                }
+                            }
+                        }
+                    }
+                }
             }?;
             let read_client =
                 SuiReadClient::new(sui_client, config.system_pkg, config.system_object).await?;
