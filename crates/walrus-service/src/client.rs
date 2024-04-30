@@ -10,7 +10,6 @@ use reqwest::{Client as ReqwestClient, ClientBuilder};
 use tokio::time::{sleep, Duration};
 use tracing::Instrument;
 use walrus_core::{
-    bft,
     encoding::{BlobDecoder, EncodingAxis, EncodingConfig, Sliver, SliverPair},
     ensure,
     messages::{Confirmation, ConfirmationCertificate},
@@ -34,6 +33,8 @@ mod utils;
 use communication::{NodeCommunication, NodeResult};
 use error::StoreError;
 use utils::WeightedFutures;
+
+use self::config::default;
 
 /// A client to communicate with Walrus shards and storage nodes.
 #[derive(Debug)]
@@ -63,13 +64,13 @@ impl Client<()> {
         let committee = sui_read_client.current_committee().await?;
         let encoding_config = EncodingConfig::new(committee.n_shards());
         // Try to store on n-f nodes concurrently, as the work to store is never wasted.
-        let concurrent_writes = config.concurrent_writes.unwrap_or(
-            (committee.n_shards().get() - bft::max_n_faulty(committee.n_shards())) as usize,
-        );
+        let concurrent_writes = config
+            .concurrent_writes
+            .unwrap_or(default::concurrent_writes(committee.n_shards()));
         // Read n-2f slivers concurrently to avoid wasted work on the storage nodes.
-        let concurrent_sliver_reads = config.concurrent_writes.unwrap_or(
-            (committee.n_shards().get() - 2 * bft::max_n_faulty(committee.n_shards())) as usize,
-        );
+        let concurrent_sliver_reads = config
+            .concurrent_writes
+            .unwrap_or(default::concurrent_sliver_reads(committee.n_shards()));
         Ok(Self {
             reqwest_client,
             sui_client: (),
@@ -87,7 +88,7 @@ impl Client<()> {
             reqwest_client,
             sui_client: _,
             committee,
-            concurrent_writes: concurrent_requests,
+            concurrent_writes,
             concurrent_sliver_reads,
             concurrent_metadata_reads,
             encoding_config,
@@ -96,7 +97,7 @@ impl Client<()> {
             reqwest_client,
             sui_client,
             committee,
-            concurrent_writes: concurrent_requests,
+            concurrent_writes,
             concurrent_sliver_reads,
             concurrent_metadata_reads,
             encoding_config,

@@ -1,4 +1,6 @@
-concurrent_requests: 10
+concurrent_writes: 7
+concurrent_sliver_reads: 4
+concurrent_metadata_reads: 3
 connection_timeout:
   secs: 10
   nanos: 0

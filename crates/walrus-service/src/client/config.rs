@@ -19,10 +19,10 @@ pub struct Config {
     /// by the client to `n - 2f`, depending on the number of shards `n`.
     pub concurrent_sliver_reads: Option<usize>,
     /// The maximum number of nodes the client contacts to get the blob metadata in parallel.
-    #[serde(default = "defaults::default_concurrent_metadata_reads")]
+    #[serde(default = "default::concurrent_metadata_reads")]
     pub concurrent_metadata_reads: usize,
     /// Timeout for the `reqwest` client used by the client,
-    #[serde(default = "defaults::default_connection_timeout")]
+    #[serde(default = "default::connection_timeout")]
     pub connection_timeout: Duration,
     /// The walrus package id.
     pub system_pkg: ObjectID,
@@ -62,14 +62,24 @@ pub fn default_configuration_paths() -> Vec<PathBuf> {
     default_paths
 }
 
-mod defaults {
-    use std::time::Duration;
+pub(crate) mod default {
+    use std::{num::NonZeroU16, time::Duration};
 
-    pub fn default_concurrent_metadata_reads() -> usize {
+    use walrus_core::bft;
+
+    pub fn concurrent_writes(n_shards: NonZeroU16) -> usize {
+        (n_shards.get() - bft::max_n_faulty(n_shards)) as usize
+    }
+
+    pub fn concurrent_sliver_reads(n_shards: NonZeroU16) -> usize {
+        (n_shards.get() - 2 * bft::max_n_faulty(n_shards)) as usize
+    }
+
+    pub fn concurrent_metadata_reads() -> usize {
         3
     }
 
-    pub fn default_connection_timeout() -> Duration {
+    pub fn connection_timeout() -> Duration {
         Duration::from_secs(10)
     }
 }
