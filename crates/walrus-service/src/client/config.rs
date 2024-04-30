@@ -11,9 +11,16 @@ use crate::config::LoadConfig;
 /// Config for the client.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
-    /// The number of parallel requests the client makes.
-    #[serde(default = "defaults::default_concurrent_requests")]
-    pub concurrent_requests: Option<usize>,
+    /// The number of storage nodes the client contacts in parallel to write slivers and
+    /// metadata. If `None`, the value is set by the client to `n - f`, depending on the number of
+    /// shards `n`.
+    pub concurrent_writes: Option<usize>,
+    /// The number of slivers the client requests in parallel. If `None`, the value is set by the
+    /// client to `n - 2f`, depending on the number of shards `n`.
+    pub concurrent_sliver_reads: Option<usize>,
+    /// The number of nodes the client contacts to get the blob metadata in parallel.
+    #[serde(default = "defaults::default_concurrent_metadata_reads")]
+    pub concurrent_metadata_reads: usize,
     /// Timeout for the `reqwest` client used by the client,
     #[serde(default = "defaults::default_connection_timeout")]
     pub connection_timeout: Duration,
@@ -58,8 +65,8 @@ pub fn default_configuration_paths() -> Vec<PathBuf> {
 mod defaults {
     use std::time::Duration;
 
-    pub fn default_concurrent_requests() -> Option<usize> {
-        None
+    pub fn default_concurrent_metadata_reads() -> usize {
+        3
     }
 
     pub fn default_connection_timeout() -> Duration {

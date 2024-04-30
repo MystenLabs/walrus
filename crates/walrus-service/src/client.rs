@@ -42,7 +42,9 @@ pub struct Client<T> {
     sui_client: T,
     // INV: committee.n_shards > 0
     committee: Committee,
-    concurrent_requests: usize,
+    concurrent_writes: usize,
+    concurrent_sliver_reads: usize,
+    concurrent_metadata_reads: usize,
     encoding_config: EncodingConfig,
 }
 
@@ -57,15 +59,22 @@ impl Client<()> {
             .build()?;
         let committee = sui_read_client.current_committee().await?;
         let encoding_config = EncodingConfig::new(committee.n_shards());
-        let concurrent_requests = config
-                .concurrent_requests
-                .unwrap_or(bft::max_n_faulty(committee.n_shards()) as usize + 1);
+        // Try to store in parallel on 2f+1 nodes, as the work to store slivers is never wasted.
+        let concurrent_writes = config.concurrent_writes.unwrap_or(
+            (committee.n_shards().get() - bft::max_n_faulty(committee.n_shards())) as usize,
+        );
+        // Read f+1 slivers concurrently to avoid wasted work on the storage nodes.
+        let concurrent_sliver_reads = config.concurrent_writes.unwrap_or(
+            (committee.n_shards().get() - 2 * bft::max_n_faulty(committee.n_shards())) as usize,
+        );
         Ok(Self {
             reqwest_client,
             sui_client: (),
             committee,
-            concurrent_requests,
+            concurrent_writes,
             encoding_config,
+            concurrent_sliver_reads,
+            concurrent_metadata_reads: config.concurrent_metadata_reads,
         })
     }
 
@@ -75,14 +84,18 @@ impl Client<()> {
             reqwest_client,
             sui_client: _,
             committee,
-            concurrent_requests,
+            concurrent_writes: concurrent_requests,
+            concurrent_sliver_reads,
+            concurrent_metadata_reads,
             encoding_config,
         } = self;
         Client::<T> {
             reqwest_client,
             sui_client,
             committee,
-            concurrent_requests,
+            concurrent_writes: concurrent_requests,
+            concurrent_sliver_reads,
+            concurrent_metadata_reads,
             encoding_config,
         }
     }
@@ -165,14 +178,14 @@ impl<T> Client<T> {
         let start = Instant::now();
         let quorum_check = |weight| self.committee.is_quorum(weight);
         requests
-            .execute_weight(&quorum_check, self.concurrent_requests)
+            .execute_weight(&quorum_check, self.concurrent_writes)
             .await;
         // Double the execution time, with a minimum of 100 ms. This gives the client time to
         // collect more storage confirmations.
         requests
             .execute_time(
                 start.elapsed() + Duration::from_millis(100),
-                self.concurrent_requests,
+                self.concurrent_writes,
             )
             .await;
         let results = requests.into_results();
@@ -259,7 +272,7 @@ impl<T> Client<T> {
         let enough_source_symbols =
             |weight| weight >= self.encoding_config.n_source_symbols::<U>().get().into();
         requests
-            .execute_weight(&enough_source_symbols, self.concurrent_requests)
+            .execute_weight(&enough_source_symbols, self.concurrent_writes)
             .await;
 
         let slivers = requests
@@ -300,7 +313,7 @@ impl<T> Client<T> {
         Fut: Future<Output = NodeResult<Sliver<U>, NodeError>>,
     {
         while let Some(NodeResult(_, _, node, result)) =
-            requests.next(self.concurrent_requests).await
+            requests.next(self.concurrent_writes).await
         {
             match result {
                 Ok(sliver) => {
@@ -332,7 +345,7 @@ impl<T> Client<T> {
         let mut requests = WeightedFutures::new(futures);
         let just_one = |weight| weight >= 1;
         requests
-            .execute_weight(&just_one, self.concurrent_requests)
+            .execute_weight(&just_one, self.concurrent_writes)
             .await;
         let metadata = requests.take_inner_ok().pop().ok_or(anyhow!(
             "could not retrieve the metadata from the storage nodes"

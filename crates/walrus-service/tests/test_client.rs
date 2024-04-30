@@ -110,11 +110,13 @@ async fn run_store_and_read_with_crash_failures(failed_nodes: &[usize]) -> anyho
     let sui_contract_client =
         SuiContractClient::new(wallet, system_pkg, system_object, gas_budget).await?;
     let config = Config {
-        concurrent_requests: None,
         connection_timeout: Duration::from_secs(10),
         system_pkg,
         system_object,
         wallet_config: None,
+        concurrent_writes: None,
+        concurrent_sliver_reads: None,
+        concurrent_metadata_reads: 3,
     };
 
     let client = Client::new(config, sui_contract_client).await?;

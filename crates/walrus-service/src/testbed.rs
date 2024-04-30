@@ -151,7 +151,9 @@ pub async fn testbed_configs(
 
     // Create the client config.
     let client_config = client::Config {
-        concurrent_requests: Some(committee_size.get().into()),
+        concurrent_writes: Some(committee_size.get().into()),
+        concurrent_sliver_reads: Some(committee_size.get().into()),
+        concurrent_metadata_reads: 3,
         connection_timeout: Duration::from_secs(10),
         system_pkg: pkg_id,
         system_object,
