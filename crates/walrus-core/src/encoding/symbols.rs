@@ -14,10 +14,19 @@ use std::{
 use raptorq::{EncodingPacket, PayloadId};
 use serde::{Deserialize, Serialize};
 
-use super::{EncodingAxis, Primary, Secondary, WrongSymbolSizeError};
+use super::{
+    errors::SymbolVerificationError,
+    EncodingAxis,
+    EncodingConfig,
+    Primary,
+    Secondary,
+    WrongSymbolSizeError,
+};
 use crate::{
     merkle::{MerkleAuth, Node},
+    metadata::BlobMetadata,
     utils,
+    SliverIndex,
 };
 
 /// A set of encoded symbols.
@@ -277,6 +286,9 @@ pub struct DecodingSymbol<T: EncodingAxis, U = ()> {
     ///
     /// This is equal to the ESI as defined in [RFC 6330][rfc6330s5.3.1].
     ///
+    /// In case this is used for sliver recovery, the index represents the *source* index (the
+    /// sliver it was created from), not the *target* sliver (the sliver being recovered).
+    ///
     /// [rfc6330s5.3.1]: https://datatracker.ietf.org/doc/html/rfc6330#section-5.3.1
     pub index: u16,
     /// The symbol data as a byte vector.
@@ -353,6 +365,42 @@ impl<T: EncodingAxis, U: MerkleAuth> DecodingSymbol<T, U> {
     /// against the `root` hash stored.
     pub fn verify_proof(&self, root: &Node, target_index: usize) -> bool {
         self.proof.verify_proof(root, &self.data, target_index)
+    }
+
+    /// Verifies that the decoding symbol belongs to a committed sliver by checking the Merkle proof
+    /// against the root hash in the provided [`BlobMetadata`].
+    ///
+    /// The symbol's index is interpreted as the index of the *source* sliver from which is was
+    /// created. If the index is out of range or any other check fails, this returns `false`.
+    ///
+    /// Returns `Ok(())` if the verification succeeds, a [`SymbolVerificationError`] otherwise.
+    pub fn verify_as_recovery_symbol(
+        &self,
+        metadata: &BlobMetadata,
+        encoding_config: &EncodingConfig,
+    ) -> Result<(), SymbolVerificationError> {
+        let n_shards = encoding_config.n_shards();
+        if self.index >= n_shards.get() {
+            return Err(SymbolVerificationError::IndexTooLarge);
+        }
+        if !metadata
+            .symbol_size(encoding_config)
+            .is_ok_and(|s| self.len() == usize::from(s.get()))
+        {
+            return Err(SymbolVerificationError::SymbolSizeMismatch);
+        }
+        if self.verify_proof(
+            metadata
+                .get_sliver_hash(
+                    SliverIndex(self.index).to_pair_index::<T::OrthogonalAxis>(n_shards),
+                    T::OrthogonalAxis::sliver_type(),
+                )
+                .ok_or(SymbolVerificationError::InvalidMetadata)?,
+        ) {
+            Ok(())
+        } else {
+            Err(SymbolVerificationError::InvalidProof)
+        }
     }
 
     /// Consumes the [`DecodingSymbol<T>`], removing the proof, and returns the [`DecodingSymbol`]

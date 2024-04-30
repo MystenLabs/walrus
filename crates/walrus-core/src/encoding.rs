@@ -24,6 +24,7 @@ pub use errors::{
     InvalidDataSizeError,
     RecoveryError,
     SliverVerificationError,
+    SymbolVerificationError,
     WrongSliverVariantError,
     WrongSymbolSizeError,
 };

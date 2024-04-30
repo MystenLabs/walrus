@@ -31,9 +31,6 @@ pub enum EncodeError {
 /// Error type returned when sliver recovery fails.
 #[derive(Debug, Error, PartialEq, Eq, Clone)]
 pub enum RecoveryError {
-    /// The symbols provided are empty or have different sizes.
-    #[error("the symbols provided are empty or have different sizes")]
-    InvalidSymbolSizes,
     /// The index of the recovery symbol can be at most `n_shards`
     #[error("the index of the recovery symbol can be at most `n_shards`")]
     IndexTooLarge,
@@ -86,4 +83,21 @@ pub enum SliverVerificationError {
     /// Error resulting from the Merkle tree computation. The Merkle root could not be computed.
     #[error(transparent)]
     RecoveryFailed(#[from] RecoveryError),
+}
+
+/// Error returned when verification of a recovery symbol fails.
+#[derive(Debug, Error, PartialEq, Eq, Clone)]
+pub enum SymbolVerificationError {
+    /// The sliver index is too large for the number of shards in the metadata.
+    #[error("the sliver index is too large for the number of shards in the metadata")]
+    IndexTooLarge,
+    /// The symbol size does not match the symbol size that can be computed from the metadata.
+    #[error("the symbol size does not match the metadata")]
+    SymbolSizeMismatch,
+    /// The verification of the Merkle proof failed.
+    #[error("verification of the Merkle proof failed")]
+    InvalidProof,
+    /// The provided metadata is itself invalid.
+    #[error("the metadata is invalid")]
+    InvalidMetadata,
 }

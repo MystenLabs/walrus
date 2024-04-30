@@ -34,6 +34,7 @@ use thiserror::Error;
 
 pub mod bft;
 pub mod encoding;
+pub mod inconsistency;
 pub mod merkle;
 pub mod metadata;
 pub mod utils;

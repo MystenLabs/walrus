@@ -1,6 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::SliverType;
+
 /// The maximum length in bytes of a single symbol in RaptorQ.
 pub const MAX_SYMBOL_SIZE: u16 = u16::MAX;
 
@@ -18,6 +20,11 @@ pub trait EncodingAxis: Clone + PartialEq + Eq + Default + std::fmt::Debug {
     const IS_PRIMARY: bool;
     /// String representation of this type.
     const NAME: &'static str;
+
+    /// The associated [`SliverType`].
+    fn sliver_type() -> SliverType {
+        SliverType::for_encoding::<Self>()
+    }
 }
 
 /// Marker type to indicate the primary encoding.

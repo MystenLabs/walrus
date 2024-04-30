@@ -9,6 +9,7 @@ use super::{
     utils,
     BlobDecoder,
     BlobEncoder,
+    Decoder,
     EncodeError,
     Encoder,
     EncodingAxis,
@@ -283,6 +284,12 @@ impl EncodingConfig {
             self.n_shards(),
             self.encoding_plan::<E>(),
         )
+    }
+
+    /// Returns a [`Decoder`] to perform a single primary or secondary decoding for the provided
+    /// `symbol_size`.
+    pub fn get_decoder<E: EncodingAxis>(&self, symbol_size: NonZeroU16) -> Decoder {
+        Decoder::new(self.n_source_symbols::<E>(), symbol_size)
     }
 
     /// Returns a [`BlobEncoder`] to encode a blob into [`SliverPair`s][super::SliverPair].
