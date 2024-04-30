@@ -5,15 +5,23 @@ use std::num::NonZeroU16;
 
 use thiserror::Error;
 
-/// Error type returned when encoding fails.
-#[derive(Debug, Error, PartialEq, Eq)]
-pub enum EncodeError {
-    /// The data is too large to be encoded with this encoder.
-    #[error("the data is to large to be encoded")]
+/// Error returned when encoding/decoding is impossible due to the given data size.
+#[derive(Debug, Error, PartialEq, Eq, Clone)]
+pub enum InvalidDataSizeError {
+    /// The data is too large to be encoded/decoded.
+    #[error("the data is to large")]
     DataTooLarge,
-    /// The data to be encoded is empty.
-    #[error("empty data cannot be encoded")]
+    /// The data to be encoded/decoded is empty.
+    #[error("the data is empty")]
     EmptyData,
+}
+
+/// Error type returned when encoding fails.
+#[derive(Debug, Error, PartialEq, Eq, Clone)]
+pub enum EncodeError {
+    /// The data size is invalid for this encoder.
+    #[error(transparent)]
+    InvalidDataSize(#[from] InvalidDataSizeError),
     /// The data is not properly aligned; i.e., it is not a multiple of the symbol size or symbol
     /// count.
     #[error("the data is not properly aligned (must be a multiple of {0})")]
@@ -21,7 +29,7 @@ pub enum EncodeError {
 }
 
 /// Error type returned when sliver recovery fails.
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Error, PartialEq, Eq, Clone)]
 pub enum RecoveryError {
     /// The symbols provided are empty or have different sizes.
     #[error("the symbols provided are empty or have different sizes")]
@@ -34,25 +42,31 @@ pub enum RecoveryError {
     EncodeError(#[from] EncodeError),
 }
 
+impl From<InvalidDataSizeError> for RecoveryError {
+    fn from(value: InvalidDataSizeError) -> Self {
+        EncodeError::from(value).into()
+    }
+}
+
 /// Error returned when the size of input symbols does not match the size of existing symbols.
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Error, PartialEq, Eq, Clone)]
 #[error("the size of the symbols provided does not match the size of the existing symbols")]
 pub struct WrongSymbolSizeError;
 
 /// Error returned when the verification of a reconstructed blob fails. Verification failure occurs
 /// when the provided blob ID does not match the blob ID computed from the reconstructed blob.
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Error, PartialEq, Eq, Clone)]
 #[error("decoding verification failed because the blob ID does not match the provided metadata")]
 pub struct DecodingVerificationError;
 
 /// Error returned when trying to extract the wrong variant (primary or secondary) of
 /// [`Sliver`][super::Sliver] from it.
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Error, PartialEq, Eq, Clone)]
 #[error("cannot convert the `Sliver` to the sliver variant requested")]
 pub struct WrongSliverVariantError;
 
 /// Error returned when sliver verification fails.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq, Clone)]
 pub enum SliverVerificationError {
     /// The sliver index is too large for the number of shards in the metadata.
     #[error("the sliver index is too large for the number of shards in the metadata")]

@@ -159,7 +159,7 @@ impl Client {
             .await?;
 
         sliver
-            .verify(encoding_config, metadata)
+            .verify(encoding_config, metadata.metadata())
             .map_err(NodeError::other)?;
 
         Ok(sliver)

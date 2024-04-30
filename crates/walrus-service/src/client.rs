@@ -270,7 +270,7 @@ impl<T> Client<T> {
         });
         let mut decoder = self
             .encoding_config
-            .get_blob_decoder::<U>(metadata.metadata().unencoded_length.try_into()?)?;
+            .get_blob_decoder::<U>(metadata.metadata().unencoded_length)?;
         // Get the first ~1/3 or ~2/3 of slivers directly, and decode with these.
         let mut requests = WeightedFutures::new(futures);
         let enough_source_symbols =

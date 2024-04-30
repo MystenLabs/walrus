@@ -4,7 +4,7 @@
 use std::{
     cmp,
     marker::PhantomData,
-    num::{NonZeroU16, NonZeroUsize},
+    num::{NonZeroU16, NonZeroU64, NonZeroUsize},
     slice::Chunks,
 };
 
@@ -15,9 +15,9 @@ use super::{
     Decoder,
     DecodingSymbol,
     DecodingVerificationError,
-    EncodeError,
     EncodingAxis,
     EncodingConfig,
+    InvalidDataSizeError,
     Primary,
     Secondary,
     Sliver,
@@ -55,14 +55,14 @@ pub struct BlobEncoder<'a> {
 impl<'a> BlobEncoder<'a> {
     /// Creates a new `BlobEncoder` to encode the provided `blob` with the provided configuration.
     ///
-    /// This creates the message matrix, padding with zeros if necessary. The actual encoding can be
-    /// performed with the [`encode()`][Self::encode] method.
-    pub fn new(config: &'a EncodingConfig, blob: &'a [u8]) -> Result<Self, EncodeError> {
-        let Some(symbol_size) =
-            utils::compute_symbol_size(blob.len(), config.source_symbols_per_blob())
-        else {
-            return Err(EncodeError::DataTooLarge);
-        };
+    /// The actual encoding can be performed with the [`encode()`][Self::encode] method.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`InvalidDataSizeError`] if the blob is empty or too large to be encoded.
+    pub fn new(config: &'a EncodingConfig, blob: &'a [u8]) -> Result<Self, InvalidDataSizeError> {
+        let symbol_size =
+            utils::compute_symbol_size_from_usize(blob.len(), config.source_symbols_per_blob())?;
         let n_rows = config.n_source_symbols::<Primary>().get().into();
         let n_columns = config.n_source_symbols::<Secondary>().get().into();
 
@@ -398,15 +398,14 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
     ///
     /// # Errors
     ///
-    /// Returns an [`EncodeError::DataTooLarge`] if the `blob_size` is too large to be decoded.
-    /// Returns an [`EncodeError::EmptyData`] if `blob_size == 0`.
-    pub fn new(config: &'a EncodingConfig, blob_size: usize) -> Result<Self, EncodeError> {
-        let Some(symbol_size) = config.symbol_size_for_blob(blob_size) else {
-            return Err(EncodeError::DataTooLarge);
-        };
-        let Some(blob_size) = NonZeroUsize::new(blob_size) else {
-            return Err(EncodeError::EmptyData);
-        };
+    /// Returns an [`InvalidDataSizeError::DataTooLarge`] if the `blob_size` is too large to be
+    /// decoded. Returns an [`InvalidDataSizeError::EmptyData`] if `blob_size == 0`.
+    pub fn new(config: &'a EncodingConfig, blob_size: u64) -> Result<Self, InvalidDataSizeError> {
+        let symbol_size = config.symbol_size_for_blob(blob_size)?;
+        let blob_size = NonZeroU64::new(blob_size)
+            .expect("already checked when computing the symbol size")
+            .try_into()
+            .map_err(|_| InvalidDataSizeError::DataTooLarge)?;
         Ok(Self {
             _decoding_axis: PhantomData,
             decoders: vec![
@@ -625,24 +624,27 @@ mod tests {
     #[test]
     fn test_blob_encode_decode() {
         let blob = random_data(31415);
+        let blob_size = blob.len() as u64;
 
         let config = EncodingConfig::new(NonZeroU16::new(102).unwrap());
 
-        let slivers_for_decoding = random_subset(
+        let slivers_for_decoding: Vec<_> = random_subset(
             config.get_blob_encoder(&blob).unwrap().encode(),
             cmp::max(
                 config.source_symbols_primary.get(),
                 config.source_symbols_secondary.get(),
             )
             .into(),
-        );
+        )
+        .collect();
 
-        let mut primary_decoder = config.get_blob_decoder::<Primary>(blob.len()).unwrap();
+        let mut primary_decoder = config.get_blob_decoder::<Primary>(blob_size).unwrap();
         assert_eq!(
             primary_decoder
                 .decode(
                     slivers_for_decoding
-                        .clone()
+                        .iter()
+                        .cloned()
                         .map(|p| p.primary)
                         .take(config.source_symbols_primary.get().into())
                 )
@@ -650,11 +652,12 @@ mod tests {
             blob
         );
 
-        let mut secondary_decoder = config.get_blob_decoder::<Secondary>(blob.len()).unwrap();
+        let mut secondary_decoder = config.get_blob_decoder::<Secondary>(blob_size).unwrap();
         assert_eq!(
             secondary_decoder
                 .decode(
                     slivers_for_decoding
+                        .into_iter()
                         .map(|p| p.secondary)
                         .take(config.source_symbols_secondary.get().into())
                 )
@@ -712,6 +715,7 @@ mod tests {
     #[test]
     fn test_encode_decode_and_verify() {
         let blob = random_data(16180);
+        let blob_size = blob.len() as u64;
         let n_shards = 102;
 
         let config = EncodingConfig::new(NonZeroU16::new(n_shards).unwrap());
@@ -725,7 +729,7 @@ mod tests {
                 .map(|s| s.primary)
                 .collect::<Vec<_>>();
         let (blob_dec, metadata_dec) = config
-            .get_blob_decoder(blob.len())
+            .get_blob_decoder(blob_size)
             .unwrap()
             .decode_and_verify(metadata_enc.blob_id(), slivers_for_decoding)
             .unwrap()

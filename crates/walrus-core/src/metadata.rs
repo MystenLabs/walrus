@@ -9,7 +9,7 @@ use fastcrypto::hash::{Blake2b256, HashFunction};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    encoding::{source_symbols_for_n_shards, EncodingAxis, EncodingConfig},
+    encoding::{source_symbols_for_n_shards, EncodingAxis, EncodingConfig, InvalidDataSizeError},
     merkle::{MerkleTree, Node as MerkleNode, DIGEST_LEN},
     BlobId,
     EncodingType,
@@ -35,9 +35,17 @@ pub enum VerificationError {
     /// available in the configuration provided.
     #[error("the unencoded blob length is too large for the given config")]
     UnencodedLengthTooLarge,
+    /// The blob is empty.
+    #[error("the blob is empty")]
+    EmptyBlob,
 }
 
 /// [`BlobMetadataWithId`] that has been verified with [`UnverifiedBlobMetadataWithId::verify`].
+///
+/// This ensures the following properties:
+/// - The unencoded length is nonzero and not larger than the maximum blob size.
+/// - The number of sliver hashes matches the number of slivers (twice the number of shards).
+/// - The blob ID is correctly computed from the sliver hashes.
 pub type VerifiedBlobMetadataWithId = BlobMetadataWithId<true>;
 
 /// [`BlobMetadataWithId`] that has yet to be verified, this is the default
@@ -146,7 +154,11 @@ impl UnverifiedBlobMetadataWithId {
             }
         );
         crate::ensure!(
-            self.metadata.unencoded_length <= config.max_blob_size() as u64,
+            self.metadata.unencoded_length != 0,
+            VerificationError::EmptyBlob
+        );
+        crate::ensure!(
+            self.metadata.unencoded_length <= config.max_blob_size(),
             VerificationError::UnencodedLengthTooLarge
         );
         let computed_blob_id = BlobId::from_sliver_pair_metadata(&self.metadata);
@@ -201,6 +213,14 @@ impl BlobMetadata {
                 .map(|h| h.pair_leaf_input::<Blake2b256>()),
         )
         .root()
+    }
+
+    /// Returns the symbol size associated with the blob.
+    pub fn symbol_size(
+        &self,
+        encoding_config: &EncodingConfig,
+    ) -> Result<NonZeroU16, InvalidDataSizeError> {
+        encoding_config.symbol_size_for_blob(self.unencoded_length)
     }
 }
 

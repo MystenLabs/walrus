@@ -434,13 +434,8 @@ impl ServiceState for StorageNode {
             .ok_or_else(|| StoreSliverError::MissingMetadata(*blob_id))?;
 
         // Ensure the received sliver has the expected size.
-        let blob_size = metadata
-            .metadata()
-            .unencoded_length
-            .try_into()
-            .expect("The maximum blob size is smaller than `usize::MAX`");
         ensure!(
-            sliver.has_correct_length(&self.encoding_config, blob_size),
+            sliver.has_correct_length(&self.encoding_config, metadata.metadata().unencoded_length),
             StoreSliverError::IncorrectSize(sliver.len(), *blob_id)
         );
 
@@ -449,7 +444,6 @@ impl ServiceState for StorageNode {
             .metadata()
             .get_sliver_hash(sliver_pair_index, sliver.r#type())
             .ok_or_else(|| StoreSliverError::InvalidSliverPairId(sliver_pair_index, *blob_id))?;
-
         let computed_sliver_hash = sliver.hash(&self.encoding_config)?;
         ensure!(
             &computed_sliver_hash == stored_sliver_hash,

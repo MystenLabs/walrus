@@ -48,17 +48,11 @@ impl Encoder {
         encoding_plan: &SourceBlockEncodingPlan,
     ) -> Result<Self, EncodeError> {
         assert!(n_shards >= n_source_symbols);
-        if data.is_empty() {
-            return Err(EncodeError::EmptyData);
-        }
         if data.len() % n_source_symbols.get() as usize != 0 {
             return Err(EncodeError::MisalignedData(n_source_symbols));
         }
-
-        let Some(symbol_size) = utils::compute_symbol_size(data.len(), n_source_symbols.into())
-        else {
-            return Err(EncodeError::DataTooLarge);
-        };
+        let symbol_size =
+            utils::compute_symbol_size_from_usize(data.len(), n_source_symbols.into())?;
 
         Ok(Self {
             raptorq_encoder: SourceBlockEncoder::with_encoding_plan(
@@ -205,7 +199,7 @@ mod tests {
     use walrus_test_utils::{param_test, random_data, Result};
 
     use super::*;
-    use crate::encoding::Primary;
+    use crate::encoding::{InvalidDataSizeError, Primary};
 
     #[test]
     fn encoding_empty_data_fails() {
@@ -215,7 +209,9 @@ mod tests {
                 NonZeroU16::new(42).unwrap(),
                 NonZeroU16::new(314).unwrap()
             ),
-            Err(EncodeError::EmptyData)
+            Err(EncodeError::InvalidDataSize(
+                InvalidDataSizeError::EmptyData
+            ))
         ));
     }
 

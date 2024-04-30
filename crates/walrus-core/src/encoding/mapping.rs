@@ -51,7 +51,7 @@ pub fn rotate_pairs(
         pairs
             .len()
             .try_into()
-            .expect("there shouldn't be more than `u16::MAX` sliver pairs"),
+            .expect("there must not be more than `u16::MAX` sliver pairs"),
     ) else {
         // Nothing to do for an empty slice.
         return Ok(());

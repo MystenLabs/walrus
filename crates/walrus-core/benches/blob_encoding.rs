@@ -81,7 +81,9 @@ fn blob_decoding(c: &mut Criterion) {
                 b.iter_batched(
                     || slivers.clone(),
                     |slivers| {
-                        let mut decoder = config.get_blob_decoder::<Primary>(*blob_size).unwrap();
+                        let mut decoder = config
+                            .get_blob_decoder::<Primary>(*blob_size as u64)
+                            .unwrap();
                         let _blob = decoder.decode(slivers).unwrap();
                     },
                     BatchSize::SmallInput,
@@ -96,7 +98,9 @@ fn blob_decoding(c: &mut Criterion) {
                 b.iter_batched(
                     || slivers.clone(),
                     |slivers| {
-                        let mut decoder = config.get_blob_decoder::<Primary>(*blob_size).unwrap();
+                        let mut decoder = config
+                            .get_blob_decoder::<Primary>(*blob_size as u64)
+                            .unwrap();
                         let _blob = decoder
                             .decode_and_verify(blob_id, slivers)
                             .unwrap()

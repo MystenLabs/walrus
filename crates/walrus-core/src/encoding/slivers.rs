@@ -15,6 +15,7 @@ use super::{
     Encoder,
     EncodingAxis,
     EncodingConfig,
+    InvalidDataSizeError,
     Primary,
     RecoveryError,
     Secondary,
@@ -23,7 +24,7 @@ use super::{
 use crate::{
     ensure,
     merkle::{MerkleProof, MerkleTree, Node, DIGEST_LEN},
-    metadata::{SliverPairMetadata, VerifiedBlobMetadataWithId},
+    metadata::{BlobMetadata, SliverPairMetadata},
     utils,
     SliverIndex,
     SliverPairIndex,
@@ -92,10 +93,10 @@ impl<T: EncodingAxis> Sliver<T> {
     pub fn verify(
         &self,
         encoding_config: &EncodingConfig,
-        metadata: &VerifiedBlobMetadataWithId,
+        metadata: &BlobMetadata,
     ) -> Result<(), SliverVerificationError> {
         ensure!(
-            self.index.as_usize() < metadata.metadata().hashes.len(),
+            self.index.as_usize() < metadata.hashes.len(),
             SliverVerificationError::IndexTooLarge
         );
         ensure!(
@@ -105,21 +106,14 @@ impl<T: EncodingAxis> Sliver<T> {
                     .get() as usize,
             SliverVerificationError::SliverSizeMismatch
         );
-        let symbol_size_from_metadata = encoding_config
-            .symbol_size_for_blob(
-                metadata
-                    .metadata()
-                    .unencoded_length
-                    .try_into()
-                    .expect("conversion u64 -> usize failed"),
-            )
+        let symbol_size_from_metadata = metadata
+            .symbol_size(encoding_config)
             .expect("the symbol size is checked in `UnverifiedBlobMetadataWithId::verify`");
         ensure!(
             self.symbols.symbol_size() == symbol_size_from_metadata,
             SliverVerificationError::SymbolSizeMismatch
         );
         let pair_metadata = metadata
-            .metadata()
             .hashes
             .get(
                 self.index
@@ -283,7 +277,7 @@ impl<T: EncodingAxis> Sliver<T> {
             .try_into()
             .ok()
             .and_then(NonZeroU16::new)
-            .ok_or(EncodeError::DataTooLarge)?;
+            .ok_or(InvalidDataSizeError::DataTooLarge)?;
 
         // Pass the symbols to the decoder.
         Ok(Decoder::new(Self::n_source_symbols(config), symbol_size)
@@ -322,7 +316,7 @@ impl<T: EncodingAxis> Sliver<T> {
 
     /// Returns true iff the sliver length is 0.
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.symbols.is_empty()
     }
 
     /// Ensures the provided index is smaller than the number of shards; otherwise returns a
@@ -706,7 +700,7 @@ mod tests {
         assert_eq!(
             Sliver::<T>::new([], 1.try_into().unwrap(), SliverIndex::new(0))
                 .single_recovery_symbol(3, &config),
-            Err(RecoveryError::EncodeError(EncodeError::EmptyData))
+            Err(InvalidDataSizeError::EmptyData.into())
         );
     }
 
@@ -721,7 +715,7 @@ mod tests {
         assert_eq!(
             Sliver::<T>::new([], 1.try_into().unwrap(), SliverIndex::new(0))
                 .recovery_symbols(&config),
-            Err(RecoveryError::EncodeError(EncodeError::EmptyData))
+            Err(InvalidDataSizeError::EmptyData.into())
         );
     }
 

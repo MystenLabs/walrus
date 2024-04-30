@@ -2,6 +2,13 @@
 
 A decentralized blob store using [Sui](https://github.com/MystenLabs/sui) for coordination and governance.
 
+## Hardware requirements
+
+- We assume that this code is executed on at least 32-bit hardware; concretely, we assume that a `u32` can be converted
+  safely into a `usize`.
+- Servers are assumed to use a 64-bit architecture (or higher); concretely, `usize` has at least 64 bits.
+- When a client is executed on a 32-bit architecture, it may fail for blobs above a certain size.
+
 ## Contributing
 
 If you observe a bug or want to request a feature, please search for an existing

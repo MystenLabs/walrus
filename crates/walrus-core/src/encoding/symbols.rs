@@ -24,6 +24,7 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Symbols {
     /// The encoded symbols.
+    // INV: The length of this vector is a multiple of `symbol_size`.
     data: Vec<u8>,
     /// The number of bytes for each symbol.
     symbol_size: NonZeroU16,
@@ -99,7 +100,7 @@ impl Symbols {
     /// True iff it does not contain any symbols.
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.data.is_empty()
     }
 
     /// Obtain a reference to the symbol at `index`.
@@ -312,7 +313,7 @@ impl<T: EncodingAxis, U> DecodingSymbol<T, U> {
 
     /// Returns true iff the symbol size is 0.
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.data.is_empty()
     }
 }
 

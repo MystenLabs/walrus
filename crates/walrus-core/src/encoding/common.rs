@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /// The maximum length in bytes of a single symbol in RaptorQ.
-pub const MAX_SYMBOL_SIZE: usize = u16::MAX as usize;
+pub const MAX_SYMBOL_SIZE: u16 = u16::MAX;
 
 /// The maximum number of source symbols per block for RaptorQ.
 /// See `K'_max` in

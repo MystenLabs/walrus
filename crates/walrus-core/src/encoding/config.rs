@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::num::{NonZeroU16, NonZeroUsize};
+use std::num::{NonZeroU16, NonZeroU32};
 
 use raptorq::SourceBlockEncodingPlan;
 
@@ -12,6 +12,7 @@ use super::{
     EncodeError,
     Encoder,
     EncodingAxis,
+    InvalidDataSizeError,
     MAX_SOURCE_SYMBOLS_PER_BLOCK,
     MAX_SYMBOL_SIZE,
 };
@@ -174,8 +175,8 @@ impl EncodingConfig {
 
     /// The maximum size in bytes of data that can be encoded with this encoding.
     #[inline]
-    pub fn max_data_size<T: EncodingAxis>(&self) -> usize {
-        self.n_source_symbols::<T>().get() as usize * MAX_SYMBOL_SIZE
+    pub fn max_data_size<T: EncodingAxis>(&self) -> u32 {
+        u32::from(self.n_source_symbols::<T>().get()) * u32::from(MAX_SYMBOL_SIZE)
     }
 
     /// The maximum size in bytes of a blob that can be encoded.
@@ -184,47 +185,72 @@ impl EncodingConfig {
     /// `source_symbols_primary` x `source_symbols_secondary` of the message matrix, and the maximum
     /// symbol size supported by RaptorQ.
     #[inline]
-    pub fn max_blob_size(&self) -> usize {
-        self.source_symbols_per_blob().get() * MAX_SYMBOL_SIZE
+    pub fn max_blob_size(&self) -> u64 {
+        u64::from(self.source_symbols_per_blob().get()) * u64::from(MAX_SYMBOL_SIZE)
     }
 
     /// The number of symbols a blob is split into.
     #[inline]
-    pub fn source_symbols_per_blob(&self) -> NonZeroUsize {
-        NonZeroUsize::from(self.source_symbols_primary)
+    pub fn source_symbols_per_blob(&self) -> NonZeroU32 {
+        NonZeroU32::from(self.source_symbols_primary)
             .checked_mul(self.source_symbols_secondary.into())
-            .expect("result fits into a usize")
+            .expect("product of two u16 always fits into a u32")
     }
 
     /// The symbol size when encoding a blob of size `blob_size`.
     ///
-    /// Returns `None` if the `blob_size` is 0 or the computed symbol size is larger than
+    /// # Errors
+    ///
+    /// Returns an [`InvalidDataSizeError::EmptyData`] if `data_length == 0` and an
+    /// [`InvalidDataSizeError::DataTooLarge`] if the computed symbol size is larger than
     /// [`MAX_SYMBOL_SIZE`].
     #[inline]
-    pub fn symbol_size_for_blob(&self, blob_size: usize) -> Option<NonZeroU16> {
+    pub fn symbol_size_for_blob(&self, blob_size: u64) -> Result<NonZeroU16, InvalidDataSizeError> {
         utils::compute_symbol_size(blob_size, self.source_symbols_per_blob())
+    }
+
+    /// The symbol size when encoding a blob of size `blob_size`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`InvalidDataSizeError::EmptyData`] if `data_length == 0` and an
+    /// [`InvalidDataSizeError::DataTooLarge`] if the data_length cannot be converted to a `u64` or
+    /// the computed symbol size is larger than [`MAX_SYMBOL_SIZE`].
+    #[inline]
+    pub fn symbol_size_for_blob_from_usize(
+        &self,
+        blob_size: usize,
+    ) -> Result<NonZeroU16, InvalidDataSizeError> {
+        utils::compute_symbol_size_from_usize(blob_size, self.source_symbols_per_blob())
     }
 
     /// The size (in bytes) of a sliver corresponding to a blob of size `blob_size`.
     ///
     /// Returns `None` if `blob_size == 0` or `blob_size > self.max_blob_size()`.
     #[inline]
-    pub fn sliver_size_for_blob<T: EncodingAxis>(&self, blob_size: usize) -> Option<NonZeroUsize> {
-        NonZeroUsize::from(self.n_source_symbols::<T::OrthogonalAxis>())
+    pub fn sliver_size_for_blob<T: EncodingAxis>(
+        &self,
+        blob_size: u64,
+    ) -> Result<NonZeroU32, InvalidDataSizeError> {
+        NonZeroU32::from(self.n_source_symbols::<T::OrthogonalAxis>())
             .checked_mul(self.symbol_size_for_blob(blob_size)?.into())
+            .ok_or(InvalidDataSizeError::DataTooLarge)
     }
 
     /// Computes the length of a blob of given `unencoded_length`, once encoded.
     ///
-    /// The output length includes the metadata and the blob ID sizes.
-    /// Returns `None` if the blob size cannot be computed.
+    /// The output length includes the metadata and the blob ID sizes. Returns `None` if the blob
+    /// size cannot be computed.
     ///
     /// This computation is the same as done by the function of the same name in
     /// `contracts/blob_store/redstuff.move` and should be kept in sync.
     pub fn encoded_blob_length(&self, unencoded_length: usize) -> Option<u64> {
         let slivers_size = (self.source_symbols_primary.get() as u64
             + self.source_symbols_secondary.get() as u64)
-            * self.symbol_size_for_blob(unencoded_length)?.get() as u64;
+            * self
+                .symbol_size_for_blob_from_usize(unencoded_length)
+                .ok()?
+                .get() as u64;
         Some(self.n_shards_as_usize() as u64 * (slivers_size + self.metadata_length()))
     }
 
@@ -254,33 +280,29 @@ impl EncodingConfig {
         )
     }
 
-    /// Returns a [`BlobEncoder`] to encode a blob into [`SliverPair`s][super::SliverPair].
-    ///
-    /// # Arguments
-    ///
-    /// * `blob` - The blob to be encoded. Does not have to be padded.
+    /// Returns a [`BlobEncoder`] to encode the provided blob into
+    /// [`SliverPair`s][super::SliverPair].
     ///
     /// # Errors
     ///
-    /// Returns a [`EncodeError::DataTooLarge`] if the `blob` is too large to be encoded.
-    pub fn get_blob_encoder<'a>(&'a self, blob: &'a [u8]) -> Result<BlobEncoder, EncodeError> {
+    /// Returns an [`InvalidDataSizeError`] if the `blob` is empty or too large to be encoded.
+    pub fn get_blob_encoder<'a>(
+        &'a self,
+        blob: &'a [u8],
+    ) -> Result<BlobEncoder, InvalidDataSizeError> {
         BlobEncoder::new(self, blob)
     }
 
-    /// Returns a [`BlobDecoder`] to reconstruct a blob from either
+    /// Returns a [`BlobDecoder`] to reconstruct a blob of provided size from either
     /// [`Primary`][super::PrimarySliver] or [`Secondary`][super::SecondarySliver] slivers.
-    ///
-    /// # Arguments
-    ///
-    /// * `blob_size` - The size of the blob to be decoded.
     ///
     /// # Errors
     ///
-    /// Returns a [`EncodeError::DataTooLarge`] if the `blob_size` is too large to be decoded.
+    /// Returns an [`InvalidDataSizeError`] if the `blob_size` is zero or too large to be decoded.
     pub fn get_blob_decoder<T: EncodingAxis>(
         &self,
-        blob_size: usize,
-    ) -> Result<BlobDecoder<T>, EncodeError> {
+        blob_size: u64,
+    ) -> Result<BlobDecoder<T>, InvalidDataSizeError> {
         BlobDecoder::new(self, blob_size)
     }
 }
@@ -338,17 +360,23 @@ mod tests {
 
     param_test! {
         test_sliver_size_for_blob: [
-            zero: (0, None),
-            one: (1, Some(5)),
-            full_matrix: (15, Some(5)),
-            full_matrix_plus_1: (16, Some(10)),
-            too_large: (3 * 5 * MAX_SYMBOL_SIZE + 1, None),
+            zero: (0, Err(InvalidDataSizeError::EmptyData)),
+            one: (1, Ok(5)),
+            full_matrix: (15, Ok(5)),
+            full_matrix_plus_1: (16, Ok(10)),
+            too_large: (
+                3 * 5 * u64::from(MAX_SYMBOL_SIZE) + 1,
+                Err(InvalidDataSizeError::DataTooLarge)
+            ),
         ]
     }
-    fn test_sliver_size_for_blob(blob_size: usize, expected_primary_sliver_size: Option<usize>) {
+    fn test_sliver_size_for_blob(
+        blob_size: u64,
+        expected_primary_sliver_size: Result<u32, InvalidDataSizeError>,
+    ) {
         assert_eq!(
             EncodingConfig::new_for_test(3, 5, 10).sliver_size_for_blob::<Primary>(blob_size),
-            expected_primary_sliver_size.and_then(NonZeroUsize::new)
+            expected_primary_sliver_size.map(|e| NonZeroU32::new(e).unwrap())
         );
     }
 

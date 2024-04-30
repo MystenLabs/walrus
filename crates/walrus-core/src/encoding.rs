@@ -21,6 +21,7 @@ mod errors;
 pub use errors::{
     DecodingVerificationError,
     EncodeError,
+    InvalidDataSizeError,
     RecoveryError,
     SliverVerificationError,
     WrongSliverVariantError,
