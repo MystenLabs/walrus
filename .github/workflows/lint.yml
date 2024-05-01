@@ -17,7 +17,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Check PR title
-        uses: amannn/action-semantic-pull-request@v5.4.0
+        uses: amannn/action-semantic-pull-request@v5.5.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -34,7 +34,7 @@ jobs:
     name: Check spelling
     steps:
       - uses: actions/checkout@v4
-      - uses: crate-ci/typos@v1.19.0
+      - uses: crate-ci/typos@v1.21.0
 
   license-headers:
     runs-on: ubuntu-latest

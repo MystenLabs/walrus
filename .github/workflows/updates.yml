@@ -43,7 +43,7 @@ jobs:
         run: cargo install --locked --git https://github.com/MystenLabs/sui.git --tag $SUI_TAG --debug sui
 
       - run: pre-commit run --all-files
-      - uses: peter-evans/create-pull-request@v6.0.2
+      - uses: peter-evans/create-pull-request@v6.0.5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           branch: chore/update-pre-commit-hooks
