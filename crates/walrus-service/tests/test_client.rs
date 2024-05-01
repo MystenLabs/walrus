@@ -3,12 +3,17 @@
 
 use std::{sync::OnceLock, time::Duration};
 
-use anyhow::anyhow;
 use test_cluster::TestClusterBuilder as SuiTestClusterBuilder;
 use tokio::sync::Mutex;
 use walrus_core::encoding::Primary;
 use walrus_service::{
-    client::{Client, ClientCommunicationConfig, Config},
+    client::{
+        Client,
+        ClientCommunicationConfig,
+        ClientError,
+        ClientErrorKind::{self, NoMetadataReceived, NotEnoughConfirmations, NotEnoughSlivers},
+        Config,
+    },
     committee::SuiCommitteeServiceFactory,
     system_events::SuiSystemEventProvider,
     test_utils::TestCluster,
@@ -23,31 +28,47 @@ use walrus_test_utils::async_param_test;
 
 async_param_test! {
     test_store_and_read_blob_with_crash_failures : [
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] no_failures: (&[], Ok(())),
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] shard_failure: (&[0], Ok(())),
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] f_shard_failure: (&[4], Ok(())),
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] f_plus_one_shard_failure:
-            (&[0, 4], Err(anyhow!("not enough confirmations for the blob id were retrieved"))),
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] all_shard_failure:
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] no_failures: (&[], &[], Ok(())),
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] one_failure: (&[0], &[], Ok(())),
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] f_failures: (&[4], &[], Ok(())),
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] f_plus_one_failures:
+            (&[0, 4], &[], Err(NotEnoughConfirmations(8, 9).into())),
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] all_shard_failures:
             (
                 &[0, 1, 2, 3, 4],
-                Err(anyhow!("not enough confirmations for the blob id were retrieved"))
+                &[],
+                Err(NotEnoughConfirmations(0, 9).into())
             ),
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] f_plus_one_read_failures:
+            (&[], &[0, 4], Ok(())),
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] two_f_plus_one_read_failures:
+            (&[], &[1, 2, 4], Err(NotEnoughSlivers.into())),
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] all_read_failures:
+            (&[], &[0, 1, 2, 3, 4], Err(NoMetadataReceived.into())),
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] read_and_write_overlap_failures:
+            (&[4], &[2, 3], Err(NotEnoughSlivers.into())),
     ]
 }
 async fn test_store_and_read_blob_with_crash_failures(
-    failed_nodes: &[usize],
-    expected: anyhow::Result<()>,
+    failed_shards_write: &[usize],
+    failed_shards_read: &[usize],
+    expected: Result<(), ClientError>,
 ) {
-    let result = run_store_and_read_with_crash_failures(failed_nodes).await;
+    let result =
+        run_store_and_read_with_crash_failures(failed_shards_write, failed_shards_read).await;
     match (result, expected) {
         (Ok(()), Ok(())) => (),
-        (Err(actual_err), Err(expected_err)) => {
-            assert_eq!(
-                format!("{}", actual_err.root_cause()),
-                format!("{}", expected_err.root_cause())
-            )
-        }
+        (Err(actual_err), Err(expected_err)) => match actual_err.downcast::<ClientError>() {
+            Ok(client_err) => {
+                if !error_kind_matches(&client_err, &expected_err) {
+                    panic!(
+                        "client error mismatch; expected=({:?}); actual=({:?});",
+                        expected_err, client_err
+                    )
+                }
+            }
+            Err(_) => panic!("unexpected error"),
+        },
         (act, exp) => panic!(
             "test result mismatch; expected=({:?}); actual=({:?});",
             exp, act
@@ -55,7 +76,10 @@ async fn test_store_and_read_blob_with_crash_failures(
     }
 }
 
-async fn run_store_and_read_with_crash_failures(failed_nodes: &[usize]) -> anyhow::Result<()> {
+async fn run_store_and_read_with_crash_failures(
+    failed_shards_write: &[usize],
+    failed_shards_read: &[usize],
+) -> anyhow::Result<()> {
     let _ = tracing_subscriber::fmt::try_init();
 
     let cluster_builder = TestCluster::builder();
@@ -118,14 +142,19 @@ async fn run_store_and_read_with_crash_failures(failed_nodes: &[usize]) -> anyho
 
     let client = Client::new(config, sui_contract_client).await?;
 
-    // Stop the nodes in the failure set.
-    failed_nodes
+    // Stop the nodes in the write failure set.
+    failed_shards_write
         .iter()
         .for_each(|&idx| cluster.cancel_node(idx));
 
     // Store a blob and get confirmations from each node.
     let blob = walrus_test_utils::random_data(31415);
     let blob_confirmation = client.reserve_and_store_blob(&blob, 1).await?;
+
+    // Stop the nodes in the read failure set.
+    failed_shards_read
+        .iter()
+        .for_each(|&idx| cluster.cancel_node(idx));
 
     // Read the blob.
     let read_blob = client
@@ -141,4 +170,18 @@ async fn run_store_and_read_with_crash_failures(failed_nodes: &[usize]) -> anyho
 fn global_test_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(Mutex::default)
+}
+
+fn error_kind_matches(actual: &ClientError, expected: &ClientError) -> bool {
+    match (actual.kind(), expected.kind()) {
+        (ClientErrorKind::CertificationFailed(_), ClientErrorKind::CertificationFailed(_)) => true,
+        (
+            ClientErrorKind::NotEnoughConfirmations(act_a, act_b),
+            ClientErrorKind::NotEnoughConfirmations(exp_a, exp_b),
+        ) => act_a == exp_a && act_b == exp_b,
+        (ClientErrorKind::NotEnoughSlivers, ClientErrorKind::NotEnoughSlivers) => true,
+        (ClientErrorKind::NoMetadataReceived, ClientErrorKind::NoMetadataReceived) => true,
+        (ClientErrorKind::Other(_), ClientErrorKind::Other(_)) => true,
+        (_, _) => false,
+    }
 }
