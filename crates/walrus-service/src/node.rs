@@ -138,11 +138,9 @@ pub trait ServiceState {
 
     /// Retrieves a recovery symbol for a shard held by this storage node.
     ///
-    /// # Arguments:
-    ///
-    /// * `sliver_pair_index` - The index of the sliver pair that we want to access
-    /// * `sliver_type` - The target type of the sliver that will be recovered
-    /// * `target_pair_index` - The pair index of the sliver to be recovered.
+    /// The function creates the recovery symbol for the sliver of type `sliver_type` and of sliver
+    /// pair index `target_pair_index`, starting from the sliver of the orthogonal sliver type and
+    /// index `sliver_pair_index`.
     ///
     /// Returns the recovery symbol for the requested sliver.
     fn retrieve_recovery_symbol(

@@ -20,14 +20,13 @@ pub struct Encoder {
 impl Encoder {
     /// Creates a new `Encoder` for the provided `data` with the specified arguments.
     ///
-    /// # Arguments
+    /// The length of the `data` to encode _must_ be a multiple of `n_source_symbols` -- the number
+    /// of source symbols in which the data should be split -- and must not be empty.
     ///
-    /// * `data` - The data to encode. This *must* be a multiple of `n_source_symbols` and must not
-    ///   be empty.
-    /// * `n_source_symbols` - The number of source symbols into which the data should be split.
-    /// * `n_shards` - The total number of shards for which symbols should be generated.
-    /// * `encoding_plan` - A pre-generated [`SourceBlockEncodingPlan`] consistent with
-    ///   `n_source_symbols`.
+    /// `n_shards` is the total number of shards for which symbols should be generated.
+    ///
+    /// The `encoding_plan` is a pre-generated [`SourceBlockEncodingPlan`] consistent with
+    /// `n_source_symbols`.
     ///
     /// # Errors
     ///

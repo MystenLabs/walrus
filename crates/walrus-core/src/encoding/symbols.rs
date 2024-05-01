@@ -30,7 +30,7 @@ pub struct Symbols {
 }
 
 impl Symbols {
-    /// Creates a new `Symbols` struct by taking ownership of a vector.
+    /// Creates a new [`Symbols`] struct by taking ownership of a vector.
     ///
     /// # Panics
     ///
@@ -51,12 +51,7 @@ impl Symbols {
         self.data.truncate(len * self.symbol_size.get() as usize);
     }
 
-    /// Creates a new `Symbols` struct with zeroed-out data of specified length.
-    ///
-    /// # Arguments
-    ///
-    /// * `n_symbols` - The number of (empty) symbols to create.
-    /// * `symbol_size` - The size of each symbol.
+    /// Creates a new [`Symbols`] struct with zeroed-out data of length `n_symbols * symbol_size`.
     pub fn zeros(n_symbols: usize, symbol_size: NonZeroU16) -> Self {
         Symbols {
             data: vec![0; n_symbols * symbol_size.get() as usize],
@@ -64,7 +59,7 @@ impl Symbols {
         }
     }
 
-    /// Creates a new empty `Symbols` struct with an internal vector of provided capacity.
+    /// Creates a new empty [`Symbols`] struct with an internal vector of provided capacity.
     ///
     /// # Examples
     ///
@@ -80,7 +75,7 @@ impl Symbols {
         }
     }
 
-    /// Creates a new `Symbols` struct copying the provided slice of bytes.
+    /// Creates a new [`Symbols`] struct copying the provided slice of bytes.
     ///
     /// # Panics
     ///

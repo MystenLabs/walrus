@@ -57,13 +57,10 @@ impl EncodingConfig {
 
     /// Creates a new encoding configuration for the provided system parameters.
     ///
-    /// # Arguments
-    ///
-    /// * `source_symbols_primary` - The number of source symbols for the primary encoding. This
-    ///   should be equal to or below `n_shards - 2f`, where `f` is the Byzantine parameter.
-    /// * `source_symbols_secondary` - The number of source symbols for the secondary encoding. This
-    ///   should be equal to or below `n_shards - f`.
-    /// * `n_shards` - The total number of shards.
+    /// In a setup with `n_shards` total shards -- among which `f` are Byzantine --
+    /// `source_symbols_primary` is the number of source symbols for the primary encoding (must be
+    /// equal to or below `n_shards - 2f`), and `source_symbols_secondary` is the number of source
+    /// symbols for the secondary encoding (must be equal to or below `n_shards - f`).
     ///
     /// # Returns
     ///
@@ -236,10 +233,9 @@ impl EncodingConfig {
     /// Returns an [`Encoder`] to perform a single primary or secondary encoding of the provided
     /// data.
     ///
-    /// # Arguments
-    ///
-    /// * `encoding_axis` - Sets the encoding parameters for the primary or secondary encoding.
-    /// * `data` - The data to be encoded. This *does not* have to be aligned/padded.
+    /// The `data` to be encoded _does not_ have to be aligned/padded. The `encoding_axis` specifies
+    /// which encoding parameters the encoder uses, i.e., the parameters for either the primary or
+    /// the secondary encoding.
     ///
     /// # Errors
     ///
@@ -256,9 +252,7 @@ impl EncodingConfig {
 
     /// Returns a [`BlobEncoder`] to encode a blob into [`SliverPair`s][super::SliverPair].
     ///
-    /// # Arguments
-    ///
-    /// * `blob` - The blob to be encoded. Does not have to be padded.
+    /// The `blob` to be encoded does not have to be padded.
     ///
     /// # Errors
     ///
@@ -270,9 +264,7 @@ impl EncodingConfig {
     /// Returns a [`BlobDecoder`] to reconstruct a blob from either
     /// [`Primary`][super::PrimarySliver] or [`Secondary`][super::SecondarySliver] slivers.
     ///
-    /// # Arguments
-    ///
-    /// * `blob_size` - The size of the blob to be decoded.
+    /// `blob_size` is the _unencoded_ size (i.e., before encoding) of the blob to be decoded.
     ///
     /// # Errors
     ///

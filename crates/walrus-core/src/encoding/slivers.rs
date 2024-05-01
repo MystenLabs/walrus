@@ -177,13 +177,8 @@ impl<T: EncodingAxis> Sliver<T> {
     /// Gets the recovery symbol for a specific target sliver starting from the current sliver.
     ///
     /// A [`Primary`] sliver is used to reconstruct symbols for a [`Secondary`] sliver, and
-    /// vice-versa.
-    ///
-    /// # Arguments
-    ///
-    /// * `target_pair_index` - the index of the [`SliverPair`] to which the sliver to be recovered
-    /// belongs.
-    /// * `config` - the system's encoding configuration.
+    /// vice-versa. The `target_pair_index` is the index of the [`SliverPair`] to which the sliver
+    /// to be recovered belongs.
     ///
     /// # Errors
     ///
@@ -210,11 +205,8 @@ impl<T: EncodingAxis> Sliver<T> {
     /// Gets the recovery symbol for a specific target sliver starting from the current sliver,
     /// together with the Merkle proof computed over the `n_shards` symbols of the [`Sliver`].
     ///
-    /// # Arguments
-    ///
-    /// * `target_pair_index` - the index of the [`SliverPair`] to which the sliver to be recovered
-    /// belongs.
-    /// * `config` - the system's encoding configuration.
+    /// The `target_pair_index` is the index of the [`SliverPair`] to which the sliver to be
+    /// recovered belongs.
     ///
     /// # Errors
     ///
@@ -388,10 +380,7 @@ impl SliverPair {
     /// Gets the two recovery symbols for a specific target sliver pair starting from the current
     /// sliver pair.
     ///
-    /// # Arguments
-    ///
-    /// * `target_pair_index` - the index of the target [`SliverPair`] (the one to be recovered).
-    /// * `n_shards` - the number of shards in the system.
+    /// The `target_pair_index` is the index of the [`SliverPair`] to be recovered.
     ///
     /// # Errors
     ///
@@ -417,10 +406,7 @@ impl SliverPair {
     /// sliver pair, together with the Merkle proofs for the two symbols, computed over the
     /// `n_shards` symbols of the respective expanded slivers.
     ///
-    /// # Arguments
-    ///
-    /// * `target_pair_index` - the index of the target [`SliverPair`] (the one to be recovered).
-    /// * `config` - the encoding configuration.
+    /// The `target_pair_index` is the index of the [`SliverPair`] to be recovered.
     ///
     /// # Errors
     ///
