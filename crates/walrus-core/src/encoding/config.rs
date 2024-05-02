@@ -57,10 +57,11 @@ impl EncodingConfig {
 
     /// Creates a new encoding configuration for the provided system parameters.
     ///
-    /// In a setup with `n_shards` total shards -- among which `f` are Byzantine --
-    /// `source_symbols_primary` is the number of source symbols for the primary encoding (must be
-    /// equal to or below `n_shards - 2f`), and `source_symbols_secondary` is the number of source
-    /// symbols for the secondary encoding (must be equal to or below `n_shards - f`).
+    /// In a setup with `n_shards` total shards -- among which `f` are Byzantine, and
+    /// `f < n_shards / 3` -- `source_symbols_primary` is the number of source symbols for the
+    /// primary encoding (must be equal to or below `n_shards - 2f`), and `source_symbols_secondary`
+    /// is the number of source symbols for the secondary encoding (must be equal to or below
+    /// `n_shards - f`).
     ///
     /// # Returns
     ///

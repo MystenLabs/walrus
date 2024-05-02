@@ -28,8 +28,8 @@ pub enum SliverAssignmentError {
 /// the provided `blob_id`.
 ///
 /// The `blob_id` -- which is typically the blob ID of the blob that produced the sliver pairs -- is
-/// interpreted as a big-endian unsigned integer, and the used to compute the amount for which to
-/// rotate the slice. The rotation is such that the last `blob_id % slice.len()` elements of the
+/// interpreted as a big-endian unsigned integer, and is then used to compute the amount for which
+/// to rotate the slice. The rotation is such that the last `blob_id % slice.len()` elements of the
 /// slice move to the front.
 ///
 /// # Errors
@@ -113,11 +113,12 @@ fn rotation_offset(n_shards: NonZeroU16, blob_id: &BlobId) -> usize {
     bytes_mod(blob_id.as_ref(), n_shards.get().into())
 }
 
-/// Rotate the input `slice` in place, based on the rotation specified by the byte array.
+/// Rotate the input `slice` in place, based on the rotation specified by the `rotation` byte array.
 ///
-/// The `rotation` slice is interpreted as a big-endian unsigned integer, as it is the amount for
-/// which to rotate the slice. The rotation is such that the last `rotation % slice.len()` elements
-/// of the slice move to the front.
+/// The `rotation` byte array is the amount for which to rotate the slice, and it is interpreted as
+/// a big-endian unsigned integer. The `rotation` will typically be the blob ID. The resulting
+/// rotation of the slice is such that the last `rotation % slice.len()` elements of the slice move
+/// to the front.
 fn rotate_by_bytes<T>(slice: &mut [T], rotation: &[u8]) {
     slice.rotate_right(bytes_mod(rotation, slice.len()))
 }
