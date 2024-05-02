@@ -8,7 +8,7 @@ use test_cluster::TestClusterBuilder as SuiTestClusterBuilder;
 use tokio::sync::Mutex;
 use walrus_core::encoding::Primary;
 use walrus_service::{
-    client::{Client, Config},
+    client::{Client, ClientCommunicationConfig, Config},
     committee::SuiCommitteeServiceFactory,
     system_events::SuiSystemEventProvider,
     test_utils::TestCluster,
@@ -110,13 +110,10 @@ async fn run_store_and_read_with_crash_failures(failed_nodes: &[usize]) -> anyho
     let sui_contract_client =
         SuiContractClient::new(wallet, system_pkg, system_object, gas_budget).await?;
     let config = Config {
-        connection_timeout: Duration::from_secs(10),
         system_pkg,
         system_object,
         wallet_config: None,
-        concurrent_writes: None,
-        concurrent_sliver_reads: None,
-        concurrent_metadata_reads: 3,
+        communication_config: ClientCommunicationConfig::default(),
     };
 
     let client = Client::new(config, sui_contract_client).await?;

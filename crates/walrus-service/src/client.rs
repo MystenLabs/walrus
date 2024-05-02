@@ -6,7 +6,7 @@ use std::{collections::HashMap, time::Instant};
 use anyhow::{anyhow, Result};
 use fastcrypto::{bls12381::min_pk::BLS12381AggregateSignature, traits::AggregateAuthenticator};
 use futures::Future;
-use reqwest::{Client as ReqwestClient, ClientBuilder};
+use reqwest::Client as ReqwestClient;
 use tokio::time::{sleep, Duration};
 use tracing::Instrument;
 use walrus_core::{
@@ -26,7 +26,7 @@ use walrus_sui::{
 
 mod communication;
 mod config;
-pub use config::{default_configuration_paths, Config};
+pub use config::{default_configuration_paths, ClientCommunicationConfig, Config};
 mod error;
 mod utils;
 
@@ -58,17 +58,22 @@ impl Client<()> {
         config: Config,
         sui_read_client: &impl ReadClient,
     ) -> Result<Self> {
-        let reqwest_client = ClientBuilder::new()
-            .timeout(config.connection_timeout)
+        tracing::debug!(?config, "running client");
+        let reqwest_client = config
+            .communication_config
+            .reqwest_config
+            .to_client_builder()
             .build()?;
         let committee = sui_read_client.current_committee().await?;
         let encoding_config = EncodingConfig::new(committee.n_shards());
         // Try to store on n-f nodes concurrently, as the work to store is never wasted.
         let concurrent_writes = config
+            .communication_config
             .concurrent_writes
             .unwrap_or(default::concurrent_writes(committee.n_shards()));
         // Read n-2f slivers concurrently to avoid wasted work on the storage nodes.
         let concurrent_sliver_reads = config
+            .communication_config
             .concurrent_writes
             .unwrap_or(default::concurrent_sliver_reads(committee.n_shards()));
         Ok(Self {
@@ -78,7 +83,7 @@ impl Client<()> {
             concurrent_writes,
             encoding_config,
             concurrent_sliver_reads,
-            concurrent_metadata_reads: config.concurrent_metadata_reads,
+            concurrent_metadata_reads: config.communication_config.concurrent_metadata_reads,
         })
     }
 
