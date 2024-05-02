@@ -45,11 +45,15 @@
 
 use std::marker::PhantomData;
 
+use serde::{Deserialize, Serialize};
+
 use crate::{
     encoding::{
         EncodingAxis,
         EncodingConfig,
+        Primary,
         RecoverySymbol,
+        Secondary,
         Sliver,
         SliverRecoveryError,
         SliverVerificationError,
@@ -73,10 +77,21 @@ pub enum InconsistencyVerificationError {
     SliverNotInconsistent,
 }
 
+/// An inconsistency proof for an encoding on the primary axis.
+pub type PrimaryInconsistencyProof<U> = InconsistencyProof<Primary, U>;
+
+/// An inconsistency proof for an encoding on the secondary axis.
+pub type SecondaryInconsistencyProof<U> = InconsistencyProof<Secondary, U>;
+
 /// The structure of an inconsistency proof.
 ///
 /// See [the module documentation][self] for further details.
-#[derive(Debug, Clone, PartialEq, Eq)]
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(bound(
+    deserialize = "for<'a> RecoverySymbol<T, U>: Deserialize<'a>",
+    serialize = "RecoverySymbol<T, U>: Serialize"
+))]
 pub struct InconsistencyProof<T: EncodingAxis, U: MerkleAuth> {
     target_sliver_index: SliverIndex,
     recovery_symbols: Vec<RecoverySymbol<T, U>>,
@@ -158,42 +173,7 @@ mod tests {
     use walrus_test_utils::Result;
 
     use super::*;
-    use crate::{
-        encoding::PrimaryRecoverySymbol,
-        merkle::Node,
-        metadata::VerifiedBlobMetadataWithId,
-        test_utils,
-    };
-
-    fn generate_config_metadata_and_valid_recovery_symbols() -> Result<(
-        EncodingConfig,
-        VerifiedBlobMetadataWithId,
-        SliverIndex,
-        Vec<PrimaryRecoverySymbol<impl MerkleAuth>>,
-    )> {
-        let blob = walrus_test_utils::random_data(314);
-        let encoding_config = test_utils::encoding_config();
-        let (sliver_pairs, metadata) = encoding_config
-            .get_blob_encoder(&blob)?
-            .encode_with_metadata();
-        let target_sliver_index = SliverIndex(0);
-        let recovery_symbols = walrus_test_utils::random_subset(
-            (1..encoding_config.n_shards.get()).map(|i| {
-                sliver_pairs[i as usize]
-                    .secondary
-                    .recovery_symbol_for_sliver(target_sliver_index.into(), &encoding_config)
-                    .unwrap()
-            }),
-            encoding_config.n_secondary_source_symbols().get().into(),
-        )
-        .collect();
-        Ok((
-            encoding_config,
-            metadata,
-            target_sliver_index,
-            recovery_symbols,
-        ))
-    }
+    use crate::{merkle::Node, test_utils::generate_config_metadata_and_valid_recovery_symbols};
 
     #[test]
     fn valid_inconsistency_proof() -> Result<()> {

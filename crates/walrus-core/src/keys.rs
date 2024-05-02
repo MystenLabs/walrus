@@ -8,7 +8,7 @@ use std::{str::FromStr, sync::Arc};
 use fastcrypto::{
     bls12381::min_pk::BLS12381KeyPair,
     encoding::{Base64, Encoding},
-    traits::{AllowedRng, KeyPair, ToFromBytes},
+    traits::{AllowedRng, KeyPair, Signer, ToFromBytes},
 };
 use serde::{
     de::{Error, Unexpected},
@@ -21,6 +21,8 @@ use serde_with::{
     DeserializeAs,
     SerializeAs,
 };
+
+use crate::messages::{ProtocolMessage, SignedMessage};
 
 /// Identifier for the type of public key being loaded from file.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
@@ -63,6 +65,18 @@ impl ProtocolKeyPair {
     /// Generates a new key-pair using thread-local randomness.
     pub fn generate() -> Self {
         Self::generate_with_rng(&mut rand::thread_rng())
+    }
+
+    /// Sign `message` and return the resulting [`SignedMessage`].
+    pub fn sign_message<T>(&self, message: &T) -> SignedMessage<T>
+    where
+        T: ProtocolMessage,
+    {
+        let serialized_message =
+            bcs::to_bytes(message).expect("bcs encoding a message should not fail");
+
+        let signature = self.as_ref().sign(&serialized_message);
+        SignedMessage::new_from_encoded(serialized_message, signature)
     }
 }
 

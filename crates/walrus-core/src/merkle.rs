@@ -108,9 +108,8 @@ impl<T> Clone for MerkleProof<T> {
 // Cannot be derived as many hash functions don't implement `Debug` and the derive is not smart
 // enough to see that it is not necessary.
 impl<T> std::fmt::Debug for MerkleProof<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MerkleProof")
-            .field("_hash_type", &std::any::type_name::<T>())
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fmt.debug_struct(&format!("MerkleProof<{}>", std::any::type_name::<T>()))
             .field("path", &self.path)
             .finish()
     }
@@ -147,13 +146,22 @@ where
 /// The data of the leaves is prefixed with `0x00` before hashing and hashes of inner nodes are
 /// computed over the concatenation of their children prefixed with `0x01`. Hashes of empty
 /// subtrees (i.e. subtrees without data at their leaves) are replaced with all zeros.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize)]
 pub struct MerkleTree<T = Blake2b256> {
     _hash_type: PhantomData<T>,
     // The nodes of the Merkle tree are stored in a vector level by level starting with
     // the leaf hashes.
     nodes: Vec<Node>,
     n_leaves: usize,
+}
+
+impl<T> std::fmt::Debug for MerkleTree<T> {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fmt.debug_struct(&format!("MerkleTree<{}>", std::any::type_name::<T>()))
+            .field("nodes", &self.nodes)
+            .field("n_leaves", &self.n_leaves)
+            .finish()
+    }
 }
 
 impl<T> MerkleTree<T>

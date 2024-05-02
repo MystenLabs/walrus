@@ -3,6 +3,9 @@
 
 //! Signed off-chain messages.
 
+use std::marker::PhantomData;
+
+use fastcrypto::bls12381::min_pk::BLS12381Signature;
 use serde::{Deserialize, Serialize};
 
 mod storage_confirmation;
@@ -14,10 +17,35 @@ pub use storage_confirmation::{
 };
 
 mod invalid_blob_id;
-pub use invalid_blob_id::InvalidBlobIdMsg;
+pub use invalid_blob_id::{InvalidBlobIdAttestation, InvalidBlobIdMsg};
 
 mod certificate;
 pub use certificate::{ConfirmationCertificate, InvalidBlobCertificate};
+
+/// Trait implemented by system messages.
+pub trait ProtocolMessage: Serialize + for<'de> Deserialize<'de> {}
+
+/// A signed message from a storage node.
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SignedMessage<T> {
+    /// The BCS-encoded message.
+    pub serialized_message: Vec<u8>,
+    /// The signature over the BCS encoded message.
+    pub signature: BLS12381Signature,
+    #[serde(skip)]
+    message_type: PhantomData<T>,
+}
+
+impl<T> SignedMessage<T> {
+    /// Returns a signed message, given the serialized message and the signature.
+    pub fn new_from_encoded(serialized_message: Vec<u8>, signature: BLS12381Signature) -> Self {
+        Self {
+            serialized_message,
+            signature,
+            message_type: PhantomData,
+        }
+    }
+}
 
 use crate::wrapped_uint;
 
@@ -49,7 +77,7 @@ wrapped_uint! {
 }
 
 /// Message intent prepended to signed messages.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Intent {
     /// The intent of the signed message.
     pub r#type: IntentType,

@@ -4,7 +4,7 @@
 use std::future::Future;
 
 use anyhow::{anyhow, bail, Context};
-use fastcrypto::traits::{KeyPair, Signer};
+use fastcrypto::traits::KeyPair;
 use mysten_metrics::RegistryService;
 use tokio::select;
 use tokio_stream::StreamExt;
@@ -13,11 +13,20 @@ use typed_store::{rocks::MetricConf, DBMetrics};
 use walrus_core::{
     encoding::{EncodingConfig, RecoverySymbolError},
     ensure,
-    merkle::MerkleProof,
-    messages::{Confirmation, SignedStorageConfirmation, StorageConfirmation},
+    inconsistency::InconsistencyVerificationError,
+    merkle::{MerkleAuth, MerkleProof},
+    messages::{
+        Confirmation,
+        InvalidBlobIdAttestation,
+        InvalidBlobIdMsg,
+        ProtocolMessage,
+        SignedMessage,
+        StorageConfirmation,
+    },
     metadata::{UnverifiedBlobMetadataWithId, VerificationError},
     BlobId,
     Epoch,
+    InconsistencyProof,
     ProtocolKeyPair,
     RecoverySymbol,
     ShardIndex,
@@ -100,6 +109,16 @@ pub enum StoreSliverError {
     Internal(#[from] anyhow::Error),
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum InconsistencyProofError {
+    #[error("Missing metadata for {0:?}")]
+    MissingMetadata(BlobId),
+    #[error(transparent)]
+    ProofVerificationError(#[from] InconsistencyVerificationError),
+    #[error(transparent)]
+    Internal(#[from] anyhow::Error),
+}
+
 pub trait ServiceState {
     /// Retrieves the metadata associated with a blob.
     fn retrieve_metadata(
@@ -135,6 +154,13 @@ pub trait ServiceState {
         &self,
         blob_id: &BlobId,
     ) -> impl Future<Output = Result<Option<StorageConfirmation>, anyhow::Error>> + Send;
+
+    /// Verify an inconsistency proof and provide a signed attestation for it, if valid.
+    fn verify_inconsistency_proof<T: MerkleAuth + Send + Sync>(
+        &self,
+        blob_id: &BlobId,
+        inconsistency_proof: InconsistencyProof<T>,
+    ) -> impl Future<Output = Result<InvalidBlobIdAttestation, InconsistencyProofError>> + Send;
 
     /// Retrieves a recovery symbol for a shard held by this storage node.
     ///
@@ -462,12 +488,28 @@ impl ServiceState for StorageNode {
     ) -> Result<Option<StorageConfirmation>, anyhow::Error> {
         if self.storage.is_stored_at_all_shards(blob_id)? {
             let confirmation = Confirmation::new(self.current_epoch(), *blob_id);
-            sign_confirmation(confirmation, self.protocol_key_pair.clone())
+            sign_message(confirmation, self.protocol_key_pair.clone())
                 .await
                 .map(|signed| Some(StorageConfirmation::Signed(signed)))
         } else {
             Ok(None)
         }
+    }
+
+    async fn verify_inconsistency_proof<T: MerkleAuth + Send + Sync>(
+        &self,
+        blob_id: &BlobId,
+        inconsistency_proof: InconsistencyProof<T>,
+    ) -> Result<InvalidBlobIdAttestation, InconsistencyProofError> {
+        let Some(metadata) = self.retrieve_metadata(blob_id)? else {
+            return Err(InconsistencyProofError::MissingMetadata(blob_id.to_owned()));
+        };
+
+        // Verify the proof and return early on errors
+        inconsistency_proof.verify(metadata.metadata(), &self.encoding_config)?;
+
+        let message = InvalidBlobIdMsg::new(self.current_epoch(), blob_id.to_owned());
+        Ok(sign_message(message, self.protocol_key_pair.clone()).await?)
     }
 
     fn retrieve_recovery_symbol(
@@ -515,21 +557,21 @@ impl ServiceState for StorageNode {
     }
 }
 
-async fn sign_confirmation(
-    confirmation: Confirmation,
+async fn sign_message<T>(
+    message: T,
     signer: ProtocolKeyPair,
-) -> Result<SignedStorageConfirmation, anyhow::Error> {
-    let signed = tokio::task::spawn_blocking(move || {
-        let encoded_confirmation = bcs::to_bytes(&confirmation)
-            .expect("bcs encoding a confirmation to a vector should not fail");
-
-        SignedStorageConfirmation {
-            signature: signer.as_ref().sign(&encoded_confirmation),
-            confirmation: encoded_confirmation,
-        }
-    })
-    .await
-    .context("unexpected error while signing a confirmation")?;
+) -> Result<SignedMessage<T>, anyhow::Error>
+where
+    T: ProtocolMessage + Send + Sync + 'static,
+{
+    let signed = tokio::task::spawn_blocking(move || signer.sign_message(&message))
+        .await
+        .with_context(|| {
+            format!(
+                "unexpected error while signing a {}",
+                std::any::type_name::<T>()
+            )
+        })?;
 
     Ok(signed)
 }
@@ -613,11 +655,11 @@ mod tests {
                 .protocol_key_pair
                 .as_ref()
                 .public()
-                .verify(&signed.confirmation, &signed.signature)
+                .verify(&signed.serialized_message, &signed.signature)
                 .expect("message should be verifiable");
 
             let confirmation: Confirmation =
-                bcs::from_bytes(&signed.confirmation).expect("message should be decodable");
+                bcs::from_bytes(&signed.serialized_message).expect("message should be decodable");
 
             assert_eq!(confirmation.epoch, storage_node.as_ref().current_epoch());
             assert_eq!(confirmation.blob_id, BLOB_ID);
@@ -645,5 +687,110 @@ mod tests {
             .expect("should not err, but instead return 'None'");
 
         Ok(())
+    }
+
+    mod inconsistency_proof {
+        use std::time::Duration;
+
+        use fastcrypto::traits::VerifyingKey;
+        use walrus_core::{
+            inconsistency::PrimaryInconsistencyProof,
+            merkle::Node,
+            test_utils::generate_config_metadata_and_valid_recovery_symbols,
+        };
+
+        use super::*;
+
+        async fn set_up_node_with_metadata(
+            metadata: UnverifiedBlobMetadataWithId,
+        ) -> anyhow::Result<StorageNodeHandle> {
+            let blob_id = metadata.blob_id().to_owned();
+
+            let shards = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(ShardIndex::new);
+
+            // create a storage node with a registered event for the blob id
+            let node = StorageNodeHandle::builder()
+                .with_system_event_provider(vec![BlobEvent::Registered(
+                    BlobRegistered::for_testing(blob_id),
+                )])
+                .with_shard_assignment(&shards)
+                .with_node_started(true)
+                .build()
+                .await?;
+
+            // make sure that the event is received by the node
+            tokio::time::sleep(Duration::from_millis(50)).await;
+
+            // store the metadata in the storage node
+            node.as_ref().store_metadata(metadata)?;
+
+            Ok(node)
+        }
+
+        #[tokio::test]
+        async fn returns_err_for_invalid_proof() -> TestResult {
+            let (_encoding_config, metadata, index, recovery_symbols) =
+                generate_config_metadata_and_valid_recovery_symbols()?;
+
+            // create invalid inconsistency proof
+            let inconsistency_proof = InconsistencyProof::Primary(PrimaryInconsistencyProof::new(
+                index,
+                recovery_symbols,
+            ));
+
+            let blob_id = metadata.blob_id().to_owned();
+            let node = set_up_node_with_metadata(metadata.into_unverified()).await?;
+
+            let verification_result = node
+                .as_ref()
+                .verify_inconsistency_proof(&blob_id, inconsistency_proof)
+                .await;
+
+            // The sliver should be recoverable, i.e. the proof is invalid.
+            assert!(verification_result.is_err());
+
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn returns_attestation_for_valid_proof() -> TestResult {
+            let (_encoding_config, metadata, index, recovery_symbols) =
+                generate_config_metadata_and_valid_recovery_symbols()?;
+
+            // Change metadata
+            let mut metadata = metadata.metadata().to_owned();
+            metadata.hashes[0].primary_hash = Node::Digest([0; 32]);
+            let blob_id = BlobId::from_sliver_pair_metadata(&metadata);
+            let metadata = UnverifiedBlobMetadataWithId::new(blob_id, metadata);
+
+            // create valid inconsistency proof
+            let inconsistency_proof = InconsistencyProof::Primary(PrimaryInconsistencyProof::new(
+                index,
+                recovery_symbols,
+            ));
+
+            let node = set_up_node_with_metadata(metadata).await?;
+
+            let attestation = node
+                .as_ref()
+                .verify_inconsistency_proof(&blob_id, inconsistency_proof)
+                .await?;
+
+            // The proof should be valid and we should receive a valid signature
+            node.as_ref()
+                .protocol_key_pair
+                .as_ref()
+                .public()
+                .verify(&attestation.serialized_message, &attestation.signature)?;
+
+            let invalid_blob_msg: InvalidBlobIdMsg =
+                bcs::from_bytes(&attestation.serialized_message)
+                    .expect("message should be decodable");
+
+            assert_eq!(invalid_blob_msg.epoch, node.as_ref().current_epoch());
+            assert_eq!(invalid_blob_msg.blob_id, blob_id);
+
+            Ok(())
+        }
     }
 }

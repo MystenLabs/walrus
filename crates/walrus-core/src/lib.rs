@@ -27,7 +27,12 @@ use fastcrypto::{
     bls12381::min_pk::{BLS12381PublicKey, BLS12381Signature},
     hash::{Blake2b256, HashFunction},
 };
-use merkle::{MerkleAuth, Node};
+use inconsistency::{
+    InconsistencyVerificationError,
+    PrimaryInconsistencyProof,
+    SecondaryInconsistencyProof,
+};
+use merkle::{MerkleAuth, MerkleProof, Node};
 use metadata::BlobMetadata;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -464,6 +469,7 @@ impl Display for SliverType {
 ///
 /// Can be either a [`PrimaryRecoverySymbol`] or [`SecondaryRecoverySymbol`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(bound(deserialize = "for<'a> U: Deserialize<'a>"))]
 pub enum RecoverySymbol<U: MerkleAuth> {
     /// A primary decoding symbol to recover a primary sliver
     Primary(PrimaryRecoverySymbol<U>),
@@ -520,6 +526,38 @@ impl TryFrom<u8> for EncodingType {
         match value {
             0 => Ok(EncodingType::RedStuff),
             _ => Err(InvalidEncodingType),
+        }
+    }
+}
+
+// Inconsistency Proofs
+
+/// An inconsistency proof for a blob.
+///
+/// Can be either a [`PrimaryInconsistencyProof`] or a [`SecondaryInconsistencyProof`],
+/// proving that either a [`PrimarySliver`] or a [`SecondarySliver`] cannot be recovered
+/// from their respective recovery symbols.
+#[derive(Debug)]
+pub enum InconsistencyProof<T: MerkleAuth = MerkleProof> {
+    /// Inconsistency Proof with symbols along the primary axis
+    Primary(PrimaryInconsistencyProof<T>),
+    /// Inconsistency Proof with symbols along the secondary axis
+    Secondary(SecondaryInconsistencyProof<T>),
+}
+
+impl<T: MerkleAuth> InconsistencyProof<T> {
+    /// Verifies the inconsistency proof.
+    ///
+    /// Returns `Ok(())` if the proof is correct, otherwise returns an
+    /// [`InconsistencyVerificationError`].
+    pub fn verify(
+        self,
+        metadata: &BlobMetadata,
+        encoding_config: &EncodingConfig,
+    ) -> Result<(), InconsistencyVerificationError> {
+        match self {
+            InconsistencyProof::Primary(proof) => proof.verify(metadata, encoding_config),
+            InconsistencyProof::Secondary(proof) => proof.verify(metadata, encoding_config),
         }
     }
 }

@@ -1,14 +1,10 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use fastcrypto::{
-    bls12381::min_pk::BLS12381Signature,
-    error::FastCryptoError,
-    traits::VerifyingKey,
-};
+use fastcrypto::{error::FastCryptoError, traits::VerifyingKey};
 use serde::{de::Error as _, Deserialize, Serialize};
 
-use super::Intent;
+use super::{Intent, ProtocolMessage, SignedMessage};
 use crate::{
     ensure,
     messages::{IntentAppId, IntentType, IntentVersion},
@@ -25,13 +21,7 @@ pub enum StorageConfirmation {
 }
 
 /// A signed [`Confirmation`] from a storage node.
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct SignedStorageConfirmation {
-    /// The BCS-encoded [`Confirmation`].
-    pub confirmation: Vec<u8>,
-    /// The signature over the BCS encoded confirmation.
-    pub signature: BLS12381Signature,
-}
+pub type SignedStorageConfirmation = SignedMessage<Confirmation>;
 
 impl SignedStorageConfirmation {
     /// Verifies that this confirmation is valid for the specified public key, epoch, and blob.
@@ -41,7 +31,7 @@ impl SignedStorageConfirmation {
         blob_id: &BlobId,
         epoch: Epoch,
     ) -> Result<Confirmation, VerificationError> {
-        let intent: Confirmation = bcs::from_bytes(&self.confirmation)?;
+        let intent: Confirmation = bcs::from_bytes(&self.serialized_message)?;
 
         // TODO(giac): when the chain integration is added, ensure that the Epoch checks are
         // consistent and do not cause problems at epoch change.
@@ -55,7 +45,7 @@ impl SignedStorageConfirmation {
         );
 
         // Perform the asymmetric verification last, as it is the most expensive operation.
-        public_key.verify(&self.confirmation, &self.signature)?;
+        public_key.verify(&self.serialized_message, &self.signature)?;
 
         Ok(intent)
     }
@@ -86,7 +76,7 @@ pub enum VerificationError {
 
 /// A non-empty list of shards, confirmed as storing their sliver
 /// pairs for the given blob_id, as of the specified epoch.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct Confirmation {
     #[serde(deserialize_with = "deserialize_storage_confirmation_intent")]
     intent: Intent,
@@ -106,6 +96,8 @@ impl Confirmation {
         }
     }
 }
+
+impl ProtocolMessage for Confirmation {}
 
 fn deserialize_storage_confirmation_intent<'de, D>(deserializer: D) -> Result<Intent, D::Error>
 where

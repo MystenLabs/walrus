@@ -346,6 +346,10 @@ impl<T: EncodingAxis> Display for DecodingSymbol<T> {
 ///
 /// The type parameter `U` represents the type of the Merkle proof associated with the symbol.
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
+#[serde(bound(
+    deserialize = "for<'a> DecodingSymbol<T>: Deserialize<'a>, for<'a> U: Deserialize<'a>",
+    serialize = "DecodingSymbol<T>: Serialize, U: Serialize"
+))]
 pub struct RecoverySymbol<T: EncodingAxis, U: MerkleAuth> {
     /// The decoding symbol.
     symbol: DecodingSymbol<T>,
@@ -427,6 +431,7 @@ impl<T: EncodingAxis, U: MerkleAuth> Display for RecoverySymbol<T, U> {
 
 /// A pair of recovery symbols to recover a sliver pair.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(bound(deserialize = "for<'a> U: Deserialize<'a>"))]
 pub struct RecoverySymbolPair<U: MerkleAuth> {
     /// Symbol to recover the primary sliver.
     pub primary: PrimaryRecoverySymbol<U>,

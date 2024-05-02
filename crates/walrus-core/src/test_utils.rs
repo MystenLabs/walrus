@@ -8,8 +8,9 @@ use fastcrypto::traits::{KeyPair, Signer};
 use rand::{rngs::StdRng, RngCore, SeedableRng};
 
 use crate::{
-    encoding::{self, EncodingConfig, PrimarySliver},
+    encoding::{self, EncodingConfig, PrimaryRecoverySymbol, PrimarySliver},
     merkle::{MerkleProof, Node},
+    messages::{ProtocolMessage, SignedMessage},
     metadata::{
         BlobMetadata,
         SliverPairMetadata,
@@ -20,7 +21,6 @@ use crate::{
     EncodingType,
     ProtocolKeyPair,
     RecoverySymbol,
-    SignedStorageConfirmation,
     Sliver,
     SliverIndex,
     SliverPairIndex,
@@ -57,7 +57,7 @@ pub fn encoding_config() -> EncodingConfig {
     EncodingConfig::new(NonZeroU16::new(10).unwrap())
 }
 
-/// Returns an arbitrary decoding symbol for testing.
+/// Returns an arbitrary recovery symbol for testing.
 pub fn recovery_symbol() -> RecoverySymbol<MerkleProof> {
     primary_sliver()
         .recovery_symbol_for_sliver(SliverPairIndex(1), &encoding_config())
@@ -70,18 +70,18 @@ pub fn merkle_proof() -> MerkleProof {
     MerkleProof::new(&[])
 }
 
-/// Returns an arbitrary storage confirmation for tests.
-pub fn signed_storage_confirmation() -> SignedStorageConfirmation {
+/// Returns an arbitrary signed message for tests.
+pub fn random_signed_message<T>() -> SignedMessage<T>
+where
+    T: ProtocolMessage,
+{
     let mut rng = StdRng::seed_from_u64(0);
-    let mut confirmation = vec![0; 32];
-    rng.fill_bytes(&mut confirmation);
+    let mut message = vec![0; 32];
+    rng.fill_bytes(&mut message);
 
     let signer = keypair();
-    let signature = signer.as_ref().sign(&confirmation);
-    SignedStorageConfirmation {
-        confirmation,
-        signature,
-    }
+    let signature = signer.as_ref().sign(&message);
+    SignedMessage::new_from_encoded(message, signature)
 }
 
 /// Returns a random blob ID for testing.
@@ -135,4 +135,41 @@ pub fn verified_blob_metadata() -> VerifiedBlobMetadataWithId {
         BlobId::from_sliver_pair_metadata(&metadata),
         metadata,
     )
+}
+
+/// Tuple containing an [`EncodingConfig`], [`VerifiedBlobMetadataWithId`], a
+/// [`SliverIndex`] and a valid vector of [`PrimaryRecoverySymbol`]s for that index.
+pub type RecoverySymbolsWithConfigAndMetadata = (
+    EncodingConfig,
+    VerifiedBlobMetadataWithId,
+    SliverIndex,
+    Vec<PrimaryRecoverySymbol<MerkleProof>>,
+);
+
+/// Generates an [`EncodingConfig`], [`VerifiedBlobMetadataWithId`], a [`SliverIndex`]
+/// and a valid vector of [`PrimaryRecoverySymbol`]s for that index.
+pub fn generate_config_metadata_and_valid_recovery_symbols(
+) -> walrus_test_utils::Result<RecoverySymbolsWithConfigAndMetadata> {
+    let blob = walrus_test_utils::random_data(314);
+    let encoding_config = encoding_config();
+    let (sliver_pairs, metadata) = encoding_config
+        .get_blob_encoder(&blob)?
+        .encode_with_metadata();
+    let target_sliver_index = SliverIndex(0);
+    let recovery_symbols = walrus_test_utils::random_subset(
+        (1..encoding_config.n_shards.get()).map(|i| {
+            sliver_pairs[i as usize]
+                .secondary
+                .recovery_symbol_for_sliver(target_sliver_index.into(), &encoding_config)
+                .unwrap()
+        }),
+        encoding_config.n_secondary_source_symbols().get().into(),
+    )
+    .collect();
+    Ok((
+        encoding_config,
+        metadata,
+        target_sliver_index,
+        recovery_symbols,
+    ))
 }

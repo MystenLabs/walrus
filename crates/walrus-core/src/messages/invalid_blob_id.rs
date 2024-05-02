@@ -3,8 +3,11 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::Intent;
+use super::{Intent, ProtocolMessage, SignedMessage};
 use crate::{messages::IntentType, BlobId, Epoch};
+
+/// A signed [`InvalidBlobIdMsg`] from a storage node.
+pub type InvalidBlobIdAttestation = SignedMessage<InvalidBlobIdMsg>;
 
 /// Message type stating that `blob_id` is invalid.
 #[derive(Debug, Deserialize, Serialize)]
@@ -26,6 +29,8 @@ impl InvalidBlobIdMsg {
         }
     }
 }
+
+impl ProtocolMessage for InvalidBlobIdMsg {}
 
 #[cfg(test)]
 mod tests {
