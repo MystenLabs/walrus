@@ -261,7 +261,9 @@ impl EncodingConfig {
         self.encoded_blob_length(unencoded_length.try_into().ok()?)
     }
 
-    /// Computes the length of the metadata for a blob of given `unencoded_length`, once encoded.
+    /// Computes the length of the metadata for a blob.
+    ///
+    /// This is independent of the blob size.
     pub fn metadata_length(&self) -> u64 {
         (self.n_shards_as_usize() * DIGEST_LEN * 2 + BlobId::LENGTH)
             .try_into()

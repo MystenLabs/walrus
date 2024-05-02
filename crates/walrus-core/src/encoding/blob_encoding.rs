@@ -84,6 +84,12 @@ impl<'a> BlobEncoder<'a> {
     }
 
     /// Encodes the blob with which `self` was created to a vector of [`SliverPair`s][SliverPair].
+    ///
+    /// # Panics
+    ///
+    /// This function can panic if there is insufficient virtual memory for the encoded data,
+    /// notably on 32-bit architectures. As there is an expansion factor of approximately 4.5, blobs
+    /// larger than roughly 800 MiB cannot be encoded on 32-bit architectures.
     pub fn encode(&self) -> Vec<SliverPair> {
         let mut primary_slivers: Vec<_> = self.empty_slivers::<Primary>();
         let mut secondary_slivers: Vec<_> = self.empty_slivers::<Secondary>();
@@ -140,6 +146,12 @@ impl<'a> BlobEncoder<'a> {
     /// This function operates on the fully expanded message matrix for the blob. This matrix is
     /// used to compute the Merkle trees for the metadata, and to extract the sliver pairs. The
     /// returned blob metadata is considered to be verified as it is directly built from the data.
+    ///
+    /// # Panics
+    ///
+    /// This function can panic if there is insufficient virtual memory for the encoded data,
+    /// notably on 32-bit architectures. As there is an expansion factor of approximately 4.5, blobs
+    /// larger than roughly 800 MiB cannot be encoded on 32-bit architectures.
     pub fn encode_with_metadata(&self) -> (Vec<SliverPair>, VerifiedBlobMetadataWithId) {
         let mut expanded_matrix = self.get_expanded_matrix();
         let metadata = expanded_matrix.get_metadata();
@@ -437,10 +449,15 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
     ///
     /// Returns the source blob as a byte vector if decoding succeeds or `None` if decoding fails.
     ///
-    /// Slivers of incorrect length are ignored and silently dropped.
+    /// Slivers of incorrect length are dropped with a warning.
     ///
-    /// If decoding failed due to an insufficient number of provided slivers, it can be continued
-    /// by additional calls to [`decode`][Self::decode] providing more slivers.
+    /// If decoding failed due to an insufficient number of provided slivers, it can be continued by
+    /// additional calls to [`decode`][Self::decode] providing more slivers.
+    ///
+    /// # Panics
+    ///
+    /// This function can panic if there is insufficient virtual memory for the decoded blob in
+    /// addition to the slivers, notably on 32-bit architectures.
     pub fn decode<S>(&mut self, slivers: S) -> Option<Vec<u8>>
     where
         S: IntoIterator<Item = Sliver<T>>,
@@ -532,6 +549,12 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
     ///
     /// If, upon successful decoding, the recomputed blob ID does not match the input blob ID,
     /// returns a [`DecodingVerificationError`].
+    ///
+    /// # Panics
+    ///
+    /// This function can panic if there is insufficient virtual memory for the encoded data,
+    /// notably on 32-bit architectures. As this function re-encodes the blob to verify the
+    /// metadata, similar limits apply as in [`BlobEncoder::encode_with_metadata`].
     pub fn decode_and_verify(
         &mut self,
         blob_id: &BlobId,

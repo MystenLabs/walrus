@@ -7,7 +7,9 @@ A decentralized blob store using [Sui](https://github.com/MystenLabs/sui) for co
 - We assume that this code is executed on at least 32-bit hardware; concretely, we assume that a `u32` can be converted
   safely into a `usize`.
 - Servers are assumed to use a 64-bit architecture (or higher); concretely, `usize` has at least 64 bits.
-- When a client is executed on a 32-bit architecture, it may fail for blobs above approximately 500 MiB.
+- When a client is executed on a 32-bit architecture, it may panic for blobs above a certain size. Given sufficient
+  physical memory (4 GiB), it is generally possible to encode or decode blobs smaller than 500 MiB on 32-bit
+  architectures.
 
 ## Contributing
 
