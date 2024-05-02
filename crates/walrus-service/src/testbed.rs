@@ -1,6 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Facilities to deploy a demo testbed.
+
 use std::{
     num::NonZeroU16,
     path::{Path, PathBuf},
@@ -30,8 +32,10 @@ pub fn node_config_name_prefix(node_index: u16, committee_size: NonZeroU16) -> S
     )
 }
 
-/// Deterministically generate storage node configurations without a `SuiConfig` for a
-/// total of `committee_size` nodes and `n_shards`.
+/// Deterministically generate storage node configurations without a `SuiConfig`.
+///
+/// The storage node configurations are created for a total of `committee_size` nodes and
+/// `n_shards`.
 pub fn create_storage_node_configs(
     working_dir: &Path,
     committee_size: NonZeroU16,

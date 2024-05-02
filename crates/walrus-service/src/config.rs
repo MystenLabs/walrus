@@ -1,6 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Storage client configuration module.
+
 use std::{
     net::SocketAddr,
     path::{Path, PathBuf},

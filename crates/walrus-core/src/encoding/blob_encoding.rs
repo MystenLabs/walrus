@@ -208,6 +208,8 @@ impl<'a> BlobEncoder<'a> {
     }
 }
 
+/// The representation of the expanded message matrix.
+///
 /// The expanded message matrix is represented as vector of rows, where each row is a [`Symbols`]
 /// object. This choice simplifies indexing, and the rows of [`Symbols`] can then be directly
 /// truncated into primary slivers.

@@ -124,6 +124,7 @@ fn rotate_by_bytes<T>(slice: &mut [T], rotation: &[u8]) {
 }
 
 /// Compute the modulo of the input byte array interpreted as an big-endian unsigned integer.
+///
 /// Uses Horner's method.
 fn bytes_mod(bytes: &[u8], modulus: usize) -> usize {
     bytes

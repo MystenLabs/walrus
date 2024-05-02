@@ -69,8 +69,9 @@ fn compile_package(package_path: PathBuf) -> (PackageDependencies, Vec<Vec<u8>>)
     (compiled_package.dependency_ids, compiled_modules)
 }
 
-/// Publish the `blob_store` package and return the IDs of the created package
-/// and the `CommitteeCapHolder`.
+/// Publishes the `blob_store` package.
+///
+/// Returns the IDs of the created package and the `CommitteeCapHolder`.
 pub async fn publish_package(
     wallet: &mut WalletContext,
     contract_path: PathBuf,

@@ -1,6 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Client for the Walrus service.
+
 use std::{collections::HashMap, time::Instant};
 
 use anyhow::{anyhow, Result};

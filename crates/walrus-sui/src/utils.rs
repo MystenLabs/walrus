@@ -81,8 +81,10 @@ pub(crate) async fn get_type_parameters(
     }
 }
 
-/// Retrieves the objects of the given type that were created in a transaction
-/// from a [`SuiTransactionBlockResponse`]
+/// Gets the objects of the given type that were created in a transaction.
+///
+/// All the object ids of the objects created in the transaction, and of type represented by the
+/// `struct_tag`, are taken from the [`SuiTransactionBlockResponse`].
 pub(crate) fn get_created_sui_object_ids_by_type(
     response: &SuiTransactionBlockResponse,
     struct_tag: &MoveStructTag,
@@ -274,10 +276,10 @@ pub fn load_wallet(config_path: Option<PathBuf>) -> Result<WalletContext> {
     WalletContext::new(&config_path, None, None)
 }
 
-/// Creates a wallet on `network` and stores its config at `config_path`. The keystore will
-/// be stored in the same directory as the wallet config and named `keystore_filename`
-/// (if provided) and `sui.keystore` otherwise.
-/// Returns the created Wallet.
+/// Creates a wallet on `network` and stores its config at `config_path`.
+///
+/// The keystore will be stored in the same directory as the wallet config and named
+/// `keystore_filename` (if provided) and `sui.keystore` otherwise.  Returns the created Wallet.
 pub fn create_wallet(
     config_path: &Path,
     network: &SuiNetwork,

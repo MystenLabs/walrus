@@ -28,9 +28,10 @@ use crate::client::error::SliverStoreError;
 /// Represents the index of the node in the vector of members of the committee.
 pub type NodeIndex = usize;
 
-/// Represents the result of an interaction with a storage node. Contains the epoch, the "weight" of
-/// the interaction (e.g., the number of shards for which an operation was performed), the storage
-/// node that issued it, and the result of the operation.
+/// Represents the result of an interaction with a storage node.
+///
+/// Contains the epoch, the "weight" of the interaction (e.g., the number of shards for which an
+/// operation was performed), the storage node that issued it, and the result of the operation.
 pub struct NodeResult<T, E>(pub Epoch, pub usize, pub NodeIndex, pub Result<T, E>);
 
 impl<T, E> WeightedResult for NodeResult<T, E> {

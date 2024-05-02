@@ -30,6 +30,7 @@ pub fn event_id_for_testing() -> EventID {
 }
 
 /// Returns a certificate on the provided `blob_id` from the default test committee.
+///
 /// The default test committee is currently a single storage node with sk = 117.
 pub fn get_default_blob_certificate(blob_id: BlobId, epoch: Epoch) -> ConfirmationCertificate {
     let confirmation = bcs::to_bytes(&Confirmation::new(epoch, blob_id)).unwrap();
@@ -42,6 +43,7 @@ pub fn get_default_blob_certificate(blob_id: BlobId, epoch: Epoch) -> Confirmati
 }
 
 /// Returns a certificate from the default test committee that marks `blob_id` as invalid.
+///
 /// The default test committee is currently a single storage node with sk = 117.
 pub fn get_default_invalid_certificate(blob_id: BlobId, epoch: Epoch) -> InvalidBlobCertificate {
     let invalid_blob_id_msg = bcs::to_bytes(&InvalidBlobIdMsg::new(epoch, blob_id)).unwrap();

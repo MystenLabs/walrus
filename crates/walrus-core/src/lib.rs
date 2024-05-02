@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Core functionality for Walrus.
+
 use std::{
     fmt::{self, Debug, Display},
     num::{NonZeroU16, NonZeroUsize},

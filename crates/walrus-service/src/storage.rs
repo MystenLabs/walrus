@@ -130,8 +130,7 @@ impl Storage {
         })
     }
 
-    /// Creates storage for the specified shard, and returns it, or just returns the shard's storage
-    /// if it already exists.
+    /// Returns the storage for the specified shard, creating it if it does not exist.
     pub fn create_storage_for_shard(
         &mut self,
         shard: ShardIndex,

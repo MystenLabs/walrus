@@ -40,8 +40,10 @@ pub struct EncodingConfig {
 }
 
 impl EncodingConfig {
-    /// Creates a new encoding config with the appropriate number of primary and secondary source
-    /// symbols for the given number of shards.
+    /// Creates a new encoding config, given the number of shards.
+    ///
+    /// The number of shards determines the the appropriate number of primary and secondary source
+    /// symbols.
     ///
     /// The decoding probability is given by the [`decoding_safety_limit`]. See the documentation of
     /// [`decoding_safety_limit`] and [`source_symbols_for_n_shards`] for more details.
@@ -62,10 +64,6 @@ impl EncodingConfig {
     /// primary encoding (must be equal to or below `n_shards - 2f`), and `source_symbols_secondary`
     /// is the number of source symbols for the secondary encoding (must be equal to or below
     /// `n_shards - f`).
-    ///
-    /// # Returns
-    ///
-    /// The encoding configuration.
     ///
     /// # Panics
     ///
@@ -231,8 +229,7 @@ impl EncodingConfig {
         (self.n_shards_as_usize() * DIGEST_LEN * 2 + BlobId::LENGTH) as u64
     }
 
-    /// Returns an [`Encoder`] to perform a single primary or secondary encoding of the provided
-    /// data.
+    /// Returns an [`Encoder`] to perform a single primary or secondary encoding of the data.
     ///
     /// The `data` to be encoded _does not_ have to be aligned/padded. The `encoding_axis` specifies
     /// which encoding parameters the encoder uses, i.e., the parameters for either the primary or
@@ -278,9 +275,11 @@ impl EncodingConfig {
     }
 }
 
-/// Returns the minimum difference between the number of primary source symbols and 1/3rd of the
-/// number of shards, and between the number of secondary source symbols and 2/3rds of the number of
-/// shards.
+/// Returns the "safety limit" for the encoding.
+///
+/// The safety limit is the minimum difference between the number of primary source symbols and
+/// 1/3rd of the number of shards, and between the number of secondary source symbols and 2/3rds of
+/// the number of shards.
 ///
 /// This safety limit ensures that, when collecting symbols for reconstruction or recovery, f+1
 /// replies (for primary symbols) or 2f+1 replies (for secondary symbols) from a committee of 3f+1

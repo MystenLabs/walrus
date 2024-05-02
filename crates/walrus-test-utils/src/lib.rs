@@ -227,10 +227,10 @@ pub fn random_subset_from_rng<T: Clone>(
     data.into_iter().take(count)
 }
 
-/// Gets a random subset of `count` elements of `data` in an arbitrary order using a newly generated
-/// RNG with fixed seed.
+/// Gets a random subset of `count` elements of `data` in an arbitrary order.
 ///
-/// If the `data` has fewer elements than `count` the original number of elements is returned.
+/// Uses a newly generated RNG with fixed seed. If the `data` has fewer elements than `count` the
+/// original number of elements is returned.
 pub fn random_subset<T: Clone>(
     data: impl IntoIterator<Item = T>,
     count: usize,
@@ -245,8 +245,9 @@ pub fn random_data_from_rng(data_length: usize, rng: &mut impl RngCore) -> Vec<u
     result
 }
 
-/// Creates a byte vector of length `data_length` filled with random data using a newly generated
-/// RNG with fixed seed.
+/// Creates a byte vector of length `data_length` filled with random data.
+///
+/// Uses a newly generated RNG with fixed seed.
 pub fn random_data(data_length: usize) -> Vec<u8> {
     random_data_from_rng(data_length, &mut StdRng::seed_from_u64(42))
 }
