@@ -48,7 +48,7 @@ impl Encoder {
         encoding_plan: &SourceBlockEncodingPlan,
     ) -> Result<Self, EncodeError> {
         assert!(n_shards >= n_source_symbols);
-        if data.len() % n_source_symbols.get() as usize != 0 {
+        if data.len() % usize::from(n_source_symbols.get()) != 0 {
             return Err(EncodeError::MisalignedData(n_source_symbols));
         }
         let symbol_size =
@@ -107,7 +107,7 @@ impl Encoder {
             .source_packets()
             .into_iter()
             .chain(self.raptorq_encoder.repair_packets(0, repair_end.into()))
-            .skip(range.start as usize)
+            .skip(range.start.into())
             .take(range.len())
             .map(utils::packet_to_data)
     }
@@ -153,7 +153,7 @@ impl Decoder {
             raptorq_decoder: SourceBlockDecoder::new(
                 0,
                 &utils::get_transmission_info(symbol_size),
-                (n_source_symbols.get() as u64) * (symbol_size.get() as u64),
+                u64::from(n_source_symbols.get()) * u64::from(symbol_size.get()),
             ),
             symbol_size,
         }
@@ -172,7 +172,7 @@ impl Decoder {
         U: EncodingAxis,
         V: std::fmt::Debug,
     {
-        let expected_symbol_size = self.symbol_size.get() as usize;
+        let expected_symbol_size: usize = self.symbol_size.get().into();
         let packets = symbols.into_iter().filter_map(|symbol| {
             let actual_symbol_size = symbol.len();
             if actual_symbol_size == expected_symbol_size {

@@ -199,7 +199,9 @@ where
         if leaf_index >= self.n_leaves {
             return Err(LeafIndexOutOfBounds(leaf_index));
         }
-        let mut path = Vec::with_capacity(self.n_leaves.ilog2() as usize + 1);
+        let mut path = Vec::with_capacity(
+            usize::try_from(self.n_leaves.ilog2()).expect("this is smaller than `n_leaves`") + 1,
+        );
         let mut level_index = leaf_index;
         let mut n_level = self.n_leaves;
         let mut level_base_index = 0;

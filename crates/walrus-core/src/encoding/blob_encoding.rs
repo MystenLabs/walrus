@@ -37,6 +37,7 @@ use crate::{
 #[derive(Debug)]
 pub struct BlobEncoder<'a> {
     /// A reference to the blob.
+    // INV: `blob.len() > 0`
     blob: &'a [u8],
     /// The size of the encoded and decoded symbols.
     symbol_size: NonZeroU16,
@@ -213,6 +214,7 @@ impl<'a> BlobEncoder<'a> {
 /// truncated into primary slivers.
 struct ExpandedMessageMatrix<'a> {
     matrix: Vec<Symbols>,
+    // INV: `blob.len() > 0`
     blob: &'a [u8],
     config: &'a EncodingConfig,
     /// The number of rows in the non-expanded message matrix.
@@ -224,9 +226,10 @@ struct ExpandedMessageMatrix<'a> {
 
 impl<'a> ExpandedMessageMatrix<'a> {
     fn new(config: &'a EncodingConfig, symbol_size: NonZeroU16, blob: &'a [u8]) -> Self {
+        assert!(!blob.is_empty());
         let matrix = vec![
-            Symbols::zeros(config.n_shards().get() as usize, symbol_size);
-            config.n_shards().get() as usize
+            Symbols::zeros(config.n_shards().get().into(), symbol_size);
+            config.n_shards().get().into()
         ];
         let mut expanded_matrix = Self {
             matrix,
@@ -246,7 +249,7 @@ impl<'a> ExpandedMessageMatrix<'a> {
     fn fill_systematic_with_rows(&mut self) {
         for (destination_row, row) in self.matrix.iter_mut().zip(
             self.blob
-                .chunks(self.n_columns * self.symbol_size.get() as usize),
+                .chunks(self.n_columns * usize::from(self.symbol_size.get())),
         ) {
             destination_row.data_mut()[0..row.len()].copy_from_slice(row);
         }
@@ -314,7 +317,10 @@ impl<'a> ExpandedMessageMatrix<'a> {
         VerifiedBlobMetadataWithId::new_verified_from_metadata(
             metadata,
             EncodingType::RedStuff,
-            self.blob.len() as u64,
+            NonZeroU64::new(
+                u64::try_from(self.blob.len()).expect("any valid blob size fits into a `u64`"),
+            )
+            .expect("`self.blob` is guaranteed to be non-zero"),
         )
     }
 
@@ -399,11 +405,13 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
     /// # Errors
     ///
     /// Returns an [`InvalidDataSizeError::DataTooLarge`] if the `blob_size` is too large to be
-    /// decoded. Returns an [`InvalidDataSizeError::EmptyData`] if `blob_size == 0`.
-    pub fn new(config: &'a EncodingConfig, blob_size: u64) -> Result<Self, InvalidDataSizeError> {
-        let symbol_size = config.symbol_size_for_blob(blob_size)?;
-        let blob_size = NonZeroU64::new(blob_size)
-            .expect("already checked when computing the symbol size")
+    /// decoded.
+    pub fn new(
+        config: &'a EncodingConfig,
+        blob_size: NonZeroU64,
+    ) -> Result<Self, InvalidDataSizeError> {
+        let symbol_size = config.symbol_size_for_blob(blob_size.get())?;
+        let blob_size = blob_size
             .try_into()
             .map_err(|_| InvalidDataSizeError::DataTooLarge)?;
         Ok(Self {
@@ -624,7 +632,7 @@ mod tests {
     #[test]
     fn test_blob_encode_decode() {
         let blob = random_data(31415);
-        let blob_size = blob.len() as u64;
+        let blob_size = NonZeroU64::new(blob.len().try_into().unwrap()).unwrap();
 
         let config = EncodingConfig::new(NonZeroU16::new(102).unwrap());
 
@@ -715,7 +723,7 @@ mod tests {
     #[test]
     fn test_encode_decode_and_verify() {
         let blob = random_data(16180);
-        let blob_size = blob.len() as u64;
+        let blob_size = NonZeroU64::new(blob.len().try_into().unwrap()).unwrap();
         let n_shards = 102;
 
         let config = EncodingConfig::new(NonZeroU16::new(n_shards).unwrap());

@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::num::{NonZeroU16, NonZeroU32};
+use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
 
 use raptorq::SourceBlockEncodingPlan;
 
@@ -244,19 +244,25 @@ impl EncodingConfig {
     ///
     /// This computation is the same as done by the function of the same name in
     /// `contracts/blob_store/redstuff.move` and should be kept in sync.
-    pub fn encoded_blob_length(&self, unencoded_length: usize) -> Option<u64> {
-        let slivers_size = (self.source_symbols_primary.get() as u64
-            + self.source_symbols_secondary.get() as u64)
-            * self
-                .symbol_size_for_blob_from_usize(unencoded_length)
-                .ok()?
-                .get() as u64;
-        Some(self.n_shards_as_usize() as u64 * (slivers_size + self.metadata_length()))
+    pub fn encoded_blob_length(&self, unencoded_length: u64) -> Option<u64> {
+        let slivers_size = (u64::from(self.source_symbols_primary.get())
+            + u64::from(self.source_symbols_secondary.get()))
+            * u64::from(self.symbol_size_for_blob(unencoded_length).ok()?.get());
+        Some(u64::from(self.n_shards.get()) * (slivers_size + self.metadata_length()))
+    }
+
+    /// Computes the length of a blob of given `unencoded_length`, once encoded.
+    ///
+    /// Same as [`Self::encoded_blob_length`], but taking a `usize` as input.
+    pub fn encoded_blob_length_from_usize(&self, unencoded_length: usize) -> Option<u64> {
+        self.encoded_blob_length(unencoded_length.try_into().ok()?)
     }
 
     /// Computes the length of the metadata for a blob of given `unencoded_length`, once encoded.
     pub fn metadata_length(&self) -> u64 {
-        (self.n_shards_as_usize() * DIGEST_LEN * 2 + BlobId::LENGTH) as u64
+        (self.n_shards_as_usize() * DIGEST_LEN * 2 + BlobId::LENGTH)
+            .try_into()
+            .expect("this always fits into a `u64`")
     }
 
     /// Returns an [`Encoder`] to perform a single primary or secondary encoding of the provided
@@ -298,10 +304,11 @@ impl EncodingConfig {
     ///
     /// # Errors
     ///
-    /// Returns an [`InvalidDataSizeError`] if the `blob_size` is zero or too large to be decoded.
+    /// Returns an [`InvalidDataSizeError::DataTooLarge`] if the `blob_size` is too large to be
+    /// decoded.
     pub fn get_blob_decoder<T: EncodingAxis>(
         &self,
-        blob_size: u64,
+        blob_size: NonZeroU64,
     ) -> Result<BlobDecoder<T>, InvalidDataSizeError> {
         BlobDecoder::new(self, blob_size)
     }
@@ -398,7 +405,8 @@ mod tests {
     /// `contracts/blob_store/redstuff.move` and should be kept in sync.
     fn test_encoded_size(blob_size: usize, n_shards: u16, expected_encoded_size: Option<u64>) {
         assert_eq!(
-            EncodingConfig::new(NonZeroU16::new(n_shards).unwrap()).encoded_blob_length(blob_size),
+            EncodingConfig::new(NonZeroU16::new(n_shards).unwrap())
+                .encoded_blob_length_from_usize(blob_size),
             expected_encoded_size,
         );
     }

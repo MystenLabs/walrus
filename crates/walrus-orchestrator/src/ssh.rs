@@ -403,7 +403,7 @@ impl SshConnection {
     /// Upload a file to the remote machines through scp.
     #[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#234)
     pub fn upload<P: AsRef<Path>>(&self, path: P, content: &[u8]) -> SshResult<()> {
-        let size = content.len() as u64;
+        let size = u64::try_from(content.len()).expect("we never upload anything above 16 EiB");
         let mut error = None;
         for _ in 0..self.retries + 1 {
             let mut channel = match self.session.scp_send(path.as_ref(), 0o644, size, None) {

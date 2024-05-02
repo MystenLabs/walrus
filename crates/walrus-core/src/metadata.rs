@@ -3,7 +3,7 @@
 
 //! Metadata associated with a Blob and stored by storage nodes.
 
-use std::num::NonZeroU16;
+use std::num::{NonZeroU16, NonZeroU64};
 
 use fastcrypto::hash::{Blake2b256, HashFunction};
 use serde::{Deserialize, Serialize};
@@ -74,7 +74,7 @@ impl<const V: bool> BlobMetadataWithId<V> {
     pub fn new_verified_from_metadata(
         sliver_pair_meta: Vec<SliverPairMetadata>,
         encoding: EncodingType,
-        unencoded_length: u64,
+        unencoded_length: NonZeroU64,
     ) -> VerifiedBlobMetadataWithId {
         let blob_metadata = BlobMetadata {
             encoding_type: encoding,
@@ -154,11 +154,7 @@ impl UnverifiedBlobMetadataWithId {
             }
         );
         crate::ensure!(
-            self.metadata.unencoded_length != 0,
-            VerificationError::EmptyBlob
-        );
-        crate::ensure!(
-            self.metadata.unencoded_length <= config.max_blob_size(),
+            self.metadata.unencoded_length.get() <= config.max_blob_size(),
             VerificationError::UnencodedLengthTooLarge
         );
         let computed_blob_id = BlobId::from_sliver_pair_metadata(&self.metadata);
@@ -185,7 +181,7 @@ pub struct BlobMetadata {
     /// The type of encoding used to erasure encode the blob.
     pub encoding_type: EncodingType,
     /// The length of the unencoded blob.
-    pub unencoded_length: u64,
+    pub unencoded_length: NonZeroU64,
     /// The hashes over the slivers of the blob.
     pub hashes: Vec<SliverPairMetadata>,
 }
@@ -220,7 +216,7 @@ impl BlobMetadata {
         &self,
         encoding_config: &EncodingConfig,
     ) -> Result<NonZeroU16, InvalidDataSizeError> {
-        encoding_config.symbol_size_for_blob(self.unencoded_length)
+        encoding_config.symbol_size_for_blob(self.unencoded_length.get())
     }
 }
 
@@ -333,10 +329,13 @@ mod tests {
         fn fails_for_unencoded_length_too_large() {
             let config = test_utils::encoding_config();
             let mut metadata = test_utils::unverified_blob_metadata();
-            metadata.metadata.unencoded_length = u16::MAX as u64
-                * config.source_symbols_primary.get() as u64
-                * config.source_symbols_secondary.get() as u64
-                + 1;
+            metadata.metadata.unencoded_length = NonZeroU64::new(
+                u64::from(u16::MAX)
+                    * u64::from(config.source_symbols_primary.get())
+                    * u64::from(config.source_symbols_secondary.get())
+                    + 1,
+            )
+            .unwrap();
 
             let err = metadata
                 .verify(&config)

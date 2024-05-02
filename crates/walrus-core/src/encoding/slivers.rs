@@ -68,7 +68,7 @@ impl<T: EncodingAxis> Sliver<T> {
     /// The `length` parameter specifies the number of symbols.
     pub fn new_empty(length: u16, symbol_size: NonZeroU16, index: SliverIndex) -> Self {
         Self {
-            symbols: Symbols::zeros(length as usize, symbol_size),
+            symbols: Symbols::zeros(length.into(), symbol_size),
             index,
             _sliver_type: PhantomData,
         }
@@ -101,9 +101,11 @@ impl<T: EncodingAxis> Sliver<T> {
         );
         ensure!(
             self.symbols.len()
-                == encoding_config
-                    .n_source_symbols::<T::OrthogonalAxis>()
-                    .get() as usize,
+                == usize::from(
+                    encoding_config
+                        .n_source_symbols::<T::OrthogonalAxis>()
+                        .get()
+                ),
             SliverVerificationError::SliverSizeMismatch
         );
         let symbol_size_from_metadata = metadata
@@ -556,7 +558,10 @@ mod tests {
             let expanded_secondary = sliver.secondary.recovery_symbols(&config)?;
             for (row, other_pair) in pairs.iter().enumerate() {
                 let rec = other_pair.primary.recovery_symbols(&config)?;
-                assert_eq!(expanded_secondary[row], rec[n_shards as usize - 1 - index]);
+                assert_eq!(
+                    expanded_secondary[row],
+                    rec[usize::from(n_shards) - 1 - index]
+                );
             }
         }
         Ok(())
@@ -613,7 +618,7 @@ mod tests {
             n_shards,
             blob,
         );
-        let n_to_recover_from = source_symbols_primary.max(source_symbols_secondary) as usize;
+        let n_to_recover_from = source_symbols_primary.max(source_symbols_secondary).into();
 
         for pair in pairs.iter() {
             // Get a random subset of recovery symbols.

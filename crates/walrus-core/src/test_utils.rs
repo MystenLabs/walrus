@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Utility functions for tests.
 
-use std::num::NonZeroU16;
+use std::num::{NonZeroU16, NonZeroU64};
 
 use fastcrypto::traits::{KeyPair, Signer};
 use rand::{rngs::StdRng, RngCore, SeedableRng};
@@ -103,7 +103,7 @@ pub const fn blob_id_from_u64(num: u64) -> BlobId {
 /// Returns an arbitrary metadata object.
 pub fn blob_metadata() -> BlobMetadata {
     let config = encoding_config();
-    let unencoded_length = 62_831;
+    let unencoded_length = NonZeroU64::new(62_831).unwrap();
     let hashes: Vec<_> = (0..config.n_shards.into())
         .map(|i| SliverPairMetadata {
             primary_hash: Node::Digest([(i % 256) as u8; 32]),

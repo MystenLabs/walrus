@@ -356,7 +356,7 @@ pub(crate) mod tests {
 
     pub(crate) fn get_typed_sliver<E: EncodingAxis>(seed: u8) -> TypedSliver<E> {
         TypedSliver::new(
-            vec![seed; seed as usize * 512],
+            vec![seed; usize::from(seed) * 512],
             16.try_into().unwrap(),
             SliverIndex(0),
         )

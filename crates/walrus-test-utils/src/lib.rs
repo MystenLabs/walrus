@@ -262,7 +262,7 @@ mod tests {
         ]
     }
     fn test_with_no_return(bool_arg: bool, usize_arg: usize, u32_arg: u32) {
-        assert_eq!(bool_arg, usize_arg == u32_arg as usize);
+        assert_eq!(bool_arg, Ok(usize_arg) == usize::try_from(u32_arg));
     }
 
     param_test! {

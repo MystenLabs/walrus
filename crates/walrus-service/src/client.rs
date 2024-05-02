@@ -126,7 +126,7 @@ impl<T: ContractClient> Client<T> {
         tracing::Span::current().record("blob_id_prefix", truncate_blob_id(metadata.blob_id()));
         let encoded_length = self
             .encoding_config
-            .encoded_blob_length(blob.len())
+            .encoded_blob_length_from_usize(blob.len())
             .expect("valid for metadata created from the same config");
         tracing::debug!(blob_id = %metadata.blob_id(), ?encoded_length,
                         "computed blob pairs and metadata");
@@ -144,7 +144,9 @@ impl<T: ContractClient> Client<T> {
                 &storage_resource,
                 *metadata.blob_id(),
                 root_hash.bytes(),
-                blob.len() as u64,
+                blob.len()
+                    .try_into()
+                    .expect("conversion implicitly checked above"),
                 metadata.metadata().encoding_type,
             )
             .await?;

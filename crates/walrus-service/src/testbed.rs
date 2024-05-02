@@ -24,10 +24,14 @@ use crate::{
 
 /// Prefix for the node configuration file name.
 pub fn node_config_name_prefix(node_index: u16, committee_size: NonZeroU16) -> String {
-    format!(
-        "dryrun-node-{node_index:00$}",
-        (committee_size.get() - 1).ilog10() as usize + 1
-    )
+    let width = if committee_size.get() == 1 {
+        1
+    } else {
+        usize::try_from((committee_size.get() - 1).ilog10())
+            .expect("this is smaller than `u16::MAX`")
+            + 1
+    };
+    format!("dryrun-node-{node_index:00$}", width)
 }
 
 /// Deterministically generate storage node configurations without a `SuiConfig` for a

@@ -68,11 +68,11 @@ pub(crate) mod default {
     use walrus_core::bft;
 
     pub fn concurrent_writes(n_shards: NonZeroU16) -> usize {
-        (n_shards.get() - bft::max_n_faulty(n_shards)) as usize
+        (n_shards.get() - bft::max_n_faulty(n_shards)).into()
     }
 
     pub fn concurrent_sliver_reads(n_shards: NonZeroU16) -> usize {
-        (n_shards.get() - 2 * bft::max_n_faulty(n_shards)) as usize
+        (n_shards.get() - 2 * bft::max_n_faulty(n_shards)).into()
     }
 
     pub fn concurrent_metadata_reads() -> usize {

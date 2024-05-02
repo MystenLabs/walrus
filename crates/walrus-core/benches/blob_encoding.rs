@@ -3,7 +3,10 @@
 
 //! Benchmarks for the blob encoding and decoding with and without authentication.
 
-use std::{num::NonZeroU16, time::Duration};
+use std::{
+    num::{NonZeroU16, NonZeroU64},
+    time::Duration,
+};
 
 use criterion::{AxisScale, BatchSize, BenchmarkId, Criterion, PlotConfiguration};
 use walrus_core::encoding::{EncodingConfig, Primary};
@@ -13,7 +16,7 @@ const N_SHARDS: u16 = 1000;
 
 // The maximum symbol size is `u16::MAX`, which means a maximum blob size of ~13 GiB.
 // The blob size does not have to be a multiple of the number of symbols as we pad with 0s.
-const BLOB_SIZES: [(usize, &str); 6] = [
+const BLOB_SIZES: [(u64, &str); 6] = [
     (1, "1B"),
     (1 << 10, "1KiB"),
     (1 << 20, "1MiB"),
@@ -32,8 +35,8 @@ fn blob_encoding(c: &mut Criterion) {
     group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Logarithmic));
 
     for (blob_size, size_str) in BLOB_SIZES {
-        let blob = random_data(blob_size);
-        group.throughput(criterion::Throughput::Bytes(blob_size as u64));
+        let blob = random_data(blob_size.try_into().unwrap());
+        group.throughput(criterion::Throughput::Bytes(blob_size));
 
         group.bench_with_input(BenchmarkId::new("encode", size_str), &(blob), |b, blob| {
             b.iter(|| {
@@ -63,8 +66,8 @@ fn blob_decoding(c: &mut Criterion) {
     group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Logarithmic));
 
     for (blob_size, size_str) in BLOB_SIZES {
-        let blob = random_data(blob_size);
-        group.throughput(criterion::Throughput::Bytes(blob_size as u64));
+        let blob = random_data(blob_size.try_into().unwrap());
+        group.throughput(criterion::Throughput::Bytes(blob_size));
         let encoder = config.get_blob_encoder(&blob).unwrap();
         let (sliver_pairs, metadata) = encoder.encode_with_metadata();
         let primary_slivers_for_decoding: Vec<_> = random_subset(
@@ -82,7 +85,7 @@ fn blob_decoding(c: &mut Criterion) {
                     || slivers.clone(),
                     |slivers| {
                         let mut decoder = config
-                            .get_blob_decoder::<Primary>(*blob_size as u64)
+                            .get_blob_decoder::<Primary>(NonZeroU64::new(*blob_size).unwrap())
                             .unwrap();
                         let _blob = decoder.decode(slivers).unwrap();
                     },
@@ -99,7 +102,7 @@ fn blob_decoding(c: &mut Criterion) {
                     || slivers.clone(),
                     |slivers| {
                         let mut decoder = config
-                            .get_blob_decoder::<Primary>(*blob_size as u64)
+                            .get_blob_decoder::<Primary>(NonZeroU64::new(*blob_size).unwrap())
                             .unwrap();
                         let _blob = decoder
                             .decode_and_verify(blob_id, slivers)

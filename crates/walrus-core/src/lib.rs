@@ -4,7 +4,7 @@
 //! Core functionality for Walrus.
 use std::{
     fmt::{self, Debug, Display},
-    num::{NonZeroU16, NonZeroU32},
+    num::{NonZeroU16, NonZeroU32, NonZeroU64},
     ops::{Bound, Range, RangeBounds},
     str::FromStr,
 };
@@ -70,8 +70,12 @@ impl BlobId {
 
     /// Returns the blob ID as a hash over the Merkle root, encoding type,
     /// and unencoded_length of the blob.
-    pub fn from_metadata(merkle_root: Node, encoding: EncodingType, unencoded_length: u64) -> Self {
-        Self::new_with_hash_function::<Blake2b256>(merkle_root, encoding, unencoded_length)
+    pub fn from_metadata(
+        merkle_root: Node,
+        encoding: EncodingType,
+        unencoded_length: NonZeroU64,
+    ) -> Self {
+        Self::new_with_hash_function::<Blake2b256>(merkle_root, encoding, unencoded_length.get())
     }
 
     /// Computes the Merkle root over the [`SliverPairMetadata`][metadata::SliverPairMetadata],
@@ -362,16 +366,16 @@ impl Sliver {
 
     /// Returns true iff the sliver has the length expected based on the encoding configuration and
     /// blob size.
-    pub fn has_correct_length(&self, config: &EncodingConfig, blob_size: u64) -> bool {
+    pub fn has_correct_length(&self, config: &EncodingConfig, blob_size: NonZeroU64) -> bool {
         self.expected_length(config, blob_size).is_some_and(|l| {
             self.len() == usize::try_from(l).expect("we assume at least a 32-bit architecture")
         })
     }
 
-    fn expected_length(&self, config: &EncodingConfig, blob_size: u64) -> Option<u32> {
+    fn expected_length(&self, config: &EncodingConfig, blob_size: NonZeroU64) -> Option<u32> {
         match self {
-            Self::Primary(_) => config.sliver_size_for_blob::<Primary>(blob_size),
-            Self::Secondary(_) => config.sliver_size_for_blob::<Secondary>(blob_size),
+            Self::Primary(_) => config.sliver_size_for_blob::<Primary>(blob_size.get()),
+            Self::Secondary(_) => config.sliver_size_for_blob::<Secondary>(blob_size.get()),
         }
         .map(NonZeroU32::get)
         .ok()

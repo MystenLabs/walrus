@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::num::NonZeroU16;
+use std::num::{NonZeroU16, NonZeroU64};
 
 use anyhow::bail;
 use fastcrypto::traits::ToFromBytes;
@@ -39,7 +39,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
         .await?;
 
     let size = 10_000;
-    let resource_size = encoding_config.encoded_blob_length(size as usize).unwrap();
+    let resource_size = encoding_config.encoded_blob_length(size).unwrap();
     let storage_resource = walrus_client.reserve_space(resource_size, 3).await?;
     assert_eq!(storage_resource.start_epoch, 0);
     assert_eq!(storage_resource.end_epoch, 3);
@@ -52,7 +52,11 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
         1, 2, 3, 4, 5, 6, 7, 8,
     ];
 
-    let blob_id = BlobId::from_metadata(Node::from(root_hash), EncodingType::RedStuff, size);
+    let blob_id = BlobId::from_metadata(
+        Node::from(root_hash),
+        EncodingType::RedStuff,
+        NonZeroU64::new(size).unwrap(),
+    );
     let blob_obj = walrus_client
         .register_blob(
             &storage_resource,
@@ -119,7 +123,11 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
         1, 2, 3, 4, 5, 6, 7, 0,
         1, 2, 3, 4, 5, 6, 7, 0,
     ];
-    let blob_id = BlobId::from_metadata(Node::from(root_hash), EncodingType::RedStuff, size);
+    let blob_id = BlobId::from_metadata(
+        Node::from(root_hash),
+        EncodingType::RedStuff,
+        NonZeroU64::new(size).unwrap(),
+    );
 
     let blob_obj = walrus_client
         .register_blob(

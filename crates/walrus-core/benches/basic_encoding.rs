@@ -28,9 +28,11 @@ fn basic_encoding(c: &mut Criterion) {
         let encoding_plan = SourceBlockEncodingPlan::generate(symbol_count);
 
         for symbol_size in SYMBOL_SIZES {
-            let data_length = symbol_size as usize * symbol_count as usize;
+            let data_length = usize::from(symbol_size) * usize::from(symbol_count);
             let data = random_data(data_length);
-            group.throughput(criterion::Throughput::Bytes(data_length as u64));
+            group.throughput(criterion::Throughput::Bytes(
+                u64::try_from(data_length).unwrap(),
+            ));
 
             group.bench_with_input(
                 BenchmarkId::from_parameter(format!(
@@ -64,9 +66,11 @@ fn basic_decoding(c: &mut Criterion) {
     for symbol_count in SYMBOL_COUNTS {
         let encoding_plan = SourceBlockEncodingPlan::generate(symbol_count);
         for symbol_size in SYMBOL_SIZES {
-            let data_length = symbol_size as usize * symbol_count as usize;
+            let data_length = usize::from(symbol_size) * usize::from(symbol_count);
             let data = random_data(data_length);
-            group.throughput(criterion::Throughput::Bytes(data_length as u64));
+            group.throughput(criterion::Throughput::Bytes(
+                u64::try_from(data_length).unwrap(),
+            ));
             let encoder = Encoder::new(
                 &data,
                 symbol_count.try_into().unwrap(),
@@ -79,7 +83,7 @@ fn basic_decoding(c: &mut Criterion) {
                     .encode_all()
                     .enumerate()
                     .map(|(i, s)| DecodingSymbol::<Primary>::new(i as u16, s)),
-                symbol_count as usize + 1,
+                usize::from(symbol_count) + 1,
             )
             .collect();
             group.bench_with_input(

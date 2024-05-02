@@ -141,7 +141,7 @@ fn rotate_by_bytes<T>(slice: &mut [T], rotation: &[u8]) {
 fn bytes_mod(bytes: &[u8], modulus: usize) -> usize {
     bytes
         .iter()
-        .fold(0, |acc, &byte| (acc * 256 + byte as usize) % modulus)
+        .fold(0, |acc, &byte| (acc * 256 + usize::from(byte)) % modulus)
 }
 
 #[cfg(test)]

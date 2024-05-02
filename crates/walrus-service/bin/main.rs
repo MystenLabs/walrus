@@ -161,7 +161,7 @@ mod commands {
 
         // Write the storage nodes config files.
         for storage_node_index in 0..committee_size.get() {
-            let storage_node_config = storage_node_configs[storage_node_index as usize].clone();
+            let storage_node_config = storage_node_configs[usize::from(storage_node_index)].clone();
             let serialized_storage_node_config = serde_yaml::to_string(&storage_node_config)
                 .context("Failed to serialize storage node configs")?;
             let node_config_name = format!(
