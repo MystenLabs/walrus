@@ -6,7 +6,7 @@ use std::{collections::HashMap, time::Instant};
 use anyhow::{anyhow, Result};
 use fastcrypto::{bls12381::min_pk::BLS12381AggregateSignature, traits::AggregateAuthenticator};
 use futures::Future;
-use reqwest::Client as ReqwestClient;
+use reqwest::{Client as ReqwestClient, ClientBuilder};
 use tokio::time::{sleep, Duration};
 use tracing::Instrument;
 use walrus_core::{
@@ -62,7 +62,7 @@ impl Client<()> {
         let reqwest_client = config
             .communication_config
             .reqwest_config
-            .to_client_builder()
+            .apply(ClientBuilder::new())
             .build()?;
         let committee = sui_read_client.current_committee().await?;
         let encoding_config = EncodingConfig::new(committee.n_shards());

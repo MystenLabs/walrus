@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Helper functions for the crate.
-//!
 
 use std::{
     collections::{BTreeSet, HashSet},

@@ -22,7 +22,7 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_wallet_config")]
     pub wallet_config: Option<PathBuf>,
     /// Configuration for the client's network communication.
-    #[serde(default = "ClientCommunicationConfig::default")]
+    #[serde(default)]
     pub communication_config: ClientCommunicationConfig,
 }
 
@@ -42,14 +42,18 @@ pub struct ClientCommunicationConfig {
     #[serde(default = "default::concurrent_metadata_reads")]
     pub concurrent_metadata_reads: usize,
     /// The configuration for the `reqwest` client.
-    #[serde(default = "ReqwestConfig::default")]
+    #[serde(default)]
     pub reqwest_config: ReqwestConfig,
 }
 
 impl Default for ClientCommunicationConfig {
     fn default() -> Self {
-        // Enforce consistency with the serde defaults.
-        serde_yaml::from_str("").expect("can always deserialize default")
+        Self {
+            concurrent_writes: None,
+            concurrent_sliver_reads: None,
+            concurrent_metadata_reads: default::concurrent_metadata_reads(),
+            reqwest_config: ReqwestConfig::default(),
+        }
     }
 }
 
@@ -76,15 +80,20 @@ pub struct ReqwestConfig {
 
 impl Default for ReqwestConfig {
     fn default() -> Self {
-        // Enforce consistency with the serde defaults.
-        serde_yaml::from_str("").expect("can always deserialize default")
+        Self {
+            total_timeout: default::total_timeout(),
+            pool_idle_timeout: default::pool_idle_timeout(),
+            http2_keep_alive_timeout: default::http2_keep_alive_timeout(),
+            http2_keep_alive_interval: default::http2_keep_alive_interval(),
+            http2_keep_alive_while_idle: default::http2_keep_alive_while_idle(),
+        }
     }
 }
 
 impl ReqwestConfig {
-    /// Uses the configuration to initialize a client builder
-    pub fn to_client_builder(&self) -> ClientBuilder {
-        ClientBuilder::new()
+    /// Applies the configurations in [`Self`] to the provided client builder.
+    pub fn apply(&self, builder: ClientBuilder) -> ClientBuilder {
+        builder
             .timeout(self.total_timeout)
             .pool_idle_timeout(self.pool_idle_timeout)
             .http2_keep_alive_timeout(self.http2_keep_alive_timeout)
