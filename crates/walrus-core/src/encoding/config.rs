@@ -184,6 +184,9 @@ impl EncodingConfig {
     /// This is limited by the total number of source symbols, which is fixed by the dimensions
     /// `source_symbols_primary` x `source_symbols_secondary` of the message matrix, and the maximum
     /// symbol size supported by RaptorQ.
+    ///
+    /// Note that on 32-bit architectures, the actual limit can be smaller than that due to the
+    /// limited address space.
     #[inline]
     pub fn max_blob_size(&self) -> u64 {
         u64::from(self.source_symbols_per_blob().get()) * u64::from(MAX_SYMBOL_SIZE)

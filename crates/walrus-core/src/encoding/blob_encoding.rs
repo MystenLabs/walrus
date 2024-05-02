@@ -60,7 +60,14 @@ impl<'a> BlobEncoder<'a> {
     ///
     /// # Errors
     ///
-    /// Returns an [`InvalidDataSizeError`] if the blob is empty or too large to be encoded.
+    /// Returns an [`InvalidDataSizeError`] if the blob is empty or too large to be encoded. The
+    /// latter happens in two cases:
+    ///
+    /// 1. If the blob is too large to fit into the message matrix with valid symbols. The maximum
+    ///    blob size for a given [`EncodingConfig`] is accessible through the
+    ///    [`EncodingConfig::max_blob_size`] method.
+    /// 2. On 32-bit architectures, the maximally supported blob size can actually be smaller than
+    ///    that due to limitations of the address space.
     pub fn new(config: &'a EncodingConfig, blob: &'a [u8]) -> Result<Self, InvalidDataSizeError> {
         let symbol_size =
             utils::compute_symbol_size_from_usize(blob.len(), config.source_symbols_per_blob())?;
