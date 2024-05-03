@@ -351,8 +351,8 @@ impl<T: EncodingAxis> DecodingSymbol<T> {
 impl<T: EncodingAxis, U: MerkleAuth> DecodingSymbol<T, U> {
     /// Verifies that the decoding symbol belongs to a committed sliver by checking the Merkle proof
     /// against the `root` hash stored.
-    pub fn verify_proof(&self, root: &Node) -> bool {
-        self.proof.verify_proof(root, &self.data)
+    pub fn verify_proof(&self, root: &Node, target_index: usize) -> bool {
+        self.proof.verify_proof(root, &self.data, target_index)
     }
 
     /// Consumes the [`DecodingSymbol<T>`], removing the proof, and returns the [`DecodingSymbol`]
@@ -457,7 +457,7 @@ mod tests {
             ),
             with_proof: (
                 PrimaryDecodingSymbol::new(2, vec![1, 2, 3,]).with_proof(
-                    crate::merkle::MerkleProof::<fastcrypto::hash::Blake2b256>::new(&[], 0).unwrap()
+                    crate::merkle::MerkleProof::<fastcrypto::hash::Blake2b256>::new(&[])
                 ),
                 "DecodingSymbol{ type: primary, index: 2, proof_type: \
                     walrus_core::merkle::MerkleProof, data: [1, 2, 3] }",

@@ -62,12 +62,15 @@ impl AsRef<[u8]> for Node {
 
 /// The operations required to authenticate a Merkle proof.
 pub trait MerkleAuth {
-    /// Verify the proof given a Merkle root and the leaf data.
-    fn verify_proof(&self, root: &Node, leaf: &[u8]) -> bool {
-        self.compute_root(leaf) == *root
+    /// Verifies the proof given a Merkle root, the  and the leaf data.
+    fn verify_proof(&self, root: &Node, leaf: &[u8], leaf_index: usize) -> bool {
+        self.compute_root(leaf, leaf_index).as_ref() == Some(root)
     }
-    /// Recompute the Merkle root from the proof and the provided leaf data.
-    fn compute_root(&self, leaf: &[u8]) -> Node;
+
+    /// Recomputes the Merkle root from the proof and the provided leaf data.
+    ///
+    /// Returns `None` if the provided index is too large.
+    fn compute_root(&self, leaf: &[u8], leaf_index: usize) -> Option<Node>;
 }
 
 /// A proof that some data is at index `leaf_index` in a [`MerkleTree`].
@@ -76,8 +79,6 @@ pub struct MerkleProof<T = Blake2b256> {
     _hash_type: PhantomData<T>,
     /// The sibling hash values on the path from the leaf to the root.
     path: Vec<Node>,
-    /// The index of the leaf in the committed vector.
-    leaf_index: usize,
 }
 
 impl<T> MerkleProof<T>
@@ -85,15 +86,11 @@ where
     T: HashFunction<DIGEST_LEN>,
 {
     /// Construct Merkle proof from list of hashes and leaf index.
-    pub fn new(path: &[Node], leaf_index: usize) -> Result<Self, LeafIndexOutOfBounds> {
-        if leaf_index >> path.len() != 0 {
-            return Err(LeafIndexOutOfBounds(leaf_index));
-        }
-        Ok(Self {
+    pub fn new(path: &[Node]) -> Self {
+        Self {
             _hash_type: PhantomData,
             path: path.into(),
-            leaf_index,
-        })
+        }
     }
 }
 
@@ -101,9 +98,12 @@ impl<T> MerkleAuth for MerkleProof<T>
 where
     T: HashFunction<DIGEST_LEN>,
 {
-    fn compute_root(&self, leaf: &[u8]) -> Node {
+    fn compute_root(&self, leaf: &[u8], leaf_index: usize) -> Option<Node> {
+        if leaf_index >> self.path.len() != 0 {
+            return None;
+        }
         let mut current_hash = leaf_hash::<T>(leaf);
-        let mut level_index = self.leaf_index;
+        let mut level_index = leaf_index;
         for sibling in self.path.iter() {
             // The sibling hash of the current node
             if level_index % 2 == 0 {
@@ -116,7 +116,7 @@ where
             // Update to the level index one level up in the tree
             level_index /= 2;
         }
-        current_hash
+        Some(current_hash)
     }
 }
 
@@ -222,7 +222,6 @@ where
         Ok(MerkleProof {
             _hash_type: PhantomData,
             path,
-            leaf_index,
         })
     }
 }
@@ -262,6 +261,10 @@ fn n_nodes(n_leaves: usize) -> usize {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    const TEST_INPUT: [&[u8]; 9] = [
+        b"foo", b"bar", b"fizz", b"baz", b"buzz", b"fizz", b"foobar", b"walrus", b"fizz",
+    ];
 
     #[test]
     fn test_n_nodes() {
@@ -321,17 +324,22 @@ mod test {
 
     #[test]
     fn test_merkle_path_verify() {
-        let test_inp: Vec<_> = [
-            "foo", "bar", "fizz", "baz", "buzz", "fizz", "foobar", "walrus", "fizz",
-        ]
-        .iter()
-        .map(|x| x.as_bytes())
-        .collect();
-        for i in 0..test_inp.len() {
-            let mt: MerkleTree = MerkleTree::build(&test_inp[..i]);
-            for (index, leaf_data) in test_inp[..i].iter().enumerate() {
+        for i in 0..TEST_INPUT.len() {
+            let mt: MerkleTree = MerkleTree::build(&TEST_INPUT[..i]);
+            for (index, leaf_data) in TEST_INPUT[..i].iter().enumerate() {
                 let proof = mt.get_proof(index).unwrap();
-                assert!(proof.verify_proof(&mt.root(), leaf_data));
+                assert!(proof.verify_proof(&mt.root(), leaf_data, index));
+            }
+        }
+    }
+
+    #[test]
+    fn test_merkle_path_verify_fails_for_wrong_index() {
+        for i in 0..TEST_INPUT.len() {
+            let mt: MerkleTree = MerkleTree::build(&TEST_INPUT[..i]);
+            for (index, leaf_data) in TEST_INPUT[..i].iter().enumerate() {
+                let proof = mt.get_proof(index).unwrap();
+                assert!(!proof.verify_proof(&mt.root(), leaf_data, index + 1));
             }
         }
     }

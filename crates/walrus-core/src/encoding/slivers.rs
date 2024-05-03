@@ -816,7 +816,7 @@ mod tests {
             assert!(sliver
                 .recovery_symbol_for_sliver_with_proof::<Blake2b256>(shard_pair_index, &config)
                 .unwrap()
-                .verify_proof(&merkle_tree.root()));
+                .verify_proof(&merkle_tree.root(), index.into()));
         }
     }
 }
