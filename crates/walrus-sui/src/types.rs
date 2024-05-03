@@ -318,6 +318,11 @@ impl Committee {
     pub fn members(&self) -> &[StorageNode] {
         &self.members
     }
+
+    /// Returns the number of members in the committee.
+    pub fn n_members(&self) -> usize {
+        self.members.len()
+    }
 }
 
 impl TryFrom<&SuiMoveStruct> for Committee {

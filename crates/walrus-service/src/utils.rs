@@ -1,9 +1,11 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{num::Saturating, time::Duration};
+use std::{num::Saturating, slice::Iter, time::Duration};
 
-use rand::{rngs::StdRng, Rng, SeedableRng};
+use rand::{rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
+use walrus_core::bft;
+use walrus_sui::types::{Committee, StorageNode as CommitteeMember};
 
 /// Exponentially spaced delays.
 ///
@@ -17,7 +19,7 @@ pub(crate) struct ExponentialBackoff<R> {
     rng: R,
 }
 
-impl<R> ExponentialBackoff<R> {
+impl ExponentialBackoff<()> {
     /// Default amount of milliseconds to randomly add to the delay time.
     const DEFAULT_RAND_OFFSET_MS: u64 = 1000;
 
@@ -69,7 +71,10 @@ impl<R: Rng> ExponentialBackoff<R> {
     }
 
     fn random_offset(&mut self) -> Duration {
-        Duration::from_millis(self.rng.gen_range(0..=Self::DEFAULT_RAND_OFFSET_MS))
+        Duration::from_millis(
+            self.rng
+                .gen_range(0..=ExponentialBackoff::DEFAULT_RAND_OFFSET_MS),
+        )
     }
 }
 
@@ -81,9 +86,104 @@ impl<R: Rng> Iterator for ExponentialBackoff<R> {
     }
 }
 
+/// Randomly samples from the committee.
+///
+/// Iteration keeps an exclusive reference to the committee to allow reusing
+/// allocated buffers across multiple samples.
+pub(crate) struct CommitteeSampler<'a> {
+    committee: &'a Committee,
+    visit_order: Vec<usize>,
+}
+
+impl CommitteeSampler<'_> {
+    pub fn new(committee: &Committee) -> CommitteeSampler<'_> {
+        let indices = (0..committee.members().len()).collect();
+        CommitteeSampler {
+            committee,
+            visit_order: indices,
+        }
+    }
+
+    /// Sample members from the committee up to a quorum, returning their indices in the commmittee.
+    #[cfg(test)]
+    pub fn sample_quorum<R>(&mut self, rng: &mut R) -> CommitteeSample<fn(&CommitteeMember) -> bool>
+    where
+        R: Rng + ?Sized,
+    {
+        self.visit_order.shuffle(rng);
+        CommitteeSample {
+            committee: self.committee,
+            visit_order: self.visit_order.iter(),
+            total_weight: 0,
+            threshold: bft::min_n_correct(self.committee.n_shards()).get().into(),
+            predicate: |_| true,
+        }
+    }
+
+    /// Sample members from the committee up to a quorum, returning their indices in the commmittee.
+    ///
+    /// Excludes members where the provided predicate evaluates to false.
+    pub fn sample_quorum_filtered<R, P>(&mut self, predicate: P, rng: &mut R) -> CommitteeSample<P>
+    where
+        R: Rng + ?Sized,
+        P: FnMut(&CommitteeMember) -> bool,
+    {
+        self.visit_order.shuffle(rng);
+
+        CommitteeSample {
+            committee: self.committee,
+            visit_order: self.visit_order.iter(),
+            total_weight: 0,
+            threshold: bft::min_n_correct(self.committee.n_shards()).get().into(),
+            predicate,
+        }
+    }
+}
+
+pub(crate) struct CommitteeSample<'a, P> {
+    committee: &'a Committee,
+    visit_order: Iter<'a, usize>,
+    total_weight: usize,
+    threshold: usize,
+    predicate: P,
+}
+
+impl<P> Iterator for CommitteeSample<'_, P>
+where
+    P: FnMut(&CommitteeMember) -> bool,
+{
+    type Item = usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.total_weight >= self.threshold {
+            return None;
+        }
+
+        // Advance the internal iterator until the next index that satisfies the predicate.
+        let next_index = self
+            .visit_order
+            .find(|&&i| (self.predicate)(&self.committee.members()[i]))?;
+
+        let weight = self.committee.members()[*next_index].shard_ids.len();
+        self.total_weight = self.total_weight.saturating_add(weight);
+
+        Some(*next_index)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use super::*;
+
+    macro_rules! assert_all_unique {
+        ($into_iter:expr) => {
+            let original_count = $into_iter.len();
+            let unique_count = $into_iter.into_iter().collect::<HashSet<_>>().len();
+            assert_eq!(original_count, unique_count, "elements are not all unique");
+        };
+    }
 
     mod exponential_backoff {
         use super::*;
@@ -99,7 +199,7 @@ mod tests {
                 .chain([max; 2])
                 .collect();
 
-            let actual: Vec<_> = ExponentialBackoff::<()>::new_with_seed(min, max, 42)
+            let actual: Vec<_> = ExponentialBackoff::new_with_seed(min, max, 42)
                 .take(expected.len())
                 .collect();
 
@@ -108,12 +208,141 @@ mod tests {
 
             for (expected, actual) in expected.iter().zip(actual) {
                 let expected_min = *expected;
-                let expected_max = *expected
-                    + Duration::from_millis(ExponentialBackoff::<()>::DEFAULT_RAND_OFFSET_MS);
+                let expected_max =
+                    *expected + Duration::from_millis(ExponentialBackoff::DEFAULT_RAND_OFFSET_MS);
 
                 assert!(actual >= expected_min, "{actual:?} >= {expected_min:?}");
                 assert!(actual <= expected_max);
             }
+        }
+    }
+
+    mod committee_sampler {
+        use fastcrypto::traits::KeyPair;
+        use rand::rngs::mock::StepRng;
+        use walrus_core::{ProtocolKeyPair, ShardIndex};
+        use walrus_sui::types::NetworkAddress;
+
+        use super::*;
+
+        fn test_committee(weights: &[u16]) -> Committee {
+            let n_shards: u16 = weights.iter().sum();
+            let mut shards = 0..n_shards;
+
+            let members = weights
+                .iter()
+                .map(|&node_shard_count| CommitteeMember {
+                    shard_ids: (&mut shards)
+                        .take(node_shard_count.into())
+                        .map(ShardIndex)
+                        .collect(),
+                    public_key: ProtocolKeyPair::generate().as_ref().public().clone(),
+                    name: String::new(),
+                    network_address: NetworkAddress {
+                        host: String::new(),
+                        port: 0,
+                    },
+                })
+                .collect();
+
+            Committee::new(members, 0).unwrap()
+        }
+
+        #[test]
+        fn sample_quorum_filtered_excludes_based_on_predicate() {
+            let weights = [1, 1, 2, 3, 3];
+            let committee = test_committee(&weights);
+
+            let index_of_excluded_member = 2;
+            let key_of_excluded_member = committee.members()[index_of_excluded_member]
+                .public_key
+                .clone();
+
+            let sample_including: Vec<_> = CommitteeSampler::new(&committee)
+                .sample_quorum_filtered(|_| true, &mut StepRng::new(42, 7))
+                .collect();
+            assert!(sample_including.contains(&index_of_excluded_member));
+
+            // Use the same RNG, so that the same sample would be returned.
+            let sample_excluding: Vec<_> = CommitteeSampler::new(&committee)
+                .sample_quorum_filtered(
+                    |member| member.public_key != key_of_excluded_member,
+                    // Use the same RNG as above, to ensure the same set.
+                    &mut StepRng::new(42, 7),
+                )
+                .collect();
+            assert!(!sample_excluding.contains(&index_of_excluded_member));
+        }
+
+        #[test]
+        fn sample_quorum_filtered_returns_all_if_less_than_2fp1() {
+            let weights = [1, 1, 2, 3, 3];
+            let committee = test_committee(&weights);
+            let mut rng = StepRng::new(39, 5);
+
+            let weight_of_all_returned: u16 = CommitteeSampler::new(&committee)
+                .sample_quorum_filtered(|member| member.shard_ids.len() != 3, &mut rng)
+                .map(|i| weights[i])
+                .sum();
+
+            assert!(!committee.is_quorum(weight_of_all_returned.into()));
+            assert_eq!(weight_of_all_returned, 4);
+        }
+
+        #[test]
+        fn sample_quorum_returns_only_2fp1_shards() {
+            let weights = [1, 1, 2, 3, 3];
+            let committee = test_committee(&weights);
+            let mut rng = StepRng::new(42, 7);
+
+            let sample: Vec<_> = CommitteeSampler::new(&committee)
+                .sample_quorum(&mut rng)
+                .collect();
+
+            let last_weight = weights[*sample.last().unwrap()];
+
+            let weight_of_all = sample.iter().map(|&i| weights[i]).sum::<u16>();
+            let weight_of_all_except_last = weight_of_all - last_weight;
+
+            assert!(!committee.is_quorum(weight_of_all_except_last.into()));
+            assert!(committee.is_quorum(weight_of_all.into()));
+        }
+
+        #[test]
+        fn sample_quorum_returns_unique_indices() {
+            let committee = test_committee(&[1; 10]);
+            let n_nodes = committee.n_members();
+            let mut rng = StepRng::new(42, 7);
+
+            let sample: Vec<_> = CommitteeSampler::new(&committee)
+                .sample_quorum(&mut rng)
+                .collect();
+
+            assert!(!sample.is_empty());
+            assert!(*sample.iter().max().unwrap() < n_nodes);
+            assert_all_unique!(sample);
+        }
+
+        #[test]
+        fn sample_qorum_randomizes_indices_each_iteration() {
+            let mut rng = StepRng::new(42, 7);
+            let committee = test_committee(&[1; 10]);
+            let n_nodes = committee.n_members();
+
+            let mut sampler = CommitteeSampler::new(&committee);
+
+            let first_sample: Vec<_> = sampler.sample_quorum(&mut rng).collect();
+            let second_sample: Vec<_> = sampler.sample_quorum(&mut rng).collect();
+
+            assert_ne!(
+                first_sample,
+                (0..n_nodes).collect::<Vec<_>>(),
+                "the order should be randomized"
+            );
+            assert_ne!(
+                first_sample, second_sample,
+                "the order after a reset should be different"
+            );
         }
     }
 }
