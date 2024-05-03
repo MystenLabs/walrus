@@ -222,17 +222,14 @@ impl<T: EncodingAxis> Sliver<T> {
     {
         Self::check_index(target_pair_index.into(), config.n_shards)?;
         let recovery_symbols = self.recovery_symbols(config)?;
+        let target_sliver_index =
+            target_pair_index.to_sliver_index::<T::OrthogonalAxis>(config.n_shards);
         Ok(recovery_symbols
-            .decoding_symbol_at(
-                target_pair_index
-                    .to_sliver_index::<T::OrthogonalAxis>(config.n_shards)
-                    .as_usize(),
-                self.index.into(),
-            )
+            .decoding_symbol_at(target_sliver_index.as_usize(), self.index.into())
             .expect("we have exactly `n_shards` symbols and the bound was checked")
             .with_proof(
                 MerkleTree::<U>::build(recovery_symbols.to_symbols())
-                    .get_proof(target_pair_index.as_usize())
+                    .get_proof(target_sliver_index.as_usize())
                     .expect("bound already checked above"),
             ))
     }
