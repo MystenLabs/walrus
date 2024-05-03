@@ -17,9 +17,9 @@ use walrus_core::{
     messages::{Confirmation, SignedStorageConfirmation, StorageConfirmation},
     metadata::{UnverifiedBlobMetadataWithId, VerificationError},
     BlobId,
-    DecodingSymbol,
     Epoch,
     ProtocolKeyPair,
+    RecoverySymbol,
     ShardIndex,
     Sliver,
     SliverPairIndex,
@@ -149,7 +149,7 @@ pub trait ServiceState {
         sliver_pair_index: SliverPairIndex,
         sliver_type: SliverType,
         target_pair_index: SliverPairIndex,
-    ) -> Result<DecodingSymbol<MerkleProof>, RetrieveSymbolError>;
+    ) -> Result<RecoverySymbol<MerkleProof>, RetrieveSymbolError>;
 }
 
 /// Builder to construct a [`StorageNode`].
@@ -470,14 +470,13 @@ impl ServiceState for StorageNode {
         }
     }
 
-    //TODO (lef): Add proof in symbol recovery
     fn retrieve_recovery_symbol(
         &self,
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
         sliver_type: SliverType,
         target_pair_index: SliverPairIndex,
-    ) -> Result<DecodingSymbol<MerkleProof>, RetrieveSymbolError> {
+    ) -> Result<RecoverySymbol<MerkleProof>, RetrieveSymbolError> {
         let optional_sliver =
             self.retrieve_sliver(blob_id, sliver_pair_index, sliver_type.orthogonal())?;
         let Some(sliver) = optional_sliver else {
@@ -490,7 +489,7 @@ impl ServiceState for StorageNode {
         Ok(match sliver {
             Sliver::Primary(inner) => {
                 let symbol = inner
-                    .recovery_symbol_for_sliver_with_proof(target_pair_index, &self.encoding_config)
+                    .recovery_symbol_for_sliver(target_pair_index, &self.encoding_config)
                     .map_err(|_| {
                         RetrieveSymbolError::RecoveryError(
                             target_pair_index,
@@ -498,11 +497,11 @@ impl ServiceState for StorageNode {
                             *blob_id,
                         )
                     })?;
-                DecodingSymbol::Secondary(symbol)
+                RecoverySymbol::Secondary(symbol)
             }
             Sliver::Secondary(inner) => {
                 let symbol = inner
-                    .recovery_symbol_for_sliver_with_proof(target_pair_index, &self.encoding_config)
+                    .recovery_symbol_for_sliver(target_pair_index, &self.encoding_config)
                     .map_err(|_| {
                         RetrieveSymbolError::RecoveryError(
                             target_pair_index,
@@ -510,7 +509,7 @@ impl ServiceState for StorageNode {
                             *blob_id,
                         )
                     })?;
-                DecodingSymbol::Primary(symbol)
+                RecoverySymbol::Primary(symbol)
             }
         })
     }

@@ -1,6 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use serde::{Deserialize, Serialize};
+
 use crate::SliverType;
 
 /// The maximum length in bytes of a single symbol in RaptorQ.
@@ -28,7 +30,7 @@ pub trait EncodingAxis: Clone + PartialEq + Eq + Default + std::fmt::Debug {
 }
 
 /// Marker type to indicate the primary encoding.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct Primary;
 impl EncodingAxis for Primary {
     type OrthogonalAxis = Secondary;
@@ -37,7 +39,7 @@ impl EncodingAxis for Primary {
 }
 
 /// Marker type to indicate the secondary encoding.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct Secondary;
 impl EncodingAxis for Secondary {
     type OrthogonalAxis = Primary;

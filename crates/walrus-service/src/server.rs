@@ -344,7 +344,7 @@ mod test {
         messages::StorageConfirmation,
         metadata::UnverifiedBlobMetadataWithId,
         BlobId,
-        DecodingSymbol,
+        RecoverySymbol,
         Sliver,
         SliverPairIndex,
         SliverType,
@@ -403,7 +403,7 @@ mod test {
             sliver_pair_index: SliverPairIndex,
             _sliver_type: SliverType,
             _target_pair_index: SliverPairIndex,
-        ) -> Result<DecodingSymbol<MerkleProof>, RetrieveSymbolError> {
+        ) -> Result<RecoverySymbol<MerkleProof>, RetrieveSymbolError> {
             if sliver_pair_index == SliverPairIndex(0) {
                 Ok(walrus_core::test_utils::recovery_symbol())
             } else {
@@ -672,7 +672,7 @@ mod test {
             .await
             .expect("must be able to retrieve the body as binary data");
 
-        let _symbol: DecodingSymbol<MerkleProof> =
+        let _symbol: RecoverySymbol<MerkleProof> =
             bcs::from_bytes(&bytes).expect("symbol should successfully decode");
     }
 

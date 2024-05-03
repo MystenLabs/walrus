@@ -270,42 +270,26 @@ impl AsMut<[u8]> for Symbols {
     }
 }
 
-/// A single symbol used for decoding, consisting of the data, the symbol's index, and optionally a
-/// proof that the symbol belongs to a committed [`Sliver`][`super::Sliver`].
+/// A single symbol used for decoding, consisting of the data and the symbol's index.
 ///
-/// The type parameter `T` represents the [`EncodingAxis`] of the slivers that can be recovered from
-/// this symbol.  I.e., a `DecodingSymbol<Primary>` is used to recover `Sliver<Primary>` slivers.
-///
-/// The type parameter `U` represents the type of the Merkle proof that can be associated to the
-/// symbol. It can either be `U = ()` -- representing "no proof" -- or `U: MerkeAuth`, and defaults
-/// to `()`. This type parameter can only be changed through the functions
-/// [`DecodingSymbol::with_proof`] and [`DecodingSymbol::remove_proof`].
+/// The type parameter `T` represents the [`EncodingAxis`] of the sliver that can be recovered from
+/// this symbol.  I.e., a [`DecodingSymbol<Primary>`] is used to recover a
+/// [`Sliver<Primary>`][super::slivers::Sliver<Primary>].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DecodingSymbol<T: EncodingAxis, U = ()> {
+pub struct DecodingSymbol<T: EncodingAxis> {
     /// The index of the symbol.
     ///
     /// This is equal to the ESI as defined in [RFC 6330][rfc6330s5.3.1].
-    ///
-    /// In case this is used for sliver recovery, the index represents the *source* index (the
-    /// sliver it was created from), not the *target* sliver (the sliver being recovered).
     ///
     /// [rfc6330s5.3.1]: https://datatracker.ietf.org/doc/html/rfc6330#section-5.3.1
     pub index: u16,
     /// The symbol data as a byte vector.
     pub data: Vec<u8>,
-    /// An optional proof that the decoding symbol belongs to a committed sliver.
-    proof: U,
     /// Marker representing whether this symbol is used to decode primary or secondary slivers.
     _axis: PhantomData<T>,
 }
 
-/// A primary decoding symbol to recover a primary sliver
-pub type PrimaryDecodingSymbol<U> = DecodingSymbol<Primary, U>;
-
-///  A secondary decoding symbol to recover a secondary sliver
-pub type SecondaryDecodingSymbol<U> = DecodingSymbol<Secondary, U>;
-
-impl<T: EncodingAxis, U> DecodingSymbol<T, U> {
+impl<T: EncodingAxis> DecodingSymbol<T> {
     /// Converts the `DecodingSymbol` to an [`EncodingPacket`] expected by the [`raptorq::Decoder`].
     pub fn into_encoding_packet(self) -> EncodingPacket {
         EncodingPacket::new(PayloadId::new(0, self.index.into()), self.data)
@@ -322,78 +306,94 @@ impl<T: EncodingAxis, U> DecodingSymbol<T, U> {
     }
 }
 
-impl<T: EncodingAxis, U> Display for DecodingSymbol<T, U> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "DecodingSymbol{{ type: {}, index: {}, proof_type: {}, {} }}",
-            T::NAME,
-            self.index,
-            std::any::type_name::<U>(),
-            utils::data_prefix_string(&self.data, 5),
-        )
-    }
-}
-
 impl<T: EncodingAxis> DecodingSymbol<T> {
     /// Creates a new `DecodingSymbol`.
     pub fn new(index: u16, data: Vec<u8>) -> Self {
         Self {
             index,
             data,
-            proof: (),
             _axis: PhantomData,
         }
     }
 
-    /// Adds a Merkle proof to the [`DecodingSymbol`]
+    /// Adds a Merkle proof to the [`DecodingSymbol`], converting it into a [`RecoverySymbol`].
     ///
-    /// This method consumes the original [`DecodingSymbol`], and returns a [`DecodingSymbol<U>`],
-    /// where `U` is a type that implements the trait [`MerkleAuth`][`crate::merkle::MerkleAuth`].
-    pub fn with_proof<U: MerkleAuth>(self, proof: U) -> DecodingSymbol<T, U> {
-        DecodingSymbol {
-            index: self.index,
-            data: self.data,
+    /// This method consumes the original [`DecodingSymbol<T>`], and returns a
+    /// [`RecoverySymbol<T, U>`].
+    pub fn with_proof<U: MerkleAuth>(self, proof: U) -> RecoverySymbol<T, U> {
+        RecoverySymbol {
+            symbol: self,
             proof,
-            _axis: PhantomData,
         }
     }
 }
 
-impl<T: EncodingAxis, U: MerkleAuth> DecodingSymbol<T, U> {
+impl<T: EncodingAxis> Display for DecodingSymbol<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "DecodingSymbol{{ type: {}, index: {}, {} }}",
+            T::NAME,
+            self.index,
+            utils::data_prefix_string(&self.data, 5),
+        )
+    }
+}
+
+/// A symbol for sliver recovery.
+///
+/// This wraps a [`DecodingSymbol`] with a Merkle proof for verification.
+///
+/// The type parameter `U` represents the type of the Merkle proof associated with the symbol.
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
+pub struct RecoverySymbol<T: EncodingAxis, U: MerkleAuth> {
+    /// The decoding symbol.
+    symbol: DecodingSymbol<T>,
+    /// A proof that the decoding symbol is correctly computed from a valid orthogonal sliver.
+    proof: U,
+}
+
+/// A primary decoding symbol to recover a [`PrimarySliver`][super::PrimarySliver].
+pub type PrimaryRecoverySymbol<U> = RecoverySymbol<Primary, U>;
+
+/// A secondary decoding symbol to recover a [`SecondarySliver`][super::SecondarySliver].
+pub type SecondaryRecoverySymbol<U> = RecoverySymbol<Secondary, U>;
+
+impl<T: EncodingAxis, U: MerkleAuth> RecoverySymbol<T, U> {
     /// Verifies that the decoding symbol belongs to a committed sliver by checking the Merkle proof
     /// against the `root` hash stored.
     pub fn verify_proof(&self, root: &Node, target_index: usize) -> bool {
-        self.proof.verify_proof(root, &self.data, target_index)
+        self.proof
+            .verify_proof(root, &self.symbol.data, target_index)
     }
 
     /// Verifies that the decoding symbol belongs to a committed sliver by checking the Merkle proof
     /// against the root hash in the provided [`BlobMetadata`].
     ///
-    /// The symbol's index is interpreted as the index of the *source* sliver from which is was
-    /// created. If the index is out of range or any other check fails, this returns `false`.
+    /// The symbol's index is the index of the *source* sliver from which is was created. If the
+    /// index is out of range or any other check fails, this returns `false`.
     ///
     /// Returns `Ok(())` if the verification succeeds, a [`SymbolVerificationError`] otherwise.
-    pub fn verify_as_recovery_symbol(
+    pub fn verify(
         &self,
         metadata: &BlobMetadata,
         encoding_config: &EncodingConfig,
         target_index: SliverIndex,
     ) -> Result<(), SymbolVerificationError> {
         let n_shards = encoding_config.n_shards();
-        if self.index >= n_shards.get() {
+        if self.symbol.index >= n_shards.get() {
             return Err(SymbolVerificationError::IndexTooLarge);
         }
         if !metadata
             .symbol_size(encoding_config)
-            .is_ok_and(|s| self.len() == usize::from(s.get()))
+            .is_ok_and(|s| self.symbol.len() == usize::from(s.get()))
         {
             return Err(SymbolVerificationError::SymbolSizeMismatch);
         }
         if self.verify_proof(
             metadata
                 .get_sliver_hash(
-                    SliverIndex(self.index).to_pair_index::<T::OrthogonalAxis>(n_shards),
+                    SliverIndex(self.symbol.index).to_pair_index::<T::OrthogonalAxis>(n_shards),
                     T::OrthogonalAxis::sliver_type(),
                 )
                 .ok_or(SymbolVerificationError::InvalidMetadata)?,
@@ -405,20 +405,33 @@ impl<T: EncodingAxis, U: MerkleAuth> DecodingSymbol<T, U> {
         }
     }
 
-    /// Consumes the [`DecodingSymbol<T>`], removing the proof, and returns the [`DecodingSymbol`]
-    /// without the proof.
-    pub fn remove_proof(self) -> DecodingSymbol<T> {
-        DecodingSymbol::new(self.index, self.data)
+    /// Consumes the [`RecoverySymbol<T, U>`], removing the proof, and returns the
+    /// [`DecodingSymbol<T>`] without the proof.
+    pub fn into_decoding_symbol(self) -> DecodingSymbol<T> {
+        self.symbol
+    }
+}
+
+impl<T: EncodingAxis, U: MerkleAuth> Display for RecoverySymbol<T, U> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "RecoverySymbol{{ type: {}, index: {}, proof_type: {}, {} }}",
+            T::NAME,
+            self.symbol.index,
+            std::any::type_name::<U>(),
+            utils::data_prefix_string(&self.symbol.data, 5),
+        )
     }
 }
 
 /// A pair of recovery symbols to recover a sliver pair.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DecodingSymbolPair<U = ()> {
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecoverySymbolPair<U: MerkleAuth> {
     /// Symbol to recover the primary sliver.
-    pub primary: DecodingSymbol<Primary, U>,
+    pub primary: PrimaryRecoverySymbol<U>,
     /// Symbol to recover the secondary sliver.
-    pub secondary: DecodingSymbol<Secondary, U>,
+    pub secondary: SecondaryRecoverySymbol<U>,
 }
 
 /// Filters an iterator of [`DecodingSymbol`s][Self], dropping and logging any that
@@ -428,25 +441,28 @@ pub(crate) fn filter_recovery_symbols_and_log_invalid<'a, T, I, V>(
     metadata: &'a BlobMetadata,
     encoding_config: &'a EncodingConfig,
     target_index: SliverIndex,
-) -> impl Iterator<Item = DecodingSymbol<T, V>> + 'a
+) -> impl Iterator<Item = RecoverySymbol<T, V>> + 'a
 where
     T: EncodingAxis,
     I: IntoIterator,
-    I::IntoIter: Iterator<Item = DecodingSymbol<T, V>> + 'a,
+    I::IntoIter: Iterator<Item = RecoverySymbol<T, V>> + 'a,
     V: MerkleAuth,
 {
-    recovery_symbols.into_iter().filter(move |symbol| {
-        symbol
-            .verify_as_recovery_symbol(metadata, encoding_config, target_index)
-            .map_err(|error| {
-                tracing::warn!(
-                    %error,
-                    %symbol,
-                    "invalid recovery symbol encountered during sliver recovery",
-                )
-            })
-            .is_ok()
-    })
+    recovery_symbols
+        .into_iter()
+        .filter(move |symbol: &RecoverySymbol<T, V>| {
+            symbol
+                .verify(metadata, encoding_config, target_index)
+                .map_err(|error| {
+                    tracing::warn!(
+                        %error,
+                        %symbol,
+                        %target_index,
+                        "invalid recovery symbol encountered during sliver recovery",
+                    )
+                })
+                .is_ok()
+        })
 }
 
 #[cfg(test)]
@@ -454,6 +470,7 @@ mod tests {
     use walrus_test_utils::param_test;
 
     use super::*;
+    use crate::test_utils;
 
     param_test! {
         get_correct_symbol: [
@@ -517,35 +534,34 @@ mod tests {
     param_test! {
         correct_display_for_decoding_symbol: [
             empty_primary: (
-                PrimaryDecodingSymbol::new(0, vec![]),
-                "DecodingSymbol{ type: primary, index: 0, proof_type: (), data: [] }",
+                DecodingSymbol::<Primary>::new(0, vec![]),
+                "RecoverySymbol{ type: primary, index: 0, proof_type: \
+                    walrus_core::merkle::MerkleProof, data: [] }",
             ),
             empty_secondary: (
-                SecondaryDecodingSymbol::new(0, vec![]),
-                "DecodingSymbol{ type: secondary, index: 0, proof_type: (), data: [] }",
+                DecodingSymbol::<Secondary>::new(0, vec![]),
+                "RecoverySymbol{ type: secondary, index: 0, proof_type: \
+                    walrus_core::merkle::MerkleProof, data: [] }",
             ),
             primary_with_short_data: (
-                PrimaryDecodingSymbol::new(0, vec![1, 2, 3, 4, 5]),
-                "DecodingSymbol{ type: primary, index: 0, proof_type: (), data: [1, 2, 3, 4, 5] }",
+                DecodingSymbol::<Primary>::new(0, vec![1, 2, 3, 4, 5]),
+                "RecoverySymbol{ type: primary, index: 0, proof_type: \
+                    walrus_core::merkle::MerkleProof, data: [1, 2, 3, 4, 5] }",
             ),
             primary_with_long_data: (
-                PrimaryDecodingSymbol::new(3, vec![1, 2, 3, 4, 5, 6]),
-                "DecodingSymbol{ type: primary, index: 3, proof_type: (), \
-                    data_prefix: [1, 2, 3, 4, 5, ...] }",
+                DecodingSymbol::<Primary>::new(3, vec![1, 2, 3, 4, 5, 6]),
+                "RecoverySymbol{ type: primary, index: 3, proof_type: \
+                    walrus_core::merkle::MerkleProof, data_prefix: [1, 2, 3, 4, 5, ...] }",
             ),
-            with_proof: (
-                PrimaryDecodingSymbol::new(2, vec![1, 2, 3,]).with_proof(
-                    crate::merkle::MerkleProof::<fastcrypto::hash::Blake2b256>::new(&[])
-                ),
-                "DecodingSymbol{ type: primary, index: 2, proof_type: \
-                    walrus_core::merkle::MerkleProof, data: [1, 2, 3] }",
-            )
         ]
     }
-    fn correct_display_for_decoding_symbol<T: EncodingAxis, U>(
-        symbol: DecodingSymbol<T, U>,
+    fn correct_display_for_decoding_symbol<T: EncodingAxis>(
+        symbol: DecodingSymbol<T>,
         expected_display_string: &str,
     ) {
-        assert_eq!(format!("{}", symbol), expected_display_string);
+        assert_eq!(
+            format!("{}", symbol.with_proof(test_utils::merkle_proof()),),
+            expected_display_string
+        );
     }
 }

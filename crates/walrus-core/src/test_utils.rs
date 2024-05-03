@@ -17,9 +17,9 @@ use crate::{
         VerifiedBlobMetadataWithId,
     },
     BlobId,
-    DecodingSymbol,
     EncodingType,
     ProtocolKeyPair,
+    RecoverySymbol,
     SignedStorageConfirmation,
     Sliver,
     SliverIndex,
@@ -58,11 +58,16 @@ pub fn encoding_config() -> EncodingConfig {
 }
 
 /// Returns an arbitrary decoding symbol for testing.
-pub fn recovery_symbol() -> DecodingSymbol<MerkleProof> {
+pub fn recovery_symbol() -> RecoverySymbol<MerkleProof> {
     primary_sliver()
-        .recovery_symbol_for_sliver_with_proof(SliverPairIndex(1), &encoding_config())
-        .map(DecodingSymbol::Secondary)
+        .recovery_symbol_for_sliver(SliverPairIndex(1), &encoding_config())
+        .map(RecoverySymbol::Secondary)
         .unwrap()
+}
+
+/// Returns an empty Merkle proof for testing.
+pub fn merkle_proof() -> MerkleProof {
+    MerkleProof::new(&[])
 }
 
 /// Returns an arbitrary storage confirmation for tests.

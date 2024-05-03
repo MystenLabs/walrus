@@ -15,11 +15,11 @@ use encoding::{
     EncodingAxis,
     EncodingConfig,
     Primary,
-    PrimaryDecodingSymbol,
+    PrimaryRecoverySymbol,
     PrimarySliver,
     RecoverySymbolError,
     Secondary,
-    SecondaryDecodingSymbol,
+    SecondaryRecoverySymbol,
     SecondarySliver,
     WrongSliverVariantError,
 };
@@ -462,33 +462,33 @@ impl Display for SliverType {
 
 /// A decoding symbol for recovering a sliver
 ///
-/// Can be either a [`PrimaryDecodingSymbol`] or [`SecondaryDecodingSymbol`].
+/// Can be either a [`PrimaryRecoverySymbol`] or [`SecondaryRecoverySymbol`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum DecodingSymbol<U: MerkleAuth> {
+pub enum RecoverySymbol<U: MerkleAuth> {
     /// A primary decoding symbol to recover a primary sliver
-    Primary(PrimaryDecodingSymbol<U>),
+    Primary(PrimaryRecoverySymbol<U>),
     /// A secondary decoding symbol to recover a secondary sliver.
-    Secondary(SecondaryDecodingSymbol<U>),
+    Secondary(SecondaryRecoverySymbol<U>),
 }
 
-impl<U: MerkleAuth> DecodingSymbol<U> {
-    /// Returns true iff this decoding symbol is a [`DecodingSymbol::Primary`].
+impl<U: MerkleAuth> RecoverySymbol<U> {
+    /// Returns true iff this decoding symbol is a [`RecoverySymbol::Primary`].
     #[inline]
     pub fn is_primary(&self) -> bool {
-        matches!(self, DecodingSymbol::Primary(_))
+        matches!(self, RecoverySymbol::Primary(_))
     }
 
-    /// Returns true iff this decoding symbol is a [`DecodingSymbol::Secondary`].
+    /// Returns true iff this decoding symbol is a [`RecoverySymbol::Secondary`].
     #[inline]
     pub fn is_secondary(&self) -> bool {
-        matches!(self, DecodingSymbol::Secondary(_))
+        matches!(self, RecoverySymbol::Secondary(_))
     }
 
     /// Returns the associated [`DecodingSymbolType`] of this decoding symbol.
     pub fn r#type(&self) -> DecodingSymbolType {
         match self {
-            DecodingSymbol::Primary(_) => DecodingSymbolType::Primary,
-            DecodingSymbol::Secondary(_) => DecodingSymbolType::Secondary,
+            RecoverySymbol::Primary(_) => DecodingSymbolType::Primary,
+            RecoverySymbol::Secondary(_) => DecodingSymbolType::Secondary,
         }
     }
 }

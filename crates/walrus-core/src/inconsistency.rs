@@ -47,9 +47,9 @@ use std::marker::PhantomData;
 
 use crate::{
     encoding::{
-        DecodingSymbol,
         EncodingAxis,
         EncodingConfig,
+        RecoverySymbol,
         Sliver,
         SliverRecoveryError,
         SliverVerificationError,
@@ -79,7 +79,7 @@ pub enum InconsistencyVerificationError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InconsistencyProof<T: EncodingAxis, U: MerkleAuth> {
     target_sliver_index: SliverIndex,
-    recovery_symbols: Vec<DecodingSymbol<T, U>>,
+    recovery_symbols: Vec<RecoverySymbol<T, U>>,
     _encoding_axis: PhantomData<T>,
 }
 
@@ -88,10 +88,10 @@ impl<T: EncodingAxis, U: MerkleAuth> InconsistencyProof<T, U> {
     ///
     /// This does *not* verify that the proof is correct. Use [`Self::verify`] for that.
     // TODO(mlegner): Include the minimal number of recovery symbols that suffice to decode the
-    // sliver. This includes filtering out invalid recovery symbols.
+    // sliver. This includes filtering out invalid recovery symbols. (#351)
     pub fn new(
         target_sliver_index: SliverIndex,
-        recovery_symbols: Vec<DecodingSymbol<T, U>>,
+        recovery_symbols: Vec<RecoverySymbol<T, U>>,
     ) -> Self {
         Self {
             target_sliver_index,
@@ -112,7 +112,7 @@ impl<T: EncodingAxis, U: MerkleAuth> InconsistencyProof<T, U> {
         let span = tracing::warn_span!("verifying inconsistency proof", ?metadata);
         let _guard = span.enter();
 
-        let sliver = Sliver::recover_sliver_from_verified_symbols(
+        let sliver = Sliver::recover_sliver(
             self.recovery_symbols,
             self.target_sliver_index,
             metadata,
@@ -155,12 +155,11 @@ impl<T: EncodingAxis, U: MerkleAuth> From<InconsistencyProof<T, U>>
 
 #[cfg(test)]
 mod tests {
-    use fastcrypto::hash::Blake2b256;
     use walrus_test_utils::Result;
 
     use super::*;
     use crate::{
-        encoding::Primary,
+        encoding::PrimaryRecoverySymbol,
         merkle::Node,
         metadata::VerifiedBlobMetadataWithId,
         test_utils,
@@ -170,7 +169,7 @@ mod tests {
         EncodingConfig,
         VerifiedBlobMetadataWithId,
         SliverIndex,
-        Vec<DecodingSymbol<Primary, impl MerkleAuth>>,
+        Vec<PrimaryRecoverySymbol<impl MerkleAuth>>,
     )> {
         let blob = walrus_test_utils::random_data(314);
         let encoding_config = test_utils::encoding_config();
@@ -182,10 +181,7 @@ mod tests {
             (1..encoding_config.n_shards.get()).map(|i| {
                 sliver_pairs[i as usize]
                     .secondary
-                    .recovery_symbol_for_sliver_with_proof::<Blake2b256>(
-                        target_sliver_index.into(),
-                        &encoding_config,
-                    )
+                    .recovery_symbol_for_sliver(target_sliver_index.into(), &encoding_config)
                     .unwrap()
             }),
             encoding_config.n_secondary_source_symbols().get().into(),

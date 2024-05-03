@@ -25,6 +25,7 @@ pub use errors::{
     InvalidDataSizeError,
     RecoverySymbolError,
     SliverRecoveryError,
+    SliverRecoveryOrVerificationError,
     SliverVerificationError,
     SymbolVerificationError,
     WrongSliverVariantError,
@@ -40,9 +41,10 @@ pub use slivers::{PrimarySliver, SecondarySliver, Sliver, SliverPair};
 mod symbols;
 pub use symbols::{
     DecodingSymbol,
-    DecodingSymbolPair,
-    PrimaryDecodingSymbol,
-    SecondaryDecodingSymbol,
+    PrimaryRecoverySymbol,
+    RecoverySymbol,
+    RecoverySymbolPair,
+    SecondaryRecoverySymbol,
     Symbols,
 };
 

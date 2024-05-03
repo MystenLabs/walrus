@@ -62,7 +62,7 @@ impl AsRef<[u8]> for Node {
 
 /// The operations required to authenticate a Merkle proof.
 pub trait MerkleAuth: Clone {
-    /// Verifies the proof given a Merkle root, the  and the leaf data.
+    /// Verifies the proof given a Merkle root and the leaf data.
     fn verify_proof(&self, root: &Node, leaf: &[u8], leaf_index: usize) -> bool {
         self.compute_root(leaf, leaf_index).as_ref() == Some(root)
     }

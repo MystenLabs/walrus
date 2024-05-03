@@ -65,9 +65,24 @@ pub enum SliverRecoveryError {
     /// The sliver decoding failed.
     #[error("the decoding failed")]
     DecodingFailure,
+}
+
+/// Error type returned when attempting to recover a sliver from recovery symbols fails or the
+/// resulting sliver cannot be verified.
+#[derive(Debug, Error, PartialEq, Eq, Clone)]
+pub enum SliverRecoveryOrVerificationError {
+    /// Recovery of the sliver failed.
+    #[error(transparent)]
+    RecoveryError(#[from] SliverRecoveryError),
     /// The verification of the decoded sliver failed.
-    #[error("the decoded sliver cannot be verified")]
+    #[error(transparent)]
     VerificationError(#[from] SliverVerificationError),
+}
+
+impl From<DataTooLargeError> for SliverRecoveryOrVerificationError {
+    fn from(value: DataTooLargeError) -> Self {
+        SliverRecoveryError::from(value).into()
+    }
 }
 
 /// Error returned when the size of input symbols does not match the size of existing symbols.
