@@ -159,10 +159,19 @@ mod tests {
     use walrus_test_utils::Result;
 
     use super::*;
-    use crate::{merkle::Node, test_utils};
+    use crate::{
+        encoding::Primary,
+        merkle::Node,
+        metadata::VerifiedBlobMetadataWithId,
+        test_utils,
+    };
 
-    #[test]
-    fn successful_inconsistency_proof() -> Result<()> {
+    fn generate_config_metadata_and_valid_recovery_symbols() -> Result<(
+        EncodingConfig,
+        VerifiedBlobMetadataWithId,
+        SliverIndex,
+        Vec<DecodingSymbol<Primary, impl MerkleAuth>>,
+    )> {
         let blob = walrus_test_utils::random_data(314);
         let encoding_config = test_utils::encoding_config();
         let (sliver_pairs, metadata) = encoding_config
@@ -182,11 +191,65 @@ mod tests {
             encoding_config.n_secondary_source_symbols().get().into(),
         )
         .collect();
+        Ok((
+            encoding_config,
+            metadata,
+            target_sliver_index,
+            recovery_symbols,
+        ))
+    }
+
+    #[test]
+    fn valid_inconsistency_proof() -> Result<()> {
+        let (encoding_config, metadata, target_sliver_index, recovery_symbols) =
+            generate_config_metadata_and_valid_recovery_symbols()?;
         let mut metadata = metadata.metadata().clone();
         metadata.hashes[0].primary_hash = Node::Digest([0; 32]);
-        let inconsistency_proof = InconsistencyProof::new(0.into(), recovery_symbols);
+        let inconsistency_proof = InconsistencyProof::new(target_sliver_index, recovery_symbols);
 
         inconsistency_proof.verify(&metadata, &encoding_config)?;
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_inconsistency_proof_when_just_changing_the_target_index() -> Result<()> {
+        let (encoding_config, metadata, target_sliver_index, recovery_symbols) =
+            generate_config_metadata_and_valid_recovery_symbols()?;
+        let inconsistency_proof =
+            InconsistencyProof::new(SliverIndex(target_sliver_index.get() + 1), recovery_symbols);
+
+        assert!(matches!(
+            inconsistency_proof.verify(metadata.metadata(), &encoding_config),
+            Err(InconsistencyVerificationError::RecoveryFailure(_))
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_inconsistency_proof_because_sliver_not_inconsistent() -> Result<()> {
+        let (encoding_config, metadata, target_sliver_index, recovery_symbols) =
+            generate_config_metadata_and_valid_recovery_symbols()?;
+        let inconsistency_proof = InconsistencyProof::new(target_sliver_index, recovery_symbols);
+
+        assert!(matches!(
+            inconsistency_proof.verify(metadata.metadata(), &encoding_config),
+            Err(InconsistencyVerificationError::SliverNotInconsistent)
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_inconsistency_proof_because_sliver_cannot_be_decoded() -> Result<()> {
+        let (encoding_config, metadata, target_sliver_index, mut recovery_symbols) =
+            generate_config_metadata_and_valid_recovery_symbols()?;
+        recovery_symbols
+            .truncate(usize::from(encoding_config.n_secondary_source_symbols().get()) - 1);
+        let inconsistency_proof = InconsistencyProof::new(target_sliver_index, recovery_symbols);
+
+        assert!(matches!(
+            inconsistency_proof.verify(metadata.metadata(), &encoding_config),
+            Err(InconsistencyVerificationError::RecoveryFailure(_))
+        ));
         Ok(())
     }
 }

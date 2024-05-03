@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     errors::{SliverRecoveryError, SliverVerificationError},
+    symbols,
     DecodingSymbol,
     DecodingSymbolPair,
     EncodeError,
@@ -264,6 +265,7 @@ impl<T: EncodingAxis> Sliver<T> {
     /// decoding fails.
     ///
     /// Symbols that fail verification are logged and dropped.
+    // TODO(mlegner): Define a more specific error. A `SliverVerificationError` cannot occur.
     pub fn recover_sliver_from_verified_symbols<I, V>(
         recovery_symbols: I,
         target_index: SliverIndex,
@@ -277,7 +279,7 @@ impl<T: EncodingAxis> Sliver<T> {
     {
         let symbol_size = metadata.symbol_size(encoding_config)?;
         Self::recover_sliver(
-            Self::filter_recovery_symbols_and_log_invalid(
+            symbols::filter_recovery_symbols_and_log_invalid(
                 recovery_symbols,
                 metadata,
                 encoding_config,
@@ -310,7 +312,7 @@ impl<T: EncodingAxis> Sliver<T> {
         V: MerkleAuth,
     {
         let symbol_size = metadata.symbol_size(encoding_config)?;
-        let filtered_recovery_symbols: Vec<_> = Self::filter_recovery_symbols_and_log_invalid(
+        let filtered_recovery_symbols: Vec<_> = symbols::filter_recovery_symbols_and_log_invalid(
             recovery_symbols,
             metadata,
             encoding_config,
@@ -334,33 +336,6 @@ impl<T: EncodingAxis> Sliver<T> {
             // Any other error indicates an internal problem, not an inconsistent blob.
             Err(e) => Err(e.into()),
         }
-    }
-
-    /// Filters an iterator of [`DecodingSymbol`s][DecodingSymbol], dropping and logging any that
-    /// don't have a valid Merkle proof.
-    fn filter_recovery_symbols_and_log_invalid<'a, I, V>(
-        recovery_symbols: I,
-        metadata: &'a BlobMetadata,
-        encoding_config: &'a EncodingConfig,
-        target_index: SliverIndex,
-    ) -> impl Iterator<Item = DecodingSymbol<T, V>> + 'a
-    where
-        I: IntoIterator,
-        I::IntoIter: Iterator<Item = DecodingSymbol<T, V>> + 'a,
-        V: MerkleAuth,
-    {
-        recovery_symbols.into_iter().filter(move |symbol| {
-            symbol
-                .verify_as_recovery_symbol(metadata, encoding_config, target_index)
-                .map_err(|error| {
-                    tracing::warn!(
-                        %error,
-                        %symbol,
-                        "invalid recovery symbol encountered during sliver recovery",
-                    )
-                })
-                .is_ok()
-        })
     }
 
     /// Computes the Merkle root [`Node`][`crate::merkle::Node`] of the

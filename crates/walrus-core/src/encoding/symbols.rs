@@ -421,6 +421,34 @@ pub struct DecodingSymbolPair<U = ()> {
     pub secondary: DecodingSymbol<Secondary, U>,
 }
 
+/// Filters an iterator of [`DecodingSymbol`s][Self], dropping and logging any that
+/// don't have a valid Merkle proof.
+pub(crate) fn filter_recovery_symbols_and_log_invalid<'a, T, I, V>(
+    recovery_symbols: I,
+    metadata: &'a BlobMetadata,
+    encoding_config: &'a EncodingConfig,
+    target_index: SliverIndex,
+) -> impl Iterator<Item = DecodingSymbol<T, V>> + 'a
+where
+    T: EncodingAxis,
+    I: IntoIterator,
+    I::IntoIter: Iterator<Item = DecodingSymbol<T, V>> + 'a,
+    V: MerkleAuth,
+{
+    recovery_symbols.into_iter().filter(move |symbol| {
+        symbol
+            .verify_as_recovery_symbol(metadata, encoding_config, target_index)
+            .map_err(|error| {
+                tracing::warn!(
+                    %error,
+                    %symbol,
+                    "invalid recovery symbol encountered during sliver recovery",
+                )
+            })
+            .is_ok()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use walrus_test_utils::param_test;
