@@ -1852,7 +1852,7 @@ dependencies = [
  "fastcrypto 0.1.8 (git+https://github.com/MystenLabs/fastcrypto?rev=878492bd2541dce1491791bcadf3cc855ddcdc05)",
  "futures",
  "itertools 0.10.5",
- "mockall",
+ "mockall 0.11.4",
  "mysten-metrics",
  "mysten-network",
  "nom",
@@ -4312,8 +4312,23 @@ dependencies = [
  "downcast",
  "fragile",
  "lazy_static",
- "mockall_derive",
- "predicates",
+ "mockall_derive 0.11.4",
+ "predicates 2.1.5",
+ "predicates-tree",
+]
+
+[[package]]
+name = "mockall"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "43766c2b5203b10de348ffe19f7e54564b64f3d6018ff7648d1e2d6d3a0f0a48"
+dependencies = [
+ "cfg-if",
+ "downcast",
+ "fragile",
+ "lazy_static",
+ "mockall_derive 0.12.1",
+ "predicates 3.1.0",
  "predicates-tree",
 ]
 
@@ -4327,6 +4342,18 @@ dependencies = [
  "proc-macro2 1.0.81",
  "quote 1.0.36",
  "syn 1.0.109",
+]
+
+[[package]]
+name = "mockall_derive"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af7cbce79ec385a1d4f54baa90a76401eb15d9cab93685f62e7e9f942aa00ae2"
+dependencies = [
+ "cfg-if",
+ "proc-macro2 1.0.81",
+ "quote 1.0.36",
+ "syn 2.0.60",
 ]
 
 [[package]]
@@ -5150,7 +5177,7 @@ dependencies = [
  "bytes",
  "fastcrypto 0.1.8 (git+https://github.com/MystenLabs/fastcrypto?rev=878492bd2541dce1491791bcadf3cc855ddcdc05)",
  "futures",
- "mockall",
+ "mockall 0.11.4",
  "mysten-metrics",
  "narwhal-config",
  "narwhal-crypto",
@@ -5349,7 +5376,7 @@ dependencies = [
  "fastcrypto 0.1.8 (git+https://github.com/MystenLabs/fastcrypto?rev=878492bd2541dce1491791bcadf3cc855ddcdc05)",
  "futures",
  "indexmap 2.2.6",
- "mockall",
+ "mockall 0.11.4",
  "mysten-common",
  "mysten-metrics",
  "mysten-network",
@@ -6316,6 +6343,16 @@ dependencies = [
  "normalize-line-endings",
  "predicates-core",
  "regex",
+]
+
+[[package]]
+name = "predicates"
+version = "3.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68b87bfd4605926cdfefc1c3b5f8fe560e3feca9d5552cf68c466d3d8236c7e8"
+dependencies = [
+ "anstyle",
+ "predicates-core",
 ]
 
 [[package]]
@@ -8250,7 +8287,7 @@ dependencies = [
  "itertools 0.10.5",
  "jsonrpsee",
  "lru",
- "mockall",
+ "mockall 0.11.4",
  "moka",
  "move-binary-format",
  "move-bytecode-utils",
@@ -10474,6 +10511,7 @@ dependencies = [
  "git-version",
  "home",
  "mime",
+ "mockall 0.12.1",
  "mysten-metrics",
  "prometheus",
  "rand 0.8.5",
