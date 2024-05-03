@@ -17,7 +17,7 @@ use encoding::{
     Primary,
     PrimaryDecodingSymbol,
     PrimarySliver,
-    RecoveryError,
+    RecoverySymbolError,
     Secondary,
     SecondaryDecodingSymbol,
     SecondarySliver,
@@ -334,7 +334,7 @@ impl Sliver {
     }
 
     /// Returns the hash of the sliver, i.e., the Merkle root of the tree computed over the symbols.
-    pub fn hash(&self, config: &EncodingConfig) -> Result<Node, RecoveryError> {
+    pub fn hash(&self, config: &EncodingConfig) -> Result<Node, RecoverySymbolError> {
         match self {
             Sliver::Primary(inner) => inner.get_merkle_root::<DefaultHashFunction>(config),
             Sliver::Secondary(inner) => inner.get_merkle_root::<DefaultHashFunction>(config),

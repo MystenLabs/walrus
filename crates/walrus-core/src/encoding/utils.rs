@@ -1,11 +1,11 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::num::{NonZeroU16, NonZeroU32};
+use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
 
 use raptorq::{EncodingPacket, ObjectTransmissionInformation};
 
-use super::InvalidDataSizeError;
+use super::{DataTooLargeError, InvalidDataSizeError};
 
 /// Creates a new [`ObjectTransmissionInformation`] for the given `symbol_size`.
 pub fn get_transmission_info(symbol_size: NonZeroU16) -> ObjectTransmissionInformation {
@@ -15,17 +15,28 @@ pub fn get_transmission_info(symbol_size: NonZeroU16) -> ObjectTransmissionInfor
 /// Computes the correct symbol size given the number of source symbols, `n_symbols`, and the data
 /// length, `data_length`.
 #[inline]
+pub fn compute_symbol_size_from_nonzero(
+    data_length: NonZeroU64,
+    n_symbols: NonZeroU32,
+) -> Result<NonZeroU16, DataTooLargeError> {
+    u16::try_from((data_length.get() - 1) / u64::from(n_symbols.get()) + 1)
+        .ok()
+        .and_then(NonZeroU16::new)
+        .ok_or(DataTooLargeError)
+}
+
+/// Computes the correct symbol size given the number of source symbols, `n_symbols`, and the data
+/// length, `data_length`.
+#[inline]
 pub fn compute_symbol_size(
     data_length: u64,
     n_symbols: NonZeroU32,
 ) -> Result<NonZeroU16, InvalidDataSizeError> {
-    if data_length == 0 {
-        return Err(InvalidDataSizeError::EmptyData);
-    }
-    u16::try_from((data_length - 1) / u64::from(n_symbols.get()) + 1)
-        .ok()
-        .and_then(NonZeroU16::new)
-        .ok_or(InvalidDataSizeError::DataTooLarge)
+    let symbol_size = compute_symbol_size_from_nonzero(
+        NonZeroU64::new(data_length).ok_or(InvalidDataSizeError::EmptyData)?,
+        n_symbols,
+    )?;
+    Ok(symbol_size)
 }
 
 /// Computes the correct symbol size given the number of source symbols, `n_symbols`, and the data

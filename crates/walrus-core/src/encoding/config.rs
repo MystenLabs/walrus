@@ -9,6 +9,7 @@ use super::{
     utils,
     BlobDecoder,
     BlobEncoder,
+    DataTooLargeError,
     Decoder,
     EncodeError,
     Encoder,
@@ -207,6 +208,20 @@ impl EncodingConfig {
     #[inline]
     pub fn symbol_size_for_blob(&self, blob_size: u64) -> Result<NonZeroU16, InvalidDataSizeError> {
         utils::compute_symbol_size(blob_size, self.source_symbols_per_blob())
+    }
+
+    /// The symbol size when encoding a blob of size `blob_size`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`DataTooLargeError`] if the computed symbol size is larger than
+    /// [`MAX_SYMBOL_SIZE`].
+    #[inline]
+    pub fn symbol_size_for_blob_from_nonzero(
+        &self,
+        blob_size: NonZeroU64,
+    ) -> Result<NonZeroU16, DataTooLargeError> {
+        utils::compute_symbol_size_from_nonzero(blob_size, self.source_symbols_per_blob())
     }
 
     /// The symbol size when encoding a blob of size `blob_size`.

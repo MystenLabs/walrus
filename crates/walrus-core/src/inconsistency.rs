@@ -46,7 +46,14 @@
 use std::marker::PhantomData;
 
 use crate::{
-    encoding::{DecodingSymbol, EncodingAxis, EncodingConfig, Sliver, SliverVerificationError},
+    encoding::{
+        DecodingSymbol,
+        EncodingAxis,
+        EncodingConfig,
+        Sliver,
+        SliverRecoveryError,
+        SliverVerificationError,
+    },
     merkle::MerkleAuth,
     metadata::BlobMetadata,
     SliverIndex,
@@ -56,20 +63,20 @@ use crate::{
 #[derive(thiserror::Error, Debug, Eq, PartialEq)]
 pub enum InconsistencyVerificationError {
     /// No sliver can be decoded from the authentic recovery symbols.
-    #[error("no sliver can be decoded from the recovery symbols")]
-    RecoveryFailure,
+    #[error(transparent)]
+    RecoveryFailure(#[from] SliverRecoveryError),
     /// An error occurred during the verification of the target sliver.
     #[error(transparent)]
     VerificationError(#[from] SliverVerificationError),
     /// The recovered sliver is consistent with the metadata.
-    #[error("the target sliver is authentic")]
-    AuthenticTargetSliver,
+    #[error("the target sliver is consistent with the metadata")]
+    SliverNotInconsistent,
 }
 
 /// The structure of an inconsistency proof.
 ///
 /// See [the module documentation][self] for further details.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InconsistencyProof<T: EncodingAxis, U: MerkleAuth> {
     target_sliver_index: SliverIndex,
     recovery_symbols: Vec<DecodingSymbol<T, U>>,
@@ -80,6 +87,8 @@ impl<T: EncodingAxis, U: MerkleAuth> InconsistencyProof<T, U> {
     /// Creates a new inconsistency proof from the provided index and recovery symbols.
     ///
     /// This does *not* verify that the proof is correct. Use [`Self::verify`] for that.
+    // TODO(mlegner): Include the minimal number of recovery symbols that suffice to decode the
+    // sliver. This includes filtering out invalid recovery symbols.
     pub fn new(
         target_sliver_index: SliverIndex,
         recovery_symbols: Vec<DecodingSymbol<T, U>>,
@@ -103,19 +112,44 @@ impl<T: EncodingAxis, U: MerkleAuth> InconsistencyProof<T, U> {
         let span = tracing::warn_span!("verifying inconsistency proof", ?metadata);
         let _guard = span.enter();
 
-        let sliver = Sliver::recover_sliver_with_verification(
+        let sliver = Sliver::recover_sliver_from_verified_symbols(
             self.recovery_symbols,
             self.target_sliver_index,
             metadata,
             encoding_config,
-        )
-        .ok_or(InconsistencyVerificationError::RecoveryFailure)?;
+        )?;
         match sliver.verify(encoding_config, metadata) {
-            Ok(()) => Err(InconsistencyVerificationError::AuthenticTargetSliver),
+            Ok(()) => Err(InconsistencyVerificationError::SliverNotInconsistent),
             Err(SliverVerificationError::MerkleRootMismatch) => Ok(()),
             // Any other error indicates an internal problem, not an inconsistent blob.
             Err(e) => Err(e.into()),
         }
+    }
+}
+
+/// Return type when attempting to recover a sliver.
+///
+/// On successful recovery and verification, this contains the target [`Sliver`]. Otherwise, it
+/// contains a generated [`InconsistencyProof`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SliverOrInconsistencyProof<T: EncodingAxis, U: MerkleAuth> {
+    /// The recovered sliver.
+    Sliver(Sliver<T>),
+    /// An inconsistency proof for the blob.
+    InconsistencyProof(InconsistencyProof<T, U>),
+}
+
+impl<T: EncodingAxis, U: MerkleAuth> From<Sliver<T>> for SliverOrInconsistencyProof<T, U> {
+    fn from(value: Sliver<T>) -> Self {
+        Self::Sliver(value)
+    }
+}
+
+impl<T: EncodingAxis, U: MerkleAuth> From<InconsistencyProof<T, U>>
+    for SliverOrInconsistencyProof<T, U>
+{
+    fn from(value: InconsistencyProof<T, U>) -> Self {
+        Self::InconsistencyProof(value)
     }
 }
 

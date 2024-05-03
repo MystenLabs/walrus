@@ -11,7 +11,7 @@ use tokio_stream::StreamExt;
 use tokio_util::sync::CancellationToken;
 use typed_store::{rocks::MetricConf, DBMetrics};
 use walrus_core::{
-    encoding::{EncodingConfig, RecoveryError},
+    encoding::{EncodingConfig, RecoverySymbolError},
     ensure,
     merkle::MerkleProof,
     messages::{Confirmation, SignedStorageConfirmation, StorageConfirmation},
@@ -95,7 +95,7 @@ pub enum StoreSliverError {
     #[error("this storage node does not currently manage shard {shard}, epoch {epoch}")]
     InvalidShard { shard: ShardIndex, epoch: Epoch },
     #[error(transparent)]
-    MalformedSliver(#[from] RecoveryError),
+    MalformedSliver(#[from] RecoverySymbolError),
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
 }

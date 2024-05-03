@@ -378,6 +378,7 @@ impl<T: EncodingAxis, U: MerkleAuth> DecodingSymbol<T, U> {
         &self,
         metadata: &BlobMetadata,
         encoding_config: &EncodingConfig,
+        target_index: SliverIndex,
     ) -> Result<(), SymbolVerificationError> {
         let n_shards = encoding_config.n_shards();
         if self.index >= n_shards.get() {
@@ -396,6 +397,7 @@ impl<T: EncodingAxis, U: MerkleAuth> DecodingSymbol<T, U> {
                     T::OrthogonalAxis::sliver_type(),
                 )
                 .ok_or(SymbolVerificationError::InvalidMetadata)?,
+            target_index.get().into(),
         ) {
             Ok(())
         } else {

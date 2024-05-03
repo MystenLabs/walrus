@@ -9,7 +9,7 @@ use fastcrypto::hash::{Blake2b256, HashFunction};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    encoding::{source_symbols_for_n_shards, EncodingAxis, EncodingConfig, InvalidDataSizeError},
+    encoding::{source_symbols_for_n_shards, DataTooLargeError, EncodingAxis, EncodingConfig},
     merkle::{MerkleTree, Node as MerkleNode, DIGEST_LEN},
     BlobId,
     EncodingType,
@@ -219,8 +219,8 @@ impl BlobMetadata {
     pub fn symbol_size(
         &self,
         encoding_config: &EncodingConfig,
-    ) -> Result<NonZeroU16, InvalidDataSizeError> {
-        encoding_config.symbol_size_for_blob(self.unencoded_length.get())
+    ) -> Result<NonZeroU16, DataTooLargeError> {
+        encoding_config.symbol_size_for_blob_from_nonzero(self.unencoded_length)
     }
 }
 

@@ -61,7 +61,7 @@ impl AsRef<[u8]> for Node {
 }
 
 /// The operations required to authenticate a Merkle proof.
-pub trait MerkleAuth {
+pub trait MerkleAuth: Clone {
     /// Verifies the proof given a Merkle root, the  and the leaf data.
     fn verify_proof(&self, root: &Node, leaf: &[u8], leaf_index: usize) -> bool {
         self.compute_root(leaf, leaf_index).as_ref() == Some(root)
@@ -74,7 +74,7 @@ pub trait MerkleAuth {
 }
 
 /// A proof that some data is at index `leaf_index` in a [`MerkleTree`].
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq)]
 pub struct MerkleProof<T = Blake2b256> {
     _hash_type: PhantomData<T>,
     /// The sibling hash values on the path from the leaf to the root.
@@ -91,6 +91,28 @@ where
             _hash_type: PhantomData,
             path: path.into(),
         }
+    }
+}
+
+// Cannot be derived as many hash functions don't implement `Clone` and the derive is not smart
+// enough to see that it is not necessary.
+impl<T> Clone for MerkleProof<T> {
+    fn clone(&self) -> Self {
+        Self {
+            _hash_type: PhantomData,
+            path: self.path.clone(),
+        }
+    }
+}
+
+// Cannot be derived as many hash functions don't implement `Debug` and the derive is not smart
+// enough to see that it is not necessary.
+impl<T> std::fmt::Debug for MerkleProof<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MerkleProof")
+            .field("_hash_type", &std::any::type_name::<T>())
+            .field("path", &self.path)
+            .finish()
     }
 }
 

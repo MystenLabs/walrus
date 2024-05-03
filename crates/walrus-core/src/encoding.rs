@@ -19,10 +19,12 @@ pub use config::{decoding_safety_limit, source_symbols_for_n_shards, EncodingCon
 
 mod errors;
 pub use errors::{
+    DataTooLargeError,
     DecodingVerificationError,
     EncodeError,
     InvalidDataSizeError,
-    RecoveryError,
+    RecoverySymbolError,
+    SliverRecoveryError,
     SliverVerificationError,
     SymbolVerificationError,
     WrongSliverVariantError,
