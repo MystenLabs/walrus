@@ -175,7 +175,10 @@ where
 mod tests {
     use std::collections::HashSet;
 
+    use rand::rngs::mock::StepRng;
+
     use super::*;
+    use crate::test_utils;
 
     macro_rules! assert_all_unique {
         ($into_iter:expr) => {
@@ -218,40 +221,13 @@ mod tests {
     }
 
     mod committee_sampler {
-        use fastcrypto::traits::KeyPair;
-        use rand::rngs::mock::StepRng;
-        use walrus_core::{ProtocolKeyPair, ShardIndex};
-        use walrus_sui::types::NetworkAddress;
 
         use super::*;
-
-        fn test_committee(weights: &[u16]) -> Committee {
-            let n_shards: u16 = weights.iter().sum();
-            let mut shards = 0..n_shards;
-
-            let members = weights
-                .iter()
-                .map(|&node_shard_count| CommitteeMember {
-                    shard_ids: (&mut shards)
-                        .take(node_shard_count.into())
-                        .map(ShardIndex)
-                        .collect(),
-                    public_key: ProtocolKeyPair::generate().as_ref().public().clone(),
-                    name: String::new(),
-                    network_address: NetworkAddress {
-                        host: String::new(),
-                        port: 0,
-                    },
-                })
-                .collect();
-
-            Committee::new(members, 0).unwrap()
-        }
 
         #[test]
         fn sample_quorum_filtered_excludes_based_on_predicate() {
             let weights = [1, 1, 2, 3, 3];
-            let committee = test_committee(&weights);
+            let committee = test_utils::test_committee(&weights);
 
             let index_of_excluded_member = 2;
             let key_of_excluded_member = committee.members()[index_of_excluded_member]
@@ -277,7 +253,7 @@ mod tests {
         #[test]
         fn sample_quorum_filtered_returns_all_if_less_than_2fp1() {
             let weights = [1, 1, 2, 3, 3];
-            let committee = test_committee(&weights);
+            let committee = test_utils::test_committee(&weights);
             let mut rng = StepRng::new(39, 5);
 
             let weight_of_all_returned: u16 = CommitteeSampler::new(&committee)
@@ -292,7 +268,7 @@ mod tests {
         #[test]
         fn sample_quorum_returns_only_2fp1_shards() {
             let weights = [1, 1, 2, 3, 3];
-            let committee = test_committee(&weights);
+            let committee = test_utils::test_committee(&weights);
             let mut rng = StepRng::new(42, 7);
 
             let sample: Vec<_> = CommitteeSampler::new(&committee)
@@ -310,7 +286,7 @@ mod tests {
 
         #[test]
         fn sample_quorum_returns_unique_indices() {
-            let committee = test_committee(&[1; 10]);
+            let committee = test_utils::test_committee(&[1; 10]);
             let n_nodes = committee.n_members();
             let mut rng = StepRng::new(42, 7);
 
@@ -326,7 +302,7 @@ mod tests {
         #[test]
         fn sample_qorum_randomizes_indices_each_iteration() {
             let mut rng = StepRng::new(42, 7);
-            let committee = test_committee(&[1; 10]);
+            let committee = test_utils::test_committee(&[1; 10]);
             let n_nodes = committee.n_members();
 
             let mut sampler = CommitteeSampler::new(&committee);

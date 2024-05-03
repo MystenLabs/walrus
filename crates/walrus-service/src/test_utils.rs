@@ -14,10 +14,19 @@ use mysten_metrics::RegistryService;
 use prometheus::Registry;
 use sui_types::event::EventID;
 use tempfile::TempDir;
-use tokio_stream::Stream;
+use tokio_stream::{wrappers::BroadcastStream, Stream};
 use tokio_util::sync::CancellationToken;
 use typed_store::rocks::MetricConf;
-use walrus_core::{test_utils, Epoch, ProtocolKeyPair, PublicKey, ShardIndex};
+use walrus_core::{
+    encoding::EncodingConfig,
+    metadata::VerifiedBlobMetadataWithId,
+    test_utils,
+    BlobId,
+    Epoch,
+    ProtocolKeyPair,
+    PublicKey,
+    ShardIndex,
+};
 use walrus_sui::types::{
     BlobEvent,
     Committee,
@@ -402,12 +411,14 @@ impl CommitteeService for StubCommitteeService {
         self.0.n_shards()
     }
 
-    fn exclude_member(&mut self, identity: &PublicKey) -> bool {
-        // Nothing to exclude, but return true if the member is present in the committee.
-        self.0
-            .members()
-            .iter()
-            .any(|info| info.public_key == *identity)
+    fn exclude_member(&mut self, _identity: &PublicKey) {}
+
+    async fn get_and_verify_metadata(
+        &self,
+        _blob_id: &BlobId,
+        _encoding_config: &EncodingConfig,
+    ) -> VerifiedBlobMetadataWithId {
+        std::future::pending().await
     }
 
     fn committee(&self) -> &Committee {
@@ -430,6 +441,18 @@ impl SystemEventProvider for Vec<BlobEvent> {
         Ok(Box::new(
             tokio_stream::iter(self.clone()).chain(tokio_stream::pending()),
         ))
+    }
+}
+
+#[async_trait::async_trait]
+impl SystemEventProvider for tokio::sync::broadcast::Sender<BlobEvent> {
+    async fn events(
+        &self,
+        _cursor: Option<EventID>,
+    ) -> Result<Box<dyn Stream<Item = BlobEvent> + Send + Sync + 'life0>, anyhow::Error> {
+        Ok(Box::new(BroadcastStream::new(self.subscribe()).map(
+            |value| value.expect("should not return errors in test"),
+        )))
     }
 }
 
@@ -685,4 +708,29 @@ impl Default for TestClusterBuilder {
                 .collect(),
         }
     }
+}
+
+/// Returns a test-committee with members with the specified number of shards each.
+#[cfg(test)]
+pub(crate) fn test_committee(weights: &[u16]) -> Committee {
+    let n_shards: u16 = weights.iter().sum();
+    let mut shards = 0..n_shards;
+
+    let members = weights
+        .iter()
+        .map(|&node_shard_count| SuiStorageNode {
+            shard_ids: (&mut shards)
+                .take(node_shard_count.into())
+                .map(ShardIndex)
+                .collect(),
+            public_key: ProtocolKeyPair::generate().as_ref().public().clone(),
+            name: String::new(),
+            network_address: NetworkAddress {
+                host: String::new(),
+                port: 0,
+            },
+        })
+        .collect();
+
+    Committee::new(members, 0).unwrap()
 }

@@ -19,5 +19,7 @@ pub mod cli_utils;
 pub mod committee;
 pub mod system_events;
 
+pub(crate) mod utils;
+
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
