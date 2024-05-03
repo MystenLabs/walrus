@@ -39,9 +39,10 @@ use crate::{
 };
 
 /// Mock `ReadClient` for testing.
-/// All events added to a `MockSuiReadClient` are provided in all event streams returned
-/// from any clone of the `MockSuiReadClient`. This includes events added using the `add_event`
-/// function after creating the client.
+///
+/// All events added to a `MockSuiReadClient` are provided in all event streams returned from any
+/// clone of the `MockSuiReadClient`. This includes events added using the `add_event` function
+/// after creating the client.
 #[derive(Debug, Clone)]
 pub struct MockSuiReadClient {
     events: Arc<Mutex<Vec<BlobEvent>>>,
@@ -133,10 +134,10 @@ impl ReadClient for MockSuiReadClient {
 }
 
 /// Mock `ContractClient` for testing.
-/// Currently only covers the happy case, i.e. every call succeeds.
-/// Calling its functions will add corresponding events to the event
-/// streams returned by its read client (returned by `read_client()`)
-/// as well as by any clones thereof.
+///
+/// Currently only covers the happy case, i.e. every call succeeds.  Calling its functions will add
+/// corresponding events to the event streams returned by its read client (returned by
+/// `read_client()`) as well as by any clones thereof.
 #[derive(Debug)]
 pub struct MockContractClient {
     /// Client to read Walrus on-chain state

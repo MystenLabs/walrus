@@ -1,8 +1,23 @@
-concurrent_writes: 7
-concurrent_sliver_reads: 4
-concurrent_metadata_reads: 3
-connection_timeout:
-  secs: 10
-  nanos: 0
-system_pkg: 0x1234
-system_object: 0xcoffee
+# Example configuration for the storage client.
+#
+# Default optional values are commented out.
+
+system_pkg: 0x134c017126a49714aa1de0a6f8809f743eaf53e8841f19cdf31c90f9fa222676
+system_object: 0x519cdbd1db849e9e8681e8550a1b903a090a6203f4dad4b9e201f9b54f28de99
+# wallet_config: null
+# communication_config:
+#   concurrent_writes: null
+#   concurrent_sliver_reads: null
+#   concurrent_metadata_reads: 3
+#   reqwest_config:
+#     total_timeout:
+#       secs: 10
+#       nanos: 0
+#     pool_idle_timeout: null
+#     http2_keep_alive_timeout:
+#       secs: 5
+#       nanos: 0
+#     http2_keep_alive_interval:
+#       secs: 30
+#       nanos: 0
+#     http2_keep_alive_while_idle: true

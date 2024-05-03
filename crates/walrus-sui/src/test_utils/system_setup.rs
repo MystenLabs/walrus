@@ -30,9 +30,11 @@ pub fn contract_path_for_testing(package: &str) -> anyhow::Result<PathBuf> {
         .join(package))
 }
 
-/// Publish the package, create a system object with the default e2e test setup (compatible with
-/// the current tests), and return the IDs of the package and the system object. The default
-/// test setup currently uses a single storage node with sk = 117.
+/// Publishes the package with a default system object.
+///
+/// The system object has the default e2e test setup (compatible with the current tests), and
+/// returns the IDs of the package and the system object. The default test setup currently uses a
+/// single storage node with sk = 117.
 pub async fn publish_with_default_system(
     wallet: &mut WalletContext,
 ) -> Result<(ObjectID, ObjectID)> {

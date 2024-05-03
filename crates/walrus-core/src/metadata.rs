@@ -48,8 +48,9 @@ pub enum VerificationError {
 /// - The blob ID is correctly computed from the sliver hashes.
 pub type VerifiedBlobMetadataWithId = BlobMetadataWithId<true>;
 
-/// [`BlobMetadataWithId`] that has yet to be verified, this is the default
-/// type of [`BlobMetadataWithId`].
+/// [`BlobMetadataWithId`] that has yet to be verified.
+///
+/// This is the default type of [`BlobMetadataWithId`].
 pub type UnverifiedBlobMetadataWithId = BlobMetadataWithId<false>;
 
 /// Metadata associated with a blob.
@@ -116,6 +117,8 @@ impl VerifiedBlobMetadataWithId {
         }
     }
 
+    /// Checks if the number of symbols and number of shards in the config matches the the metadata.
+    ///
     /// Returns true if the number of symbols and number of shards in the provided encoding config,
     /// matches that which was used to verify the metadata.
     pub fn is_encoding_config_applicable(&self, config: &EncodingConfig) -> bool {
@@ -138,8 +141,9 @@ impl VerifiedBlobMetadataWithId {
 }
 
 impl UnverifiedBlobMetadataWithId {
-    /// Consumes the metadata and attempts to verify it the relationship between the contained
-    /// metadata and blob ID. On success, returns a [`VerifiedBlobMetadataWithId`].
+    /// Attempts to verify the relationship between the contained metadata and blob ID.
+    ///
+    /// Consumes the metadata. On success, returns a [`VerifiedBlobMetadataWithId`].
     pub fn verify(
         self,
         config: &EncodingConfig,

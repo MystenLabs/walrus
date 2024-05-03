@@ -1,6 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Client for the Walrus service.
+
 use std::{collections::HashMap, time::Instant};
 
 use anyhow::{anyhow, Result};
@@ -26,7 +28,7 @@ use walrus_sui::{
 
 mod communication;
 mod config;
-pub use config::{default_configuration_paths, Config};
+pub use config::{default_configuration_paths, ClientCommunicationConfig, Config};
 mod error;
 mod utils;
 
@@ -58,17 +60,22 @@ impl Client<()> {
         config: Config,
         sui_read_client: &impl ReadClient,
     ) -> Result<Self> {
-        let reqwest_client = ClientBuilder::new()
-            .timeout(config.connection_timeout)
+        tracing::debug!(?config, "running client");
+        let reqwest_client = config
+            .communication_config
+            .reqwest_config
+            .apply(ClientBuilder::new())
             .build()?;
         let committee = sui_read_client.current_committee().await?;
         let encoding_config = EncodingConfig::new(committee.n_shards());
         // Try to store on n-f nodes concurrently, as the work to store is never wasted.
         let concurrent_writes = config
+            .communication_config
             .concurrent_writes
             .unwrap_or(default::concurrent_writes(committee.n_shards()));
         // Read n-2f slivers concurrently to avoid wasted work on the storage nodes.
         let concurrent_sliver_reads = config
+            .communication_config
             .concurrent_writes
             .unwrap_or(default::concurrent_sliver_reads(committee.n_shards()));
         Ok(Self {
@@ -78,7 +85,7 @@ impl Client<()> {
             concurrent_writes,
             encoding_config,
             concurrent_sliver_reads,
-            concurrent_metadata_reads: config.concurrent_metadata_reads,
+            concurrent_metadata_reads: config.communication_config.concurrent_metadata_reads,
         })
     }
 
@@ -123,7 +130,7 @@ impl<T: ContractClient> Client<T> {
             .encoding_config
             .get_blob_encoder(blob)?
             .encode_with_metadata();
-        tracing::Span::current().record("blob_id_prefix", truncate_blob_id(metadata.blob_id()));
+        tracing::Span::current().record("blob_id_prefix", string_prefix(metadata.blob_id()));
         let encoded_length = self
             .encoding_config
             .encoded_blob_length_from_usize(blob.len())
@@ -186,14 +193,22 @@ impl<T> Client<T> {
         requests
             .execute_weight(&quorum_check, self.concurrent_writes)
             .await;
+        tracing::debug!(
+            elapsed_time=?start.elapsed(), "stored metadata and slivers onto a quorum of nodes"
+        );
         // Double the execution time, with a minimum of 100 ms. This gives the client time to
         // collect more storage confirmations.
-        requests
+        let completed_reason = requests
             .execute_time(
                 start.elapsed() + Duration::from_millis(100),
                 self.concurrent_writes,
             )
             .await;
+        tracing::debug!(
+            elapsed_time=?start.elapsed(),
+            %completed_reason,
+            "stored metadata and slivers onto additional nodes"
+        );
         let results = requests.into_results();
         self.confirmations_to_certificate(metadata.blob_id(), results)
     }
@@ -241,7 +256,7 @@ impl<T> Client<T> {
     }
 
     /// Reconstructs the blob by reading slivers from Walrus shards.
-    #[tracing::instrument(skip_all, fields(blob_id_prefix))]
+    #[tracing::instrument(skip_all, fields(blob_id_prefix=string_prefix(blob_id)))]
     pub async fn read_blob<U>(&self, blob_id: &BlobId) -> Result<Vec<u8>>
     where
         U: EncodingAxis,
@@ -408,9 +423,8 @@ impl<T> Client<T> {
     }
 }
 
-/// Returns the 8 characters of the blob ID.
-fn truncate_blob_id(blob_id: &BlobId) -> String {
-    let mut blob_id_string = blob_id.to_string();
-    blob_id_string.truncate(8);
-    blob_id_string
+pub(crate) fn string_prefix<T: ToString>(s: &T) -> String {
+    let mut string = s.to_string();
+    string.truncate(8);
+    format!("{}...", string)
 }

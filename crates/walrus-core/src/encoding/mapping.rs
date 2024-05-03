@@ -21,19 +21,16 @@ pub enum SliverAssignmentError {
     InvalidInputOrder,
 }
 
-/// Rotate the slice of sliver pairs in place, based on the rotation specified by the Blob ID.
+/// Rotate the slice of sliver pairs in place, based on the rotation specified by the blob ID.
 ///
-/// Does nothing if the pairs have already been rotated correctly, according to the Blob ID.
+/// Does nothing if the `pairs` have already been rotated correctly, according to the blob ID.
 /// Returns a [`SliverAssignmentError`] if the slice is shuffled in a way that is inconsistent with
 /// the provided `blob_id`.
 ///
-/// # Arguments
-///
-/// * `pairs` - The slice of sliver pairs to rotate in place. This is assumed to be already of
-/// length equal to the number of shards.
-/// * `blob_id` - The Blob ID that produced the sliver pairs. It is interpreted as a big-endian
-/// unsigned integer, and the used to compute the amount for which to rotate the slice. The rotation
-/// is such that the last `blob_id % slice.len()` elements of the slice move to the front.
+/// The `blob_id` -- which is typically the blob ID of the blob that produced the sliver pairs -- is
+/// interpreted as a big-endian unsigned integer, and is then used to compute the amount for which
+/// to rotate the slice. The rotation is such that the last `blob_id % slice.len()` elements of the
+/// slice move to the front.
 ///
 /// # Errors
 ///
@@ -68,18 +65,10 @@ pub fn rotate_pairs(
     }
 }
 
-/// Rotate the slice of sliver pairs in place, based on the rotation specified by the Blob ID.
+/// Rotate the slice of sliver pairs in place, based on the rotation specified by the blob ID.
 ///
 /// This function does not check whether the pairs have already been rotated. See [`rotate_pairs`]
-/// for the checked version.
-///
-/// # Arguments
-///
-/// * `pairs` - The slice of sliver pairs to rotate in place. This is assumed to be already of
-/// length equal to the number of shards.
-/// * `blob_id` - The Blob ID that produced the sliver pairs. It is interpreted as a big-endian
-/// unsigned integer, and the used to compute the amount for which to rotate the slice. The rotation
-/// is such that the last `blob_id % slice.len()` elements of the slice move to the front.
+/// for the checked version and the details on how the rotation is performed.
 pub fn rotate_pairs_unchecked(pairs: &mut [SliverPair], blob_id: &BlobId) {
     if pairs.is_empty() {
         return;
@@ -124,20 +113,19 @@ fn rotation_offset(n_shards: NonZeroU16, blob_id: &BlobId) -> usize {
     bytes_mod(blob_id.as_ref(), n_shards.get().into())
 }
 
-/// Rotate the input slice in place, based on the rotation specified by the byte array.
+/// Rotate the input `slice` in place, based on the rotation specified by the `rotation` byte array.
 ///
-/// # Arguments
-///
-/// * `slice` - The slice to rotate in place.
-/// * `rotation` - Interpreted as a big-endian unsigned integer, this is the amount for which to
-/// rotate the slice. The rotation is such that the last `rotation % slice.len()` elements of the
-/// slice move to the front.
+/// The `rotation` byte array is the amount for which to rotate the slice, and it is interpreted as
+/// a big-endian unsigned integer. The `rotation` will typically be the blob ID. The resulting
+/// rotation of the slice is such that the last `rotation % slice.len()` elements of the slice move
+/// to the front.
 fn rotate_by_bytes<T>(slice: &mut [T], rotation: &[u8]) {
     slice.rotate_right(bytes_mod(rotation, slice.len()))
 }
 
 /// Compute the modulo of the input byte array interpreted as an big-endian unsigned integer.
-/// Uses Horner'r method.
+///
+/// Uses Horner's method.
 fn bytes_mod(bytes: &[u8], modulus: usize) -> usize {
     bytes
         .iter()

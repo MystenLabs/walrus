@@ -3,13 +3,9 @@
 
 //! Service functionality for Walrus.
 
-/// Client for the Walrus service.
 pub mod client;
-/// Configuration module.
 pub mod config;
-/// Server for the Walrus service.
 pub mod server;
-/// Facilities to deploy a demo testbed.
 pub mod testbed;
 
 mod node;

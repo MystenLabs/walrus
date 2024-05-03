@@ -3,6 +3,7 @@
 
 use std::{path::PathBuf, time::Duration};
 
+use reqwest::ClientBuilder;
 use serde::{de::Error as _, Deserialize, Serialize};
 use sui_types::base_types::ObjectID;
 
@@ -11,6 +12,25 @@ use crate::config::LoadConfig;
 /// Config for the client.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
+    /// The walrus package id.
+    pub system_pkg: ObjectID,
+    /// The system walrus system object id.
+    pub system_object: ObjectID,
+    /// Path to the wallet configuration.
+    ///
+    /// If set, this MUST be an absolute path.
+    #[serde(deserialize_with = "deserialize_wallet_config")]
+    pub wallet_config: Option<PathBuf>,
+    /// Configuration for the client's network communication.
+    #[serde(default)]
+    pub communication_config: ClientCommunicationConfig,
+}
+
+impl LoadConfig for Config {}
+
+/// Configuration for the communication parameters of the client
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ClientCommunicationConfig {
     /// The maximum number of storage nodes the client contacts in parallel to write slivers and
     /// metadata. If `None`, the value is set by the client to `n - f`, depending on the number of
     /// shards `n`.
@@ -21,21 +41,66 @@ pub struct Config {
     /// The maximum number of nodes the client contacts to get the blob metadata in parallel.
     #[serde(default = "default::concurrent_metadata_reads")]
     pub concurrent_metadata_reads: usize,
-    /// Timeout for the `reqwest` client used by the client,
-    #[serde(default = "default::connection_timeout")]
-    pub connection_timeout: Duration,
-    /// The walrus package id.
-    pub system_pkg: ObjectID,
-    /// The system walrus system object id.
-    pub system_object: ObjectID,
-    /// Path to the wallet configuration.
-    ///
-    /// If set, this MUST be an absolute path.
-    #[serde(deserialize_with = "deserialize_wallet_config")]
-    pub wallet_config: Option<PathBuf>,
+    /// The configuration for the `reqwest` client.
+    #[serde(default)]
+    pub reqwest_config: ReqwestConfig,
 }
 
-impl LoadConfig for Config {}
+impl Default for ClientCommunicationConfig {
+    fn default() -> Self {
+        Self {
+            concurrent_writes: None,
+            concurrent_sliver_reads: None,
+            concurrent_metadata_reads: default::concurrent_metadata_reads(),
+            reqwest_config: ReqwestConfig::default(),
+        }
+    }
+}
+
+/// Configuration for the parameters of the `reqwest` client.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ReqwestConfig {
+    /// Total request timeout, applied from when the request starts connecting until the response
+    /// body has finished.
+    #[serde(default = "default::total_timeout")]
+    pub total_timeout: Duration,
+    /// Timeout for idle sockets to be kept alive. Pass `None` to disable.
+    #[serde(default = "default::pool_idle_timeout")]
+    pub pool_idle_timeout: Option<Duration>,
+    /// Timeout for receiving an acknowledgement of the keep-alive ping.
+    #[serde(default = "default::http2_keep_alive_timeout")]
+    pub http2_keep_alive_timeout: Duration,
+    /// Ping every such interval to keep the connection alive.
+    #[serde(default = "default::http2_keep_alive_interval")]
+    pub http2_keep_alive_interval: Option<Duration>,
+    /// Sets whether HTTP2 keep-alive should apply while the connection is idle.
+    #[serde(default = "default::http2_keep_alive_while_idle")]
+    pub http2_keep_alive_while_idle: bool,
+}
+
+impl Default for ReqwestConfig {
+    fn default() -> Self {
+        Self {
+            total_timeout: default::total_timeout(),
+            pool_idle_timeout: default::pool_idle_timeout(),
+            http2_keep_alive_timeout: default::http2_keep_alive_timeout(),
+            http2_keep_alive_interval: default::http2_keep_alive_interval(),
+            http2_keep_alive_while_idle: default::http2_keep_alive_while_idle(),
+        }
+    }
+}
+
+impl ReqwestConfig {
+    /// Applies the configurations in [`Self`] to the provided client builder.
+    pub fn apply(&self, builder: ClientBuilder) -> ClientBuilder {
+        builder
+            .timeout(self.total_timeout)
+            .pool_idle_timeout(self.pool_idle_timeout)
+            .http2_keep_alive_timeout(self.http2_keep_alive_timeout)
+            .http2_keep_alive_interval(self.http2_keep_alive_interval)
+            .http2_keep_alive_while_idle(self.http2_keep_alive_while_idle)
+    }
+}
 
 fn deserialize_wallet_config<'de, D>(deserializer: D) -> Result<Option<PathBuf>, D::Error>
 where
@@ -79,7 +144,27 @@ pub(crate) mod default {
         3
     }
 
-    pub fn connection_timeout() -> Duration {
+    pub fn total_timeout() -> Duration {
         Duration::from_secs(10)
+    }
+
+    /// Disabled by default, i.e., connections are kept alive.
+    pub fn pool_idle_timeout() -> Option<Duration> {
+        None
+    }
+
+    /// Close the connection if the answer to the ping is not received within this deadline.
+    pub fn http2_keep_alive_timeout() -> Duration {
+        Duration::from_secs(5)
+    }
+
+    /// Ping every 30 secs.
+    pub fn http2_keep_alive_interval() -> Option<Duration> {
+        Some(Duration::from_secs(30))
+    }
+
+    /// Keep-alive pings are sent to idle connections.
+    pub fn http2_keep_alive_while_idle() -> bool {
+        true
     }
 }

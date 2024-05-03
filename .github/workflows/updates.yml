@@ -29,7 +29,6 @@ jobs:
           --repo https://github.com/pre-commit/pre-commit-hooks
           --repo https://github.com/editorconfig-checker/editorconfig-checker.python
           --repo https://github.com/crate-ci/typos
-          --repo https://github.com/DevinR528/cargo-sort
           --repo https://github.com/EmbarkStudios/cargo-deny
 
       - name: Restore cached sui binary
@@ -44,9 +43,23 @@ jobs:
 
       - run: pre-commit run --all-files
       - uses: peter-evans/create-pull-request@v6.0.5
+        if: ${{ success() }}
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           branch: chore/update-pre-commit-hooks
           title: "chore: update pre-commit hooks"
           commit-message: "chore: update pre-commit hooks"
           body: Update pre-commit hooks to latest version.
+      - uses: peter-evans/create-pull-request@v6.0.5
+        if: ${{ failure() }}
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: chore/update-pre-commit-hooks
+          title: "chore: update pre-commit hooks"
+          commit-message: "chore: update pre-commit hooks"
+          body: |
+            Update pre-commit hooks to latest version.
+
+            **Warning**: Some checks did not succeed. Please check the [action output][run] before merging this PR.
+
+            [run]: https://github.com/MystenLabs/walrus/actions/runs/${{ github.run_id }}

@@ -1,10 +1,11 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Facilities to deploy a demo testbed.
+
 use std::{
     num::NonZeroU16,
     path::{Path, PathBuf},
-    time::Duration,
 };
 
 use fastcrypto::traits::KeyPair;
@@ -18,7 +19,7 @@ use walrus_sui::{
 };
 
 use crate::{
-    client,
+    client::{self, ClientCommunicationConfig},
     config::{self, PathOrInPlace, StorageNodeConfig, SuiConfig},
 };
 
@@ -34,8 +35,10 @@ pub fn node_config_name_prefix(node_index: u16, committee_size: NonZeroU16) -> S
     format!("dryrun-node-{node_index:00$}", width)
 }
 
-/// Deterministically generate storage node configurations without a `SuiConfig` for a
-/// total of `committee_size` nodes and `n_shards`.
+/// Deterministically generate storage node configurations without a `SuiConfig`.
+///
+/// The storage node configurations are created for a total of `committee_size` nodes and
+/// `n_shards`.
 pub fn create_storage_node_configs(
     working_dir: &Path,
     committee_size: NonZeroU16,
@@ -155,13 +158,10 @@ pub async fn testbed_configs(
 
     // Create the client config.
     let client_config = client::Config {
-        concurrent_writes: Some(committee_size.get().into()),
-        concurrent_sliver_reads: Some(committee_size.get().into()),
-        concurrent_metadata_reads: 3,
-        connection_timeout: Duration::from_secs(10),
         system_pkg: pkg_id,
         system_object,
         wallet_config: Some(std::fs::canonicalize(client_wallet_path)?),
+        communication_config: ClientCommunicationConfig::default(),
     };
 
     Ok((storage_node_configs, client_config))
