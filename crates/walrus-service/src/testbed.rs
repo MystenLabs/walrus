@@ -154,7 +154,7 @@ pub async fn testbed_configs(
     });
     storage_node_configs
         .iter_mut()
-        .for_each(|conf| conf.sui = sui_config.clone());
+        .for_each(|conf| conf.sui.clone_from(&sui_config));
 
     // Create the client config.
     let client_config = client::Config {

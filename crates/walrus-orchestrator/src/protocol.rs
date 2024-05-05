@@ -57,6 +57,7 @@ pub trait ProtocolCommands {
     where
         I: IntoIterator<Item = Instance>;
 
+    #[allow(dead_code)]
     fn monitor_command<I>(&self, instances: I) -> Vec<(Instance, String)>
     where
         I: IntoIterator<Item = Instance>;

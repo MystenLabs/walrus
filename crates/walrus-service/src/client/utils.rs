@@ -21,6 +21,7 @@ pub trait WeightedResult {
         self.inner_result().is_ok()
     }
     /// Returns true if the inner result is `Err`.
+    #[allow(dead_code)]
     fn is_err(&self) -> bool {
         self.inner_result().is_err()
     }
@@ -28,6 +29,7 @@ pub trait WeightedResult {
     fn weight(&self) -> usize;
     /// Converts `self` into an [`Option<Self>`], consuming `self`, and returning `None` if
     /// `self.is_err()`.
+    #[allow(dead_code)]
     fn ok(self) -> Option<Self>
     where
         Self: Sized,
