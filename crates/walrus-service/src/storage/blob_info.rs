@@ -206,7 +206,7 @@ mod tests {
         ]
     }
     fn certification_status_transitions_to_new_status(
-        original: BlobCertificationStatus,
+        initial: BlobCertificationStatus,
         must_transition_to: &[BlobCertificationStatus],
     ) {
         const ALL_STATUSES: &[BlobCertificationStatus] = &[Registered, Certified, Invalid];
@@ -215,13 +215,13 @@ mod tests {
         let never_cases = ALL_STATUSES
             .iter()
             .filter(|status| !must_transition_to.contains(status))
-            .map(|status| (status, &original));
+            .map(|status| (status, &initial));
 
         for (&status, &expected) in must_cases.chain(never_cases) {
-            let actual = original.update_status(status);
+            let actual = initial.update_status(status);
             assert_eq!(
                 actual, expected,
-                "'{original:?}' when updated with '{status:?}' should result in '{expected:?}': actual='{actual:?}'"
+                "'{initial:?}' updated with '{status:?}' should be '{expected:?}': got '{actual:?}'"
             );
         }
     }
