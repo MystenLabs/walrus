@@ -344,8 +344,8 @@ pub(crate) mod tests {
     }
 
     pub(crate) const BLOB_ID: BlobId = BlobId([7; 32]);
-    pub(crate) const SHARD_INDEX: ShardIndex = ShardIndex(17);
-    pub(crate) const OTHER_SHARD_INDEX: ShardIndex = ShardIndex(831);
+    pub(crate) const SHARD_INDEX: ShardIndex = ShardIndex(3);
+    pub(crate) const OTHER_SHARD_INDEX: ShardIndex = ShardIndex(9);
 
     /// Returns an empty storage, with the column families for [`SHARD_INDEX`] already created.
     pub(crate) fn empty_storage() -> WithTempDir<Storage> {
