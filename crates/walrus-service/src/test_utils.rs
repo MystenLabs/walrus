@@ -5,7 +5,7 @@
 //! For creating an instance of a single storage node in a test, see [`StorageNodeHandleBuilder`] .
 //!
 //! For creating a cluster of test storage nodes, see [`TestClusterBuilder`].
-use std::{borrow::Borrow, net::SocketAddr, num::NonZeroU16, sync::Arc};
+use std::{borrow::Borrow, marker::PhantomData, net::SocketAddr, num::NonZeroU16, sync::Arc};
 
 use async_trait::async_trait;
 use fastcrypto::{bls12381::min_pk::BLS12381PublicKey, traits::KeyPair};
@@ -37,7 +37,7 @@ use walrus_sui::types::{
 use walrus_test_utils::WithTempDir;
 
 use crate::{
-    committee::{CommitteeService, CommitteeServiceFactory},
+    committee::{CommitteeService, CommitteeServiceFactory, NodeCommitteeService},
     config::{PathOrInPlace, StorageNodeConfig},
     server::UserServer,
     storage::Storage,
@@ -283,10 +283,12 @@ impl StorageNodeHandleBuilder {
             ];
             debug_assert!(committee_members[0].is_some() || committee_members[1].is_some());
 
-            Box::new(StubCommitteeServiceFactory::from_members(
-                // Remove the possible None in the members list
-                committee_members.into_iter().flatten().collect(),
-            ))
+            Box::new(
+                StubCommitteeServiceFactory::<StubCommitteeService>::from_members(
+                    // Remove the possible None in the members list
+                    committee_members.into_iter().flatten().collect(),
+                ),
+            )
         });
 
         // Create the node's config using the previously generated keypair and address.
@@ -376,22 +378,36 @@ fn committee_partner(node_config: &StorageNodeTestConfig) -> Option<StorageNodeT
     }
 }
 
-/// A [`CommitteeServiceFactory`] implementation that constructs [`StubCommitteeService`] instances.
-///
-/// This wraps a [`Committee`] and answers queries based on the contained data.
+/// A [`CommitteeServiceFactory`] implementation that constructs committee service
+/// instances using the supplied committee.
 #[derive(Debug, Clone)]
-pub struct StubCommitteeServiceFactory(Committee);
+pub struct StubCommitteeServiceFactory<T> {
+    committee: Committee,
+    _service_type: PhantomData<T>,
+}
 
-impl StubCommitteeServiceFactory {
+impl<T> StubCommitteeServiceFactory<T> {
     fn from_members(members: Vec<SuiStorageNode>) -> Self {
-        Self(Committee::new(members, 0).expect("valid members to be provided for tests"))
+        Self {
+            committee: Committee::new(members, 0).expect("valid members to be provided for tests"),
+            _service_type: PhantomData,
+        }
     }
 }
 
 #[async_trait]
-impl CommitteeServiceFactory for StubCommitteeServiceFactory {
+impl CommitteeServiceFactory for StubCommitteeServiceFactory<StubCommitteeService> {
     async fn new_for_epoch(&self) -> Result<Box<dyn CommitteeService>, anyhow::Error> {
-        Ok(Box::new(StubCommitteeService(self.0.clone())))
+        Ok(Box::new(StubCommitteeService(self.committee.clone())))
+    }
+}
+
+#[async_trait]
+impl CommitteeServiceFactory for StubCommitteeServiceFactory<NodeCommitteeService> {
+    async fn new_for_epoch(&self) -> Result<Box<dyn CommitteeService>, anyhow::Error> {
+        Ok(Box::new(
+            NodeCommitteeService::new(self.committee.clone()).await?,
+        ))
     }
 }
 
@@ -613,7 +629,9 @@ impl TestClusterBuilder {
                 builder = builder.with_committee_service_factory(factory);
             } else {
                 builder = builder.with_committee_service_factory(Box::new(
-                    StubCommitteeServiceFactory::from_members(committee_members.clone()),
+                    StubCommitteeServiceFactory::<NodeCommitteeService>::from_members(
+                        committee_members.clone(),
+                    ),
                 ));
             }
 

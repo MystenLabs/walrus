@@ -111,7 +111,8 @@ pub struct NodeCommitteeService {
 }
 
 impl NodeCommitteeService {
-    async fn new(committee: Committee) -> Result<Self, anyhow::Error> {
+    /// Creates a new `NodeCommitteeService`.
+    pub async fn new(committee: Committee) -> Result<Self, anyhow::Error> {
         Ok(Self {
             inner: NodeCommitteeServiceInner::new(committee)?,
         })
@@ -166,7 +167,7 @@ impl NodeCommitteeServiceInner<StorageNodeClient> {
 }
 
 impl<T: NodeClient> NodeCommitteeServiceInner<T> {
-    #[tracing::instrument(skip_all, fields(%blob_id))]
+    #[tracing::instrument(skip_all)]
     async fn get_and_verify_metadata(
         &self,
         blob_id: &BlobId,

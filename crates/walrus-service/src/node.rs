@@ -23,7 +23,7 @@ use walrus_core::{
         SignedMessage,
         StorageConfirmation,
     },
-    metadata::{UnverifiedBlobMetadataWithId, VerificationError},
+    metadata::{UnverifiedBlobMetadataWithId, VerificationError, VerifiedBlobMetadataWithId},
     BlobId,
     Epoch,
     InconsistencyProof,
@@ -34,7 +34,10 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
-use walrus_sui::client::SuiReadClient;
+use walrus_sui::{
+    client::SuiReadClient,
+    types::{BlobCertified, BlobEvent},
+};
 
 use crate::{
     committee::{CommitteeService, CommitteeServiceFactory, SuiCommitteeServiceFactory},
@@ -124,7 +127,7 @@ pub trait ServiceState {
     fn retrieve_metadata(
         &self,
         blob_id: &BlobId,
-    ) -> Result<Option<UnverifiedBlobMetadataWithId>, anyhow::Error>;
+    ) -> Result<Option<VerifiedBlobMetadataWithId>, anyhow::Error>;
 
     /// Stores the metadata associated with a blob.
     fn store_metadata(
@@ -266,6 +269,12 @@ impl StorageNodeBuilder {
             Box::new(SuiCommitteeServiceFactory::new(read_client))
         });
 
+        let mut committee_service = committee_service_factory
+            .new_for_epoch()
+            .await
+            .context("unable to construct a committee service for the storage node")?;
+        committee_service.exclude_member(protocol_key_pair.as_ref().public());
+
         StorageNode::new(
             protocol_key_pair,
             storage,
@@ -364,8 +373,13 @@ impl StorageNode {
         let mut blob_events = Box::into_pin(self.event_provider.events(cursor).await?);
         while let Some(event) = blob_events.next().await {
             tracing::debug!(event=?event.event_id(), "received system event");
-            self.storage.update_blob_info(event)?;
+
+            match event {
+                BlobEvent::Certified(certified) => self.on_blob_certified(certified).await?,
+                other => self.storage.update_blob_info(&other)?,
+            }
         }
+
         bail!("event stream for blob events stopped")
     }
 
@@ -377,19 +391,54 @@ impl StorageNode {
     pub fn shards(&self) -> Vec<ShardIndex> {
         self.storage.shards()
     }
+
+    async fn on_blob_certified(&self, event: BlobCertified) -> anyhow::Result<()> {
+        let blob_id = event.blob_id;
+        self.storage
+            .update_blob_info(&BlobEvent::Certified(event))?;
+
+        let blob_info = self
+            .storage
+            .get_blob_info(&blob_id)?
+            .expect("info to be present as it was just updated");
+
+        if blob_info.is_all_stored() {
+            return Ok(());
+        }
+
+        // TODO(jsmith): Spawn a cancellable task
+        let metadata = self
+            .committee_service
+            .get_and_verify_metadata(&blob_id, &self.encoding_config)
+            .await;
+
+        // TODO(jsmith): Retry with exponential backoff
+        self.storage
+            .put_verified_metadata(&metadata)
+            .context("storing metadata failed")?;
+
+        // Request the metadata
+        // Store the metadata
+        // Request the primary sliver
+        // Store the primary sliver
+        // Request the secondary sliver
+        // Store the secondary sliver
+
+        Ok(())
+    }
 }
 
 impl ServiceState for StorageNode {
     fn retrieve_metadata(
         &self,
         blob_id: &BlobId,
-    ) -> Result<Option<UnverifiedBlobMetadataWithId>, anyhow::Error> {
+    ) -> Result<Option<VerifiedBlobMetadataWithId>, anyhow::Error> {
         let verified_metadata_with_id = self
             .storage
             .get_metadata(blob_id)
             .context("unable to retrieve metadata")?;
-        // Format the metadata as unverified, as the client will have to re-verify them.
-        Ok(verified_metadata_with_id.map(|metadata| metadata.into_unverified()))
+
+        Ok(verified_metadata_with_id)
     }
 
     fn store_metadata(
@@ -578,10 +627,13 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use fastcrypto::traits::KeyPair;
+    use tokio::sync::broadcast;
     use walrus_sui::{
         test_utils::EventForTesting,
-        types::{BlobEvent, BlobRegistered},
+        types::{BlobCertified, BlobEvent, BlobRegistered},
     };
     use walrus_test_utils::{Result as TestResult, WithTempDir};
 
@@ -594,7 +646,7 @@ mod tests {
             OTHER_SHARD_INDEX,
             SHARD_INDEX,
         },
-        test_utils::StorageNodeHandle,
+        test_utils::{StorageNodeHandle, TestCluster},
     };
 
     const OTHER_BLOB_ID: BlobId = BlobId([247; 32]);
@@ -792,5 +844,57 @@ mod tests {
 
             Ok(())
         }
+    }
+
+    #[tokio::test]
+    async fn retrieves_metadata_from_other_nodes_on_certified_blob_event() -> TestResult {
+        let _ = tracing_subscriber::fmt::try_init();
+
+        let events = broadcast::Sender::new(10);
+        let nodes = TestCluster::builder()
+            .with_shard_assignment(&[[0u16, 1].as_slice(), &[2, 3, 4]])
+            .with_system_event_providers(events.clone())
+            .build()
+            .await?;
+
+        tokio::task::yield_now().await;
+
+        let contacted_node = &nodes.nodes[0].storage_node;
+        let other_node = &nodes.nodes[1].storage_node;
+        let config = &contacted_node.encoding_config;
+
+        let (_, metadata) = config
+            .get_blob_encoder(&vec![7u8; 300])?
+            .encode_with_metadata();
+        let blob_id = *metadata.blob_id();
+
+        events.send(BlobRegistered::for_testing(blob_id).into())?;
+        tokio::task::yield_now().await;
+
+        contacted_node.store_metadata(metadata.clone().into_unverified())?;
+
+        assert!(contacted_node.retrieve_metadata(&blob_id)?.is_some());
+        assert!(other_node.retrieve_metadata(&blob_id)?.is_none());
+
+        events.send(BlobCertified::for_testing(blob_id).into())?;
+
+        // Wait up to 50ms for the node to fetch the metadata
+        let synced_metadata: Result<VerifiedBlobMetadataWithId, anyhow::Error> =
+            tokio::time::timeout(Duration::from_millis(50), async {
+                loop {
+                    if let Some(metadata) = other_node.retrieve_metadata(&blob_id)? {
+                        return Ok(metadata);
+                    } else {
+                        tokio::time::sleep(Duration::from_millis(1)).await;
+                    };
+                }
+            })
+            .await?;
+        let synced_metadata = synced_metadata?;
+
+        assert!(contacted_node.retrieve_metadata(&blob_id)?.is_some());
+        assert_eq!(synced_metadata, metadata);
+
+        Ok(())
     }
 }

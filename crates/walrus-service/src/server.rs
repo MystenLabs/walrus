@@ -398,7 +398,7 @@ mod test {
         },
         merkle::{MerkleAuth, MerkleProof},
         messages::{InvalidBlobIdAttestation, StorageConfirmation},
-        metadata::UnverifiedBlobMetadataWithId,
+        metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
         test_utils::generate_config_metadata_and_valid_recovery_symbols,
         BlobId,
         RecoverySymbol,
@@ -424,11 +424,9 @@ mod test {
         fn retrieve_metadata(
             &self,
             blob_id: &BlobId,
-        ) -> Result<Option<UnverifiedBlobMetadataWithId>, anyhow::Error> {
+        ) -> Result<Option<VerifiedBlobMetadataWithId>, anyhow::Error> {
             if blob_id.0[0] == 0 {
-                Ok(Some(
-                    walrus_core::test_utils::verified_blob_metadata().into_unverified(),
-                ))
+                Ok(Some(walrus_core::test_utils::verified_blob_metadata()))
             } else if blob_id.0[0] == 1 {
                 Ok(None)
             } else {
