@@ -57,7 +57,7 @@ jobs:
               - 'crates/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
-              - 'rust-toolchain'
+              - 'rust-toolchain.toml'
               - 'deny.toml'
               - '.github/workflows/code.yml'
 
