@@ -53,7 +53,7 @@ mod shard;
 ///
 /// Enables storing blob metadata, which is shared across all shards. The method
 /// [`shard_storage()`][Self::shard_storage] can be used to retrieve shard-specific storage.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Storage {
     database: Arc<RocksDB>,
     metadata: DBMap<BlobId, BlobMetadata>,

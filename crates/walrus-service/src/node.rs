@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::future::Future;
+use std::{future::Future, sync::Arc};
 
 use anyhow::{anyhow, bail, Context};
 use fastcrypto::traits::KeyPair;
@@ -42,7 +42,7 @@ use walrus_sui::{
 use crate::{
     committee::{CommitteeService, CommitteeServiceFactory, SuiCommitteeServiceFactory},
     config::{StorageNodeConfig, SuiConfig},
-    storage::Storage,
+    storage::{blob_info::BlobInfo, Storage},
     system_events::{SuiSystemEventProvider, SystemEventProvider},
 };
 
@@ -308,9 +308,9 @@ async fn create_read_client(
 pub struct StorageNode {
     protocol_key_pair: ProtocolKeyPair,
     storage: Storage,
-    encoding_config: EncodingConfig,
+    encoding_config: Arc<EncodingConfig>,
     event_provider: Box<dyn SystemEventProvider>,
-    committee_service: Box<dyn CommitteeService>,
+    committee_service: Arc<dyn CommitteeService>,
     _committee_service_factory: Box<dyn CommitteeServiceFactory>,
 }
 
@@ -326,7 +326,7 @@ impl StorageNode {
             .await
             .context("unable to construct a committee service for the storage node")?;
 
-        let encoding_config = EncodingConfig::new(committee_service.get_shard_count());
+        let encoding_config = Arc::new(EncodingConfig::new(committee_service.get_shard_count()));
 
         let committee = committee_service.committee();
         let managed_shards = committee.shards_for_node_public_key(key_pair.as_ref().public());
@@ -345,7 +345,7 @@ impl StorageNode {
             storage,
             event_provider,
             encoding_config,
-            committee_service,
+            committee_service: committee_service.into(),
             _committee_service_factory: committee_service_factory,
         })
     }
@@ -402,29 +402,64 @@ impl StorageNode {
             .get_blob_info(&blob_id)?
             .expect("info to be present as it was just updated");
 
-        if blob_info.is_all_stored() {
-            return Ok(());
+        if !blob_info.is_all_stored() {
+            // TODO(jsmith): Do not spawn if there is already a worker for this blob id
+            // TODO(jsmith): Handle cancellation.
+            tokio::spawn(BlobSynchronizer::new(blob_id, blob_info, self).sync());
         }
 
-        // TODO(jsmith): Spawn a cancellable task
+        Ok(())
+    }
+}
+
+struct BlobSynchronizer {
+    blob_id: BlobId,
+    latest_state: BlobInfo,
+    storage: Storage,
+    committee_service: Arc<dyn CommitteeService>,
+    encoding_config: Arc<EncodingConfig>,
+}
+
+impl BlobSynchronizer {
+    fn new(blob_id: BlobId, blob_info: BlobInfo, node: &StorageNode) -> Self {
+        // TODO(jsmith): Use the methods from ServiceState for storing metadata etc.
+        Self {
+            blob_id,
+            latest_state: blob_info,
+            // TODO(jsmith): Make storage cheaper to clone.
+            storage: node.storage.clone(),
+            committee_service: node.committee_service.clone(),
+            encoding_config: node.encoding_config.clone(),
+        }
+    }
+
+    async fn sync(mut self) {
+        self.latest_state = self.sync_metadata().await;
+        // TODO(jsmith): Request and store the symbols for the primary sliver
+        // TODO(jsmith): Request and store the symbols for the secondary sliver
+    }
+
+    async fn sync_metadata(&self) -> BlobInfo {
+        if self.latest_state.is_metadata_stored {
+            return self.latest_state;
+        }
+        tracing::debug!(blob_id=%self.blob_id, "syncing metadata for blob");
+
         let metadata = self
             .committee_service
-            .get_and_verify_metadata(&blob_id, &self.encoding_config)
+            .get_and_verify_metadata(&self.blob_id, &self.encoding_config)
             .await;
 
-        // TODO(jsmith): Retry with exponential backoff
         self.storage
             .put_verified_metadata(&metadata)
-            .context("storing metadata failed")?;
+            .expect("metadata storage must succeed");
 
-        // Request the metadata
-        // Store the metadata
-        // Request the primary sliver
-        // Store the primary sliver
-        // Request the secondary sliver
-        // Store the secondary sliver
+        tracing::debug!(blob_id=%self.blob_id, "metadata for blob successfully synced");
 
-        Ok(())
+        self.storage
+            .get_blob_info(&self.blob_id)
+            .expect("retrieving metadata should not fail")
+            .expect("metadata to exist when syncing a blob")
     }
 }
 
@@ -848,8 +883,6 @@ mod tests {
 
     #[tokio::test]
     async fn retrieves_metadata_from_other_nodes_on_certified_blob_event() -> TestResult {
-        let _ = tracing_subscriber::fmt::try_init();
-
         let events = broadcast::Sender::new(10);
         let nodes = TestCluster::builder()
             .with_shard_assignment(&[[0u16, 1].as_slice(), &[2, 3, 4]])

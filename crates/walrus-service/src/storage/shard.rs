@@ -44,7 +44,7 @@ impl<const P: bool, T: Borrow<BlobId>> From<T> for SliverKey<P> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ShardStorage {
     id: ShardIndex,
     primary_slivers: DBMap<PrimarySliverKey, PrimarySliver>,
