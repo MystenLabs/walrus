@@ -33,15 +33,12 @@ pub struct TargetProtocol;
 
 impl ProtocolCommands for TargetProtocol {
     fn protocol_dependencies(&self) -> Vec<&'static str> {
-        todo!("Alberto: Implement once Walrus parameters are stable (#234)")
+        vec![]
     }
 
     fn db_directories(&self) -> Vec<std::path::PathBuf> {
-        todo!("Alberto: Implement once Walrus parameters are stable (#234)")
-    }
-
-    fn cleanup_commands(&self) -> Vec<String> {
-        todo!("Alberto: Implement once Walrus parameters are stable (#234)")
+        // The service binary can delete its own storage directory before booting.
+        vec![]
     }
 
     fn genesis_command<'a, I>(
