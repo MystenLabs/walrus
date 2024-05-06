@@ -371,47 +371,52 @@ mod test {
         }
 
         assert_eq!(aggregator.data.keys().filter(|x| !x.is_empty()).count(), 2);
-        for label in &["owned".to_string(), "shared".to_string()] {
-            let data_points = aggregator
-                .data
-                .get(label)
-                .expect("Unable to find label")
-                .get(&scraper_id)
-                .unwrap();
-            assert_eq!(data_points.len(), 1);
 
-            if label == "owned" {
-                let data = &data_points[0];
-                assert_eq!(
-                    data.buckets,
-                    ([
-                        ("0.1".into(), 0),
-                        ("0.25".into(), 0),
-                        ("0.5".into(), 506),
-                        ("0.75".into(), 1282),
-                        ("1".into(), 1693),
-                        ("1.25".into(), 1816),
-                        ("1.5".into(), 1860),
-                        ("1.75".into(), 1860),
-                        ("2".into(), 1860),
-                        ("2.5".into(), 1860),
-                        ("5".into(), 1860),
-                        ("10".into(), 1860),
-                        ("20".into(), 1860),
-                        ("30".into(), 1860),
-                        ("60".into(), 1860),
-                        ("90".into(), 1860),
-                        ("inf".into(), 1860)
-                    ])
-                    .iter()
-                    .cloned()
-                    .collect()
-                );
-                assert_eq!(data.sum.as_secs(), 1265);
-                assert_eq!(data.count, 1860);
-                assert_eq!(data.timestamp.as_secs(), 30);
-                assert_eq!(data.squared_sum as u64, 952);
-            }
-        }
+        let owned_workload_data_points = aggregator
+            .data
+            .get("owned")
+            .expect("Unable to find label")
+            .get(&scraper_id)
+            .unwrap();
+        assert_eq!(owned_workload_data_points.len(), 1);
+
+        let data = &owned_workload_data_points[0];
+        assert_eq!(
+            data.buckets,
+            ([
+                ("0.1".into(), 0),
+                ("0.25".into(), 0),
+                ("0.5".into(), 506),
+                ("0.75".into(), 1282),
+                ("1".into(), 1693),
+                ("1.25".into(), 1816),
+                ("1.5".into(), 1860),
+                ("1.75".into(), 1860),
+                ("2".into(), 1860),
+                ("2.5".into(), 1860),
+                ("5".into(), 1860),
+                ("10".into(), 1860),
+                ("20".into(), 1860),
+                ("30".into(), 1860),
+                ("60".into(), 1860),
+                ("90".into(), 1860),
+                ("inf".into(), 1860)
+            ])
+            .iter()
+            .cloned()
+            .collect()
+        );
+        assert_eq!(data.sum.as_secs(), 1265);
+        assert_eq!(data.count, 1860);
+        assert_eq!(data.timestamp.as_secs(), 30);
+        assert_eq!(data.squared_sum as u64, 952);
+
+        let shared_workload_data_points = aggregator
+            .data
+            .get("shared")
+            .expect("Unable to find label")
+            .get(&scraper_id)
+            .unwrap();
+        assert_eq!(shared_workload_data_points.len(), 1);
     }
 }
