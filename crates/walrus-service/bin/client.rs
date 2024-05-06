@@ -9,13 +9,11 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use sui_sdk::SuiClientBuilder;
 use walrus_core::{encoding::Primary, BlobId};
-use walrus_service::client::{Client, Config};
+use walrus_service::{
+    cli_utils::{error, load_configuration, load_wallet_context, success},
+    client::{Client, Config},
+};
 use walrus_sui::client::{SuiContractClient, SuiReadClient};
-
-mod cli_utils;
-use cli_utils::{load_configuration, load_wallet_context};
-
-use crate::cli_utils::{error, success};
 
 /// Default URL of the devnet RPC node.
 pub const DEVNET_RPC: &str = "https://fullnode.devnet.sui.io:443";

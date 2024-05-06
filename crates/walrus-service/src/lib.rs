@@ -15,6 +15,7 @@ pub use node::{StorageNode, StorageNodeBuilder};
 mod storage;
 pub use storage::Storage;
 
+pub mod cli_utils;
 pub mod committee;
 pub mod system_events;
 

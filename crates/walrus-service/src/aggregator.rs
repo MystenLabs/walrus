@@ -17,7 +17,7 @@ use tower_http::trace::TraceLayer;
 use walrus_core::encoding::Primary;
 
 use crate::{
-    client::{string_prefix, Client},
+    client::{Client, ClientErrorKind},
     server::BlobIdString,
 };
 
@@ -60,10 +60,7 @@ impl<T: Send + Sync + 'static> AggregatorServer<T> {
     ) -> Response {
         match client.read_blob::<Primary>(&blob_id).await {
             Ok(blob) => {
-                tracing::debug!(
-                    blob_id_prefix=?string_prefix(&blob_id),
-                    "successfully retrieved blob"
-                );
+                tracing::debug!(?blob_id, "successfully retrieved blob");
                 let mut response = (StatusCode::OK, blob).into_response();
                 // Allow requests from any origin, s.t. content can be loaded in browsers.
                 response
@@ -71,13 +68,22 @@ impl<T: Send + Sync + 'static> AggregatorServer<T> {
                     .insert(ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
                 response
             }
-            Err(e) => {
-                tracing::error!(
-                    error=?e,
-                    blob_id_prefix=?string_prefix(&blob_id),
-                    "error retrieving blob"
-                );
-                (StatusCode::NOT_FOUND, "Not found").into_response()
+            Err(error) => {
+                match error.kind() {
+                    // TODO(giac): once issues #362 and #363 are resolved, this logging can be
+                    // further improved, and distinguish network errors from missing metadata.
+                    ClientErrorKind::NoMetadataReceived => {
+                        tracing::info!(
+                            ?blob_id,
+                            "could not retrieve the metadata; the blob may not exist"
+                        );
+                        StatusCode::NOT_FOUND.into_response()
+                    }
+                    _ => {
+                        tracing::error!(error=?error, ?blob_id, "error retrieving blob");
+                        StatusCode::INTERNAL_SERVER_ERROR.into_response()
+                    }
+                }
             }
         }
     }

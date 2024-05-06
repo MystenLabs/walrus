@@ -8,13 +8,11 @@ use std::path::PathBuf;
 use anyhow::{anyhow, Context, Result};
 use colored::{ColoredString, Colorize};
 use sui_sdk::wallet_context::WalletContext;
-use walrus_service::client::{default_configuration_paths, Config};
+
+use crate::client::{default_configuration_paths, Config};
 
 /// Returns the path if it is `Some` or any of the default paths if they exist (attempt in order).
-pub(crate) fn path_or_defaults_if_exist(
-    path: &Option<PathBuf>,
-    defaults: &[PathBuf],
-) -> Option<PathBuf> {
+pub fn path_or_defaults_if_exist(path: &Option<PathBuf>, defaults: &[PathBuf]) -> Option<PathBuf> {
     let mut path = path.clone();
     for default in defaults {
         if path.is_some() {
@@ -30,7 +28,7 @@ pub(crate) fn path_or_defaults_if_exist(
 /// If no path is provided, tries to load the configuration first from the local folder, and then
 /// from the standard Sui configuration directory.
 #[allow(dead_code)]
-pub(crate) fn load_wallet_context(path: &Option<PathBuf>) -> Result<WalletContext> {
+pub fn load_wallet_context(path: &Option<PathBuf>) -> Result<WalletContext> {
     let mut default_paths = vec!["./client.yaml".into(), "./sui_config.yaml".into()];
     if let Some(home_dir) = home::home_dir() {
         default_paths.push(home_dir.join(".sui").join("sui_config").join("client.yaml"))
@@ -45,7 +43,7 @@ pub(crate) fn load_wallet_context(path: &Option<PathBuf>) -> Result<WalletContex
 ///
 /// If no path is provided, tries to load the configuration first from the local folder, and then
 /// from the standard Walrus configuration directory.
-pub(crate) fn load_configuration(path: &Option<PathBuf>) -> Result<Config> {
+pub fn load_configuration(path: &Option<PathBuf>) -> Result<Config> {
     let path = path_or_defaults_if_exist(path, &default_configuration_paths())
         .ok_or(anyhow!("Could not find a valid Walrus configuration file."))?;
     tracing::info!("Using Walrus configuration from {}", path.display());
@@ -60,11 +58,12 @@ pub(crate) fn load_configuration(path: &Option<PathBuf>) -> Result<Config> {
     ))
 }
 
-#[allow(dead_code)]
-pub(crate) fn success() -> ColoredString {
+/// Returns the string `Success:` colored in green for terminal output.
+pub fn success() -> ColoredString {
     "Success:".bold().green()
 }
 
-pub(crate) fn error() -> ColoredString {
+/// Returns the string `Error:` colored in red for terminal output.
+pub fn error() -> ColoredString {
     "Error:".bold().red()
 }

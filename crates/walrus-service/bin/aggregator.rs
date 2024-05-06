@@ -3,21 +3,17 @@
 
 //! The aggregator binary.
 
-mod cli_utils;
-
 use std::{net::SocketAddr, path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use cli_utils::load_configuration;
 use sui_sdk::SuiClientBuilder;
 use walrus_service::{
     aggregator::AggregatorServer,
+    cli_utils::{error, load_configuration},
     client::{Client, Config},
 };
 use walrus_sui::client::SuiReadClient;
-
-use crate::cli_utils::error;
 
 #[derive(Parser, Debug, Clone)]
 #[clap(rename_all = "kebab-case")]
