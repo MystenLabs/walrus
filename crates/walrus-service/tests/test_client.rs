@@ -28,39 +28,36 @@ use walrus_test_utils::async_param_test;
 
 async_param_test! {
     test_store_and_read_blob_with_crash_failures : [
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] no_failures: (&[], &[], Ok(())),
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] one_failure: (&[0], &[], Ok(())),
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] f_failures: (&[4], &[], Ok(())),
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] no_failures: (&[], &[], None),
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] one_failure: (&[0], &[], None),
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] f_failures: (&[4], &[], None),
         #[ignore = "ignore E2E tests by default"] #[tokio::test] f_plus_one_failures:
-            (&[0, 4], &[], Err(NotEnoughConfirmations(8, 9).into())),
+            (&[0, 4], &[], Some(NotEnoughConfirmations(8, 9))),
         #[ignore = "ignore E2E tests by default"] #[tokio::test] all_shard_failures:
-            (
-                &[0, 1, 2, 3, 4],
-                &[],
-                Err(NotEnoughConfirmations(0, 9).into())
-            ),
+            (&[0, 1, 2, 3, 4], &[], Some(NotEnoughConfirmations(0, 9))),
         #[ignore = "ignore E2E tests by default"] #[tokio::test] f_plus_one_read_failures:
-            (&[], &[0, 4], Ok(())),
+            (&[], &[0, 4], None),
         #[ignore = "ignore E2E tests by default"] #[tokio::test] two_f_plus_one_read_failures:
-            (&[], &[1, 2, 4], Err(NotEnoughSlivers.into())),
+            (&[], &[1, 2, 4], Some(NotEnoughSlivers)),
         #[ignore = "ignore E2E tests by default"] #[tokio::test] all_read_failures:
-            (&[], &[0, 1, 2, 3, 4], Err(NoMetadataReceived.into())),
+            (&[], &[0, 1, 2, 3, 4], Some(NoMetadataReceived)),
         #[ignore = "ignore E2E tests by default"] #[tokio::test] read_and_write_overlap_failures:
-            (&[4], &[2, 3], Err(NotEnoughSlivers.into())),
+            (&[4], &[2, 3], Some(NotEnoughSlivers)),
     ]
 }
 async fn test_store_and_read_blob_with_crash_failures(
     failed_shards_write: &[usize],
     failed_shards_read: &[usize],
-    expected: Result<(), ClientError>,
+    expected: Option<ClientErrorKind>,
 ) {
     let result =
         run_store_and_read_with_crash_failures(failed_shards_write, failed_shards_read).await;
+
     match (result, expected) {
-        (Ok(()), Ok(())) => (),
-        (Err(actual_err), Err(expected_err)) => match actual_err.downcast::<ClientError>() {
+        (Ok(()), None) => (),
+        (Err(actual_err), Some(expected_err)) => match actual_err.downcast::<ClientError>() {
             Ok(client_err) => {
-                if !error_kind_matches(&client_err, &expected_err) {
+                if !error_kind_matches(client_err.kind(), &expected_err) {
                     panic!(
                         "client error mismatch; expected=({:?}); actual=({:?});",
                         expected_err, client_err
@@ -172,8 +169,8 @@ fn global_test_lock() -> &'static Mutex<()> {
     LOCK.get_or_init(Mutex::default)
 }
 
-fn error_kind_matches(actual: &ClientError, expected: &ClientError) -> bool {
-    match (actual.kind(), expected.kind()) {
+fn error_kind_matches(actual: &ClientErrorKind, expected: &ClientErrorKind) -> bool {
+    match (actual, expected) {
         (ClientErrorKind::CertificationFailed(_), ClientErrorKind::CertificationFailed(_)) => true,
         (
             ClientErrorKind::NotEnoughConfirmations(act_a, act_b),

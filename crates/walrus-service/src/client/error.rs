@@ -33,7 +33,7 @@ pub struct SliverStoreError {
 
 /// Error raised by a client interacting with the storage system.
 #[derive(Debug, thiserror::Error)]
-#[error("client execution failed with error: {kind}")]
+#[error(transparent)]
 pub struct ClientError {
     /// The inner kind of the error.
     #[from]
