@@ -539,9 +539,9 @@ impl TryFrom<u8> for EncodingType {
 /// from their respective recovery symbols.
 #[derive(Debug)]
 pub enum InconsistencyProof<T: MerkleAuth = MerkleProof> {
-    /// Inconsistency Proof with symbols along the primary axis
+    /// Inconsistency proof for an encoding on the primary axis.
     Primary(PrimaryInconsistencyProof<T>),
-    /// Inconsistency Proof with symbols along the secondary axis
+    /// Inconsistency proof for an encoding on the secondary axis.
     Secondary(SecondaryInconsistencyProof<T>),
 }
 

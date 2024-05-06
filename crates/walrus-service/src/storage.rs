@@ -194,7 +194,7 @@ impl Storage {
         blob_id: &BlobId,
         new_state: BlobInfo,
     ) -> Result<(), TypedStoreError> {
-        tracing::debug!("Updating {blob_id:?} with {new_state:?}");
+        tracing::debug!("Updating {blob_id} with {new_state:?}");
         let mut batch = self.blob_info.batch();
         batch.merge_batch(&self.blob_info, [(blob_id, new_state)])?;
         batch.write()

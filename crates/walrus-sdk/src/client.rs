@@ -9,7 +9,7 @@ use walrus_core::{
     encoding::{EncodingAxis, EncodingConfig, Sliver, SliverPair},
     inconsistency::InconsistencyProof,
     merkle::MerkleAuth,
-    messages::StorageConfirmation,
+    messages::{InvalidBlobIdAttestation, StorageConfirmation},
     metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
     BlobId,
     Epoch,
@@ -253,20 +253,22 @@ impl Client {
         &self,
         blob_id: &BlobId,
         inconsistency_proof: &InconsistencyProof<A, M>,
-    ) -> Result<(), NodeError> {
+    ) -> Result<InvalidBlobIdAttestation, NodeError> {
         let url = self.endpoints.inconsistency_proof::<A>(blob_id);
         let encoded_proof =
             bcs::to_bytes(&inconsistency_proof).expect("internal types to be bcs encodable");
 
         let request = self.inner.put(url).body(encoded_proof);
-        request
+        let attestation = request
             .send()
             .await
             .map_err(Kind::Reqwest)?
             .response_error_for_status()
+            .await?
+            .service_response()
             .await?;
 
-        Ok(())
+        Ok(attestation)
     }
 
     /// Sends an inconsistency proof to a node.
@@ -274,7 +276,7 @@ impl Client {
         &self,
         blob_id: &BlobId,
         inconsistency_proof: &InconsistencyProofEnum<M>,
-    ) -> Result<(), NodeError> {
+    ) -> Result<InvalidBlobIdAttestation, NodeError> {
         match inconsistency_proof {
             InconsistencyProofEnum::Primary(proof) => {
                 self.send_inconsistency_proof_by_axis(blob_id, proof).await

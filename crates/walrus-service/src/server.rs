@@ -159,11 +159,11 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
     ) -> Response {
         match state.retrieve_metadata(&blob_id) {
             Ok(Some(metadata)) => {
-                tracing::debug!("Retrieved metadata for {blob_id:?}");
+                tracing::debug!("Retrieved metadata for {blob_id}");
                 (StatusCode::OK, Bcs(metadata)).into_response()
             }
             Ok(None) => {
-                tracing::debug!("Metadata not found for {blob_id:?}");
+                tracing::debug!("Metadata not found for {blob_id}");
                 ServiceResponse::<()>::not_found().into_response()
             }
             Err(message) => {
@@ -181,12 +181,12 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
         let unverified_metadata_with_id = UnverifiedBlobMetadataWithId::new(blob_id, metadata);
         match state.store_metadata(unverified_metadata_with_id) {
             Ok(()) => {
-                let msg = format!("Stored metadata for {blob_id:?}");
+                let msg = format!("Stored metadata for {blob_id}");
                 tracing::debug!(msg);
                 ServiceResponse::success(StatusCode::CREATED, msg)
             }
             Err(StoreMetadataError::AlreadyStored) => {
-                let msg = format!("Metadata for {blob_id:?} was already stored");
+                let msg = format!("Metadata for {blob_id} was already stored");
                 tracing::debug!(msg);
                 ServiceResponse::success(StatusCode::OK, msg)
             }
@@ -195,12 +195,12 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
                 ServiceResponse::error(StatusCode::BAD_REQUEST, message.to_string())
             }
             Err(StoreMetadataError::NotRegistered) => {
-                let msg = format!("Blob {blob_id:?} has not been registered");
+                let msg = format!("Blob {blob_id} has not been registered");
                 tracing::debug!(msg);
                 ServiceResponse::error(StatusCode::BAD_REQUEST, msg)
             }
             Err(StoreMetadataError::BlobExpired) => {
-                let msg = format!("Blob {blob_id:?} is expired");
+                let msg = format!("Blob {blob_id} is expired");
                 tracing::debug!(msg);
                 ServiceResponse::error(StatusCode::BAD_REQUEST, msg)
             }
@@ -221,7 +221,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
     ) -> Response {
         match state.retrieve_sliver(&blob_id, sliver_pair_index, sliver_type) {
             Ok(Some(sliver)) => {
-                tracing::debug!("Retrieved {sliver_type:?} sliver for {blob_id:?}");
+                tracing::debug!("Retrieved {sliver_type} sliver for {blob_id}");
                 assert_eq!(
                     sliver.r#type(),
                     sliver_type,
@@ -234,7 +234,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
                 }
             }
             Ok(None) => {
-                tracing::debug!("{sliver_type:?} sliver not found for {blob_id:?}");
+                tracing::debug!("{sliver_type} sliver not found for {blob_id}");
                 ServiceResponse::<()>::not_found().into_response()
             }
             Err(message) => {
@@ -264,7 +264,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             target_pair_index,
         ) {
             Ok(symbol) => {
-                tracing::debug!("Retrieved recovery symbol for {blob_id:?}");
+                tracing::debug!("Retrieved recovery symbol for {blob_id}");
                 (StatusCode::OK, Bcs(symbol)).into_response()
             }
             Err(message) => {
@@ -290,7 +290,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
         match state.store_sliver(&blob_id, sliver_pair_index, &sliver) {
             Ok(()) => {
-                tracing::debug!("Stored {sliver_type:?} sliver for {blob_id:?}");
+                tracing::debug!("Stored {sliver_type} sliver for {blob_id}");
                 ServiceResponse::success(StatusCode::OK, ())
             }
             Err(StoreSliverError::Internal(message)) => {
@@ -298,7 +298,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
                 ServiceResponse::error(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
             }
             Err(client_error) => {
-                tracing::debug!("Received invalid {sliver_type:?} sliver: {client_error}");
+                tracing::debug!("Received invalid {sliver_type} sliver: {client_error}");
                 ServiceResponse::error(StatusCode::BAD_REQUEST, client_error.to_string())
             }
         }
@@ -311,11 +311,11 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
     ) -> ServiceResponse<StorageConfirmation> {
         match state.compute_storage_confirmation(&blob_id).await {
             Ok(Some(confirmation)) => {
-                tracing::debug!("Retrieved storage confirmation for {blob_id:?}");
+                tracing::debug!("Retrieved storage confirmation for {blob_id}");
                 ServiceResponse::success(StatusCode::OK, confirmation)
             }
             Ok(None) => {
-                tracing::debug!("Storage confirmation not found for {blob_id:?}");
+                tracing::debug!("Storage confirmation not found for {blob_id}");
                 ServiceResponse::not_found()
             }
             Err(message) => {
@@ -340,16 +340,16 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
         {
             Ok(attestation) => {
                 tracing::debug!(
-                    "Verified inconsistency proof for {blob_id:?} and provided attestation."
+                    "Verified inconsistency proof for {blob_id} and provided attestation."
                 );
                 ServiceResponse::success(StatusCode::OK, attestation)
             }
             Err(InconsistencyProofError::MissingMetadata(_)) => {
-                tracing::debug!("No metadata found for {blob_id:?}");
+                tracing::debug!("No metadata found for {blob_id}");
                 ServiceResponse::not_found()
             }
             Err(InconsistencyProofError::ProofVerificationError(err)) => {
-                tracing::error!("Error when verifying inconsistency proof: {err}");
+                tracing::warn!("Error when verifying inconsistency proof: {err}");
                 ServiceResponse::error(
                     StatusCode::BAD_REQUEST,
                     "Inconsistency proof could not be verified",

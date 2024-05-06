@@ -54,7 +54,7 @@ pub enum SuiClientError {
     #[error("no compatible payment coin found")]
     /// No matching payment coin found for the transaction
     NoCompatiblePaymentCoin,
-    #[error("no compatible gas coin found: {0:?}")]
+    #[error("no compatible gas coin found: {0}")]
     /// No matching gas coin found for the transaction
     NoCompatibleGasCoin(anyhow::Error),
 }

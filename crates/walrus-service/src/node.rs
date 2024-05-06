@@ -69,9 +69,9 @@ pub enum RetrieveSliverError {
 pub enum RetrieveSymbolError {
     #[error("this storage node does not currently manage shard {shard}, epoch {epoch}")]
     InvalidShard { shard: ShardIndex, epoch: Epoch },
-    #[error("Symbol recovery failed for sliver {0:?}, target index {0:?} in blob {2:?}")]
+    #[error("Symbol recovery failed for sliver {0}, target index {0} in blob {2}")]
     RecoveryError(SliverPairIndex, SliverPairIndex, BlobId),
-    #[error("Sliver {0:?} unavailable for recovery in blob {1:?}")]
+    #[error("Sliver {0} unavailable for recovery in blob {1}")]
     UnavailableSliver(SliverPairIndex, BlobId),
 
     #[error(transparent)]
@@ -91,15 +91,15 @@ impl From<RetrieveSliverError> for RetrieveSymbolError {
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreSliverError {
-    #[error("Missing metadata for {0:?}")]
+    #[error("Missing metadata for {0}")]
     MissingMetadata(BlobId),
-    #[error("Invalid {0} for {1:?}")]
+    #[error("Invalid {0} for {1}")]
     InvalidSliverPairId(SliverPairIndex, BlobId),
-    #[error("Invalid {0} for {1:?}")]
+    #[error("Invalid {0} for {1}")]
     InvalidSliver(SliverPairIndex, BlobId),
-    #[error("Invalid sliver size {0} for {1:?}")]
+    #[error("Invalid sliver size {0} for {1}")]
     IncorrectSize(usize, BlobId),
-    #[error("Invalid shard type {0:?} for {1:?}")]
+    #[error("Invalid shard type {0} for {1}")]
     InvalidSliverType(SliverType, BlobId),
     #[error("this storage node does not currently manage shard {shard}, epoch {epoch}")]
     InvalidShard { shard: ShardIndex, epoch: Epoch },
@@ -111,7 +111,7 @@ pub enum StoreSliverError {
 
 #[derive(Debug, thiserror::Error)]
 pub enum InconsistencyProofError {
-    #[error("Missing metadata for {0:?}")]
+    #[error("Missing metadata for {0}")]
     MissingMetadata(BlobId),
     #[error(transparent)]
     ProofVerificationError(#[from] InconsistencyVerificationError),
@@ -140,7 +140,7 @@ pub trait ServiceState {
         sliver_type: SliverType,
     ) -> Result<Option<Sliver>, RetrieveSliverError>;
 
-    /// Store the primary or secondary encoding for a blob for a shard held by this storage node.
+    /// Stores the primary or secondary encoding for a blob for a shard held by this storage node.
     fn store_sliver(
         &self,
         blob_id: &BlobId,
@@ -148,14 +148,14 @@ pub trait ServiceState {
         sliver: &Sliver,
     ) -> Result<(), StoreSliverError>;
 
-    /// Get a signed confirmation over the identifiers of the shards storing their respective
+    /// Retrieves a signed confirmation over the identifiers of the shards storing their respective
     /// sliver-pairs for their BlobIds.
     fn compute_storage_confirmation(
         &self,
         blob_id: &BlobId,
     ) -> impl Future<Output = Result<Option<StorageConfirmation>, anyhow::Error>> + Send;
 
-    /// Verify an inconsistency proof and provide a signed attestation for it, if valid.
+    /// Verifies an inconsistency proof and provides a signed attestation for it, if valid.
     fn verify_inconsistency_proof<T: MerkleAuth + Send + Sync>(
         &self,
         blob_id: &BlobId,
