@@ -30,7 +30,7 @@ use walrus_core::{
 use self::extract::{Bcs, BcsRejection};
 use crate::node::{InconsistencyProofError, ServiceState, StoreMetadataError, StoreSliverError};
 
-mod extract;
+pub(crate) mod extract;
 
 /// The path to get and store blob metadata.
 pub const METADATA_ENDPOINT: &str = "/v1/blobs/:blobId/metadata";
@@ -47,7 +47,7 @@ pub const INCONSISTENCY_PROOF_ENDPOINT: &str = "/v1/blobs/:blobId/inconsistent/:
 /// A blob ID encoded as a Base64 string designed to be used in URLs.
 #[serde_as]
 #[derive(Deserialize, Serialize)]
-struct BlobIdString(#[serde_as(as = "DisplayFromStr")] BlobId);
+pub(crate) struct BlobIdString(#[serde_as(as = "DisplayFromStr")] pub(crate) BlobId);
 
 /// Error message returned by the service.
 #[derive(Debug, Serialize, Deserialize)]

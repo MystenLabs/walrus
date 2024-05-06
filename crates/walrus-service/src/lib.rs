@@ -3,6 +3,7 @@
 
 //! Service functionality for Walrus.
 
+pub mod aggregator;
 pub mod client;
 pub mod config;
 pub mod server;

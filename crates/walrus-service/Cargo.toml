@@ -59,6 +59,10 @@ path = "bin/client.rs"
 name = "walrus-node"
 path = "bin/main.rs"
 
+[[bin]]
+name = "walrus-aggregator"
+path = "bin/aggregator.rs"
+
 [dev-dependencies]
 rand.workspace = true
 tempfile.workspace = true

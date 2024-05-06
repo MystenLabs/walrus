@@ -40,7 +40,7 @@ use self::config::default;
 pub use self::error::{ClientError, ClientErrorKind};
 
 /// A client to communicate with Walrus shards and storage nodes.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Client<T> {
     reqwest_client: ReqwestClient,
     sui_client: T,
@@ -297,8 +297,10 @@ impl<T> Client<T> {
         let comms = self.node_communications();
         // Create requests to get all slivers from all nodes.
         let futures = comms.iter().flat_map(|n| {
-            n.node.shard_ids.iter().map(|s| {
-                n.retrieve_verified_sliver::<U>(metadata, *s)
+            // NOTE: the cloned here is needed because otherwise the compiler complains about the
+            // lifetimes of `s`.
+            n.node.shard_ids.iter().cloned().map(|s| {
+                n.retrieve_verified_sliver::<U>(metadata, s)
                     .instrument(n.span.clone())
             })
         });
