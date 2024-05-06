@@ -182,7 +182,7 @@ impl Decoder {
                     %symbol,
                     expected_symbol_size,
                     actual_symbol_size,
-                    "Input to decoder has incorrect length",
+                    "input to decoder has incorrect length",
                 );
                 None
             }

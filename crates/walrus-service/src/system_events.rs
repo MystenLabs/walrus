@@ -56,7 +56,7 @@ impl SystemEventProvider for SuiSystemEventProvider {
         &self,
         cursor: Option<EventID>,
     ) -> Result<Box<dyn Stream<Item = BlobEvent> + Send + Sync + 'life0>, anyhow::Error> {
-        tracing::info!("resuming from event: {cursor:?}");
+        tracing::info!(?cursor, "resuming from event");
 
         let events = self
             .read_client

@@ -249,7 +249,7 @@ impl<T> Client<T> {
                             .expect("the node index is computed from the vector of members"),
                     );
                 }
-                Err(err) => tracing::error!(?node, ?err, "storing metadata and pairs failed"),
+                Err(error) => tracing::warn!(?node, ?error, "storing metadata and pairs failed"),
             }
         }
 
@@ -322,7 +322,7 @@ impl<T> Client<T> {
             .filter_map(|NodeResult(_, _, node, result)| {
                 result
                     .map_err(|err| {
-                        tracing::error!(?node, ?err, "retrieving sliver failed");
+                        tracing::warn!(?node, ?err, "retrieving sliver failed");
                     })
                     .ok()
             })
@@ -368,8 +368,8 @@ impl<T> Client<T> {
                         return Ok(blob);
                     }
                 }
-                Err(err) => {
-                    tracing::error!(?node, ?err, "retrieving sliver failed");
+                Err(error) => {
+                    tracing::warn!(?node, ?error, "retrieving sliver failed");
                 }
             }
         }

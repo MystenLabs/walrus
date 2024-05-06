@@ -194,7 +194,7 @@ impl Storage {
         blob_id: &BlobId,
         new_state: BlobInfo,
     ) -> Result<(), TypedStoreError> {
-        tracing::debug!("Updating {blob_id} with {new_state:?}");
+        tracing::debug!(%blob_id, ?new_state, "updating blob info");
         let mut batch = self.blob_info.batch();
         batch.merge_batch(&self.blob_info, [(blob_id, new_state)])?;
         batch.write()
@@ -284,7 +284,7 @@ fn merge_blob_info(
         let Some(new_val) = deserialize_from_db::<BlobInfo>(op) else {
             continue;
         };
-        tracing::debug!("Updating {current_val:?} with {new_val:?}");
+        tracing::debug!(?key, ?current_val, ?new_val, "updating blob info");
 
         let val = current_val.unwrap_or(new_val);
         let status = val.status.max(new_val.status);
@@ -310,8 +310,8 @@ where
 {
     match bcs::from_bytes::<T>(val) {
         Ok(val) => Some(val),
-        Err(e) => {
-            tracing::error!("{e:?}");
+        Err(error) => {
+            tracing::error!(?error, "BCS deserialization from DB failed");
             None
         }
     }

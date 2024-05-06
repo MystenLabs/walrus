@@ -159,15 +159,15 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
     ) -> Response {
         match state.retrieve_metadata(&blob_id) {
             Ok(Some(metadata)) => {
-                tracing::debug!("Retrieved metadata for {blob_id}");
+                tracing::debug!(%blob_id, "retrieved metadata");
                 (StatusCode::OK, Bcs(metadata)).into_response()
             }
             Ok(None) => {
-                tracing::debug!("Metadata not found for {blob_id}");
+                tracing::debug!(%blob_id, "metadata not found");
                 ServiceResponse::<()>::not_found().into_response()
             }
             Err(message) => {
-                tracing::error!("Internal server error: {message}");
+                tracing::error!(%message, "internal server error");
                 ServiceResponse::<()>::internal_error().into_response()
             }
         }
@@ -181,31 +181,39 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
         let unverified_metadata_with_id = UnverifiedBlobMetadataWithId::new(blob_id, metadata);
         match state.store_metadata(unverified_metadata_with_id) {
             Ok(()) => {
-                let msg = format!("Stored metadata for {blob_id}");
-                tracing::debug!(msg);
-                ServiceResponse::success(StatusCode::CREATED, msg)
+                tracing::debug!(%blob_id, "successfully stored metadata");
+                ServiceResponse::success(
+                    StatusCode::CREATED,
+                    format!("Stored metadata for {blob_id:?}"),
+                )
             }
             Err(StoreMetadataError::AlreadyStored) => {
-                let msg = format!("Metadata for {blob_id} was already stored");
-                tracing::debug!(msg);
-                ServiceResponse::success(StatusCode::OK, msg)
+                tracing::debug!(%blob_id, "metadata was already stored");
+                ServiceResponse::success(
+                    StatusCode::OK,
+                    format!("Metadata for {blob_id:?} was already stored"),
+                )
             }
             Err(StoreMetadataError::InvalidMetadata(message)) => {
-                tracing::debug!("Received invalid metadata: {message}");
+                tracing::debug!(%blob_id, %message, "received invalid metadata");
                 ServiceResponse::error(StatusCode::BAD_REQUEST, message.to_string())
             }
             Err(StoreMetadataError::NotRegistered) => {
-                let msg = format!("Blob {blob_id} has not been registered");
-                tracing::debug!(msg);
-                ServiceResponse::error(StatusCode::BAD_REQUEST, msg)
+                tracing::debug!(%blob_id, "blob has not been registered");
+                ServiceResponse::error(
+                    StatusCode::BAD_REQUEST,
+                    format!("Blob {blob_id:?} has not been registered"),
+                )
             }
             Err(StoreMetadataError::BlobExpired) => {
-                let msg = format!("Blob {blob_id} is expired");
-                tracing::debug!(msg);
-                ServiceResponse::error(StatusCode::BAD_REQUEST, msg)
+                tracing::debug!(%blob_id, "blob is expired");
+                ServiceResponse::error(
+                    StatusCode::BAD_REQUEST,
+                    format!("Blob {blob_id:?} is expired"),
+                )
             }
             Err(StoreMetadataError::Internal(message)) => {
-                tracing::error!("Internal server error: {message}");
+                tracing::error!(%message, "internal server error");
                 ServiceResponse::internal_error()
             }
         }
@@ -221,7 +229,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
     ) -> Response {
         match state.retrieve_sliver(&blob_id, sliver_pair_index, sliver_type) {
             Ok(Some(sliver)) => {
-                tracing::debug!("Retrieved {sliver_type} sliver for {blob_id}");
+                tracing::debug!(%blob_id, "retrieved {sliver_type:?} sliver");
                 assert_eq!(
                     sliver.r#type(),
                     sliver_type,
@@ -234,11 +242,11 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
                 }
             }
             Ok(None) => {
-                tracing::debug!("{sliver_type} sliver not found for {blob_id}");
+                tracing::debug!(%blob_id, "{sliver_type:?} sliver not found");
                 ServiceResponse::<()>::not_found().into_response()
             }
             Err(message) => {
-                tracing::error!("Internal server error: {message}");
+                tracing::error!(%message, "internal server error");
                 ServiceResponse::<()>::internal_error().into_response()
             }
         }
@@ -264,11 +272,11 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             target_pair_index,
         ) {
             Ok(symbol) => {
-                tracing::debug!("Retrieved recovery symbol for {blob_id}");
+                tracing::debug!(%blob_id, "retrieved recovery symbol");
                 (StatusCode::OK, Bcs(symbol)).into_response()
             }
             Err(message) => {
-                tracing::debug!("Symbol not found with error {message}");
+                tracing::debug!(%blob_id, %message, "symbol not found");
                 ServiceResponse::<()>::not_found().into_response()
             }
         }
@@ -290,15 +298,20 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
         match state.store_sliver(&blob_id, sliver_pair_index, &sliver) {
             Ok(()) => {
-                tracing::debug!("Stored {sliver_type} sliver for {blob_id}");
+                tracing::debug!(%blob_id, ?sliver_type, "stored sliver");
                 ServiceResponse::success(StatusCode::OK, ())
             }
             Err(StoreSliverError::Internal(message)) => {
-                tracing::error!("Internal server error: {message}");
+                tracing::error!(%message, "internal server error");
                 ServiceResponse::error(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
             }
             Err(client_error) => {
-                tracing::debug!("Received invalid {sliver_type} sliver: {client_error}");
+                tracing::debug!(
+                    %blob_id,
+                    ?sliver_type,
+                    %client_error,
+                    "received invalid sliver"
+                );
                 ServiceResponse::error(StatusCode::BAD_REQUEST, client_error.to_string())
             }
         }
@@ -311,15 +324,15 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
     ) -> ServiceResponse<StorageConfirmation> {
         match state.compute_storage_confirmation(&blob_id).await {
             Ok(Some(confirmation)) => {
-                tracing::debug!("Retrieved storage confirmation for {blob_id}");
+                tracing::debug!(%blob_id, "retrieved storage confirmation");
                 ServiceResponse::success(StatusCode::OK, confirmation)
             }
             Ok(None) => {
-                tracing::debug!("Storage confirmation not found for {blob_id}");
+                tracing::debug!(%blob_id, "storage confirmation not found");
                 ServiceResponse::not_found()
             }
             Err(message) => {
-                tracing::error!("Internal server error: {message}");
+                tracing::error!(%message, "internal server error");
                 ServiceResponse::error(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
             }
         }

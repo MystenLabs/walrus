@@ -27,7 +27,7 @@ pub trait LoadConfig: DeserializeOwned {
     /// Load the configuration from a YAML file located at the provided path.
     fn load<P: AsRef<Path>>(path: P) -> Result<Self, anyhow::Error> {
         let path = path.as_ref();
-        tracing::trace!("Reading config from {}", path.display());
+        tracing::debug!(path = %path.display(), "reading config from file");
 
         let reader = std::fs::File::open(path)
             .with_context(|| format!("Unable to load config from {}", path.display()))?;

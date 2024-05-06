@@ -100,7 +100,7 @@ impl<'a> NodeCommunication<'a> {
         &self,
         blob_id: &BlobId,
     ) -> NodeResult<VerifiedBlobMetadataWithId, NodeError> {
-        tracing::debug!("retrieving metadata");
+        tracing::debug!(%blob_id, "retrieving metadata");
         let result = self
             .client
             .get_and_verify_metadata(blob_id, self.encoding_config)
@@ -119,7 +119,7 @@ impl<'a> NodeCommunication<'a> {
     where
         Sliver<T>: TryFrom<SliverEnum>,
     {
-        tracing::debug!("retrieving verified sliver");
+        tracing::debug!(blob_id = %metadata.blob_id(), "retrieving verified sliver");
         let sliver_pair_index = shard_index.to_pair_index(self.n_shards(), metadata.blob_id());
         let sliver = self
             .client
@@ -142,7 +142,7 @@ impl<'a> NodeCommunication<'a> {
         metadata: &VerifiedBlobMetadataWithId,
         pairs: Vec<SliverPair>,
     ) -> NodeResult<SignedStorageConfirmation, StoreError> {
-        tracing::debug!("storing metadata and sliver pairs",);
+        tracing::debug!(blob_id = %metadata.blob_id(), "storing metadata and sliver pairs",);
 
         let result = async {
             // TODO(giac): add retry for metadata.

@@ -481,7 +481,7 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
                     %sliver,
                     expected_len,
                     expected_symbol_size,
-                    "Sliver has incorrect length or symbol size"
+                    "sliver has incorrect length or symbol size"
                 );
                 continue;
             }
