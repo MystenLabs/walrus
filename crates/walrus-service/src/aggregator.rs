@@ -14,6 +14,7 @@ use axum::{
 };
 use reqwest::header::ACCESS_CONTROL_ALLOW_ORIGIN;
 use tower_http::trace::TraceLayer;
+use tracing::Level;
 use walrus_core::encoding::Primary;
 
 use crate::{
@@ -46,7 +47,7 @@ impl<T: Send + Sync + 'static> AggregatorServer<T> {
             .layer(TraceLayer::new_for_http());
 
         let listener = tokio::net::TcpListener::bind(network_address).await?;
-        tracing::info!(?network_address, "the aggregator is starting");
+        tracing::info!(%network_address, "the aggregator is starting");
         axum::serve(listener, app)
             .with_graceful_shutdown(async {
                 let _ = tokio::signal::ctrl_c().await;
@@ -54,13 +55,14 @@ impl<T: Send + Sync + 'static> AggregatorServer<T> {
             .await
     }
 
+    #[tracing::instrument(level = Level::ERROR, skip_all, fields(blob_id))]
     async fn retrieve_blob(
         State(client): State<Arc<Client<T>>>,
         Path(BlobIdString(blob_id)): Path<BlobIdString>,
     ) -> Response {
         match client.read_blob::<Primary>(&blob_id).await {
             Ok(blob) => {
-                tracing::debug!(?blob_id, "successfully retrieved blob");
+                tracing::debug!("successfully retrieved blob");
                 let mut response = (StatusCode::OK, blob).into_response();
                 // Allow requests from any origin, s.t. content can be loaded in browsers.
                 response
@@ -73,14 +75,11 @@ impl<T: Send + Sync + 'static> AggregatorServer<T> {
                     // TODO(giac): once issues #362 and #363 are resolved, this logging can be
                     // further improved, and distinguish network errors from missing metadata.
                     ClientErrorKind::NoMetadataReceived => {
-                        tracing::info!(
-                            ?blob_id,
-                            "could not retrieve the metadata; the blob may not exist"
-                        );
+                        tracing::info!("could not retrieve the metadata; the blob may not exist");
                         StatusCode::NOT_FOUND.into_response()
                     }
                     _ => {
-                        tracing::error!(error=?error, ?blob_id, "error retrieving blob");
+                        tracing::error!(error = %error, "error retrieving blob");
                         StatusCode::INTERNAL_SERVER_ERROR.into_response()
                     }
                 }

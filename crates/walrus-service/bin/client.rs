@@ -103,7 +103,10 @@ async fn client() -> Result<()> {
             .await?;
             let client = Client::new(config, sui_client).await?;
 
-            tracing::info!(?file, "Storing blob read from the filesystem");
+            tracing::info!(
+                file = %file.display(),
+                "Storing blob read from the filesystem"
+            );
             let blob = client
                 .reserve_and_store_blob(&std::fs::read(file)?, epochs)
                 .await?;

@@ -14,7 +14,7 @@ use anyhow::Context;
 use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, MergeOperands, Options, DB};
 use serde::{Deserialize, Serialize};
 use sui_sdk::types::{digests::TransactionDigest, event::EventID};
-use tracing::instrument;
+use tracing::Level;
 use typed_store::{
     rocks::{
         self,
@@ -181,7 +181,7 @@ impl Storage {
     }
 
     /// Update the blob info for a blob based on the `BlobEvent`
-    #[instrument(level = "debug", skip(self))]
+    #[tracing::instrument(level = Level::DEBUG, skip(self))]
     pub fn update_blob_info(&self, event: BlobEvent) -> Result<(), TypedStoreError> {
         self.merge_update_blob_info(&event.blob_id(), (&event).into())?;
         self.update_event_cursor(&event.event_id())?;
@@ -272,7 +272,7 @@ impl Storage {
     }
 }
 
-#[instrument(level = "debug", skip(operands))]
+#[tracing::instrument(level = Level::DEBUG, skip(operands))]
 fn merge_blob_info(
     key: &[u8],
     existing_val: Option<&[u8]>,

@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use tokio_util::sync::CancellationToken;
 use tower_http::trace::TraceLayer;
+use tracing::Level;
 use walrus_core::{
     messages::StorageConfirmation,
     metadata::{BlobMetadata, UnverifiedBlobMetadataWithId},
@@ -153,17 +154,18 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             .await
     }
 
+    #[tracing::instrument(level = Level::ERROR, skip_all, fields(blob_id = %blob_id))]
     async fn retrieve_metadata(
         State(state): State<Arc<S>>,
         Path(BlobIdString(blob_id)): Path<BlobIdString>,
     ) -> Response {
         match state.retrieve_metadata(&blob_id) {
             Ok(Some(metadata)) => {
-                tracing::debug!(%blob_id, "retrieved metadata");
+                tracing::debug!("successfully retrieved metadata");
                 (StatusCode::OK, Bcs(metadata)).into_response()
             }
             Ok(None) => {
-                tracing::debug!(%blob_id, "metadata not found");
+                tracing::debug!("metadata not found");
                 ServiceResponse::<()>::not_found().into_response()
             }
             Err(message) => {
@@ -173,6 +175,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
         }
     }
 
+    #[tracing::instrument(level = Level::ERROR, skip_all, fields(blob_id = %blob_id))]
     async fn store_metadata(
         State(state): State<Arc<S>>,
         Path(BlobIdString(blob_id)): Path<BlobIdString>,
@@ -181,35 +184,35 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
         let unverified_metadata_with_id = UnverifiedBlobMetadataWithId::new(blob_id, metadata);
         match state.store_metadata(unverified_metadata_with_id) {
             Ok(()) => {
-                tracing::debug!(%blob_id, "successfully stored metadata");
+                tracing::debug!("successfully stored metadata");
                 ServiceResponse::success(
                     StatusCode::CREATED,
-                    format!("Stored metadata for {blob_id:?}"),
+                    format!("Stored metadata for {blob_id}"),
                 )
             }
             Err(StoreMetadataError::AlreadyStored) => {
-                tracing::debug!(%blob_id, "metadata was already stored");
+                tracing::debug!("metadata was already stored");
                 ServiceResponse::success(
                     StatusCode::OK,
-                    format!("Metadata for {blob_id:?} was already stored"),
+                    format!("Metadata for {blob_id} was already stored"),
                 )
             }
             Err(StoreMetadataError::InvalidMetadata(message)) => {
-                tracing::debug!(%blob_id, %message, "received invalid metadata");
+                tracing::debug!(%message, "received invalid metadata");
                 ServiceResponse::error(StatusCode::BAD_REQUEST, message.to_string())
             }
             Err(StoreMetadataError::NotRegistered) => {
-                tracing::debug!(%blob_id, "blob has not been registered");
+                tracing::debug!("blob has not been registered");
                 ServiceResponse::error(
                     StatusCode::BAD_REQUEST,
-                    format!("Blob {blob_id:?} has not been registered"),
+                    format!("Blob {blob_id} has not been registered"),
                 )
             }
             Err(StoreMetadataError::BlobExpired) => {
-                tracing::debug!(%blob_id, "blob is expired");
+                tracing::debug!("blob is expired");
                 ServiceResponse::error(
                     StatusCode::BAD_REQUEST,
-                    format!("Blob {blob_id:?} is expired"),
+                    format!("Blob {blob_id} is expired"),
                 )
             }
             Err(StoreMetadataError::Internal(message)) => {
@@ -219,6 +222,11 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
         }
     }
 
+    #[tracing::instrument(
+        level = Level::ERROR,
+        skip_all,
+        fields(blob_id = %blob_id, target = %sliver_pair_index, sliver_type = %sliver_type))
+    ]
     async fn retrieve_sliver(
         State(state): State<Arc<S>>,
         Path((BlobIdString(blob_id), sliver_pair_index, sliver_type)): Path<(
@@ -229,7 +237,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
     ) -> Response {
         match state.retrieve_sliver(&blob_id, sliver_pair_index, sliver_type) {
             Ok(Some(sliver)) => {
-                tracing::debug!(%blob_id, "retrieved {sliver_type:?} sliver");
+                tracing::debug!("successfully retrieved sliver");
                 assert_eq!(
                     sliver.r#type(),
                     sliver_type,
@@ -242,7 +250,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
                 }
             }
             Ok(None) => {
-                tracing::debug!(%blob_id, "{sliver_type:?} sliver not found");
+                tracing::debug!("sliver not found");
                 ServiceResponse::<()>::not_found().into_response()
             }
             Err(message) => {
@@ -253,9 +261,16 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
     }
 
     /// Retrieves a recovery symbol for a shard held by this storage node.
-    /// The sliver_type is the target type of the sliver that will be recovered
-    /// The sliver_pair_index is the index of the sliver pair that we want to access
-    /// Index is the requesters index in the established order of storage nodes
+    ///
+    /// The `sliver_type` is the target type of the sliver that will be recovered.
+    /// The `sliver_pair_index` is the index of the sliver pair that we want to access.
+    /// The `target_pair_index` is the index of the target sliver.
+    #[tracing::instrument(level = Level::ERROR, skip_all, fields(
+        blob_id = %blob_id,
+        source = %sliver_pair_index,
+        target = %target_pair_index,
+        target_type = %sliver_type
+    ))]
     async fn retrieve_recovery_symbol(
         State(state): State<Arc<S>>,
         Path((BlobIdString(blob_id), sliver_pair_index, sliver_type, target_pair_index)): Path<(
@@ -272,11 +287,11 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             target_pair_index,
         ) {
             Ok(symbol) => {
-                tracing::debug!(%blob_id, "retrieved recovery symbol");
+                tracing::debug!("successfully retrieved recovery symbol");
                 (StatusCode::OK, Bcs(symbol)).into_response()
             }
             Err(message) => {
-                tracing::debug!(%blob_id, %message, "symbol not found");
+                tracing::debug!(%message, "symbol not found");
                 ServiceResponse::<()>::not_found().into_response()
             }
         }
@@ -298,7 +313,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
         match state.store_sliver(&blob_id, sliver_pair_index, &sliver) {
             Ok(()) => {
-                tracing::debug!(%blob_id, ?sliver_type, "stored sliver");
+                tracing::debug!(%blob_id, %sliver_type, "stored sliver");
                 ServiceResponse::success(StatusCode::OK, ())
             }
             Err(StoreSliverError::Internal(message)) => {
@@ -308,7 +323,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             Err(client_error) => {
                 tracing::debug!(
                     %blob_id,
-                    ?sliver_type,
+                    %sliver_type,
                     %client_error,
                     "received invalid sliver"
                 );

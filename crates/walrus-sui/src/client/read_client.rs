@@ -27,7 +27,7 @@ use sui_types::{
 };
 use tokio::sync::{mpsc, OnceCell};
 use tokio_stream::{wrappers::ReceiverStream, Stream};
-use tracing::{instrument, Instrument};
+use tracing::Instrument;
 use walrus_core::ensure;
 
 use super::SuiClientResult;
@@ -206,7 +206,7 @@ impl fmt::Debug for SuiReadClient {
     }
 }
 
-#[instrument(err, skip_all)]
+#[tracing::instrument(err, skip_all)]
 async fn poll_for_events<U>(
     tx_event: mpsc::Sender<U>,
     initial_polling_interval: Duration,
@@ -235,7 +235,7 @@ where
                 polling_interval = initial_polling_interval;
                 for event in events.data {
                     last_event = Some(event.id);
-                    let span = tracing::debug_span!(
+                    let span = tracing::error_span!(
                         "sui-event",
                         event_id = ?event.id,
                         event_type = ?event.type_

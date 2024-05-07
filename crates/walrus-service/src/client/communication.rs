@@ -22,8 +22,8 @@ use walrus_core::{
 use walrus_sdk::{client::Client as StorageNodeClient, error::NodeError};
 use walrus_sui::types::StorageNode;
 
-use super::{error::StoreError, string_prefix, utils::WeightedResult};
-use crate::client::error::SliverStoreError;
+use super::{error::StoreError, utils::WeightedResult};
+use crate::{client::error::SliverStoreError, utils};
 
 /// Represents the index of the node in the vector of members of the committee.
 pub type NodeIndex = usize;
@@ -75,9 +75,9 @@ impl<'a> NodeCommunication<'a> {
             span: tracing::span!(
                 Level::ERROR,
                 "node",
-                index=?node_index,
-                ?epoch,
-                pk_prefix=string_prefix(&node.public_key)
+                index = node_index,
+                epoch,
+                pk_prefix = utils::string_prefix(&node.public_key)
             ),
             client: StorageNodeClient::from_url(url, client.clone()),
         }
@@ -95,7 +95,7 @@ impl<'a> NodeCommunication<'a> {
     // Read operations.
 
     /// Requests the metadata for a blob ID from the node.
-    #[tracing::instrument(level="trace", parent=&self.span, skip_all)]
+    #[tracing::instrument(level = Level::TRACE, parent = &self.span, skip_all)]
     pub async fn retrieve_verified_metadata(
         &self,
         blob_id: &BlobId,
@@ -110,7 +110,7 @@ impl<'a> NodeCommunication<'a> {
 
     /// Requests a sliver from the storage node, and verifies that it matches the metadata and
     /// encoding config.
-    #[tracing::instrument(level="trace", parent=&self.span, skip(self, metadata))]
+    #[tracing::instrument(level = Level::TRACE, parent = &self.span, skip(self, metadata))]
     pub async fn retrieve_verified_sliver<T: EncodingAxis>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
@@ -136,7 +136,7 @@ impl<'a> NodeCommunication<'a> {
     ///
     /// Returns a [`NodeResult`], where the weight is the number of shards for which the storage
     /// confirmation was issued.
-    #[tracing::instrument(level="trace", parent=&self.span, skip_all)]
+    #[tracing::instrument(level = Level::TRACE, parent = &self.span, skip_all)]
     pub async fn store_metadata_and_pairs(
         &self,
         metadata: &VerifiedBlobMetadataWithId,

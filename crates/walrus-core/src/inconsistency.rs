@@ -124,9 +124,6 @@ impl<T: EncodingAxis, U: MerkleAuth> InconsistencyProof<T, U> {
         metadata: &BlobMetadata,
         encoding_config: &EncodingConfig,
     ) -> Result<(), InconsistencyVerificationError> {
-        let span = tracing::warn_span!("verifying inconsistency proof", ?metadata);
-        let _guard = span.enter();
-
         let sliver = Sliver::recover_sliver(
             self.recovery_symbols,
             self.target_sliver_index,

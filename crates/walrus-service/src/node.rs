@@ -363,7 +363,7 @@ impl StorageNode {
 
         let mut blob_events = Box::into_pin(self.event_provider.events(cursor).await?);
         while let Some(event) = blob_events.next().await {
-            tracing::debug!(event=?event.event_id(), "received system event");
+            tracing::debug!(event = ?event.event_id(), "received system event");
             self.storage.update_blob_info(event)?;
         }
         bail!("event stream for blob events stopped")
@@ -506,7 +506,8 @@ impl ServiceState for StorageNode {
         };
 
         // Verify the proof and return early on errors
-        inconsistency_proof.verify(metadata.metadata(), &self.encoding_config)?;
+        tracing::error_span!("verifying inconsistency proof", %blob_id)
+            .in_scope(|| inconsistency_proof.verify(metadata.metadata(), &self.encoding_config))?;
 
         let message = InvalidBlobIdMsg::new(self.current_epoch(), blob_id.to_owned());
         Ok(sign_message(message, self.protocol_key_pair.clone()).await?)
