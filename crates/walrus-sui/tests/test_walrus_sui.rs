@@ -5,12 +5,12 @@ use std::num::{NonZeroU16, NonZeroU64};
 
 use anyhow::bail;
 use fastcrypto::traits::ToFromBytes;
-use test_cluster::TestClusterBuilder;
 use tokio_stream::StreamExt;
 use walrus_core::{encoding::EncodingConfig, merkle::Node, BlobId, EncodingType, ShardIndex};
 use walrus_sui::{
     client::{ContractClient, ReadClient, SuiContractClient},
     test_utils::{
+        create_sui_test_cluster,
         get_default_blob_certificate,
         get_default_invalid_certificate,
         system_setup::publish_with_default_system,
@@ -22,7 +22,7 @@ use walrus_sui::{
 #[ignore = "ignore integration tests by default"]
 async fn test_register_certify_blob() -> anyhow::Result<()> {
     _ = tracing_subscriber::fmt::try_init();
-    let test_cluster = TestClusterBuilder::new().build().await;
+    let test_cluster = create_sui_test_cluster().await;
     let mut wallet = test_cluster.wallet;
     let (package_id, system_object) = publish_with_default_system(&mut wallet).await?;
     let walrus_client =
@@ -162,7 +162,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
 #[ignore = "ignore integration tests by default"]
 async fn test_invalidate_blob() -> anyhow::Result<()> {
     _ = tracing_subscriber::fmt::try_init();
-    let test_cluster = TestClusterBuilder::new().build().await;
+    let test_cluster = create_sui_test_cluster().await;
     let mut wallet = test_cluster.wallet;
     let (package_id, system_object) = publish_with_default_system(&mut wallet).await?;
     let walrus_client =
@@ -199,7 +199,7 @@ async fn test_invalidate_blob() -> anyhow::Result<()> {
 #[tokio::test]
 #[ignore = "ignore integration tests by default"]
 async fn test_get_system() -> anyhow::Result<()> {
-    let test_cluster = TestClusterBuilder::new().build().await;
+    let test_cluster = create_sui_test_cluster().await;
     let mut wallet = test_cluster.wallet;
     let (package_id, system_object) = publish_with_default_system(&mut wallet).await?;
     let walrus_client =

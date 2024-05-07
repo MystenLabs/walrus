@@ -3,7 +3,6 @@
 
 use std::{sync::OnceLock, time::Duration};
 
-use test_cluster::TestClusterBuilder as SuiTestClusterBuilder;
 use tokio::sync::Mutex;
 use walrus_core::encoding::Primary;
 use walrus_service::{
@@ -21,7 +20,7 @@ use walrus_service::{
 use walrus_sui::{
     client::{SuiContractClient, SuiReadClient},
     system_setup::{create_system_object, publish_package, SystemParameters},
-    test_utils::system_setup::contract_path_for_testing,
+    test_utils::{create_sui_test_cluster, system_setup::contract_path_for_testing},
     types::Committee,
 };
 use walrus_test_utils::async_param_test;
@@ -90,7 +89,7 @@ async fn run_store_and_read_with_crash_failures(
         .collect();
 
     // Set up the sui test cluster
-    let sui_test_cluster = SuiTestClusterBuilder::new().build().await;
+    let sui_test_cluster = create_sui_test_cluster().await;
     let mut wallet = sui_test_cluster.wallet;
 
     // Publish package and set up system object

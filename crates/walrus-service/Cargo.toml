@@ -67,6 +67,5 @@ path = "bin/aggregator.rs"
 mockall = "0.12.1"
 rand.workspace = true
 tempfile.workspace = true
-test-cluster.workspace = true
 walrus-core = { workspace = true, features = ["test-utils"] }
 walrus-test-utils.workspace = true

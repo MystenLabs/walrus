@@ -752,3 +752,22 @@ pub(crate) fn test_committee(weights: &[u16]) -> Committee {
 
     Committee::new(members, 0).unwrap()
 }
+
+#[cfg(test)]
+mod test {
+    use std::collections::HashSet;
+
+    use super::unused_socket_address;
+
+    #[test]
+    fn test_unused_socket_addr() {
+        let n = 1000;
+        assert_eq!(
+            (0..n)
+                .map(|_| unused_socket_address())
+                .collect::<HashSet<_>>()
+                .len(),
+            n
+        )
+    }
+}
