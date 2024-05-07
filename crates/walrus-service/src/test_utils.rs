@@ -5,7 +5,13 @@
 //! For creating an instance of a single storage node in a test, see [`StorageNodeHandleBuilder`] .
 //!
 //! For creating a cluster of test storage nodes, see [`TestClusterBuilder`].
-use std::{borrow::Borrow, marker::PhantomData, net::SocketAddr, num::NonZeroU16, sync::Arc};
+use std::{
+    borrow::Borrow,
+    marker::PhantomData,
+    net::{SocketAddr, TcpStream},
+    num::NonZeroU16,
+    sync::Arc,
+};
 
 use async_trait::async_trait;
 use fastcrypto::{bls12381::min_pk::BLS12381PublicKey, traits::KeyPair};
@@ -444,8 +450,17 @@ impl CommitteeService for StubCommitteeService {
 
 /// Returns a socket address that is not currently in use on the system.
 pub fn unused_socket_address() -> SocketAddr {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    listener.local_addr().unwrap()
+    fallible_unused_socket_address().expect("unused socket address to be available")
+}
+
+fn fallible_unused_socket_address() -> anyhow::Result<SocketAddr> {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let address = listener.local_addr()?;
+
+    // Create and accept a connection to force the port into the TIME_WAIT state
+    let _client_stream = TcpStream::connect(address)?;
+    let _server_stream = listener.accept()?;
+    Ok(address)
 }
 
 #[async_trait::async_trait]

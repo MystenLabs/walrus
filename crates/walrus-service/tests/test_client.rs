@@ -78,6 +78,10 @@ async fn run_store_and_read_with_crash_failures(
 ) -> anyhow::Result<()> {
     let _ = tracing_subscriber::fmt::try_init();
 
+    // Set up the sui test cluster
+    let sui_test_cluster = create_sui_test_cluster().await;
+    let mut wallet = sui_test_cluster.wallet;
+
     let cluster_builder = TestCluster::builder();
 
     // Get the default committee from the test cluster builder
@@ -87,10 +91,6 @@ async fn run_store_and_read_with_crash_failures(
         .enumerate()
         .map(|(i, info)| info.to_storage_node_info(&format!("node-{i}")))
         .collect();
-
-    // Set up the sui test cluster
-    let sui_test_cluster = create_sui_test_cluster().await;
-    let mut wallet = sui_test_cluster.wallet;
 
     // Publish package and set up system object
     let gas_budget = 500_000_000;
