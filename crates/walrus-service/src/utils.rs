@@ -20,8 +20,8 @@ pub(crate) struct ExponentialBackoff<R> {
 }
 
 impl ExponentialBackoff<()> {
-    /// Default amount of milliseconds to randomly add to the delay time.
-    const DEFAULT_RAND_OFFSET_MS: u64 = 1000;
+    /// Maximum number of milliseconds to randomly add to the delay time.
+    const MAX_RAND_OFFSET_MS: u64 = 1000;
 
     pub fn new_with_seed(
         min_backoff: Duration,
@@ -87,9 +87,6 @@ impl<R: Rng> Iterator for ExponentialBackoff<R> {
 }
 
 /// Randomly samples from the committee.
-///
-/// Iteration keeps an exclusive reference to the committee to allow reusing
-/// allocated buffers across multiple samples.
 pub(crate) struct CommitteeSampler<'a> {
     committee: &'a Committee,
     visit_order: Vec<usize>,
@@ -300,7 +297,7 @@ mod tests {
         }
 
         #[test]
-        fn sample_qorum_randomizes_indices_each_iteration() {
+        fn sample_quorum_randomizes_indices_each_iteration() {
             let mut rng = StepRng::new(42, 7);
             let committee = test_utils::test_committee(&[1; 10]);
             let n_nodes = committee.n_members();

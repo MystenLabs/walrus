@@ -208,7 +208,7 @@ impl<T: NodeClient> NodeCommitteeServiceInner<T> {
                 }
             }
 
-            tracing::debug!("failed to retrieve metadata from an entire quorum, backing off");
+            tracing::error!("failed to retrieve metadata from an entire quorum, backing off");
             backoff.wait().await;
         }
     }
@@ -295,9 +295,9 @@ mod tests {
             let n_nodes = n_not_storing + n_byzantine_and_storing + n_honest_and_storing;
             let committee = test_utils::test_committee(&vec![1; n_nodes]);
 
-            let mut node_clients: Vec<_> = (0..n_nodes)
-                .zip(committee.members())
-                .map(|(_, member)| (member.public_key.clone(), MockNodeClient::new()))
+            let mut node_clients: Vec<_> = committee.members()
+                .iter()
+                .map(|member| (member.public_key.clone(), MockNodeClient::new()))
                 .collect();
 
             let mut iterator = node_clients.iter_mut();
@@ -346,9 +346,9 @@ mod tests {
             let n_nodes = 10;
             let committee = test_utils::test_committee(&vec![1; n_nodes]);
 
-            let mut node_clients: Vec<_> = (0..n_nodes)
-                .zip(committee.members())
-                .map(|(_, member)| (member.public_key.clone(), MockNodeClient::new()))
+            let mut node_clients: Vec<_> = committee.members()
+                .iter()
+                .map(|member| (member.public_key.clone(), MockNodeClient::new()))
                 .collect();
 
             let mut iterator = node_clients.iter_mut();
