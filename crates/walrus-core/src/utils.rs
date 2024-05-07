@@ -96,7 +96,7 @@ macro_rules! wrapped_uint {
         }
 
         impl TryFrom<usize> for $name {
-            type Error = std::num::TryFromIntError;
+            type Error = core::num::TryFromIntError;
 
             fn try_from(value: usize) -> Result<Self, Self::Error> {
                 Ok($name(value.try_into()?))
@@ -104,7 +104,7 @@ macro_rules! wrapped_uint {
         }
 
         impl TryFrom<u32> for $name {
-            type Error = std::num::TryFromIntError;
+            type Error = core::num::TryFromIntError;
 
             fn try_from(value: u32) -> Result<Self, Self::Error> {
                 Ok($name(value.try_into()?))

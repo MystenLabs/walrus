@@ -27,7 +27,6 @@ use walrus_core::{
     BlobId,
     Epoch,
     InconsistencyProof,
-    ProtocolKeyPair,
     RecoverySymbol,
     ShardIndex,
     Sliver,
@@ -42,6 +41,7 @@ use walrus_sui::{
 use crate::{
     committee::{CommitteeService, CommitteeServiceFactory, SuiCommitteeServiceFactory},
     config::{StorageNodeConfig, SuiConfig},
+    keys::ProtocolKeyPair,
     storage::{blob_info::BlobInfo, Storage},
     system_events::{SuiSystemEventProvider, SystemEventProvider},
 };

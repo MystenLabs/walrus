@@ -20,7 +20,8 @@ use serde_with::{
     SerializeAs,
 };
 use sui_sdk::types::base_types::ObjectID;
-use walrus_core::{keys::ProtocolKeyPairParseError, ProtocolKeyPair};
+
+use crate::keys::{ProtocolKeyPair, ProtocolKeyPairParseError};
 
 /// Trait for loading configuration from a YAML file.
 pub trait LoadConfig: DeserializeOwned {
@@ -217,10 +218,10 @@ mod tests {
     use std::{io::Write as _, str::FromStr};
 
     use tempfile::NamedTempFile;
-    use walrus_core::test_utils;
     use walrus_test_utils::Result as TestResult;
 
     use super::*;
+    use crate::test_utils;
 
     #[test]
     fn path_or_in_place_parses_value() -> TestResult {
@@ -243,7 +244,7 @@ mod tests {
 
     #[test]
     fn path_or_in_place_deserializes_from_base64() -> TestResult {
-        let expected_keypair = test_utils::keypair();
+        let expected_keypair = test_utils::key_pair();
         let yaml_contents = expected_keypair.to_base64();
 
         let deserializer = serde_yaml::Deserializer::from_str(&yaml_contents);
@@ -257,7 +258,7 @@ mod tests {
 
     #[test]
     fn path_or_in_place_serializes_to_base64() -> TestResult {
-        let keypair = test_utils::keypair();
+        let keypair = test_utils::key_pair();
         let expected_yaml = keypair.to_base64() + "\n";
 
         let mut written_yaml = vec![];
@@ -273,7 +274,7 @@ mod tests {
 
     #[test]
     fn loads_base64_protocol_keypair() -> TestResult {
-        let key = test_utils::keypair();
+        let key = test_utils::key_pair();
         let key_file = NamedTempFile::new()?;
 
         key_file.as_file().write_all(key.to_base64().as_bytes())?;

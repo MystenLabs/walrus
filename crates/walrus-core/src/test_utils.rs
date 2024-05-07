@@ -2,15 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Utility functions for tests.
 
-use std::num::{NonZeroU16, NonZeroU64};
+use core::num::{NonZeroU16, NonZeroU64};
 
-use fastcrypto::traits::{KeyPair, Signer};
 use rand::{rngs::StdRng, RngCore, SeedableRng};
 
 use crate::{
     encoding::{self, EncodingConfig, PrimaryRecoverySymbol, PrimarySliver},
     merkle::{MerkleProof, Node},
-    messages::{ProtocolMessage, SignedMessage},
     metadata::{
         BlobMetadata,
         SliverPairMetadata,
@@ -19,21 +17,11 @@ use crate::{
     },
     BlobId,
     EncodingType,
-    ProtocolKeyPair,
     RecoverySymbol,
     Sliver,
     SliverIndex,
     SliverPairIndex,
 };
-
-/// Returns a deterministic fixed key pair for testing.
-///
-/// Various testing facilities can use this key and unit-test can re-generate it to verify the
-/// correctness of inputs and outputs.
-pub fn keypair() -> ProtocolKeyPair {
-    let mut rng = StdRng::seed_from_u64(0);
-    ProtocolKeyPair::new(KeyPair::generate(&mut rng))
-}
 
 /// Returns an arbitrary sliver for testing.
 pub fn sliver() -> Sliver {
@@ -68,20 +56,6 @@ pub fn recovery_symbol() -> RecoverySymbol<MerkleProof> {
 /// Returns an empty Merkle proof for testing.
 pub fn merkle_proof() -> MerkleProof {
     MerkleProof::new(&[])
-}
-
-/// Returns an arbitrary signed message for tests.
-pub fn random_signed_message<T>() -> SignedMessage<T>
-where
-    T: ProtocolMessage,
-{
-    let mut rng = StdRng::seed_from_u64(0);
-    let mut message = vec![0; 32];
-    rng.fill_bytes(&mut message);
-
-    let signer = keypair();
-    let signature = signer.as_ref().sign(&message);
-    SignedMessage::new_from_encoded(message, signature)
 }
 
 /// Returns a random blob ID for testing.

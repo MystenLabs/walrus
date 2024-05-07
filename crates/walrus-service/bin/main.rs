@@ -22,9 +22,9 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
-use walrus_core::ProtocolKeyPair;
 use walrus_service::{
     config::{LoadConfig, StorageNodeConfig},
+    keys::ProtocolKeyPair,
     server::UserServer,
     testbed::{node_config_name_prefix, testbed_configs},
     StorageNode,

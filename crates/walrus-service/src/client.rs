@@ -14,10 +14,9 @@ use walrus_core::{
     bft,
     encoding::{BlobDecoder, EncodingAxis, EncodingConfig, Sliver, SliverPair},
     ensure,
-    messages::{Confirmation, ConfirmationCertificate},
+    messages::{Confirmation, ConfirmationCertificate, SignedStorageConfirmation},
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
-    SignedStorageConfirmation,
     Sliver as SliverEnum,
 };
 use walrus_sdk::error::NodeError;

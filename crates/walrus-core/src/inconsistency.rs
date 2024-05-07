@@ -43,7 +43,7 @@
 //! 3. Compute the hash of the target sliver (by re-encoding it and constructing the Merkle tree).
 //! 4. Check that this hash is different from the one stored in the metadata.
 
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 use serde::{Deserialize, Serialize};
 

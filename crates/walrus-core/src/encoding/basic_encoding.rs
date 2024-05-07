@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{num::NonZeroU16, ops::Range};
+use core::{num::NonZeroU16, ops::Range};
 
 use raptorq::{SourceBlockDecoder, SourceBlockEncoder, SourceBlockEncodingPlan};
 
@@ -193,7 +193,7 @@ impl Decoder {
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Range;
+    use core::ops::Range;
 
     use walrus_test_utils::{param_test, random_data, Result};
 

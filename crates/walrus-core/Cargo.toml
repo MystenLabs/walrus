@@ -27,7 +27,6 @@ workspace = true
 [dev-dependencies]
 anyhow.workspace = true
 criterion = "0.5.1"
-serde_test = "1.0.176"
 
 [lib]
 bench = false

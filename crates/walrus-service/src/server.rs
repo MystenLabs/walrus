@@ -487,7 +487,7 @@ mod test {
             blob_id: &BlobId,
         ) -> Result<Option<StorageConfirmation>, anyhow::Error> {
             if blob_id.0[0] == 0 {
-                let confirmation = walrus_core::test_utils::random_signed_message();
+                let confirmation = test_utils::random_signed_message();
                 Ok(Some(StorageConfirmation::Signed(confirmation)))
             } else if blob_id.0[0] == 1 {
                 Ok(None)
@@ -505,7 +505,7 @@ mod test {
             _inconsistency_proof: InconsistencyProof<T>,
         ) -> Result<InvalidBlobIdAttestation, InconsistencyProofError> {
             match blob_id.0[0] {
-                0 => Ok(walrus_core::test_utils::random_signed_message()),
+                0 => Ok(test_utils::random_signed_message()),
                 1 => Err(InconsistencyProofError::MissingMetadata(blob_id.to_owned())),
                 2 => Err(InconsistencyProofError::ProofVerificationError(
                     InconsistencyVerificationError::SliverNotInconsistent,

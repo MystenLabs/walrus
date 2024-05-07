@@ -3,7 +3,7 @@
 
 //! Core functionality for Walrus.
 
-use std::{
+use core::{
     fmt::{self, Debug, Display},
     num::{NonZeroU16, NonZeroU32, NonZeroU64},
     ops::{Bound, Range, RangeBounds},
@@ -41,14 +41,9 @@ pub mod bft;
 pub mod encoding;
 pub mod inconsistency;
 pub mod merkle;
+pub mod messages;
 pub mod metadata;
 pub mod utils;
-
-pub mod keys;
-pub use keys::ProtocolKeyPair;
-
-pub mod messages;
-pub use messages::SignedStorageConfirmation;
 
 /// A public key.
 pub type PublicKey = BLS12381PublicKey;
@@ -269,7 +264,7 @@ index_type!(
 /// A range of shards.
 ///
 /// Created with the [`ShardIndex::range()`] method.
-pub type ShardRange = std::iter::Map<Range<u16>, fn(u16) -> ShardIndex>;
+pub type ShardRange = core::iter::Map<Range<u16>, fn(u16) -> ShardIndex>;
 
 impl ShardIndex {
     /// A range of shard indices.

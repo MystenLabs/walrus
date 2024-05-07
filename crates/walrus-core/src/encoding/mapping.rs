@@ -3,7 +3,7 @@
 
 //! The mapping between the encoded sliver pairs and shards.
 
-use std::num::NonZeroU16;
+use core::num::NonZeroU16;
 
 use thiserror::Error;
 

@@ -14,10 +14,14 @@ use std::{
 };
 
 use async_trait::async_trait;
-use fastcrypto::{bls12381::min_pk::BLS12381PublicKey, traits::KeyPair};
+use fastcrypto::{
+    bls12381::min_pk::BLS12381PublicKey,
+    traits::{KeyPair, Signer as _},
+};
 use futures::StreamExt;
 use mysten_metrics::RegistryService;
 use prometheus::Registry;
+use rand::{rngs::StdRng, RngCore as _, SeedableRng as _};
 use sui_types::event::EventID;
 use tempfile::TempDir;
 use tokio_stream::{wrappers::BroadcastStream, Stream};
@@ -25,11 +29,10 @@ use tokio_util::sync::CancellationToken;
 use typed_store::rocks::MetricConf;
 use walrus_core::{
     encoding::EncodingConfig,
+    messages::{ProtocolMessage, SignedMessage},
     metadata::VerifiedBlobMetadataWithId,
-    test_utils,
     BlobId,
     Epoch,
-    ProtocolKeyPair,
     PublicKey,
     ShardIndex,
 };
@@ -45,6 +48,7 @@ use walrus_test_utils::WithTempDir;
 use crate::{
     committee::{CommitteeService, CommitteeServiceFactory, NodeCommitteeService},
     config::{PathOrInPlace, StorageNodeConfig},
+    keys::ProtocolKeyPair,
     server::UserServer,
     storage::Storage,
     system_events::SystemEventProvider,
@@ -62,7 +66,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
     let temp_dir = TempDir::new().expect("able to create a temporary directory");
     WithTempDir {
         inner: StorageNodeConfig {
-            protocol_key_pair: PathOrInPlace::InPlace(test_utils::keypair()),
+            protocol_key_pair: PathOrInPlace::InPlace(key_pair()),
             rest_api_address,
             metrics_address,
             storage_path: temp_dir.path().to_path_buf(),
@@ -88,6 +92,29 @@ pub fn empty_storage_with_shards(shards: &[ShardIndex]) -> WithTempDir<Storage> 
         inner: storage,
         temp_dir,
     }
+}
+
+/// Returns a deterministic fixed key pair for testing.
+///
+/// Various testing facilities can use this key and unit-test can re-generate it to verify the
+/// correctness of inputs and outputs.
+pub fn key_pair() -> ProtocolKeyPair {
+    let mut rng = StdRng::seed_from_u64(0);
+    ProtocolKeyPair::new(KeyPair::generate(&mut rng))
+}
+
+/// Returns an arbitrary signed message for tests.
+pub fn random_signed_message<T>() -> SignedMessage<T>
+where
+    T: ProtocolMessage,
+{
+    let mut rng = StdRng::seed_from_u64(0);
+    let mut message = vec![0; 32];
+    rng.fill_bytes(&mut message);
+
+    let signer = key_pair();
+    let signature = signer.as_ref().sign(&message);
+    SignedMessage::new_from_encoded(message, signature)
 }
 
 /// A storage node and associated data for testing.

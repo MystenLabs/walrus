@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::num::NonZeroU16;
+use core::num::NonZeroU16;
 
 use thiserror::Error;
 
