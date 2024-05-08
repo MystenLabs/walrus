@@ -403,8 +403,8 @@ impl StorageNode {
             .expect("info to be present as it was just updated");
 
         if !blob_info.is_all_stored() {
-            // TODO(jsmith): Do not spawn if there is already a worker for this blob id
-            // TODO(jsmith): Handle cancellation.
+            // TODO(jsmith): Do not spawn if there is already a worker for this blob id (#366)
+            // TODO(jsmith): Handle cancellation. (#366)
             tokio::spawn(BlobSynchronizer::new(blob_id, blob_info, self).sync());
         }
 
@@ -422,11 +422,10 @@ struct BlobSynchronizer {
 
 impl BlobSynchronizer {
     fn new(blob_id: BlobId, blob_info: BlobInfo, node: &StorageNode) -> Self {
-        // TODO(jsmith): Use the methods from ServiceState for storing metadata etc.
         Self {
             blob_id,
             latest_state: blob_info,
-            // TODO(jsmith): Make storage cheaper to clone.
+            // TODO(jsmith): Make storage node cheaper to clone once we have epoch migration (#367)
             storage: node.storage.clone(),
             committee_service: node.committee_service.clone(),
             encoding_config: node.encoding_config.clone(),

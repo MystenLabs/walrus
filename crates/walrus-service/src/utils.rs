@@ -19,7 +19,7 @@ pub(crate) struct ExponentialBackoff<R> {
     rng: R,
 }
 
-impl ExponentialBackoff<()> {
+impl ExponentialBackoff<StdRng> {
     /// Maximum number of milliseconds to randomly add to the delay time.
     const MAX_RAND_OFFSET_MS: u64 = 1000;
 
@@ -73,7 +73,7 @@ impl<R: Rng> ExponentialBackoff<R> {
     fn random_offset(&mut self) -> Duration {
         Duration::from_millis(
             self.rng
-                .gen_range(0..=ExponentialBackoff::DEFAULT_RAND_OFFSET_MS),
+                .gen_range(0..=ExponentialBackoff::MAX_RAND_OFFSET_MS),
         )
     }
 }
@@ -209,7 +209,7 @@ mod tests {
             for (expected, actual) in expected.iter().zip(actual) {
                 let expected_min = *expected;
                 let expected_max =
-                    *expected + Duration::from_millis(ExponentialBackoff::DEFAULT_RAND_OFFSET_MS);
+                    *expected + Duration::from_millis(ExponentialBackoff::MAX_RAND_OFFSET_MS);
 
                 assert!(actual >= expected_min, "{actual:?} >= {expected_min:?}");
                 assert!(actual <= expected_max);

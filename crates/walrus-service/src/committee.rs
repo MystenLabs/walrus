@@ -54,8 +54,7 @@ pub trait CommitteeService: std::fmt::Debug + Send + Sync {
     /// Returns the committee used by the service.
     fn committee(&self) -> &Committee;
 
-    // TODO(jsmith): Consider moving this to the service factory method, so that it's guaranteed to
-    // be called
+    // TODO(jsmith): Move to the service factory method, so that it's guaranteed to be called
     /// Excludes a member from calls made to the committee.
     ///
     /// An excluded member will not be contacted when making calls against the committee.
@@ -295,7 +294,8 @@ mod tests {
             let n_nodes = n_not_storing + n_byzantine_and_storing + n_honest_and_storing;
             let committee = test_utils::test_committee(&vec![1; n_nodes]);
 
-            let mut node_clients: Vec<_> = committee.members()
+            let mut node_clients: Vec<_> = committee
+                .members()
                 .iter()
                 .map(|member| (member.public_key.clone(), MockNodeClient::new()))
                 .collect();
@@ -346,7 +346,8 @@ mod tests {
             let n_nodes = 10;
             let committee = test_utils::test_committee(&vec![1; n_nodes]);
 
-            let mut node_clients: Vec<_> = committee.members()
+            let mut node_clients: Vec<_> = committee
+                .members()
                 .iter()
                 .map(|member| (member.public_key.clone(), MockNodeClient::new()))
                 .collect();
