@@ -7,6 +7,7 @@ use std::{collections::HashMap, time::Instant};
 
 use fastcrypto::{bls12381::min_pk::BLS12381AggregateSignature, traits::AggregateAuthenticator};
 use futures::Future;
+use rand::{seq::SliceRandom, thread_rng};
 use reqwest::{Client as ReqwestClient, ClientBuilder};
 use tokio::time::{sleep, Duration};
 use tracing::{Instrument, Level};
@@ -190,14 +191,16 @@ impl<T> Client<T> {
         metadata: &VerifiedBlobMetadataWithId,
         pairs: Vec<SliverPair>,
     ) -> Result<ConfirmationCertificate, ClientError> {
-        let pairs_per_node = self.pairs_per_node(metadata.blob_id(), pairs);
+        let mut pairs_per_node = self.pairs_per_node(metadata.blob_id(), pairs);
         let comms = self.node_communications();
-        let mut requests = WeightedFutures::new(
-            comms
-                .iter()
-                .zip(pairs_per_node.into_iter())
-                .map(|(n, p)| n.store_metadata_and_pairs(metadata, p)),
-        );
+        let mut requests = WeightedFutures::new(comms.iter().map(|n| {
+            n.store_metadata_and_pairs(
+                metadata,
+                pairs_per_node
+                    .remove(&n.node_index)
+                    .expect("there are pairs for each node"),
+            )
+        }));
         let start = Instant::now();
         let quorum_check = |weight| self.committee.is_quorum(weight);
         requests
@@ -282,6 +285,10 @@ impl<T> Client<T> {
         self.request_slivers_and_decode::<U>(&metadata).await
     }
 
+    /// Requests the slivers and decodes them into a blob.
+    ///
+    /// Returns a [`ClientError`] of kind [`ClientErrorKind::BlobIdDoesNotExist`] if it receives a
+    /// quorum (at least 2f+1) of "not found" error status codes from the storage nodes.
     async fn request_slivers_and_decode<U>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
@@ -291,7 +298,7 @@ impl<T> Client<T> {
         Sliver<U>: TryFrom<SliverEnum>,
     {
         // TODO(giac): optimize by reading first from the shards that have the systematic part of
-        // the encoding.
+        // the encoding. Currently the read order is randomized.
         let comms = self.node_communications();
         // Create requests to get all slivers from all nodes.
         let futures = comms.iter().flat_map(|n| {
@@ -314,6 +321,7 @@ impl<T> Client<T> {
             .execute_weight(&enough_source_symbols, self.concurrent_sliver_reads)
             .await;
 
+        let mut n_not_found = 0; // Counts the number of "not found" status codes received.
         let slivers = requests
             .take_results()
             .into_iter()
@@ -321,10 +329,17 @@ impl<T> Client<T> {
                 result
                     .map_err(|error| {
                         tracing::warn!(%node, %error, "retrieving sliver failed");
+                        if error.is_status_not_found() {
+                            n_not_found += 1;
+                        }
                     })
                     .ok()
             })
             .collect::<Vec<_>>();
+
+        if self.committee.is_quorum(n_not_found) {
+            return Err(ClientErrorKind::BlobIdDoesNotExist.into());
+        }
 
         if let Some((blob, _meta)) = decoder
             .decode_and_verify(metadata.blob_id(), slivers)
@@ -335,8 +350,13 @@ impl<T> Client<T> {
         } else {
             // We were not able to decode. Keep requesting slivers and try decoding as soon as every
             // new sliver is received.
-            self.decode_sliver_by_sliver(&mut requests, &mut decoder, metadata.blob_id())
-                .await
+            self.decode_sliver_by_sliver(
+                &mut requests,
+                &mut decoder,
+                metadata.blob_id(),
+                n_not_found,
+            )
+            .await
         }
     }
 
@@ -348,6 +368,7 @@ impl<T> Client<T> {
         requests: &mut WeightedFutures<I, Fut, NodeResult<Sliver<U>, NodeError>>,
         decoder: &mut BlobDecoder<'a, U>,
         blob_id: &BlobId,
+        mut n_not_found: usize,
     ) -> Result<Vec<u8>, ClientError>
     where
         U: EncodingAxis,
@@ -368,6 +389,12 @@ impl<T> Client<T> {
                 }
                 Err(error) => {
                     tracing::warn!(%node, %error, "retrieving sliver failed");
+                    if error.is_status_not_found() && {
+                        n_not_found += 1;
+                        self.committee.is_quorum(n_not_found)
+                    } {
+                        return Err(ClientErrorKind::BlobIdDoesNotExist.into());
+                    }
                 }
             }
         }
@@ -375,13 +402,40 @@ impl<T> Client<T> {
         Err(ClientErrorKind::NotEnoughSlivers.into())
     }
 
-    /// Requests the metadata from all storage nodes, and keeps the first that is correctly verified
-    /// against the blob ID.
+    /// Requests the metadata from storage nodes, and keeps the first reply that correctly verifies.
+    ///
+    /// At a high level:
+    /// 1. The function requests a random subset of nodes amounting to at least a quorum (2f+1)
+    ///    stake for the metadata.
+    /// 1. If the function receives valid metadata for the blob, then it returns the metadata.
+    /// 1. Otherwise:
+    ///    1. If it received f+1 "not found" status responses, it can conclude that the blob ID was
+    ///       not certified and returns an error of kind [`ClientErrorKind::BlobIdDoesNotExist`].
+    ///    1. Otherwise, there is some major problem with the network and returns an error of kind
+    ///       [`ClientErrorKind::NoMetadataReceived`].
+    ///
+    /// This procedure works because:
+    /// 1. If the blob id was never certified: Then at least f+1 of the 2f+1 nodes by stake that
+    ///    were contacted are correct and have returned a "not found" status response.
+    /// 1. If the blob id was certified: Considering the worst possible case where it was certified
+    ///    by 2f+1 stake, of which f was malicious, and the remaining f honest did not receive the
+    ///    metadata and have yet to recover it. Then, by quorum intersection, in the 2f+1 that reply
+    ///    to the client at least 1 is honest and has the metadata. This one node will provide it
+    ///    and the client will know the blob exists.
+    ///
+    /// Note that if a faulty node returns _valid_ metadata for a blob ID that was however not
+    /// certified yet, the client proceeds even if the blob ID was possibly not certified yet. This
+    /// instance is not considered problematic, as the client will just continue to retrieving the
+    /// slivers and fail there.
+    ///
+    /// The general problem in this latter case is the difficulty to distinguish correct nodes that
+    /// have received the certification of the blob before the others, from malicious nodes that
+    /// pretend the certification exists.
     pub async fn retrieve_metadata(
         &self,
         blob_id: &BlobId,
     ) -> Result<VerifiedBlobMetadataWithId, ClientError> {
-        let comms = self.node_communications();
+        let comms = self.node_communications_quorum();
         let futures = comms.iter().map(|n| {
             n.retrieve_verified_metadata(blob_id)
                 .instrument(n.span.clone())
@@ -392,11 +446,22 @@ impl<T> Client<T> {
         requests
             .execute_weight(&just_one, self.concurrent_metadata_reads)
             .await;
-        let metadata = requests
-            .take_inner_ok()
-            .pop()
-            .ok_or(ClientErrorKind::NoMetadataReceived)?;
-        Ok(metadata)
+
+        let mut n_not_found = 0;
+        for NodeResult(_, weight, _, result) in requests.into_results() {
+            match result {
+                Ok(metadata) => return Ok(metadata),
+                Err(error) => {
+                    if error.is_status_not_found() && {
+                        n_not_found += weight;
+                        self.committee.is_quorum(n_not_found)
+                    } {
+                        return Err(ClientErrorKind::BlobIdDoesNotExist.into());
+                    }
+                }
+            }
+        }
+        Err(ClientErrorKind::NoMetadataReceived.into())
     }
 
     /// Builds a [`NodeCommunication`] object for the given storage node.
@@ -414,24 +479,41 @@ impl<T> Client<T> {
         )
     }
 
+    /// Returns a vector of [`NodeCommunication`] objects in random order.
     fn node_communications(&self) -> Vec<NodeCommunication> {
-        self.committee
+        let mut comms: Vec<_> = self
+            .committee
             .members()
             .iter()
             .enumerate()
             .map(|(index, node)| self.new_node_communication(index, node))
-            .collect()
+            .collect();
+        comms.shuffle(&mut thread_rng());
+        comms
+    }
+
+    /// Returns a vector of [`NodeCommunication`] objects, the weight of which is at least a quorum.
+    ///
+    /// The set of nodes included in the communication is randomized.
+    fn node_communications_quorum(&self) -> Vec<NodeCommunication> {
+        let mut weight = 0;
+        let mut quorum_communications = vec![];
+        for comm in self.node_communications() {
+            weight += comm.n_owned_shards().get();
+            quorum_communications.push(comm);
+            if self.committee.is_quorum(weight.into()) {
+                break;
+            }
+        }
+        quorum_communications
     }
 
     /// Maps the sliver pairs to the node that holds their shard.
-    fn pairs_per_node(&self, blob_id: &BlobId, pairs: Vec<SliverPair>) -> Vec<Vec<SliverPair>> {
-        let mut pairs_per_node = Vec::with_capacity(self.committee.members().len());
-        pairs_per_node.extend(
-            self.committee
-                .members()
-                .iter()
-                .map(|n| Vec::with_capacity(n.shard_ids.len())),
-        );
+    fn pairs_per_node(
+        &self,
+        blob_id: &BlobId,
+        pairs: Vec<SliverPair>,
+    ) -> HashMap<usize, Vec<SliverPair>> {
         let shard_to_node = self
             .committee
             .members()
@@ -439,9 +521,21 @@ impl<T> Client<T> {
             .enumerate()
             .flat_map(|(index, m)| m.shard_ids.iter().map(move |s| (*s, index)))
             .collect::<HashMap<_, _>>();
+
+        let mut pairs_per_node = HashMap::from_iter(
+            self.committee
+                .members()
+                .iter()
+                .enumerate()
+                .map(|(idx, node)| (idx, Vec::with_capacity(node.shard_ids.len()))),
+        );
+
         pairs.into_iter().for_each(|p| {
             pairs_per_node
-                [shard_to_node[&p.index().to_shard_index(self.committee.n_shards(), blob_id)]]
+                .get_mut(
+                    &shard_to_node[&p.index().to_shard_index(self.committee.n_shards(), blob_id)],
+                )
+                .expect("there is an entry for each node")
                 .push(p)
         });
         pairs_per_node

@@ -179,6 +179,7 @@ fn error_kind_matches(actual: &ClientErrorKind, expected: &ClientErrorKind) -> b
             ClientErrorKind::NotEnoughConfirmations(exp_a, exp_b),
         ) => act_a == exp_a && act_b == exp_b,
         (ClientErrorKind::NotEnoughSlivers, ClientErrorKind::NotEnoughSlivers) => true,
+        (ClientErrorKind::BlobIdDoesNotExist, ClientErrorKind::BlobIdDoesNotExist) => true,
         (ClientErrorKind::NoMetadataReceived, ClientErrorKind::NoMetadataReceived) => true,
         (ClientErrorKind::Other(_), ClientErrorKind::Other(_)) => true,
         (_, _) => false,

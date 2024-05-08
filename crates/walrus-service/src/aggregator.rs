@@ -74,8 +74,8 @@ impl<T: Send + Sync + 'static> AggregatorServer<T> {
                 match error.kind() {
                     // TODO(giac): once issues #362 and #363 are resolved, this logging can be
                     // further improved, and distinguish network errors from missing metadata.
-                    ClientErrorKind::NoMetadataReceived => {
-                        tracing::info!("could not retrieve the metadata; the blob may not exist");
+                    ClientErrorKind::BlobIdDoesNotExist => {
+                        tracing::info!(?blob_id, "the requested blob ID does not exist");
                         StatusCode::NOT_FOUND.into_response()
                     }
                     _ => {

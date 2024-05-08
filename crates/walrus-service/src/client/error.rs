@@ -70,7 +70,13 @@ pub enum ClientErrorKind {
     /// The client could not retrieve enough slivers to reconstruct the blob.
     #[error("could not retrieve enough slivers to reconstruct the blob")]
     NotEnoughSlivers,
+    /// The client received enough "not found" messages to confirm that the blob ID does not exist.
+    #[error("the blob ID does not exist")]
+    BlobIdDoesNotExist,
     /// The client could not retrieve the metadata from the storage nodes.
+    ///
+    ///This error differs from the [`ClientErrorKind::BlobIdDoesNotExist`] version in the fact that
+    /// other errors occurred, and the client cannot confirm that the blob does not exist.
     #[error("could not retrieve the metadata from the storage nodes")]
     NoMetadataReceived,
     /// A failure internal to the node.

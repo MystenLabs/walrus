@@ -88,6 +88,18 @@ impl<'a> NodeCommunication<'a> {
         self.encoding_config.n_shards()
     }
 
+    /// Returns the number of shards owned by the node.
+    pub fn n_owned_shards(&self) -> NonZeroU16 {
+        NonZeroU16::new(
+            self.node
+                .shard_ids
+                .len()
+                .try_into()
+                .expect("the number of shards is capped"),
+        )
+        .expect("each node has >0 shards")
+    }
+
     fn to_node_result<T, E>(&self, weight: usize, result: Result<T, E>) -> NodeResult<T, E> {
         NodeResult(self.epoch, weight, self.node_index, result)
     }
@@ -105,7 +117,7 @@ impl<'a> NodeCommunication<'a> {
             .client
             .get_and_verify_metadata(blob_id, self.encoding_config)
             .await;
-        self.to_node_result(1, result)
+        self.to_node_result(self.n_owned_shards().get().into(), result)
     }
 
     /// Requests a sliver from the storage node, and verifies that it matches the metadata and
@@ -171,7 +183,7 @@ impl<'a> NodeCommunication<'a> {
         }
         .await;
 
-        self.to_node_result(self.node.shard_ids.len(), result)
+        self.to_node_result(self.n_owned_shards().get().into(), result)
     }
 
     /// Stores the sliver pairs on the node.

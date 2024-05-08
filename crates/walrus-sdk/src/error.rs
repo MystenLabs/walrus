@@ -23,6 +23,12 @@ impl NodeError {
         }
     }
 
+    /// Returns true if the HTTP error status code associated with the error is
+    /// [`StatusCode::NOT_FOUND`].
+    pub fn is_status_not_found(&self) -> bool {
+        Some(StatusCode::NOT_FOUND) == self.http_status_code()
+    }
+
     pub(crate) fn other<E>(err: E) -> Self
     where
         E: std::error::Error + Send + Sync + 'static,

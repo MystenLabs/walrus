@@ -38,6 +38,7 @@ pub trait WeightedResult {
     }
     /// Converts `self` into an [`Option<T>`], where `T` is the type of the inner result, consuming
     /// `self`, and discarding the error, if any.
+    #[allow(dead_code)]
     fn inner_ok(self) -> Option<Self::Inner>
     where
         Self: Sized,
@@ -47,6 +48,7 @@ pub trait WeightedResult {
     /// Returns a reference tothe inner result.
     fn inner_result(&self) -> &Result<Self::Inner, Self::Error>;
     /// Returns the inner result, consuming `self`.
+    #[allow(dead_code)]
     fn take_inner_result(self) -> Result<Self::Inner, Self::Error>;
 }
 
@@ -167,7 +169,7 @@ where
         }
     }
 
-    /// Gets all the results in the struct, consumin `self`.
+    /// Gets all the results in the struct, consuming `self`.
     pub fn into_results(self) -> Vec<T> {
         self.results
     }
@@ -179,6 +181,7 @@ where
 
     /// Gets all the `Ok` results in the struct, returning `T::Inner`, while discarding the errors
     /// and emptying `self.results`.
+    #[allow(dead_code)]
     pub fn take_inner_ok(&mut self) -> Vec<T::Inner> {
         let results = self.take_results();
         results
