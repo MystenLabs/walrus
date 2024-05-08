@@ -5,17 +5,44 @@ use std::{fmt::Display, num::NonZeroU16, path::PathBuf, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use walrus_core::ShardIndex;
-use walrus_service::testbed::{deploy_walrus_contact, node_config_name_prefix};
+use walrus_service::testbed::{
+    deploy_walrus_contact,
+    even_shards_allocation,
+    node_config_name_prefix,
+};
 use walrus_sui::utils::SuiNetwork;
 
 use super::{ProtocolCommands, ProtocolMetrics, ProtocolParameters, CARGO_FLAGS, RUST_FLAGS};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
+enum ShardsAllocation {
+    /// Evenly distribute the specified number of shards among the nodes.
+    Even(NonZeroU16),
+    /// Manually specify the shards for each node.
+    Manual(Vec<Vec<ShardIndex>>),
+}
+
+impl Default for ShardsAllocation {
+    fn default() -> Self {
+        Self::Even(NonZeroU16::new(10).unwrap())
+    }
+}
+
+impl ShardsAllocation {
+    fn number_of_shards(&self) -> usize {
+        match self {
+            Self::Even(n) => n.get() as usize,
+            Self::Manual(shards) => shards.iter().map(|s| s.len()).sum::<usize>(),
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ProtocolNodeParameters {
     #[serde(default = "default_node_parameters::default_sui_network")]
     sui_network: SuiNetwork,
-    #[serde(default = "default_node_parameters::default_shards")]
-    shards: Vec<Vec<ShardIndex>>,
+    #[serde(default = "ShardsAllocation::default")]
+    shards_allocation: ShardsAllocation,
     #[serde(default = "default_node_parameters::default_contact_path")]
     contract_path: PathBuf,
     #[serde(default = "default_node_parameters::default_event_polling_interval")]
@@ -26,7 +53,7 @@ impl Default for ProtocolNodeParameters {
     fn default() -> Self {
         Self {
             sui_network: default_node_parameters::default_sui_network(),
-            shards: default_node_parameters::default_shards(),
+            shards_allocation: ShardsAllocation::default(),
             contract_path: default_node_parameters::default_contact_path(),
             event_polling_interval: default_node_parameters::default_event_polling_interval(),
         }
@@ -35,7 +62,7 @@ impl Default for ProtocolNodeParameters {
 
 impl Display for ProtocolNodeParameters {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let n_shards = self.shards.iter().map(|s| s.len()).sum::<usize>();
+        let n_shards = self.shards_allocation.number_of_shards();
         write!(f, "{:?} ({n_shards} shards)", self.sui_network)
     }
 }
@@ -43,21 +70,11 @@ impl Display for ProtocolNodeParameters {
 mod default_node_parameters {
     use std::{path::PathBuf, time::Duration};
 
-    use walrus_core::ShardIndex;
     use walrus_service::config;
     use walrus_sui::utils::SuiNetwork;
 
     pub fn default_sui_network() -> SuiNetwork {
         SuiNetwork::Devnet
-    }
-
-    pub fn default_shards() -> Vec<Vec<ShardIndex>> {
-        vec![
-            vec![ShardIndex(1), ShardIndex(2)],
-            vec![ShardIndex(3), ShardIndex(4)],
-            vec![ShardIndex(5), ShardIndex(6)],
-            vec![ShardIndex(7), ShardIndex(8)],
-        ]
     }
 
     pub fn default_contact_path() -> PathBuf {
@@ -117,18 +134,30 @@ impl ProtocolCommands for TargetProtocol {
     where
         I: Iterator<Item = &'a crate::client::Instance>,
     {
-        if parameters.nodes != parameters.node_parameters.shards.len() {
-            panic!("The number of nodes should match the shard of allocation.")
-        }
-
         // Create an admin wallet locally to setup the Walrus smart contract.
         let ips = instances.map(|x| x.main_ip).collect::<Vec<_>>();
+        let shards = match &parameters.node_parameters.shards_allocation {
+            ShardsAllocation::Even(n) => {
+                even_shards_allocation(*n, NonZeroU16::new(parameters.nodes as u16).unwrap())
+            }
+            ShardsAllocation::Manual(shards) => {
+                if parameters.nodes
+                    != parameters
+                        .node_parameters
+                        .shards_allocation
+                        .number_of_shards()
+                {
+                    panic!("The number of nodes should match the shard of allocation.")
+                }
+                shards.clone()
+            }
+        };
         let sui_config = deploy_walrus_contact(
             parameters.settings.working_dir.as_path(),
             parameters.node_parameters.sui_network,
             parameters.node_parameters.contract_path.clone(),
             parameters.client_parameters.gas_budget,
-            parameters.node_parameters.shards.clone(),
+            shards,
             ips.clone(),
             parameters.node_parameters.event_polling_interval,
         )

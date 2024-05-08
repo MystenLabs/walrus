@@ -328,3 +328,25 @@ pub fn create_storage_node_configs(
     }
     storage_node_configs
 }
+
+/// Generate deterministic and even shard allocation for the benchmark purposes.
+pub fn even_shards_allocation(
+    n_shards: NonZeroU16,
+    committee_size: NonZeroU16,
+) -> Vec<Vec<ShardIndex>> {
+    let shards_per_node = n_shards.get() / committee_size.get();
+    let remainder_shards = n_shards.get() % committee_size.get();
+    let mut start = 0;
+    let mut shards_information = Vec::with_capacity(committee_size.get() as usize);
+    for i in 0..committee_size.get() {
+        let end = if i < remainder_shards {
+            start + shards_per_node + 1
+        } else {
+            start + shards_per_node
+        };
+        let shard_ids = (start..end).map(ShardIndex).collect();
+        start = end;
+        shards_information.push(shard_ids);
+    }
+    shards_information
+}
