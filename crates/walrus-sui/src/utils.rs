@@ -12,6 +12,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use move_core_types::{language_storage::StructTag as MoveStructTag, u256::U256};
+use serde::{Deserialize, Serialize};
 use sui_config::{sui_config_dir, Config, SUI_CLIENT_CONFIG, SUI_KEYSTORE_FILENAME};
 use sui_keys::keystore::{AccountKeystore, FileBasedKeystore, Keystore};
 use sui_sdk::{
@@ -226,7 +227,7 @@ const DEVNET_FAUCET: &str = "https://faucet.devnet.sui.io/v1/gas";
 const TESTNET_FAUCET: &str = "https://faucet.testnet.sui.io/v1/gas";
 
 /// Enum for the different sui networks.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SuiNetwork {
     /// Local sui network
     Localnet,

@@ -1,29 +1,61 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::fmt::Display;
+use std::{fmt::Display, num::NonZeroU16};
 
 use serde::{Deserialize, Serialize};
+use walrus_sui::utils::SuiNetwork;
 
 use super::{ProtocolCommands, ProtocolMetrics, ProtocolParameters};
 
-#[derive(Default, Clone, Serialize, Deserialize, Debug)]
-pub struct ProtocolNodeParameters;
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct ProtocolNodeParameters {
+    committee_size: NonZeroU16,
+    n_shards: NonZeroU16,
+    sui_network: SuiNetwork,
+}
+
+impl Default for ProtocolNodeParameters {
+    fn default() -> Self {
+        Self {
+            committee_size: NonZeroU16::new(10).unwrap(),
+            n_shards: NonZeroU16::new(1000).unwrap(),
+            sui_network: SuiNetwork::Devnet,
+        }
+    }
+}
 
 impl Display for ProtocolNodeParameters {
-    fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        todo!("Alberto: Implement once Walrus parameters are stable (#234)")
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{:?}: {} Nodes, {} Shards",
+            self.sui_network, self.committee_size, self.n_shards
+        )
     }
 }
 
 impl ProtocolParameters for ProtocolNodeParameters {}
 
-#[derive(Default, Clone, Serialize, Deserialize, Debug)]
-pub struct ProtocolClientParameters;
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct ProtocolClientParameters {
+    gas_budget: u64,
+    // Percentage of writes in the workload.
+    load_type: u64,
+}
+
+impl Default for ProtocolClientParameters {
+    fn default() -> Self {
+        Self {
+            gas_budget: 500_000_000,
+            load_type: 100,
+        }
+    }
+}
 
 impl Display for ProtocolClientParameters {
-    fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        todo!("Alberto: Implement once Walrus parameters are stable (#234)")
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}% Writes", self.load_type)
     }
 }
 
@@ -50,6 +82,10 @@ impl ProtocolCommands for TargetProtocol {
         I: Iterator<Item = &'a crate::client::Instance>,
     {
         todo!("Alberto: Implement once Walrus parameters are stable (#234)")
+
+        // 1. Run the admin locally to setup the smart contract and derive all system information
+        // 2. Print to file all the system information
+        // 3. Upload the system information to all instance and generate the genesis on each instance
     }
 
     fn node_command<I>(
