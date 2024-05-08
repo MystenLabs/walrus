@@ -11,14 +11,9 @@ use std::{
 use serde::{Deserialize, Serialize};
 use walrus_core::ShardIndex;
 use walrus_service::testbed::{
-<<<<<<< HEAD
     deploy_walrus_contract,
     even_shards_allocation,
     get_metrics_address,
-=======
-    deploy_walrus_contact,
-    even_shards_allocation,
->>>>>>> 84f4baf (simplify configs)
     node_config_name_prefix,
 };
 use walrus_sui::utils::SuiNetwork;
@@ -48,21 +43,13 @@ impl ShardsAllocation {
     }
 }
 
-<<<<<<< HEAD
 #[derive(Clone, Serialize, Deserialize)]
-=======
-#[derive(Clone, Serialize, Deserialize, Debug)]
->>>>>>> 84f4baf (simplify configs)
 pub struct ProtocolNodeParameters {
     #[serde(default = "default_node_parameters::default_sui_network")]
     sui_network: SuiNetwork,
     #[serde(default = "ShardsAllocation::default")]
     shards_allocation: ShardsAllocation,
-<<<<<<< HEAD
     #[serde(default = "default_node_parameters::default_contract_path")]
-=======
-    #[serde(default = "default_node_parameters::default_contact_path")]
->>>>>>> 84f4baf (simplify configs)
     contract_path: PathBuf,
     #[serde(default = "default_node_parameters::default_event_polling_interval")]
     event_polling_interval: Duration,
@@ -73,11 +60,7 @@ impl Default for ProtocolNodeParameters {
         Self {
             sui_network: default_node_parameters::default_sui_network(),
             shards_allocation: ShardsAllocation::default(),
-<<<<<<< HEAD
             contract_path: default_node_parameters::default_contract_path(),
-=======
-            contract_path: default_node_parameters::default_contact_path(),
->>>>>>> 84f4baf (simplify configs)
             event_polling_interval: default_node_parameters::default_event_polling_interval(),
         }
     }
@@ -106,11 +89,7 @@ mod default_node_parameters {
         SuiNetwork::Testnet
     }
 
-<<<<<<< HEAD
     pub fn default_contract_path() -> PathBuf {
-=======
-    pub fn default_contact_path() -> PathBuf {
->>>>>>> 84f4baf (simplify configs)
         PathBuf::from("./contracts/blob_store")
     }
 
@@ -185,12 +164,8 @@ impl ProtocolCommands for TargetProtocol {
                 shards.clone()
             }
         };
-<<<<<<< HEAD
 
         let sui_config = deploy_walrus_contract(
-=======
-        let sui_config = deploy_walrus_contact(
->>>>>>> 84f4baf (simplify configs)
             parameters.settings.working_dir.as_path(),
             parameters.node_parameters.sui_network,
             parameters.node_parameters.contract_path.clone(),
