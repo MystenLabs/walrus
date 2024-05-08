@@ -265,7 +265,8 @@ impl<P: ProtocolCommands + ProtocolMetrics> Orchestrator<P> {
         // Generate the genesis configuration file and the keystore allowing access to gas objects.
         let command = self
             .protocol_commands
-            .genesis_command(nodes.iter(), parameters);
+            .genesis_command(nodes.iter(), parameters)
+            .await;
         let repo_name = self.settings.repository_name();
         let context = CommandContext::new().with_execute_from_path(repo_name.into());
         let all = clients.into_iter().chain(nodes);

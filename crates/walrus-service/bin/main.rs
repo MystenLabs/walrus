@@ -5,7 +5,7 @@
 use std::{
     fs,
     io::{self, Write},
-    net::SocketAddr,
+    net::{Ipv4Addr, SocketAddr},
     num::NonZeroU16,
     path::{Path, PathBuf},
     sync::Arc,
@@ -24,7 +24,7 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use walrus_core::ProtocolKeyPair;
 use walrus_service::{
-    config::{LoadConfig, StorageNodeConfig},
+    config::{LoadConfig, StorageNodeConfig, SuiConfig},
     server::UserServer,
     testbed::{node_config_name_prefix, testbed_configs},
     StorageNode,
@@ -70,8 +70,11 @@ enum Commands {
         cleanup_storage: bool,
     },
 
-    /// Generate the configuration files to run a testbed of storage nodes.
-    GenerateDryRunConfigs(GenerateDryRunConfigsArgs),
+    /// Generate the configuration files to run a local testbed of storage nodes.
+    GenerateDryRunLocalConfigs(GenerateDryRunLocalConfigsArgs),
+
+    /// Generate the configuration files to run a remote testbed of storage nodes.
+    GenerateDryRunRemoteConfigs(GenerateDryRunRemoteConfigsArgs),
 
     /// Generates a new key for use with the Walrus protocol, and writes it to a file.
     KeyGen {
@@ -83,7 +86,7 @@ enum Commands {
 }
 
 #[derive(Debug, Clone, clap::Args)]
-struct GenerateDryRunConfigsArgs {
+struct GenerateDryRunLocalConfigsArgs {
     /// The directory where the storage nodes will be deployed.
     #[clap(long, default_value = "./working_dir")]
     working_dir: PathBuf,
@@ -104,6 +107,22 @@ struct GenerateDryRunConfigsArgs {
     gas_budget: u64,
 }
 
+#[derive(Debug, Clone, clap::Args)]
+struct GenerateDryRunRemoteConfigsArgs {
+    /// The directory where the storage nodes will be deployed.
+    #[clap(long, default_value = "./working_dir")]
+    working_dir: PathBuf,
+    /// Sui network for which the config is generated.
+    #[clap(long, default_value = "devnet")]
+    sui_network: SuiNetwork,
+    /// The path to the configuration file of the Walrus smart contract deployed on Sui.
+    #[clap(long)]
+    sui_config_path: PathBuf,
+    /// The list of ip addresses of the storage nodes.
+    #[clap(long, value_name = "ADDR", value_delimiter = ' ', num_args(4..))]
+    ips: Vec<Ipv4Addr>,
+}
+
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
@@ -113,7 +132,13 @@ fn main() -> anyhow::Result<()> {
             cleanup_storage,
         } => commands::run(StorageNodeConfig::load(config_path)?, cleanup_storage)?,
 
-        Commands::GenerateDryRunConfigs(args) => commands::generate_dry_run_configs(args)?,
+        Commands::GenerateDryRunLocalConfigs(args) => {
+            commands::generate_local_dry_run_configs(args)?
+        }
+
+        Commands::GenerateDryRunRemoteConfigs(args) => {
+            commands::generate_remote_dry_run_configs(args)?
+        }
 
         Commands::KeyGen { out } => commands::keygen(&out)?,
     }
@@ -123,18 +148,20 @@ fn main() -> anyhow::Result<()> {
 mod commands {
     use std::io;
 
+    use walrus_service::testbed::{create_client_configs, create_storage_node_configs};
+
     use super::*;
 
     #[tokio::main]
-    pub(super) async fn generate_dry_run_configs(
-        GenerateDryRunConfigsArgs {
+    pub(super) async fn generate_local_dry_run_configs(
+        GenerateDryRunLocalConfigsArgs {
             working_dir,
             committee_size,
             n_shards,
             sui_network,
             contract_path,
             gas_budget,
-        }: GenerateDryRunConfigsArgs,
+        }: GenerateDryRunLocalConfigsArgs,
     ) -> anyhow::Result<()> {
         tracing_subscriber::fmt::init();
 
@@ -168,6 +195,50 @@ mod commands {
                 "{}.yaml",
                 node_config_name_prefix(storage_node_index, committee_size)
             );
+            let node_config_path = working_dir.join(node_config_name);
+            fs::write(node_config_path, serialized_storage_node_config)
+                .context("Failed to write storage node configs")?;
+        }
+
+        Ok(())
+    }
+
+    #[tokio::main]
+    pub(super) async fn generate_remote_dry_run_configs(
+        GenerateDryRunRemoteConfigsArgs {
+            working_dir,
+            sui_network,
+            sui_config_path,
+            ips,
+        }: GenerateDryRunRemoteConfigsArgs,
+    ) -> anyhow::Result<()> {
+        tracing_subscriber::fmt::init();
+
+        fs::create_dir_all(&working_dir)
+            .with_context(|| format!("Failed to create directory '{}'", working_dir.display()))?;
+        let sui_config = SuiConfig::load(sui_config_path)?;
+
+        let client_config = create_client_configs(
+            sui_config.pkg_id.clone(),
+            sui_config.system_object.clone(),
+            working_dir.as_path(),
+            sui_network,
+        )
+        .await?;
+        let serialized_client_config =
+            serde_yaml::to_string(&client_config).context("Failed to serialize client configs")?;
+        let client_config_path = working_dir.join("client_config.yaml");
+        fs::write(client_config_path, serialized_client_config)
+            .context("Failed to write client configs")?;
+
+        let committee_size = NonZeroU16::new(ips.len() as u16).expect("committee size must be > 0");
+        let storage_node_configs =
+            create_storage_node_configs(working_dir.as_path(), sui_config, ips);
+        for (i, storage_node_config) in storage_node_configs.into_iter().enumerate() {
+            let serialized_storage_node_config = serde_yaml::to_string(&storage_node_config)
+                .context("Failed to serialize storage node configs")?;
+            let node_config_name =
+                format!("{}.yaml", node_config_name_prefix(i as u16, committee_size));
             let node_config_path = working_dir.join(node_config_name);
             fs::write(node_config_path, serialized_storage_node_config)
                 .context("Failed to write storage node configs")?;

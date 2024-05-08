@@ -13,9 +13,7 @@ use crate::{benchmark::BenchmarkParameters, client::Instance};
 
 pub mod target;
 
-#[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#234)
 pub const CARGO_FLAGS: &str = "--release";
-#[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#234)
 pub const RUST_FLAGS: &str = "RUSTFLAGS=-C\\ target-cpu=native";
 
 pub trait ProtocolParameters:
@@ -41,7 +39,11 @@ pub trait ProtocolCommands {
 
     /// The command to generate the genesis and all configuration files. This command
     /// is run on each remote machine.
-    fn genesis_command<'a, I>(&self, instances: I, parameters: &BenchmarkParameters) -> String
+    async fn genesis_command<'a, I>(
+        &self,
+        instances: I,
+        parameters: &BenchmarkParameters,
+    ) -> String
     where
         I: Iterator<Item = &'a Instance>;
 

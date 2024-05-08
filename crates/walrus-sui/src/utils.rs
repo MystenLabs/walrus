@@ -268,6 +268,15 @@ impl SuiNetwork {
             SuiNetwork::Testnet => SuiEnv::testnet(),
         }
     }
+
+    /// Returns the string representation of the network.
+    pub fn r#type(&self) -> &str {
+        match self {
+            SuiNetwork::Localnet => "localnet",
+            SuiNetwork::Devnet => "devnet",
+            SuiNetwork::Testnet => "testnet",
+        }
+    }
 }
 
 /// Loads a sui wallet from `config_path`.

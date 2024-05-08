@@ -10441,6 +10441,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "walrus-core",
+ "walrus-service",
  "walrus-sui",
 ]
 

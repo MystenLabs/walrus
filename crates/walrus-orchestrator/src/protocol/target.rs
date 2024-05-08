@@ -1,37 +1,46 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{fmt::Display, num::NonZeroU16};
+use std::{fmt::Display, path::PathBuf, time::Duration};
 
 use serde::{Deserialize, Serialize};
+use walrus_core::ShardIndex;
+use walrus_service::{
+    config::{self},
+    testbed::deploy_walrus_contact,
+};
 use walrus_sui::utils::SuiNetwork;
 
-use super::{ProtocolCommands, ProtocolMetrics, ProtocolParameters};
+use super::{ProtocolCommands, ProtocolMetrics, ProtocolParameters, CARGO_FLAGS, RUST_FLAGS};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ProtocolNodeParameters {
-    committee_size: NonZeroU16,
-    n_shards: NonZeroU16,
     sui_network: SuiNetwork,
+    shards: Vec<Vec<ShardIndex>>,
+    contract_path: PathBuf,
+    event_polling_interval: Duration,
 }
 
 impl Default for ProtocolNodeParameters {
     fn default() -> Self {
         Self {
-            committee_size: NonZeroU16::new(10).unwrap(),
-            n_shards: NonZeroU16::new(1000).unwrap(),
             sui_network: SuiNetwork::Devnet,
+            shards: vec![
+                vec![ShardIndex(1), ShardIndex(2)],
+                vec![ShardIndex(3), ShardIndex(4)],
+                vec![ShardIndex(5), ShardIndex(6)],
+                vec![ShardIndex(7), ShardIndex(8)],
+            ],
+            contract_path: PathBuf::from("./contracts/blob_store"),
+            event_polling_interval: config::defaults::polling_interval(),
         }
     }
 }
 
 impl Display for ProtocolNodeParameters {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{:?}: {} Nodes, {} Shards",
-            self.sui_network, self.committee_size, self.n_shards
-        )
+        let n_shards = self.shards.iter().map(|s| s.len()).sum::<usize>();
+        write!(f, "{:?} ({n_shards} shards)", self.sui_network)
     }
 }
 
@@ -65,6 +74,7 @@ pub struct TargetProtocol;
 
 impl ProtocolCommands for TargetProtocol {
     fn protocol_dependencies(&self) -> Vec<&'static str> {
+        // No special dependencies for Walrus.
         vec![]
     }
 
@@ -73,19 +83,71 @@ impl ProtocolCommands for TargetProtocol {
         vec![]
     }
 
-    fn genesis_command<'a, I>(
+    async fn genesis_command<'a, I>(
         &self,
-        _instances: I,
-        _parameters: &crate::benchmark::BenchmarkParameters,
+        instances: I,
+        parameters: &crate::benchmark::BenchmarkParameters,
     ) -> String
     where
         I: Iterator<Item = &'a crate::client::Instance>,
     {
-        todo!("Alberto: Implement once Walrus parameters are stable (#234)")
+        if parameters.nodes != parameters.node_parameters.shards.len() {
+            panic!("The number of nodes should match the shard of allocation.")
+        }
 
-        // 1. Run the admin locally to setup the smart contract and derive all system information
-        // 2. Print to file all the system information
-        // 3. Upload the system information to all instance and generate the genesis on each instance
+        // Create an admin wallet locally to setup the Walrus smart contract.
+        let ips = instances.map(|x| x.main_ip).collect::<Vec<_>>();
+        let sui_config = deploy_walrus_contact(
+            parameters.settings.working_dir.as_path(),
+            parameters.node_parameters.sui_network,
+            parameters.node_parameters.contract_path.clone(),
+            parameters.client_parameters.gas_budget,
+            parameters.node_parameters.shards.clone(),
+            ips.clone(),
+            parameters.node_parameters.event_polling_interval,
+        )
+        .await
+        .expect("Failed to create Walrus contact");
+
+        // Generate a command to print the Sui config to all instances.
+        let serialized_sui_config =
+            serde_yaml::to_string(&sui_config).expect("Failed to serialize sui configs");
+        let sui_config_path = parameters.settings.working_dir.join("sui_config.yaml");
+        let upload_sui_config_command = format!(
+            "echo -e '{serialized_sui_config}' > {}",
+            sui_config_path.display()
+        );
+
+        // Generate a command to print all client and storage node configs on all instances.
+        let generate_config_command = [
+            &format!("{RUST_FLAGS} cargo run {CARGO_FLAGS} --bin walrus-node --"),
+            "generate-remote-dry-run-configs",
+            &format!(
+                "--working-dir {}",
+                parameters.settings.working_dir.display()
+            ),
+            &format!(
+                "--sui-network {}",
+                parameters.node_parameters.sui_network.r#type()
+            ),
+            &format!("--sui-config-path {}", sui_config_path.display()),
+            &format!(
+                "--ips {}",
+                ips.iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            ),
+        ]
+        .join(" ");
+
+        // Output a single command to run on all machines.
+        [
+            "source $HOME/.cargo/env",
+            &upload_sui_config_command,
+            &generate_config_command,
+        ]
+        .join(" && ")
     }
 
     fn node_command<I>(

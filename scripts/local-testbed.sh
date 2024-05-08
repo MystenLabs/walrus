@@ -96,7 +96,7 @@ if ! $existing; then
 
     # Generate configs
     echo Generating configuration...
-    cargo run --bin walrus-node -- generate-dry-run-configs \
+    cargo run --bin walrus-node -- generate-local-dry-run-configs \
     --working-dir $working_dir --committee-size $committee_size --n-shards $shards \
     --sui-network $network
 fi

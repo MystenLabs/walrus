@@ -73,8 +73,10 @@ pub struct SuiConfig {
     pub event_polling_interval: Duration,
 }
 
+impl LoadConfig for SuiConfig {}
+
 /// Default values for the storage-node configuration.
-pub(crate) mod defaults {
+pub mod defaults {
     use std::net::Ipv4Addr;
 
     use super::*;

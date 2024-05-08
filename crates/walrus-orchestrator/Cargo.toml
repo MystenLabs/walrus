@@ -29,6 +29,7 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 walrus-core.workspace = true
 walrus-sui.workspace = true
+walrus-service.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
