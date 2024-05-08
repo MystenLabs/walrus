@@ -1,6 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use alloc::vec::Vec;
+
 use fastcrypto::bls12381::min_pk::BLS12381AggregateSignature;
 use serde::{Deserialize, Serialize};
 

@@ -3,6 +3,12 @@
 
 //! Utilities used throughout Walrus.
 
+use alloc::{
+    format,
+    string::{String, ToString},
+    vec::Vec,
+};
+
 /// Concatenate multiple string constants.
 ///
 /// Based on the [const_str] crate. If more complex functionality is needed,

@@ -34,6 +34,7 @@ impl ProtocolMessage for InvalidBlobIdMsg {}
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec::Vec;
 
     use super::*;
     use crate::messages::{IntentAppId, IntentVersion};

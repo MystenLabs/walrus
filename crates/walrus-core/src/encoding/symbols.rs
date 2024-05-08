@@ -3,6 +3,7 @@
 
 //! The representation on encoded symbols.
 
+use alloc::{vec, vec::Vec};
 use core::{
     fmt::Display,
     marker::PhantomData,
@@ -472,6 +473,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use alloc::format;
+
     use walrus_test_utils::param_test;
 
     use super::*;

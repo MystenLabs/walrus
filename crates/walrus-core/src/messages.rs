@@ -3,6 +3,7 @@
 
 //! Signed off-chain messages.
 
+use alloc::vec::Vec;
 use core::marker::PhantomData;
 
 use fastcrypto::bls12381::min_pk::BLS12381Signature;

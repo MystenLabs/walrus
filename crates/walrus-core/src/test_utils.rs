@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Utility functions for tests.
 
+use alloc::vec::Vec;
 use core::num::{NonZeroU16, NonZeroU64};
 
 use rand::{rngs::StdRng, RngCore, SeedableRng};

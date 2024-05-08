@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Merkle tree implementation for Walrus.
+use alloc::{format, vec::Vec};
 use core::{fmt::Debug, marker::PhantomData};
+use std;
 
 use fastcrypto::hash::{Blake2b256, Digest, HashFunction};
 use serde::{Deserialize, Serialize};

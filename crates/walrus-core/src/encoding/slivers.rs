@@ -1,6 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use alloc::vec::Vec;
 use core::{fmt::Display, marker::PhantomData, num::NonZeroU16};
 
 use fastcrypto::hash::{Blake2b256, HashFunction};

@@ -3,6 +3,13 @@
 
 //! Core functionality for Walrus.
 
+#![no_std]
+#![deny(clippy::std_instead_of_alloc, clippy::std_instead_of_core)]
+
+extern crate alloc;
+extern crate std;
+
+use alloc::vec::Vec;
 use core::{
     fmt::{self, Debug, Display},
     num::{NonZeroU16, NonZeroU32, NonZeroU64},
