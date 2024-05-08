@@ -5,34 +5,30 @@ use std::{fmt::Display, num::NonZeroU16, path::PathBuf, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use walrus_core::ShardIndex;
-use walrus_service::{
-    config,
-    testbed::{deploy_walrus_contact, node_config_name_prefix},
-};
+use walrus_service::testbed::{deploy_walrus_contact, node_config_name_prefix};
 use walrus_sui::utils::SuiNetwork;
 
 use super::{ProtocolCommands, ProtocolMetrics, ProtocolParameters, CARGO_FLAGS, RUST_FLAGS};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ProtocolNodeParameters {
+    #[serde(default = "default_node_parameters::default_sui_network")]
     sui_network: SuiNetwork,
+    #[serde(default = "default_node_parameters::default_shards")]
     shards: Vec<Vec<ShardIndex>>,
+    #[serde(default = "default_node_parameters::default_contact_path")]
     contract_path: PathBuf,
+    #[serde(default = "default_node_parameters::default_event_polling_interval")]
     event_polling_interval: Duration,
 }
 
 impl Default for ProtocolNodeParameters {
     fn default() -> Self {
         Self {
-            sui_network: SuiNetwork::Devnet,
-            shards: vec![
-                vec![ShardIndex(1), ShardIndex(2)],
-                vec![ShardIndex(3), ShardIndex(4)],
-                vec![ShardIndex(5), ShardIndex(6)],
-                vec![ShardIndex(7), ShardIndex(8)],
-            ],
-            contract_path: PathBuf::from("./contracts/blob_store"),
-            event_polling_interval: config::defaults::polling_interval(),
+            sui_network: default_node_parameters::default_sui_network(),
+            shards: default_node_parameters::default_shards(),
+            contract_path: default_node_parameters::default_contact_path(),
+            event_polling_interval: default_node_parameters::default_event_polling_interval(),
         }
     }
 }
@@ -44,12 +40,42 @@ impl Display for ProtocolNodeParameters {
     }
 }
 
+mod default_node_parameters {
+    use std::{path::PathBuf, time::Duration};
+
+    use walrus_core::ShardIndex;
+    use walrus_service::config;
+    use walrus_sui::utils::SuiNetwork;
+
+    pub fn default_sui_network() -> SuiNetwork {
+        SuiNetwork::Devnet
+    }
+
+    pub fn default_shards() -> Vec<Vec<ShardIndex>> {
+        vec![
+            vec![ShardIndex(1), ShardIndex(2)],
+            vec![ShardIndex(3), ShardIndex(4)],
+            vec![ShardIndex(5), ShardIndex(6)],
+            vec![ShardIndex(7), ShardIndex(8)],
+        ]
+    }
+
+    pub fn default_contact_path() -> PathBuf {
+        PathBuf::from("./contracts/blob_store")
+    }
+
+    pub fn default_event_polling_interval() -> Duration {
+        config::defaults::polling_interval()
+    }
+}
+
 impl ProtocolParameters for ProtocolNodeParameters {}
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ProtocolClientParameters {
     gas_budget: u64,
     // Percentage of writes in the workload.
+    // Todo: This parameters will be used once we have a load generator (#128)
     load_type: u64,
 }
 
