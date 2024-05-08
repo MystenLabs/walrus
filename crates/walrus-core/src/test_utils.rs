@@ -2,14 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Utility functions for tests.
 
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 use core::num::{NonZeroU16, NonZeroU64};
 
+use fastcrypto::traits::{KeyPair, Signer as _};
 use rand::{rngs::StdRng, RngCore, SeedableRng};
 
 use crate::{
     encoding::{self, EncodingConfig, PrimaryRecoverySymbol, PrimarySliver},
+    keys::ProtocolKeyPair,
     merkle::{MerkleProof, Node},
+    messages::{ProtocolMessage, SignedMessage},
     metadata::{
         BlobMetadata,
         SliverPairMetadata,
@@ -23,6 +26,29 @@ use crate::{
     SliverIndex,
     SliverPairIndex,
 };
+
+/// Returns a deterministic fixed key pair for testing.
+///
+/// Various testing facilities can use this key and unit-test can re-generate it to verify the
+/// correctness of inputs and outputs.
+pub fn key_pair() -> ProtocolKeyPair {
+    let mut rng = StdRng::seed_from_u64(0);
+    ProtocolKeyPair::new(KeyPair::generate(&mut rng))
+}
+
+/// Returns an arbitrary signed message for tests.
+pub fn random_signed_message<T>() -> SignedMessage<T>
+where
+    T: ProtocolMessage,
+{
+    let mut rng = StdRng::seed_from_u64(0);
+    let mut message = vec![0; 32];
+    rng.fill_bytes(&mut message);
+
+    let signer = key_pair();
+    let signature = signer.as_ref().sign(&message);
+    SignedMessage::new_from_encoded(message, signature)
+}
 
 /// Returns an arbitrary sliver for testing.
 pub fn sliver() -> Sliver {

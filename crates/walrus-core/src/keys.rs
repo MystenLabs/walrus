@@ -3,8 +3,8 @@
 
 //! Keys used with Walrus.
 
+use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 use core::str::FromStr;
-use std::sync::Arc;
 
 use fastcrypto::{
     bls12381::min_pk::BLS12381KeyPair,
@@ -22,7 +22,8 @@ use serde_with::{
     DeserializeAs,
     SerializeAs,
 };
-use walrus_core::messages::{ProtocolMessage, SignedMessage};
+
+use crate::messages::{ProtocolMessage, SignedMessage};
 
 /// Identifier for the type of public key being loaded from file.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]

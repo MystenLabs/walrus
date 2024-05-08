@@ -399,7 +399,6 @@ mod test {
         merkle::{MerkleAuth, MerkleProof},
         messages::{InvalidBlobIdAttestation, StorageConfirmation},
         metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
-        test_utils::generate_config_metadata_and_valid_recovery_symbols,
         BlobId,
         RecoverySymbol,
         Sliver,
@@ -487,7 +486,7 @@ mod test {
             blob_id: &BlobId,
         ) -> Result<Option<StorageConfirmation>, anyhow::Error> {
             if blob_id.0[0] == 0 {
-                let confirmation = test_utils::random_signed_message();
+                let confirmation = walrus_core::test_utils::random_signed_message();
                 Ok(Some(StorageConfirmation::Signed(confirmation)))
             } else if blob_id.0[0] == 1 {
                 Ok(None)
@@ -505,7 +504,7 @@ mod test {
             _inconsistency_proof: InconsistencyProof<T>,
         ) -> Result<InvalidBlobIdAttestation, InconsistencyProofError> {
             match blob_id.0[0] {
-                0 => Ok(test_utils::random_signed_message()),
+                0 => Ok(walrus_core::test_utils::random_signed_message()),
                 1 => Err(InconsistencyProofError::MissingMetadata(blob_id.to_owned())),
                 2 => Err(InconsistencyProofError::ProofVerificationError(
                     InconsistencyVerificationError::SliverNotInconsistent,
@@ -719,7 +718,7 @@ mod test {
         let client = storage_node_client(config.as_ref());
 
         let (_encoding_config, _metadata, target_sliver_index, recovery_symbols) =
-            generate_config_metadata_and_valid_recovery_symbols()
+            walrus_core::test_utils::generate_config_metadata_and_valid_recovery_symbols()
                 .expect("generating metadata and recovery symbols not to fail");
         let inconsistency_proof = InconsistencyProof::Primary(InconsistencyProofInner::new(
             target_sliver_index,
@@ -744,7 +743,7 @@ mod test {
         let client = storage_node_client(config.as_ref());
 
         let (_encoding_config, _metadata, target_sliver_index, recovery_symbols) =
-            generate_config_metadata_and_valid_recovery_symbols()
+            walrus_core::test_utils::generate_config_metadata_and_valid_recovery_symbols()
                 .expect("generating metadata and recovery symbols not to fail");
         let inconsistency_proof = InconsistencyProof::Primary(InconsistencyProofInner::new(
             target_sliver_index,

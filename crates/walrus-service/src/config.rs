@@ -20,8 +20,7 @@ use serde_with::{
     SerializeAs,
 };
 use sui_sdk::types::base_types::ObjectID;
-
-use crate::keys::{ProtocolKeyPair, ProtocolKeyPairParseError};
+use walrus_core::keys::{ProtocolKeyPair, ProtocolKeyPairParseError};
 
 /// Trait for loading configuration from a YAML file.
 pub trait LoadConfig: DeserializeOwned {
@@ -218,10 +217,10 @@ mod tests {
     use std::{io::Write as _, str::FromStr};
 
     use tempfile::NamedTempFile;
+    use walrus_core::test_utils;
     use walrus_test_utils::Result as TestResult;
 
     use super::*;
-    use crate::test_utils;
 
     #[test]
     fn path_or_in_place_parses_value() -> TestResult {

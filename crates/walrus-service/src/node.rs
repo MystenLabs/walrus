@@ -14,6 +14,7 @@ use walrus_core::{
     encoding::{EncodingConfig, RecoverySymbolError},
     ensure,
     inconsistency::InconsistencyVerificationError,
+    keys::ProtocolKeyPair,
     merkle::{MerkleAuth, MerkleProof},
     messages::{
         Confirmation,
@@ -41,7 +42,6 @@ use walrus_sui::{
 use crate::{
     committee::{CommitteeService, CommitteeServiceFactory, SuiCommitteeServiceFactory},
     config::{StorageNodeConfig, SuiConfig},
-    keys::ProtocolKeyPair,
     storage::{blob_info::BlobInfo, Storage},
     system_events::{SuiSystemEventProvider, SystemEventProvider},
 };

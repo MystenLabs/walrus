@@ -270,7 +270,6 @@ mod tests {
 
     use anyhow::bail;
     use rand::{rngs::SmallRng, seq::SliceRandom, SeedableRng};
-    use walrus_core::test_utils as core_test_utils;
     use walrus_test_utils::{async_param_test, Result as TestResult};
 
     use super::*;
@@ -315,7 +314,7 @@ mod tests {
                 });
             (&mut iterator).for_each(|(_, client)| {
                 let _ = client.expect_get_and_verify_metadata().returning(|_, _| {
-                    Box::pin(async { Ok(core_test_utils::verified_blob_metadata()) })
+                    Box::pin(async { Ok(walrus_core::test_utils::verified_blob_metadata()) })
                 });
             });
 
@@ -330,8 +329,8 @@ mod tests {
             let _ = tokio::time::timeout(
                 Duration::from_millis(10),
                 inner.get_and_verify_metadata(
-                    &core_test_utils::blob_id_from_u64(99),
-                    &core_test_utils::encoding_config(),
+                    &walrus_core::test_utils::blob_id_from_u64(99),
+                    &walrus_core::test_utils::encoding_config(),
                 ),
             )
             .await
@@ -359,7 +358,7 @@ mod tests {
                     let _ = client.expect_get_and_verify_metadata().returning(|_, _| {
                         Box::pin(async {
                             tracing::debug!("successfully returning blob metadata");
-                            Ok(core_test_utils::verified_blob_metadata())
+                            Ok(walrus_core::test_utils::verified_blob_metadata())
                         })
                     });
                 });
@@ -384,8 +383,8 @@ mod tests {
             let _ = tokio::time::timeout(
                 Duration::from_secs(5),
                 inner.get_and_verify_metadata(
-                    &core_test_utils::blob_id_from_u64(99),
-                    &core_test_utils::encoding_config(),
+                    &walrus_core::test_utils::blob_id_from_u64(99),
+                    &walrus_core::test_utils::encoding_config(),
                 ),
             )
             .await

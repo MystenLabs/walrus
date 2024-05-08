@@ -8,7 +8,6 @@ pub mod cli_utils;
 pub mod client;
 pub mod committee;
 pub mod config;
-pub mod keys;
 pub mod server;
 pub mod system_events;
 pub mod testbed;
