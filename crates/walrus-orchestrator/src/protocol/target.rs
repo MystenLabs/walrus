@@ -8,6 +8,7 @@ use walrus_core::ShardIndex;
 use walrus_service::testbed::{
     deploy_walrus_contact,
     even_shards_allocation,
+    get_metrics_address,
     node_config_name_prefix,
 };
 use walrus_sui::utils::SuiNetwork;
@@ -261,11 +262,19 @@ impl ProtocolMetrics for TargetProtocol {
     const LATENCY_SUM: &'static str = "latency_sum";
     const LATENCY_SQUARED_SUM: &'static str = "latency_squared_sum";
 
-    fn nodes_metrics_path<I>(&self, _instances: I) -> Vec<(crate::client::Instance, String)>
+    fn nodes_metrics_path<I>(&self, instances: I) -> Vec<(crate::client::Instance, String)>
     where
         I: IntoIterator<Item = crate::client::Instance>,
     {
-        todo!("Alberto: Implement once Walrus parameters are stable (#234)")
+        instances
+            .into_iter()
+            .enumerate()
+            .map(|(i, instance)| {
+                let metrics_address = get_metrics_address(instance.main_ip, i as u16);
+                let metrics_path = format!("http://{metrics_address}/metrics",);
+                (instance, metrics_path)
+            })
+            .collect()
     }
 
     fn clients_metrics_path<I>(&self, _instances: I) -> Vec<(crate::client::Instance, String)>

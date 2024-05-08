@@ -3,8 +3,6 @@
 
 use std::{fs, net::SocketAddr, path::PathBuf};
 
-use indoc::{formatdoc, indoc};
-
 use crate::{
     client::Instance,
     error::{MonitorError, MonitorResult},
@@ -110,7 +108,7 @@ impl Prometheus {
         P: ProtocolMetrics,
     {
         // Generate the prometheus configuration.
-        let mut config = vec![Self::global_configuration().into()];
+        let mut config = vec![Self::global_configuration()];
 
         let nodes_metrics_path = protocol.nodes_metrics_path(instances);
         for (i, (_, nodes_metrics_path)) in nodes_metrics_path.into_iter().enumerate() {
@@ -128,13 +126,14 @@ impl Prometheus {
 
     /// Generate the global prometheus configuration.
     /// NOTE: The configuration file is a yaml file so spaces are important.
-    fn global_configuration() -> &'static str {
-        indoc! {"
-            global:
-              scrape_interval: 5s
-              evaluation_interval: 5s
-            scrape_configs:
-        "}
+    fn global_configuration() -> String {
+        [
+            "global:",
+            "  scrape_interval: 5s",
+            "  evaluation_interval: 5s",
+            "scrape_configs:",
+        ]
+        .join("\n")
     }
 
     /// Generate the prometheus configuration from the given metrics path.
@@ -146,21 +145,18 @@ impl Prometheus {
         let port = address.port();
         let path = parts[1];
 
-        // As `formatdoc` doesn't support custom ident levels, we define the indent via a `#`
-        // character (signifying a comment) on the first line.
-        formatdoc! {"
-            #
-              - job_name: instance-{index}
-                metrics_path: /{path}
-                static_configs:
-                  - targets:
-                    - {ip}:{port}
-              - job_name: instance-node-exporter-{index}
-                static_configs:
-                  - targets:
-                    - {ip}:{}",
-            NodeExporter::DEFAULT_PORT,
-        }
+        [
+            &format!("  - job_name: instance-{index}"),
+            &format!("    metrics_path: /{path}"),
+            "    static_configs:",
+            "      - targets:",
+            &format!("        - {ip}:{port}"),
+            &format!("  - job_name: instance-node-exporter-{index}"),
+            "    static_configs:",
+            "      - targets:",
+            &format!("        - {ip}:9200"),
+        ]
+        .join("\n")
     }
 }
 
@@ -190,34 +186,37 @@ impl Grafana {
 
     /// Generate the commands to update the grafana datasource and restart grafana.
     pub fn setup_commands() -> String {
-        formatdoc! {"
-            (rm -r {0} || true)
-            mkdir -p {0}
-            sudo echo \"{1}\" > {0}/testbed.yml
-            sudo service grafana-server restart",
-            Self::DATASOURCES_PATH,
-            Self::datasource(),
-        }
+        [
+            &format!("(rm -r {} || true)", Self::DATASOURCES_PATH),
+            &format!("mkdir -p {}", Self::DATASOURCES_PATH),
+            &format!(
+                "sudo echo \"{}\" > {}/testbed.yml",
+                Self::datasource(),
+                Self::DATASOURCES_PATH
+            ),
+            "sudo service grafana-server restart",
+        ]
+        .join(" && ")
     }
 
     /// Generate the content of the datasource file for the given instance.
     /// NOTE: The datasource file is a yaml file so spaces are important.
     fn datasource() -> String {
-        formatdoc! {"
-            apiVersion: 1
-            deleteDatasources:
-              - name: testbed
-                orgId: 1
-            datasources:
-              - name: testbed
-                type: prometheus
-                access: proxy
-                orgId: 1
-                url: http://localhost:{}
-                editable: true
-                uid: Fixed-UID-testbed",
-            Prometheus::DEFAULT_PORT,
-        }
+        [
+            "apiVersion: 1",
+            "deleteDatasources:",
+            "  - name: testbed",
+            "    orgId: 1",
+            "datasources:",
+            "  - name: testbed",
+            "    type: prometheus",
+            "    access: proxy",
+            "    orgId: 1",
+            &format!("    url: http://localhost:{}", Prometheus::DEFAULT_PORT),
+            "    editable: true",
+            "    uid: Fixed-UID-testbed",
+        ]
+        .join("\n")
     }
 }
 
@@ -276,22 +275,25 @@ impl LocalGrafana {
     /// takes one datasource per instance and assumes one prometheus server runs per instance.
     /// NOTE: The datasource file is a yaml file so spaces are important.
     fn datasource(instance: &Instance, index: usize) -> String {
-        formatdoc! {"
-            apiVersion: 1
-            deleteDatasources:
-              - name: instance-{index}
-                orgId: 1
-            datasources:
-              - name: instance-{index}
-                type: prometheus
-                access: proxy
-                orgId: 1
-                url: http://{}:{}
-                editable: true
-                uid: UID-{index}",
-            instance.main_ip,
-            Prometheus::DEFAULT_PORT,
-        }
+        [
+            "apiVersion: 1",
+            "deleteDatasources:",
+            &format!("  - name: instance-{index}"),
+            "    orgId: 1",
+            "datasources:",
+            &format!("  - name: instance-{index}"),
+            "    type: prometheus",
+            "    access: proxy",
+            "    orgId: 1",
+            &format!(
+                "    url: http://{}:{}",
+                instance.main_ip,
+                Prometheus::DEFAULT_PORT
+            ),
+            "    editable: true",
+            &format!("    uid: UID-{index}"),
+        ]
+        .join("\n")
     }
 }
 
@@ -310,38 +312,48 @@ impl NodeExporter {
             Self::RELEASE
         );
 
-        formatdoc! {"
-            (sudo systemctl status node_exporter && exit 0)
-            curl -LO {source}
-            tar -xvf node_exporter-{0}.linux-amd64.tar.gz
-            sudo mv node_exporter-{0}.linux-amd64/node_exporter /usr/local/bin/
-            sudo useradd -rs /bin/false node_exporter || true
-            sudo echo \"{1}\" > {2}
-            sudo systemctl daemon-reload
-            sudo systemctl start node_exporter
-            sudo systemctl enable node_exporter",
-            Self::RELEASE,
-            Self::service_config(),
-            Self::SERVICE_PATH,
-        }
-        .split('\n')
-        .map(String::from)
-        .collect()
+        [
+            "(sudo systemctl status node_exporter && exit 0)",
+            &format!("curl -LO {source}"),
+            &format!(
+                "tar -xvf node_exporter-{}.linux-amd64.tar.gz",
+                Self::RELEASE
+            ),
+            &format!(
+                "sudo mv node_exporter-{}.linux-amd64/node_exporter /usr/local/bin/",
+                Self::RELEASE
+            ),
+            "sudo useradd -rs /bin/false node_exporter || true",
+            "sudo chmod 777 -R /etc/systemd/system/",
+            &format!(
+                "sudo echo \"{}\" > {}",
+                Self::service_config(),
+                Self::SERVICE_PATH
+            ),
+            "sudo systemctl daemon-reload",
+            "sudo systemctl start node_exporter",
+            "sudo systemctl enable node_exporter",
+        ]
+        .map(|x| x.to_string())
+        .to_vec()
     }
 
     fn service_config() -> String {
-        formatdoc! {"
-            [Unit]
-            Description=Node Exporter
-            After=network.target
-            [Service]
-            User=node_exporter
-            Group=node_exporter
-            Type=simple
-            ExecStart=/usr/local/bin/node_exporter --web.listen-address=:{0}
-            [Install]
-            WantedBy=multi-user.target",
-            Self::DEFAULT_PORT,
-        }
+        [
+            "[Unit]",
+            "Description=Node Exporter",
+            "After=network.target",
+            "[Service]",
+            "User=node_exporter",
+            "Group=node_exporter",
+            "Type=simple",
+            &format!(
+                "ExecStart=/usr/local/bin/node_exporter --web.listen-address=:{}",
+                Self::DEFAULT_PORT
+            ),
+            "[Install]",
+            "WantedBy=multi-user.target",
+        ]
+        .join("\n")
     }
 }

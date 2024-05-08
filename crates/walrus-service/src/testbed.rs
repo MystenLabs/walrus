@@ -4,7 +4,7 @@
 //! Facilities to deploy a demo testbed.
 
 use std::{
-    net::{IpAddr, Ipv4Addr},
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     num::NonZeroU16,
     path::{Path, PathBuf},
     time::Duration,
@@ -205,10 +205,7 @@ pub async fn deploy_walrus_contact(
         let name =
             node_config_name_prefix(i as u16, NonZeroU16::new(committee_size as u16).unwrap());
         let public_key = keypair.as_ref().public().clone();
-
-        let mut rest_api_address = config::defaults::rest_api_address();
-        rest_api_address.set_ip(IpAddr::V4(ip));
-        rest_api_address.set_port(rest_api_address.port() + (committee_size + i) as u16);
+        let rest_api_address = get_rest_api_address(ip, i as u16, committee_size as u16);
 
         sui_storage_nodes.push(SuiStorageNode {
             name,
@@ -313,13 +310,8 @@ pub fn create_storage_node_configs(
         let name =
             node_config_name_prefix(i as u16, NonZeroU16::new(committee_size as u16).unwrap());
 
-        let mut metrics_address = config::defaults::metrics_address();
-        metrics_address.set_ip(IpAddr::V4(ip));
-        metrics_address.set_port(metrics_address.port() + i as u16);
-
-        let mut rest_api_address = config::defaults::rest_api_address();
-        rest_api_address.set_ip(IpAddr::V4(ip));
-        rest_api_address.set_port(rest_api_address.port() + (committee_size + i) as u16);
+        let metrics_address = get_metrics_address(ip, i as u16);
+        let rest_api_address = get_rest_api_address(ip, i as u16, committee_size as u16);
 
         storage_node_configs.push(StorageNodeConfig {
             storage_path: working_dir.join(&name),
@@ -330,6 +322,22 @@ pub fn create_storage_node_configs(
         });
     }
     storage_node_configs
+}
+
+/// Get the metrics address for a node.
+pub fn get_metrics_address(ip: Ipv4Addr, node_index: u16) -> SocketAddr {
+    let mut metrics_address = config::defaults::metrics_address();
+    metrics_address.set_ip(IpAddr::V4(ip));
+    metrics_address.set_port(metrics_address.port() + node_index);
+    metrics_address
+}
+
+/// Get the REST API address for a node.
+pub fn get_rest_api_address(ip: Ipv4Addr, node_index: u16, committee_size: u16) -> SocketAddr {
+    let mut rest_api_address = config::defaults::rest_api_address();
+    rest_api_address.set_ip(IpAddr::V4(ip));
+    rest_api_address.set_port(rest_api_address.port() + committee_size + node_index);
+    rest_api_address
 }
 
 /// Generate deterministic and even shard allocation for the benchmark purposes.

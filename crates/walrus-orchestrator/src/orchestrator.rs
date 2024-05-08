@@ -179,11 +179,7 @@ impl<P: ProtocolCommands + ProtocolMetrics> Orchestrator<P> {
             // * libssl-dev - Required to compile the orchestrator
             // TODO(alberto): Remove libssl-dev dependency #221
             "sudo apt-get -y install build-essential sysstat iftop libssl-dev",
-            // * linux-tools-common linux-tools-generic linux-tools-* - installs perf
-            // Perf is optional as sometimes AWS releases new kernels without publishing a new
-            // linux-tools package (we do not want to fail the deployment when this happens).
-            "sudo apt-get -y install linux-tools-common linux-tools-generic linux-tools-`uname -r`
-                || echo 'Failed to install perf(optional)'",
+            "sudo apt-get -y install linux-tools-common linux-tools-generic",
             // Install rust (non-interactive).
             "curl --proto \"=https\" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
             "echo \"source $HOME/.cargo/env\" | tee -a ~/.bashrc",
