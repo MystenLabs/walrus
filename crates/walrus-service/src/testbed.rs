@@ -9,12 +9,12 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     num::NonZeroU16,
     path::{Path, PathBuf},
-    time::Duration,
 };
 
 use fastcrypto::traits::KeyPair;
 use futures::future::try_join_all;
 use rand::{rngs::StdRng, SeedableRng};
+use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
 use walrus_core::{keys::ProtocolKeyPair, ShardIndex};
 use walrus_sui::{
@@ -25,7 +25,7 @@ use walrus_sui::{
 
 use crate::{
     client::{self, ClientCommunicationConfig},
-    config::{PathOrInPlace, StorageNodeConfig, SuiConfig},
+    config::{defaults, PathOrInPlace, StorageNodeConfig, SuiConfig, TestbedConfig},
 };
 
 /// Prefix for the node configuration file name.
@@ -101,8 +101,7 @@ pub async fn deploy_walrus_contract(
     shards_information: Vec<Vec<ShardIndex>>,
     ips: Vec<Ipv4Addr>,
     rest_api_port: u16,
-    event_polling_interval: Duration,
-) -> anyhow::Result<SuiConfig> {
+) -> anyhow::Result<TestbedConfig> {
     assert!(
         shards_information.len() == ips.len(),
         "Mismatch in the number of shards and IPs"
@@ -121,7 +120,7 @@ pub async fn deploy_walrus_contract(
     for (i, ((keypair, shard_ids), ip)) in keypairs
         .iter_mut()
         .zip(shards_information.into_iter())
-        .zip(ips.into_iter())
+        .zip(ips.iter().cloned())
         .enumerate()
     {
         let node_index = i as u16;
@@ -147,10 +146,9 @@ pub async fn deploy_walrus_contract(
     // Create wallet for publishing contracts on sui and setting up system object
     let mut admin_wallet = create_wallet(
         &working_dir.join("sui_admin.yaml"),
-        &sui_network,
+        sui_network.env(),
         Some("sui_admin.keystore"),
     )?;
-    let rpc = admin_wallet.config.get_active_env()?.rpc.clone();
 
     // Get coins from faucet for the wallets.
     let sui_client = admin_wallet.get_client().await?;
@@ -178,13 +176,13 @@ pub async fn deploy_walrus_contract(
     )
     .await?;
 
-    let sui_config = SuiConfig {
-        rpc,
+    Ok(TestbedConfig {
+        sui_network,
+        ips,
+        rest_api_port,
         pkg_id,
         system_object,
-        event_polling_interval,
-    };
-    Ok(sui_config)
+    })
 }
 
 /// Create client configurations for the testbed.
@@ -201,7 +199,7 @@ pub async fn create_client_config(
     let client_wallet_path = working_dir.join("sui_client.yaml");
     let mut client_wallet = create_wallet(
         &working_dir.join("sui_client.yaml"),
-        &sui_network,
+        sui_network.env(),
         Some("sui_client.keystore"),
     )?;
 
@@ -230,13 +228,14 @@ pub async fn create_client_config(
 }
 
 /// Create storage node configurations for the testbed.
-pub fn create_storage_node_configs(
+pub async fn create_storage_node_configs(
     working_dir: &Path,
-    sui_config: SuiConfig,
-    ips: Vec<Ipv4Addr>,
-    rest_api_port: u16,
+    testbed_config: TestbedConfig,
     metrics_port: u16,
-) -> Vec<StorageNodeConfig> {
+) -> anyhow::Result<Vec<StorageNodeConfig>> {
+    let ips = testbed_config.ips;
+    let rest_api_port = testbed_config.rest_api_port;
+
     // Check whether the testbed collocates the storage nodes on the same machine
     // (that is, local testbed).
     let ip_set = ips.iter().collect::<HashSet<_>>();
@@ -245,6 +244,13 @@ pub fn create_storage_node_configs(
     // Build one Sui storage node config for each storage node.
     let committee_size = ips.len() as u16;
     let keypairs = benchmark_keypairs(committee_size as usize);
+    let wallets = create_storage_node_wallets(
+        working_dir,
+        NonZeroU16::new(committee_size).expect("committee size must be > 0"),
+        testbed_config.sui_network,
+    )
+    .await?;
+    let rpc = wallets[0].config.get_active_env()?.rpc.clone();
     let mut storage_node_configs = Vec::new();
     for (i, (keypair, ip)) in keypairs.into_iter().zip(ips.into_iter()).enumerate() {
         let node_index = i as u16;
@@ -262,13 +268,56 @@ pub fn create_storage_node_configs(
             )
         };
 
+        let sui = Some(SuiConfig {
+            rpc: rpc.clone(),
+            pkg_id: testbed_config.pkg_id,
+            system_object: testbed_config.system_object,
+            event_polling_interval: defaults::polling_interval(),
+            wallet_config: wallets[i].config.path().canonicalize()?,
+            gas_budget: defaults::gas_budget(),
+        });
+
         storage_node_configs.push(StorageNodeConfig {
             storage_path: working_dir.join(&name),
             protocol_key_pair: PathOrInPlace::InPlace(keypair),
             metrics_address,
             rest_api_address,
-            sui: Some(sui_config.clone()),
+            sui,
         });
     }
-    storage_node_configs
+    Ok(storage_node_configs)
+}
+
+async fn create_storage_node_wallets(
+    working_dir: &Path,
+    n_nodes: NonZeroU16,
+    sui_network: SuiNetwork,
+) -> anyhow::Result<Vec<WalletContext>> {
+    // Create wallets for the storage nodes
+    let mut storage_node_wallets = (0..n_nodes.get())
+        .map(|index| {
+            let name = node_config_name_prefix(index, n_nodes);
+            let wallet_path = working_dir.join(format!("{}-sui.yaml", name));
+            create_wallet(
+                &wallet_path,
+                sui_network.env(),
+                Some(&format!("{}.keystore", name)),
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let sui_client = storage_node_wallets[0].get_client().await?;
+    // Get coins from faucet for the wallets.
+    let mut faucet_requests = Vec::with_capacity(storage_node_wallets.len());
+    for wallet in storage_node_wallets.iter_mut() {
+        for _ in 0..2 {
+            faucet_requests.push(request_sui_from_faucet(
+                wallet.active_address()?,
+                sui_network,
+                &sui_client,
+            ))
+        }
+    }
+    try_join_all(faucet_requests).await?;
+    Ok(storage_node_wallets)
 }

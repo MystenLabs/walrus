@@ -166,7 +166,7 @@ impl ProtocolCommands for TargetProtocol {
             }
         };
 
-        let sui_config = deploy_walrus_contract(
+        let testbed_config = deploy_walrus_contract(
             parameters.settings.working_dir.as_path(),
             parameters.node_parameters.sui_network,
             parameters.node_parameters.contract_path.clone(),
@@ -174,18 +174,17 @@ impl ProtocolCommands for TargetProtocol {
             shards,
             ips.clone(),
             parameters.node_parameters.rest_api_port,
-            parameters.node_parameters.event_polling_interval,
         )
         .await
         .expect("Failed to create Walrus contract");
 
         // Generate a command to print the Sui config to all instances.
-        let serialized_sui_config =
-            serde_yaml::to_string(&sui_config).expect("Failed to serialize sui configs");
-        let sui_config_path = parameters.settings.working_dir.join("sui_config.yaml");
-        let upload_sui_config_command = format!(
-            "echo -e '{serialized_sui_config}' > {}",
-            sui_config_path.display()
+        let serialized_testbed_config =
+            serde_yaml::to_string(&testbed_config).expect("Failed to serialize sui configs");
+        let testbed_config_path = parameters.settings.working_dir.join("testbed_config.yaml");
+        let upload_testbed_config_command = format!(
+            "echo -e '{serialized_testbed_config}' > {}",
+            testbed_config_path.display()
         );
 
         // Generate a command to print all client and storage node configs on all instances.
@@ -200,7 +199,7 @@ impl ProtocolCommands for TargetProtocol {
                 "--sui-network {}",
                 parameters.node_parameters.sui_network.r#type()
             ),
-            &format!("--sui-config-path {}", sui_config_path.display()),
+            &format!("--sui-config-path {}", testbed_config_path.display()),
             &format!(
                 "--ips {}",
                 ips.iter()
@@ -214,7 +213,7 @@ impl ProtocolCommands for TargetProtocol {
         // Output a single command to run on all machines.
         [
             "source $HOME/.cargo/env",
-            &upload_sui_config_command,
+            &upload_testbed_config_command,
             &generate_config_command,
         ]
         .join(" && ")

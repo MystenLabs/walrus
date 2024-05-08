@@ -3,6 +3,8 @@
 
 //! Test utilities shared between various crates.
 
+use std::future::Future;
+
 use rand::{rngs::StdRng, seq::SliceRandom, RngCore, SeedableRng};
 use tempfile::TempDir;
 
@@ -184,6 +186,45 @@ impl<T> WithTempDir<T> {
             inner: f(self.inner),
             temp_dir: self.temp_dir,
         }
+    }
+
+    /// Convert a `WithTempDir<T>` to a `WithTempDir<U>` by applying the provided
+    /// fallible function to the inner value, while maintaining the temporary directory.
+    pub fn and_then<U, F, E>(self, f: F) -> std::result::Result<WithTempDir<U>, E>
+    where
+        F: FnOnce(T) -> std::result::Result<U, E>,
+    {
+        Ok(WithTempDir {
+            inner: f(self.inner)?,
+            temp_dir: self.temp_dir,
+        })
+    }
+
+    /// Convert a `WithTempDir<T>` to a `WithTempDir<U>` by applying the provided
+    /// async function to the inner value, while maintaining the temporary directory.
+    pub async fn map_async<U, F, Fut>(self, f: F) -> WithTempDir<U>
+    where
+        F: FnOnce(T) -> Fut,
+        Fut: Future<Output = U>,
+    {
+        WithTempDir {
+            inner: f(self.inner).await,
+            temp_dir: self.temp_dir,
+        }
+    }
+
+    /// Convert a `WithTempDir<T>` to a `WithTempDir<U>` by applying the provided
+    /// fallible async function to the inner value, while maintaining the temporary
+    /// directory.
+    pub async fn and_then_async<U, F, Fut, E>(self, f: F) -> std::result::Result<WithTempDir<U>, E>
+    where
+        F: FnOnce(T) -> Fut,
+        Fut: Future<Output = std::result::Result<U, E>>,
+    {
+        Ok(WithTempDir {
+            inner: f(self.inner).await?,
+            temp_dir: self.temp_dir,
+        })
     }
 }
 

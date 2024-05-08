@@ -222,12 +222,12 @@ impl ContractClient for MockContractClient {
         &self,
         certificate: &InvalidBlobCertificate,
     ) -> SuiClientResult<()> {
-        let msg: InvalidBlobIdMsg = bcs::from_bytes(&certificate.invalid_blob_id_msg)
+        let msg: InvalidBlobIdMsg = bcs::from_bytes(&certificate.serialized_message)
             .map_err(|_| anyhow!("could not deserialize invalid blob message"))?;
         self.read_client.add_event(
             InvalidBlobID {
-                epoch: msg.epoch,
-                blob_id: msg.blob_id,
+                epoch: msg.as_ref().epoch(),
+                blob_id: *msg.as_ref().contents(),
                 event_id: event_id_for_testing(),
             }
             .into(),
@@ -316,11 +316,11 @@ mod tests {
             .certify_blob(
                 &blob_obj,
                 // Dummy certificate, currently not checked by the mock client
-                &ConfirmationCertificate {
-                    signers: vec![],
-                    confirmation: vec![],
-                    signature: BLS12381AggregateSignature::default(),
-                },
+                &ConfirmationCertificate::new(
+                    vec![],
+                    vec![],
+                    BLS12381AggregateSignature::default(),
+                ),
             )
             .await?;
         assert_eq!(blob_obj.certified, Some(0));

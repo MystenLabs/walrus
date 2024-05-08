@@ -302,12 +302,12 @@ impl<T> Client<T> {
         );
         let aggregate =
             BLS12381AggregateSignature::aggregate(&valid_signatures).map_err(ClientError::other)?;
-        let cert = ConfirmationCertificate {
+        let cert = ConfirmationCertificate::new(
             signers,
-            confirmation: bcs::to_bytes(&Confirmation::new(self.committee.epoch, *blob_id))
+            bcs::to_bytes(&Confirmation::new(self.committee.epoch, *blob_id))
                 .expect("serialization should always succeed"),
-            signature: aggregate,
-        };
+            aggregate,
+        );
         Ok(cert)
     }
 

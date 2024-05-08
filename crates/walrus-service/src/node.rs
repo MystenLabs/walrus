@@ -6,6 +6,7 @@ use anyhow::{anyhow, bail, Context};
 use fastcrypto::traits::KeyPair;
 use futures::{future::Either, stream::FuturesUnordered, StreamExt};
 use mysten_metrics::RegistryService;
+use serde::Serialize;
 use sui_types::event::EventID;
 use tokio::select;
 use tokio_util::sync::CancellationToken;
@@ -28,7 +29,6 @@ use walrus_core::{
     metadata::{UnverifiedBlobMetadataWithId, VerificationError, VerifiedBlobMetadataWithId},
     BlobId,
     Epoch,
-    InconsistencyProof as InconsistencyProofEnum,
     InconsistencyProof,
     RecoverySymbol,
     ShardIndex,
@@ -44,6 +44,7 @@ use walrus_sui::{
 use crate::{
     committee::{CommitteeService, CommitteeServiceFactory, SuiCommitteeServiceFactory},
     config::{StorageNodeConfig, SuiConfig},
+    contract_service::{SuiSystemContractService, SystemContractService},
     storage::Storage,
     system_events::{SuiSystemEventProvider, SystemEventProvider},
 };
@@ -192,6 +193,7 @@ pub struct StorageNodeBuilder {
     storage: Option<Storage>,
     event_provider: Option<Box<dyn SystemEventProvider>>,
     committee_service_factory: Option<Box<dyn CommitteeServiceFactory>>,
+    contract_service: Option<Box<dyn SystemContractService>>,
 }
 
 impl StorageNodeBuilder {
@@ -215,6 +217,15 @@ impl StorageNodeBuilder {
         self
     }
 
+    /// Sets the [`SystemContractService`] to be used with the node.
+    pub fn with_system_contract_service(
+        mut self,
+        contract_service: Box<dyn SystemContractService>,
+    ) -> Self {
+        self.contract_service = Some(contract_service);
+        self
+    }
+
     /// Sets the [`CommitteeServiceFactory`] used with the node.
     pub fn with_committee_service_factory(
         mut self,
@@ -232,8 +243,12 @@ impl StorageNodeBuilder {
     ///
     /// # Panics
     ///
-    /// Panics if `config.sui` is `None` and no [`SystemEventProvider`] was configured with
-    /// [`with_system_event_provider()`][Self::with_system_event_provider]; or if the
+    /// Panics if `config.sui` is `None` and no [`SystemEventProvider`], no
+    /// [`CommitteeServiceFactory`], or no [`SystemContractService`] was configured with
+    /// their respective functions
+    /// ([`with_system_event_provider()`][Self::with_system_event_provider],
+    /// [`with_committee_service_factory()`][Self::with_committee_service_factory],
+    /// [`with_system_contract_service()`][Self::with_system_contract_service]); or if the
     /// `config.protocol_key_pair` has not yet been loaded into memory.
     pub async fn build(
         self,
@@ -269,6 +284,16 @@ impl StorageNodeBuilder {
             ))
         });
 
+        let contract_service = match self.contract_service {
+            None => Box::new(
+                SuiSystemContractService::from_config(
+                    config.sui.as_ref().expect("sui config to be provided"),
+                )
+                .await?,
+            ),
+            Some(service) => service,
+        };
+
         let committee_service_factory = self.committee_service_factory.unwrap_or_else(|| {
             let (read_client, _) = sui_config_and_client.unwrap();
             Box::new(SuiCommitteeServiceFactory::new(read_client))
@@ -279,6 +304,7 @@ impl StorageNodeBuilder {
             storage,
             event_provider,
             committee_service_factory,
+            contract_service,
         )
         .await
     }
@@ -309,6 +335,7 @@ pub struct StorageNode {
     storage: Storage,
     encoding_config: Arc<EncodingConfig>,
     event_provider: Box<dyn SystemEventProvider>,
+    contract_service: Arc<dyn SystemContractService>,
     committee_service: Arc<dyn CommitteeService>,
     _committee_service_factory: Box<dyn CommitteeServiceFactory>,
 }
@@ -319,6 +346,7 @@ impl StorageNode {
         mut storage: Storage,
         event_provider: Box<dyn SystemEventProvider>,
         committee_service_factory: Box<dyn CommitteeServiceFactory>,
+        contract_service: Box<dyn SystemContractService>,
     ) -> Result<Self, anyhow::Error> {
         let committee_service = committee_service_factory
             .new_for_epoch(Some(key_pair.as_ref().public()))
@@ -344,6 +372,7 @@ impl StorageNode {
             storage,
             event_provider,
             encoding_config,
+            contract_service: contract_service.into(),
             committee_service: committee_service.into(),
             _committee_service_factory: committee_service_factory,
         })
@@ -412,6 +441,7 @@ impl StorageNode {
         // Slivers, and possible metadata, are not stored.
         // TODO(jsmith): Do not spawn if there is already a worker for this blob id (#366)
         // TODO(jsmith): Handle cancellation. (#366)
+        // TODO(kwuest): Handle epoch change. (#405)
         let synchronizer = BlobSynchronizer::new(event, event_sequence_number, self);
         tokio::spawn(
             async {
@@ -431,6 +461,7 @@ struct BlobSynchronizer {
     storage: Storage,
     committee_service: Arc<dyn CommitteeService>,
     encoding_config: Arc<EncodingConfig>,
+    contract_service: Arc<dyn SystemContractService>,
     cursor: (usize, EventID),
 }
 
@@ -442,6 +473,7 @@ impl BlobSynchronizer {
             storage: node.storage.clone(),
             committee_service: node.committee_service.clone(),
             encoding_config: node.encoding_config.clone(),
+            contract_service: node.contract_service.clone(),
             cursor: (event_sequence_number, event.event_id),
         }
     }
@@ -450,7 +482,7 @@ impl BlobSynchronizer {
     async fn sync(self) -> anyhow::Result<()> {
         let metadata = self.sync_metadata().await?;
 
-        let sliver_sync_futures: FuturesUnordered<_> = self
+        let mut sliver_sync_futures: FuturesUnordered<_> = self
             .storage
             .shards()
             .iter()
@@ -462,16 +494,19 @@ impl BlobSynchronizer {
             })
             .collect();
 
-        sliver_sync_futures
-            .for_each(|result| {
-                match result {
-                    Ok(Some(_)) => tracing::error!("received an inconsistency proof"),
-                    Err(err) => panic!("database operations should not fail: {:?}", err),
-                    _ => (),
-                };
-                std::future::ready(())
-            })
-            .await;
+        while let Some(result) = sliver_sync_futures.next().await {
+            match result {
+                Ok(Some(inconsistency_proof)) => {
+                    tracing::warn!("received an inconsistency proof");
+                    // No need to continue the other futures, sync the inconsistency proof
+                    // and return
+                    self.sync_inconsistency_proof(&inconsistency_proof).await;
+                    break;
+                }
+                Err(err) => panic!("database operations should not fail: {:?}", err),
+                _ => (),
+            }
+        }
 
         self.storage
             .maybe_advance_event_cursor(self.cursor.0, &self.cursor.1)?;
@@ -506,7 +541,7 @@ impl BlobSynchronizer {
         &self,
         shard: ShardIndex,
         metadata: &VerifiedBlobMetadataWithId,
-    ) -> Result<Option<InconsistencyProofEnum>, TypedStoreError> {
+    ) -> Result<Option<InconsistencyProof>, TypedStoreError> {
         let shard_storage = self
             .storage
             .shard_storage(shard)
@@ -539,6 +574,20 @@ impl BlobSynchronizer {
             Err(proof) => Ok(Some(proof)),
         }
     }
+
+    async fn sync_inconsistency_proof(&self, inconsistency_proof: &InconsistencyProof) {
+        let invalid_blob_certificate = self
+            .committee_service
+            .get_invalid_blob_certificate(
+                &self.blob_id,
+                inconsistency_proof,
+                self.encoding_config.n_shards(),
+            )
+            .await;
+        self.contract_service
+            .invalidate_blob_id(&invalid_blob_certificate)
+            .await
+    }
 }
 
 async fn recover_sliver<A: EncodingAxis>(
@@ -546,19 +595,19 @@ async fn recover_sliver<A: EncodingAxis>(
     metadata: &VerifiedBlobMetadataWithId,
     sliver_id: SliverPairIndex,
     encoding_config: &EncodingConfig,
-) -> Result<Sliver, InconsistencyProofEnum<MerkleProof>> {
+) -> Result<Sliver, InconsistencyProof<MerkleProof>> {
     if A::IS_PRIMARY {
         committee_service
             .recover_primary_sliver(metadata, sliver_id, encoding_config)
             .await
             .map(Sliver::Primary)
-            .map_err(InconsistencyProofEnum::Primary)
+            .map_err(InconsistencyProof::Primary)
     } else {
         committee_service
             .recover_secondary_sliver(metadata, sliver_id, encoding_config)
             .await
             .map(Sliver::Secondary)
-            .map_err(InconsistencyProofEnum::Secondary)
+            .map_err(InconsistencyProof::Secondary)
     }
 }
 
@@ -745,12 +794,12 @@ impl ServiceState for StorageNode {
     }
 }
 
-async fn sign_message<T>(
+async fn sign_message<T, I>(
     message: T,
     signer: ProtocolKeyPair,
 ) -> Result<SignedMessage<T>, anyhow::Error>
 where
-    T: ProtocolMessage + Send + Sync + 'static,
+    T: AsRef<ProtocolMessage<I>> + Serialize + Send + Sync + 'static,
 {
     let signed = tokio::task::spawn_blocking(move || signer.sign_message(&message))
         .await
@@ -858,8 +907,11 @@ mod tests {
             let confirmation: Confirmation =
                 bcs::from_bytes(&signed.serialized_message).expect("message should be decodable");
 
-            assert_eq!(confirmation.epoch, storage_node.as_ref().current_epoch());
-            assert_eq!(confirmation.blob_id, BLOB_ID);
+            assert_eq!(
+                confirmation.as_ref().epoch(),
+                storage_node.as_ref().current_epoch()
+            );
+            assert_eq!(*confirmation.as_ref().contents(), BLOB_ID);
 
             Ok(())
         }
@@ -983,8 +1035,11 @@ mod tests {
                 bcs::from_bytes(&attestation.serialized_message)
                     .expect("message should be decodable");
 
-            assert_eq!(invalid_blob_msg.epoch, node.as_ref().current_epoch());
-            assert_eq!(invalid_blob_msg.blob_id, blob_id);
+            assert_eq!(
+                invalid_blob_msg.as_ref().epoch(),
+                node.as_ref().current_epoch()
+            );
+            assert_eq!(*invalid_blob_msg.as_ref().contents(), blob_id);
 
             Ok(())
         }

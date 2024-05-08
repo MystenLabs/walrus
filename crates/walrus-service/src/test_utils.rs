@@ -30,9 +30,11 @@ use walrus_core::{
     inconsistency::InconsistencyProof,
     keys::ProtocolKeyPair,
     merkle::MerkleProof,
+    messages::InvalidBlobCertificate,
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
     Epoch,
+    InconsistencyProof as InconsistencyProofEnum,
     PublicKey,
     ShardIndex,
     SliverPairIndex,
@@ -50,6 +52,7 @@ use walrus_test_utils::WithTempDir;
 use crate::{
     committee::{CommitteeService, CommitteeServiceFactory, NodeCommitteeService},
     config::{PathOrInPlace, StorageNodeConfig},
+    contract_service::SystemContractService,
     server::UserServer,
     storage::Storage,
     system_events::SystemEventProvider,
@@ -181,6 +184,7 @@ pub struct StorageNodeHandleBuilder {
     storage: Option<WithTempDir<Storage>>,
     event_provider: Box<dyn SystemEventProvider>,
     committee_service_factory: Option<Box<dyn CommitteeServiceFactory>>,
+    contract_service: Option<Box<dyn SystemContractService>>,
     run_rest_api: bool,
     run_node: bool,
     test_config: Option<StorageNodeTestConfig>,
@@ -230,6 +234,17 @@ impl StorageNodeHandleBuilder {
         factory: Box<dyn CommitteeServiceFactory>,
     ) -> Self {
         self.committee_service_factory = Some(factory);
+        self
+    }
+
+    /// Sets the [`SystemContractService`] to be used with the node.
+    ///
+    /// If not provided, defaults to a [`StubContractService`].
+    pub fn with_system_contract_service(
+        mut self,
+        contract_service: Box<dyn SystemContractService>,
+    ) -> Self {
+        self.contract_service = Some(contract_service);
         self
     }
 
@@ -304,9 +319,13 @@ impl StorageNodeHandleBuilder {
             )
         });
 
+        let contract_service = self
+            .contract_service
+            .unwrap_or_else(|| Box::new(StubContractService {}));
+
         // Create the node's config using the previously generated keypair and address.
         let config = StorageNodeConfig {
-            storage_path: temp_dir.as_ref().to_path_buf(),
+            storage_path: temp_dir.path().to_path_buf(),
             protocol_key_pair: node_info.key_pair.into(),
             rest_api_address: node_info.rest_api_address,
             metrics_address: unused_socket_address(),
@@ -317,6 +336,7 @@ impl StorageNodeHandleBuilder {
             .with_storage(storage)
             .with_system_event_provider(self.event_provider)
             .with_committee_service_factory(committee_service_factory)
+            .with_system_contract_service(contract_service)
             .build(&config, registry_service)
             .await?;
         let node = Arc::new(node);
@@ -374,6 +394,7 @@ impl Default for StorageNodeHandleBuilder {
             storage: Default::default(),
             run_rest_api: Default::default(),
             run_node: Default::default(),
+            contract_service: None,
             test_config: None,
         }
     }
@@ -489,9 +510,29 @@ impl CommitteeService for StubCommitteeService {
         std::future::pending().await
     }
 
+    async fn get_invalid_blob_certificate(
+        &self,
+        _blob_id: &BlobId,
+        _inconsistency_proof: &InconsistencyProofEnum,
+        _n_shards: NonZeroU16,
+    ) -> InvalidBlobCertificate {
+        std::future::pending().await
+    }
+
     fn committee(&self) -> &Committee {
         &self.0
     }
+}
+
+/// A stub [`SystemContractService`].
+///
+/// Performs a no-op when calling [`invalidate_blob_id()`][Self::invalidate_blob_id]
+#[derive(Debug)]
+pub struct StubContractService {}
+
+#[async_trait]
+impl SystemContractService for StubContractService {
+    async fn invalidate_blob_id(&self, _certificate: &InvalidBlobCertificate) {}
 }
 
 /// Returns a socket address that is not currently in use on the system.
@@ -605,6 +646,7 @@ pub struct TestClusterBuilder {
     // INV: Reset if shard_assignment is changed.
     event_providers: Vec<Option<Box<dyn SystemEventProvider>>>,
     committee_factories: Vec<Option<Box<dyn CommitteeServiceFactory>>>,
+    contract_services: Vec<Option<Box<dyn SystemContractService>>>,
 }
 
 impl TestClusterBuilder {
@@ -639,10 +681,12 @@ impl TestClusterBuilder {
     /// Sets the configurations for each storage node based on `configs`.
     ///
     /// Resets any prior calls to [`Self::with_shard_assignment`],
-    /// [`Self::with_system_event_providers`], and [`Self::with_committee_service_factories`].
+    /// [`Self::with_system_event_providers`], [`Self::with_committee_service_factories`],
+    /// and [`Self::with_system_contract_services`].
     pub fn with_test_configs(mut self, configs: Vec<StorageNodeTestConfig>) -> Self {
         self.event_providers = configs.iter().map(|_| None).collect();
         self.committee_factories = configs.iter().map(|_| None).collect();
+        self.contract_services = configs.iter().map(|_| None).collect();
         self.storage_node_configs = configs;
         self
     }
@@ -677,6 +721,21 @@ impl TestClusterBuilder {
         self
     }
 
+    /// Sets the [`SystemContractService`] used for each storage node.
+    ///
+    /// Should be called after the storage nodes have been specified.
+    pub fn with_system_contract_services<T>(mut self, contract_service: T) -> Self
+    where
+        T: SystemContractService + Clone + 'static,
+    {
+        self.contract_services = self
+            .storage_node_configs
+            .iter()
+            .map(|_| Some(Box::new(contract_service.clone()) as _))
+            .collect();
+        self
+    }
+
     /// Creates the configured `TestCluster`.
     pub async fn build(self) -> anyhow::Result<TestCluster> {
         let mut nodes = vec![];
@@ -688,11 +747,12 @@ impl TestClusterBuilder {
             .map(|(i, info)| info.to_storage_node_info(&format!("node-{i}")))
             .collect();
 
-        for ((config, event_provider), factory) in self
+        for (((config, event_provider), factory), contract_service) in self
             .storage_node_configs
             .into_iter()
             .zip(self.event_providers.into_iter())
             .zip(self.committee_factories.into_iter())
+            .zip(self.contract_services.into_iter())
         {
             let mut builder = StorageNodeHandle::builder()
                 .with_storage(empty_storage_with_shards(&config.shards))
@@ -712,6 +772,10 @@ impl TestClusterBuilder {
                         committee_members.clone(),
                     ),
                 ));
+            }
+
+            if let Some(service) = contract_service {
+                builder = builder.with_system_contract_service(service);
             }
 
             nodes.push(builder.build().await?);
@@ -799,11 +863,22 @@ impl Default for TestClusterBuilder {
         Self {
             event_providers: shard_assignment.iter().map(|_| None).collect(),
             committee_factories: shard_assignment.iter().map(|_| None).collect(),
+            contract_services: shard_assignment.iter().map(|_| None).collect(),
             storage_node_configs: shard_assignment
                 .into_iter()
                 .map(StorageNodeTestConfig::new)
                 .collect(),
         }
+    }
+}
+
+#[async_trait]
+impl<T> SystemContractService for Arc<WithTempDir<T>>
+where
+    T: SystemContractService,
+{
+    async fn invalidate_blob_id(&self, certificate: &InvalidBlobCertificate) {
+        self.as_ref().inner.invalidate_blob_id(certificate).await
     }
 }
 

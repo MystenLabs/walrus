@@ -9,7 +9,6 @@ use std::{
     num::NonZeroU16,
     path::{Path, PathBuf},
     sync::Arc,
-    time::Duration,
 };
 
 use anyhow::Context;
@@ -26,10 +25,9 @@ use tokio_util::sync::CancellationToken;
 use walrus_core::keys::ProtocolKeyPair;
 use walrus_service::{
     config::{
-        defaults::{METRICS_PORT, POLLING_INTERVAL_MS, REST_API_PORT},
+        defaults::{METRICS_PORT, REST_API_PORT},
         LoadConfig,
         StorageNodeConfig,
-        SuiConfig,
     },
     server::UserServer,
     testbed::node_config_name_prefix,
@@ -115,9 +113,6 @@ struct DeploySystemContractArgs {
     /// The port on which the REST API of the storage nodes will listen.
     #[clap(long, default_value_t = REST_API_PORT)]
     rest_api_port: u16,
-    /// The interval with which events are polled, in milliseconds.
-    #[clap(long,  default_value_t = POLLING_INTERVAL_MS)]
-    event_polling_interval: u64,
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -125,18 +120,9 @@ struct GenerateDryRunConfigsArgs {
     /// The directory where the storage nodes will be deployed.
     #[clap(long, default_value = "./working_dir")]
     working_dir: PathBuf,
-    /// Sui network for which the config is generated.
-    #[clap(long, default_value = "testnet")]
-    sui_network: SuiNetwork,
     /// The path to the configuration file of the Walrus smart contract deployed on Sui.
     #[clap(long)]
-    sui_config_path: PathBuf,
-    /// The list of ip addresses of the storage nodes.
-    #[clap(long, value_name = "ADDR", value_delimiter = ' ', num_args(4..))]
-    ips: Vec<Ipv4Addr>,
-    /// The port on which the REST API of the storage nodes will listen.
-    #[clap(long, default_value_t = REST_API_PORT)]
-    rest_api_port: u16,
+    testbed_config_path: PathBuf,
     /// The port on which the metrics server of the storage nodes will listen.
     #[clap(long, default_value_t = METRICS_PORT)]
     metrics_port: u16,
@@ -163,11 +149,14 @@ fn main() -> anyhow::Result<()> {
 mod commands {
     use std::io;
 
-    use walrus_service::testbed::{
-        create_client_config,
-        create_storage_node_configs,
-        deploy_walrus_contract,
-        even_shards_allocation,
+    use walrus_service::{
+        config::TestbedConfig,
+        testbed::{
+            create_client_config,
+            create_storage_node_configs,
+            deploy_walrus_contract,
+            even_shards_allocation,
+        },
     };
 
     use super::*;
@@ -182,7 +171,6 @@ mod commands {
             n_shards,
             ips,
             rest_api_port,
-            event_polling_interval,
         }: DeploySystemContractArgs,
     ) -> anyhow::Result<()> {
         tracing_subscriber::fmt::init();
@@ -194,7 +182,7 @@ mod commands {
         let number_of_shards = NonZeroU16::new(n_shards).context("number of shards must be > 0")?;
         let committee_size = NonZeroU16::new(ips.len() as u16).unwrap();
         let shards_information = even_shards_allocation(number_of_shards, committee_size);
-        let sui_config = deploy_walrus_contract(
+        let testbed_config = deploy_walrus_contract(
             &working_dir,
             sui_network,
             contract_path,
@@ -202,16 +190,16 @@ mod commands {
             shards_information,
             ips,
             rest_api_port,
-            Duration::from_millis(event_polling_interval),
         )
         .await
         .context("Failed to deploy system contract")?;
 
-        // Write the Sui config to file.
-        let serialized_sui_config =
-            serde_yaml::to_string(&sui_config).context("Failed to serialize Sui config")?;
-        let sui_config_path = working_dir.join("sui_config.yaml");
-        fs::write(sui_config_path, serialized_sui_config).context("Failed to write Sui config")?;
+        // Write the Testbed config to file.
+        let serialized_testbed_config =
+            serde_yaml::to_string(&testbed_config).context("Failed to serialize Testbed config")?;
+        let testbed_config_path = working_dir.join("testbed_config.yaml");
+        fs::write(testbed_config_path, serialized_testbed_config)
+            .context("Failed to write Testbed config")?;
         Ok(())
     }
 
@@ -219,10 +207,7 @@ mod commands {
     pub(super) async fn generate_dry_run_configs(
         GenerateDryRunConfigsArgs {
             working_dir,
-            sui_network,
-            sui_config_path,
-            ips,
-            rest_api_port,
+            testbed_config_path,
             metrics_port,
         }: GenerateDryRunConfigsArgs,
     ) -> anyhow::Result<()> {
@@ -230,13 +215,13 @@ mod commands {
 
         fs::create_dir_all(&working_dir)
             .with_context(|| format!("Failed to create directory '{}'", working_dir.display()))?;
-        let sui_config = SuiConfig::load(sui_config_path)?;
+        let testbed_config = TestbedConfig::load(testbed_config_path)?;
 
         let client_config = create_client_config(
-            sui_config.pkg_id,
-            sui_config.system_object,
+            testbed_config.pkg_id,
+            testbed_config.system_object,
             working_dir.as_path(),
-            sui_network,
+            testbed_config.sui_network,
         )
         .await?;
         let serialized_client_config =
@@ -245,14 +230,11 @@ mod commands {
         fs::write(client_config_path, serialized_client_config)
             .context("Failed to write client configs")?;
 
-        let committee_size = NonZeroU16::new(ips.len() as u16).expect("committee size must be > 0");
-        let storage_node_configs = create_storage_node_configs(
-            working_dir.as_path(),
-            sui_config,
-            ips,
-            rest_api_port,
-            metrics_port,
-        );
+        let committee_size =
+            NonZeroU16::new(testbed_config.ips.len() as u16).expect("committee size must be > 0");
+        let storage_node_configs =
+            create_storage_node_configs(working_dir.as_path(), testbed_config, metrics_port)
+                .await?;
         for (i, storage_node_config) in storage_node_configs.into_iter().enumerate() {
             let serialized_storage_node_config = serde_yaml::to_string(&storage_node_config)
                 .context("Failed to serialize storage node configs")?;

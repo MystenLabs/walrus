@@ -32,9 +32,9 @@ use sui_sdk::{
     SuiClient,
 };
 use sui_types::{
-    base_types::{ObjectType, SuiAddress},
+    base_types::{ObjectRef, ObjectType, SuiAddress},
     crypto::SignatureScheme,
-    transaction::CallArg,
+    transaction::{CallArg, ProgrammableTransaction, TransactionData},
     TypeTag,
 };
 use walrus_core::BlobId;
@@ -260,7 +260,8 @@ impl SuiNetwork {
         }
     }
 
-    fn env(&self) -> SuiEnv {
+    /// Returns the [`SuiEnv`] associated with `self`.
+    pub fn env(&self) -> SuiEnv {
         match self {
             SuiNetwork::Localnet => SuiEnv::localnet(),
             SuiNetwork::Devnet => SuiEnv::devnet(),
@@ -278,6 +279,29 @@ impl SuiNetwork {
     }
 }
 
+/// Sign and send a [`ProgrammableTransaction`].
+pub(crate) async fn sign_and_send_ptb(
+    sender: SuiAddress,
+    wallet: &WalletContext,
+    programmable_transaction: ProgrammableTransaction,
+    gas_coin: ObjectRef,
+    gas_budget: u64,
+) -> anyhow::Result<SuiTransactionBlockResponse> {
+    let gas_price = wallet.get_reference_gas_price().await?;
+
+    let transaction = TransactionData::new_programmable(
+        sender,
+        vec![gas_coin],
+        programmable_transaction,
+        gas_budget,
+        gas_price,
+    );
+
+    let transaction = wallet.sign_transaction(&transaction);
+
+    wallet.execute_transaction_may_fail(transaction).await
+}
+
 /// Loads a sui wallet from `config_path`.
 pub fn load_wallet(config_path: Option<PathBuf>) -> Result<WalletContext> {
     let config_path = config_path.unwrap_or(sui_config_dir()?.join(SUI_CLIENT_CONFIG));
@@ -290,10 +314,9 @@ pub fn load_wallet(config_path: Option<PathBuf>) -> Result<WalletContext> {
 /// `keystore_filename` (if provided) and `sui.keystore` otherwise.  Returns the created Wallet.
 pub fn create_wallet(
     config_path: &Path,
-    network: &SuiNetwork,
+    sui_env: SuiEnv,
     keystore_filename: Option<&str>,
 ) -> Result<WalletContext> {
-    let env = network.env();
     let keystore_path = config_path
         .parent()
         .unwrap_or(&sui_config_dir()?)
@@ -304,10 +327,10 @@ pub fn create_wallet(
     keystore.set_path(&keystore_path.canonicalize()?);
     let keystore = Keystore::from(keystore);
 
-    let alias = env.alias.clone();
+    let alias = sui_env.alias.clone();
     SuiClientConfig {
         keystore,
-        envs: vec![env],
+        envs: vec![sui_env],
         active_address: Some(new_address),
         active_env: Some(alias),
     }

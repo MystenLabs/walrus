@@ -3,34 +3,68 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{Intent, ProtocolMessage, SignedMessage};
-use crate::{messages::IntentType, BlobId, Epoch};
+use super::{Intent, InvalidIntent, MessageVerificationError, ProtocolMessage, SignedMessage};
+use crate::{messages::IntentType, BlobId, Epoch, PublicKey};
 
-/// A signed [`InvalidBlobIdMsg`] from a storage node.
-pub type InvalidBlobIdAttestation = SignedMessage<InvalidBlobIdMsg>;
-
-/// Message type stating that `blob_id` is invalid.
-#[derive(Debug, Deserialize, Serialize)]
-pub struct InvalidBlobIdMsg {
-    intent: Intent,
-    /// The epoch in which this message is generated.
-    pub epoch: Epoch,
-    /// The ID of the Blob marked as invalid.
-    pub blob_id: BlobId,
-}
+/// A message stating that a Blob Id is invalid.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "ProtocolMessage<BlobId>")]
+pub struct InvalidBlobIdMsg(ProtocolMessage<BlobId>);
 
 impl InvalidBlobIdMsg {
-    /// Creates a new confirmation message for the provided blob ID.
+    const INTENT: Intent = Intent::storage(IntentType::INVALID_BLOB_ID_MSG);
+
+    /// Creates a new InvalidBlobIdMsg message for the provided blob ID.
     pub fn new(epoch: Epoch, blob_id: BlobId) -> Self {
-        Self {
+        Self(ProtocolMessage {
             intent: Intent::storage(IntentType::INVALID_BLOB_ID_MSG),
             epoch,
-            blob_id,
+            message_contents: blob_id,
+        })
+    }
+}
+
+impl TryFrom<ProtocolMessage<BlobId>> for InvalidBlobIdMsg {
+    type Error = InvalidIntent;
+    fn try_from(protocol_message: ProtocolMessage<BlobId>) -> Result<Self, Self::Error> {
+        if protocol_message.intent == Self::INTENT {
+            Ok(Self(protocol_message))
+        } else {
+            Err(InvalidIntent {
+                expected: Self::INTENT,
+                actual: protocol_message.intent,
+            })
         }
     }
 }
 
-impl ProtocolMessage for InvalidBlobIdMsg {}
+impl AsRef<ProtocolMessage<BlobId>> for InvalidBlobIdMsg {
+    fn as_ref(&self) -> &ProtocolMessage<BlobId> {
+        &self.0
+    }
+}
+
+impl AsMut<ProtocolMessage<BlobId>> for InvalidBlobIdMsg {
+    fn as_mut(&mut self) -> &mut ProtocolMessage<BlobId> {
+        &mut self.0
+    }
+}
+
+/// A signed [`InvalidBlobIdMsg`] from a storage node.
+pub type InvalidBlobIdAttestation = SignedMessage<InvalidBlobIdMsg>;
+
+impl InvalidBlobIdAttestation {
+    /// Verifies that this invalid blob attestation is valid for the specified public key,
+    /// epoch, and blob id.
+    pub fn verify(
+        &self,
+        public_key: &PublicKey,
+        epoch: Epoch,
+        blob_id: &BlobId,
+    ) -> Result<InvalidBlobIdMsg, MessageVerificationError> {
+        self.verify_contents(public_key, epoch, blob_id)
+    }
+}
 
 #[cfg(test)]
 mod tests {

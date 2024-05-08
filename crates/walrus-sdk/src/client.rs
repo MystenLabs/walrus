@@ -4,7 +4,6 @@
 //! Client for interacting with the StorageNode API.
 
 use reqwest::{Client as ReqwestClient, Url};
-use serde::Serialize;
 use walrus_core::{
     encoding::{
         EncodingAxis,
@@ -16,7 +15,7 @@ use walrus_core::{
         SliverPair,
     },
     inconsistency::InconsistencyProof,
-    merkle::{MerkleAuth, MerkleProof},
+    merkle::MerkleProof,
     messages::{InvalidBlobIdAttestation, SignedStorageConfirmation, StorageConfirmation},
     metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
     BlobId,
@@ -150,7 +149,7 @@ impl Client {
     ) -> Result<SignedStorageConfirmation, NodeError> {
         let confirmation = self.get_confirmation(blob_id).await?;
         let _ = confirmation
-            .verify(public_key, blob_id, epoch)
+            .verify(public_key, epoch, blob_id)
             .map_err(NodeError::other)?;
         Ok(confirmation)
     }
@@ -335,10 +334,10 @@ impl Client {
     }
 
     /// Sends an inconsistency proof for the specified [`EncodingAxis`] to a node.
-    pub async fn send_inconsistency_proof_by_axis<A: EncodingAxis, M: MerkleAuth + Serialize>(
+    pub async fn send_inconsistency_proof_by_axis<A: EncodingAxis>(
         &self,
         blob_id: &BlobId,
-        inconsistency_proof: &InconsistencyProof<A, M>,
+        inconsistency_proof: &InconsistencyProof<A, MerkleProof>,
     ) -> Result<InvalidBlobIdAttestation, NodeError> {
         let url = self.endpoints.inconsistency_proof::<A>(blob_id);
         let encoded_proof =
@@ -357,11 +356,12 @@ impl Client {
         Ok(attestation)
     }
 
-    /// Sends an inconsistency proof to a node.
-    pub async fn send_inconsistency_proof<M: MerkleAuth + Serialize>(
+    /// Sends an inconsistency proof to a node and requests the invalid blob id
+    /// attestation from the node.
+    pub async fn send_inconsistency_proof(
         &self,
         blob_id: &BlobId,
-        inconsistency_proof: &InconsistencyProofEnum<M>,
+        inconsistency_proof: &InconsistencyProofEnum,
     ) -> Result<InvalidBlobIdAttestation, NodeError> {
         match inconsistency_proof {
             InconsistencyProofEnum::Primary(proof) => {
@@ -371,6 +371,24 @@ impl Client {
                 self.send_inconsistency_proof_by_axis(blob_id, proof).await
             }
         }
+    }
+
+    /// Sends an inconsistency proof to a node and verifies the returned invalid blob id
+    /// attestation.
+    pub async fn get_and_verify_invalid_blob_attestation(
+        &self,
+        blob_id: &BlobId,
+        inconsistency_proof: &InconsistencyProofEnum,
+        epoch: Epoch,
+        public_key: &PublicKey,
+    ) -> Result<InvalidBlobIdAttestation, NodeError> {
+        let attestation = self
+            .send_inconsistency_proof(blob_id, inconsistency_proof)
+            .await?;
+        let _ = attestation
+            .verify(public_key, epoch, blob_id)
+            .map_err(NodeError::other)?;
+        Ok(attestation)
     }
 }
 

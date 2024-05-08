@@ -69,9 +69,9 @@ impl ProtocolKeyPair {
     }
 
     /// Sign `message` and return the resulting [`SignedMessage`].
-    pub fn sign_message<T>(&self, message: &T) -> SignedMessage<T>
+    pub fn sign_message<T, I>(&self, message: &T) -> SignedMessage<T>
     where
-        T: ProtocolMessage,
+        T: AsRef<ProtocolMessage<I>> + Serialize,
     {
         let serialized_message =
             bcs::to_bytes(message).expect("bcs encoding a message should not fail");

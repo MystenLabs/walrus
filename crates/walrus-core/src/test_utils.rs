@@ -12,7 +12,7 @@ use crate::{
     encoding::{self, EncodingConfig, PrimaryRecoverySymbol, PrimarySliver},
     keys::ProtocolKeyPair,
     merkle::{MerkleProof, Node},
-    messages::{ProtocolMessage, SignedMessage},
+    messages::SignedMessage,
     metadata::{
         BlobMetadata,
         SliverPairMetadata,
@@ -37,10 +37,7 @@ pub fn key_pair() -> ProtocolKeyPair {
 }
 
 /// Returns an arbitrary signed message for tests.
-pub fn random_signed_message<T>() -> SignedMessage<T>
-where
-    T: ProtocolMessage,
-{
+pub fn random_signed_message<T>() -> SignedMessage<T> {
     let mut rng = StdRng::seed_from_u64(0);
     let mut message = vec![0; 32];
     rng.fill_bytes(&mut message);

@@ -10,12 +10,12 @@ use fastcrypto::{bls12381::min_pk::BLS12381PublicKey, traits::ToFromBytes};
 use sui_sdk::{types::base_types::ObjectID, wallet_context::WalletContext};
 use walrus_core::ShardIndex;
 
+use super::DEFAULT_GAS_BUDGET;
 use crate::{
     system_setup::{create_system_object, publish_package, SystemParameters},
     types::{Committee, NetworkAddress, StorageNode},
 };
 
-const DEFAULT_GAS_BUDGET: u64 = 1_000_000_000;
 const DEFAULT_CAPACITY: u64 = 1_000_000_000;
 const DEFAULT_PRICE: u64 = 10;
 

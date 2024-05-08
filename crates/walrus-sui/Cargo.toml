@@ -8,7 +8,7 @@ license.workspace = true
 
 [features]
 default = ["test-utils"]
-test-utils = ["test-cluster"]
+test-utils = ["dep:test-cluster", "dep:walrus-test-utils", "dep:tempfile"]
 
 [dependencies]
 anyhow.workspace = true
@@ -23,12 +23,14 @@ sui-keys.workspace = true
 sui-move-build.workspace = true
 sui-sdk.workspace = true
 sui-types.workspace = true
+tempfile = { workspace = true, optional = true }
 test-cluster = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["sync"] }
 tokio-stream.workspace = true
 tracing.workspace = true
 walrus-core.workspace = true
+walrus-test-utils = { workspace = true, optional = true }
 
 [lints]
 workspace = true

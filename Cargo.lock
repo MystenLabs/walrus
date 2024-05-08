@@ -10521,6 +10521,7 @@ dependencies = [
  "sui-types",
  "telemetry-subscribers",
  "tempfile",
+ "test-cluster",
  "thiserror",
  "tokio",
  "tokio-stream",
@@ -10551,6 +10552,7 @@ dependencies = [
  "sui-move-build",
  "sui-sdk",
  "sui-types",
+ "tempfile",
  "test-cluster",
  "thiserror",
  "tokio",
@@ -10558,6 +10560,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "walrus-core",
+ "walrus-test-utils",
 ]
 
 [[package]]

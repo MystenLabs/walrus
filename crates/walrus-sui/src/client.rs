@@ -13,7 +13,7 @@ use sui_sdk::{
     types::{
         base_types::{ObjectID, ObjectRef},
         programmable_transaction_builder::ProgrammableTransactionBuilder,
-        transaction::{CallArg, TransactionData},
+        transaction::CallArg,
     },
     wallet_context::WalletContext,
 };
@@ -33,7 +33,12 @@ use walrus_core::{
 use crate::{
     contracts::{self, FunctionTag},
     types::{Blob, StorageResource},
-    utils::{call_args_to_object_ids, get_created_sui_object_ids_by_type, get_sui_object},
+    utils::{
+        call_args_to_object_ids,
+        get_created_sui_object_ids_by_type,
+        get_sui_object,
+        sign_and_send_ptb,
+    },
 };
 
 mod read_client;
@@ -133,6 +138,21 @@ impl SuiContractClient {
         })
     }
 
+    /// Constructor for [`SuiContractClient`] with an existing [`SuiReadClient`].
+    pub fn new_with_read_client(
+        mut wallet: WalletContext,
+        gas_budget: u64,
+        read_client: SuiReadClient,
+    ) -> SuiClientResult<Self> {
+        let wallet_address = wallet.active_address()?;
+        Ok(Self {
+            wallet,
+            read_client,
+            wallet_address,
+            gas_budget,
+        })
+    }
+
     /// Executes the move call to `function` with `call_args` and transfers all outputs
     /// (if any) to the sender.
     #[tracing::instrument(err, skip(self))]
@@ -181,22 +201,14 @@ impl SuiContractClient {
         programmable_transaction: ProgrammableTransaction,
         gas_coin: ObjectRef,
     ) -> SuiClientResult<SuiTransactionBlockResponse> {
-        let gas_price = self.wallet.get_reference_gas_price().await?;
-
-        let transaction = TransactionData::new_programmable(
+        let response = sign_and_send_ptb(
             self.wallet_address,
-            vec![gas_coin],
+            &self.wallet,
             programmable_transaction,
+            gas_coin,
             self.gas_budget,
-            gas_price,
-        );
-
-        let transaction = self.wallet.sign_transaction(&transaction);
-
-        let response = self
-            .wallet
-            .execute_transaction_may_fail(transaction)
-            .await?;
+        )
+        .await?;
         match response
             .effects
             .as_ref()
@@ -308,7 +320,7 @@ impl ContractClient for SuiContractClient {
                     self.wallet.get_object_ref(blob.id).await?.into(),
                     call_arg_pure!(certificate.signature.as_bytes()),
                     call_arg_pure!(&signers),
-                    (&certificate.confirmation).into(),
+                    (&certificate.serialized_message).into(),
                 ],
             )
             .await?;
@@ -336,7 +348,7 @@ impl ContractClient for SuiContractClient {
                 self.read_client.call_arg_from_system_obj(true).await?,
                 call_arg_pure!(certificate.signature.as_bytes()),
                 call_arg_pure!(&signers),
-                (&certificate.invalid_blob_id_msg).into(),
+                (&certificate.serialized_message).into(),
             ],
         )
         .await?;

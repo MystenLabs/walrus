@@ -28,6 +28,7 @@ workspace = true
 anyhow.workspace = true
 criterion = "0.5.1"
 serde_test = "1.0.176"
+walrus-test-utils.workspace = true
 
 [lib]
 bench = false

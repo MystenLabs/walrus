@@ -3,7 +3,7 @@
 
 //! Utility functions used internally in the crate.
 
-use std::{future::Future, num::Saturating, sync::Arc, time::Duration};
+use std::{fmt::Debug, future::Future, num::Saturating, sync::Arc, time::Duration};
 
 use futures::FutureExt;
 use rand::{

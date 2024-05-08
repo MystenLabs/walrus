@@ -4,8 +4,12 @@
 use walrus_core::{
     encoding::{EncodingAxis, EncodingConfig, RecoverySymbol},
     merkle::MerkleProof,
+    messages::InvalidBlobIdAttestation,
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
+    Epoch,
+    InconsistencyProof,
+    PublicKey,
     SliverPairIndex,
 };
 use walrus_sdk::client::Client as StorageNodeClient;
@@ -45,6 +49,27 @@ impl NodeClient for StorageNodeClient {
         .await
         .inspect(|_| tracing::debug!("symbol request succeeded"))
         .inspect_err(|err| tracing::debug!(%err, "symbol request failed"))
+        .ok()
+    }
+
+    async fn get_invalid_blob_attestation(
+        &self,
+        blob_id: &BlobId,
+        inconsistency_proof: &InconsistencyProof,
+        epoch: Epoch,
+        public_key: &PublicKey,
+    ) -> Option<InvalidBlobIdAttestation> {
+        tracing::debug!("requesting an invalid blob attestation from the remote storage node");
+
+        self.get_and_verify_invalid_blob_attestation(
+            blob_id,
+            inconsistency_proof,
+            epoch,
+            public_key,
+        )
+        .await
+        .inspect(|_| tracing::debug!("invalid blob attestation request succeeded"))
+        .inspect_err(|err| tracing::debug!(%err, "invalid blob attestation request failed"))
         .ok()
     }
 }

@@ -4,13 +4,17 @@
 //! Storage client configuration module.
 
 use std::{
-    net::SocketAddr,
+    net::{Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
     time::Duration,
 };
 
 use anyhow::Context;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{
+    de::{DeserializeOwned, Error as _},
+    Deserialize,
+    Serialize,
+};
 use serde_with::{
     base64::Base64,
     de::DeserializeAsWrap,
@@ -20,7 +24,11 @@ use serde_with::{
     SerializeAs,
 };
 use sui_sdk::types::base_types::ObjectID;
-use walrus_core::keys::{ProtocolKeyPair, ProtocolKeyPairParseError};
+use walrus_core::{
+    ensure,
+    keys::{ProtocolKeyPair, ProtocolKeyPairParseError},
+};
+use walrus_sui::utils::SuiNetwork;
 
 /// Trait for loading configuration from a YAML file.
 pub trait LoadConfig: DeserializeOwned {
@@ -61,23 +69,52 @@ impl LoadConfig for StorageNodeConfig {}
 #[serde_with::serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SuiConfig {
-    /// HTTP URL of the Sui full-node RPC endpoint (including scheme)
+    /// HTTP URL of the Sui full-node RPC endpoint (including scheme).
     pub rpc: String,
-    /// Object ID of the walrus package
+    /// Object ID of the walrus package.
     pub pkg_id: ObjectID,
-    /// Object ID of walrus system object
+    /// Object ID of walrus system object.
     pub system_object: ObjectID,
-    /// Interval with which events are polled, in milliseconds
+    /// Interval with which events are polled, in milliseconds.
     #[serde_as(as = "serde_with::DurationMilliSeconds")]
     #[serde(default = "defaults::polling_interval")]
     pub event_polling_interval: Duration,
+    /// Location of the wallet config.
+    ///
+    /// This MUST be an absolute path.
+    #[serde(deserialize_with = "deserialize_wallet_config")]
+    pub wallet_config: PathBuf,
+    /// Gas budget for transactions.
+    #[serde(default = "defaults::gas_budget")]
+    pub gas_budget: u64,
 }
 
 impl LoadConfig for SuiConfig {}
 
+/// Configuration for a Walrus Testbed.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TestbedConfig {
+    /// Sui network for which the config is generated.
+    #[serde(default = "defaults::network")]
+    pub sui_network: SuiNetwork,
+    /// The list of ip addresses of the storage nodes.
+    pub ips: Vec<Ipv4Addr>,
+    /// The port on which the REST API of the storage nodes will listen.
+    #[serde(default = "defaults::rest_api_port")]
+    pub rest_api_port: u16,
+    /// Object ID of the walrus package.
+    pub pkg_id: ObjectID,
+    /// Object ID of walrus system object.
+    pub system_object: ObjectID,
+}
+
+impl LoadConfig for TestbedConfig {}
+
 /// Default values for the storage-node configuration.
 pub mod defaults {
     use std::net::Ipv4Addr;
+
+    use walrus_sui::utils::SuiNetwork;
 
     use super::*;
 
@@ -111,6 +148,16 @@ pub mod defaults {
     /// Returns the default polling interval.
     pub fn polling_interval() -> Duration {
         Duration::from_millis(POLLING_INTERVAL_MS)
+    }
+
+    /// Returns the default gas budget.
+    pub fn gas_budget() -> u64 {
+        500_000_000
+    }
+
+    /// Returns the default network ([`SuiNetwork::Devnet`])
+    pub fn network() -> SuiNetwork {
+        SuiNetwork::Devnet
     }
 }
 
@@ -226,6 +273,23 @@ where
         };
         wrapper.serialize(serializer)
     }
+}
+
+fn deserialize_wallet_config<'de, D>(deserializer: D) -> Result<PathBuf, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let path = PathBuf::deserialize(deserializer)?;
+
+    ensure!(
+        path.is_absolute(),
+        D::Error::custom(format!(
+            "an absolute path is required for the wallet config (found {})",
+            path.display()
+        ))
+    );
+
+    Ok(path)
 }
 
 #[cfg(test)]

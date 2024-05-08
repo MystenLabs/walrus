@@ -20,6 +20,7 @@ use reqwest::Url;
 use tokio::sync::Semaphore;
 use tracing::Instrument;
 use walrus_core::{
+    bft,
     encoding::{
         self,
         EncodingAxis,
@@ -35,9 +36,11 @@ use walrus_core::{
     },
     inconsistency::{InconsistencyProof, SliverOrInconsistencyProof},
     merkle::MerkleProof,
+    messages::{CertificateError, InvalidBlobCertificate, InvalidBlobIdAttestation},
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
     Epoch,
+    InconsistencyProof as InconsistencyProofEnum,
     PublicKey,
     ShardIndex,
     SliverPairIndex,
@@ -113,6 +116,15 @@ pub trait CommitteeService: std::fmt::Debug + Send + Sync {
         sliver_id: SliverPairIndex,
         encoding_config: &EncodingConfig,
     ) -> Result<SecondarySliver, InconsistencyProof<Secondary, MerkleProof>>;
+
+    /// Sends the inconsistency proofs to other nodes and gets a certificate of
+    /// the blob's invalidity.
+    async fn get_invalid_blob_certificate(
+        &self,
+        blob_id: &BlobId,
+        inconsistency_proof: &InconsistencyProofEnum,
+        n_shards: NonZeroU16,
+    ) -> InvalidBlobCertificate;
 }
 
 // Private trait used internally for testing the inner service.
@@ -131,6 +143,14 @@ trait NodeClient {
         sliver_pair_at_remote: SliverPairIndex,
         intersecting_pair_index: SliverPairIndex,
     ) -> Option<RecoverySymbol<A, MerkleProof>>;
+
+    async fn get_invalid_blob_attestation(
+        &self,
+        blob_id: &BlobId,
+        inconsistency_proof: &InconsistencyProofEnum,
+        epoch: Epoch,
+        public_key: &PublicKey,
+    ) -> Option<InvalidBlobIdAttestation>;
 }
 
 /// Constructs [`NodeCommitteeService`]s by reading the current storage committee from the chain.
@@ -409,6 +429,76 @@ where
             }
         }
     }
+
+    async fn get_invalid_blob_certificate(
+        &self,
+        blob_id: &BlobId,
+        inconsistency_proof: &InconsistencyProofEnum,
+        n_shards: NonZeroU16,
+    ) -> InvalidBlobCertificate {
+        let mut rng = StdRng::seed_from_u64(self.rng.lock().unwrap().gen());
+
+        let mut signature_requests = self
+            .shuffle_nodes_with_clients(&mut rng)
+            .map(|node| {
+                let public_key = node.public_key();
+                let retry_strategy = default_retry_strategy(self.rng.lock().unwrap().gen());
+                utils::retry(retry_strategy, move || async move {
+                    node.client()
+                        .expect("only nodes with clients provided")
+                        .get_invalid_blob_attestation(
+                            blob_id,
+                            inconsistency_proof,
+                            self.committee.epoch,
+                            node.public_key(),
+                        )
+                        .timeout_after(MAX_REQUEST_DURATION)
+                        .await
+                        .map(|sig| (sig, node))
+                })
+                .map(|result| {
+                    result.expect("the strategy ensures we wait until a result is available")
+                })
+                .instrument(tracing::info_span!("node", ?public_key))
+            })
+            .collect::<FuturesUnordered<_>>();
+
+        // get quorum and assemble certificate
+        let weight_threshold = bft::min_n_correct(n_shards).get();
+        let mut total_weight = 0;
+        let mut signed_messages = Vec::with_capacity(self.committee.n_members());
+        let mut signer_indices = Vec::with_capacity(self.committee.n_members());
+        while let Some((signed_message, node)) = signature_requests.next().await {
+            signed_messages.push(signed_message);
+            signer_indices.push(node.index_in_committee());
+            total_weight += node.n_shards();
+            if total_weight >= weight_threshold {
+                break;
+            }
+        }
+
+        match InvalidBlobCertificate::from_signed_messages_and_indices(
+            signed_messages,
+            signer_indices,
+        ) {
+            Ok(certificate) => certificate,
+            Err(CertificateError::SignatureAggregation(err)) => {
+                panic!(
+                    concat!(
+                        "should not occur since all inputs to the signature ",
+                        "aggregation are verified: {:?}",
+                    ),
+                    err
+                )
+            }
+            Err(CertificateError::MessageMismatch) => {
+                panic!(concat!(
+                    "should not occur since all messages are verified ",
+                    "against the same epoch and blob id",
+                ))
+            }
+        }
+    }
 }
 
 /// Helper to access a storage node in the committee and its client.
@@ -436,6 +526,14 @@ where
 
     fn shard_ids(&self) -> &'a [ShardIndex] {
         &self.as_member().shard_ids
+    }
+
+    fn n_shards(&self) -> u16 {
+        u16::try_from(self.as_member().shard_ids.len()).expect("number of shards to fit in u16")
+    }
+
+    fn index_in_committee(&self) -> u16 {
+        u16::try_from(self.index).expect("node index to fit in u16")
     }
 
     /// Returns true if this node corresponds to the local storage node.
@@ -500,6 +598,21 @@ impl CommitteeService for NodeCommitteeService {
     ) -> Result<SecondarySliver, InconsistencyProof<Secondary, MerkleProof>> {
         self.inner
             .recover_sliver::<Secondary>(metadata, sliver_id, encoding_config)
+            .await
+    }
+
+    async fn get_invalid_blob_certificate(
+        &self,
+        blob_id: &BlobId,
+        inconsistency_proof: &InconsistencyProofEnum,
+        n_shards: NonZeroU16,
+    ) -> InvalidBlobCertificate {
+        // TODO(kwuest): Handle epoch change (#405)
+        // During epoch change, we may receive messages from some honest nodes for an unexpected
+        // epoch which will cause the verification of the response to fail resulting in an
+        // infinite loop in the call to `inner.get_invalid_blob_certificate`.
+        self.inner
+            .get_invalid_blob_certificate(blob_id, inconsistency_proof, n_shards)
             .await
     }
 }
