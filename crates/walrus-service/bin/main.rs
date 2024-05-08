@@ -148,7 +148,7 @@ fn main() -> anyhow::Result<()> {
 mod commands {
     use std::io;
 
-    use walrus_service::testbed::{create_client_configs, create_storage_node_configs};
+    use walrus_service::testbed::{create_client_config, create_storage_node_configs};
 
     use super::*;
 
@@ -218,9 +218,9 @@ mod commands {
             .with_context(|| format!("Failed to create directory '{}'", working_dir.display()))?;
         let sui_config = SuiConfig::load(sui_config_path)?;
 
-        let client_config = create_client_configs(
-            sui_config.pkg_id.clone(),
-            sui_config.system_object.clone(),
+        let client_config = create_client_config(
+            sui_config.pkg_id,
+            sui_config.system_object,
             working_dir.as_path(),
             sui_network,
         )

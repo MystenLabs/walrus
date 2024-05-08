@@ -261,7 +261,7 @@ pub async fn deploy_walrus_contact(
 }
 
 /// Create client configurations for the testbed.
-pub async fn create_client_configs(
+pub async fn create_client_config(
     pkg_id: ObjectID,
     system_object: ObjectID,
     working_dir: &Path,

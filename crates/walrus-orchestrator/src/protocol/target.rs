@@ -1,13 +1,13 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{fmt::Display, path::PathBuf, time::Duration};
+use std::{fmt::Display, num::NonZeroU16, path::PathBuf, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use walrus_core::ShardIndex;
 use walrus_service::{
-    config::{self},
-    testbed::deploy_walrus_contact,
+    config,
+    testbed::{deploy_walrus_contact, node_config_name_prefix},
 };
 use walrus_sui::utils::SuiNetwork;
 
@@ -152,20 +152,38 @@ impl ProtocolCommands for TargetProtocol {
 
     fn node_command<I>(
         &self,
-        _instances: I,
-        _parameters: &crate::benchmark::BenchmarkParameters,
+        instances: I,
+        parameters: &crate::benchmark::BenchmarkParameters,
     ) -> Vec<(crate::client::Instance, String)>
     where
         I: IntoIterator<Item = crate::client::Instance>,
     {
-        todo!("Alberto: Implement once Walrus parameters are stable (#234)")
-    }
+        instances
+            .into_iter()
+            .enumerate()
+            .map(|(i, instance)| {
+                let working_dir = parameters.settings.working_dir.clone();
+                let node_config_name = format!(
+                    "{}.yaml",
+                    node_config_name_prefix(
+                        i as u16,
+                        NonZeroU16::new(parameters.nodes as u16).unwrap()
+                    )
+                );
+                let node_config_path = working_dir.join(node_config_name);
 
-    fn monitor_command<I>(&self, _instances: I) -> Vec<(crate::client::Instance, String)>
-    where
-        I: IntoIterator<Item = crate::client::Instance>,
-    {
-        todo!("Alberto: Implement once Walrus parameters are stable (#234)")
+                let run_command = [
+                    &format!("{RUST_FLAGS} cargo run {CARGO_FLAGS} --bin walrus-node --"),
+                    "run",
+                    &format!("--config-path {}", node_config_path.display()),
+                    "--cleanup-storage",
+                ]
+                .join(" ");
+
+                let command = ["source $HOME/.cargo/env", &run_command].join(" && ");
+                (instance, command)
+            })
+            .collect()
     }
 
     fn client_command<I>(
@@ -176,7 +194,8 @@ impl ProtocolCommands for TargetProtocol {
     where
         I: IntoIterator<Item = crate::client::Instance>,
     {
-        todo!("Alberto: Implement once Walrus parameters are stable (#234)")
+        // Todo: Implement once we have a load generator (#128)
+        vec![]
     }
 }
 
