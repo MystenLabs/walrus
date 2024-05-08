@@ -208,6 +208,7 @@ pub async fn deploy_walrus_contact(
 
         let mut rest_api_address = config::defaults::rest_api_address();
         rest_api_address.set_ip(IpAddr::V4(ip));
+        rest_api_address.set_port(rest_api_address.port() + (committee_size + i) as u16);
 
         sui_storage_nodes.push(SuiStorageNode {
             name,
@@ -314,9 +315,11 @@ pub fn create_storage_node_configs(
 
         let mut metrics_address = config::defaults::metrics_address();
         metrics_address.set_ip(IpAddr::V4(ip));
+        metrics_address.set_port(metrics_address.port() + i as u16);
 
         let mut rest_api_address = config::defaults::rest_api_address();
         rest_api_address.set_ip(IpAddr::V4(ip));
+        rest_api_address.set_port(rest_api_address.port() + (committee_size + i) as u16);
 
         storage_node_configs.push(StorageNodeConfig {
             storage_path: working_dir.join(&name),
