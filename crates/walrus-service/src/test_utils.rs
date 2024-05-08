@@ -450,10 +450,10 @@ impl CommitteeService for StubCommitteeService {
 
 /// Returns a socket address that is not currently in use on the system.
 pub fn unused_socket_address() -> SocketAddr {
-    fallible_unused_socket_address().expect("unused socket address to be available")
+    try_unused_socket_address().expect("unused socket address to be available")
 }
 
-fn fallible_unused_socket_address() -> anyhow::Result<SocketAddr> {
+fn try_unused_socket_address() -> anyhow::Result<SocketAddr> {
     let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     let address = listener.local_addr()?;
 
@@ -775,6 +775,7 @@ mod test {
     use super::unused_socket_address;
 
     #[test]
+    #[ignore = "ignore to not bind sockets unnecessarily"]
     fn test_unused_socket_addr() {
         let n = 1000;
         assert_eq!(

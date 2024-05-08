@@ -57,7 +57,7 @@ pub fn get_default_invalid_certificate(blob_id: BlobId, epoch: Epoch) -> Invalid
 }
 
 /// Creates and returns a sui test cluster.
-pub async fn create_sui_test_cluster() -> TestCluster {
+pub async fn sui_test_cluster() -> TestCluster {
     TestClusterBuilder::new().build().await
 }
 
