@@ -118,8 +118,8 @@ pub struct TargetProtocol;
 
 impl ProtocolCommands for TargetProtocol {
     fn protocol_dependencies(&self) -> Vec<&'static str> {
-        // No special dependencies for Walrus.
-        vec![]
+        // Clang is required to compile rocksdb.
+        vec!["sudo apt-get -y install clang"]
     }
 
     fn db_directories(&self) -> Vec<std::path::PathBuf> {
@@ -153,6 +153,7 @@ impl ProtocolCommands for TargetProtocol {
                 shards.clone()
             }
         };
+
         let sui_config = deploy_walrus_contract(
             parameters.settings.working_dir.as_path(),
             parameters.node_parameters.sui_network,
@@ -177,7 +178,7 @@ impl ProtocolCommands for TargetProtocol {
         // Generate a command to print all client and storage node configs on all instances.
         let generate_config_command = [
             &format!("{RUST_FLAGS} cargo run {CARGO_FLAGS} --bin walrus-node --"),
-            "generate-remote-dry-run-configs",
+            "generate-dry-run-remote-configs",
             &format!(
                 "--working-dir {}",
                 parameters.settings.working_dir.display()

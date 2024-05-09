@@ -179,7 +179,7 @@ impl<P: ProtocolCommands + ProtocolMetrics> Orchestrator<P> {
             // * libssl-dev - Required to compile the orchestrator
             // TODO(alberto): Remove libssl-dev dependency #221
             "sudo apt-get -y install build-essential sysstat iftop libssl-dev",
-            "sudo apt-get -y install linux-tools-common linux-tools-generic",
+            "sudo apt-get -y install linux-tools-common linux-tools-generic pkg-config",
             // Install rust (non-interactive).
             "curl --proto \"=https\" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
             "echo \"source $HOME/.cargo/env\" | tee -a ~/.bashrc",

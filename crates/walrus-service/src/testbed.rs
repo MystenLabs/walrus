@@ -4,6 +4,7 @@
 //! Facilities to deploy a demo testbed.
 
 use std::{
+    fs,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     num::NonZeroU16,
     path::{Path, PathBuf},
@@ -215,6 +216,9 @@ pub async fn deploy_walrus_contract(
         });
     }
 
+    // Create the working directory if it does not exist
+    fs::create_dir_all(working_dir).expect("Failed to create working directory");
+
     // Create wallet for publishing contracts on sui and setting up system object
     let mut admin_wallet = create_wallet(
         &working_dir.join("sui_admin.yaml"),
@@ -231,7 +235,7 @@ pub async fn deploy_walrus_contract(
             admin_wallet.active_address()?,
             sui_network,
             &sui_client,
-        ))
+        ));
     }
     try_join_all(faucet_requests).await?;
 
@@ -265,6 +269,9 @@ pub async fn create_client_config(
     working_dir: &Path,
     sui_network: SuiNetwork,
 ) -> anyhow::Result<client::Config> {
+    // Create the working directory if it does not exist
+    fs::create_dir_all(working_dir).expect("Failed to create working directory");
+
     // Create wallet for the client
     let client_wallet_path = working_dir.join("sui_client.yaml");
     let mut client_wallet = create_wallet(
