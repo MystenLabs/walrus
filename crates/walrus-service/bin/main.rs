@@ -5,7 +5,7 @@
 use std::{
     fs,
     io::{self, Write},
-    net::{Ipv4Addr, SocketAddr},
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     num::NonZeroU16,
     path::{Path, PathBuf},
     sync::Arc,
@@ -313,7 +313,7 @@ struct MetricsAndLoggingRuntime {
 }
 
 impl MetricsAndLoggingRuntime {
-    fn start(metrics_address: SocketAddr) -> anyhow::Result<Self> {
+    fn start(mut metrics_address: SocketAddr) -> anyhow::Result<Self> {
         let runtime = runtime::Builder::new_multi_thread()
             .thread_name("metrics-runtime")
             .worker_threads(2)
@@ -322,6 +322,7 @@ impl MetricsAndLoggingRuntime {
             .context("metrics runtime creation failed")?;
         let _guard = runtime.enter();
 
+        metrics_address.set_ip(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
         let registry_service = mysten_metrics::start_prometheus_server(metrics_address);
         let prometheus_registry = registry_service.default_registry();
 
@@ -385,7 +386,8 @@ impl StorageNodeRuntime {
         });
 
         let rest_api = UserServer::new(walrus_node, cancel_token.child_token());
-        let rest_api_address = node_config.rest_api_address;
+        let mut rest_api_address = node_config.rest_api_address;
+        rest_api_address.set_ip(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
         let rest_api_handle = tokio::spawn(async move {
             let result = rest_api.run(&rest_api_address).await;
             if let Err(ref err) = result {
