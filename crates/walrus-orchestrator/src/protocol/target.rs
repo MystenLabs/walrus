@@ -6,7 +6,7 @@ use std::{fmt::Display, num::NonZeroU16, path::PathBuf, time::Duration};
 use serde::{Deserialize, Serialize};
 use walrus_core::ShardIndex;
 use walrus_service::testbed::{
-    deploy_walrus_contact,
+    deploy_walrus_contract,
     even_shards_allocation,
     get_metrics_address,
     node_config_name_prefix,
@@ -153,7 +153,7 @@ impl ProtocolCommands for TargetProtocol {
                 shards.clone()
             }
         };
-        let sui_config = deploy_walrus_contact(
+        let sui_config = deploy_walrus_contract(
             parameters.settings.working_dir.as_path(),
             parameters.node_parameters.sui_network,
             parameters.node_parameters.contract_path.clone(),
@@ -163,7 +163,7 @@ impl ProtocolCommands for TargetProtocol {
             parameters.node_parameters.event_polling_interval,
         )
         .await
-        .expect("Failed to create Walrus contact");
+        .expect("Failed to create Walrus contract");
 
         // Generate a command to print the Sui config to all instances.
         let serialized_sui_config =
@@ -271,7 +271,7 @@ impl ProtocolMetrics for TargetProtocol {
             .enumerate()
             .map(|(i, instance)| {
                 let metrics_address = get_metrics_address(instance.main_ip, i as u16);
-                let metrics_path = format!("http://{metrics_address}/metrics",);
+                let metrics_path = format!("{metrics_address}/metrics",);
                 (instance, metrics_path)
             })
             .collect()
@@ -281,6 +281,7 @@ impl ProtocolMetrics for TargetProtocol {
     where
         I: IntoIterator<Item = crate::client::Instance>,
     {
-        todo!("Alberto: Implement once Walrus parameters are stable (#234)")
+        // Todo: Implement once we have a load generator (#128)
+        vec![]
     }
 }
