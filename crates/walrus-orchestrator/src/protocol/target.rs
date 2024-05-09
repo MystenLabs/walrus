@@ -237,7 +237,12 @@ impl ProtocolCommands for TargetProtocol {
                 ]
                 .join(" ");
 
-                let command = ["source $HOME/.cargo/env", &run_command].join(" && ");
+                let command = [
+                    "source $HOME/.cargo/env",
+                    "export RUST_LOG=\"client=DEBUG,walrus=INFO\"",
+                    &run_command,
+                ]
+                .join(" && ");
                 (instance, command)
             })
             .collect()

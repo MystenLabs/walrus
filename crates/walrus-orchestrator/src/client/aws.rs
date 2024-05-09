@@ -176,7 +176,7 @@ impl AwsClient {
                 .authorize_security_group_ingress()
                 .group_name(&self.settings.testbed_id)
                 .ip_protocol(protocol)
-                .cidr_ip("0.0.0.0/0"); // todo - allowing 0.0.0.0 seem a bit wild?
+                .cidr_ip("0.0.0.0/0");
             if protocol == "icmp" || protocol == "icmpv6" {
                 request = request.from_port(-1).to_port(-1);
             } else {
