@@ -147,7 +147,10 @@ pub struct MeasurementsCollection {
 
 impl MeasurementsCollection {
     /// Create a new (empty) collection of measurements.
-    pub fn new(parameters: BenchmarkParameters) -> Self {
+    pub fn new(mut parameters: BenchmarkParameters) -> Self {
+        // Remove the access token from the parameters.
+        parameters.settings.repository.remove_access_token();
+
         Self {
             parameters,
             data: HashMap::new(),

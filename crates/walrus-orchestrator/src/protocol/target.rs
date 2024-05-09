@@ -1,7 +1,12 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{fmt::Display, num::NonZeroU16, path::PathBuf, time::Duration};
+use std::{
+    fmt::{Debug, Display},
+    num::NonZeroU16,
+    path::PathBuf,
+    time::Duration,
+};
 
 use serde::{Deserialize, Serialize};
 use walrus_core::ShardIndex;
@@ -38,7 +43,7 @@ impl ShardsAllocation {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ProtocolNodeParameters {
     #[serde(default = "default_node_parameters::default_sui_network")]
     sui_network: SuiNetwork,
@@ -58,6 +63,12 @@ impl Default for ProtocolNodeParameters {
             contract_path: default_node_parameters::default_contact_path(),
             event_polling_interval: default_node_parameters::default_event_polling_interval(),
         }
+    }
+}
+
+impl Debug for ProtocolNodeParameters {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.shards_allocation.number_of_shards())
     }
 }
 

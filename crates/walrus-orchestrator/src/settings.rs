@@ -21,7 +21,7 @@ use crate::{
 
 /// The git repository holding the codebase.
 #[serde_as]
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Repository {
     /// The url of the repository.
     #[serde_as(as = "DisplayFromStr")]
@@ -45,6 +45,12 @@ impl Repository {
     /// reporting wrong commit values in the measurements.
     pub fn set_unknown_commit(&mut self) {
         self.commit = "unknown".into();
+    }
+
+    /// Remove the Github access token from the repository url.
+    pub fn remove_access_token(&mut self) {
+        self.url.set_password(None).unwrap();
+        self.url.set_username("").unwrap();
     }
 }
 
@@ -319,5 +325,16 @@ mod test {
         let mut settings = Settings::new_for_test();
         settings.repository.url = Url::parse("https://example.com/author/name").unwrap();
         assert_eq!(settings.repository_name(), "name");
+    }
+
+    #[test]
+    fn remove_access_token() {
+        let mut settings = Settings::new_for_test();
+        settings.repository.url = Url::parse("https://TOKEN@example.com/author/name").unwrap();
+        settings.repository.remove_access_token();
+        assert_eq!(
+            settings.repository.url,
+            Url::parse("https://example.com/author/name").unwrap()
+        );
     }
 }
