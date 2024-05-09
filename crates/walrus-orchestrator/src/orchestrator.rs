@@ -253,7 +253,7 @@ impl<P: ProtocolCommands + ProtocolMetrics> Orchestrator<P> {
 
     /// Configure the instances with the appropriate configuration files.
     pub async fn configure(&self, parameters: &BenchmarkParameters) -> TestbedResult<()> {
-        display::action("Configuring instances");
+        display::config("Deploying Walrus contract", "");
 
         // Select instances to configure.
         let (clients, nodes, _) = self.select_instances(parameters)?;
@@ -263,10 +263,24 @@ impl<P: ProtocolCommands + ProtocolMetrics> Orchestrator<P> {
             .protocol_commands
             .genesis_command(nodes.iter(), parameters)
             .await;
+
+        display::action("\nConfiguring instances");
+
+        let id = "configure";
         let repo_name = self.settings.repository_name();
-        let context = CommandContext::new().with_execute_from_path(repo_name.into());
-        let all = clients.into_iter().chain(nodes);
-        self.ssh_manager.execute(all, command, context).await?;
+        let context = CommandContext::new()
+            .run_background(id.into())
+            .with_execute_from_path(repo_name.into());
+        let mut instances = nodes;
+        if parameters.settings.dedicated_clients != 0 {
+            instances.extend(clients);
+        };
+        self.ssh_manager
+            .execute(instances.clone(), command, context)
+            .await?;
+        self.ssh_manager
+            .wait_for_command(instances, id, CommandStatus::Terminated)
+            .await?;
 
         display::done();
         Ok(())
