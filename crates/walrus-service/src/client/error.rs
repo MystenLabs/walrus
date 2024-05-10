@@ -75,7 +75,7 @@ pub enum ClientErrorKind {
     BlobIdDoesNotExist,
     /// The client could not retrieve the metadata from the storage nodes.
     ///
-    ///This error differs from the [`ClientErrorKind::BlobIdDoesNotExist`] version in the fact that
+    /// This error differs from the [`ClientErrorKind::BlobIdDoesNotExist`] version in the fact that
     /// other errors occurred, and the client cannot confirm that the blob does not exist.
     #[error("could not retrieve the metadata from the storage nodes")]
     NoMetadataReceived,
