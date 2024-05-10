@@ -106,9 +106,9 @@ where
                 buf,
             )
                 .into_response(),
-            Err(err) => {
+            Err(error) => {
                 tracing::error!(
-                    ?err,
+                    ?error,
                     "failed to BCS encode an internal response type to the user"
                 );
                 ServiceResponse::<()>::internal_error().into_response()

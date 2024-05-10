@@ -5,6 +5,7 @@
 
 use walrus_core::{SliverPairIndex, SliverType};
 use walrus_sdk::error::NodeError;
+use walrus_sui::client::SuiClientError;
 
 /// Storing the metadata and the set of sliver pairs onto the storage node, and retrieving the
 /// storage confirmation, failed.
@@ -28,4 +29,51 @@ pub struct SliverStoreError {
     pub pair_index: SliverPairIndex,
     pub sliver_type: SliverType,
     pub error: NodeError,
+}
+
+/// Error raised by a client interacting with the storage system.
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+pub struct ClientError {
+    /// The inner kind of the error.
+    #[from]
+    kind: ClientErrorKind,
+}
+
+impl ClientError {
+    /// Returns the corresponding [`ClientErrorKind`] for this object.
+    pub fn kind(&self) -> &ClientErrorKind {
+        &self.kind
+    }
+
+    /// Converts an error to a [`ClientError`] with `kind` [`ClientErrorKind::Other`].
+    pub(crate) fn other<E>(err: E) -> Self
+    where
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        ClientError {
+            kind: ClientErrorKind::Other(err.into()),
+        }
+    }
+}
+
+/// Inner error type, raised when the client operation fails.
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+pub enum ClientErrorKind {
+    /// The certification of the blob failed.
+    #[error("blob certification failed: {0}")]
+    CertificationFailed(SuiClientError),
+    /// The client could not retrieve sufficient confirmations to certify the blob.
+    #[error("could not retrieve enough confirmations to certify the blob: {0} / {1} required")]
+    NotEnoughConfirmations(usize, usize),
+    /// The client could not retrieve enough slivers to reconstruct the blob.
+    #[error("could not retrieve enough slivers to reconstruct the blob")]
+    NotEnoughSlivers,
+    /// The client could not retrieve the metadata from the storage nodes.
+    #[error("could not retrieve the metadata from the storage nodes")]
+    NoMetadataReceived,
+    /// A failure internal to the node.
+    #[error("client internal error: {0}")]
+    Other(Box<dyn std::error::Error + Send + Sync + 'static>),
 }

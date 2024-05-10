@@ -37,7 +37,7 @@ impl NodeResponse for Response {
         if let Ok(ServiceResponse::<()>::Error { message, .. }) = self.json().await {
             Err(Kind::StatusWithMessage { inner, message }.into())
         } else {
-            tracing::debug!("Unable to parse the service's JSON response");
+            tracing::debug!("unable to parse the service's JSON response");
             Err(Kind::Reqwest(inner).into())
         }
     }

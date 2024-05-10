@@ -12,6 +12,7 @@ use fastcrypto::{
 };
 pub use mock_clients::{MockContractClient, MockSuiReadClient};
 use sui_types::{digests::TransactionDigest, event::EventID};
+use test_cluster::{TestCluster, TestClusterBuilder};
 use walrus_core::{
     messages::{Confirmation, ConfirmationCertificate, InvalidBlobCertificate, InvalidBlobIdMsg},
     BlobId,
@@ -53,6 +54,11 @@ pub fn get_default_invalid_certificate(blob_id: BlobId, epoch: Epoch) -> Invalid
         signature,
         signers: vec![0],
     }
+}
+
+/// Creates and returns a sui test cluster.
+pub async fn sui_test_cluster() -> TestCluster {
+    TestClusterBuilder::new().build().await
 }
 
 fn sign_with_default_committee(msg: &[u8]) -> BLS12381AggregateSignature {

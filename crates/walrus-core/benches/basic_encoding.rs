@@ -3,7 +3,7 @@
 
 //! Benchmarks for the basic encoding and decoding.
 
-use std::time::Duration;
+use core::time::Duration;
 
 use criterion::{AxisScale, BatchSize, BenchmarkId, Criterion, PlotConfiguration};
 use raptorq::SourceBlockEncodingPlan;

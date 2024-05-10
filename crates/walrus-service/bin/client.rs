@@ -5,12 +5,14 @@
 
 use std::{io::Write, path::PathBuf};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use colored::{ColoredString, Colorize};
-use sui_sdk::{wallet_context::WalletContext, SuiClientBuilder};
+use sui_sdk::SuiClientBuilder;
 use walrus_core::{encoding::Primary, BlobId};
-use walrus_service::client::{default_configuration_paths, Client, Config};
+use walrus_service::{
+    cli_utils::{error, load_configuration, load_wallet_context, success},
+    client::{Client, Config},
+};
 use walrus_sui::client::{SuiContractClient, SuiReadClient};
 
 /// Default URL of the devnet RPC node.
@@ -83,52 +85,6 @@ enum Commands {
     },
 }
 
-/// Returns the path if it is `Some` or any of the default paths if they exist (attempt in order).
-fn path_or_defaults_if_exist(path: &Option<PathBuf>, defaults: &[PathBuf]) -> Option<PathBuf> {
-    let mut path = path.clone();
-    for default in defaults {
-        if path.is_some() {
-            break;
-        }
-        path = default.exists().then_some(default.clone());
-    }
-    path
-}
-
-/// Loads the wallet context from the given path.
-///
-/// If no path is provided, tries to load the configuration first from the local folder, and then
-/// from the standard Sui configuration directory.
-fn load_wallet_context(path: &Option<PathBuf>) -> Result<WalletContext> {
-    let mut default_paths = vec!["./client.yaml".into(), "./sui_config.yaml".into()];
-    if let Some(home_dir) = home::home_dir() {
-        default_paths.push(home_dir.join(".sui").join("sui_config").join("client.yaml"))
-    }
-    let path = path_or_defaults_if_exist(path, &default_paths)
-        .ok_or(anyhow!("Could not find a valid wallet config file."))?;
-    tracing::info!("Using wallet configuration from {}", path.display());
-    WalletContext::new(&path, None, None)
-}
-
-/// Loads the Walrus configuration from the given path.
-///
-/// If no path is provided, tries to load the configuration first from the local folder, and then
-/// from the standard Walrus configuration directory.
-fn load_configuration(path: &Option<PathBuf>) -> Result<Config> {
-    let path = path_or_defaults_if_exist(path, &default_configuration_paths())
-        .ok_or(anyhow!("Could not find a valid Walrus configuration file."))?;
-    tracing::info!("Using Walrus configuration from {}", path.display());
-
-    serde_yaml::from_str(&std::fs::read_to_string(&path).context(format!(
-        "Unable to read Walrus configuration from {}",
-        path.display()
-    ))?)
-    .context(format!(
-        "Parsing Walrus configuration from {} failed",
-        path.display()
-    ))
-}
-
 async fn client() -> Result<()> {
     tracing_subscriber::fmt::init();
     let args = Args::parse();
@@ -147,7 +103,10 @@ async fn client() -> Result<()> {
             .await?;
             let client = Client::new(config, sui_client).await?;
 
-            tracing::info!(?file, "Storing blob read from the filesystem");
+            tracing::info!(
+                file = %file.display(),
+                "Storing blob read from the filesystem"
+            );
             let blob = client
                 .reserve_and_store_blob(&std::fs::read(file)?, epochs)
                 .await?;
@@ -226,12 +185,4 @@ pub async fn main() {
         // Print any error in a (relatively) user-friendly way.
         eprintln!("{} {:#}", error(), e)
     }
-}
-
-fn success() -> ColoredString {
-    "Success:".bold().green()
-}
-
-fn error() -> ColoredString {
-    "Error:".bold().red()
 }

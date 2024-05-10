@@ -213,6 +213,16 @@ pub struct StorageNode {
     pub shard_ids: Vec<ShardIndex>,
 }
 
+impl StorageNode {
+    /// Returns the REST API URL of the node.
+    pub fn rest_api_url(&self) -> String {
+        format!(
+            "http://{}:{}",
+            self.network_address.host, self.network_address.port
+        )
+    }
+}
+
 impl TryFrom<&SuiMoveStruct> for StorageNode {
     type Error = anyhow::Error;
 
@@ -317,6 +327,11 @@ impl Committee {
     /// Returns the members of the committee
     pub fn members(&self) -> &[StorageNode] {
         &self.members
+    }
+
+    /// Returns the number of members in the committee.
+    pub fn n_members(&self) -> usize {
+        self.members.len()
     }
 }
 

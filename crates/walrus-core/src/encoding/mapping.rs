@@ -3,7 +3,8 @@
 
 //! The mapping between the encoded sliver pairs and shards.
 
-use std::num::NonZeroU16;
+use core::num::NonZeroU16;
+use std;
 
 use thiserror::Error;
 
@@ -134,6 +135,8 @@ fn bytes_mod(bytes: &[u8], modulus: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec::Vec;
+
     use walrus_test_utils::param_test;
 
     use super::*;

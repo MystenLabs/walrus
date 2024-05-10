@@ -3,7 +3,7 @@
 
 //! Definitions and computations related to Byzantine fault tolerance (BFT).
 
-use std::num::NonZeroU16;
+use core::num::NonZeroU16;
 
 /// Returns the maximum number of faulty/Byzantine failures in a BFT system with `n` components.
 ///

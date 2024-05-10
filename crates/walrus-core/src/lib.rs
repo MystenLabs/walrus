@@ -3,7 +3,14 @@
 
 //! Core functionality for Walrus.
 
-use std::{
+#![no_std]
+#![deny(clippy::std_instead_of_alloc, clippy::std_instead_of_core)]
+
+extern crate alloc;
+extern crate std;
+
+use alloc::vec::Vec;
+use core::{
     fmt::{self, Debug, Display},
     num::{NonZeroU16, NonZeroU32, NonZeroU64},
     ops::{Bound, Range, RangeBounds},
@@ -27,7 +34,12 @@ use fastcrypto::{
     bls12381::min_pk::{BLS12381PublicKey, BLS12381Signature},
     hash::{Blake2b256, HashFunction},
 };
-use merkle::{MerkleAuth, Node};
+use inconsistency::{
+    InconsistencyVerificationError,
+    PrimaryInconsistencyProof,
+    SecondaryInconsistencyProof,
+};
+use merkle::{MerkleAuth, MerkleProof, Node};
 use metadata::BlobMetadata;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -35,15 +47,11 @@ use thiserror::Error;
 pub mod bft;
 pub mod encoding;
 pub mod inconsistency;
+pub mod keys;
 pub mod merkle;
+pub mod messages;
 pub mod metadata;
 pub mod utils;
-
-pub mod keys;
-pub use keys::ProtocolKeyPair;
-
-pub mod messages;
-pub use messages::SignedStorageConfirmation;
 
 /// A public key.
 pub type PublicKey = BLS12381PublicKey;
@@ -264,7 +272,7 @@ index_type!(
 /// A range of shards.
 ///
 /// Created with the [`ShardIndex::range()`] method.
-pub type ShardRange = std::iter::Map<Range<u16>, fn(u16) -> ShardIndex>;
+pub type ShardRange = core::iter::Map<Range<u16>, fn(u16) -> ShardIndex>;
 
 impl ShardIndex {
     /// A range of shard indices.
@@ -464,6 +472,7 @@ impl Display for SliverType {
 ///
 /// Can be either a [`PrimaryRecoverySymbol`] or [`SecondaryRecoverySymbol`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(bound(deserialize = "for<'a> U: Deserialize<'a>"))]
 pub enum RecoverySymbol<U: MerkleAuth> {
     /// A primary decoding symbol to recover a primary sliver
     Primary(PrimaryRecoverySymbol<U>),
@@ -520,6 +529,38 @@ impl TryFrom<u8> for EncodingType {
         match value {
             0 => Ok(EncodingType::RedStuff),
             _ => Err(InvalidEncodingType),
+        }
+    }
+}
+
+// Inconsistency Proofs
+
+/// An inconsistency proof for a blob.
+///
+/// Can be either a [`PrimaryInconsistencyProof`] or a [`SecondaryInconsistencyProof`],
+/// proving that either a [`PrimarySliver`] or a [`SecondarySliver`] cannot be recovered
+/// from their respective recovery symbols.
+#[derive(Debug)]
+pub enum InconsistencyProof<T: MerkleAuth = MerkleProof> {
+    /// Inconsistency proof for an encoding on the primary axis.
+    Primary(PrimaryInconsistencyProof<T>),
+    /// Inconsistency proof for an encoding on the secondary axis.
+    Secondary(SecondaryInconsistencyProof<T>),
+}
+
+impl<T: MerkleAuth> InconsistencyProof<T> {
+    /// Verifies the inconsistency proof.
+    ///
+    /// Returns `Ok(())` if the proof is correct, otherwise returns an
+    /// [`InconsistencyVerificationError`].
+    pub fn verify(
+        self,
+        metadata: &BlobMetadata,
+        encoding_config: &EncodingConfig,
+    ) -> Result<(), InconsistencyVerificationError> {
+        match self {
+            InconsistencyProof::Primary(proof) => proof.verify(metadata, encoding_config),
+            InconsistencyProof::Secondary(proof) => proof.verify(metadata, encoding_config),
         }
     }
 }

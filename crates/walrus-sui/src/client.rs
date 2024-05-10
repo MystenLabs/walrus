@@ -22,6 +22,7 @@ use sui_types::{
     transaction::{Argument, ProgrammableTransaction},
     Identifier,
 };
+use tracing::instrument;
 use walrus_core::{
     ensure,
     merkle::DIGEST_LEN,
@@ -54,7 +55,7 @@ pub enum SuiClientError {
     #[error("no compatible payment coin found")]
     /// No matching payment coin found for the transaction
     NoCompatiblePaymentCoin,
-    #[error("no compatible gas coin found: {0:?}")]
+    #[error("no compatible gas coin found: {0}")]
     /// No matching gas coin found for the transaction
     NoCompatibleGasCoin(anyhow::Error),
 }
@@ -135,6 +136,7 @@ impl SuiContractClient {
 
     /// Executes the move call to `function` with `call_args` and transfers all outputs
     /// (if any) to the sender.
+    #[instrument(err, skip(self))]
     async fn move_call_and_transfer<'a>(
         &self,
         function: FunctionTag<'a>,

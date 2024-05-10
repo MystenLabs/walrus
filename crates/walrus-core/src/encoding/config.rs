@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
+use core::num::{NonZeroU16, NonZeroU32, NonZeroU64};
 
 use raptorq::SourceBlockEncodingPlan;
 

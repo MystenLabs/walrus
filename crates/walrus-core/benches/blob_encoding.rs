@@ -3,7 +3,7 @@
 
 //! Benchmarks for the blob encoding and decoding with and without authentication.
 
-use std::{
+use core::{
     num::{NonZeroU16, NonZeroU64},
     time::Duration,
 };

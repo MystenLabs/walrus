@@ -7,7 +7,7 @@ edition.workspace = true
 license.workspace = true
 
 [features]
-test-utils = []
+test-utils = ["walrus-test-utils"]
 
 [dependencies]
 base64 = "0.22.0"
@@ -19,6 +19,7 @@ serde.workspace = true
 serde_with = { workspace = true, features = ["base64"] }
 thiserror.workspace = true
 tracing.workspace = true
+walrus-test-utils = { workspace = true, optional = true }
 
 [lints]
 workspace = true
@@ -27,7 +28,6 @@ workspace = true
 anyhow.workspace = true
 criterion = "0.5.1"
 serde_test = "1.0.176"
-walrus-test-utils.workspace = true
 
 [lib]
 bench = false

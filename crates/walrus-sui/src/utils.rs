@@ -37,7 +37,6 @@ use sui_types::{
     transaction::CallArg,
     TypeTag,
 };
-use tracing::instrument;
 use walrus_core::BlobId;
 
 use crate::{client::SuiClientResult, contracts::AssociatedContractStruct};
@@ -317,8 +316,8 @@ pub fn create_wallet(
     load_wallet(Some(config_path.to_owned()))
 }
 
-/// Requests sui for `address` on `network` from a faucet.
-#[instrument(skip(network, sui_client))]
+/// Requests SUI coins for `address` on `network` from a faucet.
+#[tracing::instrument(skip(network, sui_client))]
 pub async fn request_sui_from_faucet(
     address: SuiAddress,
     network: SuiNetwork,

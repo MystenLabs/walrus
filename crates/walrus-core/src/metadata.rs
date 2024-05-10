@@ -3,7 +3,9 @@
 
 //! Metadata associated with a Blob and stored by storage nodes.
 
-use std::num::{NonZeroU16, NonZeroU64};
+use alloc::vec::Vec;
+use core::num::{NonZeroU16, NonZeroU64};
+use std;
 
 use fastcrypto::hash::{Blake2b256, HashFunction};
 use serde::{Deserialize, Serialize};

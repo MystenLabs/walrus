@@ -22,7 +22,7 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
-use walrus_core::ProtocolKeyPair;
+use walrus_core::keys::ProtocolKeyPair;
 use walrus_service::{
     config::{LoadConfig, StorageNodeConfig, SuiConfig},
     server::UserServer,
@@ -375,11 +375,11 @@ impl StorageNodeRuntime {
 
             if exit_notifier.send(()).is_err() && !cancel_token.is_cancelled() {
                 tracing::warn!(
-                    "unable to notify that the node has exited, but shutdown s not in progress?"
+                    "unable to notify that the node has exited, but shutdown is not in progress?"
                 )
             }
-            if let Err(ref err) = result {
-                tracing::error!("storage node exited with an error: {err:?}");
+            if let Err(ref error) = result {
+                tracing::error!(?error, "storage node exited with an error");
             }
 
             result
@@ -390,8 +390,8 @@ impl StorageNodeRuntime {
         rest_api_address.set_ip(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
         let rest_api_handle = tokio::spawn(async move {
             let result = rest_api.run(&rest_api_address).await;
-            if let Err(ref err) = result {
-                tracing::error!("rest API exited with an error: {err:?}");
+            if let Err(ref error) = result {
+                tracing::error!(?error, "rest API exited with an error");
             }
             result
         });

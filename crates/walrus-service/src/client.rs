@@ -5,19 +5,18 @@
 
 use std::{collections::HashMap, time::Instant};
 
-use anyhow::{anyhow, Result};
 use fastcrypto::{bls12381::min_pk::BLS12381AggregateSignature, traits::AggregateAuthenticator};
 use futures::Future;
 use reqwest::{Client as ReqwestClient, ClientBuilder};
 use tokio::time::{sleep, Duration};
-use tracing::Instrument;
+use tracing::{Instrument, Level};
 use walrus_core::{
+    bft,
     encoding::{BlobDecoder, EncodingAxis, EncodingConfig, Sliver, SliverPair},
     ensure,
-    messages::{Confirmation, ConfirmationCertificate},
+    messages::{Confirmation, ConfirmationCertificate, SignedStorageConfirmation},
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
-    SignedStorageConfirmation,
     Sliver as SliverEnum,
 };
 use walrus_sdk::error::NodeError;
@@ -37,9 +36,10 @@ use error::StoreError;
 use utils::WeightedFutures;
 
 use self::config::default;
+pub use self::error::{ClientError, ClientErrorKind};
 
 /// A client to communicate with Walrus shards and storage nodes.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Client<T> {
     reqwest_client: ReqwestClient,
     sui_client: T,
@@ -59,14 +59,18 @@ impl Client<()> {
     pub async fn new_read_client(
         config: Config,
         sui_read_client: &impl ReadClient,
-    ) -> Result<Self> {
+    ) -> Result<Self, ClientError> {
         tracing::debug!(?config, "running client");
         let reqwest_client = config
             .communication_config
             .reqwest_config
             .apply(ClientBuilder::new())
-            .build()?;
-        let committee = sui_read_client.current_committee().await?;
+            .build()
+            .map_err(ClientError::other)?;
+        let committee = sui_read_client
+            .current_committee()
+            .await
+            .map_err(ClientError::other)?;
         let encoding_config = EncodingConfig::new(committee.n_shards());
         // Try to store on n-f nodes concurrently, as the work to store is never wasted.
         let concurrent_writes = config
@@ -114,7 +118,7 @@ impl Client<()> {
 
 impl<T: ContractClient> Client<T> {
     /// Creates a new client starting from a config file.
-    pub async fn new(config: Config, sui_client: T) -> Result<Self> {
+    pub async fn new(config: Config, sui_client: T) -> Result<Self, ClientError> {
         Ok(Client::new_read_client(config, sui_client.read_client())
             .await?
             .with_client(sui_client)
@@ -124,19 +128,23 @@ impl<T: ContractClient> Client<T> {
     /// Encodes the blob, reserves & registers the space on chain, and stores the slivers to the
     /// storage nodes. Finally, the function aggregates the storage confirmations and posts the
     /// [`ConfirmationCertificate`] on chain.
-    #[tracing::instrument(skip_all, fields(blob_id_prefix))]
-    pub async fn reserve_and_store_blob(&self, blob: &[u8], epochs_ahead: u64) -> Result<Blob> {
+    #[tracing::instrument(skip_all, fields(blob_id))]
+    pub async fn reserve_and_store_blob(
+        &self,
+        blob: &[u8],
+        epochs_ahead: u64,
+    ) -> Result<Blob, ClientError> {
         let (pairs, metadata) = self
             .encoding_config
-            .get_blob_encoder(blob)?
+            .get_blob_encoder(blob)
+            .map_err(ClientError::other)?
             .encode_with_metadata();
-        tracing::Span::current().record("blob_id_prefix", string_prefix(metadata.blob_id()));
+        tracing::Span::current().record("blob_id", metadata.blob_id().to_string());
         let encoded_length = self
             .encoding_config
             .encoded_blob_length_from_usize(blob.len())
             .expect("valid for metadata created from the same config");
-        tracing::debug!(blob_id = %metadata.blob_id(), ?encoded_length,
-                        "computed blob pairs and metadata");
+        tracing::debug!(encoded_length, "computed blob pairs and metadata");
 
         // Get the root hash of the blob.
         let root_hash = metadata.metadata().compute_root_hash();
@@ -144,7 +152,8 @@ impl<T: ContractClient> Client<T> {
         let storage_resource = self
             .sui_client
             .reserve_space(encoded_length, epochs_ahead)
-            .await?;
+            .await
+            .map_err(ClientError::other)?;
         let blob_sui_object = self
             .sui_client
             .register_blob(
@@ -156,7 +165,8 @@ impl<T: ContractClient> Client<T> {
                     .expect("conversion implicitly checked above"),
                 metadata.metadata().encoding_type,
             )
-            .await?;
+            .await
+            .map_err(ClientError::other)?;
 
         // We need to wait to be sure that the storage nodes received the registration event.
         sleep(Duration::from_secs(1)).await;
@@ -165,7 +175,7 @@ impl<T: ContractClient> Client<T> {
         self.sui_client
             .certify_blob(&blob_sui_object, &certificate)
             .await
-            .map_err(|e| anyhow!("blob certification failed: {e}"))
+            .map_err(ClientError::other)
     }
 }
 
@@ -179,7 +189,7 @@ impl<T> Client<T> {
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         pairs: Vec<SliverPair>,
-    ) -> Result<ConfirmationCertificate> {
+    ) -> Result<ConfirmationCertificate, ClientError> {
         let pairs_per_node = self.pairs_per_node(metadata.blob_id(), pairs);
         let comms = self.node_communications();
         let mut requests = WeightedFutures::new(
@@ -194,7 +204,7 @@ impl<T> Client<T> {
             .execute_weight(&quorum_check, self.concurrent_writes)
             .await;
         tracing::debug!(
-            elapsed_time=?start.elapsed(), "stored metadata and slivers onto a quorum of nodes"
+            elapsed_time = ?start.elapsed(), "stored metadata and slivers onto a quorum of nodes"
         );
         // Double the execution time, with a minimum of 100 ms. This gives the client time to
         // collect more storage confirmations.
@@ -205,7 +215,7 @@ impl<T> Client<T> {
             )
             .await;
         tracing::debug!(
-            elapsed_time=?start.elapsed(),
+            elapsed_time = ?start.elapsed(),
             %completed_reason,
             "stored metadata and slivers onto additional nodes"
         );
@@ -217,13 +227,13 @@ impl<T> Client<T> {
     ///
     /// This function _does not_ check that the received confirmations match the current epoch and
     /// blob ID, as it assumes that the storage confirmations were received through
-    /// `NodeCommunication::store_metadata_and_pairs`, which internally verifies it to check the
+    /// [`NodeCommunication::store_metadata_and_pairs`], which internally verifies it to check the
     /// blob ID and epoch.
     fn confirmations_to_certificate(
         &self,
         blob_id: &BlobId,
         confirmations: Vec<NodeResult<SignedStorageConfirmation, StoreError>>,
-    ) -> Result<ConfirmationCertificate> {
+    ) -> Result<ConfirmationCertificate, ClientError> {
         let mut aggregate_weight = 0;
         let mut signers = Vec::with_capacity(confirmations.len());
         let mut valid_signatures = Vec::with_capacity(confirmations.len());
@@ -237,15 +247,20 @@ impl<T> Client<T> {
                             .expect("the node index is computed from the vector of members"),
                     );
                 }
-                Err(err) => tracing::error!(?node, ?err, "storing metadata and pairs failed"),
+                Err(error) => tracing::warn!(node, %error, "storing metadata and pairs failed"),
             }
         }
 
         ensure!(
             self.committee.is_quorum(aggregate_weight),
-            "not enough confirmations for the blob id were retrieved"
+            ClientErrorKind::NotEnoughConfirmations(
+                aggregate_weight,
+                bft::min_n_correct(self.committee.n_shards()).get().into()
+            )
+            .into()
         );
-        let aggregate = BLS12381AggregateSignature::aggregate(&valid_signatures)?;
+        let aggregate =
+            BLS12381AggregateSignature::aggregate(&valid_signatures).map_err(ClientError::other)?;
         let cert = ConfirmationCertificate {
             signers,
             confirmation: bcs::to_bytes(&Confirmation::new(self.committee.epoch, *blob_id))
@@ -256,13 +271,13 @@ impl<T> Client<T> {
     }
 
     /// Reconstructs the blob by reading slivers from Walrus shards.
-    #[tracing::instrument(skip_all, fields(blob_id_prefix=string_prefix(blob_id)))]
-    pub async fn read_blob<U>(&self, blob_id: &BlobId) -> Result<Vec<u8>>
+    #[tracing::instrument(level = Level::ERROR, skip(self))]
+    pub async fn read_blob<U>(&self, blob_id: &BlobId) -> Result<Vec<u8>, ClientError>
     where
         U: EncodingAxis,
         Sliver<U>: TryFrom<SliverEnum>,
     {
-        tracing::debug!(%blob_id, "starting to read blob");
+        tracing::debug!("starting to read blob");
         let metadata = self.retrieve_metadata(blob_id).await?;
         self.request_slivers_and_decode::<U>(&metadata).await
     }
@@ -270,7 +285,7 @@ impl<T> Client<T> {
     async fn request_slivers_and_decode<U>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
-    ) -> Result<Vec<u8>>
+    ) -> Result<Vec<u8>, ClientError>
     where
         U: EncodingAxis,
         Sliver<U>: TryFrom<SliverEnum>,
@@ -280,14 +295,17 @@ impl<T> Client<T> {
         let comms = self.node_communications();
         // Create requests to get all slivers from all nodes.
         let futures = comms.iter().flat_map(|n| {
-            n.node.shard_ids.iter().map(|s| {
-                n.retrieve_verified_sliver::<U>(metadata, *s)
+            // NOTE: the cloned here is needed because otherwise the compiler complains about the
+            // lifetimes of `s`.
+            n.node.shard_ids.iter().cloned().map(|s| {
+                n.retrieve_verified_sliver::<U>(metadata, s)
                     .instrument(n.span.clone())
             })
         });
         let mut decoder = self
             .encoding_config
-            .get_blob_decoder::<U>(metadata.metadata().unencoded_length)?;
+            .get_blob_decoder::<U>(metadata.metadata().unencoded_length)
+            .map_err(ClientError::other)?;
         // Get the first ~1/3 or ~2/3 of slivers directly, and decode with these.
         let mut requests = WeightedFutures::new(futures);
         let enough_source_symbols =
@@ -301,14 +319,17 @@ impl<T> Client<T> {
             .into_iter()
             .filter_map(|NodeResult(_, _, node, result)| {
                 result
-                    .map_err(|err| {
-                        tracing::error!(?node, ?err, "retrieving sliver failed");
+                    .map_err(|error| {
+                        tracing::warn!(%node, %error, "retrieving sliver failed");
                     })
                     .ok()
             })
             .collect::<Vec<_>>();
 
-        if let Some((blob, _meta)) = decoder.decode_and_verify(metadata.blob_id(), slivers)? {
+        if let Some((blob, _meta)) = decoder
+            .decode_and_verify(metadata.blob_id(), slivers)
+            .map_err(ClientError::other)?
+        {
             // We have enough to decode the blob.
             Ok(blob)
         } else {
@@ -321,13 +342,13 @@ impl<T> Client<T> {
 
     /// Decodes the blob of given blob ID by requesting slivers and trying to decode at each new
     /// sliver it receives.
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(level = Level::ERROR, skip_all)]
     async fn decode_sliver_by_sliver<'a, I, Fut, U>(
         &self,
         requests: &mut WeightedFutures<I, Fut, NodeResult<Sliver<U>, NodeError>>,
         decoder: &mut BlobDecoder<'a, U>,
         blob_id: &BlobId,
-    ) -> Result<Vec<u8>>
+    ) -> Result<Vec<u8>, ClientError>
     where
         U: EncodingAxis,
         I: Iterator<Item = Fut>,
@@ -338,25 +359,28 @@ impl<T> Client<T> {
         {
             match result {
                 Ok(sliver) => {
-                    let result = decoder.decode_and_verify(blob_id, [sliver])?;
+                    let result = decoder
+                        .decode_and_verify(blob_id, [sliver])
+                        .map_err(ClientError::other)?;
                     if let Some((blob, _meta)) = result {
                         return Ok(blob);
                     }
                 }
-                Err(err) => {
-                    tracing::error!(?node, ?err, "retrieving sliver failed");
+                Err(error) => {
+                    tracing::warn!(%node, %error, "retrieving sliver failed");
                 }
             }
         }
         // We have exhausted all the slivers but were not able to reconstruct the blob.
-        Err(anyhow!(
-            "not enough slivers were received to reconstruct the blob"
-        ))
+        Err(ClientErrorKind::NotEnoughSlivers.into())
     }
 
     /// Requests the metadata from all storage nodes, and keeps the first that is correctly verified
     /// against the blob ID.
-    pub async fn retrieve_metadata(&self, blob_id: &BlobId) -> Result<VerifiedBlobMetadataWithId> {
+    pub async fn retrieve_metadata(
+        &self,
+        blob_id: &BlobId,
+    ) -> Result<VerifiedBlobMetadataWithId, ClientError> {
         let comms = self.node_communications();
         let futures = comms.iter().map(|n| {
             n.retrieve_verified_metadata(blob_id)
@@ -368,9 +392,10 @@ impl<T> Client<T> {
         requests
             .execute_weight(&just_one, self.concurrent_metadata_reads)
             .await;
-        let metadata = requests.take_inner_ok().pop().ok_or(anyhow!(
-            "could not retrieve the metadata from the storage nodes"
-        ))?;
+        let metadata = requests
+            .take_inner_ok()
+            .pop()
+            .ok_or(ClientErrorKind::NoMetadataReceived)?;
         Ok(metadata)
     }
 
@@ -421,10 +446,4 @@ impl<T> Client<T> {
         });
         pairs_per_node
     }
-}
-
-pub(crate) fn string_prefix<T: ToString>(s: &T) -> String {
-    let mut string = s.to_string();
-    string.truncate(8);
-    format!("{}...", string)
 }

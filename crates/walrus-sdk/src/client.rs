@@ -4,14 +4,17 @@
 //! Client for interacting with the StorageNode API.
 
 use reqwest::{Client as ReqwestClient, Url};
+use serde::Serialize;
 use walrus_core::{
     encoding::{EncodingAxis, EncodingConfig, Sliver, SliverPair},
-    messages::StorageConfirmation,
+    inconsistency::InconsistencyProof,
+    merkle::MerkleAuth,
+    messages::{InvalidBlobIdAttestation, SignedStorageConfirmation, StorageConfirmation},
     metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
     BlobId,
     Epoch,
+    InconsistencyProof as InconsistencyProofEnum,
     PublicKey,
-    SignedStorageConfirmation,
     Sliver as SliverEnum,
     SliverPairIndex,
     SliverType,
@@ -45,6 +48,12 @@ impl UrlEndpoints {
     ) -> Url {
         let sliver_type = SliverType::for_encoding::<A>();
         let path = format!("slivers/{sliver_pair_index}/{sliver_type}");
+        self.blob_resource(blob_id).join(&path).unwrap()
+    }
+
+    fn inconsistency_proof<A: EncodingAxis>(&self, blob_id: &BlobId) -> Url {
+        let sliver_type = SliverType::for_encoding::<A>();
+        let path = format!("inconsistent/{sliver_type}");
         self.blob_resource(blob_id).join(&path).unwrap()
     }
 }
@@ -237,6 +246,45 @@ impl Client {
         );
         primary.and(secondary)
     }
+
+    /// Sends an inconsistency proof for the specified [`EncodingAxis`] to a node.
+    pub async fn send_inconsistency_proof_by_axis<A: EncodingAxis, M: MerkleAuth + Serialize>(
+        &self,
+        blob_id: &BlobId,
+        inconsistency_proof: &InconsistencyProof<A, M>,
+    ) -> Result<InvalidBlobIdAttestation, NodeError> {
+        let url = self.endpoints.inconsistency_proof::<A>(blob_id);
+        let encoded_proof =
+            bcs::to_bytes(&inconsistency_proof).expect("internal types to be bcs encodable");
+
+        let request = self.inner.put(url).body(encoded_proof);
+        let attestation = request
+            .send()
+            .await
+            .map_err(Kind::Reqwest)?
+            .response_error_for_status()
+            .await?
+            .service_response()
+            .await?;
+
+        Ok(attestation)
+    }
+
+    /// Sends an inconsistency proof to a node.
+    pub async fn send_inconsistency_proof<M: MerkleAuth + Serialize>(
+        &self,
+        blob_id: &BlobId,
+        inconsistency_proof: &InconsistencyProofEnum<M>,
+    ) -> Result<InvalidBlobIdAttestation, NodeError> {
+        match inconsistency_proof {
+            InconsistencyProofEnum::Primary(proof) => {
+                self.send_inconsistency_proof_by_axis(blob_id, proof).await
+            }
+            InconsistencyProofEnum::Secondary(proof) => {
+                self.send_inconsistency_proof_by_axis(blob_id, proof).await
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -282,6 +330,16 @@ mod tests {
                 .sliver::<Primary>(&BLOB_ID, SliverPairIndex(1))
                 .to_string(),
             format!("http://sn1.com/v1/blobs/{BLOB_ID}/slivers/1/primary")
+        );
+    }
+
+    #[test]
+    fn inconsistency_proof_url() {
+        assert_eq!(
+            endpoints()
+                .inconsistency_proof::<Primary>(&BLOB_ID)
+                .to_string(),
+            format!("http://sn1.com/v1/blobs/{BLOB_ID}/inconsistent/primary")
         );
     }
 }

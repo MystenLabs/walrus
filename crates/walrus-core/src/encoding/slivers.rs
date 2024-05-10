@@ -1,7 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{fmt::Display, marker::PhantomData, num::NonZeroU16};
+use alloc::vec::Vec;
+use core::{fmt::Display, marker::PhantomData, num::NonZeroU16};
 
 use fastcrypto::hash::{Blake2b256, HashFunction};
 use serde::{Deserialize, Serialize};
@@ -381,7 +382,7 @@ impl<T: EncodingAxis> Sliver<T> {
 }
 
 impl<T: EncodingAxis> Display for Sliver<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
             "Sliver{{ type: {}, index: {}, {} }}",
