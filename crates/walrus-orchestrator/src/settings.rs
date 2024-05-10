@@ -144,7 +144,7 @@ mod defaults {
     use crate::faults::FaultsType;
 
     pub fn default_benchmark_duration() -> Duration {
-        Duration::from_secs(300)
+        Duration::from_secs(0)
     }
 
     pub fn default_faults_type() -> FaultsType {

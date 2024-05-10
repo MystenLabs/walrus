@@ -463,7 +463,7 @@ impl<P: ProtocolCommands + ProtocolMetrics> Orchestrator<P> {
                     aggregator.save(path);
 
                     let benchmark_duration = parameters.settings.benchmark_duration.as_secs();
-                    if benchmark_duration != 0 && elapsed > benchmark_duration {
+                    if elapsed > benchmark_duration {
                         break;
                     }
                 },
@@ -598,6 +598,9 @@ impl<P: ProtocolCommands + ProtocolMetrics> Orchestrator<P> {
 
             // Deploy the validators.
             self.run_nodes(&parameters).await?;
+            if parameters.settings.benchmark_duration.as_secs() == 0 {
+                return Ok(());
+            }
 
             // Deploy the load generators.
             self.run_clients(&parameters).await?;
