@@ -170,12 +170,6 @@ where
     }
 }
 
-pub(crate) fn string_prefix<T: ToString>(s: &T) -> String {
-    let mut string = s.to_string();
-    string.truncate(8);
-    format!("{}...", string)
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;

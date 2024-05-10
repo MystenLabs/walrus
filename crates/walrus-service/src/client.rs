@@ -68,10 +68,19 @@ impl Client<()> {
             .apply(ClientBuilder::new())
             .build()
             .map_err(ClientError::other)?;
+
+        // Get the committee, and check that there is at least one shard per node.
         let committee = sui_read_client
             .current_committee()
             .await
             .map_err(ClientError::other)?;
+        for node in committee.members() {
+            ensure!(
+                !node.shard_ids.is_empty(),
+                ClientErrorKind::InvalidConfig.into(),
+            );
+        }
+
         let encoding_config = EncodingConfig::new(committee.n_shards());
         // Try to store on n-f nodes concurrently, as the work to store is never wasted.
         let concurrent_writes = config
@@ -192,7 +201,7 @@ impl<T> Client<T> {
         pairs: Vec<SliverPair>,
     ) -> Result<ConfirmationCertificate, ClientError> {
         let mut pairs_per_node = self.pairs_per_node(metadata.blob_id(), pairs);
-        let comms = self.node_communications();
+        let comms = self.node_communications()?;
         let mut requests = WeightedFutures::new(comms.iter().map(|n| {
             n.store_metadata_and_pairs(
                 metadata,
@@ -299,7 +308,7 @@ impl<T> Client<T> {
     {
         // TODO(giac): optimize by reading first from the shards that have the systematic part of
         // the encoding. Currently the read order is randomized.
-        let comms = self.node_communications();
+        let comms = self.node_communications()?;
         // Create requests to get all slivers from all nodes.
         let futures = comms.iter().flat_map(|n| {
             // NOTE: the cloned here is needed because otherwise the compiler complains about the
@@ -435,7 +444,7 @@ impl<T> Client<T> {
         &self,
         blob_id: &BlobId,
     ) -> Result<VerifiedBlobMetadataWithId, ClientError> {
-        let comms = self.node_communications_quorum();
+        let comms = self.node_communications_quorum()?;
         let futures = comms.iter().map(|n| {
             n.retrieve_verified_metadata(blob_id)
                 .instrument(n.span.clone())
@@ -469,7 +478,7 @@ impl<T> Client<T> {
         &'a self,
         index: usize,
         node: &'a StorageNode,
-    ) -> NodeCommunication {
+    ) -> Result<NodeCommunication, ClientError> {
         NodeCommunication::new(
             index,
             self.committee.epoch,
@@ -480,32 +489,32 @@ impl<T> Client<T> {
     }
 
     /// Returns a vector of [`NodeCommunication`] objects in random order.
-    fn node_communications(&self) -> Vec<NodeCommunication> {
+    fn node_communications(&self) -> Result<Vec<NodeCommunication>, ClientError> {
         let mut comms: Vec<_> = self
             .committee
             .members()
             .iter()
             .enumerate()
             .map(|(index, node)| self.new_node_communication(index, node))
-            .collect();
+            .collect::<Result<_, _>>()?;
         comms.shuffle(&mut thread_rng());
-        comms
+        Ok(comms)
     }
 
     /// Returns a vector of [`NodeCommunication`] objects, the weight of which is at least a quorum.
     ///
     /// The set of nodes included in the communication is randomized.
-    fn node_communications_quorum(&self) -> Vec<NodeCommunication> {
+    fn node_communications_quorum(&self) -> Result<Vec<NodeCommunication>, ClientError> {
         let mut weight = 0;
         let mut quorum_communications = vec![];
-        for comm in self.node_communications() {
+        for comm in self.node_communications()? {
             weight += comm.n_owned_shards().get();
             quorum_communications.push(comm);
             if self.committee.is_quorum(weight.into()) {
                 break;
             }
         }
-        quorum_communications
+        Ok(quorum_communications)
     }
 
     /// Maps the sliver pairs to the node that holds their shard.
