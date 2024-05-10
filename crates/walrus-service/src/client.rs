@@ -184,7 +184,7 @@ impl<T> Client<T> {
     /// sliver pairs to at least 2f+1 shards.
     ///
     /// Assumes the blob ID has already been registered, with an appropriate blob size.
-    #[tracing::instrument(skip_all, fields(blob_id = %metadata.blob_id()))]
+    #[tracing::instrument(skip_all)]
     pub async fn store_metadata_and_pairs(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
@@ -227,7 +227,7 @@ impl<T> Client<T> {
     ///
     /// This function _does not_ check that the received confirmations match the current epoch and
     /// blob ID, as it assumes that the storage confirmations were received through
-    /// `NodeCommunication::store_metadata_and_pairs`, which internally verifies it to check the
+    /// [`NodeCommunication::store_metadata_and_pairs`], which internally verifies it to check the
     /// blob ID and epoch.
     fn confirmations_to_certificate(
         &self,

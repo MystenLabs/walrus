@@ -313,7 +313,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
 
         match state.store_sliver(&blob_id, sliver_pair_index, &sliver) {
             Ok(()) => {
-                tracing::debug!(%blob_id, %sliver_type, "stored sliver");
+                tracing::debug!(%blob_id, %sliver_type, %sliver_pair_index, "stored sliver");
                 ServiceResponse::success(StatusCode::OK, ())
             }
             Err(StoreSliverError::Internal(message)) => {

@@ -293,7 +293,7 @@ fn merge_blob_info(
             Some(BlobInfo::new(end_epoch, status))
         } else {
             // TODO(jsmith): Deserialize the key.
-            tracing::error!(?key, "Attempted to mutate the info for an untracked blob");
+            tracing::error!(?key, "attempted to mutate the info for an untracked blob");
             None
         };
     }
