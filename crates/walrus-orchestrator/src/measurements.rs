@@ -378,7 +378,7 @@ mod test {
         let owned_workload_data_points = aggregator
             .data
             .get("owned")
-            .expect("Unable to find label")
+            .expect("The `owned` label is defined above")
             .get(&scraper_id)
             .unwrap();
         assert_eq!(owned_workload_data_points.len(), 1);

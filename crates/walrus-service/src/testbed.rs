@@ -179,7 +179,7 @@ pub fn benchmark_keypairs(n: usize) -> Vec<ProtocolKeyPair> {
         .collect()
 }
 
-/// Create and deploy a Walrus contact.
+/// Create and deploy a Walrus contract.
 pub async fn deploy_walrus_contract(
     working_dir: &Path,
     sui_network: SuiNetwork,

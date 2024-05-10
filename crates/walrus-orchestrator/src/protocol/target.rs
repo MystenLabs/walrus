@@ -49,7 +49,7 @@ pub struct ProtocolNodeParameters {
     sui_network: SuiNetwork,
     #[serde(default = "ShardsAllocation::default")]
     shards_allocation: ShardsAllocation,
-    #[serde(default = "default_node_parameters::default_contact_path")]
+    #[serde(default = "default_node_parameters::default_contract_path")]
     contract_path: PathBuf,
     #[serde(default = "default_node_parameters::default_event_polling_interval")]
     event_polling_interval: Duration,
@@ -60,7 +60,7 @@ impl Default for ProtocolNodeParameters {
         Self {
             sui_network: default_node_parameters::default_sui_network(),
             shards_allocation: ShardsAllocation::default(),
-            contract_path: default_node_parameters::default_contact_path(),
+            contract_path: default_node_parameters::default_contract_path(),
             event_polling_interval: default_node_parameters::default_event_polling_interval(),
         }
     }
@@ -86,10 +86,10 @@ mod default_node_parameters {
     use walrus_sui::utils::SuiNetwork;
 
     pub fn default_sui_network() -> SuiNetwork {
-        SuiNetwork::Devnet
+        SuiNetwork::Testnet
     }
 
-    pub fn default_contact_path() -> PathBuf {
+    pub fn default_contract_path() -> PathBuf {
         PathBuf::from("./contracts/blob_store")
     }
 
