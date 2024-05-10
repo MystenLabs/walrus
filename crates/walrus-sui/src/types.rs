@@ -281,9 +281,12 @@ impl Committee {
     ///
     /// `members` must contain at least one storage node holding at least one shard.
     pub fn new(members: Vec<StorageNode>, epoch: Epoch) -> Result<Self, InvalidCommittee> {
-        let n_shards = members
-            .iter()
-            .fold(0, |acc, node| node.shard_ids.len() + acc);
+        let mut n_shards = 0;
+        for node in members.iter() {
+            let node_shards = node.shard_ids.len();
+            ensure!(node_shards > 0, InvalidCommittee::EmptyNode,);
+            n_shards += node_shards
+        }
         let n_shards = u16::try_from(n_shards).map_err(|_| InvalidCommittee::TooManyShards)?;
         let n_shards = NonZeroU16::new(n_shards).ok_or(InvalidCommittee::EmptyCommittee)?;
         Ok(Self {
@@ -395,6 +398,9 @@ pub enum InvalidCommittee {
     #[error("trying to create an empty committee")]
     /// Error resulting if the committee contains no shards.
     EmptyCommittee,
+    /// Error resulting if one of the nodes has no shards.
+    #[error("trying to create a committee with an empty node")]
+    EmptyNode,
 }
 
 /// The status of the epoch
