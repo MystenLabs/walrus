@@ -4,6 +4,7 @@
 //! Facilities to deploy a demo testbed.
 
 use std::{
+    collections::HashSet,
     fs,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     num::NonZeroU16,
@@ -179,6 +180,7 @@ pub fn benchmark_keypairs(n: usize) -> Vec<ProtocolKeyPair> {
         .collect()
 }
 
+#[allow(clippy::too_many_arguments)] // Todo: Refactor configs #377
 /// Create and deploy a Walrus contract.
 pub async fn deploy_walrus_contract(
     working_dir: &Path,
@@ -187,14 +189,22 @@ pub async fn deploy_walrus_contract(
     gas_budget: u64,
     shards_information: Vec<Vec<ShardIndex>>,
     ips: Vec<Ipv4Addr>,
+    rest_api_port: u16,
     event_polling_interval: Duration,
 ) -> anyhow::Result<SuiConfig> {
     assert!(
         shards_information.len() == ips.len(),
         "Mismatch in the number of shards and IPs"
     );
-    let committee_size = ips.len();
-    let mut keypairs = benchmark_keypairs(committee_size);
+
+    // Check whether the testbed collocates the storage nodes on the same machine
+    // (that is, local testbed).
+    let ip_set = ips.iter().collect::<HashSet<_>>();
+    let collocated = ip_set.len() != ips.len();
+
+    // Build one Sui storage node config for each storage node.
+    let committee_size = ips.len() as u16;
+    let mut keypairs = benchmark_keypairs(committee_size as usize);
     let mut sui_storage_nodes = Vec::new();
 
     for (i, ((keypair, shard_ids), ip)) in keypairs
@@ -203,10 +213,14 @@ pub async fn deploy_walrus_contract(
         .zip(ips.into_iter())
         .enumerate()
     {
-        let name =
-            node_config_name_prefix(i as u16, NonZeroU16::new(committee_size as u16).unwrap());
+        let node_index = i as u16;
+        let name = node_config_name_prefix(node_index, NonZeroU16::new(committee_size).unwrap());
         let public_key = keypair.as_ref().public().clone();
-        let rest_api_address = get_rest_api_address(ip, i as u16, committee_size as u16);
+        let rest_api_address = if collocated {
+            get_rest_api_address(ip, rest_api_port, None, None)
+        } else {
+            get_rest_api_address(ip, rest_api_port, Some(node_index), Some(committee_size))
+        };
 
         sui_storage_nodes.push(SuiStorageNode {
             name,
@@ -309,16 +323,33 @@ pub fn create_storage_node_configs(
     working_dir: &Path,
     sui_config: SuiConfig,
     ips: Vec<Ipv4Addr>,
+    rest_api_port: u16,
+    metrics_port: u16,
 ) -> Vec<StorageNodeConfig> {
-    let committee_size = ips.len();
-    let keypairs = benchmark_keypairs(committee_size);
+    // Check whether the testbed collocates the storage nodes on the same machine
+    // (that is, local testbed).
+    let ip_set = ips.iter().collect::<HashSet<_>>();
+    let collocated = ip_set.len() != ips.len();
+
+    // Build one Sui storage node config for each storage node.
+    let committee_size = ips.len() as u16;
+    let keypairs = benchmark_keypairs(committee_size as usize);
     let mut storage_node_configs = Vec::new();
     for (i, (keypair, ip)) in keypairs.into_iter().zip(ips.into_iter()).enumerate() {
-        let name =
-            node_config_name_prefix(i as u16, NonZeroU16::new(committee_size as u16).unwrap());
+        let node_index = i as u16;
+        let name = node_config_name_prefix(node_index, NonZeroU16::new(committee_size).unwrap());
 
-        let metrics_address = get_metrics_address(ip, i as u16);
-        let rest_api_address = get_rest_api_address(ip, i as u16, committee_size as u16);
+        let (rest_api_address, metrics_address) = if collocated {
+            (
+                get_rest_api_address(ip, rest_api_port, None, None),
+                get_metrics_address(ip, metrics_port, None),
+            )
+        } else {
+            (
+                get_rest_api_address(ip, rest_api_port, Some(node_index), Some(committee_size)),
+                get_metrics_address(ip, metrics_port, Some(node_index)),
+            )
+        };
 
         storage_node_configs.push(StorageNodeConfig {
             storage_path: working_dir.join(&name),
@@ -331,20 +362,27 @@ pub fn create_storage_node_configs(
     storage_node_configs
 }
 
-/// Get the metrics address for a node.
-pub fn get_metrics_address(ip: Ipv4Addr, node_index: u16) -> SocketAddr {
-    let mut metrics_address = config::defaults::metrics_address();
-    metrics_address.set_ip(IpAddr::V4(ip));
-    metrics_address.set_port(metrics_address.port() + node_index);
-    metrics_address
+/// Get the metrics address for a node. If the node index is provided, the port is adjusted
+/// to ensure uniqueness across nodes.
+pub fn get_metrics_address(ip: Ipv4Addr, port: u16, node_index: Option<u16>) -> SocketAddr {
+    let port = port + node_index.unwrap_or(0);
+    SocketAddr::new(IpAddr::V4(ip), port)
 }
 
-/// Get the REST API address for a node.
-pub fn get_rest_api_address(ip: Ipv4Addr, node_index: u16, committee_size: u16) -> SocketAddr {
-    let mut rest_api_address = config::defaults::rest_api_address();
-    rest_api_address.set_ip(IpAddr::V4(ip));
-    rest_api_address.set_port(rest_api_address.port() + committee_size + node_index);
-    rest_api_address
+/// Get the REST API address for a node. If both the node index and the committee size is provided,
+/// the port is adjusted to ensure uniqueness across nodes.
+pub fn get_rest_api_address(
+    ip: Ipv4Addr,
+    port: u16,
+    node_index: Option<u16>,
+    committee_size: Option<u16>,
+) -> SocketAddr {
+    let port = if let (Some(node_index), Some(committee_size)) = (node_index, committee_size) {
+        port + committee_size + node_index
+    } else {
+        port
+    };
+    SocketAddr::new(IpAddr::V4(ip), port)
 }
 
 /// Generate deterministic and even shard allocation for the benchmark purposes.

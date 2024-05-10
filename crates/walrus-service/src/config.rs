@@ -84,6 +84,16 @@ pub mod defaults {
     const METRICS_PORT: u16 = 9184;
     const REST_API_PORT: u16 = 9185;
 
+    /// Returns the default metrics port.
+    pub fn metrics_port() -> u16 {
+        METRICS_PORT
+    }
+
+    /// Returns the default REST API port.
+    pub fn rest_api_port() -> u16 {
+        REST_API_PORT
+    }
+
     /// Returns the default metrics address.
     pub fn metrics_address() -> SocketAddr {
         (Ipv4Addr::UNSPECIFIED, METRICS_PORT).into()

@@ -322,7 +322,9 @@ impl<P: ProtocolCommands + ProtocolMetrics> Orchestrator<P> {
                 self.ssh_manager.clone(),
                 self.settings.dedicated_clients != 0,
             );
-            monitor.start_prometheus(&self.protocol_commands).await?;
+            monitor
+                .start_prometheus(&self.protocol_commands, parameters)
+                .await?;
             monitor.start_grafana().await?;
 
             display::done();
@@ -355,7 +357,7 @@ impl<P: ProtocolCommands + ProtocolMetrics> Orchestrator<P> {
         // Wait until all nodes are reachable.
         let commands = self
             .protocol_commands
-            .nodes_metrics_command(instances.clone());
+            .nodes_metrics_command(instances.clone(), parameters);
         self.ssh_manager.wait_for_success(commands).await;
 
         Ok(())
@@ -402,7 +404,9 @@ impl<P: ProtocolCommands + ProtocolMetrics> Orchestrator<P> {
             .await?;
 
         // Wait until all load generators are reachable.
-        let commands = self.protocol_commands.clients_metrics_command(clients);
+        let commands = self
+            .protocol_commands
+            .clients_metrics_command(clients, parameters);
         self.ssh_manager.wait_for_success(commands).await;
 
         display::done();
@@ -424,7 +428,9 @@ impl<P: ProtocolCommands + ProtocolMetrics> Orchestrator<P> {
         let mut killed_nodes: Vec<Instance> = Vec::new();
 
         // Regularly scrape the client metrics.
-        let metrics_commands = self.protocol_commands.clients_metrics_command(clients);
+        let metrics_commands = self
+            .protocol_commands
+            .clients_metrics_command(clients, parameters);
 
         let mut aggregator = MeasurementsCollection::new(parameters.clone());
         let mut metrics_interval = time::interval(self.settings.scrape_interval);

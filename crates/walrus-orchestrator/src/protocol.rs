@@ -85,32 +85,48 @@ pub trait ProtocolMetrics {
     const LATENCY_SQUARED_SUM: &'static str;
 
     /// The network path where the nodes expose prometheus metrics.
-    fn nodes_metrics_path<I>(&self, instances: I) -> Vec<(Instance, String)>
+    fn nodes_metrics_path<I>(
+        &self,
+        instances: I,
+        parameters: &BenchmarkParameters,
+    ) -> Vec<(Instance, String)>
     where
         I: IntoIterator<Item = Instance>;
 
     /// The network path where the clients expose prometheus metrics.
-    fn clients_metrics_path<I>(&self, instances: I) -> Vec<(Instance, String)>
+    fn clients_metrics_path<I>(
+        &self,
+        instances: I,
+        parameters: &BenchmarkParameters,
+    ) -> Vec<(Instance, String)>
     where
         I: IntoIterator<Item = Instance>;
 
     /// The command to retrieve the metrics from the nodes.
-    fn nodes_metrics_command<I>(&self, instances: I) -> Vec<(Instance, String)>
+    fn nodes_metrics_command<I>(
+        &self,
+        instances: I,
+        parameters: &BenchmarkParameters,
+    ) -> Vec<(Instance, String)>
     where
         I: IntoIterator<Item = Instance>,
     {
-        self.nodes_metrics_path(instances)
+        self.nodes_metrics_path(instances, parameters)
             .into_iter()
             .map(|(instance, path)| (instance, format!("curl {path}")))
             .collect()
     }
 
     /// The command to retrieve the metrics from the clients.
-    fn clients_metrics_command<I>(&self, instances: I) -> Vec<(Instance, String)>
+    fn clients_metrics_command<I>(
+        &self,
+        instances: I,
+        parameters: &BenchmarkParameters,
+    ) -> Vec<(Instance, String)>
     where
         I: IntoIterator<Item = Instance>,
     {
-        self.clients_metrics_path(instances)
+        self.clients_metrics_path(instances, parameters)
             .into_iter()
             .map(|(instance, path)| (instance, format!("curl {path}")))
             .collect()
@@ -120,7 +136,7 @@ pub trait ProtocolMetrics {
 #[cfg(test)]
 pub mod test_protocol_metrics {
     use super::ProtocolMetrics;
-    use crate::client::Instance;
+    use crate::{benchmark::BenchmarkParameters, client::Instance};
 
     pub struct TestProtocolMetrics;
 
@@ -131,7 +147,11 @@ pub mod test_protocol_metrics {
         const LATENCY_SUM: &'static str = "latency_s_sum";
         const LATENCY_SQUARED_SUM: &'static str = "latency_squared_s";
 
-        fn nodes_metrics_path<I>(&self, instances: I) -> Vec<(Instance, String)>
+        fn nodes_metrics_path<I>(
+            &self,
+            instances: I,
+            _parameters: &BenchmarkParameters,
+        ) -> Vec<(Instance, String)>
         where
             I: IntoIterator<Item = Instance>,
         {
@@ -142,7 +162,11 @@ pub mod test_protocol_metrics {
                 .collect()
         }
 
-        fn clients_metrics_path<I>(&self, instances: I) -> Vec<(Instance, String)>
+        fn clients_metrics_path<I>(
+            &self,
+            instances: I,
+            _parameters: &BenchmarkParameters,
+        ) -> Vec<(Instance, String)>
         where
             I: IntoIterator<Item = Instance>,
         {

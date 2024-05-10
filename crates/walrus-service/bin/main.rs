@@ -121,6 +121,12 @@ struct GenerateDryRunRemoteConfigsArgs {
     /// The list of ip addresses of the storage nodes.
     #[clap(long, value_name = "ADDR", value_delimiter = ' ', num_args(4..))]
     ips: Vec<Ipv4Addr>,
+    /// The port on which the REST API of the storage nodes will listen.
+    #[clap(long, default_value = "config::defaults::rest_api_port")]
+    rest_api_port: u16,
+    /// The port on which the metrics server of the storage nodes will listen.
+    #[clap(long, default_value = "config::defaults::rest_api_port")]
+    metrics_port: u16,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -210,6 +216,8 @@ mod commands {
             sui_network,
             sui_config_path,
             ips,
+            rest_api_port,
+            metrics_port,
         }: GenerateDryRunRemoteConfigsArgs,
     ) -> anyhow::Result<()> {
         tracing_subscriber::fmt::init();
@@ -232,8 +240,13 @@ mod commands {
             .context("Failed to write client configs")?;
 
         let committee_size = NonZeroU16::new(ips.len() as u16).expect("committee size must be > 0");
-        let storage_node_configs =
-            create_storage_node_configs(working_dir.as_path(), sui_config, ips);
+        let storage_node_configs = create_storage_node_configs(
+            working_dir.as_path(),
+            sui_config,
+            ips,
+            rest_api_port,
+            metrics_port,
+        );
         for (i, storage_node_config) in storage_node_configs.into_iter().enumerate() {
             let serialized_storage_node_config = serde_yaml::to_string(&storage_node_config)
                 .context("Failed to serialize storage node configs")?;

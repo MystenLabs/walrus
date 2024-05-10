@@ -10,15 +10,19 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use walrus_core::ShardIndex;
-use walrus_service::testbed::{
-    deploy_walrus_contract,
-    even_shards_allocation,
-    get_metrics_address,
-    node_config_name_prefix,
+use walrus_service::{
+    config,
+    testbed::{
+        deploy_walrus_contract,
+        even_shards_allocation,
+        get_metrics_address,
+        node_config_name_prefix,
+    },
 };
 use walrus_sui::utils::SuiNetwork;
 
 use super::{ProtocolCommands, ProtocolMetrics, ProtocolParameters, CARGO_FLAGS, RUST_FLAGS};
+use crate::{benchmark::BenchmarkParameters, client::Instance};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 enum ShardsAllocation {
@@ -51,6 +55,10 @@ pub struct ProtocolNodeParameters {
     shards_allocation: ShardsAllocation,
     #[serde(default = "default_node_parameters::default_contract_path")]
     contract_path: PathBuf,
+    #[serde(default = "config::defaults::rest_api_port")]
+    rest_api_port: u16,
+    #[serde(default = "config::defaults::metrics_port")]
+    metrics_port: u16,
     #[serde(default = "default_node_parameters::default_event_polling_interval")]
     event_polling_interval: Duration,
 }
@@ -61,6 +69,8 @@ impl Default for ProtocolNodeParameters {
             sui_network: default_node_parameters::default_sui_network(),
             shards_allocation: ShardsAllocation::default(),
             contract_path: default_node_parameters::default_contract_path(),
+            rest_api_port: config::defaults::rest_api_port(),
+            metrics_port: config::defaults::metrics_port(),
             event_polling_interval: default_node_parameters::default_event_polling_interval(),
         }
     }
@@ -138,13 +148,9 @@ impl ProtocolCommands for TargetProtocol {
         vec![]
     }
 
-    async fn genesis_command<'a, I>(
-        &self,
-        instances: I,
-        parameters: &crate::benchmark::BenchmarkParameters,
-    ) -> String
+    async fn genesis_command<'a, I>(&self, instances: I, parameters: &BenchmarkParameters) -> String
     where
-        I: Iterator<Item = &'a crate::client::Instance>,
+        I: Iterator<Item = &'a Instance>,
     {
         // Create an admin wallet locally to setup the Walrus smart contract.
         let ips = instances.map(|x| x.main_ip).collect::<Vec<_>>();
@@ -172,6 +178,7 @@ impl ProtocolCommands for TargetProtocol {
             parameters.client_parameters.gas_budget,
             shards,
             ips.clone(),
+            parameters.node_parameters.rest_api_port,
             parameters.node_parameters.event_polling_interval,
         )
         .await
@@ -221,10 +228,10 @@ impl ProtocolCommands for TargetProtocol {
     fn node_command<I>(
         &self,
         instances: I,
-        parameters: &crate::benchmark::BenchmarkParameters,
-    ) -> Vec<(crate::client::Instance, String)>
+        parameters: &BenchmarkParameters,
+    ) -> Vec<(Instance, String)>
     where
-        I: IntoIterator<Item = crate::client::Instance>,
+        I: IntoIterator<Item = Instance>,
     {
         instances
             .into_iter()
@@ -262,10 +269,10 @@ impl ProtocolCommands for TargetProtocol {
     fn client_command<I>(
         &self,
         _instances: I,
-        _parameters: &crate::benchmark::BenchmarkParameters,
-    ) -> Vec<(crate::client::Instance, String)>
+        _parameters: &BenchmarkParameters,
+    ) -> Vec<(Instance, String)>
     where
-        I: IntoIterator<Item = crate::client::Instance>,
+        I: IntoIterator<Item = Instance>,
     {
         // Todo: Implement once we have a load generator (#128)
         vec![]
@@ -279,24 +286,34 @@ impl ProtocolMetrics for TargetProtocol {
     const LATENCY_SUM: &'static str = "latency_sum";
     const LATENCY_SQUARED_SUM: &'static str = "latency_squared_sum";
 
-    fn nodes_metrics_path<I>(&self, instances: I) -> Vec<(crate::client::Instance, String)>
+    fn nodes_metrics_path<I>(
+        &self,
+        instances: I,
+        parameters: &BenchmarkParameters,
+    ) -> Vec<(Instance, String)>
     where
-        I: IntoIterator<Item = crate::client::Instance>,
+        I: IntoIterator<Item = Instance>,
     {
         instances
             .into_iter()
             .enumerate()
             .map(|(i, instance)| {
-                let metrics_address = get_metrics_address(instance.main_ip, i as u16);
+                let metrics_port = parameters.node_parameters.metrics_port;
+                let metrics_address =
+                    get_metrics_address(instance.main_ip, metrics_port, Some(i as u16));
                 let metrics_path = format!("{metrics_address}/metrics",);
                 (instance, metrics_path)
             })
             .collect()
     }
 
-    fn clients_metrics_path<I>(&self, _instances: I) -> Vec<(crate::client::Instance, String)>
+    fn clients_metrics_path<I>(
+        &self,
+        _instances: I,
+        _parameters: &BenchmarkParameters,
+    ) -> Vec<(Instance, String)>
     where
-        I: IntoIterator<Item = crate::client::Instance>,
+        I: IntoIterator<Item = Instance>,
     {
         // Todo: Implement once we have a load generator (#128)
         vec![]
