@@ -81,8 +81,12 @@ pub mod defaults {
 
     use super::*;
 
-    const METRICS_PORT: u16 = 9184;
-    const REST_API_PORT: u16 = 9185;
+    /// Default metrics port.
+    pub const METRICS_PORT: u16 = 9184;
+    /// Default REST API port.
+    pub const REST_API_PORT: u16 = 9185;
+    /// Default polling interval in milliseconds.
+    pub const POLLING_INTERVAL_MS: u64 = 400;
 
     /// Returns the default metrics port.
     pub fn metrics_port() -> u16 {
@@ -106,7 +110,7 @@ pub mod defaults {
 
     /// Returns the default polling interval.
     pub fn polling_interval() -> Duration {
-        Duration::from_millis(400)
+        Duration::from_millis(POLLING_INTERVAL_MS)
     }
 }
 

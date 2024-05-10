@@ -130,9 +130,9 @@ pub async fn deploy_walrus_contract(
         let name = node_config_name_prefix(node_index, NonZeroU16::new(committee_size).unwrap());
         let public_key = keypair.as_ref().public().clone();
         let rest_api_address = if collocated {
-            get_rest_api_address(ip, rest_api_port, None, None)
-        } else {
             get_rest_api_address(ip, rest_api_port, Some(node_index), Some(committee_size))
+        } else {
+            get_rest_api_address(ip, rest_api_port, None, None)
         };
 
         sui_storage_nodes.push(SuiStorageNode {
@@ -254,13 +254,13 @@ pub fn create_storage_node_configs(
 
         let (rest_api_address, metrics_address) = if collocated {
             (
-                get_rest_api_address(ip, rest_api_port, None, None),
-                get_metrics_address(ip, metrics_port, None),
+                get_rest_api_address(ip, rest_api_port, Some(node_index), Some(committee_size)),
+                get_metrics_address(ip, metrics_port, Some(node_index)),
             )
         } else {
             (
-                get_rest_api_address(ip, rest_api_port, Some(node_index), Some(committee_size)),
-                get_metrics_address(ip, metrics_port, Some(node_index)),
+                get_rest_api_address(ip, rest_api_port, None, None),
+                get_metrics_address(ip, metrics_port, None),
             )
         };
 

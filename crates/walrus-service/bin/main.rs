@@ -25,7 +25,12 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use walrus_core::keys::ProtocolKeyPair;
 use walrus_service::{
-    config::{LoadConfig, StorageNodeConfig, SuiConfig},
+    config::{
+        defaults::{METRICS_PORT, POLLING_INTERVAL_MS, REST_API_PORT},
+        LoadConfig,
+        StorageNodeConfig,
+        SuiConfig,
+    },
     server::UserServer,
     testbed::node_config_name_prefix,
     StorageNode,
@@ -108,15 +113,11 @@ struct DeploySystemContractArgs {
     #[clap(long, value_name = "ADDR", value_delimiter = ' ', num_args(4..))]
     ips: Vec<Ipv4Addr>,
     /// The port on which the REST API of the storage nodes will listen.
-    #[clap(long, default_value = "config::defaults::rest_api_port")]
+    #[clap(long, default_value_t = REST_API_PORT)]
     rest_api_port: u16,
-    /// The interval with which events are polled, in seconds.
-    #[clap(
-        long,
-        value_parser = parse_duration_from_sec,
-        default_value = "config::defaults::polling_interval"
-    )]
-    event_polling_interval: Duration,
+    /// The interval with which events are polled, in milliseconds.
+    #[clap(long,  default_value_t = POLLING_INTERVAL_MS)]
+    event_polling_interval: u64,
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -134,10 +135,10 @@ struct GenerateDryRunConfigsArgs {
     #[clap(long, value_name = "ADDR", value_delimiter = ' ', num_args(4..))]
     ips: Vec<Ipv4Addr>,
     /// The port on which the REST API of the storage nodes will listen.
-    #[clap(long, default_value = "config::defaults::rest_api_port")]
+    #[clap(long, default_value_t = REST_API_PORT)]
     rest_api_port: u16,
     /// The port on which the metrics server of the storage nodes will listen.
-    #[clap(long, default_value = "config::defaults::rest_api_port")]
+    #[clap(long, default_value_t = METRICS_PORT)]
     metrics_port: u16,
 }
 
@@ -201,7 +202,7 @@ mod commands {
             shards_information,
             ips,
             rest_api_port,
-            event_polling_interval,
+            Duration::from_millis(event_polling_interval),
         )
         .await
         .context("Failed to deploy system contract")?;
@@ -460,12 +461,6 @@ async fn wait_until_terminated(mut exit_listener: oneshot::Receiver<()>) {
             Ok(_) => tracing::info!("exit notification received"),
         }
     }
-}
-
-/// Parse a duration from a string representing seconds.
-fn parse_duration_from_sec(arg: &str) -> Result<Duration, std::num::ParseIntError> {
-    let seconds = arg.parse()?;
-    Ok(Duration::from_secs(seconds))
 }
 
 #[cfg(test)]

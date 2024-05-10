@@ -85,6 +85,13 @@ fi
 
 # Set working directory
 working_dir="./working_dir"
+sui_config_path="$working_dir/sui_config.yaml"
+
+# Derive the ip addresses for the storage nodes
+ips=" "
+for i in $(seq 1 $committee_size); do
+    ips+="127.0.0.1 "
+done
 
 # Initialize cleanup to be empty
 cleanup=
@@ -94,11 +101,16 @@ if ! $existing; then
     rm -f $working_dir/dryrun-node-*.yaml
     cleanup="--cleanup-storage"
 
+    # Deploy system contract
+    echo Deploying system contract...
+    cargo run --bin walrus-node -- deploy-system-contract \
+    --working-dir $working_dir --sui-network $network --n-shards $shards --ips $ips
+
     # Generate configs
     echo Generating configuration...
-    cargo run --bin walrus-node -- generate-dry-run-local-configs \
-    --working-dir $working_dir --committee-size $committee_size --n-shards $shards \
-    --sui-network $network
+    cargo run --bin walrus-node -- generate-dry-run-configs \
+    --working-dir $working_dir --sui-network $network --sui-config-path $sui_config_path \
+    --ips $ips
 fi
 
 i=0
