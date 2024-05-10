@@ -209,6 +209,11 @@ impl SuiContractClient {
             }
         }
     }
+
+    /// Returns the wallet context used by the client.
+    pub fn wallet(&self) -> &WalletContext {
+        &self.wallet
+    }
 }
 
 impl ContractClient for SuiContractClient {

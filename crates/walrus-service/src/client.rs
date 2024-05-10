@@ -149,34 +149,13 @@ impl<T: ContractClient> Client<T> {
             .get_blob_encoder(blob)
             .map_err(ClientError::other)?
             .encode_with_metadata();
-        tracing::Span::current().record("blob_id", metadata.blob_id().to_string());
-        let encoded_length = self
-            .encoding_config
-            .encoded_blob_length_from_usize(blob.len())
-            .expect("valid for metadata created from the same config");
-        tracing::debug!(encoded_length, "computed blob pairs and metadata");
+        tracing::debug!(blob_id = %metadata.blob_id(),
+                        "computed blob pairs and metadata");
 
         // Get the root hash of the blob.
-        let root_hash = metadata.metadata().compute_root_hash();
-
-        let storage_resource = self
-            .sui_client
-            .reserve_space(encoded_length, epochs_ahead)
-            .await
-            .map_err(ClientError::other)?;
         let blob_sui_object = self
-            .sui_client
-            .register_blob(
-                &storage_resource,
-                *metadata.blob_id(),
-                root_hash.bytes(),
-                blob.len()
-                    .try_into()
-                    .expect("conversion implicitly checked above"),
-                metadata.metadata().encoding_type,
-            )
-            .await
-            .map_err(ClientError::other)?;
+            .reserve_blob(&metadata, blob.len(), epochs_ahead)
+            .await?;
 
         // We need to wait to be sure that the storage nodes received the registration event.
         sleep(Duration::from_secs(1)).await;
@@ -184,6 +163,38 @@ impl<T: ContractClient> Client<T> {
         let certificate = self.store_metadata_and_pairs(&metadata, pairs).await?;
         self.sui_client
             .certify_blob(&blob_sui_object, &certificate)
+            .await
+            .map_err(ClientError::other)
+    }
+
+    /// Reserves the space for the blob on chain.
+    pub async fn reserve_blob(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+        unencoded_size: usize,
+        epochs_ahead: u64,
+    ) -> Result<Blob, ClientError> {
+        let encoded_size = self
+            .encoding_config
+            .encoded_blob_length_from_usize(unencoded_size)
+            .expect("valid for metadata created from the same config");
+
+        let root_hash = metadata.metadata().compute_root_hash();
+        let storage_resource = self
+            .sui_client
+            .reserve_space(encoded_size, epochs_ahead)
+            .await
+            .map_err(ClientError::other)?;
+        self.sui_client
+            .register_blob(
+                &storage_resource,
+                *metadata.blob_id(),
+                root_hash.bytes(),
+                unencoded_size
+                    .try_into()
+                    .expect("conversion implicitly checked above"),
+                metadata.metadata().encoding_type,
+            )
             .await
             .map_err(ClientError::other)
     }
@@ -549,5 +560,15 @@ impl<T> Client<T> {
                 .push(p)
         });
         pairs_per_node
+    }
+
+    /// Returns a reference to the encoding config in use.
+    pub fn encoding_config(&self) -> &EncodingConfig {
+        &self.encoding_config
+    }
+
+    /// Returns the inner sui client.
+    pub fn sui_client(&self) -> &T {
+        &self.sui_client
     }
 }
