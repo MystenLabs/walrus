@@ -128,7 +128,7 @@ async fn run_store_and_read_with_crash_failures(
     };
 
     // Endsure that the servers in the cluster have sufficient time to get ready.
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
 
     let sui_contract_client =
         SuiContractClient::new(wallet, system_pkg, system_object, gas_budget).await?;
