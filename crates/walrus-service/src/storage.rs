@@ -11,7 +11,7 @@ use std::{
 };
 
 use anyhow::Context;
-use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, MergeOperands, Options, DB};
+use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, DBCommon, MergeOperands, Options, DB};
 use serde::{Deserialize, Serialize};
 use sui_sdk::types::{digests::TransactionDigest, event::EventID};
 use tracing::Level;
@@ -19,7 +19,6 @@ use typed_store::{
     rocks::{
         self,
         errors::typed_store_err_from_bcs_err,
-        util::reference_count_merge_operator,
         DBMap,
         MetricConf,
         ReadWriteOptions,
@@ -42,9 +41,10 @@ use walrus_core::{
 use walrus_sui::types::{Blob, BlobEvent, BlobRegistered};
 
 use self::{
-    blob_info::{BlobCertificationStatus, BlobInfo},
+    blob_info::{BlobCertificationStatus, BlobInfo, BlobInfoMergeOperand},
     shard::ShardStorage,
 };
+use crate::storage::blob_info::Mergeable as _;
 
 pub(crate) mod blob_info;
 mod shard;
@@ -53,7 +53,7 @@ mod shard;
 ///
 /// Enables storing blob metadata, which is shared across all shards. The method
 /// [`shard_storage()`][Self::shard_storage] can be used to retrieve shard-specific storage.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Storage {
     database: Arc<RocksDB>,
     metadata: DBMap<BlobId, BlobMetadata>,
@@ -182,8 +182,8 @@ impl Storage {
 
     /// Update the blob info for a blob based on the `BlobEvent`
     #[tracing::instrument(level = Level::DEBUG, skip(self))]
-    pub fn update_blob_info(&self, event: BlobEvent) -> Result<(), TypedStoreError> {
-        self.merge_update_blob_info(&event.blob_id(), (&event).into())?;
+    pub fn update_blob_info(&self, event: &BlobEvent) -> Result<(), TypedStoreError> {
+        self.merge_update_blob_info(&event.blob_id(), event.into())?;
         self.update_event_cursor(&event.event_id())?;
         Ok(())
     }
@@ -192,11 +192,12 @@ impl Storage {
     fn merge_update_blob_info(
         &self,
         blob_id: &BlobId,
-        new_state: BlobInfo,
+        operation: BlobInfoMergeOperand,
     ) -> Result<(), TypedStoreError> {
-        tracing::debug!(%blob_id, ?new_state, "updating blob info");
+        tracing::debug!(?operation, %blob_id, "updating blob info");
+
         let mut batch = self.blob_info.batch();
-        batch.merge_batch(&self.blob_info, [(blob_id, new_state)])?;
+        batch.partial_merge_batch(&self.blob_info, [(blob_id, operation.to_bytes())])?;
         batch.write()
     }
 
@@ -280,41 +281,35 @@ fn merge_blob_info(
 ) -> Option<Vec<u8>> {
     let mut current_val: Option<BlobInfo> = existing_val.and_then(deserialize_from_db);
 
-    for op in operands {
-        let Some(new_val) = deserialize_from_db::<BlobInfo>(op) else {
+    for operand_bytes in operands {
+        let Some(operand) = deserialize_from_db::<BlobInfoMergeOperand>(operand_bytes) else {
             continue;
         };
-        tracing::debug!(?key, ?current_val, ?new_val, "updating blob info");
+        tracing::debug!("updating {current_val:?} with {operand:?}");
 
-        let val = current_val.unwrap_or(new_val);
-        let status = val.status.max(new_val.status);
-        let end_epoch = if status == BlobCertificationStatus::Invalid {
-            val.end_epoch.min(new_val.end_epoch)
+        current_val = if let Some(info) = current_val {
+            Some(info.merge(operand))
+        } else if let BlobInfoMergeOperand::ChangeStatus { end_epoch, status } = operand {
+            Some(BlobInfo::new(end_epoch, status))
         } else {
-            val.end_epoch.max(new_val.end_epoch)
+            // TODO(jsmith): Deserialize the key.
+            tracing::error!(?key, "Attempted to mutate the info for an untracked blob");
+            None
         };
-        current_val = Some(BlobInfo {
-            end_epoch: val.end_epoch.max(new_val.end_epoch),
-            status,
-        });
     }
-    current_val.map(|val| match bcs::to_bytes(&val) {
-        Err(e) => panic!("unexpected error when serializing previously deserialized value: {e:?}"),
-        Ok(bytes) => bytes,
-    })
+
+    current_val.map(BlobInfo::to_bytes)
 }
 
 fn deserialize_from_db<'de, T>(val: &'de [u8]) -> Option<T>
 where
     T: Deserialize<'de>,
 {
-    match bcs::from_bytes::<T>(val) {
-        Ok(val) => Some(val),
-        Err(error) => {
-            tracing::error!(?error, "BCS deserialization from DB failed");
-            None
-        }
-    }
+    bcs::from_bytes(val)
+        .inspect_err(|error| {
+            tracing::error!(?error, "failed to deserialize value stored in database")
+        })
+        .ok()
 }
 
 #[cfg(test)]
@@ -333,7 +328,10 @@ pub(crate) mod tests {
     use walrus_test_utils::{param_test, Result as TestResult, WithTempDir};
 
     use super::*;
-    use crate::test_utils::empty_storage_with_shards;
+    use crate::{
+        storage::blob_info::{RedStuffStorageStatus, StorageStatus},
+        test_utils::empty_storage_with_shards,
+    };
 
     type StorageSpec<'a> = &'a [(ShardIndex, Vec<(BlobId, WhichSlivers)>)];
 
@@ -416,18 +414,79 @@ pub(crate) mod tests {
         let storage = storage.as_ref();
         let blob_id = BLOB_ID;
 
-        let state0 = BlobInfo {
-            end_epoch: 42,
-            status: BlobCertificationStatus::Registered,
-        };
-        let state1 = BlobInfo {
-            end_epoch: 42,
-            status: BlobCertificationStatus::Certified,
-        };
-        storage.merge_update_blob_info(&blob_id, state0)?;
+        let state0 = BlobInfo::new(42, BlobCertificationStatus::Registered);
+        let state1 = BlobInfo::new(42, BlobCertificationStatus::Certified);
+
+        storage.merge_update_blob_info(
+            &blob_id,
+            BlobInfoMergeOperand::ChangeStatus {
+                end_epoch: 42,
+                status: BlobCertificationStatus::Registered,
+            },
+        )?;
         assert_eq!(storage.get_blob_info(&blob_id)?, Some(state0));
-        storage.merge_update_blob_info(&blob_id, state1)?;
+        storage.merge_update_blob_info(
+            &blob_id,
+            BlobInfoMergeOperand::ChangeStatus {
+                end_epoch: 42,
+                status: BlobCertificationStatus::Certified,
+            },
+        )?;
         assert_eq!(storage.get_blob_info(&blob_id)?, Some(state1));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn update_blob_info_stored() -> TestResult {
+        let storage = empty_storage();
+        let storage = storage.as_ref();
+        let blob_id = BLOB_ID;
+
+        let state0 = BlobInfo::new(42, BlobCertificationStatus::Registered);
+        let state1 = BlobInfo {
+            is_metadata_stored: true,
+            storage_status: StorageStatus::RedStuff(RedStuffStorageStatus::default()),
+            ..state0
+        };
+        let state2 = BlobInfo {
+            storage_status: StorageStatus::RedStuff(RedStuffStorageStatus {
+                primary: false,
+                secondary: true,
+            }),
+            ..state1
+        };
+        let state3 = BlobInfo {
+            storage_status: StorageStatus::RedStuff(RedStuffStorageStatus {
+                primary: true,
+                secondary: true,
+            }),
+            ..state2
+        };
+
+        storage.merge_update_blob_info(
+            &blob_id,
+            BlobInfoMergeOperand::ChangeStatus {
+                end_epoch: 42,
+                status: BlobCertificationStatus::Registered,
+            },
+        )?;
+        assert_eq!(storage.get_blob_info(&blob_id)?, Some(state0));
+        storage.merge_update_blob_info(&blob_id, BlobInfoMergeOperand::MarkMetadataStored)?;
+        assert_eq!(storage.get_blob_info(&blob_id)?, Some(state1));
+        storage.merge_update_blob_info(
+            &blob_id,
+            BlobInfoMergeOperand::MarkEncodedDataStored(
+                blob_info::StorageStatusMergeOperand::RedStuff(SliverType::Secondary),
+            ),
+        )?;
+        assert_eq!(storage.get_blob_info(&blob_id)?, Some(state2));
+        storage.merge_update_blob_info(
+            &blob_id,
+            BlobInfoMergeOperand::MarkEncodedDataStored(
+                blob_info::StorageStatusMergeOperand::RedStuff(SliverType::Primary),
+            ),
+        )?;
+        assert_eq!(storage.get_blob_info(&blob_id)?, Some(state3));
         Ok(())
     }
 

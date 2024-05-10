@@ -22,7 +22,7 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
-use walrus_core::ProtocolKeyPair;
+use walrus_core::keys::ProtocolKeyPair;
 use walrus_service::{
     config::{LoadConfig, StorageNodeConfig},
     server::UserServer,

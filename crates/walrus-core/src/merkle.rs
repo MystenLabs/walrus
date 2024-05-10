@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Merkle tree implementation for Walrus.
-use std::{fmt::Debug, marker::PhantomData};
+use alloc::{format, vec::Vec};
+use core::{fmt::Debug, marker::PhantomData};
+use std;
 
 use fastcrypto::hash::{Blake2b256, Digest, HashFunction};
 use serde::{Deserialize, Serialize};
@@ -107,9 +109,9 @@ impl<T> Clone for MerkleProof<T> {
 
 // Cannot be derived as many hash functions don't implement `Debug` and the derive is not smart
 // enough to see that it is not necessary.
-impl<T> std::fmt::Debug for MerkleProof<T> {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        fmt.debug_struct(&format!("MerkleProof<{}>", std::any::type_name::<T>()))
+impl<T> core::fmt::Debug for MerkleProof<T> {
+    fn fmt(&self, fmt: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        fmt.debug_struct(&format!("MerkleProof<{}>", core::any::type_name::<T>()))
             .field("path", &self.path)
             .finish()
     }
@@ -155,9 +157,9 @@ pub struct MerkleTree<T = Blake2b256> {
     n_leaves: usize,
 }
 
-impl<T> std::fmt::Debug for MerkleTree<T> {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        fmt.debug_struct(&format!("MerkleTree<{}>", std::any::type_name::<T>()))
+impl<T> core::fmt::Debug for MerkleTree<T> {
+    fn fmt(&self, fmt: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        fmt.debug_struct(&format!("MerkleTree<{}>", core::any::type_name::<T>()))
             .field("nodes", &self.nodes)
             .field("n_leaves", &self.n_leaves)
             .finish()

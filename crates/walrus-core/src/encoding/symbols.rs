@@ -3,7 +3,8 @@
 
 //! The representation on encoded symbols.
 
-use std::{
+use alloc::{vec, vec::Vec};
+use core::{
     fmt::Display,
     marker::PhantomData,
     num::NonZeroU16,
@@ -329,7 +330,7 @@ impl<T: EncodingAxis> DecodingSymbol<T> {
 }
 
 impl<T: EncodingAxis> Display for DecodingSymbol<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
             "DecodingSymbol{{ type: {}, index: {}, {} }}",
@@ -417,13 +418,13 @@ impl<T: EncodingAxis, U: MerkleAuth> RecoverySymbol<T, U> {
 }
 
 impl<T: EncodingAxis, U: MerkleAuth> Display for RecoverySymbol<T, U> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
             "RecoverySymbol{{ type: {}, index: {}, proof_type: {}, {} }}",
             T::NAME,
             self.symbol.index,
-            std::any::type_name::<U>(),
+            core::any::type_name::<U>(),
             utils::data_prefix_string(&self.symbol.data, 5),
         )
     }
@@ -472,6 +473,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use alloc::format;
+
     use walrus_test_utils::param_test;
 
     use super::*;

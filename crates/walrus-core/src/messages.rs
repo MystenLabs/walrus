@@ -3,7 +3,8 @@
 
 //! Signed off-chain messages.
 
-use std::marker::PhantomData;
+use alloc::vec::Vec;
+use core::marker::PhantomData;
 
 use fastcrypto::bls12381::min_pk::BLS12381Signature;
 use serde::{Deserialize, Serialize};

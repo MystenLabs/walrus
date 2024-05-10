@@ -10,12 +10,12 @@ use tracing::{Level, Span};
 use walrus_core::{
     encoding::{EncodingAxis, EncodingConfig, Sliver, SliverPair},
     ensure,
+    messages::SignedStorageConfirmation,
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
     Epoch,
     PublicKey,
     ShardIndex,
-    SignedStorageConfirmation,
     Sliver as SliverEnum,
     SliverPairIndex,
 };

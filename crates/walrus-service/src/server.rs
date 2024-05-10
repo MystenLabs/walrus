@@ -426,8 +426,7 @@ mod test {
         },
         merkle::{MerkleAuth, MerkleProof},
         messages::{InvalidBlobIdAttestation, StorageConfirmation},
-        metadata::UnverifiedBlobMetadataWithId,
-        test_utils::generate_config_metadata_and_valid_recovery_symbols,
+        metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
         BlobId,
         RecoverySymbol,
         Sliver,
@@ -452,11 +451,9 @@ mod test {
         fn retrieve_metadata(
             &self,
             blob_id: &BlobId,
-        ) -> Result<Option<UnverifiedBlobMetadataWithId>, anyhow::Error> {
+        ) -> Result<Option<VerifiedBlobMetadataWithId>, anyhow::Error> {
             if blob_id.0[0] == 0 {
-                Ok(Some(
-                    walrus_core::test_utils::verified_blob_metadata().into_unverified(),
-                ))
+                Ok(Some(walrus_core::test_utils::verified_blob_metadata()))
             } else if blob_id.0[0] == 1 {
                 Ok(None)
             } else {
@@ -749,7 +746,7 @@ mod test {
         let client = storage_node_client(config.as_ref());
 
         let (_encoding_config, _metadata, target_sliver_index, recovery_symbols) =
-            generate_config_metadata_and_valid_recovery_symbols()
+            walrus_core::test_utils::generate_config_metadata_and_valid_recovery_symbols()
                 .expect("generating metadata and recovery symbols not to fail");
         let inconsistency_proof = InconsistencyProof::Primary(InconsistencyProofInner::new(
             target_sliver_index,
@@ -774,7 +771,7 @@ mod test {
         let client = storage_node_client(config.as_ref());
 
         let (_encoding_config, _metadata, target_sliver_index, recovery_symbols) =
-            generate_config_metadata_and_valid_recovery_symbols()
+            walrus_core::test_utils::generate_config_metadata_and_valid_recovery_symbols()
                 .expect("generating metadata and recovery symbols not to fail");
         let inconsistency_proof = InconsistencyProof::Primary(InconsistencyProofInner::new(
             target_sliver_index,

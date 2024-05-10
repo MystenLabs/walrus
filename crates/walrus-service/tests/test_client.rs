@@ -3,7 +3,6 @@
 
 use std::{sync::OnceLock, time::Duration};
 
-use test_cluster::TestClusterBuilder as SuiTestClusterBuilder;
 use tokio::sync::Mutex;
 use walrus_core::encoding::Primary;
 use walrus_service::{
@@ -21,7 +20,7 @@ use walrus_service::{
 use walrus_sui::{
     client::{SuiContractClient, SuiReadClient},
     system_setup::{create_system_object, publish_package, SystemParameters},
-    test_utils::system_setup::contract_path_for_testing,
+    test_utils::{sui_test_cluster, system_setup::contract_path_for_testing},
     types::Committee,
 };
 use walrus_test_utils::async_param_test;
@@ -79,6 +78,10 @@ async fn run_store_and_read_with_crash_failures(
 ) -> anyhow::Result<()> {
     let _ = tracing_subscriber::fmt::try_init();
 
+    // Set up the sui test cluster
+    let sui_test_cluster = sui_test_cluster().await;
+    let mut wallet = sui_test_cluster.wallet;
+
     let cluster_builder = TestCluster::builder();
 
     // Get the default committee from the test cluster builder
@@ -88,10 +91,6 @@ async fn run_store_and_read_with_crash_failures(
         .enumerate()
         .map(|(i, info)| info.to_storage_node_info(&format!("node-{i}")))
         .collect();
-
-    // Set up the sui test cluster
-    let sui_test_cluster = SuiTestClusterBuilder::new().build().await;
-    let mut wallet = sui_test_cluster.wallet;
 
     // Publish package and set up system object
     let gas_budget = 500_000_000;

@@ -3,7 +3,8 @@
 
 //! Keys used with Walrus.
 
-use std::{str::FromStr, sync::Arc};
+use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
+use core::str::FromStr;
 
 use fastcrypto::{
     bls12381::min_pk::BLS12381KeyPair,
@@ -174,7 +175,7 @@ mod tests {
 
     #[test]
     fn deserializes_valid() -> TestResult {
-        let expected_keypair = test_utils::keypair();
+        let expected_keypair = test_utils::key_pair();
         let mut bytes = Vec::from(expected_keypair.as_ref().as_bytes());
         bytes.insert(0, SignatureScheme::BLS12381.to_u8());
 
@@ -191,7 +192,7 @@ mod tests {
         ]
     }
     fn deserializes_fails_for_invalid_flag(invalid_flag: u8) {
-        let expected_keypair = test_utils::keypair();
+        let expected_keypair = test_utils::key_pair();
         let mut bytes = Vec::from(expected_keypair.as_ref().as_bytes());
         bytes.insert(0, invalid_flag);
 
@@ -200,7 +201,7 @@ mod tests {
 
     #[test]
     fn serializes_to_flag_byte_then_key() -> TestResult {
-        let keypair = test_utils::keypair();
+        let keypair = test_utils::key_pair();
         let serialized = bcs::to_bytes(&keypair)?;
 
         assert_eq!(
@@ -228,7 +229,7 @@ mod tests {
 
     #[test]
     fn serialize_as_base64_uses_33_bytes() {
-        let keypair = test_utils::keypair();
+        let keypair = test_utils::key_pair();
         let base64_wrapper = SerializeAsWrap::<ProtocolKeyPair, SerdeWithBase64>::new(&keypair);
 
         serde_test::assert_ser_tokens(

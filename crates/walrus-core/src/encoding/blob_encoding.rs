@@ -1,7 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{
+use alloc::{vec, vec::Vec};
+use core::{
     cmp,
     marker::PhantomData,
     num::{NonZeroU16, NonZeroU64, NonZeroUsize},

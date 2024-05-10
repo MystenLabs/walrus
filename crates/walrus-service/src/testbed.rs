@@ -11,7 +11,7 @@ use std::{
 use fastcrypto::traits::KeyPair;
 use futures::future::try_join_all;
 use rand::{rngs::StdRng, SeedableRng};
-use walrus_core::{ProtocolKeyPair, ShardIndex};
+use walrus_core::{keys::ProtocolKeyPair, ShardIndex};
 use walrus_sui::{
     system_setup::{create_system_object, publish_package, SystemParameters},
     types::{Committee, StorageNode as SuiStorageNode},

@@ -15,7 +15,7 @@ pub const MAX_SYMBOL_SIZE: u16 = u16::MAX;
 pub const MAX_SOURCE_SYMBOLS_PER_BLOCK: u16 = 56403;
 
 /// Marker trait to indicate the encoding axis (primary or secondary).
-pub trait EncodingAxis: Clone + PartialEq + Eq + Default + std::fmt::Debug {
+pub trait EncodingAxis: Clone + PartialEq + Eq + Default + core::fmt::Debug {
     /// The complementary encoding axis.
     type OrthogonalAxis: EncodingAxis;
     /// Whether this corresponds to the primary (true) or secondary (false) encoding.

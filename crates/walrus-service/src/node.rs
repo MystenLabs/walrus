@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::future::Future;
+use std::{future::Future, sync::Arc};
 
 use anyhow::{anyhow, bail, Context};
 use fastcrypto::traits::KeyPair;
@@ -14,6 +14,7 @@ use walrus_core::{
     encoding::{EncodingConfig, RecoverySymbolError},
     ensure,
     inconsistency::InconsistencyVerificationError,
+    keys::ProtocolKeyPair,
     merkle::{MerkleAuth, MerkleProof},
     messages::{
         Confirmation,
@@ -23,23 +24,25 @@ use walrus_core::{
         SignedMessage,
         StorageConfirmation,
     },
-    metadata::{UnverifiedBlobMetadataWithId, VerificationError},
+    metadata::{UnverifiedBlobMetadataWithId, VerificationError, VerifiedBlobMetadataWithId},
     BlobId,
     Epoch,
     InconsistencyProof,
-    ProtocolKeyPair,
     RecoverySymbol,
     ShardIndex,
     Sliver,
     SliverPairIndex,
     SliverType,
 };
-use walrus_sui::client::SuiReadClient;
+use walrus_sui::{
+    client::SuiReadClient,
+    types::{BlobCertified, BlobEvent},
+};
 
 use crate::{
     committee::{CommitteeService, CommitteeServiceFactory, SuiCommitteeServiceFactory},
     config::{StorageNodeConfig, SuiConfig},
-    storage::Storage,
+    storage::{blob_info::BlobInfo, Storage},
     system_events::{SuiSystemEventProvider, SystemEventProvider},
 };
 
@@ -124,7 +127,7 @@ pub trait ServiceState {
     fn retrieve_metadata(
         &self,
         blob_id: &BlobId,
-    ) -> Result<Option<UnverifiedBlobMetadataWithId>, anyhow::Error>;
+    ) -> Result<Option<VerifiedBlobMetadataWithId>, anyhow::Error>;
 
     /// Stores the metadata associated with a blob.
     fn store_metadata(
@@ -266,6 +269,12 @@ impl StorageNodeBuilder {
             Box::new(SuiCommitteeServiceFactory::new(read_client))
         });
 
+        let mut committee_service = committee_service_factory
+            .new_for_epoch()
+            .await
+            .context("unable to construct a committee service for the storage node")?;
+        committee_service.exclude_member(protocol_key_pair.as_ref().public());
+
         StorageNode::new(
             protocol_key_pair,
             storage,
@@ -299,9 +308,9 @@ async fn create_read_client(
 pub struct StorageNode {
     protocol_key_pair: ProtocolKeyPair,
     storage: Storage,
-    encoding_config: EncodingConfig,
+    encoding_config: Arc<EncodingConfig>,
     event_provider: Box<dyn SystemEventProvider>,
-    committee_service: Box<dyn CommitteeService>,
+    committee_service: Arc<dyn CommitteeService>,
     _committee_service_factory: Box<dyn CommitteeServiceFactory>,
 }
 
@@ -317,7 +326,7 @@ impl StorageNode {
             .await
             .context("unable to construct a committee service for the storage node")?;
 
-        let encoding_config = EncodingConfig::new(committee_service.get_shard_count());
+        let encoding_config = Arc::new(EncodingConfig::new(committee_service.get_shard_count()));
 
         let committee = committee_service.committee();
         let managed_shards = committee.shards_for_node_public_key(key_pair.as_ref().public());
@@ -336,7 +345,7 @@ impl StorageNode {
             storage,
             event_provider,
             encoding_config,
-            committee_service,
+            committee_service: committee_service.into(),
             _committee_service_factory: committee_service_factory,
         })
     }
@@ -364,8 +373,13 @@ impl StorageNode {
         let mut blob_events = Box::into_pin(self.event_provider.events(cursor).await?);
         while let Some(event) = blob_events.next().await {
             tracing::debug!(event = ?event.event_id(), "received system event");
-            self.storage.update_blob_info(event)?;
+
+            match event {
+                BlobEvent::Certified(certified) => self.on_blob_certified(certified).await?,
+                other => self.storage.update_blob_info(&other)?,
+            }
         }
+
         bail!("event stream for blob events stopped")
     }
 
@@ -377,19 +391,88 @@ impl StorageNode {
     pub fn shards(&self) -> Vec<ShardIndex> {
         self.storage.shards()
     }
+
+    async fn on_blob_certified(&self, event: BlobCertified) -> anyhow::Result<()> {
+        let blob_id = event.blob_id;
+        self.storage
+            .update_blob_info(&BlobEvent::Certified(event))?;
+
+        let blob_info = self
+            .storage
+            .get_blob_info(&blob_id)?
+            .expect("info to be present as it was just updated");
+
+        if !blob_info.is_all_stored() {
+            // TODO(jsmith): Do not spawn if there is already a worker for this blob id (#366)
+            // TODO(jsmith): Handle cancellation. (#366)
+            tokio::spawn(BlobSynchronizer::new(blob_id, blob_info, self).sync());
+        }
+
+        Ok(())
+    }
+}
+
+struct BlobSynchronizer {
+    blob_id: BlobId,
+    latest_state: BlobInfo,
+    storage: Storage,
+    committee_service: Arc<dyn CommitteeService>,
+    encoding_config: Arc<EncodingConfig>,
+}
+
+impl BlobSynchronizer {
+    fn new(blob_id: BlobId, blob_info: BlobInfo, node: &StorageNode) -> Self {
+        Self {
+            blob_id,
+            latest_state: blob_info,
+            // TODO(jsmith): Make storage node cheaper to clone once we have epoch migration (#367)
+            storage: node.storage.clone(),
+            committee_service: node.committee_service.clone(),
+            encoding_config: node.encoding_config.clone(),
+        }
+    }
+
+    async fn sync(mut self) {
+        self.latest_state = self.sync_metadata().await;
+        // TODO(jsmith): Request and store the symbols for the primary sliver
+        // TODO(jsmith): Request and store the symbols for the secondary sliver
+    }
+
+    async fn sync_metadata(&self) -> BlobInfo {
+        if self.latest_state.is_metadata_stored {
+            return self.latest_state;
+        }
+        tracing::debug!(blob_id=%self.blob_id, "syncing metadata for blob");
+
+        let metadata = self
+            .committee_service
+            .get_and_verify_metadata(&self.blob_id, &self.encoding_config)
+            .await;
+
+        self.storage
+            .put_verified_metadata(&metadata)
+            .expect("metadata storage must succeed");
+
+        tracing::debug!(blob_id=%self.blob_id, "metadata for blob successfully synced");
+
+        self.storage
+            .get_blob_info(&self.blob_id)
+            .expect("retrieving metadata should not fail")
+            .expect("metadata to exist when syncing a blob")
+    }
 }
 
 impl ServiceState for StorageNode {
     fn retrieve_metadata(
         &self,
         blob_id: &BlobId,
-    ) -> Result<Option<UnverifiedBlobMetadataWithId>, anyhow::Error> {
+    ) -> Result<Option<VerifiedBlobMetadataWithId>, anyhow::Error> {
         let verified_metadata_with_id = self
             .storage
             .get_metadata(blob_id)
             .context("unable to retrieve metadata")?;
-        // Format the metadata as unverified, as the client will have to re-verify them.
-        Ok(verified_metadata_with_id.map(|metadata| metadata.into_unverified()))
+
+        Ok(verified_metadata_with_id)
     }
 
     fn store_metadata(
@@ -579,10 +662,13 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use fastcrypto::traits::KeyPair;
+    use tokio::sync::broadcast;
     use walrus_sui::{
         test_utils::EventForTesting,
-        types::{BlobEvent, BlobRegistered},
+        types::{BlobCertified, BlobEvent, BlobRegistered},
     };
     use walrus_test_utils::{Result as TestResult, WithTempDir};
 
@@ -595,7 +681,7 @@ mod tests {
             OTHER_SHARD_INDEX,
             SHARD_INDEX,
         },
-        test_utils::StorageNodeHandle,
+        test_utils::{StorageNodeHandle, TestCluster},
     };
 
     const OTHER_BLOB_ID: BlobId = BlobId([247; 32]);
@@ -793,5 +879,55 @@ mod tests {
 
             Ok(())
         }
+    }
+
+    #[tokio::test]
+    async fn retrieves_metadata_from_other_nodes_on_certified_blob_event() -> TestResult {
+        let events = broadcast::Sender::new(10);
+        let nodes = TestCluster::builder()
+            .with_shard_assignment(&[[0u16, 1].as_slice(), &[2, 3, 4]])
+            .with_system_event_providers(events.clone())
+            .build()
+            .await?;
+
+        tokio::task::yield_now().await;
+
+        let contacted_node = &nodes.nodes[0].storage_node;
+        let other_node = &nodes.nodes[1].storage_node;
+        let config = &contacted_node.encoding_config;
+
+        let (_, metadata) = config
+            .get_blob_encoder(&vec![7u8; 300])?
+            .encode_with_metadata();
+        let blob_id = *metadata.blob_id();
+
+        events.send(BlobRegistered::for_testing(blob_id).into())?;
+        tokio::task::yield_now().await;
+
+        contacted_node.store_metadata(metadata.clone().into_unverified())?;
+
+        assert!(contacted_node.retrieve_metadata(&blob_id)?.is_some());
+        assert!(other_node.retrieve_metadata(&blob_id)?.is_none());
+
+        events.send(BlobCertified::for_testing(blob_id).into())?;
+
+        // Wait up to 50ms for the node to fetch the metadata
+        let synced_metadata: Result<VerifiedBlobMetadataWithId, anyhow::Error> =
+            tokio::time::timeout(Duration::from_millis(50), async {
+                loop {
+                    if let Some(metadata) = other_node.retrieve_metadata(&blob_id)? {
+                        return Ok(metadata);
+                    } else {
+                        tokio::time::sleep(Duration::from_millis(1)).await;
+                    };
+                }
+            })
+            .await?;
+        let synced_metadata = synced_metadata?;
+
+        assert!(contacted_node.retrieve_metadata(&blob_id)?.is_some());
+        assert_eq!(synced_metadata, metadata);
+
+        Ok(())
     }
 }
