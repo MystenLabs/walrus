@@ -59,7 +59,7 @@ pub struct ProtocolNodeParameters {
     rest_api_port: u16,
     #[serde(default = "config::defaults::metrics_port")]
     metrics_port: u16,
-    #[serde(default = "default_node_parameters::default_event_polling_interval")]
+    #[serde(default = "config::defaults::polling_interval")]
     event_polling_interval: Duration,
 }
 
@@ -71,7 +71,7 @@ impl Default for ProtocolNodeParameters {
             contract_path: default_node_parameters::default_contract_path(),
             rest_api_port: config::defaults::rest_api_port(),
             metrics_port: config::defaults::metrics_port(),
-            event_polling_interval: default_node_parameters::default_event_polling_interval(),
+            event_polling_interval: config::defaults::polling_interval(),
         }
     }
 }
@@ -90,9 +90,8 @@ impl Display for ProtocolNodeParameters {
 }
 
 mod default_node_parameters {
-    use std::{path::PathBuf, time::Duration};
+    use std::path::PathBuf;
 
-    use walrus_service::config;
     use walrus_sui::utils::SuiNetwork;
 
     pub fn default_sui_network() -> SuiNetwork {
@@ -101,10 +100,6 @@ mod default_node_parameters {
 
     pub fn default_contract_path() -> PathBuf {
         PathBuf::from("./contracts/blob_store")
-    }
-
-    pub fn default_event_polling_interval() -> Duration {
-        config::defaults::polling_interval()
     }
 }
 
@@ -196,7 +191,7 @@ impl ProtocolCommands for TargetProtocol {
         // Generate a command to print all client and storage node configs on all instances.
         let generate_config_command = [
             &format!("{RUST_FLAGS} cargo run {CARGO_FLAGS} --bin walrus-node --"),
-            "generate-dry-run-remote-configs",
+            "generate-dry-run-configs",
             &format!(
                 "--working-dir {}",
                 parameters.settings.working_dir.display()

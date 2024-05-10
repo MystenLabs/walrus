@@ -25,7 +25,7 @@ use walrus_sui::{
 
 use crate::{
     client::{self, ClientCommunicationConfig},
-    config::{self, PathOrInPlace, StorageNodeConfig, SuiConfig},
+    config::{PathOrInPlace, StorageNodeConfig, SuiConfig},
 };
 
 /// Prefix for the node configuration file name.
@@ -40,43 +40,47 @@ pub fn node_config_name_prefix(node_index: u16, committee_size: NonZeroU16) -> S
     format!("dryrun-node-{node_index:00$}", width)
 }
 
-/// Deterministically generate storage node configurations without a `SuiConfig`.
-///
-/// The storage node configurations are created for a total of `committee_size` nodes and
-/// `n_shards`.
-pub fn create_local_storage_node_configs(
-    working_dir: &Path,
-    committee_size: NonZeroU16,
-    n_shards: NonZeroU16,
-) -> (Vec<StorageNodeConfig>, Vec<SuiStorageNode>) {
+/// Generate deterministic keypairs for the benchmark purposes.
+pub fn benchmark_keypairs(n: usize) -> Vec<ProtocolKeyPair> {
     let mut rng = StdRng::seed_from_u64(0);
-    let mut storage_node_configs = Vec::new();
+    (0..n)
+        .map(|_| ProtocolKeyPair::generate_with_rng(&mut rng))
+        .collect()
+}
 
-    // Generate all storage node configs from a seed.
+/// Get the metrics address for a node. If the node index is provided, the port is adjusted
+/// to ensure uniqueness across nodes.
+pub fn get_metrics_address(ip: Ipv4Addr, port: u16, node_index: Option<u16>) -> SocketAddr {
+    let port = port + node_index.unwrap_or(0);
+    SocketAddr::new(IpAddr::V4(ip), port)
+}
+
+/// Get the REST API address for a node. If both the node index and the committee size is provided,
+/// the port is adjusted to ensure uniqueness across nodes.
+pub fn get_rest_api_address(
+    ip: Ipv4Addr,
+    port: u16,
+    node_index: Option<u16>,
+    committee_size: Option<u16>,
+) -> SocketAddr {
+    let port = if let (Some(node_index), Some(committee_size)) = (node_index, committee_size) {
+        port + committee_size + node_index
+    } else {
+        port
+    };
+    SocketAddr::new(IpAddr::V4(ip), port)
+}
+
+/// Generate deterministic and even shard allocation for the benchmark purposes.
+pub fn even_shards_allocation(
+    n_shards: NonZeroU16,
+    committee_size: NonZeroU16,
+) -> Vec<Vec<ShardIndex>> {
     let shards_per_node = n_shards.get() / committee_size.get();
     let remainder_shards = n_shards.get() % committee_size.get();
     let mut start = 0;
-    let mut sui_storage_node_configs = Vec::with_capacity(committee_size.get().into());
+    let mut shards_information = Vec::with_capacity(committee_size.get() as usize);
     for i in 0..committee_size.get() {
-        let name = node_config_name_prefix(i, committee_size);
-
-        let protocol_key_pair = ProtocolKeyPair::generate_with_rng(&mut rng);
-        let public_key = protocol_key_pair.as_ref().public().clone();
-
-        let mut metrics_address = config::defaults::metrics_address();
-        metrics_address.set_port(metrics_address.port() + i);
-
-        let mut rest_api_address = config::defaults::rest_api_address();
-        rest_api_address.set_port(metrics_address.port() + committee_size.get() + i);
-
-        storage_node_configs.push(StorageNodeConfig {
-            storage_path: working_dir.join(&name),
-            protocol_key_pair: PathOrInPlace::InPlace(protocol_key_pair),
-            metrics_address,
-            rest_api_address,
-            sui: None,
-        });
-
         let end = if i < remainder_shards {
             start + shards_per_node + 1
         } else {
@@ -84,100 +88,9 @@ pub fn create_local_storage_node_configs(
         };
         let shard_ids = (start..end).map(ShardIndex).collect();
         start = end;
-
-        sui_storage_node_configs.push(SuiStorageNode {
-            name,
-            network_address: rest_api_address.into(),
-            public_key,
-            shard_ids,
-        });
+        shards_information.push(shard_ids);
     }
-    (storage_node_configs, sui_storage_node_configs)
-}
-
-/// Configuration for the testbed.
-pub async fn testbed_configs(
-    working_dir: &Path,
-    committee_size: NonZeroU16,
-    n_shards: NonZeroU16,
-    sui_network: SuiNetwork,
-    contract_path: PathBuf,
-    gas_budget: u64,
-) -> anyhow::Result<(Vec<StorageNodeConfig>, client::Config)> {
-    let (mut storage_node_configs, sui_storage_nodes) =
-        create_local_storage_node_configs(working_dir, committee_size, n_shards);
-
-    // Create wallet for publishing contracts on sui and setting up system object
-    let mut admin_wallet = create_wallet(
-        &working_dir.join("sui_admin.yaml"),
-        &sui_network,
-        Some("sui_admin.keystore"),
-    )?;
-
-    // Create wallet for the client
-    let client_wallet_path = working_dir.join("sui_client.yaml");
-    let mut client_wallet = create_wallet(
-        &client_wallet_path,
-        &sui_network,
-        Some("sui_client.keystore"),
-    )?;
-
-    let sui_client = admin_wallet.get_client().await?;
-    // Get coins from faucet for the wallets.
-    let mut faucet_requests = Vec::with_capacity(4);
-    for wallet in [&mut admin_wallet, &mut client_wallet] {
-        for _ in 0..2 {
-            faucet_requests.push(request_sui_from_faucet(
-                wallet.active_address()?,
-                sui_network,
-                &sui_client,
-            ))
-        }
-    }
-    try_join_all(faucet_requests).await?;
-
-    // Publish package and set up system object
-    let (pkg_id, committee_cap) =
-        publish_package(&mut admin_wallet, contract_path, gas_budget).await?;
-    let committee = Committee::new(sui_storage_nodes, 0)?;
-    let system_params = SystemParameters::new_with_sui(committee, 1_000_000_000_000, 10);
-    let system_object = create_system_object(
-        &mut admin_wallet,
-        pkg_id,
-        committee_cap,
-        &system_params,
-        gas_budget,
-    )
-    .await?;
-
-    // Update the storage node configs with the sui config
-    let sui_config = Some(SuiConfig {
-        rpc: admin_wallet.config.get_active_env()?.rpc.clone(),
-        pkg_id,
-        system_object,
-        event_polling_interval: config::defaults::polling_interval(),
-    });
-    storage_node_configs
-        .iter_mut()
-        .for_each(|conf| conf.sui.clone_from(&sui_config));
-
-    // Create the client config.
-    let client_config = client::Config {
-        system_pkg: pkg_id,
-        system_object,
-        wallet_config: Some(std::fs::canonicalize(client_wallet_path)?),
-        communication_config: ClientCommunicationConfig::default(),
-    };
-
-    Ok((storage_node_configs, client_config))
-}
-
-/// Generate deterministic keypairs for the benchmark purposes.
-pub fn benchmark_keypairs(n: usize) -> Vec<ProtocolKeyPair> {
-    let mut rng = StdRng::seed_from_u64(0);
-    (0..n)
-        .map(|_| ProtocolKeyPair::generate_with_rng(&mut rng))
-        .collect()
+    shards_information
 }
 
 #[allow(clippy::too_many_arguments)] // Todo: Refactor configs #377
@@ -360,49 +273,4 @@ pub fn create_storage_node_configs(
         });
     }
     storage_node_configs
-}
-
-/// Get the metrics address for a node. If the node index is provided, the port is adjusted
-/// to ensure uniqueness across nodes.
-pub fn get_metrics_address(ip: Ipv4Addr, port: u16, node_index: Option<u16>) -> SocketAddr {
-    let port = port + node_index.unwrap_or(0);
-    SocketAddr::new(IpAddr::V4(ip), port)
-}
-
-/// Get the REST API address for a node. If both the node index and the committee size is provided,
-/// the port is adjusted to ensure uniqueness across nodes.
-pub fn get_rest_api_address(
-    ip: Ipv4Addr,
-    port: u16,
-    node_index: Option<u16>,
-    committee_size: Option<u16>,
-) -> SocketAddr {
-    let port = if let (Some(node_index), Some(committee_size)) = (node_index, committee_size) {
-        port + committee_size + node_index
-    } else {
-        port
-    };
-    SocketAddr::new(IpAddr::V4(ip), port)
-}
-
-/// Generate deterministic and even shard allocation for the benchmark purposes.
-pub fn even_shards_allocation(
-    n_shards: NonZeroU16,
-    committee_size: NonZeroU16,
-) -> Vec<Vec<ShardIndex>> {
-    let shards_per_node = n_shards.get() / committee_size.get();
-    let remainder_shards = n_shards.get() % committee_size.get();
-    let mut start = 0;
-    let mut shards_information = Vec::with_capacity(committee_size.get() as usize);
-    for i in 0..committee_size.get() {
-        let end = if i < remainder_shards {
-            start + shards_per_node + 1
-        } else {
-            start + shards_per_node
-        };
-        let shard_ids = (start..end).map(ShardIndex).collect();
-        start = end;
-        shards_information.push(shard_ids);
-    }
-    shards_information
 }

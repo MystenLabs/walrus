@@ -9,6 +9,7 @@ use std::{
     num::NonZeroU16,
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
 
 use anyhow::Context;
@@ -26,7 +27,7 @@ use walrus_core::keys::ProtocolKeyPair;
 use walrus_service::{
     config::{LoadConfig, StorageNodeConfig, SuiConfig},
     server::UserServer,
-    testbed::{node_config_name_prefix, testbed_configs},
+    testbed::node_config_name_prefix,
     StorageNode,
 };
 use walrus_sui::utils::SuiNetwork;
@@ -70,11 +71,11 @@ enum Commands {
         cleanup_storage: bool,
     },
 
-    /// Generate the configuration files to run a local testbed of storage nodes.
-    GenerateDryRunLocalConfigs(GenerateDryRunLocalConfigsArgs),
+    /// Deploy the Walrus system contract on the Sui network.
+    DeploySystemContract(DeploySystemContractArgs),
 
-    /// Generate the configuration files to run a remote testbed of storage nodes.
-    GenerateDryRunRemoteConfigs(GenerateDryRunRemoteConfigsArgs),
+    /// Generate the configuration files to run a testbed of storage nodes.
+    GenerateDryRunConfigs(GenerateDryRunConfigsArgs),
 
     /// Generates a new key for use with the Walrus protocol, and writes it to a file.
     KeyGen {
@@ -86,29 +87,40 @@ enum Commands {
 }
 
 #[derive(Debug, Clone, clap::Args)]
-struct GenerateDryRunLocalConfigsArgs {
+struct DeploySystemContractArgs {
     /// The directory where the storage nodes will be deployed.
     #[clap(long, default_value = "./working_dir")]
     working_dir: PathBuf,
-    /// The number of storage nodes in the committee.
-    #[clap(long, default_value = "4")]
-    committee_size: NonZeroU16,
-    /// The total number of shards.
-    #[clap(long, default_value = "10")]
-    n_shards: NonZeroU16,
     /// Sui network for which the config is generated.
-    #[clap(long, default_value = "devnet")]
+    #[clap(long, default_value = "testnet")]
     sui_network: SuiNetwork,
     /// The directory in which the contracts are located.
     #[clap(long, default_value = "./contracts/blob_store")]
     contract_path: PathBuf,
     /// Gas budget for sui transactions to publish the contracts and set up the system.
-    #[arg(short, long, default_value_t = 500_000_000)]
+    #[arg(long, default_value_t = 500_000_000)]
     gas_budget: u64,
+    /// The total number of shards. The shards are distributed evenly among the storage nodes.
+    // Todo: accept non-even shard distributions #377
+    #[arg(long, default_value_t = 1000)]
+    n_shards: u16,
+    /// The list of ip addresses of the storage nodes.
+    #[clap(long, value_name = "ADDR", value_delimiter = ' ', num_args(4..))]
+    ips: Vec<Ipv4Addr>,
+    /// The port on which the REST API of the storage nodes will listen.
+    #[clap(long, default_value = "config::defaults::rest_api_port")]
+    rest_api_port: u16,
+    /// The interval with which events are polled, in seconds.
+    #[clap(
+        long,
+        value_parser = parse_duration_from_sec,
+        default_value = "config::defaults::polling_interval"
+    )]
+    event_polling_interval: Duration,
 }
 
 #[derive(Debug, Clone, clap::Args)]
-struct GenerateDryRunRemoteConfigsArgs {
+struct GenerateDryRunConfigsArgs {
     /// The directory where the storage nodes will be deployed.
     #[clap(long, default_value = "./working_dir")]
     working_dir: PathBuf,
@@ -138,13 +150,9 @@ fn main() -> anyhow::Result<()> {
             cleanup_storage,
         } => commands::run(StorageNodeConfig::load(config_path)?, cleanup_storage)?,
 
-        Commands::GenerateDryRunLocalConfigs(args) => {
-            commands::generate_local_dry_run_configs(args)?
-        }
+        Commands::DeploySystemContract(args) => commands::deploy_system_contract(args)?,
 
-        Commands::GenerateDryRunRemoteConfigs(args) => {
-            commands::generate_remote_dry_run_configs(args)?
-        }
+        Commands::GenerateDryRunConfigs(args) => commands::generate_dry_run_configs(args)?,
 
         Commands::KeyGen { out } => commands::keygen(&out)?,
     }
@@ -154,71 +162,68 @@ fn main() -> anyhow::Result<()> {
 mod commands {
     use std::io;
 
-    use walrus_service::testbed::{create_client_config, create_storage_node_configs};
+    use walrus_service::testbed::{
+        create_client_config,
+        create_storage_node_configs,
+        deploy_walrus_contract,
+        even_shards_allocation,
+    };
 
     use super::*;
 
     #[tokio::main]
-    pub(super) async fn generate_local_dry_run_configs(
-        GenerateDryRunLocalConfigsArgs {
+    pub(super) async fn deploy_system_contract(
+        DeploySystemContractArgs {
             working_dir,
-            committee_size,
-            n_shards,
             sui_network,
             contract_path,
             gas_budget,
-        }: GenerateDryRunLocalConfigsArgs,
+            n_shards,
+            ips,
+            rest_api_port,
+            event_polling_interval,
+        }: DeploySystemContractArgs,
     ) -> anyhow::Result<()> {
         tracing_subscriber::fmt::init();
 
         fs::create_dir_all(&working_dir)
             .with_context(|| format!("Failed to create directory '{}'", working_dir.display()))?;
 
-        // Generate testbed configs.
-        let (storage_node_configs, client_config) = testbed_configs(
+        // Deploy the system contract.
+        let number_of_shards = NonZeroU16::new(n_shards).context("number of shards must be > 0")?;
+        let committee_size = NonZeroU16::new(ips.len() as u16).unwrap();
+        let shards_information = even_shards_allocation(number_of_shards, committee_size);
+        let sui_config = deploy_walrus_contract(
             &working_dir,
-            committee_size,
-            n_shards,
             sui_network,
             contract_path,
             gas_budget,
+            shards_information,
+            ips,
+            rest_api_port,
+            event_polling_interval,
         )
-        .await?;
+        .await
+        .context("Failed to deploy system contract")?;
 
-        // Write client config to file.
-        let serialized_client_config =
-            serde_yaml::to_string(&client_config).context("Failed to serialize client configs")?;
-        let client_config_path = working_dir.join("client_config.yaml");
-        fs::write(client_config_path, serialized_client_config)
-            .context("Failed to write client configs")?;
-
-        // Write the storage nodes config files.
-        for storage_node_index in 0..committee_size.get() {
-            let storage_node_config = storage_node_configs[usize::from(storage_node_index)].clone();
-            let serialized_storage_node_config = serde_yaml::to_string(&storage_node_config)
-                .context("Failed to serialize storage node configs")?;
-            let node_config_name = format!(
-                "{}.yaml",
-                node_config_name_prefix(storage_node_index, committee_size)
-            );
-            let node_config_path = working_dir.join(node_config_name);
-            fs::write(node_config_path, serialized_storage_node_config)
-                .context("Failed to write storage node configs")?;
-        }
-
+        // Write the Sui config to file.
+        let serialized_sui_config =
+            serde_yaml::to_string(&sui_config).context("Failed to serialize Sui config")?;
+        let sui_config_path = working_dir.join("sui_config.yaml");
+        fs::write(sui_config_path, serialized_sui_config).context("Failed to write Sui config")?;
         Ok(())
     }
 
     #[tokio::main]
-    pub(super) async fn generate_remote_dry_run_configs(
-        GenerateDryRunRemoteConfigsArgs {
+    pub(super) async fn generate_dry_run_configs(
+        GenerateDryRunConfigsArgs {
             working_dir,
             sui_network,
             sui_config_path,
             ips,
             rest_api_port,
             metrics_port,
-        }: GenerateDryRunRemoteConfigsArgs,
+        }: GenerateDryRunConfigsArgs,
     ) -> anyhow::Result<()> {
         tracing_subscriber::fmt::init();
 
@@ -455,6 +460,12 @@ async fn wait_until_terminated(mut exit_listener: oneshot::Receiver<()>) {
             Ok(_) => tracing::info!("exit notification received"),
         }
     }
+}
+
+/// Parse a duration from a string representing seconds.
+fn parse_duration_from_sec(arg: &str) -> Result<Duration, std::num::ParseIntError> {
+    let seconds = arg.parse()?;
+    Ok(Duration::from_secs(seconds))
 }
 
 #[cfg(test)]
