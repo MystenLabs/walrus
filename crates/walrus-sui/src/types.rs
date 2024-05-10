@@ -296,16 +296,25 @@ impl Committee {
         })
     }
 
-    /// Checks if the number is large enough to reach a quorum (`n_shards - f`).
+    /// Checks if the number is larger or equal to the minimum number of honest shards.
+    ///
+    /// This is (`n_shards - f`), where `f` is the maximum number of faulty shards, given
+    /// `n_shards`. See [walrus_core::bft] for further details.
+    #[inline]
+    pub fn is_at_least_min_honest(&self, num: usize) -> bool {
+        num >= bft::min_n_correct(self.n_shards).get().into()
+    }
+
+    /// Checks if the number is large enough to reach a quorum (`2f + 1`).
     ///
     /// `f` is the maximum number of faulty shards, given `n_shards`.  See [walrus_core::bft] for
     /// further details.
     #[inline]
     pub fn is_quorum(&self, num: usize) -> bool {
-        num >= bft::min_n_correct(self.n_shards).get().into()
+        num > 2 * usize::from(bft::max_n_faulty(self.n_shards))
     }
 
-    /// Checks if the number is larger than the validity threshold
+    /// Checks if the number is larger or equal to the validity threshold
     ///
     /// The validity threshold is `f + 1`, where `f` is the maximum number of faulty shards. See
     /// [walrus_core::bft] for further details.

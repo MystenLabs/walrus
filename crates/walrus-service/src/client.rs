@@ -202,7 +202,7 @@ impl<T> Client<T> {
             )
         }));
         let start = Instant::now();
-        let quorum_check = |weight| self.committee.is_quorum(weight);
+        let quorum_check = |weight| self.committee.is_at_least_min_honest(weight);
         requests
             .execute_weight(&quorum_check, self.concurrent_writes)
             .await;
