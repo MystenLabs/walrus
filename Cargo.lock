@@ -257,9 +257,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.82"
+version = "1.0.83"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f538837af36e6f6a9be0faa67f9a314f8119e4e4b5867c6ab40ed60360142519"
+checksum = "25bdb32cbbdce2b519a9cd7df3a678443100e265d5e25ca763b7572a5104f5f3"
 dependencies = [
  "backtrace",
 ]
@@ -616,9 +616,9 @@ dependencies = [
 
 [[package]]
 name = "aws-config"
-version = "1.2.1"
+version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2a4707646259764ab59fd9a50e9de2e92c637b28b36285d6f6fa030e915fbd9"
+checksum = "baaa0be6ee7d90b775ae6ccb6d2ba182b91219ec2001f92338773a094246af1d"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -659,9 +659,9 @@ dependencies = [
 
 [[package]]
 name = "aws-runtime"
-version = "1.2.0"
+version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4963ac9ff2d33a4231b3806c1c69f578f221a9cabb89ad2bde62ce2b442c8a7"
+checksum = "785da4a15e7b166b505fd577e4560c7a7cd8fbdf842eb1336cbcbf8944ce56f1"
 dependencies = [
  "aws-credential-types",
  "aws-sigv4",
@@ -682,9 +682,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-ec2"
-version = "1.37.0"
+version = "1.40.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "939b642d974ab84ba55a1a849990084050885788582342df0c10b11dcf8fa934"
+checksum = "a449fb7b9cab253e5ad0e6173188b2c5103e62183b1c099ec610fafb498dbe7c"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -706,9 +706,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-sso"
-version = "1.21.0"
+version = "1.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d70fb493f4183f5102d8a8d0cc9b57aec29a762f55c0e7bf527e0f7177bb408"
+checksum = "ca3d6c4cba4e009391b72b0fcf12aff04ea3c9c3aa2ecaafa330326a8bd7e601"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -728,9 +728,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-ssooidc"
-version = "1.21.0"
+version = "1.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de3f37549b3e38b7ea5efd419d4d7add6ea1e55223506eb0b4fef9d25e7cc90d"
+checksum = "73400dc239d14f63d932f4ca7b55af5e9ef1f857f7d70655249ccc287adb2570"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -750,9 +750,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-sts"
-version = "1.21.0"
+version = "1.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b2ff219a5d4b795cd33251c19dbe9c4b401f2b2cbe513e07c76ada644eaf34e"
+checksum = "10f8858308af76fba3e5ffcf1bb56af5471574d2bdfaf0159470c25bc2f760e5"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -773,9 +773,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sigv4"
-version = "1.2.0"
+version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11d6f29688a4be9895c0ba8bef861ad0c0dac5c15e9618b9b7a6c233990fc263"
+checksum = "58b56f1cbe6fd4d0c2573df72868f20ab1c125ca9c9dbce17927a463433a2e57"
 dependencies = [
  "aws-credential-types",
  "aws-smithy-http",
@@ -846,9 +846,9 @@ dependencies = [
 
 [[package]]
 name = "aws-smithy-runtime"
-version = "1.3.1"
+version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44e7945379821074549168917e89e60630647e186a69243248f08c6d168b975a"
+checksum = "c9ac79e9f3a4d576f3cd4a470a0275b138d9e7b11b1cd514a6858ae0a79dd5bb"
 dependencies = [
  "aws-smithy-async",
  "aws-smithy-http",
@@ -872,9 +872,9 @@ dependencies = [
 
 [[package]]
 name = "aws-smithy-runtime-api"
-version = "1.4.0"
+version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cc56a5c96ec741de6c5e6bf1ce6948be969d6506dfa9c39cffc284e31e4979b"
+checksum = "04ec42c2f5c0e7796a2848dde4d9f3bf8ce12ccbb3d5aa40c52fa0cdd61a1c47"
 dependencies = [
  "aws-smithy-async",
  "aws-smithy-types",
@@ -889,9 +889,9 @@ dependencies = [
 
 [[package]]
 name = "aws-smithy-types"
-version = "1.1.8"
+version = "1.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "abe14dceea1e70101d38fbf2a99e6a34159477c0fb95e68e05c66bd7ae4c3729"
+checksum = "baf98d97bba6ddaba180f1b1147e202d8fe04940403a95a3f826c790f931bbd1"
 dependencies = [
  "base64-simd",
  "bytes",
@@ -1126,9 +1126,9 @@ checksum = "9d297deb1925b89f2ccc13d7635fa0714f12c87adce1c75356b39ca9b7178567"
 
 [[package]]
 name = "base64"
-version = "0.22.0"
+version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9475866fec1451be56a3c2400fd081ff546538961565ccb5b7142cbd22bc7a51"
+checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "base64-simd"
@@ -6474,9 +6474,9 @@ dependencies = [
 
 [[package]]
 name = "prometheus"
-version = "0.13.3"
+version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "449811d15fbdf5ceb5c1144416066429cf82316e2ec8ce0c1f6f8a02e7bbcf8c"
+checksum = "3d33c28a30771f7f96db69893f78b857f7450d7e0237e9c8fc6427a81bae7ed1"
 dependencies = [
  "cfg-if",
  "fnv",
@@ -7064,7 +7064,7 @@ version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "566cafdd92868e0939d3fb961bd0dc25fcfaaed179291093b3d43e6b3150ea10"
 dependencies = [
- "base64 0.22.0",
+ "base64 0.22.1",
  "bytes",
  "encoding_rs",
  "futures-core",
@@ -7315,7 +7315,7 @@ version = "2.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29993a25686778eb88d4189742cd713c9bce943bc54251a33509dc63cbacf73d"
 dependencies = [
- "base64 0.22.0",
+ "base64 0.22.1",
  "rustls-pki-types",
 ]
 
@@ -7507,9 +7507,9 @@ checksum = "92d43fe69e652f3df9bdc2b85b2854a0825b86e4fb76bc44d945137d053639ca"
 
 [[package]]
 name = "serde"
-version = "1.0.199"
+version = "1.0.201"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c9f6e76df036c77cd94996771fb40db98187f096dd0b9af39c6c6e452ba966a"
+checksum = "780f1cebed1629e4753a1a38a3c72d30b97ec044f0aef68cb26650a3c5cf363c"
 dependencies = [
  "serde_derive",
 ]
@@ -7546,9 +7546,9 @@ dependencies = [
 
 [[package]]
 name = "serde_derive"
-version = "1.0.199"
+version = "1.0.201"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11bd257a6541e141e42ca6d24ae26f7714887b47e89aa739099104c7e4d3b7fc"
+checksum = "c5e405930b9796f1c00bee880d03fc7e0bb4b9a11afc776885ffe84320da2865"
 dependencies = [
  "proc-macro2 1.0.81",
  "quote 1.0.36",
@@ -7568,9 +7568,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.116"
+version = "1.0.117"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e17db7126d17feb94eb3fad46bf1a96b034e8aacbc2e775fe81505f8b0b2813"
+checksum = "455182ea6142b14f93f4bc5320a2b31c1f266b66a4a5c858b013302a5d8cbfc3"
 dependencies = [
  "indexmap 2.2.6",
  "itoa",
@@ -7642,7 +7642,7 @@ version = "3.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ad483d2ab0149d5a5ebcd9972a3852711e0153d863bf5a5d0391d28883c4a20"
 dependencies = [
- "base64 0.22.0",
+ "base64 0.22.1",
  "chrono",
  "hex",
  "indexmap 1.9.3",
@@ -9505,18 +9505,18 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "1.0.59"
+version = "1.0.60"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0126ad08bff79f29fc3ae6a55cc72352056dfff61e3ff8bb7129476d44b23aa"
+checksum = "579e9083ca58dd9dcf91a9923bb9054071b9ebbd800b342194c9feb0ee89fc18"
 dependencies = [
  "thiserror-impl",
 ]
 
 [[package]]
 name = "thiserror-impl"
-version = "1.0.59"
+version = "1.0.60"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d1cd413b5d558b4c5bf3680e324a6fa5014e7b7c067a51e69dbdf47eb7148b66"
+checksum = "e2470041c06ec3ac1ab38d0356a6119054dedaea53e12fbefc0de730a1c08524"
 dependencies = [
  "proc-macro2 1.0.81",
  "quote 1.0.36",
@@ -10433,7 +10433,7 @@ name = "walrus-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64 0.22.0",
+ "base64 0.22.1",
  "bcs",
  "criterion",
  "fastcrypto 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)",
