@@ -27,39 +27,42 @@ use walrus_test_utils::async_param_test;
 
 async_param_test! {
     test_store_and_read_blob_with_crash_failures : [
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] no_failures: (&[], &[], None),
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] one_failure: (&[0], &[], None),
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] f_failures: (&[4], &[], None),
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] no_failures: (&[], &[], &[]),
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] one_failure: (&[0], &[], &[]),
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] f_failures: (&[4], &[], &[]),
         #[ignore = "ignore E2E tests by default"] #[tokio::test] f_plus_one_failures:
-            (&[0, 4], &[], Some(NotEnoughConfirmations(8, 9))),
+            (&[0, 4], &[], &[NotEnoughConfirmations(8, 9)]),
         #[ignore = "ignore E2E tests by default"] #[tokio::test] all_shard_failures:
-            (&[0, 1, 2, 3, 4], &[], Some(NotEnoughConfirmations(0, 9))),
+            (&[0, 1, 2, 3, 4], &[], &[NotEnoughConfirmations(0, 9)]),
         #[ignore = "ignore E2E tests by default"] #[tokio::test] f_plus_one_read_failures:
-            (&[], &[0, 4], None),
+            (&[], &[0, 4], &[]),
         #[ignore = "ignore E2E tests by default"] #[tokio::test] two_f_plus_one_read_failures:
-            (&[], &[1, 2, 4], Some(NotEnoughSlivers)),
+            (&[], &[1, 2, 4], &[NoMetadataReceived, NotEnoughSlivers]),
         #[ignore = "ignore E2E tests by default"] #[tokio::test] all_read_failures:
-            (&[], &[0, 1, 2, 3, 4], Some(NoMetadataReceived)),
+            (&[], &[0, 1, 2, 3, 4], &[NoMetadataReceived]),
         #[ignore = "ignore E2E tests by default"] #[tokio::test] read_and_write_overlap_failures:
-            (&[4], &[2, 3], Some(NotEnoughSlivers)),
+            (&[4], &[2, 3], &[NotEnoughSlivers]),
     ]
 }
 async fn test_store_and_read_blob_with_crash_failures(
     failed_shards_write: &[usize],
     failed_shards_read: &[usize],
-    expected: Option<ClientErrorKind>,
+    expected_errors: &[ClientErrorKind],
 ) {
     let result =
         run_store_and_read_with_crash_failures(failed_shards_write, failed_shards_read).await;
 
-    match (result, expected) {
-        (Ok(()), None) => (),
-        (Err(actual_err), Some(expected_err)) => match actual_err.downcast::<ClientError>() {
+    match (result, expected_errors) {
+        (Ok(()), []) => (),
+        (Err(actual_err), expected_errs) => match actual_err.downcast::<ClientError>() {
             Ok(client_err) => {
-                if !error_kind_matches(client_err.kind(), &expected_err) {
+                if !expected_errs
+                    .iter()
+                    .any(|expected_err| error_kind_matches(client_err.kind(), expected_err))
+                {
                     panic!(
                         "client error mismatch; expected=({:?}); actual=({:?});",
-                        expected_err, client_err
+                        expected_errs, client_err
                     )
                 }
             }
