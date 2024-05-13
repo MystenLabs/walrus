@@ -4,7 +4,7 @@
 use std::num::NonZeroU16;
 
 use anyhow::Result;
-use futures::{future::join_all, join};
+use futures::future::{join_all, Either};
 use reqwest::{Client as ReqwestClient, Url};
 use tracing::{Level, Span};
 use walrus_core::{
@@ -205,16 +205,13 @@ impl<'a> NodeCommunication<'a> {
         blob_id: &BlobId,
         pairs: impl IntoIterator<Item = &SliverPair>,
     ) -> Vec<Result<(), SliverStoreError>> {
-        let mut primary_futures = Vec::with_capacity(self.n_owned_shards().get().into());
-        let mut secondary_futures = Vec::with_capacity(self.n_owned_shards().get().into());
-        for pair in pairs {
-            primary_futures.push(self.store_sliver(blob_id, &pair.primary, pair.index()));
-            secondary_futures.push(self.store_sliver(blob_id, &pair.secondary, pair.index()));
-        }
-        let (mut primary_results, secondary_results) =
-            join!(join_all(primary_futures), join_all(secondary_futures));
-        primary_results.extend(secondary_results);
-        primary_results
+        let futures = pairs.into_iter().flat_map(|pair| {
+            vec![
+                Either::Left(self.store_sliver(blob_id, &pair.primary, pair.index())),
+                Either::Right(self.store_sliver(blob_id, &pair.secondary, pair.index())),
+            ]
+        });
+        join_all(futures).await
     }
 
     /// Stores a sliver on a node.

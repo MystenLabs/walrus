@@ -538,19 +538,16 @@ impl<T> Client<T> {
         self.committee
             .members()
             .iter()
-            .enumerate()
-            .map(|(idx, node)| {
-                (
-                    idx,
-                    pairs.iter().filter(|pair| {
-                        node.shard_ids.contains(
-                            &pair
-                                .index()
-                                .to_shard_index(self.committee.n_shards(), blob_id),
-                        )
-                    }),
-                )
+            .map(|node| {
+                pairs.iter().filter(|pair| {
+                    node.shard_ids.contains(
+                        &pair
+                            .index()
+                            .to_shard_index(self.committee.n_shards(), blob_id),
+                    )
+                })
             })
+            .enumerate()
             .collect()
     }
 
