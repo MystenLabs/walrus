@@ -161,7 +161,7 @@ impl<'a> NodeCommunication<'a> {
     pub async fn store_metadata_and_pairs(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
-        pairs: &[&SliverPair],
+        pairs: impl IntoIterator<Item = &SliverPair>,
     ) -> NodeResult<SignedStorageConfirmation, StoreError> {
         tracing::debug!("storing metadata and sliver pairs",);
 
@@ -203,10 +203,10 @@ impl<'a> NodeCommunication<'a> {
     async fn store_pairs(
         &self,
         blob_id: &BlobId,
-        pairs: &[&SliverPair],
+        pairs: impl IntoIterator<Item = &SliverPair>,
     ) -> Vec<Result<(), SliverStoreError>> {
-        let mut primary_futures = Vec::with_capacity(pairs.len());
-        let mut secondary_futures = Vec::with_capacity(pairs.len());
+        let mut primary_futures = Vec::with_capacity(self.n_owned_shards().get().into());
+        let mut secondary_futures = Vec::with_capacity(self.n_owned_shards().get().into());
         for pair in pairs {
             primary_futures.push(self.store_sliver(blob_id, &pair.primary, pair.index()));
             secondary_futures.push(self.store_sliver(blob_id, &pair.secondary, pair.index()));

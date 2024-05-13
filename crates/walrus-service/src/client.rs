@@ -211,13 +211,15 @@ impl<T> Client<T> {
         metadata: &VerifiedBlobMetadataWithId,
         pairs: &[SliverPair],
     ) -> Result<ConfirmationCertificate, ClientError> {
-        let pairs_per_node = self.pairs_per_node(metadata.blob_id(), pairs);
+        let mut pairs_per_node = self.pairs_per_node(metadata.blob_id(), pairs);
         let comms = self.node_communications()?;
         let mut requests = WeightedFutures::new(comms.iter().map(|n| {
-            let pairs = pairs_per_node
-                .get(&n.node_index)
-                .expect("there are pairs for each node");
-            n.store_metadata_and_pairs(metadata, pairs)
+            n.store_metadata_and_pairs(
+                metadata,
+                pairs_per_node
+                    .remove(&n.node_index)
+                    .expect("there are shards for each node"),
+            )
         }));
         let start = Instant::now();
         let quorum_check = |weight| self.committee.is_at_least_min_honest(weight);
@@ -530,34 +532,26 @@ impl<T> Client<T> {
     /// Maps the sliver pairs to the node that holds their shard.
     fn pairs_per_node<'a>(
         &'a self,
-        blob_id: &BlobId,
+        blob_id: &'a BlobId,
         pairs: &'a [SliverPair],
-    ) -> HashMap<usize, Vec<&SliverPair>> {
-        let shard_to_node = self
-            .committee
+    ) -> HashMap<usize, impl Iterator<Item = &SliverPair>> {
+        self.committee
             .members()
             .iter()
             .enumerate()
-            .flat_map(|(index, m)| m.shard_ids.iter().map(move |s| (*s, index)))
-            .collect::<HashMap<_, _>>();
-
-        let mut pairs_per_node = HashMap::from_iter(
-            self.committee
-                .members()
-                .iter()
-                .enumerate()
-                .map(|(idx, node)| (idx, Vec::with_capacity(node.shard_ids.len()))),
-        );
-
-        pairs.iter().for_each(|p| {
-            pairs_per_node
-                .get_mut(
-                    &shard_to_node[&p.index().to_shard_index(self.committee.n_shards(), blob_id)],
+            .map(|(idx, node)| {
+                (
+                    idx,
+                    pairs.iter().filter(|pair| {
+                        node.shard_ids.contains(
+                            &pair
+                                .index()
+                                .to_shard_index(self.committee.n_shards(), blob_id),
+                        )
+                    }),
                 )
-                .expect("there is an entry for each node")
-                .push(p)
-        });
-        pairs_per_node
+            })
+            .collect()
     }
 
     /// Returns a reference to the encoding config in use.
