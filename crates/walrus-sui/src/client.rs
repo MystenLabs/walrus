@@ -22,7 +22,6 @@ use sui_types::{
     transaction::{Argument, ProgrammableTransaction},
     Identifier,
 };
-use tracing::instrument;
 use walrus_core::{
     ensure,
     merkle::DIGEST_LEN,
@@ -136,7 +135,7 @@ impl SuiContractClient {
 
     /// Executes the move call to `function` with `call_args` and transfers all outputs
     /// (if any) to the sender.
-    #[instrument(err, skip(self))]
+    #[tracing::instrument(err, skip(self))]
     async fn move_call_and_transfer<'a>(
         &self,
         function: FunctionTag<'a>,

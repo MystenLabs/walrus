@@ -92,11 +92,13 @@ impl BlobId {
     /// contained in the `blob_metadata` and then computes the blob ID.
     pub fn from_sliver_pair_metadata(blob_metadata: &BlobMetadata) -> Self {
         let merkle_root = blob_metadata.compute_root_hash();
-        Self::from_metadata(
+        let blob_id = Self::from_metadata(
             merkle_root,
             blob_metadata.encoding_type,
             blob_metadata.unencoded_length,
-        )
+        );
+        tracing::debug!(%blob_id, "computed blob ID from metadata");
+        blob_id
     }
 
     fn new_with_hash_function<T>(

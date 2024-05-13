@@ -333,7 +333,7 @@ impl<T: EncodingAxis> Display for DecodingSymbol<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
-            "DecodingSymbol{{ type: {}, index: {}, {} }}",
+            "DecodingSymbol{{ type: {}, index: {}, data: {} }}",
             T::NAME,
             self.index,
             utils::data_prefix_string(&self.data, 5),
@@ -421,7 +421,7 @@ impl<T: EncodingAxis, U: MerkleAuth> Display for RecoverySymbol<T, U> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
-            "RecoverySymbol{{ type: {}, index: {}, proof_type: {}, {} }}",
+            "RecoverySymbol{{ type: {}, index: {}, proof_type: {}, data: {} }}",
             T::NAME,
             self.symbol.index,
             core::any::type_name::<U>(),
@@ -559,7 +559,7 @@ mod tests {
             primary_with_long_data: (
                 DecodingSymbol::<Primary>::new(3, vec![1, 2, 3, 4, 5, 6]),
                 "RecoverySymbol{ type: primary, index: 3, proof_type: \
-                    walrus_core::merkle::MerkleProof, data_prefix: [1, 2, 3, 4, 5, ...] }",
+                    walrus_core::merkle::MerkleProof, data: [1, 2, 3, 4, 5, ...] }",
             ),
         ]
     }

@@ -283,7 +283,7 @@ impl<T> Client<T> {
     }
 
     /// Reconstructs the blob by reading slivers from Walrus shards.
-    #[tracing::instrument(level = Level::ERROR, skip(self))]
+    #[tracing::instrument(level = Level::ERROR, skip_all, fields (blob_id = %blob_id))]
     pub async fn read_blob<U>(&self, blob_id: &BlobId) -> Result<Vec<u8>, ClientError>
     where
         U: EncodingAxis,
@@ -298,6 +298,7 @@ impl<T> Client<T> {
     ///
     /// Returns a [`ClientError`] of kind [`ClientErrorKind::BlobIdDoesNotExist`] if it receives a
     /// quorum (at least 2f+1) of "not found" error status codes from the storage nodes.
+    #[tracing::instrument(level = Level::ERROR, skip_all)]
     async fn request_slivers_and_decode<U>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,

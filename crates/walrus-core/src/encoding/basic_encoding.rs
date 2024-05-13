@@ -5,6 +5,7 @@ use alloc::vec::Vec;
 use core::{num::NonZeroU16, ops::Range};
 
 use raptorq::{SourceBlockDecoder, SourceBlockEncoder, SourceBlockEncodingPlan};
+use tracing::Level;
 
 use super::{utils, DecodingSymbol, EncodeError, EncodingAxis};
 
@@ -41,12 +42,18 @@ impl Encoder {
     /// # Panics
     ///
     /// Panics if `n_source_symbols > n_shards`.
+    #[tracing::instrument(
+        level = Level::ERROR,
+        err(level = Level::WARN),
+        skip(data, encoding_plan)
+    )]
     pub fn new(
         data: &[u8],
         n_source_symbols: NonZeroU16,
         n_shards: NonZeroU16,
         encoding_plan: &SourceBlockEncodingPlan,
     ) -> Result<Self, EncodeError> {
+        tracing::trace!("creating a new Encoder");
         assert!(n_shards >= n_source_symbols);
         if data.len() % usize::from(n_source_symbols.get()) != 0 {
             return Err(EncodeError::MisalignedData(n_source_symbols));
@@ -97,6 +104,7 @@ impl Encoder {
 
     /// Returns an iterator over a range of source and/or repair symbols.
     pub fn encode_range(&self, range: Range<u16>) -> impl Iterator<Item = Vec<u8>> {
+        tracing::trace!(?range, "encoding range");
         let repair_end = if range.end > self.n_source_symbols.get() {
             range.end - self.n_source_symbols.get()
         } else {
@@ -114,6 +122,7 @@ impl Encoder {
 
     /// Returns an iterator over all `n_shards` source and repair symbols.
     pub fn encode_all(&self) -> impl Iterator<Item = Vec<u8>> {
+        tracing::trace!("encoding all symbols");
         self.raptorq_encoder
             .source_packets()
             .into_iter()
@@ -126,6 +135,7 @@ impl Encoder {
 
     /// Returns an iterator over all `n_shards - self.n_source_symbols` repair symbols.
     pub fn encode_all_repair_symbols(&self) -> impl Iterator<Item = Vec<u8>> {
+        tracing::trace!("encoding all repair symbols");
         self.raptorq_encoder
             .repair_packets(
                 0,
@@ -148,7 +158,9 @@ impl Decoder {
     ///
     /// Assumes that the length of the data to be decoded is the product of `n_source_symbols` and
     /// `symbol_size`.
+    #[tracing::instrument]
     pub fn new(n_source_symbols: NonZeroU16, symbol_size: NonZeroU16) -> Self {
+        tracing::trace!("creating a new Decoder");
         Self {
             raptorq_decoder: SourceBlockDecoder::new(
                 0,
