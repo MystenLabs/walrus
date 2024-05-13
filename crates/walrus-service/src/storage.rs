@@ -258,7 +258,7 @@ impl Storage {
 
     fn blob_info_options() -> (&'static str, Options) {
         let mut options = Options::default();
-        options.set_merge_operator_associative("merge blob info", merge_blob_info);
+        options.set_merge_operator("merge blob info", merge_blob_info, |_, _, _| None);
         (Self::BLOBINFO_COLUMN_FAMILY_NAME, options)
     }
 
@@ -307,7 +307,7 @@ where
 {
     bcs::from_bytes(val)
         .inspect_err(|error| {
-            tracing::error!(?error, "failed to deserialize value stored in database")
+            tracing::error!(?error, data=?val, "failed to deserialize value stored in database")
         })
         .ok()
 }
