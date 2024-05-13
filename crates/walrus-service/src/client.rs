@@ -160,7 +160,7 @@ impl<T: ContractClient> Client<T> {
         // We need to wait to be sure that the storage nodes received the registration event.
         sleep(Duration::from_secs(1)).await;
 
-        let certificate = self.store_metadata_and_pairs(&metadata, pairs).await?;
+        let certificate = self.store_metadata_and_pairs(&metadata, &pairs).await?;
         self.sui_client
             .certify_blob(&blob_sui_object, &certificate)
             .await
@@ -209,17 +209,15 @@ impl<T> Client<T> {
     pub async fn store_metadata_and_pairs(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
-        pairs: Vec<SliverPair>,
+        pairs: &[SliverPair],
     ) -> Result<ConfirmationCertificate, ClientError> {
-        let mut pairs_per_node = self.pairs_per_node(metadata.blob_id(), pairs);
+        let pairs_per_node = self.pairs_per_node(metadata.blob_id(), pairs);
         let comms = self.node_communications()?;
         let mut requests = WeightedFutures::new(comms.iter().map(|n| {
-            n.store_metadata_and_pairs(
-                metadata,
-                pairs_per_node
-                    .remove(&n.node_index)
-                    .expect("there are pairs for each node"),
-            )
+            let pairs = pairs_per_node
+                .get(&n.node_index)
+                .expect("there are pairs for each node");
+            n.store_metadata_and_pairs(metadata, pairs)
         }));
         let start = Instant::now();
         let quorum_check = |weight| self.committee.is_at_least_min_honest(weight);
@@ -530,11 +528,11 @@ impl<T> Client<T> {
     }
 
     /// Maps the sliver pairs to the node that holds their shard.
-    fn pairs_per_node(
-        &self,
+    fn pairs_per_node<'a>(
+        &'a self,
         blob_id: &BlobId,
-        pairs: Vec<SliverPair>,
-    ) -> HashMap<usize, Vec<SliverPair>> {
+        pairs: &'a [SliverPair],
+    ) -> HashMap<usize, Vec<&SliverPair>> {
         let shard_to_node = self
             .committee
             .members()
@@ -551,7 +549,7 @@ impl<T> Client<T> {
                 .map(|(idx, node)| (idx, Vec::with_capacity(node.shard_ids.len()))),
         );
 
-        pairs.into_iter().for_each(|p| {
+        pairs.iter().for_each(|p| {
             pairs_per_node
                 .get_mut(
                     &shard_to_node[&p.index().to_shard_index(self.committee.n_shards(), blob_id)],
