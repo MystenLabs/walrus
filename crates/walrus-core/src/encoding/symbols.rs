@@ -277,7 +277,7 @@ impl AsMut<[u8]> for Symbols {
 /// this symbol.  I.e., a [`DecodingSymbol<Primary>`] is used to recover a
 /// [`Sliver<Primary>`][super::slivers::Sliver<Primary>].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DecodingSymbol<T: EncodingAxis> {
+pub struct DecodingSymbol<T> {
     /// The index of the symbol.
     ///
     /// This is equal to the ESI as defined in [RFC 6330][rfc6330s5.3.1].
@@ -351,7 +351,7 @@ impl<T: EncodingAxis> Display for DecodingSymbol<T> {
     deserialize = "for<'a> DecodingSymbol<T>: Deserialize<'a>, for<'a> U: Deserialize<'a>",
     serialize = "DecodingSymbol<T>: Serialize, U: Serialize"
 ))]
-pub struct RecoverySymbol<T: EncodingAxis, U: MerkleAuth> {
+pub struct RecoverySymbol<T, U> {
     /// The decoding symbol.
     symbol: DecodingSymbol<T>,
     /// A proof that the decoding symbol is correctly computed from a valid orthogonal sliver.
@@ -469,6 +469,16 @@ where
                 })
                 .is_ok()
         })
+}
+
+/// Returns the minimum number of symbols required for recovery.
+pub fn min_symbols_for_recovery<T: EncodingAxis>(n_shards: NonZeroU16) -> u16 {
+    let max_n_faulty = crate::bft::max_n_faulty(n_shards);
+    if T::IS_PRIMARY {
+        n_shards.get() - 2 * max_n_faulty
+    } else {
+        n_shards.get() - max_n_faulty
+    }
 }
 
 #[cfg(test)]
