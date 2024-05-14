@@ -137,8 +137,12 @@ impl NodeCommitteeServiceInner<StorageNodeClient> {
             .iter()
             .filter_map(|member| {
                 let url = Url::parse(&member.rest_api_url())
-                    .inspect_err(|err| {
-                        tracing::warn!(?member, ?err, "unable to parse REST-API URL, skipping node")
+                    .inspect_err(|error| {
+                        tracing::warn!(
+                            ?member,
+                            %error,
+                            "unable to parse REST-API URL, skipping node"
+                        )
                     })
                     .ok()?;
 
@@ -202,7 +206,7 @@ impl<T: NodeClient> NodeCommitteeServiceInner<T> {
                         tracing::debug!("metadata retrieved successfully");
                         return metadata;
                     }
-                    Ok(Err(err)) => tracing::debug!(?err, "metadata request failed"),
+                    Ok(Err(error)) => tracing::debug!(%error, "metadata request failed"),
                     Err(_) => tracing::debug!("request to node timed out"),
                 }
             }
