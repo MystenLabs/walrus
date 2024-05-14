@@ -142,7 +142,7 @@ async fn run_store_and_read_with_crash_failures(
         communication_config: ClientCommunicationConfig::default(),
     };
 
-    let client = Client::new(config, sui_contract_client).await?;
+    let mut client = Client::new(config, sui_contract_client).await?;
 
     // Stop the nodes in the write failure set.
     failed_shards_write
@@ -157,6 +157,10 @@ async fn run_store_and_read_with_crash_failures(
     failed_shards_read
         .iter()
         .for_each(|&idx| cluster.cancel_node(idx));
+
+    // We need to reset the reqwest client to ensure that the client cannot communicate with nodes
+    // that are being shut down.
+    client.reset_reqwest_client()?;
 
     // Read the blob.
     let read_blob = client

@@ -43,6 +43,7 @@ pub use self::error::{ClientError, ClientErrorKind};
 #[derive(Debug, Clone)]
 pub struct Client<T> {
     reqwest_client: ReqwestClient,
+    config: Config,
     sui_client: T,
     // INV: committee.n_shards > 0
     committee: Committee,
@@ -62,12 +63,7 @@ impl Client<()> {
         sui_read_client: &impl ReadClient,
     ) -> Result<Self, ClientError> {
         tracing::debug!(?config, "running client");
-        let reqwest_client = config
-            .communication_config
-            .reqwest_config
-            .apply(ClientBuilder::new())
-            .build()
-            .map_err(ClientError::other)?;
+        let reqwest_client = Self::build_reqwest_client(&config)?;
 
         // Get the committee, and check that there is at least one shard per node.
         let committee = sui_read_client
@@ -92,14 +88,16 @@ impl Client<()> {
             .communication_config
             .concurrent_writes
             .unwrap_or(default::concurrent_sliver_reads(committee.n_shards()));
+        let concurrent_metadata_reads = config.communication_config.concurrent_metadata_reads;
         Ok(Self {
+            config,
             reqwest_client,
             sui_client: (),
             committee,
             concurrent_writes,
             encoding_config,
             concurrent_sliver_reads,
-            concurrent_metadata_reads: config.communication_config.concurrent_metadata_reads,
+            concurrent_metadata_reads,
         })
     }
 
@@ -107,6 +105,7 @@ impl Client<()> {
     pub async fn with_client<T: ContractClient>(self, sui_client: T) -> Client<T> {
         let Self {
             reqwest_client,
+            config,
             sui_client: _,
             committee,
             concurrent_writes,
@@ -116,6 +115,7 @@ impl Client<()> {
         } = self;
         Client::<T> {
             reqwest_client,
+            config,
             sui_client,
             committee,
             concurrent_writes,
@@ -562,5 +562,24 @@ impl<T> Client<T> {
     /// Returns the inner sui client.
     pub fn sui_client(&self) -> &T {
         &self.sui_client
+    }
+
+    fn build_reqwest_client(config: &Config) -> Result<ReqwestClient, ClientError> {
+        config
+            .communication_config
+            .reqwest_config
+            .apply(ClientBuilder::new())
+            .build()
+            .map_err(ClientError::other)
+    }
+
+    /// Resets the request client inside the Walrus client.
+    ///
+    /// Useful to ensure that the client cannot communicate with storage nodes through connections
+    /// that are being kept alive.
+    #[cfg(feature = "test-utils")]
+    pub fn reset_reqwest_client(&mut self) -> Result<(), ClientError> {
+        self.reqwest_client = Self::build_reqwest_client(&self.config)?;
+        Ok(())
     }
 }
