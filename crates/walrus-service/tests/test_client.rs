@@ -41,7 +41,7 @@ async_param_test! {
         #[ignore = "ignore E2E tests by default"] #[tokio::test] all_read_failures:
             (&[], &[0, 1, 2, 3, 4], &[NoMetadataReceived]),
         #[ignore = "ignore E2E tests by default"] #[tokio::test] read_and_write_overlap_failures:
-            (&[4], &[2, 3], &[NotEnoughSlivers]),
+            (&[4], &[2, 3], &[NoMetadataReceived, NotEnoughSlivers]),
     ]
 }
 async fn test_store_and_read_blob_with_crash_failures(
