@@ -210,6 +210,7 @@ index_type!(
 
 index_type!(
     /// Represents the index of a sliver pair.
+    #[derive(Ord, PartialOrd)]
     SliverPairIndex("sliver-pair")
 );
 
@@ -306,6 +307,12 @@ impl ShardIndex {
             }
         };
         (start..end).map(ShardIndex)
+    }
+}
+
+impl From<ShardIndex> for usize {
+    fn from(value: ShardIndex) -> Self {
+        value.get().into()
     }
 }
 
@@ -413,6 +420,18 @@ impl TryFrom<Sliver> for SecondarySliver {
             Sliver::Primary(_) => Err(WrongSliverVariantError),
             Sliver::Secondary(sliver) => Ok(sliver),
         }
+    }
+}
+
+impl From<PrimarySliver> for Sliver {
+    fn from(value: PrimarySliver) -> Self {
+        Self::Primary(value)
+    }
+}
+
+impl From<SecondarySliver> for Sliver {
+    fn from(value: SecondarySliver) -> Self {
+        Self::Secondary(value)
     }
 }
 
