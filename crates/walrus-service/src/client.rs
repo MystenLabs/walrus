@@ -149,8 +149,8 @@ impl<T: ContractClient> Client<T> {
             .get_blob_encoder(blob)
             .map_err(ClientError::other)?
             .encode_with_metadata();
-        tracing::debug!(blob_id = %metadata.blob_id(),
-                        "computed blob pairs and metadata");
+        tracing::Span::current().record("blob_id", metadata.blob_id().to_string());
+        tracing::debug!("computed blob pairs and metadata");
 
         // Get the root hash of the blob.
         let blob_sui_object = self
@@ -469,9 +469,12 @@ impl<T> Client<T> {
             .await;
 
         let mut n_not_found = 0;
-        for NodeResult(_, weight, _, result) in requests.into_results() {
+        for NodeResult(_, weight, node, result) in requests.into_results() {
             match result {
-                Ok(metadata) => return Ok(metadata),
+                Ok(metadata) => {
+                    tracing::debug!(?node, "metadata received");
+                    return Ok(metadata);
+                }
                 Err(error) => {
                     if error.is_status_not_found() && {
                         n_not_found += weight;
