@@ -573,7 +573,7 @@ impl<T> Client<T> {
             .map_err(ClientError::other)
     }
 
-    /// Resets the request client inside the Walrus client.
+    /// Resets the reqwest client inside the Walrus client.
     ///
     /// Useful to ensure that the client cannot communicate with storage nodes through connections
     /// that are being kept alive.
