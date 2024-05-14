@@ -237,15 +237,28 @@ impl Client {
     /// The symbol is identified by the
     pub async fn get_and_verify_recovery_symbol<A: EncodingAxis>(
         &self,
-        blob_id: &BlobId,
+        metadata: &VerifiedBlobMetadataWithId,
+        encoding_config: &EncodingConfig,
         sliver_pair_at_remote: SliverPairIndex,
         intersecting_pair_index: SliverPairIndex,
     ) -> Result<RecoverySymbol<A, MerkleProof>, NodeError> {
-        let recovery_symbol = self
-            .get_recovery_symbol::<A>(blob_id, sliver_pair_at_remote, intersecting_pair_index)
+        let symbol = self
+            .get_recovery_symbol::<A>(
+                metadata.blob_id(),
+                sliver_pair_at_remote,
+                intersecting_pair_index,
+            )
             .await?;
-        // TODO(jsmith): verify retrieved symbol
-        Ok(recovery_symbol)
+
+        symbol
+            .verify(
+                metadata.as_ref(),
+                encoding_config,
+                intersecting_pair_index.to_sliver_index::<A>(encoding_config.n_shards()),
+            )
+            .map_err(NodeError::other)?;
+
+        Ok(symbol)
     }
 
     /// Stores the metadata on the node.
