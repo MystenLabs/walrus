@@ -154,7 +154,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             .await
     }
 
-    #[tracing::instrument(level = Level::ERROR, skip_all, fields(blob_id = %blob_id))]
+    #[tracing::instrument(level = Level::ERROR, skip_all, fields(%blob_id))]
     async fn retrieve_metadata(
         State(state): State<Arc<S>>,
         Path(BlobIdString(blob_id)): Path<BlobIdString>,
@@ -175,7 +175,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
         }
     }
 
-    #[tracing::instrument(level = Level::ERROR, skip_all, fields(blob_id = %blob_id))]
+    #[tracing::instrument(level = Level::ERROR, skip_all, fields(%blob_id))]
     async fn store_metadata(
         State(state): State<Arc<S>>,
         Path(BlobIdString(blob_id)): Path<BlobIdString>,
@@ -225,7 +225,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
     #[tracing::instrument(
         level = Level::ERROR,
         skip_all,
-        fields(blob_id = %blob_id, target = %sliver_pair_index, sliver_type = %sliver_type))
+        fields(%blob_id, target = %sliver_pair_index, %sliver_type))
     ]
     async fn retrieve_sliver(
         State(state): State<Arc<S>>,
@@ -266,7 +266,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
     /// The `sliver_pair_index` is the index of the sliver pair that we want to access.
     /// The `target_pair_index` is the index of the target sliver.
     #[tracing::instrument(level = Level::ERROR, skip_all, fields(
-        blob_id = %blob_id,
+        %blob_id,
         source = %sliver_pair_index,
         target = %target_pair_index,
         target_type = %sliver_type

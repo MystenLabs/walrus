@@ -165,7 +165,8 @@ impl<'a> BlobEncoder<'a> {
     /// notably on 32-bit architectures. As there is an expansion factor of approximately 4.5, blobs
     /// larger than roughly 800 MiB cannot be encoded on 32-bit architectures.
     pub fn encode_with_metadata(&self) -> (Vec<SliverPair>, VerifiedBlobMetadataWithId) {
-        tracing::debug!(parent: &self.span, "starting to encode blob with metadata");
+        let _guard = self.span.enter();
+        tracing::debug!("starting to encode blob with metadata");
         let mut expanded_matrix = self.get_expanded_matrix();
         let metadata = expanded_matrix.get_metadata();
 
@@ -178,7 +179,6 @@ impl<'a> BlobEncoder<'a> {
         // Then consume the matrix to get the primary slivers.
         expanded_matrix.write_primary_slivers(&mut sliver_pairs);
         tracing::debug!(
-            parent: &self.span,
             blob_id = %metadata.blob_id(),
             "successfully encoded blob"
         );
@@ -491,7 +491,8 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
         S: IntoIterator<Item = Sliver<T>>,
         T: EncodingAxis,
     {
-        tracing::debug!(parent: &self.span, axis = T::NAME, "starting to decode");
+        let _guard = self.span.enter();
+        tracing::debug!(axis = T::NAME, "starting to decode");
         // Depending on the decoding axis, this represents the message matrix's columns (primary)
         // or rows (secondary).
         let mut columns_or_rows = Vec::with_capacity(self.decoders.len());
@@ -526,13 +527,13 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
             }
             // Stop decoding as soon as we are done.
             if decoding_successful {
-                tracing::debug!(parent: &self.span, "decoding finished successfully");
+                tracing::debug!("decoding finished successfully");
                 break;
             }
         }
 
         if !decoding_successful {
-            tracing::debug!(parent: &self.span, "decoding unsuccessful");
+            tracing::debug!("decoding unsuccessful");
             return None;
         }
 
@@ -559,7 +560,7 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
         };
 
         blob.truncate(self.blob_size.get());
-        tracing::debug!(parent: &self.span, "returning truncated decoded blob");
+        tracing::debug!("returning truncated decoded blob");
         Some(blob)
     }
 
