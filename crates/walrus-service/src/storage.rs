@@ -167,7 +167,8 @@ impl Storage {
         blob_id: &BlobId,
         metadata: &BlobMetadata,
     ) -> Result<(), TypedStoreError> {
-        self.metadata.insert(blob_id, metadata)
+        self.metadata.insert(blob_id, metadata)?;
+        self.merge_update_blob_info(blob_id, BlobInfoMergeOperand::MarkMetadataStored)
     }
 
     /// Get the blob info for `blob_id`
@@ -205,6 +206,14 @@ impl Storage {
     pub fn update_event_cursor(&self, new_cursor: &EventID) -> Result<(), TypedStoreError> {
         self.event_cursor
             .insert(&Self::EVENT_CURSOR_KEY.to_string(), new_cursor)
+    }
+
+    /// Returns true if the metadata for the specified blob is stored.
+    pub fn has_metadata(&self, blob_id: &BlobId) -> Result<bool, TypedStoreError> {
+        Ok(self
+            .get_blob_info(blob_id)?
+            .map(|info| info.is_metadata_stored)
+            .unwrap_or_default())
     }
 
     /// Gets the metadata for a given [`BlobId`] or None.
@@ -328,10 +337,7 @@ pub(crate) mod tests {
     use walrus_test_utils::{param_test, Result as TestResult, WithTempDir};
 
     use super::*;
-    use crate::{
-        storage::blob_info::{RedStuffStorageStatus, StorageStatus},
-        test_utils::empty_storage_with_shards,
-    };
+    use crate::test_utils::empty_storage_with_shards;
 
     type StorageSpec<'a> = &'a [(ShardIndex, Vec<(BlobId, WhichSlivers)>)];
 
@@ -445,22 +451,7 @@ pub(crate) mod tests {
         let state0 = BlobInfo::new(42, BlobCertificationStatus::Registered);
         let state1 = BlobInfo {
             is_metadata_stored: true,
-            storage_status: StorageStatus::RedStuff(RedStuffStorageStatus::default()),
             ..state0
-        };
-        let state2 = BlobInfo {
-            storage_status: StorageStatus::RedStuff(RedStuffStorageStatus {
-                primary: false,
-                secondary: true,
-            }),
-            ..state1
-        };
-        let state3 = BlobInfo {
-            storage_status: StorageStatus::RedStuff(RedStuffStorageStatus {
-                primary: true,
-                secondary: true,
-            }),
-            ..state2
         };
 
         storage.merge_update_blob_info(
@@ -473,20 +464,7 @@ pub(crate) mod tests {
         assert_eq!(storage.get_blob_info(&blob_id)?, Some(state0));
         storage.merge_update_blob_info(&blob_id, BlobInfoMergeOperand::MarkMetadataStored)?;
         assert_eq!(storage.get_blob_info(&blob_id)?, Some(state1));
-        storage.merge_update_blob_info(
-            &blob_id,
-            BlobInfoMergeOperand::MarkEncodedDataStored(
-                blob_info::StorageStatusMergeOperand::RedStuff(SliverType::Secondary),
-            ),
-        )?;
-        assert_eq!(storage.get_blob_info(&blob_id)?, Some(state2));
-        storage.merge_update_blob_info(
-            &blob_id,
-            BlobInfoMergeOperand::MarkEncodedDataStored(
-                blob_info::StorageStatusMergeOperand::RedStuff(SliverType::Primary),
-            ),
-        )?;
-        assert_eq!(storage.get_blob_info(&blob_id)?, Some(state3));
+
         Ok(())
     }
 
