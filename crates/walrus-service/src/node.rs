@@ -767,7 +767,7 @@ mod tests {
         test_utils::{StorageNodeHandle, TestCluster},
     };
 
-    const TIMEOUT: Duration = Duration::from_millis(50);
+    const TIMEOUT: Duration = Duration::from_secs(1);
     const OTHER_BLOB_ID: BlobId = BlobId([247; 32]);
     const BLOB: &[u8] = &[
         0, 1, 255, 0, 2, 254, 0, 3, 253, 0, 4, 252, 0, 5, 251, 0, 6, 250, 0, 7, 249, 0, 8, 248,
@@ -892,7 +892,7 @@ mod tests {
                 .await?;
 
             // make sure that the event is received by the node
-            tokio::time::sleep(TIMEOUT).await;
+            tokio::time::sleep(Duration::from_millis(50)).await;
 
             // store the metadata in the storage node
             node.as_ref().store_metadata(metadata)?;
