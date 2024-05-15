@@ -170,7 +170,7 @@ pub async fn deploy_walrus_contract(
     let (pkg_id, committee_cap) =
         publish_package(&mut admin_wallet, contract_path, gas_budget).await?;
     let committee = Committee::new(sui_storage_nodes, 0)?;
-    let system_params = SystemParameters::new_with_sui(committee, 1_000_000_000_000, 10);
+    let system_params = SystemParameters::new_with_sui(committee, 1_000_000, 10);
     let system_object = create_system_object(
         &mut admin_wallet,
         pkg_id,
