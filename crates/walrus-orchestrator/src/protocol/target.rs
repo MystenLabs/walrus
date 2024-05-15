@@ -15,7 +15,7 @@ use walrus_service::{
     testbed::{
         deploy_walrus_contract,
         even_shards_allocation,
-        get_metrics_address,
+        format_metrics_address,
         node_config_name_prefix,
     },
 };
@@ -295,7 +295,7 @@ impl ProtocolMetrics for TargetProtocol {
             .map(|(i, instance)| {
                 let metrics_port = parameters.node_parameters.metrics_port;
                 let metrics_address =
-                    get_metrics_address(instance.main_ip, metrics_port, Some(i as u16));
+                    format_metrics_address(instance.main_ip, metrics_port, Some(i as u16));
                 let metrics_path = format!("{metrics_address}/metrics",);
                 (instance, metrics_path)
             })

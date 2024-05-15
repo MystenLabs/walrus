@@ -40,7 +40,7 @@ pub fn node_config_name_prefix(node_index: u16, committee_size: NonZeroU16) -> S
     format!("dryrun-node-{node_index:00$}", width)
 }
 
-/// Generate deterministic keypairs for the benchmark purposes.
+/// Generates deterministic keypairs for the benchmark purposes.
 pub fn benchmark_keypairs(n: usize) -> Vec<ProtocolKeyPair> {
     let mut rng = StdRng::seed_from_u64(0);
     (0..n)
@@ -48,30 +48,28 @@ pub fn benchmark_keypairs(n: usize) -> Vec<ProtocolKeyPair> {
         .collect()
 }
 
-/// Get the metrics address for a node. If the node index is provided, the port is adjusted
+/// Formats the metrics address for a node. If the node index is provided, the port is adjusted
 /// to ensure uniqueness across nodes.
-pub fn get_metrics_address(ip: Ipv4Addr, port: u16, node_index: Option<u16>) -> SocketAddr {
+pub fn format_metrics_address(ip: Ipv4Addr, port: u16, node_index: Option<u16>) -> SocketAddr {
     let port = port + node_index.unwrap_or(0);
     SocketAddr::new(IpAddr::V4(ip), port)
 }
 
-/// Get the REST API address for a node. If both the node index and the committee size is provided,
-/// the port is adjusted to ensure uniqueness across nodes.
-pub fn get_rest_api_address(
+/// Formats the REST API address for a node. If both the node index and the committee size is
+/// provided, the port is adjusted to ensure uniqueness across nodes.
+pub fn format_rest_api_address(
     ip: Ipv4Addr,
-    port: u16,
+    mut port: u16,
     node_index: Option<u16>,
     committee_size: Option<u16>,
 ) -> SocketAddr {
-    let port = if let (Some(node_index), Some(committee_size)) = (node_index, committee_size) {
-        port + committee_size + node_index
-    } else {
-        port
-    };
+    if let (Some(node_index), Some(committee_size)) = (node_index, committee_size) {
+        port += committee_size + node_index
+    }
     SocketAddr::new(IpAddr::V4(ip), port)
 }
 
-/// Generate deterministic and even shard allocation for the benchmark purposes.
+/// Generates deterministic and even shard allocation for the benchmark purposes.
 pub fn even_shards_allocation(
     n_shards: NonZeroU16,
     committee_size: NonZeroU16,
@@ -79,7 +77,7 @@ pub fn even_shards_allocation(
     let shards_per_node = n_shards.get() / committee_size.get();
     let remainder_shards = n_shards.get() % committee_size.get();
     let mut start = 0;
-    let mut shards_information = Vec::with_capacity(committee_size.get() as usize);
+    let mut shards_information = Vec::new();
     for i in 0..committee_size.get() {
         let end = if i < remainder_shards {
             start + shards_per_node + 1
@@ -130,9 +128,9 @@ pub async fn deploy_walrus_contract(
         let name = node_config_name_prefix(node_index, NonZeroU16::new(committee_size).unwrap());
         let public_key = keypair.as_ref().public().clone();
         let rest_api_address = if collocated {
-            get_rest_api_address(ip, rest_api_port, Some(node_index), Some(committee_size))
+            format_rest_api_address(ip, rest_api_port, Some(node_index), Some(committee_size))
         } else {
-            get_rest_api_address(ip, rest_api_port, None, None)
+            format_rest_api_address(ip, rest_api_port, None, None)
         };
 
         sui_storage_nodes.push(SuiStorageNode {
@@ -254,13 +252,13 @@ pub fn create_storage_node_configs(
 
         let (rest_api_address, metrics_address) = if collocated {
             (
-                get_rest_api_address(ip, rest_api_port, Some(node_index), Some(committee_size)),
-                get_metrics_address(ip, metrics_port, Some(node_index)),
+                format_rest_api_address(ip, rest_api_port, Some(node_index), Some(committee_size)),
+                format_metrics_address(ip, metrics_port, Some(node_index)),
             )
         } else {
             (
-                get_rest_api_address(ip, rest_api_port, None, None),
-                get_metrics_address(ip, metrics_port, None),
+                format_rest_api_address(ip, rest_api_port, None, None),
+                format_metrics_address(ip, metrics_port, None),
             )
         };
 
