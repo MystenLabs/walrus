@@ -475,9 +475,9 @@ where
 pub fn min_symbols_for_recovery<T: EncodingAxis>(n_shards: NonZeroU16) -> u16 {
     let max_n_faulty = crate::bft::max_n_faulty(n_shards);
     if T::IS_PRIMARY {
-        n_shards.get() - 2 * max_n_faulty
+        2 * max_n_faulty + 1
     } else {
-        n_shards.get() - max_n_faulty
+        max_n_faulty + 1
     }
 }
 

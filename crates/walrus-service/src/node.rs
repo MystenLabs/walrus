@@ -767,6 +767,7 @@ mod tests {
         test_utils::{StorageNodeHandle, TestCluster},
     };
 
+    const TIMEOUT: Duration = Duration::from_millis(50);
     const OTHER_BLOB_ID: BlobId = BlobId([247; 32]);
     const BLOB: &[u8] = &[
         0, 1, 255, 0, 2, 254, 0, 3, 253, 0, 4, 252, 0, 5, 251, 0, 6, 250, 0, 7, 249, 0, 8, 248,
@@ -863,7 +864,6 @@ mod tests {
     }
 
     mod inconsistency_proof {
-        use std::time::Duration;
 
         use fastcrypto::traits::VerifyingKey;
         use walrus_core::{
@@ -892,7 +892,7 @@ mod tests {
                 .await?;
 
             // make sure that the event is received by the node
-            tokio::time::sleep(Duration::from_millis(50)).await;
+            tokio::time::sleep(TIMEOUT).await;
 
             // store the metadata in the storage node
             node.as_ref().store_metadata(metadata)?;
@@ -1101,7 +1101,7 @@ mod tests {
 
         events.send(BlobCertified::for_testing(*blob.blob_id()).into())?;
 
-        let synced_metadata = retry_until_success_or_timeout(Duration::from_millis(50), || {
+        let synced_metadata = retry_until_success_or_timeout(TIMEOUT, || {
             node_client.get_and_verify_metadata(blob.blob_id(), &blob.config)
         })
         .await
@@ -1138,7 +1138,7 @@ mod tests {
 
         events.send(BlobCertified::for_testing(*blob.blob_id()).into())?;
 
-        let synced_sliver = retry_until_success_or_timeout(Duration::from_millis(50), || {
+        let synced_sliver = retry_until_success_or_timeout(TIMEOUT, || {
             node_client.get_sliver_by_type(blob.blob_id(), pair_to_sync.index(), sliver_type)
         })
         .await
@@ -1168,10 +1168,8 @@ mod tests {
         events.send(BlobCertified::for_testing(*blob.blob_id()).into())?;
 
         for shard in own_shards {
-            let synced_sliver_pair = SliverPair {
-                primary: expect_sliver_stored::<Primary>(&blob, node_client, shard).await,
-                secondary: expect_sliver_stored::<Secondary>(&blob, node_client, shard).await,
-            };
+            let synced_sliver_pair =
+                expect_sliver_pair_stored_before_timeout(&blob, node_client, shard, TIMEOUT).await;
             let expected = blob.assigned_sliver_pair(shard);
 
             assert_eq!(
@@ -1196,11 +1194,9 @@ mod tests {
 
         events.send(BlobCertified::for_testing(*blob.blob_id()).into())?;
 
-        let synced_sliver_pair = SliverPair {
-            primary: expect_sliver_stored::<Primary>(&blob, node_client, shard_under_test).await,
-            secondary: expect_sliver_stored::<Secondary>(&blob, node_client, shard_under_test)
-                .await,
-        };
+        let synced_sliver_pair =
+            expect_sliver_pair_stored_before_timeout(&blob, node_client, shard_under_test, TIMEOUT)
+                .await;
         let expected = blob.assigned_sliver_pair(shard_under_test);
 
         assert_eq!(synced_sliver_pair, *expected,);
@@ -1233,7 +1229,13 @@ mod tests {
 
             for shard in shards.iter() {
                 let expected = blob.assigned_sliver_pair(shard.into());
-                let synced = expect_sliver_pair_stored(&blob, node_client, shard.into()).await;
+                let synced = expect_sliver_pair_stored_before_timeout(
+                    &blob,
+                    node_client,
+                    shard.into(),
+                    Duration::from_millis(50),
+                )
+                .await;
 
                 assert_eq!(synced, *expected,);
             }
@@ -1243,10 +1245,10 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
+    #[ignore = "syncing all symbols takes several seconds"]
     async fn recovers_sliver_from_a_small_set() -> TestResult {
-        let shards: &[&[u16]] = &[&[0], &[1, 2, 3, 4, 5, 6]];
-        let store_secondary_at: Vec<_> = ShardIndex::range(0..=3).collect();
+        let shards: &[&[u16]] = &[&[0], &(1..=6).collect::<Vec<_>>()];
+        let store_secondary_at: Vec<_> = ShardIndex::range(0..5).collect();
 
         // Store only a few primary slivers.
         let (cluster, events, blob) =
@@ -1262,7 +1264,13 @@ mod tests {
 
             for shard in shards.iter() {
                 let expected = blob.assigned_sliver_pair(shard.into());
-                let synced = expect_sliver_pair_stored(&blob, node_client, shard.into()).await;
+                let synced = expect_sliver_pair_stored_before_timeout(
+                    &blob,
+                    node_client,
+                    shard.into(),
+                    Duration::from_secs(5),
+                )
+                .await;
 
                 assert_eq!(synced, *expected,);
             }
@@ -1271,23 +1279,27 @@ mod tests {
         Ok(())
     }
 
-    async fn expect_sliver_pair_stored(
+    async fn expect_sliver_pair_stored_before_timeout(
         blob: &EncodedBlob,
         node_client: &Client,
         shard: ShardIndex,
+        timeout: Duration,
     ) -> SliverPair {
-        SliverPair {
-            primary: expect_sliver_stored::<Primary>(blob, node_client, shard).await,
-            secondary: expect_sliver_stored::<Secondary>(blob, node_client, shard).await,
-        }
+        let (primary, secondary) = tokio::join!(
+            expect_sliver_stored_before_timeout::<Primary>(blob, node_client, shard, timeout,),
+            expect_sliver_stored_before_timeout::<Secondary>(blob, node_client, shard, timeout,)
+        );
+
+        SliverPair { primary, secondary }
     }
 
-    async fn expect_sliver_stored<A: EncodingAxis>(
+    async fn expect_sliver_stored_before_timeout<A: EncodingAxis>(
         blob: &EncodedBlob,
         node_client: &Client,
         shard: ShardIndex,
+        timeout: Duration,
     ) -> encoding::Sliver<A> {
-        retry_until_success_or_timeout(Duration::from_millis(50), || {
+        retry_until_success_or_timeout(timeout, || {
             let pair_to_sync = blob.assigned_sliver_pair(shard);
             node_client.get_sliver::<A>(blob.blob_id(), pair_to_sync.index())
         })

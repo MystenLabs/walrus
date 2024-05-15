@@ -366,7 +366,10 @@ where
             );
 
             match result {
-                Ok(SliverOrInconsistencyProof::Sliver(sliver)) => return Ok(sliver),
+                Ok(SliverOrInconsistencyProof::Sliver(sliver)) => {
+                    tracing::debug!("successfully recovered sliver");
+                    return Ok(sliver);
+                }
                 Ok(SliverOrInconsistencyProof::InconsistencyProof(proof)) => return Err(proof),
                 Err(SliverRecoveryOrVerificationError::RecoveryError(err)) => match err {
                     encoding::SliverRecoveryError::BlobSizeTooLarge(_) => {
