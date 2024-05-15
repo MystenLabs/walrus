@@ -104,13 +104,13 @@ if ! $existing; then
     # Deploy system contract
     echo Deploying system contract...
     cargo run --bin walrus-node -- deploy-system-contract \
-    --working-dir $working_dir --sui-network $network --n-shards $shards --ips $ips
+    --working-dir $working_dir --sui-network $network --n-shards $shards --ips $ips --local-testbed
 
     # Generate configs
     echo Generating configuration...
     cargo run --bin walrus-node -- generate-dry-run-configs \
     --working-dir $working_dir --sui-network $network --sui-config-path $sui_config_path \
-    --ips $ips
+    --ips $ips --local-testbed
 fi
 
 i=0
