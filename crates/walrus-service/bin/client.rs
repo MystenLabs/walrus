@@ -50,7 +50,7 @@ struct Args {
     #[clap(short, long, default_value = None)]
     wallet: Option<PathBuf>,
     /// The gas budget for transactions.
-    #[clap(short, long, default_value_t = 1_000_000_000)]
+    #[clap(short, long, default_value_t = 500_000_000)]
     gas_budget: u64,
     #[command(subcommand)]
     command: Commands,
