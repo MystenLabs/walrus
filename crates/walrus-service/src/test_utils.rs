@@ -426,16 +426,22 @@ impl<T> StubCommitteeServiceFactory<T> {
 
 #[async_trait]
 impl CommitteeServiceFactory for StubCommitteeServiceFactory<StubCommitteeService> {
-    async fn new_for_epoch(&self) -> Result<Box<dyn CommitteeService>, anyhow::Error> {
+    async fn new_for_epoch(
+        &self,
+        _: Option<&PublicKey>,
+    ) -> Result<Box<dyn CommitteeService>, anyhow::Error> {
         Ok(Box::new(StubCommitteeService(self.committee.clone())))
     }
 }
 
 #[async_trait]
 impl CommitteeServiceFactory for StubCommitteeServiceFactory<NodeCommitteeService> {
-    async fn new_for_epoch(&self) -> Result<Box<dyn CommitteeService>, anyhow::Error> {
+    async fn new_for_epoch(
+        &self,
+        local_identity: Option<&PublicKey>,
+    ) -> Result<Box<dyn CommitteeService>, anyhow::Error> {
         Ok(Box::new(
-            NodeCommitteeService::new(self.committee.clone()).await?,
+            NodeCommitteeService::new(self.committee.clone(), local_identity).await?,
         ))
     }
 }
@@ -455,8 +461,6 @@ impl CommitteeService for StubCommitteeService {
     fn get_shard_count(&self) -> NonZeroU16 {
         self.0.n_shards()
     }
-
-    fn exclude_member(&mut self, _identity: &PublicKey) {}
 
     async fn get_and_verify_metadata(
         &self,
