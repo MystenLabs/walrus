@@ -7,7 +7,7 @@ use std::{net::SocketAddr, sync::Arc};
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{Request, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, put},
     Json,
@@ -16,7 +16,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use tokio_util::sync::CancellationToken;
-use tower_http::trace::TraceLayer;
+use tower_http::trace::{MakeSpan, TraceLayer};
 use tracing::Level;
 use walrus_core::{
     messages::StorageConfirmation,
@@ -146,7 +146,9 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             .route(RECOVERY_ENDPOINT, get(Self::retrieve_recovery_symbol))
             .route(INCONSISTENCY_PROOF_ENDPOINT, put(Self::inconsistency_proof))
             .with_state(self.state.clone())
-            .layer(TraceLayer::new_for_http());
+            .layer(TraceLayer::new_for_http().make_span_with(RestApiSpans {
+                address: *network_address,
+            }));
 
         let listener = tokio::net::TcpListener::bind(network_address).await?;
         axum::serve(listener, app)
@@ -286,12 +288,16 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             sliver_type,
             target_pair_index,
         ) {
-            Ok(symbol) => {
-                tracing::debug!("successfully retrieved recovery symbol");
+            Ok(walrus_core::RecoverySymbol::Primary(symbol)) => {
+                tracing::debug!(%blob_id, "retrieved recovery symbol");
                 (StatusCode::OK, Bcs(symbol)).into_response()
             }
-            Err(message) => {
-                tracing::debug!(%message, "symbol not found");
+            Ok(walrus_core::RecoverySymbol::Secondary(symbol)) => {
+                tracing::debug!(%blob_id, "retrieved recovery symbol");
+                (StatusCode::OK, Bcs(symbol)).into_response()
+            }
+            Err(err) => {
+                tracing::debug!(%err, "symbol not found");
                 ServiceResponse::<()>::not_found().into_response()
             }
         }
@@ -389,6 +395,17 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             }
         }
         .into_response()
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RestApiSpans {
+    address: SocketAddr,
+}
+
+impl<B> MakeSpan<B> for RestApiSpans {
+    fn make_span(&mut self, _: &Request<B>) -> tracing::Span {
+        tracing::info_span!("rest-api", address = %self.address)
     }
 }
 
@@ -803,46 +820,37 @@ mod test {
     #[tokio::test]
     async fn get_decoding_symbol() {
         let (config, _handle) = start_rest_api_with_test_config().await;
+        let client = storage_node_client(config.as_ref());
 
         let blob_id = walrus_core::test_utils::random_blob_id();
-        let sliver_pair_id = 0; // Triggers an valid response
-        let index = 0;
-        let path = RECOVERY_ENDPOINT
-            .replace(":blobId", &blob_id.to_string())
-            .replace(":sliverPairindex", &sliver_pair_id.to_string())
-            .replace(":sliverType", "primary")
-            .replace(":targetPairIndex", &index.to_string());
-        let url = format!("http://{}{path}", config.inner.rest_api_address);
-        // TODO(lef): Extract the path creation into a function with optional arguments
+        let sliver_pair_at_remote = SliverPairIndex(0); // Triggers an valid response
+        let intersecting_pair_index = SliverPairIndex(0);
 
-        let client = storage_node_client(config.as_ref()).into_inner();
-        let res = client.get(url).send().await.unwrap();
-        assert_eq!(res.status(), StatusCode::OK);
-
-        let bytes = res
-            .bytes()
+        let _symbol = client
+            .get_recovery_symbol::<Primary>(
+                &blob_id,
+                sliver_pair_at_remote,
+                intersecting_pair_index,
+            )
             .await
-            .expect("must be able to retrieve the body as binary data");
-
-        let _symbol: RecoverySymbol<MerkleProof> =
-            bcs::from_bytes(&bytes).expect("symbol should successfully decode");
+            .expect("request should succeed");
     }
 
     #[tokio::test]
     async fn decoding_symbol_not_found() {
         let (config, _handle) = start_rest_api_with_test_config().await;
+        let client = storage_node_client(config.as_ref());
 
+        let sliver_pair_id = SliverPairIndex(1); // Triggers a not found response
         let blob_id = walrus_core::test_utils::random_blob_id();
+        let Err(err) = client
+            .get_recovery_symbol::<Primary>(&blob_id, sliver_pair_id, SliverPairIndex(0))
+            .await
+        else {
+            panic!("must return an error for pair-id 1");
+        };
+        dbg!(&err);
 
-        let sliver_pair_id = 1; // Triggers a not found response
-        let path = RECOVERY_ENDPOINT
-            .replace(":blobId", &blob_id.to_string())
-            .replace(":sliverPairindex", &sliver_pair_id.to_string())
-            .replace(":sliverType", "primary")
-            .replace(":targetPairIndex", "0");
-        let url = format!("http://{}{path}", config.inner.rest_api_address);
-        let client = storage_node_client(config.as_ref()).into_inner();
-        let res = client.get(url).send().await.unwrap();
-        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+        assert_eq!(err.http_status_code(), Some(StatusCode::NOT_FOUND));
     }
 }
