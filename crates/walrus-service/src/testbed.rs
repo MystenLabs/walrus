@@ -4,7 +4,6 @@
 //! Facilities to deploy a demo testbed.
 
 use std::{
-    collections::HashSet,
     fs,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     num::NonZeroU16,
@@ -101,17 +100,13 @@ pub async fn deploy_walrus_contract(
     shards_information: Vec<Vec<ShardIndex>>,
     ips: Vec<Ipv4Addr>,
     rest_api_port: u16,
+    local_testbed: bool,
     event_polling_interval: Duration,
 ) -> anyhow::Result<SuiConfig> {
     assert!(
         shards_information.len() == ips.len(),
         "Mismatch in the number of shards and IPs"
     );
-
-    // Check whether the testbed collocates the storage nodes on the same machine
-    // (that is, local testbed).
-    let ip_set = ips.iter().collect::<HashSet<_>>();
-    let collocated = ip_set.len() != ips.len();
 
     // Build one Sui storage node config for each storage node.
     let committee_size = ips.len() as u16;
@@ -127,7 +122,7 @@ pub async fn deploy_walrus_contract(
         let node_index = i as u16;
         let name = node_config_name_prefix(node_index, NonZeroU16::new(committee_size).unwrap());
         let public_key = keypair.as_ref().public().clone();
-        let rest_api_address = if collocated {
+        let rest_api_address = if local_testbed {
             format_rest_api_address(ip, rest_api_port, Some(node_index), Some(committee_size))
         } else {
             format_rest_api_address(ip, rest_api_port, None, None)
@@ -236,12 +231,8 @@ pub fn create_storage_node_configs(
     ips: Vec<Ipv4Addr>,
     rest_api_port: u16,
     metrics_port: u16,
+    local_testbed: bool,
 ) -> Vec<StorageNodeConfig> {
-    // Check whether the testbed collocates the storage nodes on the same machine
-    // (that is, local testbed).
-    let ip_set = ips.iter().collect::<HashSet<_>>();
-    let collocated = ip_set.len() != ips.len();
-
     // Build one Sui storage node config for each storage node.
     let committee_size = ips.len() as u16;
     let keypairs = benchmark_keypairs(committee_size as usize);
@@ -250,7 +241,7 @@ pub fn create_storage_node_configs(
         let node_index = i as u16;
         let name = node_config_name_prefix(node_index, NonZeroU16::new(committee_size).unwrap());
 
-        let (rest_api_address, metrics_address) = if collocated {
+        let (rest_api_address, metrics_address) = if local_testbed {
             (
                 format_rest_api_address(ip, rest_api_port, Some(node_index), Some(committee_size)),
                 format_metrics_address(ip, metrics_port, Some(node_index)),

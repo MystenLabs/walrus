@@ -174,6 +174,7 @@ impl ProtocolCommands for TargetProtocol {
             shards,
             ips.clone(),
             parameters.node_parameters.rest_api_port,
+            false, // Indicates this is not a local testbed
             parameters.node_parameters.event_polling_interval,
         )
         .await

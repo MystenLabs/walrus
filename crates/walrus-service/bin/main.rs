@@ -115,6 +115,9 @@ struct DeploySystemContractArgs {
     /// The port on which the REST API of the storage nodes will listen.
     #[clap(long, default_value_t = REST_API_PORT)]
     rest_api_port: u16,
+    /// Whether to deploy a local testbed with all nodes on the same machine.
+    #[clap(long, action, default_value_t = false)]
+    local_testbed: bool,
     /// The interval with which events are polled, in milliseconds.
     #[clap(long,  default_value_t = POLLING_INTERVAL_MS)]
     event_polling_interval: u64,
@@ -140,6 +143,9 @@ struct GenerateDryRunConfigsArgs {
     /// The port on which the metrics server of the storage nodes will listen.
     #[clap(long, default_value_t = METRICS_PORT)]
     metrics_port: u16,
+    /// Whether to deploy a local testbed with all nodes on the same machine.
+    #[clap(long, action, default_value_t = false)]
+    local_testbed: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -182,6 +188,7 @@ mod commands {
             n_shards,
             ips,
             rest_api_port,
+            local_testbed,
             event_polling_interval,
         }: DeploySystemContractArgs,
     ) -> anyhow::Result<()> {
@@ -202,6 +209,7 @@ mod commands {
             shards_information,
             ips,
             rest_api_port,
+            local_testbed,
             Duration::from_millis(event_polling_interval),
         )
         .await
@@ -224,6 +232,7 @@ mod commands {
             ips,
             rest_api_port,
             metrics_port,
+            local_testbed,
         }: GenerateDryRunConfigsArgs,
     ) -> anyhow::Result<()> {
         tracing_subscriber::fmt::init();
@@ -252,6 +261,7 @@ mod commands {
             ips,
             rest_api_port,
             metrics_port,
+            local_testbed,
         );
         for (i, storage_node_config) in storage_node_configs.into_iter().enumerate() {
             let serialized_storage_node_config = serde_yaml::to_string(&storage_node_config)
