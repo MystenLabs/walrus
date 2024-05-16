@@ -15,7 +15,8 @@ trim_trailing_whitespace = true
 
 [*.md]
 indent_size = unset
-max_line_length = 150
+max_line_length = unset
+trim_trailing_whitespace = unset
 
 [{*.yml,*.yaml,*.toml}]
 indent_size = 2

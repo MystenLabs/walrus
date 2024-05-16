@@ -4,7 +4,7 @@ To make communication as clear and efficient as possible, we make sure to use a 
 
 | Approved name | Description |
 | --- | --- |
-| storage node (SN) | entity storing data for Walrus; it has an associated staking pool and at any time holds one or several shards |
+| storage node (SN) | entity storing data for Walrus; holds one or several shards |
 | blob | single unstructured data object stored on Walrus |
 | shard | (disjoint) subset of erasure-encoded data of all blobs; at every point in time, a shard is assigned to and stored on a single SN |
 | sliver | erasure-encoded data of one shard corresponding to a single blob for one of the two encodings; this contains several erasure-encoded symbols of that blob but not the blob metadata  |
@@ -22,6 +22,6 @@ To make communication as clear and efficient as possible, we make sure to use a 
 | inconsistency proof | set of several recovery symbols with their Merkle proofs such that the decoded sliver does not match the corresponding hash; this proves an incorrect/inconsistent encoding by the client |
 | inconsistency certificate | an aggregated signature from 2/3 of storage nodes (weighted by their number of shards) that they have seen and stored an inconsistency proof for a blob ID |
 | storage committee | the set of storage nodes for a storage epoch, including meta-data about the shards they are responsible for and other meta-data. |  |
-| members | a storage node that is part of a committee at some epoch. |
+| member | a storage node that is part of a committee at some epoch. |
 | storage epoch | the epoch for Warus as distinct to the epoch for Sui |
 | availability period | the period specified in storage epochs for which a blob is certified to be available on Walrus. |

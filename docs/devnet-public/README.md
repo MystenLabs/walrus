@@ -12,9 +12,9 @@ availability and reliability even in the presence of Byzantine faults.
   time.
 
 - **Cost Efficiency**: By utilizing advanced error correction coding, Walrus maintains storage
-  costs at approximately five times the size of the stored blobs. And encoded parts of each blob
+  costs at approximately five times the size of the stored blobs and encoded parts of each blob
   are stored on each storage node. This is significantly more cost-effective compared to
-  traditional full replication methods. And much more robust against failures compared to
+  traditional full replication methods and much more robust against failures compared to
   protocols that only store each blob on a subset of storage nodes.
 
 - **Integration with Sui Blockchain**: Walrus leverages the Sui chain for coordination, attesting
@@ -40,7 +40,7 @@ The following design documents are available:
   properties and architecture of the Walrus system.
 - [Walrus Glossary](./glossary.md) defines key terms used throughout the project.
 
-Walrus is committed to providing a reliable and cost-effective solution for large-scale blob
+Walrus is architected to provide a reliable and cost-effective solution for large-scale blob
 storage, making it an ideal choice for applications requiring decentralized, affordable, durable,
 and accessible data storage.
 

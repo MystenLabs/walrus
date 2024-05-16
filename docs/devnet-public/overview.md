@@ -35,7 +35,8 @@ of blobs to get rewards for proving availability and assisting recovery. We will
 topics in later documents. We also provide details of the encoding scheme in a separate document.
 
 There are a few things that Walrus explicitly is not. Walrus does not reimplement a Content
-Distribution Network (CDN) that might be geo-replicated or with a 10s of ms latency. Traditional
+Distribution Network (CDN) that might be geo-replicated or have less than tens of milliseconds
+of latency. Traditional
 CDNs should be usable and compatible with Walrus caches. Walrus does not re-implement a full
 smart contracts platform with consensus or execution. It relies on Sui smart contracts when
 necessary, to manage Walrus resources and processes including payments, storage epochs etc.
@@ -113,15 +114,13 @@ permissionless way:
 
 Neither caches, publishers or end-users are trusted components of the system, and they may deviate
 from the protocol arbitrarily. However, some of the security properties of Walrus only hold for
-honest end-users that use honest intermediaries (caches and publishers). We provide enough means
-for end-users to audit the correct operation of both caches and publishers, but such audits may
-be too expensive to perform constantly (particularly when intermediaries are used to get a web2
-experience).
+honest end-users that use honest intermediaries (caches and publishers). We provide means
+for end-users to audit the correct operation of both caches and publishers.
 
 ## Walrus assurance / security properties
 
-The properties below hold subject to the assumption that for all storage epochs 2/3 of shards are
-operated by storage nodes that faithfully and correctly follow the Walrus protocol.
+The properties below hold true subject to the assumption that for all storage epochs 2/3 of shards
+are operated by storage nodes that faithfully and correctly follow the Walrus protocol.
 
 Each blob is encoded using error correction into slivers and a **Blob ID** is cryptographically
 derived. For a given Blob ID there is a **point of availability** (PoA) and an **availability
@@ -134,8 +133,9 @@ period**, observable through an event on the Sui chain. The following properties
   Blob ID and advance the protocol until the PoA.
 - A read after PoA for a blob F stored by a correct user, will result in F.
 
-Some assurance properties relate to the storage nodes holding shards in Walrus. An **inconsistency
-proof** proves that a Blob ID was stored by an incorrect user (and was incorrectly encoded).
+Some assurance properties ensure the correct internal processes of Walrus storage nodes.
+For the purposes of defining these, an **inconsistency proof** proves that a Blob ID was
+stored by an incorrect user (and was incorrectly encoded).
 
 - After PoA and for a Blob ID stored by a correct user, a storage node is always able to recover
   the correct sliver for its shards for this Blob ID.
@@ -288,10 +288,10 @@ mediated by a publisher, that receives a Blob and drives the process to completi
 
 ### Refresh availability
 
-Since no content data is required to refresh the period of storage it is a fully on chain protocols.
-To request an extension to the availability period of a blob, a user provides an appropriate storage
-resource. Upon success this emits an event that storage nodes receive to extend the period each
-sliver is stored for.
+Since no content data is required to refresh the period of storage, refresh is conducted fully on
+chain within the protocol. To request an extension to the availability period of a blob, a user
+provides an appropriate storage resource. Upon success this emits an event that storage nodes
+receive to extend the period each sliver is stored for.
 
 ### Inconsistent resource flow
 
@@ -314,7 +314,7 @@ correctly derived from a consistent encoding. This means that an inconsistency p
 true fact to storage nodes (that may not otherwise have ran decoding), and does not change the
 output of read in any case.
 
-Noe however that partial reads leveraging the systematic nature of the encoding may return partial
+Note however that partial reads leveraging the systematic nature of the encoding may return partial
 reads for inconsistently encoded files. Thus if consistency and availability of reads is important
 dapps should do full reads rather than partial reads.
 
@@ -330,23 +330,23 @@ storage nodes.
 - The reader then sends a request for the shards corresponding to Blob ID to storage nodes, and
   waits for f+1 to respond. Sufficient requests are sent in parallel to ensure low latency for
   reads.
-- The reader authenticates the slivers returned to with Blob ID, reconstructs the blob, and decides
-  whether it the contents are a Blob or inconsistent.
+- The reader authenticates the slivers returned with the Blob ID, reconstructs the blob, and decides
+  whether the contents are a valid Blob or inconsistent.
 - Optionally, for a cache, the result is cached and can be served without re-construction for some
-  time, until it is removed from the cache. Requests for the blob to the cache just return the blob
-  contents, or an inconsistency proof or certificate.
+  time, until it is removed from the cache. Requests for the blob to the cache return the blob
+  contents, or a proof the blob is inconsistently encoded.
 
 ### Challenge mechanism for storage attestation
 
 During an epoch a correct storage node challenges all shards to provide Blob slivers past PoA:
 
-- The list of available blobs for the period is determined using the Sui event up to the past
-  period. Either inconsistent blobs or deny list blobs are not challenged, and a record proving
-  this status can be returned instead.
+- The list of available blobs for the period is determined by the sequence of Sui events up
+  to the past period. Inconsistent blobs are not challenged, and a record proving this status
+  can be returned instead.
 - A challenge sequence is determined by providing a seed to the challenged shard. The sequence is
   then computed based both on the seed AND the content of each challenged Blob ID. This creates a
   sequential read dependency.
-- The challenge is responded by providing back the sequence of shard contents for the Blob IDs in a
+- The response to the challenge provides the sequence of shard contents for the Blob IDs in a
   timely manner.
 - The challenger node uses thresholds to determine whether the challenge was passed, and reports
   the result on chain.
@@ -361,9 +361,8 @@ the process is timely.
 
 In this document, we left out details of the following features:
 - Shard transfer and recovery upon storage epoch change. The encoding scheme used has been designed
-  to allow this operation to be efficient. A storage node needs only get data of the same magnitude
-  to the missing sliver data to reconstruct them.
+  to allow this operation to be efficient. A storage node needs to only get data of the same
+  magnitude to the missing sliver data to reconstruct them.
 - Details of light clients that can be used to sample availability. Individual clients may sample
   the certified blobs from Sui meta-data, and sample the availability of some slivers that they
   store. On-chain bounties may be used to retrieve these slivers for missing blobs.
-- How storage nodes may implement local deny lists to comply with any local policy or requirements.
