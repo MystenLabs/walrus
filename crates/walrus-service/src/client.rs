@@ -150,7 +150,14 @@ impl<T: ContractClient> Client<T> {
             .map_err(ClientError::other)?
             .encode_with_metadata();
         tracing::Span::current().record("blob_id", metadata.blob_id().to_string());
-        tracing::debug!("computed blob pairs and metadata");
+        let pair = pairs.first().expect("the encoding produces sliver pairs");
+        let symbol_size = pair.primary.symbols.symbol_size();
+        tracing::debug!(
+            symbol_size=%symbol_size.get(),
+            primary_sliver_size=%pair.primary.symbols.len() * usize::from(symbol_size.get()),
+            secondary_sliver_size=%pair.secondary.symbols.len() * usize::from(symbol_size.get()),
+            "computed blob pairs and metadata"
+        );
 
         // Get the root hash of the blob.
         let blob_sui_object = self
@@ -219,6 +226,7 @@ impl<T> Client<T> {
                 pairs_per_node
                     .remove(&n.node_index)
                     .expect("there are shards for each node"),
+                self.config.communication_config.retries,
             )
         }));
         let start = Instant::now();

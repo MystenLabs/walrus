@@ -44,6 +44,9 @@ pub struct ClientCommunicationConfig {
     /// The configuration for the `reqwest` client.
     #[serde(default)]
     pub reqwest_config: ReqwestConfig,
+    /// The number of retries for failed communication.
+    #[serde(default)]
+    pub retries: usize,
 }
 
 impl Default for ClientCommunicationConfig {
@@ -53,6 +56,7 @@ impl Default for ClientCommunicationConfig {
             concurrent_sliver_reads: None,
             concurrent_metadata_reads: default::concurrent_metadata_reads(),
             reqwest_config: ReqwestConfig::default(),
+            retries: 0,
         }
     }
 }
@@ -144,8 +148,9 @@ pub(crate) mod default {
         3
     }
 
+    /// Allows for enough time to transfer big slivers on the other side of the world.
     pub fn total_timeout() -> Duration {
-        Duration::from_secs(10)
+        Duration::from_secs(180)
     }
 
     /// Disabled by default, i.e., connections are kept alive.

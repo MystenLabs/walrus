@@ -4,7 +4,7 @@
 use std::num::NonZeroU16;
 
 use anyhow::Result;
-use futures::future::{join_all, Either};
+use futures::{future::Either, stream::FuturesUnordered, StreamExt};
 use reqwest::{Client as ReqwestClient, Url};
 use tracing::{Level, Span};
 use walrus_core::{
@@ -162,6 +162,7 @@ impl<'a> NodeCommunication<'a> {
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         pairs: impl IntoIterator<Item = &SliverPair>,
+        n_retries: usize,
     ) -> NodeResult<SignedStorageConfirmation, StoreError> {
         tracing::debug!("storing metadata and sliver pairs",);
 
@@ -172,8 +173,9 @@ impl<'a> NodeCommunication<'a> {
                 .await
                 .map_err(StoreError::Metadata)?;
 
-            // TODO(giac): check the slivers that were not successfully stored and possibly retry.
-            let results = self.store_pairs(metadata.blob_id(), pairs).await;
+            let results = self
+                .store_pairs_with_retries(metadata.blob_id(), pairs, n_retries)
+                .await;
 
             // It is useless to request the confirmation if storing any of the slivers failed.
             let failed_requests = results
@@ -195,6 +197,40 @@ impl<'a> NodeCommunication<'a> {
         self.to_node_result(self.n_owned_shards().get().into(), result)
     }
 
+    /// Stores the sliver pairs on the node, retrying multiple times the failed slivers.
+    async fn store_pairs_with_retries(
+        &self,
+        blob_id: &BlobId,
+        pairs: impl IntoIterator<Item = &SliverPair>,
+        n_retries: usize,
+    ) -> Vec<Result<(), SliverStoreError>> {
+        let mut to_request = pairs.into_iter().collect::<Vec<_>>();
+        let mut results = vec![];
+        for idx in 0..n_retries + 1 {
+            results = self.store_pairs(blob_id, &to_request).await;
+            let failed_ids: Vec<SliverPairIndex> = results
+                .iter()
+                .filter_map(|result| result.as_ref().map_err(|e| e.pair_index).err())
+                .collect();
+            if !failed_ids.is_empty() {
+                tracing::warn!(
+                    iteration = idx,
+                    ?failed_ids,
+                    "iteration failed to store ids"
+                );
+                to_request = to_request
+                    .clone()
+                    .into_iter()
+                    .filter(|p| failed_ids.contains(&p.index()))
+                    .collect();
+            } else {
+                // We have stored all the slivers.
+                break;
+            }
+        }
+        results
+    }
+
     /// Stores the sliver pairs on the node.
     ///
     /// Returns the result of the [`store_sliver`][Self::store_sliver] operation for all the slivers
@@ -203,15 +239,29 @@ impl<'a> NodeCommunication<'a> {
     async fn store_pairs(
         &self,
         blob_id: &BlobId,
-        pairs: impl IntoIterator<Item = &SliverPair>,
+        pairs: &[&SliverPair],
     ) -> Vec<Result<(), SliverStoreError>> {
-        let futures = pairs.into_iter().flat_map(|pair| {
-            vec![
-                Either::Left(self.store_sliver(blob_id, &pair.primary, pair.index())),
-                Either::Right(self.store_sliver(blob_id, &pair.secondary, pair.index())),
-            ]
-        });
-        join_all(futures).await
+        let n_slivers = 2 * pairs.len();
+        let mut futures = pairs
+            .iter()
+            .flat_map(|pair| {
+                vec![
+                    Either::Left(self.store_sliver(blob_id, &pair.primary, pair.index())),
+                    Either::Right(self.store_sliver(blob_id, &pair.secondary, pair.index())),
+                ]
+            })
+            .collect::<FuturesUnordered<_>>();
+
+        let mut results = Vec::with_capacity(n_slivers);
+        while let Some(result) = futures.next().await {
+            tracing::trace!(
+                ?result,
+                progress = format!("{} / {}", results.len() + 1, n_slivers),
+                "sliver stored"
+            );
+            results.push(result);
+        }
+        results
     }
 
     /// Stores a sliver on a node.

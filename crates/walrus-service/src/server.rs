@@ -6,7 +6,7 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use axum::{
-    extract::{Path, State},
+    extract::{DefaultBodyLimit, Path, State},
     http::{Request, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, put},
@@ -146,6 +146,9 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             .route(RECOVERY_ENDPOINT, get(Self::retrieve_recovery_symbol))
             .route(INCONSISTENCY_PROOF_ENDPOINT, put(Self::inconsistency_proof))
             .with_state(self.state.clone())
+            // TODO(giac): disabling the limit at all may pose DoS risks. What is the best way to
+            // bring in here the maximum sliver size?
+            .layer(DefaultBodyLimit::disable())
             .layer(TraceLayer::new_for_http().make_span_with(RestApiSpans {
                 address: *network_address,
             }));
