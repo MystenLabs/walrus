@@ -1215,7 +1215,7 @@ mod tests {
     ) -> TestResult {
         let shards: &[&[u16]] = &[&[0], &[1, 2, 3, 4, 5, 6]];
 
-        // Store only a few primary slivers.
+        // Store only slivers of type `sliver_type_to_store`.
         let (cluster, events, blob) =
             cluster_with_partially_stored_blob(shards, BLOB, |_, sliver_type| {
                 sliver_type == sliver_type_to_store
@@ -1250,7 +1250,7 @@ mod tests {
         let shards: &[&[u16]] = &[&[0], &(1..=6).collect::<Vec<_>>()];
         let store_secondary_at: Vec<_> = ShardIndex::range(0..5).collect();
 
-        // Store only a few primary slivers.
+        // Store only a few secondary slivers.
         let (cluster, events, blob) =
             cluster_with_partially_stored_blob(shards, BLOB, |shard, sliver_type| {
                 sliver_type == SliverType::Secondary && store_secondary_at.contains(shard)

@@ -216,7 +216,7 @@ impl Client {
 
     /// Gets the recovery symbol for a primary or secondary sliver.
     ///
-    /// The symbol is identified by the (A, sliver_pair_index, target_pair_index) tuple.
+    /// The symbol is identified by the (A, sliver_pair_at_remote, intersecting_pair_index) tuple.
     pub async fn get_recovery_symbol<A: EncodingAxis>(
         &self,
         blob_id: &BlobId,
@@ -234,7 +234,7 @@ impl Client {
 
     /// Gets the recovery symbol for a primary or secondary sliver.
     ///
-    /// The symbol is identified by the
+    /// The symbol is identified by the (A, sliver_pair_at_remote, intersecting_pair_index) tuple.
     pub async fn get_and_verify_recovery_symbol<A: EncodingAxis>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,

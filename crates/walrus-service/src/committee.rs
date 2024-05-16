@@ -106,7 +106,7 @@ pub trait CommitteeService: std::fmt::Debug + Send + Sync {
         encoding_config: &EncodingConfig,
     ) -> Result<PrimarySliver, InconsistencyProof<Primary, MerkleProof>>;
 
-    /// Recovers a primary sliver from symbols stored by the committee.
+    /// Recovers a secondary sliver from symbols stored by the committee.
     async fn recover_secondary_sliver(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
@@ -594,7 +594,7 @@ mod tests {
             other.iter_mut().for_each(|client| {
                 client.expect_get_and_verify_metadata().returning(|_, _| {
                     Box::pin(async {
-                        tracing::debug!("sleeping for 5 minutes");
+                        tracing::debug!("sleeping for 1 hour");
                         tokio::time::sleep(Duration::from_secs(3600)).await;
                         tracing::debug!("bailing without returning metadata");
                         None
