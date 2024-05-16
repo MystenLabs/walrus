@@ -164,7 +164,7 @@ where
             .await
             .context("unable to create a committee service for the current epoch")?;
 
-        let service = NodeCommitteeService::new(committee, local_identity).await?;
+        let service = NodeCommitteeService::new(committee, local_identity)?;
 
         Ok(Box::new(service))
     }
@@ -178,7 +178,7 @@ pub struct NodeCommitteeService {
 
 impl NodeCommitteeService {
     /// Creates a new `NodeCommitteeService`.
-    pub async fn new(
+    pub fn new(
         committee: Committee,
         local_identity: Option<&PublicKey>,
     ) -> Result<Self, anyhow::Error> {
@@ -326,8 +326,9 @@ where
             .map(|(node, shard_id)| {
                 let public_key = node.public_key();
 
-                // Convert to a sliver pair id. This does not exclude any pair IDs because we're
-                // making orthogonal requests: the node itself already store the orthogonal sliver.
+                // Convert to a sliver pair id. It may be the case that this pair ID is the same as
+                // sliver_id, however, this is fine since we're requesting a symbol from the
+                // orthogonal sliver which may be already stored at this node.
                 let sliver_pair_at_remote = shard_id.to_pair_index(config.n_shards(), blob_id);
                 let simultaneous_requests = &simultaneous_requests;
                 let retry_strategy = default_retry_strategy(self.rng.lock().unwrap().gen());
@@ -439,7 +440,7 @@ where
             .local_identity
             .as_ref()
             .map(|local_identity| self.public_key() == local_identity)
-            .unwrap_or_default()
+            .unwrap_or(false)
     }
 }
 

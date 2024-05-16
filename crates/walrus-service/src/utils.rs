@@ -68,16 +68,12 @@ impl<R: Rng> ExponentialBackoff<R> {
         let next_delay_value = self
             .min_backoff
             .saturating_mul(Saturating(2u32).pow(self.sequence_index).0)
+            .saturating_add(self.random_offset())
             .min(self.max_backoff);
 
         self.sequence_index = self.sequence_index.saturating_add(1);
 
-        // Only add the random delay if we've not yet hit the maximum
-        if next_delay_value < self.max_backoff {
-            next_delay_value.saturating_add(self.random_offset())
-        } else {
-            next_delay_value
-        }
+        next_delay_value
     }
 
     fn random_offset(&mut self) -> Duration {
@@ -149,26 +145,21 @@ pub(crate) trait FutureHelpers: Future {
 
 impl<T: Future> FutureHelpers for T {}
 
-pub(crate) async fn retry<R, F, T, Fut>(strategy: ExponentialBackoff<R>, mut func: F) -> T
+pub(crate) async fn retry<R, F, T, Fut>(mut strategy: ExponentialBackoff<R>, mut func: F) -> T
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = Option<T>>,
     R: rand::RngCore,
 {
-    for wait_time in std::iter::once(Duration::ZERO).chain(strategy) {
-        if wait_time != Duration::ZERO {
-            tracing::debug!("waiting {:?} before next attempt", wait_time);
-            tokio::time::sleep(wait_time).await;
-        }
-
+    loop {
         if let Some(value) = func().await {
             return value;
-        } else {
-            tracing::debug!("attempt failed, retrying");
         }
-    }
 
-    unreachable!("ExponentialBackoff is an infinite iterator");
+        let delay = strategy.next().expect("infinite iterator");
+        tracing::debug!(?delay, "attempt failed, waiting before retrying");
+        tokio::time::sleep(delay).await;
+    }
 }
 
 #[cfg(test)]

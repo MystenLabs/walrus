@@ -440,9 +440,10 @@ impl CommitteeServiceFactory for StubCommitteeServiceFactory<NodeCommitteeServic
         &self,
         local_identity: Option<&PublicKey>,
     ) -> Result<Box<dyn CommitteeService>, anyhow::Error> {
-        Ok(Box::new(
-            NodeCommitteeService::new(self.committee.clone(), local_identity).await?,
-        ))
+        Ok(Box::new(NodeCommitteeService::new(
+            self.committee.clone(),
+            local_identity,
+        )?))
     }
 }
 
