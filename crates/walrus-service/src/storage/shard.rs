@@ -19,7 +19,7 @@ use typed_store::{
     TypedStoreError,
 };
 use walrus_core::{
-    encoding::{EncodingAxis, PrimarySliver, SecondarySliver},
+    encoding::{EncodingAxis, Primary, PrimarySliver, Secondary, SecondarySliver},
     BlobId,
     ShardIndex,
     Sliver,
@@ -128,8 +128,19 @@ impl ShardStorage {
 
     /// Returns true iff the sliver-pair for the given blob ID is stored by the shard.
     pub fn is_sliver_pair_stored(&self, blob_id: &BlobId) -> Result<bool, TypedStoreError> {
-        Ok(self.primary_slivers.contains_key(&blob_id.into())?
-            && self.secondary_slivers.contains_key(&blob_id.into())?)
+        Ok(self.is_sliver_stored::<Primary>(blob_id)?
+            && self.is_sliver_stored::<Secondary>(blob_id)?)
+    }
+
+    pub fn is_sliver_stored<A: EncodingAxis>(
+        &self,
+        blob_id: &BlobId,
+    ) -> Result<bool, TypedStoreError> {
+        if A::IS_PRIMARY {
+            self.primary_slivers.contains_key(&blob_id.into())
+        } else {
+            self.secondary_slivers.contains_key(&blob_id.into())
+        }
     }
 
     /// Returns the name and options for the column family for a shard with the specified index.

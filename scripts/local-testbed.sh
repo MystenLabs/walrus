@@ -24,16 +24,13 @@ function usage() {
     echo "  -h                    Print this usage message"
 }
 
-
-
 function run_node() {
-    cmd="cargo run --bin walrus-node -- run \
-    --config-path $working_dir/$1.yaml \
-    ${2:-} \
-    |& tee $working_dir/$1.log"
+    cmd="./target/debug/walrus-node run --config-path $working_dir/$1.yaml ${2:-} \
+        |& tee $working_dir/$1.log"
     echo $cmd
     tmux new -d -s "$1" "$cmd"
 }
+
 
 existing=false
 committee_size=4 # Default value of 4 if no argument is provided
@@ -83,6 +80,9 @@ if ! [[ ${nets[@]} =~ $network ]]; then
 fi
 
 
+echo Building walrus-node binary...
+cargo build --bin walrus-node
+
 # Set working directory
 working_dir="./working_dir"
 sui_config_path="$working_dir/sui_config.yaml"
@@ -124,20 +124,18 @@ done
 echo "\nSpawned $i nodes in separate tmux sessions."
 
 
-
-
-# Instructions to run a client
+# Print instructions to run a client
 cat << EOF
 
 To store a file (e.g., the README.md) on the testbed, use the following command:
-$ cargo run --bin client -- --config working_dir/client_config.yaml store README.md
+    cargo run --bin client -- --config working_dir/client_config.yaml store README.md
 
 You can then read the stored file by running the following (replacing "\$BLOB_ID" by the blob ID \
 returned by the store operation):
-$ cargo run --bin client -- --config working_dir/client_config.yaml read \$BLOB_ID
+    cargo run --bin client -- --config working_dir/client_config.yaml read \$BLOB_ID
 
 For further insights and debugging, you can increase the logging level for the Walrus code:
-$ export RUST_LOG="client=DEBUG,walrus=DEBUG"
+    export RUST_LOG="client=DEBUG,walrus=DEBUG"
 EOF
 
 while true; do

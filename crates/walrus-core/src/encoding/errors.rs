@@ -15,7 +15,7 @@ pub struct DataTooLargeError;
 #[derive(Debug, Error, PartialEq, Eq, Clone)]
 pub enum InvalidDataSizeError {
     /// The data is too large to be encoded/decoded.
-    #[error("the data is to large")]
+    #[error("the data is too large")]
     DataTooLarge,
     /// The data to be encoded/decoded is empty.
     #[error("the data is empty")]

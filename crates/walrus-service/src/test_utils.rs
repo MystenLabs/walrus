@@ -18,20 +18,26 @@ use fastcrypto::{bls12381::min_pk::BLS12381PublicKey, traits::KeyPair as _};
 use futures::StreamExt;
 use mysten_metrics::RegistryService;
 use prometheus::Registry;
+use reqwest::Url;
 use sui_types::event::EventID;
 use tempfile::TempDir;
 use tokio_stream::{wrappers::BroadcastStream, Stream};
 use tokio_util::sync::CancellationToken;
+use tracing::Instrument;
 use typed_store::rocks::MetricConf;
 use walrus_core::{
-    encoding::EncodingConfig,
+    encoding::{EncodingConfig, Primary, PrimarySliver, Secondary, SecondarySliver},
+    inconsistency::InconsistencyProof,
     keys::ProtocolKeyPair,
+    merkle::MerkleProof,
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
     Epoch,
     PublicKey,
     ShardIndex,
+    SliverPairIndex,
 };
+use walrus_sdk::client::Client;
 use walrus_sui::types::{
     BlobEvent,
     Committee,
@@ -106,6 +112,8 @@ pub struct StorageNodeHandle {
     pub rest_api: Arc<UserServer<StorageNode>>,
     /// Cancellation token for the REST API
     pub cancel: CancellationToken,
+    /// Client that can be used to communicate with the node
+    pub client: Client,
 }
 
 impl StorageNodeHandle {
@@ -320,15 +328,30 @@ impl StorageNodeHandleBuilder {
             let rest_api_address = config.rest_api_address;
             let rest_api_clone = rest_api.clone();
 
-            tokio::task::spawn(async move { rest_api_clone.run(&rest_api_address).await });
+            tokio::task::spawn(
+                async move { rest_api_clone.run(&rest_api_address).await }.instrument(
+                    tracing::info_span!("cluster-node", address = %config.rest_api_address),
+                ),
+            );
         }
 
         if self.run_node {
             let node = node.clone();
             let cancel_token = cancel_token.clone();
 
-            tokio::task::spawn(async move { node.run(cancel_token).await });
+            tokio::task::spawn(async move { node.run(cancel_token).await }.instrument(
+                tracing::info_span!("cluster-node", address = %config.rest_api_address),
+            ));
         }
+
+        let client = {
+            let url = Url::parse(&format!("http://{}", config.rest_api_address))?;
+
+            // Do not load any proxy information from the system, as it's slow (at least on MacOs).
+            let inner = reqwest::Client::builder().no_proxy().build().unwrap();
+
+            Client::from_url(url, inner)
+        };
 
         Ok(StorageNodeHandle {
             storage_node: node,
@@ -338,6 +361,7 @@ impl StorageNodeHandleBuilder {
             metrics_address: config.metrics_address,
             rest_api,
             cancel: cancel_token,
+            client,
         })
     }
 }
@@ -402,17 +426,24 @@ impl<T> StubCommitteeServiceFactory<T> {
 
 #[async_trait]
 impl CommitteeServiceFactory for StubCommitteeServiceFactory<StubCommitteeService> {
-    async fn new_for_epoch(&self) -> Result<Box<dyn CommitteeService>, anyhow::Error> {
+    async fn new_for_epoch(
+        &self,
+        _: Option<&PublicKey>,
+    ) -> Result<Box<dyn CommitteeService>, anyhow::Error> {
         Ok(Box::new(StubCommitteeService(self.committee.clone())))
     }
 }
 
 #[async_trait]
 impl CommitteeServiceFactory for StubCommitteeServiceFactory<NodeCommitteeService> {
-    async fn new_for_epoch(&self) -> Result<Box<dyn CommitteeService>, anyhow::Error> {
-        Ok(Box::new(
-            NodeCommitteeService::new(self.committee.clone()).await?,
-        ))
+    async fn new_for_epoch(
+        &self,
+        local_identity: Option<&PublicKey>,
+    ) -> Result<Box<dyn CommitteeService>, anyhow::Error> {
+        Ok(Box::new(NodeCommitteeService::new(
+            self.committee.clone(),
+            local_identity,
+        )?))
     }
 }
 
@@ -432,13 +463,29 @@ impl CommitteeService for StubCommitteeService {
         self.0.n_shards()
     }
 
-    fn exclude_member(&mut self, _identity: &PublicKey) {}
-
     async fn get_and_verify_metadata(
         &self,
         _blob_id: &BlobId,
         _encoding_config: &EncodingConfig,
     ) -> VerifiedBlobMetadataWithId {
+        std::future::pending().await
+    }
+
+    async fn recover_primary_sliver(
+        &self,
+        _metadata: &VerifiedBlobMetadataWithId,
+        _sliver_id: SliverPairIndex,
+        _encoding_config: &EncodingConfig,
+    ) -> Result<PrimarySliver, InconsistencyProof<Primary, MerkleProof>> {
+        std::future::pending().await
+    }
+
+    async fn recover_secondary_sliver(
+        &self,
+        _metadata: &VerifiedBlobMetadataWithId,
+        _sliver_id: SliverPairIndex,
+        _encoding_config: &EncodingConfig,
+    ) -> Result<SecondarySliver, InconsistencyProof<Secondary, MerkleProof>> {
         std::future::pending().await
     }
 
@@ -499,6 +546,7 @@ impl TestCluster {
         TestClusterBuilder::default()
     }
 
+    /// Returns the encoding config used by the nodes.
     /// Returns the [`Committee`] configuration for the current cluster.
     pub fn committee(&self) -> Result<Committee, InvalidCommittee> {
         let members = self
@@ -515,6 +563,18 @@ impl TestCluster {
         Committee::new(members, 0)
     }
 
+    /// Returns an encoding config valid for use with the storage nodes.
+    pub fn encoding_config(&self) -> EncodingConfig {
+        let n_shards = self
+            .nodes
+            .iter()
+            .map(|node| node.storage_node.shards().len())
+            .sum::<usize>();
+        let n_shards: u16 = n_shards.try_into().expect("valid number of shards");
+
+        EncodingConfig::new(NonZeroU16::new(n_shards).expect("more than 1 shard"))
+    }
+
     /// Stops the storage node with index `idx` by cancelling its task.
     pub fn cancel_node(&mut self, idx: usize) {
         assert!(
@@ -522,6 +582,11 @@ impl TestCluster {
             "the index of the node to be dropped must be within the node vector"
         );
         self.nodes[idx].cancel.cancel();
+    }
+
+    /// Returns the client for the node at the specified index.
+    pub fn client(&self, index: usize) -> &Client {
+        &self.nodes[index].client
     }
 }
 

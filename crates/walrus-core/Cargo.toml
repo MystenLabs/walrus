@@ -10,7 +10,7 @@ license.workspace = true
 test-utils = ["walrus-test-utils"]
 
 [dependencies]
-base64 = "0.22.0"
+base64 = "0.22.1"
 bcs.workspace = true
 fastcrypto.workspace = true
 rand.workspace = true

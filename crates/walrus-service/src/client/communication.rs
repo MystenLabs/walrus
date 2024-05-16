@@ -4,7 +4,7 @@
 use std::num::NonZeroU16;
 
 use anyhow::Result;
-use futures::future::join_all;
+use futures::future::{join_all, Either};
 use reqwest::{Client as ReqwestClient, Url};
 use tracing::{Level, Span};
 use walrus_core::{
@@ -161,7 +161,7 @@ impl<'a> NodeCommunication<'a> {
     pub async fn store_metadata_and_pairs(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
-        pairs: Vec<SliverPair>,
+        pairs: impl IntoIterator<Item = &SliverPair>,
     ) -> NodeResult<SignedStorageConfirmation, StoreError> {
         tracing::debug!("storing metadata and sliver pairs",);
 
@@ -203,35 +203,30 @@ impl<'a> NodeCommunication<'a> {
     async fn store_pairs(
         &self,
         blob_id: &BlobId,
-        pairs: Vec<SliverPair>,
+        pairs: impl IntoIterator<Item = &SliverPair>,
     ) -> Vec<Result<(), SliverStoreError>> {
-        let futures: Vec<_> = pairs
-            .into_iter()
-            .flat_map(|pair| {
-                let index = pair.index();
-                [
-                    self.store_sliver(blob_id, SliverEnum::Primary(pair.primary), index),
-                    self.store_sliver(blob_id, SliverEnum::Secondary(pair.secondary), index),
-                ]
-            })
-            .collect();
-
+        let futures = pairs.into_iter().flat_map(|pair| {
+            vec![
+                Either::Left(self.store_sliver(blob_id, &pair.primary, pair.index())),
+                Either::Right(self.store_sliver(blob_id, &pair.secondary, pair.index())),
+            ]
+        });
         join_all(futures).await
     }
 
     /// Stores a sliver on a node.
-    async fn store_sliver(
+    async fn store_sliver<T: EncodingAxis>(
         &self,
         blob_id: &BlobId,
-        sliver: SliverEnum,
+        sliver: &Sliver<T>,
         pair_index: SliverPairIndex,
     ) -> Result<(), SliverStoreError> {
         self.client
-            .store_sliver(blob_id, pair_index, &sliver)
+            .store_sliver_by_axis(blob_id, pair_index, sliver)
             .await
             .map_err(|error| SliverStoreError {
                 pair_index,
-                sliver_type: sliver.r#type(),
+                sliver_type: T::sliver_type(),
                 error,
             })
     }

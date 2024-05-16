@@ -3,28 +3,38 @@
 
 //! Utility functions used internally in the crate.
 
-use std::{num::Saturating, slice::Iter, time::Duration};
+use std::{future::Future, num::Saturating, sync::Arc, time::Duration};
 
-use rand::{rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
-use walrus_core::bft;
-use walrus_sui::types::{Committee, StorageNode as CommitteeMember};
+use futures::FutureExt;
+use rand::{
+    distributions::{DistIter, Uniform},
+    rngs::StdRng,
+    Rng,
+    SeedableRng,
+};
+use tokio::sync::Semaphore;
 
-/// Exponentially spaced delays.
+/// An iterator over exponential wait durations.
 ///
-/// Use [`next_delay()`][Self::next_delay] to get the values or [`wait()`][Self::wait] to
-/// asynchronously pause for the expected delay.
+/// Returns the wait duration for an exponential backoff with a multiplicative factor of 2, and
+/// where each duration includes a random positive offset.
+///
+/// For the `i`-th iterator element and bounds `min_backoff` and `max_backoff`, this returns the
+/// sequence `min(max_backoff, 2^i * min_backoff + rand_i)`.
 #[derive(Debug)]
 pub(crate) struct ExponentialBackoff<R> {
     min_backoff: Duration,
     max_backoff: Duration,
     sequence_index: u32,
-    rng: R,
+    rand_offsets: DistIter<Uniform<u64>, R, u64>,
 }
 
 impl ExponentialBackoff<StdRng> {
     /// Maximum number of milliseconds to randomly add to the delay time.
     const MAX_RAND_OFFSET_MS: u64 = 1000;
 
+    /// Creates a new iterator with the provided minimum and maximum bounds,
+    /// and seeded with the provided value.
     pub fn new_with_seed(
         min_backoff: Duration,
         max_backoff: Duration,
@@ -39,44 +49,39 @@ impl ExponentialBackoff<StdRng> {
 }
 
 impl<R: Rng> ExponentialBackoff<R> {
+    /// Creates a new iterator with the provided minimum and maximum bounds, with the provided
+    /// iterator.
     pub fn new_with_rng(min_backoff: Duration, max_backoff: Duration, rng: R) -> Self {
+        let uniform = Uniform::new_inclusive(0, ExponentialBackoff::MAX_RAND_OFFSET_MS);
+        let rand_offsets = rng.sample_iter(uniform);
+
         Self {
             min_backoff,
             max_backoff,
             sequence_index: 0,
-            rng,
+            rand_offsets,
         }
     }
 
-    /// Returns the next delay and advances the backoff.
+    /// Steps the iterator, returning the next delay and advances the backoff.
     pub fn next_delay(&mut self) -> Duration {
         let next_delay_value = self
             .min_backoff
             .saturating_mul(Saturating(2u32).pow(self.sequence_index).0)
+            .saturating_add(self.random_offset())
             .min(self.max_backoff);
 
         self.sequence_index = self.sequence_index.saturating_add(1);
 
-        // Only add the random delay if we've not yet hit the maximum
-        if next_delay_value < self.max_backoff {
-            next_delay_value.saturating_add(self.random_offset())
-        } else {
-            next_delay_value
-        }
-    }
-
-    /// Wait for the amount of time returned by [`next_delay()`][Self::next_delay].
-    pub async fn wait(&mut self) {
-        let wait = self.next_delay();
-        tracing::debug!(?wait, "exponentially backing off");
-        tokio::time::sleep(wait).await
+        next_delay_value
     }
 
     fn random_offset(&mut self) -> Duration {
-        Duration::from_millis(
-            self.rng
-                .gen_range(0..=ExponentialBackoff::MAX_RAND_OFFSET_MS),
-        )
+        let millis = self
+            .rand_offsets
+            .next()
+            .expect("infinite sequence of random values");
+        Duration::from_millis(millis)
     }
 }
 
@@ -88,104 +93,78 @@ impl<R: Rng> Iterator for ExponentialBackoff<R> {
     }
 }
 
-/// Randomly samples from the committee.
-pub(crate) struct CommitteeSampler<'a> {
-    committee: &'a Committee,
-    visit_order: Vec<usize>,
+pub(crate) trait SuccessOrFailure {
+    fn is_success(&self) -> bool;
 }
 
-impl CommitteeSampler<'_> {
-    pub fn new(committee: &Committee) -> CommitteeSampler<'_> {
-        let indices = (0..committee.members().len()).collect();
-        CommitteeSampler {
-            committee,
-            visit_order: indices,
-        }
+impl<T, E> SuccessOrFailure for Result<T, E> {
+    fn is_success(&self) -> bool {
+        self.is_ok()
     }
+}
 
-    /// Sample members from the committee up to a quorum, returning their indices in the commmittee.
-    #[cfg(test)]
-    pub fn sample_quorum<R>(&mut self, rng: &mut R) -> CommitteeSample<fn(&CommitteeMember) -> bool>
+impl<T> SuccessOrFailure for Option<T> {
+    fn is_success(&self) -> bool {
+        self.is_some()
+    }
+}
+
+pub(crate) trait FutureHelpers: Future {
+    async fn limit(self, permits: Arc<Semaphore>) -> Self::Output
     where
-        R: Rng + ?Sized,
+        <Self as Future>::Output: SuccessOrFailure,
+        Self: Sized,
     {
-        self.visit_order.shuffle(rng);
-        CommitteeSample {
-            committee: self.committee,
-            visit_order: self.visit_order.iter(),
-            total_weight: 0,
-            threshold: bft::min_n_correct(self.committee.n_shards()).get().into(),
-            predicate: |_| true,
-        }
+        let permit = permits
+            .acquire_owned()
+            .await
+            .expect("semaphore never closed");
+
+        self.inspect(|result| {
+            if result.is_success() {
+                permit.forget()
+            }
+        })
+        .await
     }
 
-    /// Sample members from the committee up to a quorum, returning their indices in the commmittee.
-    ///
-    /// Excludes members where the provided predicate evaluates to false.
-    pub fn sample_quorum_filtered<R, P>(&mut self, predicate: P, rng: &mut R) -> CommitteeSample<P>
+    async fn timeout_after<T>(self, duration: Duration) -> <Self as Future>::Output
     where
-        R: Rng + ?Sized,
-        P: FnMut(&CommitteeMember) -> bool,
+        Self: Sized,
+        Self: Future<Output = Option<T>>,
     {
-        self.visit_order.shuffle(rng);
-
-        CommitteeSample {
-            committee: self.committee,
-            visit_order: self.visit_order.iter(),
-            total_weight: 0,
-            threshold: bft::min_n_correct(self.committee.n_shards()).get().into(),
-            predicate,
+        match tokio::time::timeout(duration, self).await {
+            Ok(output) => output,
+            Err(_) => {
+                tracing::debug!("request timed out");
+                None
+            }
         }
     }
 }
 
-pub(crate) struct CommitteeSample<'a, P> {
-    committee: &'a Committee,
-    visit_order: Iter<'a, usize>,
-    total_weight: usize,
-    threshold: usize,
-    predicate: P,
-}
+impl<T: Future> FutureHelpers for T {}
 
-impl<P> Iterator for CommitteeSample<'_, P>
+pub(crate) async fn retry<R, F, T, Fut>(mut strategy: ExponentialBackoff<R>, mut func: F) -> T
 where
-    P: FnMut(&CommitteeMember) -> bool,
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Option<T>>,
+    R: rand::RngCore,
 {
-    type Item = usize;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.total_weight >= self.threshold {
-            return None;
+    loop {
+        if let Some(value) = func().await {
+            return value;
         }
 
-        // Advance the internal iterator until the next index that satisfies the predicate.
-        let next_index = self
-            .visit_order
-            .find(|&&i| (self.predicate)(&self.committee.members()[i]))?;
-
-        let weight = self.committee.members()[*next_index].shard_ids.len();
-        self.total_weight = self.total_weight.saturating_add(weight);
-
-        Some(*next_index)
+        let delay = strategy.next().expect("infinite iterator");
+        tracing::debug!(?delay, "attempt failed, waiting before retrying");
+        tokio::time::sleep(delay).await;
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-
-    use rand::rngs::mock::StepRng;
-
     use super::*;
-    use crate::test_utils;
-
-    macro_rules! assert_all_unique {
-        ($into_iter:expr) => {
-            let original_count = $into_iter.len();
-            let unique_count = $into_iter.into_iter().collect::<HashSet<_>>().len();
-            assert_eq!(original_count, unique_count, "elements are not all unique");
-        };
-    }
 
     mod exponential_backoff {
         use super::*;
@@ -216,108 +195,6 @@ mod tests {
                 assert!(actual >= expected_min, "{actual:?} >= {expected_min:?}");
                 assert!(actual <= expected_max);
             }
-        }
-    }
-
-    mod committee_sampler {
-
-        use super::*;
-
-        #[test]
-        fn sample_quorum_filtered_excludes_based_on_predicate() {
-            let weights = [1, 1, 2, 3, 3];
-            let committee = test_utils::test_committee(&weights);
-
-            let index_of_excluded_member = 2;
-            let key_of_excluded_member = committee.members()[index_of_excluded_member]
-                .public_key
-                .clone();
-
-            let sample_including: Vec<_> = CommitteeSampler::new(&committee)
-                .sample_quorum_filtered(|_| true, &mut StepRng::new(42, 7))
-                .collect();
-            assert!(sample_including.contains(&index_of_excluded_member));
-
-            // Use the same RNG, so that the same sample would be returned.
-            let sample_excluding: Vec<_> = CommitteeSampler::new(&committee)
-                .sample_quorum_filtered(
-                    |member| member.public_key != key_of_excluded_member,
-                    // Use the same RNG as above, to ensure the same set.
-                    &mut StepRng::new(42, 7),
-                )
-                .collect();
-            assert!(!sample_excluding.contains(&index_of_excluded_member));
-        }
-
-        #[test]
-        fn sample_quorum_filtered_returns_all_if_less_than_2fp1() {
-            let weights = [1, 1, 2, 3, 3];
-            let committee = test_utils::test_committee(&weights);
-            let mut rng = StepRng::new(39, 5);
-
-            let weight_of_all_returned: u16 = CommitteeSampler::new(&committee)
-                .sample_quorum_filtered(|member| member.shard_ids.len() != 3, &mut rng)
-                .map(|i| weights[i])
-                .sum();
-
-            assert!(!committee.is_quorum(weight_of_all_returned.into()));
-            assert_eq!(weight_of_all_returned, 4);
-        }
-
-        #[test]
-        fn sample_quorum_returns_only_2fp1_shards() {
-            let weights = [1, 1, 2, 3, 3];
-            let committee = test_utils::test_committee(&weights);
-            let mut rng = StepRng::new(42, 7);
-
-            let sample: Vec<_> = CommitteeSampler::new(&committee)
-                .sample_quorum(&mut rng)
-                .collect();
-
-            let last_weight = weights[*sample.last().unwrap()];
-
-            let weight_of_all = sample.iter().map(|&i| weights[i]).sum::<u16>();
-            let weight_of_all_except_last = weight_of_all - last_weight;
-
-            assert!(!committee.is_quorum(weight_of_all_except_last.into()));
-            assert!(committee.is_quorum(weight_of_all.into()));
-        }
-
-        #[test]
-        fn sample_quorum_returns_unique_indices() {
-            let committee = test_utils::test_committee(&[1; 10]);
-            let n_nodes = committee.n_members();
-            let mut rng = StepRng::new(42, 7);
-
-            let sample: Vec<_> = CommitteeSampler::new(&committee)
-                .sample_quorum(&mut rng)
-                .collect();
-
-            assert!(!sample.is_empty());
-            assert!(*sample.iter().max().unwrap() < n_nodes);
-            assert_all_unique!(sample);
-        }
-
-        #[test]
-        fn sample_quorum_randomizes_indices_each_iteration() {
-            let mut rng = StepRng::new(42, 7);
-            let committee = test_utils::test_committee(&[1; 10]);
-            let n_nodes = committee.n_members();
-
-            let mut sampler = CommitteeSampler::new(&committee);
-
-            let first_sample: Vec<_> = sampler.sample_quorum(&mut rng).collect();
-            let second_sample: Vec<_> = sampler.sample_quorum(&mut rng).collect();
-
-            assert_ne!(
-                first_sample,
-                (0..n_nodes).collect::<Vec<_>>(),
-                "the order should be randomized"
-            );
-            assert_ne!(
-                first_sample, second_sample,
-                "the order after a reset should be different"
-            );
         }
     }
 }

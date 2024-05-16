@@ -92,11 +92,13 @@ impl BlobId {
     /// contained in the `blob_metadata` and then computes the blob ID.
     pub fn from_sliver_pair_metadata(blob_metadata: &BlobMetadata) -> Self {
         let merkle_root = blob_metadata.compute_root_hash();
-        Self::from_metadata(
+        let blob_id = Self::from_metadata(
             merkle_root,
             blob_metadata.encoding_type,
             blob_metadata.unencoded_length,
-        )
+        );
+        tracing::debug!(%blob_id, "computed blob ID from metadata");
+        blob_id
     }
 
     fn new_with_hash_function<T>(
@@ -208,6 +210,7 @@ index_type!(
 
 index_type!(
     /// Represents the index of a sliver pair.
+    #[derive(Ord, PartialOrd)]
     SliverPairIndex("sliver-pair")
 );
 
@@ -304,6 +307,12 @@ impl ShardIndex {
             }
         };
         (start..end).map(ShardIndex)
+    }
+}
+
+impl From<ShardIndex> for usize {
+    fn from(value: ShardIndex) -> Self {
+        value.get().into()
     }
 }
 
@@ -411,6 +420,18 @@ impl TryFrom<Sliver> for SecondarySliver {
             Sliver::Primary(_) => Err(WrongSliverVariantError),
             Sliver::Secondary(sliver) => Ok(sliver),
         }
+    }
+}
+
+impl From<PrimarySliver> for Sliver {
+    fn from(value: PrimarySliver) -> Self {
+        Self::Primary(value)
+    }
+}
+
+impl From<SecondarySliver> for Sliver {
+    fn from(value: SecondarySliver) -> Self {
+        Self::Secondary(value)
     }
 }
 

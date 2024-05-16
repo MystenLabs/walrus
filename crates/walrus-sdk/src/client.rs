@@ -6,9 +6,17 @@
 use reqwest::{Client as ReqwestClient, Url};
 use serde::Serialize;
 use walrus_core::{
-    encoding::{EncodingAxis, EncodingConfig, Sliver, SliverPair},
+    encoding::{
+        EncodingAxis,
+        EncodingConfig,
+        Primary,
+        RecoverySymbol,
+        Secondary,
+        Sliver,
+        SliverPair,
+    },
     inconsistency::InconsistencyProof,
-    merkle::MerkleAuth,
+    merkle::{MerkleAuth, MerkleProof},
     messages::{InvalidBlobIdAttestation, SignedStorageConfirmation, StorageConfirmation},
     metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
     BlobId,
@@ -39,6 +47,19 @@ impl UrlEndpoints {
 
     fn confirmation(&self, blob_id: &BlobId) -> Url {
         self.blob_resource(blob_id).join("confirmation").unwrap()
+    }
+
+    fn recovery_symbol<A: EncodingAxis>(
+        &self,
+        blob_id: &BlobId,
+        sliver_pair_at_remote: SliverPairIndex,
+        intersecting_pair_index: SliverPairIndex,
+    ) -> Url {
+        let mut url = self.sliver::<A>(blob_id, sliver_pair_at_remote);
+        url.path_segments_mut()
+            .unwrap()
+            .push(&intersecting_pair_index.0.to_string());
+        url
     }
 
     fn sliver<A: EncodingAxis>(
@@ -142,7 +163,26 @@ impl Client {
     ) -> Result<Sliver<A>, NodeError> {
         let url = self.endpoints.sliver::<A>(blob_id, sliver_pair_index);
         let response = self.inner.get(url).send().await.map_err(Kind::Reqwest)?;
-        response.bcs().await
+        response.response_error_for_status().await?.bcs().await
+    }
+
+    /// Gets a primary or secondary sliver for the identified sliver pair.
+    pub async fn get_sliver_by_type(
+        &self,
+        blob_id: &BlobId,
+        sliver_pair_index: SliverPairIndex,
+        sliver_type: SliverType,
+    ) -> Result<SliverEnum, NodeError> {
+        match sliver_type {
+            SliverType::Primary => self
+                .get_sliver::<Primary>(blob_id, sliver_pair_index)
+                .await
+                .map(SliverEnum::Primary),
+            SliverType::Secondary => self
+                .get_sliver::<Secondary>(blob_id, sliver_pair_index)
+                .await
+                .map(SliverEnum::Secondary),
+        }
     }
 
     /// Requests the sliver identified by `metadata.blob_id()` and the pair index from the storage
@@ -172,6 +212,53 @@ impl Client {
             .map_err(NodeError::other)?;
 
         Ok(sliver)
+    }
+
+    /// Gets the recovery symbol for a primary or secondary sliver.
+    ///
+    /// The symbol is identified by the (A, sliver_pair_at_remote, intersecting_pair_index) tuple.
+    pub async fn get_recovery_symbol<A: EncodingAxis>(
+        &self,
+        blob_id: &BlobId,
+        sliver_pair_at_remote: SliverPairIndex,
+        intersecting_pair_index: SliverPairIndex,
+    ) -> Result<RecoverySymbol<A, MerkleProof>, NodeError> {
+        let url = self.endpoints.recovery_symbol::<A>(
+            blob_id,
+            sliver_pair_at_remote,
+            intersecting_pair_index,
+        );
+        let response = self.inner.get(url).send().await.map_err(Kind::Reqwest)?;
+        response.response_error_for_status().await?.bcs().await
+    }
+
+    /// Gets the recovery symbol for a primary or secondary sliver.
+    ///
+    /// The symbol is identified by the (A, sliver_pair_at_remote, intersecting_pair_index) tuple.
+    pub async fn get_and_verify_recovery_symbol<A: EncodingAxis>(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+        encoding_config: &EncodingConfig,
+        sliver_pair_at_remote: SliverPairIndex,
+        intersecting_pair_index: SliverPairIndex,
+    ) -> Result<RecoverySymbol<A, MerkleProof>, NodeError> {
+        let symbol = self
+            .get_recovery_symbol::<A>(
+                metadata.blob_id(),
+                sliver_pair_at_remote,
+                intersecting_pair_index,
+            )
+            .await?;
+
+        symbol
+            .verify(
+                metadata.as_ref(),
+                encoding_config,
+                intersecting_pair_index.to_sliver_index::<A>(encoding_config.n_shards()),
+            )
+            .map_err(NodeError::other)?;
+
+        Ok(symbol)
     }
 
     /// Stores the metadata on the node.
@@ -238,7 +325,7 @@ impl Client {
     pub async fn store_sliver_pair(
         &self,
         blob_id: &BlobId,
-        pair: SliverPair,
+        pair: &SliverPair,
     ) -> Result<(), NodeError> {
         let (primary, secondary) = tokio::join!(
             self.store_sliver_by_axis(blob_id, pair.index(), &pair.primary),
@@ -290,56 +377,35 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use walrus_core::{encoding::Primary, test_utils};
+    use walrus_test_utils::param_test;
 
     use super::*;
 
     const BLOB_ID: BlobId = test_utils::blob_id_from_u64(99);
 
-    fn endpoints() -> UrlEndpoints {
-        UrlEndpoints(Url::parse("http://sn1.com").unwrap())
+    param_test! {
+        url_endpoint: [
+            blob: (|e| e.blob_resource(&BLOB_ID), ""),
+            metadata: (|e| e.metadata(&BLOB_ID), "metadata"),
+            confirmation: (|e| e.confirmation(&BLOB_ID), "confirmation"),
+            sliver: (|e| e.sliver::<Primary>(&BLOB_ID, SliverPairIndex(1)), "slivers/1/primary"),
+            recovery_symbol: (
+                |e| e.recovery_symbol::<Primary>(&BLOB_ID, SliverPairIndex(1), SliverPairIndex(2)),
+                "slivers/1/primary/2"
+            ),
+            inconsistency_proof: (
+                |e| e.inconsistency_proof::<Primary>(&BLOB_ID), "inconsistent/primary"
+            ),
+        ]
     }
+    fn url_endpoint<F>(url_fn: F, expected_path: &str)
+    where
+        F: FnOnce(UrlEndpoints) -> Url,
+    {
+        let endpoints = UrlEndpoints(Url::parse("http://node.com").unwrap());
+        let url = url_fn(endpoints);
+        let expected = format!("http://node.com/v1/blobs/{BLOB_ID}/{expected_path}");
 
-    #[test]
-    fn blob_url() {
-        assert_eq!(
-            endpoints().blob_resource(&BLOB_ID).to_string(),
-            format!("http://sn1.com/v1/blobs/{BLOB_ID}/")
-        );
-    }
-
-    #[test]
-    fn metadata_url() {
-        assert_eq!(
-            endpoints().metadata(&BLOB_ID).to_string(),
-            format!("http://sn1.com/v1/blobs/{BLOB_ID}/metadata")
-        );
-    }
-
-    #[test]
-    fn confirmation_url() {
-        assert_eq!(
-            endpoints().confirmation(&BLOB_ID).to_string(),
-            format!("http://sn1.com/v1/blobs/{BLOB_ID}/confirmation")
-        );
-    }
-
-    #[test]
-    fn sliver_url() {
-        assert_eq!(
-            endpoints()
-                .sliver::<Primary>(&BLOB_ID, SliverPairIndex(1))
-                .to_string(),
-            format!("http://sn1.com/v1/blobs/{BLOB_ID}/slivers/1/primary")
-        );
-    }
-
-    #[test]
-    fn inconsistency_proof_url() {
-        assert_eq!(
-            endpoints()
-                .inconsistency_proof::<Primary>(&BLOB_ID)
-                .to_string(),
-            format!("http://sn1.com/v1/blobs/{BLOB_ID}/inconsistent/primary")
-        );
+        assert_eq!(url.to_string(), expected);
     }
 }

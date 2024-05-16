@@ -10,6 +10,7 @@ use core::{
 };
 
 use fastcrypto::hash::Blake2b256;
+use tracing::{Level, Span};
 
 use super::{
     utils,
@@ -52,6 +53,8 @@ pub struct BlobEncoder<'a> {
     n_columns: usize,
     /// Reference to the encoding configuration of this encoder.
     config: &'a EncodingConfig,
+    /// A tracing span associated with this blob encoder.
+    span: Span,
 }
 
 impl<'a> BlobEncoder<'a> {
@@ -70,6 +73,7 @@ impl<'a> BlobEncoder<'a> {
     /// 2. On 32-bit architectures, the maximally supported blob size can actually be smaller than
     ///    that due to limitations of the address space.
     pub fn new(config: &'a EncodingConfig, blob: &'a [u8]) -> Result<Self, InvalidDataSizeError> {
+        tracing::debug!("creating new blob encoder");
         let symbol_size =
             utils::compute_symbol_size_from_usize(blob.len(), config.source_symbols_per_blob())?;
         let n_rows = config.n_source_symbols::<Primary>().get().into();
@@ -81,6 +85,12 @@ impl<'a> BlobEncoder<'a> {
             n_rows,
             n_columns,
             config,
+            span: tracing::span!(
+                Level::ERROR,
+                "BlobEncoder",
+                blob_size = blob.len(),
+                blob = crate::utils::data_prefix_string(blob, 5),
+            ),
         })
     }
 
@@ -92,6 +102,7 @@ impl<'a> BlobEncoder<'a> {
     /// notably on 32-bit architectures. As there is an expansion factor of approximately 4.5, blobs
     /// larger than roughly 800 MiB cannot be encoded on 32-bit architectures.
     pub fn encode(&self) -> Vec<SliverPair> {
+        tracing::debug!(parent: &self.span, "starting to encode blob");
         let mut primary_slivers: Vec<_> = self.empty_slivers::<Primary>();
         let mut secondary_slivers: Vec<_> = self.empty_slivers::<Secondary>();
 
@@ -154,6 +165,8 @@ impl<'a> BlobEncoder<'a> {
     /// notably on 32-bit architectures. As there is an expansion factor of approximately 4.5, blobs
     /// larger than roughly 800 MiB cannot be encoded on 32-bit architectures.
     pub fn encode_with_metadata(&self) -> (Vec<SliverPair>, VerifiedBlobMetadataWithId) {
+        let _guard = self.span.enter();
+        tracing::debug!("starting to encode blob with metadata");
         let mut expanded_matrix = self.get_expanded_matrix();
         let metadata = expanded_matrix.get_metadata();
 
@@ -165,12 +178,17 @@ impl<'a> BlobEncoder<'a> {
         expanded_matrix.write_secondary_slivers(&mut sliver_pairs);
         // Then consume the matrix to get the primary slivers.
         expanded_matrix.write_primary_slivers(&mut sliver_pairs);
+        tracing::debug!(
+            blob_id = %metadata.blob_id(),
+            "successfully encoded blob"
+        );
 
         (sliver_pairs, metadata)
     }
 
     /// Computes the metadata (blob ID, hashes) for the blob, without returning the slivers.
     pub fn compute_metadata(&self) -> VerifiedBlobMetadataWithId {
+        tracing::debug!(parent: &self.span, "starting to compute metadata");
         self.get_expanded_matrix().get_metadata()
     }
 
@@ -225,7 +243,8 @@ impl<'a> BlobEncoder<'a> {
 
     /// Computes the fully expanded message matrix by encoding rows and columns.
     fn get_expanded_matrix(&self) -> ExpandedMessageMatrix {
-        ExpandedMessageMatrix::new(self.config, self.symbol_size, self.blob)
+        self.span
+            .in_scope(|| ExpandedMessageMatrix::new(self.config, self.symbol_size, self.blob))
     }
 }
 
@@ -248,6 +267,7 @@ struct ExpandedMessageMatrix<'a> {
 
 impl<'a> ExpandedMessageMatrix<'a> {
     fn new(config: &'a EncodingConfig, symbol_size: NonZeroU16, blob: &'a [u8]) -> Self {
+        tracing::debug!("computing expanded message matrix");
         assert!(!blob.is_empty());
         let matrix = vec![
             Symbols::zeros(config.n_shards().get().into(), symbol_size);
@@ -333,6 +353,7 @@ impl<'a> ExpandedMessageMatrix<'a> {
 
     /// Computes the sliver pair metadata from the expanded message matrix.
     fn get_metadata(&self) -> VerifiedBlobMetadataWithId {
+        tracing::debug!("writing blob metadata");
         let mut metadata = vec![SliverPairMetadata::new_empty(); self.matrix.len()];
         self.write_secondary_metadata(&mut metadata);
         self.write_primary_metadata(&mut metadata);
@@ -413,6 +434,8 @@ pub struct BlobDecoder<'a, T: EncodingAxis = Primary> {
     blob_size: NonZeroUsize,
     symbol_size: NonZeroU16,
     config: &'a EncodingConfig,
+    /// A tracing span associated with this blob decoder.
+    span: Span,
 }
 
 impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
@@ -432,6 +455,7 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
         config: &'a EncodingConfig,
         blob_size: NonZeroU64,
     ) -> Result<Self, InvalidDataSizeError> {
+        tracing::debug!("creating new blob decoder");
         let symbol_size = config.symbol_size_for_blob(blob_size.get())?;
         let blob_size = blob_size
             .try_into()
@@ -445,6 +469,7 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
             blob_size,
             symbol_size,
             config,
+            span: tracing::span!(Level::ERROR, "BlobDecoder", blob_size),
         })
     }
 
@@ -466,6 +491,8 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
         S: IntoIterator<Item = Sliver<T>>,
         T: EncodingAxis,
     {
+        let _guard = self.span.enter();
+        tracing::debug!(axis = T::NAME, "starting to decode");
         // Depending on the decoding axis, this represents the message matrix's columns (primary)
         // or rows (secondary).
         let mut columns_or_rows = Vec::with_capacity(self.decoders.len());
@@ -500,11 +527,13 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
             }
             // Stop decoding as soon as we are done.
             if decoding_successful {
+                tracing::debug!("decoding finished successfully");
                 break;
             }
         }
 
         if !decoding_successful {
+            tracing::debug!("decoding unsuccessful");
             return None;
         }
 
@@ -531,6 +560,7 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
         };
 
         blob.truncate(self.blob_size.get());
+        tracing::debug!("returning truncated decoded blob");
         Some(blob)
     }
 
@@ -558,6 +588,7 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
     /// This function can panic if there is insufficient virtual memory for the encoded data,
     /// notably on 32-bit architectures. As this function re-encodes the blob to verify the
     /// metadata, similar limits apply as in [`BlobEncoder::encode_with_metadata`].
+    #[tracing::instrument(skip_all,err(level = Level::INFO))]
     pub fn decode_and_verify(
         &mut self,
         blob_id: &BlobId,

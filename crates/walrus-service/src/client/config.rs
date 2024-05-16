@@ -10,7 +10,7 @@ use sui_types::base_types::ObjectID;
 use crate::config::LoadConfig;
 
 /// Config for the client.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
     /// The walrus package id.
     pub system_pkg: ObjectID,
@@ -29,7 +29,7 @@ pub struct Config {
 impl LoadConfig for Config {}
 
 /// Configuration for the communication parameters of the client
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ClientCommunicationConfig {
     /// The maximum number of storage nodes the client contacts in parallel to write slivers and
     /// metadata. If `None`, the value is set by the client to `n - f`, depending on the number of
@@ -58,7 +58,7 @@ impl Default for ClientCommunicationConfig {
 }
 
 /// Configuration for the parameters of the `reqwest` client.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ReqwestConfig {
     /// Total request timeout, applied from when the request starts connecting until the response
     /// body has finished.

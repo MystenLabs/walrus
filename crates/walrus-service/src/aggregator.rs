@@ -55,7 +55,7 @@ impl<T: Send + Sync + 'static> AggregatorServer<T> {
             .await
     }
 
-    #[tracing::instrument(level = Level::ERROR, skip_all, fields(blob_id))]
+    #[tracing::instrument(level = Level::ERROR, skip_all, fields(%blob_id))]
     async fn retrieve_blob(
         State(client): State<Arc<Client<T>>>,
         Path(BlobIdString(blob_id)): Path<BlobIdString>,

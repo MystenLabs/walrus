@@ -40,6 +40,7 @@ pub use slivers::{PrimarySliver, SecondarySliver, Sliver, SliverPair};
 
 mod symbols;
 pub use symbols::{
+    min_symbols_for_recovery,
     DecodingSymbol,
     PrimaryRecoverySymbol,
     RecoverySymbol,

@@ -212,6 +212,15 @@ macro_rules! assert_unordered_eq {
 
         assert_eq!(lhs, rhs);
     };
+    ($lhs:expr, $rhs:expr, $f:expr) => {
+        let mut lhs: Vec<_> = $lhs.into_iter().collect();
+        let mut rhs: Vec<_> = $rhs.into_iter().collect();
+
+        lhs.sort_by_key($f);
+        rhs.sort_by_key($f);
+
+        assert_eq!(lhs, rhs);
+    };
 }
 
 /// Gets a random subset of `count` elements of `data` in an arbitrary order using the provided RNG.

@@ -1,17 +1,17 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
-
 use std::{future::Future, sync::Arc};
 
 use anyhow::{anyhow, bail, Context};
 use fastcrypto::traits::KeyPair;
+use futures::{future::Either, stream::FuturesUnordered, StreamExt};
 use mysten_metrics::RegistryService;
 use tokio::select;
-use tokio_stream::StreamExt;
 use tokio_util::sync::CancellationToken;
-use typed_store::{rocks::MetricConf, DBMetrics};
+use tracing::{instrument, Instrument};
+use typed_store::{rocks::MetricConf, DBMetrics, TypedStoreError};
 use walrus_core::{
-    encoding::{EncodingConfig, RecoverySymbolError},
+    encoding::{EncodingAxis, EncodingConfig, Primary, RecoverySymbolError, Secondary},
     ensure,
     inconsistency::InconsistencyVerificationError,
     keys::ProtocolKeyPair,
@@ -27,6 +27,7 @@ use walrus_core::{
     metadata::{UnverifiedBlobMetadataWithId, VerificationError, VerifiedBlobMetadataWithId},
     BlobId,
     Epoch,
+    InconsistencyProof as InconsistencyProofEnum,
     InconsistencyProof,
     RecoverySymbol,
     ShardIndex,
@@ -42,7 +43,7 @@ use walrus_sui::{
 use crate::{
     committee::{CommitteeService, CommitteeServiceFactory, SuiCommitteeServiceFactory},
     config::{StorageNodeConfig, SuiConfig},
-    storage::{blob_info::BlobInfo, Storage},
+    storage::Storage,
     system_events::{SuiSystemEventProvider, SystemEventProvider},
 };
 
@@ -269,12 +270,6 @@ impl StorageNodeBuilder {
             Box::new(SuiCommitteeServiceFactory::new(read_client))
         });
 
-        let mut committee_service = committee_service_factory
-            .new_for_epoch()
-            .await
-            .context("unable to construct a committee service for the storage node")?;
-        committee_service.exclude_member(protocol_key_pair.as_ref().public());
-
         StorageNode::new(
             protocol_key_pair,
             storage,
@@ -322,7 +317,7 @@ impl StorageNode {
         committee_service_factory: Box<dyn CommitteeServiceFactory>,
     ) -> Result<Self, anyhow::Error> {
         let committee_service = committee_service_factory
-            .new_for_epoch()
+            .new_for_epoch(Some(key_pair.as_ref().public()))
             .await
             .context("unable to construct a committee service for the storage node")?;
 
@@ -397,15 +392,19 @@ impl StorageNode {
         self.storage
             .update_blob_info(&BlobEvent::Certified(event))?;
 
-        let blob_info = self
+        if !self
             .storage
-            .get_blob_info(&blob_id)?
-            .expect("info to be present as it was just updated");
-
-        if !blob_info.is_all_stored() {
+            .is_stored_at_all_shards(&blob_id)
+            .expect("database read to succeed")
+        {
+            // Slivers, and possible metadata, are not stored.
             // TODO(jsmith): Do not spawn if there is already a worker for this blob id (#366)
             // TODO(jsmith): Handle cancellation. (#366)
-            tokio::spawn(BlobSynchronizer::new(blob_id, blob_info, self).sync());
+            tokio::spawn(
+                BlobSynchronizer::new(blob_id, self)
+                    .sync()
+                    .in_current_span(),
+            );
         }
 
         Ok(())
@@ -414,17 +413,15 @@ impl StorageNode {
 
 struct BlobSynchronizer {
     blob_id: BlobId,
-    latest_state: BlobInfo,
     storage: Storage,
     committee_service: Arc<dyn CommitteeService>,
     encoding_config: Arc<EncodingConfig>,
 }
 
 impl BlobSynchronizer {
-    fn new(blob_id: BlobId, blob_info: BlobInfo, node: &StorageNode) -> Self {
+    fn new(blob_id: BlobId, node: &StorageNode) -> Self {
         Self {
             blob_id,
-            latest_state: blob_info,
             // TODO(jsmith): Make storage node cheaper to clone once we have epoch migration (#367)
             storage: node.storage.clone(),
             committee_service: node.committee_service.clone(),
@@ -432,33 +429,117 @@ impl BlobSynchronizer {
         }
     }
 
-    async fn sync(mut self) {
-        self.latest_state = self.sync_metadata().await;
-        // TODO(jsmith): Request and store the symbols for the primary sliver
-        // TODO(jsmith): Request and store the symbols for the secondary sliver
+    #[tracing::instrument(skip_all, fields(blob_id = %self.blob_id))]
+    async fn sync(self) {
+        let metadata = self
+            .sync_metadata()
+            .await
+            .expect("database operations should not fail");
+
+        let sliver_sync_futures: FuturesUnordered<_> = self
+            .storage
+            .shards()
+            .iter()
+            .flat_map(|&shard| {
+                [
+                    Either::Left(self.sync_sliver::<Primary>(shard, &metadata)),
+                    Either::Right(self.sync_sliver::<Secondary>(shard, &metadata)),
+                ]
+            })
+            .collect();
+
+        sliver_sync_futures
+            .for_each(|result| {
+                match result {
+                    Ok(Some(_)) => tracing::error!("received an inconsistency proof"),
+                    Err(err) => panic!("database operations should not fail: {:?}", err),
+                    _ => (),
+                };
+                std::future::ready(())
+            })
+            .await;
     }
 
-    async fn sync_metadata(&self) -> BlobInfo {
-        if self.latest_state.is_metadata_stored {
-            return self.latest_state;
+    async fn sync_metadata(&self) -> Result<VerifiedBlobMetadataWithId, TypedStoreError> {
+        if self.storage.has_metadata(&self.blob_id)? {
+            tracing::debug!("not syncing metadata: already stored");
+            return Ok(self
+                .storage
+                .get_metadata(&self.blob_id)?
+                .expect("metadata already stored"));
         }
-        tracing::debug!(blob_id=%self.blob_id, "syncing metadata for blob");
+
+        tracing::debug!("syncing metadata");
 
         let metadata = self
             .committee_service
             .get_and_verify_metadata(&self.blob_id, &self.encoding_config)
             .await;
 
-        self.storage
-            .put_verified_metadata(&metadata)
-            .expect("metadata storage must succeed");
+        self.storage.put_verified_metadata(&metadata)?;
 
-        tracing::debug!(blob_id=%self.blob_id, "metadata for blob successfully synced");
+        tracing::debug!("metadata successfully synced");
+        Ok(metadata)
+    }
 
-        self.storage
-            .get_blob_info(&self.blob_id)
-            .expect("retrieving metadata should not fail")
-            .expect("metadata to exist when syncing a blob")
+    #[instrument(skip_all, fields(axis = ?A::default()))]
+    async fn sync_sliver<A: EncodingAxis>(
+        &self,
+        shard: ShardIndex,
+        metadata: &VerifiedBlobMetadataWithId,
+    ) -> Result<Option<InconsistencyProofEnum>, TypedStoreError> {
+        let shard_storage = self
+            .storage
+            .shard_storage(shard)
+            .expect("shard is managed by this node");
+
+        // TODO(jsmith): Persist sync across reboots (#395)
+        // Handling certified messages does not work for handling reboots etc,
+        // because the event is already recorded. We need a way to scan and see of all the blobs we
+        // know about, which are stored and which are not fully stored.
+        if shard_storage.is_sliver_stored::<A>(&self.blob_id)? {
+            tracing::debug!("not syncing sliver: already stored");
+            return Ok(None);
+        }
+
+        let sliver_id = shard.to_pair_index(self.encoding_config.n_shards(), &self.blob_id);
+        let sliver_or_proof = recover_sliver::<A>(
+            &*self.committee_service,
+            metadata,
+            sliver_id,
+            &self.encoding_config,
+        )
+        .await;
+
+        match sliver_or_proof {
+            Ok(sliver) => {
+                shard_storage.put_sliver(&self.blob_id, &sliver)?;
+                tracing::debug!("sliver successfully synced");
+                Ok(None)
+            }
+            Err(proof) => Ok(Some(proof)),
+        }
+    }
+}
+
+async fn recover_sliver<A: EncodingAxis>(
+    committee_service: &dyn CommitteeService,
+    metadata: &VerifiedBlobMetadataWithId,
+    sliver_id: SliverPairIndex,
+    encoding_config: &EncodingConfig,
+) -> Result<Sliver, InconsistencyProofEnum<MerkleProof>> {
+    if A::IS_PRIMARY {
+        committee_service
+            .recover_primary_sliver(metadata, sliver_id, encoding_config)
+            .await
+            .map(Sliver::Primary)
+            .map_err(InconsistencyProofEnum::Primary)
+    } else {
+        committee_service
+            .recover_secondary_sliver(metadata, sliver_id, encoding_config)
+            .await
+            .map(Sliver::Secondary)
+            .map_err(InconsistencyProofEnum::Secondary)
     }
 }
 
@@ -662,15 +743,17 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{sync::OnceLock, time::Duration};
 
     use fastcrypto::traits::KeyPair;
-    use tokio::sync::broadcast;
+    use tokio::sync::{broadcast::Sender, Mutex};
+    use walrus_core::encoding::{self, Primary, SliverPair};
+    use walrus_sdk::client::Client;
     use walrus_sui::{
         test_utils::EventForTesting,
         types::{BlobCertified, BlobEvent, BlobRegistered},
     };
-    use walrus_test_utils::{Result as TestResult, WithTempDir};
+    use walrus_test_utils::{async_param_test, Result as TestResult, WithTempDir};
 
     use super::*;
     use crate::{
@@ -684,7 +767,11 @@ mod tests {
         test_utils::{StorageNodeHandle, TestCluster},
     };
 
+    const TIMEOUT: Duration = Duration::from_secs(1);
     const OTHER_BLOB_ID: BlobId = BlobId([247; 32]);
+    const BLOB: &[u8] = &[
+        0, 1, 255, 0, 2, 254, 0, 3, 253, 0, 4, 252, 0, 5, 251, 0, 6, 250, 0, 7, 249, 0, 8, 248,
+    ];
 
     async fn storage_node_with_storage(storage: WithTempDir<Storage>) -> StorageNodeHandle {
         StorageNodeHandle::builder()
@@ -777,7 +864,6 @@ mod tests {
     }
 
     mod inconsistency_proof {
-        use std::time::Duration;
 
         use fastcrypto::traits::VerifyingKey;
         use walrus_core::{
@@ -881,53 +967,371 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn retrieves_metadata_from_other_nodes_on_certified_blob_event() -> TestResult {
-        let events = broadcast::Sender::new(10);
-        let nodes = TestCluster::builder()
-            .with_shard_assignment(&[[0u16, 1].as_slice(), &[2, 3, 4]])
-            .with_system_event_providers(events.clone())
-            .build()
-            .await?;
+    struct EncodedBlob {
+        pub config: EncodingConfig,
+        pub pairs: Vec<SliverPair>,
+        pub metadata: VerifiedBlobMetadataWithId,
+    }
 
-        tokio::task::yield_now().await;
+    impl EncodedBlob {
+        fn new(blob: &[u8], config: EncodingConfig) -> EncodedBlob {
+            let (pairs, metadata) = config
+                .get_blob_encoder(blob)
+                .expect("must be able to get encoder")
+                .encode_with_metadata();
 
-        let contacted_node = &nodes.nodes[0].storage_node;
-        let other_node = &nodes.nodes[1].storage_node;
-        let config = &contacted_node.encoding_config;
+            EncodedBlob {
+                pairs,
+                metadata,
+                config,
+            }
+        }
 
-        let (_, metadata) = config
-            .get_blob_encoder(&vec![7u8; 300])?
-            .encode_with_metadata();
-        let blob_id = *metadata.blob_id();
+        fn blob_id(&self) -> &BlobId {
+            self.metadata.blob_id()
+        }
 
-        events.send(BlobRegistered::for_testing(blob_id).into())?;
-        tokio::task::yield_now().await;
+        fn assigned_sliver_pair(&self, shard: ShardIndex) -> &SliverPair {
+            let pair_index = shard.to_pair_index(self.config.n_shards(), self.blob_id());
+            self.pairs
+                .iter()
+                .find(|pair| pair.index() == pair_index)
+                .expect("shard must be assigned at least 1 sliver")
+        }
+    }
 
-        contacted_node.store_metadata(metadata.clone().into_unverified())?;
+    async fn store_at_shards<F>(
+        blob: &EncodedBlob,
+        cluster: &TestCluster,
+        mut store_at_shard: F,
+    ) -> TestResult
+    where
+        F: FnMut(&ShardIndex, SliverType) -> bool,
+    {
+        let nodes_and_shards: Vec<_> = cluster
+            .nodes
+            .iter()
+            .flat_map(|node| std::iter::repeat(node).zip(node.storage_node.shards()))
+            .collect();
 
-        assert!(contacted_node.retrieve_metadata(&blob_id)?.is_some());
-        assert!(other_node.retrieve_metadata(&blob_id)?.is_none());
+        let mut metadata_stored = vec![];
 
-        events.send(BlobCertified::for_testing(blob_id).into())?;
+        for (node, shard) in nodes_and_shards {
+            if !metadata_stored.contains(&&node.public_key)
+                && (store_at_shard(&shard, SliverType::Primary)
+                    || store_at_shard(&shard, SliverType::Secondary))
+            {
+                node.client.store_metadata(&blob.metadata).await?;
+                metadata_stored.push(&node.public_key);
+            }
 
-        // Wait up to 50ms for the node to fetch the metadata
-        let synced_metadata: Result<VerifiedBlobMetadataWithId, anyhow::Error> =
-            tokio::time::timeout(Duration::from_millis(50), async {
-                loop {
-                    if let Some(metadata) = other_node.retrieve_metadata(&blob_id)? {
-                        return Ok(metadata);
-                    } else {
-                        tokio::time::sleep(Duration::from_millis(1)).await;
-                    };
-                }
-            })
-            .await?;
-        let synced_metadata = synced_metadata?;
+            let sliver_pair = blob.assigned_sliver_pair(shard);
 
-        assert!(contacted_node.retrieve_metadata(&blob_id)?.is_some());
-        assert_eq!(synced_metadata, metadata);
+            if store_at_shard(&shard, SliverType::Primary) {
+                node.client
+                    .store_sliver_by_axis(blob.blob_id(), sliver_pair.index(), &sliver_pair.primary)
+                    .await?;
+            }
+
+            if store_at_shard(&shard, SliverType::Secondary) {
+                node.client
+                    .store_sliver_by_axis(
+                        blob.blob_id(),
+                        sliver_pair.index(),
+                        &sliver_pair.secondary,
+                    )
+                    .await?;
+            }
+        }
 
         Ok(())
+    }
+
+    // Prevent tests running simultaneously to avoid interferences or race conditions.
+    fn global_test_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(Mutex::default)
+    }
+
+    async fn cluster_with_partially_stored_blob<'a, F>(
+        assignment: &[&[u16]],
+        blob: &'a [u8],
+        store_at_shard: F,
+    ) -> TestResult<(TestCluster, Sender<BlobEvent>, EncodedBlob)>
+    where
+        F: FnMut(&ShardIndex, SliverType) -> bool,
+    {
+        let events = Sender::new(10);
+
+        let cluster = {
+            // Lock to avoid race conditions.
+            let _lock = global_test_lock().lock().await;
+            TestCluster::builder()
+                .with_shard_assignment(assignment)
+                .with_system_event_providers(events.clone())
+                .build()
+                .await?
+        };
+
+        // Wait for HTTP to start up
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        let config = cluster.encoding_config();
+        let blob_details = EncodedBlob::new(blob, config);
+
+        events.send(BlobRegistered::for_testing(*blob_details.blob_id()).into())?;
+        store_at_shards(&blob_details, &cluster, store_at_shard).await?;
+
+        Ok((cluster, events, blob_details))
+    }
+
+    #[tokio::test]
+    async fn retrieves_metadata_from_other_nodes_on_certified_blob_event() -> TestResult {
+        let shards: &[&[u16]] = &[&[1], &[0, 2, 3, 4]];
+
+        let (cluster, events, blob) =
+            cluster_with_partially_stored_blob(shards, BLOB, |shard, _| shard.get() != 1).await?;
+
+        let node_client = cluster.client(0);
+
+        node_client
+            .get_metadata(blob.blob_id())
+            .await
+            .expect_err("metadata should not yet be available");
+
+        events.send(BlobCertified::for_testing(*blob.blob_id()).into())?;
+
+        let synced_metadata = retry_until_success_or_timeout(TIMEOUT, || {
+            node_client.get_and_verify_metadata(blob.blob_id(), &blob.config)
+        })
+        .await
+        .expect("metadata should be available at some point after being certified");
+
+        assert_eq!(synced_metadata, blob.metadata);
+
+        Ok(())
+    }
+
+    async_param_test! {
+        recovers_sliver_from_other_nodes_on_certified_blob_event -> TestResult: [
+            primary: (SliverType::Primary),
+            secondary: (SliverType::Secondary),
+        ]
+    }
+    async fn recovers_sliver_from_other_nodes_on_certified_blob_event(
+        sliver_type: SliverType,
+    ) -> TestResult {
+        let shards: &[&[u16]] = &[&[1], &[0, 2, 3, 4, 5, 6]];
+        let test_shard = ShardIndex(1);
+
+        let (cluster, events, blob) =
+            cluster_with_partially_stored_blob(shards, BLOB, |&shard, _| shard != test_shard)
+                .await?;
+        let node_client = cluster.client(0);
+
+        let pair_to_sync = blob.assigned_sliver_pair(test_shard);
+
+        node_client
+            .get_sliver_by_type(blob.blob_id(), pair_to_sync.index(), sliver_type)
+            .await
+            .expect_err("sliver should not yet be available");
+
+        events.send(BlobCertified::for_testing(*blob.blob_id()).into())?;
+
+        let synced_sliver = retry_until_success_or_timeout(TIMEOUT, || {
+            node_client.get_sliver_by_type(blob.blob_id(), pair_to_sync.index(), sliver_type)
+        })
+        .await
+        .expect("sliver should be available at some point after being certified");
+
+        let expected: Sliver = match sliver_type {
+            SliverType::Primary => pair_to_sync.primary.clone().into(),
+            SliverType::Secondary => pair_to_sync.secondary.clone().into(),
+        };
+        assert_eq!(synced_sliver, expected);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn recovers_slivers_for_multiple_shards_from_other_nodes() -> TestResult {
+        let shards: &[&[u16]] = &[&[1, 6], &[0, 2, 3, 4, 5]];
+        let own_shards = [ShardIndex(1), ShardIndex(6)];
+
+        let (cluster, events, blob) =
+            cluster_with_partially_stored_blob(shards, BLOB, |shard, _| {
+                !own_shards.contains(shard)
+            })
+            .await?;
+        let node_client = cluster.client(0);
+
+        events.send(BlobCertified::for_testing(*blob.blob_id()).into())?;
+
+        for shard in own_shards {
+            let synced_sliver_pair =
+                expect_sliver_pair_stored_before_timeout(&blob, node_client, shard, TIMEOUT).await;
+            let expected = blob.assigned_sliver_pair(shard);
+
+            assert_eq!(
+                synced_sliver_pair, *expected,
+                "invalid sliver pair for {shard}"
+            );
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn recovers_sliver_from_own_shards() -> TestResult {
+        let shards: &[&[u16]] = &[&[0, 1, 2, 3, 4, 5], &[6]];
+        let shard_under_test = ShardIndex(0);
+
+        // Store with all except the shard under test.
+        let (cluster, events, blob) =
+            cluster_with_partially_stored_blob(shards, BLOB, |&shard, _| shard != shard_under_test)
+                .await?;
+        let node_client = cluster.client(0);
+
+        events.send(BlobCertified::for_testing(*blob.blob_id()).into())?;
+
+        let synced_sliver_pair =
+            expect_sliver_pair_stored_before_timeout(&blob, node_client, shard_under_test, TIMEOUT)
+                .await;
+        let expected = blob.assigned_sliver_pair(shard_under_test);
+
+        assert_eq!(synced_sliver_pair, *expected,);
+
+        Ok(())
+    }
+
+    async_param_test! {
+        recovers_sliver_from_only_symbols_of_one_type -> TestResult: [
+            primary: (SliverType::Primary),
+            secondary: (SliverType::Secondary),
+        ]
+    }
+    async fn recovers_sliver_from_only_symbols_of_one_type(
+        sliver_type_to_store: SliverType,
+    ) -> TestResult {
+        let shards: &[&[u16]] = &[&[0], &[1, 2, 3, 4, 5, 6]];
+
+        // Store only slivers of type `sliver_type_to_store`.
+        let (cluster, events, blob) =
+            cluster_with_partially_stored_blob(shards, BLOB, |_, sliver_type| {
+                sliver_type == sliver_type_to_store
+            })
+            .await?;
+
+        events.send(BlobCertified::for_testing(*blob.blob_id()).into())?;
+
+        for (node_index, shards) in shards.iter().enumerate() {
+            let node_client = cluster.client(node_index);
+
+            for shard in shards.iter() {
+                let expected = blob.assigned_sliver_pair(shard.into());
+                let synced = expect_sliver_pair_stored_before_timeout(
+                    &blob,
+                    node_client,
+                    shard.into(),
+                    TIMEOUT,
+                )
+                .await;
+
+                assert_eq!(synced, *expected,);
+            }
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore = "syncing all symbols takes several seconds"]
+    async fn recovers_sliver_from_a_small_set() -> TestResult {
+        let shards: &[&[u16]] = &[&[0], &(1..=6).collect::<Vec<_>>()];
+        let store_secondary_at: Vec<_> = ShardIndex::range(0..5).collect();
+
+        // Store only a few secondary slivers.
+        let (cluster, events, blob) =
+            cluster_with_partially_stored_blob(shards, BLOB, |shard, sliver_type| {
+                sliver_type == SliverType::Secondary && store_secondary_at.contains(shard)
+            })
+            .await?;
+
+        events.send(BlobCertified::for_testing(*blob.blob_id()).into())?;
+
+        for (node_index, shards) in shards.iter().enumerate() {
+            let node_client = cluster.client(node_index);
+
+            for shard in shards.iter() {
+                let expected = blob.assigned_sliver_pair(shard.into());
+                let synced = expect_sliver_pair_stored_before_timeout(
+                    &blob,
+                    node_client,
+                    shard.into(),
+                    Duration::from_secs(5),
+                )
+                .await;
+
+                assert_eq!(synced, *expected,);
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn expect_sliver_pair_stored_before_timeout(
+        blob: &EncodedBlob,
+        node_client: &Client,
+        shard: ShardIndex,
+        timeout: Duration,
+    ) -> SliverPair {
+        let (primary, secondary) = tokio::join!(
+            expect_sliver_stored_before_timeout::<Primary>(blob, node_client, shard, timeout,),
+            expect_sliver_stored_before_timeout::<Secondary>(blob, node_client, shard, timeout,)
+        );
+
+        SliverPair { primary, secondary }
+    }
+
+    async fn expect_sliver_stored_before_timeout<A: EncodingAxis>(
+        blob: &EncodedBlob,
+        node_client: &Client,
+        shard: ShardIndex,
+        timeout: Duration,
+    ) -> encoding::Sliver<A> {
+        retry_until_success_or_timeout(timeout, || {
+            let pair_to_sync = blob.assigned_sliver_pair(shard);
+            node_client.get_sliver::<A>(blob.blob_id(), pair_to_sync.index())
+        })
+        .await
+        .expect("sliver should be available at some point after being certified")
+    }
+
+    /// Retries until success or a timeout, returning the last result.
+    async fn retry_until_success_or_timeout<F, Fut, T, E>(
+        duration: Duration,
+        mut func_to_retry: F,
+    ) -> Result<T, E>
+    where
+        F: FnMut() -> Fut,
+        Fut: Future<Output = Result<T, E>>,
+    {
+        let mut last_result = None;
+
+        let _ = tokio::time::timeout(duration, async {
+            loop {
+                let result = func_to_retry().await;
+                if result.is_ok() {
+                    last_result = Some(func_to_retry().await);
+                    return;
+                } else {
+                    last_result = Some(func_to_retry().await);
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            }
+        })
+        .await;
+
+        last_result.expect("function to have completed at least once")
     }
 }

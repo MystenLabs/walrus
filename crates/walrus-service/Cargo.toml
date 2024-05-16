@@ -23,7 +23,7 @@ git-version = "0.3.9"
 home = "0.5.9"
 mime = "0.3.17"
 mysten-metrics.workspace = true
-prometheus = "0.13.3"
+prometheus = "0.13.4"
 rand.workspace = true
 regex = "1"
 reqwest = { workspace = true, features = ["json"] }

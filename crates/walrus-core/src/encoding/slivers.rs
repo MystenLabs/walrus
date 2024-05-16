@@ -385,7 +385,7 @@ impl<T: EncodingAxis> Display for Sliver<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
-            "Sliver{{ type: {}, index: {}, {} }}",
+            "Sliver{{ type: {}, index: {}, data: {} }}",
             T::NAME,
             self.index,
             utils::data_prefix_string(self.symbols.data(), 5),

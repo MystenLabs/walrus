@@ -277,7 +277,7 @@ impl AsMut<[u8]> for Symbols {
 /// this symbol.  I.e., a [`DecodingSymbol<Primary>`] is used to recover a
 /// [`Sliver<Primary>`][super::slivers::Sliver<Primary>].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DecodingSymbol<T: EncodingAxis> {
+pub struct DecodingSymbol<T> {
     /// The index of the symbol.
     ///
     /// This is equal to the ESI as defined in [RFC 6330][rfc6330s5.3.1].
@@ -333,7 +333,7 @@ impl<T: EncodingAxis> Display for DecodingSymbol<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
-            "DecodingSymbol{{ type: {}, index: {}, {} }}",
+            "DecodingSymbol{{ type: {}, index: {}, data: {} }}",
             T::NAME,
             self.index,
             utils::data_prefix_string(&self.data, 5),
@@ -351,7 +351,7 @@ impl<T: EncodingAxis> Display for DecodingSymbol<T> {
     deserialize = "for<'a> DecodingSymbol<T>: Deserialize<'a>, for<'a> U: Deserialize<'a>",
     serialize = "DecodingSymbol<T>: Serialize, U: Serialize"
 ))]
-pub struct RecoverySymbol<T: EncodingAxis, U: MerkleAuth> {
+pub struct RecoverySymbol<T, U> {
     /// The decoding symbol.
     symbol: DecodingSymbol<T>,
     /// A proof that the decoding symbol is correctly computed from a valid orthogonal sliver.
@@ -421,7 +421,7 @@ impl<T: EncodingAxis, U: MerkleAuth> Display for RecoverySymbol<T, U> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
-            "RecoverySymbol{{ type: {}, index: {}, proof_type: {}, {} }}",
+            "RecoverySymbol{{ type: {}, index: {}, proof_type: {}, data: {} }}",
             T::NAME,
             self.symbol.index,
             core::any::type_name::<U>(),
@@ -469,6 +469,16 @@ where
                 })
                 .is_ok()
         })
+}
+
+/// Returns the minimum number of symbols required for recovery.
+pub fn min_symbols_for_recovery<T: EncodingAxis>(n_shards: NonZeroU16) -> u16 {
+    let max_n_faulty = crate::bft::max_n_faulty(n_shards);
+    if T::IS_PRIMARY {
+        2 * max_n_faulty + 1
+    } else {
+        max_n_faulty + 1
+    }
 }
 
 #[cfg(test)]
@@ -559,7 +569,7 @@ mod tests {
             primary_with_long_data: (
                 DecodingSymbol::<Primary>::new(3, vec![1, 2, 3, 4, 5, 6]),
                 "RecoverySymbol{ type: primary, index: 3, proof_type: \
-                    walrus_core::merkle::MerkleProof, data_prefix: [1, 2, 3, 4, 5, ...] }",
+                    walrus_core::merkle::MerkleProof, data: [1, 2, 3, 4, 5, ...] }",
             ),
         ]
     }

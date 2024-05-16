@@ -43,6 +43,7 @@ pub use self::error::{ClientError, ClientErrorKind};
 #[derive(Debug, Clone)]
 pub struct Client<T> {
     reqwest_client: ReqwestClient,
+    config: Config,
     sui_client: T,
     // INV: committee.n_shards > 0
     committee: Committee,
@@ -62,12 +63,7 @@ impl Client<()> {
         sui_read_client: &impl ReadClient,
     ) -> Result<Self, ClientError> {
         tracing::debug!(?config, "running client");
-        let reqwest_client = config
-            .communication_config
-            .reqwest_config
-            .apply(ClientBuilder::new())
-            .build()
-            .map_err(ClientError::other)?;
+        let reqwest_client = Self::build_reqwest_client(&config)?;
 
         // Get the committee, and check that there is at least one shard per node.
         let committee = sui_read_client
@@ -92,14 +88,16 @@ impl Client<()> {
             .communication_config
             .concurrent_writes
             .unwrap_or(default::concurrent_sliver_reads(committee.n_shards()));
+        let concurrent_metadata_reads = config.communication_config.concurrent_metadata_reads;
         Ok(Self {
+            config,
             reqwest_client,
             sui_client: (),
             committee,
             concurrent_writes,
             encoding_config,
             concurrent_sliver_reads,
-            concurrent_metadata_reads: config.communication_config.concurrent_metadata_reads,
+            concurrent_metadata_reads,
         })
     }
 
@@ -107,6 +105,7 @@ impl Client<()> {
     pub async fn with_client<T: ContractClient>(self, sui_client: T) -> Client<T> {
         let Self {
             reqwest_client,
+            config,
             sui_client: _,
             committee,
             concurrent_writes,
@@ -116,6 +115,7 @@ impl Client<()> {
         } = self;
         Client::<T> {
             reqwest_client,
+            config,
             sui_client,
             committee,
             concurrent_writes,
@@ -150,40 +150,51 @@ impl<T: ContractClient> Client<T> {
             .map_err(ClientError::other)?
             .encode_with_metadata();
         tracing::Span::current().record("blob_id", metadata.blob_id().to_string());
-        let encoded_length = self
-            .encoding_config
-            .encoded_blob_length_from_usize(blob.len())
-            .expect("valid for metadata created from the same config");
-        tracing::debug!(encoded_length, "computed blob pairs and metadata");
+        tracing::debug!("computed blob pairs and metadata");
 
         // Get the root hash of the blob.
-        let root_hash = metadata.metadata().compute_root_hash();
-
-        let storage_resource = self
-            .sui_client
-            .reserve_space(encoded_length, epochs_ahead)
-            .await
-            .map_err(ClientError::other)?;
         let blob_sui_object = self
-            .sui_client
-            .register_blob(
-                &storage_resource,
-                *metadata.blob_id(),
-                root_hash.bytes(),
-                blob.len()
-                    .try_into()
-                    .expect("conversion implicitly checked above"),
-                metadata.metadata().encoding_type,
-            )
-            .await
-            .map_err(ClientError::other)?;
+            .reserve_blob(&metadata, blob.len(), epochs_ahead)
+            .await?;
 
         // We need to wait to be sure that the storage nodes received the registration event.
         sleep(Duration::from_secs(1)).await;
 
-        let certificate = self.store_metadata_and_pairs(&metadata, pairs).await?;
+        let certificate = self.store_metadata_and_pairs(&metadata, &pairs).await?;
         self.sui_client
             .certify_blob(&blob_sui_object, &certificate)
+            .await
+            .map_err(ClientError::other)
+    }
+
+    /// Reserves the space for the blob on chain.
+    pub async fn reserve_blob(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+        unencoded_size: usize,
+        epochs_ahead: u64,
+    ) -> Result<Blob, ClientError> {
+        let encoded_size = self
+            .encoding_config
+            .encoded_blob_length_from_usize(unencoded_size)
+            .expect("valid for metadata created from the same config");
+
+        let root_hash = metadata.metadata().compute_root_hash();
+        let storage_resource = self
+            .sui_client
+            .reserve_space(encoded_size, epochs_ahead)
+            .await
+            .map_err(ClientError::other)?;
+        self.sui_client
+            .register_blob(
+                &storage_resource,
+                *metadata.blob_id(),
+                root_hash.bytes(),
+                unencoded_size
+                    .try_into()
+                    .expect("conversion implicitly checked above"),
+                metadata.metadata().encoding_type,
+            )
             .await
             .map_err(ClientError::other)
     }
@@ -198,7 +209,7 @@ impl<T> Client<T> {
     pub async fn store_metadata_and_pairs(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
-        pairs: Vec<SliverPair>,
+        pairs: &[SliverPair],
     ) -> Result<ConfirmationCertificate, ClientError> {
         let mut pairs_per_node = self.pairs_per_node(metadata.blob_id(), pairs);
         let comms = self.node_communications()?;
@@ -207,7 +218,7 @@ impl<T> Client<T> {
                 metadata,
                 pairs_per_node
                     .remove(&n.node_index)
-                    .expect("there are pairs for each node"),
+                    .expect("there are shards for each node"),
             )
         }));
         let start = Instant::now();
@@ -283,7 +294,7 @@ impl<T> Client<T> {
     }
 
     /// Reconstructs the blob by reading slivers from Walrus shards.
-    #[tracing::instrument(level = Level::ERROR, skip(self))]
+    #[tracing::instrument(level = Level::ERROR, skip_all, fields (blob_id = %blob_id))]
     pub async fn read_blob<U>(&self, blob_id: &BlobId) -> Result<Vec<u8>, ClientError>
     where
         U: EncodingAxis,
@@ -298,6 +309,7 @@ impl<T> Client<T> {
     ///
     /// Returns a [`ClientError`] of kind [`ClientErrorKind::BlobIdDoesNotExist`] if it receives a
     /// quorum (at least 2f+1) of "not found" error status codes from the storage nodes.
+    #[tracing::instrument(level = Level::ERROR, skip_all)]
     async fn request_slivers_and_decode<U>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
@@ -457,9 +469,12 @@ impl<T> Client<T> {
             .await;
 
         let mut n_not_found = 0;
-        for NodeResult(_, weight, _, result) in requests.into_results() {
+        for NodeResult(_, weight, node, result) in requests.into_results() {
             match result {
-                Ok(metadata) => return Ok(metadata),
+                Ok(metadata) => {
+                    tracing::debug!(?node, "metadata received");
+                    return Ok(metadata);
+                }
                 Err(error) => {
                     if error.is_status_not_found() && {
                         n_not_found += weight;
@@ -518,35 +533,53 @@ impl<T> Client<T> {
     }
 
     /// Maps the sliver pairs to the node that holds their shard.
-    fn pairs_per_node(
-        &self,
-        blob_id: &BlobId,
-        pairs: Vec<SliverPair>,
-    ) -> HashMap<usize, Vec<SliverPair>> {
-        let shard_to_node = self
-            .committee
+    fn pairs_per_node<'a>(
+        &'a self,
+        blob_id: &'a BlobId,
+        pairs: &'a [SliverPair],
+    ) -> HashMap<usize, impl Iterator<Item = &SliverPair>> {
+        self.committee
             .members()
             .iter()
+            .map(|node| {
+                pairs.iter().filter(|pair| {
+                    node.shard_ids.contains(
+                        &pair
+                            .index()
+                            .to_shard_index(self.committee.n_shards(), blob_id),
+                    )
+                })
+            })
             .enumerate()
-            .flat_map(|(index, m)| m.shard_ids.iter().map(move |s| (*s, index)))
-            .collect::<HashMap<_, _>>();
+            .collect()
+    }
 
-        let mut pairs_per_node = HashMap::from_iter(
-            self.committee
-                .members()
-                .iter()
-                .enumerate()
-                .map(|(idx, node)| (idx, Vec::with_capacity(node.shard_ids.len()))),
-        );
+    /// Returns a reference to the encoding config in use.
+    pub fn encoding_config(&self) -> &EncodingConfig {
+        &self.encoding_config
+    }
 
-        pairs.into_iter().for_each(|p| {
-            pairs_per_node
-                .get_mut(
-                    &shard_to_node[&p.index().to_shard_index(self.committee.n_shards(), blob_id)],
-                )
-                .expect("there is an entry for each node")
-                .push(p)
-        });
-        pairs_per_node
+    /// Returns the inner sui client.
+    pub fn sui_client(&self) -> &T {
+        &self.sui_client
+    }
+
+    fn build_reqwest_client(config: &Config) -> Result<ReqwestClient, ClientError> {
+        config
+            .communication_config
+            .reqwest_config
+            .apply(ClientBuilder::new())
+            .build()
+            .map_err(ClientError::other)
+    }
+
+    /// Resets the reqwest client inside the Walrus client.
+    ///
+    /// Useful to ensure that the client cannot communicate with storage nodes through connections
+    /// that are being kept alive.
+    #[cfg(feature = "test-utils")]
+    pub fn reset_reqwest_client(&mut self) -> Result<(), ClientError> {
+        self.reqwest_client = Self::build_reqwest_client(&self.config)?;
+        Ok(())
     }
 }
