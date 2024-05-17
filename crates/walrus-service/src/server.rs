@@ -44,6 +44,12 @@ pub const RECOVERY_ENDPOINT: &str =
     "/v1/blobs/:blobId/slivers/:sliverPairindex/:sliverType/:targetPairIndex";
 /// The path to push inconsistency proofs.
 pub const INCONSISTENCY_PROOF_ENDPOINT: &str = "/v1/blobs/:blobId/inconsistent/:sliverType";
+/// Additional space to be added to the maximum body size accepted by the server.
+///
+/// The maximum body size is set to be the maximum size of primary slivers, which contain at most
+/// `n_secondary_source_symbols * u16::MAX` bytes. However, we need a few extra bytes to accommodate
+/// the additional information encoded with the slivers.
+const HEADROOM: usize = 128;
 
 /// A blob ID encoded as a Base64 string designed to be used in URLs.
 #[serde_as]
@@ -146,9 +152,10 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             .route(RECOVERY_ENDPOINT, get(Self::retrieve_recovery_symbol))
             .route(INCONSISTENCY_PROOF_ENDPOINT, put(Self::inconsistency_proof))
             .with_state(self.state.clone())
-            // TODO(giac): disabling the limit at all may pose DoS risks. What is the best way to
-            // bring in here the maximum sliver size?
-            .layer(DefaultBodyLimit::disable())
+            .layer(DefaultBodyLimit::max(
+                usize::from(self.state.n_secondary_source_symbols().get()) * usize::from(u16::MAX)
+                    + HEADROOM,
+            ))
             .layer(TraceLayer::new_for_http().make_span_with(RestApiSpans {
                 address: *network_address,
             }));
@@ -434,6 +441,8 @@ fn decode_inconsistency_proof(
 
 #[cfg(test)]
 mod test {
+    use std::num::NonZeroU16;
+
     use anyhow::anyhow;
     use reqwest::Url;
     use tokio::task::JoinHandle;
@@ -559,6 +568,10 @@ mod test {
                 )),
                 _ => Err(anyhow!("internal error").into()),
             }
+        }
+
+        fn n_secondary_source_symbols(&self) -> NonZeroU16 {
+            NonZeroU16::new(42).expect("42 > 0")
         }
     }
 
