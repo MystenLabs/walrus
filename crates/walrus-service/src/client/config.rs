@@ -30,33 +30,57 @@ impl LoadConfig for Config {}
 
 /// Configuration for the communication parameters of the client
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(default)]
 pub struct ClientCommunicationConfig {
-    /// The maximum number of storage nodes the client contacts in parallel to write slivers and
-    /// metadata. If `None`, the value is set by the client to `n - f`, depending on the number of
-    /// shards `n`.
-    pub concurrent_writes: Option<usize>,
+    /// The maximum number of open connections the client can have at any one time for writes.
+    ///
+    /// If `None`, the value is set by the client to optimize the write speed while avoiding running
+    /// out of memory.
+    pub max_concurrent_writes: Option<usize>,
     /// The maximum number of slivers the client requests in parallel. If `None`, the value is set
     /// by the client to `n - 2f`, depending on the number of shards `n`.
     pub concurrent_sliver_reads: Option<usize>,
     /// The maximum number of nodes the client contacts to get the blob metadata in parallel.
-    #[serde(default = "default::concurrent_metadata_reads")]
     pub concurrent_metadata_reads: usize,
     /// The configuration for the `reqwest` client.
-    #[serde(default)]
     pub reqwest_config: ReqwestConfig,
-    /// The number of retries for failed communication.
-    #[serde(default)]
-    pub retries: usize,
+    /// The configuration specific to each node connection.
+    pub node_config: NodeConfig,
 }
 
 impl Default for ClientCommunicationConfig {
     fn default() -> Self {
         Self {
-            concurrent_writes: None,
+            max_concurrent_writes: None,
             concurrent_sliver_reads: None,
             concurrent_metadata_reads: default::concurrent_metadata_reads(),
             reqwest_config: ReqwestConfig::default(),
-            retries: 0,
+            node_config: NodeConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(default)]
+/// Configuration for retries towards the storage nodes.
+pub struct NodeConfig {
+    /// The maximum number of connections the client can open towards each node.
+    pub max_node_connections: usize,
+    /// The number of retries for failed communication.
+    pub max_retries: u32,
+    /// The minimum backoff time between retries.
+    pub min_backoff: Duration,
+    /// The maximum backoff time between retries.
+    pub max_backoff: Duration,
+}
+
+impl Default for NodeConfig {
+    fn default() -> Self {
+        Self {
+            max_node_connections: 10,
+            max_retries: 5,
+            min_backoff: Duration::from_secs(2),
+            max_backoff: Duration::from_secs(60),
         }
     }
 }

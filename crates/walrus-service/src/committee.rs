@@ -14,7 +14,7 @@ use std::{
 use anyhow::{ensure, Context as _};
 use async_trait::async_trait;
 use fastcrypto::bls12381::min_pk::BLS12381PublicKey;
-use futures::{stream::FuturesUnordered, StreamExt as _};
+use futures::{stream::FuturesUnordered, FutureExt, StreamExt as _};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use reqwest::Url;
 use tokio::sync::Semaphore;
@@ -48,7 +48,7 @@ use walrus_sui::{
     types::{Committee, StorageNode as SuiStorageNode},
 };
 
-use crate::utils::{self, ExponentialBackoff, FutureHelpers};
+use crate::utils::{self, FutureHelpers, InfiniteExponentialBackoff};
 
 mod remote;
 
@@ -59,8 +59,8 @@ const MAX_REQUEST_DURATION: Duration = Duration::from_secs(1);
 /// Number of metadata requests which are run concurrently.
 const N_CONCURRENT_METADATA_REQUESTS: usize = 1;
 
-fn default_retry_strategy(seed: u64) -> ExponentialBackoff<StdRng> {
-    ExponentialBackoff::new_with_seed(MIN_RETRY_INTERVAL, MAX_RETRY_INTERVAL, seed)
+fn default_retry_strategy(seed: u64) -> InfiniteExponentialBackoff<StdRng> {
+    InfiniteExponentialBackoff::new_with_seed(MIN_RETRY_INTERVAL, MAX_RETRY_INTERVAL, seed)
 }
 
 /// Factory used to create services for interacting with the committee on each epoch.
@@ -288,7 +288,7 @@ where
                         .expect("only nodes with clients provided")
                         .get_and_verify_metadata(blob_id, config)
                         .timeout_after(MAX_REQUEST_DURATION)
-                        .limit(simultaneous_requests.clone())
+                        .success_limit(simultaneous_requests.clone())
                 })
                 .instrument(tracing::info_span!("node", ?public_key))
             })
@@ -298,6 +298,7 @@ where
             .next()
             .await
             .expect("there is at least 1 node from which to get the metadata")
+            .expect("the backoff strategy ensures we wait until there is one success")
     }
 
     async fn recover_sliver<A: EncodingAxis + 'static>(
@@ -343,7 +344,10 @@ where
                             sliver_id,
                         )
                         .timeout_after(MAX_REQUEST_DURATION)
-                        .limit(simultaneous_requests.clone())
+                        .success_limit(simultaneous_requests.clone())
+                })
+                .map(|result| {
+                    result.expect("the strategy ensures we wait until a result is available")
                 })
                 .instrument(tracing::info_span!("node", ?public_key))
             })

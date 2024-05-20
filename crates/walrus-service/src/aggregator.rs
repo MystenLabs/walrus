@@ -70,20 +70,16 @@ impl<T: Send + Sync + 'static> AggregatorServer<T> {
                     .insert(ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
                 response
             }
-            Err(error) => {
-                match error.kind() {
-                    // TODO(giac): once issues #362 and #363 are resolved, this logging can be
-                    // further improved, and distinguish network errors from missing metadata.
-                    ClientErrorKind::BlobIdDoesNotExist => {
-                        tracing::info!(?blob_id, "the requested blob ID does not exist");
-                        StatusCode::NOT_FOUND.into_response()
-                    }
-                    _ => {
-                        tracing::error!(error = %error, "error retrieving blob");
-                        StatusCode::INTERNAL_SERVER_ERROR.into_response()
-                    }
+            Err(error) => match error.kind() {
+                ClientErrorKind::BlobIdDoesNotExist => {
+                    tracing::info!(?blob_id, "the requested blob ID does not exist");
+                    StatusCode::NOT_FOUND.into_response()
                 }
-            }
+                _ => {
+                    tracing::error!(error = %error, "error retrieving blob");
+                    StatusCode::INTERNAL_SERVER_ERROR.into_response()
+                }
+            },
         }
     }
 }

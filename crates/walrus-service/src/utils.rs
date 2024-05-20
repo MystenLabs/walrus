@@ -14,6 +14,14 @@ use rand::{
 };
 use tokio::sync::Semaphore;
 
+/// The representation of a backoff strategy.
+pub trait BackoffStrategy {
+    /// Steps the backoff iterator, returning the next delay and advances the backoff.
+    ///
+    /// Returns `None` if the strategy mandates that the consumer should stop backing off.
+    fn next_delay(&mut self) -> Option<Duration>;
+}
+
 /// An iterator over exponential wait durations.
 ///
 /// Returns the wait duration for an exponential backoff with a multiplicative factor of 2, and
@@ -22,14 +30,14 @@ use tokio::sync::Semaphore;
 /// For the `i`-th iterator element and bounds `min_backoff` and `max_backoff`, this returns the
 /// sequence `min(max_backoff, 2^i * min_backoff + rand_i)`.
 #[derive(Debug)]
-pub(crate) struct ExponentialBackoff<R> {
+pub(crate) struct InfiniteExponentialBackoff<R> {
     min_backoff: Duration,
     max_backoff: Duration,
     sequence_index: u32,
     rand_offsets: DistIter<Uniform<u64>, R, u64>,
 }
 
-impl ExponentialBackoff<StdRng> {
+impl InfiniteExponentialBackoff<StdRng> {
     /// Maximum number of milliseconds to randomly add to the delay time.
     const MAX_RAND_OFFSET_MS: u64 = 1000;
 
@@ -39,8 +47,8 @@ impl ExponentialBackoff<StdRng> {
         min_backoff: Duration,
         max_backoff: Duration,
         seed: u64,
-    ) -> ExponentialBackoff<StdRng> {
-        ExponentialBackoff::<StdRng>::new_with_rng(
+    ) -> InfiniteExponentialBackoff<StdRng> {
+        InfiniteExponentialBackoff::<StdRng>::new_with_rng(
             min_backoff,
             max_backoff,
             StdRng::seed_from_u64(seed),
@@ -48,11 +56,11 @@ impl ExponentialBackoff<StdRng> {
     }
 }
 
-impl<R: Rng> ExponentialBackoff<R> {
+impl<R: Rng> InfiniteExponentialBackoff<R> {
     /// Creates a new iterator with the provided minimum and maximum bounds, with the provided
     /// iterator.
     pub fn new_with_rng(min_backoff: Duration, max_backoff: Duration, rng: R) -> Self {
-        let uniform = Uniform::new_inclusive(0, ExponentialBackoff::MAX_RAND_OFFSET_MS);
+        let uniform = Uniform::new_inclusive(0, InfiniteExponentialBackoff::MAX_RAND_OFFSET_MS);
         let rand_offsets = rng.sample_iter(uniform);
 
         Self {
@@ -61,19 +69,6 @@ impl<R: Rng> ExponentialBackoff<R> {
             sequence_index: 0,
             rand_offsets,
         }
-    }
-
-    /// Steps the iterator, returning the next delay and advances the backoff.
-    pub fn next_delay(&mut self) -> Duration {
-        let next_delay_value = self
-            .min_backoff
-            .saturating_mul(Saturating(2u32).pow(self.sequence_index).0)
-            .saturating_add(self.random_offset())
-            .min(self.max_backoff);
-
-        self.sequence_index = self.sequence_index.saturating_add(1);
-
-        next_delay_value
     }
 
     fn random_offset(&mut self) -> Duration {
@@ -85,11 +80,72 @@ impl<R: Rng> ExponentialBackoff<R> {
     }
 }
 
-impl<R: Rng> Iterator for ExponentialBackoff<R> {
+impl<R: Rng> BackoffStrategy for InfiniteExponentialBackoff<R> {
+    fn next_delay(&mut self) -> Option<Duration> {
+        let next_delay_value = self
+            .min_backoff
+            .saturating_mul(Saturating(2u32).pow(self.sequence_index).0)
+            .saturating_add(self.random_offset())
+            .min(self.max_backoff);
+
+        self.sequence_index = self.sequence_index.saturating_add(1);
+
+        Some(next_delay_value)
+    }
+}
+
+impl<R: Rng> Iterator for InfiniteExponentialBackoff<R> {
     type Item = Duration;
 
     fn next(&mut self) -> Option<Self::Item> {
-        Some(self.next_delay())
+        self.next_delay()
+    }
+}
+
+/// An exponential backoff strategy with a maximum number of retries.
+pub(crate) struct ExponentialBackoff<R> {
+    inner: InfiniteExponentialBackoff<R>,
+    max_retries: u32,
+}
+
+impl ExponentialBackoff<StdRng> {
+    pub fn new_with_seed(
+        min_backoff: Duration,
+        max_backoff: Duration,
+        max_retries: u32,
+        seed: u64,
+    ) -> ExponentialBackoff<StdRng> {
+        ExponentialBackoff::<StdRng>::new_with_rng(
+            min_backoff,
+            max_backoff,
+            max_retries,
+            StdRng::seed_from_u64(seed),
+        )
+    }
+}
+
+impl<R: Rng> ExponentialBackoff<R> {
+    /// Creates a new iterator with the provided minimum and maximum bounds, with the provided
+    /// iterator.
+    pub fn new_with_rng(
+        min_backoff: Duration,
+        max_backoff: Duration,
+        max_retries: u32,
+        rng: R,
+    ) -> Self {
+        Self {
+            inner: InfiniteExponentialBackoff::new_with_rng(min_backoff, max_backoff, rng),
+            max_retries,
+        }
+    }
+}
+
+impl<R: Rng> BackoffStrategy for ExponentialBackoff<R> {
+    fn next_delay(&mut self) -> Option<Duration> {
+        if self.inner.sequence_index >= self.max_retries {
+            return None;
+        }
+        self.inner.next_delay()
     }
 }
 
@@ -111,6 +167,18 @@ impl<T> SuccessOrFailure for Option<T> {
 
 pub(crate) trait FutureHelpers: Future {
     async fn limit(self, permits: Arc<Semaphore>) -> Self::Output
+    where
+        Self: Future,
+        Self: Sized,
+    {
+        let _permit = permits
+            .acquire_owned()
+            .await
+            .expect("semaphore never closed");
+        self.await
+    }
+
+    async fn success_limit(self, permits: Arc<Semaphore>) -> Self::Output
     where
         <Self as Future>::Output: SuccessOrFailure,
         Self: Sized,
@@ -145,20 +213,30 @@ pub(crate) trait FutureHelpers: Future {
 
 impl<T: Future> FutureHelpers for T {}
 
-pub(crate) async fn retry<R, F, T, Fut>(mut strategy: ExponentialBackoff<R>, mut func: F) -> T
+pub(crate) async fn retry<S, F, T, Fut>(mut strategy: S, mut func: F) -> T
 where
+    S: BackoffStrategy,
     F: FnMut() -> Fut,
-    Fut: Future<Output = Option<T>>,
-    R: rand::RngCore,
+    T: SuccessOrFailure,
+    Fut: Future<Output = T>,
 {
     loop {
-        if let Some(value) = func().await {
+        let value = func().await;
+
+        if value.is_success() {
             return value;
         }
 
-        let delay = strategy.next().expect("infinite iterator");
-        tracing::debug!(?delay, "attempt failed, waiting before retrying");
-        tokio::time::sleep(delay).await;
+        match strategy.next_delay() {
+            Some(delay) => {
+                tracing::debug!(?delay, "attempt failed, waiting before retrying");
+                tokio::time::sleep(delay).await;
+            }
+            None => {
+                tracing::debug!("last attempt failed, returning last failure value");
+                return value;
+            }
+        }
     }
 }
 
@@ -180,7 +258,7 @@ mod tests {
                 .chain([max; 2])
                 .collect();
 
-            let actual: Vec<_> = ExponentialBackoff::new_with_seed(min, max, 42)
+            let actual: Vec<_> = InfiniteExponentialBackoff::new_with_seed(min, max, 42)
                 .take(expected.len())
                 .collect();
 
@@ -189,12 +267,28 @@ mod tests {
 
             for (expected, actual) in expected.iter().zip(actual) {
                 let expected_min = *expected;
-                let expected_max =
-                    *expected + Duration::from_millis(ExponentialBackoff::MAX_RAND_OFFSET_MS);
+                let expected_max = *expected
+                    + Duration::from_millis(InfiniteExponentialBackoff::MAX_RAND_OFFSET_MS);
 
                 assert!(actual >= expected_min, "{actual:?} >= {expected_min:?}");
                 assert!(actual <= expected_max);
             }
+        }
+
+        #[test]
+        fn backoff_stops_after_max_retries() {
+            let retries = 5;
+            let mut strategy = ExponentialBackoff::new_with_seed(
+                Duration::from_millis(1),
+                Duration::from_millis(5),
+                retries,
+                42,
+            );
+            let mut actual = 0;
+            while let Some(_d) = strategy.next_delay() {
+                actual += 1;
+            }
+            assert_eq!(retries, actual);
         }
     }
 }

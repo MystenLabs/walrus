@@ -1,11 +1,13 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::num::NonZeroU16;
+use std::{num::NonZeroU16, sync::Arc};
 
 use anyhow::Result;
 use futures::{future::Either, stream::FuturesUnordered, StreamExt};
+use rand::rngs::StdRng;
 use reqwest::{Client as ReqwestClient, Url};
+use tokio::sync::Semaphore;
 use tracing::{Level, Span};
 use walrus_core::{
     encoding::{EncodingAxis, EncodingConfig, Sliver, SliverPair},
@@ -23,11 +25,13 @@ use walrus_sdk::{client::Client as StorageNodeClient, error::NodeError};
 use walrus_sui::types::StorageNode;
 
 use super::{
+    config::NodeConfig,
     error::{SliverStoreError, StoreError},
     utils::{string_prefix, WeightedResult},
     ClientError,
     ClientErrorKind,
 };
+use crate::utils::{self, ExponentialBackoff, FutureHelpers};
 
 /// Represents the index of the node in the vector of members of the committee.
 pub type NodeIndex = usize;
@@ -59,6 +63,8 @@ pub(crate) struct NodeCommunication<'a> {
     pub encoding_config: &'a EncodingConfig,
     pub span: Span,
     pub client: StorageNodeClient,
+    pub config: NodeConfig,
+    pub global_connection_limit: Arc<Semaphore>,
 }
 
 impl<'a> NodeCommunication<'a> {
@@ -69,9 +75,15 @@ impl<'a> NodeCommunication<'a> {
         client: &'a ReqwestClient,
         node: &'a StorageNode,
         encoding_config: &'a EncodingConfig,
+        config: NodeConfig,
+        global_connection_limit: Arc<Semaphore>,
     ) -> Result<Self, ClientError> {
         let url = Url::parse(&format!("http://{}", node.network_address)).unwrap();
-
+        tracing::trace!(
+            %node_index,
+            %config.max_node_connections,
+            "initializing communication with node"
+        );
         ensure!(
             !node.shard_ids.is_empty(),
             ClientErrorKind::InvalidConfig.into()
@@ -89,6 +101,8 @@ impl<'a> NodeCommunication<'a> {
                 pk_prefix = string_prefix(&node.public_key)
             ),
             client: StorageNodeClient::from_url(url, client.clone()),
+            config,
+            global_connection_limit,
         })
     }
 
@@ -162,30 +176,14 @@ impl<'a> NodeCommunication<'a> {
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         pairs: impl IntoIterator<Item = &SliverPair>,
-        n_retries: usize,
     ) -> NodeResult<SignedStorageConfirmation, StoreError> {
         tracing::debug!("storing metadata and sliver pairs",);
-
         let result = async {
-            // TODO(giac): add retry for metadata.
-            self.client
-                .store_metadata(metadata)
+            self.store_metadata_with_retries(metadata)
                 .await
                 .map_err(StoreError::Metadata)?;
 
-            let results = self
-                .store_pairs_with_retries(metadata.blob_id(), pairs, n_retries)
-                .await;
-
-            // It is useless to request the confirmation if storing any of the slivers failed.
-            let failed_requests = results
-                .into_iter()
-                .filter_map(Result::err)
-                .collect::<Vec<_>>();
-            ensure!(
-                failed_requests.is_empty(),
-                StoreError::SliverStore(failed_requests)
-            );
+            self.store_pairs(metadata.blob_id(), pairs).await?;
 
             self.client
                 .get_and_verify_confirmation(metadata.blob_id(), self.epoch, self.public_key())
@@ -197,71 +195,72 @@ impl<'a> NodeCommunication<'a> {
         self.to_node_result(self.n_owned_shards().get().into(), result)
     }
 
-    /// Stores the sliver pairs on the node, retrying multiple times the failed slivers.
-    async fn store_pairs_with_retries(
+    async fn store_metadata_with_retries(
         &self,
-        blob_id: &BlobId,
-        pairs: impl IntoIterator<Item = &SliverPair>,
-        n_retries: usize,
-    ) -> Vec<Result<(), SliverStoreError>> {
-        let mut to_request = pairs.into_iter().collect::<Vec<_>>();
-        let mut results = vec![];
-        for idx in 0..n_retries + 1 {
-            results = self.store_pairs(blob_id, &to_request).await;
-            let failed_ids: Vec<SliverPairIndex> = results
-                .iter()
-                .filter_map(|result| result.as_ref().map_err(|e| e.pair_index).err())
-                .collect();
-            if !failed_ids.is_empty() {
-                tracing::warn!(
-                    iteration = idx,
-                    ?failed_ids,
-                    "iteration failed to store ids"
-                );
-                to_request = to_request
-                    .clone()
-                    .into_iter()
-                    .filter(|p| failed_ids.contains(&p.index()))
-                    .collect();
-            } else {
-                // We have stored all the slivers.
-                break;
-            }
-        }
-        results
+        metadata: &VerifiedBlobMetadataWithId,
+    ) -> Result<(), NodeError> {
+        utils::retry(self.backoff_strategy(), || {
+            self.client
+                .store_metadata(metadata)
+                // TODO(giac): consider adding timeouts and replace the Reqwest timeout.
+                .limit(self.global_connection_limit.clone())
+        })
+        .await
     }
 
     /// Stores the sliver pairs on the node.
     ///
-    /// Returns the result of the [`store_sliver`][Self::store_sliver] operation for all the slivers
-    /// in the storage node. The order of the returned results matches the order of the provided
-    /// pairs, and for every pair the primary sliver precedes the secondary.
+    /// Internally retries to store each of the slivers according to the `backoff_strategy`. If
+    /// after `max_reties` a sliver cannot be stored, the function returns a [`SliverStoreError`]
+    /// and terminates.
     async fn store_pairs(
         &self,
         blob_id: &BlobId,
-        pairs: &[&SliverPair],
-    ) -> Vec<Result<(), SliverStoreError>> {
-        let n_slivers = 2 * pairs.len();
-        let mut futures = pairs
-            .iter()
+        pairs: impl IntoIterator<Item = &SliverPair>,
+    ) -> Result<(), SliverStoreError> {
+        let node_connection_limit = Arc::new(Semaphore::new(self.config.max_node_connections));
+        let mut requests = pairs
+            .into_iter()
             .flat_map(|pair| {
                 vec![
-                    Either::Left(self.store_sliver(blob_id, &pair.primary, pair.index())),
-                    Either::Right(self.store_sliver(blob_id, &pair.secondary, pair.index())),
+                    Either::Left(self.store_sliver(
+                        blob_id,
+                        &pair.primary,
+                        pair.index(),
+                        &node_connection_limit,
+                    )),
+                    Either::Right(self.store_sliver(
+                        blob_id,
+                        &pair.secondary,
+                        pair.index(),
+                        &node_connection_limit,
+                    )),
                 ]
             })
             .collect::<FuturesUnordered<_>>();
 
-        let mut results = Vec::with_capacity(n_slivers);
-        while let Some(result) = futures.next().await {
-            tracing::trace!(
-                ?result,
-                progress = format!("{} / {}", results.len() + 1, n_slivers),
-                "sliver stored"
-            );
-            results.push(result);
+        let n_slivers = requests.len();
+        while let Some(result) = requests.next().await {
+            match result {
+                Ok(()) => tracing::trace!(
+                    node_permits=?node_connection_limit.available_permits(),
+                    global_permits=?self.global_connection_limit.available_permits(),
+                    progress = format!("{}/{}", n_slivers - requests.len(), n_slivers),
+                    "sliver stored"
+                ),
+                Err(error) => {
+                    tracing::warn!(
+                        node_permits=?node_connection_limit.available_permits(),
+                        global_permits=?self.global_connection_limit.available_permits(),
+                        ?error,
+                        %self.config.max_retries,
+                        "could not store sliver after retrying; closing connection to the node"
+                    );
+                    return Err(error);
+                }
+            }
         }
-        results
+        Ok(())
     }
 
     /// Stores a sliver on a node.
@@ -270,15 +269,32 @@ impl<'a> NodeCommunication<'a> {
         blob_id: &BlobId,
         sliver: &Sliver<T>,
         pair_index: SliverPairIndex,
+        node_connection_limit: &Arc<Semaphore>,
     ) -> Result<(), SliverStoreError> {
-        self.client
-            .store_sliver_by_axis(blob_id, pair_index, sliver)
-            .await
-            .map_err(|error| SliverStoreError {
-                pair_index,
-                sliver_type: T::sliver_type(),
-                error,
-            })
+        utils::retry(self.backoff_strategy(), || {
+            self.client
+                .store_sliver_by_axis(blob_id, pair_index, sliver)
+                // Ordering matters here. Since we don't want to block global connections while we
+                // wait for local connections, the innermost limit must be the global one.
+                .limit(self.global_connection_limit.clone())
+                .limit(node_connection_limit.clone())
+        })
+        .await
+        .map_err(|error| SliverStoreError {
+            pair_index,
+            sliver_type: T::sliver_type(),
+            error,
+        })
+    }
+
+    /// Gets the backoff strategy for the node.
+    fn backoff_strategy(&self) -> ExponentialBackoff<StdRng> {
+        ExponentialBackoff::new_with_seed(
+            self.config.min_backoff,
+            self.config.max_backoff,
+            self.config.max_retries,
+            self.node_index as u64,
+        )
     }
 
     // Verification flows.

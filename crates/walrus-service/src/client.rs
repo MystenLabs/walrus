@@ -3,13 +3,16 @@
 
 //! Client for the Walrus service.
 
-use std::{collections::HashMap, time::Instant};
+use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use fastcrypto::{bls12381::min_pk::BLS12381AggregateSignature, traits::AggregateAuthenticator};
 use futures::Future;
 use rand::{seq::SliceRandom, thread_rng};
 use reqwest::{Client as ReqwestClient, ClientBuilder};
-use tokio::time::{sleep, Duration};
+use tokio::{
+    sync::Semaphore,
+    time::{sleep, Duration},
+};
 use tracing::{Instrument, Level};
 use walrus_core::{
     bft,
@@ -54,6 +57,7 @@ pub struct Client<T> {
     // The maximum number of shards to contact in parallel when reading metadata.
     concurrent_metadata_reads: usize,
     encoding_config: EncodingConfig,
+    global_connection_limit: Arc<Semaphore>,
 }
 
 impl Client<()> {
@@ -81,14 +85,15 @@ impl Client<()> {
         // Try to store on n-f nodes concurrently, as the work to store is never wasted.
         let concurrent_writes = config
             .communication_config
-            .concurrent_writes
+            .max_concurrent_writes
             .unwrap_or(default::concurrent_writes(committee.n_shards()));
         // Read n-2f slivers concurrently to avoid wasted work on the storage nodes.
         let concurrent_sliver_reads = config
             .communication_config
-            .concurrent_writes
+            .max_concurrent_writes
             .unwrap_or(default::concurrent_sliver_reads(committee.n_shards()));
         let concurrent_metadata_reads = config.communication_config.concurrent_metadata_reads;
+        let global_connection_limit = Arc::new(Semaphore::new(concurrent_writes));
         Ok(Self {
             config,
             reqwest_client,
@@ -98,6 +103,7 @@ impl Client<()> {
             encoding_config,
             concurrent_sliver_reads,
             concurrent_metadata_reads,
+            global_connection_limit,
         })
     }
 
@@ -112,6 +118,7 @@ impl Client<()> {
             concurrent_sliver_reads,
             concurrent_metadata_reads,
             encoding_config,
+            global_connection_limit,
         } = self;
         Client::<T> {
             reqwest_client,
@@ -122,6 +129,7 @@ impl Client<()> {
             concurrent_sliver_reads,
             concurrent_metadata_reads,
             encoding_config,
+            global_connection_limit,
         }
     }
 }
@@ -226,23 +234,22 @@ impl<T> Client<T> {
                 pairs_per_node
                     .remove(&n.node_index)
                     .expect("there are shards for each node"),
-                self.config.communication_config.retries,
             )
         }));
         let start = Instant::now();
         let quorum_check = |weight| self.committee.is_at_least_min_honest(weight);
         requests
-            .execute_weight(&quorum_check, self.concurrent_writes)
+            .execute_weight(&quorum_check, self.committee.n_shards().get().into())
             .await;
         tracing::debug!(
             elapsed_time = ?start.elapsed(), "stored metadata and slivers onto a quorum of nodes"
         );
-        // Double the execution time, with a minimum of 100 ms. This gives the client time to
+        // Add 10% of the execution time, with a minimum of 100 ms. This gives the client time to
         // collect more storage confirmations.
         let completed_reason = requests
             .execute_time(
-                start.elapsed() + Duration::from_millis(100),
-                self.concurrent_writes,
+                start.elapsed() / 10 + Duration::from_millis(100),
+                self.committee.n_shards().get().into(),
             )
             .await;
         tracing::debug!(
@@ -508,6 +515,8 @@ impl<T> Client<T> {
             &self.reqwest_client,
             node,
             &self.encoding_config,
+            self.config.communication_config.node_config.clone(),
+            self.global_connection_limit.clone(),
         )
     }
 
