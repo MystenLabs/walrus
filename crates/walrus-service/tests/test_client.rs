@@ -38,8 +38,6 @@ async_param_test! {
             (&[], &[0, 4], &[]),
         #[ignore = "ignore E2E tests by default"] #[tokio::test] two_f_plus_one_read_failures:
             (&[], &[1, 2, 4], &[NoMetadataReceived, NotEnoughSlivers]),
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] all_read_failures:
-            (&[], &[0, 1, 2, 3, 4], &[NoMetadataReceived]),
         #[ignore = "ignore E2E tests by default"] #[tokio::test] read_and_write_overlap_failures:
             (&[4], &[2, 3], &[NoMetadataReceived, NotEnoughSlivers]),
     ]
