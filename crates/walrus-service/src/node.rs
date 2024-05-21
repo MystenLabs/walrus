@@ -6,6 +6,7 @@ use anyhow::{anyhow, bail, Context};
 use fastcrypto::traits::KeyPair;
 use futures::{future::Either, stream::FuturesUnordered, StreamExt};
 use mysten_metrics::RegistryService;
+use sui_types::event::EventID;
 use tokio::select;
 use tokio_util::sync::CancellationToken;
 use tracing::{instrument, Instrument};
@@ -365,13 +366,20 @@ impl StorageNode {
     async fn process_events(&self) -> anyhow::Result<()> {
         let cursor = self.storage.get_event_cursor()?;
 
-        let mut blob_events = Box::into_pin(self.event_provider.events(cursor).await?);
-        while let Some(event) = blob_events.next().await {
+        let mut blob_events = Box::into_pin(self.event_provider.events(cursor).await?).enumerate();
+
+        while let Some((sequence_number, event)) = blob_events.next().await {
             tracing::debug!(event = ?event.event_id(), "received system event");
 
+            self.storage.update_blob_info(&event)?;
+
             match event {
-                BlobEvent::Certified(certified) => self.on_blob_certified(certified).await?,
-                other => self.storage.update_blob_info(&other)?,
+                BlobEvent::Certified(event) => {
+                    self.on_blob_certified(sequence_number, event).await?
+                }
+                BlobEvent::Registered(_) | BlobEvent::InvalidBlobID(_) => self
+                    .storage
+                    .maybe_advance_event_cursor(sequence_number, &event.event_id())?,
             }
         }
 
@@ -387,25 +395,25 @@ impl StorageNode {
         self.storage.shards()
     }
 
-    async fn on_blob_certified(&self, event: BlobCertified) -> anyhow::Result<()> {
-        let blob_id = event.blob_id;
-        self.storage
-            .update_blob_info(&BlobEvent::Certified(event))?;
-
-        if !self
-            .storage
-            .is_stored_at_all_shards(&blob_id)
-            .expect("database read to succeed")
-        {
-            // Slivers, and possible metadata, are not stored.
-            // TODO(jsmith): Do not spawn if there is already a worker for this blob id (#366)
-            // TODO(jsmith): Handle cancellation. (#366)
-            tokio::spawn(
-                BlobSynchronizer::new(blob_id, self)
-                    .sync()
-                    .in_current_span(),
-            );
+    async fn on_blob_certified(
+        &self,
+        event_sequence_number: usize,
+        event: BlobCertified,
+    ) -> anyhow::Result<()> {
+        if self.storage.is_stored_at_all_shards(&event.blob_id)? {
+            self.storage
+                .maybe_advance_event_cursor(event_sequence_number, &event.event_id)?;
+            return Ok(());
         }
+
+        // Slivers, and possible metadata, are not stored.
+        // TODO(jsmith): Do not spawn if there is already a worker for this blob id (#366)
+        // TODO(jsmith): Handle cancellation. (#366)
+        tokio::spawn(
+            BlobSynchronizer::new(event, event_sequence_number, self)
+                .sync()
+                .in_current_span(),
+        );
 
         Ok(())
     }
@@ -416,16 +424,18 @@ struct BlobSynchronizer {
     storage: Storage,
     committee_service: Arc<dyn CommitteeService>,
     encoding_config: Arc<EncodingConfig>,
+    cursor: (usize, EventID),
 }
 
 impl BlobSynchronizer {
-    fn new(blob_id: BlobId, node: &StorageNode) -> Self {
+    fn new(event: BlobCertified, event_sequence_number: usize, node: &StorageNode) -> Self {
         Self {
-            blob_id,
+            blob_id: event.blob_id,
             // TODO(jsmith): Make storage node cheaper to clone once we have epoch migration (#367)
             storage: node.storage.clone(),
             committee_service: node.committee_service.clone(),
             encoding_config: node.encoding_config.clone(),
+            cursor: (event_sequence_number, event.event_id),
         }
     }
 
@@ -458,6 +468,10 @@ impl BlobSynchronizer {
                 std::future::ready(())
             })
             .await;
+
+        self.storage
+            .maybe_advance_event_cursor(self.cursor.0, &self.cursor.1)
+            .expect("advancing cursor should not fail")
     }
 
     async fn sync_metadata(&self) -> Result<VerifiedBlobMetadataWithId, TypedStoreError> {

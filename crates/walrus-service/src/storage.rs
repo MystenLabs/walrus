@@ -4,10 +4,10 @@
 #![allow(unused)]
 
 use std::{
-    collections::{hash_map::Entry, HashMap, HashSet},
+    collections::{hash_map::Entry, BinaryHeap, HashMap, HashSet},
     fmt::Debug,
     path::Path,
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
 use anyhow::Context;
@@ -42,11 +42,13 @@ use walrus_sui::types::{Blob, BlobEvent, BlobRegistered};
 
 use self::{
     blob_info::{BlobCertificationStatus, BlobInfo, BlobInfoMergeOperand},
+    event_sequencer::EventSequencer,
     shard::ShardStorage,
 };
 use crate::storage::blob_info::Mergeable as _;
 
 pub(crate) mod blob_info;
+mod event_sequencer;
 mod shard;
 
 /// Storage backing a [`StorageNode`][crate::StorageNode].
@@ -60,6 +62,7 @@ pub struct Storage {
     blob_info: DBMap<BlobId, BlobInfo>,
     event_cursor: DBMap<String, EventID>,
     shards: HashMap<ShardIndex, ShardStorage>,
+    event_queue: Arc<Mutex<EventSequencer>>,
 }
 
 impl Storage {
@@ -127,6 +130,7 @@ impl Storage {
             blob_info,
             event_cursor,
             shards,
+            event_queue: Arc::new(Mutex::new(EventSequencer::default())),
         })
     }
 
@@ -185,7 +189,6 @@ impl Storage {
     #[tracing::instrument(level = Level::DEBUG, skip(self))]
     pub fn update_blob_info(&self, event: &BlobEvent) -> Result<(), TypedStoreError> {
         self.merge_update_blob_info(&event.blob_id(), event.into())?;
-        self.update_event_cursor(&event.event_id())?;
         Ok(())
     }
 
@@ -202,10 +205,36 @@ impl Storage {
         batch.write()
     }
 
-    /// Update the event cursor for `event_type` to `new_cursor`
-    pub fn update_event_cursor(&self, new_cursor: &EventID) -> Result<(), TypedStoreError> {
-        self.event_cursor
-            .insert(&Self::EVENT_CURSOR_KEY.to_string(), new_cursor)
+    /// Advances the event cursor to the most recent, sequential event observed.
+    ///
+    /// The sequence-id is a sequence number of the order in which cursors were observed from the
+    /// chain, and must start from 0 with the cursor following `get_event_cursor()`
+    /// after the database is re-opened.
+    ///
+    /// For calls to this function such as `(0, cursor0), (2, cursor2), (1, cursor1)`, the cursor
+    /// will advance to `cursor0` after the first call since it is the first in next in the
+    /// sequence; will remain at `cursor0` after the next call since `cursor2` is not the next in
+    /// sequence; and will advance to cursor2 after the 3rd call, since `cursor1` fills the gap as
+    /// identified by its sequence number.
+    pub fn maybe_advance_event_cursor(
+        &self,
+        sequence_number: usize,
+        cursor: &EventID,
+    ) -> Result<(), TypedStoreError> {
+        let mut event_queue = self.event_queue.lock().unwrap();
+
+        event_queue.add(sequence_number, *cursor);
+
+        if let Some(cursor) = event_queue.peek() {
+            self.event_cursor
+                .insert(&Self::EVENT_CURSOR_KEY.to_string(), cursor)?;
+
+            // Only pop from the event queue if the write was successful,
+            // otherwise we may lose events.
+            let _ = event_queue.pop();
+        }
+
+        Ok(())
     }
 
     /// Returns true if the metadata for the specified blob is stored.
@@ -334,7 +363,7 @@ pub(crate) mod tests {
         SliverType,
     };
     use walrus_sui::test_utils::event_id_for_testing;
-    use walrus_test_utils::{param_test, Result as TestResult, WithTempDir};
+    use walrus_test_utils::{async_param_test, param_test, Result as TestResult, WithTempDir};
 
     use super::*;
     use crate::test_utils::empty_storage_with_shards;
@@ -468,20 +497,45 @@ pub(crate) mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn update_event_cursor() -> TestResult {
+    async_param_test! {
+        maybe_advance_event_cursor_order -> TestResult: [
+            in_order: (&[0, 1, 2], &[0, 1, 2]),
+            out_of_order: (&[0, 3, 2, 1], &[0, 0, 0, 3]),
+        ]
+    }
+    async fn maybe_advance_event_cursor_order(
+        sequence_ids: &[usize],
+        expected_sequence: &[usize],
+    ) -> TestResult {
         let storage = empty_storage();
         let storage = storage.as_ref();
 
-        let cursor1 = event_id_for_testing();
-        let cursor2 = event_id_for_testing();
+        let cursors: Vec<_> = sequence_ids
+            .iter()
+            .map(|&seq_id| (seq_id, event_id_for_testing()))
+            .collect();
+        let cursor_lookup: HashMap<_, _> = cursors.clone().into_iter().collect();
 
-        storage.update_event_cursor(&cursor1)?;
-        assert_eq!(storage.get_event_cursor()?, Some(cursor1));
+        for ((seq_id, cursor), expected_observed) in cursors.iter().zip(expected_sequence) {
+            storage.maybe_advance_event_cursor(*seq_id, cursor)?;
 
-        // update with newer value
-        storage.update_event_cursor(&cursor2)?;
-        assert_eq!(storage.get_event_cursor()?, Some(cursor2));
+            assert_eq!(
+                storage.get_event_cursor()?,
+                Some(cursor_lookup[expected_observed])
+            );
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn maybe_advance_event_cursor_missed_zero() -> TestResult {
+        let storage = empty_storage();
+        let storage = storage.as_ref();
+
+        storage.maybe_advance_event_cursor(1, &event_id_for_testing());
+        assert_eq!(storage.get_event_cursor()?, None);
+
         Ok(())
     }
 
