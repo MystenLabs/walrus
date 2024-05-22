@@ -126,7 +126,7 @@ struct GenerateDryRunConfigsArgs {
     #[clap(long, default_value = "./working_dir")]
     working_dir: PathBuf,
     /// Sui network for which the config is generated.
-    #[clap(long, default_value = "devnet")]
+    #[clap(long, default_value = "testnet")]
     sui_network: SuiNetwork,
     /// The path to the configuration file of the Walrus smart contract deployed on Sui.
     #[clap(long)]
