@@ -63,13 +63,13 @@ settings file specifies 10 regions, as shown in the example above, a total of 20
 created):
 
 ```bash
-cargo run --bin orchestrator -- testbed deploy --instances 2
+cargo run --bin walrus-orchestrator -- testbed deploy --instances 2
 ```
 
 To check the current status of the testbed instances, use the following command:
 
 ```bash
-cargo run --bin orchestrator testbed status
+cargo run --bin walrus-orchestrator -- testbed status
 ```
 
 Instances listed with a green number are available and ready for use, while instances listed with a

@@ -37,5 +37,5 @@ tempfile.workspace = true
 workspace = true
 
 [[bin]]
-name = "orchestrator"
+name = "walrus-orchestrator"
 path = "src/main.rs"

@@ -52,12 +52,12 @@ walrus-test-utils = { workspace = true, optional = true }
 workspace = true
 
 [[bin]]
-name = "client"
+name = "walrus-client"
 path = "bin/client.rs"
 
 [[bin]]
 name = "walrus-node"
-path = "bin/main.rs"
+path = "bin/node.rs"
 
 [[bin]]
 name = "walrus-aggregator"
