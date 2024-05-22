@@ -1305,31 +1305,34 @@ mod tests {
         let shards: &[&[u16]] = &[&[1, 6], &[0, 2, 3, 4, 5]];
         let own_shards = [ShardIndex(1), ShardIndex(6)];
 
-        let blob1 = BLOB;
-        let blob2 = [0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        let blob1 = (0..80u8).collect::<Vec<_>>();
+        let blob2 = (80..160u8).collect::<Vec<_>>();
+        let blob3 = (160..255u8).collect::<Vec<_>>();
 
         let store_at_other_node_fn = |shard: &ShardIndex, _| !own_shards.contains(shard);
         let (cluster, events, blob1_details) =
-            cluster_with_partially_stored_blob(shards, blob1, store_at_other_node_fn).await?;
+            cluster_with_partially_stored_blob(shards, &blob1, store_at_other_node_fn).await?;
         events.send(BlobCertified::for_testing(*blob1_details.blob_id()).into())?;
 
         let node_client = cluster.client(0);
+        let config = &blob1_details.config;
 
         // Send events that some unobserved blob has been certified.
-        let arbitrary_blob_registered_event = BlobRegistered::for_testing(BLOB_ID);
-        events.send(arbitrary_blob_registered_event.clone().into())?;
+        let blob2_details = EncodedBlob::new(&blob2, config.clone());
+        let blob2_registered_event = BlobRegistered::for_testing(*blob2_details.blob_id());
+        events.send(blob2_registered_event.clone().into())?;
+
         // The node should not be able to advance past the following event.
         events.send(BlobCertified::for_testing(BLOB_ID).into())?;
 
         // Register and store the second blob
-        let config = blob1_details.config.clone();
-        let blob2_details = EncodedBlob::new(&blob2, config);
-        events.send(BlobRegistered::for_testing(*blob2_details.blob_id()).into())?;
-        store_at_shards(&blob2_details, &cluster, store_at_other_node_fn).await?;
-        events.send(BlobCertified::for_testing(*blob2_details.blob_id()).into())?;
+        let blob3_details = EncodedBlob::new(&blob3, config.clone());
+        events.send(BlobRegistered::for_testing(*blob3_details.blob_id()).into())?;
+        store_at_shards(&blob3_details, &cluster, store_at_other_node_fn).await?;
+        events.send(BlobCertified::for_testing(*blob3_details.blob_id()).into())?;
 
         // All shards for blobs 1 and 2 should be synced by the node.
-        for blob_details in [blob1_details, blob2_details] {
+        for blob_details in [blob1_details, blob3_details] {
             for shard in own_shards {
                 let synced_sliver_pair = expect_sliver_pair_stored_before_timeout(
                     &blob_details,
@@ -1347,13 +1350,10 @@ mod tests {
             }
         }
 
-        // The cursor should not have moved beyond that of BLOB_ID registration, since BLOB_ID is
-        // yet to be synced.
+        // The cursor should not have moved beyond that of blob2 registration, since blob2 is yet
+        // to be synced.
         let latest_cursor = cluster.nodes[0].storage_node.storage.get_event_cursor()?;
-        assert_eq!(
-            latest_cursor,
-            Some(arbitrary_blob_registered_event.event_id)
-        );
+        assert_eq!(latest_cursor, Some(blob2_registered_event.event_id));
 
         Ok(())
     }
