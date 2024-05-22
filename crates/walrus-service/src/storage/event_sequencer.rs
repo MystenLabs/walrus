@@ -17,7 +17,7 @@ pub(super) struct EventSequencer {
     // next_required_sequence_num.
     head: Option<EventID>,
     next_required_sequence_num: usize,
-    queue: BinaryHeap<Reverse<SequencedEventId>>,
+    queue: BinaryHeap<Reverse<Sequenced<EventID>>>,
 }
 
 impl EventSequencer {
@@ -26,6 +26,8 @@ impl EventSequencer {
     }
 
     /// Adds the provided (sequence_number, EventID) pair to those observed.
+    ///
+    /// Added sequence numbers must be unique over those observed up to this point.
     pub fn add(&mut self, sequence_number: usize, event_id: EventID) {
         match sequence_number.cmp(&self.next_required_sequence_num) {
             Ordering::Equal => {
@@ -33,10 +35,9 @@ impl EventSequencer {
                 self.head = Some(event_id);
 
                 // Attempt to advance the head, in the case that this filled a gap.
-                while let Some(Reverse(SequencedEventId(next_sequence_num, _))) = self.queue.peek()
-                {
+                while let Some(Reverse(Sequenced(next_sequence_num, _))) = self.queue.peek() {
                     if *next_sequence_num == self.next_required_sequence_num {
-                        let Reverse(SequencedEventId(_, next_event)) = self.queue.pop().unwrap();
+                        let Reverse(Sequenced(_, next_event)) = self.queue.pop().unwrap();
 
                         self.next_required_sequence_num += 1;
                         self.head = Some(next_event);
@@ -46,11 +47,24 @@ impl EventSequencer {
                 }
             }
             Ordering::Greater => {
+                debug_assert!(
+                    !self
+                        .queue
+                        .iter()
+                        .any(|Reverse(Sequenced(i, _))| *i == sequence_number),
+                    "larger sequence number repeated"
+                );
                 self.queue
-                    .push(Reverse(SequencedEventId(sequence_number, event_id)));
+                    .push(Reverse(Sequenced(sequence_number, event_id)));
             }
             Ordering::Less => {
-                // Do nothing as we already advanced past this sequence number.
+                // This class provides the invariant that we never advance unless we have seen all
+                // prior sequence numbers, therefore anything encountered here is a duplicate.
+                debug_assert!(
+                    false,
+                    "sequence number repeated: ({sequence_number}, {event_id:?})"
+                );
+                tracing::warn!(sequence_number, ?event_id, "sequence number repeated");
             }
         }
     }
@@ -67,20 +81,27 @@ impl EventSequencer {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-struct SequencedEventId(pub usize, pub EventID);
+/// A wrapper implementation of Ord that only considers the sequence number for comparison and
+/// equality operations.
+#[derive(Debug, Clone, Copy)]
+struct Sequenced<T>(pub usize, pub T);
 
-impl PartialOrd for SequencedEventId {
+impl<T> PartialOrd for Sequenced<T> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for SequencedEventId {
+impl<T> Ord for Sequenced<T> {
     fn cmp(&self, other: &Self) -> Ordering {
-        let this = (self.0, self.1.tx_digest, self.1.event_seq);
-        let other = (other.0, other.1.tx_digest, other.1.event_seq);
-
-        this.cmp(&other)
+        self.0.cmp(&other.0)
     }
 }
+
+impl<T> PartialEq for Sequenced<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl<T> Eq for Sequenced<T> {}
