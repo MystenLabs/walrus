@@ -1,10 +1,10 @@
 name: Updates
 
 on:
-  # every month
+  # Run workflow on the first day of every month.
   schedule:
     - cron: '14 3 1 * *'
-  # on demand
+  # Run workflow on demand.
   workflow_dispatch:
 
 jobs:

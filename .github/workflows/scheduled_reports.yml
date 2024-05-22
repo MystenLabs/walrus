@@ -4,6 +4,8 @@ on:
   # Run workflow once a week on Sundays.
   schedule:
     - cron: '14 3 * * 0'
+  # Run workflow on demand.
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
