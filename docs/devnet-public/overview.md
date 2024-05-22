@@ -140,7 +140,7 @@ stored by an incorrect user (and was incorrectly encoded).
   the correct sliver for its shards for this blob ID.
 - After PoA if a correct storage node cannot recover a sliver, it can produce an inconsistency proof
   for the blob ID.
-- If a blobID is stored by a correct user, an inconsistently proof cannot be derived for it.
+- If a blob ID is stored by a correct user, an inconsistently proof cannot be derived for it.
 - A read by a correct user for a blob ID for which an inconsistency proof may exist returns None.
 
 Note that there is no delete operation and a blob ID past PoA will be available for the full
