@@ -139,11 +139,23 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
         let app = Router::new()
             .route(
                 METADATA_ENDPOINT,
-                get(Self::retrieve_metadata).put(Self::store_metadata),
+                get(Self::retrieve_metadata)
+                    .put(Self::store_metadata)
+                    .route_layer(DefaultBodyLimit::max(
+                        usize::try_from(self.state.metadata_length())
+                            .expect("running on 64bit arch (see hardware requirements)")
+                            + HEADROOM,
+                    )),
             )
             .route(
                 SLIVER_ENDPOINT,
-                get(Self::retrieve_sliver).put(Self::store_sliver),
+                get(Self::retrieve_sliver)
+                    .put(Self::store_sliver)
+                    .route_layer(DefaultBodyLimit::max(
+                        usize::try_from(self.state.max_sliver_size())
+                            .expect("running on 64bit arch (see hardware requirements)")
+                            + HEADROOM,
+                    )),
             )
             .route(
                 STORAGE_CONFIRMATION_ENDPOINT,
@@ -152,10 +164,6 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             .route(RECOVERY_ENDPOINT, get(Self::retrieve_recovery_symbol))
             .route(INCONSISTENCY_PROOF_ENDPOINT, put(Self::inconsistency_proof))
             .with_state(self.state.clone())
-            .layer(DefaultBodyLimit::max(
-                usize::from(self.state.n_secondary_source_symbols().get()) * usize::from(u16::MAX)
-                    + HEADROOM,
-            ))
             .layer(TraceLayer::new_for_http().make_span_with(RestApiSpans {
                 address: *network_address,
             }));
@@ -441,8 +449,6 @@ fn decode_inconsistency_proof(
 
 #[cfg(test)]
 mod test {
-    use std::num::NonZeroU16;
-
     use anyhow::anyhow;
     use reqwest::Url;
     use tokio::task::JoinHandle;
@@ -570,8 +576,14 @@ mod test {
             }
         }
 
-        fn n_secondary_source_symbols(&self) -> NonZeroU16 {
-            NonZeroU16::new(42).expect("42 > 0")
+        fn metadata_length(&self) -> u64 {
+            // Ensures that the tests don't fail when trying to store arbitrary metadata.
+            23_000_000
+        }
+
+        fn max_sliver_size(&self) -> u64 {
+            // Ensures that the tests don't fail when trying to store arbitrary metadata.
+            42_000_000
         }
     }
 

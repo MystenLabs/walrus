@@ -1,6 +1,6 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
-use std::{future::Future, num::NonZeroU16, sync::Arc};
+use std::{future::Future, sync::Arc};
 
 use anyhow::{anyhow, bail, Context};
 use fastcrypto::traits::KeyPair;
@@ -181,8 +181,11 @@ pub trait ServiceState {
         target_pair_index: SliverPairIndex,
     ) -> Result<RecoverySymbol<MerkleProof>, RetrieveSymbolError>;
 
-    /// Returns the number of secondary source symbols.
-    fn n_secondary_source_symbols(&self) -> NonZeroU16;
+    /// Returns the maximum sliver size for the service configuration.
+    fn max_sliver_size(&self) -> u64;
+
+    /// Returns the metadata size for the service configuration.
+    fn metadata_length(&self) -> u64;
 }
 
 /// Builder to construct a [`StorageNode`].
@@ -724,8 +727,12 @@ impl ServiceState for StorageNode {
         })
     }
 
-    fn n_secondary_source_symbols(&self) -> NonZeroU16 {
-        self.encoding_config.n_secondary_source_symbols()
+    fn max_sliver_size(&self) -> u64 {
+        self.encoding_config.max_sliver_size()
+    }
+
+    fn metadata_length(&self) -> u64 {
+        self.encoding_config.metadata_length()
     }
 }
 
