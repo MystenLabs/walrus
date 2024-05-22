@@ -40,6 +40,8 @@ impl EventSequencer {
 
                         self.next_required_sequence_num += 1;
                         self.head = Some(next_event);
+                    } else {
+                        break;
                     }
                 }
             }

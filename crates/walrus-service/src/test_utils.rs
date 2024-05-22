@@ -619,7 +619,7 @@ impl TestClusterBuilder {
     }
 
     /// Sets the number of storage nodes and their shard assignments from a sequence of the shards
-    /// assignmened to each storage.
+    /// assigned to each storage.
     ///
     /// Resets any prior calls to [`Self::with_test_configs`],
     /// [`Self::with_system_event_providers`], and [`Self::with_committee_service_factories`].

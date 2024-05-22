@@ -409,10 +409,14 @@ impl StorageNode {
         // Slivers, and possible metadata, are not stored.
         // TODO(jsmith): Do not spawn if there is already a worker for this blob id (#366)
         // TODO(jsmith): Handle cancellation. (#366)
+        let synchronizer = BlobSynchronizer::new(event, event_sequence_number, self);
         tokio::spawn(
-            BlobSynchronizer::new(event, event_sequence_number, self)
-                .sync()
-                .in_current_span(),
+            async {
+                if let Err(err) = synchronizer.sync().await {
+                    tracing::error!(?err, "blob synchronizer failed")
+                }
+            }
+            .in_current_span(),
         );
 
         Ok(())
@@ -440,11 +444,8 @@ impl BlobSynchronizer {
     }
 
     #[tracing::instrument(skip_all, fields(blob_id = %self.blob_id))]
-    async fn sync(self) {
-        let metadata = self
-            .sync_metadata()
-            .await
-            .expect("database operations should not fail");
+    async fn sync(self) -> anyhow::Result<()> {
+        let metadata = self.sync_metadata().await?;
 
         let sliver_sync_futures: FuturesUnordered<_> = self
             .storage
@@ -470,8 +471,9 @@ impl BlobSynchronizer {
             .await;
 
         self.storage
-            .maybe_advance_event_cursor(self.cursor.0, &self.cursor.1)
-            .expect("advancing cursor should not fail")
+            .maybe_advance_event_cursor(self.cursor.0, &self.cursor.1)?;
+
+        Ok(())
     }
 
     async fn sync_metadata(&self) -> Result<VerifiedBlobMetadataWithId, TypedStoreError> {
@@ -1075,7 +1077,7 @@ mod tests {
     where
         F: FnMut(&ShardIndex, SliverType) -> bool,
     {
-        let events = Sender::new(10);
+        let events = Sender::new(48);
 
         let cluster = {
             // Lock to avoid race conditions.
@@ -1289,6 +1291,69 @@ mod tests {
                 assert_eq!(synced, *expected,);
             }
         }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn does_not_advance_cursor_past_incomplete_blobs() -> TestResult {
+        let _ = tracing_subscriber::fmt()
+            .json()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .try_init();
+
+        let shards: &[&[u16]] = &[&[1, 6], &[0, 2, 3, 4, 5]];
+        let own_shards = [ShardIndex(1), ShardIndex(6)];
+
+        let blob1 = BLOB;
+        let blob2 = [0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+        let store_at_other_node_fn = |shard: &ShardIndex, _| !own_shards.contains(shard);
+        let (cluster, events, blob1_details) =
+            cluster_with_partially_stored_blob(shards, blob1, store_at_other_node_fn).await?;
+        events.send(BlobCertified::for_testing(*blob1_details.blob_id()).into())?;
+
+        let node_client = cluster.client(0);
+
+        // Send events that some unobserved blob has been certified.
+        let arbitrary_blob_registered_event = BlobRegistered::for_testing(BLOB_ID);
+        events.send(arbitrary_blob_registered_event.clone().into())?;
+        // The node should not be able to advance past the following event.
+        events.send(BlobCertified::for_testing(BLOB_ID).into())?;
+
+        // Register and store the second blob
+        let config = blob1_details.config.clone();
+        let blob2_details = EncodedBlob::new(&blob2, config);
+        events.send(BlobRegistered::for_testing(*blob2_details.blob_id()).into())?;
+        store_at_shards(&blob2_details, &cluster, store_at_other_node_fn).await?;
+        events.send(BlobCertified::for_testing(*blob2_details.blob_id()).into())?;
+
+        // All shards for blobs 1 and 2 should be synced by the node.
+        for blob_details in [blob1_details, blob2_details] {
+            for shard in own_shards {
+                let synced_sliver_pair = expect_sliver_pair_stored_before_timeout(
+                    &blob_details,
+                    node_client,
+                    shard,
+                    TIMEOUT,
+                )
+                .await;
+                let expected = blob_details.assigned_sliver_pair(shard);
+
+                assert_eq!(
+                    synced_sliver_pair, *expected,
+                    "invalid sliver pair for {shard}"
+                );
+            }
+        }
+
+        // The cursor should not have moved beyond that of BLOB_ID registration, since BLOB_ID is
+        // yet to be synced.
+        let latest_cursor = cluster.nodes[0].storage_node.storage.get_event_cursor()?;
+        assert_eq!(
+            latest_cursor,
+            Some(arbitrary_blob_registered_event.event_id)
+        );
 
         Ok(())
     }
