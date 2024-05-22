@@ -2,6 +2,11 @@
 
 A decentralized blob store using [Sui](https://github.com/MystenLabs/sui) for coordination and governance.
 
+## Walrus overview
+
+A description of the whole system is available in
+[docs/devnet-public/README.md](docs/devnet-public/README.md) and further documents linked therein.
+
 ## Hardware requirements
 
 - We assume that this code is executed on at least 32-bit hardware; concretely, we assume that a `u32` can be converted

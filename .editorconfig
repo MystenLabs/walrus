@@ -15,8 +15,7 @@ trim_trailing_whitespace = true
 
 [*.md]
 indent_size = unset
-max_line_length = unset
-trim_trailing_whitespace = unset
+max_line_length = 150
 
 [{*.yml,*.yaml,*.toml}]
 indent_size = 2
@@ -26,7 +25,7 @@ max_line_length = 150
 indent_size = unset
 
 # Ignore paths
-[{.git/**/*,**/*.lock,**/Move.toml,LICENSE}]
+[{.git/**/*,**/*.lock,**/Move.toml,LICENSE,docs/devnet-public/glossary.md}]
 charset = unset
 end_of_line = unset
 indent_size = unset
