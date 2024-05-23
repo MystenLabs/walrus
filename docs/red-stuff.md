@@ -47,6 +47,7 @@ to encode and decode the data.
 ### RaptorQ
 
 RedStuff is based on the RaptorQ fountain code. RaptorQ is one of the fastest and most efficient fountain codes, and has the following properties:
+
 1. It is _systematic_, i.e., the first $k$ symbols of the encoded message correspond to the original message;
 2. it is a _linear_ code, i.e., the encoding process is a linear transformation of the input symbols, or in other words, the encoded symbols are
    linear combinations of the input symbols;
@@ -283,7 +284,6 @@ The system has to store $N \cdot 2f$ primary sliver symbols, and $N \cdot f$ sec
 
 Therefore, the storage overhead due to RedStuff encoding is about $9f^2 / 2f^2 = 4.5$ times the original blob size.
 
-
 #### Differences with the Twin-Code Framework
 
 The key modifications in RedStuff, compared to the original Twin-Code framework, are the following:
@@ -415,11 +415,11 @@ However, recall that the number of shards is set and constant, while the number 
 lowering the overhead on the system.  We therefore show here the ratio between the size of the hashes stored on the system to the minimum and maximum
 blob sizes, for `N=1000` shards and different number of nodes (1 node, floor(N/floor(log2(N))) = 111, 1000).
 
-| N = 1000                     | Total metadata size | Factor min blob | Factor max blob | Factor min encoded blob | Factor max encoded blob |
-|------------------------------|--------------------:|----------------:|----------------:|------------------------:|------------------------:|
-| Single node                  |             64.0 KB |           0.294 |        4.48e-06 |                  0.0646 |                9.85e-07 |
-| floor(N/floor(log2(N)) nodes |             7.10 MB |            32.6 |        0.000498 |                    7.17 |                0.000109 |
-| N nodes                      |             64.0 MB |             294 |         0.00448 |                    64.6 |                0.000985 |
+| N = 1000                      | Total metadata size | Factor min blob | Factor max blob | Factor min encoded blob | Factor max encoded blob |
+| ----------------------------- | ------------------: | --------------: | --------------: | ----------------------: | ----------------------: |
+| Single node                   |             64.0 KB |           0.294 |        4.48e-06 |                  0.0646 |                9.85e-07 |
+| floor(N/floor(log2(N))) nodes |             7.10 MB |            32.6 |        0.000498 |                    7.17 |                0.000109 |
+| N nodes                       |             64.0 MB |             294 |         0.00448 |                    64.6 |                0.000985 |
 
 We see that for realistic node counts and small blob sizes, the total metadata overhead goes can be multiple times the size of the initial unencoded
 blob. However, for larger blob sizes, the overhead is negligible.

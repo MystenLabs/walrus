@@ -39,7 +39,19 @@ You can also use a custom pre-commit configuration if you wish:
 1. Create a file `.custom-pre-commit-config.yaml` (this is set to be ignored by Git).
 1. Run `pre-commit install -c .custom-pre-commit-config.yaml`.
 
-## Test coverage
+## Tests
+
+The majority of our code is covered by automatic unit and integration tests which you can run
+through `cargo test`.
+
+Integration and end-to-end tests are excluded by default when running `cargo test` as they depend on
+additional packages and take longer to run. You can run these test as follows:
+
+```sh
+cargo test -- --ignored
+```
+
+### Test coverage
 
 We would like to cover as much code as possible with tests. Ideally you would add unit tests for all code you
 contribute. To analyze test coverage, we use [Tarpaulin](https://crates.io/crates/cargo-tarpaulin). You can install and
@@ -55,14 +67,9 @@ or aren't covered by tests. Other valid output formats are `json`, `stdout`, `xm
 
 The configuration file for Tarpaulin is [.tarpaulin.toml](./.tarpaulin.toml).
 
-## Integration and end-to-end tests
+### Running a local Walrus testbed
 
-Integration and end-to-end tests are excluded by default when running `cargo test` as they depend on additional packages
-and take longer to run. You can run these test as follows:
-
-```sh
-cargo test -- --ignored
-```
+You can conveniently deploy and interact with a local Walrus testbed as described [here](README.md#run-it-locally).
 
 ## Benchmarks
 
