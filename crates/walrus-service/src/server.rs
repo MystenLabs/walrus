@@ -19,6 +19,7 @@ use tokio_util::sync::CancellationToken;
 use tower_http::trace::{MakeSpan, TraceLayer};
 use tracing::Level;
 use walrus_core::{
+    encoding::{max_sliver_size_for_n_shards, metadata_length_for_n_shards},
     messages::StorageConfirmation,
     metadata::{BlobMetadata, UnverifiedBlobMetadataWithId},
     BlobId,
@@ -139,23 +140,23 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
         let app = Router::new()
             .route(
                 METADATA_ENDPOINT,
-                get(Self::retrieve_metadata)
-                    .put(Self::store_metadata)
+                put(Self::store_metadata)
                     .route_layer(DefaultBodyLimit::max(
-                        usize::try_from(self.state.metadata_length())
+                        usize::try_from(metadata_length_for_n_shards(self.state.n_shards()))
                             .expect("running on 64bit arch (see hardware requirements)")
                             + HEADROOM,
-                    )),
+                    ))
+                    .get(Self::retrieve_metadata),
             )
             .route(
                 SLIVER_ENDPOINT,
-                get(Self::retrieve_sliver)
-                    .put(Self::store_sliver)
+                put(Self::store_sliver)
                     .route_layer(DefaultBodyLimit::max(
-                        usize::try_from(self.state.max_sliver_size())
+                        usize::try_from(max_sliver_size_for_n_shards(self.state.n_shards()))
                             .expect("running on 64bit arch (see hardware requirements)")
                             + HEADROOM,
-                    )),
+                    ))
+                    .get(Self::retrieve_sliver),
             )
             .route(
                 STORAGE_CONFIRMATION_ENDPOINT,
@@ -576,14 +577,8 @@ mod test {
             }
         }
 
-        fn metadata_length(&self) -> u64 {
-            // Ensures that the tests don't fail when trying to store arbitrary metadata.
-            23_000_000
-        }
-
-        fn max_sliver_size(&self) -> u64 {
-            // Ensures that the tests don't fail when trying to store arbitrary metadata.
-            42_000_000
+        fn n_shards(&self) -> std::num::NonZeroU16 {
+            walrus_core::test_utils::encoding_config().n_shards()
         }
     }
 

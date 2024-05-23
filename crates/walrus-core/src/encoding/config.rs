@@ -276,29 +276,18 @@ impl EncodingConfig {
         self.encoded_blob_length(unencoded_length.try_into().ok()?)
     }
 
-    /// Computes the length of the metadata for a blob.
+    /// Computes the length of the metadata produced by this encoding config.
     ///
     /// This is independent of the blob size.
     pub fn metadata_length(&self) -> u64 {
-        (
-            // The hashes.
-            self.n_shards_as_usize()* DIGEST_LEN * 2
-            // The blob ID.
-            + BlobId::LENGTH
-            // The u64 `unencoded_length`
-            + UNENCODED_LENGTH_SIZE
-            // The u8 `EncodingType`
-            + ENCODING_TYPE_SIZE
-        )
-            .try_into()
-            .expect("this always fits into a `u64`")
+        metadata_length_for_n_shards(self.n_shards())
     }
 
     /// Returns the maximum size of a sliver for the current configuration.
     ///
     /// This is the size of a primary sliver with `u16::MAX` symbol size.
     pub fn max_sliver_size(&self) -> u64 {
-        u64::from(self.n_secondary_source_symbols().get()) * u64::from(u16::MAX)
+        max_sliver_size_for_n_secondary(self.n_secondary_source_symbols())
     }
 
     /// Returns an [`Encoder`] to perform a single primary or secondary encoding of the data.
@@ -401,6 +390,37 @@ pub fn source_symbols_for_n_shards(n_shards: NonZeroU16) -> (NonZeroU16, NonZero
             .try_into()
             .expect("implied by BFT computations and definition of safety_limit"),
     )
+}
+
+/// Computes the length of the metadata produced for a system with `n_shards` shards.
+///
+/// This is independent of the blob size.
+pub fn metadata_length_for_n_shards(n_shards: NonZeroU16) -> u64 {
+    (
+        // The hashes.
+        usize::from(n_shards.get()) * DIGEST_LEN * 2
+        // The blob ID.
+        + BlobId::LENGTH
+        // The u64 `unencoded_length`
+        + UNENCODED_LENGTH_SIZE
+        // The u8 `EncodingType`
+        + ENCODING_TYPE_SIZE
+    )
+        .try_into()
+        .expect("this always fits into a `u64`")
+}
+
+/// Returns the maximum size of a sliver for a system with `n_secondary_source_symbols`.
+fn max_sliver_size_for_n_secondary(n_secondary_source_symbols: NonZeroU16) -> u64 {
+    u64::from(n_secondary_source_symbols.get()) * u64::from(u16::MAX)
+}
+
+/// Returns the maximum size of a sliver for a system with `n_shards` shards.
+///
+/// This is the size of a primary sliver with `u16::MAX` symbol size.
+pub fn max_sliver_size_for_n_shards(n_shards: NonZeroU16) -> u64 {
+    let (_, secondary) = source_symbols_for_n_shards(n_shards);
+    max_sliver_size_for_n_secondary(secondary)
 }
 
 #[cfg(test)]

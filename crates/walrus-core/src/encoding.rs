@@ -15,7 +15,13 @@ mod common;
 pub use common::{EncodingAxis, Primary, Secondary, MAX_SOURCE_SYMBOLS_PER_BLOCK, MAX_SYMBOL_SIZE};
 
 mod config;
-pub use config::{decoding_safety_limit, source_symbols_for_n_shards, EncodingConfig};
+pub use config::{
+    decoding_safety_limit,
+    max_sliver_size_for_n_shards,
+    metadata_length_for_n_shards,
+    source_symbols_for_n_shards,
+    EncodingConfig,
+};
 
 mod errors;
 pub use errors::{
