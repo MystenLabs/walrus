@@ -139,7 +139,7 @@ async fn run_store_and_read_with_crash_failures(
         system_pkg,
         system_object,
         wallet_config: None,
-        communication_config: ClientCommunicationConfig::default(),
+        communication_config: ClientCommunicationConfig::default_for_test(),
     };
 
     let mut client = Client::new(config, sui_contract_client).await?;

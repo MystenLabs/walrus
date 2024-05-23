@@ -518,7 +518,7 @@ impl<T> Client<T> {
             &self.reqwest_client,
             node,
             &self.encoding_config,
-            self.config.communication_config.node_config.clone(),
+            self.config.communication_config.request_rate_config.clone(),
             self.global_write_limit.clone(),
         )
     }
