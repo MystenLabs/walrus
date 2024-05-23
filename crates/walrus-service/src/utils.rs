@@ -137,7 +137,7 @@ impl<T> SuccessOrFailure for Option<T> {
 }
 
 pub(crate) trait FutureHelpers: Future {
-    async fn limit(self, permits: Arc<Semaphore>) -> Self::Output
+    async fn batch_limit(self, permits: Arc<Semaphore>) -> Self::Output
     where
         Self: Future,
         Self: Sized,
@@ -149,7 +149,7 @@ pub(crate) trait FutureHelpers: Future {
         self.await
     }
 
-    async fn success_limit(self, permits: Arc<Semaphore>) -> Self::Output
+    async fn limit(self, permits: Arc<Semaphore>) -> Self::Output
     where
         <Self as Future>::Output: SuccessOrFailure,
         Self: Sized,

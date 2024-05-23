@@ -203,7 +203,7 @@ impl<'a> NodeCommunication<'a> {
             self.client
                 .store_metadata(metadata)
                 // TODO(giac): consider adding timeouts and replace the Reqwest timeout.
-                .limit(self.global_connection_limit.clone())
+                .batch_limit(self.global_connection_limit.clone())
         })
         .await
     }
@@ -276,8 +276,8 @@ impl<'a> NodeCommunication<'a> {
                 .store_sliver_by_axis(blob_id, pair_index, sliver)
                 // Ordering matters here. Since we don't want to block global connections while we
                 // wait for local connections, the innermost limit must be the global one.
-                .limit(self.global_connection_limit.clone())
-                .limit(node_connection_limit.clone())
+                .batch_limit(self.global_connection_limit.clone())
+                .batch_limit(node_connection_limit.clone())
         })
         .await
         .map_err(|error| SliverStoreError {

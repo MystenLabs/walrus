@@ -288,7 +288,7 @@ where
                         .expect("only nodes with clients provided")
                         .get_and_verify_metadata(blob_id, config)
                         .timeout_after(MAX_REQUEST_DURATION)
-                        .success_limit(simultaneous_requests.clone())
+                        .limit(simultaneous_requests.clone())
                 })
                 .instrument(tracing::info_span!("node", ?public_key))
             })
@@ -344,7 +344,7 @@ where
                             sliver_id,
                         )
                         .timeout_after(MAX_REQUEST_DURATION)
-                        .success_limit(simultaneous_requests.clone())
+                        .limit(simultaneous_requests.clone())
                 })
                 .map(|result| {
                     result.expect("the strategy ensures we wait until a result is available")
