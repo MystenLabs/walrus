@@ -30,33 +30,73 @@ impl LoadConfig for Config {}
 
 /// Configuration for the communication parameters of the client
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(default)]
 pub struct ClientCommunicationConfig {
-    /// The maximum number of storage nodes the client contacts in parallel to write slivers and
-    /// metadata. If `None`, the value is set by the client to `n - f`, depending on the number of
-    /// shards `n`.
-    pub concurrent_writes: Option<usize>,
+    /// The maximum number of open connections the client can have at any one time for writes.
+    ///
+    /// If `None`, the value is set by the client to optimize the write speed while avoiding running
+    /// out of memory.
+    pub max_concurrent_writes: Option<usize>,
     /// The maximum number of slivers the client requests in parallel. If `None`, the value is set
     /// by the client to `n - 2f`, depending on the number of shards `n`.
-    pub concurrent_sliver_reads: Option<usize>,
+    pub max_concurrent_sliver_reads: Option<usize>,
     /// The maximum number of nodes the client contacts to get the blob metadata in parallel.
-    #[serde(default = "default::concurrent_metadata_reads")]
-    pub concurrent_metadata_reads: usize,
+    pub max_concurrent_metadata_reads: usize,
     /// The configuration for the `reqwest` client.
-    #[serde(default)]
     pub reqwest_config: ReqwestConfig,
-    /// The number of retries for failed communication.
-    #[serde(default)]
-    pub retries: usize,
+    /// The configuration specific to each node connection.
+    pub request_rate_config: RequestRateConfig,
 }
 
 impl Default for ClientCommunicationConfig {
     fn default() -> Self {
         Self {
-            concurrent_writes: None,
-            concurrent_sliver_reads: None,
-            concurrent_metadata_reads: default::concurrent_metadata_reads(),
+            max_concurrent_writes: None,
+            max_concurrent_sliver_reads: None,
+            max_concurrent_metadata_reads: default::max_concurrent_metadata_reads(),
             reqwest_config: ReqwestConfig::default(),
-            retries: 0,
+            request_rate_config: RequestRateConfig::default(),
+        }
+    }
+}
+
+impl ClientCommunicationConfig {
+    /// Provides a config with lower number of retries to speed up integration testing.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn default_for_test() -> Self {
+        let mut config = ClientCommunicationConfig::default();
+        let request_rate_config = RequestRateConfig {
+            max_node_connections: 10,
+            max_retries: Some(1),
+            min_backoff: Duration::from_secs(2),
+            max_backoff: Duration::from_secs(10),
+        };
+        config.request_rate_config = request_rate_config;
+        config
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(default)]
+/// Configuration for retries towards the storage nodes.
+pub struct RequestRateConfig {
+    /// The maximum number of connections the client can open towards each node.
+    pub max_node_connections: usize,
+    /// The number of retries for failed communication.
+    pub max_retries: Option<u32>,
+    /// The minimum backoff time between retries.
+    pub min_backoff: Duration,
+    /// The maximum backoff time between retries.
+    pub max_backoff: Duration,
+}
+
+impl Default for RequestRateConfig {
+    fn default() -> Self {
+        Self {
+            max_node_connections: 10,
+            max_retries: Some(5),
+            min_backoff: Duration::from_secs(2),
+            max_backoff: Duration::from_secs(60),
         }
     }
 }
@@ -136,15 +176,15 @@ pub(crate) mod default {
 
     use walrus_core::bft;
 
-    pub fn concurrent_writes(n_shards: NonZeroU16) -> usize {
+    pub fn max_concurrent_writes(n_shards: NonZeroU16) -> usize {
         (n_shards.get() - bft::max_n_faulty(n_shards)).into()
     }
 
-    pub fn concurrent_sliver_reads(n_shards: NonZeroU16) -> usize {
+    pub fn max_concurrent_sliver_reads(n_shards: NonZeroU16) -> usize {
         (n_shards.get() - 2 * bft::max_n_faulty(n_shards)).into()
     }
 
-    pub fn concurrent_metadata_reads() -> usize {
+    pub fn max_concurrent_metadata_reads() -> usize {
         3
     }
 

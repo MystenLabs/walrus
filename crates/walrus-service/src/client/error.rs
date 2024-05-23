@@ -12,8 +12,8 @@ use walrus_sui::client::SuiClientError;
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
     /// One or more slivers could not be stored on the node
-    #[error("one or more slivers could not be stored on the node")]
-    SliverStore(Vec<SliverStoreError>),
+    #[error(transparent)]
+    SliverStore(#[from] SliverStoreError),
     /// The sliver could not be stored on the node.
     #[error(transparent)]
     Metadata(NodeError),

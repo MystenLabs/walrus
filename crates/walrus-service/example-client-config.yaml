@@ -1,0 +1,32 @@
+# Example configuration for the storage client.
+#
+# Default optional values are commented out.
+
+system_pkg: 0x1f7ffd45b7c16456ce4b8ef2fdc41fa87db7bd1228925f8dbcc1f19f62f68b7e
+system_object: 0xd6f0cacdb8b365cdda24ab954a32ebc86f8b8a1707322b4cc0ba54dcbbbc5772
+wallet_config: null
+# communication_config:
+#   max_concurrent_writes: null
+#   max_concurrent_sliver_reads: null
+#   max_concurrent_metadata_reads: 3
+#   reqwest_config:
+#     total_timeout:
+#       secs: 180
+#       nanos: 0
+#     pool_idle_timeout: null
+#     http2_keep_alive_timeout:
+#       secs: 5
+#       nanos: 0
+#     http2_keep_alive_interval:
+#       secs: 30
+#       nanos: 0
+#     http2_keep_alive_while_idle: true
+#   request_rate_config:
+#     max_node_connections: 10
+#     max_retries: 5
+#     min_backoff:
+#       secs: 2
+#       nanos: 0
+#     max_backoff:
+#       secs: 60
+#       nanos: 0
