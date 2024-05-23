@@ -207,6 +207,7 @@ impl<'a> NodeCommunication<'a> {
                 .store_metadata(metadata)
                 // TODO(giac): consider adding timeouts and replace the Reqwest timeout.
                 .batch_limit(self.global_connection_limit.clone())
+                .batch_limit(self.node_connection_limit.clone())
         })
         .await
     }
@@ -225,18 +226,8 @@ impl<'a> NodeCommunication<'a> {
             .into_iter()
             .flat_map(|pair| {
                 vec![
-                    Either::Left(self.store_sliver(
-                        blob_id,
-                        &pair.primary,
-                        pair.index(),
-                        &self.node_connection_limit,
-                    )),
-                    Either::Right(self.store_sliver(
-                        blob_id,
-                        &pair.secondary,
-                        pair.index(),
-                        &self.node_connection_limit,
-                    )),
+                    Either::Left(self.store_sliver(blob_id, &pair.primary, pair.index())),
+                    Either::Right(self.store_sliver(blob_id, &pair.secondary, pair.index())),
                 ]
             })
             .collect::<FuturesUnordered<_>>();
@@ -271,7 +262,6 @@ impl<'a> NodeCommunication<'a> {
         blob_id: &BlobId,
         sliver: &Sliver<T>,
         pair_index: SliverPairIndex,
-        node_connection_limit: &Arc<Semaphore>,
     ) -> Result<(), SliverStoreError> {
         utils::retry(self.backoff_strategy(), || {
             self.client
@@ -279,7 +269,7 @@ impl<'a> NodeCommunication<'a> {
                 // Ordering matters here. Since we don't want to block global connections while we
                 // wait for local connections, the innermost limit must be the global one.
                 .batch_limit(self.global_connection_limit.clone())
-                .batch_limit(node_connection_limit.clone())
+                .batch_limit(self.node_connection_limit.clone())
         })
         .await
         .map_err(|error| SliverStoreError {
