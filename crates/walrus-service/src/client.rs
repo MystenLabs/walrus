@@ -51,13 +51,13 @@ pub struct Client<T> {
     // INV: committee.n_shards > 0
     committee: Committee,
     // The maximum number of nodes to contact in parallel when writing.
-    concurrent_writes: usize,
+    max_concurrent_writes: usize,
     // The maximum number of shards to contact in parallel when reading slivers.
-    concurrent_sliver_reads: usize,
+    max_concurrent_sliver_reads: usize,
     // The maximum number of shards to contact in parallel when reading metadata.
-    concurrent_metadata_reads: usize,
+    max_concurrent_metadata_reads: usize,
     encoding_config: EncodingConfig,
-    global_connection_limit: Arc<Semaphore>,
+    global_write_limit: Arc<Semaphore>,
 }
 
 impl Client<()> {
@@ -83,27 +83,27 @@ impl Client<()> {
 
         let encoding_config = EncodingConfig::new(committee.n_shards());
         // Try to store on n-f nodes concurrently, as the work to store is never wasted.
-        let concurrent_writes = config
+        let max_concurrent_writes = config
             .communication_config
             .max_concurrent_writes
-            .unwrap_or(default::concurrent_writes(committee.n_shards()));
+            .unwrap_or(default::max_concurrent_writes(committee.n_shards()));
         // Read n-2f slivers concurrently to avoid wasted work on the storage nodes.
-        let concurrent_sliver_reads = config
+        let max_concurrent_sliver_reads = config
             .communication_config
-            .max_concurrent_writes
-            .unwrap_or(default::concurrent_sliver_reads(committee.n_shards()));
-        let concurrent_metadata_reads = config.communication_config.concurrent_metadata_reads;
-        let global_connection_limit = Arc::new(Semaphore::new(concurrent_writes));
+            .max_concurrent_sliver_reads
+            .unwrap_or(default::max_concurrent_sliver_reads(committee.n_shards()));
+        let max_concurrent_metadata_reads = config.communication_config.max_concurrent_metadata_reads;
+        let global_write_limit = Arc::new(Semaphore::new(max_concurrent_writes));
         Ok(Self {
             config,
             reqwest_client,
             sui_client: (),
             committee,
-            concurrent_writes,
             encoding_config,
-            concurrent_sliver_reads,
-            concurrent_metadata_reads,
-            global_connection_limit,
+            max_concurrent_writes,
+            max_concurrent_sliver_reads,
+            max_concurrent_metadata_reads,
+            global_write_limit,
         })
     }
 
@@ -114,22 +114,22 @@ impl Client<()> {
             config,
             sui_client: _,
             committee,
-            concurrent_writes,
-            concurrent_sliver_reads,
-            concurrent_metadata_reads,
+            max_concurrent_writes: concurrent_writes,
+            max_concurrent_sliver_reads: concurrent_sliver_reads,
+            max_concurrent_metadata_reads: concurrent_metadata_reads,
             encoding_config,
-            global_connection_limit,
+            global_write_limit: global_connection_limit,
         } = self;
         Client::<T> {
             reqwest_client,
             config,
             sui_client,
             committee,
-            concurrent_writes,
-            concurrent_sliver_reads,
-            concurrent_metadata_reads,
+            max_concurrent_writes: concurrent_writes,
+            max_concurrent_sliver_reads: concurrent_sliver_reads,
+            max_concurrent_metadata_reads: concurrent_metadata_reads,
             encoding_config,
-            global_connection_limit,
+            global_write_limit: global_connection_limit,
         }
     }
 }
@@ -238,6 +238,8 @@ impl<T> Client<T> {
         }));
         let start = Instant::now();
         let quorum_check = |weight| self.committee.is_at_least_min_honest(weight);
+        // We do not limit the number of concurrent futures awaited here, because the number of
+        // connections is already limited by the `global_write_limit` semaphore.
         requests
             .execute_weight(&quorum_check, self.committee.n_shards().get().into())
             .await;
@@ -354,7 +356,7 @@ impl<T> Client<T> {
         let enough_source_symbols =
             |weight| weight >= self.encoding_config.n_source_symbols::<U>().get().into();
         requests
-            .execute_weight(&enough_source_symbols, self.concurrent_sliver_reads)
+            .execute_weight(&enough_source_symbols, self.max_concurrent_sliver_reads)
             .await;
 
         let mut n_not_found = 0; // Counts the number of "not found" status codes received.
@@ -412,7 +414,7 @@ impl<T> Client<T> {
         Fut: Future<Output = NodeResult<Sliver<U>, NodeError>>,
     {
         while let Some(NodeResult(_, _, node, result)) =
-            requests.next(self.concurrent_sliver_reads).await
+            requests.next(self.max_concurrent_sliver_reads).await
         {
             match result {
                 Ok(sliver) => {
@@ -480,7 +482,7 @@ impl<T> Client<T> {
         let mut requests = WeightedFutures::new(futures);
         let just_one = |weight| weight >= 1;
         requests
-            .execute_weight(&just_one, self.concurrent_metadata_reads)
+            .execute_weight(&just_one, self.max_concurrent_metadata_reads)
             .await;
 
         let mut n_not_found = 0;
@@ -516,7 +518,7 @@ impl<T> Client<T> {
             node,
             &self.encoding_config,
             self.config.communication_config.node_config.clone(),
-            self.global_connection_limit.clone(),
+            self.global_write_limit.clone(),
         )
     }
 

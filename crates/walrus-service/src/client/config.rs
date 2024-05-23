@@ -39,9 +39,9 @@ pub struct ClientCommunicationConfig {
     pub max_concurrent_writes: Option<usize>,
     /// The maximum number of slivers the client requests in parallel. If `None`, the value is set
     /// by the client to `n - 2f`, depending on the number of shards `n`.
-    pub concurrent_sliver_reads: Option<usize>,
+    pub max_concurrent_sliver_reads: Option<usize>,
     /// The maximum number of nodes the client contacts to get the blob metadata in parallel.
-    pub concurrent_metadata_reads: usize,
+    pub max_concurrent_metadata_reads: usize,
     /// The configuration for the `reqwest` client.
     pub reqwest_config: ReqwestConfig,
     /// The configuration specific to each node connection.
@@ -52,8 +52,8 @@ impl Default for ClientCommunicationConfig {
     fn default() -> Self {
         Self {
             max_concurrent_writes: None,
-            concurrent_sliver_reads: None,
-            concurrent_metadata_reads: default::concurrent_metadata_reads(),
+            max_concurrent_sliver_reads: None,
+            max_concurrent_metadata_reads: default::max_concurrent_metadata_reads(),
             reqwest_config: ReqwestConfig::default(),
             node_config: NodeConfig::default(),
         }
@@ -160,15 +160,15 @@ pub(crate) mod default {
 
     use walrus_core::bft;
 
-    pub fn concurrent_writes(n_shards: NonZeroU16) -> usize {
+    pub fn max_concurrent_writes(n_shards: NonZeroU16) -> usize {
         (n_shards.get() - bft::max_n_faulty(n_shards)).into()
     }
 
-    pub fn concurrent_sliver_reads(n_shards: NonZeroU16) -> usize {
+    pub fn max_concurrent_sliver_reads(n_shards: NonZeroU16) -> usize {
         (n_shards.get() - 2 * bft::max_n_faulty(n_shards)).into()
     }
 
-    pub fn concurrent_metadata_reads() -> usize {
+    pub fn max_concurrent_metadata_reads() -> usize {
         3
     }
 
