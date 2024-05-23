@@ -198,15 +198,12 @@ where
             return value;
         }
 
-        match strategy.next_delay() {
-            Some(delay) => {
-                tracing::debug!(?delay, "attempt failed, waiting before retrying");
-                tokio::time::sleep(delay).await;
-            }
-            None => {
-                tracing::debug!("last attempt failed, returning last failure value");
-                return value;
-            }
+        if let Some(delay) = strategy.next_delay() {
+            tracing::debug!(?delay, "attempt failed, waiting before retrying");
+            tokio::time::sleep(delay).await;
+        } else {
+            tracing::debug!("last attempt failed, returning last failure value");
+            return value;
         }
     }
 }

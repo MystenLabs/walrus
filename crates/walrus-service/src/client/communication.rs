@@ -25,7 +25,7 @@ use walrus_sdk::{client::Client as StorageNodeClient, error::NodeError};
 use walrus_sui::types::StorageNode;
 
 use super::{
-    config::NodeConfig,
+    config::RequestRateConfig,
     error::{SliverStoreError, StoreError},
     utils::{string_prefix, WeightedResult},
     ClientError,
@@ -63,7 +63,7 @@ pub(crate) struct NodeCommunication<'a> {
     pub encoding_config: &'a EncodingConfig,
     pub span: Span,
     pub client: StorageNodeClient,
-    pub config: NodeConfig,
+    pub config: RequestRateConfig,
     pub global_connection_limit: Arc<Semaphore>,
 }
 
@@ -75,7 +75,7 @@ impl<'a> NodeCommunication<'a> {
         client: &'a ReqwestClient,
         node: &'a StorageNode,
         encoding_config: &'a EncodingConfig,
-        config: NodeConfig,
+        config: RequestRateConfig,
         global_connection_limit: Arc<Semaphore>,
     ) -> Result<Self, ClientError> {
         let url = Url::parse(&format!("http://{}", node.network_address)).unwrap();
@@ -240,24 +240,24 @@ impl<'a> NodeCommunication<'a> {
             .collect::<FuturesUnordered<_>>();
 
         let n_slivers = requests.len();
+
         while let Some(result) = requests.next().await {
-            match result {
-                Ok(()) => tracing::trace!(
+            if let Err(error) = result {
+                tracing::warn!(
+                    node_permits=?node_connection_limit.available_permits(),
+                    global_permits=?self.global_connection_limit.available_permits(),
+                    ?error,
+                    ?self.config.max_retries,
+                    "could not store sliver after retrying; stopping storing on the node"
+                );
+                return Err(error);
+            } else {
+                tracing::trace!(
                     node_permits=?node_connection_limit.available_permits(),
                     global_permits=?self.global_connection_limit.available_permits(),
                     progress = format!("{}/{}", n_slivers - requests.len(), n_slivers),
                     "sliver stored"
-                ),
-                Err(error) => {
-                    tracing::warn!(
-                        node_permits=?node_connection_limit.available_permits(),
-                        global_permits=?self.global_connection_limit.available_permits(),
-                        ?error,
-                        ?self.config.max_retries,
-                        "could not store sliver after retrying; closing connection to the node"
-                    );
-                    return Err(error);
-                }
+                );
             }
         }
         Ok(())

@@ -45,7 +45,7 @@ pub struct ClientCommunicationConfig {
     /// The configuration for the `reqwest` client.
     pub reqwest_config: ReqwestConfig,
     /// The configuration specific to each node connection.
-    pub node_config: NodeConfig,
+    pub node_config: RequestRateConfig,
 }
 
 impl Default for ClientCommunicationConfig {
@@ -55,7 +55,7 @@ impl Default for ClientCommunicationConfig {
             max_concurrent_sliver_reads: None,
             max_concurrent_metadata_reads: default::max_concurrent_metadata_reads(),
             reqwest_config: ReqwestConfig::default(),
-            node_config: NodeConfig::default(),
+            node_config: RequestRateConfig::default(),
         }
     }
 }
@@ -63,7 +63,7 @@ impl Default for ClientCommunicationConfig {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(default)]
 /// Configuration for retries towards the storage nodes.
-pub struct NodeConfig {
+pub struct RequestRateConfig {
     /// The maximum number of connections the client can open towards each node.
     pub max_node_connections: usize,
     /// The number of retries for failed communication.
@@ -74,7 +74,7 @@ pub struct NodeConfig {
     pub max_backoff: Duration,
 }
 
-impl Default for NodeConfig {
+impl Default for RequestRateConfig {
     fn default() -> Self {
         Self {
             max_node_connections: 10,

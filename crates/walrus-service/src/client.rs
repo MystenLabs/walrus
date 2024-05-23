@@ -247,8 +247,8 @@ impl<T> Client<T> {
         tracing::debug!(
             elapsed_time = ?start.elapsed(), "stored metadata and slivers onto a quorum of nodes"
         );
-        // Add 10% of the execution time, with a minimum of 100 ms. This gives the client time to
-        // collect more storage confirmations.
+        // Add 10% of the execution time, plus 100 ms. This gives the client time to collect more
+        // storage confirmations.
         let completed_reason = requests
             .execute_time(
                 start.elapsed() / 10 + Duration::from_millis(100),
