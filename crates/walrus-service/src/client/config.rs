@@ -67,7 +67,7 @@ pub struct NodeConfig {
     /// The maximum number of connections the client can open towards each node.
     pub max_node_connections: usize,
     /// The number of retries for failed communication.
-    pub max_retries: u32,
+    pub max_retries: Option<u32>,
     /// The minimum backoff time between retries.
     pub min_backoff: Duration,
     /// The maximum backoff time between retries.
@@ -78,7 +78,7 @@ impl Default for NodeConfig {
     fn default() -> Self {
         Self {
             max_node_connections: 10,
-            max_retries: 5,
+            max_retries: Some(5),
             min_backoff: Duration::from_secs(2),
             max_backoff: Duration::from_secs(60),
         }

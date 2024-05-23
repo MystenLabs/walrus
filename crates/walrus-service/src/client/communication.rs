@@ -253,7 +253,7 @@ impl<'a> NodeCommunication<'a> {
                         node_permits=?node_connection_limit.available_permits(),
                         global_permits=?self.global_connection_limit.available_permits(),
                         ?error,
-                        %self.config.max_retries,
+                        ?self.config.max_retries,
                         "could not store sliver after retrying; closing connection to the node"
                     );
                     return Err(error);

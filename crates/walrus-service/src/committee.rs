@@ -48,7 +48,7 @@ use walrus_sui::{
     types::{Committee, StorageNode as SuiStorageNode},
 };
 
-use crate::utils::{self, FutureHelpers, InfiniteExponentialBackoff};
+use crate::utils::{self, ExponentialBackoff, FutureHelpers};
 
 mod remote;
 
@@ -59,8 +59,8 @@ const MAX_REQUEST_DURATION: Duration = Duration::from_secs(1);
 /// Number of metadata requests which are run concurrently.
 const N_CONCURRENT_METADATA_REQUESTS: usize = 1;
 
-fn default_retry_strategy(seed: u64) -> InfiniteExponentialBackoff<StdRng> {
-    InfiniteExponentialBackoff::new_with_seed(MIN_RETRY_INTERVAL, MAX_RETRY_INTERVAL, seed)
+fn default_retry_strategy(seed: u64) -> ExponentialBackoff<StdRng> {
+    ExponentialBackoff::new_with_seed(MIN_RETRY_INTERVAL, MAX_RETRY_INTERVAL, None, seed)
 }
 
 /// Factory used to create services for interacting with the committee on each epoch.

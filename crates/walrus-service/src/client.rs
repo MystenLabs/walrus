@@ -92,7 +92,8 @@ impl Client<()> {
             .communication_config
             .max_concurrent_sliver_reads
             .unwrap_or(default::max_concurrent_sliver_reads(committee.n_shards()));
-        let max_concurrent_metadata_reads = config.communication_config.max_concurrent_metadata_reads;
+        let max_concurrent_metadata_reads =
+            config.communication_config.max_concurrent_metadata_reads;
         let global_write_limit = Arc::new(Semaphore::new(max_concurrent_writes));
         Ok(Self {
             config,

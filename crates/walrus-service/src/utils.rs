@@ -30,89 +30,26 @@ pub trait BackoffStrategy {
 /// For the `i`-th iterator element and bounds `min_backoff` and `max_backoff`, this returns the
 /// sequence `min(max_backoff, 2^i * min_backoff + rand_i)`.
 #[derive(Debug)]
-pub(crate) struct InfiniteExponentialBackoff<R> {
+pub(crate) struct ExponentialBackoff<R> {
     min_backoff: Duration,
     max_backoff: Duration,
     sequence_index: u32,
+    max_retries: Option<u32>,
     rand_offsets: DistIter<Uniform<u64>, R, u64>,
 }
 
-impl InfiniteExponentialBackoff<StdRng> {
+impl ExponentialBackoff<StdRng> {
     /// Maximum number of milliseconds to randomly add to the delay time.
     const MAX_RAND_OFFSET_MS: u64 = 1000;
 
     /// Creates a new iterator with the provided minimum and maximum bounds,
     /// and seeded with the provided value.
+    ///
+    /// If `max_retries` is `None`, this backoff strategy will keep retrying indefinitely.
     pub fn new_with_seed(
         min_backoff: Duration,
         max_backoff: Duration,
-        seed: u64,
-    ) -> InfiniteExponentialBackoff<StdRng> {
-        InfiniteExponentialBackoff::<StdRng>::new_with_rng(
-            min_backoff,
-            max_backoff,
-            StdRng::seed_from_u64(seed),
-        )
-    }
-}
-
-impl<R: Rng> InfiniteExponentialBackoff<R> {
-    /// Creates a new iterator with the provided minimum and maximum bounds, with the provided
-    /// iterator.
-    pub fn new_with_rng(min_backoff: Duration, max_backoff: Duration, rng: R) -> Self {
-        let uniform = Uniform::new_inclusive(0, InfiniteExponentialBackoff::MAX_RAND_OFFSET_MS);
-        let rand_offsets = rng.sample_iter(uniform);
-
-        Self {
-            min_backoff,
-            max_backoff,
-            sequence_index: 0,
-            rand_offsets,
-        }
-    }
-
-    fn random_offset(&mut self) -> Duration {
-        let millis = self
-            .rand_offsets
-            .next()
-            .expect("infinite sequence of random values");
-        Duration::from_millis(millis)
-    }
-}
-
-impl<R: Rng> BackoffStrategy for InfiniteExponentialBackoff<R> {
-    fn next_delay(&mut self) -> Option<Duration> {
-        let next_delay_value = self
-            .min_backoff
-            .saturating_mul(Saturating(2u32).pow(self.sequence_index).0)
-            .saturating_add(self.random_offset())
-            .min(self.max_backoff);
-
-        self.sequence_index = self.sequence_index.saturating_add(1);
-
-        Some(next_delay_value)
-    }
-}
-
-impl<R: Rng> Iterator for InfiniteExponentialBackoff<R> {
-    type Item = Duration;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.next_delay()
-    }
-}
-
-/// An exponential backoff strategy with a maximum number of retries.
-pub(crate) struct ExponentialBackoff<R> {
-    inner: InfiniteExponentialBackoff<R>,
-    max_retries: u32,
-}
-
-impl ExponentialBackoff<StdRng> {
-    pub fn new_with_seed(
-        min_backoff: Duration,
-        max_backoff: Duration,
-        max_retries: u32,
+        max_retries: Option<u32>,
         seed: u64,
     ) -> ExponentialBackoff<StdRng> {
         ExponentialBackoff::<StdRng>::new_with_rng(
@@ -127,28 +64,62 @@ impl ExponentialBackoff<StdRng> {
 impl<R: Rng> ExponentialBackoff<R> {
     /// Creates a new iterator with the provided minimum and maximum bounds, with the provided
     /// iterator.
+    ///
+    /// If `max_retries` is `None`, this backoff strategy will keep retrying indefinitely.
     pub fn new_with_rng(
         min_backoff: Duration,
         max_backoff: Duration,
-        max_retries: u32,
+        max_retries: Option<u32>,
         rng: R,
     ) -> Self {
+        let uniform = Uniform::new_inclusive(0, ExponentialBackoff::MAX_RAND_OFFSET_MS);
+        let rand_offsets = rng.sample_iter(uniform);
+
         Self {
-            inner: InfiniteExponentialBackoff::new_with_rng(min_backoff, max_backoff, rng),
+            min_backoff,
+            max_backoff,
+            sequence_index: 0,
             max_retries,
+            rand_offsets,
         }
+    }
+
+    fn random_offset(&mut self) -> Duration {
+        let millis = self
+            .rand_offsets
+            .next()
+            .expect("infinite sequence of random values");
+        Duration::from_millis(millis)
     }
 }
 
 impl<R: Rng> BackoffStrategy for ExponentialBackoff<R> {
     fn next_delay(&mut self) -> Option<Duration> {
-        if self.inner.sequence_index >= self.max_retries {
-            return None;
+        if let Some(max_retries) = self.max_retries {
+            if self.sequence_index >= max_retries {
+                return None;
+            }
         }
-        self.inner.next_delay()
+
+        let next_delay_value = self
+            .min_backoff
+            .saturating_mul(Saturating(2u32).pow(self.sequence_index).0)
+            .saturating_add(self.random_offset())
+            .min(self.max_backoff);
+
+        self.sequence_index = self.sequence_index.saturating_add(1);
+
+        Some(next_delay_value)
     }
 }
 
+impl<R: Rng> Iterator for ExponentialBackoff<R> {
+    type Item = Duration;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next_delay()
+    }
+}
 pub(crate) trait SuccessOrFailure {
     fn is_success(&self) -> bool;
 }
@@ -258,7 +229,7 @@ mod tests {
                 .chain([max; 2])
                 .collect();
 
-            let actual: Vec<_> = InfiniteExponentialBackoff::new_with_seed(min, max, 42)
+            let actual: Vec<_> = ExponentialBackoff::new_with_seed(min, max, None, 42)
                 .take(expected.len())
                 .collect();
 
@@ -267,8 +238,8 @@ mod tests {
 
             for (expected, actual) in expected.iter().zip(actual) {
                 let expected_min = *expected;
-                let expected_max = *expected
-                    + Duration::from_millis(InfiniteExponentialBackoff::MAX_RAND_OFFSET_MS);
+                let expected_max =
+                    *expected + Duration::from_millis(ExponentialBackoff::MAX_RAND_OFFSET_MS);
 
                 assert!(actual >= expected_min, "{actual:?} >= {expected_min:?}");
                 assert!(actual <= expected_max);
@@ -281,7 +252,7 @@ mod tests {
             let mut strategy = ExponentialBackoff::new_with_seed(
                 Duration::from_millis(1),
                 Duration::from_millis(5),
-                retries,
+                Some(retries),
                 42,
             );
             let mut actual = 0;
