@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-    io::{Read, Write},
+    io::Read,
     net::SocketAddr,
     path::{Path, PathBuf},
     time::Duration,
@@ -398,30 +398,6 @@ impl SshConnection {
         );
 
         Ok((stdout, stderr))
-    }
-
-    /// Upload a file to the remote machines through scp.
-    #[allow(dead_code)] // TODO(Alberto): Will be used to deploy nodes (#234)
-    pub fn upload<P: AsRef<Path>>(&self, path: P, content: &[u8]) -> SshResult<()> {
-        let size = u64::try_from(content.len()).expect("we never upload anything above 16 EiB");
-        let mut error = None;
-        for _ in 0..self.retries + 1 {
-            let mut channel = match self.session.scp_send(path.as_ref(), 0o644, size, None) {
-                Ok(x) => x,
-                Err(e) => {
-                    error = Some(self.make_session_error(e));
-                    continue;
-                }
-            };
-            match channel
-                .write_all(content)
-                .map_err(|e| self.make_connection_error(e))
-            {
-                r @ Ok(..) => return r,
-                Err(e) => error = Some(e),
-            }
-        }
-        Err(error.unwrap())
     }
 
     /// Download a file from the remote machines through scp.
