@@ -244,14 +244,13 @@ impl<'a> NodeCommunication<'a> {
                     "could not store sliver after retrying; stopping storing on the node"
                 );
                 return Err(error);
-            } else {
-                tracing::trace!(
-                    node_permits=?self.node_connection_limit.available_permits(),
-                    global_permits=?self.global_connection_limit.available_permits(),
-                    progress = format!("{}/{}", n_slivers - requests.len(), n_slivers),
-                    "sliver stored"
-                );
             }
+            tracing::trace!(
+                node_permits=?self.node_connection_limit.available_permits(),
+                global_permits=?self.global_connection_limit.available_permits(),
+                progress = format!("{}/{}", n_slivers - requests.len(), n_slivers),
+                "sliver stored"
+            );
         }
         Ok(())
     }
