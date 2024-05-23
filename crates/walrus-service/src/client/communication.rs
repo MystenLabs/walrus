@@ -64,6 +64,7 @@ pub(crate) struct NodeCommunication<'a> {
     pub span: Span,
     pub client: StorageNodeClient,
     pub config: RequestRateConfig,
+    pub node_connection_limit: Arc<Semaphore>,
     pub global_connection_limit: Arc<Semaphore>,
 }
 
@@ -79,6 +80,7 @@ impl<'a> NodeCommunication<'a> {
         global_connection_limit: Arc<Semaphore>,
     ) -> Result<Self, ClientError> {
         let url = Url::parse(&format!("http://{}", node.network_address)).unwrap();
+        let node_connection_limit = Arc::new(Semaphore::new(config.max_node_connections));
         tracing::trace!(
             %node_index,
             %config.max_node_connections,
@@ -102,6 +104,7 @@ impl<'a> NodeCommunication<'a> {
             ),
             client: StorageNodeClient::from_url(url, client.clone()),
             config,
+            node_connection_limit,
             global_connection_limit,
         })
     }
@@ -218,7 +221,6 @@ impl<'a> NodeCommunication<'a> {
         blob_id: &BlobId,
         pairs: impl IntoIterator<Item = &SliverPair>,
     ) -> Result<(), SliverStoreError> {
-        let node_connection_limit = Arc::new(Semaphore::new(self.config.max_node_connections));
         let mut requests = pairs
             .into_iter()
             .flat_map(|pair| {
@@ -227,13 +229,13 @@ impl<'a> NodeCommunication<'a> {
                         blob_id,
                         &pair.primary,
                         pair.index(),
-                        &node_connection_limit,
+                        &self.node_connection_limit,
                     )),
                     Either::Right(self.store_sliver(
                         blob_id,
                         &pair.secondary,
                         pair.index(),
-                        &node_connection_limit,
+                        &self.node_connection_limit,
                     )),
                 ]
             })
@@ -244,7 +246,7 @@ impl<'a> NodeCommunication<'a> {
         while let Some(result) = requests.next().await {
             if let Err(error) = result {
                 tracing::warn!(
-                    node_permits=?node_connection_limit.available_permits(),
+                    node_permits=?self.node_connection_limit.available_permits(),
                     global_permits=?self.global_connection_limit.available_permits(),
                     ?error,
                     ?self.config.max_retries,
@@ -253,7 +255,7 @@ impl<'a> NodeCommunication<'a> {
                 return Err(error);
             } else {
                 tracing::trace!(
-                    node_permits=?node_connection_limit.available_permits(),
+                    node_permits=?self.node_connection_limit.available_permits(),
                     global_permits=?self.global_connection_limit.available_permits(),
                     progress = format!("{}/{}", n_slivers - requests.len(), n_slivers),
                     "sliver stored"
