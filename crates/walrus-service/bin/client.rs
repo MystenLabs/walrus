@@ -101,7 +101,8 @@ async fn client() -> Result<()> {
     let args = Args::parse();
     let config: Config = load_configuration(&args.config)?;
     tracing::debug!(?args, ?config, "initializing the client");
-    let wallet = load_wallet_context(&args.wallet.clone().or(config.wallet_config.clone()));
+    let wallet_path = args.wallet.clone().or(config.wallet_config.clone());
+    let wallet = load_wallet_context(&wallet_path);
 
     match args.command {
         Commands::Store { file, epochs } => {
@@ -132,7 +133,7 @@ async fn client() -> Result<()> {
             out,
             rpc_url,
         } => {
-            let client = get_read_client(config, rpc_url, wallet, args.wallet.is_none()).await?;
+            let client = get_read_client(config, rpc_url, wallet, wallet_path.is_none()).await?;
 
             let blob = client.read_blob::<Primary>(&blob_id).await?;
             match out {
@@ -153,7 +154,7 @@ async fn client() -> Result<()> {
             bind_address,
         } => {
             tracing::debug!(?rpc_url, "attempting to run the Walrus aggregator");
-            let client = get_read_client(config, rpc_url, wallet, args.wallet.is_none()).await?;
+            let client = get_read_client(config, rpc_url, wallet, wallet_path.is_none()).await?;
             let aggregator = AggregatorServer::new(Arc::new(client));
             aggregator.run(&bind_address).await?;
         }
