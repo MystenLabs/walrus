@@ -127,15 +127,15 @@ echo "\nSpawned $i nodes in separate tmux sessions."
 cat << EOF
 
 To store a file (e.g., the README.md) on the testbed, use the following command:
-    cargo run --bin walrus-client -- --config working_dir/client_config.yaml store README.md
+    cargo run --bin walrus -- --config working_dir/client_config.yaml store README.md
 
 You can then read the stored file by running the following (replacing "\$BLOB_ID" by the blob ID \
 returned by the store operation):
-    cargo run --bin walrus-client -- --config working_dir/client_config.yaml read \$BLOB_ID
+    cargo run --bin walrus -- --config working_dir/client_config.yaml read \$BLOB_ID
 
 You can also run a local aggregator service as follows:
     ADDRESS="127.0.0.1:12345"
-    cargo run --bin walrus-client -- \\
+    cargo run --bin walrus -- \\
         --config working_dir/client_config.yaml aggregator --bind-address \$ADDRESS
 This allows you to read blobs through HTTP GET requests. For example, with curl:
     curl http://\$ADDRESS/v1/\$BLOB_ID
