@@ -13,7 +13,7 @@ use std::{
 use anyhow::{anyhow, bail, Result};
 use sui_sdk::{
     apis::EventApi,
-    rpc_types::{Coin, EventFilter, SuiEvent, SuiObjectDataOptions},
+    rpc_types::{Coin, EventFilter, SuiEvent, SuiObjectDataOptions, SuiObjectResponse},
     types::{base_types::ObjectID, transaction::CallArg},
     SuiClient,
     SuiClientBuilder,
@@ -30,7 +30,7 @@ use tokio_stream::{wrappers::ReceiverStream, Stream};
 use tracing::Instrument;
 use walrus_core::ensure;
 
-use super::SuiClientResult;
+use super::{SuiClientError, SuiClientResult};
 use crate::{
     types::{BlobEvent, Committee, SystemObject},
     utils::{get_sui_object, get_type_parameters, handle_pagination},
@@ -79,10 +79,11 @@ impl SuiReadClient {
     /// Constructor for `SuiReadClient`.
     pub async fn new(
         sui_client: SuiClient,
-        system_pkg: ObjectID,
-        system_object: ObjectID,
+        system_pkg_id: ObjectID,
+        system_object_id: ObjectID,
     ) -> SuiClientResult<Self> {
-        let type_params = get_type_parameters(&sui_client, system_object).await?;
+        check_that_objects_exist(&sui_client, system_pkg_id, system_object_id).await?;
+        let type_params = get_type_parameters(&sui_client, system_object_id).await?;
         ensure!(
             type_params.len() == 1,
             "unexpected number of type parameters in system object: {}",
@@ -90,9 +91,9 @@ impl SuiReadClient {
         );
 
         Ok(Self {
-            system_pkg_id: system_pkg,
+            system_pkg_id,
             sui_client,
-            system_object_id: system_object,
+            system_object_id,
             sys_obj_initial_version: OnceCell::new(),
             coin_type: type_params[0].clone(),
         })
@@ -204,6 +205,27 @@ impl fmt::Debug for SuiReadClient {
             .field("coin_type", &self.coin_type)
             .finish()
     }
+}
+
+/// Checks if the Walrus package and system object exist on chain.
+async fn check_that_objects_exist(
+    sui_client: &SuiClient,
+    system_pkg_id: ObjectID,
+    system_object_id: ObjectID,
+) -> SuiClientResult<()> {
+    if !matches!(
+        sui_client
+            .read_api()
+            .get_object_with_options(system_pkg_id, SuiObjectDataOptions::default().with_type())
+            .await,
+        Ok(SuiObjectResponse { error: None, .. })
+    ) {
+        return Err(SuiClientError::WalrusPackageDoesNotExist(system_pkg_id));
+    }
+    get_sui_object::<SystemObject>(sui_client, system_object_id)
+        .await
+        .map_err(|_| SuiClientError::WalrusSystemObjectDoesNotExist(system_object_id))?;
+    Ok(())
 }
 
 #[tracing::instrument(err, skip_all)]

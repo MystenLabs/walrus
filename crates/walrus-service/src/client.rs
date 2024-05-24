@@ -15,7 +15,6 @@ use tokio::{
 };
 use tracing::{Instrument, Level};
 use walrus_core::{
-    bft,
     encoding::{BlobDecoder, EncodingAxis, EncodingConfig, Sliver, SliverPair},
     ensure,
     messages::{Confirmation, ConfirmationCertificate, SignedStorageConfirmation},
@@ -41,6 +40,7 @@ use utils::WeightedFutures;
 
 use self::config::default;
 pub use self::error::{ClientError, ClientErrorKind};
+use crate::client::utils::CompletedReasonWeight;
 
 /// A client to communicate with Walrus shards and storage nodes.
 #[derive(Debug, Clone)]
@@ -238,15 +238,27 @@ impl<T> Client<T> {
             )
         }));
         let start = Instant::now();
-        let quorum_check = |weight| self.committee.is_at_least_min_honest(weight);
+
         // We do not limit the number of concurrent futures awaited here, because the number of
         // connections is already limited by the `global_write_limit` semaphore.
-        requests
-            .execute_weight(&quorum_check, self.committee.n_shards().get().into())
-            .await;
+        if let CompletedReasonWeight::FuturesConsumed(weight) = requests
+            .execute_weight(
+                &|weight| self.quorum_check(weight),
+                self.committee.n_shards().get().into(),
+            )
+            .await
+        {
+            tracing::debug!(
+                elapsed_time = ?start.elapsed(),
+                executed_weight = weight,
+                "all futures consumed before reaching a threshold of successful responses"
+            );
+            return Err(self.not_enough_confirmations_error(weight));
+        }
         tracing::debug!(
             elapsed_time = ?start.elapsed(), "stored metadata and slivers onto a quorum of nodes"
         );
+
         // Add 10% of the execution time, plus 100 ms. This gives the client time to collect more
         // storage confirmations.
         let completed_reason = requests
@@ -291,15 +303,11 @@ impl<T> Client<T> {
                 Err(error) => tracing::warn!(node, %error, "storing metadata and pairs failed"),
             }
         }
-
         ensure!(
-            self.committee.is_quorum(aggregate_weight),
-            ClientErrorKind::NotEnoughConfirmations(
-                aggregate_weight,
-                bft::min_n_correct(self.committee.n_shards()).get().into()
-            )
-            .into()
+            self.quorum_check(aggregate_weight),
+            self.not_enough_confirmations_error(aggregate_weight)
         );
+
         let aggregate =
             BLS12381AggregateSignature::aggregate(&valid_signatures).map_err(ClientError::other)?;
         let cert = ConfirmationCertificate::new(
@@ -309,6 +317,14 @@ impl<T> Client<T> {
             aggregate,
         );
         Ok(cert)
+    }
+
+    fn quorum_check(&self, weight: usize) -> bool {
+        self.committee.is_at_least_min_n_correct(weight)
+    }
+
+    fn not_enough_confirmations_error(&self, weight: usize) -> ClientError {
+        ClientErrorKind::NotEnoughConfirmations(weight, self.committee.min_n_correct()).into()
     }
 
     /// Reconstructs the blob by reading slivers from Walrus shards.

@@ -123,9 +123,12 @@ async fn client() -> Result<()> {
                 .reserve_and_store_blob(&std::fs::read(file)?, epochs)
                 .await?;
             println!(
-                "{} Blob stored successfully.\nBlob ID: {}",
+                "{} Blob stored successfully.\n\
+                Unencoded size: {} bytes\nBlob ID: {}\nSui object ID: {}",
                 success(),
-                blob.blob_id
+                blob.size,
+                blob.blob_id,
+                blob.id,
             );
         }
         Commands::Read {

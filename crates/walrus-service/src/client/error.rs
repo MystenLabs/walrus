@@ -11,20 +11,20 @@ use walrus_sui::client::SuiClientError;
 /// storage confirmation, failed.
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
-    /// One or more slivers could not be stored on the node
+    /// The metadata could not be stored on the node.
+    #[error("the metadata could not be stored")]
+    Metadata(NodeError),
+    /// One or more slivers could not be stored on the node.
     #[error(transparent)]
     SliverStore(#[from] SliverStoreError),
-    /// The sliver could not be stored on the node.
-    #[error(transparent)]
-    Metadata(NodeError),
     /// A valid storage confirmation could not retrieved from the node.
-    #[error(transparent)]
+    #[error("the storage confirmation could not be retrieved")]
     Confirmation(NodeError),
 }
 
 /// The sliver could not be stored on the node.
 #[derive(Debug, thiserror::Error)]
-#[error("the sliver could not be stored on the node")]
+#[error("the sliver could not be stored")]
 pub struct SliverStoreError {
     pub pair_index: SliverPairIndex,
     pub sliver_type: SliverType,

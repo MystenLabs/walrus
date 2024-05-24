@@ -48,20 +48,26 @@ pub use read_client::{ReadClient, SuiReadClient};
 /// Error returned by the [`SuiContractClient`] and the [`SuiReadClient`].
 pub enum SuiClientError {
     #[error(transparent)]
-    /// Unexpected internal errors
+    /// Unexpected internal errors.
     Internal(#[from] anyhow::Error),
     #[error(transparent)]
-    /// Error resulting from a sui sdk call
+    /// Error resulting from a Sui-SDK call.
     SuiSdkError(#[from] sui_sdk::error::Error),
     #[error("transaction execution failed: {0}")]
-    /// Error in a transaction execution
+    /// Error in a transaction execution.
     TransactionExecutionError(String),
     #[error("no compatible payment coin found")]
-    /// No matching payment coin found for the transaction
+    /// No matching payment coin found for the transaction.
     NoCompatiblePaymentCoin,
     #[error("no compatible gas coin found: {0}")]
-    /// No matching gas coin found for the transaction
+    /// No matching gas coin found for the transaction.
     NoCompatibleGasCoin(anyhow::Error),
+    /// The Walrus package does not exist.
+    #[error("the specified Walrus package {0} does not exist")]
+    WalrusPackageDoesNotExist(ObjectID),
+    /// The Walrus system object does not exist.
+    #[error("the specified Walrus system object {0} does not exist")]
+    WalrusSystemObjectDoesNotExist(ObjectID),
 }
 
 /// Result alias for functions returning a `SuiClientError`.

@@ -81,8 +81,15 @@ where
         }
     }
 
-    /// Executes the futures until the total weight of _successful_ futures gets the `threshold`
-    /// function to return `true`.
+    /// Executes the futures until the provided threshold is met or all futures have been executed.
+    ///
+    /// Stops executing in two cases:
+    ///
+    /// 1. If the `threshold` closure applied to `self.total_weight` returns `true`; in this case a
+    ///    [`CompletedReasonWeight::ThresholdReached`] is returned.
+    /// 1. If there are no more futures to execute; in this case a
+    ///    [`CompletedReasonWeight::FuturesConsumed`] is returned containing the total weight of
+    ///    successful futures.
     ///
     /// `n_concurrent` is the maximum number of futures that are awaited at any one time to produce
     /// results.
@@ -90,10 +97,15 @@ where
         &mut self,
         threshold: &impl Fn(usize) -> bool,
         n_concurrent: usize,
-    ) {
+    ) -> CompletedReasonWeight {
         self.total_weight = 0;
         while let Some(result) = self.next_threshold(n_concurrent, threshold).await {
             self.results.push(result);
+        }
+        if threshold(self.total_weight) {
+            CompletedReasonWeight::ThresholdReached
+        } else {
+            CompletedReasonWeight::FuturesConsumed(self.total_weight)
         }
     }
 
@@ -108,10 +120,10 @@ where
         &mut self,
         duration: Duration,
         n_concurrent: usize,
-    ) -> CompletedReason {
+    ) -> CompletedReasonTime {
         match timeout(duration, self.execute_all(n_concurrent)).await {
-            Ok(_) => CompletedReason::FuturesConsumed,
-            Err(_) => CompletedReason::Timeout,
+            Ok(_) => CompletedReasonTime::FuturesConsumed,
+            Err(_) => CompletedReasonTime::Timeout,
         }
     }
 
@@ -191,17 +203,24 @@ where
     }
 }
 
+/// Represents the reason why the [`WeightedFutures::execute_weight`] completed.
+pub enum CompletedReasonWeight {
+    ThresholdReached,
+    /// Contains the weight of successful futures.
+    FuturesConsumed(usize),
+}
+
 /// Represents the reason why the [`WeightedFutures::execute_time`] completed.
-pub enum CompletedReason {
+pub enum CompletedReasonTime {
     Timeout,
     FuturesConsumed,
 }
 
-impl Display for CompletedReason {
+impl Display for CompletedReasonTime {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let reason = match self {
-            CompletedReason::Timeout => "timeout elapsed",
-            CompletedReason::FuturesConsumed => "all futures consumed",
+            Self::Timeout => "timeout elapsed",
+            Self::FuturesConsumed => "all futures consumed",
         };
         write!(f, "{}", reason)
     }
