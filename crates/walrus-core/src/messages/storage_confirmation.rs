@@ -17,7 +17,7 @@ pub enum StorageConfirmation {
 /// of a blob in their shards.
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "ProtocolMessage<BlobId>")]
-pub struct Confirmation(ProtocolMessage<BlobId>);
+pub struct Confirmation(pub(crate) ProtocolMessage<BlobId>);
 
 impl Confirmation {
     const INTENT: Intent = Intent::storage(IntentType::BLOB_CERT_MSG);
@@ -52,12 +52,6 @@ impl AsRef<ProtocolMessage<BlobId>> for Confirmation {
     }
 }
 
-impl AsMut<ProtocolMessage<BlobId>> for Confirmation {
-    fn as_mut(&mut self) -> &mut ProtocolMessage<BlobId> {
-        &mut self.0
-    }
-}
-
 /// A signed [`Confirmation`] from a storage node.
 pub type SignedStorageConfirmation = SignedMessage<Confirmation>;
 
@@ -69,7 +63,7 @@ impl SignedStorageConfirmation {
         epoch: Epoch,
         blob_id: &BlobId,
     ) -> Result<Confirmation, MessageVerificationError> {
-        self.verify_contents(public_key, epoch, blob_id)
+        self.verify_signature_and_contents(public_key, epoch, blob_id)
     }
 }
 

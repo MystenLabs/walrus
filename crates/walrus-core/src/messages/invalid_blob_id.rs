@@ -9,7 +9,7 @@ use crate::{messages::IntentType, BlobId, Epoch, PublicKey};
 /// A message stating that a Blob Id is invalid.
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "ProtocolMessage<BlobId>")]
-pub struct InvalidBlobIdMsg(ProtocolMessage<BlobId>);
+pub struct InvalidBlobIdMsg(pub(crate) ProtocolMessage<BlobId>);
 
 impl InvalidBlobIdMsg {
     const INTENT: Intent = Intent::storage(IntentType::INVALID_BLOB_ID_MSG);
@@ -44,12 +44,6 @@ impl AsRef<ProtocolMessage<BlobId>> for InvalidBlobIdMsg {
     }
 }
 
-impl AsMut<ProtocolMessage<BlobId>> for InvalidBlobIdMsg {
-    fn as_mut(&mut self) -> &mut ProtocolMessage<BlobId> {
-        &mut self.0
-    }
-}
-
 /// A signed [`InvalidBlobIdMsg`] from a storage node.
 pub type InvalidBlobIdAttestation = SignedMessage<InvalidBlobIdMsg>;
 
@@ -62,7 +56,7 @@ impl InvalidBlobIdAttestation {
         epoch: Epoch,
         blob_id: &BlobId,
     ) -> Result<InvalidBlobIdMsg, MessageVerificationError> {
-        self.verify_contents(public_key, epoch, blob_id)
+        self.verify_signature_and_contents(public_key, epoch, blob_id)
     }
 }
 

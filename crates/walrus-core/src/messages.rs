@@ -84,7 +84,7 @@ impl<T> SignedMessage<T> {
 
     /// Verifies that the signature on this message is valid for the specified public key and
     /// that the message contains the expected contents.
-    pub fn verify_contents<I>(
+    pub fn verify_signature_and_contents<I>(
         &self,
         public_key: &PublicKey,
         epoch: Epoch,
@@ -210,6 +210,18 @@ mod tests {
 
     const EPOCH: Epoch = 21;
     const BLOB_ID: BlobId = BlobId([7; 32]);
+
+    impl AsMut<ProtocolMessage<BlobId>> for Confirmation {
+        fn as_mut(&mut self) -> &mut ProtocolMessage<BlobId> {
+            &mut self.0
+        }
+    }
+
+    impl AsMut<ProtocolMessage<BlobId>> for InvalidBlobIdMsg {
+        fn as_mut(&mut self) -> &mut ProtocolMessage<BlobId> {
+            &mut self.0
+        }
+    }
 
     param_test! {
         decoding_fails_for_incorrect_message_type -> TestResult: [
