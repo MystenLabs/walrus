@@ -3,22 +3,17 @@
 
 //! A client for the Walrus blob store.
 
-use std::{io::Write, path::PathBuf};
+use std::{io::Write, net::SocketAddr, path::PathBuf, sync::Arc};
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::{Parser, Subcommand};
-use sui_sdk::SuiClientBuilder;
 use walrus_core::{encoding::Primary, BlobId};
 use walrus_service::{
-    cli_utils::{error, load_configuration, load_wallet_context, success},
+    aggregator::AggregatorServer,
+    cli_utils::{error, get_read_client, load_configuration, load_wallet_context, success},
     client::{Client, Config},
 };
-use walrus_sui::client::{SuiContractClient, SuiReadClient};
-
-/// Default URL of the devnet RPC node.
-pub const DEVNET_RPC: &str = "https://fullnode.devnet.sui.io:443";
-/// Default RPC URL to connect to if none is specified explicitly or in the wallet config.
-pub const DEFAULT_RPC_URL: &str = DEVNET_RPC;
+use walrus_sui::client::SuiContractClient;
 
 #[derive(Parser, Debug, Clone)]
 #[clap(rename_all = "kebab-case")]
@@ -33,6 +28,7 @@ struct Args {
     /// 1. From `~/.walrus/config.yaml`.
     ///
     /// If an invalid path is specified through this option, an error is returned.
+    // NB: Keep this in sync with `walrus_service::cli_utils`.
     #[clap(short, long)]
     config: Option<PathBuf>,
     /// The path to the Sui wallet configuration file.
@@ -47,6 +43,7 @@ struct Args {
     ///
     /// If an invalid path is specified through this option or in the configuration file, an error
     /// is returned.
+    // NB: Keep this in sync with `walrus_service::cli_utils`.
     #[clap(short, long, default_value = None)]
     wallet: Option<PathBuf>,
     /// The gas budget for transactions.
@@ -74,14 +71,28 @@ enum Commands {
         /// The file path where to write the blob.
         ///
         /// If unset, prints the blob to stdout.
-        #[clap(long)]
+        #[clap(short, long)]
         out: Option<PathBuf>,
         /// The URL of the Sui RPC node to use.
         ///
         /// If unset, the wallet configuration is applied (if set), or the fullnode at
         /// `fullnode.devnet.sui.io:443` is used.
-        #[clap(short, long, default_value = None)]
+        // NB: Keep this in sync with `walrus_service::cli_utils`.
+        #[clap(short, long)]
         rpc_url: Option<String>,
+    },
+    /// Run an aggregator service at the provided network address.
+    Aggregator {
+        /// The URL of the Sui RPC node to use.
+        ///
+        /// If unset, the wallet configuration is applied (if set), or the fullnode at
+        /// `fullnode.devnet.sui.io:443` is used.
+        // NB: Keep this in sync with `walrus_service::cli_utils`.
+        #[clap(short, long)]
+        rpc_url: Option<String>,
+        /// The address to which to bind the aggregator.
+        #[clap(short, long)]
+        bind_address: SocketAddr,
     },
 }
 
@@ -89,7 +100,7 @@ async fn client() -> Result<()> {
     tracing_subscriber::fmt::init();
     let args = Args::parse();
     let config: Config = load_configuration(&args.config)?;
-    tracing::debug!(?args, ?config);
+    tracing::debug!(?args, ?config, "initializing the client");
     let wallet = load_wallet_context(&args.wallet.clone().or(config.wallet_config.clone()));
 
     match args.command {
@@ -121,45 +132,8 @@ async fn client() -> Result<()> {
             out,
             rpc_url,
         } => {
-            let sui_client = match rpc_url {
-                Some(url) => {
-                    tracing::info!("Using explicitly set RPC URL {url}");
-                    SuiClientBuilder::default()
-                        .build(&url)
-                        .await
-                        .context(format!("cannot connect to Sui RPC node at {url}"))
-                }
-                None => {
-                    match wallet {
-                        Ok(wallet) => {
-                            tracing::info!("Using RPC URL set in wallet configuration");
-                            wallet.get_client().await.context(
-                            "cannot connect to Sui RPC node specified in the wallet configuration",
-                        )
-                        }
-                        Err(e) => {
-                            match args.wallet {
-                                Some(_) => {
-                                    // A wallet config was explicitly set, but couldn't be read.
-                                    return Err(e);
-                                }
-                                None => {
-                                    tracing::info!("Using default RPC URL {DEFAULT_RPC_URL}");
-                                    SuiClientBuilder::default()
-                                        .build(DEFAULT_RPC_URL)
-                                        .await
-                                        .context(format!(
-                                            "cannot connect to Sui RPC node at {DEFAULT_RPC_URL}"
-                                        ))
-                                }
-                            }
-                        }
-                    }
-                }
-            }?;
-            let read_client =
-                SuiReadClient::new(sui_client, config.system_pkg, config.system_object).await?;
-            let client = Client::new_read_client(config, &read_client).await?;
+            let client = get_read_client(config, rpc_url, wallet, args.wallet.is_none()).await?;
+
             let blob = client.read_blob::<Primary>(&blob_id).await?;
             match out {
                 Some(path) => {
@@ -173,6 +147,15 @@ async fn client() -> Result<()> {
                 }
                 None => std::io::stdout().write_all(&blob)?,
             }
+        }
+        Commands::Aggregator {
+            rpc_url,
+            bind_address,
+        } => {
+            tracing::debug!(?rpc_url, "attempting to run the Walrus aggregator");
+            let client = get_read_client(config, rpc_url, wallet, args.wallet.is_none()).await?;
+            let aggregator = AggregatorServer::new(Arc::new(client));
+            aggregator.run(&bind_address).await?;
         }
     }
     Ok(())

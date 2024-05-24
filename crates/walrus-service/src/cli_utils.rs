@@ -7,9 +7,15 @@ use std::path::PathBuf;
 
 use anyhow::{anyhow, Context, Result};
 use colored::{ColoredString, Colorize};
-use sui_sdk::wallet_context::WalletContext;
+use sui_sdk::{wallet_context::WalletContext, SuiClient, SuiClientBuilder};
+use walrus_sui::client::SuiReadClient;
 
-use crate::client::{default_configuration_paths, Config};
+use crate::client::{default_configuration_paths, Client, Config};
+
+/// Default URL of the devnet RPC node.
+pub const DEVNET_RPC: &str = "https://fullnode.devnet.sui.io:443";
+/// Default RPC URL to connect to if none is specified explicitly or in the wallet config.
+pub const DEFAULT_RPC_URL: &str = DEVNET_RPC;
 
 /// Returns the path if it is `Some` or any of the default paths if they exist (attempt in order).
 pub fn path_or_defaults_if_exist(path: &Option<PathBuf>, defaults: &[PathBuf]) -> Option<PathBuf> {
@@ -27,6 +33,8 @@ pub fn path_or_defaults_if_exist(path: &Option<PathBuf>, defaults: &[PathBuf]) -
 ///
 /// If no path is provided, tries to load the configuration first from the local folder, and then
 /// from the standard Sui configuration directory.
+// NB: When making changes to the logic, make sure to update the argument docs in
+// `crates/walrus-service/bin/client.rs`.
 #[allow(dead_code)]
 pub fn load_wallet_context(path: &Option<PathBuf>) -> Result<WalletContext> {
     let mut default_paths = vec!["./client.yaml".into(), "./sui_config.yaml".into()];
@@ -43,6 +51,8 @@ pub fn load_wallet_context(path: &Option<PathBuf>) -> Result<WalletContext> {
 ///
 /// If no path is provided, tries to load the configuration first from the local folder, and then
 /// from the standard Walrus configuration directory.
+// NB: When making changes to the logic, make sure to update the argument docs in
+// `crates/walrus-service/bin/client.rs`.
 pub fn load_configuration(path: &Option<PathBuf>) -> Result<Config> {
     let path = path_or_defaults_if_exist(path, &default_configuration_paths())
         .ok_or(anyhow!("Could not find a valid Walrus configuration file."))?;
@@ -56,6 +66,68 @@ pub fn load_configuration(path: &Option<PathBuf>) -> Result<Config> {
         "Parsing Walrus configuration from {} failed",
         path.display()
     ))
+}
+
+/// Creates a [`Client`] based on the provided [`Config`] with read-only access to Sui.
+///
+/// The RPC URL is set based on the `rpc_url` parameter (if `Some`), the `wallet` (if `Ok`) or the
+/// default [`DEFAULT_RPC_URL`] if `allow_fallback_to_default` is true.
+pub async fn get_read_client(
+    config: Config,
+    rpc_url: Option<String>,
+    wallet: Result<WalletContext>,
+    allow_fallback_to_default: bool,
+) -> Result<Client<()>> {
+    let sui_client =
+        get_sui_client_from_rpc_node_or_wallet(rpc_url, wallet, allow_fallback_to_default).await?;
+    let sui_read_client =
+        SuiReadClient::new(sui_client, config.system_pkg, config.system_object).await?;
+    Ok(Client::new_read_client(config, &sui_read_client).await?)
+}
+
+// NB: When making changes to the logic, make sure to update the docstring of `get_read_client` and
+// the argument docs in `crates/walrus-service/bin/client.rs`.
+async fn get_sui_client_from_rpc_node_or_wallet(
+    rpc_url: Option<String>,
+    wallet: Result<WalletContext>,
+    allow_fallback_to_default: bool,
+) -> Result<SuiClient> {
+    tracing::debug!(
+        ?rpc_url,
+        %allow_fallback_to_default,
+        "attempting to create a read client from explicitly set RPC URL, wallet config, or default"
+    );
+    match rpc_url {
+        Some(url) => {
+            tracing::info!("Using explicitly set RPC URL {url}");
+            SuiClientBuilder::default()
+                .build(&url)
+                .await
+                .context(format!("cannot connect to Sui RPC node at {url}"))
+        }
+        None => match wallet {
+            Ok(wallet) => {
+                tracing::info!("Using RPC URL set in wallet configuration");
+                wallet
+                    .get_client()
+                    .await
+                    .context("cannot connect to Sui RPC node specified in the wallet configuration")
+            }
+            Err(e) => {
+                if allow_fallback_to_default {
+                    tracing::info!("Using default RPC URL {DEFAULT_RPC_URL}");
+                    SuiClientBuilder::default()
+                        .build(DEFAULT_RPC_URL)
+                        .await
+                        .context(format!(
+                            "cannot connect to Sui RPC node at {DEFAULT_RPC_URL}"
+                        ))
+                } else {
+                    Err(e)
+                }
+            }
+        },
+    }
 }
 
 /// Returns the string `Success:` colored in green for terminal output.

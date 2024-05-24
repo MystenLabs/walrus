@@ -59,10 +59,6 @@ path = "bin/client.rs"
 name = "walrus-node"
 path = "bin/node.rs"
 
-[[bin]]
-name = "walrus-aggregator"
-path = "bin/aggregator.rs"
-
 [dev-dependencies]
 mockall = "0.12.1"
 rand.workspace = true
