@@ -19,7 +19,7 @@ use tokio_util::sync::CancellationToken;
 use tower_http::trace::{MakeSpan, TraceLayer};
 use tracing::Level;
 use walrus_core::{
-    encoding::{max_sliver_size_for_n_shards, metadata_length_for_n_shards},
+    encoding::max_sliver_size_for_n_shards,
     messages::StorageConfirmation,
     metadata::{BlobMetadata, UnverifiedBlobMetadataWithId},
     BlobId,
@@ -140,13 +140,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
         let app = Router::new()
             .route(
                 METADATA_ENDPOINT,
-                put(Self::store_metadata)
-                    .route_layer(DefaultBodyLimit::max(
-                        usize::try_from(metadata_length_for_n_shards(self.state.n_shards()))
-                            .expect("running on 64bit arch (see hardware requirements)")
-                            + HEADROOM,
-                    ))
-                    .get(Self::retrieve_metadata),
+                put(Self::store_metadata).get(Self::retrieve_metadata),
             )
             .route(
                 SLIVER_ENDPOINT,
