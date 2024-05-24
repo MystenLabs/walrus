@@ -113,6 +113,10 @@ struct DeploySystemContractArgs {
     /// The port on which the REST API of the storage nodes will listen.
     #[clap(long, default_value_t = REST_API_PORT)]
     rest_api_port: u16,
+    /// The path to the configuration file of the Walrus testbed.
+    /// [default: <WORKING_DIR>/testbed_config.yaml]
+    #[clap(long)]
+    testbed_config_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -120,9 +124,10 @@ struct GenerateDryRunConfigsArgs {
     /// The directory where the storage nodes will be deployed.
     #[clap(long, default_value = "./working_dir")]
     working_dir: PathBuf,
-    /// The path to the configuration file of the Walrus smart contract deployed on Sui.
+    /// The path to the configuration file of the Walrus testbed.
+    /// [default: <WORKING_DIR>/testbed_config.yaml]
     #[clap(long)]
-    testbed_config_path: PathBuf,
+    testbed_config_path: Option<PathBuf>,
     /// The port on which the metrics server of the storage nodes will listen.
     #[clap(long, default_value_t = METRICS_PORT)]
     metrics_port: u16,
@@ -171,6 +176,7 @@ mod commands {
             n_shards,
             ips,
             rest_api_port,
+            testbed_config_path,
         }: DeploySystemContractArgs,
     ) -> anyhow::Result<()> {
         tracing_subscriber::fmt::init();
@@ -197,7 +203,8 @@ mod commands {
         // Write the Testbed config to file.
         let serialized_testbed_config =
             serde_yaml::to_string(&testbed_config).context("Failed to serialize Testbed config")?;
-        let testbed_config_path = working_dir.join("testbed_config.yaml");
+        let testbed_config_path =
+            testbed_config_path.unwrap_or_else(|| working_dir.join("testbed_config.yaml"));
         fs::write(testbed_config_path, serialized_testbed_config)
             .context("Failed to write Testbed config")?;
         Ok(())
@@ -215,6 +222,8 @@ mod commands {
 
         fs::create_dir_all(&working_dir)
             .with_context(|| format!("Failed to create directory '{}'", working_dir.display()))?;
+        let testbed_config_path =
+            testbed_config_path.unwrap_or_else(|| working_dir.join("testbed_config.yaml"));
         let testbed_config = TestbedConfig::load(testbed_config_path)?;
 
         let client_config = create_client_config(
