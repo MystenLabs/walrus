@@ -76,7 +76,7 @@ enum Commands {
         /// The URL of the Sui RPC node to use.
         ///
         /// If unset, the wallet configuration is applied (if set), or the fullnode at
-        /// `fullnode.devnet.sui.io:443` is used.
+        /// `fullnode.testnet.sui.io:443` is used.
         // NB: Keep this in sync with `walrus_service::cli_utils`.
         #[clap(short, long)]
         rpc_url: Option<String>,
@@ -86,7 +86,7 @@ enum Commands {
         /// The URL of the Sui RPC node to use.
         ///
         /// If unset, the wallet configuration is applied (if set), or the fullnode at
-        /// `fullnode.devnet.sui.io:443` is used.
+        /// `fullnode.testnet.sui.io:443` is used.
         // NB: Keep this in sync with `walrus_service::cli_utils`.
         #[clap(short, long)]
         rpc_url: Option<String>,

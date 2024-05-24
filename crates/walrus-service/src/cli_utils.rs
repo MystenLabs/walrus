@@ -12,10 +12,10 @@ use walrus_sui::client::SuiReadClient;
 
 use crate::client::{default_configuration_paths, Client, Config};
 
-/// Default URL of the devnet RPC node.
-pub const DEVNET_RPC: &str = "https://fullnode.devnet.sui.io:443";
+/// Default URL of the testnet RPC node.
+pub const TESTNET_RPC: &str = "https://fullnode.testnet.sui.io:443";
 /// Default RPC URL to connect to if none is specified explicitly or in the wallet config.
-pub const DEFAULT_RPC_URL: &str = DEVNET_RPC;
+pub const DEFAULT_RPC_URL: &str = TESTNET_RPC;
 
 /// Returns the path if it is `Some` or any of the default paths if they exist (attempt in order).
 pub fn path_or_defaults_if_exist(path: &Option<PathBuf>, defaults: &[PathBuf]) -> Option<PathBuf> {
