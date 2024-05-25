@@ -270,6 +270,7 @@ impl<P: ProtocolCommands + ProtocolMetrics> Orchestrator<P> {
         let repo_name = self.settings.repository_name();
         let context = CommandContext::new()
             .run_background(id.into())
+            .with_log_file(format!("~/{id}.log").into())
             .with_execute_from_path(repo_name.into());
         let mut instances = nodes;
         if parameters.settings.dedicated_clients != 0 {

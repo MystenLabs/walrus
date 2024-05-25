@@ -195,18 +195,8 @@ impl ProtocolCommands for TargetProtocol {
                 "--working-dir {}",
                 parameters.settings.working_dir.display()
             ),
-            &format!(
-                "--sui-network {}",
-                parameters.node_parameters.sui_network.r#type()
-            ),
-            &format!("--sui-config-path {}", testbed_config_path.display()),
-            &format!(
-                "--ips {}",
-                ips.iter()
-                    .map(|x| x.to_string())
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            ),
+            &format!("--testbed-config-path {}", testbed_config_path.display()),
+            &format!("--metrics-port {}", parameters.node_parameters.metrics_port),
         ]
         .join(" ");
 
