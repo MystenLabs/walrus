@@ -225,7 +225,7 @@ impl<P: ProtocolCommands + ProtocolMetrics> Orchestrator<P> {
         let commit = &self.settings.repository.commit;
         let command = [
             &format!("git fetch origin {commit}"),
-            &format!("(git checkout -b {commit} {commit} || git checkout origin/{commit})"),
+            &format!("(git checkout -b {commit} || git checkout -f origin/{commit})"),
             "source $HOME/.cargo/env",
             "cargo build --release",
         ]
