@@ -82,7 +82,7 @@ impl SuiReadClient {
         system_pkg_id: ObjectID,
         system_object_id: ObjectID,
     ) -> SuiClientResult<Self> {
-        check_that_objects_exist(&sui_client, system_pkg_id, system_object_id).await?;
+        check_system_deployment(&sui_client, system_pkg_id, system_object_id).await?;
         let type_params = get_type_parameters(&sui_client, system_object_id).await?;
         ensure!(
             type_params.len() == 1,
@@ -208,7 +208,7 @@ impl fmt::Debug for SuiReadClient {
 }
 
 /// Checks if the Walrus package and system object exist on chain.
-async fn check_that_objects_exist(
+async fn check_system_deployment(
     sui_client: &SuiClient,
     system_pkg_id: ObjectID,
     system_object_id: ObjectID,
