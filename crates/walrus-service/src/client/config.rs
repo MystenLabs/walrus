@@ -19,7 +19,7 @@ pub struct Config {
     /// Path to the wallet configuration.
     ///
     /// If set, this MUST be an absolute path.
-    #[serde(deserialize_with = "deserialize_wallet_config")]
+    #[serde(default, deserialize_with = "deserialize_wallet_config")]
     pub wallet_config: Option<PathBuf>,
     /// Configuration for the client's network communication.
     #[serde(default)]
