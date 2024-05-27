@@ -327,8 +327,13 @@ fn merge_blob_info(
 
         current_val = if let Some(info) = current_val {
             Some(info.merge(operand))
-        } else if let BlobInfoMergeOperand::ChangeStatus { end_epoch, status } = operand {
-            Some(BlobInfo::new(end_epoch, status))
+        } else if let BlobInfoMergeOperand::ChangeStatus {
+            end_epoch,
+            status,
+            status_event,
+        } = operand
+        {
+            Some(BlobInfo::new(end_epoch, status, status_event))
         } else {
             // TODO(jsmith): Deserialize the key.
             tracing::error!(?key, "attempted to mutate the info for an untracked blob");
@@ -449,14 +454,23 @@ pub(crate) mod tests {
         let storage = storage.as_ref();
         let blob_id = BLOB_ID;
 
-        let state0 = BlobInfo::new(42, BlobCertificationStatus::Registered);
-        let state1 = BlobInfo::new(42, BlobCertificationStatus::Certified);
+        let state0 = BlobInfo::new(
+            42,
+            BlobCertificationStatus::Registered,
+            event_id_for_testing(),
+        );
+        let state1 = BlobInfo::new(
+            42,
+            BlobCertificationStatus::Certified,
+            event_id_for_testing(),
+        );
 
         storage.merge_update_blob_info(
             &blob_id,
             BlobInfoMergeOperand::ChangeStatus {
                 end_epoch: 42,
                 status: BlobCertificationStatus::Registered,
+                status_event: state0.current_status_event,
             },
         )?;
         assert_eq!(storage.get_blob_info(&blob_id)?, Some(state0));
@@ -465,6 +479,7 @@ pub(crate) mod tests {
             BlobInfoMergeOperand::ChangeStatus {
                 end_epoch: 42,
                 status: BlobCertificationStatus::Certified,
+                status_event: state1.current_status_event,
             },
         )?;
         assert_eq!(storage.get_blob_info(&blob_id)?, Some(state1));
@@ -477,7 +492,11 @@ pub(crate) mod tests {
         let storage = storage.as_ref();
         let blob_id = BLOB_ID;
 
-        let state0 = BlobInfo::new(42, BlobCertificationStatus::Registered);
+        let state0 = BlobInfo::new(
+            42,
+            BlobCertificationStatus::Registered,
+            event_id_for_testing(),
+        );
         let state1 = BlobInfo {
             is_metadata_stored: true,
             ..state0
@@ -488,6 +507,7 @@ pub(crate) mod tests {
             BlobInfoMergeOperand::ChangeStatus {
                 end_epoch: 42,
                 status: BlobCertificationStatus::Registered,
+                status_event: state0.current_status_event,
             },
         )?;
         assert_eq!(storage.get_blob_info(&blob_id)?, Some(state0));

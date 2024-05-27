@@ -45,6 +45,8 @@ pub const RECOVERY_ENDPOINT: &str =
     "/v1/blobs/:blobId/slivers/:sliverPairindex/:sliverType/:targetPairIndex";
 /// The path to push inconsistency proofs.
 pub const INCONSISTENCY_PROOF_ENDPOINT: &str = "/v1/blobs/:blobId/inconsistent/:sliverType";
+/// The path to get the status of a blob.
+pub const STATUS_ENDPOINT: &str = "/v1/blobs/:blobId/status";
 /// Additional space to be added to the maximum body size accepted by the server.
 ///
 /// The maximum body size is set to be the maximum size of primary slivers, which contain at most
@@ -158,6 +160,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
             )
             .route(RECOVERY_ENDPOINT, get(Self::retrieve_recovery_symbol))
             .route(INCONSISTENCY_PROOF_ENDPOINT, put(Self::inconsistency_proof))
+            .route(STATUS_ENDPOINT, get(Self::blob_status))
             .with_state(self.state.clone())
             .layer(TraceLayer::new_for_http().make_span_with(RestApiSpans {
                 address: *network_address,
@@ -377,6 +380,27 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
         }
     }
 
+    #[tracing::instrument(level = Level::ERROR, skip_all, fields(%blob_id))]
+    async fn blob_status(
+        State(state): State<Arc<S>>,
+        Path(BlobIdString(blob_id)): Path<BlobIdString>,
+    ) -> Response {
+        match state.blob_status(&blob_id) {
+            Ok(Some(status)) => {
+                tracing::debug!("successfully retrieved blob status");
+                (StatusCode::OK, Bcs(status)).into_response()
+            }
+            Ok(None) => {
+                tracing::debug!("blob not found");
+                ServiceResponse::<()>::not_found().into_response()
+            }
+            Err(message) => {
+                tracing::error!(%message, "internal server error");
+                ServiceResponse::<()>::internal_error().into_response()
+            }
+        }
+    }
+
     async fn inconsistency_proof(
         State(state): State<Arc<S>>,
         Path((BlobIdString(blob_id), sliver_type)): Path<(BlobIdString, SliverType)>,
@@ -468,7 +492,11 @@ mod test {
         SliverPairIndex,
         SliverType,
     };
-    use walrus_sdk::client::Client;
+    use walrus_sdk::{
+        api::{BlobCertificationStatus as SdkBlobCertificationStatus, BlobStatus},
+        client::Client,
+    };
+    use walrus_sui::test_utils::event_id_for_testing;
     use walrus_test_utils::{async_param_test, WithTempDir};
 
     use super::*;
@@ -558,6 +586,23 @@ mod test {
             }
         }
 
+        /// Returns a blob status for blob ID starting with zero, None when starting with 1,
+        /// and otherwise an error.
+        fn blob_status(&self, blob_id: &BlobId) -> Result<Option<BlobStatus>, anyhow::Error> {
+            if blob_id.0[0] == 0 {
+                let status = BlobStatus {
+                    end_epoch: 3,
+                    status: SdkBlobCertificationStatus::Certified,
+                    status_event: event_id_for_testing(),
+                };
+                Ok(Some(status))
+            } else if blob_id.0[0] == 1 {
+                Ok(None)
+            } else {
+                Err(anyhow::anyhow!("Internal error"))
+            }
+        }
+
         /// Returns a signed invalid blob message for blob IDs starting with zero, a
         /// `MissingMetadata` error for IDs starting with 1, a `ProofVerificationError`
         /// for IDs starting with 2, and an internal error otherwise.
@@ -625,7 +670,7 @@ mod test {
 
     fn blob_id_for_bad_request() -> BlobId {
         let mut blob_id = walrus_core::test_utils::random_blob_id();
-        blob_id.0[0] = 2; // Triggers an internal server error.
+        blob_id.0[0] = 2; // Triggers a bad request error.
         blob_id
     }
 
@@ -671,6 +716,49 @@ mod test {
             .get_metadata(&blob_id)
             .await
             .expect_err("metadata request must fail");
+
+        assert_eq!(
+            err.http_status_code(),
+            Some(StatusCode::INTERNAL_SERVER_ERROR)
+        );
+    }
+
+    #[tokio::test]
+    async fn get_blob_status() {
+        let (config, _handle) = start_rest_api_with_test_config().await;
+        let client = storage_node_client(config.as_ref());
+
+        let blob_id = blob_id_for_valid_response();
+        let _blob_status = client
+            .get_blob_status(&blob_id)
+            .await
+            .expect("should successfully return blob status");
+    }
+
+    #[tokio::test]
+    async fn get_blob_status_not_found() {
+        let (config, _handle) = start_rest_api_with_test_config().await;
+        let client = storage_node_client(config.as_ref());
+
+        let blob_id = blob_id_for_not_found();
+        let err = client
+            .get_blob_status(&blob_id)
+            .await
+            .expect_err("blob status request must fail");
+
+        assert_eq!(err.http_status_code(), Some(StatusCode::NOT_FOUND));
+    }
+
+    #[tokio::test]
+    async fn get_blob_status_internal_error() {
+        let (config, _handle) = start_rest_api_with_test_config().await;
+        let client = storage_node_client(config.as_ref());
+
+        let blob_id = blob_id_for_internal_server_error();
+        let err = client
+            .get_blob_status(&blob_id)
+            .await
+            .expect_err("blob status request must fail");
 
         assert_eq!(
             err.http_status_code(),

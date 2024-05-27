@@ -35,6 +35,7 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
+use walrus_sdk::api::BlobStatus;
 use walrus_sui::{
     client::SuiReadClient,
     types::{BlobCertified, BlobEvent},
@@ -175,6 +176,9 @@ pub trait ServiceState {
         sliver_type: SliverType,
         target_pair_index: SliverPairIndex,
     ) -> Result<RecoverySymbol<MerkleProof>, RetrieveSymbolError>;
+
+    /// Retrieves the blob status for the given `blob_id`.
+    fn blob_status(&self, blob_id: &BlobId) -> Result<Option<BlobStatus>, anyhow::Error>;
 
     /// Returns the number of shards the node is currently operating with.
     fn n_shards(&self) -> NonZeroU16;
@@ -723,6 +727,13 @@ impl ServiceState for StorageNode {
         }
     }
 
+    fn blob_status(&self, blob_id: &BlobId) -> Result<Option<BlobStatus>, anyhow::Error> {
+        self.storage
+            .get_blob_info(blob_id)
+            .map_err(|err| anyhow!("could not retrieve blob info: {}", err))
+            .map(|maybe_info| maybe_info.map(|info| info.into()))
+    }
+
     async fn verify_inconsistency_proof<T: MerkleAuth + Send + Sync>(
         &self,
         blob_id: &BlobId,
@@ -815,7 +826,7 @@ mod tests {
     use fastcrypto::traits::KeyPair;
     use tokio::sync::{broadcast::Sender, Mutex};
     use walrus_core::encoding::{self, Primary, SliverPair};
-    use walrus_sdk::client::Client;
+    use walrus_sdk::{api::BlobCertificationStatus as SdkBlobCertificationStatus, client::Client};
     use walrus_sui::{
         test_utils::EventForTesting,
         types::{BlobCertified, BlobEvent, BlobRegistered},
@@ -929,6 +940,45 @@ mod tests {
         node.as_ref()
             .retrieve_sliver(&BLOB_ID, sliver_pair_index, SliverType::Primary)
             .expect("should not err, but instead return 'None'");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn returns_correct_blob_status() -> TestResult {
+        let blob_event = BlobRegistered::for_testing(BLOB_ID);
+        let node = StorageNodeHandle::builder()
+            .with_system_event_provider(vec![BlobEvent::Registered(blob_event.clone())])
+            .with_shard_assignment(&[ShardIndex(0)])
+            .with_node_started(true)
+            .build()
+            .await?;
+
+        // Wait to make sure the event is received.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let blob_status = node
+            .as_ref()
+            .blob_status(&BLOB_ID)?
+            .expect("should not be None");
+
+        assert_eq!(blob_status.status, SdkBlobCertificationStatus::Registered);
+        assert_eq!(blob_status.status_event, blob_event.event_id);
+        assert_eq!(blob_status.end_epoch, blob_event.end_epoch);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn returns_none_for_empty_blob_status() -> TestResult {
+        let node = StorageNodeHandle::builder()
+            .with_system_event_provider(vec![])
+            .with_shard_assignment(&[ShardIndex(0)])
+            .with_node_started(true)
+            .build()
+            .await?;
+
+        assert!(node.as_ref().blob_status(&BLOB_ID)?.is_none());
 
         Ok(())
     }

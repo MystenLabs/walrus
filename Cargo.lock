@@ -11617,6 +11617,7 @@ dependencies = [
  "reqwest 0.12.4",
  "serde",
  "serde_json",
+ "sui-types",
  "thiserror",
  "tokio",
  "tower-service",
