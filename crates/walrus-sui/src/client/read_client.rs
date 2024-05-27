@@ -13,7 +13,7 @@ use std::{
 use anyhow::{anyhow, bail, Result};
 use sui_sdk::{
     apis::EventApi,
-    rpc_types::{Coin, EventFilter, SuiEvent, SuiObjectDataOptions, SuiObjectResponse},
+    rpc_types::{Coin, EventFilter, SuiEvent, SuiObjectDataOptions},
     types::{base_types::ObjectID, transaction::CallArg},
     SuiClient,
     SuiClientBuilder,
@@ -33,7 +33,13 @@ use walrus_core::ensure;
 use super::{SuiClientError, SuiClientResult};
 use crate::{
     types::{BlobEvent, Committee, SystemObject},
-    utils::{get_sui_object, get_type_parameters, handle_pagination},
+    utils::{
+        get_package_id_from_object_response,
+        get_sui_object,
+        get_sui_object_from_object_response,
+        get_type_parameters,
+        handle_pagination,
+    },
 };
 
 const EVENT_MODULE: &str = "blob_events";
@@ -213,18 +219,23 @@ async fn check_system_deployment(
     system_pkg_id: ObjectID,
     system_object_id: ObjectID,
 ) -> SuiClientResult<()> {
-    if !matches!(
-        sui_client
-            .read_api()
-            .get_object_with_options(system_pkg_id, SuiObjectDataOptions::default().with_type())
-            .await,
-        Ok(SuiObjectResponse { error: None, .. })
-    ) {
-        return Err(SuiClientError::WalrusPackageDoesNotExist(system_pkg_id));
-    }
-    get_sui_object::<SystemObject>(sui_client, system_object_id)
+    let response = sui_client
+        .read_api()
+        .get_object_with_options(
+            system_object_id,
+            SuiObjectDataOptions::default().with_content().with_type(),
+        )
         .await
         .map_err(|_| SuiClientError::WalrusSystemObjectDoesNotExist(system_object_id))?;
+
+    get_sui_object_from_object_response::<SystemObject>(&response, system_object_id)
+        .map_err(|_| SuiClientError::WalrusSystemObjectDoesNotExist(system_object_id))?;
+
+    let object_pkg_id = get_package_id_from_object_response(&response)
+        .map_err(|_| SuiClientError::WalrusSystemObjectDoesNotExist(system_object_id))?;
+    if object_pkg_id != system_pkg_id {
+        return Err(SuiClientError::WalrusPackageDoesNotExist(system_pkg_id));
+    }
     Ok(())
 }
 

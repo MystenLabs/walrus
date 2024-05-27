@@ -10,7 +10,7 @@ use std::{
     str::FromStr,
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use move_core_types::{language_storage::StructTag as MoveStructTag, u256::U256};
 use serde::{Deserialize, Serialize};
 use sui_config::{sui_config_dir, Config, SUI_CLIENT_CONFIG, SUI_KEYSTORE_FILENAME};
@@ -60,6 +60,15 @@ pub(crate) fn get_struct_from_object_response(
             object_response
         )),
     }
+}
+
+pub(crate) fn get_package_id_from_object_response(
+    object_response: &SuiObjectResponse,
+) -> Result<ObjectID> {
+    let ObjectType::Struct(move_object_type) = object_response.object()?.object_type()? else {
+        bail!("response does not contain a move struct object");
+    };
+    Ok(move_object_type.address().into())
 }
 
 pub(crate) async fn get_type_parameters(
@@ -122,12 +131,23 @@ pub(crate) async fn get_sui_object<U>(
 where
     U: AssociatedContractStruct,
 {
-    let obj_struct = get_struct_from_object_response(
+    get_sui_object_from_object_response(
         &sui_client
             .read_api()
             .get_object_with_options(object_id, SuiObjectDataOptions::new().with_content())
             .await?,
-    )?;
+        object_id,
+    )
+}
+
+pub(crate) fn get_sui_object_from_object_response<U>(
+    object_response: &SuiObjectResponse,
+    object_id: ObjectID,
+) -> SuiClientResult<U>
+where
+    U: AssociatedContractStruct,
+{
+    let obj_struct = get_struct_from_object_response(object_response)?;
     U::try_from(obj_struct).map_err(|_e| {
         anyhow!(
             "could not convert object with id {} to expected type",
