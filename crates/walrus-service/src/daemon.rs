@@ -22,7 +22,7 @@ use walrus_sui::{client::ContractClient, types::Blob};
 
 use crate::{
     client::{Client, ClientErrorKind},
-    server::BlobIdString,
+    server::routes::BlobIdString,
 };
 
 /// The path to get the blob with the given blob ID.

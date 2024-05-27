@@ -43,13 +43,13 @@ use walrus_sui::types::{Blob, BlobEvent, BlobRegistered};
 use self::{
     blob_info::{BlobCertificationStatus, BlobInfo, BlobInfoMergeOperand},
     event_sequencer::EventSequencer,
-    shard::ShardStorage,
 };
 use crate::storage::blob_info::Mergeable as _;
 
 pub(crate) mod blob_info;
 mod event_sequencer;
 mod shard;
+pub use shard::ShardStorage;
 
 /// Storage backing a [`StorageNode`][crate::StorageNode].
 ///

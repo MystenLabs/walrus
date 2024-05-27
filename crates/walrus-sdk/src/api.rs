@@ -8,6 +8,7 @@ use walrus_core::Epoch;
 
 /// Error message returned by the service.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ServiceResponse<T> {
     /// The request was successful.
     Success {
