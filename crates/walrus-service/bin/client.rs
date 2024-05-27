@@ -10,7 +10,14 @@ use clap::{Parser, Subcommand};
 use walrus_core::{encoding::Primary, BlobId};
 use walrus_service::{
     aggregator::AggregatorServer,
-    cli_utils::{error, get_read_client, load_configuration, load_wallet_context, success},
+    cli_utils::{
+        error,
+        get_read_client,
+        load_configuration,
+        load_wallet_context,
+        success,
+        HumanReadableBytes,
+    },
     client::{Client, Config},
 };
 use walrus_sui::client::SuiContractClient;
@@ -124,9 +131,9 @@ async fn client() -> Result<()> {
                 .await?;
             println!(
                 "{} Blob stored successfully.\n\
-                Unencoded size: {} bytes\nBlob ID: {}\nSui object ID: {}",
+                Unencoded size: {}\nBlob ID: {}\nSui object ID: {}",
                 success(),
-                blob.size,
+                HumanReadableBytes(blob.size),
                 blob.blob_id,
                 blob.id,
             );

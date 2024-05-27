@@ -139,3 +139,108 @@ pub fn success() -> ColoredString {
 pub fn error() -> ColoredString {
     "Error:".bold().red()
 }
+
+/// Type to help with formatting bytes as human-readable strings.
+///
+/// Formatting of `HumanReadableBytes` works as follows:
+///
+/// 1. If the value is smaller than 1024, print the value with a ` B` suffix (as we always have
+///    an integer number of bytes). Otherwise, follow the next steps.
+/// 1. Divide the value by 1024 until we get a *normalized value* in the interval `0..1024`.
+/// 1. Round the value (see precision below).
+/// 1. Print the normalized value and the unit `B` with an appropriate binary prefix.
+///
+/// The precision specified in format strings is interpreted differently compared to standard
+/// floating-point uses:
+///
+/// - If the number of digits of the integer part of the normalized value is greater than or
+///   equal to the precision, print the integer value.
+/// - Else, print the value with the number of significant digits set by the precision.
+///
+/// A specified precision of `0` is replaced by `1`. The default precision is `3`.
+#[repr(transparent)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct HumanReadableBytes(pub u64);
+
+impl std::fmt::Display for HumanReadableBytes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        const BASE: u64 = 1024;
+        const UNITS: [&str; 6] = ["KiB", "MiB", "GiB", "TiB", "PiB", "EiB"];
+        let value = self.0;
+
+        if value < BASE {
+            return write!(f, "{value} B");
+        }
+
+        // We know that `value >= 1024`, so `exponent >= 1`.
+        let exponent = value.ilog(BASE);
+        let normalized_value = value as f64 / BASE.pow(exponent) as f64;
+        let unit =
+            UNITS[usize::try_from(exponent - 1).expect("we assume at least a 32-bit architecture")];
+
+        // Get correct number of significant digits (not rounding integer part).
+        let normalized_integer_digits = normalized_value.log10() as usize + 1;
+        let set_precision = f.precision().unwrap_or(3).max(1);
+        let precision = if set_precision > normalized_integer_digits {
+            set_precision - normalized_integer_digits
+        } else {
+            0
+        };
+
+        write!(f, "{normalized_value:.*} {unit}", precision)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use walrus_test_utils::param_test;
+
+    use super::*;
+
+    param_test! {
+        test_display_without_precision: [
+            b_0: (0, "0 B"),
+            b_1: (1, "1 B"),
+            b_1023: (1023, "1023 B"),
+            kib_1: (1024, "1.00 KiB"),
+            kib_99: (1024 * 99, "99.0 KiB"),
+            kib_100: (1024 * 100, "100 KiB"),
+            kib_1023: (1024 * 1023, "1023 KiB"),
+            eib_1: (1024_u64.pow(6), "1.00 EiB"),
+            u64_max: (u64::MAX, "16.0 EiB"),
+        ]
+    }
+    fn test_display_without_precision(bytes: u64, expected_result: &str) {
+        assert_eq!(
+            format!("{}", HumanReadableBytes(bytes)),
+            expected_result.to_string()
+        );
+    }
+
+    param_test! {
+        test_display_with_explicit_precision: [
+            b_0_p0: (0, 0, "0 B"),
+            b_1_p0: (1, 0, "1 B"),
+            b_1023_p0: (1023, 0, "1023 B"),
+            kib_1_p0: (1024, 0, "1 KiB"),
+            kib_99_p0: (1024 * 99, 0, "99 KiB"),
+            kib_100_p0: (1024 * 100, 0, "100 KiB"),
+            kib_1023_p0: (1024 * 1023, 0, "1023 KiB"),
+            eib_1_p0: (1024_u64.pow(6), 0, "1 EiB"),
+            u64_max_p0: (u64::MAX, 0, "16 EiB"),
+            b_1_p1: (1, 1, "1 B"),
+            b_1023_p1: (1023, 1, "1023 B"),
+            kib_1_p1: (1024, 1, "1 KiB"),
+            b_1_p5: (1, 5, "1 B"),
+            b_1023_p5: (1023, 5, "1023 B"),
+            kib_1_p5: (1024, 5, "1.0000 KiB"),
+            b1025_p5: (1025, 5, "1.0010 KiB"),
+        ]
+    }
+    fn test_display_with_explicit_precision(bytes: u64, precision: usize, expected_result: &str) {
+        assert_eq!(
+            format!("{:.*}", precision, HumanReadableBytes(bytes)),
+            expected_result.to_string()
+        );
+    }
+}
