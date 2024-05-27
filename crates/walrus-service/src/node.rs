@@ -113,6 +113,8 @@ pub enum StoreSliverError {
     MalformedSliver(#[from] RecoverySymbolError),
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
+    #[error("{0} sliver for blob {1} was already stored")]
+    AlreadyStored(SliverType, BlobId),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -635,8 +637,13 @@ impl ServiceState for StorageNode {
         else {
             return Err(StoreMetadataError::NotRegistered);
         };
+
         if blob_info.end_epoch <= self.current_epoch() {
             return Err(StoreMetadataError::BlobExpired);
+        }
+
+        if blob_info.is_metadata_stored {
+            return Err(StoreMetadataError::AlreadyStored);
         }
 
         let verified_metadata_with_id = metadata.verify(&self.encoding_config)?;
@@ -681,6 +688,17 @@ impl ServiceState for StorageNode {
                     shard,
                     epoch: self.current_epoch(),
                 })?;
+
+        if match sliver {
+            Sliver::Primary(_) => shard_storage
+                .is_sliver_stored::<Primary>(blob_id)
+                .context("unable to check sliver existence")?,
+            Sliver::Secondary(_) => shard_storage
+                .is_sliver_stored::<Secondary>(blob_id)
+                .context("unable to check sliver existence")?,
+        } {
+            return Err(StoreSliverError::AlreadyStored(sliver.r#type(), *blob_id));
+        }
 
         // Ensure we already received metadata for this sliver.
         let metadata = self
@@ -1045,6 +1063,7 @@ mod tests {
         }
     }
 
+    #[derive(Debug)]
     struct EncodedBlob {
         pub config: EncodingConfig,
         pub pairs: Vec<SliverPair>,
@@ -1474,5 +1493,47 @@ mod tests {
         .await;
 
         last_result.expect("function to have completed at least once")
+    }
+
+    // Tests StorageNode::store_metadata skip storing metadata if it is already stored.
+    #[tokio::test]
+    async fn metadata_already_stored() -> TestResult {
+        let shards: &[&[u16]] = &[&[0], &[1, 2, 3, 4, 5, 6]];
+
+        let (cluster, _, blob) =
+            cluster_with_partially_stored_blob(shards, BLOB, |_, _| true).await?;
+
+        assert!(matches!(
+            cluster.nodes[0]
+                .storage_node
+                .store_metadata(blob.metadata.into_unverified())
+                .unwrap_err(),
+            StoreMetadataError::AlreadyStored
+        ));
+        Ok(())
+    }
+
+    // Tests StorageNode::store_sliver skip storing sliver if it is already stored.
+    #[tokio::test]
+    async fn sliver_already_stored() -> TestResult {
+        let shards: &[&[u16]] = &[&[0], &[1, 2, 3, 4, 5, 6]];
+
+        let (cluster, _, blob) =
+            cluster_with_partially_stored_blob(shards, BLOB, |_, _| true).await?;
+
+        let assigned_sliver_pair = blob.assigned_sliver_pair(ShardIndex(0));
+        assert!(matches!(
+            cluster.nodes[0]
+                .storage_node
+                .store_sliver(
+                    blob.blob_id(),
+                    assigned_sliver_pair.index(),
+                    &Sliver::Primary(assigned_sliver_pair.primary.clone())
+                )
+                .unwrap_err(),
+            StoreSliverError::AlreadyStored(sliver_type, blob_id)
+                if sliver_type == SliverType::Primary && blob_id == *blob.blob_id()
+        ));
+        Ok(())
     }
 }
