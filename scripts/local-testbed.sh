@@ -85,7 +85,6 @@ cargo build --bin walrus-node
 
 # Set working directory
 working_dir="./working_dir"
-testbed_config_path="$working_dir/testbed_config.yaml"
 
 # Derive the ip addresses for the storage nodes
 ips=" "

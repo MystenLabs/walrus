@@ -203,8 +203,7 @@ mod commands {
         // Write the Testbed config to file.
         let serialized_testbed_config =
             serde_yaml::to_string(&testbed_config).context("Failed to serialize Testbed config")?;
-        let testbed_config_path =
-            testbed_config_path.unwrap_or_else(|| working_dir.join("testbed_config.yaml"));
+        let testbed_config_path = get_testbed_config_path(testbed_config_path, &working_dir);
         fs::write(testbed_config_path, serialized_testbed_config)
             .context("Failed to write Testbed config")?;
         Ok(())
@@ -222,8 +221,8 @@ mod commands {
 
         fs::create_dir_all(&working_dir)
             .with_context(|| format!("Failed to create directory '{}'", working_dir.display()))?;
-        let testbed_config_path =
-            testbed_config_path.unwrap_or_else(|| working_dir.join("testbed_config.yaml"));
+
+        let testbed_config_path = get_testbed_config_path(testbed_config_path, &working_dir);
         let testbed_config = TestbedConfig::load(testbed_config_path)?;
 
         let client_config = create_client_config(
@@ -452,6 +451,13 @@ async fn wait_until_terminated(mut exit_listener: oneshot::Receiver<()>) {
             Ok(_) => tracing::info!("exit notification received"),
         }
     }
+}
+
+fn get_testbed_config_path(
+    maybe_testbed_config_path: Option<PathBuf>,
+    working_dir: &Path,
+) -> PathBuf {
+    maybe_testbed_config_path.unwrap_or_else(|| working_dir.join("testbed_config.yaml"))
 }
 
 #[cfg(test)]
