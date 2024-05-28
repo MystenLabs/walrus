@@ -5,6 +5,7 @@
 
 use walrus_core::{SliverPairIndex, SliverType};
 use walrus_sdk::error::NodeError;
+use walrus_sui::client::SuiClientError;
 
 /// Storing the metadata and the set of sliver pairs onto the storage node, and retrieving the
 /// storage confirmation, failed.
@@ -60,6 +61,9 @@ impl ClientError {
 #[derive(Debug, thiserror::Error)]
 #[error(transparent)]
 pub enum ClientErrorKind {
+    /// The certification of the blob failed.
+    #[error("blob certification failed: {0}")]
+    CertificationFailed(SuiClientError),
     /// The client could not retrieve sufficient confirmations to certify the blob.
     #[error("could not retrieve enough confirmations to certify the blob: {0} / {1} required")]
     NotEnoughConfirmations(usize, usize),

@@ -95,6 +95,7 @@ async fn retrieve_blob<T: Send + Sync>(
     State(client): State<Arc<Client<T>>>,
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
 ) -> Response {
+    tracing::debug!("starting to read blob");
     match client.read_blob::<Primary>(&blob_id).await {
         Ok(blob) => {
             tracing::debug!("successfully retrieved blob");
@@ -118,12 +119,13 @@ async fn retrieve_blob<T: Send + Sync>(
     }
 }
 
-#[tracing::instrument(level = Level::ERROR, skip_all, fields(epochs))]
+#[tracing::instrument(level = Level::ERROR, skip_all, fields(%epochs))]
 async fn store_blob<T: ContractClient>(
     State(client): State<Arc<Client<T>>>,
     Query(PublisherQuery { epochs }): Query<PublisherQuery>,
     blob: Bytes,
 ) -> Response {
+    tracing::debug!("starting to store received blob");
     match client.reserve_and_store_blob(&blob[..], epochs).await {
         Ok(Blob { blob_id, .. }) => {
             tracing::debug!(

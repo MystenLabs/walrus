@@ -180,7 +180,7 @@ impl<T: ContractClient> Client<T> {
         self.sui_client
             .certify_blob(&blob_sui_object, &certificate)
             .await
-            .map_err(ClientError::other)
+            .map_err(|e| ClientErrorKind::CertificationFailed(e).into())
     }
 
     /// Reserves the space for the blob on chain.
