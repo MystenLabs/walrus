@@ -453,6 +453,7 @@ impl StorageNode {
         Ok(())
     }
 
+    // TODO(kwuest): Cancel in-progress syncs for the blob (part of #366 or follow-up)
     fn on_blob_invalid(
         &self,
         event_sequence_number: usize,
