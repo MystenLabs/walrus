@@ -31,7 +31,7 @@ use walrus_core::{
 use walrus_test_utils::WithTempDir;
 
 use crate::{
-    types::{BlobCertified, BlobRegistered},
+    types::{BlobCertified, BlobRegistered, InvalidBlobID},
     utils::{create_wallet, sign_and_send_ptb},
 };
 
@@ -168,6 +168,16 @@ impl EventForTesting for BlobCertified {
             epoch: 0,
             blob_id,
             end_epoch: 42,
+            event_id: event_id_for_testing(),
+        }
+    }
+}
+
+impl EventForTesting for InvalidBlobID {
+    fn for_testing(blob_id: BlobId) -> Self {
+        Self {
+            epoch: 0,
+            blob_id,
             event_id: event_id_for_testing(),
         }
     }

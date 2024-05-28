@@ -172,7 +172,7 @@ impl Storage {
         metadata: &BlobMetadata,
     ) -> Result<(), TypedStoreError> {
         self.metadata.insert(blob_id, metadata)?;
-        self.merge_update_blob_info(blob_id, BlobInfoMergeOperand::MarkMetadataStored)
+        self.merge_update_blob_info(blob_id, BlobInfoMergeOperand::MarkMetadataStored(true))
     }
 
     /// Get the blob info for `blob_id`
@@ -254,6 +254,20 @@ impl Storage {
             .metadata
             .get(blob_id)?
             .map(|inner| VerifiedBlobMetadataWithId::new_verified_unchecked(*blob_id, inner)))
+    }
+
+    /// Deletes the metadata for the provided [`BlobId`].
+    pub fn delete_metadata(&self, blob_id: &BlobId) -> Result<(), TypedStoreError> {
+        self.metadata.remove(blob_id)?;
+        self.merge_update_blob_info(blob_id, BlobInfoMergeOperand::MarkMetadataStored(false))
+    }
+
+    /// Deletes the slivers on all shards for the provided [`BlobId`].
+    pub fn delete_slivers(&self, blob_id: &BlobId) -> Result<(), TypedStoreError> {
+        for shard in self.shards.values() {
+            shard.delete_sliver_pair(blob_id)?;
+        }
+        Ok(())
     }
 
     /// Returns true if the sliver pairs for the provided blob-id is stored at
@@ -357,6 +371,7 @@ where
 
 #[cfg(test)]
 pub(crate) mod tests {
+
     use prometheus::Registry;
     use sui_sdk::types::digests::TransactionDigest;
     use tempfile::TempDir;
@@ -367,7 +382,10 @@ pub(crate) mod tests {
         SliverIndex,
         SliverType,
     };
-    use walrus_sui::test_utils::event_id_for_testing;
+    use walrus_sui::{
+        test_utils::{event_id_for_testing, EventForTesting},
+        types::BlobCertified,
+    };
     use walrus_test_utils::{async_param_test, param_test, Result as TestResult, WithTempDir};
 
     use super::*;
@@ -440,11 +458,45 @@ pub(crate) mod tests {
             metadata.metadata().clone(),
         );
 
+        storage.update_blob_info(&BlobEvent::Certified(BlobCertified::for_testing(*blob_id)))?;
+
         storage.put_metadata(metadata.blob_id(), metadata.metadata())?;
         let retrieved = storage.get_metadata(blob_id)?;
 
         assert_eq!(retrieved, Some(expected));
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stores_and_deletes_metadata() -> TestResult {
+        let storage = empty_storage();
+        let storage = storage.as_ref();
+        let metadata = walrus_core::test_utils::verified_blob_metadata();
+        let blob_id = metadata.blob_id();
+
+        storage.update_blob_info(&BlobEvent::Certified(BlobCertified::for_testing(*blob_id)))?;
+
+        storage.put_metadata(metadata.blob_id(), metadata.metadata())?;
+
+        assert!(storage.has_metadata(blob_id)?);
+        assert!(storage.get_metadata(blob_id)?.is_some());
+
+        storage.delete_metadata(blob_id)?;
+
+        assert!(!storage.has_metadata(blob_id)?);
+        assert!(storage.get_metadata(blob_id)?.is_none());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn delete_on_empty_metadata_does_not_error() -> TestResult {
+        let storage = empty_storage();
+        let storage = storage.as_ref();
+
+        storage
+            .delete_metadata(&BLOB_ID)
+            .expect("delete on empty metadata should not error");
         Ok(())
     }
 
@@ -511,7 +563,7 @@ pub(crate) mod tests {
             },
         )?;
         assert_eq!(storage.get_blob_info(&blob_id)?, Some(state0));
-        storage.merge_update_blob_info(&blob_id, BlobInfoMergeOperand::MarkMetadataStored)?;
+        storage.merge_update_blob_info(&blob_id, BlobInfoMergeOperand::MarkMetadataStored(true))?;
         assert_eq!(storage.get_blob_info(&blob_id)?, Some(state1));
 
         Ok(())

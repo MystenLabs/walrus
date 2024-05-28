@@ -121,8 +121,8 @@ impl Mergeable for BlobInfo {
                     self.end_epoch = end_epoch;
                 }
             }
-            BlobInfoMergeOperand::MarkMetadataStored => {
-                self.is_metadata_stored = true;
+            BlobInfoMergeOperand::MarkMetadataStored(stored) => {
+                self.is_metadata_stored = stored;
             }
         };
         self
@@ -136,7 +136,7 @@ pub enum BlobInfoMergeOperand {
         status: BlobCertificationStatus,
         status_event: EventID,
     },
-    MarkMetadataStored,
+    MarkMetadataStored(bool),
 }
 
 impl BlobInfoMergeOperand {

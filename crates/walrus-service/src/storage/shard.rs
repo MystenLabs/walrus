@@ -132,6 +132,13 @@ impl ShardStorage {
             && self.is_sliver_stored::<Secondary>(blob_id)?)
     }
 
+    /// Deletes the sliver pair for the given [`BlobId`].
+    pub fn delete_sliver_pair(&self, blob_id: &BlobId) -> Result<(), TypedStoreError> {
+        self.primary_slivers.remove(&blob_id.into())?;
+        self.secondary_slivers.remove(&blob_id.into())?;
+        Ok(())
+    }
+
     pub fn is_sliver_stored<A: EncodingAxis>(
         &self,
         blob_id: &BlobId,
@@ -189,7 +196,11 @@ fn slivers_column_family_name(id: ShardIndex) -> String {
 mod tests {
     use std::fmt;
 
-    use walrus_core::{Sliver, SliverType};
+    use walrus_core::{
+        encoding::{Primary, Secondary},
+        Sliver,
+        SliverType,
+    };
     use walrus_test_utils::{async_param_test, param_test, Result as TestResult, WithTempDir};
 
     use crate::{
@@ -236,6 +247,42 @@ mod tests {
             Some(secondary),
             "invalid secondary sliver"
         );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stores_and_deletes_slivers() -> TestResult {
+        let storage = empty_storage();
+        let shard = storage.as_ref().shard_storage(SHARD_INDEX).unwrap();
+
+        let primary = get_sliver(SliverType::Primary, 1);
+        let secondary = get_sliver(SliverType::Secondary, 2);
+
+        shard.put_sliver(&BLOB_ID, &primary)?;
+        shard.put_sliver(&BLOB_ID, &secondary)?;
+
+        assert!(shard.is_sliver_pair_stored(&BLOB_ID)?);
+
+        shard.delete_sliver_pair(&BLOB_ID)?;
+
+        assert!(!shard.is_sliver_stored::<Primary>(&BLOB_ID)?);
+        assert!(!shard.is_sliver_stored::<Secondary>(&BLOB_ID)?);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn delete_on_empty_slivers_does_not_error() -> TestResult {
+        let storage = empty_storage();
+        let shard = storage.as_ref().shard_storage(SHARD_INDEX).unwrap();
+
+        assert!(!shard.is_sliver_stored::<Primary>(&BLOB_ID)?);
+        assert!(!shard.is_sliver_stored::<Secondary>(&BLOB_ID)?);
+
+        shard
+            .delete_sliver_pair(&BLOB_ID)
+            .expect("delete should not error");
 
         Ok(())
     }

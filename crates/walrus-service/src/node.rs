@@ -38,7 +38,7 @@ use walrus_core::{
 use walrus_sdk::api::BlobStatus;
 use walrus_sui::{
     client::SuiReadClient,
-    types::{BlobCertified, BlobEvent},
+    types::{BlobCertified, BlobEvent, InvalidBlobID},
 };
 
 use crate::{
@@ -406,7 +406,8 @@ impl StorageNode {
                 BlobEvent::Certified(event) => {
                     self.on_blob_certified(sequence_number, event).await?
                 }
-                BlobEvent::Registered(_) | BlobEvent::InvalidBlobID(_) => self
+                BlobEvent::InvalidBlobID(event) => self.on_blob_invalid(sequence_number, event)?,
+                BlobEvent::Registered(_) => self
                     .storage
                     .maybe_advance_event_cursor(sequence_number, &event.event_id())?,
             }
@@ -449,6 +450,18 @@ impl StorageNode {
             .in_current_span(),
         );
 
+        Ok(())
+    }
+
+    fn on_blob_invalid(
+        &self,
+        event_sequence_number: usize,
+        event: InvalidBlobID,
+    ) -> anyhow::Result<()> {
+        self.storage.delete_metadata(&event.blob_id)?;
+        self.storage.delete_slivers(&event.blob_id)?;
+        self.storage
+            .maybe_advance_event_cursor(event_sequence_number, &event.event_id)?;
         Ok(())
     }
 }
@@ -941,6 +954,28 @@ mod tests {
             .retrieve_sliver(&BLOB_ID, sliver_pair_index, SliverType::Primary)
             .expect("should not err, but instead return 'None'");
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn deletes_blob_data_on_invalid_blob_event() -> TestResult {
+        let events = Sender::new(48);
+        let node = StorageNodeHandle::builder()
+            .with_storage(populated_storage(&[
+                (SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
+                (OTHER_SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
+            ])?)
+            .with_system_event_provider(events.clone())
+            .with_node_started(true)
+            .build()
+            .await?;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(node.as_ref().storage.is_stored_at_all_shards(&BLOB_ID)?);
+        events.send(BlobEvent::InvalidBlobID(InvalidBlobID::for_testing(
+            BLOB_ID,
+        )))?;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(!node.as_ref().storage.is_stored_at_all_shards(&BLOB_ID)?);
         Ok(())
     }
 
