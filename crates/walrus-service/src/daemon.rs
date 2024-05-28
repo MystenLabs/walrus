@@ -82,10 +82,10 @@ impl<T: Send + Sync + 'static> ClientDaemon<T> {
 impl<T: ContractClient + 'static> ClientDaemon<T> {
     /// Specifies that the daemon should expose the publisher interface (store blobs).
     pub fn with_publisher(mut self, max_body_limit: usize) -> Self {
-        self.router = self
-            .router
-            .route(BLOB_PUT_ENDPOINT, put(store_blob))
-            .route_layer(DefaultBodyLimit::max(max_body_limit));
+        self.router = self.router.route(
+            BLOB_PUT_ENDPOINT,
+            put(store_blob).route_layer(DefaultBodyLimit::max(max_body_limit)),
+        );
         self
     }
 }
