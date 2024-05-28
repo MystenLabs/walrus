@@ -388,7 +388,7 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
         match state.blob_status(&blob_id) {
             Ok(Some(status)) => {
                 tracing::debug!("successfully retrieved blob status");
-                (StatusCode::OK, Bcs(status)).into_response()
+                (StatusCode::OK, Json(status)).into_response()
             }
             Ok(None) => {
                 tracing::debug!("blob not found");

@@ -54,9 +54,9 @@ impl From<BlobCertificationStatus> for SdkBlobCertificationStatus {
     fn from(value: BlobCertificationStatus) -> Self {
         use BlobCertificationStatus::*;
         match value {
-            Registered => SdkBlobCertificationStatus::Registered,
-            Certified => SdkBlobCertificationStatus::Certified,
-            Invalid => SdkBlobCertificationStatus::Invalid,
+            Registered => Self::Registered,
+            Certified => Self::Certified,
+            Invalid => Self::Invalid,
         }
     }
 }

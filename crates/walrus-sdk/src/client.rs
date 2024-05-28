@@ -135,7 +135,12 @@ impl Client {
     pub async fn get_blob_status(&self, blob_id: &BlobId) -> Result<BlobStatus, NodeError> {
         let url = self.endpoints.blob_status(blob_id);
         let response = self.inner.get(url).send().await.map_err(Kind::Reqwest)?;
-        let blob_status: BlobStatus = response.response_error_for_status().await?.bcs().await?;
+        let blob_status: BlobStatus = response
+            .response_error_for_status()
+            .await?
+            .json()
+            .await
+            .map_err(Kind::Json)?;
 
         Ok(blob_status)
     }
