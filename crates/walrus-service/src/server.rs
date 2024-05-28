@@ -335,13 +335,10 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
                 tracing::debug!(%blob_id, %sliver_type, %sliver_pair_index, "stored sliver");
                 ServiceResponse::success(StatusCode::OK, "Sliver stored".to_string())
             }
-            Err(StoreSliverError::AlreadyStored(sliver_type, blob_id)) => {
+            Err(e @ StoreSliverError::AlreadyStored(sliver_type, blob_id)) => {
                 tracing::debug!(%blob_id, %sliver_type, %sliver_pair_index,
                     "sliver already stored");
-                ServiceResponse::success(
-                    StatusCode::OK,
-                    StoreSliverError::AlreadyStored(sliver_type, blob_id).to_string(),
-                )
+                ServiceResponse::success(StatusCode::OK, e.to_string())
             }
             Err(StoreSliverError::Internal(message)) => {
                 tracing::error!(%message, "internal server error");

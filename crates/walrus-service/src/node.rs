@@ -690,13 +690,11 @@ impl ServiceState for StorageNode {
                 })?;
 
         if match sliver {
-            Sliver::Primary(_) => shard_storage
-                .is_sliver_stored::<Primary>(blob_id)
-                .context("unable to check sliver existence")?,
-            Sliver::Secondary(_) => shard_storage
-                .is_sliver_stored::<Secondary>(blob_id)
-                .context("unable to check sliver existence")?,
-        } {
+            Sliver::Primary(_) => shard_storage.is_sliver_stored::<Primary>(blob_id),
+            Sliver::Secondary(_) => shard_storage.is_sliver_stored::<Secondary>(blob_id),
+        }
+        .context("unable to check sliver existence")?
+        {
             return Err(StoreSliverError::AlreadyStored(sliver.r#type(), *blob_id));
         }
 
@@ -1495,13 +1493,10 @@ mod tests {
         last_result.expect("function to have completed at least once")
     }
 
-    // Tests StorageNode::store_metadata skip storing metadata if it is already stored.
     #[tokio::test]
-    async fn metadata_already_stored() -> TestResult {
-        let shards: &[&[u16]] = &[&[0], &[1, 2, 3, 4, 5, 6]];
-
+    async fn skip_storing_metadata_if_already_stored() -> TestResult {
         let (cluster, _, blob) =
-            cluster_with_partially_stored_blob(shards, BLOB, |_, _| true).await?;
+            cluster_with_partially_stored_blob(&[&[0]], BLOB, |_, _| true).await?;
 
         assert!(matches!(
             cluster.nodes[0]
@@ -1513,13 +1508,10 @@ mod tests {
         Ok(())
     }
 
-    // Tests StorageNode::store_sliver skip storing sliver if it is already stored.
     #[tokio::test]
-    async fn sliver_already_stored() -> TestResult {
-        let shards: &[&[u16]] = &[&[0], &[1, 2, 3, 4, 5, 6]];
-
+    async fn skip_storing_sliver_if_already_stored() -> TestResult {
         let (cluster, _, blob) =
-            cluster_with_partially_stored_blob(shards, BLOB, |_, _| true).await?;
+            cluster_with_partially_stored_blob(&[&[0]], BLOB, |_, _| true).await?;
 
         let assigned_sliver_pair = blob.assigned_sliver_pair(ShardIndex(0));
         assert!(matches!(
@@ -1531,8 +1523,8 @@ mod tests {
                     &Sliver::Primary(assigned_sliver_pair.primary.clone())
                 )
                 .unwrap_err(),
-            StoreSliverError::AlreadyStored(sliver_type, blob_id)
-                if sliver_type == SliverType::Primary && blob_id == *blob.blob_id()
+            StoreSliverError::AlreadyStored(SliverType::Primary, blob_id)
+                if blob_id == *blob.blob_id()
         ));
         Ok(())
     }
