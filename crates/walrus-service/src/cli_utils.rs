@@ -3,14 +3,28 @@
 
 //! Utilities for running the walrus cli tools.
 
-use std::path::PathBuf;
+use std::{num::NonZeroU16, path::PathBuf};
 
 use anyhow::{anyhow, Context, Result};
 use colored::{ColoredString, Colorize};
+use prettytable::{format, row, Table};
 use sui_sdk::{wallet_context::WalletContext, SuiClient, SuiClientBuilder};
-use walrus_sui::client::{SuiContractClient, SuiReadClient};
+use walrus_core::{
+    bft,
+    encoding::{
+        encoded_blob_length_for_n_shards,
+        max_blob_size_for_n_shards,
+        max_sliver_size_for_n_secondary,
+        metadata_length_for_n_shards,
+        source_symbols_for_n_shards,
+    },
+};
+use walrus_sui::{
+    client::{SuiContractClient, SuiReadClient},
+    types::Committee,
+};
 
-use crate::client::{default_configuration_paths, Client, Config};
+use crate::client::{default_configuration_paths, string_prefix, Client, Config};
 
 /// Default URL of the testnet RPC node.
 pub const TESTNET_RPC: &str = "https://fullnode.testnet.sui.io:443";
@@ -97,9 +111,13 @@ pub async fn get_contract_client(
     Ok(Client::new(config, sui_client).await?)
 }
 
+/// Creates a [`SuiClient`] from the provided RPC URL or wallet.
+///
+/// The RPC URL is set based on the `rpc_url` parameter (if `Some`), the `wallet` (if `Ok`) or the
+/// default [`DEFAULT_RPC_URL`] if `allow_fallback_to_default` is true.
 // NB: When making changes to the logic, make sure to update the docstring of `get_read_client` and
 // the argument docs in `crates/walrus-service/bin/client.rs`.
-async fn get_sui_client_from_rpc_node_or_wallet(
+pub async fn get_sui_client_from_rpc_node_or_wallet(
     rpc_url: Option<String>,
     wallet: Result<WalletContext>,
     allow_fallback_to_default: bool,
@@ -201,6 +219,135 @@ impl std::fmt::Display for HumanReadableBytes {
 
         write!(f, "{normalized_value:.*} {unit}", precision)
     }
+}
+
+/// Pretty-prints information on the running Walrus system.
+pub fn print_walrus_info(committee: &Committee, price_per_unit_size: u64, dev: bool) {
+    let n_shards = committee.n_shards();
+    let (n_primary_source_symbols, n_secondary_source_symbols) =
+        source_symbols_for_n_shards(n_shards);
+
+    println!("\n{}", "Walrus system information".bold());
+    println!("\n{}", "Storage nodes".bold().green());
+    println!("Number of nodes: {}", committee.n_members());
+    println!("Number of shards: {}", n_shards);
+
+    println!("\n{}", "Blob size".bold().green());
+    let max_blob_size = max_blob_size_for_n_shards(n_shards);
+    println!(
+        "Maximum blob size: {} ({} B)",
+        HumanReadableBytes(max_blob_size),
+        max_blob_size
+    );
+
+    println!("\n{}", "Current storage price".bold().green());
+    println!("Price per encoded Byte: {} MIST", price_per_unit_size);
+    println!(
+        "Price per input MiB: {:.3} SUI",
+        mist_price_per_blob_size(1 << 20, n_shards, price_per_unit_size)
+            .expect("we can encode 1 MiB") as f64
+            / 1e9
+    );
+    println!(
+        "Price per max blob ({}): {:.3} SUI",
+        HumanReadableBytes(max_blob_size),
+        mist_price_per_blob_size(max_blob_size, n_shards, price_per_unit_size)
+            .expect("we can encode the max blob size") as f64
+            / 1e9
+    );
+
+    if dev {
+        println!(
+            "\n{}",
+            "(dev) Encoding parameters and sizes".bold().yellow()
+        );
+        println!(
+            "Number of primary source symbols: {}",
+            n_primary_source_symbols
+        );
+        println!(
+            "Number of secondary source symbols: {}",
+            n_secondary_source_symbols
+        );
+        let metadata_length = metadata_length_for_n_shards(n_shards);
+        println!(
+            "Metadata size: {} ({} B)",
+            HumanReadableBytes(metadata_length),
+            metadata_length
+        );
+        let max_sliver_size = max_sliver_size_for_n_secondary(n_secondary_source_symbols);
+        println!(
+            "Maximum sliver size: {} ({} B)",
+            HumanReadableBytes(max_sliver_size),
+            max_sliver_size,
+        );
+        let max_encoded_blob_size =
+            encoded_blob_length_for_n_shards(n_shards, max_blob_size_for_n_shards(n_shards))
+                .expect("we can compute the encoded length of the max blob size");
+        println!(
+            "Maximum encoded blob size: {} ({} B)",
+            HumanReadableBytes(max_encoded_blob_size),
+            max_encoded_blob_size,
+        );
+
+        let f = bft::max_n_faulty(n_shards);
+        println!("\n{}", "(dev) BFT system information".bold().yellow());
+        println!("Tolerated faults (f): {}", f);
+        println!("Quorum threshold (2f+1): {}", 2 * f + 1);
+        println!(
+            "Minimum number of correct nodes (n-f): {}",
+            bft::min_n_correct(n_shards)
+        );
+
+        let mut table = Table::new();
+        table.set_format(default_table_format());
+        table.set_titles(row![b->"Idx", b->"# Shards", b->"Pk prefix", b->"Address"]);
+
+        println!(
+            "\n{}",
+            "(dev) Storage node details and shard distribution"
+                .bold()
+                .yellow()
+        );
+        for (i, node) in committee.members().iter().enumerate() {
+            let n_owned = node.shard_ids.len();
+            let n_owned_percent = (n_owned as f64) / (committee.n_shards().get() as f64) * 100.0;
+            table.add_row(row![
+                bFg->format!("{i}"),
+                format!("{} ({:.2}%)", n_owned, n_owned_percent),
+                string_prefix(&node.public_key),
+                node.network_address,
+            ]);
+        }
+        table.printstd();
+    }
+}
+
+/// Computes the MIST price given the unencoded blob size.
+// NOTE: Keep this computation in line with price unit size changes.
+fn mist_price_per_blob_size(
+    unencoded_length: u64,
+    n_shards: NonZeroU16,
+    price_per_unit_size: u64,
+) -> Option<u64> {
+    encoded_blob_length_for_n_shards(n_shards, unencoded_length)
+        .map(|size| size * price_per_unit_size)
+}
+
+/// Default style for tables printed to stdout.
+// TODO: Consider deduplicating with `walrus_orchestrator::display`.
+fn default_table_format() -> format::TableFormat {
+    format::FormatBuilder::new()
+        .separators(
+            &[
+                format::LinePosition::Top,
+                format::LinePosition::Bottom,
+                format::LinePosition::Title,
+            ],
+            format::LineSeparator::new('-', '-', '-', '-'),
+        )
+        .padding(1, 1)
+        .build()
 }
 
 #[cfg(test)]

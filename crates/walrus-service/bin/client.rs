@@ -13,14 +13,17 @@ use walrus_service::{
         error,
         get_contract_client,
         get_read_client,
+        get_sui_client_from_rpc_node_or_wallet,
         load_configuration,
         load_wallet_context,
+        print_walrus_info,
         success,
         HumanReadableBytes,
     },
     client::Config,
     daemon::ClientDaemon,
 };
+use walrus_sui::client::{ReadClient, SuiContractClient, SuiReadClient};
 
 #[derive(Parser, Debug, Clone)]
 #[clap(rename_all = "kebab-case")]
@@ -115,6 +118,19 @@ enum Commands {
     Daemon {
         #[clap(flatten)]
         args: PublisherArgs,
+    },
+    /// Print information about the Walrus storage system this client is connected to.
+    Info {
+        /// The URL of the Sui RPC node to use.
+        ///
+        /// If unset, the wallet configuration is applied (if set), or the fullnode at
+        /// `fullnode.testnet.sui.io:443` is used.
+        // NB: Keep this in sync with `walrus_service::cli_utils`.
+        #[clap(short, long)]
+        rpc_url: Option<String>,
+        /// Print extended information for developers.
+        #[clap(long, action)]
+        dev: bool,
     },
 }
 
@@ -225,6 +241,15 @@ async fn client() -> Result<()> {
                 .with_aggregator()
                 .with_publisher(args.max_body_size());
             publisher.run().await?;
+        }
+        Commands::Info { rpc_url, dev } => {
+            let sui_client =
+                get_sui_client_from_rpc_node_or_wallet(rpc_url, wallet, wallet_path.is_none())
+                    .await?;
+            let sui_read_client =
+                SuiReadClient::new(sui_client, config.system_pkg, config.system_object).await?;
+            let price = sui_read_client.price_per_unit_size().await?;
+            print_walrus_info(&sui_read_client.current_committee().await?, price, dev);
         }
     }
     Ok(())

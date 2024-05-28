@@ -36,6 +36,7 @@ mod utils;
 
 use communication::{NodeCommunication, NodeResult};
 use error::StoreError;
+pub use utils::string_prefix;
 use utils::WeightedFutures;
 
 use self::config::default;
