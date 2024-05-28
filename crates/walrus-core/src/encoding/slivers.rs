@@ -111,10 +111,7 @@ impl<T: EncodingAxis> Sliver<T> {
             SliverVerificationError::SliverSizeMismatch
         );
         ensure!(
-            self.symbols.symbol_size()
-                == metadata
-                    .symbol_size(encoding_config)
-                    .expect("the symbol size is checked in `UnverifiedBlobMetadataWithId::verify`"),
+            Ok(self.symbols.symbol_size()) == metadata.symbol_size(encoding_config),
             SliverVerificationError::SymbolSizeMismatch
         );
         let pair_metadata = metadata
@@ -134,7 +131,7 @@ impl<T: EncodingAxis> Sliver<T> {
 
     /// Returns true iff the sliver has the length expected based on the encoding configuration and
     /// blob size.
-    pub fn has_correct_length(&self, config: &EncodingConfig, blob_size: NonZeroU64) -> bool {
+    fn has_correct_length(&self, config: &EncodingConfig, blob_size: NonZeroU64) -> bool {
         self.expected_length(config, blob_size).is_some_and(|l| {
             self.len() == usize::try_from(l).expect("we assume at least a 32-bit architecture")
         })
