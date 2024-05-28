@@ -13,8 +13,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{instrument, Instrument};
 use typed_store::{rocks::MetricConf, DBMetrics, TypedStoreError};
 use walrus_core::{
-    encoding::{EncodingAxis, EncodingConfig, Primary, RecoverySymbolError, Secondary},
-    ensure,
+    encoding::{EncodingAxis, EncodingConfig, Primary, Secondary, SliverVerificationError},
     inconsistency::InconsistencyVerificationError,
     keys::ProtocolKeyPair,
     merkle::{MerkleAuth, MerkleProof},
@@ -99,18 +98,10 @@ impl From<RetrieveSliverError> for RetrieveSymbolError {
 pub enum StoreSliverError {
     #[error("Missing metadata for {0}")]
     MissingMetadata(BlobId),
-    #[error("Invalid {0} for {1}")]
-    InvalidSliverPairId(SliverPairIndex, BlobId),
-    #[error("Invalid {0} for {1}")]
-    InvalidSliver(SliverPairIndex, BlobId),
-    #[error("Invalid sliver size {0} for {1}")]
-    IncorrectSize(usize, BlobId),
-    #[error("Invalid shard type {0} for {1}")]
-    InvalidSliverType(SliverType, BlobId),
+    #[error("Invalid {0} for {1}: {2}")]
+    InvalidSliver(SliverPairIndex, BlobId, SliverVerificationError),
     #[error("this storage node does not currently manage shard {shard}, epoch {epoch}")]
     InvalidShard { shard: ShardIndex, epoch: Epoch },
-    #[error(transparent)]
-    MalformedSliver(#[from] RecoverySymbolError),
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
     #[error("{0} sliver for blob {1} was already stored")]
@@ -705,22 +696,10 @@ impl ServiceState for StorageNode {
             .context("unable to retrieve metadata")?
             .ok_or_else(|| StoreSliverError::MissingMetadata(*blob_id))?;
 
-        // Ensure the received sliver has the expected size.
-        ensure!(
-            sliver.has_correct_length(&self.encoding_config, metadata.metadata().unencoded_length),
-            StoreSliverError::IncorrectSize(sliver.len(), *blob_id)
-        );
-
-        // Ensure the received sliver matches the metadata we have in store.
-        let stored_sliver_hash = metadata
-            .metadata()
-            .get_sliver_hash(sliver_pair_index, sliver.r#type())
-            .ok_or_else(|| StoreSliverError::InvalidSliverPairId(sliver_pair_index, *blob_id))?;
-        let computed_sliver_hash = sliver.hash(&self.encoding_config)?;
-        ensure!(
-            &computed_sliver_hash == stored_sliver_hash,
-            StoreSliverError::InvalidSliver(sliver_pair_index, *blob_id)
-        );
+        // Verify the sliver.
+        sliver
+            .verify(&self.encoding_config, metadata.metadata())
+            .map_err(|e| StoreSliverError::InvalidSliver(sliver_pair_index, *blob_id, e))?;
 
         // Finally store the sliver in the appropriate shard storage.
         shard_storage

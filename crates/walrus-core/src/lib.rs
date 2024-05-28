@@ -12,7 +12,7 @@ extern crate std;
 use alloc::vec::Vec;
 use core::{
     fmt::{self, Debug, Display},
-    num::{NonZeroU16, NonZeroU32, NonZeroU64},
+    num::{NonZeroU16, NonZeroU64},
     ops::{Bound, Range, RangeBounds},
     str::FromStr,
 };
@@ -21,13 +21,12 @@ use base64::{display::Base64Display, engine::general_purpose::URL_SAFE_NO_PAD, E
 use encoding::{
     EncodingAxis,
     EncodingConfig,
-    Primary,
     PrimaryRecoverySymbol,
     PrimarySliver,
     RecoverySymbolError,
-    Secondary,
     SecondaryRecoverySymbol,
     SecondarySliver,
+    SliverVerificationError,
     WrongSliverVariantError,
 };
 use fastcrypto::{
@@ -374,6 +373,21 @@ impl Sliver {
         }
     }
 
+    /// Checks that the provided sliver is authenticated by the metadata.
+    ///
+    /// The checks include verifying that the sliver has the correct length and symbol size, and
+    /// that the hash in the metadata matches the Merkle root over the sliver's symbols.
+    pub fn verify(
+        &self,
+        encoding_config: &EncodingConfig,
+        metadata: &BlobMetadata,
+    ) -> Result<(), SliverVerificationError> {
+        match self {
+            Sliver::Primary(inner) => inner.verify(encoding_config, metadata),
+            Sliver::Secondary(inner) => inner.verify(encoding_config, metadata),
+        }
+    }
+
     /// Returns the [`Sliver<T>`][Sliver] contained within the enum.
     pub fn to_raw<T>(self) -> Result<encoding::Sliver<T>, WrongSliverVariantError>
     where
@@ -381,23 +395,6 @@ impl Sliver {
         T: EncodingAxis,
     {
         self.try_into().map_err(|_| WrongSliverVariantError)
-    }
-
-    /// Returns true iff the sliver has the length expected based on the encoding configuration and
-    /// blob size.
-    pub fn has_correct_length(&self, config: &EncodingConfig, blob_size: NonZeroU64) -> bool {
-        self.expected_length(config, blob_size).is_some_and(|l| {
-            self.len() == usize::try_from(l).expect("we assume at least a 32-bit architecture")
-        })
-    }
-
-    fn expected_length(&self, config: &EncodingConfig, blob_size: NonZeroU64) -> Option<u32> {
-        match self {
-            Self::Primary(_) => config.sliver_size_for_blob::<Primary>(blob_size.get()),
-            Self::Secondary(_) => config.sliver_size_for_blob::<Secondary>(blob_size.get()),
-        }
-        .map(NonZeroU32::get)
-        .ok()
     }
 }
 
