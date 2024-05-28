@@ -27,7 +27,7 @@ prometheus = "0.13.4"
 rand.workspace = true
 regex = "1"
 reqwest = { workspace = true, features = ["json"] }
-rocksdb = "0.21"
+rocksdb = "0.22.0"
 serde.workspace = true
 serde_with = { workspace = true, features = ["base64"] }
 serde_yaml.workspace = true
