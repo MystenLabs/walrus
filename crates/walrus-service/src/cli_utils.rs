@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use anyhow::{anyhow, Context, Result};
 use colored::{ColoredString, Colorize};
 use sui_sdk::{wallet_context::WalletContext, SuiClient, SuiClientBuilder};
-use walrus_sui::client::SuiReadClient;
+use walrus_sui::client::{SuiContractClient, SuiReadClient};
 
 use crate::client::{default_configuration_paths, Client, Config};
 
@@ -83,6 +83,18 @@ pub async fn get_read_client(
     let sui_read_client =
         SuiReadClient::new(sui_client, config.system_pkg, config.system_object).await?;
     Ok(Client::new_read_client(config, &sui_read_client).await?)
+}
+
+/// Creates a [`Client<ContractClient>`] based on the provided [`Config`] with write access to Sui.
+pub async fn get_contract_client(
+    config: Config,
+    wallet: Result<WalletContext>,
+    gas_budget: u64,
+) -> Result<Client<SuiContractClient>> {
+    let sui_client =
+        SuiContractClient::new(wallet?, config.system_pkg, config.system_object, gas_budget)
+            .await?;
+    Ok(Client::new(config, sui_client).await?)
 }
 
 // NB: When making changes to the logic, make sure to update the docstring of `get_read_client` and

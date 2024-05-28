@@ -3,12 +3,12 @@
 
 //! Service functionality for Walrus.
 
-pub mod aggregator;
 pub mod cli_utils;
 pub mod client;
 pub mod committee;
 pub mod config;
 pub mod contract_service;
+pub mod daemon;
 pub mod server;
 pub mod system_events;
 pub mod testbed;

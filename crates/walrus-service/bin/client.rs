@@ -3,24 +3,24 @@
 
 //! A client for the Walrus blob store.
 
-use std::{io::Write, net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{io::Write, net::SocketAddr, path::PathBuf};
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use walrus_core::{encoding::Primary, BlobId};
 use walrus_service::{
-    aggregator::AggregatorServer,
     cli_utils::{
         error,
+        get_contract_client,
         get_read_client,
         load_configuration,
         load_wallet_context,
         success,
         HumanReadableBytes,
     },
-    client::{Client, Config},
+    client::Config,
+    daemon::ClientDaemon,
 };
-use walrus_sui::client::SuiContractClient;
 
 #[derive(Parser, Debug, Clone)]
 #[clap(rename_all = "kebab-case")]
@@ -31,27 +31,27 @@ struct Args {
     /// The Walrus configuration is taken from the following locations:
     ///
     /// 1. From this configuration parameter, if set.
-    /// 1. From `./config.yaml`.
-    /// 1. From `~/.walrus/config.yaml`.
+    /// 2. From `./config.yaml`.
+    /// 3. From `~/.walrus/config.yaml`.
     ///
     /// If an invalid path is specified through this option, an error is returned.
     // NB: Keep this in sync with `walrus_service::cli_utils`.
-    #[clap(short, long)]
+    #[clap(short, long, verbatim_doc_comment)]
     config: Option<PathBuf>,
     /// The path to the Sui wallet configuration file.
     ///
     /// The wallet configuration is taken from the following locations:
     ///
     /// 1. From this configuration parameter, if set.
-    /// 1. From the path specified in the Walrus configuration, if set.
-    /// 1. From `./client.yaml`.
-    /// 1. From `./sui_config.yaml`.
-    /// 1. From `~/.sui/sui_config/client.yaml`.
+    /// 2. From the path specified in the Walrus configuration, if set.
+    /// 3. From `./client.yaml`.
+    /// 4. From `./sui_config.yaml`.
+    /// 5. From `~/.sui/sui_config/client.yaml`.
     ///
     /// If an invalid path is specified through this option or in the configuration file, an error
     /// is returned.
     // NB: Keep this in sync with `walrus_service::cli_utils`.
-    #[clap(short, long, default_value = None)]
+    #[clap(short, long, default_value = None, verbatim_doc_comment)]
     wallet: Option<PathBuf>,
     /// The gas budget for transactions.
     #[clap(short, long, default_value_t = 500_000_000)]
@@ -64,6 +64,7 @@ struct Args {
 #[clap(rename_all = "kebab-case")]
 enum Commands {
     /// Store a new blob into Walrus.
+    #[clap(alias("write"))]
     Store {
         /// The file containing the blob to be published to Walrus.
         file: PathBuf,
@@ -88,6 +89,15 @@ enum Commands {
         #[clap(short, long)]
         rpc_url: Option<String>,
     },
+    /// Run a publisher service at the provided network address.
+    ///
+    /// This does not perform any type of access control and is thus not suited for a public
+    /// deployment when real money is involved.
+    Publisher {
+        /// The address to which to bind the publisher.
+        #[clap(short, long)]
+        bind_address: SocketAddr,
+    },
     /// Run an aggregator service at the provided network address.
     Aggregator {
         /// The URL of the Sui RPC node to use.
@@ -98,6 +108,13 @@ enum Commands {
         #[clap(short, long)]
         rpc_url: Option<String>,
         /// The address to which to bind the aggregator.
+        #[clap(short, long)]
+        bind_address: SocketAddr,
+    },
+    /// Run a client daemon at the provided network address, combining the functionality of an
+    /// aggregator and a publisher.
+    Daemon {
+        /// The address to which to bind the daemon.
         #[clap(short, long)]
         bind_address: SocketAddr,
     },
@@ -113,14 +130,7 @@ async fn client() -> Result<()> {
 
     match args.command {
         Commands::Store { file, epochs } => {
-            let sui_client = SuiContractClient::new(
-                wallet?,
-                config.system_pkg,
-                config.system_object,
-                args.gas_budget,
-            )
-            .await?;
-            let client = Client::new(config, sui_client).await?;
+            let client = get_contract_client(config, wallet, args.gas_budget).await?;
 
             tracing::info!(
                 file = %file.display(),
@@ -159,14 +169,28 @@ async fn client() -> Result<()> {
                 None => std::io::stdout().write_all(&blob)?,
             }
         }
+        Commands::Publisher { bind_address } => {
+            tracing::debug!("attempting to run the Walrus publisher");
+            let client = get_contract_client(config, wallet, args.gas_budget).await?;
+            let publisher = ClientDaemon::new(client, bind_address).with_publisher();
+            publisher.run().await?;
+        }
         Commands::Aggregator {
             rpc_url,
             bind_address,
         } => {
             tracing::debug!(?rpc_url, "attempting to run the Walrus aggregator");
             let client = get_read_client(config, rpc_url, wallet, wallet_path.is_none()).await?;
-            let aggregator = AggregatorServer::new(Arc::new(client));
-            aggregator.run(&bind_address).await?;
+            let aggregator = ClientDaemon::new(client, bind_address).with_aggregator();
+            aggregator.run().await?;
+        }
+        Commands::Daemon { bind_address } => {
+            tracing::debug!("attempting to run the Walrus daemon");
+            let client = get_contract_client(config, wallet, args.gas_budget).await?;
+            let publisher = ClientDaemon::new(client, bind_address)
+                .with_aggregator()
+                .with_publisher();
+            publisher.run().await?;
         }
     }
     Ok(())

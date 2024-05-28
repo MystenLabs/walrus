@@ -74,7 +74,7 @@ pub enum SuiClientError {
 pub type SuiClientResult<T> = Result<T, SuiClientError>;
 
 /// Trait for interactions with the walrus contracts.
-pub trait ContractClient {
+pub trait ContractClient: Send + Sync {
     /// Purchases blob storage for the next `epochs_ahead` Walrus epochs and an encoded
     /// size of `encoded_size` and returns the created storage resource.
     fn reserve_space(
