@@ -6,7 +6,7 @@
 use std::{io::Write, net::SocketAddr, path::PathBuf};
 
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use walrus_core::{encoding::Primary, BlobId};
 use walrus_service::{
     cli_utils::{
@@ -25,7 +25,7 @@ use walrus_service::{
 #[derive(Parser, Debug, Clone)]
 #[clap(rename_all = "kebab-case")]
 #[command(author, version, about = "Walrus client", long_about = None)]
-struct Args {
+struct App {
     /// The path to the wallet configuration file.
     ///
     /// The Walrus configuration is taken from the following locations:
@@ -94,9 +94,8 @@ enum Commands {
     /// This does not perform any type of access control and is thus not suited for a public
     /// deployment when real money is involved.
     Publisher {
-        /// The address to which to bind the publisher.
-        #[clap(short, long)]
-        bind_address: SocketAddr,
+        #[clap(flatten)]
+        args: PublisherArgs,
     },
     /// Run an aggregator service at the provided network address.
     Aggregator {
@@ -114,23 +113,57 @@ enum Commands {
     /// Run a client daemon at the provided network address, combining the functionality of an
     /// aggregator and a publisher.
     Daemon {
-        /// The address to which to bind the daemon.
-        #[clap(short, long)]
-        bind_address: SocketAddr,
+        #[clap(flatten)]
+        args: PublisherArgs,
     },
+}
+
+#[derive(Debug, Clone, Args)]
+struct PublisherArgs {
+    /// The address to which to bind the service.
+    #[clap(short, long)]
+    pub bind_address: SocketAddr,
+    /// The maximum body size of PUT requests in KiB.
+    #[clap(short, long = "max-body-size", default_value_t = 10_240)]
+    pub max_body_size_kib: usize,
+}
+
+impl PublisherArgs {
+    fn max_body_size(&self) -> usize {
+        self.max_body_size_kib << 10
+    }
+
+    fn format_max_body_size(&self) -> String {
+        format!(
+            "{}",
+            HumanReadableBytes(
+                self.max_body_size()
+                    .try_into()
+                    .expect("should fit into a `u64`")
+            )
+        )
+    }
+
+    fn print_debug_message(&self, message: &str) {
+        tracing::debug!(
+            bind_address = %self.bind_address,
+            max_body_size = self.format_max_body_size(),
+            message
+        );
+    }
 }
 
 async fn client() -> Result<()> {
     tracing_subscriber::fmt::init();
-    let args = Args::parse();
-    let config: Config = load_configuration(&args.config)?;
-    tracing::debug!(?args, ?config, "initializing the client");
-    let wallet_path = args.wallet.clone().or(config.wallet_config.clone());
+    let app = App::parse();
+    let config: Config = load_configuration(&app.config)?;
+    tracing::debug!(?app, ?config, "initializing the client");
+    let wallet_path = app.wallet.clone().or(config.wallet_config.clone());
     let wallet = load_wallet_context(&wallet_path);
 
-    match args.command {
+    match app.command {
         Commands::Store { file, epochs } => {
-            let client = get_contract_client(config, wallet, args.gas_budget).await?;
+            let client = get_contract_client(config, wallet, app.gas_budget).await?;
 
             tracing::info!(
                 file = %file.display(),
@@ -169,10 +202,11 @@ async fn client() -> Result<()> {
                 None => std::io::stdout().write_all(&blob)?,
             }
         }
-        Commands::Publisher { bind_address } => {
-            tracing::debug!("attempting to run the Walrus publisher");
-            let client = get_contract_client(config, wallet, args.gas_budget).await?;
-            let publisher = ClientDaemon::new(client, bind_address).with_publisher();
+        Commands::Publisher { args } => {
+            args.print_debug_message("attempting to run the Walrus publisher");
+            let client = get_contract_client(config, wallet, app.gas_budget).await?;
+            let publisher =
+                ClientDaemon::new(client, args.bind_address).with_publisher(args.max_body_size());
             publisher.run().await?;
         }
         Commands::Aggregator {
@@ -184,12 +218,12 @@ async fn client() -> Result<()> {
             let aggregator = ClientDaemon::new(client, bind_address).with_aggregator();
             aggregator.run().await?;
         }
-        Commands::Daemon { bind_address } => {
-            tracing::debug!("attempting to run the Walrus daemon");
-            let client = get_contract_client(config, wallet, args.gas_budget).await?;
-            let publisher = ClientDaemon::new(client, bind_address)
+        Commands::Daemon { args } => {
+            args.print_debug_message("attempting to run the Walrus daemon");
+            let client = get_contract_client(config, wallet, app.gas_budget).await?;
+            let publisher = ClientDaemon::new(client, args.bind_address)
                 .with_aggregator()
-                .with_publisher();
+                .with_publisher(args.max_body_size());
             publisher.run().await?;
         }
     }
