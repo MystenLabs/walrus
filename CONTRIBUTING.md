@@ -69,7 +69,7 @@ The configuration file for Tarpaulin is [.tarpaulin.toml](./.tarpaulin.toml).
 
 ### Running a local Walrus testbed
 
-You can conveniently deploy and interact with a local Walrus testbed as described [here](README.md#run-it-locally).
+You can conveniently deploy and interact with a local Walrus testbed as described [here](README.md#run-a-local-walrus-testbed).
 
 ## Benchmarks
 

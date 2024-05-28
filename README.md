@@ -26,7 +26,7 @@ This repository contains all Walrus-related code, tools, and documentation:
   and clients. See [below](#rust-crates) for further information about those.
 - [`docs`](docs) contains high-level technical and design documentation about Walrus.
 - [`scripts`](docs) contains tools used for evaluating and testing the code. In particular, this
-  contains a script to run a local testbed, see [below](#run-it-locally).
+  contains a script to run a local testbed, see [below](#run-a-local-walrus-testbed).
 
 ### Rust crates
 
@@ -43,11 +43,63 @@ Our Rust code is split into several crates with different responsibilities:
 - [walrus-orchestrator](crates/walrus-orchestrator/) contains tools to deploy and benchmark
   distributed Walrus networks.
 
-## Run it locally
+## Using the Walrus client
+
+The `walrus` binary can be used to interact with Walrus as a client. To use it, you need a Walrus
+configuration and a Sui wallet; both of which are automatically generated when [running a local
+testbed](#run-a-local-walrus-testbed). If you want to interact with a publicly deployed Walrus
+system, you need to obtain the system information and set up a wallet manually.
+
+In general, you can build and run the Walrus client as follows:
+
+```sh
+cargo run --bin walrus -- <commands and arguments>
+```
+
+Detailed usage information is available through
+
+```sh
+cargo run --bin walrus -- --help
+```
+
+Storing and reading blobs from Walrus can be achieved through the following commands:
+
+```sh
+CONFIG=working_dir/client_config.yaml # adjust for your configuration file
+cargo run --bin walrus -- -c $CONFIG store <some file> # store a file
+cargo run --bin walrus -- -c $CONFIG read <some blob ID> # read a blob
+```
+
+### Daemon mode
+
+In addition to the CLI mode, the Walrus client offers a *daemon mode*. In this mode, it runs a
+simple web server offering HTTP interfaces to store and read blobs. You can run the daemon with
+different sets of API endpoints through one of the following commands:
+
+```sh
+ADDRESS="127.0.0.1:31415" # bind the daemon to localhost and port 31415
+cargo run --bin walrus -- -c $CONFIG aggregator -b $ADDRESS # run an aggregator to read blobs
+cargo run --bin walrus -- -c $CONFIG publisher -b $ADDRESS # run a publisher to store blobs
+cargo run --bin walrus -- -c $CONFIG daemon -b $ADDRESS # run a daemon combining an aggregator and a publisher
+```
+
+You can then interact with the daemon through simple HTTP requests. For example, with
+[cURL](https://curl.se), you can store and read blobs as follows:
+
+```sh
+curl -X PUT "http://$ADDRESS/v1/store" -d "some string" # store the string `some string` for 1 storage epoch
+curl -X PUT "http://$ADDRESS/v1/store?epochs=5" -d @"some/file" # store file `some/file` for 5 storage epochs
+curl "http://$ADDRESS/v1/<some blob ID>" # read a blob from Walrus (with aggregator or daemon)
+```
+
+## Run a local Walrus testbed
 
 In addition to publicly deployed Walrus systems, you can deploy a Walrus testbed on your local
 machine for manual testing. All you need to do is run the script `scripts/local-testbed.sh`. See
 `scripts/local-testbed.sh -h` for further usage information.
+
+The script generates configuration that you can use when [running the Walrus
+client](#using-the-walrus-client) and prints the path to that configuration file.
 
 Note that while the Walrus storage nodes of this testbed run on your local machine, the Sui devnet
 is used by default to deploy and interact with the contracts. To run the testbed fully locally, simply
