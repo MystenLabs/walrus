@@ -11,6 +11,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use anyhow::anyhow;
 use fastcrypto::traits::KeyPair;
 use futures::future::try_join_all;
 use rand::{rngs::StdRng, SeedableRng};
@@ -232,6 +233,7 @@ pub async fn create_storage_node_configs(
     working_dir: &Path,
     testbed_config: TestbedConfig,
     metrics_port: u16,
+    set_config_dir: Option<PathBuf>,
 ) -> anyhow::Result<Vec<StorageNodeConfig>> {
     let ips = testbed_config.ips;
     let rest_api_port = testbed_config.rest_api_port;
@@ -268,17 +270,30 @@ pub async fn create_storage_node_configs(
             )
         };
 
+        let wallet_path = if let Some(final_directory) = set_config_dir.as_ref() {
+            let wallet_path = wallets[i].config.path();
+            replace_keystore_path(wallet_path, final_directory)?;
+            final_directory.join(wallet_path.file_name().expect("file name should exist"))
+        } else {
+            wallets[i].config.path().to_path_buf()
+        };
+
         let sui = Some(SuiConfig {
             rpc: rpc.clone(),
             pkg_id: testbed_config.pkg_id,
             system_object: testbed_config.system_object,
             event_polling_interval: defaults::polling_interval(),
-            wallet_config: wallets[i].config.path().canonicalize()?,
+            wallet_config: wallet_path,
             gas_budget: defaults::gas_budget(),
         });
 
+        let storage_path = if let Some(path) = set_config_dir.as_ref() {
+            path.join(&name)
+        } else {
+            working_dir.join(&name).canonicalize()?
+        };
         storage_node_configs.push(StorageNodeConfig {
-            storage_path: working_dir.join(&name),
+            storage_path,
             protocol_key_pair: PathOrInPlace::InPlace(keypair),
             metrics_address,
             rest_api_address,
@@ -286,6 +301,32 @@ pub async fn create_storage_node_configs(
         });
     }
     Ok(storage_node_configs)
+}
+
+fn replace_keystore_path(wallet_path: &Path, new_directory: &Path) -> anyhow::Result<()> {
+    let reader = std::fs::File::open(wallet_path)?;
+    let mut wallet_contents: serde_yaml::Mapping = serde_yaml::from_reader(reader)?;
+    let keystore_path = wallet_contents
+        .get_mut("keystore")
+        .expect("keystore to exist in wallet config")
+        .get_mut("File")
+        .ok_or_else(|| anyhow!("keystore path is not set"))?;
+    *keystore_path = new_directory
+        .join(
+            Path::new(
+                keystore_path
+                    .as_str()
+                    .ok_or_else(|| anyhow!("path could not be converted to str"))?,
+            )
+            .file_name()
+            .expect("file name to be set"),
+        )
+        .to_str()
+        .ok_or_else(|| anyhow!("path could not be converted to str"))?
+        .into();
+    let serialized_config = serde_yaml::to_string(&wallet_contents)?;
+    fs::write(wallet_path, serialized_config)?;
+    Ok(())
 }
 
 async fn create_storage_node_wallets(

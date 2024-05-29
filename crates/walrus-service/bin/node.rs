@@ -131,6 +131,12 @@ struct GenerateDryRunConfigsArgs {
     /// The port on which the metrics server of the storage nodes will listen.
     #[clap(long, default_value_t = METRICS_PORT)]
     metrics_port: u16,
+    /// Path of the directory in which the config files will be stored on deployed nodes.
+    ///
+    /// If specified, the working directory in the paths contained in the node config and
+    /// the wallet config will be replaced with this directory.
+    #[clap(long)]
+    set_config_dir: Option<PathBuf>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -215,6 +221,7 @@ mod commands {
             working_dir,
             testbed_config_path,
             metrics_port,
+            set_config_dir,
         }: GenerateDryRunConfigsArgs,
     ) -> anyhow::Result<()> {
         tracing_subscriber::fmt::init();
@@ -240,9 +247,13 @@ mod commands {
 
         let committee_size =
             NonZeroU16::new(testbed_config.ips.len() as u16).expect("committee size must be > 0");
-        let storage_node_configs =
-            create_storage_node_configs(working_dir.as_path(), testbed_config, metrics_port)
-                .await?;
+        let storage_node_configs = create_storage_node_configs(
+            working_dir.as_path(),
+            testbed_config,
+            metrics_port,
+            set_config_dir,
+        )
+        .await?;
         for (i, storage_node_config) in storage_node_configs.into_iter().enumerate() {
             let serialized_storage_node_config = serde_yaml::to_string(&storage_node_config)
                 .context("Failed to serialize storage node configs")?;
