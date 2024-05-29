@@ -8,12 +8,12 @@ use std::{net::SocketAddr, sync::Arc};
 use axum::{
     body::Bytes,
     extract::{DefaultBodyLimit, Path, Query, State},
-    http::{HeaderValue, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, put},
     Router,
 };
-use reqwest::header::ACCESS_CONTROL_ALLOW_ORIGIN;
+use reqwest::header::{ACCESS_CONTROL_ALLOW_ORIGIN, CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS};
 use serde::Deserialize;
 use tower_http::trace::TraceLayer;
 use tracing::Level;
@@ -92,6 +92,7 @@ impl<T: ContractClient + 'static> ClientDaemon<T> {
 
 #[tracing::instrument(level = Level::ERROR, skip_all, fields(%blob_id))]
 async fn retrieve_blob<T: Send + Sync>(
+    request_headers: HeaderMap,
     State(client): State<Arc<Client<T>>>,
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
 ) -> Response {
@@ -100,10 +101,16 @@ async fn retrieve_blob<T: Send + Sync>(
         Ok(blob) => {
             tracing::debug!("successfully retrieved blob");
             let mut response = (StatusCode::OK, blob).into_response();
+            let headers = response.headers_mut();
             // Allow requests from any origin, s.t. content can be loaded in browsers.
-            response
-                .headers_mut()
-                .insert(ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
+            headers.insert(ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
+            // Prevent the browser from trying to guess the MIME type to avoid dangerous inferences.
+            headers.insert(X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+            // Mirror the content type.
+            if let Some(content_type) = request_headers.get(CONTENT_TYPE) {
+                tracing::debug!(?content_type, "mirroring the request's content type");
+                headers.insert(CONTENT_TYPE, content_type.clone());
+            }
             response
         }
         Err(error) => match error.kind() {
