@@ -11677,7 +11677,6 @@ dependencies = [
  "sui-types",
  "telemetry-subscribers",
  "tempfile",
- "test-cluster",
  "thiserror",
  "tokio",
  "tokio-stream",
