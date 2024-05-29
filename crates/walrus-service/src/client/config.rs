@@ -4,7 +4,7 @@
 use std::{path::PathBuf, time::Duration};
 
 use reqwest::ClientBuilder;
-use serde::{de::Error as _, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use sui_types::base_types::ObjectID;
 
 use crate::config::LoadConfig;
@@ -17,9 +17,7 @@ pub struct Config {
     /// The system walrus system object id.
     pub system_object: ObjectID,
     /// Path to the wallet configuration.
-    ///
-    /// If set, this MUST be an absolute path.
-    #[serde(default, deserialize_with = "deserialize_wallet_config")]
+    #[serde(default)]
     pub wallet_config: Option<PathBuf>,
     /// Configuration for the client's network communication.
     #[serde(default)]
@@ -144,22 +142,6 @@ impl ReqwestConfig {
             .http2_keep_alive_interval(self.http2_keep_alive_interval)
             .http2_keep_alive_while_idle(self.http2_keep_alive_while_idle)
     }
-}
-
-fn deserialize_wallet_config<'de, D>(deserializer: D) -> Result<Option<PathBuf>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let path = Option::<PathBuf>::deserialize(deserializer)?;
-    if let Some(path) = &path {
-        if !path.is_absolute() {
-            return Err(D::Error::custom(format!(
-                "an absolute path is required for the wallet config (found {})",
-                path.display()
-            )));
-        }
-    }
-    Ok(path)
 }
 
 /// Returns the default paths for the Walrus configuration file.
