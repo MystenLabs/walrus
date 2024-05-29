@@ -41,7 +41,7 @@ use crate::node::{
 };
 
 /// Open API documentation endpoint
-pub const API_DOCS: &str = "/v1/api-doc";
+pub const API_DOCS: &str = "/v1/api";
 /// The path to get and store blob metadata.
 pub const METADATA_ENDPOINT: &str = "/v1/blobs/:blob_id/metadata";
 /// The path to get and store slivers.
