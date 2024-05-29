@@ -278,6 +278,26 @@ fn thousands_separator(num: u64) -> String {
         .join(",")
 }
 
+/// Calculates the minimum number of nodes that are necessary to get above the threshold of
+/// Byzantine shards `f`.
+fn min_nodes_above_f(committee: &Committee) -> (usize, usize) {
+    let mut shards_per_node: Vec<_> = committee
+        .members()
+        .iter()
+        .map(|node| node.shard_ids.len())
+        .collect();
+    shards_per_node.sort_unstable();
+    let mut total = 0;
+    let threshold = bft::max_n_faulty(committee.n_shards()).into();
+    for (idx, count) in shards_per_node.iter().rev().enumerate() {
+        total += count;
+        if total > threshold {
+            return (idx + 1, total);
+        }
+    }
+    unreachable!("threshold < n_shards")
+}
+
 /// Pretty-prints information on the running Walrus system.
 pub fn print_walrus_info(committee: &Committee, price_per_unit_size: u64, dev: bool) {
     let n_shards = committee.n_shards();
@@ -334,6 +354,8 @@ pub fn print_walrus_info(committee: &Committee, price_per_unit_size: u64, dev: b
         encoded_blob_length_for_n_shards(n_shards, max_blob_size_for_n_shards(n_shards))
             .expect("we can compute the encoded length of the max blob size");
     let f = bft::max_n_faulty(n_shards);
+    let (min_nodes_above, shards_above) = min_nodes_above_f(committee);
+
     printdoc!(
         "
 
@@ -348,6 +370,7 @@ pub fn print_walrus_info(committee: &Committee, price_per_unit_size: u64, dev: b
         Tolerated faults (f): {f}
         Quorum threshold (2f+1): {two_f_plus_1}
         Minimum number of correct shards (n-f): {min_correct}
+        Minimum number of nodes to get above f: {min_nodes_above} ({shards_above} shards)
 
         {node_heading}
         ",
