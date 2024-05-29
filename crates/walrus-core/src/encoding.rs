@@ -18,6 +18,7 @@ mod config;
 pub use config::{
     decoding_safety_limit,
     encoded_blob_length_for_n_shards,
+    encoded_slivers_length_for_n_shards,
     max_blob_size_for_n_shards,
     max_sliver_size_for_n_secondary,
     max_sliver_size_for_n_shards,

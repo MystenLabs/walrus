@@ -434,7 +434,7 @@ pub fn max_blob_size_for_n_shards(n_shards: NonZeroU16) -> u64 {
 }
 
 #[inline]
-pub fn source_symbols_per_blob_for_n_shards(n_shards: NonZeroU16) -> NonZeroU32 {
+fn source_symbols_per_blob_for_n_shards(n_shards: NonZeroU16) -> NonZeroU32 {
     let (source_symbols_primary, source_symbols_secondary) = source_symbols_for_n_shards(n_shards);
     NonZeroU32::from(source_symbols_primary)
         .checked_mul(source_symbols_secondary.into())
@@ -453,8 +453,23 @@ pub fn encoded_blob_length_for_n_shards(
     n_shards: NonZeroU16,
     unencoded_length: u64,
 ) -> Option<u64> {
+    let slivers_size = encoded_slivers_length_for_n_shards(n_shards, unencoded_length)?;
+    Some(u64::from(n_shards.get()) * metadata_length_for_n_shards(n_shards) + slivers_size)
+}
+
+/// Computes the total length of the slivers for a blob of `unencoded_length` encoded on `n_shards".
+///
+/// This is the total length of the slivers stored on all shards. The length does not include the
+/// metadata and the blob ID. Returns `None` if the blob size cannot be computed.
+///
+/// This computation is the same as done by the function of the same name in
+/// `contracts/blob_store/redstuff.move` and should be kept in sync.
+pub fn encoded_slivers_length_for_n_shards(
+    n_shards: NonZeroU16,
+    unencoded_length: u64,
+) -> Option<u64> {
     let (source_symbols_primary, source_symbols_secondary) = source_symbols_for_n_shards(n_shards);
-    let slivers_size = (u64::from(source_symbols_primary.get())
+    let single_shard_slivers_size = (u64::from(source_symbols_primary.get())
         + u64::from(source_symbols_secondary.get()))
         * u64::from(
             utils::compute_symbol_size(
@@ -464,7 +479,7 @@ pub fn encoded_blob_length_for_n_shards(
             .ok()?
             .get(),
         );
-    Some(u64::from(n_shards.get()) * (slivers_size + metadata_length_for_n_shards(n_shards)))
+    Some(u64::from(n_shards.get()) * single_shard_slivers_size)
 }
 
 #[cfg(test)]

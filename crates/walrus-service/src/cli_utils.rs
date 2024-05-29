@@ -3,16 +3,22 @@
 
 //! Utilities for running the walrus cli tools.
 
-use std::{num::NonZeroU16, path::PathBuf};
+use std::{
+    fmt::{self, Display},
+    num::NonZeroU16,
+    path::PathBuf,
+};
 
 use anyhow::{anyhow, Context, Result};
 use colored::{ColoredString, Colorize};
+use indoc::printdoc;
 use prettytable::{format, row, Table};
 use sui_sdk::{wallet_context::WalletContext, SuiClient, SuiClientBuilder};
 use walrus_core::{
     bft,
     encoding::{
         encoded_blob_length_for_n_shards,
+        encoded_slivers_length_for_n_shards,
         max_blob_size_for_n_shards,
         max_sliver_size_for_n_secondary,
         metadata_length_for_n_shards,
@@ -221,105 +227,26 @@ impl std::fmt::Display for HumanReadableBytes {
     }
 }
 
-/// Pretty-prints information on the running Walrus system.
-pub fn print_walrus_info(committee: &Committee, price_per_unit_size: u64, dev: bool) {
-    let n_shards = committee.n_shards();
-    let (n_primary_source_symbols, n_secondary_source_symbols) =
-        source_symbols_for_n_shards(n_shards);
+/// A human readable representation of a price in MIST.
+///
+/// [`HumanReadableMist`] is a helper type to format prices in MIST. The formatting works as
+/// follows:
+///
+/// 1. If the price is below 1_000_000 MIST, it is printed fully, with thousands separators.
+/// 2. Else, it is printed in SUI with 3 decimal places.
+#[repr(transparent)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct HumanReadableMist(pub u64);
 
-    println!("\n{}", "Walrus system information".bold());
-    println!("\n{}", "Storage nodes".bold().green());
-    println!("Number of nodes: {}", committee.n_members());
-    println!("Number of shards: {}", n_shards);
-
-    println!("\n{}", "Blob size".bold().green());
-    let max_blob_size = max_blob_size_for_n_shards(n_shards);
-    println!(
-        "Maximum blob size: {} ({} B)",
-        HumanReadableBytes(max_blob_size),
-        max_blob_size
-    );
-
-    println!("\n{}", "Current storage price".bold().green());
-    println!("Price per encoded Byte: {} MIST", price_per_unit_size);
-    println!(
-        "Price per input MiB: {:.3} SUI",
-        mist_price_per_blob_size(1 << 20, n_shards, price_per_unit_size)
-            .expect("we can encode 1 MiB") as f64
-            / 1e9
-    );
-    println!(
-        "Price per max blob ({}): {:.3} SUI",
-        HumanReadableBytes(max_blob_size),
-        mist_price_per_blob_size(max_blob_size, n_shards, price_per_unit_size)
-            .expect("we can encode the max blob size") as f64
-            / 1e9
-    );
-
-    if dev {
-        println!(
-            "\n{}",
-            "(dev) Encoding parameters and sizes".bold().yellow()
-        );
-        println!(
-            "Number of primary source symbols: {}",
-            n_primary_source_symbols
-        );
-        println!(
-            "Number of secondary source symbols: {}",
-            n_secondary_source_symbols
-        );
-        let metadata_length = metadata_length_for_n_shards(n_shards);
-        println!(
-            "Metadata size: {} ({} B)",
-            HumanReadableBytes(metadata_length),
-            metadata_length
-        );
-        let max_sliver_size = max_sliver_size_for_n_secondary(n_secondary_source_symbols);
-        println!(
-            "Maximum sliver size: {} ({} B)",
-            HumanReadableBytes(max_sliver_size),
-            max_sliver_size,
-        );
-        let max_encoded_blob_size =
-            encoded_blob_length_for_n_shards(n_shards, max_blob_size_for_n_shards(n_shards))
-                .expect("we can compute the encoded length of the max blob size");
-        println!(
-            "Maximum encoded blob size: {} ({} B)",
-            HumanReadableBytes(max_encoded_blob_size),
-            max_encoded_blob_size,
-        );
-
-        let f = bft::max_n_faulty(n_shards);
-        println!("\n{}", "(dev) BFT system information".bold().yellow());
-        println!("Tolerated faults (f): {}", f);
-        println!("Quorum threshold (2f+1): {}", 2 * f + 1);
-        println!(
-            "Minimum number of correct nodes (n-f): {}",
-            bft::min_n_correct(n_shards)
-        );
-
-        let mut table = Table::new();
-        table.set_format(default_table_format());
-        table.set_titles(row![b->"Idx", b->"# Shards", b->"Pk prefix", b->"Address"]);
-
-        println!(
-            "\n{}",
-            "(dev) Storage node details and shard distribution"
-                .bold()
-                .yellow()
-        );
-        for (i, node) in committee.members().iter().enumerate() {
-            let n_owned = node.shard_ids.len();
-            let n_owned_percent = (n_owned as f64) / (committee.n_shards().get() as f64) * 100.0;
-            table.add_row(row![
-                bFg->format!("{i}"),
-                format!("{} ({:.2}%)", n_owned, n_owned_percent),
-                string_prefix(&node.public_key),
-                node.network_address,
-            ]);
+impl Display for HumanReadableMist {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let value = self.0;
+        if value < 1_000_000 {
+            let with_separator = thousands_separator(value);
+            return write!(f, "{with_separator} MIST");
         }
-        table.printstd();
+        let sui = mist_to_sui(value);
+        write!(f, "{sui:.3} SUI")
     }
 }
 
@@ -332,6 +259,128 @@ fn mist_price_per_blob_size(
 ) -> Option<u64> {
     encoded_blob_length_for_n_shards(n_shards, unencoded_length)
         .map(|size| size * price_per_unit_size)
+}
+
+fn mist_to_sui(mist: u64) -> f64 {
+    mist as f64 / 1e9
+}
+
+/// Returns a string representation of the input `num`, with digits grouped in threes by a
+/// separator.
+fn thousands_separator(num: u64) -> String {
+    num.to_string()
+        .as_bytes()
+        .rchunks(3)
+        .rev()
+        .map(std::str::from_utf8)
+        .collect::<Result<Vec<&str>, _>>()
+        .expect("going from utf8 to bytes and back always works")
+        .join(",")
+}
+
+/// Pretty-prints information on the running Walrus system.
+pub fn print_walrus_info(committee: &Committee, price_per_unit_size: u64, dev: bool) {
+    let n_shards = committee.n_shards();
+    let (n_primary_source_symbols, n_secondary_source_symbols) =
+        source_symbols_for_n_shards(n_shards);
+
+    let n_nodes = committee.n_members();
+    let max_blob_size = max_blob_size_for_n_shards(n_shards);
+    let metadata_length = metadata_length_for_n_shards(n_shards);
+    let metadata_price = metadata_length * price_per_unit_size;
+
+    // NOTE: keep price and text in sync with the changes on in the contracts.
+    printdoc!(
+        "
+
+        {top_heading}
+
+        {storage_heading}
+        Number of nodes: {n_nodes}
+        Number of shards: {n_shards}
+
+        {size_heading}
+        Maximum blob size: {hr_max_blob} ({max_blob_size_sep} B)
+
+        {price_heading}
+        Price per encoded Byte: {price_per_unit_size}
+        Price to store metadata: {metadata_price}
+        Marginal price per additional 1 MiB (w/o metadata): {price_per_mib_input}
+        Total price per max blob ({hr_max_blob} + metadata): {price_max_blob}
+        ",
+        top_heading = "Walrus system information".bold(),
+        storage_heading = "Storage nodes".bold().green(),
+        size_heading = "Blob size".bold().green(),
+        hr_max_blob = HumanReadableBytes(max_blob_size),
+        max_blob_size_sep = thousands_separator(max_blob_size),
+        price_heading = "Approximate storage prices per epoch".bold().green(),
+        metadata_price = HumanReadableMist(metadata_price),
+        price_per_mib_input = HumanReadableMist(
+            encoded_slivers_length_for_n_shards(n_shards, 1 << 20,).expect("we can encode 1 MiB")
+                * price_per_unit_size
+        ),
+        price_max_blob = HumanReadableMist(
+            mist_price_per_blob_size(max_blob_size, n_shards, price_per_unit_size)
+                .expect("we can encode the max blob size")
+        )
+    );
+
+    if !dev {
+        return;
+    }
+
+    let max_sliver_size = max_sliver_size_for_n_secondary(n_secondary_source_symbols);
+    let max_encoded_blob_size =
+        encoded_blob_length_for_n_shards(n_shards, max_blob_size_for_n_shards(n_shards))
+            .expect("we can compute the encoded length of the max blob size");
+    let f = bft::max_n_faulty(n_shards);
+    printdoc!(
+        "
+
+        {encoding_heading}
+        Number of primary source symbols: {n_primary_source_symbols}
+        Number of secondary source symbols: {n_secondary_source_symbols}
+        Metadata size: {hr_metadata} ({metadata_length_sep} B)
+        Maximum sliver size: {hr_sliver} ({max_sliver_size_sep} B)
+        Maximum encoded blob size: {hr_encoded} ({max_encoded_blob_size_sep} B)
+
+        {bft_heading}
+        Tolerated faults (f): {f}
+        Quorum threshold (2f+1): {two_f_plus_1}
+        Minimum number of correct shards (n-f): {min_correct}
+
+        {node_heading}
+        ",
+        encoding_heading = "(dev) Encoding parameters and sizes".bold().yellow(),
+        hr_metadata = HumanReadableBytes(metadata_length),
+        metadata_length_sep = thousands_separator(metadata_length),
+        hr_sliver = HumanReadableBytes(max_sliver_size),
+        max_sliver_size_sep = thousands_separator(max_sliver_size),
+        hr_encoded = HumanReadableBytes(max_encoded_blob_size),
+        max_encoded_blob_size_sep = thousands_separator(max_encoded_blob_size),
+        bft_heading = "(dev) BFT system information".bold().yellow(),
+        two_f_plus_1 = 2 * f + 1,
+        min_correct = bft::min_n_correct(n_shards),
+        node_heading = "(dev) Storage node details and shard distribution"
+            .bold()
+            .yellow()
+    );
+
+    let mut table = Table::new();
+    table.set_format(default_table_format());
+    table.set_titles(row![b->"Idx", b->"# Shards", b->"Pk prefix", b->"Address"]);
+
+    for (i, node) in committee.members().iter().enumerate() {
+        let n_owned = node.shard_ids.len();
+        let n_owned_percent = (n_owned as f64) / (committee.n_shards().get() as f64) * 100.0;
+        table.add_row(row![
+            bFg->format!("{i}"),
+            format!("{} ({:.2}%)", n_owned, n_owned_percent),
+            string_prefix(&node.public_key),
+            node.network_address,
+        ]);
+    }
+    table.printstd();
 }
 
 /// Default style for tables printed to stdout.
@@ -401,5 +450,16 @@ mod tests {
             format!("{:.*}", precision, HumanReadableBytes(bytes)),
             expected_result.to_string()
         );
+    }
+
+    param_test! {
+        test_thousands_separator: [
+            thousand: (1_000, "1,000"),
+            million: (2_000_000, "2,000,000"),
+            hundred_million: (123_456_789, "123,456,789"),
+        ]
+    }
+    fn test_thousands_separator(num: u64, expected: &str) {
+        assert_eq!(thousands_separator(num), expected);
     }
 }
