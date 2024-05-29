@@ -195,7 +195,7 @@ rest_api_error! {
     RetrieveSliverError: [
         (ShardNotAssigned(_), MISDIRECTED_REQUEST,
         "the requested sliver is not stored at a shard assigned to this storage node"),
-        (SliverOutOfRange, BAD_REQUEST, Self::SliverOutOfRange.to_string()),
+        (SliverOutOfRange(_), BAD_REQUEST, "the requested sliver index is out of range"),
         (Unavailable, NOT_FOUND, Self::Unavailable.to_string()),
         (Internal(_), INTERNAL_SERVER_ERROR, @canonical)
     ]
@@ -203,7 +203,7 @@ rest_api_error! {
 
 rest_api_error! {
     StoreSliverError: [
-        (SliverOutOfRange, BAD_REQUEST, Self::SliverOutOfRange.to_string()),
+        (SliverOutOfRange(_), BAD_REQUEST, "the requested sliver index is out of range"),
         (MissingMetadata, CONFLICT, Self::MissingMetadata.to_string()),
         (InvalidSliver(_), BAD_REQUEST, "the provided sliver failed verification"),
         (ShardNotAssigned(_), MISDIRECTED_REQUEST,
@@ -214,9 +214,9 @@ rest_api_error! {
 
 rest_api_error! {
     RetrieveSymbolError: [
-        (RecoverySymbolOutOfRange, BAD_REQUEST, Self::RecoverySymbolOutOfRange.to_string()),
+        (RecoverySymbolOutOfRange(_), BAD_REQUEST, "the requested recovery symbol is out of range"),
         (RetrieveSliver(RetrieveSliverError::Internal(_)), INTERNAL_SERVER_ERROR, @canonical),
-        (RetrieveSliver(RetrieveSliverError::SliverOutOfRange), BAD_REQUEST,
+        (RetrieveSliver(RetrieveSliverError::SliverOutOfRange(_)), BAD_REQUEST,
         "invalid index for the sliver providing the recovery symbol"),
         (RetrieveSliver(RetrieveSliverError::ShardNotAssigned(_)), MISDIRECTED_REQUEST,
         "the sliver providing the requested symbol is not stored at this node's shards"),

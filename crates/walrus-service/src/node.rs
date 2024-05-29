@@ -28,7 +28,7 @@ use walrus_core::{
     metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
     BlobId,
     Epoch,
-    InconsistencyProof as PrimaryOrSecondaryInconsistencyProof,
+    InconsistencyProof,
     RecoverySymbol,
     ShardIndex,
     Sliver,
@@ -50,6 +50,7 @@ use crate::{
 };
 
 mod errors;
+use self::errors::IndexOutOfRange;
 pub use self::errors::{
     BlobStatusError,
     ComputeStorageConfirmationError,
@@ -104,7 +105,7 @@ pub trait ServiceState {
     fn verify_inconsistency_proof(
         &self,
         blob_id: &BlobId,
-        inconsistency_proof: PrimaryOrSecondaryInconsistencyProof,
+        inconsistency_proof: InconsistencyProof,
     ) -> impl Future<Output = Result<InvalidBlobIdAttestation, InconsistencyProofError>> + Send;
 
     /// Retrieves a recovery symbol for a shard held by this storage node.
@@ -411,8 +412,15 @@ impl StorageNode {
         Ok(())
     }
 
-    fn is_sliver_index_valid(&self, index: SliverPairIndex) -> bool {
-        index.get() < self.committee_service.get_shard_count().get()
+    fn check_index(&self, index: SliverPairIndex) -> Result<(), IndexOutOfRange> {
+        if index.get() < self.n_shards().get() {
+            Ok(())
+        } else {
+            Err(IndexOutOfRange {
+                index: index.get(),
+                max: self.n_shards().get(),
+            })
+        }
     }
 
     fn get_shard_for_sliver_pair(
@@ -513,7 +521,7 @@ impl BlobSynchronizer {
         &self,
         shard: ShardIndex,
         metadata: &VerifiedBlobMetadataWithId,
-    ) -> Result<Option<PrimaryOrSecondaryInconsistencyProof>, TypedStoreError> {
+    ) -> Result<Option<InconsistencyProof>, TypedStoreError> {
         let shard_storage = self
             .storage
             .shard_storage(shard)
@@ -547,10 +555,7 @@ impl BlobSynchronizer {
         }
     }
 
-    async fn sync_inconsistency_proof(
-        &self,
-        inconsistency_proof: &PrimaryOrSecondaryInconsistencyProof,
-    ) {
+    async fn sync_inconsistency_proof(&self, inconsistency_proof: &InconsistencyProof) {
         let invalid_blob_certificate = self
             .committee_service
             .get_invalid_blob_certificate(
@@ -570,19 +575,19 @@ async fn recover_sliver<A: EncodingAxis>(
     metadata: &VerifiedBlobMetadataWithId,
     sliver_id: SliverPairIndex,
     encoding_config: &EncodingConfig,
-) -> Result<Sliver, PrimaryOrSecondaryInconsistencyProof> {
+) -> Result<Sliver, InconsistencyProof> {
     if A::IS_PRIMARY {
         committee_service
             .recover_primary_sliver(metadata, sliver_id, encoding_config)
             .await
             .map(Sliver::Primary)
-            .map_err(PrimaryOrSecondaryInconsistencyProof::Primary)
+            .map_err(InconsistencyProof::Primary)
     } else {
         committee_service
             .recover_secondary_sliver(metadata, sliver_id, encoding_config)
             .await
             .map(Sliver::Secondary)
-            .map_err(PrimaryOrSecondaryInconsistencyProof::Secondary)
+            .map_err(InconsistencyProof::Secondary)
     }
 }
 
@@ -631,10 +636,7 @@ impl ServiceState for StorageNode {
         sliver_pair_index: SliverPairIndex,
         sliver_type: SliverType,
     ) -> Result<Sliver, RetrieveSliverError> {
-        ensure!(
-            self.is_sliver_index_valid(sliver_pair_index),
-            RetrieveSliverError::SliverOutOfRange
-        );
+        self.check_index(sliver_pair_index)?;
 
         let shard_storage = self.get_shard_for_sliver_pair(sliver_pair_index, blob_id)?;
 
@@ -650,10 +652,7 @@ impl ServiceState for StorageNode {
         sliver_pair_index: SliverPairIndex,
         sliver: &Sliver,
     ) -> Result<bool, StoreSliverError> {
-        ensure!(
-            sliver_pair_index.get() < self.encoding_config.n_shards().get(),
-            StoreSliverError::SliverOutOfRange
-        );
+        self.check_index(sliver_pair_index)?;
 
         let shard_storage = self.get_shard_for_sliver_pair(sliver_pair_index, blob_id)?;
 
@@ -709,7 +708,7 @@ impl ServiceState for StorageNode {
     async fn verify_inconsistency_proof(
         &self,
         blob_id: &BlobId,
-        inconsistency_proof: PrimaryOrSecondaryInconsistencyProof,
+        inconsistency_proof: InconsistencyProof,
     ) -> Result<InvalidBlobIdAttestation, InconsistencyProofError> {
         let metadata = self.retrieve_metadata(blob_id)?;
 
@@ -728,10 +727,7 @@ impl ServiceState for StorageNode {
     ) -> Result<RecoverySymbol<MerkleProof>, RetrieveSymbolError> {
         // Before touching the database, verify that the target_pair_index is possibly valid, and
         // not out of range. Checking the sliver_pair_index is done by retrieve_sliver.
-        ensure!(
-            self.is_sliver_index_valid(target_pair_index),
-            RetrieveSymbolError::RecoverySymbolOutOfRange
-        );
+        self.check_index(target_pair_index)?;
 
         let sliver = self.retrieve_sliver(blob_id, sliver_pair_index, sliver_type.orthogonal())?;
 
@@ -1011,9 +1007,10 @@ mod tests {
                 generate_config_metadata_and_valid_recovery_symbols()?;
 
             // create invalid inconsistency proof
-            let inconsistency_proof = PrimaryOrSecondaryInconsistencyProof::Primary(
-                PrimaryInconsistencyProof::new(index, recovery_symbols),
-            );
+            let inconsistency_proof = InconsistencyProof::Primary(PrimaryInconsistencyProof::new(
+                index,
+                recovery_symbols,
+            ));
 
             let blob_id = metadata.blob_id().to_owned();
             let node = set_up_node_with_metadata(metadata.into_unverified()).await?;
@@ -1041,9 +1038,10 @@ mod tests {
             let metadata = UnverifiedBlobMetadataWithId::new(blob_id, metadata);
 
             // create valid inconsistency proof
-            let inconsistency_proof = PrimaryOrSecondaryInconsistencyProof::Primary(
-                PrimaryInconsistencyProof::new(index, recovery_symbols),
-            );
+            let inconsistency_proof = InconsistencyProof::Primary(PrimaryInconsistencyProof::new(
+                index,
+                recovery_symbols,
+            ));
 
             let node = set_up_node_with_metadata(metadata).await?;
 

@@ -24,8 +24,9 @@ pub(super) const GROUP_RECOVERY: &str = "Recovery";
 )]
 pub(super) struct RestApiDoc;
 
-/// Index identifying to which of the encoded slivers *pairs* constituting the encoding of the blob
-/// the request corresponds.
+/// Index identifying one of the blob's sliver pairs. AS blobs are encoded into as many pairs of
+/// slivers as there are shards in the committee, this value must be from 0 to the number of shards
+/// (exclusive).
 #[derive(utoipa::ToSchema)]
 #[schema(
     as = SliverPairIndex,
