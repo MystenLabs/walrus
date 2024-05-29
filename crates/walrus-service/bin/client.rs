@@ -23,7 +23,7 @@ use walrus_service::{
     client::Config,
     daemon::ClientDaemon,
 };
-use walrus_sui::client::{ReadClient, SuiContractClient, SuiReadClient};
+use walrus_sui::client::{ReadClient, SuiReadClient};
 
 #[derive(Parser, Debug, Clone)]
 #[clap(rename_all = "kebab-case")]
@@ -84,13 +84,8 @@ enum Commands {
         /// If unset, prints the blob to stdout.
         #[clap(short, long)]
         out: Option<PathBuf>,
-        /// The URL of the Sui RPC node to use.
-        ///
-        /// If unset, the wallet configuration is applied (if set), or the fullnode at
-        /// `fullnode.testnet.sui.io:443` is used.
-        // NB: Keep this in sync with `walrus_service::cli_utils`.
-        #[clap(short, long)]
-        rpc_url: Option<String>,
+        #[clap(flatten)]
+        rpc_arg: RpcArg,
     },
     /// Run a publisher service at the provided network address.
     ///
@@ -102,13 +97,8 @@ enum Commands {
     },
     /// Run an aggregator service at the provided network address.
     Aggregator {
-        /// The URL of the Sui RPC node to use.
-        ///
-        /// If unset, the wallet configuration is applied (if set), or the fullnode at
-        /// `fullnode.testnet.sui.io:443` is used.
-        // NB: Keep this in sync with `walrus_service::cli_utils`.
-        #[clap(short, long)]
-        rpc_url: Option<String>,
+        #[clap(flatten)]
+        rpc_arg: RpcArg,
         /// The address to which to bind the aggregator.
         #[clap(short, long)]
         bind_address: SocketAddr,
@@ -121,13 +111,8 @@ enum Commands {
     },
     /// Print information about the Walrus storage system this client is connected to.
     Info {
-        /// The URL of the Sui RPC node to use.
-        ///
-        /// If unset, the wallet configuration is applied (if set), or the fullnode at
-        /// `fullnode.testnet.sui.io:443` is used.
-        // NB: Keep this in sync with `walrus_service::cli_utils`.
-        #[clap(short, long)]
-        rpc_url: Option<String>,
+        #[clap(flatten)]
+        rpc_arg: RpcArg,
         /// Print extended information for developers.
         #[clap(long, action)]
         dev: bool,
@@ -142,6 +127,17 @@ struct PublisherArgs {
     /// The maximum body size of PUT requests in KiB.
     #[clap(short, long = "max-body-size", default_value_t = 10_240)]
     pub max_body_size_kib: usize,
+}
+
+#[derive(Debug, Clone, Args)]
+struct RpcArg {
+    /// The URL of the Sui RPC node to use.
+    ///
+    /// If unset, the wallet configuration is applied (if set), or the fullnode at
+    /// `fullnode.testnet.sui.io:443` is used.
+    // NB: Keep this in sync with `walrus_service::cli_utils`.
+    #[clap(short, long)]
+    rpc_url: Option<String>,
 }
 
 impl PublisherArgs {
@@ -200,7 +196,7 @@ async fn client() -> Result<()> {
         Commands::Read {
             blob_id,
             out,
-            rpc_url,
+            rpc_arg: RpcArg { rpc_url },
         } => {
             let client = get_read_client(config, rpc_url, wallet, wallet_path.is_none()).await?;
 
@@ -226,7 +222,7 @@ async fn client() -> Result<()> {
             publisher.run().await?;
         }
         Commands::Aggregator {
-            rpc_url,
+            rpc_arg: RpcArg { rpc_url },
             bind_address,
         } => {
             tracing::debug!(?rpc_url, "attempting to run the Walrus aggregator");
@@ -242,7 +238,10 @@ async fn client() -> Result<()> {
                 .with_publisher(args.max_body_size());
             publisher.run().await?;
         }
-        Commands::Info { rpc_url, dev } => {
+        Commands::Info {
+            rpc_arg: RpcArg { rpc_url },
+            dev,
+        } => {
             let sui_client =
                 get_sui_client_from_rpc_node_or_wallet(rpc_url, wallet, wallet_path.is_none())
                     .await?;
