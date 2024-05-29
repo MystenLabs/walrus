@@ -15,7 +15,9 @@ use reqwest::header::{
     ACCESS_CONTROL_ALLOW_METHODS,
     ACCESS_CONTROL_ALLOW_ORIGIN,
     ACCESS_CONTROL_MAX_AGE,
+    CACHE_CONTROL,
     CONTENT_TYPE,
+    ETAG,
     X_CONTENT_TYPE_OPTIONS,
 };
 use serde::Deserialize;
@@ -63,6 +65,22 @@ pub(super) async fn get_blob<T: Send + Sync>(
             headers.insert(ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
             // Prevent the browser from trying to guess the MIME type to avoid dangerous inferences.
             headers.insert(X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+            // Insert headers that help caches distribute Walrus blobs.
+            //
+            // Cache for 1 day, and allow refreshig on the client side. Refreshes use the ETag to
+            // check if the content has changed. This allows invalidated blobs to be removed from
+            // caches. `stale-while-revalidate` allows stale content to be served for 1 hour while
+            // the browser tries to validate it (async revalidation).
+            headers.insert(
+                CACHE_CONTROL,
+                HeaderValue::from_static("public, max-age=86400, stale-while-revalidate=3600"),
+            );
+            // The `ETag` is the blob ID itself.
+            headers.insert(
+                ETAG,
+                HeaderValue::from_str(&blob_id.to_string())
+                    .expect("the blob ID string only contains visible ASCII characters"),
+            );
             // Mirror the content type.
             if let Some(content_type) = request_headers.get(CONTENT_TYPE) {
                 tracing::debug!(?content_type, "mirroring the request's content type");
