@@ -291,7 +291,6 @@ fn global_test_lock() -> &'static Mutex<()> {
 
 fn error_kind_matches(actual: &ClientErrorKind, expected: &ClientErrorKind) -> bool {
     match (actual, expected) {
-        (ClientErrorKind::CertificationFailed(_), ClientErrorKind::CertificationFailed(_)) => true,
         (
             ClientErrorKind::NotEnoughConfirmations(act_a, act_b),
             ClientErrorKind::NotEnoughConfirmations(exp_a, exp_b),

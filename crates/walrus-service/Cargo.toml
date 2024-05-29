@@ -21,13 +21,15 @@ fastcrypto.workspace = true
 futures.workspace = true
 git-version = "0.3.9"
 home = "0.5.9"
+indoc = "2.0.5"
 mime = "0.3.17"
 mysten-metrics.workspace = true
+prettytable = "0.10.0"
 prometheus = "0.13.4"
 rand.workspace = true
 regex = "1"
 reqwest = { workspace = true, features = ["json"] }
-rocksdb = "0.21"
+rocksdb = "0.22.0"
 serde.workspace = true
 serde_with = { workspace = true, features = ["base64"] }
 serde_yaml.workspace = true

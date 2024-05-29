@@ -182,15 +182,10 @@ impl EncodingConfig {
 
     /// The maximum size in bytes of a blob that can be encoded.
     ///
-    /// This is limited by the total number of source symbols, which is fixed by the dimensions
-    /// `source_symbols_primary` x `source_symbols_secondary` of the message matrix, and the maximum
-    /// symbol size supported by RaptorQ.
-    ///
-    /// Note that on 32-bit architectures, the actual limit can be smaller than that due to the
-    /// limited address space.
+    /// See [`max_blob_size_for_n_shards`] for additional documentation.
     #[inline]
     pub fn max_blob_size(&self) -> u64 {
-        u64::from(self.source_symbols_per_blob().get()) * u64::from(MAX_SYMBOL_SIZE)
+        max_blob_size_for_n_shards(self.n_shards())
     }
 
     /// The number of symbols a blob is split into.
@@ -257,21 +252,16 @@ impl EncodingConfig {
 
     /// Computes the length of a blob of given `unencoded_length`, once encoded.
     ///
-    /// The output length includes the metadata and the blob ID sizes. Returns `None` if the blob
-    /// size cannot be computed.
-    ///
-    /// This computation is the same as done by the function of the same name in
-    /// `contracts/blob_store/redstuff.move` and should be kept in sync.
+    /// See [`encoded_blob_length_for_n_shards`] for additional documentation.
+    #[inline]
     pub fn encoded_blob_length(&self, unencoded_length: u64) -> Option<u64> {
-        let slivers_size = (u64::from(self.source_symbols_primary.get())
-            + u64::from(self.source_symbols_secondary.get()))
-            * u64::from(self.symbol_size_for_blob(unencoded_length).ok()?.get());
-        Some(u64::from(self.n_shards.get()) * (slivers_size + self.metadata_length()))
+        encoded_blob_length_for_n_shards(self.n_shards(), unencoded_length)
     }
 
     /// Computes the length of a blob of given `unencoded_length`, once encoded.
     ///
     /// Same as [`Self::encoded_blob_length`], but taking a `usize` as input.
+    #[inline]
     pub fn encoded_blob_length_from_usize(&self, unencoded_length: usize) -> Option<u64> {
         self.encoded_blob_length(unencoded_length.try_into().ok()?)
     }
@@ -279,6 +269,7 @@ impl EncodingConfig {
     /// Computes the length of the metadata produced by this encoding config.
     ///
     /// This is independent of the blob size.
+    #[inline]
     pub fn metadata_length(&self) -> u64 {
         metadata_length_for_n_shards(self.n_shards())
     }
@@ -286,6 +277,7 @@ impl EncodingConfig {
     /// Returns the maximum size of a sliver for the current configuration.
     ///
     /// This is the size of a primary sliver with `u16::MAX` symbol size.
+    #[inline]
     pub fn max_sliver_size(&self) -> u64 {
         max_sliver_size_for_n_secondary(self.n_secondary_source_symbols())
     }
@@ -361,6 +353,7 @@ impl EncodingConfig {
 /// symbols are received is greater than `1 - (1 / 256)^(H + 1)`. Therefore, e.g, the probability of
 /// reconstruction after receiving f+1 primary slivers is at least
 /// `1 - (1 / 256)^(decoding_safety_limit(n_shards) + 1)`.
+#[inline]
 pub fn decoding_safety_limit(n_shards: NonZeroU16) -> u16 {
     // These ranges are chosen to ensure that the safety limit is at most 20% of f, up to a safety
     // limit of 5.
@@ -379,6 +372,7 @@ pub fn decoding_safety_limit(n_shards: NonZeroU16) -> u16 {
 /// The computation is as follows:
 /// - `source_symbols_primary = n_shards - f - decoding_safety_limit(n_shards)`
 /// - `source_symbols_secondary = n_shards - 2f - decoding_safety_limit(n_shards)`
+#[inline]
 pub fn source_symbols_for_n_shards(n_shards: NonZeroU16) -> (NonZeroU16, NonZeroU16) {
     let safety_limit = decoding_safety_limit(n_shards);
     let min_n_correct = bft::min_n_correct(n_shards).get();
@@ -395,6 +389,7 @@ pub fn source_symbols_for_n_shards(n_shards: NonZeroU16) -> (NonZeroU16, NonZero
 /// Computes the length of the metadata produced for a system with `n_shards` shards.
 ///
 /// This is independent of the blob size.
+#[inline]
 pub fn metadata_length_for_n_shards(n_shards: NonZeroU16) -> u64 {
     (
         // The hashes.
@@ -411,16 +406,80 @@ pub fn metadata_length_for_n_shards(n_shards: NonZeroU16) -> u64 {
 }
 
 /// Returns the maximum size of a sliver for a system with `n_secondary_source_symbols`.
-fn max_sliver_size_for_n_secondary(n_secondary_source_symbols: NonZeroU16) -> u64 {
+#[inline]
+pub fn max_sliver_size_for_n_secondary(n_secondary_source_symbols: NonZeroU16) -> u64 {
     u64::from(n_secondary_source_symbols.get()) * u64::from(u16::MAX)
 }
 
 /// Returns the maximum size of a sliver for a system with `n_shards` shards.
 ///
 /// This is the size of a primary sliver with `u16::MAX` symbol size.
+#[inline]
 pub fn max_sliver_size_for_n_shards(n_shards: NonZeroU16) -> u64 {
     let (_, secondary) = source_symbols_for_n_shards(n_shards);
     max_sliver_size_for_n_secondary(secondary)
+}
+
+/// The maximum size in bytes of a blob that can be encoded, given the number of shards.
+///
+/// This is limited by the total number of source symbols, which is fixed by the dimensions
+/// `source_symbols_primary` x `source_symbols_secondary` of the message matrix, and the maximum
+/// symbol size supported by RaptorQ.
+///
+/// Note that on 32-bit architectures, the actual limit can be smaller than that due to the
+/// limited address space.
+#[inline]
+pub fn max_blob_size_for_n_shards(n_shards: NonZeroU16) -> u64 {
+    u64::from(source_symbols_per_blob_for_n_shards(n_shards).get()) * u64::from(MAX_SYMBOL_SIZE)
+}
+
+#[inline]
+fn source_symbols_per_blob_for_n_shards(n_shards: NonZeroU16) -> NonZeroU32 {
+    let (source_symbols_primary, source_symbols_secondary) = source_symbols_for_n_shards(n_shards);
+    NonZeroU32::from(source_symbols_primary)
+        .checked_mul(source_symbols_secondary.into())
+        .expect("product of two u16 always fits into a u32")
+}
+
+/// Computes the length of a blob of given `unencoded_length` and `n_shards`, once encoded.
+///
+/// The output length includes the metadata and the blob ID sizes. Returns `None` if the blob
+/// size cannot be computed.
+///
+/// This computation is the same as done by the function of the same name in
+/// `contracts/blob_store/redstuff.move` and should be kept in sync.
+#[inline]
+pub fn encoded_blob_length_for_n_shards(
+    n_shards: NonZeroU16,
+    unencoded_length: u64,
+) -> Option<u64> {
+    let slivers_size = encoded_slivers_length_for_n_shards(n_shards, unencoded_length)?;
+    Some(u64::from(n_shards.get()) * metadata_length_for_n_shards(n_shards) + slivers_size)
+}
+
+/// Computes the total length of the slivers for a blob of `unencoded_length` encoded on `n_shards".
+///
+/// This is the total length of the slivers stored on all shards. The length does not include the
+/// metadata and the blob ID. Returns `None` if the blob size cannot be computed.
+///
+/// This computation is the same as done by the function of the same name in
+/// `contracts/blob_store/redstuff.move` and should be kept in sync.
+pub fn encoded_slivers_length_for_n_shards(
+    n_shards: NonZeroU16,
+    unencoded_length: u64,
+) -> Option<u64> {
+    let (source_symbols_primary, source_symbols_secondary) = source_symbols_for_n_shards(n_shards);
+    let single_shard_slivers_size = (u64::from(source_symbols_primary.get())
+        + u64::from(source_symbols_secondary.get()))
+        * u64::from(
+            utils::compute_symbol_size(
+                unencoded_length,
+                source_symbols_per_blob_for_n_shards(n_shards),
+            )
+            .ok()?
+            .get(),
+        );
+    Some(u64::from(n_shards.get()) * single_shard_slivers_size)
 }
 
 #[cfg(test)]

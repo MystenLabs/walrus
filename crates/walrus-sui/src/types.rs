@@ -363,6 +363,26 @@ impl Committee {
     pub fn n_members(&self) -> usize {
         self.members.len()
     }
+
+    /// Computes the minimum number of nodes that are necessary to get above the threshold of
+    /// Byzantine shards `f`.
+    pub fn min_nodes_above_f(&self) -> (usize, usize) {
+        let mut shards_per_node: Vec<_> = self
+            .members()
+            .iter()
+            .map(|node| node.shard_ids.len())
+            .collect();
+        shards_per_node.sort_unstable();
+        let mut total = 0;
+        let threshold = bft::max_n_faulty(self.n_shards()).into();
+        for (idx, count) in shards_per_node.iter().rev().enumerate() {
+            total += count;
+            if total > threshold {
+                return (idx + 1, total);
+            }
+        }
+        unreachable!("threshold < n_shards")
+    }
 }
 
 impl TryFrom<&SuiMoveStruct> for Committee {

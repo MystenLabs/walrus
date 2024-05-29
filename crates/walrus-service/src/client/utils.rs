@@ -226,7 +226,8 @@ impl Display for CompletedReasonTime {
     }
 }
 
-pub(crate) fn string_prefix<T: ToString>(s: &T) -> String {
+/// Returns the first 8 characters of the string representing the object.
+pub fn string_prefix<T: ToString>(s: &T) -> String {
     let mut string = s.to_string();
     string.truncate(8);
     format!("{}...", string)

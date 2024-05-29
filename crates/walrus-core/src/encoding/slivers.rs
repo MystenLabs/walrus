@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use alloc::vec::Vec;
-use core::{fmt::Display, marker::PhantomData, num::NonZeroU16};
+use core::{
+    fmt::Display,
+    marker::PhantomData,
+    num::{NonZeroU16, NonZeroU32, NonZeroU64},
+};
 
 use fastcrypto::hash::{Blake2b256, HashFunction};
 use serde::{Deserialize, Serialize};
@@ -91,8 +95,8 @@ impl<T: EncodingAxis> Sliver<T> {
 
     /// Checks that the provided sliver is authenticated by the metadata.
     ///
-    /// The checks include verifying that the sliver has the correct number of symbols and symbol
-    /// size, and that the hash in the metadata matches the Merkle root over the sliver's symbols.
+    /// The checks include verifying that the sliver has the correct length and symbol size, and
+    /// that the hash in the metadata matches the Merkle root over the sliver's symbols.
     pub fn verify(
         &self,
         encoding_config: &EncodingConfig,
@@ -103,19 +107,11 @@ impl<T: EncodingAxis> Sliver<T> {
             SliverVerificationError::IndexTooLarge
         );
         ensure!(
-            self.symbols.len()
-                == usize::from(
-                    encoding_config
-                        .n_source_symbols::<T::OrthogonalAxis>()
-                        .get()
-                ),
+            self.has_correct_length(encoding_config, metadata.unencoded_length),
             SliverVerificationError::SliverSizeMismatch
         );
-        let symbol_size_from_metadata = metadata
-            .symbol_size(encoding_config)
-            .expect("the symbol size is checked in `UnverifiedBlobMetadataWithId::verify`");
         ensure!(
-            self.symbols.symbol_size() == symbol_size_from_metadata,
+            Ok(self.symbols.symbol_size()) == metadata.symbol_size(encoding_config),
             SliverVerificationError::SymbolSizeMismatch
         );
         let pair_metadata = metadata
@@ -131,6 +127,21 @@ impl<T: EncodingAxis> Sliver<T> {
             SliverVerificationError::MerkleRootMismatch
         );
         Ok(())
+    }
+
+    /// Returns true iff the sliver has the length expected based on the encoding configuration and
+    /// blob size.
+    fn has_correct_length(&self, config: &EncodingConfig, blob_size: NonZeroU64) -> bool {
+        self.expected_length(config, blob_size).is_some_and(|l| {
+            self.len() == usize::try_from(l).expect("we assume at least a 32-bit architecture")
+        })
+    }
+
+    fn expected_length(&self, config: &EncodingConfig, blob_size: NonZeroU64) -> Option<u32> {
+        config
+            .sliver_size_for_blob::<T>(blob_size.get())
+            .map(NonZeroU32::get)
+            .ok()
     }
 
     /// Creates the first `n_shards` recovery symbols from the sliver.

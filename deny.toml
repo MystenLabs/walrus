@@ -33,6 +33,7 @@ allow = [
     "MIT",
     "MPL-2.0",
     "Unicode-DFS-2016",
+    "Unlicense",
 ]
 # The confidence threshold for detecting a license from license text.
 # The higher the value, the more closely the license text must be to the
@@ -62,6 +63,7 @@ ignore = true
 multiple-versions = "deny"
 skip = [
     { name = "itertools", version = "<=12.1" },
+    { name = "winnow", version = "0.5" }
 ]
 skip-tree = [
     # Mysten's libraries pull in several conflicting repo versions.

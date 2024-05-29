@@ -13,8 +13,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{instrument, Instrument};
 use typed_store::{rocks::MetricConf, DBMetrics, TypedStoreError};
 use walrus_core::{
-    encoding::{EncodingAxis, EncodingConfig, Primary, RecoverySymbolError, Secondary},
-    ensure,
+    encoding::{EncodingAxis, EncodingConfig, Primary, Secondary, SliverVerificationError},
     inconsistency::InconsistencyVerificationError,
     keys::ProtocolKeyPair,
     merkle::{MerkleAuth, MerkleProof},
@@ -36,9 +35,10 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
+use walrus_sdk::api::BlobStatus;
 use walrus_sui::{
     client::SuiReadClient,
-    types::{BlobCertified, BlobEvent},
+    types::{BlobCertified, BlobEvent, InvalidBlobID},
 };
 
 use crate::{
@@ -99,20 +99,14 @@ impl From<RetrieveSliverError> for RetrieveSymbolError {
 pub enum StoreSliverError {
     #[error("Missing metadata for {0}")]
     MissingMetadata(BlobId),
-    #[error("Invalid {0} for {1}")]
-    InvalidSliverPairId(SliverPairIndex, BlobId),
-    #[error("Invalid {0} for {1}")]
-    InvalidSliver(SliverPairIndex, BlobId),
-    #[error("Invalid sliver size {0} for {1}")]
-    IncorrectSize(usize, BlobId),
-    #[error("Invalid shard type {0} for {1}")]
-    InvalidSliverType(SliverType, BlobId),
+    #[error("Invalid {0} for {1}: {2}")]
+    InvalidSliver(SliverPairIndex, BlobId, SliverVerificationError),
     #[error("this storage node does not currently manage shard {shard}, epoch {epoch}")]
     InvalidShard { shard: ShardIndex, epoch: Epoch },
     #[error(transparent)]
-    MalformedSliver(#[from] RecoverySymbolError),
-    #[error(transparent)]
     Internal(#[from] anyhow::Error),
+    #[error("{0} sliver for blob {1} was already stored")]
+    AlreadyStored(SliverType, BlobId),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -182,6 +176,9 @@ pub trait ServiceState {
         sliver_type: SliverType,
         target_pair_index: SliverPairIndex,
     ) -> Result<RecoverySymbol<MerkleProof>, RetrieveSymbolError>;
+
+    /// Retrieves the blob status for the given `blob_id`.
+    fn blob_status(&self, blob_id: &BlobId) -> Result<Option<BlobStatus>, anyhow::Error>;
 
     /// Returns the number of shards the node is currently operating with.
     fn n_shards(&self) -> NonZeroU16;
@@ -409,7 +406,8 @@ impl StorageNode {
                 BlobEvent::Certified(event) => {
                     self.on_blob_certified(sequence_number, event).await?
                 }
-                BlobEvent::Registered(_) | BlobEvent::InvalidBlobID(_) => self
+                BlobEvent::InvalidBlobID(event) => self.on_blob_invalid(sequence_number, event)?,
+                BlobEvent::Registered(_) => self
                     .storage
                     .maybe_advance_event_cursor(sequence_number, &event.event_id())?,
             }
@@ -452,6 +450,19 @@ impl StorageNode {
             .in_current_span(),
         );
 
+        Ok(())
+    }
+
+    // TODO(kwuest): Cancel in-progress syncs for the blob (part of #366 or follow-up)
+    fn on_blob_invalid(
+        &self,
+        event_sequence_number: usize,
+        event: InvalidBlobID,
+    ) -> anyhow::Result<()> {
+        self.storage.delete_metadata(&event.blob_id)?;
+        self.storage.delete_slivers(&event.blob_id)?;
+        self.storage
+            .maybe_advance_event_cursor(event_sequence_number, &event.event_id)?;
         Ok(())
     }
 }
@@ -635,8 +646,13 @@ impl ServiceState for StorageNode {
         else {
             return Err(StoreMetadataError::NotRegistered);
         };
+
         if blob_info.end_epoch <= self.current_epoch() {
             return Err(StoreMetadataError::BlobExpired);
+        }
+
+        if blob_info.is_metadata_stored {
+            return Err(StoreMetadataError::AlreadyStored);
         }
 
         let verified_metadata_with_id = metadata.verify(&self.encoding_config)?;
@@ -682,6 +698,15 @@ impl ServiceState for StorageNode {
                     epoch: self.current_epoch(),
                 })?;
 
+        if match sliver {
+            Sliver::Primary(_) => shard_storage.is_sliver_stored::<Primary>(blob_id),
+            Sliver::Secondary(_) => shard_storage.is_sliver_stored::<Secondary>(blob_id),
+        }
+        .context("unable to check sliver existence")?
+        {
+            return Err(StoreSliverError::AlreadyStored(sliver.r#type(), *blob_id));
+        }
+
         // Ensure we already received metadata for this sliver.
         let metadata = self
             .storage
@@ -689,22 +714,10 @@ impl ServiceState for StorageNode {
             .context("unable to retrieve metadata")?
             .ok_or_else(|| StoreSliverError::MissingMetadata(*blob_id))?;
 
-        // Ensure the received sliver has the expected size.
-        ensure!(
-            sliver.has_correct_length(&self.encoding_config, metadata.metadata().unencoded_length),
-            StoreSliverError::IncorrectSize(sliver.len(), *blob_id)
-        );
-
-        // Ensure the received sliver matches the metadata we have in store.
-        let stored_sliver_hash = metadata
-            .metadata()
-            .get_sliver_hash(sliver_pair_index, sliver.r#type())
-            .ok_or_else(|| StoreSliverError::InvalidSliverPairId(sliver_pair_index, *blob_id))?;
-        let computed_sliver_hash = sliver.hash(&self.encoding_config)?;
-        ensure!(
-            &computed_sliver_hash == stored_sliver_hash,
-            StoreSliverError::InvalidSliver(sliver_pair_index, *blob_id)
-        );
+        // Verify the sliver.
+        sliver
+            .verify(&self.encoding_config, metadata.metadata())
+            .map_err(|e| StoreSliverError::InvalidSliver(sliver_pair_index, *blob_id, e))?;
 
         // Finally store the sliver in the appropriate shard storage.
         shard_storage
@@ -726,6 +739,13 @@ impl ServiceState for StorageNode {
         } else {
             Ok(None)
         }
+    }
+
+    fn blob_status(&self, blob_id: &BlobId) -> Result<Option<BlobStatus>, anyhow::Error> {
+        self.storage
+            .get_blob_info(blob_id)
+            .map_err(|err| anyhow!("could not retrieve blob info: {}", err))
+            .map(|maybe_info| maybe_info.map(|info| info.into()))
     }
 
     async fn verify_inconsistency_proof<T: MerkleAuth + Send + Sync>(
@@ -820,7 +840,7 @@ mod tests {
     use fastcrypto::traits::KeyPair;
     use tokio::sync::{broadcast::Sender, Mutex};
     use walrus_core::encoding::{self, Primary, SliverPair};
-    use walrus_sdk::client::Client;
+    use walrus_sdk::{api::BlobCertificationStatus as SdkBlobCertificationStatus, client::Client};
     use walrus_sui::{
         test_utils::EventForTesting,
         types::{BlobCertified, BlobEvent, BlobRegistered},
@@ -938,6 +958,67 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn deletes_blob_data_on_invalid_blob_event() -> TestResult {
+        let events = Sender::new(48);
+        let node = StorageNodeHandle::builder()
+            .with_storage(populated_storage(&[
+                (SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
+                (OTHER_SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
+            ])?)
+            .with_system_event_provider(events.clone())
+            .with_node_started(true)
+            .build()
+            .await?;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(node.as_ref().storage.is_stored_at_all_shards(&BLOB_ID)?);
+        events.send(BlobEvent::InvalidBlobID(InvalidBlobID::for_testing(
+            BLOB_ID,
+        )))?;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(!node.as_ref().storage.is_stored_at_all_shards(&BLOB_ID)?);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn returns_correct_blob_status() -> TestResult {
+        let blob_event = BlobRegistered::for_testing(BLOB_ID);
+        let node = StorageNodeHandle::builder()
+            .with_system_event_provider(vec![BlobEvent::Registered(blob_event.clone())])
+            .with_shard_assignment(&[ShardIndex(0)])
+            .with_node_started(true)
+            .build()
+            .await?;
+
+        // Wait to make sure the event is received.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let blob_status = node
+            .as_ref()
+            .blob_status(&BLOB_ID)?
+            .expect("should not be None");
+
+        assert_eq!(blob_status.status, SdkBlobCertificationStatus::Registered);
+        assert_eq!(blob_status.status_event, blob_event.event_id);
+        assert_eq!(blob_status.end_epoch, blob_event.end_epoch);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn returns_none_for_empty_blob_status() -> TestResult {
+        let node = StorageNodeHandle::builder()
+            .with_system_event_provider(vec![])
+            .with_shard_assignment(&[ShardIndex(0)])
+            .with_node_started(true)
+            .build()
+            .await?;
+
+        assert!(node.as_ref().blob_status(&BLOB_ID)?.is_none());
+
+        Ok(())
+    }
+
     mod inconsistency_proof {
 
         use fastcrypto::traits::VerifyingKey;
@@ -1045,6 +1126,7 @@ mod tests {
         }
     }
 
+    #[derive(Debug)]
     struct EncodedBlob {
         pub config: EncodingConfig,
         pub pairs: Vec<SliverPair>,
@@ -1474,5 +1556,41 @@ mod tests {
         .await;
 
         last_result.expect("function to have completed at least once")
+    }
+
+    #[tokio::test]
+    async fn skip_storing_metadata_if_already_stored() -> TestResult {
+        let (cluster, _, blob) =
+            cluster_with_partially_stored_blob(&[&[0]], BLOB, |_, _| true).await?;
+
+        assert!(matches!(
+            cluster.nodes[0]
+                .storage_node
+                .store_metadata(blob.metadata.into_unverified())
+                .unwrap_err(),
+            StoreMetadataError::AlreadyStored
+        ));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn skip_storing_sliver_if_already_stored() -> TestResult {
+        let (cluster, _, blob) =
+            cluster_with_partially_stored_blob(&[&[0]], BLOB, |_, _| true).await?;
+
+        let assigned_sliver_pair = blob.assigned_sliver_pair(ShardIndex(0));
+        assert!(matches!(
+            cluster.nodes[0]
+                .storage_node
+                .store_sliver(
+                    blob.blob_id(),
+                    assigned_sliver_pair.index(),
+                    &Sliver::Primary(assigned_sliver_pair.primary.clone())
+                )
+                .unwrap_err(),
+            StoreSliverError::AlreadyStored(SliverType::Primary, blob_id)
+                if blob_id == *blob.blob_id()
+        ));
+        Ok(())
     }
 }

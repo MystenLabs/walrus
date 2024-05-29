@@ -172,7 +172,7 @@ impl Storage {
         metadata: &BlobMetadata,
     ) -> Result<(), TypedStoreError> {
         self.metadata.insert(blob_id, metadata)?;
-        self.merge_update_blob_info(blob_id, BlobInfoMergeOperand::MarkMetadataStored)
+        self.merge_update_blob_info(blob_id, BlobInfoMergeOperand::MarkMetadataStored(true))
     }
 
     /// Get the blob info for `blob_id`
@@ -256,6 +256,20 @@ impl Storage {
             .map(|inner| VerifiedBlobMetadataWithId::new_verified_unchecked(*blob_id, inner)))
     }
 
+    /// Deletes the metadata for the provided [`BlobId`].
+    pub fn delete_metadata(&self, blob_id: &BlobId) -> Result<(), TypedStoreError> {
+        self.metadata.remove(blob_id)?;
+        self.merge_update_blob_info(blob_id, BlobInfoMergeOperand::MarkMetadataStored(false))
+    }
+
+    /// Deletes the slivers on all shards for the provided [`BlobId`].
+    pub fn delete_slivers(&self, blob_id: &BlobId) -> Result<(), TypedStoreError> {
+        for shard in self.shards.values() {
+            shard.delete_sliver_pair(blob_id)?;
+        }
+        Ok(())
+    }
+
     /// Returns true if the sliver pairs for the provided blob-id is stored at
     /// all of the storage's shards.
     pub fn is_stored_at_all_shards(&self, blob_id: &BlobId) -> Result<bool, TypedStoreError> {
@@ -327,8 +341,13 @@ fn merge_blob_info(
 
         current_val = if let Some(info) = current_val {
             Some(info.merge(operand))
-        } else if let BlobInfoMergeOperand::ChangeStatus { end_epoch, status } = operand {
-            Some(BlobInfo::new(end_epoch, status))
+        } else if let BlobInfoMergeOperand::ChangeStatus {
+            end_epoch,
+            status,
+            status_event,
+        } = operand
+        {
+            Some(BlobInfo::new(end_epoch, status, status_event))
         } else {
             // TODO(jsmith): Deserialize the key.
             tracing::error!(?key, "attempted to mutate the info for an untracked blob");
@@ -352,6 +371,7 @@ where
 
 #[cfg(test)]
 pub(crate) mod tests {
+
     use prometheus::Registry;
     use sui_sdk::types::digests::TransactionDigest;
     use tempfile::TempDir;
@@ -362,7 +382,10 @@ pub(crate) mod tests {
         SliverIndex,
         SliverType,
     };
-    use walrus_sui::test_utils::event_id_for_testing;
+    use walrus_sui::{
+        test_utils::{event_id_for_testing, EventForTesting},
+        types::BlobCertified,
+    };
     use walrus_test_utils::{async_param_test, param_test, Result as TestResult, WithTempDir};
 
     use super::*;
@@ -435,6 +458,8 @@ pub(crate) mod tests {
             metadata.metadata().clone(),
         );
 
+        storage.update_blob_info(&BlobEvent::Certified(BlobCertified::for_testing(*blob_id)))?;
+
         storage.put_metadata(metadata.blob_id(), metadata.metadata())?;
         let retrieved = storage.get_metadata(blob_id)?;
 
@@ -444,19 +469,60 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn stores_and_deletes_metadata() -> TestResult {
+        let storage = empty_storage();
+        let storage = storage.as_ref();
+        let metadata = walrus_core::test_utils::verified_blob_metadata();
+        let blob_id = metadata.blob_id();
+
+        storage.update_blob_info(&BlobEvent::Certified(BlobCertified::for_testing(*blob_id)))?;
+
+        storage.put_metadata(metadata.blob_id(), metadata.metadata())?;
+
+        assert!(storage.has_metadata(blob_id)?);
+        assert!(storage.get_metadata(blob_id)?.is_some());
+
+        storage.delete_metadata(blob_id)?;
+
+        assert!(!storage.has_metadata(blob_id)?);
+        assert!(storage.get_metadata(blob_id)?.is_none());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn delete_on_empty_metadata_does_not_error() -> TestResult {
+        let storage = empty_storage();
+        let storage = storage.as_ref();
+
+        storage
+            .delete_metadata(&BLOB_ID)
+            .expect("delete on empty metadata should not error");
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn update_blob_info() -> TestResult {
         let storage = empty_storage();
         let storage = storage.as_ref();
         let blob_id = BLOB_ID;
 
-        let state0 = BlobInfo::new(42, BlobCertificationStatus::Registered);
-        let state1 = BlobInfo::new(42, BlobCertificationStatus::Certified);
+        let state0 = BlobInfo::new(
+            42,
+            BlobCertificationStatus::Registered,
+            event_id_for_testing(),
+        );
+        let state1 = BlobInfo::new(
+            42,
+            BlobCertificationStatus::Certified,
+            event_id_for_testing(),
+        );
 
         storage.merge_update_blob_info(
             &blob_id,
             BlobInfoMergeOperand::ChangeStatus {
                 end_epoch: 42,
                 status: BlobCertificationStatus::Registered,
+                status_event: state0.current_status_event,
             },
         )?;
         assert_eq!(storage.get_blob_info(&blob_id)?, Some(state0));
@@ -465,6 +531,7 @@ pub(crate) mod tests {
             BlobInfoMergeOperand::ChangeStatus {
                 end_epoch: 42,
                 status: BlobCertificationStatus::Certified,
+                status_event: state1.current_status_event,
             },
         )?;
         assert_eq!(storage.get_blob_info(&blob_id)?, Some(state1));
@@ -477,7 +544,11 @@ pub(crate) mod tests {
         let storage = storage.as_ref();
         let blob_id = BLOB_ID;
 
-        let state0 = BlobInfo::new(42, BlobCertificationStatus::Registered);
+        let state0 = BlobInfo::new(
+            42,
+            BlobCertificationStatus::Registered,
+            event_id_for_testing(),
+        );
         let state1 = BlobInfo {
             is_metadata_stored: true,
             ..state0
@@ -488,10 +559,11 @@ pub(crate) mod tests {
             BlobInfoMergeOperand::ChangeStatus {
                 end_epoch: 42,
                 status: BlobCertificationStatus::Registered,
+                status_event: state0.current_status_event,
             },
         )?;
         assert_eq!(storage.get_blob_info(&blob_id)?, Some(state0));
-        storage.merge_update_blob_info(&blob_id, BlobInfoMergeOperand::MarkMetadataStored)?;
+        storage.merge_update_blob_info(&blob_id, BlobInfoMergeOperand::MarkMetadataStored(true))?;
         assert_eq!(storage.get_blob_info(&blob_id)?, Some(state1));
 
         Ok(())

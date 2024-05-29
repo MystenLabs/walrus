@@ -28,6 +28,7 @@ use walrus_core::{
 };
 
 use crate::{
+    api::BlobStatus,
     error::{Kind, NodeError},
     node_response::NodeResponse as _,
 };
@@ -46,6 +47,10 @@ impl UrlEndpoints {
 
     fn confirmation(&self, blob_id: &BlobId) -> Url {
         self.blob_resource(blob_id).join("confirmation").unwrap()
+    }
+
+    fn blob_status(&self, blob_id: &BlobId) -> Url {
+        self.blob_resource(blob_id).join("status").unwrap()
     }
 
     fn recovery_symbol<A: EncodingAxis>(
@@ -124,6 +129,20 @@ impl Client {
             .verify(encoding_config)
             .map_err(NodeError::other)?;
         Ok(metadata)
+    }
+
+    /// Requests the status of a blob ID from the node.
+    pub async fn get_blob_status(&self, blob_id: &BlobId) -> Result<BlobStatus, NodeError> {
+        let url = self.endpoints.blob_status(blob_id);
+        let response = self.inner.get(url).send().await.map_err(Kind::Reqwest)?;
+        let blob_status: BlobStatus = response
+            .response_error_for_status()
+            .await?
+            .json()
+            .await
+            .map_err(Kind::Json)?;
+
+        Ok(blob_status)
     }
 
     /// Requests a storage confirmation from the node for the Blob specified by the given ID
