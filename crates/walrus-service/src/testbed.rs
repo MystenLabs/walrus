@@ -297,7 +297,7 @@ async fn create_storage_node_wallets(
     let mut storage_node_wallets = (0..n_nodes.get())
         .map(|index| {
             let name = node_config_name_prefix(index, n_nodes);
-            let wallet_path = working_dir.join(format!("{}-sui.yaml", name));
+            let wallet_path = working_dir.join(format!("{}.yaml", name));
             create_wallet(
                 &wallet_path,
                 sui_network.env(),
