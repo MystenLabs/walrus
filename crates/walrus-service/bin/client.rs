@@ -7,6 +7,7 @@ use std::{io::Write, net::SocketAddr, path::PathBuf};
 
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
+use serde::{Deserialize, Serialize};
 use walrus_core::{encoding::Primary, BlobId};
 use walrus_service::{
     cli_utils::{
@@ -25,10 +26,27 @@ use walrus_service::{
 };
 use walrus_sui::client::{ReadClient, SuiReadClient};
 
-#[derive(Parser, Debug, Clone)]
-#[clap(rename_all = "kebab-case")]
+#[derive(Parser, Debug, Clone, Serialize, Deserialize)]
 #[command(author, version, about = "Walrus client", long_about = None)]
-struct App {
+#[clap(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case")]
+enum App {
+    /// Run the Walrus client by providing the commands as a json-encoded string.
+    Json {
+        /// The json-encoded commands.
+        content: String,
+    },
+    /// Run the Walrus client as a normal cli tool with flags.
+    Cli {
+        #[clap(flatten)]
+        commands: AppInterface,
+    },
+}
+
+#[derive(Parser, Debug, Clone, Serialize, Deserialize)]
+#[clap(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case")]
+struct AppInterface {
     /// The path to the wallet configuration file.
     ///
     /// The Walrus configuration is taken from the following locations:
@@ -63,8 +81,9 @@ struct App {
     command: Commands,
 }
 
-#[derive(Subcommand, Debug, Clone)]
+#[derive(Subcommand, Debug, Clone, Serialize, Deserialize)]
 #[clap(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case")]
 enum Commands {
     /// Store a new blob into Walrus.
     #[clap(alias("write"))]
@@ -119,7 +138,8 @@ enum Commands {
     },
 }
 
-#[derive(Debug, Clone, Args)]
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 struct PublisherArgs {
     /// The address to which to bind the service.
     #[clap(short, long)]
@@ -129,7 +149,8 @@ struct PublisherArgs {
     pub max_body_size_kib: usize,
 }
 
-#[derive(Debug, Clone, Args)]
+#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 struct RpcArg {
     /// The URL of the Sui RPC node to use.
     ///
@@ -167,7 +188,11 @@ impl PublisherArgs {
 
 async fn client() -> Result<()> {
     tracing_subscriber::fmt::init();
-    let app = App::parse();
+    let app: AppInterface = match App::parse() {
+        App::Json { content } => serde_json::from_str(&content)?,
+        App::Cli { commands } => commands,
+    };
+
     let config: Config = load_configuration(&app.config)?;
     tracing::debug!(?app, ?config, "initializing the client");
     let wallet_path = app.wallet.clone().or(config.wallet_config.clone());

@@ -70,6 +70,23 @@ cargo run --bin walrus -- -c $CONFIG store <some file> # store a file
 cargo run --bin walrus -- -c $CONFIG read <some blob ID> # read a blob
 ```
 
+A `json` mode is also available, to simplify programmatic access to the cli. For example:
+
+```sh
+cargo run --bin walrus -- json \
+    '{
+        "config": "devnet_deployment/client_config.yaml",
+        "wallet": null,
+        "gas-budget": 500000000,
+        "command": {
+            "store": {
+                "file": "README.md",
+                "epochs": 1
+            }
+        }
+    }'
+```
+
 ### Daemon mode
 
 In addition to the CLI mode, the Walrus client offers a *daemon mode*. In this mode, it runs a
