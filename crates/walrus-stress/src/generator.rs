@@ -24,7 +24,7 @@ use walrus_sui::client::SuiContractClient;
 use crate::StressParameters;
 
 pub fn create_random_blob(rng: &mut StdRng, blob_size: usize) -> Vec<u8> {
-    (0..blob_size).map(|_| rng.gen()).collect()
+    (0..blob_size).map(|_| rng.gen::<u8>()).collect()
 }
 
 /// Create a simple Walrus client. This client does not interacts with the chain but simply reads
