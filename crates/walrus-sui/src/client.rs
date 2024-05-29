@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Client to call Walrus move functions from rust.
-//!
+
 use core::{fmt, str::FromStr};
 use std::future::Future;
 

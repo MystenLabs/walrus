@@ -10537,6 +10537,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "walrus-stress"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "futures",
+ "mysten-metrics",
+ "prometheus",
+ "rand 0.8.5",
+ "serde",
+ "tokio",
+ "tracing",
+ "walrus-core",
+ "walrus-service",
+ "walrus-sui",
+]
+
+[[package]]
 name = "walrus-sui"
 version = "0.1.0"
 dependencies = [
