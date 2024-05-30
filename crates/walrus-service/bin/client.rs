@@ -154,15 +154,18 @@ enum Commands {
         /// For example, to read a blob and write it to "some_output_file" using a specific
         /// configuration file, you can use the following JSON input:
         ///
-        /// {
-        ///   "config": "working_dir/client_config.yaml",
-        ///   "command": {
-        ///     "read": {
-        ///       "blob_id": "4BKcDC0Ih5RJ8R0tFMz3MZVNZV8b2goT6_JiEEwNHQo",
-        ///       "out": "some_output_file"
+        ///     {
+        ///       "config": "working_dir/client_config.yaml",
+        ///       "command": {
+        ///         "read": {
+        ///           "blob_id": "4BKcDC0Ih5RJ8R0tFMz3MZVNZV8b2goT6_JiEEwNHQo",
+        ///           "out": "some_output_file"
+        ///         }
+        ///       }
         ///     }
-        ///   }
-        /// }
+        ///
+        /// Important: If the "read" command does not have an "out" file specified, the output JSON
+        /// string will contain the full bytes of the blob, encoded as a Base64 string.
         ///
         /// The commands "store", "read", "publisher", "aggregator", and "daemon", are available;
         /// "info" and "json" are not available.
@@ -291,7 +294,7 @@ struct ReadOutput {
     out: Option<PathBuf>,
     #[serde_as(as = "DisplayFromStr")]
     blob_id: BlobId,
-    // When serializing to json, the blob is encoded as Base64 string.
+    // When serializing to JSON, the blob is encoded as Base64 string.
     #[serde_as(as = "Base64")]
     blob: Vec<u8>,
 }
@@ -396,7 +399,7 @@ async fn run_app(app: App, json: bool) -> Result<()> {
             dev,
         } => {
             if json {
-                // TODO: Implement the info command for json as well?
+                // TODO: Implement the info command for JSON as well?
                 return Err(anyhow!("the info command is only available in cli mode"));
             }
             let sui_client =
@@ -408,8 +411,8 @@ async fn run_app(app: App, json: bool) -> Result<()> {
             print_walrus_info(&sui_read_client.current_committee().await?, price, dev);
         }
         Commands::Json { .. } => {
-            // If we reach this point, it means that the json command had a json command inside.
-            return Err(anyhow!("recursive json commands are not permitted"));
+            // If we reach this point, it means that the JSON command had a JSON command inside.
+            return Err(anyhow!("recursive JSON commands are not permitted"));
         }
     }
     Ok(())

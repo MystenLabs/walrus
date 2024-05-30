@@ -92,11 +92,11 @@ curl -X PUT "http://$ADDRESS/v1/store?epochs=5" -d @"some/file" # store file `so
 curl "http://$ADDRESS/v1/<some blob ID>" # read a blob from Walrus (with aggregator or daemon)
 ```
 
-### Json mode
+### JSON mode
 
-All Walrus client commands (except, currently, the `info` command) are available in `json` mode.
-In this mode, all the command line flags of the original cli command can be specified in json format.
-The `json` mode therefore simplifies programmatic access to the cli.
+All Walrus client commands (except, currently, the `info` command) are available in JSON mode.
+In this mode, all the command line flags of the original CLI command can be specified in JSON format.
+The JSON mode therefore simplifies programmatic access to the CLI.
 
 For example, to store a blob, run:
 
@@ -126,7 +126,8 @@ cargo run --bin walrus -- json \
     }'
 ```
 
-The output of a `json` command will itself be `json`-formatted, again to simplify parsing the results in a programmatic way.
+The output of a JSON command will itself be JSON-formatted, again to simplify parsing the results in a programmatic way.
+For example, the JSON output can be piped to the `jq` command for parsing and manually extracting relevant fields.
 
 ## Run a local Walrus testbed
 
