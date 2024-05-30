@@ -97,6 +97,9 @@ pub fn global_sui_test_cluster() -> &'static Mutex<(TestCluster, PathBuf)> {
 /// Returns a wallet on the global sui test cluster.
 pub async fn new_wallet_on_global_test_cluster() -> anyhow::Result<WithTempDir<WalletContext>> {
     let guard = global_sui_test_cluster().lock().await;
+    // Load the cluster's wallet from file instead of using the wallet stored in the cluster.
+    // This prevents tasks from being spawned in the current runtime that are expected by
+    // the wallet to continue running.
     let mut cluster_wallet = WalletContext::new(&guard.1, None, None)?;
     wallet_for_testing(&mut cluster_wallet).await
 }
