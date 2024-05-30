@@ -405,8 +405,7 @@ impl StorageNode {
         event_sequence_number: usize,
         event: InvalidBlobID,
     ) -> anyhow::Result<()> {
-        self.storage.delete_metadata(&event.blob_id)?;
-        self.storage.delete_slivers(&event.blob_id)?;
+        self.storage.delete_blob(&event.blob_id)?;
         self.storage
             .maybe_advance_event_cursor(event_sequence_number, &event.event_id)?;
         Ok(())

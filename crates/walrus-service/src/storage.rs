@@ -19,6 +19,7 @@ use typed_store::{
     rocks::{
         self,
         errors::typed_store_err_from_bcs_err,
+        DBBatch,
         DBMap,
         MetricConf,
         ReadWriteOptions,
@@ -256,16 +257,36 @@ impl Storage {
             .map(|inner| VerifiedBlobMetadataWithId::new_verified_unchecked(*blob_id, inner)))
     }
 
+    /// Deletes the provided [`BlobId`] from the storage.
+    pub fn delete_blob(&self, blob_id: &BlobId) -> Result<(), TypedStoreError> {
+        let mut batch = self.metadata.batch();
+        self.delete_metadata(&mut batch, blob_id)?;
+        self.delete_slivers(&mut batch, blob_id)?;
+        batch.write()?;
+        Ok(())
+    }
+
     /// Deletes the metadata for the provided [`BlobId`].
-    pub fn delete_metadata(&self, blob_id: &BlobId) -> Result<(), TypedStoreError> {
-        self.metadata.remove(blob_id)?;
-        self.merge_update_blob_info(blob_id, BlobInfoMergeOperand::MarkMetadataStored(false))
+    fn delete_metadata(
+        &self,
+        batch: &mut DBBatch,
+        blob_id: &BlobId,
+    ) -> Result<(), TypedStoreError> {
+        batch.delete_batch(&self.metadata, std::iter::once(blob_id))?;
+        batch.partial_merge_batch(
+            &self.blob_info,
+            [(
+                blob_id,
+                BlobInfoMergeOperand::MarkMetadataStored(false).to_bytes(),
+            )],
+        )?;
+        Ok(())
     }
 
     /// Deletes the slivers on all shards for the provided [`BlobId`].
-    pub fn delete_slivers(&self, blob_id: &BlobId) -> Result<(), TypedStoreError> {
+    fn delete_slivers(&self, batch: &mut DBBatch, blob_id: &BlobId) -> Result<(), TypedStoreError> {
         for shard in self.shards.values() {
-            shard.delete_sliver_pair(blob_id)?;
+            shard.delete_sliver_pair(batch, blob_id)?;
         }
         Ok(())
     }
@@ -482,7 +503,9 @@ pub(crate) mod tests {
         assert!(storage.has_metadata(blob_id)?);
         assert!(storage.get_metadata(blob_id)?.is_some());
 
-        storage.delete_metadata(blob_id)?;
+        let mut batch = storage.metadata.batch();
+        storage.delete_metadata(&mut batch, blob_id)?;
+        batch.write()?;
 
         assert!(!storage.has_metadata(blob_id)?);
         assert!(storage.get_metadata(blob_id)?.is_none());
@@ -494,9 +517,11 @@ pub(crate) mod tests {
         let storage = empty_storage();
         let storage = storage.as_ref();
 
+        let mut batch = storage.metadata.batch();
         storage
-            .delete_metadata(&BLOB_ID)
+            .delete_metadata(&mut batch, &BLOB_ID)
             .expect("delete on empty metadata should not error");
+        batch.write()?;
         Ok(())
     }
 
