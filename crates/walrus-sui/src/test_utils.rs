@@ -9,6 +9,7 @@ pub mod system_setup;
 use std::{
     collections::BTreeSet,
     future,
+    path::PathBuf,
     sync::{mpsc, OnceLock},
     thread,
 };
@@ -70,8 +71,8 @@ pub fn get_default_invalid_certificate(blob_id: BlobId, epoch: Epoch) -> Invalid
 }
 
 /// Returns a global sui test cluster, after initializing it if it doesn't exist yet.
-pub fn global_sui_test_cluster() -> &'static Mutex<TestCluster> {
-    static CLUSTER: OnceLock<Mutex<TestCluster>> = OnceLock::new();
+pub fn global_sui_test_cluster() -> &'static Mutex<(TestCluster, PathBuf)> {
+    static CLUSTER: OnceLock<Mutex<(TestCluster, PathBuf)>> = OnceLock::new();
     CLUSTER.get_or_init(|| {
         tracing::debug!("building global sui test cluster");
         let (tx, rx) = mpsc::channel();
@@ -81,19 +82,23 @@ pub fn global_sui_test_cluster() -> &'static Mutex<TestCluster> {
                 .build()
                 .expect("should be able to build runtime")
                 .block_on(async {
-                    let test_cluster = sui_test_cluster().await;
-                    tx.send(test_cluster).expect("can send test cluster");
+                    let mut test_cluster = sui_test_cluster().await;
+                    let wallet_path = test_cluster.wallet().config.path().to_path_buf();
+                    tx.send((test_cluster, wallet_path))
+                        .expect("can send test cluster");
                     let () = future::pending().await;
                 })
         });
-        let test_cluster = rx.recv().expect("should receive test_cluster");
-        Mutex::new(test_cluster)
+        let pair = rx.recv().expect("should receive test_cluster");
+        Mutex::new(pair)
     })
 }
 
 /// Returns a wallet on the global sui test cluster.
 pub async fn new_wallet_on_global_test_cluster() -> anyhow::Result<WithTempDir<WalletContext>> {
-    wallet_for_testing(global_sui_test_cluster().lock().await.wallet_mut()).await
+    let guard = global_sui_test_cluster().lock().await;
+    let mut cluster_wallet = WalletContext::new(&guard.1, None, None)?;
+    wallet_for_testing(&mut cluster_wallet).await
 }
 
 /// Creates and returns a sui test cluster.

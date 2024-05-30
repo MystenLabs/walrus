@@ -18,6 +18,8 @@ use walrus_sui::{
     types::{BlobEvent, EpochStatus},
 };
 
+const GAS_BUDGET: u64 = 1_000_000_000;
+
 #[tokio::test]
 #[ignore = "ignore integration tests by default"]
 async fn test_register_certify_blob() -> anyhow::Result<()> {
@@ -26,7 +28,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
     let (package_id, system_object) = publish_with_default_system(&mut wallet.inner).await?;
     let walrus_client = wallet
         .and_then_async(|wallet| {
-            SuiContractClient::new(wallet, package_id, system_object, 10000000000)
+            SuiContractClient::new(wallet, package_id, system_object, GAS_BUDGET)
         })
         .await?;
 
@@ -182,7 +184,7 @@ async fn test_invalidate_blob() -> anyhow::Result<()> {
     let (package_id, system_object) = publish_with_default_system(&mut wallet.inner).await?;
     let walrus_client = wallet
         .and_then_async(|wallet| {
-            SuiContractClient::new(wallet, package_id, system_object, 10000000000)
+            SuiContractClient::new(wallet, package_id, system_object, GAS_BUDGET)
         })
         .await?;
 
@@ -225,7 +227,7 @@ async fn test_get_system() -> anyhow::Result<()> {
     let (package_id, system_object) = publish_with_default_system(&mut wallet.inner).await?;
     let walrus_client = wallet
         .and_then_async(|wallet| {
-            SuiContractClient::new(wallet, package_id, system_object, 10000000000)
+            SuiContractClient::new(wallet, package_id, system_object, GAS_BUDGET)
         })
         .await?;
     let system = walrus_client
@@ -235,7 +237,7 @@ async fn test_get_system() -> anyhow::Result<()> {
         .await?;
     assert_eq!(system.epoch_status, EpochStatus::Done);
     assert_eq!(system.price_per_unit_size, 10);
-    assert_eq!(system.total_capacity_size, 1000000000);
+    assert_eq!(system.total_capacity_size, GAS_BUDGET);
     assert_eq!(system.used_capacity_size, 0);
     let committee = walrus_client
         .as_ref()
