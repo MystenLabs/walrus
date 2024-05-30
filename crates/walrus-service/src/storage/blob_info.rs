@@ -85,9 +85,19 @@ impl BlobInfo {
         }
     }
 
-    /// Returns true if the blob is certified
+    /// Returns true if the blob is certified.
     pub fn is_certified(&self) -> bool {
         self.status == BlobCertificationStatus::Certified
+    }
+
+    /// Returns true if the blob is invalid.
+    pub fn is_invalid(&self) -> bool {
+        self.status == BlobCertificationStatus::Invalid
+    }
+
+    /// Returns true if the blob is expired given the current epoch.
+    pub fn is_expired(&self, current_epoch: Epoch) -> bool {
+        self.end_epoch <= current_epoch
     }
 
     pub(crate) fn to_bytes(self) -> Vec<u8> {

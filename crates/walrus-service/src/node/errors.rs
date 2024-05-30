@@ -1,6 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use sui_types::event::EventID;
 use walrus_core::{
     encoding::SliverVerificationError,
     inconsistency::InconsistencyVerificationError,
@@ -55,6 +56,8 @@ pub enum ComputeStorageConfirmationError {
 pub enum StoreMetadataError {
     #[error(transparent)]
     InvalidMetadata(#[from] VerificationError),
+    #[error("the blob for this metadata is invalid: {0:?}")]
+    InvalidBlob(EventID),
     #[error("the blob for this metadata has already expired")]
     BlobExpired,
     #[error("the blob for this metadata has not been registered")]

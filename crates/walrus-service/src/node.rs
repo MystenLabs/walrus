@@ -614,7 +614,13 @@ impl ServiceState for StorageNode {
             return Err(StoreMetadataError::NotRegistered);
         };
 
-        if blob_info.end_epoch <= self.current_epoch() {
+        if blob_info.is_invalid() {
+            return Err(StoreMetadataError::InvalidBlob(
+                blob_info.current_status_event,
+            ));
+        }
+
+        if blob_info.is_expired(self.current_epoch()) {
             return Err(StoreMetadataError::BlobExpired);
         }
 
