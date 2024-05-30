@@ -20,7 +20,7 @@ rand = "0.8.5"
 reqwest = "0.12.4"
 serde = { version = "1.0.203", features = ["derive"] }
 serde_json = "1.0.117"
-serde_with = "3.8"
+serde_with = { version = "3.8", features = ["base64"] }
 serde_yaml = "0.9"
 sui-keys = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.26.0" }
 sui-move-build = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.26.0" }

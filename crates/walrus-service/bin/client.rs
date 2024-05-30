@@ -3,11 +3,18 @@
 
 //! A client for the Walrus blob store.
 
-use std::{io::Write, net::SocketAddr, path::PathBuf};
+use std::{
+    fmt::{self, Display},
+    io::Write,
+    net::SocketAddr,
+    path::PathBuf,
+};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use clap::{Args, Parser, Subcommand};
 use serde::{Deserialize, Serialize};
+use serde_with::{base64::Base64, serde_as, DisplayFromStr};
+use sui_types::base_types::ObjectID;
 use walrus_core::{encoding::Primary, BlobId};
 use walrus_service::{
     cli_utils::{
@@ -24,12 +31,15 @@ use walrus_service::{
     client::Config,
     daemon::ClientDaemon,
 };
-use walrus_sui::client::{ReadClient, SuiReadClient};
+use walrus_sui::{
+    client::{ReadClient, SuiReadClient},
+    types::Blob,
+};
 
 #[derive(Parser, Debug, Clone, Serialize, Deserialize)]
 #[command(author, version, about = "Walrus client", long_about = None)]
 #[clap(rename_all = "kebab-case")]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "lowercase")]
 enum App {
     /// Run the Walrus client by providing the commands as a json-encoded string.
     Json {
@@ -45,7 +55,7 @@ enum App {
 
 #[derive(Parser, Debug, Clone, Serialize, Deserialize)]
 #[clap(rename_all = "kebab-case")]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "lowercase")]
 struct AppInterface {
     /// The path to the wallet configuration file.
     ///
@@ -58,6 +68,7 @@ struct AppInterface {
     /// If an invalid path is specified through this option, an error is returned.
     // NB: Keep this in sync with `walrus_service::cli_utils`.
     #[clap(short, long, verbatim_doc_comment)]
+    #[serde(default)]
     config: Option<PathBuf>,
     /// The path to the Sui wallet configuration file.
     ///
@@ -73,17 +84,30 @@ struct AppInterface {
     /// is returned.
     // NB: Keep this in sync with `walrus_service::cli_utils`.
     #[clap(short, long, default_value = None, verbatim_doc_comment)]
+    #[serde(default)]
     wallet: Option<PathBuf>,
     /// The gas budget for transactions.
     #[clap(short, long, default_value_t = 500_000_000)]
+    #[serde(default = "default::gas_budget")]
     gas_budget: u64,
     #[command(subcommand)]
     command: Commands,
 }
 
+mod default {
+    pub(crate) fn gas_budget() -> u64 {
+        500_000_000
+    }
+
+    pub(crate) fn epochs() -> u64 {
+        1
+    }
+}
+
+#[serde_as]
 #[derive(Subcommand, Debug, Clone, Serialize, Deserialize)]
 #[clap(rename_all = "kebab-case")]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "lowercase")]
 enum Commands {
     /// Store a new blob into Walrus.
     #[clap(alias("write"))]
@@ -92,18 +116,22 @@ enum Commands {
         file: PathBuf,
         /// The number of epochs ahead for which to store the blob.
         #[clap(short, long, default_value_t = 1)]
+        #[serde(default = "default::epochs")]
         epochs: u64,
     },
     /// Read a blob from Walrus, given the blob ID.
     Read {
         /// The blob ID to be read.
+        #[serde_as(as = "DisplayFromStr")]
         blob_id: BlobId,
         /// The file path where to write the blob.
         ///
         /// If unset, prints the blob to stdout.
         #[clap(short, long)]
+        #[serde(default)]
         out: Option<PathBuf>,
         #[clap(flatten)]
+        #[serde(default)]
         rpc_arg: RpcArg,
     },
     /// Run a publisher service at the provided network address.
@@ -117,6 +145,7 @@ enum Commands {
     /// Run an aggregator service at the provided network address.
     Aggregator {
         #[clap(flatten)]
+        #[serde(default)]
         rpc_arg: RpcArg,
         /// The address to which to bind the aggregator.
         #[clap(short, long)]
@@ -131,6 +160,7 @@ enum Commands {
     /// Print information about the Walrus storage system this client is connected to.
     Info {
         #[clap(flatten)]
+        #[serde(default)]
         rpc_arg: RpcArg,
         /// Print extended information for developers.
         #[clap(long, action)]
@@ -139,7 +169,7 @@ enum Commands {
 }
 
 #[derive(Debug, Clone, Args, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "lowercase")]
 struct PublisherArgs {
     /// The address to which to bind the service.
     #[clap(short, long)]
@@ -149,8 +179,8 @@ struct PublisherArgs {
     pub max_body_size_kib: usize,
 }
 
-#[derive(Debug, Clone, Args, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Default, Debug, Clone, Args, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 struct RpcArg {
     /// The URL of the Sui RPC node to use.
     ///
@@ -186,11 +216,92 @@ impl PublisherArgs {
     }
 }
 
+/// Helper trait to get the correct string depending on the output mode.
+trait PrintOutput: Display + Serialize {
+    fn output_string(&self, json: bool) -> Result<String> {
+        if json {
+            Ok(serde_json::to_string(&self)?)
+        } else {
+            Ok(self.to_string())
+        }
+    }
+}
+
+/// The output of the store action.
+#[serde_as]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+struct StoreOutput {
+    #[serde_as(as = "DisplayFromStr")]
+    blob_id: BlobId,
+    sui_object_id: ObjectID,
+    blob_size: u64,
+}
+
+impl From<Blob> for StoreOutput {
+    fn from(blob: Blob) -> Self {
+        Self {
+            blob_id: blob.blob_id,
+            sui_object_id: blob.id,
+            blob_size: blob.size,
+        }
+    }
+}
+
+impl Display for StoreOutput {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{} Blob stored successfully.\n\
+                Unencoded size: {}\nSui object ID: {}\nBlob ID: {}",
+            success(),
+            HumanReadableBytes(self.blob_size),
+            self.sui_object_id,
+            self.blob_id,
+        )
+    }
+}
+
+impl PrintOutput for StoreOutput {}
+
+/// The output of the store action.
+#[serde_as]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "lowercase")]
+struct ReadOutput {
+    out: Option<PathBuf>,
+    #[serde_as(as = "DisplayFromStr")]
+    blob_id: BlobId,
+    // When serializing to json, the blob is encoded as Base64 string.
+    #[serde_as(as = "Base64")]
+    blob: Vec<u8>,
+}
+
+impl Display for ReadOutput {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match &self.out {
+            Some(path) => {
+                write!(
+                    f,
+                    "{} Blob {} reconstructed from Walrus and written to {}.",
+                    success(),
+                    self.blob_id,
+                    path.display()
+                )
+            }
+            // The full blob has been written sto stdout.
+            None => write!(f, ""),
+        }
+    }
+}
+
+impl PrintOutput for ReadOutput {}
+
 async fn client() -> Result<()> {
     tracing_subscriber::fmt::init();
-    let app: AppInterface = match App::parse() {
-        App::Json { content } => serde_json::from_str(&content)?,
-        App::Cli { commands } => commands,
+    let (app, json): (AppInterface, bool) = match App::parse() {
+        App::Json { content } => (serde_json::from_str(&content)?, true),
+        App::Cli { commands } => (commands, false),
     };
 
     let config: Config = load_configuration(&app.config)?;
@@ -209,14 +320,7 @@ async fn client() -> Result<()> {
             let blob = client
                 .reserve_and_store_blob(&std::fs::read(file)?, epochs)
                 .await?;
-            println!(
-                "{} Blob stored successfully.\n\
-                Unencoded size: {}\nBlob ID: {}\nSui object ID: {}",
-                success(),
-                HumanReadableBytes(blob.size),
-                blob.blob_id,
-                blob.id,
-            );
+            println!("{}", StoreOutput::from(blob).output_string(json)?);
         }
         Commands::Read {
             blob_id,
@@ -224,20 +328,16 @@ async fn client() -> Result<()> {
             rpc_arg: RpcArg { rpc_url },
         } => {
             let client = get_read_client(config, rpc_url, wallet, wallet_path.is_none()).await?;
-
             let blob = client.read_blob::<Primary>(&blob_id).await?;
-            match out {
-                Some(path) => {
-                    std::fs::write(&path, blob)?;
-                    println!(
-                        "{} Blob {} reconstructed from Walrus and written to {}.",
-                        success(),
-                        blob_id,
-                        path.display()
-                    )
+            match out.as_ref() {
+                Some(path) => std::fs::write(path, &blob)?,
+                None => {
+                    if !json {
+                        std::io::stdout().write_all(&blob)?
+                    }
                 }
-                None => std::io::stdout().write_all(&blob)?,
             }
+            println!("{}", ReadOutput { out, blob_id, blob }.output_string(json)?);
         }
         Commands::Publisher { args } => {
             args.print_debug_message("attempting to run the Walrus publisher");
@@ -267,6 +367,10 @@ async fn client() -> Result<()> {
             rpc_arg: RpcArg { rpc_url },
             dev,
         } => {
+            if json {
+                // TODO: Implement the info command for json as well?
+                return Err(anyhow!("the info command is only available in cli mode"));
+            }
             let sui_client =
                 get_sui_client_from_rpc_node_or_wallet(rpc_url, wallet, wallet_path.is_none())
                     .await?;

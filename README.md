@@ -75,13 +75,24 @@ A `json` mode is also available, to simplify programmatic access to the cli. For
 ```sh
 cargo run --bin walrus -- json \
     '{
-        "config": "devnet_deployment/client_config.yaml",
-        "wallet": null,
-        "gas-budget": 500000000,
+        "config": "working_dir/client_config.yaml",
         "command": {
             "store": {
-                "file": "README.md",
-                "epochs": 1
+                "file": "README.md"
+            }
+        }
+    }'
+```
+
+or on the read path:
+
+```sh
+cargo run --bin walrus -- json \
+    '{
+        "config": "working_dir/client_config.yaml",
+        "command": {
+            "read": {
+                "blob_id": "4BKcDC0Ih5RJ8R0tFMz3MZVNZV8b2goT6_JiEEwNHQo"
             }
         }
     }'
