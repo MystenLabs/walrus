@@ -156,6 +156,18 @@ where
             continue;
         }
 
+        // Ensure that the first letter is uppercase, as descriptions taken from errors would
+        // default to a first lowercase letter.
+        let description: String = description
+            .char_indices()
+            .map(|(i, mut char_)| {
+                if i == 0 {
+                    char_.make_ascii_uppercase();
+                }
+                char_
+            })
+            .collect();
+
         let canonical_reason = code
             .canonical_reason()
             .expect("all used codes have canonical reasons");

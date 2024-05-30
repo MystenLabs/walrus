@@ -70,12 +70,12 @@ pub(crate) struct BlobIdString(#[serde_as(as = "DisplayFromStr")] pub(crate) Blo
 trait SyncServiceState: ServiceState + Send + Sync + 'static {}
 impl<T: ServiceState + Send + Sync + 'static> SyncServiceState for T {}
 
-// TODO(jsmith): Provide the schema for success messages.
+// TODO(jsmith): Provide the schema for success messages (#460).
 
 /// Get blob metadata.
 ///
 /// Gets the metadata associated with a Walrus blob, as a BCS encoded byte stream.
-#[tracing::instrument(level = Level::TRACE, skip_all, fields(walrus.blob_id = %blob_id), err)]
+#[tracing::instrument(skip_all, fields(walrus.blob_id = %blob_id), err(level = Level::DEBUG))]
 #[utoipa::path(
     get,
     path = openapi::rewrite_route(METADATA_ENDPOINT),
@@ -95,13 +95,13 @@ pub async fn get_metadata<S: SyncServiceState>(
 
 /// Store blob metadata.
 ///
-/// Stores the metadata associated with a registered Walrus blob this storage node. This is a
+/// Stores the metadata associated with a registered Walrus blob at this storage node. This is a
 /// pre-requisite for storing the encoded slivers of the blob. The ID of the blob must first be
 /// registered on Sui, after which storing the metadata becomes possible.
 ///
-/// This endpoint may return an error if it has not yet been notified from the chain of the blob
-/// being stored.
-#[tracing::instrument(level = Level::TRACE, skip_all, fields(walrus.blob_id = %blob_id), err)]
+/// This endpoint may return an error if the node has not yet received the registration event from
+/// the chain.
+#[tracing::instrument(skip_all, fields(walrus.blob_id = %blob_id), err(level = Level::DEBUG))]
 #[utoipa::path(
     put,
     path = openapi::rewrite_route(METADATA_ENDPOINT),
@@ -134,7 +134,7 @@ pub async fn put_metadata<S: SyncServiceState>(
 /// Gets the primary or secondary sliver identified by the specified blob ID and index. The
 /// index should represent a sliver that is assigned to be stored at one of the shards managed
 /// by this storage node during this epoch.
-#[tracing::instrument(level = Level::TRACE, skip_all, err, fields(
+#[tracing::instrument(skip_all, err(level = Level::DEBUG), fields(
     walrus.blob_id = %blob_id.0,
     walrus.sliver.pair_index = %sliver_pair_index,
     walrus.sliver.type_ = %sliver_type
@@ -174,7 +174,7 @@ pub async fn get_sliver<S: SyncServiceState>(
 /// Store blob slivers.
 ///
 /// Stores a primary or secondary blob sliver at the storage node.
-#[tracing::instrument(level = Level::TRACE, skip_all, err, fields(
+#[tracing::instrument(skip_all, err(level = Level::DEBUG), fields(
     walrus.blob_id = %blob_id.0,
     walrus.sliver.pair_index = %sliver_pair_index,
     walrus.sliver.type_ = %sliver_type
@@ -219,7 +219,7 @@ pub async fn put_sliver<S: SyncServiceState>(
 ///
 /// Gets a signed storage confirmation from this storage node, indicating that all shards assigned
 /// to this storage node for the current epoch have stored their respective slivers.
-#[tracing::instrument(level = Level::TRACE, skip_all, fields(walrus.blob_id = %blob_id), err)]
+#[tracing::instrument(skip_all, fields(walrus.blob_id = %blob_id), err(level = Level::DEBUG))]
 #[utoipa::path(
     get,
     path = openapi::rewrite_route(STORAGE_CONFIRMATION_ENDPOINT),
@@ -247,7 +247,7 @@ pub async fn get_storage_confirmation<S: SyncServiceState>(
 /// The `sliver_type` is the target type of the sliver that will be recovered.
 /// The `sliver_pair_index` is the index of the sliver pair that we want to access.
 /// The `target_pair_index` is the index of the target sliver.
-#[tracing::instrument(level = Level::TRACE, skip_all, err, fields(
+#[tracing::instrument(skip_all, err(level = Level::DEBUG), fields(
     walrus.blob_id = %blob_id.0,
     walrus.sliver.pair_index = %sliver_pair_index,
     walrus.sliver.target_pair_index = %target_pair_index,
@@ -295,8 +295,8 @@ pub async fn get_recovery_symbol<S: SyncServiceState>(
 ///
 /// Accepts an inconsistency proof from other storage nodes, verifies it, and returns an attestation
 /// that the specified blob is inconsistent.
-// TODO(jsmith): This endpoint should be a POST endpoint, not a PUT endpoint.
-#[tracing::instrument(level = Level::TRACE, skip_all, err, fields(
+// TODO(jsmith): This endpoint should be a POST endpoint, not a PUT endpoint (#461).
+#[tracing::instrument(skip_all, err(level = Level::DEBUG), fields(
     walrus.blob_id = %blob_id.0, walrus.sliver.type_ = %sliver_type
 ))]
 #[utoipa::path(
@@ -328,7 +328,21 @@ pub async fn inconsistency_proof<S: SyncServiceState>(
     Ok(ApiSuccess::ok(attestation))
 }
 
-#[tracing::instrument(level = Level::TRACE, skip_all, fields(walrus.blob_id = %blob_id), err)]
+/// Get the status of a blob.
+///
+/// Gets the status of a blob as viewed by this storage node, such as whether it is registered,
+/// certified, or invalid, and the event identifier on Sui that led to the change in status.
+#[tracing::instrument(skip_all, fields(walrus.blob_id = %blob_id), err(level = Level::DEBUG))]
+#[utoipa::path(
+    get,
+    path = openapi::rewrite_route(STATUS_ENDPOINT),
+    params(("blob_id" = BlobIdString,)),
+    responses(
+        (status = 200, description = "The status of the blob", content_type = "application/json"),
+        BlobStatusError
+    ),
+    tag = openapi::GROUP_READING_BLOBS
+)]
 pub async fn blob_status<S: SyncServiceState>(
     State(state): State<Arc<S>>,
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
