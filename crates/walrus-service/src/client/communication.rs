@@ -11,7 +11,6 @@ use tokio::sync::Semaphore;
 use tracing::{Level, Span};
 use walrus_core::{
     encoding::{EncodingAxis, EncodingConfig, Sliver, SliverPair},
-    ensure,
     messages::SignedStorageConfirmation,
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
@@ -28,8 +27,6 @@ use super::{
     config::RequestRateConfig,
     error::{SliverStoreError, StoreError},
     utils::{string_prefix, WeightedResult},
-    ClientError,
-    ClientErrorKind,
 };
 use crate::utils::{self, ExponentialBackoff, FutureHelpers};
 
@@ -69,7 +66,9 @@ pub(crate) struct NodeCommunication<'a> {
 }
 
 impl<'a> NodeCommunication<'a> {
-    /// Creates as new instance of [`NodeCommunication`].
+    /// Creates a new [`NodeCommunication`].
+    ///
+    /// Returns `None` if the `node` has no shards.
     pub fn new(
         node_index: NodeIndex,
         epoch: Epoch,
@@ -78,7 +77,12 @@ impl<'a> NodeCommunication<'a> {
         encoding_config: &'a EncodingConfig,
         config: RequestRateConfig,
         global_connection_limit: Arc<Semaphore>,
-    ) -> Result<Self, ClientError> {
+    ) -> Option<Self> {
+        if node.shard_ids.is_empty() {
+            tracing::debug!("do not create NodeCommunication for node without shards");
+            return None;
+        }
+
         let url = Url::parse(&format!("http://{}", node.network_address)).unwrap();
         let node_connection_limit = Arc::new(Semaphore::new(config.max_node_connections));
         tracing::trace!(
@@ -86,11 +90,7 @@ impl<'a> NodeCommunication<'a> {
             %config.max_node_connections,
             "initializing communication with node"
         );
-        ensure!(
-            !node.shard_ids.is_empty(),
-            ClientErrorKind::InvalidConfig.into()
-        );
-        Ok(Self {
+        Some(Self {
             node_index,
             epoch,
             node,
@@ -130,6 +130,10 @@ impl<'a> NodeCommunication<'a> {
         NodeResult(self.epoch, weight, self.node_index, result)
     }
 
+    fn to_node_result_with_n_shards<T, E>(&self, result: Result<T, E>) -> NodeResult<T, E> {
+        self.to_node_result(self.n_owned_shards().get().into(), result)
+    }
+
     // Read operations.
 
     /// Requests the metadata for a blob ID from the node.
@@ -143,7 +147,7 @@ impl<'a> NodeCommunication<'a> {
             .client
             .get_and_verify_metadata(blob_id, self.encoding_config)
             .await;
-        self.to_node_result(self.n_owned_shards().get().into(), result)
+        self.to_node_result_with_n_shards(result)
     }
 
     /// Requests a sliver from the storage node, and verifies that it matches the metadata and
@@ -194,8 +198,7 @@ impl<'a> NodeCommunication<'a> {
                 .map_err(StoreError::Confirmation)
         }
         .await;
-
-        self.to_node_result(self.n_owned_shards().get().into(), result)
+        self.to_node_result_with_n_shards(result)
     }
 
     async fn store_metadata_with_retries(
