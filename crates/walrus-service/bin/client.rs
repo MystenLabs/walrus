@@ -40,23 +40,7 @@ use walrus_sui::{
 #[command(author, version, about = "Walrus client", long_about = None)]
 #[clap(rename_all = "kebab-case")]
 #[serde(rename_all = "lowercase")]
-enum App {
-    /// Run the Walrus client by providing the commands as a json-encoded string.
-    Json {
-        /// The json-encoded commands.
-        content: String,
-    },
-    /// Run the Walrus client as a normal cli tool with flags.
-    Cli {
-        #[clap(flatten)]
-        commands: AppInterface,
-    },
-}
-
-#[derive(Parser, Debug, Clone, Serialize, Deserialize)]
-#[clap(rename_all = "kebab-case")]
-#[serde(rename_all = "lowercase")]
-struct AppInterface {
+struct App {
     /// The path to the wallet configuration file.
     ///
     /// The Walrus configuration is taken from the following locations:
@@ -83,25 +67,15 @@ struct AppInterface {
     /// If an invalid path is specified through this option or in the configuration file, an error
     /// is returned.
     // NB: Keep this in sync with `walrus_service::cli_utils`.
-    #[clap(short, long, default_value = None, verbatim_doc_comment)]
+    #[clap(short, long, verbatim_doc_comment)]
     #[serde(default)]
     wallet: Option<PathBuf>,
     /// The gas budget for transactions.
-    #[clap(short, long, default_value_t = 500_000_000)]
+    #[clap(short, long, default_value_t = default::gas_budget())]
     #[serde(default = "default::gas_budget")]
     gas_budget: u64,
     #[command(subcommand)]
     command: Commands,
-}
-
-mod default {
-    pub(crate) fn gas_budget() -> u64 {
-        500_000_000
-    }
-
-    pub(crate) fn epochs() -> u64 {
-        1
-    }
 }
 
 #[serde_as]
@@ -115,7 +89,7 @@ enum Commands {
         /// The file containing the blob to be published to Walrus.
         file: PathBuf,
         /// The number of epochs ahead for which to store the blob.
-        #[clap(short, long, default_value_t = 1)]
+        #[clap(short, long, default_value_t = default::epochs())]
         #[serde(default = "default::epochs")]
         epochs: u64,
     },
@@ -164,7 +138,16 @@ enum Commands {
         rpc_arg: RpcArg,
         /// Print extended information for developers.
         #[clap(long, action)]
+        #[serde(default)]
         dev: bool,
+    },
+    /// Run the client by specifying the arguments in a json string; cli options are ignored.
+    Json {
+        /// The json-encoded command for the Walrus cli. The commands "store", "read", "publisher",
+        /// "aggregator", and "daemon", are available; "info" and "json" are not available. The json
+        /// command follows the same structure of the respective cli command. All flags are
+        /// *ignored*.
+        command_string: String,
     },
 }
 
@@ -175,7 +158,8 @@ struct PublisherArgs {
     #[clap(short, long)]
     pub bind_address: SocketAddr,
     /// The maximum body size of PUT requests in KiB.
-    #[clap(short, long = "max-body-size", default_value_t = 10_240)]
+    #[clap(short, long = "max-body-size", default_value_t = default::max_body_size_kib())]
+    #[serde(default = "default::max_body_size_kib")]
     pub max_body_size_kib: usize,
 }
 
@@ -189,6 +173,20 @@ struct RpcArg {
     // NB: Keep this in sync with `walrus_service::cli_utils`.
     #[clap(short, long)]
     rpc_url: Option<String>,
+}
+
+mod default {
+    pub(crate) fn gas_budget() -> u64 {
+        500_000_000
+    }
+
+    pub(crate) fn epochs() -> u64 {
+        1
+    }
+
+    pub(crate) fn max_body_size_kib() -> usize {
+        10_240
+    }
 }
 
 impl PublisherArgs {
@@ -264,7 +262,7 @@ impl Display for StoreOutput {
 
 impl PrintOutput for StoreOutput {}
 
-/// The output of the store action.
+/// The output of the read action.
 #[serde_as]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -299,11 +297,20 @@ impl PrintOutput for ReadOutput {}
 
 async fn client() -> Result<()> {
     tracing_subscriber::fmt::init();
-    let (app, json): (AppInterface, bool) = match App::parse() {
-        App::Json { content } => (serde_json::from_str(&content)?, true),
-        App::Cli { commands } => (commands, false),
-    };
+    let mut app = App::parse();
+    let mut json = false;
 
+    if let Commands::Json {
+        command_string: command,
+    } = app.command
+    {
+        app = serde_json::from_str(&command)?;
+        json = true;
+    }
+    run_app(app, json).await
+}
+
+async fn run_app(app: App, json: bool) -> Result<()> {
     let config: Config = load_configuration(&app.config)?;
     tracing::debug!(?app, ?config, "initializing the client");
     let wallet_path = app.wallet.clone().or(config.wallet_config.clone());
@@ -378,6 +385,10 @@ async fn client() -> Result<()> {
                 SuiReadClient::new(sui_client, config.system_pkg, config.system_object).await?;
             let price = sui_read_client.price_per_unit_size().await?;
             print_walrus_info(&sui_read_client.current_committee().await?, price, dev);
+        }
+        Commands::Json { .. } => {
+            // If we reach this point, it means that the json command had a json command inside.
+            return Err(anyhow!("recursive json commands are not permitted"));
         }
     }
     Ok(())
