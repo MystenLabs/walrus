@@ -143,7 +143,7 @@ enum Commands {
     },
     /// Run the client by specifying the arguments in a JSON string; CLI options are ignored.
     Json {
-        /// The JSON-encoded arguments for the Walrus CLI.
+        /// The JSON-encoded args for the Walrus CLI; if not present, the args are read from stdin.
         ///
         /// The JSON structure follows the CLI arguments, containing global options and a "command"
         /// object at the root level. The "command" object itself contains the command ("store",
@@ -170,7 +170,7 @@ enum Commands {
         /// The commands "store", "read", "publisher", "aggregator", and "daemon", are available;
         /// "info" and "json" are not available.
         #[clap(verbatim_doc_comment)]
-        command_string: String,
+        command_string: Option<String>,
     },
 }
 
@@ -237,14 +237,12 @@ impl PublisherArgs {
     }
 }
 
-/// Helper trait to get the correct string depending on the output mode.
-trait PrintOutput: Display + Serialize {
-    fn output_string(&self, json: bool) -> Result<String> {
-        if json {
-            Ok(serde_json::to_string(&self)?)
-        } else {
-            Ok(self.to_string())
-        }
+/// Helper function to get the correct string depending on the output mode.
+fn output_string<T: Display + Serialize>(output: &T, json: bool) -> Result<String> {
+    if json {
+        Ok(serde_json::to_string(&output)?)
+    } else {
+        Ok(output.to_string())
     }
 }
 
@@ -283,8 +281,6 @@ impl Display for StoreOutput {
     }
 }
 
-impl PrintOutput for StoreOutput {}
-
 /// The output of the read action.
 #[serde_as]
 #[derive(Debug, Clone, Serialize)]
@@ -317,18 +313,15 @@ impl Display for ReadOutput {
     }
 }
 
-impl PrintOutput for ReadOutput {}
-
 async fn client() -> Result<()> {
     tracing_subscriber::fmt::init();
     let mut app = App::parse();
     let mut json = false;
 
-    if let Commands::Json {
-        command_string: command,
-    } = app.command
-    {
-        app = serde_json::from_str(&command)?;
+    if let Commands::Json { command_string } = app.command {
+        app = serde_json::from_str(
+            &command_string.unwrap_or(std::io::read_to_string(std::io::stdin())?),
+        )?;
         json = true;
     }
     run_app(app, json).await
@@ -351,7 +344,7 @@ async fn run_app(app: App, json: bool) -> Result<()> {
             let blob = client
                 .reserve_and_store_blob(&std::fs::read(file)?, epochs)
                 .await?;
-            println!("{}", StoreOutput::from(blob).output_string(json)?);
+            println!("{}", output_string(&StoreOutput::from(blob), json)?);
         }
         Commands::Read {
             blob_id,
@@ -368,7 +361,10 @@ async fn run_app(app: App, json: bool) -> Result<()> {
                     }
                 }
             }
-            println!("{}", ReadOutput { out, blob_id, blob }.output_string(json)?);
+            println!(
+                "{}",
+                output_string(&ReadOutput { out, blob_id, blob }, json)?
+            );
         }
         Commands::Publisher { args } => {
             args.print_debug_message("attempting to run the Walrus publisher");

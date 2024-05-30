@@ -126,6 +126,8 @@ cargo run --bin walrus -- json \
     }'
 ```
 
+The `json` command also accepts input from `stdin`.
+
 The output of a JSON command will itself be JSON-formatted, again to simplify parsing the results in a programmatic way.
 For example, the JSON output can be piped to the `jq` command for parsing and manually extracting relevant fields.
 
