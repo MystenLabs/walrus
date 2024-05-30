@@ -18,13 +18,14 @@ pub(super) const GROUP_RECOVERY: &str = "Recovery";
         routes::put_sliver,
         routes::get_storage_confirmation,
         routes::get_recovery_symbol,
-        routes::inconsistency_proof
+        routes::inconsistency_proof,
+        routes::get_blob_status
     ),
     components(schemas(BlobIdString, SliverTypeSchema, SliverPairIndexSchema,))
 )]
 pub(super) struct RestApiDoc;
 
-/// Index identifying one of the blob's sliver pairs. AS blobs are encoded into as many pairs of
+/// Index identifying one of the blob's sliver pairs. As blobs are encoded into as many pairs of
 /// slivers as there are shards in the committee, this value must be from 0 to the number of shards
 /// (exclusive).
 #[derive(utoipa::ToSchema)]

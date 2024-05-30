@@ -343,7 +343,7 @@ pub async fn inconsistency_proof<S: SyncServiceState>(
     ),
     tag = openapi::GROUP_READING_BLOBS
 )]
-pub async fn blob_status<S: SyncServiceState>(
+pub async fn get_blob_status<S: SyncServiceState>(
     State(state): State<Arc<S>>,
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
 ) -> Result<ApiSuccess<BlobStatus>, BlobStatusError> {

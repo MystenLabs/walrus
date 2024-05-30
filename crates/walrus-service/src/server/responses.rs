@@ -119,6 +119,10 @@ macro_rules! rest_api_error {
 
         impl IntoResponse for $enum {
             fn into_response(self) -> Response {
+                // TODO(jsmith): Unify with the errors being attached to traces (#463).
+                if self.status() == StatusCode::INTERNAL_SERVER_ERROR {
+                    tracing::error!(error = ?self, "internal error");
+                }
                 self.to_response()
             }
         }
