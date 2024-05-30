@@ -11,12 +11,13 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use fastcrypto::traits::KeyPair;
 use futures::future::try_join_all;
 use rand::{rngs::StdRng, SeedableRng};
 use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
+use tracing::instrument;
 use walrus_core::{keys::ProtocolKeyPair, ShardIndex};
 use walrus_sui::{
     system_setup::{create_system_object, publish_package, SystemParameters},
@@ -221,7 +222,7 @@ pub async fn create_client_config(
     let client_config = client::Config {
         system_pkg: pkg_id,
         system_object,
-        wallet_config: Some(std::fs::canonicalize(client_wallet_path)?),
+        wallet_config: Some(client_wallet_path),
         communication_config: ClientCommunicationConfig::default(),
     };
 
@@ -229,6 +230,7 @@ pub async fn create_client_config(
 }
 
 /// Create storage node configurations for the testbed.
+#[instrument(err)]
 pub async fn create_storage_node_configs(
     working_dir: &Path,
     testbed_config: TestbedConfig,
@@ -272,7 +274,8 @@ pub async fn create_storage_node_configs(
 
         let wallet_path = if let Some(final_directory) = set_config_dir.as_ref() {
             let wallet_path = wallets[i].config.path();
-            replace_keystore_path(wallet_path, final_directory)?;
+            replace_keystore_path(wallet_path, final_directory)
+                .context("replacing the keystore path failed")?;
             final_directory.join(wallet_path.file_name().expect("file name should exist"))
         } else {
             wallets[i].config.path().to_path_buf()
@@ -290,7 +293,7 @@ pub async fn create_storage_node_configs(
         let storage_path = if let Some(path) = set_config_dir.as_ref() {
             path.join(&name)
         } else {
-            working_dir.join(&name).canonicalize()?
+            working_dir.join(&name)
         };
         storage_node_configs.push(StorageNodeConfig {
             storage_path,
@@ -303,6 +306,7 @@ pub async fn create_storage_node_configs(
     Ok(storage_node_configs)
 }
 
+#[instrument(err)]
 fn replace_keystore_path(wallet_path: &Path, new_directory: &Path) -> anyhow::Result<()> {
     let reader = std::fs::File::open(wallet_path)?;
     let mut wallet_contents: serde_yaml::Mapping = serde_yaml::from_reader(reader)?;

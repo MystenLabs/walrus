@@ -143,10 +143,17 @@ impl ShardStorage {
         &self,
         blob_id: &BlobId,
     ) -> Result<bool, TypedStoreError> {
-        if A::IS_PRIMARY {
-            self.primary_slivers.contains_key(&blob_id.into())
-        } else {
-            self.secondary_slivers.contains_key(&blob_id.into())
+        self.is_sliver_type_stored(blob_id, A::sliver_type())
+    }
+
+    pub fn is_sliver_type_stored(
+        &self,
+        blob_id: &BlobId,
+        type_: SliverType,
+    ) -> Result<bool, TypedStoreError> {
+        match type_ {
+            SliverType::Primary => self.primary_slivers.contains_key(&blob_id.into()),
+            SliverType::Secondary => self.secondary_slivers.contains_key(&blob_id.into()),
         }
     }
 

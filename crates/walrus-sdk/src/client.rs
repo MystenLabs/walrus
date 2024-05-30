@@ -138,9 +138,8 @@ impl Client {
         let blob_status: BlobStatus = response
             .response_error_for_status()
             .await?
-            .json()
-            .await
-            .map_err(Kind::Json)?;
+            .service_response()
+            .await?;
 
         Ok(blob_status)
     }

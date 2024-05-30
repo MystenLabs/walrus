@@ -112,7 +112,7 @@ if ! $existing; then
 fi
 
 i=0
-for config in $( ls $working_dir/dryrun-node-*.yaml ); do
+for config in $( ls $working_dir/dryrun-node-*[0-9].yaml ); do
     node_name=$(basename -- "$config")
     node_name="${node_name%.*}"
     run_node $node_name $cleanup

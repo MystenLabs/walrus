@@ -42,8 +42,6 @@ impl NodeError {
 pub(crate) enum Kind {
     #[error("failed to decode the response body as BCS")]
     Bcs(#[from] bcs::Error),
-    #[error("failed to decode the response body as JSON")]
-    Json(reqwest::Error),
     #[error(transparent)]
     Reqwest(#[from] reqwest::Error),
     #[error("{inner}: {message}")]

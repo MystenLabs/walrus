@@ -344,7 +344,7 @@ pub fn create_wallet(
     let mut keystore = FileBasedKeystore::new(&keystore_path)?;
     let (new_address, _phrase, _scheme) =
         keystore.generate_and_add_new_key(SignatureScheme::ED25519, None, None, None)?;
-    keystore.set_path(&keystore_path.canonicalize()?);
+
     let keystore = Keystore::from(keystore);
 
     let alias = sui_env.alias.clone();

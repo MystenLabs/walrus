@@ -189,6 +189,10 @@ mod commands {
 
         fs::create_dir_all(&working_dir)
             .with_context(|| format!("Failed to create directory '{}'", working_dir.display()))?;
+        // Turn the working directory into an absolute path.
+        let working_dir = working_dir
+            .canonicalize()
+            .context("canonicalizing the working directory path failed")?;
 
         // Deploy the system contract.
         let number_of_shards = NonZeroU16::new(n_shards).context("number of shards must be > 0")?;
@@ -228,6 +232,10 @@ mod commands {
 
         fs::create_dir_all(&working_dir)
             .with_context(|| format!("Failed to create directory '{}'", working_dir.display()))?;
+        // Turn the working directory into an absolute path.
+        let working_dir = working_dir
+            .canonicalize()
+            .context("canonicalizing the working directory path failed")?;
 
         let testbed_config_path = get_testbed_config_path(testbed_config_path, &working_dir);
         let testbed_config = TestbedConfig::load(testbed_config_path)?;

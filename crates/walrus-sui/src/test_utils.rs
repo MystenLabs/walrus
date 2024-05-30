@@ -6,9 +6,13 @@
 mod mock_clients;
 pub mod system_setup;
 
-use std::collections::BTreeSet;
+use std::{
+    collections::BTreeSet,
+    path::PathBuf,
+    sync::{mpsc, OnceLock},
+    thread,
+};
 
-use anyhow::bail;
 use fastcrypto::{
     bls12381::min_pk::{BLS12381AggregateSignature, BLS12381PrivateKey},
     traits::{Signer, ToFromBytes},
@@ -22,6 +26,10 @@ use sui_types::{
     programmable_transaction_builder::ProgrammableTransactionBuilder,
 };
 use test_cluster::{TestCluster, TestClusterBuilder};
+use tokio::{
+    runtime::{Builder, Runtime},
+    sync::Mutex,
+};
 use walrus_core::{
     messages::{Confirmation, ConfirmationCertificate, InvalidBlobCertificate, InvalidBlobIdMsg},
     BlobId,
@@ -36,6 +44,7 @@ use crate::{
 };
 
 const DEFAULT_GAS_BUDGET: u64 = 500_000_000;
+const DEFAULT_FUNDING_PER_COIN: u64 = 10_000_000_000;
 
 /// Returns a random `EventID` for testing.
 pub fn event_id_for_testing() -> EventID {
@@ -63,6 +72,46 @@ pub fn get_default_invalid_certificate(blob_id: BlobId, epoch: Epoch) -> Invalid
     InvalidBlobCertificate::new(vec![0], invalid_blob_id_msg, signature)
 }
 
+/// Returns the global instance of a Sui test cluster and the path to the wallet config.
+///
+/// Initialises the test cluster it if it doesn't exist yet.
+fn global_sui_test_cluster() -> &'static Mutex<(PathBuf, TestCluster, Runtime)> {
+    static CLUSTER: OnceLock<Mutex<(PathBuf, TestCluster, Runtime)>> = OnceLock::new();
+    CLUSTER.get_or_init(|| {
+        tracing::debug!("building global sui test cluster");
+        let (tx, rx) = mpsc::channel();
+        let runtime = thread::spawn(move || {
+            let runtime = Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .expect("should be able to build runtime");
+            runtime.spawn(async move {
+                let mut test_cluster = sui_test_cluster().await;
+                let wallet_path = test_cluster.wallet().config.path().to_path_buf();
+                tx.send((test_cluster, wallet_path))
+                    .expect("can send test cluster");
+            });
+            runtime
+        })
+        .join()
+        .expect("should be able to wait for thread to finish");
+        let (cluster, wallet_path) = rx.recv().expect("should receive test_cluster");
+        Mutex::new((wallet_path, cluster, runtime))
+    })
+}
+
+/// Returns a wallet on the global sui test cluster.
+///
+/// Initialises the test cluster it if it doesn't exist yet.
+pub async fn new_wallet_on_global_test_cluster() -> anyhow::Result<WithTempDir<WalletContext>> {
+    let guard = global_sui_test_cluster().lock().await;
+    // Load the cluster's wallet from file instead of using the wallet stored in the cluster.
+    // This prevents tasks from being spawned in the current runtime that are expected by
+    // the wallet to continue running.
+    let mut cluster_wallet = WalletContext::new(&guard.0, None, None)?;
+    wallet_for_testing(&mut cluster_wallet).await
+}
+
 /// Creates and returns a sui test cluster.
 pub async fn sui_test_cluster() -> TestCluster {
     TestClusterBuilder::new().build().await
@@ -71,7 +120,7 @@ pub async fn sui_test_cluster() -> TestCluster {
 /// Creates a wallet for testing in the same network as `funding_wallet`, funded by
 /// `funding_wallet` by transferring at least two gas objects.
 pub async fn wallet_for_testing(
-    funding_wallet: &WalletContext,
+    funding_wallet: &mut WalletContext,
 ) -> anyhow::Result<WithTempDir<WalletContext>> {
     let temp_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
 
@@ -87,42 +136,25 @@ pub async fn wallet_for_testing(
     })
 }
 
-/// Funds `recipient` with at least two gas objects from `funding_wallet` that do not
-/// belong to the wallets active address.
-async fn fund_address(funding_wallet: &WalletContext, recipient: SuiAddress) -> anyhow::Result<()> {
-    // Get an address and a list of at least 3 gas objects owned by that address, s.t.
-    // we can send two gas objects to the recipient and use the 3rd for funding the
-    // transaction.
-    let Some((sender, mut objects)) = funding_wallet
-        .get_all_accounts_and_gas_objects()
-        .await?
-        .into_iter()
-        .find(|(_sender, objects)| objects.len() >= 3)
-    else {
-        bail!("no address in funding wallet with at least 3 gas objects")
-    };
+/// Funds `recipient` with two gas objects with 10 Sui each.
+async fn fund_address(
+    funding_wallet: &mut WalletContext,
+    recipient: SuiAddress,
+) -> anyhow::Result<()> {
+    let sender = funding_wallet.active_address()?;
 
-    // Get a gas coin with enough budget
     let gas_coin = funding_wallet
         .gas_for_owner_budget(sender, DEFAULT_GAS_BUDGET, BTreeSet::new())
         .await?
         .1
         .object_ref();
 
-    // Exclude the gas coin used for the transaction from the objects that we are sending to the
-    // recipient address.
-    if let Some((coin_index, _)) = objects
-        .iter()
-        .enumerate()
-        .find(|(_, &coin)| coin == gas_coin)
-    {
-        objects.swap_remove(coin_index);
-    }
-
     let mut ptb = ProgrammableTransactionBuilder::new();
-    for object_ref in objects {
-        ptb.transfer_object(recipient, object_ref)?;
-    }
+
+    ptb.pay_sui(
+        vec![recipient, recipient],
+        vec![DEFAULT_FUNDING_PER_COIN, DEFAULT_FUNDING_PER_COIN],
+    )?;
 
     sign_and_send_ptb(
         sender,

@@ -10,7 +10,8 @@ use axum::{
 };
 use serde::{de::DeserializeOwned, Serialize};
 
-use crate::server::ServiceResponse;
+use super::responses::RestApiError;
+use crate::server::responses::RestApiJsonError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum BcsRejection {
@@ -25,19 +26,23 @@ pub enum BcsRejection {
     DecodeError(#[from] bcs::Error),
 }
 
+impl RestApiError for BcsRejection {
+    fn status(&self) -> StatusCode {
+        match self {
+            BcsRejection::UnsupportedContentType => StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            BcsRejection::BytesRejection(rejection) => rejection.status(),
+            BcsRejection::DecodeError(_) => StatusCode::BAD_REQUEST,
+        }
+    }
+
+    fn body_text(&self) -> String {
+        self.to_string()
+    }
+}
+
 impl IntoResponse for BcsRejection {
     fn into_response(self) -> axum::response::Response {
-        match self {
-            BcsRejection::UnsupportedContentType => {
-                ServiceResponse::<()>::error(StatusCode::UNSUPPORTED_MEDIA_TYPE, self.to_string())
-                    .into_response()
-            }
-            BcsRejection::DecodeError(_) => {
-                ServiceResponse::<()>::error(StatusCode::BAD_REQUEST, self.to_string())
-                    .into_response()
-            }
-            BcsRejection::BytesRejection(inner) => inner.into_response(),
-        }
+        self.to_response()
     }
 }
 
@@ -111,7 +116,14 @@ where
                     ?error,
                     "failed to BCS encode an internal response type to the user"
                 );
-                ServiceResponse::<()>::internal_error().into_response()
+
+                RestApiJsonError::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    StatusCode::INTERNAL_SERVER_ERROR
+                        .canonical_reason()
+                        .unwrap(),
+                )
+                .into_response()
             }
         }
     }

@@ -10,11 +10,7 @@ use std::{
 };
 
 use anyhow::Context;
-use serde::{
-    de::{DeserializeOwned, Error as _},
-    Deserialize,
-    Serialize,
-};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_with::{
     base64::Base64,
     de::DeserializeAsWrap,
@@ -24,10 +20,7 @@ use serde_with::{
     SerializeAs,
 };
 use sui_sdk::types::base_types::ObjectID;
-use walrus_core::{
-    ensure,
-    keys::{ProtocolKeyPair, ProtocolKeyPairParseError},
-};
+use walrus_core::keys::{ProtocolKeyPair, ProtocolKeyPairParseError};
 use walrus_sui::utils::SuiNetwork;
 
 /// Trait for loading configuration from a YAML file.
@@ -80,9 +73,6 @@ pub struct SuiConfig {
     #[serde(default = "defaults::polling_interval")]
     pub event_polling_interval: Duration,
     /// Location of the wallet config.
-    ///
-    /// This MUST be an absolute path.
-    #[serde(deserialize_with = "deserialize_wallet_config")]
     pub wallet_config: PathBuf,
     /// Gas budget for transactions.
     #[serde(default = "defaults::gas_budget")]
@@ -273,23 +263,6 @@ where
         };
         wrapper.serialize(serializer)
     }
-}
-
-fn deserialize_wallet_config<'de, D>(deserializer: D) -> Result<PathBuf, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let path = PathBuf::deserialize(deserializer)?;
-
-    ensure!(
-        path.is_absolute(),
-        D::Error::custom(format!(
-            "an absolute path is required for the wallet config (found {})",
-            path.display()
-        ))
-    );
-
-    Ok(path)
 }
 
 #[cfg(test)]

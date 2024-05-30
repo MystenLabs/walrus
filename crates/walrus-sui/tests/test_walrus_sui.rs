@@ -12,21 +12,31 @@ use walrus_sui::{
     test_utils::{
         get_default_blob_certificate,
         get_default_invalid_certificate,
-        sui_test_cluster,
+        new_wallet_on_global_test_cluster,
         system_setup::publish_with_default_system,
     },
     types::{BlobEvent, EpochStatus},
 };
+use walrus_test_utils::WithTempDir;
+
+const GAS_BUDGET: u64 = 1_000_000_000;
+
+async fn initialize_contract_and_wallet() -> anyhow::Result<WithTempDir<SuiContractClient>> {
+    let mut wallet = new_wallet_on_global_test_cluster().await?;
+    let (package_id, system_object) = publish_with_default_system(&mut wallet.inner).await?;
+    Ok(wallet
+        .and_then_async(|wallet| {
+            SuiContractClient::new(wallet, package_id, system_object, GAS_BUDGET)
+        })
+        .await?)
+}
 
 #[tokio::test]
 #[ignore = "ignore integration tests by default"]
 async fn test_register_certify_blob() -> anyhow::Result<()> {
     _ = tracing_subscriber::fmt::try_init();
-    let test_cluster = sui_test_cluster().await;
-    let mut wallet = test_cluster.wallet;
-    let (package_id, system_object) = publish_with_default_system(&mut wallet).await?;
-    let walrus_client =
-        SuiContractClient::new(wallet, package_id, system_object, 10000000000).await?;
+
+    let walrus_client = initialize_contract_and_wallet().await?;
 
     // used to calculate the encoded size of the blob
     let encoding_config = EncodingConfig::new(NonZeroU16::new(100).unwrap());
@@ -34,13 +44,17 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
     // Get event streams for the events
     let polling_duration = std::time::Duration::from_millis(50);
     let mut events = walrus_client
+        .as_ref()
         .read_client
         .blob_events(polling_duration, None)
         .await?;
 
     let size = 10_000;
     let resource_size = encoding_config.encoded_blob_length(size).unwrap();
-    let storage_resource = walrus_client.reserve_space(resource_size, 3).await?;
+    let storage_resource = walrus_client
+        .as_ref()
+        .reserve_space(resource_size, 3)
+        .await?;
     assert_eq!(storage_resource.start_epoch, 0);
     assert_eq!(storage_resource.end_epoch, 3);
     assert_eq!(storage_resource.storage_size, resource_size);
@@ -58,6 +72,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
         NonZeroU64::new(size).unwrap(),
     );
     let blob_obj = walrus_client
+        .as_ref()
         .register_blob(
             &storage_resource,
             blob_id,
@@ -94,7 +109,10 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
     // let bytes : Vec<u8> = certificate.confirmation.clone().into();
     // println!("certificate message: {:?}", bytes);
 
-    let blob_obj = walrus_client.certify_blob(&blob_obj, &certificate).await?;
+    let blob_obj = walrus_client
+        .as_ref()
+        .certify_blob(&blob_obj, &certificate)
+        .await?;
     assert_eq!(blob_obj.certified, Some(0));
 
     // Make sure that we got the expected event
@@ -109,13 +127,17 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
     drop(events);
     // Get new event stream with cursors
     let mut events = walrus_client
+        .as_ref()
         .read_client
         .blob_events(polling_duration, Some(blob_certified.event_id))
         .await?;
 
     // Now register and certify a blob with a different blob id again to check that
     // we receive the event
-    let storage_resource = walrus_client.reserve_space(resource_size, 3).await?;
+    let storage_resource = walrus_client
+        .as_ref()
+        .reserve_space(resource_size, 3)
+        .await?;
     #[rustfmt::skip]
     let root_hash = [
         1, 2, 3, 4, 5, 6, 7, 0,
@@ -130,6 +152,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
     );
 
     let blob_obj = walrus_client
+        .as_ref()
         .register_blob(
             &storage_resource,
             blob_id,
@@ -146,6 +169,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
     assert_eq!(blob_registered.blob_id, blob_id);
 
     let _blob_obj = walrus_client
+        .as_ref()
         .certify_blob(&blob_obj, &get_default_blob_certificate(blob_id, 0))
         .await?;
 
@@ -162,15 +186,13 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
 #[ignore = "ignore integration tests by default"]
 async fn test_invalidate_blob() -> anyhow::Result<()> {
     _ = tracing_subscriber::fmt::try_init();
-    let test_cluster = sui_test_cluster().await;
-    let mut wallet = test_cluster.wallet;
-    let (package_id, system_object) = publish_with_default_system(&mut wallet).await?;
-    let walrus_client =
-        SuiContractClient::new(wallet, package_id, system_object, 10000000000).await?;
+
+    let walrus_client = initialize_contract_and_wallet().await?;
 
     // Get event streams for the events
     let polling_duration = std::time::Duration::from_millis(50);
     let mut events = walrus_client
+        .as_ref()
         .read_client
         .blob_events(polling_duration, None)
         .await?;
@@ -185,7 +207,10 @@ async fn test_invalidate_blob() -> anyhow::Result<()> {
 
     let certificate = get_default_invalid_certificate(blob_id, 0);
 
-    walrus_client.invalidate_blob_id(&certificate).await?;
+    walrus_client
+        .as_ref()
+        .invalidate_blob_id(&certificate)
+        .await?;
 
     // Make sure that we got the expected event
     let BlobEvent::InvalidBlobID(invalid_blob_id) = events.next().await.unwrap() else {
@@ -199,17 +224,21 @@ async fn test_invalidate_blob() -> anyhow::Result<()> {
 #[tokio::test]
 #[ignore = "ignore integration tests by default"]
 async fn test_get_system() -> anyhow::Result<()> {
-    let test_cluster = sui_test_cluster().await;
-    let mut wallet = test_cluster.wallet;
-    let (package_id, system_object) = publish_with_default_system(&mut wallet).await?;
-    let walrus_client =
-        SuiContractClient::new(wallet, package_id, system_object, 10000000000).await?;
-    let system = walrus_client.read_client.get_system_object().await?;
+    let walrus_client = initialize_contract_and_wallet().await?;
+    let system = walrus_client
+        .as_ref()
+        .read_client
+        .get_system_object()
+        .await?;
     assert_eq!(system.epoch_status, EpochStatus::Done);
     assert_eq!(system.price_per_unit_size, 10);
-    assert_eq!(system.total_capacity_size, 1000000000);
+    assert_eq!(system.total_capacity_size, GAS_BUDGET);
     assert_eq!(system.used_capacity_size, 0);
-    let committee = walrus_client.read_client.current_committee().await?;
+    let committee = walrus_client
+        .as_ref()
+        .read_client
+        .current_committee()
+        .await?;
     assert_eq!(system.current_committee, committee);
     assert_eq!(committee.epoch, 0);
     assert_eq!(committee.n_shards().get(), 10);

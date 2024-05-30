@@ -6,120 +6,31 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use axum::{
-    extract::{DefaultBodyLimit, Path, State},
-    http::{Request, StatusCode},
-    response::{IntoResponse, Response},
+    extract::DefaultBodyLimit,
+    http::Request,
     routing::{get, put},
-    Json,
     Router,
 };
-use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DisplayFromStr};
 use tokio_util::sync::CancellationToken;
 use tower_http::trace::{MakeSpan, TraceLayer};
-use tracing::Level;
-use walrus_core::{
-    encoding::max_sliver_size_for_n_shards,
-    messages::StorageConfirmation,
-    metadata::{BlobMetadata, UnverifiedBlobMetadataWithId},
-    BlobId,
-    InconsistencyProof,
-    Sliver,
-    SliverPairIndex,
-    SliverType,
-};
+use utoipa::OpenApi as _;
+use utoipa_redoc::{Redoc, Servable as _};
+use walrus_core::encoding::max_sliver_size_for_n_shards;
 
-use self::extract::{Bcs, BcsRejection};
-use crate::node::{InconsistencyProofError, ServiceState, StoreMetadataError, StoreSliverError};
+use self::openapi::RestApiDoc;
+use crate::node::ServiceState;
 
 pub(crate) mod extract;
+pub(crate) mod openapi;
+pub(crate) mod responses;
+pub(crate) mod routes;
 
-/// The path to get and store blob metadata.
-pub const METADATA_ENDPOINT: &str = "/v1/blobs/:blobId/metadata";
-/// The path to get and store slivers.
-pub const SLIVER_ENDPOINT: &str = "/v1/blobs/:blobId/slivers/:sliverPairindex/:sliverType";
-/// The path to get storage confirmations.
-pub const STORAGE_CONFIRMATION_ENDPOINT: &str = "/v1/blobs/:blobId/confirmation";
-/// The path to get recovery symbols.
-pub const RECOVERY_ENDPOINT: &str =
-    "/v1/blobs/:blobId/slivers/:sliverPairindex/:sliverType/:targetPairIndex";
-/// The path to push inconsistency proofs.
-pub const INCONSISTENCY_PROOF_ENDPOINT: &str = "/v1/blobs/:blobId/inconsistent/:sliverType";
-/// The path to get the status of a blob.
-pub const STATUS_ENDPOINT: &str = "/v1/blobs/:blobId/status";
 /// Additional space to be added to the maximum body size accepted by the server.
 ///
 /// The maximum body size is set to be the maximum size of primary slivers, which contain at most
 /// `n_secondary_source_symbols * u16::MAX` bytes. However, we need a few extra bytes to accommodate
 /// the additional information encoded with the slivers.
 const HEADROOM: usize = 128;
-
-/// A blob ID encoded as a Base64 string designed to be used in URLs.
-#[serde_as]
-#[derive(Deserialize, Serialize)]
-pub(crate) struct BlobIdString(#[serde_as(as = "DisplayFromStr")] pub(crate) BlobId);
-
-/// Error message returned by the service.
-#[derive(Debug, Serialize, Deserialize)]
-pub enum ServiceResponse<T> {
-    /// The request was successful.
-    Success {
-        /// The success code.
-        code: u16,
-        /// The data returned by the service.
-        data: T,
-    },
-    /// The error message returned by the service.
-    Error {
-        /// The error code.
-        code: u16,
-        /// The error message.
-        message: String,
-    },
-}
-
-impl<T: Serialize> IntoResponse for ServiceResponse<T> {
-    fn into_response(self) -> axum::response::Response {
-        (
-            StatusCode::from_u16(self.code()).expect("valid u16 status code"),
-            Json(self),
-        )
-            .into_response()
-    }
-}
-
-impl<T: Serialize> ServiceResponse<T> {
-    /// Creates a new success response.
-    fn success(code: StatusCode, data: T) -> Self {
-        Self::Success {
-            code: code.as_u16(),
-            data,
-        }
-    }
-}
-
-impl<T> ServiceResponse<T> {
-    fn code(&self) -> u16 {
-        match self {
-            Self::Success { code, .. } | Self::Error { code, .. } => *code,
-        }
-    }
-
-    fn error<S: Into<String>>(code: StatusCode, message: S) -> Self {
-        Self::Error {
-            code: code.as_u16(),
-            message: message.into(),
-        }
-    }
-
-    fn not_found() -> Self {
-        Self::error(StatusCode::NOT_FOUND, "Not found")
-    }
-
-    fn internal_error() -> Self {
-        Self::error(StatusCode::INTERNAL_SERVER_ERROR, "Internal Error")
-    }
-}
 
 /// Represents a user server.
 #[derive(Debug)]
@@ -128,7 +39,10 @@ pub struct UserServer<S> {
     cancel_token: CancellationToken,
 }
 
-impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
+impl<S> UserServer<S>
+where
+    S: ServiceState + Send + Sync + 'static,
+{
     /// Creates a new user server.
     pub fn new(state: Arc<S>, cancel_token: CancellationToken) -> Self {
         Self {
@@ -140,27 +54,31 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
     /// Creates a new user server.
     pub async fn run(&self, network_address: &SocketAddr) -> Result<(), std::io::Error> {
         let app = Router::new()
+            .merge(Redoc::with_url(routes::API_DOCS, RestApiDoc::openapi()))
             .route(
-                METADATA_ENDPOINT,
-                put(Self::store_metadata).get(Self::retrieve_metadata),
+                routes::METADATA_ENDPOINT,
+                get(routes::get_metadata).put(routes::put_metadata),
             )
             .route(
-                SLIVER_ENDPOINT,
-                put(Self::store_sliver)
+                routes::SLIVER_ENDPOINT,
+                put(routes::put_sliver)
                     .route_layer(DefaultBodyLimit::max(
                         usize::try_from(max_sliver_size_for_n_shards(self.state.n_shards()))
                             .expect("running on 64bit arch (see hardware requirements)")
                             + HEADROOM,
                     ))
-                    .get(Self::retrieve_sliver),
+                    .get(routes::get_sliver),
             )
             .route(
-                STORAGE_CONFIRMATION_ENDPOINT,
-                get(Self::retrieve_storage_confirmation),
+                routes::STORAGE_CONFIRMATION_ENDPOINT,
+                get(routes::get_storage_confirmation),
             )
-            .route(RECOVERY_ENDPOINT, get(Self::retrieve_recovery_symbol))
-            .route(INCONSISTENCY_PROOF_ENDPOINT, put(Self::inconsistency_proof))
-            .route(STATUS_ENDPOINT, get(Self::blob_status))
+            .route(routes::RECOVERY_ENDPOINT, get(routes::get_recovery_symbol))
+            .route(
+                routes::INCONSISTENCY_PROOF_ENDPOINT,
+                put(routes::inconsistency_proof),
+            )
+            .route(routes::STATUS_ENDPOINT, get(routes::get_blob_status))
             .with_state(self.state.clone())
             .layer(TraceLayer::new_for_http().make_span_with(RestApiSpans {
                 address: *network_address,
@@ -170,273 +88,6 @@ impl<S: ServiceState + Send + Sync + 'static> UserServer<S> {
         axum::serve(listener, app)
             .with_graceful_shutdown(self.cancel_token.clone().cancelled_owned())
             .await
-    }
-
-    #[tracing::instrument(level = Level::ERROR, skip_all, fields(%blob_id))]
-    async fn retrieve_metadata(
-        State(state): State<Arc<S>>,
-        Path(BlobIdString(blob_id)): Path<BlobIdString>,
-    ) -> Response {
-        match state.retrieve_metadata(&blob_id) {
-            Ok(Some(metadata)) => {
-                tracing::debug!("successfully retrieved metadata");
-                (StatusCode::OK, Bcs(metadata)).into_response()
-            }
-            Ok(None) => {
-                tracing::debug!("metadata not found");
-                ServiceResponse::<()>::not_found().into_response()
-            }
-            Err(message) => {
-                tracing::error!(%message, "internal server error");
-                ServiceResponse::<()>::internal_error().into_response()
-            }
-        }
-    }
-
-    #[tracing::instrument(level = Level::ERROR, skip_all, fields(%blob_id))]
-    async fn store_metadata(
-        State(state): State<Arc<S>>,
-        Path(BlobIdString(blob_id)): Path<BlobIdString>,
-        Bcs(metadata): Bcs<BlobMetadata>,
-    ) -> ServiceResponse<String> {
-        let unverified_metadata_with_id = UnverifiedBlobMetadataWithId::new(blob_id, metadata);
-        match state.store_metadata(unverified_metadata_with_id) {
-            Ok(()) => {
-                tracing::debug!("successfully stored metadata");
-                ServiceResponse::success(
-                    StatusCode::CREATED,
-                    format!("Stored metadata for {blob_id}"),
-                )
-            }
-            Err(StoreMetadataError::AlreadyStored) => {
-                tracing::debug!("metadata was already stored");
-                ServiceResponse::success(
-                    StatusCode::OK,
-                    format!("Metadata for {blob_id} was already stored"),
-                )
-            }
-            Err(StoreMetadataError::InvalidMetadata(message)) => {
-                tracing::debug!(%message, "received invalid metadata");
-                ServiceResponse::error(StatusCode::BAD_REQUEST, message.to_string())
-            }
-            Err(StoreMetadataError::NotRegistered) => {
-                tracing::debug!("blob has not been registered");
-                ServiceResponse::error(
-                    StatusCode::BAD_REQUEST,
-                    format!("Blob {blob_id} has not been registered"),
-                )
-            }
-            Err(StoreMetadataError::BlobExpired) => {
-                tracing::debug!("blob is expired");
-                ServiceResponse::error(
-                    StatusCode::BAD_REQUEST,
-                    format!("Blob {blob_id} is expired"),
-                )
-            }
-            Err(StoreMetadataError::Internal(message)) => {
-                tracing::error!(%message, "internal server error");
-                ServiceResponse::internal_error()
-            }
-        }
-    }
-
-    #[tracing::instrument(
-        level = Level::ERROR,
-        skip_all,
-        fields(%blob_id, target = %sliver_pair_index, %sliver_type))
-    ]
-    async fn retrieve_sliver(
-        State(state): State<Arc<S>>,
-        Path((BlobIdString(blob_id), sliver_pair_index, sliver_type)): Path<(
-            BlobIdString,
-            SliverPairIndex,
-            SliverType,
-        )>,
-    ) -> Response {
-        match state.retrieve_sliver(&blob_id, sliver_pair_index, sliver_type) {
-            Ok(Some(sliver)) => {
-                tracing::debug!("successfully retrieved sliver");
-                assert_eq!(
-                    sliver.r#type(),
-                    sliver_type,
-                    "service must never return a invalid type"
-                );
-
-                match sliver {
-                    Sliver::Primary(inner) => (StatusCode::OK, Bcs(inner)).into_response(),
-                    Sliver::Secondary(inner) => (StatusCode::OK, Bcs(inner)).into_response(),
-                }
-            }
-            Ok(None) => {
-                tracing::debug!("sliver not found");
-                ServiceResponse::<()>::not_found().into_response()
-            }
-            Err(message) => {
-                tracing::error!(%message, "internal server error");
-                ServiceResponse::<()>::internal_error().into_response()
-            }
-        }
-    }
-
-    /// Retrieves a recovery symbol for a shard held by this storage node.
-    ///
-    /// The `sliver_type` is the target type of the sliver that will be recovered.
-    /// The `sliver_pair_index` is the index of the sliver pair that we want to access.
-    /// The `target_pair_index` is the index of the target sliver.
-    #[tracing::instrument(level = Level::ERROR, skip_all, fields(
-        %blob_id,
-        source = %sliver_pair_index,
-        target = %target_pair_index,
-        target_type = %sliver_type
-    ))]
-    async fn retrieve_recovery_symbol(
-        State(state): State<Arc<S>>,
-        Path((BlobIdString(blob_id), sliver_pair_index, sliver_type, target_pair_index)): Path<(
-            BlobIdString,
-            SliverPairIndex,
-            SliverType,
-            SliverPairIndex,
-        )>,
-    ) -> Response {
-        match state.retrieve_recovery_symbol(
-            &blob_id,
-            sliver_pair_index,
-            sliver_type,
-            target_pair_index,
-        ) {
-            Ok(walrus_core::RecoverySymbol::Primary(symbol)) => {
-                tracing::debug!(%blob_id, "retrieved recovery symbol");
-                (StatusCode::OK, Bcs(symbol)).into_response()
-            }
-            Ok(walrus_core::RecoverySymbol::Secondary(symbol)) => {
-                tracing::debug!(%blob_id, "retrieved recovery symbol");
-                (StatusCode::OK, Bcs(symbol)).into_response()
-            }
-            Err(err) => {
-                tracing::debug!(%err, "symbol not found");
-                ServiceResponse::<()>::not_found().into_response()
-            }
-        }
-    }
-
-    async fn store_sliver(
-        State(state): State<Arc<S>>,
-        Path((BlobIdString(blob_id), sliver_pair_index, sliver_type)): Path<(
-            BlobIdString,
-            SliverPairIndex,
-            SliverType,
-        )>,
-        body: axum::body::Bytes,
-    ) -> Response {
-        let sliver = match decode_sliver(body, sliver_type) {
-            Ok(sliver) => sliver,
-            Err(rejection) => return rejection.into_response(),
-        };
-
-        match state.store_sliver(&blob_id, sliver_pair_index, &sliver) {
-            Ok(()) => {
-                tracing::debug!(%blob_id, %sliver_type, %sliver_pair_index, "stored sliver");
-                ServiceResponse::success(StatusCode::OK, "Sliver stored".to_string())
-            }
-            Err(e @ StoreSliverError::AlreadyStored(sliver_type, blob_id)) => {
-                tracing::debug!(%blob_id, %sliver_type, %sliver_pair_index,
-                    "sliver already stored");
-                ServiceResponse::success(StatusCode::OK, e.to_string())
-            }
-            Err(StoreSliverError::Internal(message)) => {
-                tracing::error!(%message, "internal server error");
-                ServiceResponse::error(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
-            }
-            Err(client_error) => {
-                tracing::debug!(
-                    %blob_id,
-                    %sliver_type,
-                    %client_error,
-                    "received invalid sliver"
-                );
-                ServiceResponse::error(StatusCode::BAD_REQUEST, client_error.to_string())
-            }
-        }
-        .into_response()
-    }
-
-    async fn retrieve_storage_confirmation(
-        State(state): State<Arc<S>>,
-        Path(BlobIdString(blob_id)): Path<BlobIdString>,
-    ) -> ServiceResponse<StorageConfirmation> {
-        match state.compute_storage_confirmation(&blob_id).await {
-            Ok(Some(confirmation)) => {
-                tracing::debug!(%blob_id, "retrieved storage confirmation");
-                ServiceResponse::success(StatusCode::OK, confirmation)
-            }
-            Ok(None) => {
-                tracing::debug!(%blob_id, "storage confirmation not found");
-                ServiceResponse::not_found()
-            }
-            Err(message) => {
-                tracing::error!(%message, "internal server error");
-                ServiceResponse::error(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
-            }
-        }
-    }
-
-    #[tracing::instrument(level = Level::ERROR, skip_all, fields(%blob_id))]
-    async fn blob_status(
-        State(state): State<Arc<S>>,
-        Path(BlobIdString(blob_id)): Path<BlobIdString>,
-    ) -> Response {
-        match state.blob_status(&blob_id) {
-            Ok(Some(status)) => {
-                tracing::debug!("successfully retrieved blob status");
-                (StatusCode::OK, Json(status)).into_response()
-            }
-            Ok(None) => {
-                tracing::debug!("blob not found");
-                ServiceResponse::<()>::not_found().into_response()
-            }
-            Err(message) => {
-                tracing::error!(%message, "internal server error");
-                ServiceResponse::<()>::internal_error().into_response()
-            }
-        }
-    }
-
-    async fn inconsistency_proof(
-        State(state): State<Arc<S>>,
-        Path((BlobIdString(blob_id), sliver_type)): Path<(BlobIdString, SliverType)>,
-        body: axum::body::Bytes,
-    ) -> Response {
-        let inconsistency_proof = match decode_inconsistency_proof(body, sliver_type) {
-            Ok(proof) => proof,
-            Err(rejection) => return rejection.into_response(),
-        };
-        match state
-            .verify_inconsistency_proof(&blob_id, inconsistency_proof)
-            .await
-        {
-            Ok(attestation) => {
-                tracing::debug!(
-                    "Verified inconsistency proof for {blob_id} and provided attestation."
-                );
-                ServiceResponse::success(StatusCode::OK, attestation)
-            }
-            Err(InconsistencyProofError::MissingMetadata(_)) => {
-                tracing::debug!("No metadata found for {blob_id}");
-                ServiceResponse::not_found()
-            }
-            Err(InconsistencyProofError::ProofVerificationError(err)) => {
-                tracing::warn!("Error when verifying inconsistency proof: {err}");
-                ServiceResponse::error(
-                    StatusCode::BAD_REQUEST,
-                    "Inconsistency proof could not be verified",
-                )
-            }
-            Err(InconsistencyProofError::Internal(err)) => {
-                tracing::error!("Internal server error: {err}");
-                ServiceResponse::error(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
-            }
-        }
-        .into_response()
     }
 }
 
@@ -451,29 +102,10 @@ impl<B> MakeSpan<B> for RestApiSpans {
     }
 }
 
-fn decode_sliver(
-    bytes: axum::body::Bytes,
-    sliver_type: SliverType,
-) -> Result<Sliver, BcsRejection> {
-    Ok(match sliver_type {
-        SliverType::Primary => Sliver::Primary(Bcs::from_bytes(&bytes)?.0),
-        SliverType::Secondary => Sliver::Secondary(Bcs::from_bytes(&bytes)?.0),
-    })
-}
-
-fn decode_inconsistency_proof(
-    bytes: axum::body::Bytes,
-    sliver_type: SliverType,
-) -> Result<InconsistencyProof, BcsRejection> {
-    Ok(match sliver_type {
-        SliverType::Primary => InconsistencyProof::Primary(Bcs::from_bytes(&bytes)?.0),
-        SliverType::Secondary => InconsistencyProof::Secondary(Bcs::from_bytes(&bytes)?.0),
-    })
-}
-
 #[cfg(test)]
 mod test {
     use anyhow::anyhow;
+    use axum::http::StatusCode;
     use reqwest::Url;
     use tokio::task::JoinHandle;
     use tokio_util::sync::CancellationToken;
@@ -483,10 +115,11 @@ mod test {
             InconsistencyProof as InconsistencyProofInner,
             InconsistencyVerificationError,
         },
-        merkle::{MerkleAuth, MerkleProof},
+        merkle::MerkleProof,
         messages::{InvalidBlobIdAttestation, StorageConfirmation},
         metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
         BlobId,
+        InconsistencyProof,
         RecoverySymbol,
         Sliver,
         SliverPairIndex,
@@ -502,7 +135,16 @@ mod test {
     use super::*;
     use crate::{
         config::StorageNodeConfig,
-        node::{InconsistencyProofError, RetrieveSliverError, RetrieveSymbolError},
+        node::{
+            BlobStatusError,
+            ComputeStorageConfirmationError,
+            InconsistencyProofError,
+            RetrieveMetadataError,
+            RetrieveSliverError,
+            RetrieveSymbolError,
+            StoreMetadataError,
+            StoreSliverError,
+        },
         test_utils,
     };
 
@@ -514,21 +156,23 @@ mod test {
         fn retrieve_metadata(
             &self,
             blob_id: &BlobId,
-        ) -> Result<Option<VerifiedBlobMetadataWithId>, anyhow::Error> {
+        ) -> Result<VerifiedBlobMetadataWithId, RetrieveMetadataError> {
             if blob_id.0[0] == 0 {
-                Ok(Some(walrus_core::test_utils::verified_blob_metadata()))
+                Ok(walrus_core::test_utils::verified_blob_metadata())
             } else if blob_id.0[0] == 1 {
-                Ok(None)
+                Err(RetrieveMetadataError::Unavailable)
             } else {
-                Err(anyhow::anyhow!("Invalid shard"))
+                Err(RetrieveMetadataError::Internal(anyhow::anyhow!(
+                    "Invalid shard"
+                )))
             }
         }
 
         fn store_metadata(
             &self,
             _metadata: UnverifiedBlobMetadataWithId,
-        ) -> Result<(), StoreMetadataError> {
-            Ok(())
+        ) -> Result<bool, StoreMetadataError> {
+            Ok(true)
         }
 
         fn retrieve_sliver(
@@ -536,8 +180,8 @@ mod test {
             _blob_id: &BlobId,
             _sliver_pair_index: SliverPairIndex,
             _sliver_type: SliverType,
-        ) -> Result<Option<Sliver>, RetrieveSliverError> {
-            Ok(Some(walrus_core::test_utils::sliver()))
+        ) -> Result<Sliver, RetrieveSliverError> {
+            Ok(walrus_core::test_utils::sliver())
         }
 
         /// Returns a valid response only for the pair index 0, otherwise, returns
@@ -552,7 +196,7 @@ mod test {
             if sliver_pair_index == SliverPairIndex(0) {
                 Ok(walrus_core::test_utils::recovery_symbol())
             } else {
-                Err(RetrieveSymbolError::Internal(anyhow!("Invalid shard")))
+                Err(RetrieveSliverError::Unavailable.into())
             }
         }
 
@@ -562,9 +206,9 @@ mod test {
             _blob_id: &BlobId,
             sliver_pair_index: SliverPairIndex,
             _sliver: &Sliver,
-        ) -> Result<(), StoreSliverError> {
+        ) -> Result<bool, StoreSliverError> {
             if sliver_pair_index.as_usize() == 0 {
-                Ok(())
+                Ok(true)
             } else {
                 Err(StoreSliverError::Internal(anyhow!("Invalid shard")))
             }
@@ -575,46 +219,46 @@ mod test {
         async fn compute_storage_confirmation(
             &self,
             blob_id: &BlobId,
-        ) -> Result<Option<StorageConfirmation>, anyhow::Error> {
+        ) -> Result<StorageConfirmation, ComputeStorageConfirmationError> {
             if blob_id.0[0] == 0 {
                 let confirmation = walrus_core::test_utils::random_signed_message();
-                Ok(Some(StorageConfirmation::Signed(confirmation)))
+                Ok(StorageConfirmation::Signed(confirmation))
             } else if blob_id.0[0] == 1 {
-                Ok(None)
+                Err(ComputeStorageConfirmationError::NotFullyStored)
             } else {
-                Err(anyhow::anyhow!("Invalid shard"))
+                Err(anyhow::anyhow!("Invalid shard").into())
             }
         }
 
-        /// Returns a blob status for blob ID starting with zero, None when starting with 1,
+        /// Returns a blob status for blob ID starting with zero, `Unknown` when starting with 1,
         /// and otherwise an error.
-        fn blob_status(&self, blob_id: &BlobId) -> Result<Option<BlobStatus>, anyhow::Error> {
+        fn blob_status(&self, blob_id: &BlobId) -> Result<BlobStatus, BlobStatusError> {
             if blob_id.0[0] == 0 {
                 let status = BlobStatus {
                     end_epoch: 3,
                     status: SdkBlobCertificationStatus::Certified,
                     status_event: event_id_for_testing(),
                 };
-                Ok(Some(status))
+                Ok(status)
             } else if blob_id.0[0] == 1 {
-                Ok(None)
+                Err(BlobStatusError::Unknown)
             } else {
-                Err(anyhow::anyhow!("Internal error"))
+                Err(anyhow::anyhow!("Internal error").into())
             }
         }
 
         /// Returns a signed invalid blob message for blob IDs starting with zero, a
         /// `MissingMetadata` error for IDs starting with 1, a `ProofVerificationError`
         /// for IDs starting with 2, and an internal error otherwise.
-        async fn verify_inconsistency_proof<T: MerkleAuth + Send + Sync>(
+        async fn verify_inconsistency_proof(
             &self,
             blob_id: &BlobId,
-            _inconsistency_proof: InconsistencyProof<T>,
+            _inconsistency_proof: InconsistencyProof<MerkleProof>,
         ) -> Result<InvalidBlobIdAttestation, InconsistencyProofError> {
             match blob_id.0[0] {
                 0 => Ok(walrus_core::test_utils::random_signed_message()),
-                1 => Err(InconsistencyProofError::MissingMetadata(blob_id.to_owned())),
-                2 => Err(InconsistencyProofError::ProofVerificationError(
+                1 => Err(InconsistencyProofError::MissingMetadata),
+                2 => Err(InconsistencyProofError::InvalidProof(
                     InconsistencyVerificationError::SliverNotInconsistent,
                 )),
                 _ => Err(anyhow!("internal error").into()),
@@ -774,7 +418,7 @@ mod test {
         let metadata = metadata_with_blob_id.metadata();
 
         let blob_id = metadata_with_blob_id.blob_id().to_string();
-        let path = METADATA_ENDPOINT.replace(":blobId", &blob_id);
+        let path = routes::METADATA_ENDPOINT.replace(":blob_id", &blob_id);
         let url = format!("http://{}{path}", config.as_ref().rest_api_address);
 
         let client = storage_node_client(config.as_ref()).into_inner();
