@@ -70,34 +70,6 @@ cargo run --bin walrus -- -c $CONFIG store <some file> # store a file
 cargo run --bin walrus -- -c $CONFIG read <some blob ID> # read a blob
 ```
 
-A `json` mode is also available, to simplify programmatic access to the cli. For example:
-
-```sh
-cargo run --bin walrus -- json \
-    '{
-        "config": "working_dir/client_config.yaml",
-        "command": {
-            "store": {
-                "file": "README.md"
-            }
-        }
-    }'
-```
-
-or on the read path:
-
-```sh
-cargo run --bin walrus -- json \
-    '{
-        "config": "working_dir/client_config.yaml",
-        "command": {
-            "read": {
-                "blob_id": "4BKcDC0Ih5RJ8R0tFMz3MZVNZV8b2goT6_JiEEwNHQo"
-            }
-        }
-    }'
-```
-
 ### Daemon mode
 
 In addition to the CLI mode, the Walrus client offers a *daemon mode*. In this mode, it runs a
@@ -119,6 +91,42 @@ curl -X PUT "http://$ADDRESS/v1/store" -d "some string" # store the string `some
 curl -X PUT "http://$ADDRESS/v1/store?epochs=5" -d @"some/file" # store file `some/file` for 5 storage epochs
 curl "http://$ADDRESS/v1/<some blob ID>" # read a blob from Walrus (with aggregator or daemon)
 ```
+
+### Json mode
+
+All Walrus client commands (except, currently, the `info` command) are available in `json` mode.
+In this mode, all the command line flags of the original cli command can be specified in json format.
+The `json` mode therefore simplifies programmatic access to the cli.
+
+For example, to store a blob, run:
+
+```sh
+cargo run --bin walrus -- json \
+    '{
+        "config": "working_dir/client_config.yaml",
+        "command": {
+            "store": {
+                "file": "README.md"
+            }
+        }
+    }'
+```
+
+or, to read a blob knowing the blob ID:
+
+```sh
+cargo run --bin walrus -- json \
+    '{
+        "config": "working_dir/client_config.yaml",
+        "command": {
+            "read": {
+                "blob_id": "4BKcDC0Ih5RJ8R0tFMz3MZVNZV8b2goT6_JiEEwNHQo"
+            }
+        }
+    }'
+```
+
+The output of a `json` command will itself be `json`-formatted, again to simplify parsing the results in a programmatic way.
 
 ## Run a local Walrus testbed
 
