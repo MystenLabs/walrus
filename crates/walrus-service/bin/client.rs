@@ -141,12 +141,32 @@ enum Commands {
         #[serde(default)]
         dev: bool,
     },
-    /// Run the client by specifying the arguments in a json string; cli options are ignored.
+    /// Run the client by specifying the arguments in a JSON string; CLI options are ignored.
     Json {
-        /// The json-encoded command for the Walrus cli. The commands "store", "read", "publisher",
-        /// "aggregator", and "daemon", are available; "info" and "json" are not available. The json
-        /// command follows the same structure of the respective cli command. All flags are
-        /// *ignored*.
+        /// The JSON-encoded arguments for the Walrus CLI.
+        ///
+        /// The JSON structure follows the CLI arguments, containing global options and a "command"
+        /// object at the root level. The "command" object itself contains the command ("store",
+        /// "read", "publisher", "aggregator") with an object containing the command options.
+        ///
+        /// Where CLI options are in "kebab-case", the respective JSON strings are in "snake_case".
+        ///
+        /// For example, to read a blob and write it to "some_output_file" using a specific
+        /// configuration file, you can use the following JSON input:
+        ///
+        /// {
+        ///   "config": "working_dir/client_config.yaml",
+        ///   "command": {
+        ///     "read": {
+        ///       "blob_id": "4BKcDC0Ih5RJ8R0tFMz3MZVNZV8b2goT6_JiEEwNHQo",
+        ///       "out": "some_output_file"
+        ///     }
+        ///   }
+        /// }
+        ///
+        /// The commands "store", "read", "publisher", "aggregator", and "daemon", are available;
+        /// "info" and "json" are not available.
+        #[clap(verbatim_doc_comment)]
         command_string: String,
     },
 }
@@ -267,6 +287,7 @@ impl PrintOutput for StoreOutput {}
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "lowercase")]
 struct ReadOutput {
+    #[serde(skip_serializing_if = "std::option::Option::is_none")]
     out: Option<PathBuf>,
     #[serde_as(as = "DisplayFromStr")]
     blob_id: BlobId,
@@ -287,7 +308,7 @@ impl Display for ReadOutput {
                     path.display()
                 )
             }
-            // The full blob has been written sto stdout.
+            // The full blob has been written to stdout.
             None => write!(f, ""),
         }
     }
