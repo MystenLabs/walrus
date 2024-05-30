@@ -70,7 +70,9 @@ pub fn get_default_invalid_certificate(blob_id: BlobId, epoch: Epoch) -> Invalid
     InvalidBlobCertificate::new(vec![0], invalid_blob_id_msg, signature)
 }
 
-/// Returns a global sui test cluster, after initializing it if it doesn't exist yet.
+/// Returns the global instance of a Sui test cluster and the path to the wallet config. 
+///
+/// Initialises the test cluster it if it doesn't exist yet.
 pub fn global_sui_test_cluster() -> &'static Mutex<(TestCluster, PathBuf)> {
     static CLUSTER: OnceLock<Mutex<(TestCluster, PathBuf)>> = OnceLock::new();
     CLUSTER.get_or_init(|| {
