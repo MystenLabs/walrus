@@ -40,7 +40,7 @@ use walrus_sui::{
     types::Blob,
 };
 
-#[derive(Parser, Debug, Clone, Serialize, Deserialize)]
+#[derive(Parser, Debug, Clone, Deserialize)]
 #[command(author, version, about = "Walrus client", long_about = None)]
 #[clap(rename_all = "kebab-case")]
 #[serde(rename_all = "snake_case")]
@@ -78,12 +78,18 @@ struct App {
     #[clap(short, long, default_value_t = default::gas_budget())]
     #[serde(default = "default::gas_budget")]
     gas_budget: u64,
+    /// Write output as JSON.
+    ///
+    /// This is always done in JSON mode.
+    #[clap(long, action)]
+    #[serde(default)]
+    json: bool,
     #[command(subcommand)]
     command: Commands,
 }
 
 #[serde_as]
-#[derive(Subcommand, Debug, Clone, Serialize, Deserialize)]
+#[derive(Subcommand, Debug, Clone, Deserialize)]
 #[clap(rename_all = "kebab-case")]
 #[serde(rename_all = "snake_case")]
 enum Commands {
@@ -192,7 +198,7 @@ enum Commands {
     },
 }
 
-#[derive(Debug, Clone, Args, Serialize, Deserialize)]
+#[derive(Debug, Clone, Args, Deserialize)]
 #[serde(rename_all = "snake_case")]
 struct PublisherArgs {
     /// The address to which to bind the service.
@@ -204,7 +210,7 @@ struct PublisherArgs {
     pub max_body_size_kib: usize,
 }
 
-#[derive(Default, Debug, Clone, Args, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Args, Deserialize)]
 #[serde(rename_all = "snake_case")]
 struct RpcArg {
     /// The URL of the Sui RPC node to use.
@@ -378,9 +384,8 @@ impl BlobIdOutput {
 async fn client() -> Result<()> {
     tracing_subscriber::fmt::init();
     let mut app = App::parse();
-    let mut json = false;
 
-    if let Commands::Json { command_string } = app.command {
+    while let Commands::Json { command_string } = app.command {
         tracing::info!("running in JSON mode");
         let command_string = match command_string {
             Some(s) => s,
@@ -394,12 +399,12 @@ async fn client() -> Result<()> {
             "running JSON command"
         );
         app = serde_json::from_str(&command_string)?;
-        json = true;
+        app.json = true;
     }
-    run_app(app, json).await
+    run_app(app).await
 }
 
-async fn run_app(app: App, json: bool) -> Result<()> {
+async fn run_app(app: App) -> Result<()> {
     let config = load_configuration(&app.config);
     tracing::debug!(?app, ?config, "initializing the client");
     let wallet_path = app.wallet.clone().or(config
@@ -419,7 +424,7 @@ async fn run_app(app: App, json: bool) -> Result<()> {
             let blob = client
                 .reserve_and_store_blob(&std::fs::read(file)?, epochs)
                 .await?;
-            println!("{}", output_string(&StoreOutput::from(blob), json)?);
+            println!("{}", output_string(&StoreOutput::from(blob), app.json)?);
         }
         Commands::Read {
             blob_id,
@@ -431,14 +436,14 @@ async fn run_app(app: App, json: bool) -> Result<()> {
             match out.as_ref() {
                 Some(path) => std::fs::write(path, &blob)?,
                 None => {
-                    if !json {
+                    if !app.json {
                         std::io::stdout().write_all(&blob)?
                     }
                 }
             }
             println!(
                 "{}",
-                output_string(&ReadOutput::new(out, blob_id, blob), json)?
+                output_string(&ReadOutput::new(out, blob_id, blob), app.json)?
             );
         }
         Commands::Publisher { args } => {
@@ -469,7 +474,7 @@ async fn run_app(app: App, json: bool) -> Result<()> {
             rpc_arg: RpcArg { rpc_url },
             dev,
         } => {
-            if json {
+            if app.json {
                 // TODO: Implement the info command for JSON as well. (#465)
                 return Err(anyhow!("the info command is only available in cli mode"));
             }
@@ -483,8 +488,7 @@ async fn run_app(app: App, json: bool) -> Result<()> {
             print_walrus_info(&sui_read_client.current_committee().await?, price, dev);
         }
         Commands::Json { .. } => {
-            // If we reach this point, it means that the JSON command had a JSON command inside.
-            return Err(anyhow!("recursive JSON commands are not permitted"));
+            unreachable!("we unpack JSON commands until we obtain a different command")
         }
         Commands::BlobId {
             file,
@@ -505,14 +509,13 @@ async fn run_app(app: App, json: bool) -> Result<()> {
             };
 
             tracing::debug!(%n_shards, "encoding the blob");
-            let encoding_config = EncodingConfig::new(n_shards);
-            let metadata = encoding_config
+            let metadata = EncodingConfig::new(n_shards)
                 .get_blob_encoder(&std::fs::read(&file)?)?
                 .compute_metadata();
 
             println!(
                 "{}",
-                output_string(&BlobIdOutput::new(&file, &metadata), json)?
+                output_string(&BlobIdOutput::new(&file, &metadata), app.json)?
             );
         }
     }
