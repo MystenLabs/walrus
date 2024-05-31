@@ -71,7 +71,7 @@ pub enum Operation {
     /// Deploy nodes and run a benchmark on the specified testbed.
     Benchmark {
         /// The committee size to deploy.
-        #[clap(long, value_name = "INT")]
+        #[clap(long, value_name = "INT", default_value_t = 4, global = true)]
         committee: usize,
 
         /// The set of loads to submit to the system (tx/s). Each load triggers a separate
