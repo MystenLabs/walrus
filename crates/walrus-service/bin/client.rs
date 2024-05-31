@@ -337,7 +337,7 @@ async fn client() -> Result<()> {
             }
         };
         tracing::debug!(
-            command = command_string.replace("\n", ""),
+            command = command_string.replace('\n', ""),
             "running JSON command"
         );
         app = serde_json::from_str(&command_string)?;
