@@ -280,11 +280,9 @@ impl ProtocolMetrics for TargetProtocol {
     {
         instances
             .into_iter()
-            .enumerate()
-            .map(|(i, instance)| {
+            .map(|instance| {
                 let metrics_port = parameters.node_parameters.metrics_port;
-                let metrics_address =
-                    format_metrics_address(instance.main_ip, metrics_port, Some(i as u16));
+                let metrics_address = format_metrics_address(instance.main_ip, metrics_port, None);
                 let metrics_path = format!("{metrics_address}/metrics",);
                 (instance, metrics_path)
             })
