@@ -11662,6 +11662,7 @@ dependencies = [
  "tokio",
  "walrus-core",
  "walrus-service",
+ "walrus-stress",
  "walrus-sui",
 ]
 

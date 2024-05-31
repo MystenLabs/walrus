@@ -4,6 +4,7 @@
 use std::{
     fmt::{Debug, Display},
     num::NonZeroU16,
+    ops::Deref,
     path::PathBuf,
     time::Duration,
 };
@@ -19,6 +20,7 @@ use walrus_service::{
         node_config_name_prefix,
     },
 };
+use walrus_stress::StressParameters;
 use walrus_sui::utils::SuiNetwork;
 
 use super::{ProtocolCommands, ProtocolMetrics, ProtocolParameters, CARGO_FLAGS, RUST_FLAGS};
@@ -105,20 +107,15 @@ mod default_node_parameters {
 
 impl ProtocolParameters for ProtocolNodeParameters {}
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct ProtocolClientParameters {
-    gas_budget: u64,
-    // Percentage of writes in the workload.
-    // Todo: This parameters will be used once we have a load generator (#128)
-    load_type: u64,
-}
+#[derive(Default, Clone, Serialize, Deserialize, Debug)]
+#[serde(transparent)]
+pub struct ProtocolClientParameters(StressParameters);
 
-impl Default for ProtocolClientParameters {
-    fn default() -> Self {
-        Self {
-            gas_budget: 500_000_000,
-            load_type: 100,
-        }
+impl Deref for ProtocolClientParameters {
+    type Target = StressParameters;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
@@ -178,13 +175,24 @@ impl ProtocolCommands for TargetProtocol {
         .await
         .expect("Failed to create Walrus contract");
 
-        // Generate a command to print the Sui config to all instances.
+        // Generate a command to upload benchmark and testbed config to all instances.
         let serialized_testbed_config =
             serde_yaml::to_string(&testbed_config).expect("Failed to serialize sui configs");
         let testbed_config_path = parameters.settings.working_dir.join("testbed_config.yaml");
         let upload_testbed_config_command = format!(
             "echo -e '{serialized_testbed_config}' > {}",
             testbed_config_path.display()
+        );
+
+        let serialized_stress_parameters = serde_yaml::to_string(&parameters.client_parameters)
+            .expect("Failed to serialize stress parameters");
+        let stress_parameters_path = parameters
+            .settings
+            .working_dir
+            .join("stress_parameters.yaml");
+        let upload_stress_parameters_command = format!(
+            "echo -e '{serialized_stress_parameters}' > {}",
+            stress_parameters_path.display()
         );
 
         // Generate a command to print all client and storage node configs on all instances.
@@ -204,6 +212,7 @@ impl ProtocolCommands for TargetProtocol {
         [
             "source $HOME/.cargo/env",
             &upload_testbed_config_command,
+            &upload_stress_parameters_command,
             &generate_config_command,
         ]
         .join(" && ")
@@ -252,14 +261,43 @@ impl ProtocolCommands for TargetProtocol {
 
     fn client_command<I>(
         &self,
-        _instances: I,
-        _parameters: &BenchmarkParameters,
+        instances: I,
+        parameters: &BenchmarkParameters,
     ) -> Vec<(Instance, String)>
     where
         I: IntoIterator<Item = Instance>,
     {
-        // Todo: Implement once we have a load generator (#128)
-        vec![]
+        instances
+            .into_iter()
+            .map(|instance| {
+                let working_dir = &parameters.settings.working_dir;
+                let client_config_path = working_dir.clone().join("client_config.yaml");
+                let stress_parameters_path = working_dir.clone().join("stress_parameters.yaml");
+
+                let run_command = [
+                    format!("{RUST_FLAGS} cargo run {CARGO_FLAGS} --bin walrus-stress --"),
+                    format!("--load {}", parameters.load),
+                    format!("--config-path {}", client_config_path.display()),
+                    format!(
+                        "--stress-parameters-path {}",
+                        stress_parameters_path.display()
+                    ),
+                    format!(
+                        "--duration {}",
+                        parameters.settings.benchmark_duration.as_secs()
+                    ),
+                ]
+                .join(" ");
+
+                let command = [
+                    "source $HOME/.cargo/env",
+                    "export RUST_LOG=\"client=DEBUG,walrus=INFO\"",
+                    &run_command,
+                ]
+                .join(" && ");
+                (instance, command)
+            })
+            .collect()
     }
 }
 
@@ -291,13 +329,20 @@ impl ProtocolMetrics for TargetProtocol {
 
     fn clients_metrics_path<I>(
         &self,
-        _instances: I,
-        _parameters: &BenchmarkParameters,
+        instances: I,
+        parameters: &BenchmarkParameters,
     ) -> Vec<(Instance, String)>
     where
         I: IntoIterator<Item = Instance>,
     {
-        // Todo: Implement once we have a load generator (#128)
-        vec![]
+        instances
+            .into_iter()
+            .map(|instance| {
+                let instance_ip = instance.main_ip;
+                let metrics_port = parameters.client_parameters.metrics_port;
+                let metrics_path = format!("{instance_ip}:{metrics_port}/metrics");
+                (instance, metrics_path)
+            })
+            .collect()
     }
 }

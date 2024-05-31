@@ -14,10 +14,10 @@ use clap::Parser;
 use futures::{stream::FuturesUnordered, StreamExt};
 use generator::WriteTransactionGenerator;
 use rand::{rngs::StdRng, SeedableRng};
-use serde::{Deserialize, Serialize};
 use tokio::time::{interval, Instant};
 use walrus_core::{encoding::Primary, BlobId};
 use walrus_service::{client::Config, config::LoadConfig};
+use walrus_stress::StressParameters;
 
 use crate::{generator::ReadTransactionGenerator, metrics::ClientMetrics};
 
@@ -28,23 +28,6 @@ mod metrics;
 const PRECISION: u64 = 10;
 /// Duration of each burst of transaction.
 const BURST_DURATION: Duration = Duration::from_millis(1000 / PRECISION);
-
-/// The parameters for the stress test.
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct StressParameters {
-    /// The gas budget for transactions.
-    pub gas_budget: u64,
-    /// The percentage of write requests. If this is 0, only read requests are made;
-    /// if this is 100, only write requests are made; otherwise, a mix of read and write
-    /// requests are made.
-    pub load_type: u64,
-    /// The size of the blob to read and write.
-    pub blob_size: usize,
-    /// The address to expose the metrics.
-    pub metrics_port: u16,
-}
-
-impl LoadConfig for StressParameters {}
 
 #[derive(Parser, Debug, Clone)]
 #[clap(rename_all = "kebab-case")]
