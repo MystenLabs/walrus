@@ -111,10 +111,7 @@ impl Client {
     ) -> Result<UnverifiedBlobMetadataWithId, NodeError> {
         let url = self.endpoints.metadata(blob_id);
         let response = self.inner.get(url).send().await.map_err(Kind::Reqwest)?;
-        let metadata: UnverifiedBlobMetadataWithId =
-            response.response_error_for_status().await?.bcs().await?;
-
-        Ok(metadata)
+        response.response_error_for_status().await?.bcs().await
     }
 
     /// Get the metadata and verify it against the provided config.
@@ -123,25 +120,21 @@ impl Client {
         blob_id: &BlobId,
         encoding_config: &EncodingConfig,
     ) -> Result<VerifiedBlobMetadataWithId, NodeError> {
-        let metadata = self
-            .get_metadata(blob_id)
+        self.get_metadata(blob_id)
             .await?
             .verify(encoding_config)
-            .map_err(NodeError::other)?;
-        Ok(metadata)
+            .map_err(NodeError::other)
     }
 
     /// Requests the status of a blob ID from the node.
     pub async fn get_blob_status(&self, blob_id: &BlobId) -> Result<BlobStatus, NodeError> {
         let url = self.endpoints.blob_status(blob_id);
         let response = self.inner.get(url).send().await.map_err(Kind::Reqwest)?;
-        let blob_status: BlobStatus = response
+        response
             .response_error_for_status()
             .await?
             .service_response()
-            .await?;
-
-        Ok(blob_status)
+            .await
     }
 
     /// Requests a storage confirmation from the node for the Blob specified by the given ID

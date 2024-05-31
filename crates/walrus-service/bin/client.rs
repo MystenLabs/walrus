@@ -26,7 +26,7 @@ use walrus_service::{
         error,
         get_contract_client,
         get_read_client,
-        get_sui_client_from_rpc_node_or_wallet,
+        get_sui_read_client_from_rpc_node_or_wallet,
         load_configuration,
         load_wallet_context,
         print_walrus_info,
@@ -35,10 +35,7 @@ use walrus_service::{
     },
     daemon::ClientDaemon,
 };
-use walrus_sui::{
-    client::{ReadClient, SuiReadClient},
-    types::Blob,
-};
+use walrus_sui::{client::ReadClient, types::Blob};
 
 #[derive(Parser, Debug, Clone, Deserialize)]
 #[command(author, version, about = "Walrus client", long_about = None)]
@@ -479,11 +476,13 @@ async fn run_app(app: App) -> Result<()> {
                 return Err(anyhow!("the info command is only available in cli mode"));
             }
             let config = config?;
-            let sui_client =
-                get_sui_client_from_rpc_node_or_wallet(rpc_url, wallet, wallet_path.is_none())
-                    .await?;
-            let sui_read_client =
-                SuiReadClient::new(sui_client, config.system_pkg, config.system_object).await?;
+            let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
+                &config,
+                rpc_url,
+                wallet,
+                wallet_path.is_none(),
+            )
+            .await?;
             let price = sui_read_client.price_per_unit_size().await?;
             print_walrus_info(&sui_read_client.current_committee().await?, price, dev);
         }
@@ -500,11 +499,13 @@ async fn run_app(app: App) -> Result<()> {
             } else {
                 let config = config?;
                 tracing::debug!("reading `n_shards` from chain");
-                let sui_client =
-                    get_sui_client_from_rpc_node_or_wallet(rpc_url, wallet, wallet_path.is_none())
-                        .await?;
-                let sui_read_client =
-                    SuiReadClient::new(sui_client, config.system_pkg, config.system_object).await?;
+                let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
+                    &config,
+                    rpc_url,
+                    wallet,
+                    wallet_path.is_none(),
+                )
+                .await?;
                 sui_read_client.current_committee().await?.n_shards()
             };
 

@@ -13,7 +13,7 @@ use anyhow::{anyhow, Context, Result};
 use colored::{ColoredString, Colorize};
 use indoc::printdoc;
 use prettytable::{format, row, Table};
-use sui_sdk::{wallet_context::WalletContext, SuiClient, SuiClientBuilder};
+use sui_sdk::{wallet_context::WalletContext, SuiClientBuilder};
 use walrus_core::{
     bft,
     encoding::{
@@ -99,10 +99,13 @@ pub async fn get_read_client(
     wallet: Result<WalletContext>,
     allow_fallback_to_default: bool,
 ) -> Result<Client<()>> {
-    let sui_client =
-        get_sui_client_from_rpc_node_or_wallet(rpc_url, wallet, allow_fallback_to_default).await?;
-    let sui_read_client =
-        SuiReadClient::new(sui_client, config.system_pkg, config.system_object).await?;
+    let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
+        &config,
+        rpc_url,
+        wallet,
+        allow_fallback_to_default,
+    )
+    .await?;
     Ok(Client::new_read_client(config, &sui_read_client).await?)
 }
 
@@ -118,23 +121,24 @@ pub async fn get_contract_client(
     Ok(Client::new(config, sui_client).await?)
 }
 
-/// Creates a [`SuiClient`] from the provided RPC URL or wallet.
+/// Creates a [`SuiReadClient`] from the provided RPC URL or wallet.
 ///
 /// The RPC URL is set based on the `rpc_url` parameter (if `Some`), the `wallet` (if `Ok`) or the
 /// default [`DEFAULT_RPC_URL`] if `allow_fallback_to_default` is true.
 // NB: When making changes to the logic, make sure to update the docstring of `get_read_client` and
 // the argument docs in `crates/walrus-service/bin/client.rs`.
-pub async fn get_sui_client_from_rpc_node_or_wallet(
+pub async fn get_sui_read_client_from_rpc_node_or_wallet(
+    config: &Config,
     rpc_url: Option<String>,
     wallet: Result<WalletContext>,
     allow_fallback_to_default: bool,
-) -> Result<SuiClient> {
+) -> Result<SuiReadClient> {
     tracing::debug!(
         ?rpc_url,
         %allow_fallback_to_default,
         "attempting to create a read client from explicitly set RPC URL, wallet config, or default"
     );
-    match rpc_url {
+    let sui_client = match rpc_url {
         Some(url) => {
             tracing::info!("Using explicitly set RPC URL {url}");
             SuiClientBuilder::default()
@@ -164,7 +168,9 @@ pub async fn get_sui_client_from_rpc_node_or_wallet(
                 }
             }
         },
-    }
+    }?;
+
+    Ok(SuiReadClient::new(sui_client, config.system_pkg, config.system_object).await?)
 }
 
 /// Returns the string `Success:` colored in green for terminal output.

@@ -117,9 +117,9 @@ impl Client<()> {
             config,
             sui_client: _,
             committee,
-            max_concurrent_writes: concurrent_writes,
-            max_concurrent_sliver_reads: concurrent_sliver_reads,
-            max_concurrent_metadata_reads: concurrent_metadata_reads,
+            max_concurrent_writes,
+            max_concurrent_sliver_reads,
+            max_concurrent_metadata_reads,
             encoding_config,
             global_write_limit: global_connection_limit,
         } = self;
@@ -128,9 +128,9 @@ impl Client<()> {
             config,
             sui_client,
             committee,
-            max_concurrent_writes: concurrent_writes,
-            max_concurrent_sliver_reads: concurrent_sliver_reads,
-            max_concurrent_metadata_reads: concurrent_metadata_reads,
+            max_concurrent_writes,
+            max_concurrent_sliver_reads,
+            max_concurrent_metadata_reads,
             encoding_config,
             global_write_limit: global_connection_limit,
         }
@@ -472,9 +472,9 @@ impl<T> Client<T> {
     ///       [`ClientErrorKind::NoMetadataReceived`].
     ///
     /// This procedure works because:
-    /// 1. If the blob id was never certified: Then at least f+1 of the 2f+1 nodes by stake that
+    /// 1. If the blob ID was never certified: Then at least f+1 of the 2f+1 nodes by stake that
     ///    were contacted are correct and have returned a "not found" status response.
-    /// 1. If the blob id was certified: Considering the worst possible case where it was certified
+    /// 1. If the blob ID was certified: Considering the worst possible case where it was certified
     ///    by 2f+1 stake, of which f was malicious, and the remaining f honest did not receive the
     ///    metadata and have yet to recover it. Then, by quorum intersection, in the 2f+1 that reply
     ///    to the client at least 1 is honest and has the metadata. This one node will provide it
