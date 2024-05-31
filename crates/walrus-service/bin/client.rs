@@ -291,8 +291,17 @@ struct ReadOutput {
     #[serde_as(as = "DisplayFromStr")]
     blob_id: BlobId,
     // When serializing to JSON, the blob is encoded as Base64 string.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     #[serde_as(as = "Base64")]
     blob: Vec<u8>,
+}
+
+impl ReadOutput {
+    fn new(out: Option<PathBuf>, blob_id: BlobId, orig_blob: Vec<u8>) -> Self {
+        // Avoid serializing the blob if there is an output file.
+        let blob = if out.is_some() { vec![] } else { orig_blob };
+        Self { out, blob_id, blob }
+    }
 }
 
 impl Display for ReadOutput {
@@ -363,7 +372,7 @@ async fn run_app(app: App, json: bool) -> Result<()> {
             }
             println!(
                 "{}",
-                output_string(&ReadOutput { out, blob_id, blob }, json)?
+                output_string(&ReadOutput::new(out, blob_id, blob), json)?
             );
         }
         Commands::Publisher { args } => {
