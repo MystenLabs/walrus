@@ -7,7 +7,7 @@ use std::{
     fmt::{self, Display},
     io::Write,
     net::SocketAddr,
-    num::NonZeroU64,
+    num::{NonZeroU16, NonZeroU64},
     path::{Path, PathBuf},
 };
 
@@ -178,10 +178,15 @@ enum Commands {
         #[clap(verbatim_doc_comment)]
         command_string: Option<String>,
     },
-    /// Returns the blob ID for the specified file; requires encoding the blob.
+    /// Encode the specified file to obtain its blob ID.
     BlobId {
         /// The file containing the blob for which to compute the blob ID.
         file: PathBuf,
+        /// The number of shards for which to compute the blob ID.
+        ///
+        /// If not specified, the number of shards is read from chain.
+        #[clap(short, long)]
+        n_shards: Option<NonZeroU16>,
         #[clap(flatten)]
         #[serde(default)]
         rpc_arg: RpcArg,
@@ -480,14 +485,22 @@ async fn run_app(app: App, json: bool) -> Result<()> {
         }
         Commands::BlobId {
             file,
+            n_shards,
             rpc_arg: RpcArg { rpc_url },
         } => {
-            let sui_client =
-                get_sui_client_from_rpc_node_or_wallet(rpc_url, wallet, wallet_path.is_none())
-                    .await?;
-            let sui_read_client =
-                SuiReadClient::new(sui_client, config.system_pkg, config.system_object).await?;
-            let n_shards = sui_read_client.current_committee().await?.n_shards();
+            let n_shards = if let Some(n) = n_shards {
+                n
+            } else {
+                tracing::debug!("reading `n_shards` from chain");
+                let sui_client =
+                    get_sui_client_from_rpc_node_or_wallet(rpc_url, wallet, wallet_path.is_none())
+                        .await?;
+                let sui_read_client =
+                    SuiReadClient::new(sui_client, config.system_pkg, config.system_object).await?;
+                sui_read_client.current_committee().await?.n_shards()
+            };
+
+            tracing::debug!(%n_shards, "encoding the blob");
             let encoding_config = EncodingConfig::new(n_shards);
             let metadata = encoding_config
                 .get_blob_encoder(&std::fs::read(&file)?)?
