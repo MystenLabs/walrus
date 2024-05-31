@@ -489,9 +489,9 @@ async fn run_app(app: App, json: bool) -> Result<()> {
                 SuiReadClient::new(sui_client, config.system_pkg, config.system_object).await?;
             let n_shards = sui_read_client.current_committee().await?.n_shards();
             let encoding_config = EncodingConfig::new(n_shards);
-            let (_pairs, metadata) = encoding_config
+            let metadata = encoding_config
                 .get_blob_encoder(&std::fs::read(&file)?)?
-                .encode_with_metadata();
+                .compute_metadata();
 
             println!(
                 "{}",
