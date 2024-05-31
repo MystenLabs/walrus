@@ -39,7 +39,7 @@ pub fn node_config_name_prefix(node_index: u16, committee_size: NonZeroU16) -> S
             .expect("this is smaller than `u16::MAX`")
             + 1
     };
-    format!("dryrun-node-{node_index:00$}-sui", width)
+    format!("dryrun-node-{node_index:00$}", width)
 }
 
 /// Generates deterministic keypairs for the benchmark purposes.
@@ -342,7 +342,7 @@ async fn create_storage_node_wallets(
     let mut storage_node_wallets = (0..n_nodes.get())
         .map(|index| {
             let name = node_config_name_prefix(index, n_nodes);
-            let wallet_path = working_dir.join(format!("{}.yaml", name));
+            let wallet_path = working_dir.join(format!("{}-sui.yaml", name));
             create_wallet(
                 &wallet_path,
                 sui_network.env(),
