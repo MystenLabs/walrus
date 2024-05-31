@@ -7,7 +7,8 @@ use std::{
     fmt::{self, Display},
     io::Write,
     net::SocketAddr,
-    path::PathBuf,
+    num::NonZeroU64,
+    path::{Path, PathBuf},
 };
 
 use anyhow::{anyhow, Result};
@@ -15,7 +16,11 @@ use clap::{Args, Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use serde_with::{base64::Base64, serde_as, DisplayFromStr};
 use sui_types::base_types::ObjectID;
-use walrus_core::{encoding::Primary, BlobId};
+use walrus_core::{
+    encoding::{EncodingConfig, Primary},
+    metadata::VerifiedBlobMetadataWithId,
+    BlobId,
+};
 use walrus_service::{
     cli_utils::{
         error,
@@ -39,7 +44,7 @@ use walrus_sui::{
 #[derive(Parser, Debug, Clone, Serialize, Deserialize)]
 #[command(author, version, about = "Walrus client", long_about = None)]
 #[clap(rename_all = "kebab-case")]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 struct App {
     /// The path to the wallet configuration file.
     ///
@@ -81,7 +86,7 @@ struct App {
 #[serde_as]
 #[derive(Subcommand, Debug, Clone, Serialize, Deserialize)]
 #[clap(rename_all = "kebab-case")]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 enum Commands {
     /// Store a new blob into Walrus.
     #[clap(alias("write"))]
@@ -147,7 +152,8 @@ enum Commands {
         ///
         /// The JSON structure follows the CLI arguments, containing global options and a "command"
         /// object at the root level. The "command" object itself contains the command ("store",
-        /// "read", "publisher", "aggregator") with an object containing the command options.
+        /// "read", "publisher", "aggregator", "blob_id") with an object containing the command
+        /// options.
         ///
         /// Where CLI options are in "kebab-case", the respective JSON strings are in "snake_case".
         ///
@@ -167,15 +173,23 @@ enum Commands {
         /// Important: If the "read" command does not have an "out" file specified, the output JSON
         /// string will contain the full bytes of the blob, encoded as a Base64 string.
         ///
-        /// The commands "store", "read", "publisher", "aggregator", and "daemon", are available;
-        /// "info" and "json" are not available.
+        /// The commands "store", "read", "publisher", "aggregator", "daemon", and "blob_id" are
+        /// available; "info" and "json" are not available.
         #[clap(verbatim_doc_comment)]
         command_string: Option<String>,
+    },
+    /// Returns the blob ID for the specified file; requires encoding the blob.
+    BlobId {
+        /// The file containing the blob for which to compute the blob ID.
+        file: PathBuf,
+        #[clap(flatten)]
+        #[serde(default)]
+        rpc_arg: RpcArg,
     },
 }
 
 #[derive(Debug, Clone, Args, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 struct PublisherArgs {
     /// The address to which to bind the service.
     #[clap(short, long)]
@@ -187,7 +201,7 @@ struct PublisherArgs {
 }
 
 #[derive(Default, Debug, Clone, Args, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 struct RpcArg {
     /// The URL of the Sui RPC node to use.
     ///
@@ -246,10 +260,10 @@ fn output_string<T: Display + Serialize>(output: &T, json: bool) -> Result<Strin
     }
 }
 
-/// The output of the store action.
+/// The output of the `store` command.
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 struct StoreOutput {
     #[serde_as(as = "DisplayFromStr")]
     blob_id: BlobId,
@@ -281,10 +295,10 @@ impl Display for StoreOutput {
     }
 }
 
-/// The output of the read action.
+/// The output of the `read` command.
 #[serde_as]
 #[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 struct ReadOutput {
     #[serde(skip_serializing_if = "std::option::Option::is_none")]
     out: Option<PathBuf>,
@@ -318,6 +332,41 @@ impl Display for ReadOutput {
             }
             // The full blob has been written to stdout.
             None => write!(f, ""),
+        }
+    }
+}
+
+/// The output of the `blob-id` command.
+#[serde_as]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+struct BlobIdOutput {
+    #[serde_as(as = "DisplayFromStr")]
+    blob_id: BlobId,
+    file: PathBuf,
+    unencoded_length: NonZeroU64,
+}
+
+impl Display for BlobIdOutput {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{} Blob encoded successfully: {}.\n\
+                Unencoded size: {}\nBlob ID: {}",
+            success(),
+            self.file.display(),
+            self.unencoded_length,
+            self.blob_id,
+        )
+    }
+}
+
+impl BlobIdOutput {
+    fn new(file: &Path, metadata: &VerifiedBlobMetadataWithId) -> Self {
+        Self {
+            blob_id: *metadata.blob_id(),
+            file: file.to_owned(),
+            unencoded_length: metadata.metadata().unencoded_length,
         }
     }
 }
@@ -428,6 +477,26 @@ async fn run_app(app: App, json: bool) -> Result<()> {
         Commands::Json { .. } => {
             // If we reach this point, it means that the JSON command had a JSON command inside.
             return Err(anyhow!("recursive JSON commands are not permitted"));
+        }
+        Commands::BlobId {
+            file,
+            rpc_arg: RpcArg { rpc_url },
+        } => {
+            let sui_client =
+                get_sui_client_from_rpc_node_or_wallet(rpc_url, wallet, wallet_path.is_none())
+                    .await?;
+            let sui_read_client =
+                SuiReadClient::new(sui_client, config.system_pkg, config.system_object).await?;
+            let n_shards = sui_read_client.current_committee().await?.n_shards();
+            let encoding_config = EncodingConfig::new(n_shards);
+            let (_pairs, metadata) = encoding_config
+                .get_blob_encoder(&std::fs::read(&file)?)?
+                .encode_with_metadata();
+
+            println!(
+                "{}",
+                output_string(&BlobIdOutput::new(&file, &metadata), json)?
+            );
         }
     }
     Ok(())
