@@ -328,9 +328,19 @@ async fn client() -> Result<()> {
     let mut json = false;
 
     if let Commands::Json { command_string } = app.command {
-        app = serde_json::from_str(
-            &command_string.unwrap_or(std::io::read_to_string(std::io::stdin())?),
-        )?;
+        tracing::info!("running in JSON mode");
+        let command_string = match command_string {
+            Some(s) => s,
+            None => {
+                tracing::debug!("reading JSON input from stdin");
+                std::io::read_to_string(std::io::stdin())?
+            }
+        };
+        tracing::debug!(
+            command = command_string.replace("\n", ""),
+            "running JSON command"
+        );
+        app = serde_json::from_str(&command_string)?;
         json = true;
     }
     run_app(app, json).await
@@ -404,7 +414,7 @@ async fn run_app(app: App, json: bool) -> Result<()> {
             dev,
         } => {
             if json {
-                // TODO: Implement the info command for JSON as well?
+                // TODO: Implement the info command for JSON as well. (#465)
                 return Err(anyhow!("the info command is only available in cli mode"));
             }
             let sui_client =
