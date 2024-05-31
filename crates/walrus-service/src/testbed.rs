@@ -39,7 +39,7 @@ pub fn node_config_name_prefix(node_index: u16, committee_size: NonZeroU16) -> S
             .expect("this is smaller than `u16::MAX`")
             + 1
     };
-    format!("dryrun-node-{node_index:00$}", width)
+    format!("dryrun-node-{node_index:00$}-sui", width)
 }
 
 /// Generates deterministic keypairs for the benchmark purposes.
