@@ -54,7 +54,7 @@ use crate::{
     config::{PathOrInPlace, StorageNodeConfig},
     contract_service::SystemContractService,
     server::UserServer,
-    storage::Storage,
+    storage::{DatabaseConfig, Storage},
     system_events::SystemEventProvider,
     StorageNode,
 };
@@ -71,6 +71,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
     WithTempDir {
         inner: StorageNodeConfig {
             protocol_key_pair: PathOrInPlace::InPlace(walrus_core::test_utils::key_pair()),
+            db_config: None,
             rest_api_address,
             metrics_address,
             storage_path: temp_dir.path().to_path_buf(),
@@ -83,12 +84,13 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
 /// Returns an empty storage, with the column families for the specified shards already created.
 pub fn empty_storage_with_shards(shards: &[ShardIndex]) -> WithTempDir<Storage> {
     let temp_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
-    let mut storage = Storage::open(temp_dir.path(), MetricConf::default())
+    let db_config = DatabaseConfig::default();
+    let mut storage = Storage::open(temp_dir.path(), &db_config, MetricConf::default())
         .expect("storage creation must succeed");
 
     for shard in shards {
         storage
-            .create_storage_for_shard(*shard)
+            .create_storage_for_shard(*shard, &db_config)
             .expect("shard should be successfully created");
     }
 
@@ -330,6 +332,7 @@ impl StorageNodeHandleBuilder {
             rest_api_address: node_info.rest_api_address,
             metrics_address: unused_socket_address(),
             sui: None,
+            db_config: None,
         };
 
         let node = StorageNode::builder()

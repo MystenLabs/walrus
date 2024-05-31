@@ -35,6 +35,7 @@ use crate::{
         TestbedConfig,
         TestbedNodeConfig,
     },
+    storage::DatabaseConfig,
 };
 
 /// Prefix for the node configuration file name.
@@ -397,12 +398,14 @@ pub async fn create_storage_node_configs(
         } else {
             working_dir.join(&name)
         };
+        let db_config = Some(DatabaseConfig::default());
         storage_node_configs.push(StorageNodeConfig {
             storage_path,
             protocol_key_pair: PathOrInPlace::InPlace(node.keypair),
             metrics_address,
             rest_api_address,
             sui,
+            db_config,
         });
     }
     Ok(storage_node_configs)

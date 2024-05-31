@@ -23,6 +23,8 @@ use sui_sdk::types::base_types::ObjectID;
 use walrus_core::keys::{ProtocolKeyPair, ProtocolKeyPairParseError};
 use walrus_sui::{types::NetworkAddress, utils::SuiNetwork};
 
+use crate::storage::DatabaseConfig;
+
 /// Trait for loading configuration from a YAML file.
 pub trait LoadConfig: DeserializeOwned {
     /// Load the configuration from a YAML file located at the provided path.
@@ -43,6 +45,8 @@ pub trait LoadConfig: DeserializeOwned {
 pub struct StorageNodeConfig {
     /// Directory in which to persist the database
     pub storage_path: PathBuf,
+    /// Option config to tune storage db
+    pub db_config: Option<DatabaseConfig>,
     /// Key pair used in Walrus protocol messages
     #[serde_as(as = "PathOrInPlace<Base64>")]
     pub protocol_key_pair: PathOrInPlace<ProtocolKeyPair>,

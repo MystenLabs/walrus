@@ -45,7 +45,7 @@ use crate::{
     committee::{CommitteeService, CommitteeServiceFactory, SuiCommitteeServiceFactory},
     config::{StorageNodeConfig, SuiConfig},
     contract_service::{SuiSystemContractService, SystemContractService},
-    storage::{ShardStorage, Storage},
+    storage::{DatabaseConfig, ShardStorage, Storage},
     system_events::{SuiSystemEventProvider, SystemEventProvider},
 };
 
@@ -205,11 +205,15 @@ impl StorageNodeBuilder {
             .get()
             .expect("protocol keypair must already be loaded")
             .clone();
-
+        let db_config = config.db_config.clone().unwrap_or_default();
         let storage = if let Some(storage) = self.storage {
             storage
         } else {
-            Storage::open(config.storage_path.as_path(), MetricConf::new("storage"))?
+            Storage::open(
+                config.storage_path.as_path(),
+                &db_config,
+                MetricConf::new("storage"),
+            )?
         };
 
         let sui_config_and_client =
@@ -245,6 +249,7 @@ impl StorageNodeBuilder {
         StorageNode::new(
             protocol_key_pair,
             storage,
+            db_config,
             event_provider,
             committee_service_factory,
             contract_service,
@@ -287,6 +292,7 @@ impl StorageNode {
     async fn new(
         key_pair: ProtocolKeyPair,
         mut storage: Storage,
+        db_config: DatabaseConfig,
         event_provider: Box<dyn SystemEventProvider>,
         committee_service_factory: Box<dyn CommitteeServiceFactory>,
         contract_service: Box<dyn SystemContractService>,
@@ -306,7 +312,7 @@ impl StorageNode {
 
         for shard in managed_shards {
             storage
-                .create_storage_for_shard(*shard)
+                .create_storage_for_shard(*shard, &db_config)
                 .with_context(|| format!("unable to initialize storage for shard {}", shard))?;
         }
 
