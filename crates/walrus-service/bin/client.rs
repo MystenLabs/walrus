@@ -33,7 +33,6 @@ use walrus_service::{
         success,
         HumanReadableBytes,
     },
-    client::Config,
     daemon::ClientDaemon,
 };
 use walrus_sui::{
@@ -401,14 +400,17 @@ async fn client() -> Result<()> {
 }
 
 async fn run_app(app: App, json: bool) -> Result<()> {
-    let config: Config = load_configuration(&app.config)?;
+    let config = load_configuration(&app.config);
     tracing::debug!(?app, ?config, "initializing the client");
-    let wallet_path = app.wallet.clone().or(config.wallet_config.clone());
+    let wallet_path = app.wallet.clone().or(config
+        .as_ref()
+        .ok()
+        .and_then(|conf| conf.wallet_config.clone()));
     let wallet = load_wallet_context(&wallet_path);
 
     match app.command {
         Commands::Store { file, epochs } => {
-            let client = get_contract_client(config, wallet, app.gas_budget).await?;
+            let client = get_contract_client(config?, wallet, app.gas_budget).await?;
 
             tracing::info!(
                 file = %file.display(),
@@ -424,7 +426,7 @@ async fn run_app(app: App, json: bool) -> Result<()> {
             out,
             rpc_arg: RpcArg { rpc_url },
         } => {
-            let client = get_read_client(config, rpc_url, wallet, wallet_path.is_none()).await?;
+            let client = get_read_client(config?, rpc_url, wallet, wallet_path.is_none()).await?;
             let blob = client.read_blob::<Primary>(&blob_id).await?;
             match out.as_ref() {
                 Some(path) => std::fs::write(path, &blob)?,
@@ -441,7 +443,7 @@ async fn run_app(app: App, json: bool) -> Result<()> {
         }
         Commands::Publisher { args } => {
             args.print_debug_message("attempting to run the Walrus publisher");
-            let client = get_contract_client(config, wallet, app.gas_budget).await?;
+            let client = get_contract_client(config?, wallet, app.gas_budget).await?;
             let publisher =
                 ClientDaemon::new(client, args.bind_address).with_publisher(args.max_body_size());
             publisher.run().await?;
@@ -451,13 +453,13 @@ async fn run_app(app: App, json: bool) -> Result<()> {
             bind_address,
         } => {
             tracing::debug!(?rpc_url, "attempting to run the Walrus aggregator");
-            let client = get_read_client(config, rpc_url, wallet, wallet_path.is_none()).await?;
+            let client = get_read_client(config?, rpc_url, wallet, wallet_path.is_none()).await?;
             let aggregator = ClientDaemon::new(client, bind_address).with_aggregator();
             aggregator.run().await?;
         }
         Commands::Daemon { args } => {
             args.print_debug_message("attempting to run the Walrus daemon");
-            let client = get_contract_client(config, wallet, app.gas_budget).await?;
+            let client = get_contract_client(config?, wallet, app.gas_budget).await?;
             let publisher = ClientDaemon::new(client, args.bind_address)
                 .with_aggregator()
                 .with_publisher(args.max_body_size());
@@ -471,6 +473,7 @@ async fn run_app(app: App, json: bool) -> Result<()> {
                 // TODO: Implement the info command for JSON as well. (#465)
                 return Err(anyhow!("the info command is only available in cli mode"));
             }
+            let config = config?;
             let sui_client =
                 get_sui_client_from_rpc_node_or_wallet(rpc_url, wallet, wallet_path.is_none())
                     .await?;
@@ -491,6 +494,7 @@ async fn run_app(app: App, json: bool) -> Result<()> {
             let n_shards = if let Some(n) = n_shards {
                 n
             } else {
+                let config = config?;
                 tracing::debug!("reading `n_shards` from chain");
                 let sui_client =
                     get_sui_client_from_rpc_node_or_wallet(rpc_url, wallet, wallet_path.is_none())
