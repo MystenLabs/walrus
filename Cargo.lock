@@ -657,9 +657,9 @@ dependencies = [
 
 [[package]]
 name = "aws-config"
-version = "1.3.0"
+version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "baaa0be6ee7d90b775ae6ccb6d2ba182b91219ec2001f92338773a094246af1d"
+checksum = "40ddbfb5db93d62521f47b3f223da0884a2f02741ff54cb9cda192a0e73ba08b"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -747,9 +747,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-sso"
-version = "1.22.0"
+version = "1.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca3d6c4cba4e009391b72b0fcf12aff04ea3c9c3aa2ecaafa330326a8bd7e601"
+checksum = "fef2d9ca2b43051224ed326ed9960a85e277b7d554a2cd0397e57c0553d86e64"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -769,9 +769,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-ssooidc"
-version = "1.22.0"
+version = "1.26.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "73400dc239d14f63d932f4ca7b55af5e9ef1f857f7d70655249ccc287adb2570"
+checksum = "c869d1f5c4ee7437b79c3c1664ddbf7a60231e893960cf82b2b299a5ccf2cc5d"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -791,9 +791,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-sts"
-version = "1.22.0"
+version = "1.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "10f8858308af76fba3e5ffcf1bb56af5471574d2bdfaf0159470c25bc2f760e5"
+checksum = "9e2b4a632a59e4fab7abf1db0d94a3136ad7871aba46bebd1fdb95c7054afcdb"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -6378,7 +6378,7 @@ version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "681030a937600a36906c185595136d26abfebb4aa9c65701cefcaf8578bb982b"
 dependencies = [
- "proc-macro-crate 1.1.3",
+ "proc-macro-crate 3.1.0",
  "proc-macro2 1.0.81",
  "quote 1.0.36",
  "syn 2.0.60",
@@ -7782,7 +7782,7 @@ dependencies = [
  "pin-project-lite",
  "signal-hook-registry",
  "socket2 0.5.6",
- "tokio-macros 2.2.0 (git+https://github.com/mystenmark/tokio-madsim-fork.git?rev=e47aafebf98e9c1734a8848a1876d5946c44bdd1)",
+ "tokio-macros 2.2.0",
  "windows-sys 0.48.0",
 ]
 
@@ -10717,9 +10717,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
-version = "1.37.0"
+version = "1.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1adbebffeca75fcfd058afa480fb6c0b81e165a0323f9c9d39c9697e37c46787"
+checksum = "ba4f4a02a7a80d6f274636f0aa95c7e383b912d41fe721a31f29e29698585a4a"
 dependencies = [
  "backtrace",
  "bytes",
@@ -10730,7 +10730,7 @@ dependencies = [
  "pin-project-lite",
  "signal-hook-registry",
  "socket2 0.5.6",
- "tokio-macros 2.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tokio-macros 2.3.0",
  "tracing",
  "windows-sys 0.48.0",
 ]
@@ -10748,8 +10748,7 @@ dependencies = [
 [[package]]
 name = "tokio-macros"
 version = "2.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b8a1e28f2deaa14e508979454cb3a223b10b938b45af148bc0986de36f1923b"
+source = "git+https://github.com/mystenmark/tokio-madsim-fork.git?rev=e47aafebf98e9c1734a8848a1876d5946c44bdd1#e47aafebf98e9c1734a8848a1876d5946c44bdd1"
 dependencies = [
  "proc-macro2 1.0.81",
  "quote 1.0.36",
@@ -10758,8 +10757,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-macros"
-version = "2.2.0"
-source = "git+https://github.com/mystenmark/tokio-madsim-fork.git?rev=e47aafebf98e9c1734a8848a1876d5946c44bdd1#e47aafebf98e9c1734a8848a1876d5946c44bdd1"
+version = "2.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f5ae998a069d4b5aba8ee9dad856af7d520c3699e6159b185c2acd48155d39a"
 dependencies = [
  "proc-macro2 1.0.81",
  "quote 1.0.36",
