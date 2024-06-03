@@ -130,7 +130,8 @@ impl WriteTransactionGenerator {
         let handler = tokio::spawn(async move {
             let mut i = 0;
             loop {
-                if i % pre_generation == 0 {
+                if i % 10 == 0 {
+                    tracing::info!("Generated {i} tx -- 2-- ");
                     tracing::debug!("Generated {i} tx");
                 }
 

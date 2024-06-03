@@ -86,6 +86,7 @@ async fn main() -> anyhow::Result<()> {
     )
     .await
     .context("Failed to start write transaction generator")?;
+    tracing::info!("Pre-generating {write_pre_compute} write transactions...");
     write_tx_generator.initialize().await;
 
     // Make one write transaction (which will be used as a template for the read transactions).
@@ -112,6 +113,7 @@ async fn main() -> anyhow::Result<()> {
     )
     .await
     .context("Failed to start read transaction generator")?;
+    tracing::info!("Pre-generating {read_pre_compute} read transactions...");
     read_tx_generator.initialize().await;
 
     // Start the metrics server.
