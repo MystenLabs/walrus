@@ -19,6 +19,7 @@ use sui_sdk::{
 };
 use sui_types::{
     base_types::SuiAddress,
+    event::EventID,
     transaction::{Argument, ProgrammableTransaction},
     Identifier,
 };
@@ -69,6 +70,9 @@ pub enum SuiClientError {
     /// The Walrus system object does not exist.
     #[error("the specified Walrus system object {0} does not exist")]
     WalrusSystemObjectDoesNotExist(ObjectID),
+    /// The specified event ID is not associated with a Walrus event.
+    #[error("no corresponding blob event found for {0:?}")]
+    NoCorrespondingBlobEvent(EventID),
 }
 
 /// Result alias for functions returning a `SuiClientError`.
