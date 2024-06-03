@@ -304,7 +304,7 @@ pub fn print_walrus_info(committee: &Committee, price_per_unit_size: u64, dev: b
         Maximum blob size: {hr_max_blob} ({max_blob_size_sep} B)
 
         {price_heading}
-        Price per encoded storage unit: {price_per_unit_size} MIST
+        Price per encoded storage unit: {price_per_unit_size} MIST/KiB
         Price to store metadata: {metadata_price}
         Marginal price per additional 1 MiB (w/o metadata): {price_per_mib_input}
         Total price per max blob ({hr_max_blob}): {price_max_blob}
