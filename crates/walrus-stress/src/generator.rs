@@ -27,6 +27,11 @@ use walrus_sui::{
 
 use crate::StressParameters;
 
+/// Number of faucet requests to make before any transaction. The Sui testnet faucet
+/// currently returns 1 SUI per request and the devnet faucet returns 10 SUI per request.
+const FAUCET_REQUESTS: usize = 2;
+
+/// Create a random blob of a given size.
 pub fn create_random_blob(rng: &mut StdRng, blob_size: usize) -> Vec<u8> {
     (0..blob_size).map(|_| rng.gen::<u8>()).collect()
 }
@@ -51,6 +56,7 @@ pub async fn create_walrus_client(
     Ok(client)
 }
 
+/// Reserve a blob on the chain.
 pub async fn reserve_blob(
     config: Config,
     stress_parameters: &StressParameters,
@@ -68,8 +74,8 @@ pub async fn reserve_blob(
     let client_address = wallet_context.active_address()?;
     let sui_client = wallet_context.get_client().await?;
     {
-        let mut faucet_requests = Vec::with_capacity(2);
-        for _ in 0..2 {
+        let mut faucet_requests = Vec::with_capacity(FAUCET_REQUESTS);
+        for _ in 0..FAUCET_REQUESTS {
             let request = request_sui_from_faucet(client_address, sui_network, &sui_client);
             faucet_requests.push(request);
         }

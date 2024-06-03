@@ -57,6 +57,7 @@ struct Args {
     sui_network: SuiNetwork,
 }
 
+/// Parse a duration from a string. The string is expected to be a number of seconds.
 fn parse_duration(arg: &str) -> Result<Duration, std::num::ParseIntError> {
     let seconds = arg.parse()?;
     Ok(Duration::from_secs(seconds))
@@ -138,6 +139,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Set the tracing subscriber.
 fn set_tracing_subscriber(verbosity: u8) {
     let log_level = match verbosity {
         0 => LevelFilter::ERROR,
@@ -159,6 +161,7 @@ fn set_tracing_subscriber(verbosity: u8) {
     tracing::subscriber::set_global_default(subscriber).unwrap();
 }
 
+/// Run the benchmark.
 async fn benchmark(
     load: u64,
     stress_parameters: &StressParameters,
