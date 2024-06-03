@@ -154,7 +154,7 @@ pub async fn deploy_walrus_contract(
 
     // Get coins from faucet for the wallets.
     let sui_client = admin_wallet.get_client().await?;
-    let mut faucet_requests = Vec::with_capacity(4);
+    let mut faucet_requests = Vec::with_capacity(2);
     for _ in 0..2 {
         faucet_requests.push(request_sui_from_faucet(
             admin_wallet.active_address()?,
@@ -207,7 +207,7 @@ pub async fn create_client_config(
 
     // Get coins from faucet for the wallets.
     let sui_client = client_wallet.get_client().await?;
-    let mut faucet_requests = Vec::with_capacity(4);
+    let mut faucet_requests = Vec::with_capacity(2);
     for _ in 0..2 {
         faucet_requests.push(request_sui_from_faucet(
             client_wallet.active_address()?,
