@@ -270,7 +270,9 @@ impl ProtocolCommands for TargetProtocol {
     where
         I: IntoIterator<Item = Instance>,
     {
-        instances
+        let clients: Vec<_> = instances.into_iter().collect();
+        let load_per_client = parameters.load / clients.len();
+        clients
             .into_iter()
             .map(|instance| {
                 let working_dir = &parameters.settings.working_dir;
@@ -279,7 +281,7 @@ impl ProtocolCommands for TargetProtocol {
 
                 let run_command = [
                     format!("./{BINARY_PATH}/walrus-stress"),
-                    format!("--load {}", parameters.load),
+                    format!("--load {}", load_per_client),
                     format!("--config-path {}", client_config_path.display()),
                     format!(
                         "--stress-parameters-path {}",
