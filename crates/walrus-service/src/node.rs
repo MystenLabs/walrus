@@ -703,11 +703,12 @@ impl ServiceState for StorageNode {
     }
 
     fn blob_status(&self, blob_id: &BlobId) -> Result<BlobStatus, BlobStatusError> {
-        self.storage
+        Ok(self
+            .storage
             .get_blob_info(blob_id)
             .context("could not retrieve blob info")?
-            .ok_or(BlobStatusError::Unknown)
             .map(BlobStatus::from)
+            .unwrap_or_default())
     }
 
     async fn verify_inconsistency_proof(
@@ -943,11 +944,18 @@ mod tests {
         // Wait to make sure the event is received.
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        let blob_status = node.as_ref().blob_status(&BLOB_ID)?;
+        let BlobStatus::Existent {
+            status,
+            end_epoch,
+            status_event,
+        } = node.as_ref().blob_status(&BLOB_ID)?
+        else {
+            panic!("got nonexistent blob status")
+        };
 
-        assert_eq!(blob_status.status, SdkBlobCertificationStatus::Registered);
-        assert_eq!(blob_status.status_event, blob_event.event_id);
-        assert_eq!(blob_status.end_epoch, blob_event.end_epoch);
+        assert_eq!(status, SdkBlobCertificationStatus::Registered);
+        assert_eq!(status_event, blob_event.event_id);
+        assert_eq!(end_epoch, blob_event.end_epoch);
 
         Ok(())
     }
@@ -963,7 +971,7 @@ mod tests {
 
         assert!(matches!(
             node.as_ref().blob_status(&BLOB_ID),
-            Err(BlobStatusError::Unknown)
+            Ok(BlobStatus::Nonexistent)
         ));
 
         Ok(())

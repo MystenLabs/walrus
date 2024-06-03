@@ -230,18 +230,17 @@ mod test {
             }
         }
 
-        /// Returns a blob status for blob ID starting with zero, `Unknown` when starting with 1,
-        /// and otherwise an error.
+        /// Returns a "certified" blob status for blob ID starting with zero, `Nonexistent` when
+        /// starting with 1, and otherwise an error.
         fn blob_status(&self, blob_id: &BlobId) -> Result<BlobStatus, BlobStatusError> {
             if blob_id.0[0] == 0 {
-                let status = BlobStatus {
+                Ok(BlobStatus::Existent {
                     end_epoch: 3,
                     status: SdkBlobCertificationStatus::Certified,
                     status_event: event_id_for_testing(),
-                };
-                Ok(status)
+                })
             } else if blob_id.0[0] == 1 {
-                Err(BlobStatusError::Unknown)
+                Ok(BlobStatus::Nonexistent)
             } else {
                 Err(anyhow::anyhow!("Internal error").into())
             }
@@ -306,7 +305,7 @@ mod test {
         blob_id
     }
 
-    fn blob_id_for_not_found() -> BlobId {
+    fn blob_id_for_nonexistent() -> BlobId {
         let mut blob_id = walrus_core::test_utils::random_blob_id();
         blob_id.0[0] = 1; // Triggers a not found response
         blob_id
@@ -341,7 +340,7 @@ mod test {
         let (config, _handle) = start_rest_api_with_test_config().await;
         let client = storage_node_client(config.as_ref());
 
-        let blob_id = blob_id_for_not_found();
+        let blob_id = blob_id_for_nonexistent();
         let err = client
             .get_metadata(&blob_id)
             .await
@@ -380,17 +379,17 @@ mod test {
     }
 
     #[tokio::test]
-    async fn get_blob_status_not_found() {
+    async fn get_blob_status_nonexistent() {
         let (config, _handle) = start_rest_api_with_test_config().await;
         let client = storage_node_client(config.as_ref());
 
-        let blob_id = blob_id_for_not_found();
-        let err = client
+        let blob_id = blob_id_for_nonexistent();
+        let result = client
             .get_blob_status(&blob_id)
             .await
-            .expect_err("blob status request must fail");
+            .expect("blob status request must not fail");
 
-        assert_eq!(err.http_status_code(), Some(StatusCode::NOT_FOUND));
+        assert_eq!(result, BlobStatus::Nonexistent);
     }
 
     #[tokio::test]
@@ -495,7 +494,7 @@ mod test {
 
     async_param_test! {
         retrieve_storage_confirmation_fails: [
-            not_found: (blob_id_for_not_found(), StatusCode::NOT_FOUND),
+            not_found: (blob_id_for_nonexistent(), StatusCode::NOT_FOUND),
             internal_error: (blob_id_for_internal_server_error(), StatusCode::INTERNAL_SERVER_ERROR)
         ]
     }
@@ -532,7 +531,7 @@ mod test {
 
     async_param_test! {
         inconsistency_proof_fails: [
-            not_found: (blob_id_for_not_found(), StatusCode::NOT_FOUND),
+            not_found: (blob_id_for_nonexistent(), StatusCode::NOT_FOUND),
             invalid_proof: (blob_id_for_bad_request(), StatusCode::BAD_REQUEST),
             internal_error: (blob_id_for_internal_server_error(), StatusCode::INTERNAL_SERVER_ERROR)
         ]

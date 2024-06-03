@@ -107,7 +107,7 @@ impl BlobInfo {
 
 impl From<BlobInfo> for BlobStatus {
     fn from(value: BlobInfo) -> Self {
-        Self {
+        Self::Existent {
             end_epoch: value.end_epoch,
             status: value.status.into(),
             status_event: value.current_status_event,

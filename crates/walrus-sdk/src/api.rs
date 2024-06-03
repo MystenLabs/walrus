@@ -39,17 +39,25 @@ pub enum BlobCertificationStatus {
     Invalid,
 }
 
-/// Contains the certification status of a blob as well as its end epoch
-/// and the id of the sui event from which the status resulted.
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy, utoipa::ToSchema)]
+/// Contains the certification status of a blob.
+///
+/// If the blob exists, it also contains its end epoch and the ID of the Sui event
+/// from which the status resulted.
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy, Default, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct BlobStatus {
-    /// The epoch at which the blob expires (non-inclusive).
-    #[schema(value_type = u64)]
-    pub end_epoch: Epoch,
-    /// The certification status of the blob.
-    #[schema(inline)]
-    pub status: BlobCertificationStatus,
-    /// The ID of the sui event in which the status was changed to the current status.
-    pub status_event: EventID,
+pub enum BlobStatus {
+    /// The blob does not exist (anymore) within Walrus.
+    #[default]
+    Nonexistent,
+    /// The blob exists within Walrus.
+    Existent {
+        /// The epoch at which the blob expires (non-inclusive).
+        #[schema(value_type = u64)]
+        end_epoch: Epoch,
+        /// The certification status of the blob.
+        #[schema(inline)]
+        status: BlobCertificationStatus,
+        /// The ID of the Sui event in which the status was changed to the current status.
+        status_event: EventID,
+    },
 }
