@@ -20,6 +20,7 @@ use tracing_subscriber::{EnvFilter, FmtSubscriber};
 use walrus_core::{encoding::Primary, BlobId};
 use walrus_service::{client::Config, config::LoadConfig};
 use walrus_stress::StressParameters;
+use walrus_sui::utils::SuiNetwork;
 
 use crate::{generator::ReadTransactionGenerator, metrics::ClientMetrics};
 
@@ -51,6 +52,9 @@ struct Args {
     /// transactions to pre-generate)
     #[clap(long, value_parser = parse_duration)]
     duration: Duration,
+    /// Sui network for which the config is generated.
+    #[clap(long, default_value = "testnet")]
+    sui_network: SuiNetwork,
 }
 
 fn parse_duration(arg: &str) -> Result<Duration, std::num::ParseIntError> {
@@ -68,6 +72,7 @@ async fn main() -> anyhow::Result<()> {
         .context("Failed to load stress parameters")?;
     let percentage_writes = stress_parameters.load_type.min(100);
     let duration = args.duration.as_secs();
+    let sui_network = args.sui_network;
 
     // Start the metrics server.
     let metrics_address = SocketAddr::new(
@@ -84,6 +89,7 @@ async fn main() -> anyhow::Result<()> {
     let write_tx_generator = WriteTransactionGenerator::start(
         config.clone(),
         stress_parameters.clone(),
+        sui_network,
         write_pre_compute as usize,
     )
     .await

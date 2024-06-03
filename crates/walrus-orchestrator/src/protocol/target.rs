@@ -286,6 +286,10 @@ impl ProtocolCommands for TargetProtocol {
                         "--duration {}",
                         parameters.settings.benchmark_duration.as_secs()
                     ),
+                    format!(
+                        "--sui-network {}",
+                        parameters.node_parameters.sui_network.r#type()
+                    ),
                 ]
                 .join(" ");
 

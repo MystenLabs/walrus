@@ -54,6 +54,7 @@ pub async fn create_walrus_client(
 pub async fn reserve_blob(
     config: Config,
     stress_parameters: &StressParameters,
+    sui_network: SuiNetwork,
     rng: &mut StdRng,
 ) -> anyhow::Result<(
     Client<SuiContractClient>,
@@ -69,7 +70,7 @@ pub async fn reserve_blob(
     {
         let mut faucet_requests = Vec::with_capacity(2);
         for _ in 0..2 {
-            let request = request_sui_from_faucet(client_address, SuiNetwork::Testnet, &sui_client);
+            let request = request_sui_from_faucet(client_address, sui_network, &sui_client);
             faucet_requests.push(request);
         }
         try_join_all(faucet_requests).await?;
@@ -117,6 +118,7 @@ impl WriteTransactionGenerator {
     pub async fn start(
         config: Config,
         stress_parameters: StressParameters,
+        sui_network: SuiNetwork,
         pre_generation: usize,
     ) -> anyhow::Result<Self> {
         let (tx_transaction, rx_transaction) = channel(pre_generation * 10 + 1);
@@ -136,7 +138,7 @@ impl WriteTransactionGenerator {
 
                 // Generate a new transaction.
                 let (client, pairs, metadata) =
-                    reserve_blob(config.clone(), &stress_parameters, &mut rng).await?;
+                    reserve_blob(config.clone(), &stress_parameters, sui_network, &mut rng).await?;
 
                 i += 1;
                 if i == pre_generation {
