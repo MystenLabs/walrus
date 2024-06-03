@@ -263,9 +263,6 @@ impl StorageNodeHandleBuilder {
     }
 
     /// Sets whether to wait until the node is ready.
-    ///
-    /// If `wait_until_node_ready` is `true`, the node will wait until it is ready before continuing.
-    /// If `wait_until_node_ready` is `false`, the node will not wait and continue immediately.
     pub fn wait_until_node_ready(mut self, wait_until_node_ready: bool) -> Self {
         self.wait_until_node_ready = wait_until_node_ready;
         self

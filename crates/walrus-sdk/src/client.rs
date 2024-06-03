@@ -427,29 +427,35 @@ mod tests {
     use super::*;
 
     const BLOB_ID: BlobId = test_utils::blob_id_from_u64(99);
+    const BLOB_RESOURCE_PATH: &str = "v1/blobs";
 
     param_test! {
         url_endpoint: [
-            blob: (|e| e.blob_resource(&BLOB_ID), ""),
-            metadata: (|e| e.metadata(&BLOB_ID), "metadata"),
-            confirmation: (|e| e.confirmation(&BLOB_ID), "confirmation"),
-            sliver: (|e| e.sliver::<Primary>(&BLOB_ID, SliverPairIndex(1)), "slivers/1/primary"),
+            blob: (|e| e.blob_resource(&BLOB_ID),
+                format!("{BLOB_RESOURCE_PATH}/{BLOB_ID}/")),
+            metadata: (|e| e.metadata(&BLOB_ID),
+                format!("{BLOB_RESOURCE_PATH}/{BLOB_ID}/metadata")),
+            confirmation: (|e| e.confirmation(&BLOB_ID),
+                format!("{BLOB_RESOURCE_PATH}/{BLOB_ID}/confirmation")),
+            sliver: (|e| e.sliver::<Primary>(&BLOB_ID, SliverPairIndex(1)),
+                format!("{BLOB_RESOURCE_PATH}/{BLOB_ID}/slivers/1/primary")),
             recovery_symbol: (
                 |e| e.recovery_symbol::<Primary>(&BLOB_ID, SliverPairIndex(1), SliverPairIndex(2)),
-                "slivers/1/primary/2"
+                format!("{BLOB_RESOURCE_PATH}/{BLOB_ID}/slivers/1/primary/2")
             ),
             inconsistency_proof: (
-                |e| e.inconsistency_proof::<Primary>(&BLOB_ID), "inconsistent/primary"
+                |e| e.inconsistency_proof::<Primary>(&BLOB_ID), format!("{BLOB_RESOURCE_PATH}/{BLOB_ID}/inconsistent/primary")
             ),
+            ping: (|e| e.ping(), "v1/ping".to_string()),
         ]
     }
-    fn url_endpoint<F>(url_fn: F, expected_path: &str)
+    fn url_endpoint<F>(url_fn: F, expected_path: String)
     where
         F: FnOnce(UrlEndpoints) -> Url,
     {
         let endpoints = UrlEndpoints(Url::parse("http://node.com").unwrap());
         let url = url_fn(endpoints);
-        let expected = format!("http://node.com/v1/blobs/{BLOB_ID}/{expected_path}");
+        let expected = format!("http://node.com/{expected_path}");
 
         assert_eq!(url.to_string(), expected);
     }
