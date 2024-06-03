@@ -6,6 +6,7 @@ use anyhow::{anyhow, bail, Context};
 use fastcrypto::traits::KeyPair;
 use futures::{future::Either, stream::FuturesUnordered, StreamExt};
 use mysten_metrics::RegistryService;
+use prometheus::Registry;
 use serde::Serialize;
 use sui_types::event::EventID;
 use tokio::{select, time::Instant};
@@ -45,12 +46,12 @@ use crate::{
     committee::{CommitteeService, CommitteeServiceFactory, SuiCommitteeServiceFactory},
     config::{StorageNodeConfig, SuiConfig},
     contract_service::{SuiSystemContractService, SystemContractService},
+    node::metrics::NodeMetric,
     storage::{DatabaseConfig, ShardStorage, Storage},
     system_events::{SuiSystemEventProvider, SystemEventProvider},
 };
 
 mod errors;
-use self::errors::IndexOutOfRange;
 pub use self::errors::{
     BlobStatusError,
     ComputeStorageConfirmationError,
@@ -62,6 +63,9 @@ pub use self::errors::{
     StoreMetadataError,
     StoreSliverError,
 };
+use self::{errors::IndexOutOfRange, metrics::NodeMetricSet};
+
+mod metrics;
 
 pub trait ServiceState {
     /// Retrieves the metadata associated with a blob.
@@ -202,7 +206,6 @@ impl StorageNodeBuilder {
         registry_service: RegistryService,
     ) -> Result<StorageNode, anyhow::Error> {
         DBMetrics::init(&registry_service.default_registry());
-        let start_time = Instant::now();
 
         let protocol_key_pair = config
             .protocol_key_pair
@@ -257,7 +260,7 @@ impl StorageNodeBuilder {
             event_provider,
             committee_service_factory,
             contract_service,
-            start_time,
+            &registry_service.default_registry(),
         )
         .await
     }
@@ -289,6 +292,7 @@ pub struct StorageNode {
     committee_service: Arc<dyn CommitteeService>,
     _committee_service_factory: Box<dyn CommitteeServiceFactory>,
     start_time: Instant,
+    metrics: NodeMetricSet,
 }
 
 impl StorageNode {
@@ -299,8 +303,9 @@ impl StorageNode {
         event_provider: Box<dyn SystemEventProvider>,
         committee_service_factory: Box<dyn CommitteeServiceFactory>,
         contract_service: Box<dyn SystemContractService>,
-        start_time: Instant,
+        registry: &Registry,
     ) -> Result<Self, anyhow::Error> {
+        let start_time = Instant::now();
         let committee_service = committee_service_factory
             .new_for_epoch(Some(key_pair.as_ref().public()))
             .await
@@ -328,6 +333,7 @@ impl StorageNode {
             contract_service: contract_service.into(),
             committee_service: committee_service.into(),
             _committee_service_factory: committee_service_factory,
+            metrics: NodeMetricSet::new(registry),
             start_time,
         })
     }
@@ -361,12 +367,18 @@ impl StorageNode {
 
             match event {
                 BlobEvent::Certified(event) => {
+                    metrics::increment!(self, BlobEventsTotal, label = "certified");
                     self.on_blob_certified(sequence_number, event).await?
                 }
-                BlobEvent::InvalidBlobID(event) => self.on_blob_invalid(sequence_number, event)?,
-                BlobEvent::Registered(_) => self
-                    .storage
-                    .maybe_advance_event_cursor(sequence_number, &event.event_id())?,
+                BlobEvent::InvalidBlobID(event) => {
+                    metrics::increment!(self, BlobEventsTotal, label = "invalid");
+                    self.on_blob_invalid(sequence_number, event)?
+                }
+                BlobEvent::Registered(_) => {
+                    metrics::increment!(self, BlobEventsTotal, label = "registered");
+                    self.storage
+                        .maybe_advance_event_cursor(sequence_number, &event.event_id())?
+                }
             }
         }
 
@@ -610,6 +622,7 @@ impl ServiceState for StorageNode {
             .get_metadata(blob_id)
             .context("database error when retrieving metadata")?
             .ok_or(RetrieveMetadataError::Unavailable)
+            .inspect(|_| metrics::increment!(self, MetadataRetrievedTotal))
     }
 
     fn store_metadata(
@@ -643,6 +656,8 @@ impl ServiceState for StorageNode {
             .put_verified_metadata(&verified_metadata_with_id)
             .context("unable to store metadata")?;
 
+        metrics::increment!(self, MetadataStoredTotal);
+
         Ok(true)
     }
 
@@ -660,6 +675,9 @@ impl ServiceState for StorageNode {
             .get_sliver(blob_id, sliver_type)
             .context("unable to retrieve sliver")?
             .ok_or(RetrieveSliverError::Unavailable)
+            .inspect(|sliver| {
+                metrics::increment!(self, SliversRetrievedTotal, label = sliver.r#type())
+            })
     }
 
     fn store_sliver(
@@ -693,6 +711,8 @@ impl ServiceState for StorageNode {
             .put_sliver(blob_id, sliver)
             .context("unable to store sliver")?;
 
+        metrics::increment!(self, SliversStoredTotal, label = sliver.r#type());
+
         Ok(true)
     }
 
@@ -709,6 +729,8 @@ impl ServiceState for StorageNode {
 
         let confirmation = Confirmation::new(self.current_epoch(), *blob_id);
         let signed = sign_message(confirmation, self.protocol_key_pair.clone()).await?;
+
+        metrics::increment!(self, StorageConfirmationsIssuedTotal);
 
         Ok(StorageConfirmation::Signed(signed))
     }
