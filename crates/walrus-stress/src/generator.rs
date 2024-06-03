@@ -5,7 +5,6 @@
 
 use std::{sync::Arc, time::Duration};
 
-use futures::future::try_join_all;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use tokio::{
     sync::{
@@ -20,16 +19,9 @@ use walrus_service::{
     cli_utils::load_wallet_context,
     client::{Client, Config},
 };
-use walrus_sui::{
-    client::SuiContractClient,
-    utils::{request_sui_from_faucet, SuiNetwork},
-};
+use walrus_sui::{client::SuiContractClient, utils::SuiNetwork};
 
 use crate::StressParameters;
-
-/// Number of faucet requests to make before any transaction. The Sui testnet faucet
-/// currently returns 1 SUI per request and the devnet faucet returns 10 SUI per request.
-const FAUCET_REQUESTS: usize = 2;
 
 /// Create a random blob of a given size.
 pub fn create_random_blob(rng: &mut StdRng, blob_size: usize) -> Vec<u8> {
@@ -60,27 +52,27 @@ pub async fn create_walrus_client(
 pub async fn reserve_blob(
     config: Config,
     stress_parameters: &StressParameters,
-    sui_network: SuiNetwork,
+    _sui_network: SuiNetwork,
     rng: &mut StdRng,
 ) -> anyhow::Result<(
     Client<SuiContractClient>,
     Vec<SliverPair>,
     VerifiedBlobMetadataWithId,
 )> {
-    let mut client = create_walrus_client(config, stress_parameters).await?;
+    let client = create_walrus_client(config, stress_parameters).await?;
 
     // Gather extra coins from the faucet.
-    let wallet_context = client.sui_client().wallet();
-    let client_address = wallet_context.active_address()?;
-    let sui_client = wallet_context.get_client().await?;
-    {
-        let mut faucet_requests = Vec::with_capacity(FAUCET_REQUESTS);
-        for _ in 0..FAUCET_REQUESTS {
-            let request = request_sui_from_faucet(client_address, sui_network, &sui_client);
-            faucet_requests.push(request);
-        }
-        try_join_all(faucet_requests).await?;
-    }
+    // let wallet_context = client.sui_client().wallet();
+    // let client_address = wallet_context.active_address()?;
+    // let sui_client = wallet_context.get_client().await?;
+    // {
+    //     let mut faucet_requests = Vec::with_capacity(FAUCET_REQUESTS);
+    //     for _ in 0..FAUCET_REQUESTS {
+    //         let request = request_sui_from_faucet(client_address, sui_network, &sui_client);
+    //         faucet_requests.push(request);
+    //     }
+    //     try_join_all(faucet_requests).await?;
+    // }
 
     // Encode a blob.
     let blob_size = stress_parameters.blob_size;
