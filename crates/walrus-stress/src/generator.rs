@@ -61,19 +61,6 @@ pub async fn reserve_blob(
 )> {
     let client = create_walrus_client(config, stress_parameters).await?;
 
-    // Gather extra coins from the faucet.
-    // let wallet_context = client.sui_client().wallet();
-    // let client_address = wallet_context.active_address()?;
-    // let sui_client = wallet_context.get_client().await?;
-    // {
-    //     let mut faucet_requests = Vec::with_capacity(FAUCET_REQUESTS);
-    //     for _ in 0..FAUCET_REQUESTS {
-    //         let request = request_sui_from_faucet(client_address, sui_network, &sui_client);
-    //         faucet_requests.push(request);
-    //     }
-    //     try_join_all(faucet_requests).await?;
-    // }
-
     // Encode a blob.
     let blob_size = stress_parameters.blob_size;
     let blob = create_random_blob(rng, blob_size);
@@ -89,7 +76,7 @@ pub async fn reserve_blob(
         .await?;
 
     // TODO: Detect when the blob is stored by querying the storage nodes.
-    sleep(Duration::from_secs(1)).await;
+    sleep(Duration::from_secs(3)).await;
 
     Ok((client, pairs, metadata))
 }
