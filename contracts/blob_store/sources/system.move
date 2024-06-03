@@ -36,6 +36,10 @@ module blob_store::system {
     /// and therefore 2 x 52 weeks = 2 years.
     const MAX_PERIODS_AHEAD : u64 = 104;
 
+
+    // Keep in sync with the same constant in `crates/walrus-sui/utils.rs`.
+    const BYTES_PER_UNIT_SIZE : u64 = 1_024;
+
     // Event types
 
     /// Signals an epoch change, and entering the SYNC state for the new epoch.
@@ -70,7 +74,6 @@ module blob_store::system {
         used_capacity_size : u64,
 
         /// The price per unit size of storage.
-        /// to support simple direct buy.
         price_per_unit_size: u64,
 
         /// Tables about the future and the past.
@@ -225,7 +228,8 @@ module blob_store::system {
             ERROR_STORAGE_EXCEEDED);
 
         // Pay rewards for each future epoch into the future accounting.
-        let period_payment_due = self.price_per_unit_size * storage_amount;
+        let storage_units = (storage_amount + BYTES_PER_UNIT_SIZE - 1)/BYTES_PER_UNIT_SIZE;
+        let period_payment_due = self.price_per_unit_size * storage_units;
         let coin_balance = coin::balance_mut(&mut payment);
 
         let mut i = 0;

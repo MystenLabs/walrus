@@ -8,8 +8,11 @@ use crate::{messages::IntentType, BlobId, Epoch, PublicKey};
 
 /// Confirmation from a storage node that it has stored the sliver pairs for a given blob.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub enum StorageConfirmation {
     /// Confirmation based on the storage node's signature.
+    #[cfg_attr(feature = "utoipa", schema(value_type = SignedMessage::<()>))]
     Signed(SignedStorageConfirmation),
 }
 
@@ -69,7 +72,6 @@ impl SignedStorageConfirmation {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
     use crate::messages::{IntentAppId, IntentVersion};
 

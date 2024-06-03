@@ -93,16 +93,43 @@ pub fn even_shards_allocation(
     shards_information
 }
 
-#[allow(clippy::too_many_arguments)] // Todo: Refactor configs #377
+/// Parameters to deploy the system contract.
+#[derive(Debug)]
+pub struct DeployTestbedContractParameters<'a> {
+    /// The path to store configs in.
+    pub working_dir: &'a Path,
+    /// The sui network to deploy the contract on.
+    pub sui_network: SuiNetwork,
+    /// The path of the contract.
+    pub contract_path: PathBuf,
+    /// The gas budget to use for deployment.
+    pub gas_budget: u64,
+    /// The shard distribution on the nodes.
+    pub shards_information: Vec<Vec<ShardIndex>>,
+    /// The ip addresses of the nodes.
+    pub ips: Vec<Ipv4Addr>,
+    /// The rest api port of the nodes.
+    pub rest_api_port: u16,
+    /// The storage capacity of the deployed system.
+    pub storage_capacity: u64,
+    /// The price to charge per unit of storage.
+    pub price_per_unit: u64,
+}
+
+// Todo: Refactor configs #377
 /// Create and deploy a Walrus contract.
 pub async fn deploy_walrus_contract(
-    working_dir: &Path,
-    sui_network: SuiNetwork,
-    contract_path: PathBuf,
-    gas_budget: u64,
-    shards_information: Vec<Vec<ShardIndex>>,
-    ips: Vec<Ipv4Addr>,
-    rest_api_port: u16,
+    DeployTestbedContractParameters {
+        working_dir,
+        sui_network,
+        contract_path,
+        gas_budget,
+        shards_information,
+        ips,
+        rest_api_port,
+        storage_capacity,
+        price_per_unit,
+    }: DeployTestbedContractParameters<'_>,
 ) -> anyhow::Result<TestbedConfig> {
     assert!(
         shards_information.len() == ips.len(),
@@ -168,7 +195,7 @@ pub async fn deploy_walrus_contract(
     let (pkg_id, committee_cap) =
         publish_package(&mut admin_wallet, contract_path, gas_budget).await?;
     let committee = Committee::new(sui_storage_nodes, 0)?;
-    let system_params = SystemParameters::new_with_sui(committee, 1_000_000_000_000, 10);
+    let system_params = SystemParameters::new_with_sui(committee, storage_capacity, price_per_unit);
     let system_object = create_system_object(
         &mut admin_wallet,
         pkg_id,

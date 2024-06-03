@@ -39,6 +39,28 @@ You can also use a custom pre-commit configuration if you wish:
 1. Create a file `.custom-pre-commit-config.yaml` (this is set to be ignored by Git).
 1. Run `pre-commit install -c .custom-pre-commit-config.yaml`.
 
+## Code formatting
+
+We use a few unstable formatting options of Rustfmt. Unfortunately, these can only be used with a
+stable toolchain when specified via the `--config` command-line option. This is done in
+[CI](.github/workflows/code.yml) and in our [pre-commit hooks](.pre-commit-config.yaml) (see also
+[above](#pre-commit-hooks)).
+
+If you want the same behavior in your IDE, you need to modify the corresponding formatting setting.
+For example, when using `rust-analyzer` with VSCode, you need to add the following to your
+`settings.json`:
+
+```json
+    "rust-analyzer.rustfmt.extraArgs": [
+        "--config",
+        "group_imports=StdExternalCrate,imports_granularity=Crate,imports_layout=HorizontalVertical"
+    ]
+```
+
+Also make sure you use the correct version of Rustfmt. See
+[rust-toolchain.toml](rust-toolchain.toml) for the current version. This also impacts other checks,
+for example Clippy.
+
 ## Tests
 
 The majority of our code is covered by automatic unit and integration tests which you can run

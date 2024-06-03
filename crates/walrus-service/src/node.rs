@@ -405,8 +405,7 @@ impl StorageNode {
         event_sequence_number: usize,
         event: InvalidBlobID,
     ) -> anyhow::Result<()> {
-        self.storage.delete_metadata(&event.blob_id)?;
-        self.storage.delete_slivers(&event.blob_id)?;
+        self.storage.delete_blob(&event.blob_id)?;
         self.storage
             .maybe_advance_event_cursor(event_sequence_number, &event.event_id)?;
         Ok(())
@@ -614,7 +613,13 @@ impl ServiceState for StorageNode {
             return Err(StoreMetadataError::NotRegistered);
         };
 
-        if blob_info.end_epoch <= self.current_epoch() {
+        if blob_info.is_invalid() {
+            return Err(StoreMetadataError::InvalidBlob(
+                blob_info.current_status_event,
+            ));
+        }
+
+        if blob_info.is_expired(self.current_epoch()) {
             return Err(StoreMetadataError::BlobExpired);
         }
 

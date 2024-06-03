@@ -20,6 +20,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tower-service = { version = "0.3.2", optional = true }
 tracing = "0.1.40"
+utoipa.workspace = true
 walrus-core.workspace = true
 
 [dev-dependencies]

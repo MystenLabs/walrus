@@ -269,6 +269,8 @@ impl AssociatedContractStruct for StorageNode {
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Committee {
     /// The members of the committee
+    // INV: `!members.is_empty()`
+    // INV: `members.iter().all(|m| !m.shard_ids.is_empty())`
     members: Vec<StorageNode>,
     /// The current epoch
     pub epoch: Epoch,

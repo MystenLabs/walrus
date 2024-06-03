@@ -1,9 +1,23 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use utoipa::openapi::{schema::Schema, ObjectBuilder, RefOr};
+use utoipa::{
+    openapi::{schema::Schema, RefOr},
+    PartialSchema,
+    ToSchema,
+};
+use walrus_core::{
+    messages::{SignedMessage, StorageConfirmation},
+    SliverPairIndex,
+    SliverType,
+};
+use walrus_sdk::api::BlobStatus;
 
-use super::routes::{self, BlobIdString};
+use super::{
+    responses::RestApiJsonError,
+    routes::{self, BlobIdString},
+};
+use crate::server::responses::ApiSuccess;
 
 pub(super) const GROUP_STORING_BLOBS: &str = "Writing Blobs";
 pub(super) const GROUP_READING_BLOBS: &str = "Reading Blobs";
@@ -21,36 +35,66 @@ pub(super) const GROUP_RECOVERY: &str = "Recovery";
         routes::inconsistency_proof,
         routes::get_blob_status
     ),
-    components(schemas(BlobIdString, SliverTypeSchema, SliverPairIndexSchema,))
+    components(schemas(
+        BlobIdString,
+        SliverType,
+        SliverPairIndex,
+        SignedMessage::<()>,
+        RestApiJsonError,
+        ApiSuccessSignedMessage,
+        ApiSuccessMessage,
+        ApiSuccessBlobStatus,
+        EventIdSchema,
+        ApiSuccessStorageConfirmation
+    ),)
 )]
 pub(super) struct RestApiDoc;
 
-/// Index identifying one of the blob's sliver pairs. As blobs are encoded into as many pairs of
-/// slivers as there are shards in the committee, this value must be from 0 to the number of shards
-/// (exclusive).
-#[derive(utoipa::ToSchema)]
-#[schema(
-    as = SliverPairIndex,
-    value_type = u16,
-    example = json!(17),
-    format = "uint16",
-)]
-struct SliverPairIndexSchema(());
-
-struct SliverTypeSchema;
-
-impl<'s> utoipa::ToSchema<'s> for SliverTypeSchema {
-    fn schema() -> (&'s str, RefOr<Schema>) {
-        let schema = ObjectBuilder::new()
-            .enum_values(Some(vec!["primary", "secondary"]))
-            .description(Some(
-                "Value identifying either a primary or secondary blob sliver.",
-            ))
-            .into();
-
-        ("SliverType", schema)
-    }
+// Schema for EventID type from sui_types.
+#[allow(unused)]
+#[derive(ToSchema)]
+#[schema(as = EventID, rename_all = "camelCase")]
+struct EventIdSchema {
+    #[schema(format = Byte)]
+    tx_digest: Vec<u8>,
+    // u64 represented as a string
+    #[schema(value_type = String)]
+    event_seq: u64,
 }
+
+macro_rules! api_success_alias_schema {
+    (PartialSchema $name:ident) => {
+        Self::schema_with_data($name::schema())
+    };
+    (ToSchema $name:ident) => {
+        <Self as PartialSchema>::schema()
+    };
+}
+
+// Creates `ToSchema` API implementations and type aliases for `ApiSuccess<T>`.
+// This is required as utoipa's current method for handling generics in schemas is not
+// working for enums. See https://github.com/juhaku/utoipa/issues/835.
+macro_rules! api_success_alias {
+    ($name:ident as $alias:ident, $method:tt) => {
+        pub(super) type $alias = ApiSuccess<$name>;
+
+        impl<'r> ToSchema<'r> for $alias {
+            fn schema() -> (&'r str, RefOr<Schema>) {
+                (stringify!($alias), api_success_alias_schema!($method $name))
+            }
+        }
+    };
+}
+
+type UntypedSignedMessage = SignedMessage<()>;
+
+api_success_alias!(
+    StorageConfirmation as ApiSuccessStorageConfirmation,
+    ToSchema
+);
+api_success_alias!(UntypedSignedMessage as ApiSuccessSignedMessage, ToSchema);
+api_success_alias!(BlobStatus as ApiSuccessBlobStatus, ToSchema);
+api_success_alias!(String as ApiSuccessMessage, PartialSchema);
 
 /// Convert the path with variables of the form `:id` to the form `{id}`.
 pub(crate) fn rewrite_route(path: &str) -> String {
@@ -59,4 +103,24 @@ pub(crate) fn rewrite_route(path: &str) -> String {
         .replace_all(path, "{$param}")
         .as_ref()
         .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use utoipa::OpenApi as _;
+    use utoipa_redoc::Redoc;
+
+    use super::*;
+
+    #[test]
+    fn test_openapi_generation_does_not_panic() {
+        std::fs::write(
+            // Can also be used to view the api.
+            Path::new("/tmp/api.html"),
+            Redoc::new(RestApiDoc::openapi()).to_html().as_bytes(),
+        )
+        .unwrap();
+    }
 }

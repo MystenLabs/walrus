@@ -14,7 +14,7 @@ use regex::Regex;
 use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, MergeOperands, Options, DB};
 use serde::{Deserialize, Serialize};
 use typed_store::{
-    rocks::{errors::typed_store_err_from_rocks_err, DBMap, ReadWriteOptions, RocksDB},
+    rocks::{errors::typed_store_err_from_rocks_err, DBBatch, DBMap, ReadWriteOptions, RocksDB},
     Map,
     TypedStoreError,
 };
@@ -133,9 +133,19 @@ impl ShardStorage {
     }
 
     /// Deletes the sliver pair for the given [`BlobId`].
-    pub fn delete_sliver_pair(&self, blob_id: &BlobId) -> Result<(), TypedStoreError> {
-        self.primary_slivers.remove(&blob_id.into())?;
-        self.secondary_slivers.remove(&blob_id.into())?;
+    pub fn delete_sliver_pair(
+        &self,
+        batch: &mut DBBatch,
+        blob_id: &BlobId,
+    ) -> Result<(), TypedStoreError> {
+        batch.delete_batch(
+            &self.primary_slivers,
+            std::iter::once::<PrimarySliverKey>(blob_id.into()),
+        )?;
+        batch.delete_batch(
+            &self.secondary_slivers,
+            std::iter::once::<SecondarySliverKey>(blob_id.into()),
+        )?;
         Ok(())
     }
 
@@ -271,7 +281,9 @@ mod tests {
 
         assert!(shard.is_sliver_pair_stored(&BLOB_ID)?);
 
-        shard.delete_sliver_pair(&BLOB_ID)?;
+        let mut batch = storage.inner.metadata.batch();
+        shard.delete_sliver_pair(&mut batch, &BLOB_ID)?;
+        batch.write()?;
 
         assert!(!shard.is_sliver_stored::<Primary>(&BLOB_ID)?);
         assert!(!shard.is_sliver_stored::<Secondary>(&BLOB_ID)?);
@@ -287,10 +299,11 @@ mod tests {
         assert!(!shard.is_sliver_stored::<Primary>(&BLOB_ID)?);
         assert!(!shard.is_sliver_stored::<Secondary>(&BLOB_ID)?);
 
+        let mut batch = storage.inner.metadata.batch();
         shard
-            .delete_sliver_pair(&BLOB_ID)
+            .delete_sliver_pair(&mut batch, &BLOB_ID)
             .expect("delete should not error");
-
+        batch.write()?;
         Ok(())
     }
 

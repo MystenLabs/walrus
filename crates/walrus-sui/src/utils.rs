@@ -41,6 +41,16 @@ use walrus_core::BlobId;
 
 use crate::{client::SuiClientResult, contracts::AssociatedContractStruct};
 
+// Keep in sync with the same constant in `contracts/blob_store/system.move`.
+/// The number of bytes per storage unit.
+pub const BYTES_PER_UNIT_SIZE: u64 = 1024;
+
+/// Calculates the number of storage units required to store a blob with the
+/// given encoded size.
+pub fn storage_units_from_size(encoded_size: u64) -> u64 {
+    (encoded_size + BYTES_PER_UNIT_SIZE - 1) / BYTES_PER_UNIT_SIZE
+}
+
 pub(crate) fn get_struct_from_object_response(
     object_response: &SuiObjectResponse,
 ) -> Result<SuiMoveStruct> {

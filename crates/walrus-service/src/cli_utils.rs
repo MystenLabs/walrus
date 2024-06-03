@@ -28,6 +28,7 @@ use walrus_core::{
 use walrus_sui::{
     client::{SuiContractClient, SuiReadClient},
     types::Committee,
+    utils::storage_units_from_size,
 };
 
 use crate::client::{default_configuration_paths, string_prefix, Client, Config};
@@ -252,14 +253,13 @@ impl Display for HumanReadableMist {
 }
 
 /// Computes the MIST price given the unencoded blob size.
-// NOTE: Keep this computation in line with price unit size changes.
 fn mist_price_per_blob_size(
     unencoded_length: u64,
     n_shards: NonZeroU16,
     price_per_unit_size: u64,
 ) -> Option<u64> {
     encoded_blob_length_for_n_shards(n_shards, unencoded_length)
-        .map(|size| size * price_per_unit_size)
+        .map(|size| storage_units_from_size(size) * price_per_unit_size)
 }
 
 fn mist_to_sui(mist: u64) -> f64 {
@@ -288,7 +288,7 @@ pub fn print_walrus_info(committee: &Committee, price_per_unit_size: u64, dev: b
     let n_nodes = committee.n_members();
     let max_blob_size = max_blob_size_for_n_shards(n_shards);
     let metadata_length = metadata_length_for_n_shards(n_shards);
-    let metadata_price = metadata_length * price_per_unit_size;
+    let metadata_price = storage_units_from_size(metadata_length) * price_per_unit_size;
 
     // NOTE: keep price and text in sync with the changes on in the contracts.
     printdoc!(
@@ -304,7 +304,7 @@ pub fn print_walrus_info(committee: &Committee, price_per_unit_size: u64, dev: b
         Maximum blob size: {hr_max_blob} ({max_blob_size_sep} B)
 
         {price_heading}
-        Price per encoded Byte: {price_per_unit_size} MIST
+        Price per encoded storage unit: {price_per_unit_size} MIST/KiB
         Price to store metadata: {metadata_price}
         Marginal price per additional 1 MiB (w/o metadata): {price_per_mib_input}
         Total price per max blob ({hr_max_blob}): {price_max_blob}
@@ -317,8 +317,10 @@ pub fn print_walrus_info(committee: &Committee, price_per_unit_size: u64, dev: b
         price_heading = "Approximate storage prices per epoch".bold().green(),
         metadata_price = HumanReadableMist(metadata_price),
         price_per_mib_input = HumanReadableMist(
-            encoded_slivers_length_for_n_shards(n_shards, 1 << 20,).expect("we can encode 1 MiB")
-                * price_per_unit_size
+            storage_units_from_size(
+                encoded_slivers_length_for_n_shards(n_shards, 1 << 20,)
+                    .expect("we can encode 1 MiB")
+            ) * price_per_unit_size
         ),
         price_max_blob = HumanReadableMist(
             mist_price_per_blob_size(max_blob_size, n_shards, price_per_unit_size)

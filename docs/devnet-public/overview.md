@@ -205,7 +205,7 @@ different lengths and not have the same start / end times as Sui epochs.
 A number of Sui smart contracts hold the metadata of the Walrus system and all its entities.
 
 - A **Walrus system object** holds the committee of storage nodes for the current storage epoch. The
-  system object also holds the total available space on Walrus and the price per byte of storage.
+  system object also holds the total available space on Walrus and the price per unit of storage (1KiB).
   These values are determined by 2/3 agreement between the storage nodes for the storage epoch.
   Users can pay to purchase storage space for some time duration. These space resources may be
   split, merged and transferred. Later they can be used to place a blob ID into Walrus.

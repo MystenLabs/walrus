@@ -46,11 +46,19 @@ impl<T> ProtocolMessage<T> {
 }
 
 /// A signed message from a storage node.
+#[serde_with::serde_as]
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct SignedMessage<T> {
     /// The BCS-encoded message.
+    ///
+    /// This is serialized as a base64 string in human-readable encoding formats such as JSON.
+    #[serde_as(as = "serde_with::IfIsHumanReadable<serde_with::base64::Base64>")]
+    #[cfg_attr(feature = "utoipa", schema(format = Byte))]
     pub serialized_message: Vec<u8>,
     /// The signature over the BCS encoded message.
+    #[cfg_attr(feature = "utoipa", schema(format = Byte, value_type = [u8]))]
     pub signature: BLS12381Signature,
     #[serde(skip)]
     message_type: PhantomData<T>,

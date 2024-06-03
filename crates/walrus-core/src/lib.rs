@@ -209,7 +209,11 @@ index_type!(
 
 index_type!(
     /// Represents the index of a sliver pair.
+    ///
+    /// As blobs are encoded into as many pairs of slivers as there are shards in the committee,
+    /// this value ranges be from 0 to the number of shards (exclusive).
     #[derive(Ord, PartialOrd)]
+    #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
     SliverPairIndex("sliver-pair")
 );
 
@@ -445,6 +449,7 @@ pub enum DecodingSymbolType {
 /// A type indicating either a primary or secondary sliver.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub enum SliverType {
     /// Enum indicating a primary sliver.
     Primary,

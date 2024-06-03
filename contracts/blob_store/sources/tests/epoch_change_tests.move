@@ -11,6 +11,9 @@ module blob_store::epoch_change_tests {
     use blob_store::storage_accounting as sa;
     use blob_store::storage_resource as sr;
 
+    // Keep in sync with the same constant in `blob_store::system`
+    const BYTES_PER_UNIT_SIZE : u64 = 1_024;
+
     public struct TESTWAL has store, drop {}
 
         // ------------- TESTS --------------------
@@ -28,10 +31,16 @@ module blob_store::epoch_change_tests {
 
         // Create a new system object
         let mut system : system::System<TESTWAL> = system::new(committee,
-            1000, 2, &mut ctx);
+            1_000 * BYTES_PER_UNIT_SIZE, 2, &mut ctx);
 
         // Get some space for a few epochs
-        let (storage, fake_coin) = system::reserve_space(&mut system, 10, 3, fake_coin, &mut ctx);
+        let (storage, fake_coin) = system::reserve_space(
+            &mut system,
+            10 * BYTES_PER_UNIT_SIZE,
+            3,
+            fake_coin,
+            &mut ctx
+        );
         sr::destroy(storage);
 
         // Check things about the system
@@ -41,35 +50,56 @@ module blob_store::epoch_change_tests {
         assert!(coin::value(&fake_coin) == 40, 0);
 
         // Space is reduced by 10
-        assert!(system::used_capacity_size(&system) == 10, 0);
+        assert!(system::used_capacity_size(&system) == 10 * BYTES_PER_UNIT_SIZE, 0);
 
         // Advance epoch -- to epoch 1
         let committee = committee::committee_for_testing(1);
-        let mut epoch_accounts = system::next_epoch(&mut system, committee, 1000, 3);
+        let mut epoch_accounts = system::next_epoch(
+            &mut system,
+            committee,
+            1_000 * BYTES_PER_UNIT_SIZE,
+            3
+        );
         assert!(balance::value(sa::rewards_to_distribute(&mut epoch_accounts)) == 20, 0);
 
         // Get some space for a few epochs
-        let (storage, fake_coin) = system::reserve_space(&mut system, 5, 1, fake_coin, &mut ctx);
+        let (storage, fake_coin) = system::reserve_space(
+            &mut system,
+            5 * BYTES_PER_UNIT_SIZE,
+            1,
+            fake_coin,
+            &mut ctx
+        );
         sr::destroy(storage);
         // The value of the coin should be 40 - 3 x 5
         assert!(coin::value(&fake_coin) == 25, 0);
         sa::burn_for_testing(epoch_accounts);
 
-        assert!(system::used_capacity_size(&system) == 15, 0);
+        assert!(system::used_capacity_size(&system) == 15 * BYTES_PER_UNIT_SIZE, 0);
 
         // Advance epoch -- to epoch 2
         system::set_done_for_testing(&mut system);
         let committee = committee::committee_for_testing(2);
-        let mut epoch_accounts = system::next_epoch(&mut system, committee, 1000, 3);
+        let mut epoch_accounts = system::next_epoch(
+            &mut system,
+            committee,
+            1_000 * BYTES_PER_UNIT_SIZE,
+            3
+        );
         assert!(balance::value(sa::rewards_to_distribute(&mut epoch_accounts)) == 35, 0);
         sa::burn_for_testing(epoch_accounts);
 
-        assert!(system::used_capacity_size(&system) == 10, 0);
+        assert!(system::used_capacity_size(&system) == 10 * BYTES_PER_UNIT_SIZE, 0);
 
         // Advance epoch -- to epoch 3
         system::set_done_for_testing(&mut system);
         let committee = committee::committee_for_testing(3);
-        let mut epoch_accounts = system::next_epoch(&mut system, committee, 1000, 3);
+        let mut epoch_accounts = system::next_epoch(
+            &mut system,
+            committee,
+            1_000 * BYTES_PER_UNIT_SIZE,
+            3
+        );
         assert!(balance::value(sa::rewards_to_distribute(&mut epoch_accounts)) == 20, 0);
         sa::burn_for_testing(epoch_accounts);
 
@@ -79,7 +109,12 @@ module blob_store::epoch_change_tests {
         // Advance epoch -- to epoch 4
         system::set_done_for_testing(&mut system);
         let committee = committee::committee_for_testing(4);
-        let mut epoch_accounts = system::next_epoch(&mut system, committee, 1000, 3);
+        let mut epoch_accounts = system::next_epoch(
+            &mut system,
+            committee,
+            1_000 * BYTES_PER_UNIT_SIZE,
+            3
+        );
         assert!(balance::value(sa::rewards_to_distribute(&mut epoch_accounts)) == 0, 0);
         sa::burn_for_testing(epoch_accounts);
 
