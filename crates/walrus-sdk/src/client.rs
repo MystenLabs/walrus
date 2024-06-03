@@ -444,7 +444,8 @@ mod tests {
                 format!("{BLOB_RESOURCE_PATH}/{BLOB_ID}/slivers/1/primary/2")
             ),
             inconsistency_proof: (
-                |e| e.inconsistency_proof::<Primary>(&BLOB_ID), format!("{BLOB_RESOURCE_PATH}/{BLOB_ID}/inconsistent/primary")
+                |e| e.inconsistency_proof::<Primary>(&BLOB_ID),
+                format!("{BLOB_RESOURCE_PATH}/{BLOB_ID}/inconsistent/primary")
             ),
             ping: (|e| e.ping(), "v1/ping".to_string()),
         ]

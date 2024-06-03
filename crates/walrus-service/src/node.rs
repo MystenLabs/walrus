@@ -1187,12 +1187,10 @@ mod tests {
             TestCluster::builder()
                 .with_shard_assignment(assignment)
                 .with_system_event_providers(events.clone())
+                .with_wait_until_all_nodes_ready(true)
                 .build()
                 .await?
         };
-
-        // Wait for HTTP to start up
-        tokio::time::sleep(Duration::from_millis(200)).await;
 
         let config = cluster.encoding_config();
         let blob_details = EncodedBlob::new(blob, config);
