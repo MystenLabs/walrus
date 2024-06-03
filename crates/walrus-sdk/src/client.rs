@@ -81,6 +81,10 @@ impl UrlEndpoints {
         let path = format!("inconsistent/{sliver_type}");
         self.blob_resource(blob_id).join(&path).unwrap()
     }
+
+    fn ping(&self) -> Url {
+        self.0.join("/v1/ping").unwrap()
+    }
 }
 
 /// A client for communicating with a StorageNode.
@@ -400,6 +404,18 @@ impl Client {
             .verify(public_key, epoch, blob_id)
             .map_err(NodeError::other)?;
         Ok(attestation)
+    }
+
+    /// Sends a ping request to the node.
+    pub async fn ping(&self) -> Result<(), NodeError> {
+        let response = self
+            .inner
+            .get(self.endpoints.ping())
+            .send()
+            .await
+            .map_err(Kind::Reqwest)?;
+        assert!(matches!(response.status(), reqwest::StatusCode::OK));
+        Ok(())
     }
 }
 

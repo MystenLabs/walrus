@@ -33,7 +33,8 @@ pub(super) const GROUP_RECOVERY: &str = "Recovery";
         routes::get_storage_confirmation,
         routes::get_recovery_symbol,
         routes::inconsistency_proof,
-        routes::get_blob_status
+        routes::get_blob_status,
+        routes::ping,
     ),
     components(schemas(
         BlobIdString,

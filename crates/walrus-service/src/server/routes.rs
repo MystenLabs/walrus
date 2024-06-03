@@ -55,6 +55,7 @@ pub const RECOVERY_ENDPOINT: &str =
 pub const INCONSISTENCY_PROOF_ENDPOINT: &str = "/v1/blobs/:blob_id/inconsistent/:sliver_type";
 /// The path to get the status of a blob.
 pub const STATUS_ENDPOINT: &str = "/v1/blobs/:blob_id/status";
+pub const PING_ENDPOINT: &str = "/v1/ping";
 
 /// A blob ID encoded as a URL-safe Base64 string, without the trailing equal (=) signs.
 #[serde_as]
@@ -347,4 +348,20 @@ pub async fn get_blob_status<S: SyncServiceState>(
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
 ) -> Result<ApiSuccess<BlobStatus>, BlobStatusError> {
     Ok(ApiSuccess::ok(state.blob_status(&blob_id)?))
+}
+
+/// Ping endpoint.
+///
+/// Returns a success message indicating that the server is running.
+#[tracing::instrument(skip_all)]
+#[utoipa::path(
+    get,
+    path = openapi::rewrite_route(PING_ENDPOINT),
+    responses(
+        (status = 200, description = "Server is running")
+    ),
+    tag = openapi::GROUP_RECOVERY
+)]
+pub async fn ping() -> ApiSuccess<&'static str> {
+    ApiSuccess::ok("Server is running")
 }

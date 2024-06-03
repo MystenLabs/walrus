@@ -80,6 +80,7 @@ where
             )
             .route(routes::STATUS_ENDPOINT, get(routes::get_blob_status))
             .with_state(self.state.clone())
+            .route(routes::PING_ENDPOINT, get(routes::ping))
             .layer(TraceLayer::new_for_http().make_span_with(RestApiSpans {
                 address: *network_address,
             }));

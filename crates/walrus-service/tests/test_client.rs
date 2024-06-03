@@ -257,16 +257,14 @@ async fn default_setup() -> anyhow::Result<(TestCluster, WithTempDir<Client<SuiC
             sui_read_client.clone(),
             Duration::from_millis(100),
         ))
-        .with_system_contract_services(Arc::new(sui_contract_service));
+        .with_system_contract_services(Arc::new(sui_contract_service))
+        .with_wait_until_all_nodes_ready(true);
 
     let cluster = {
         // Lock to avoid race conditions.
         let _lock = global_test_lock().lock().await;
         cluster_builder.build().await?
     };
-
-    // Ensure that the servers in the cluster have sufficient time to get ready.
-    tokio::time::sleep(Duration::from_millis(200)).await;
 
     // Create the client with a separate wallet
     let sui_contract_client = new_wallet_on_global_test_cluster()
