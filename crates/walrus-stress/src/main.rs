@@ -74,15 +74,6 @@ async fn main() -> anyhow::Result<()> {
     let duration = args.duration.as_secs();
     let sui_network = args.sui_network;
 
-    // Start the metrics server.
-    let metrics_address = SocketAddr::new(
-        IpAddr::V4(Ipv4Addr::UNSPECIFIED),
-        stress_parameters.metrics_port,
-    );
-    let registry_service = mysten_metrics::start_prometheus_server(metrics_address);
-    let prometheus_registry = registry_service.default_registry();
-    let metrics = ClientMetrics::new(&prometheus_registry);
-
     // Start the write transaction generator.
     tracing::info!("Initializing write transactions generators...");
     let write_pre_compute = (args.load * duration * percentage_writes) / 100;
@@ -121,6 +112,15 @@ async fn main() -> anyhow::Result<()> {
     .await
     .context("Failed to start read transaction generator")?;
     read_tx_generator.initialize().await;
+
+    // Start the metrics server.
+    let metrics_address = SocketAddr::new(
+        IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+        stress_parameters.metrics_port,
+    );
+    let registry_service = mysten_metrics::start_prometheus_server(metrics_address);
+    let prometheus_registry = registry_service.default_registry();
+    let metrics = ClientMetrics::new(&prometheus_registry);
 
     // Start the benchmark.
     tracing::info!("Start sending transactions");
