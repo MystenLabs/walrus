@@ -13,8 +13,7 @@ use crate::{benchmark::BenchmarkParameters, client::Instance};
 
 pub mod target;
 
-pub const CARGO_FLAGS: &str = "--release";
-pub const RUST_FLAGS: &str = "RUSTFLAGS=-C\\ target-cpu=native";
+pub const BINARY_PATH: &str = "target/release";
 
 pub trait ProtocolParameters:
     Default + Clone + Serialize + DeserializeOwned + Debug + Display

@@ -23,7 +23,7 @@ use walrus_service::{
 use walrus_stress::StressParameters;
 use walrus_sui::utils::SuiNetwork;
 
-use super::{ProtocolCommands, ProtocolMetrics, ProtocolParameters, CARGO_FLAGS, RUST_FLAGS};
+use super::{ProtocolCommands, ProtocolMetrics, ProtocolParameters, BINARY_PATH};
 use crate::{benchmark::BenchmarkParameters, client::Instance};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -197,7 +197,7 @@ impl ProtocolCommands for TargetProtocol {
 
         // Generate a command to print all client and storage node configs on all instances.
         let generate_config_command = [
-            &format!("{RUST_FLAGS} cargo run {CARGO_FLAGS} --bin walrus-node --"),
+            &format!("./{BINARY_PATH}/walrus-node"),
             "generate-dry-run-configs",
             &format!(
                 "--working-dir {}",
@@ -241,7 +241,7 @@ impl ProtocolCommands for TargetProtocol {
                 let node_config_path = working_dir.join(node_config_name);
 
                 let run_command = [
-                    &format!("{RUST_FLAGS} cargo run {CARGO_FLAGS} --bin walrus-node --"),
+                    &format!("./{BINARY_PATH}/walrus-node"),
                     "run",
                     &format!("--config-path {}", node_config_path.display()),
                     "--cleanup-storage",
@@ -275,7 +275,7 @@ impl ProtocolCommands for TargetProtocol {
                 let stress_parameters_path = working_dir.clone().join("stress_parameters.yaml");
 
                 let run_command = [
-                    format!("{RUST_FLAGS} cargo run {CARGO_FLAGS} --bin walrus-stress --"),
+                    format!("./{BINARY_PATH}/walrus-stress"),
                     format!("--load {}", parameters.load),
                     format!("--config-path {}", client_config_path.display()),
                     format!(

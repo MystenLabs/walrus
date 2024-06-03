@@ -15,6 +15,8 @@ use futures::{stream::FuturesUnordered, StreamExt};
 use generator::WriteTransactionGenerator;
 use rand::{rngs::StdRng, SeedableRng};
 use tokio::time::{interval, Instant};
+use tracing::level_filters::LevelFilter;
+use tracing_subscriber::{EnvFilter, FmtSubscriber};
 use walrus_core::{encoding::Primary, BlobId};
 use walrus_service::{client::Config, config::LoadConfig};
 use walrus_stress::StressParameters;
@@ -33,6 +35,9 @@ const BURST_DURATION: Duration = Duration::from_millis(1000 / PRECISION);
 #[clap(rename_all = "kebab-case")]
 #[command(author, version, about = "Walrus load generator", long_about = None)]
 struct Args {
+    /// Turn debugging information on.
+    #[clap(short, long, action = clap::ArgAction::Count)]
+    verbose: u8,
     /// The load to submit to the system (tx/s).
     #[clap(long)]
     load: u64,
@@ -56,6 +61,8 @@ fn parse_duration(arg: &str) -> Result<Duration, std::num::ParseIntError> {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+    set_tracing_subscriber(args.verbose);
+
     let config = Config::load(args.config_path).context("Failed to load client config")?;
     let stress_parameters = StressParameters::load(&args.stress_parameters_path)
         .context("Failed to load stress parameters")?;
@@ -123,6 +130,27 @@ async fn main() -> anyhow::Result<()> {
     .context("Failed to run benchmark")?;
 
     Ok(())
+}
+
+fn set_tracing_subscriber(verbosity: u8) {
+    let log_level = match verbosity {
+        0 => LevelFilter::ERROR,
+        1 => LevelFilter::WARN,
+        2 => LevelFilter::INFO,
+        3 => LevelFilter::DEBUG,
+        _ => LevelFilter::TRACE,
+    };
+
+    let subscriber = FmtSubscriber::builder()
+        .with_env_filter(
+            EnvFilter::builder()
+                .with_default_directive(log_level.into())
+                .from_env_lossy(),
+        )
+        .with_ansi(false)
+        .finish();
+
+    tracing::subscriber::set_global_default(subscriber).unwrap();
 }
 
 async fn benchmark(

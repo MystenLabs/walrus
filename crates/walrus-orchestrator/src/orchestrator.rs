@@ -227,7 +227,7 @@ impl<P: ProtocolCommands + ProtocolMetrics> Orchestrator<P> {
             &format!("git fetch origin {commit}"),
             &format!("(git checkout -b {commit} || git checkout -f origin/{commit})"),
             "source $HOME/.cargo/env",
-            "cargo build --release",
+            "RUSTFLAGS=-Ctarget-cpu=native cargo build --release",
         ]
         .join(" && ");
 

@@ -15,6 +15,7 @@ rand.workspace = true
 serde.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 walrus-core.workspace = true
 walrus-service.workspace = true
 walrus-sui.workspace = true

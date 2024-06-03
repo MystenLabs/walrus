@@ -11745,6 +11745,7 @@ dependencies = [
  "serde",
  "tokio",
  "tracing",
+ "tracing-subscriber",
  "walrus-core",
  "walrus-service",
  "walrus-sui",
