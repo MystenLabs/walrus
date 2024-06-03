@@ -38,7 +38,7 @@ module blob_store::system {
 
 
     // Keep in sync with the same constant in `crates/walrus-sui/utils.rs`.
-    const BYTES_PER_UNIT_SIZE : u64 = 1_000;
+    const BYTES_PER_UNIT_SIZE : u64 = 1_024;
 
     // Event types
 

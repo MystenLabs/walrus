@@ -117,10 +117,12 @@ struct DeploySystemContractArgs {
     /// [default: <WORKING_DIR>/testbed_config.yaml]
     #[clap(long)]
     testbed_config_path: Option<PathBuf>,
-    /// The price to set per unit of storage and epoch.
+    // Note: The storage unit is set in `crates/walrus-sui/utils.rs`. Change the unit in
+    // the doc comment here if it changes.
+    /// The price to set per unit of storage (1 KiB) and epoch.
     #[arg(long, default_value_t = 10)]
     price_per_unit: u64,
-    /// The storage capacity to deploy the system with.
+    /// The storage capacity in bytes to deploy the system with.
     #[arg(long, default_value_t = 1_000_000_000_000)]
     storage_capacity: u64,
 }

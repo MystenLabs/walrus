@@ -12,7 +12,7 @@ module blob_store::epoch_change_tests {
     use blob_store::storage_resource as sr;
 
     // Keep in sync with the same constant in `blob_store::system`
-    const BYTES_PER_UNIT_SIZE : u64 = 1_000;
+    const BYTES_PER_UNIT_SIZE : u64 = 1_024;
 
     public struct TESTWAL has store, drop {}
 
