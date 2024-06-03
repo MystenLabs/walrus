@@ -41,6 +41,7 @@ walrus-sui = { path = "crates/walrus-sui" }
 walrus-service = { path = "crates/walrus-service" }
 walrus-test-utils = { path = "crates/walrus-test-utils" }
 walrus-sdk = { path = "crates/walrus-sdk" }
+utoipa = { version = "4.2.3" }
 
 [workspace.lints.rust]
 missing_docs = "warn"

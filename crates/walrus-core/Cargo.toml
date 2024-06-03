@@ -19,6 +19,7 @@ serde.workspace = true
 serde_with = { workspace = true, features = ["base64"] }
 thiserror.workspace = true
 tracing.workspace = true
+utoipa = { workspace = true, optional = true }
 walrus-test-utils = { workspace = true, optional = true }
 
 [lints]

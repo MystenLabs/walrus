@@ -11634,6 +11634,7 @@ dependencies = [
  "serde_with 3.8.1",
  "thiserror",
  "tracing",
+ "utoipa",
  "walrus-test-utils",
 ]
 

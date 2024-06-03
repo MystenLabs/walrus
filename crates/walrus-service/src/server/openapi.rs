@@ -6,7 +6,11 @@ use utoipa::{
     PartialSchema,
     ToSchema,
 };
-use walrus_core::messages::SignedMessage;
+use walrus_core::{
+    messages::{SignedMessage, StorageConfirmation},
+    SliverPairIndex,
+    SliverType,
+};
 use walrus_sdk::api::BlobStatus;
 
 use super::{
@@ -33,9 +37,9 @@ pub(super) const GROUP_RECOVERY: &str = "Recovery";
     ),
     components(schemas(
         BlobIdString,
-        SliverTypeSchema,
-        SliverPairIndexSchema,
-        SignedMessageSchema,
+        SliverType,
+        SliverPairIndex,
+        SignedMessage::<()>,
         RestApiJsonError,
         ApiSuccessSignedMessage,
         ApiSuccessMessage,
@@ -46,46 +50,7 @@ pub(super) const GROUP_RECOVERY: &str = "Recovery";
 )]
 pub(super) struct RestApiDoc;
 
-/// Index identifying one of the blob's sliver pairs. As blobs are encoded into as many pairs of
-/// slivers as there are shards in the committee, this value must be from 0 to the number of shards
-/// (exclusive).
-#[derive(utoipa::ToSchema)]
-#[schema(
-    as = SliverPairIndex,
-    value_type = u16,
-)]
-struct SliverPairIndexSchema(());
-
-/// Value identifying either a primary or secondary blob sliver.
-#[allow(unused)]
-#[derive(utoipa::ToSchema)]
-#[schema(as = SliverType, rename_all = "SCREAMING_SNAKE_CASE")]
-enum SliverTypeSchema {
-    Primary,
-    Secondary,
-}
-
-/// A base64 encoded protocol message and signature.
-#[allow(unused)]
-#[derive(utoipa::ToSchema)]
-#[schema(as = SignedMessage, rename_all = "camelCase")]
-pub(super) struct SignedMessageSchema {
-    /// The base64 encoded message.
-    #[schema(format = Byte)]
-    serialized_message: Vec<u8>,
-    /// The base64 encoded signature of this storage node.
-    #[schema(format = Byte)]
-    signature: Vec<u8>,
-}
-
-/// A confirmation of storage, provided as a signature over a signed message.
-#[allow(unused)]
-#[derive(utoipa::ToSchema)]
-#[schema(as = StorageConfirmation, rename_all = "camelCase")]
-pub(super) enum StorageConfirmationSchema {
-    Signed(SignedMessage<()>),
-}
-
+// Schema for EventID type from sui_types.
 #[allow(unused)]
 #[derive(ToSchema)]
 #[schema(as = EventID, rename_all = "camelCase")]
@@ -97,32 +62,39 @@ struct EventIdSchema {
     event_seq: u64,
 }
 
-macro_rules! api_success_alias {
-    (@schema (PartialSchema) $name:ident) => {
+macro_rules! api_success_alias_schema {
+    (PartialSchema $name:ident) => {
         Self::schema_with_data($name::schema())
     };
-    (@schema (ToSchema) $name:ident) => {
+    (ToSchema $name:ident) => {
         <Self as PartialSchema>::schema()
     };
-    ($($name:ident as $alias:ident $method:tt),+ $(,)?) => {
-        $(
-            pub(super) type $alias = ApiSuccess<$name>;
+}
 
-            impl<'r> ToSchema<'r> for $alias {
-                fn schema() -> (&'r str, RefOr<Schema>) {
-                    (stringify!($alias), api_success_alias!(@schema $method $name))
-                }
+// Creates `ToSchema` API implementations and type aliases for `ApiSuccess<T>`.
+// This is required as utoipa's current method for handling generics in schemas is not
+// working for enums. See https://github.com/juhaku/utoipa/issues/835.
+macro_rules! api_success_alias {
+    ($name:ident as $alias:ident, $method:tt) => {
+        pub(super) type $alias = ApiSuccess<$name>;
+
+        impl<'r> ToSchema<'r> for $alias {
+            fn schema() -> (&'r str, RefOr<Schema>) {
+                (stringify!($alias), api_success_alias_schema!($method $name))
             }
-        )*
+        }
     };
 }
 
-api_success_alias! {
-    StorageConfirmationSchema as ApiSuccessStorageConfirmation (ToSchema),
-    SignedMessageSchema as ApiSuccessSignedMessage (ToSchema),
-    BlobStatus as ApiSuccessBlobStatus (ToSchema),
-    String as ApiSuccessMessage (PartialSchema),
-}
+type UntypedSignedMessage = SignedMessage<()>;
+
+api_success_alias!(
+    StorageConfirmation as ApiSuccessStorageConfirmation,
+    ToSchema
+);
+api_success_alias!(UntypedSignedMessage as ApiSuccessSignedMessage, ToSchema);
+api_success_alias!(BlobStatus as ApiSuccessBlobStatus, ToSchema);
+api_success_alias!(String as ApiSuccessMessage, PartialSchema);
 
 /// Convert the path with variables of the form `:id` to the form `{id}`.
 pub(crate) fn rewrite_route(path: &str) -> String {
