@@ -40,6 +40,8 @@ pub struct ClientCommunicationConfig {
     pub max_concurrent_sliver_reads: Option<usize>,
     /// The maximum number of nodes the client contacts to get the blob metadata in parallel.
     pub max_concurrent_metadata_reads: usize,
+    /// The maximum number of nodes the client contacts to get a blob status in parallel.
+    pub max_concurrent_status_reads: Option<usize>,
     /// The configuration for the `reqwest` client.
     pub reqwest_config: ReqwestConfig,
     /// The configuration specific to each node connection.
@@ -52,6 +54,7 @@ impl Default for ClientCommunicationConfig {
             max_concurrent_writes: None,
             max_concurrent_sliver_reads: None,
             max_concurrent_metadata_reads: default::max_concurrent_metadata_reads(),
+            max_concurrent_status_reads: None,
             reqwest_config: ReqwestConfig::default(),
             request_rate_config: RequestRateConfig::default(),
         }
@@ -164,6 +167,10 @@ pub(crate) mod default {
 
     pub fn max_concurrent_sliver_reads(n_shards: NonZeroU16) -> usize {
         (n_shards.get() - 2 * bft::max_n_faulty(n_shards)).into()
+    }
+
+    pub fn max_concurrent_status_reads(n_shards: NonZeroU16) -> usize {
+        (bft::max_n_faulty(n_shards) + 1).into()
     }
 
     pub fn max_concurrent_metadata_reads() -> usize {

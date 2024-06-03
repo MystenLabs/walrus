@@ -79,6 +79,9 @@ pub enum ClientErrorKind {
     /// other errors occurred, and the client cannot confirm that the blob does not exist.
     #[error("could not retrieve the metadata from the storage nodes")]
     NoMetadataReceived,
+    /// The client not receive a valid blob status from the quorum of nodes.
+    #[error("did not receive a valid blob status from the quorum of nodes")]
+    NoValidStatusReceived,
     /// The config provided to the client was invalid.
     #[error("the client config provided was invalid")]
     InvalidConfig,

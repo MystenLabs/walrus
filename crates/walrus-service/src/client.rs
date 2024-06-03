@@ -3,7 +3,11 @@
 
 //! Client for the Walrus service.
 
-use std::{collections::HashMap, sync::Arc, time::Instant};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Instant,
+};
 
 use anyhow::anyhow;
 use fastcrypto::{bls12381::min_pk::BLS12381AggregateSignature, traits::AggregateAuthenticator};
@@ -23,10 +27,13 @@ use walrus_core::{
     BlobId,
     Sliver as SliverEnum,
 };
-use walrus_sdk::error::NodeError;
+use walrus_sdk::{
+    api::{BlobCertificationStatus, BlobStatus},
+    error::NodeError,
+};
 use walrus_sui::{
     client::{ContractClient, ReadClient},
-    types::{Blob, Committee, StorageNode},
+    types::{Blob, BlobEvent, Committee, StorageNode},
 };
 
 mod communication;
@@ -56,8 +63,10 @@ pub struct Client<T> {
     max_concurrent_writes: usize,
     // The maximum number of shards to contact in parallel when reading slivers.
     max_concurrent_sliver_reads: usize,
-    // The maximum number of shards to contact in parallel when reading metadata.
+    // The maximum number of nodes to contact in parallel when reading metadata.
     max_concurrent_metadata_reads: usize,
+    // The maximum number of nodes to contact in parallel when getting the blob status.
+    max_concurrent_status_reads: usize,
     encoding_config: EncodingConfig,
     global_write_limit: Arc<Semaphore>,
 }
@@ -96,6 +105,10 @@ impl Client<()> {
             .unwrap_or(default::max_concurrent_sliver_reads(committee.n_shards()));
         let max_concurrent_metadata_reads =
             config.communication_config.max_concurrent_metadata_reads;
+        let max_concurrent_status_reads = config
+            .communication_config
+            .max_concurrent_status_reads
+            .unwrap_or(default::max_concurrent_status_reads(committee.n_shards()));
         let global_write_limit = Arc::new(Semaphore::new(max_concurrent_writes));
         Ok(Self {
             config,
@@ -106,6 +119,7 @@ impl Client<()> {
             max_concurrent_writes,
             max_concurrent_sliver_reads,
             max_concurrent_metadata_reads,
+            max_concurrent_status_reads,
             global_write_limit,
         })
     }
@@ -120,6 +134,7 @@ impl Client<()> {
             max_concurrent_writes,
             max_concurrent_sliver_reads,
             max_concurrent_metadata_reads,
+            max_concurrent_status_reads,
             encoding_config,
             global_write_limit: global_connection_limit,
         } = self;
@@ -131,6 +146,7 @@ impl Client<()> {
             max_concurrent_writes,
             max_concurrent_sliver_reads,
             max_concurrent_metadata_reads,
+            max_concurrent_status_reads,
             encoding_config,
             global_write_limit: global_connection_limit,
         }
@@ -219,6 +235,9 @@ impl<T: ContractClient> Client<T> {
 }
 
 impl<T> Client<T> {
+    // TODO(mlegner): make configurable.
+    const STATUS_TIMEOUT: Duration = Duration::from_secs(5);
+
     /// Stores the already-encoded metadata and sliver pairs for a blob into Walrus, by sending
     /// sliver pairs to at least 2f+1 shards.
     ///
@@ -524,6 +543,46 @@ impl<T> Client<T> {
         Err(ClientErrorKind::NoMetadataReceived.into())
     }
 
+    /// Gets the blob status from multiple nodes and returns the latest status that can be verified.
+    ///
+    /// The nodes are selected such that at least one correct node is contacted.
+    pub async fn get_verified_blob_status<U: ReadClient>(
+        &self,
+        blob_id: &BlobId,
+        read_client: &U,
+    ) -> Result<BlobStatus, ClientError> {
+        let comms = self.node_communications_with_correct_node();
+        let futures = comms
+            .iter()
+            .map(|n| n.get_blob_status(blob_id).instrument(n.span.clone()));
+        let mut requests = WeightedFutures::new(futures);
+        // TODO(mlegner): Instead add more NodeCommunications and do an execute_weight?
+        requests
+            .execute_time(Self::STATUS_TIMEOUT, self.max_concurrent_status_reads)
+            .await;
+
+        let mut statuses: Vec<_> =
+            // Using `HashSet` to get unique status responses.
+            HashSet::<BlobStatus>::from_iter(requests.take_inner_ok().into_iter())
+                .into_iter()
+                .collect();
+
+        // Going through statuses from later (invalid) to earlier (nonexistent), see implementation
+        // of `Ord` and `PartialOrd` for `BlobStatus`.
+        statuses.sort_unstable();
+        tracing::debug!(?statuses, "received blob statuses from storage nodes");
+        for status in statuses.into_iter().rev() {
+            if verify_blob_status(blob_id, status, read_client)
+                .await
+                .is_ok()
+            {
+                return Ok(status);
+            }
+        }
+
+        Err(ClientErrorKind::NoValidStatusReceived.into())
+    }
+
     /// Builds a [`NodeCommunication`] object for the given storage node.
     ///
     /// Returns `None` if the node has no shards.
@@ -600,7 +659,6 @@ impl<T> Client<T> {
     }
 
     /// Returns a vector of [`NodeCommunication`] objects which contains at least one correct node.
-    #[allow(dead_code)] // TODO(mlegner): Will be used for #422
     fn node_communications_with_correct_node(&self) -> Vec<NodeCommunication> {
         self.node_communications_threshold(|weight| self.committee.is_above_validity(weight))
             .expect("the threshold is below the total number of shards")
@@ -656,4 +714,39 @@ impl<T> Client<T> {
         self.reqwest_client = Self::build_reqwest_client(&self.config)?;
         Ok(())
     }
+}
+
+#[tracing::instrument(skip(sui_read_client), err(level = Level::WARN))]
+async fn verify_blob_status(
+    blob_id: &BlobId,
+    status: BlobStatus,
+    sui_read_client: &impl ReadClient,
+) -> Result<(), anyhow::Error> {
+    tracing::debug!("verifying blob status with on-chain event");
+    let BlobStatus::Existent {
+        end_epoch,
+        status,
+        status_event,
+    } = status
+    else {
+        return Ok(());
+    };
+    let blob_event = sui_read_client.get_blob_event(status_event).await?;
+
+    let (event_blob_id, event_end_epoch) = match (status, blob_event) {
+        (BlobCertificationStatus::Registered, BlobEvent::Registered(event)) => {
+            (event.blob_id, event.end_epoch)
+        }
+        (BlobCertificationStatus::Certified, BlobEvent::Certified(event)) => {
+            (event.blob_id, event.end_epoch)
+        }
+        (BlobCertificationStatus::Invalid, BlobEvent::InvalidBlobID(event)) => {
+            (event.blob_id, end_epoch)
+        }
+        (_, _) => Err(anyhow!("blob event does not match status"))?,
+    };
+    anyhow::ensure!(blob_id == &event_blob_id, "blob ID mismatch");
+    anyhow::ensure!(end_epoch == event_end_epoch, "end epoch mismatch");
+
+    Ok(())
 }

@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! API types.
+
+use std::cmp::Ordering;
+
 use serde::{Deserialize, Serialize};
 use sui_types::event::EventID;
 use walrus_core::Epoch;
@@ -27,7 +30,7 @@ pub enum ServiceResponse<T> {
 }
 
 /// The certification status of the blob as determined by on-chain events.
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Copy, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Copy, Hash, utoipa::ToSchema)]
 #[repr(u8)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum BlobCertificationStatus {
@@ -39,11 +42,41 @@ pub enum BlobCertificationStatus {
     Invalid,
 }
 
+impl std::fmt::Display for BlobCertificationStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Registered => write!(f, "registered"),
+            Self::Certified => write!(f, "certified"),
+            Self::Invalid => write!(f, "invalid"),
+        }
+    }
+}
+
+impl PartialOrd for BlobCertificationStatus {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for BlobCertificationStatus {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (x, y) if x == y => Ordering::Equal,
+            (Self::Registered, _) => Ordering::Less,
+            (Self::Certified, Self::Registered) => Ordering::Greater,
+            (Self::Certified, _) => Ordering::Less,
+            (Self::Invalid, _) => Ordering::Greater,
+        }
+    }
+}
+
 /// Contains the certification status of a blob.
 ///
 /// If the blob exists, it also contains its end epoch and the ID of the Sui event
 /// from which the status resulted.
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy, Default, utoipa::ToSchema)]
+#[derive(
+    Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy, Default, Hash, utoipa::ToSchema,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum BlobStatus {
     /// The blob does not exist (anymore) within Walrus.
@@ -60,4 +93,38 @@ pub enum BlobStatus {
         /// The ID of the Sui event in which the status was changed to the current status.
         status_event: EventID,
     },
+}
+
+impl PartialOrd for BlobStatus {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for BlobStatus {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            // Nonexistent is the "smallest" status.
+            (Self::Nonexistent, Self::Nonexistent) => Ordering::Equal,
+            (Self::Nonexistent, _) => Ordering::Less,
+            (_, Self::Nonexistent) => Ordering::Greater,
+            // Compare existent statuses and end epochs if the status is equal.
+            (
+                Self::Existent {
+                    status, end_epoch, ..
+                },
+                Self::Existent {
+                    status: status_other,
+                    end_epoch: end_epoch_other,
+                    ..
+                },
+            ) => {
+                if status == status_other {
+                    end_epoch.cmp(end_epoch_other)
+                } else {
+                    status.cmp(status_other)
+                }
+            }
+        }
+    }
 }
