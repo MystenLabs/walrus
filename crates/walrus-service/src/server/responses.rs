@@ -13,12 +13,15 @@ use serde_json::json;
 use utoipa::{
     openapi::{
         response::Response as OpenApiResponse,
+        schema::{self, Schema},
         ContentBuilder,
+        ObjectBuilder,
         RefOr,
         ResponseBuilder,
         ResponsesBuilder,
     },
     IntoResponses,
+    PartialSchema,
     ToSchema,
 };
 
@@ -56,6 +59,25 @@ impl<T> ApiSuccess<T> {
             code: StatusCode::OK.as_u16(),
             data,
         }
+    }
+
+    pub(super) fn schema_with_data(data: RefOr<Schema>) -> RefOr<Schema> {
+        let object = ObjectBuilder::new()
+            .property(
+                "success",
+                ObjectBuilder::new()
+                    .property("code", <u16 as PartialSchema>::schema())
+                    .property("data", data),
+            )
+            .build();
+
+        object.into()
+    }
+}
+
+impl<'s, T: ToSchema<'s>> PartialSchema for ApiSuccess<T> {
+    fn schema() -> RefOr<Schema> {
+        Self::schema_with_data(T::schema().1)
     }
 }
 
@@ -178,7 +200,7 @@ where
         let example_reason = format!("'{canonical_reason}' or more detailed information");
         let example = RestApiJsonError::new(code, &example_reason);
         let content = ContentBuilder::new()
-            .schema(example)
+            .schema(schema::Ref::from_schema_name("RestApiJsonError"))
             .example(Some(json!(example)))
             .build();
         let response = ResponseBuilder::new()

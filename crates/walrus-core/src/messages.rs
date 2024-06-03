@@ -46,9 +46,12 @@ impl<T> ProtocolMessage<T> {
 }
 
 /// A signed message from a storage node.
+#[serde_with::serde_as]
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct SignedMessage<T> {
     /// The BCS-encoded message.
+    #[serde_as(as = "serde_with::IfIsHumanReadable<serde_with::base64::Base64>")]
     pub serialized_message: Vec<u8>,
     /// The signature over the BCS encoded message.
     pub signature: BLS12381Signature,

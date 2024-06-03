@@ -70,8 +70,6 @@ pub(crate) struct BlobIdString(#[serde_as(as = "DisplayFromStr")] pub(crate) Blo
 trait SyncServiceState: ServiceState + Send + Sync + 'static {}
 impl<T: ServiceState + Send + Sync + 'static> SyncServiceState for T {}
 
-// TODO(jsmith): Provide the schema for success messages (#460).
-
 /// Get blob metadata.
 ///
 /// Gets the metadata associated with a Walrus blob, as a BCS encoded byte stream.
@@ -108,8 +106,8 @@ pub async fn get_metadata<S: SyncServiceState>(
     params(("blob_id" = BlobIdString,)),
     request_body(content = [u8], description = "BCS-encoded metadata octet-stream"),
     responses(
-        (status = CREATED, description = "Metadata successfully stored"),
-        (status = OK, description = "Metadata is already stored"),
+        (status = CREATED, description = "Metadata successfully stored", body = ApiSuccessMessage),
+        (status = OK, description = "Metadata is already stored", body = ApiSuccessMessage),
         StoreMetadataError,
     ),
     tag = openapi::GROUP_STORING_BLOBS
@@ -189,7 +187,7 @@ pub async fn get_sliver<S: SyncServiceState>(
     ),
     request_body(content = [u8], description = "BCS-encoded sliver octet-stream"),
     responses(
-        (status = OK, description = "Sliver successfully stored"),
+        (status = OK, description = "Sliver successfully stored", body = ApiSuccessMessage),
         StoreSliverError,
     ),
     tag = openapi::GROUP_STORING_BLOBS,
@@ -225,8 +223,8 @@ pub async fn put_sliver<S: SyncServiceState>(
     path = openapi::rewrite_route(STORAGE_CONFIRMATION_ENDPOINT),
     params(("blob_id" = BlobIdString,)),
     responses(
-        (status = 200, description = "The signed storage confirmation",
-        content_type = "application/json"),
+        (status = 200, description = "A signed confirmation of storage",
+        body = ApiSuccessStorageConfirmation),
         ComputeStorageConfirmationError,
     ),
     tag = openapi::GROUP_STORING_BLOBS
@@ -301,11 +299,12 @@ pub async fn get_recovery_symbol<S: SyncServiceState>(
 ))]
 #[utoipa::path(
     put,
-    path = openapi::rewrite_route(STORAGE_CONFIRMATION_ENDPOINT),
+    path = openapi::rewrite_route(INCONSISTENCY_PROOF_ENDPOINT),
     params(("blob_id" = BlobIdString,), ("sliver_type" = SliverType,)),
     request_body(content = [u8], description = "BCS-encoded inconsistency proof"),
     responses(
-        (status = 200, description = "Invalid blob attestation", content_type = "application/json"),
+        (status = 200, description = "Signed invalid blob-id attestation",
+        body = ApiSuccessSignedMessage),
         InconsistencyProofError,
     ),
     tag = openapi::GROUP_RECOVERY
@@ -338,7 +337,7 @@ pub async fn inconsistency_proof<S: SyncServiceState>(
     path = openapi::rewrite_route(STATUS_ENDPOINT),
     params(("blob_id" = BlobIdString,)),
     responses(
-        (status = 200, description = "The status of the blob", content_type = "application/json"),
+        (status = 200, description = "The status of the blob", body = ApiSuccessBlobStatus),
         BlobStatusError
     ),
     tag = openapi::GROUP_READING_BLOBS

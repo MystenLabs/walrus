@@ -8,7 +8,7 @@ use walrus_core::Epoch;
 
 /// Error message returned by the service.
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
 pub enum ServiceResponse<T> {
     /// The request was successful.
     Success {
@@ -27,8 +27,9 @@ pub enum ServiceResponse<T> {
 }
 
 /// The certification status of the blob as determined by on-chain events.
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Copy, utoipa::ToSchema)]
 #[repr(u8)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum BlobCertificationStatus {
     /// The blob has been registered.
     Registered,
@@ -40,11 +41,14 @@ pub enum BlobCertificationStatus {
 
 /// Contains the certification status of a blob as well as its end epoch
 /// and the id of the sui event from which the status resulted.
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct BlobStatus {
     /// The epoch at which the blob expires (non-inclusive).
+    #[schema(value_type = u64)]
     pub end_epoch: Epoch,
     /// The certification status of the blob.
+    #[schema(inline)]
     pub status: BlobCertificationStatus,
     /// The ID of the sui event in which the status was changed to the current status.
     pub status_event: EventID,
