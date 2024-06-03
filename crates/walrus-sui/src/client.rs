@@ -38,6 +38,7 @@ use crate::{
         get_created_sui_object_ids_by_type,
         get_sui_object,
         sign_and_send_ptb,
+        storage_units_from_size,
     },
 };
 
@@ -240,7 +241,9 @@ impl ContractClient for SuiContractClient {
         encoded_size: u64,
         epochs_ahead: u64,
     ) -> SuiClientResult<StorageResource> {
-        let price = epochs_ahead * encoded_size * self.read_client.price_per_unit_size().await?;
+        let price = epochs_ahead
+            * storage_units_from_size(encoded_size)
+            * self.read_client.price_per_unit_size().await?;
         let payment_coin = self
             .read_client
             .get_payment_coins(self.wallet_address)
