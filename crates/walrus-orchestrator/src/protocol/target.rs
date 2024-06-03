@@ -17,6 +17,7 @@ use walrus_service::{
         even_shards_allocation,
         format_metrics_address,
         node_config_name_prefix,
+        DeployTestbedContractParameters,
     },
 };
 use walrus_sui::utils::SuiNetwork;
@@ -166,15 +167,17 @@ impl ProtocolCommands for TargetProtocol {
             }
         };
 
-        let testbed_config = deploy_walrus_contract(
-            parameters.settings.working_dir.as_path(),
-            parameters.node_parameters.sui_network,
-            parameters.node_parameters.contract_path.clone(),
-            parameters.client_parameters.gas_budget,
-            shards,
-            ips.clone(),
-            parameters.node_parameters.rest_api_port,
-        )
+        let testbed_config = deploy_walrus_contract(DeployTestbedContractParameters {
+            working_dir: parameters.settings.working_dir.as_path(),
+            sui_network: parameters.node_parameters.sui_network,
+            contract_path: parameters.node_parameters.contract_path.clone(),
+            gas_budget: parameters.client_parameters.gas_budget,
+            shards_information: shards,
+            ips: ips.clone(),
+            rest_api_port: parameters.node_parameters.rest_api_port,
+            storage_capacity: 1_000_000_000_000,
+            price_per_unit: 1,
+        })
         .await
         .expect("Failed to create Walrus contract");
 

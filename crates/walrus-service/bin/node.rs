@@ -117,6 +117,12 @@ struct DeploySystemContractArgs {
     /// [default: <WORKING_DIR>/testbed_config.yaml]
     #[clap(long)]
     testbed_config_path: Option<PathBuf>,
+    /// The price to set per unit of storage and epoch.
+    #[arg(long, default_value_t = 10)]
+    price_per_unit: u64,
+    /// The storage capacity to deploy the system with.
+    #[arg(long, default_value_t = 1_000_000_000_000)]
+    storage_capacity: u64,
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -167,6 +173,7 @@ mod commands {
             create_storage_node_configs,
             deploy_walrus_contract,
             even_shards_allocation,
+            DeployTestbedContractParameters,
         },
     };
 
@@ -183,6 +190,8 @@ mod commands {
             ips,
             rest_api_port,
             testbed_config_path,
+            price_per_unit,
+            storage_capacity,
         }: DeploySystemContractArgs,
     ) -> anyhow::Result<()> {
         tracing_subscriber::fmt::init();
@@ -198,15 +207,18 @@ mod commands {
         let number_of_shards = NonZeroU16::new(n_shards).context("number of shards must be > 0")?;
         let committee_size = NonZeroU16::new(ips.len() as u16).unwrap();
         let shards_information = even_shards_allocation(number_of_shards, committee_size);
-        let testbed_config = deploy_walrus_contract(
-            &working_dir,
+
+        let testbed_config = deploy_walrus_contract(DeployTestbedContractParameters {
+            working_dir: &working_dir,
             sui_network,
             contract_path,
             gas_budget,
             shards_information,
             ips,
             rest_api_port,
-        )
+            storage_capacity,
+            price_per_unit,
+        })
         .await
         .context("Failed to deploy system contract")?;
 
