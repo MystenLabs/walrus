@@ -130,7 +130,7 @@ impl WriteTransactionGenerator {
         let handler = tokio::spawn(async move {
             let mut i = 0;
             loop {
-                if i % (pre_generation / 10 + 1) == 0 {
+                if i % 10 == 0 {
                     tracing::info!("Generated {i} tx");
                 }
 
@@ -138,10 +138,10 @@ impl WriteTransactionGenerator {
                 let (client, pairs, metadata) =
                     reserve_blob(config.clone(), &stress_parameters, sui_network, &mut rng).await?;
 
-                i += 1;
                 if i == pre_generation {
                     cloned_notify.notify_one();
                 }
+                i += 1;
 
                 // This call blocks when the channel is full.
                 sender
@@ -205,17 +205,17 @@ impl ReadTransactionGenerator {
         let handler = tokio::spawn(async move {
             let mut i = 0;
             loop {
-                if i % pre_generation == 0 {
-                    tracing::debug!("Generated {i} tx");
+                if i % 10 == 0 {
+                    tracing::info!("Generated {i} tx");
                 }
 
                 // Generate a new transaction.
                 let client = create_walrus_client(config.clone(), &stress_parameters).await?;
 
-                i += 1;
                 if i == pre_generation {
                     cloned_notify.notify_one();
                 }
+                i += 1;
 
                 // This call blocks when the channel is full.
                 sender.send(client).await.expect("Failed to send tx");
