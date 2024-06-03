@@ -32,7 +32,7 @@ use crate::{
         BlobRegistered,
         Committee,
         EpochStatus,
-        InvalidBlobID,
+        InvalidBlobId,
         StorageResource,
         SystemObject,
     },
@@ -225,7 +225,7 @@ impl ContractClient for MockContractClient {
         let msg: InvalidBlobIdMsg = bcs::from_bytes(&certificate.serialized_message)
             .map_err(|_| anyhow!("could not deserialize invalid blob message"))?;
         self.read_client.add_event(
-            InvalidBlobID {
+            InvalidBlobId {
                 epoch: msg.as_ref().epoch(),
                 blob_id: *msg.as_ref().contents(),
                 event_id: event_id_for_testing(),

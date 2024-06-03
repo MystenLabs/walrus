@@ -38,7 +38,7 @@ use walrus_core::{
 use walrus_sdk::api::BlobStatus;
 use walrus_sui::{
     client::SuiReadClient,
-    types::{BlobCertified, BlobEvent, InvalidBlobID},
+    types::{BlobCertified, BlobEvent, InvalidBlobId},
 };
 
 use crate::{
@@ -403,7 +403,7 @@ impl StorageNode {
     fn on_blob_invalid(
         &self,
         event_sequence_number: usize,
-        event: InvalidBlobID,
+        event: InvalidBlobId,
     ) -> anyhow::Result<()> {
         self.storage.delete_blob(&event.blob_id)?;
         self.storage
@@ -922,7 +922,7 @@ mod tests {
             .await?;
         tokio::time::sleep(Duration::from_millis(50)).await;
         assert!(node.as_ref().storage.is_stored_at_all_shards(&BLOB_ID)?);
-        events.send(BlobEvent::InvalidBlobID(InvalidBlobID::for_testing(
+        events.send(BlobEvent::InvalidBlobID(InvalidBlobId::for_testing(
             BLOB_ID,
         )))?;
         tokio::time::sleep(Duration::from_millis(100)).await;

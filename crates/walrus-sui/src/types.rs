@@ -31,16 +31,16 @@ use crate::{
         sui_move_convert_struct_vec,
     },
 };
-/// Sui object for storage resources
+/// Sui object for storage resources.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct StorageResource {
-    /// Object id of the Sui object
+    /// Object ID of the Sui object.
     pub id: ObjectID,
-    /// The start epoch of the resource (inclusive)
+    /// The start epoch of the resource (inclusive).
     pub start_epoch: Epoch,
-    /// The end epoch of the resource (exclusive)
+    /// The end epoch of the resource (exclusive).
     pub end_epoch: Epoch,
-    /// The total amount of reserved storage
+    /// The total amount of reserved storage.
     pub storage_size: u64,
 }
 
@@ -73,22 +73,22 @@ impl AssociatedContractStruct for StorageResource {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::storage_resource::Storage;
 }
 
-/// Sui object for a blob
+/// Sui object for a blob.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Blob {
-    /// Object id of the Sui object
+    /// Object ID of the Sui object.
     pub id: ObjectID,
-    /// The epoch in which the blob has been registered
+    /// The epoch in which the blob has been registered.
     pub stored_epoch: Epoch,
-    /// The blob Id
+    /// The blob ID.
     pub blob_id: BlobId,
-    /// The (unencoded) size of the blob
+    /// The (unencoded) size of the blob.
     pub size: u64,
-    /// The erasure coding type used for the blob
+    /// The erasure coding type used for the blob.
     pub erasure_code_type: EncodingType,
-    /// The epoch in which the blob was first certified, `None` if the blob is uncertified
+    /// The epoch in which the blob was first certified, `None` if the blob is uncertified.
     pub certified: Option<Epoch>,
-    /// The [`StorageResource`] used to store the blob
+    /// The [`StorageResource`] used to store the blob.
     pub storage: StorageResource,
 }
 
@@ -153,12 +153,12 @@ impl AssociatedContractStruct for Blob {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::blob::Blob;
 }
 
-/// Network address consisting of host name or ip and port
+/// Network address consisting of host name or IP and port.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct NetworkAddress {
-    /// Host name or ip address
+    /// Host name or IP address.
     pub host: String,
-    /// Port
+    /// Port.
     pub port: u16,
 }
 
@@ -200,16 +200,16 @@ impl From<SocketAddr> for NetworkAddress {
     }
 }
 
-/// Sui type for storage node
+/// Sui type for storage node.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct StorageNode {
-    /// Name of the storage node
+    /// Name of the storage node.
     pub name: String,
-    /// The network address of the storage node
+    /// The network address of the storage node.
     pub network_address: NetworkAddress,
-    /// The public key of the storage node
+    /// The public key of the storage node.
     pub public_key: PublicKey,
-    /// The indices of the shards held by the storage node
+    /// The indices of the shards held by the storage node.
     pub shard_ids: Vec<ShardIndex>,
 }
 
@@ -356,7 +356,7 @@ impl Committee {
         self.n_shards
     }
 
-    /// Returns the members of the committee
+    /// Returns the members of the committee.
     pub fn members(&self) -> &[StorageNode] {
         &self.members
     }
@@ -553,20 +553,20 @@ fn ensure_event_type(sui_event: &SuiEvent, struct_tag: &StructTag) -> anyhow::Re
     Ok(())
 }
 
-/// Sui event that blob has been registered
+/// Sui event that blob has been registered.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlobRegistered {
-    /// The epoch in which the blob has been registered
+    /// The epoch in which the blob has been registered.
     pub epoch: Epoch,
-    /// The blob Id
+    /// The blob ID.
     pub blob_id: BlobId,
-    /// The (unencoded) size of the blob
+    /// The (unencoded) size of the blob.
     pub size: u64,
-    /// The erasure coding type used for the blob
+    /// The erasure coding type used for the blob.
     pub erasure_code_type: EncodingType,
-    /// The end epoch of the associated storage resource (exclusive)
+    /// The end epoch of the associated storage resource (exclusive).
     pub end_epoch: Epoch,
-    /// The ID of the event
+    /// The ID of the event.
     pub event_id: EventID,
 }
 
@@ -604,16 +604,16 @@ impl AssociatedSuiEvent for BlobRegistered {
     const EVENT_STRUCT: StructTag<'static> = contracts::blob_events::BlobRegistered;
 }
 
-/// Sui event that blob has been certified
+/// Sui event that blob has been certified.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlobCertified {
-    /// The epoch in which the blob was certified
+    /// The epoch in which the blob was certified.
     pub epoch: Epoch,
-    /// The blob Id
+    /// The blob ID.
     pub blob_id: BlobId,
-    /// The end epoch of the associated storage resource (exclusive)
+    /// The end epoch of the associated storage resource (exclusive).
     pub end_epoch: Epoch,
-    /// The ID of the event
+    /// The ID of the event.
     pub event_id: EventID,
 }
 
@@ -642,18 +642,18 @@ impl AssociatedSuiEvent for BlobCertified {
     const EVENT_STRUCT: StructTag<'static> = contracts::blob_events::BlobCertified;
 }
 
-/// Sui event that a blob id is invalid.
+/// Sui event that a blob ID is invalid.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InvalidBlobID {
-    /// The epoch in which the blob was marked as invalid
+pub struct InvalidBlobId {
+    /// The epoch in which the blob was marked as invalid.
     pub epoch: Epoch,
-    /// The blob Id
+    /// The blob ID.
     pub blob_id: BlobId,
-    /// The ID of the event
+    /// The ID of the event.
     pub event_id: EventID,
 }
 
-impl TryFrom<SuiEvent> for InvalidBlobID {
+impl TryFrom<SuiEvent> for InvalidBlobId {
     type Error = anyhow::Error;
 
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
@@ -672,19 +672,19 @@ impl TryFrom<SuiEvent> for InvalidBlobID {
     }
 }
 
-impl AssociatedSuiEvent for InvalidBlobID {
+impl AssociatedSuiEvent for InvalidBlobId {
     const EVENT_STRUCT: StructTag<'static> = contracts::blob_events::InvalidBlobID;
 }
 
-/// Enum to wrap blob events
+/// Enum to wrap blob events.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BlobEvent {
-    /// A registration event
+    /// A registration event.
     Registered(BlobRegistered),
-    /// A certification event
+    /// A certification event.
     Certified(BlobCertified),
-    /// An invalid blob id event
-    InvalidBlobID(InvalidBlobID),
+    /// An invalid blob ID event.
+    InvalidBlobID(InvalidBlobId),
 }
 
 impl From<BlobRegistered> for BlobEvent {
@@ -699,14 +699,14 @@ impl From<BlobCertified> for BlobEvent {
     }
 }
 
-impl From<InvalidBlobID> for BlobEvent {
-    fn from(value: InvalidBlobID) -> Self {
+impl From<InvalidBlobId> for BlobEvent {
+    fn from(value: InvalidBlobId) -> Self {
         Self::InvalidBlobID(value)
     }
 }
 
 impl BlobEvent {
-    /// Returns the blob id contained in the wrapped event
+    /// Returns the blob ID contained in the wrapped event.
     pub fn blob_id(&self) -> BlobId {
         match self {
             BlobEvent::Registered(event) => event.blob_id,
@@ -715,7 +715,7 @@ impl BlobEvent {
         }
     }
 
-    /// Returns the event id of the wrapped event
+    /// Returns the event ID of the wrapped event.
     pub fn event_id(&self) -> EventID {
         match self {
             BlobEvent::Registered(event) => event.event_id,
