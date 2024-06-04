@@ -106,7 +106,7 @@ impl WriteTransactionGenerator {
         sui_network: SuiNetwork,
         pre_generation: usize,
     ) -> anyhow::Result<Self> {
-        let (tx_transaction, rx_transaction) = channel(pre_generation * 10 + 1);
+        let (tx_transaction, rx_transaction) = channel((pre_generation + 1) * 10);
         let notify = Arc::new(Notify::new());
         let cloned_notify = notify.clone();
 
@@ -183,7 +183,7 @@ impl ReadTransactionGenerator {
         stress_parameters: StressParameters,
         pre_generation: usize,
     ) -> anyhow::Result<Self> {
-        let (tx_transaction, rx_transaction) = channel(pre_generation * 10 + 1);
+        let (tx_transaction, rx_transaction) = channel((pre_generation + 1) * 10);
         let notify = Arc::new(Notify::new());
         let cloned_notify = notify.clone();
 
