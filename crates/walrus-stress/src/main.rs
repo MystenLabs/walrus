@@ -13,7 +13,6 @@ use anyhow::Context;
 use clap::Parser;
 use futures::{stream::FuturesUnordered, StreamExt};
 use generator::WriteTransactionGenerator;
-use rand::{rngs::StdRng, SeedableRng};
 use tokio::time::{interval, Instant};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
@@ -78,7 +77,7 @@ async fn main() -> anyhow::Result<()> {
     // Start the write transaction generator.
     tracing::info!("Initializing write transactions generators...");
     let write_pre_compute = (args.load * duration * percentage_writes) / 100;
-    let write_tx_generator = WriteTransactionGenerator::start(
+    let mut write_tx_generator = WriteTransactionGenerator::start(
         config.clone(),
         stress_parameters.clone(),
         sui_network,
@@ -91,17 +90,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Make one write transaction (which will be used as a template for the read transactions).
     tracing::info!("Submitting one write transaction...");
-    let mut rng = StdRng::from_entropy();
-    let blob_size = stress_parameters.blob_size;
-    let blob = generator::create_random_blob(&mut rng, blob_size);
-    let epochs_ahead = 2;
-    let client = generator::create_walrus_client(config.clone(), &stress_parameters)
-        .await
-        .context("Failed to create Walrus client")?;
-    let blob = client
-        .reserve_and_store_blob(&blob, epochs_ahead)
-        .await
-        .context("Failed to reserve and store blob")?;
+    let (client, pairs, metadata) = write_tx_generator.make_tx().await;
+    let blob_id = metadata.blob_id();
+    let _certificate = client.store_metadata_and_pairs(&metadata, &pairs).await;
 
     // Start the read transaction generator.
     tracing::info!("Initializing read transactions generators...");
@@ -132,7 +123,7 @@ async fn main() -> anyhow::Result<()> {
         &stress_parameters,
         write_tx_generator,
         read_tx_generator,
-        &blob.blob_id,
+        blob_id,
         &metrics,
     )
     .await
@@ -172,7 +163,11 @@ async fn benchmark(
     blob_id: &BlobId,
     metrics: &ClientMetrics,
 ) -> anyhow::Result<()> {
-    let burst = load / PRECISION;
+    let burst = if load > PRECISION {
+        load / PRECISION
+    } else {
+        load
+    };
     let writes_per_burst = (burst * stress_parameters.load_type) / 100;
     let reads_per_burst = burst - writes_per_burst;
 
