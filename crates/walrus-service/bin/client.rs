@@ -9,6 +9,7 @@ use std::{
     net::SocketAddr,
     num::{NonZeroU16, NonZeroU64},
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use anyhow::{anyhow, Result};
@@ -119,9 +120,22 @@ enum Commands {
         rpc_arg: RpcArg,
     },
     /// Get the status of a blob.
+    ///
+    /// This queries multiple storage nodes representing more than a third of the shards for the
+    /// blob status and return the "latest" status (in the life-cycle of a blob) that can be
+    /// verified with an on-chain event.
+    ///
+    /// This does not take into account any transient states. For example, for invalid blobs, there
+    /// is a short period in which some of the storage nodes are aware of the inconsistency before
+    /// this is posted on chain. During this time period, this command would still return a
+    /// "verified" status.
     BlobStatus {
         #[clap(flatten)]
         file_or_blob_id: FileOrBlobId,
+        /// Timeout for status requests to storage nodes.
+        #[clap(short, long, value_parser = humantime::parse_duration, default_value = "1s")]
+        #[serde(default = "default::status_timeout")]
+        timeout: Duration,
         #[clap(flatten)]
         #[serde(default)]
         rpc_arg: RpcArg,
@@ -244,7 +258,33 @@ struct FileOrBlobId {
     blob_id: Option<BlobId>,
 }
 
+impl FileOrBlobId {
+    fn get_or_compute_blob_id(self, encoding_config: &EncodingConfig) -> Result<BlobId> {
+        Ok(match self {
+            FileOrBlobId {
+                blob_id: Some(blob_id),
+                ..
+            } => blob_id,
+            FileOrBlobId {
+                file: Some(file), ..
+            } => {
+                tracing::debug!(
+                    file = %file.display(),
+                    "checking status of blob read from the filesystem"
+                );
+                *encoding_config
+                    .get_blob_encoder(&std::fs::read(&file)?)?
+                    .compute_metadata()
+                    .blob_id()
+            }
+            _ => unreachable!("the CLI enforces exactly one of the options to be present"),
+        })
+    }
+}
+
 mod default {
+    use std::time::Duration;
+
     pub(crate) fn gas_budget() -> u64 {
         500_000_000
     }
@@ -255,6 +295,10 @@ mod default {
 
     pub(crate) fn max_body_size_kib() -> usize {
         10_240
+    }
+
+    pub(crate) fn status_timeout() -> Duration {
+        Duration::from_secs(1)
     }
 }
 
@@ -509,6 +553,7 @@ async fn run_app(app: App) -> Result<()> {
         }
         Commands::BlobStatus {
             file_or_blob_id,
+            timeout,
             rpc_arg: RpcArg { rpc_url },
         } => {
             tracing::debug!(?file_or_blob_id, "getting blob status");
@@ -522,29 +567,10 @@ async fn run_app(app: App) -> Result<()> {
             .await?;
             let client = Client::new_read_client(config, &sui_read_client).await?;
             let file = file_or_blob_id.file.clone();
-            let blob_id = match file_or_blob_id {
-                FileOrBlobId {
-                    blob_id: Some(blob_id),
-                    ..
-                } => blob_id,
-                FileOrBlobId {
-                    file: Some(file), ..
-                } => {
-                    tracing::debug!(
-                        file = %file.display(),
-                        "checking status of blob read from the filesystem"
-                    );
-                    *client
-                        .encoding_config()
-                        .get_blob_encoder(&std::fs::read(&file)?)?
-                        .compute_metadata()
-                        .blob_id()
-                }
-                _ => unreachable!(),
-            };
+            let blob_id = file_or_blob_id.get_or_compute_blob_id(client.encoding_config())?;
 
             let status = client
-                .get_verified_blob_status(&blob_id, &sui_read_client)
+                .get_verified_blob_status(&blob_id, &sui_read_client, timeout)
                 .await?;
             println!(
                 "{}",

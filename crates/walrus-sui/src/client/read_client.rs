@@ -201,19 +201,14 @@ impl ReadClient for SuiReadClient {
     }
 
     async fn get_blob_event(&self, event_id: EventID) -> SuiClientResult<BlobEvent> {
-        let mut events = self
-            .sui_client
+        self.sui_client
             .event_api()
             .get_events(event_id.tx_digest)
-            .await?;
-        let index: usize = event_id.event_seq.try_into().map_err(|_| {
-            SuiClientError::Internal(anyhow!("conversion of event sequence number failed"))
-        })?;
-        if index < events.len() {
-            Ok(BlobEvent::try_from(events.swap_remove(index))?)
-        } else {
-            Err(SuiClientError::NoCorrespondingBlobEvent(event_id))
-        }
+            .await?
+            .into_iter()
+            .find(|e| e.id == event_id)
+            .and_then(|e| e.try_into().ok())
+            .ok_or(SuiClientError::NoCorrespondingBlobEvent(event_id))
     }
 
     async fn get_system_object(&self) -> SuiClientResult<SystemObject> {

@@ -235,9 +235,6 @@ impl<T: ContractClient> Client<T> {
 }
 
 impl<T> Client<T> {
-    // TODO(mlegner): make configurable.
-    const STATUS_TIMEOUT: Duration = Duration::from_secs(5);
-
     /// Stores the already-encoded metadata and sliver pairs for a blob into Walrus, by sending
     /// sliver pairs to at least 2f+1 shards.
     ///
@@ -550,15 +547,15 @@ impl<T> Client<T> {
         &self,
         blob_id: &BlobId,
         read_client: &U,
+        timeout: Duration,
     ) -> Result<BlobStatus, ClientError> {
         let comms = self.node_communications_with_correct_node();
         let futures = comms
             .iter()
             .map(|n| n.get_blob_status(blob_id).instrument(n.span.clone()));
         let mut requests = WeightedFutures::new(futures);
-        // TODO(mlegner): Instead add more NodeCommunications and do an execute_weight?
         requests
-            .execute_time(Self::STATUS_TIMEOUT, self.max_concurrent_status_reads)
+            .execute_time(timeout, self.max_concurrent_status_reads)
             .await;
 
         let mut statuses: Vec<_> =
@@ -733,20 +730,19 @@ async fn verify_blob_status(
     };
     let blob_event = sui_read_client.get_blob_event(status_event).await?;
 
-    let (event_blob_id, event_end_epoch) = match (status, blob_event) {
+    let event_blob_id = match (status, blob_event) {
         (BlobCertificationStatus::Registered, BlobEvent::Registered(event)) => {
-            (event.blob_id, event.end_epoch)
+            anyhow::ensure!(end_epoch == event.end_epoch, "end epoch mismatch");
+            event.blob_id
         }
         (BlobCertificationStatus::Certified, BlobEvent::Certified(event)) => {
-            (event.blob_id, event.end_epoch)
+            anyhow::ensure!(end_epoch == event.end_epoch, "end epoch mismatch");
+            event.blob_id
         }
-        (BlobCertificationStatus::Invalid, BlobEvent::InvalidBlobID(event)) => {
-            (event.blob_id, end_epoch)
-        }
+        (BlobCertificationStatus::Invalid, BlobEvent::InvalidBlobID(event)) => event.blob_id,
         (_, _) => Err(anyhow!("blob event does not match status"))?,
     };
     anyhow::ensure!(blob_id == &event_blob_id, "blob ID mismatch");
-    anyhow::ensure!(end_epoch == event_end_epoch, "end epoch mismatch");
 
     Ok(())
 }
