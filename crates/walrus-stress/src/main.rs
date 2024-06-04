@@ -210,6 +210,7 @@ async fn benchmark(
                 metrics.observe_benchmark_duration(duration_since_start);
 
                 for (client, pairs, metadata) in write_load {
+                    tracing::debug!("Submitted write transaction");
                     metrics.observe_submitted(metrics::WRITE_WORKLOAD);
 
                     write_finished.push(async move {
@@ -218,6 +219,7 @@ async fn benchmark(
                     });
                 }
                 for client in read_load {
+                    tracing::debug!("Submitted read transaction");
                     metrics.observe_submitted(metrics::READ_WORKLOAD);
 
                     read_finished.push(async move {
@@ -233,11 +235,13 @@ async fn benchmark(
                 }
             },
             Some((instant, result)) = write_finished.next() => {
+                tracing::debug!("Write transaction finished");
                 let _certificate = result.context("Failed to obtain storage certificate")?;
                 let elapsed = instant.elapsed();
                 metrics.observe_latency(metrics::WRITE_WORKLOAD, elapsed);
             },
             Some((instant, result)) = read_finished.next() => {
+                tracing::debug!("Read transaction finished");
                 let _blob = result.context("Failed to obtain blob")?;
                 let elapsed = instant.elapsed();
                 metrics.observe_latency(metrics::READ_WORKLOAD, elapsed);
