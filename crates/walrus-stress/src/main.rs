@@ -153,8 +153,6 @@ fn set_tracing_subscriber(verbosity: u8) {
         _ => LevelFilter::TRACE,
     };
 
-    tracing::warn!("Setting log level to {log_level:?} (verbosity: {verbosity})");
-
     let subscriber = FmtSubscriber::builder()
         .with_env_filter(
             EnvFilter::builder()
@@ -165,6 +163,11 @@ fn set_tracing_subscriber(verbosity: u8) {
         .finish();
 
     tracing::subscriber::set_global_default(subscriber).unwrap();
+
+    tracing::error!("Setting log level to {log_level:?} (verbosity: {verbosity})");
+    tracing::warn!("Setting log level to {log_level:?} (verbosity: {verbosity})");
+    tracing::info!("Setting log level to {log_level:?} (verbosity: {verbosity})");
+    tracing::debug!("Setting log level to {log_level:?} (verbosity: {verbosity})");
 }
 
 /// Run the benchmark.
