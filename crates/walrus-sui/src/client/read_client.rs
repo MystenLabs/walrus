@@ -294,7 +294,7 @@ where
                 // We retry here, since this error generally (only?)
                 // occurs if the cursor could not be found, but this is
                 // resolved quickly after retrying.
-                tracing::error!("RPC error for otherwise valid RPC call: {}", e);
+
                 // Do an exponential backoff until `MAX_POLLING_INTERVAL` is reached
                 // unless `initial_polling_interval` is larger
                 // TODO(karl): Stop retrying and switch to a different full node.
@@ -308,6 +308,12 @@ where
                     .min(MAX_POLLING_INTERVAL)
                     .max(initial_polling_interval);
                 page_available = false;
+                tracing::warn!(
+                    event_cursor = ?last_event,
+                    backoff = ?polling_interval,
+                    rpc_error = ?e,
+                    "RPC error for otherwise valid RPC call, retrying event polling after backoff",
+                );
                 continue;
             }
             Err(e) => {
