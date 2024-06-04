@@ -9,6 +9,7 @@ use std::{
     net::SocketAddr,
     num::{NonZeroU16, NonZeroU64},
     path::{Path, PathBuf},
+    process::ExitCode,
     time::Duration,
 };
 
@@ -666,9 +667,11 @@ async fn run_app(app: App) -> Result<()> {
 
 /// The CLI entrypoint.
 #[tokio::main]
-pub async fn main() {
+pub async fn main() -> ExitCode {
     if let Err(e) = client().await {
         // Print any error in a (relatively) user-friendly way.
-        eprintln!("{} {:#}", error(), e)
+        eprintln!("{} {:#}", error(), e);
+        return ExitCode::FAILURE;
     }
+    ExitCode::SUCCESS
 }
