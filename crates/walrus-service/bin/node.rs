@@ -107,9 +107,9 @@ struct DeploySystemContractArgs {
     // Todo: accept non-even shard distributions #377
     #[arg(long, default_value_t = 1000)]
     n_shards: u16,
-    /// The list of ip addresses of the storage nodes.
+    /// The list of hostnames or public ip addresses of the storage nodes.
     #[clap(long, value_name = "ADDR", value_delimiter = ' ', num_args(4..))]
-    ips: Vec<Ipv4Addr>,
+    host_addresses: Vec<String>,
     /// The port on which the REST API of the storage nodes will listen.
     #[clap(long, default_value_t = REST_API_PORT)]
     rest_api_port: u16,
@@ -125,6 +125,9 @@ struct DeploySystemContractArgs {
     /// The storage capacity in bytes to deploy the system with.
     #[arg(long, default_value_t = 1_000_000_000_000)]
     storage_capacity: u64,
+    /// If set, generates the protocol key pairs of the nodes deterministically.
+    #[arg(long, default_value_t = false)]
+    deterministic_keys: bool,
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -136,6 +139,10 @@ struct GenerateDryRunConfigsArgs {
     /// [default: <WORKING_DIR>/testbed_config.yaml]
     #[clap(long)]
     testbed_config_path: Option<PathBuf>,
+    /// The list of listening ip addresses of the storage nodes.
+    /// If not set, defaults to the addresses or (resolved) host names set in the testbed config.
+    #[clap(long, value_name = "ADDR", value_delimiter = ' ')]
+    listening_ips: Option<Vec<IpAddr>>,
     /// The port on which the metrics server of the storage nodes will listen.
     #[clap(long, default_value_t = METRICS_PORT)]
     metrics_port: u16,
@@ -189,11 +196,12 @@ mod commands {
             contract_path,
             gas_budget,
             n_shards,
-            ips,
+            host_addresses,
             rest_api_port,
             testbed_config_path,
             price_per_unit,
             storage_capacity,
+            deterministic_keys,
         }: DeploySystemContractArgs,
     ) -> anyhow::Result<()> {
         tracing_subscriber::fmt::init();
@@ -207,7 +215,7 @@ mod commands {
 
         // Deploy the system contract.
         let number_of_shards = NonZeroU16::new(n_shards).context("number of shards must be > 0")?;
-        let committee_size = NonZeroU16::new(ips.len() as u16).unwrap();
+        let committee_size = NonZeroU16::new(host_addresses.len() as u16).unwrap();
         let shards_information = even_shards_allocation(number_of_shards, committee_size);
 
         let testbed_config = deploy_walrus_contract(DeployTestbedContractParameters {
@@ -216,10 +224,11 @@ mod commands {
             contract_path,
             gas_budget,
             shards_information,
-            ips,
+            host_addresses,
             rest_api_port,
             storage_capacity,
             price_per_unit,
+            deterministic_keys,
         })
         .await
         .context("Failed to deploy system contract")?;
@@ -240,6 +249,7 @@ mod commands {
             testbed_config_path,
             metrics_port,
             set_config_dir,
+            listening_ips,
         }: GenerateDryRunConfigsArgs,
     ) -> anyhow::Result<()> {
         tracing_subscriber::fmt::init();
@@ -268,10 +278,11 @@ mod commands {
             .context("Failed to write client configs")?;
 
         let committee_size =
-            NonZeroU16::new(testbed_config.ips.len() as u16).expect("committee size must be > 0");
+            NonZeroU16::new(testbed_config.nodes.len() as u16).expect("committee size must be > 0");
         let storage_node_configs = create_storage_node_configs(
             working_dir.as_path(),
             testbed_config,
+            listening_ips,
             metrics_port,
             set_config_dir,
         )

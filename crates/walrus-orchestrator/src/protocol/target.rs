@@ -15,7 +15,7 @@ use walrus_service::{
     testbed::{
         deploy_walrus_contract,
         even_shards_allocation,
-        format_metrics_address,
+        metrics_socket_address,
         node_config_name_prefix,
         DeployTestbedContractParameters,
     },
@@ -173,10 +173,11 @@ impl ProtocolCommands for TargetProtocol {
             contract_path: parameters.node_parameters.contract_path.clone(),
             gas_budget: parameters.client_parameters.gas_budget,
             shards_information: shards,
-            ips: ips.clone(),
+            host_addresses: ips.iter().map(|ip| ip.to_string()).collect(),
             rest_api_port: parameters.node_parameters.rest_api_port,
             storage_capacity: 1_000_000_000_000,
             price_per_unit: 1,
+            deterministic_keys: true,
         })
         .await
         .expect("Failed to create Walrus contract");
@@ -286,8 +287,11 @@ impl ProtocolMetrics for TargetProtocol {
             .enumerate()
             .map(|(i, instance)| {
                 let metrics_port = parameters.node_parameters.metrics_port;
-                let metrics_address =
-                    format_metrics_address(instance.main_ip, metrics_port, Some(i as u16));
+                let metrics_address = metrics_socket_address(
+                    std::net::IpAddr::V4(instance.main_ip),
+                    metrics_port,
+                    Some(i as u16),
+                );
                 let metrics_path = format!("{metrics_address}/metrics",);
                 (instance, metrics_path)
             })
