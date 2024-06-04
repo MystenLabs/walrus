@@ -286,7 +286,7 @@ impl ProtocolCommands for TargetProtocol {
 
                 let run_command = [
                     &format!("./{BINARY_PATH}/walrus-stress"),
-                    "-vvv",
+                    "-vv",
                     &format!("--load {}", load_per_client),
                     &format!("--config-path {}", client_config_path.display()),
                     &format!(
@@ -304,8 +304,6 @@ impl ProtocolCommands for TargetProtocol {
                     skip_pre_generation,
                 ]
                 .join(" ");
-
-                println!("run_command: {}", run_command);
 
                 let command = ["source $HOME/.cargo/env", &run_command].join(" && ");
                 (instance, command)

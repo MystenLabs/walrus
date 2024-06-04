@@ -163,11 +163,6 @@ fn set_tracing_subscriber(verbosity: u8) {
         .finish();
 
     tracing::subscriber::set_global_default(subscriber).unwrap();
-
-    tracing::error!("Setting log level to {log_level:?} (verbosity: {verbosity})");
-    tracing::warn!("Setting log level to {log_level:?} (verbosity: {verbosity})");
-    tracing::info!("Setting log level to {log_level:?} (verbosity: {verbosity})");
-    tracing::debug!("Setting log level to {log_level:?} (verbosity: {verbosity})");
 }
 
 /// Run the benchmark.
@@ -203,6 +198,7 @@ async fn benchmark(
                 let mut write_load = Vec::new();
                 for _ in 1..=writes_per_burst {
                     write_load.push(write_tx_generator.make_tx().await);
+                    tracing::info!("---> HERE");
                 }
                 let mut read_load = Vec::new();
                 for _ in 1..=reads_per_burst {
@@ -215,7 +211,7 @@ async fn benchmark(
                 metrics.observe_benchmark_duration(duration_since_start);
 
                 for (client, pairs, metadata) in write_load {
-                    tracing::debug!("Submitted write transaction");
+                    tracing::info!("Submitted write transaction");
                     metrics.observe_submitted(metrics::WRITE_WORKLOAD);
 
                     write_finished.push(async move {
@@ -224,7 +220,7 @@ async fn benchmark(
                     });
                 }
                 for client in read_load {
-                    tracing::debug!("Submitted read transaction");
+                    tracing::info!("Submitted read transaction");
                     metrics.observe_submitted(metrics::READ_WORKLOAD);
 
                     read_finished.push(async move {
