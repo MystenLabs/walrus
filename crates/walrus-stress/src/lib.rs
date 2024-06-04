@@ -19,6 +19,8 @@ pub struct StressParameters {
     pub blob_size: usize,
     /// The address to expose the metrics.
     pub metrics_port: u16,
+    /// skip pre-generation of transactions.
+    pub skip_pre_generation: bool,
 }
 
 impl Default for StressParameters {
@@ -28,6 +30,7 @@ impl Default for StressParameters {
             load_type: 100,
             blob_size: 1024,
             metrics_port: 9584,
+            skip_pre_generation: false,
         }
     }
 }

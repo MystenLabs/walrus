@@ -118,7 +118,7 @@ impl WriteTransactionGenerator {
             let mut i = 0;
             loop {
                 if i % 10 == 0 {
-                    tracing::info!("Generated {i} tx");
+                    tracing::info!("Generated {i}/{pre_generation} tx");
                 }
 
                 // Generate a new transaction.
@@ -193,7 +193,7 @@ impl ReadTransactionGenerator {
             let mut i = 0;
             loop {
                 if i % 10 == 0 {
-                    tracing::info!("Generated {i} tx");
+                    tracing::info!("Generated {i}/{pre_generation} tx");
                 }
 
                 // Generate a new transaction.

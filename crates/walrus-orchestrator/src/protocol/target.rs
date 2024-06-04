@@ -278,6 +278,11 @@ impl ProtocolCommands for TargetProtocol {
                 let working_dir = &parameters.settings.working_dir;
                 let client_config_path = working_dir.clone().join("client_config.yaml");
                 let stress_parameters_path = working_dir.clone().join("stress_parameters.yaml");
+                let skip_pre_generation = if parameters.client_parameters.skip_pre_generation {
+                    "--skip-pre-generation"
+                } else {
+                    ""
+                };
 
                 let run_command = [
                     format!("./{BINARY_PATH}/walrus-stress"),
@@ -295,6 +300,7 @@ impl ProtocolCommands for TargetProtocol {
                         "--sui-network {}",
                         parameters.node_parameters.sui_network.r#type()
                     ),
+                    skip_pre_generation.to_string(),
                 ]
                 .join(" ");
 

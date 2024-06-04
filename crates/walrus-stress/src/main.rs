@@ -54,6 +54,9 @@ struct Args {
     /// Sui network for which the config is generated.
     #[clap(long, default_value = "testnet")]
     sui_network: SuiNetwork,
+    /// Whether to skip pre-generating transactions.
+    #[clap(long, action, default_value_t = false)]
+    skip_pre_generation: bool,
 }
 
 /// Parse a duration from a string. The string is expected to be a number of seconds.
@@ -76,7 +79,11 @@ async fn main() -> anyhow::Result<()> {
 
     // Start the write transaction generator.
     tracing::info!("Initializing write transactions generators...");
-    let write_pre_compute = (args.load * duration * percentage_writes) / 100;
+    let write_pre_compute = if args.skip_pre_generation {
+        0
+    } else {
+        (args.load * duration * percentage_writes) / 100
+    };
     let mut write_tx_generator = WriteTransactionGenerator::start(
         config.clone(),
         stress_parameters.clone(),
@@ -96,7 +103,11 @@ async fn main() -> anyhow::Result<()> {
 
     // Start the read transaction generator.
     tracing::info!("Initializing read transactions generators...");
-    let read_pre_compute = (args.load * duration * (100 - percentage_writes)) / 100;
+    let read_pre_compute = if args.skip_pre_generation {
+        0
+    } else {
+        (args.load * duration * (100 - percentage_writes)) / 100
+    };
     let read_tx_generator = ReadTransactionGenerator::start(
         config,
         stress_parameters.clone(),
