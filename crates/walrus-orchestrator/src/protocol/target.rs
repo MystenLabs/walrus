@@ -285,8 +285,8 @@ impl ProtocolCommands for TargetProtocol {
                 };
 
                 let run_command = [
-                    "-vvv",
                     &format!("./{BINARY_PATH}/walrus-stress"),
+                    "-vvv",
                     &format!("--load {}", load_per_client),
                     &format!("--config-path {}", client_config_path.display()),
                     &format!(
