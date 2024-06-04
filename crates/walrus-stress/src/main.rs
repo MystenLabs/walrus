@@ -153,6 +153,8 @@ fn set_tracing_subscriber(verbosity: u8) {
         _ => LevelFilter::TRACE,
     };
 
+    tracing::warn!("Setting log level to {log_level:?} (verbosity: {verbosity})");
+
     let subscriber = FmtSubscriber::builder()
         .with_env_filter(
             EnvFilter::builder()
