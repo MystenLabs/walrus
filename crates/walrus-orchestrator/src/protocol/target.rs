@@ -271,7 +271,7 @@ impl ProtocolCommands for TargetProtocol {
         I: IntoIterator<Item = Instance>,
     {
         let clients: Vec<_> = instances.into_iter().collect();
-        let load_per_client = parameters.load / clients.len();
+        let load_per_client = (parameters.load / clients.len()).min(1);
         clients
             .into_iter()
             .map(|instance| {
