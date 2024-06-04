@@ -148,8 +148,8 @@ struct GenerateDryRunConfigsArgs {
     metrics_port: u16,
     /// Path of the directory in which the config files will be stored on deployed nodes.
     ///
-    /// If specified, the working directory in the paths contained in the node config and
-    /// the wallet config will be replaced with this directory.
+    /// If specified, the working directory in the paths contained in the node and client configs
+    /// and the wallet configs will be replaced with this directory.
     #[clap(long)]
     set_config_dir: Option<PathBuf>,
 }
@@ -269,6 +269,7 @@ mod commands {
             testbed_config.system_object,
             working_dir.as_path(),
             testbed_config.sui_network,
+            set_config_dir.as_ref(),
         )
         .await?;
         let serialized_client_config =
@@ -284,7 +285,7 @@ mod commands {
             testbed_config,
             listening_ips,
             metrics_port,
-            set_config_dir,
+            set_config_dir.as_ref(),
         )
         .await?;
         for (i, storage_node_config) in storage_node_configs.into_iter().enumerate() {

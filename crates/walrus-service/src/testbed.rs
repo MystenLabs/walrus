@@ -264,6 +264,7 @@ pub async fn create_client_config(
     system_object: ObjectID,
     working_dir: &Path,
     sui_network: SuiNetwork,
+    set_config_dir: Option<&PathBuf>,
 ) -> anyhow::Result<client::Config> {
     // Create the working directory if it does not exist
     fs::create_dir_all(working_dir).expect("Failed to create working directory");
@@ -271,7 +272,7 @@ pub async fn create_client_config(
     // Create wallet for the client
     let client_wallet_path = working_dir.join("sui_client.yaml");
     let mut client_wallet = create_wallet(
-        &working_dir.join("sui_client.yaml"),
+        &client_wallet_path,
         sui_network.env(),
         Some("sui_client.keystore"),
     )?;
@@ -289,11 +290,23 @@ pub async fn create_client_config(
 
     try_join_all(faucet_requests).await?;
 
+    let wallet_path = if let Some(final_directory) = set_config_dir {
+        replace_keystore_path(&client_wallet_path, final_directory)
+            .context("replacing the keystore path failed")?;
+        final_directory.join(
+            client_wallet_path
+                .file_name()
+                .expect("file name should exist"),
+        )
+    } else {
+        client_wallet_path
+    };
+
     // Create the client config.
     let client_config = client::Config {
         system_pkg: pkg_id,
         system_object,
-        wallet_config: Some(client_wallet_path),
+        wallet_config: Some(wallet_path),
         communication_config: ClientCommunicationConfig::default(),
     };
 
@@ -307,7 +320,7 @@ pub async fn create_storage_node_configs(
     testbed_config: TestbedConfig,
     listening_ips: Option<Vec<IpAddr>>,
     metrics_port: u16,
-    set_config_dir: Option<PathBuf>,
+    set_config_dir: Option<&PathBuf>,
 ) -> anyhow::Result<Vec<StorageNodeConfig>> {
     let nodes = testbed_config.nodes;
     // Check whether the testbed collocates the storage nodes on the same machine
@@ -361,7 +374,7 @@ pub async fn create_storage_node_configs(
             metrics_socket_address(rest_api_address.ip(), metrics_port, None)
         };
 
-        let wallet_path = if let Some(final_directory) = set_config_dir.as_ref() {
+        let wallet_path = if let Some(final_directory) = set_config_dir {
             let wallet_path = wallets[i].config.path();
             replace_keystore_path(wallet_path, final_directory)
                 .context("replacing the keystore path failed")?;
@@ -379,7 +392,7 @@ pub async fn create_storage_node_configs(
             gas_budget: defaults::gas_budget(),
         });
 
-        let storage_path = if let Some(path) = set_config_dir.as_ref() {
+        let storage_path = if let Some(path) = set_config_dir {
             path.join(&name)
         } else {
             working_dir.join(&name)
