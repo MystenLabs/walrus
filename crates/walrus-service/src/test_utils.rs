@@ -336,6 +336,7 @@ impl StorageNodeHandleBuilder {
             db_config: None,
         };
 
+        let registry = registry_service.default_registry();
         let node = StorageNode::builder()
             .with_storage(storage)
             .with_system_event_provider(self.event_provider)
@@ -346,7 +347,11 @@ impl StorageNodeHandleBuilder {
         let node = Arc::new(node);
 
         let cancel_token = CancellationToken::new();
-        let rest_api = Arc::new(UserServer::new(node.clone(), cancel_token.clone()));
+        let rest_api = Arc::new(UserServer::new(
+            node.clone(),
+            cancel_token.clone(),
+            &registry,
+        ));
 
         if self.run_rest_api {
             let rest_api_address = config.rest_api_address;

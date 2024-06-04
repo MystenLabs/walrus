@@ -6,11 +6,13 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use axum::{
-    extract::DefaultBodyLimit,
+    extract::{DefaultBodyLimit, MatchedPath, State},
     http::Request,
     routing::{get, put},
     Router,
 };
+use prometheus::{register_histogram_vec_with_registry, HistogramVec, Registry};
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use tower_http::trace::{MakeSpan, TraceLayer};
 use utoipa::OpenApi as _;
@@ -36,6 +38,7 @@ const HEADROOM: usize = 128;
 #[derive(Debug)]
 pub struct UserServer<S> {
     state: Arc<S>,
+    metrics: HistogramVec,
     cancel_token: CancellationToken,
 }
 
@@ -44,9 +47,10 @@ where
     S: ServiceState + Send + Sync + 'static,
 {
     /// Creates a new user server.
-    pub fn new(state: Arc<S>, cancel_token: CancellationToken) -> Self {
+    pub fn new(state: Arc<S>, cancel_token: CancellationToken, registry: &Registry) -> Self {
         Self {
             state,
+            metrics: Self::register_http_metrics(registry),
             cancel_token,
         }
     }
@@ -81,15 +85,64 @@ where
             .route(routes::STATUS_ENDPOINT, get(routes::get_blob_status))
             .route(routes::HEALTH_ENDPOINT, get(routes::health_info))
             .with_state(self.state.clone())
+            // The following layers are executed from the bottom up
             .layer(TraceLayer::new_for_http().make_span_with(RestApiSpans {
                 address: *network_address,
-            }));
+            }))
+            .layer(axum::middleware::from_fn_with_state(
+                self.metrics.clone(),
+                metrics_middleware,
+            ));
 
         let listener = tokio::net::TcpListener::bind(network_address).await?;
         axum::serve(listener, app)
             .with_graceful_shutdown(self.cancel_token.clone().cancelled_owned())
             .await
     }
+
+    fn register_http_metrics(registry: &Registry) -> HistogramVec {
+        let opts = prometheus::Opts::new(
+            "request_duration_seconds",
+            "Time (in seconds) spent serving HTTP requests.",
+        )
+        .namespace("walrus")
+        .subsystem("node_http");
+
+        register_histogram_vec_with_registry!(
+            opts.into(),
+            &["method", "route", "status_code"],
+            registry
+        )
+        .expect("metric registration must not fail")
+    }
+}
+
+async fn metrics_middleware(
+    State(metrics): State<HistogramVec>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    const INVALID_ROUTE_LABEL: &str = "invalid-route";
+
+    // Manually record the time in seconds, since we do not yet know the status code which is
+    // required to get the concrete histogram.
+    let start = Instant::now();
+    let method = request.method().clone();
+    let route: String = if let Some(path) = request.extensions().get::<MatchedPath>() {
+        path.as_str().into()
+    } else {
+        // We do not want to return the requested URI, as this would lead to a new histogram
+        // for each rest to an invalid URI. Use a
+        INVALID_ROUTE_LABEL.into()
+    };
+
+    let response = next.run(request).await;
+
+    let histogram =
+        metrics.with_label_values(&[method.as_str(), &route, response.status().as_str()]);
+    histogram.observe(start.elapsed().as_secs_f64());
+
+    response
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -287,7 +340,11 @@ mod test {
     async fn start_rest_api_with_config(
         config: &StorageNodeConfig,
     ) -> JoinHandle<Result<(), std::io::Error>> {
-        let server = UserServer::new(Arc::new(MockServiceState), CancellationToken::new());
+        let server = UserServer::new(
+            Arc::new(MockServiceState),
+            CancellationToken::new(),
+            &Registry::new(),
+        );
         let network_address = config.rest_api_address;
         let handle = tokio::spawn(async move { server.run(&network_address).await });
 
@@ -574,7 +631,11 @@ mod test {
     #[tokio::test]
     async fn shutdown_server() {
         let cancel_token = CancellationToken::new();
-        let server = UserServer::new(Arc::new(MockServiceState), cancel_token.clone());
+        let server = UserServer::new(
+            Arc::new(MockServiceState),
+            cancel_token.clone(),
+            &Registry::new(),
+        );
         let config = test_utils::storage_node_config();
         let handle = tokio::spawn(async move {
             let network_address = config.as_ref().rest_api_address;

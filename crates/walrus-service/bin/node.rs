@@ -424,6 +424,7 @@ impl StorageNodeRuntime {
             .expect("walrus-node runtime creation must succeed");
         let _guard = runtime.enter();
 
+        let registry = registry_service.default_registry();
         let walrus_node = Arc::new(
             runtime.block_on(StorageNode::builder().build(node_config, registry_service))?,
         );
@@ -446,7 +447,7 @@ impl StorageNodeRuntime {
             result
         });
 
-        let rest_api = UserServer::new(walrus_node, cancel_token.child_token());
+        let rest_api = UserServer::new(walrus_node, cancel_token.child_token(), &registry);
         let mut rest_api_address = node_config.rest_api_address;
         rest_api_address.set_ip(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
         let rest_api_handle = tokio::spawn(async move {
