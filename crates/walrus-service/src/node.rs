@@ -8,7 +8,7 @@ use futures::{future::Either, stream::FuturesUnordered, StreamExt};
 use mysten_metrics::RegistryService;
 use serde::Serialize;
 use sui_types::event::EventID;
-use tokio::select;
+use tokio::{select, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{instrument, Instrument};
 use typed_store::{rocks::MetricConf, DBMetrics, TypedStoreError};
@@ -35,7 +35,7 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
-use walrus_sdk::api::BlobStatus;
+use walrus_sdk::api::{BlobStatus, HealthStatus, ServiceHealthInfo};
 use walrus_sui::{
     client::SuiReadClient,
     types::{BlobCertified, BlobEvent, InvalidBlobId},
@@ -128,6 +128,9 @@ pub trait ServiceState {
 
     /// Returns the number of shards the node is currently operating with.
     fn n_shards(&self) -> NonZeroU16;
+
+    /// Returns the node health information of this ServiceState.
+    fn health_info(&self) -> ServiceHealthInfo;
 }
 
 /// Builder to construct a [`StorageNode`].
@@ -199,6 +202,7 @@ impl StorageNodeBuilder {
         registry_service: RegistryService,
     ) -> Result<StorageNode, anyhow::Error> {
         DBMetrics::init(&registry_service.default_registry());
+        let start_time = Instant::now();
 
         let protocol_key_pair = config
             .protocol_key_pair
@@ -248,6 +252,7 @@ impl StorageNodeBuilder {
             event_provider,
             committee_service_factory,
             contract_service,
+            start_time,
         )
         .await
     }
@@ -281,6 +286,7 @@ pub struct StorageNode {
     contract_service: Arc<dyn SystemContractService>,
     committee_service: Arc<dyn CommitteeService>,
     _committee_service_factory: Box<dyn CommitteeServiceFactory>,
+    start_time: Instant,
 }
 
 impl StorageNode {
@@ -290,6 +296,7 @@ impl StorageNode {
         event_provider: Box<dyn SystemEventProvider>,
         committee_service_factory: Box<dyn CommitteeServiceFactory>,
         contract_service: Box<dyn SystemContractService>,
+        start_time: Instant,
     ) -> Result<Self, anyhow::Error> {
         let committee_service = committee_service_factory
             .new_for_epoch(Some(key_pair.as_ref().public()))
@@ -318,6 +325,7 @@ impl StorageNode {
             contract_service: contract_service.into(),
             committee_service: committee_service.into(),
             _committee_service_factory: committee_service_factory,
+            start_time,
         })
     }
 
@@ -759,6 +767,15 @@ impl ServiceState for StorageNode {
     fn n_shards(&self) -> NonZeroU16 {
         self.encoding_config.n_shards()
     }
+
+    fn health_info(&self) -> ServiceHealthInfo {
+        ServiceHealthInfo {
+            status: HealthStatus::Healthy,
+            uptime: Some(self.start_time.elapsed()),
+            epoch: Some(self.current_epoch()),
+            public_key: Some(self.protocol_key_pair.as_ref().public().clone()),
+        }
+    }
 }
 
 async fn sign_message<T, I>(
@@ -1187,7 +1204,6 @@ mod tests {
             TestCluster::builder()
                 .with_shard_assignment(assignment)
                 .with_system_event_providers(events.clone())
-                .with_wait_until_all_nodes_ready(true)
                 .build()
                 .await?
         };

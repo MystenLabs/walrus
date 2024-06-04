@@ -79,8 +79,8 @@ where
                 put(routes::inconsistency_proof),
             )
             .route(routes::STATUS_ENDPOINT, get(routes::get_blob_status))
+            .route(routes::HEALTH_ENDPOINT, get(routes::health_info))
             .with_state(self.state.clone())
-            .route(routes::PING_ENDPOINT, get(routes::ping))
             .layer(TraceLayer::new_for_http().make_span_with(RestApiSpans {
                 address: *network_address,
             }));
@@ -127,7 +127,11 @@ mod test {
         SliverType,
     };
     use walrus_sdk::{
-        api::{BlobCertificationStatus as SdkBlobCertificationStatus, BlobStatus},
+        api::{
+            BlobCertificationStatus as SdkBlobCertificationStatus,
+            BlobStatus,
+            ServiceHealthInfo,
+        },
         client::Client,
     };
     use walrus_sui::test_utils::event_id_for_testing;
@@ -267,6 +271,10 @@ mod test {
 
         fn n_shards(&self) -> std::num::NonZeroU16 {
             walrus_core::test_utils::encoding_config().n_shards()
+        }
+
+        fn health_info(&self) -> ServiceHealthInfo {
+            ServiceHealthInfo::default()
         }
     }
 

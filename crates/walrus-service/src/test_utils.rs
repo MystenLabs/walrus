@@ -21,10 +21,10 @@ use prometheus::Registry;
 use reqwest::Url;
 use sui_types::event::EventID;
 use tempfile::TempDir;
-use tokio::time::{sleep, timeout, Duration};
+use tokio::time::Duration;
 use tokio_stream::{wrappers::BroadcastStream, Stream};
 use tokio_util::sync::CancellationToken;
-use tracing::{info, Instrument};
+use tracing::Instrument;
 use typed_store::rocks::MetricConf;
 use walrus_core::{
     encoding::{EncodingConfig, Primary, PrimarySliver, Secondary, SecondarySliver},
@@ -188,7 +188,6 @@ pub struct StorageNodeHandleBuilder {
     contract_service: Option<Box<dyn SystemContractService>>,
     run_rest_api: bool,
     run_node: bool,
-    wait_until_node_ready: bool,
     test_config: Option<StorageNodeTestConfig>,
 }
 
@@ -259,12 +258,6 @@ impl StorageNodeHandleBuilder {
     /// Enable or disable the REST API being started on build.
     pub fn with_rest_api_started(mut self, run_rest_api: bool) -> Self {
         self.run_rest_api = run_rest_api;
-        self
-    }
-
-    /// Sets whether to wait until the node is ready.
-    pub fn wait_until_node_ready(mut self, wait_until_node_ready: bool) -> Self {
-        self.wait_until_node_ready = wait_until_node_ready;
         self
     }
 
@@ -381,7 +374,7 @@ impl StorageNodeHandleBuilder {
             Client::from_url(url, inner)
         };
 
-        if self.wait_until_node_ready {
+        if self.run_rest_api {
             wait_for_node_ready(&client).await?;
         }
 
@@ -406,30 +399,25 @@ impl Default for StorageNodeHandleBuilder {
             storage: Default::default(),
             run_rest_api: Default::default(),
             run_node: Default::default(),
-            wait_until_node_ready: Default::default(),
             contract_service: None,
             test_config: None,
         }
     }
 }
 
-/// Waits until the node is ready by pinging the node's using the node client.
+/// Waits until the node is ready by querying the node's health info endpoint using the node
+/// client.
 async fn wait_for_node_ready(client: &Client) -> anyhow::Result<()> {
-    timeout(Duration::from_secs(10), async {
-        loop {
-            match client.ping().await {
-                Ok(()) => {
-                    return Ok(());
-                }
-                Err(err) => {
-                    info!(
-                        "Ping endpoint {:?} received error {:?}. Retrying in 1s.",
-                        client, err
-                    );
-                }
-            }
-            sleep(Duration::from_secs(1)).await;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while let Err(err) = client.get_server_health_info().await {
+            tracing::trace!(
+                "Node {:?} is not ready yet. Error: {:?}. Retrying...",
+                client,
+                err
+            );
+            tokio::time::sleep(Duration::from_millis(100)).await;
         }
+        Ok(())
     })
     .await?
 }
@@ -681,7 +669,6 @@ pub struct TestClusterBuilder {
     event_providers: Vec<Option<Box<dyn SystemEventProvider>>>,
     committee_factories: Vec<Option<Box<dyn CommitteeServiceFactory>>>,
     contract_services: Vec<Option<Box<dyn SystemContractService>>>,
-    wait_until_all_nodes_ready: bool,
 }
 
 impl TestClusterBuilder {
@@ -771,12 +758,6 @@ impl TestClusterBuilder {
         self
     }
 
-    /// Sets whether to wait until all nodes are ready before returning the `TestCluster`.
-    pub fn with_wait_until_all_nodes_ready(mut self, wait_until_all_nodes_ready: bool) -> Self {
-        self.wait_until_all_nodes_ready = wait_until_all_nodes_ready;
-        self
-    }
-
     /// Creates the configured `TestCluster`.
     pub async fn build(self) -> anyhow::Result<TestCluster> {
         let mut nodes = vec![];
@@ -799,8 +780,7 @@ impl TestClusterBuilder {
                 .with_storage(empty_storage_with_shards(&config.shards))
                 .with_test_config(config)
                 .with_rest_api_started(true)
-                .with_node_started(true)
-                .wait_until_node_ready(self.wait_until_all_nodes_ready);
+                .with_node_started(true);
 
             if let Some(provider) = event_provider {
                 builder = builder.with_boxed_system_event_provider(provider);
@@ -910,7 +890,6 @@ impl Default for TestClusterBuilder {
                 .into_iter()
                 .map(StorageNodeTestConfig::new)
                 .collect(),
-            wait_until_all_nodes_ready: false,
         }
     }
 }

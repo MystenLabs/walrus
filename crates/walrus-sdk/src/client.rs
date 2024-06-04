@@ -28,7 +28,7 @@ use walrus_core::{
 };
 
 use crate::{
-    api::BlobStatus,
+    api::{BlobStatus, ServiceHealthInfo},
     error::{Kind, NodeError},
     node_response::NodeResponse as _,
 };
@@ -82,8 +82,8 @@ impl UrlEndpoints {
         self.blob_resource(blob_id).join(&path).unwrap()
     }
 
-    fn ping(&self) -> Url {
-        self.0.join("/v1/ping").unwrap()
+    fn server_health_info(&self) -> Url {
+        self.0.join("/v1/health").unwrap()
     }
 }
 
@@ -406,16 +406,17 @@ impl Client {
         Ok(attestation)
     }
 
-    /// Sends a ping request to the node.
-    pub async fn ping(&self) -> Result<(), NodeError> {
-        let response = self
+    /// Gets the health information of the storage node.
+    pub async fn get_server_health_info(&self) -> Result<ServiceHealthInfo, NodeError> {
+        let server_health_info: ServiceHealthInfo = self
             .inner
-            .get(self.endpoints.ping())
+            .get(self.endpoints.server_health_info())
             .send()
             .await
-            .map_err(Kind::Reqwest)?;
-        assert!(matches!(response.status(), reqwest::StatusCode::OK));
-        Ok(())
+            .map_err(Kind::Reqwest)?
+            .service_response()
+            .await?;
+        Ok(server_health_info)
     }
 }
 
@@ -427,37 +428,38 @@ mod tests {
     use super::*;
 
     const BLOB_ID: BlobId = test_utils::blob_id_from_u64(99);
-    const BLOB_RESOURCE_PATH: &str = "v1/blobs";
 
     param_test! {
-        url_endpoint: [
-            blob: (|e| e.blob_resource(&BLOB_ID),
-                format!("{BLOB_RESOURCE_PATH}/{BLOB_ID}/")),
-            metadata: (|e| e.metadata(&BLOB_ID),
-                format!("{BLOB_RESOURCE_PATH}/{BLOB_ID}/metadata")),
-            confirmation: (|e| e.confirmation(&BLOB_ID),
-                format!("{BLOB_RESOURCE_PATH}/{BLOB_ID}/confirmation")),
-            sliver: (|e| e.sliver::<Primary>(&BLOB_ID, SliverPairIndex(1)),
-                format!("{BLOB_RESOURCE_PATH}/{BLOB_ID}/slivers/1/primary")),
+        test_blob_url_endpoint: [
+            blob: (|e| e.blob_resource(&BLOB_ID), ""),
+            metadata: (|e| e.metadata(&BLOB_ID), "metadata"),
+            confirmation: (|e| e.confirmation(&BLOB_ID), "confirmation"),
+            sliver: (|e| e.sliver::<Primary>(&BLOB_ID, SliverPairIndex(1)), "slivers/1/primary"),
             recovery_symbol: (
                 |e| e.recovery_symbol::<Primary>(&BLOB_ID, SliverPairIndex(1), SliverPairIndex(2)),
-                format!("{BLOB_RESOURCE_PATH}/{BLOB_ID}/slivers/1/primary/2")
+                "slivers/1/primary/2"
             ),
             inconsistency_proof: (
-                |e| e.inconsistency_proof::<Primary>(&BLOB_ID),
-                format!("{BLOB_RESOURCE_PATH}/{BLOB_ID}/inconsistent/primary")
+                |e| e.inconsistency_proof::<Primary>(&BLOB_ID), "inconsistent/primary"
             ),
-            ping: (|e| e.ping(), "v1/ping".to_string()),
         ]
     }
-    fn url_endpoint<F>(url_fn: F, expected_path: String)
+    fn test_blob_url_endpoint<F>(url_fn: F, expected_path: &str)
     where
         F: FnOnce(UrlEndpoints) -> Url,
     {
         let endpoints = UrlEndpoints(Url::parse("http://node.com").unwrap());
         let url = url_fn(endpoints);
-        let expected = format!("http://node.com/{expected_path}");
+        let expected = format!("http://node.com/v1/blobs/{BLOB_ID}/{expected_path}");
 
         assert_eq!(url.to_string(), expected);
+    }
+
+    #[test]
+    fn test_url_health_info_endpoint() {
+        let endpoints = UrlEndpoints(Url::parse("http://node.com").unwrap());
+        let url = endpoints.server_health_info();
+
+        assert_eq!(url.to_string(), "http://node.com/v1/health");
     }
 }

@@ -257,8 +257,7 @@ async fn default_setup() -> anyhow::Result<(TestCluster, WithTempDir<Client<SuiC
             sui_read_client.clone(),
             Duration::from_millis(100),
         ))
-        .with_system_contract_services(Arc::new(sui_contract_service))
-        .with_wait_until_all_nodes_ready(true);
+        .with_system_contract_services(Arc::new(sui_contract_service));
 
     let cluster = {
         // Lock to avoid race conditions.
