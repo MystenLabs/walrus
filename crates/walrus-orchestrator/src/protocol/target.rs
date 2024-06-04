@@ -253,7 +253,7 @@ impl ProtocolCommands for TargetProtocol {
 
                 let command = [
                     "source $HOME/.cargo/env",
-                    "export RUST_LOG=\"walrus-stress=DEBUG,walrus-node=INFO\"",
+                    "export RUST_LOG=\"client=DEBUG,node=INFO\"",
                     &run_command,
                 ]
                 .join(" && ");
@@ -285,6 +285,7 @@ impl ProtocolCommands for TargetProtocol {
                 };
 
                 let run_command = [
+                    "-vvv",
                     &format!("./{BINARY_PATH}/walrus-stress"),
                     &format!("--load {}", load_per_client),
                     &format!("--config-path {}", client_config_path.display()),
@@ -306,7 +307,7 @@ impl ProtocolCommands for TargetProtocol {
 
                 let command = [
                     "source $HOME/.cargo/env",
-                    "export RUST_LOG=\"walrus-stress=DEBUG,walrus-node=INFO\"",
+                    "export RUST_LOG=\"client=DEBUG,node=INFO\"",
                     &run_command,
                 ]
                 .join(" && ");
