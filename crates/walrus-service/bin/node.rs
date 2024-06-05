@@ -148,8 +148,8 @@ struct GenerateDryRunConfigsArgs {
     metrics_port: u16,
     /// Path of the directory in which the config files will be stored on deployed nodes.
     ///
-    /// If specified, the working directory in the paths contained in the node and client configs
-    /// and the wallet configs will be replaced with this directory.
+    /// If specified, the working directory in the paths contained in the node, client,
+    /// and wallet configs will be replaced with this directory.
     #[clap(long)]
     set_config_dir: Option<PathBuf>,
 }
