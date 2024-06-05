@@ -358,7 +358,7 @@ pub async fn get_blob_status<S: SyncServiceState>(
     get,
     path = openapi::rewrite_route(HEALTH_ENDPOINT),
     responses(
-        (status = 200, description = "Server is running")
+        (status = 200, description = "Server is running", body = ApiSuccessServiceHealthInfo),
     ),
     tag = openapi::GROUP_RECOVERY
 )]

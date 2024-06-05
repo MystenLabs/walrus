@@ -141,7 +141,7 @@ pub enum HealthStatus {
 }
 
 /// Represents information about the health of the storage node service.
-#[derive(Debug, Default, Deserialize, Serialize, utopia::ToSchema)]
+#[derive(Debug, Default, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct ServiceHealthInfo {
     /// The status of the service's health.
     pub status: HealthStatus,
