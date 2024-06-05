@@ -35,7 +35,7 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
-use walrus_sdk::api::{BlobStatus, HealthStatus, ServiceHealthInfo};
+use walrus_sdk::api::{BlobStatus, ServiceHealthInfo};
 use walrus_sui::{
     client::SuiReadClient,
     types::{BlobCertified, BlobEvent, InvalidBlobId},
@@ -770,10 +770,9 @@ impl ServiceState for StorageNode {
 
     fn health_info(&self) -> ServiceHealthInfo {
         ServiceHealthInfo {
-            status: HealthStatus::Healthy,
-            uptime: Some(self.start_time.elapsed()),
-            epoch: Some(self.current_epoch()),
-            public_key: Some(self.protocol_key_pair.as_ref().public().clone()),
+            uptime: self.start_time.elapsed(),
+            epoch: self.current_epoch(),
+            public_key: self.protocol_key_pair.as_ref().public().clone(),
         }
     }
 }

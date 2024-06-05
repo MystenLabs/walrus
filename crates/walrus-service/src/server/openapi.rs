@@ -11,7 +11,7 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
-use walrus_sdk::api::BlobStatus;
+use walrus_sdk::api::{BlobStatus, ServiceHealthInfo};
 
 use super::{
     responses::RestApiJsonError,
@@ -46,7 +46,8 @@ pub(super) const GROUP_RECOVERY: &str = "Recovery";
         ApiSuccessMessage,
         ApiSuccessBlobStatus,
         EventIdSchema,
-        ApiSuccessStorageConfirmation
+        ApiSuccessStorageConfirmation,
+        ApiSuccessServiceHealthInfo
     ),)
 )]
 pub(super) struct RestApiDoc;
@@ -96,6 +97,7 @@ api_success_alias!(
 api_success_alias!(UntypedSignedMessage as ApiSuccessSignedMessage, ToSchema);
 api_success_alias!(BlobStatus as ApiSuccessBlobStatus, ToSchema);
 api_success_alias!(String as ApiSuccessMessage, PartialSchema);
+api_success_alias!(ServiceHealthInfo as ApiSuccessServiceHealthInfo, ToSchema);
 
 /// Convert the path with variables of the form `:id` to the form `{id}`.
 pub(crate) fn rewrite_route(path: &str) -> String {

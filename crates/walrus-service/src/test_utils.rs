@@ -410,7 +410,7 @@ impl Default for StorageNodeHandleBuilder {
 async fn wait_for_node_ready(client: &Client) -> anyhow::Result<()> {
     tokio::time::timeout(Duration::from_secs(10), async {
         while let Err(err) = client.get_server_health_info().await {
-            tracing::trace!(%err, ?client, "node is not ready yet, retrying...");
+            tracing::trace!(%err, "node is not ready yet, retrying...");
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
         Ok(())

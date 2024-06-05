@@ -107,8 +107,9 @@ impl<B> MakeSpan<B> for RestApiSpans {
 mod test {
     use anyhow::anyhow;
     use axum::http::StatusCode;
+    use fastcrypto::traits::KeyPair;
     use reqwest::Url;
-    use tokio::task::JoinHandle;
+    use tokio::{task::JoinHandle, time::Duration};
     use tokio_util::sync::CancellationToken;
     use walrus_core::{
         encoding::Primary,
@@ -116,6 +117,7 @@ mod test {
             InconsistencyProof as InconsistencyProofInner,
             InconsistencyVerificationError,
         },
+        keys::ProtocolKeyPair,
         merkle::MerkleProof,
         messages::{InvalidBlobIdAttestation, StorageConfirmation},
         metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
@@ -274,7 +276,11 @@ mod test {
         }
 
         fn health_info(&self) -> ServiceHealthInfo {
-            ServiceHealthInfo::default()
+            ServiceHealthInfo {
+                uptime: Duration::from_secs(0),
+                epoch: 0,
+                public_key: ProtocolKeyPair::generate().as_ref().public().clone(),
+            }
         }
     }
 
