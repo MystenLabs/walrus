@@ -126,7 +126,7 @@ struct DeploySystemContractArgs {
     #[arg(long, default_value_t = 1_000_000_000_000)]
     storage_capacity: u64,
     /// If set, generates the protocol key pairs of the nodes deterministically.
-    #[arg(long, default_value_t = false)]
+    #[arg(long, action)]
     deterministic_keys: bool,
 }
 
@@ -141,7 +141,7 @@ struct GenerateDryRunConfigsArgs {
     testbed_config_path: Option<PathBuf>,
     /// The list of listening ip addresses of the storage nodes.
     /// If not set, defaults to the addresses or (resolved) host names set in the testbed config.
-    #[clap(long, value_name = "ADDR", value_delimiter = ' ')]
+    #[clap(long, value_name = "ADDR", value_delimiter = ' ', num_args(..))]
     listening_ips: Option<Vec<IpAddr>>,
     /// The port on which the metrics server of the storage nodes will listen.
     #[clap(long, default_value_t = METRICS_PORT)]
@@ -152,6 +152,12 @@ struct GenerateDryRunConfigsArgs {
     /// and wallet configs will be replaced with this directory.
     #[clap(long)]
     set_config_dir: Option<PathBuf>,
+    /// Path of the node database.
+    ///
+    /// If specified the database path of all nodes will be set to this path, otherwise it
+    /// will be located in the config directory and have the same name as the node it belongs to.
+    #[clap(long)]
+    set_db_path: Option<PathBuf>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -250,6 +256,7 @@ mod commands {
             metrics_port,
             set_config_dir,
             listening_ips,
+            set_db_path,
         }: GenerateDryRunConfigsArgs,
     ) -> anyhow::Result<()> {
         tracing_subscriber::fmt::init();
@@ -288,7 +295,10 @@ mod commands {
             set_config_dir.as_deref(),
         )
         .await?;
-        for (i, storage_node_config) in storage_node_configs.into_iter().enumerate() {
+        for (i, mut storage_node_config) in storage_node_configs.into_iter().enumerate() {
+            if let Some(ref db_path) = set_db_path {
+                storage_node_config.storage_path.clone_from(db_path);
+            }
             let serialized_storage_node_config = serde_yaml::to_string(&storage_node_config)
                 .context("Failed to serialize storage node configs")?;
             let node_config_name =
