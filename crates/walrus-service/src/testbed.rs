@@ -264,7 +264,7 @@ pub async fn create_client_config(
     system_object: ObjectID,
     working_dir: &Path,
     sui_network: SuiNetwork,
-    set_config_dir: Option<&PathBuf>,
+    set_config_dir: Option<&Path>,
 ) -> anyhow::Result<client::Config> {
     // Create the working directory if it does not exist
     fs::create_dir_all(working_dir).expect("Failed to create working directory");
@@ -320,7 +320,7 @@ pub async fn create_storage_node_configs(
     testbed_config: TestbedConfig,
     listening_ips: Option<Vec<IpAddr>>,
     metrics_port: u16,
-    set_config_dir: Option<&PathBuf>,
+    set_config_dir: Option<&Path>,
 ) -> anyhow::Result<Vec<StorageNodeConfig>> {
     let nodes = testbed_config.nodes;
     // Check whether the testbed collocates the storage nodes on the same machine

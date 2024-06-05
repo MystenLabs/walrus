@@ -269,7 +269,7 @@ mod commands {
             testbed_config.system_object,
             working_dir.as_path(),
             testbed_config.sui_network,
-            set_config_dir.as_ref(),
+            set_config_dir.as_deref(),
         )
         .await?;
         let serialized_client_config =
@@ -285,7 +285,7 @@ mod commands {
             testbed_config,
             listening_ips,
             metrics_port,
-            set_config_dir.as_ref(),
+            set_config_dir.as_deref(),
         )
         .await?;
         for (i, storage_node_config) in storage_node_configs.into_iter().enumerate() {
