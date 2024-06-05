@@ -1,7 +1,10 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::num::{NonZeroU16, NonZeroU64};
+use std::{
+    num::{NonZeroU16, NonZeroU64},
+    sync::Arc,
+};
 
 use anyhow::bail;
 use fastcrypto::traits::ToFromBytes;
@@ -14,6 +17,7 @@ use walrus_sui::{
         get_default_invalid_certificate,
         new_wallet_on_global_test_cluster,
         system_setup::publish_with_default_system,
+        TestClusterHandle,
     },
     types::{BlobEvent, EpochStatus},
 };
@@ -21,14 +25,18 @@ use walrus_test_utils::WithTempDir;
 
 const GAS_BUDGET: u64 = 1_000_000_000;
 
-async fn initialize_contract_and_wallet() -> anyhow::Result<WithTempDir<SuiContractClient>> {
-    let mut wallet = new_wallet_on_global_test_cluster().await?;
+async fn initialize_contract_and_wallet(
+) -> anyhow::Result<(Arc<TestClusterHandle>, WithTempDir<SuiContractClient>)> {
+    let (sui_cluster_handle, mut wallet) = new_wallet_on_global_test_cluster().await?;
     let (package_id, system_object) = publish_with_default_system(&mut wallet.inner).await?;
-    Ok(wallet
-        .and_then_async(|wallet| {
-            SuiContractClient::new(wallet, package_id, system_object, GAS_BUDGET)
-        })
-        .await?)
+    Ok((
+        sui_cluster_handle,
+        wallet
+            .and_then_async(|wallet| {
+                SuiContractClient::new(wallet, package_id, system_object, GAS_BUDGET)
+            })
+            .await?,
+    ))
 }
 
 #[tokio::test]
@@ -36,7 +44,7 @@ async fn initialize_contract_and_wallet() -> anyhow::Result<WithTempDir<SuiContr
 async fn test_register_certify_blob() -> anyhow::Result<()> {
     _ = tracing_subscriber::fmt::try_init();
 
-    let walrus_client = initialize_contract_and_wallet().await?;
+    let (_sui_cluster_handle, walrus_client) = initialize_contract_and_wallet().await?;
 
     // used to calculate the encoded size of the blob
     let encoding_config = EncodingConfig::new(NonZeroU16::new(100).unwrap());
@@ -187,7 +195,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
 async fn test_invalidate_blob() -> anyhow::Result<()> {
     _ = tracing_subscriber::fmt::try_init();
 
-    let walrus_client = initialize_contract_and_wallet().await?;
+    let (_sui_cluster_handle, walrus_client) = initialize_contract_and_wallet().await?;
 
     // Get event streams for the events
     let polling_duration = std::time::Duration::from_millis(50);
@@ -224,7 +232,7 @@ async fn test_invalidate_blob() -> anyhow::Result<()> {
 #[tokio::test]
 #[ignore = "ignore integration tests by default"]
 async fn test_get_system() -> anyhow::Result<()> {
-    let walrus_client = initialize_contract_and_wallet().await?;
+    let (_sui_cluster_handle, walrus_client) = initialize_contract_and_wallet().await?;
     let system = walrus_client
         .as_ref()
         .read_client

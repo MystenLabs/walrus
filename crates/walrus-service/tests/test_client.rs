@@ -32,7 +32,11 @@ use walrus_service::{
 use walrus_sui::{
     client::{ContractClient, ReadClient, SuiContractClient, SuiReadClient},
     system_setup::{create_system_object, publish_package, SystemParameters},
-    test_utils::{new_wallet_on_global_test_cluster, system_setup::contract_path_for_testing},
+    test_utils::{
+        new_wallet_on_global_test_cluster,
+        system_setup::contract_path_for_testing,
+        TestClusterHandle,
+    },
     types::{BlobEvent, Committee},
 };
 use walrus_test_utils::{async_param_test, WithTempDir};
@@ -92,7 +96,7 @@ async fn run_store_and_read_with_crash_failures(
 ) -> anyhow::Result<()> {
     let _ = tracing_subscriber::fmt::try_init();
 
-    let (mut cluster, mut client) = default_setup().await?;
+    let (_sui_cluster_handle, mut cluster, mut client) = default_setup().await?;
 
     // Stop the nodes in the write failure set.
     failed_shards_write
@@ -134,7 +138,7 @@ async_param_test! {
 async fn test_inconsistency(failed_shards: &[usize]) -> anyhow::Result<()> {
     let _ = tracing_subscriber::fmt::try_init();
 
-    let (mut cluster, client) = default_setup().await?;
+    let (_sui_cluster_handle, mut cluster, client) = default_setup().await?;
 
     // Store a blob and get confirmations from each node.
     let blob = walrus_test_utils::random_data(31415);
@@ -201,9 +205,13 @@ async fn test_inconsistency(failed_shards: &[usize]) -> anyhow::Result<()> {
     .map_err(anyhow::Error::new)
 }
 
-async fn default_setup() -> anyhow::Result<(TestCluster, WithTempDir<Client<SuiContractClient>>)> {
+async fn default_setup() -> anyhow::Result<(
+    Arc<TestClusterHandle>,
+    TestCluster,
+    WithTempDir<Client<SuiContractClient>>,
+)> {
     // Get a wallet on the global sui test cluster
-    let mut wallet = new_wallet_on_global_test_cluster().await?;
+    let (sui_cluster, mut wallet) = new_wallet_on_global_test_cluster().await?;
 
     let cluster_builder = TestCluster::builder();
 
@@ -243,8 +251,10 @@ async fn default_setup() -> anyhow::Result<(TestCluster, WithTempDir<Client<SuiC
     .await?;
 
     // Create a contract service for the storage nodes using a wallet in a temp dir
+    // The sui test cluster handler can be dropped since we already have one
     let sui_contract_service = new_wallet_on_global_test_cluster()
         .await?
+        .1
         .and_then(|wallet| {
             SuiContractClient::new_with_read_client(wallet, gas_budget, sui_read_client.clone())
         })?
@@ -271,6 +281,7 @@ async fn default_setup() -> anyhow::Result<(TestCluster, WithTempDir<Client<SuiC
     // Create the client with a separate wallet
     let sui_contract_client = new_wallet_on_global_test_cluster()
         .await?
+        .1
         .and_then(|wallet| {
             SuiContractClient::new_with_read_client(wallet, gas_budget, sui_read_client)
         })?;
@@ -284,7 +295,7 @@ async fn default_setup() -> anyhow::Result<(TestCluster, WithTempDir<Client<SuiC
     let client = sui_contract_client
         .and_then_async(|contract_client| Client::new(config, contract_client))
         .await?;
-    Ok((cluster, client))
+    Ok((sui_cluster, cluster, client))
 }
 
 // Prevent tests running simultaneously to avoid interferences or race conditions.

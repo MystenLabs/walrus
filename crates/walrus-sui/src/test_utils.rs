@@ -9,7 +9,7 @@ pub mod system_setup;
 use std::{
     collections::BTreeSet,
     path::PathBuf,
-    sync::{mpsc, OnceLock},
+    sync::{mpsc, Arc, OnceLock, Weak},
     thread,
 };
 
@@ -72,44 +72,91 @@ pub fn get_default_invalid_certificate(blob_id: BlobId, epoch: Epoch) -> Invalid
     InvalidBlobCertificate::new(vec![0], invalid_blob_id_msg, signature)
 }
 
-/// Returns the global instance of a Sui test cluster and the path to the wallet config.
-///
-/// Initialises the test cluster it if it doesn't exist yet.
-fn global_sui_test_cluster() -> &'static Mutex<(PathBuf, TestCluster, Runtime)> {
-    static CLUSTER: OnceLock<Mutex<(PathBuf, TestCluster, Runtime)>> = OnceLock::new();
-    CLUSTER.get_or_init(|| {
+/// Handle for the global sui test cluster.
+#[allow(missing_debug_implementations)]
+pub struct TestClusterHandle {
+    wallet_path: Mutex<PathBuf>,
+    _cluster: TestCluster,
+}
+
+impl TestClusterHandle {
+    fn new(runtime: &Runtime) -> Self {
         tracing::debug!("building global sui test cluster");
         let (tx, rx) = mpsc::channel();
+        runtime.spawn(async move {
+            let mut test_cluster = sui_test_cluster().await;
+            let wallet_path = test_cluster.wallet().config.path().to_path_buf();
+            tx.send((test_cluster, wallet_path))
+                .expect("can send test cluster");
+        });
+        let (cluster, wallet_path) = rx.recv().expect("should receive test_cluster");
+        Self {
+            wallet_path: Mutex::new(wallet_path),
+            _cluster: cluster,
+        }
+    }
+}
+
+/// Handler for the global sui test cluster.
+struct GlobalTestClusterHandler {
+    inner: Weak<TestClusterHandle>,
+    runtime: Runtime,
+}
+
+impl GlobalTestClusterHandler {
+    fn new() -> Self {
         let runtime = thread::spawn(move || {
-            let runtime = Builder::new_multi_thread()
+            Builder::new_multi_thread()
                 .enable_all()
                 .build()
-                .expect("should be able to build runtime");
-            runtime.spawn(async move {
-                let mut test_cluster = sui_test_cluster().await;
-                let wallet_path = test_cluster.wallet().config.path().to_path_buf();
-                tx.send((test_cluster, wallet_path))
-                    .expect("can send test cluster");
-            });
-            runtime
+                .expect("should be able to build runtime")
         })
         .join()
         .expect("should be able to wait for thread to finish");
-        let (cluster, wallet_path) = rx.recv().expect("should receive test_cluster");
-        Mutex::new((wallet_path, cluster, runtime))
-    })
+        Self {
+            inner: Weak::new(),
+            runtime,
+        }
+    }
+
+    fn get_test_cluster_handle(&mut self) -> Arc<TestClusterHandle> {
+        if let Some(handle) = self.inner.upgrade() {
+            handle
+        } else {
+            let handle = Arc::new(TestClusterHandle::new(&self.runtime));
+            self.inner = Arc::downgrade(&handle);
+            handle
+        }
+    }
 }
 
-/// Returns a wallet on the global sui test cluster.
+/// Returns a handle to the global instance of a Sui test cluster and the wallet config path.
 ///
 /// Initialises the test cluster it if it doesn't exist yet.
-pub async fn new_wallet_on_global_test_cluster() -> anyhow::Result<WithTempDir<WalletContext>> {
-    let guard = global_sui_test_cluster().lock().await;
+fn global_sui_test_cluster() -> Arc<TestClusterHandle> {
+    static CLUSTER: OnceLock<std::sync::Mutex<GlobalTestClusterHandler>> = OnceLock::new();
+    CLUSTER
+        .get_or_init(|| std::sync::Mutex::new(GlobalTestClusterHandler::new()))
+        .lock()
+        .unwrap()
+        .get_test_cluster_handle()
+}
+
+/// Returns a wallet on the global sui test cluster as well as a handle to the cluster.
+///
+/// Initialises the test cluster it if it doesn't exist yet. The cluster handle (or at least one
+/// copy if the function is called multiple times) must be kept alive while the wallet is active.
+pub async fn new_wallet_on_global_test_cluster(
+) -> anyhow::Result<(Arc<TestClusterHandle>, WithTempDir<WalletContext>)> {
+    let cluster = global_sui_test_cluster();
+    let path_guard = cluster.wallet_path.lock().await;
     // Load the cluster's wallet from file instead of using the wallet stored in the cluster.
     // This prevents tasks from being spawned in the current runtime that are expected by
     // the wallet to continue running.
-    let mut cluster_wallet = WalletContext::new(&guard.0, None, None)?;
-    wallet_for_testing(&mut cluster_wallet).await
+    let mut cluster_wallet = WalletContext::new(&path_guard, None, None)?;
+    let wallet = wallet_for_testing(&mut cluster_wallet).await?;
+    drop(path_guard);
+    Ok((cluster, wallet))
 }
 
 /// Creates and returns a sui test cluster.
