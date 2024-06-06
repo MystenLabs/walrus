@@ -5,6 +5,7 @@
 
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
+    num::NonZeroU64,
     path::PathBuf,
     time::Duration,
 };
@@ -13,6 +14,7 @@ use anyhow::Context;
 use clap::Parser;
 use futures::{stream::FuturesUnordered, StreamExt};
 use generator::WriteTransactionGenerator;
+use rand::{thread_rng, Rng};
 use tokio::time::{interval, Instant};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
@@ -40,7 +42,7 @@ struct Args {
     verbose: u8,
     /// The load to submit to the system (tx/s).
     #[clap(long)]
-    load: u64,
+    load: NonZeroU64,
     /// The path to the wallet configuration file.
     #[clap(long)]
     config_path: PathBuf,
@@ -76,13 +78,14 @@ async fn main() -> anyhow::Result<()> {
     let percentage_writes = stress_parameters.load_type.min(100);
     let duration = args.duration.as_secs();
     let sui_network = args.sui_network;
+    let load = args.load.get();
 
     // Start the write transaction generator.
     tracing::info!("Initializing write transactions generators...");
     let write_pre_compute = if args.skip_pre_generation {
         0
     } else {
-        (args.load * duration * percentage_writes) / 100
+        (load * duration * percentage_writes) / 100
     };
     let mut write_tx_generator = WriteTransactionGenerator::start(
         config.clone(),
@@ -106,7 +109,7 @@ async fn main() -> anyhow::Result<()> {
     let read_pre_compute = if args.skip_pre_generation {
         0
     } else {
-        (args.load * duration * (100 - percentage_writes)) / 100
+        (load * duration * (100 - percentage_writes)) / 100
     };
     let read_tx_generator = ReadTransactionGenerator::start(
         config,
@@ -130,7 +133,7 @@ async fn main() -> anyhow::Result<()> {
     // Start the benchmark.
     tracing::info!("Start sending transactions");
     benchmark(
-        args.load,
+        load,
         &stress_parameters,
         write_tx_generator,
         read_tx_generator,
@@ -181,6 +184,7 @@ async fn benchmark(
     };
     let writes_per_burst = (burst * stress_parameters.load_type) / 100;
     let reads_per_burst = burst - writes_per_burst;
+    let load_type_fraction = stress_parameters.load_type as f64 / 100.0;
     tracing::info!(
         "Running benchmark with {writes_per_burst} writes and {reads_per_burst} reads per burst"
     );
@@ -198,15 +202,30 @@ async fn benchmark(
         tokio::select! {
             _ = interval.tick() => {
                 // Generate the transactions for this burst.
+                // let mut write_load = Vec::new();
+                // for _ in 0..writes_per_burst {
+                //     let tx = write_tx_generator.make_tx().await;
+                //     tracing::info!("---> HERE");
+                //     write_load.push(tx);
+                // }
+                // let mut read_load = Vec::new();
+                // for _ in 0..reads_per_burst {
+                //     read_load.push(read_tx_generator.make_tx().await);
+                // }
+
                 let mut write_load = Vec::new();
-                for _ in 0..writes_per_burst {
-                    let tx = write_tx_generator.make_tx().await;
-                    tracing::info!("---> HERE");
-                    write_load.push(tx);
-                }
                 let mut read_load = Vec::new();
-                for _ in 0..reads_per_burst {
-                    read_load.push(read_tx_generator.make_tx().await);
+                for _ in 0..burst {
+                    let r = thread_rng().gen_range(0..100);
+                    if r > load_type_fraction as u64 {
+                        let tx = write_tx_generator.make_tx().await;
+                        tracing::info!("---> HERE");
+                        write_load.push(tx);
+                    } else {
+                        let tx = read_tx_generator.make_tx().await;
+                        tracing::info!("---> HERE 2 ");
+                        read_load.push(tx);
+                    }
                 }
 
                 // Submit those transactions.
