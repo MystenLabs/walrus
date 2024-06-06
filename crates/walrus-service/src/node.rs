@@ -1362,8 +1362,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    #[ignore = "syncing all symbols takes several seconds"]
+    #[tokio::test(start_paused = true)]
     async fn recovers_sliver_from_a_small_set() -> TestResult {
         let shards: &[&[u16]] = &[&[0], &(1..=6).collect::<Vec<_>>()];
         let store_secondary_at: Vec<_> = ShardIndex::range(0..5).collect();
@@ -1496,14 +1495,11 @@ mod tests {
 
         let _ = tokio::time::timeout(duration, async {
             loop {
-                let result = func_to_retry().await;
-                if result.is_ok() {
-                    last_result = Some(func_to_retry().await);
+                last_result = Some(func_to_retry().await);
+                if last_result.as_ref().unwrap().is_ok() {
                     return;
-                } else {
-                    last_result = Some(func_to_retry().await);
-                    tokio::time::sleep(Duration::from_millis(5)).await;
                 }
+                tokio::time::sleep(Duration::from_millis(5)).await;
             }
         })
         .await;
