@@ -131,7 +131,10 @@ impl WriteTransactionGenerator {
                 i += 1;
 
                 // This call blocks when the channel is full.
-                tracing::info!("putting tx in channel");
+                tracing::info!(
+                    "putting write tx in channel, capacity of queue: {}",
+                    sender.capacity()
+                );
                 sender
                     .send((client, pairs, metadata))
                     .await
