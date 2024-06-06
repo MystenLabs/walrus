@@ -219,7 +219,9 @@ async fn benchmark(
                     metrics.observe_submitted(metrics::WRITE_WORKLOAD);
 
                     write_finished.push(async move {
+                        tracing::info!("--> starting to store metadata and pairs");
                         let certificate = client.store_metadata_and_pairs(&metadata, &pairs).await;
+                        tracing::info!("--> Stored metadata and pairs");
                         (now, certificate)
                     });
                 }
