@@ -172,7 +172,7 @@ pub async fn get_sliver<S: SyncServiceState>(
 /// Store blob slivers.
 ///
 /// Stores a primary or secondary blob sliver at the storage node.
-#[tracing::instrument(skip_all, err(level = Level::DEBUG), fields(
+#[tracing::instrument(skip_all, err(level = Level::DEBUG), ret, fields(
     walrus.blob_id = %blob_id.0,
     walrus.sliver.pair_index = %sliver_pair_index,
     walrus.sliver.type_ = %sliver_type
@@ -208,8 +208,6 @@ pub async fn put_sliver<S: SyncServiceState>(
     };
 
     state.store_sliver(&blob_id, sliver_pair_index, &sliver)?;
-
-    tracing::info!("---> sliver stored successfully");
 
     // TODO(jsmith): Change to CREATED
     Ok(ApiSuccess::ok("sliver stored successfully"))

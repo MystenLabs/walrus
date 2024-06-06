@@ -191,7 +191,8 @@ async fn benchmark(
 
     // Submit transactions.
     let start = Instant::now();
-    let interval = interval(BURST_DURATION);
+    // let interval = interval(BURST_DURATION);
+    let interval = interval(Duration::from_millis(1000));
     tokio::pin!(interval);
 
     loop {
