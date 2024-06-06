@@ -181,6 +181,9 @@ async fn benchmark(
     };
     let writes_per_burst = (burst * stress_parameters.load_type) / 100;
     let reads_per_burst = burst - writes_per_burst;
+    tracing::info!(
+        "Running benchmark with {writes_per_burst} writes and {reads_per_burst} reads per burst"
+    );
 
     // Structures holding futures waiting for clients to finish their requests.
     let mut write_finished = FuturesUnordered::new();
@@ -196,12 +199,13 @@ async fn benchmark(
             _ = interval.tick() => {
                 // Generate the transactions for this burst.
                 let mut write_load = Vec::new();
-                for _ in 1..=writes_per_burst {
-                    write_load.push(write_tx_generator.make_tx().await);
+                for _ in 0..writes_per_burst {
+                    let tx = write_tx_generator.make_tx().await;
                     tracing::info!("---> HERE");
+                    write_load.push(tx);
                 }
                 let mut read_load = Vec::new();
-                for _ in 1..=reads_per_burst {
+                for _ in 0..reads_per_burst {
                     read_load.push(read_tx_generator.make_tx().await);
                 }
 
