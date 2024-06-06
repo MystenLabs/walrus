@@ -102,7 +102,8 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Submitting one write transaction...");
     let (client, pairs, metadata) = write_tx_generator.make_tx().await;
     let blob_id = metadata.blob_id();
-    let _certificate = client.store_metadata_and_pairs(&metadata, &pairs).await;
+    let _certificate = client.store_metadata_and_pairs(&metadata, &pairs).await?;
+    tracing::info!("----> cert : {:?}", _certificate);
 
     // Start the read transaction generator.
     tracing::info!("Initializing read transactions generators...");
