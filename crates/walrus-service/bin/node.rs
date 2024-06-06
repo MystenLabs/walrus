@@ -293,12 +293,10 @@ mod commands {
             listening_ips,
             metrics_port,
             set_config_dir.as_deref(),
+            set_db_path.as_deref(),
         )
         .await?;
-        for (i, mut storage_node_config) in storage_node_configs.into_iter().enumerate() {
-            if let Some(ref db_path) = set_db_path {
-                storage_node_config.storage_path.clone_from(db_path);
-            }
+        for (i, storage_node_config) in storage_node_configs.into_iter().enumerate() {
             let serialized_storage_node_config = serde_yaml::to_string(&storage_node_config)
                 .context("Failed to serialize storage node configs")?;
             let node_config_name =

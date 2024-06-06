@@ -322,6 +322,7 @@ pub async fn create_storage_node_configs(
     listening_ips: Option<Vec<IpAddr>>,
     metrics_port: u16,
     set_config_dir: Option<&Path>,
+    set_db_path: Option<&Path>,
 ) -> anyhow::Result<Vec<StorageNodeConfig>> {
     let nodes = testbed_config.nodes;
     // Check whether the testbed collocates the storage nodes on the same machine
@@ -393,11 +394,11 @@ pub async fn create_storage_node_configs(
             gas_budget: defaults::gas_budget(),
         });
 
-        let storage_path = if let Some(path) = set_config_dir {
-            path.join(&name)
-        } else {
-            working_dir.join(&name)
-        };
+        let storage_path = set_db_path
+            .map(|path| path.to_path_buf())
+            .or(set_config_dir.map(|path| path.join(&name)))
+            .unwrap_or_else(|| working_dir.join(&name));
+
         let db_config = Some(DatabaseConfig::default());
         storage_node_configs.push(StorageNodeConfig {
             storage_path,
