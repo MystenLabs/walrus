@@ -30,8 +30,6 @@ mod metrics;
 
 /// Timing burst precision.
 const PRECISION: u64 = 10;
-/// Duration of each burst of transaction.
-const BURST_DURATION: Duration = Duration::from_millis(1000 / PRECISION);
 
 #[derive(Parser, Debug, Clone)]
 #[clap(rename_all = "kebab-case")]
@@ -178,12 +176,11 @@ async fn benchmark(
     blob_id: &BlobId,
     metrics: &ClientMetrics,
 ) -> anyhow::Result<()> {
-    let burst = if load > PRECISION {
-        load / PRECISION
+    let (tx_per_burst, burst_duration) = if load > PRECISION {
+        (load / PRECISION, Duration::from_millis(1000 / PRECISION))
     } else {
-        load
+        (load, Duration::from_secs(1))
     };
-    let load_type_fraction = stress_parameters.load_type as f64 / 100.0;
 
     // Structures holding futures waiting for clients to finish their requests.
     let mut write_finished = FuturesUnordered::new();
@@ -191,8 +188,7 @@ async fn benchmark(
 
     // Submit transactions.
     let start = Instant::now();
-    // let interval = interval(BURST_DURATION);
-    let interval = interval(Duration::from_millis(1000));
+    let interval = interval(burst_duration);
     tokio::pin!(interval);
 
     loop {
@@ -200,9 +196,9 @@ async fn benchmark(
             _ = interval.tick() => {
                 let mut write_load = Vec::new();
                 let mut read_load = Vec::new();
-                for _ in 0..burst {
+                for _ in 0..tx_per_burst {
                     let r = thread_rng().gen_range(0..100);
-                    if r > load_type_fraction as u64 {
+                    if stress_parameters.load_type > r as u64 {
                         let tx = write_tx_generator.make_tx().await;
                         write_load.push(tx);
                     } else {
@@ -238,7 +234,7 @@ async fn benchmark(
                 }
 
                 // Check if the submission rate is too high.
-                if now.elapsed() > BURST_DURATION {
+                if now.elapsed() > burst_duration {
                     metrics.observe_error("rate too high");
                     tracing::warn!("Transaction rate too high for this client");
                 }
