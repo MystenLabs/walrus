@@ -131,11 +131,6 @@ impl WriteTransactionGenerator {
                 i += 1;
 
                 // This call blocks when the channel is full.
-                tracing::info!(
-                    "putting write tx in channel, capacity of queue: {}/{}",
-                    sender.capacity(),
-                    sender.max_capacity()
-                );
                 sender
                     .send((client, pairs, metadata))
                     .await
@@ -160,7 +155,6 @@ impl WriteTransactionGenerator {
         Vec<SliverPair>,
         VerifiedBlobMetadataWithId,
     ) {
-        tracing::info!("receiving tx from channel");
         self.rx_transaction
             .recv()
             .await

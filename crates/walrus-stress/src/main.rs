@@ -182,12 +182,7 @@ async fn benchmark(
     } else {
         load
     };
-    let writes_per_burst = (burst * stress_parameters.load_type) / 100;
-    let reads_per_burst = burst - writes_per_burst;
     let load_type_fraction = stress_parameters.load_type as f64 / 100.0;
-    tracing::info!(
-        "Running benchmark with {writes_per_burst} writes and {reads_per_burst} reads per burst"
-    );
 
     // Structures holding futures waiting for clients to finish their requests.
     let mut write_finished = FuturesUnordered::new();
@@ -201,29 +196,15 @@ async fn benchmark(
     loop {
         tokio::select! {
             _ = interval.tick() => {
-                // Generate the transactions for this burst.
-                // let mut write_load = Vec::new();
-                // for _ in 0..writes_per_burst {
-                //     let tx = write_tx_generator.make_tx().await;
-                //     tracing::info!("---> HERE");
-                //     write_load.push(tx);
-                // }
-                // let mut read_load = Vec::new();
-                // for _ in 0..reads_per_burst {
-                //     read_load.push(read_tx_generator.make_tx().await);
-                // }
-
                 let mut write_load = Vec::new();
                 let mut read_load = Vec::new();
                 for _ in 0..burst {
                     let r = thread_rng().gen_range(0..100);
                     if r > load_type_fraction as u64 {
                         let tx = write_tx_generator.make_tx().await;
-                        tracing::info!("---> HERE");
                         write_load.push(tx);
                     } else {
                         let tx = read_tx_generator.make_tx().await;
-                        tracing::info!("---> HERE 2 ");
                         read_load.push(tx);
                     }
                 }
@@ -259,13 +240,13 @@ async fn benchmark(
                 }
             },
             Some((instant, result)) = write_finished.next() => {
-                tracing::debug!("Write transaction finished");
+                tracing::info!("Write transaction finished");
                 let _certificate = result.context("Failed to obtain storage certificate")?;
                 let elapsed = instant.elapsed();
                 metrics.observe_latency(metrics::WRITE_WORKLOAD, elapsed);
             },
             Some((instant, result)) = read_finished.next() => {
-                tracing::debug!("Read transaction finished");
+                tracing::info!("Read transaction finished");
                 let _blob = result.context("Failed to obtain blob")?;
                 let elapsed = instant.elapsed();
                 metrics.observe_latency(metrics::READ_WORKLOAD, elapsed);
