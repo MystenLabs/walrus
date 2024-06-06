@@ -181,6 +181,10 @@ async fn benchmark(
     } else {
         (load, Duration::from_secs(1))
     };
+    tracing::info!(
+        "Submitting {tx_per_burst} transactions every {} ms",
+        burst_duration.as_millis()
+    );
 
     // Structures holding futures waiting for clients to finish their requests.
     let mut write_finished = FuturesUnordered::new();
