@@ -18,6 +18,7 @@ use walrus_core::{
 };
 use walrus_service::{
     client::{
+        BlobStoreResult,
         Client,
         ClientCommunicationConfig,
         ClientError,
@@ -105,7 +106,13 @@ async fn run_store_and_read_with_crash_failures(
 
     // Store a blob and get confirmations from each node.
     let blob = walrus_test_utils::random_data(31415);
-    let blob_confirmation = client.as_ref().reserve_and_store_blob(&blob, 1).await?;
+    let BlobStoreResult::NewlyCreated(blob_confirmation) = client
+        .as_ref()
+        .reserve_and_store_blob(&blob, 1, true)
+        .await?
+    else {
+        panic!("expect newly stored blob")
+    };
 
     // Stop the nodes in the read failure set.
     failed_shards_read
@@ -181,7 +188,7 @@ async fn test_inconsistency(failed_shards: &[usize]) -> anyhow::Result<()> {
     client
         .as_ref()
         .sui_client()
-        .certify_blob(&blob_sui_object, &certificate)
+        .certify_blob(blob_sui_object, &certificate)
         .await?;
 
     // Wait to receive an inconsistent blob event.

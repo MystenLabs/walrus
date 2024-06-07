@@ -78,7 +78,7 @@ impl Ord for BlobCertificationStatus {
 #[derive(
     Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy, Default, Hash, utoipa::ToSchema,
 )]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum BlobStatus {
     /// The blob does not exist (anymore) within Walrus.
     #[default]

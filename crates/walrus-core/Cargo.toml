@@ -16,7 +16,7 @@ fastcrypto.workspace = true
 rand.workspace = true
 raptorq = "2.0.0"
 serde.workspace = true
-serde_with = { workspace = true, features = ["base64"] }
+serde_with.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 utoipa = { workspace = true, optional = true }

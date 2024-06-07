@@ -119,7 +119,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
 
     let blob_obj = walrus_client
         .as_ref()
-        .certify_blob(&blob_obj, &certificate)
+        .certify_blob(blob_obj, &certificate)
         .await?;
     assert_eq!(blob_obj.certified, Some(0));
 
@@ -178,7 +178,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
 
     let _blob_obj = walrus_client
         .as_ref()
-        .certify_blob(&blob_obj, &get_default_blob_certificate(blob_id, 0))
+        .certify_blob(blob_obj, &get_default_blob_certificate(blob_id, 0))
         .await?;
 
     // Make sure that we got the expected event

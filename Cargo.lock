@@ -11745,6 +11745,7 @@ dependencies = [
  "reqwest 0.12.4",
  "serde",
  "serde_json",
+ "serde_with 3.8.1",
  "sui-config",
  "sui-keys",
  "sui-move-build",

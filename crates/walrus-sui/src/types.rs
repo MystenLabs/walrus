@@ -17,6 +17,7 @@ use fastcrypto::traits::ToFromBytes;
 use move_core_types::u256::U256;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use serde_with::{serde_as, DisplayFromStr};
 use sui_sdk::rpc_types::{SuiEvent, SuiMoveStruct, SuiMoveValue};
 use sui_types::{base_types::ObjectID, event::EventID};
 use thiserror::Error;
@@ -32,7 +33,8 @@ use crate::{
     },
 };
 /// Sui object for storage resources.
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StorageResource {
     /// Object ID of the Sui object.
     pub id: ObjectID,
@@ -74,13 +76,16 @@ impl AssociatedContractStruct for StorageResource {
 }
 
 /// Sui object for a blob.
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[serde_as]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Blob {
     /// Object ID of the Sui object.
     pub id: ObjectID,
     /// The epoch in which the blob has been registered.
     pub stored_epoch: Epoch,
     /// The blob ID.
+    #[serde_as(as = "DisplayFromStr")]
     pub blob_id: BlobId,
     /// The (unencoded) size of the blob.
     pub size: u64,

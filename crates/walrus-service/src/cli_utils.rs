@@ -14,6 +14,7 @@ use colored::{ColoredString, Colorize};
 use indoc::printdoc;
 use prettytable::{format, row, Table};
 use sui_sdk::{wallet_context::WalletContext, SuiClientBuilder};
+use sui_types::event::EventID;
 use walrus_core::{
     bft,
     encoding::{
@@ -409,6 +410,11 @@ fn default_table_format() -> format::TableFormat {
         )
         .padding(1, 1)
         .build()
+}
+
+/// Format the event ID as the transaction digest and the sequence number.
+pub fn format_event_id(event_id: &EventID) -> String {
+    format!("(tx: {}, seq: {})", event_id.tx_digest, event_id.event_seq)
 }
 
 #[cfg(test)]

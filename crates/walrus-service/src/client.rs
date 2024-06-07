@@ -14,6 +14,9 @@ use fastcrypto::{bls12381::min_pk::BLS12381AggregateSignature, traits::Aggregate
 use futures::Future;
 use rand::{seq::SliceRandom, thread_rng};
 use reqwest::{Client as ReqwestClient, ClientBuilder};
+use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DisplayFromStr};
+use sui_types::event::EventID;
 use tokio::{
     sync::Semaphore,
     time::{sleep, Duration},
@@ -25,6 +28,7 @@ use walrus_core::{
     messages::{Confirmation, ConfirmationCertificate, SignedStorageConfirmation},
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
+    Epoch,
     Sliver as SliverEnum,
 };
 use walrus_sdk::{
@@ -170,21 +174,75 @@ impl<T: ContractClient> Client<T> {
         &self,
         blob: &[u8],
         epochs_ahead: u64,
-    ) -> Result<Blob, ClientError> {
+        force: bool,
+    ) -> Result<BlobStoreResult, ClientError> {
         let (pairs, metadata) = self
             .encoding_config
             .get_blob_encoder(blob)
             .map_err(ClientError::other)?
             .encode_with_metadata();
-        tracing::Span::current().record("blob_id", metadata.blob_id().to_string());
+        let blob_id = *metadata.blob_id();
+        tracing::Span::current().record("blob_id", blob_id.to_string());
         let pair = pairs.first().expect("the encoding produces sliver pairs");
-        let symbol_size = pair.primary.symbols.symbol_size();
+        let symbol_size = pair.primary.symbols.symbol_size().get();
         tracing::debug!(
-            symbol_size=%symbol_size.get(),
-            primary_sliver_size=%pair.primary.symbols.len() * usize::from(symbol_size.get()),
-            secondary_sliver_size=%pair.secondary.symbols.len() * usize::from(symbol_size.get()),
+            symbol_size=%symbol_size,
+            primary_sliver_size=%pair.primary.symbols.len() * usize::from(symbol_size),
+            secondary_sliver_size=%pair.secondary.symbols.len() * usize::from(symbol_size),
             "computed blob pairs and metadata"
         );
+
+        // Return early if the blob is already certified or marked as invalid.
+        if !force {
+            // Use short timeout as this is only an optimization.
+            const STATUS_TIMEOUT: Duration = Duration::from_millis(500);
+
+            match self
+                .get_verified_blob_status(
+                    metadata.blob_id(),
+                    self.sui_client.read_client(),
+                    STATUS_TIMEOUT,
+                )
+                .await?
+            {
+                BlobStatus::Existent {
+                    end_epoch,
+                    status: BlobCertificationStatus::Certified,
+                    status_event,
+                } => {
+                    if end_epoch >= self.committee.epoch + epochs_ahead {
+                        tracing::debug!(end_epoch, "blob is already certified");
+                        return Ok(BlobStoreResult::AlreadyCertified {
+                            blob_id,
+                            event: status_event,
+                            end_epoch,
+                        });
+                    } else {
+                        tracing::debug!(
+                        end_epoch,
+                        "blob is already certified but its lifetime is too short; creating new one"
+                    );
+                    }
+                }
+                BlobStatus::Existent {
+                    status: BlobCertificationStatus::Invalid,
+                    status_event,
+                    ..
+                } => {
+                    tracing::debug!("blob is marked as invalid");
+                    return Ok(BlobStoreResult::MarkedInvalid {
+                        blob_id,
+                        event: status_event,
+                    });
+                }
+                status => {
+                    // We intentionally don't check for "registered" blobs here: even if the blob is
+                    // already registered, we cannot certify it without access to the corresponding
+                    // Sui object.
+                    tracing::debug!(?status, "blob is not certified, creating it");
+                }
+            }
+        }
 
         // Reserve space for the blob.
         let blob_sui_object = self
@@ -195,10 +253,12 @@ impl<T: ContractClient> Client<T> {
         sleep(Duration::from_secs(1)).await;
 
         let certificate = self.store_metadata_and_pairs(&metadata, &pairs).await?;
-        self.sui_client
-            .certify_blob(&blob_sui_object, &certificate)
+        let blob = self
+            .sui_client
+            .certify_blob(blob_sui_object, &certificate)
             .await
-            .map_err(|e| ClientErrorKind::CertificationFailed(e).into())
+            .map_err(|e| ClientError::from(ClientErrorKind::CertificationFailed(e)))?;
+        Ok(BlobStoreResult::NewlyCreated(blob))
     }
 
     /// Reserves the space for the blob on chain.
@@ -233,6 +293,49 @@ impl<T: ContractClient> Client<T> {
             )
             .await
             .map_err(ClientError::other)
+    }
+}
+
+/// Result when attempting to store a blob.
+#[serde_as]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum BlobStoreResult {
+    /// The blob already exists within Walrus, was certified, and is stored for at least the
+    /// intended duration.
+    AlreadyCertified {
+        /// The blob ID.
+        #[serde_as(as = "DisplayFromStr")]
+        blob_id: BlobId,
+        /// The event where the blob was certified.
+        event: EventID,
+        /// The epoch until which the blob is stored (exclusive).
+        end_epoch: Epoch,
+    },
+    /// The blob was newly created; this contains the newly created Sui object associated with the
+    /// blob.
+    NewlyCreated(Blob),
+    /// The blob is known to Walrus but was marked as invalid.
+    ///
+    /// This indicates a bug within the client, the storage nodes, or more than a third malicious
+    /// storage nodes.
+    MarkedInvalid {
+        /// The blob ID.
+        #[serde_as(as = "DisplayFromStr")]
+        blob_id: BlobId,
+        /// The event where the blob was marked as invalid.
+        event: EventID,
+    },
+}
+
+impl BlobStoreResult {
+    /// Returns the blob ID.
+    pub fn blob_id(&self) -> &BlobId {
+        match self {
+            Self::AlreadyCertified { blob_id, .. } => blob_id,
+            Self::MarkedInvalid { blob_id, .. } => blob_id,
+            Self::NewlyCreated(Blob { blob_id, .. }) => blob_id,
+        }
     }
 }
 
@@ -722,7 +825,6 @@ async fn verify_blob_status(
     status: BlobStatus,
     sui_read_client: &impl ReadClient,
 ) -> Result<(), anyhow::Error> {
-    tracing::debug!("verifying blob status with on-chain event");
     let BlobStatus::Existent {
         end_epoch,
         status,
@@ -731,6 +833,7 @@ async fn verify_blob_status(
     else {
         return Ok(());
     };
+    tracing::debug!("verifying blob status with on-chain event");
     let blob_event = sui_read_client.get_blob_event(status_event).await?;
 
     let event_blob_id = match (status, blob_event) {

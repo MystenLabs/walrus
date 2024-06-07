@@ -211,7 +211,7 @@ impl ContractClient for MockContractClient {
 
     async fn certify_blob(
         &self,
-        blob: &Blob,
+        blob: Blob,
         _certificate: &ConfirmationCertificate,
     ) -> SuiClientResult<Blob> {
         self.read_client.add_event(
@@ -324,7 +324,7 @@ mod tests {
 
         let blob_obj = walrus_client
             .certify_blob(
-                &blob_obj,
+                blob_obj,
                 // Dummy certificate, currently not checked by the mock client
                 &ConfirmationCertificate::new(
                     vec![],

@@ -106,7 +106,7 @@ pub trait ContractClient: Send + Sync {
     /// returns the certified blob.
     fn certify_blob(
         &self,
-        blob: &Blob,
+        blob: Blob,
         certificate: &ConfirmationCertificate,
     ) -> impl Future<Output = SuiClientResult<Blob>> + Send;
 
@@ -318,7 +318,7 @@ impl ContractClient for SuiContractClient {
 
     async fn certify_blob(
         &self,
-        blob: &Blob,
+        blob: Blob,
         certificate: &ConfirmationCertificate,
     ) -> SuiClientResult<Blob> {
         // Sort the list of signers, since the move contract requires them to be in

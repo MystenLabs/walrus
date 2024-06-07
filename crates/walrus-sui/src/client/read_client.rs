@@ -45,7 +45,7 @@ use crate::{
 const EVENT_MODULE: &str = "blob_events";
 
 /// Trait to read system state information and events from chain.
-pub trait ReadClient {
+pub trait ReadClient: Send + Sync {
     /// Returns the price for one unit of storage per epoch.
     fn price_per_unit_size(&self) -> impl Future<Output = SuiClientResult<u64>> + Send;
 

@@ -18,7 +18,6 @@ use clap::{Args, Parser, Subcommand};
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
 use serde_with::{base64::Base64, serde_as, DisplayFromStr};
-use sui_types::base_types::ObjectID;
 use tracing_subscriber::{util::SubscriberInitExt, EnvFilter};
 use walrus_core::{
     encoding::{EncodingConfig, Primary},
@@ -29,6 +28,7 @@ use walrus_sdk::api::BlobStatus;
 use walrus_service::{
     cli_utils::{
         error,
+        format_event_id,
         get_contract_client,
         get_read_client,
         get_sui_read_client_from_rpc_node_or_wallet,
@@ -38,15 +38,15 @@ use walrus_service::{
         success,
         HumanReadableBytes,
     },
-    client::Client,
+    client::{BlobStoreResult, Client},
     daemon::ClientDaemon,
 };
-use walrus_sui::{client::ReadClient, types::Blob};
+use walrus_sui::client::ReadClient;
 
 #[derive(Parser, Debug, Clone, Deserialize)]
 #[command(author, version, about = "Walrus client", long_about = None)]
 #[clap(rename_all = "kebab-case")]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 struct App {
     /// The path to the wallet configuration file.
     ///
@@ -94,7 +94,7 @@ struct App {
 #[serde_as]
 #[derive(Subcommand, Debug, Clone, Deserialize)]
 #[clap(rename_all = "kebab-case")]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 enum Commands {
     /// Store a new blob into Walrus.
     #[clap(alias("write"))]
@@ -105,6 +105,13 @@ enum Commands {
         #[clap(short, long, default_value_t = default::epochs())]
         #[serde(default = "default::epochs")]
         epochs: u64,
+        /// Do not check for the blob status before storing it.
+        ///
+        /// This will create a new blob even if the blob is already certified for a sufficient
+        /// duration.
+        #[clap(long, action)]
+        #[serde(default)]
+        force: bool,
     },
     /// Read a blob from Walrus, given the blob ID.
     Read {
@@ -180,11 +187,12 @@ enum Commands {
         /// The JSON-encoded args for the Walrus CLI; if not present, the args are read from stdin.
         ///
         /// The JSON structure follows the CLI arguments, containing global options and a "command"
-        /// object at the root level. The "command" object itself contains the command ("store",
-        /// "read", "publisher", "aggregator", "blob_id") with an object containing the command
+        /// object at the root level. The "command" object itself contains the command (e.g.,k
+        /// "store", "read", "publisher", "blobStatus", ...) with an object containing the command
         /// options.
         ///
-        /// Where CLI options are in "kebab-case", the respective JSON strings are in "snake_case".
+        /// Note that where CLI options are in "kebab-case", the respective JSON strings are in
+        /// "camelCase".
         ///
         /// For example, to read a blob and write it to "some_output_file" using a specific
         /// configuration file, you can use the following JSON input:
@@ -193,7 +201,7 @@ enum Commands {
         ///       "config": "working_dir/client_config.yaml",
         ///       "command": {
         ///         "read": {
-        ///           "blob_id": "4BKcDC0Ih5RJ8R0tFMz3MZVNZV8b2goT6_JiEEwNHQo",
+        ///           "blobId": "4BKcDC0Ih5RJ8R0tFMz3MZVNZV8b2goT6_JiEEwNHQo",
         ///           "out": "some_output_file"
         ///         }
         ///       }
@@ -202,8 +210,7 @@ enum Commands {
         /// Important: If the "read" command does not have an "out" file specified, the output JSON
         /// string will contain the full bytes of the blob, encoded as a Base64 string.
         ///
-        /// The commands "store", "read", "publisher", "aggregator", "daemon", and "blob_id" are
-        /// available; "info" and "json" are not available.
+        /// All commands except "info" are available.
         #[clap(verbatim_doc_comment)]
         command_string: Option<String>,
     },
@@ -223,7 +230,7 @@ enum Commands {
 }
 
 #[derive(Debug, Clone, Args, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 struct PublisherArgs {
     /// The address to which to bind the service.
     #[clap(short, long)]
@@ -235,7 +242,7 @@ struct PublisherArgs {
 }
 
 #[derive(Default, Debug, Clone, Args, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 struct RpcArg {
     /// The URL of the Sui RPC node to use.
     ///
@@ -248,7 +255,7 @@ struct RpcArg {
 
 #[serde_as]
 #[derive(Debug, Clone, Args, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 #[group(required = true, multiple = false)]
 struct FileOrBlobId {
     /// The file containing the blob to be checked.
@@ -339,44 +346,61 @@ fn output_string<T: Display + Serialize>(output: &T, json: bool) -> Result<Strin
 }
 
 /// The output of the `store` command.
-#[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-struct StoreOutput {
-    #[serde_as(as = "DisplayFromStr")]
-    blob_id: BlobId,
-    sui_object_id: ObjectID,
-    blob_size: u64,
-}
+struct StoreOutput(BlobStoreResult);
 
-impl From<Blob> for StoreOutput {
-    fn from(blob: Blob) -> Self {
-        Self {
-            blob_id: blob.blob_id,
-            sui_object_id: blob.id,
-            blob_size: blob.size,
-        }
+impl From<BlobStoreResult> for StoreOutput {
+    fn from(result: BlobStoreResult) -> Self {
+        Self(result)
     }
 }
 
 impl Display for StoreOutput {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{} Blob stored successfully.\n\
-                Unencoded size: {}\nSui object ID: {}\nBlob ID: {}",
-            success(),
-            HumanReadableBytes(self.blob_size),
-            self.sui_object_id,
-            self.blob_id,
-        )
+        match &self.0 {
+            BlobStoreResult::AlreadyCertified {
+                blob_id,
+                event,
+                end_epoch,
+            } => {
+                write!(
+                    f,
+                    "{} Blob was previously certified within Walrus for a sufficient period.\n\
+                    Blob ID: {}\nCertification event ID: {}\nEnd epoch (exclusive): {}",
+                    success(),
+                    blob_id,
+                    format_event_id(event),
+                    end_epoch,
+                )
+            }
+            BlobStoreResult::NewlyCreated(blob) => {
+                write!(
+                    f,
+                    "{} Blob stored successfully.\n\
+                    Blob ID: {}\nUnencoded size: {}\nSui object ID: {}",
+                    success(),
+                    blob.blob_id,
+                    HumanReadableBytes(blob.size),
+                    blob.id,
+                )
+            }
+            BlobStoreResult::MarkedInvalid { blob_id, event } => {
+                write!(
+                    f,
+                    "{} Blob was marked as invalid.\nBlob ID: {}\nInvalidation event ID: {}",
+                    error(),
+                    blob_id,
+                    format_event_id(event),
+                )
+            }
+        }
     }
 }
 
 /// The output of the `read` command.
 #[serde_as]
 #[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 struct ReadOutput {
     #[serde(skip_serializing_if = "std::option::Option::is_none")]
     out: Option<PathBuf>,
@@ -417,7 +441,7 @@ impl Display for ReadOutput {
 /// The output of the `blob-id` command.
 #[serde_as]
 #[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 struct BlobIdOutput {
     #[serde_as(as = "DisplayFromStr")]
     blob_id: BlobId,
@@ -449,10 +473,10 @@ impl BlobIdOutput {
     }
 }
 
-/// The output of the `blob-id` command.
+/// The output of the `blob-status` command.
 #[serde_as]
 #[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 struct BlobStatusOutput {
     #[serde_as(as = "DisplayFromStr")]
     blob_id: BlobId,
@@ -478,11 +502,10 @@ impl Display for BlobStatusOutput {
                 f,
                 "Status for {blob_str}: {}\n\
                     End epoch: {}\n\
-                    Related event: (tx: {}, seq: {})",
+                    Related event: {}",
                 status.to_string().bold(),
                 end_epoch,
-                status_event.tx_digest,
-                status_event.event_seq,
+                format_event_id(&status_event),
             ),
         }
     }
@@ -525,17 +548,21 @@ async fn run_app(app: App) -> Result<()> {
     let wallet = load_wallet_context(&wallet_path);
 
     match app.command {
-        Commands::Store { file, epochs } => {
+        Commands::Store {
+            file,
+            epochs,
+            force,
+        } => {
             let client = get_contract_client(config?, wallet, app.gas_budget).await?;
 
             tracing::info!(
                 file = %file.display(),
                 "Storing blob read from the filesystem"
             );
-            let blob = client
-                .reserve_and_store_blob(&std::fs::read(file)?, epochs)
+            let result = client
+                .reserve_and_store_blob(&std::fs::read(file)?, epochs, force)
                 .await?;
-            println!("{}", output_string(&StoreOutput::from(blob), app.json)?);
+            println!("{}", output_string(&StoreOutput::from(result), app.json)?);
         }
         Commands::Read {
             blob_id,
