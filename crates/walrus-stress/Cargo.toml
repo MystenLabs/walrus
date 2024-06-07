@@ -1,0 +1,25 @@
+[package]
+name = "walrus-stress"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+futures.workspace = true
+mysten-metrics.workspace = true
+prometheus = "0.13.4"
+rand.workspace = true
+serde.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+walrus-core.workspace = true
+walrus-service.workspace = true
+walrus-sui.workspace = true
+walrus-test-utils.workspace = true
+
+[lints]
+workspace = true
