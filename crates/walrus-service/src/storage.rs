@@ -52,11 +52,13 @@ use walrus_sui::types::{Blob, BlobEvent, BlobRegistered};
 
 use self::{
     blob_info::{BlobCertificationStatus, BlobInfo, BlobInfoMergeOperand},
+    event_cursor_table::EventCursorTable,
     event_sequencer::EventSequencer,
 };
 use crate::storage::blob_info::Mergeable as _;
 
 pub(crate) mod blob_info;
+mod event_cursor_table;
 mod event_sequencer;
 mod shard;
 pub use shard::ShardStorage;
@@ -218,16 +220,13 @@ pub struct Storage {
     database: Arc<RocksDB>,
     metadata: DBMap<BlobId, BlobMetadata>,
     blob_info: DBMap<BlobId, BlobInfo>,
-    event_cursor: DBMap<String, EventID>,
+    event_cursor: EventCursorTable,
     shards: HashMap<ShardIndex, ShardStorage>,
-    event_queue: Arc<Mutex<EventSequencer>>,
 }
 
 impl Storage {
     const METADATA_COLUMN_FAMILY_NAME: &'static str = "metadata";
     const BLOBINFO_COLUMN_FAMILY_NAME: &'static str = "blob_info";
-    const EVENT_CURSOR_COLUMN_FAMILY_NAME: &'static str = "event_cursor";
-    const EVENT_CURSOR_KEY: &'static str = "event_cursor";
 
     /// Opens the storage database located at the specified path, creating the database if absent.
     pub fn open(
@@ -248,7 +247,7 @@ impl Storage {
 
         let (metadata_cf_name, metadata_options) = Self::metadata_options(db_config);
         let (blob_info_cf_name, blob_info_options) = Self::blob_info_options(db_config);
-        let (event_cursor_cf_name, event_cursor_options) = Self::event_cursor_options(db_config);
+        let (event_cursor_cf_name, event_cursor_options) = EventCursorTable::options(db_config);
 
         let mut expected_column_families: Vec<_> = shard_column_families
             .iter_mut()
@@ -271,11 +270,7 @@ impl Storage {
             Some(metadata_cf_name),
             &ReadWriteOptions::default(),
         )?;
-        let event_cursor = DBMap::reopen(
-            &database,
-            Some(event_cursor_cf_name),
-            &ReadWriteOptions::default(),
-        )?;
+        let event_cursor = EventCursorTable::reopen(&database)?;
         let blob_info = DBMap::reopen(
             &database,
             Some(blob_info_cf_name),
@@ -294,7 +289,6 @@ impl Storage {
             blob_info,
             event_cursor,
             shards,
-            event_queue: Arc::new(Mutex::new(EventSequencer::default())),
         })
     }
 
@@ -348,7 +342,7 @@ impl Storage {
 
     /// Get the event cursor for `event_type`
     pub fn get_event_cursor(&self) -> Result<Option<EventID>, TypedStoreError> {
-        self.event_cursor.get(&Self::EVENT_CURSOR_KEY.to_string())
+        self.event_cursor.get_event_cursor()
     }
 
     /// Update the blob info for a blob based on the `BlobEvent`
@@ -386,21 +380,13 @@ impl Storage {
         &self,
         sequence_number: usize,
         cursor: &EventID,
-    ) -> Result<(), TypedStoreError> {
-        let mut event_queue = self.event_queue.lock().unwrap();
+    ) -> Result<u64, TypedStoreError> {
+        self.event_cursor
+            .maybe_advance_event_cursor(sequence_number, cursor)
+    }
 
-        event_queue.add(sequence_number, *cursor);
-
-        if let Some(cursor) = event_queue.peek() {
-            self.event_cursor
-                .insert(&Self::EVENT_CURSOR_KEY.to_string(), cursor)?;
-
-            // Only pop from the event queue if the write was successful,
-            // otherwise we may lose events.
-            let _ = event_queue.pop();
-        }
-
-        Ok(())
+    pub(crate) fn get_sequentially_processed_event_count(&self) -> Result<u64, TypedStoreError> {
+        self.event_cursor.get_sequentially_processed_event_count()
     }
 
     /// Returns true if the metadata for the specified blob is stored.
@@ -496,13 +482,6 @@ impl Storage {
         let mut options = db_config.blob_info.to_options();
         options.set_merge_operator("merge blob info", merge_blob_info, |_, _, _| None);
         (Self::BLOBINFO_COLUMN_FAMILY_NAME, options)
-    }
-
-    fn event_cursor_options(db_config: &DatabaseConfig) -> (&'static str, Options) {
-        (
-            Self::EVENT_CURSOR_COLUMN_FAMILY_NAME,
-            db_config.event_cursor.to_options(),
-        )
     }
 
     /// Returns the shards currently present in the storage.

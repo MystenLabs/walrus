@@ -474,18 +474,25 @@ impl SliverType {
             SliverType::Secondary
         }
     }
+
+    /// Provides a string representation of the enum variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SliverType::Primary => "primary",
+            SliverType::Secondary => "secondary",
+        }
+    }
+}
+
+impl AsRef<str> for SliverType {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
 }
 
 impl Display for SliverType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                SliverType::Primary => "primary",
-                SliverType::Secondary => "secondary",
-            }
-        )
+        write!(f, "{}", self.as_str())
     }
 }
 
