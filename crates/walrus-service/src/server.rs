@@ -105,8 +105,7 @@ where
             "request_duration_seconds",
             "Time (in seconds) spent serving HTTP requests.",
         )
-        .namespace("walrus")
-        .subsystem("node_http");
+        .namespace("http");
 
         register_histogram_vec_with_registry!(
             opts.into(),

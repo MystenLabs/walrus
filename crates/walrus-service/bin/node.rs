@@ -14,7 +14,7 @@ use std::{
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 use fastcrypto::traits::KeyPair;
-use mysten_metrics::RegistryService;
+use prometheus::Registry;
 use telemetry_subscribers::{TelemetryGuards, TracingHandle};
 use tokio::{
     runtime::{self, Runtime},
@@ -349,7 +349,7 @@ mod commands {
 
         let mut node_runtime = StorageNodeRuntime::start(
             &config,
-            metrics_runtime.registry_service.clone(),
+            metrics_runtime.registry.clone(),
             exit_notifier,
             cancel_token.child_token(),
         )?;
@@ -366,7 +366,7 @@ mod commands {
 }
 
 struct MetricsAndLoggingRuntime {
-    registry_service: RegistryService,
+    registry: Registry,
     _telemetry_guards: TelemetryGuards,
     _tracing_handle: TracingHandle,
     // INV: Runtime must be dropped last.
@@ -385,18 +385,18 @@ impl MetricsAndLoggingRuntime {
 
         metrics_address.set_ip(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
         let registry_service = mysten_metrics::start_prometheus_server(metrics_address);
-        let prometheus_registry = registry_service.default_registry();
+        let walrus_registry = registry_service.default_registry();
 
         // Initialize logging subscriber
         let (telemetry_guards, tracing_handle) = telemetry_subscribers::TelemetryConfig::new()
             .with_env()
-            .with_prom_registry(&prometheus_registry)
+            .with_prom_registry(&walrus_registry)
             .with_log_level("debug")
             .init();
 
         Ok(Self {
             _runtime: runtime,
-            registry_service,
+            registry: walrus_registry,
             _telemetry_guards: telemetry_guards,
             _tracing_handle: tracing_handle,
         })
@@ -413,7 +413,7 @@ struct StorageNodeRuntime {
 impl StorageNodeRuntime {
     fn start(
         node_config: &StorageNodeConfig,
-        registry_service: RegistryService,
+        metrics_registry: Registry,
         exit_notifier: oneshot::Sender<()>,
         cancel_token: CancellationToken,
     ) -> anyhow::Result<Self> {
@@ -424,9 +424,9 @@ impl StorageNodeRuntime {
             .expect("walrus-node runtime creation must succeed");
         let _guard = runtime.enter();
 
-        let registry = registry_service.default_registry();
         let walrus_node = Arc::new(
-            runtime.block_on(StorageNode::builder().build(node_config, registry_service))?,
+            runtime
+                .block_on(StorageNode::builder().build(node_config, metrics_registry.clone()))?,
         );
 
         let walrus_node_clone = walrus_node.clone();
@@ -447,7 +447,7 @@ impl StorageNodeRuntime {
             result
         });
 
-        let rest_api = UserServer::new(walrus_node, cancel_token.child_token(), &registry);
+        let rest_api = UserServer::new(walrus_node, cancel_token.child_token(), &metrics_registry);
         let mut rest_api_address = node_config.rest_api_address;
         rest_api_address.set_ip(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
         let rest_api_handle = tokio::spawn(async move {

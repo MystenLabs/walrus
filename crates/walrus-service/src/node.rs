@@ -5,7 +5,6 @@ use std::{future::Future, num::NonZeroU16, sync::Arc};
 use anyhow::{anyhow, bail, Context};
 use fastcrypto::traits::KeyPair;
 use futures::{future::Either, stream::FuturesUnordered, StreamExt};
-use mysten_metrics::RegistryService;
 use prometheus::Registry;
 use serde::Serialize;
 use sui_types::event::EventID;
@@ -202,9 +201,9 @@ impl StorageNodeBuilder {
     pub async fn build(
         self,
         config: &StorageNodeConfig,
-        registry_service: RegistryService,
+        metrics_registry: Registry,
     ) -> Result<StorageNode, anyhow::Error> {
-        DBMetrics::init(&registry_service.default_registry());
+        DBMetrics::init(&metrics_registry);
 
         let protocol_key_pair = config
             .protocol_key_pair
@@ -259,7 +258,7 @@ impl StorageNodeBuilder {
             event_provider,
             committee_service_factory,
             contract_service,
-            &registry_service.default_registry(),
+            &metrics_registry,
         )
         .await
     }

@@ -71,7 +71,7 @@ macro_rules! define_node_metric_set {
                     $metric: register_node_metric!(
                         $metric_type,
                         registry,
-                        Opts::new(stringify!($metric), $descr).namespace("walrus").subsystem("node")
+                        Opts::new(stringify!($metric), $descr).namespace("walrus")
                         $(, $labels)?
                     )
                 ),*),*}
