@@ -19,6 +19,7 @@ use colored::Colorize;
 use serde::{Deserialize, Serialize};
 use serde_with::{base64::Base64, serde_as, DisplayFromStr};
 use sui_types::base_types::ObjectID;
+use tracing_subscriber::{util::SubscriberInitExt, EnvFilter};
 use walrus_core::{
     encoding::{EncodingConfig, Primary},
     metadata::VerifiedBlobMetadataWithId,
@@ -488,7 +489,11 @@ impl Display for BlobStatusOutput {
 }
 
 async fn client() -> Result<()> {
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .with_env_filter(EnvFilter::from_default_env())
+        .finish()
+        .try_init()?;
     let mut app = App::parse();
 
     while let Commands::Json { command_string } = app.command {

@@ -4,6 +4,7 @@
 //! Client for interacting with the StorageNode API.
 
 use reqwest::{Client as ReqwestClient, Url};
+use tracing::Level;
 use walrus_core::{
     encoding::{
         EncodingAxis,
@@ -115,6 +116,7 @@ impl Client {
     }
 
     /// Get the metadata and verify it against the provided config.
+    #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
     pub async fn get_and_verify_metadata(
         &self,
         blob_id: &BlobId,
@@ -127,6 +129,7 @@ impl Client {
     }
 
     /// Requests the status of a blob ID from the node.
+    #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
     pub async fn get_blob_status(&self, blob_id: &BlobId) -> Result<BlobStatus, NodeError> {
         let url = self.endpoints.blob_status(blob_id);
         let response = self.inner.get(url).send().await.map_err(Kind::Reqwest)?;
@@ -138,6 +141,7 @@ impl Client {
     }
 
     /// Requests a storage confirmation from the node for the Blob specified by the given ID
+    // TODO: This function is only used internally and in test functions in walrus-service. (#498)
     pub async fn get_confirmation(
         &self,
         blob_id: &BlobId,
@@ -152,6 +156,7 @@ impl Client {
     }
 
     /// Requests a storage confirmation from the node for the Blob specified by the given ID
+    #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
     pub async fn get_and_verify_confirmation(
         &self,
         blob_id: &BlobId,
@@ -166,6 +171,7 @@ impl Client {
     }
 
     /// Gets a primary or secondary sliver for the identified sliver pair.
+    // TODO: This function is only used internally and in test functions in walrus-service. (#498)
     pub async fn get_sliver<A: EncodingAxis>(
         &self,
         blob_id: &BlobId,
@@ -177,6 +183,7 @@ impl Client {
     }
 
     /// Gets a primary or secondary sliver for the identified sliver pair.
+    // TODO: This function is only used internally and in test functions in walrus-service. (#498)
     pub async fn get_sliver_by_type(
         &self,
         blob_id: &BlobId,
@@ -202,6 +209,7 @@ impl Client {
     ///
     /// Panics if the provided encoding config is not applicable to the metadata, i.e., if
     /// [`VerifiedBlobMetadataWithId::is_encoding_config_applicable`] returns false.
+    #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
     pub async fn get_and_verify_sliver<A: EncodingAxis>(
         &self,
         sliver_pair_index: SliverPairIndex,
@@ -227,6 +235,7 @@ impl Client {
     /// Gets the recovery symbol for a primary or secondary sliver.
     ///
     /// The symbol is identified by the (A, sliver_pair_at_remote, intersecting_pair_index) tuple.
+    #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
     pub async fn get_recovery_symbol<A: EncodingAxis>(
         &self,
         blob_id: &BlobId,
@@ -245,6 +254,7 @@ impl Client {
     /// Gets the recovery symbol for a primary or secondary sliver.
     ///
     /// The symbol is identified by the (A, sliver_pair_at_remote, intersecting_pair_index) tuple.
+    #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
     pub async fn get_and_verify_recovery_symbol<A: EncodingAxis>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
@@ -272,6 +282,7 @@ impl Client {
     }
 
     /// Stores the metadata on the node.
+    #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
     pub async fn store_metadata(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
@@ -292,6 +303,7 @@ impl Client {
     }
 
     /// Stores a sliver on a node.
+    #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
     pub async fn store_sliver_by_axis<A: EncodingAxis>(
         &self,
         blob_id: &BlobId,
@@ -313,6 +325,7 @@ impl Client {
     }
 
     /// Stores a sliver on a node.
+    // TODO: This function is only used internally and in test functions in walrus-service. (#498)
     pub async fn store_sliver(
         &self,
         blob_id: &BlobId,
@@ -332,6 +345,7 @@ impl Client {
     /// Stores a sliver pair on the node.
     ///
     /// Returns an error if either storing the primary or secondary sliver fails.
+    // TODO: This function is currently not used at all. (#498)
     pub async fn store_sliver_pair(
         &self,
         blob_id: &BlobId,
@@ -345,7 +359,7 @@ impl Client {
     }
 
     /// Sends an inconsistency proof for the specified [`EncodingAxis`] to a node.
-    pub async fn send_inconsistency_proof_by_axis<A: EncodingAxis>(
+    async fn send_inconsistency_proof_by_axis<A: EncodingAxis>(
         &self,
         blob_id: &BlobId,
         inconsistency_proof: &InconsistencyProof<A, MerkleProof>,
@@ -369,6 +383,7 @@ impl Client {
 
     /// Sends an inconsistency proof to a node and requests the invalid blob id
     /// attestation from the node.
+    #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
     pub async fn send_inconsistency_proof(
         &self,
         blob_id: &BlobId,

@@ -186,7 +186,7 @@ impl<T: ContractClient> Client<T> {
             "computed blob pairs and metadata"
         );
 
-        // Get the root hash of the blob.
+        // Reserve space for the blob.
         let blob_sui_object = self
             .reserve_blob(&metadata, blob.len(), epochs_ahead)
             .await?;
@@ -202,6 +202,7 @@ impl<T: ContractClient> Client<T> {
     }
 
     /// Reserves the space for the blob on chain.
+    #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
     pub async fn reserve_blob(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
@@ -212,6 +213,7 @@ impl<T: ContractClient> Client<T> {
             .encoding_config
             .encoded_blob_length_from_usize(unencoded_size)
             .expect("valid for metadata created from the same config");
+        tracing::debug!(encoded_size, "starting to reserve storage for blob");
 
         let root_hash = metadata.metadata().compute_root_hash();
         let storage_resource = self
@@ -269,6 +271,7 @@ impl<T> Client<T> {
             tracing::debug!(
                 elapsed_time = ?start.elapsed(),
                 executed_weight = weight,
+                responses = ?requests.into_results(),
                 "all futures consumed before reaching a threshold of successful responses"
             );
             return Err(self.not_enough_confirmations_error(weight));
