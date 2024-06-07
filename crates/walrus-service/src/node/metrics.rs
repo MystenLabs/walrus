@@ -91,7 +91,7 @@ define_node_metric_set! {
         (slivers_retrieved_total, "Total number of sliver instances returned", &["sliver_type"])
     ],
     GenericGaugeVec<AtomicU64>: [
-        (cursor_progress, "The number of Walrus events processed", &["state"]),
+        (event_cursor_progress, "The number of Walrus events processed", &["state"]),
     ],
     HistogramVec: [
         (

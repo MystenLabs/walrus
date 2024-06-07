@@ -473,7 +473,11 @@ impl StorageNodeInner {
 
     fn init_gauges(&self) -> Result<(), TypedStoreError> {
         let persisted = self.storage.get_sequentially_processed_event_count()?;
-        metrics::set!(self.metrics.cursor_progress, label = "persisted", persisted);
+        metrics::set!(
+            self.metrics.event_cursor_progress,
+            label = "persisted",
+            persisted
+        );
         Ok(())
     }
 
@@ -486,8 +490,9 @@ impl StorageNodeInner {
             .storage
             .maybe_advance_event_cursor(sequence_number, cursor)?;
 
-        metrics::add!(self.metrics.cursor_progress, label = "persisted", persisted);
-        metrics::set!(self.metrics.cursor_progress, label = "pending", pending);
+        let event_cursor_progress = &self.metrics.event_cursor_progress;
+        metrics::add!(event_cursor_progress, label = "persisted", persisted);
+        metrics::set!(event_cursor_progress, label = "pending", pending);
 
         Ok(())
     }
