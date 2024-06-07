@@ -63,6 +63,8 @@ mod event_sequencer;
 mod shard;
 pub use shard::ShardStorage;
 
+pub(super) use self::event_cursor_table::EventProgress;
+
 /// Options for configuring a column family.
 #[serde_with::serde_as]
 #[skip_serializing_none]
@@ -376,11 +378,11 @@ impl Storage {
     /// sequence; will remain at `cursor0` after the next call since `cursor2` is not the next in
     /// sequence; and will advance to cursor2 after the 3rd call, since `cursor1` fills the gap as
     /// identified by its sequence number.
-    pub fn maybe_advance_event_cursor(
+    pub(crate) fn maybe_advance_event_cursor(
         &self,
         sequence_number: usize,
         cursor: &EventID,
-    ) -> Result<u64, TypedStoreError> {
+    ) -> Result<EventProgress, TypedStoreError> {
         self.event_cursor
             .maybe_advance_event_cursor(sequence_number, cursor)
     }

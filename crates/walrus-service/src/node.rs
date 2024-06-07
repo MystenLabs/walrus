@@ -46,7 +46,7 @@ use crate::{
     committee::{CommitteeService, CommitteeServiceFactory, SuiCommitteeServiceFactory},
     config::{StorageNodeConfig, SuiConfig},
     contract_service::{SuiSystemContractService, SystemContractService},
-    storage::{DatabaseConfig, ShardStorage, Storage},
+    storage::{DatabaseConfig, EventProgress, ShardStorage, Storage},
     system_events::{SuiSystemEventProvider, SystemEventProvider},
 };
 
@@ -473,10 +473,8 @@ impl StorageNodeInner {
     }
 
     fn init_gauges(&self) -> Result<(), TypedStoreError> {
-        self.metrics
-            .events_sequentially_processed
-            .set(self.storage.get_sequentially_processed_event_count()?);
-
+        let persisted = self.storage.get_sequentially_processed_event_count()?;
+        metrics::set!(self.metrics.cursor_progress, label = "persisted", persisted);
         Ok(())
     }
 
@@ -485,15 +483,12 @@ impl StorageNodeInner {
         sequence_number: usize,
         cursor: &EventID,
     ) -> Result<(), TypedStoreError> {
-        let progress_increment = self
+        let EventProgress { persisted, pending } = self
             .storage
             .maybe_advance_event_cursor(sequence_number, cursor)?;
 
-        metrics::add!(
-            self.metrics,
-            events_sequentially_processed,
-            progress_increment
-        );
+        metrics::add!(self.metrics.cursor_progress, label = "persisted", persisted);
+        metrics::set!(self.metrics.cursor_progress, label = "pending", pending);
 
         Ok(())
     }
@@ -755,7 +750,7 @@ impl ServiceState for StorageNodeInner {
             .get_metadata(blob_id)
             .context("database error when retrieving metadata")?
             .ok_or(RetrieveMetadataError::Unavailable)
-            .inspect(|_| metrics::increment!(self.metrics, metadata_retrieved_total))
+            .inspect(|_| metrics::inc!(self.metrics.metadata_retrieved_total))
     }
 
     fn store_metadata(
@@ -789,7 +784,7 @@ impl ServiceState for StorageNodeInner {
             .put_verified_metadata(&verified_metadata_with_id)
             .context("unable to store metadata")?;
 
-        metrics::increment!(self.metrics, metadata_stored_total);
+        metrics::inc!(self.metrics.metadata_stored_total);
 
         Ok(true)
     }
@@ -809,7 +804,7 @@ impl ServiceState for StorageNodeInner {
             .context("unable to retrieve sliver")?
             .ok_or(RetrieveSliverError::Unavailable)
             .inspect(|sliver| {
-                metrics::increment!(
+                metrics::inc!(
                     self.metrics,
                     slivers_retrieved_total,
                     label = sliver.r#type()
@@ -848,7 +843,7 @@ impl ServiceState for StorageNodeInner {
             .put_sliver(blob_id, sliver)
             .context("unable to store sliver")?;
 
-        metrics::increment!(self.metrics, slivers_stored_total, label = sliver.r#type());
+        metrics::inc!(self.metrics, slivers_stored_total, label = sliver.r#type());
 
         Ok(true)
     }
@@ -867,7 +862,7 @@ impl ServiceState for StorageNodeInner {
         let confirmation = Confirmation::new(self.current_epoch(), *blob_id);
         let signed = sign_message(confirmation, self.protocol_key_pair.clone()).await?;
 
-        metrics::increment!(self.metrics, storage_confirmations_issued_total);
+        metrics::inc!(self.metrics.storage_confirmations_issued_total);
 
         Ok(StorageConfirmation::Signed(signed))
     }

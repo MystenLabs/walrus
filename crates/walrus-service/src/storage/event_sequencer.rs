@@ -26,7 +26,6 @@ impl EventSequencer {
     ///
     /// Added sequence numbers must be unique over those observed up to this point.
     pub fn add(&mut self, sequence_number: usize, event_id: EventID) {
-        dbg!(sequence_number);
         if sequence_number < self.next_required_sequence_num {
             // This class provides the invariant that we never advance unless we have seen all
             // prior sequence numbers, therefore anything encountered here is a duplicate.
@@ -56,5 +55,9 @@ impl EventSequencer {
         {
             self.next_required_sequence_num += 1;
         }
+    }
+
+    pub fn remaining(&self) -> u64 {
+        self.queue.len().try_into().expect("usize is at most u64")
     }
 }

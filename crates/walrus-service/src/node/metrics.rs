@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use prometheus::{
-    core::{AtomicU64, GenericGauge},
+    core::{AtomicU64, GenericGaugeVec},
     HistogramVec,
     IntCounter,
     IntCounterVec,
@@ -10,25 +10,30 @@ use prometheus::{
     Registry,
 };
 
-macro_rules! increment {
-    ($metrics:expr, $metric:ident) => {
-        $metrics.$metric.inc()
+macro_rules! inc {
+    ($metric:expr) => {
+        $metric.inc()
     };
     ($metrics:expr, $metric:ident, label = $label:expr) => {
-        $metrics
-            .$metric
-            .with_label_values(&[&$label.as_ref()])
-            .inc()
+        $metrics.$metric.with_label_values(&[$label.as_ref()]).inc()
     };
 }
-pub(super) use increment;
 
 macro_rules! add {
-    ($metrics:expr, $metric:ident, $amount:expr) => {
-        $metrics.$metric.add($amount)
+    ($metric:expr, label = $label:expr, $amount:expr) => {
+        $metric.with_label_values(&[$label.as_ref()]).add($amount)
     };
 }
+
+macro_rules! set {
+    ($metric:expr, label = $label:expr, $amount:expr) => {
+        $metric.with_label_values(&[$label.as_ref()]).set($amount)
+    };
+}
+
 pub(super) use add;
+pub(super) use inc;
+pub(super) use set;
 
 macro_rules! register_node_metric {
     ($metric_type:ty, $registry:ident, $opts:expr) => {{
@@ -85,8 +90,8 @@ define_node_metric_set! {
         (slivers_stored_total, "The total number of slivers stored", &["sliver_type"]),
         (slivers_retrieved_total, "Total number of sliver instances returned", &["sliver_type"])
     ],
-    GenericGauge<AtomicU64>: [
-        (events_sequentially_processed, "The number of Walurs events sequentially processed"),
+    GenericGaugeVec<AtomicU64>: [
+        (cursor_progress, "The number of Walrus events processed", &["state"]),
     ],
     HistogramVec: [
         (

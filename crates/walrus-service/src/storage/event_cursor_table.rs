@@ -28,6 +28,12 @@ const COLUMN_FAMILY_NAME: &str = "event_cursor";
 type EventIdWithProgress = (u64, EventID);
 type ProgressMergeOperand = (EventID, u64);
 
+#[derive(Debug, Copy, Clone)]
+pub(crate) struct EventProgress {
+    pub persisted: u64,
+    pub pending: u64,
+}
+
 #[derive(Debug, Clone)]
 pub(super) struct EventCursorTable {
     inner: DBMap<[u8; 6], EventIdWithProgress>,
@@ -79,7 +85,7 @@ impl EventCursorTable {
         &self,
         sequence_number: usize,
         cursor: &EventID,
-    ) -> Result<u64, TypedStoreError> {
+    ) -> Result<EventProgress, TypedStoreError> {
         let mut event_queue = self.event_queue.lock().unwrap();
 
         event_queue.add(sequence_number, *cursor);
@@ -100,9 +106,16 @@ impl EventCursorTable {
             batch.write()?;
 
             event_queue.advance();
-            Ok(count)
+
+            Ok(EventProgress {
+                persisted: count,
+                pending: event_queue.remaining(),
+            })
         } else {
-            Ok(0)
+            Ok(EventProgress {
+                persisted: 0,
+                pending: event_queue.remaining(),
+            })
         }
     }
 }
