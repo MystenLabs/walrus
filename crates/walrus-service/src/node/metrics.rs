@@ -3,6 +3,7 @@
 
 use prometheus::{
     core::{AtomicU64, GenericGauge},
+    HistogramVec,
     IntCounter,
     IntCounterVec,
     Opts,
@@ -38,7 +39,7 @@ macro_rules! register_node_metric {
             .expect("metrics defined at compile time must be valid")
     }};
     ($metric_type:ty, $registry:ident, $opts:expr, $label_names:expr) => {{
-        let metric = <$metric_type>::new($opts, $label_names).unwrap();
+        let metric = <$metric_type>::new($opts.into(), $label_names).unwrap();
         $registry
             .register(Box::new(metric.clone()))
             .map(|()| metric)
@@ -81,11 +82,17 @@ define_node_metric_set! {
         (storage_confirmations_issued_total, "The total number of storage confirmations issued")
     ],
     IntCounterVec: [
-        (blob_events_total, "The total number of blob events observed", &["blob_event_type"]),
         (slivers_stored_total, "The total number of slivers stored", &["sliver_type"]),
         (slivers_retrieved_total, "Total number of sliver instances returned", &["sliver_type"])
     ],
     GenericGauge<AtomicU64>: [
         (events_sequentially_processed, "The number of Walurs events sequentially processed"),
+    ],
+    HistogramVec: [
+        (
+            event_process_duration_seconds,
+            "Time (in seconds) spent processing events",
+            &["event_type"]
+        ),
     ]
 }

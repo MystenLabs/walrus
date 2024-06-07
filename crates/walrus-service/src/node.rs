@@ -377,23 +377,23 @@ impl StorageNode {
         while let Some((sequence_number, event)) = blob_events.next().await {
             tracing::debug!(event = ?event.event_id(), "received system event");
 
+            let _timer_guard = &self
+                .inner
+                .metrics
+                .event_process_duration_seconds
+                .with_label_values(&[event_label(&event)])
+                .start_timer();
+
             self.inner.storage.update_blob_info(&event)?;
 
             match event {
                 BlobEvent::Certified(event) => {
-                    metrics::increment!(self.inner.metrics, blob_events_total, label = "certified");
-                    self.on_blob_certified(sequence_number, event).await?;
+                    self.process_blob_certified_event(sequence_number, event)?;
                 }
                 BlobEvent::InvalidBlobID(event) => {
-                    metrics::increment!(self.inner.metrics, blob_events_total, label = "invalid");
-                    self.on_blob_invalid(sequence_number, event)?;
+                    self.process_blob_invalid_event(sequence_number, event)?;
                 }
                 BlobEvent::Registered(_) => {
-                    metrics::increment!(
-                        self.inner.metrics,
-                        blob_events_total,
-                        label = "registered"
-                    );
                     self.inner
                         .mark_event_completed(sequence_number, &event.event_id())?;
                 }
@@ -403,7 +403,7 @@ impl StorageNode {
         bail!("event stream for blob events stopped")
     }
 
-    async fn on_blob_certified(
+    fn process_blob_certified_event(
         &self,
         event_sequence_number: usize,
         event: BlobCertified,
@@ -432,7 +432,7 @@ impl StorageNode {
     }
 
     // TODO(kwuest): Cancel in-progress syncs for the blob (part of #366 or follow-up)
-    fn on_blob_invalid(
+    fn process_blob_invalid_event(
         &self,
         event_sequence_number: usize,
         event: InvalidBlobId,
@@ -488,8 +488,6 @@ impl StorageNodeInner {
         let progress_increment = self
             .storage
             .maybe_advance_event_cursor(sequence_number, cursor)?;
-
-        dbg!(progress_increment);
 
         metrics::add!(
             self.metrics,
@@ -958,6 +956,14 @@ where
         })?;
 
     Ok(signed)
+}
+
+fn event_label(event: &BlobEvent) -> &'static str {
+    match event {
+        BlobEvent::Registered(_) => "registered",
+        BlobEvent::Certified(_) => "certified",
+        BlobEvent::InvalidBlobID(_) => "invalid-blob",
+    }
 }
 
 #[cfg(test)]
