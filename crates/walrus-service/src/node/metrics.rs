@@ -10,45 +10,20 @@ use prometheus::{
     Registry,
 };
 
-macro_rules! inc {
-    ($metric:expr) => {
-        $metric.inc()
-    };
-    ($metrics:expr, $metric:ident, label = $label:expr) => {
-        $metrics.$metric.with_label_values(&[$label.as_ref()]).inc()
+macro_rules! with_label {
+    ($metric:expr, $label:expr) => {
+        $metric.with_label_values(&[$label.as_ref()])
     };
 }
 
-macro_rules! add {
-    ($metric:expr, label = $label:expr, $amount:expr) => {
-        $metric.with_label_values(&[$label.as_ref()]).add($amount)
-    };
-}
+pub(super) use with_label;
 
-macro_rules! set {
-    ($metric:expr, label = $label:expr, $amount:expr) => {
-        $metric.with_label_values(&[$label.as_ref()]).set($amount)
-    };
-}
-
-pub(super) use add;
-pub(super) use inc;
-pub(super) use set;
-
-macro_rules! register_node_metric {
+macro_rules! create_metric {
     ($metric_type:ty, $registry:ident, $opts:expr) => {{
-        let metric = <$metric_type>::with_opts($opts).unwrap();
-        $registry
-            .register(Box::new(metric.clone()))
-            .map(|()| metric)
-            .expect("metrics defined at compile time must be valid")
+        <$metric_type>::with_opts($opts).unwrap()
     }};
     ($metric_type:ty, $registry:ident, $opts:expr, $label_names:expr) => {{
-        let metric = <$metric_type>::new($opts.into(), $label_names).unwrap();
-        $registry
-            .register(Box::new(metric.clone()))
-            .map(|()| metric)
-            .expect("metrics defined at compile time must be valid")
+        <$metric_type>::new($opts.into(), $label_names).unwrap()
     }};
 }
 
@@ -68,12 +43,20 @@ macro_rules! define_node_metric_set {
         impl NodeMetricSet {
             pub fn new(registry: &Registry) -> Self {
                 Self { $($(
-                    $metric: register_node_metric!(
-                        $metric_type,
-                        registry,
-                        Opts::new(stringify!($metric), $descr).namespace("walrus")
-                        $(, $labels)?
-                    )
+                    $metric: {
+                        let metric = create_metric!(
+                            $metric_type,
+                            registry,
+                            Opts::new(stringify!($metric), $descr).namespace("walrus")
+                            $(, $labels)?
+                        );
+
+                        registry
+                            .register(Box::new(metric.clone()))
+                            .expect("metrics defined at compile time must be valid");
+
+                        metric
+                    }
                 ),*),*}
             }
         }
