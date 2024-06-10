@@ -148,12 +148,8 @@ async fn new_client(
 ) -> anyhow::Result<WithTempDir<Client<SuiContractClient>>> {
     // Create the client with a separate wallet
     let wallet = wallet_for_testing_from_faucet(network).await?;
-    let sui_read_client = SuiReadClient::new(
-        wallet.as_ref().get_client().await?,
-        config.system_pkg,
-        config.system_object,
-    )
-    .await?;
+    let sui_read_client =
+        SuiReadClient::new(wallet.as_ref().get_client().await?, config.system_object).await?;
     let sui_contract_client = wallet.and_then(|wallet| {
         SuiContractClient::new_with_read_client(wallet, gas_budget, sui_read_client)
     })?;
