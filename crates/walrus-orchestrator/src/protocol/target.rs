@@ -106,11 +106,21 @@ mod default_node_parameters {
 
 impl ProtocolParameters for ProtocolNodeParameters {}
 
-#[derive(Default, Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ProtocolClientParameters {
     target_load: u64,
     blob_size: usize,
     metrics_port: u16,
+}
+
+impl Default for ProtocolClientParameters {
+    fn default() -> Self {
+        Self {
+            target_load: 2,
+            blob_size: 10_000,
+            metrics_port: 9584,
+        }
+    }
 }
 
 impl Display for ProtocolClientParameters {
