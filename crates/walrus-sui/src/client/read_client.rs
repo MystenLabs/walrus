@@ -45,11 +45,12 @@ use crate::{
 const EVENT_MODULE: &str = "blob_events";
 
 /// Trait to read system state information and events from chain.
-pub trait ReadClient {
-    /// Get the price for one unit of storage per epoch.
+pub trait ReadClient: Send + Sync {
+    /// Returns the price for one unit of storage per epoch.
     fn price_per_unit_size(&self) -> impl Future<Output = SuiClientResult<u64>> + Send;
 
-    /// Get a stream of new blob events.
+    /// Returns a stream of new blob events.
+    ///
     /// The `polling_interval` defines how often the connected full node is polled for events.
     /// If a `cursor` is provided, the stream will contain only events that are emitted
     /// after the event with the provided [`EventID`]. Otherwise the event stream contains all
@@ -61,10 +62,16 @@ pub trait ReadClient {
         cursor: Option<EventID>,
     ) -> impl Future<Output = SuiClientResult<impl Stream<Item = BlobEvent> + Send>> + Send;
 
-    /// Get the current Walrus system object.
+    /// Returns the blob event with the given Event ID.
+    fn get_blob_event(
+        &self,
+        event_id: EventID,
+    ) -> impl Future<Output = SuiClientResult<BlobEvent>> + Send;
+
+    /// Returns the current Walrus system object.
     fn get_system_object(&self) -> impl Future<Output = SuiClientResult<SystemObject>> + Send;
 
-    /// Get the current committee.
+    /// Returns the current committee.
     fn current_committee(&self) -> impl Future<Output = SuiClientResult<Committee>> + Send;
 }
 
@@ -193,6 +200,17 @@ impl ReadClient for SuiReadClient {
         Ok(ReceiverStream::new(rx_event))
     }
 
+    async fn get_blob_event(&self, event_id: EventID) -> SuiClientResult<BlobEvent> {
+        self.sui_client
+            .event_api()
+            .get_events(event_id.tx_digest)
+            .await?
+            .into_iter()
+            .find(|e| e.id == event_id)
+            .and_then(|e| e.try_into().ok())
+            .ok_or(SuiClientError::NoCorrespondingBlobEvent(event_id))
+    }
+
     async fn get_system_object(&self) -> SuiClientResult<SystemObject> {
         get_sui_object(&self.sui_client, self.system_object_id).await
     }
@@ -294,7 +312,7 @@ where
                 // We retry here, since this error generally (only?)
                 // occurs if the cursor could not be found, but this is
                 // resolved quickly after retrying.
-                tracing::error!("RPC error for otherwise valid RPC call: {}", e);
+
                 // Do an exponential backoff until `MAX_POLLING_INTERVAL` is reached
                 // unless `initial_polling_interval` is larger
                 // TODO(karl): Stop retrying and switch to a different full node.
@@ -308,6 +326,12 @@ where
                     .min(MAX_POLLING_INTERVAL)
                     .max(initial_polling_interval);
                 page_available = false;
+                tracing::warn!(
+                    event_cursor = ?last_event,
+                    backoff = ?polling_interval,
+                    rpc_error = ?e,
+                    "RPC error for otherwise valid RPC call, retrying event polling after backoff",
+                );
                 continue;
             }
             Err(e) => {

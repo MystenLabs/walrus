@@ -8,7 +8,7 @@ use futures::{future::Either, stream::FuturesUnordered, StreamExt};
 use mysten_metrics::RegistryService;
 use serde::Serialize;
 use sui_types::event::EventID;
-use tokio::select;
+use tokio::{select, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{instrument, Instrument};
 use typed_store::{rocks::MetricConf, DBMetrics, TypedStoreError};
@@ -35,17 +35,17 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
-use walrus_sdk::api::BlobStatus;
+use walrus_sdk::api::{BlobStatus, ServiceHealthInfo};
 use walrus_sui::{
     client::SuiReadClient,
-    types::{BlobCertified, BlobEvent, InvalidBlobID},
+    types::{BlobCertified, BlobEvent, InvalidBlobId},
 };
 
 use crate::{
     committee::{CommitteeService, CommitteeServiceFactory, SuiCommitteeServiceFactory},
     config::{StorageNodeConfig, SuiConfig},
     contract_service::{SuiSystemContractService, SystemContractService},
-    storage::{ShardStorage, Storage},
+    storage::{DatabaseConfig, ShardStorage, Storage},
     system_events::{SuiSystemEventProvider, SystemEventProvider},
 };
 
@@ -128,6 +128,9 @@ pub trait ServiceState {
 
     /// Returns the number of shards the node is currently operating with.
     fn n_shards(&self) -> NonZeroU16;
+
+    /// Returns the node health information of this ServiceState.
+    fn health_info(&self) -> ServiceHealthInfo;
 }
 
 /// Builder to construct a [`StorageNode`].
@@ -199,17 +202,22 @@ impl StorageNodeBuilder {
         registry_service: RegistryService,
     ) -> Result<StorageNode, anyhow::Error> {
         DBMetrics::init(&registry_service.default_registry());
+        let start_time = Instant::now();
 
         let protocol_key_pair = config
             .protocol_key_pair
             .get()
             .expect("protocol keypair must already be loaded")
             .clone();
-
+        let db_config = config.db_config.clone().unwrap_or_default();
         let storage = if let Some(storage) = self.storage {
             storage
         } else {
-            Storage::open(config.storage_path.as_path(), MetricConf::new("storage"))?
+            Storage::open(
+                config.storage_path.as_path(),
+                &db_config,
+                MetricConf::new("storage"),
+            )?
         };
 
         let sui_config_and_client =
@@ -245,9 +253,11 @@ impl StorageNodeBuilder {
         StorageNode::new(
             protocol_key_pair,
             storage,
+            db_config,
             event_provider,
             committee_service_factory,
             contract_service,
+            start_time,
         )
         .await
     }
@@ -281,15 +291,18 @@ pub struct StorageNode {
     contract_service: Arc<dyn SystemContractService>,
     committee_service: Arc<dyn CommitteeService>,
     _committee_service_factory: Box<dyn CommitteeServiceFactory>,
+    start_time: Instant,
 }
 
 impl StorageNode {
     async fn new(
         key_pair: ProtocolKeyPair,
         mut storage: Storage,
+        db_config: DatabaseConfig,
         event_provider: Box<dyn SystemEventProvider>,
         committee_service_factory: Box<dyn CommitteeServiceFactory>,
         contract_service: Box<dyn SystemContractService>,
+        start_time: Instant,
     ) -> Result<Self, anyhow::Error> {
         let committee_service = committee_service_factory
             .new_for_epoch(Some(key_pair.as_ref().public()))
@@ -306,7 +319,7 @@ impl StorageNode {
 
         for shard in managed_shards {
             storage
-                .create_storage_for_shard(*shard)
+                .create_storage_for_shard(*shard, &db_config)
                 .with_context(|| format!("unable to initialize storage for shard {}", shard))?;
         }
 
@@ -318,6 +331,7 @@ impl StorageNode {
             contract_service: contract_service.into(),
             committee_service: committee_service.into(),
             _committee_service_factory: committee_service_factory,
+            start_time,
         })
     }
 
@@ -403,7 +417,7 @@ impl StorageNode {
     fn on_blob_invalid(
         &self,
         event_sequence_number: usize,
-        event: InvalidBlobID,
+        event: InvalidBlobId,
     ) -> anyhow::Result<()> {
         self.storage.delete_blob(&event.blob_id)?;
         self.storage
@@ -703,11 +717,12 @@ impl ServiceState for StorageNode {
     }
 
     fn blob_status(&self, blob_id: &BlobId) -> Result<BlobStatus, BlobStatusError> {
-        self.storage
+        Ok(self
+            .storage
             .get_blob_info(blob_id)
             .context("could not retrieve blob info")?
-            .ok_or(BlobStatusError::Unknown)
             .map(BlobStatus::from)
+            .unwrap_or_default())
     }
 
     async fn verify_inconsistency_proof(
@@ -757,6 +772,14 @@ impl ServiceState for StorageNode {
 
     fn n_shards(&self) -> NonZeroU16 {
         self.encoding_config.n_shards()
+    }
+
+    fn health_info(&self) -> ServiceHealthInfo {
+        ServiceHealthInfo {
+            uptime: self.start_time.elapsed(),
+            epoch: self.current_epoch(),
+            public_key: self.protocol_key_pair.as_ref().public().clone(),
+        }
     }
 }
 
@@ -922,7 +945,7 @@ mod tests {
             .await?;
         tokio::time::sleep(Duration::from_millis(50)).await;
         assert!(node.as_ref().storage.is_stored_at_all_shards(&BLOB_ID)?);
-        events.send(BlobEvent::InvalidBlobID(InvalidBlobID::for_testing(
+        events.send(BlobEvent::InvalidBlobID(InvalidBlobId::for_testing(
             BLOB_ID,
         )))?;
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -943,11 +966,18 @@ mod tests {
         // Wait to make sure the event is received.
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        let blob_status = node.as_ref().blob_status(&BLOB_ID)?;
+        let BlobStatus::Existent {
+            status,
+            end_epoch,
+            status_event,
+        } = node.as_ref().blob_status(&BLOB_ID)?
+        else {
+            panic!("got nonexistent blob status")
+        };
 
-        assert_eq!(blob_status.status, SdkBlobCertificationStatus::Registered);
-        assert_eq!(blob_status.status_event, blob_event.event_id);
-        assert_eq!(blob_status.end_epoch, blob_event.end_epoch);
+        assert_eq!(status, SdkBlobCertificationStatus::Registered);
+        assert_eq!(status_event, blob_event.event_id);
+        assert_eq!(end_epoch, blob_event.end_epoch);
 
         Ok(())
     }
@@ -963,7 +993,7 @@ mod tests {
 
         assert!(matches!(
             node.as_ref().blob_status(&BLOB_ID),
-            Err(BlobStatusError::Unknown)
+            Ok(BlobStatus::Nonexistent)
         ));
 
         Ok(())
@@ -1183,9 +1213,6 @@ mod tests {
                 .await?
         };
 
-        // Wait for HTTP to start up
-        tokio::time::sleep(Duration::from_millis(200)).await;
-
         let config = cluster.encoding_config();
         let blob_details = EncodedBlob::new(blob, config);
 
@@ -1354,8 +1381,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    #[ignore = "syncing all symbols takes several seconds"]
+    #[tokio::test(start_paused = true)]
     async fn recovers_sliver_from_a_small_set() -> TestResult {
         let shards: &[&[u16]] = &[&[0], &(1..=6).collect::<Vec<_>>()];
         let store_secondary_at: Vec<_> = ShardIndex::range(0..5).collect();
@@ -1488,14 +1514,11 @@ mod tests {
 
         let _ = tokio::time::timeout(duration, async {
             loop {
-                let result = func_to_retry().await;
-                if result.is_ok() {
-                    last_result = Some(func_to_retry().await);
+                last_result = Some(func_to_retry().await);
+                if last_result.as_ref().unwrap().is_ok() {
                     return;
-                } else {
-                    last_result = Some(func_to_retry().await);
-                    tokio::time::sleep(Duration::from_millis(5)).await;
                 }
+                tokio::time::sleep(Duration::from_millis(5)).await;
             }
         })
         .await;

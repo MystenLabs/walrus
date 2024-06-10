@@ -26,6 +26,8 @@ use walrus_core::{
     SliverType,
 };
 
+use crate::storage::{DatabaseConfig, DatabaseTableOptions};
+
 type PrimarySliverKey = SliverKey<true>;
 type SecondarySliverKey = SliverKey<false>;
 
@@ -55,6 +57,7 @@ impl ShardStorage {
     pub fn create_or_reopen(
         id: ShardIndex,
         database: &Arc<RocksDB>,
+        db_config: &DatabaseConfig,
     ) -> Result<Self, TypedStoreError> {
         let rw_options = ReadWriteOptions::default();
 
@@ -63,7 +66,7 @@ impl ShardStorage {
         let cf_name = slivers_column_family_name(id);
 
         if database.cf_handle(&cf_name).is_none() {
-            let (_, options) = Self::slivers_column_family_options(id);
+            let (_, options) = Self::slivers_column_family_options(id, db_config);
             database
                 .create_cf(&cf_name, &options)
                 .map_err(typed_store_err_from_rocks_err)?;
@@ -168,12 +171,14 @@ impl ShardStorage {
     }
 
     /// Returns the name and options for the column family for a shard with the specified index.
-    pub(crate) fn slivers_column_family_options(id: ShardIndex) -> (String, Options) {
-        // TODO(jsmith): Optimize for sliver storage (#65).
-        let mut options = Options::default();
-        options.set_enable_blob_files(true);
-
-        (slivers_column_family_name(id), options)
+    pub(crate) fn slivers_column_family_options(
+        id: ShardIndex,
+        db_config: &DatabaseConfig,
+    ) -> (String, Options) {
+        (
+            slivers_column_family_name(id),
+            db_config.shard().to_options(),
+        )
     }
 
     /// Returns the ids of existing shards in the database at the provided path.

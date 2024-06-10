@@ -11,7 +11,7 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
-use walrus_sdk::api::BlobStatus;
+use walrus_sdk::api::{BlobStatus, ServiceHealthInfo};
 
 use super::{
     responses::RestApiJsonError,
@@ -22,6 +22,7 @@ use crate::server::responses::ApiSuccess;
 pub(super) const GROUP_STORING_BLOBS: &str = "Writing Blobs";
 pub(super) const GROUP_READING_BLOBS: &str = "Reading Blobs";
 pub(super) const GROUP_RECOVERY: &str = "Recovery";
+pub(super) const GROUP_STATUS: &str = "Status";
 
 #[derive(utoipa::OpenApi)]
 #[openapi(
@@ -33,7 +34,8 @@ pub(super) const GROUP_RECOVERY: &str = "Recovery";
         routes::get_storage_confirmation,
         routes::get_recovery_symbol,
         routes::inconsistency_proof,
-        routes::get_blob_status
+        routes::get_blob_status,
+        routes::health_info,
     ),
     components(schemas(
         BlobIdString,
@@ -45,7 +47,8 @@ pub(super) const GROUP_RECOVERY: &str = "Recovery";
         ApiSuccessMessage,
         ApiSuccessBlobStatus,
         EventIdSchema,
-        ApiSuccessStorageConfirmation
+        ApiSuccessStorageConfirmation,
+        ApiSuccessServiceHealthInfo
     ),)
 )]
 pub(super) struct RestApiDoc;
@@ -95,6 +98,7 @@ api_success_alias!(
 api_success_alias!(UntypedSignedMessage as ApiSuccessSignedMessage, ToSchema);
 api_success_alias!(BlobStatus as ApiSuccessBlobStatus, ToSchema);
 api_success_alias!(String as ApiSuccessMessage, PartialSchema);
+api_success_alias!(ServiceHealthInfo as ApiSuccessServiceHealthInfo, ToSchema);
 
 /// Convert the path with variables of the form `:id` to the form `{id}`.
 pub(crate) fn rewrite_route(path: &str) -> String {

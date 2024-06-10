@@ -4,7 +4,7 @@ description: Run all tests and report coverage
 runs:
   using: "composite"
   steps:
-    - run: cargo install cargo-tarpaulin@0.27.3
+    - run: cargo install --locked cargo-tarpaulin@0.30.0
       shell: bash
 
     - name: Run tests (including integration E2E tests) and record coverage

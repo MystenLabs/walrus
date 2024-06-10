@@ -112,7 +112,7 @@ impl LoadGenerator {
                             };
                         write_finished.push(tokio::spawn(async move {
                             let now = Instant::now();
-                            let result = client.as_ref().reserve_and_store_blob(&blob, 1).await;
+                            let result = client.as_ref().reserve_and_store_blob(&blob, 1, true).await;
                             (now, result, client)
                         }));
 

@@ -21,7 +21,7 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
-use walrus_sdk::api::BlobStatus;
+use walrus_sdk::api::{BlobStatus, ServiceHealthInfo};
 
 use super::{
     extract::Bcs,
@@ -55,6 +55,7 @@ pub const RECOVERY_ENDPOINT: &str =
 pub const INCONSISTENCY_PROOF_ENDPOINT: &str = "/v1/blobs/:blob_id/inconsistent/:sliver_type";
 /// The path to get the status of a blob.
 pub const STATUS_ENDPOINT: &str = "/v1/blobs/:blob_id/status";
+pub const HEALTH_ENDPOINT: &str = "/v1/health";
 
 /// A blob ID encoded as a URL-safe Base64 string, without the trailing equal (=) signs.
 #[serde_as]
@@ -347,4 +348,22 @@ pub async fn get_blob_status<S: SyncServiceState>(
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
 ) -> Result<ApiSuccess<BlobStatus>, BlobStatusError> {
     Ok(ApiSuccess::ok(state.blob_status(&blob_id)?))
+}
+
+/// Get storage health information.
+///
+/// Gets the storage node's health information and basic running stats.
+#[tracing::instrument(skip_all)]
+#[utoipa::path(
+    get,
+    path = openapi::rewrite_route(HEALTH_ENDPOINT),
+    responses(
+        (status = 200, description = "Server is running", body = ApiSuccessServiceHealthInfo),
+    ),
+    tag = openapi::GROUP_STATUS
+)]
+pub async fn health_info<S: SyncServiceState>(
+    State(state): State<Arc<S>>,
+) -> ApiSuccess<ServiceHealthInfo> {
+    ApiSuccess::ok(state.health_info())
 }

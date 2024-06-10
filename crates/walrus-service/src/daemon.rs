@@ -11,6 +11,7 @@ use axum::{
     http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, put},
+    Json,
     Router,
 };
 use reqwest::header::{ACCESS_CONTROL_ALLOW_ORIGIN, CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS};
@@ -18,10 +19,10 @@ use serde::Deserialize;
 use tower_http::trace::TraceLayer;
 use tracing::Level;
 use walrus_core::encoding::Primary;
-use walrus_sui::{client::ContractClient, types::Blob};
+use walrus_sui::client::ContractClient;
 
 use crate::{
-    client::{Client, ClientErrorKind},
+    client::{BlobStoreResult, Client, ClientErrorKind},
     server::routes::BlobIdString,
 };
 
@@ -129,16 +130,21 @@ async fn retrieve_blob<T: Send + Sync>(
 #[tracing::instrument(level = Level::ERROR, skip_all, fields(%epochs))]
 async fn store_blob<T: ContractClient>(
     State(client): State<Arc<Client<T>>>,
-    Query(PublisherQuery { epochs }): Query<PublisherQuery>,
+    Query(PublisherQuery { epochs, force }): Query<PublisherQuery>,
     blob: Bytes,
 ) -> Response {
     tracing::debug!("starting to store received blob");
-    match client.reserve_and_store_blob(&blob[..], epochs).await {
-        Ok(Blob { blob_id, .. }) => {
-            tracing::debug!(
-                %blob_id, "successfully stored blob"
-            );
-            (StatusCode::OK, blob_id.to_string()).into_response()
+    match client
+        .reserve_and_store_blob(&blob[..], epochs, force)
+        .await
+    {
+        Ok(result) => {
+            let status_code = if matches!(result, BlobStoreResult::MarkedInvalid { .. }) {
+                StatusCode::INTERNAL_SERVER_ERROR
+            } else {
+                StatusCode::OK
+            };
+            (status_code, Json(result)).into_response()
         }
         Err(error) => {
             tracing::error!(%error, "error storing blob");
@@ -156,6 +162,8 @@ async fn store_blob<T: ContractClient>(
 struct PublisherQuery {
     #[serde(default = "default_epochs")]
     epochs: u64,
+    #[serde(default)]
+    force: bool,
 }
 
 fn default_epochs() -> u64 {

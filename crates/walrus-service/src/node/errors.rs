@@ -111,8 +111,6 @@ impl From<RetrieveMetadataError> for InconsistencyProofError {
 
 #[derive(Debug, thiserror::Error)]
 pub enum BlobStatusError {
-    #[error("the requested blob is unknown to this storage node")]
-    Unknown,
     #[error(transparent)]
     Internal(#[from] InternalError),
 }

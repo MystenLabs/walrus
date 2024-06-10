@@ -9,41 +9,44 @@ use std::{
     net::SocketAddr,
     num::{NonZeroU16, NonZeroU64},
     path::{Path, PathBuf},
+    process::ExitCode,
+    time::Duration,
 };
 
 use anyhow::{anyhow, Result};
 use clap::{Args, Parser, Subcommand};
+use colored::Colorize;
 use serde::{Deserialize, Serialize};
 use serde_with::{base64::Base64, serde_as, DisplayFromStr};
-use sui_types::base_types::ObjectID;
+use tracing_subscriber::{util::SubscriberInitExt, EnvFilter};
 use walrus_core::{
     encoding::{EncodingConfig, Primary},
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
 };
+use walrus_sdk::api::BlobStatus;
 use walrus_service::{
     cli_utils::{
         error,
+        format_event_id,
         get_contract_client,
         get_read_client,
-        get_sui_client_from_rpc_node_or_wallet,
+        get_sui_read_client_from_rpc_node_or_wallet,
         load_configuration,
         load_wallet_context,
         print_walrus_info,
         success,
         HumanReadableBytes,
     },
+    client::{BlobStoreResult, Client},
     daemon::ClientDaemon,
 };
-use walrus_sui::{
-    client::{ReadClient, SuiReadClient},
-    types::Blob,
-};
+use walrus_sui::client::ReadClient;
 
 #[derive(Parser, Debug, Clone, Deserialize)]
 #[command(author, version, about = "Walrus client", long_about = None)]
 #[clap(rename_all = "kebab-case")]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 struct App {
     /// The path to the wallet configuration file.
     ///
@@ -91,7 +94,7 @@ struct App {
 #[serde_as]
 #[derive(Subcommand, Debug, Clone, Deserialize)]
 #[clap(rename_all = "kebab-case")]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 enum Commands {
     /// Store a new blob into Walrus.
     #[clap(alias("write"))]
@@ -102,6 +105,13 @@ enum Commands {
         #[clap(short, long, default_value_t = default::epochs())]
         #[serde(default = "default::epochs")]
         epochs: u64,
+        /// Do not check for the blob status before storing it.
+        ///
+        /// This will create a new blob even if the blob is already certified for a sufficient
+        /// duration.
+        #[clap(long, action)]
+        #[serde(default)]
+        force: bool,
     },
     /// Read a blob from Walrus, given the blob ID.
     Read {
@@ -114,6 +124,27 @@ enum Commands {
         #[clap(short, long)]
         #[serde(default)]
         out: Option<PathBuf>,
+        #[clap(flatten)]
+        #[serde(default)]
+        rpc_arg: RpcArg,
+    },
+    /// Get the status of a blob.
+    ///
+    /// This queries multiple storage nodes representing more than a third of the shards for the
+    /// blob status and return the "latest" status (in the life-cycle of a blob) that can be
+    /// verified with an on-chain event.
+    ///
+    /// This does not take into account any transient states. For example, for invalid blobs, there
+    /// is a short period in which some of the storage nodes are aware of the inconsistency before
+    /// this is posted on chain. During this time period, this command would still return a
+    /// "verified" status.
+    BlobStatus {
+        #[clap(flatten)]
+        file_or_blob_id: FileOrBlobId,
+        /// Timeout for status requests to storage nodes.
+        #[clap(short, long, value_parser = humantime::parse_duration, default_value = "1s")]
+        #[serde(default = "default::status_timeout")]
+        timeout: Duration,
         #[clap(flatten)]
         #[serde(default)]
         rpc_arg: RpcArg,
@@ -156,11 +187,12 @@ enum Commands {
         /// The JSON-encoded args for the Walrus CLI; if not present, the args are read from stdin.
         ///
         /// The JSON structure follows the CLI arguments, containing global options and a "command"
-        /// object at the root level. The "command" object itself contains the command ("store",
-        /// "read", "publisher", "aggregator", "blob_id") with an object containing the command
+        /// object at the root level. The "command" object itself contains the command (e.g.,k
+        /// "store", "read", "publisher", "blobStatus", ...) with an object containing the command
         /// options.
         ///
-        /// Where CLI options are in "kebab-case", the respective JSON strings are in "snake_case".
+        /// Note that where CLI options are in "kebab-case", the respective JSON strings are in
+        /// "camelCase".
         ///
         /// For example, to read a blob and write it to "some_output_file" using a specific
         /// configuration file, you can use the following JSON input:
@@ -169,7 +201,7 @@ enum Commands {
         ///       "config": "working_dir/client_config.yaml",
         ///       "command": {
         ///         "read": {
-        ///           "blob_id": "4BKcDC0Ih5RJ8R0tFMz3MZVNZV8b2goT6_JiEEwNHQo",
+        ///           "blobId": "4BKcDC0Ih5RJ8R0tFMz3MZVNZV8b2goT6_JiEEwNHQo",
         ///           "out": "some_output_file"
         ///         }
         ///       }
@@ -178,8 +210,7 @@ enum Commands {
         /// Important: If the "read" command does not have an "out" file specified, the output JSON
         /// string will contain the full bytes of the blob, encoded as a Base64 string.
         ///
-        /// The commands "store", "read", "publisher", "aggregator", "daemon", and "blob_id" are
-        /// available; "info" and "json" are not available.
+        /// All commands except "info" are available.
         #[clap(verbatim_doc_comment)]
         command_string: Option<String>,
     },
@@ -199,7 +230,7 @@ enum Commands {
 }
 
 #[derive(Debug, Clone, Args, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 struct PublisherArgs {
     /// The address to which to bind the service.
     #[clap(short, long)]
@@ -211,7 +242,7 @@ struct PublisherArgs {
 }
 
 #[derive(Default, Debug, Clone, Args, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 struct RpcArg {
     /// The URL of the Sui RPC node to use.
     ///
@@ -222,7 +253,47 @@ struct RpcArg {
     rpc_url: Option<String>,
 }
 
+#[serde_as]
+#[derive(Debug, Clone, Args, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[group(required = true, multiple = false)]
+struct FileOrBlobId {
+    /// The file containing the blob to be checked.
+    #[clap(short, long)]
+    file: Option<PathBuf>,
+    /// The blob ID to be checked.
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[clap(short, long)]
+    blob_id: Option<BlobId>,
+}
+
+impl FileOrBlobId {
+    fn get_or_compute_blob_id(self, encoding_config: &EncodingConfig) -> Result<BlobId> {
+        Ok(match self {
+            FileOrBlobId {
+                blob_id: Some(blob_id),
+                ..
+            } => blob_id,
+            FileOrBlobId {
+                file: Some(file), ..
+            } => {
+                tracing::debug!(
+                    file = %file.display(),
+                    "checking status of blob read from the filesystem"
+                );
+                *encoding_config
+                    .get_blob_encoder(&std::fs::read(&file)?)?
+                    .compute_metadata()
+                    .blob_id()
+            }
+            _ => unreachable!("the CLI enforces exactly one of the options to be present"),
+        })
+    }
+}
+
 mod default {
+    use std::time::Duration;
+
     pub(crate) fn gas_budget() -> u64 {
         500_000_000
     }
@@ -233,6 +304,10 @@ mod default {
 
     pub(crate) fn max_body_size_kib() -> usize {
         10_240
+    }
+
+    pub(crate) fn status_timeout() -> Duration {
+        Duration::from_secs(1)
     }
 }
 
@@ -271,44 +346,61 @@ fn output_string<T: Display + Serialize>(output: &T, json: bool) -> Result<Strin
 }
 
 /// The output of the `store` command.
-#[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-struct StoreOutput {
-    #[serde_as(as = "DisplayFromStr")]
-    blob_id: BlobId,
-    sui_object_id: ObjectID,
-    blob_size: u64,
-}
+struct StoreOutput(BlobStoreResult);
 
-impl From<Blob> for StoreOutput {
-    fn from(blob: Blob) -> Self {
-        Self {
-            blob_id: blob.blob_id,
-            sui_object_id: blob.id,
-            blob_size: blob.size,
-        }
+impl From<BlobStoreResult> for StoreOutput {
+    fn from(result: BlobStoreResult) -> Self {
+        Self(result)
     }
 }
 
 impl Display for StoreOutput {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{} Blob stored successfully.\n\
-                Unencoded size: {}\nSui object ID: {}\nBlob ID: {}",
-            success(),
-            HumanReadableBytes(self.blob_size),
-            self.sui_object_id,
-            self.blob_id,
-        )
+        match &self.0 {
+            BlobStoreResult::AlreadyCertified {
+                blob_id,
+                event,
+                end_epoch,
+            } => {
+                write!(
+                    f,
+                    "{} Blob was previously certified within Walrus for a sufficient period.\n\
+                    Blob ID: {}\nCertification event ID: {}\nEnd epoch (exclusive): {}",
+                    success(),
+                    blob_id,
+                    format_event_id(event),
+                    end_epoch,
+                )
+            }
+            BlobStoreResult::NewlyCreated(blob) => {
+                write!(
+                    f,
+                    "{} Blob stored successfully.\n\
+                    Blob ID: {}\nUnencoded size: {}\nSui object ID: {}",
+                    success(),
+                    blob.blob_id,
+                    HumanReadableBytes(blob.size),
+                    blob.id,
+                )
+            }
+            BlobStoreResult::MarkedInvalid { blob_id, event } => {
+                write!(
+                    f,
+                    "{} Blob was marked as invalid.\nBlob ID: {}\nInvalidation event ID: {}",
+                    error(),
+                    blob_id,
+                    format_event_id(event),
+                )
+            }
+        }
     }
 }
 
 /// The output of the `read` command.
 #[serde_as]
 #[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 struct ReadOutput {
     #[serde(skip_serializing_if = "std::option::Option::is_none")]
     out: Option<PathBuf>,
@@ -349,7 +441,7 @@ impl Display for ReadOutput {
 /// The output of the `blob-id` command.
 #[serde_as]
 #[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 struct BlobIdOutput {
     #[serde_as(as = "DisplayFromStr")]
     blob_id: BlobId,
@@ -381,8 +473,50 @@ impl BlobIdOutput {
     }
 }
 
+/// The output of the `blob-status` command.
+#[serde_as]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BlobStatusOutput {
+    #[serde_as(as = "DisplayFromStr")]
+    blob_id: BlobId,
+    #[serde(skip_serializing_if = "std::option::Option::is_none")]
+    file: Option<PathBuf>,
+    status: BlobStatus,
+}
+
+impl Display for BlobStatusOutput {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let blob_str = if let Some(file) = self.file.clone() {
+            format!("{} (file: {})", self.blob_id, file.display())
+        } else {
+            format!("{}", self.blob_id)
+        };
+        match self.status {
+            BlobStatus::Nonexistent => write!(f, "Blob {blob_str} does not exist."),
+            BlobStatus::Existent {
+                status,
+                end_epoch,
+                status_event,
+            } => write!(
+                f,
+                "Status for {blob_str}: {}\n\
+                    End epoch: {}\n\
+                    Related event: {}",
+                status.to_string().bold(),
+                end_epoch,
+                format_event_id(&status_event),
+            ),
+        }
+    }
+}
+
 async fn client() -> Result<()> {
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .with_env_filter(EnvFilter::from_default_env())
+        .finish()
+        .try_init()?;
     let mut app = App::parse();
 
     while let Commands::Json { command_string } = app.command {
@@ -414,17 +548,21 @@ async fn run_app(app: App) -> Result<()> {
     let wallet = load_wallet_context(&wallet_path);
 
     match app.command {
-        Commands::Store { file, epochs } => {
+        Commands::Store {
+            file,
+            epochs,
+            force,
+        } => {
             let client = get_contract_client(config?, wallet, app.gas_budget).await?;
 
             tracing::info!(
                 file = %file.display(),
                 "Storing blob read from the filesystem"
             );
-            let blob = client
-                .reserve_and_store_blob(&std::fs::read(file)?, epochs)
+            let result = client
+                .reserve_and_store_blob(&std::fs::read(file)?, epochs, force)
                 .await?;
-            println!("{}", output_string(&StoreOutput::from(blob), app.json)?);
+            println!("{}", output_string(&StoreOutput::from(result), app.json)?);
         }
         Commands::Read {
             blob_id,
@@ -444,6 +582,39 @@ async fn run_app(app: App) -> Result<()> {
             println!(
                 "{}",
                 output_string(&ReadOutput::new(out, blob_id, blob), app.json)?
+            );
+        }
+        Commands::BlobStatus {
+            file_or_blob_id,
+            timeout,
+            rpc_arg: RpcArg { rpc_url },
+        } => {
+            tracing::debug!(?file_or_blob_id, "getting blob status");
+            let config = config?;
+            let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
+                &config,
+                rpc_url,
+                wallet,
+                wallet_path.is_none(),
+            )
+            .await?;
+            let client = Client::new_read_client(config, &sui_read_client).await?;
+            let file = file_or_blob_id.file.clone();
+            let blob_id = file_or_blob_id.get_or_compute_blob_id(client.encoding_config())?;
+
+            let status = client
+                .get_verified_blob_status(&blob_id, &sui_read_client, timeout)
+                .await?;
+            println!(
+                "{}",
+                output_string(
+                    &BlobStatusOutput {
+                        blob_id,
+                        file,
+                        status
+                    },
+                    app.json
+                )?
             );
         }
         Commands::Publisher { args } => {
@@ -479,11 +650,13 @@ async fn run_app(app: App) -> Result<()> {
                 return Err(anyhow!("the info command is only available in cli mode"));
             }
             let config = config?;
-            let sui_client =
-                get_sui_client_from_rpc_node_or_wallet(rpc_url, wallet, wallet_path.is_none())
-                    .await?;
-            let sui_read_client =
-                SuiReadClient::new(sui_client, config.system_pkg, config.system_object).await?;
+            let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
+                &config,
+                rpc_url,
+                wallet,
+                wallet_path.is_none(),
+            )
+            .await?;
             let price = sui_read_client.price_per_unit_size().await?;
             print_walrus_info(&sui_read_client.current_committee().await?, price, dev);
         }
@@ -500,11 +673,13 @@ async fn run_app(app: App) -> Result<()> {
             } else {
                 let config = config?;
                 tracing::debug!("reading `n_shards` from chain");
-                let sui_client =
-                    get_sui_client_from_rpc_node_or_wallet(rpc_url, wallet, wallet_path.is_none())
-                        .await?;
-                let sui_read_client =
-                    SuiReadClient::new(sui_client, config.system_pkg, config.system_object).await?;
+                let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
+                    &config,
+                    rpc_url,
+                    wallet,
+                    wallet_path.is_none(),
+                )
+                .await?;
                 sui_read_client.current_committee().await?.n_shards()
             };
 
@@ -524,9 +699,11 @@ async fn run_app(app: App) -> Result<()> {
 
 /// The CLI entrypoint.
 #[tokio::main]
-pub async fn main() {
+pub async fn main() -> ExitCode {
     if let Err(e) = client().await {
         // Print any error in a (relatively) user-friendly way.
-        eprintln!("{} {:#}", error(), e)
+        eprintln!("{} {:#}", error(), e);
+        return ExitCode::FAILURE;
     }
+    ExitCode::SUCCESS
 }

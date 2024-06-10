@@ -21,6 +21,7 @@ use prometheus::Registry;
 use reqwest::Url;
 use sui_types::event::EventID;
 use tempfile::TempDir;
+use tokio::time::Duration;
 use tokio_stream::{wrappers::BroadcastStream, Stream};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
@@ -54,7 +55,7 @@ use crate::{
     config::{PathOrInPlace, StorageNodeConfig},
     contract_service::SystemContractService,
     server::UserServer,
-    storage::Storage,
+    storage::{DatabaseConfig, Storage},
     system_events::SystemEventProvider,
     StorageNode,
 };
@@ -71,6 +72,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
     WithTempDir {
         inner: StorageNodeConfig {
             protocol_key_pair: PathOrInPlace::InPlace(walrus_core::test_utils::key_pair()),
+            db_config: None,
             rest_api_address,
             metrics_address,
             storage_path: temp_dir.path().to_path_buf(),
@@ -83,12 +85,13 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
 /// Returns an empty storage, with the column families for the specified shards already created.
 pub fn empty_storage_with_shards(shards: &[ShardIndex]) -> WithTempDir<Storage> {
     let temp_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
-    let mut storage = Storage::open(temp_dir.path(), MetricConf::default())
+    let db_config = DatabaseConfig::default();
+    let mut storage = Storage::open(temp_dir.path(), &db_config, MetricConf::default())
         .expect("storage creation must succeed");
 
     for shard in shards {
         storage
-            .create_storage_for_shard(*shard)
+            .create_storage_for_shard(*shard, &db_config)
             .expect("shard should be successfully created");
     }
 
@@ -330,6 +333,7 @@ impl StorageNodeHandleBuilder {
             rest_api_address: node_info.rest_api_address,
             metrics_address: unused_socket_address(),
             sui: None,
+            db_config: None,
         };
 
         let node = StorageNode::builder()
@@ -373,6 +377,10 @@ impl StorageNodeHandleBuilder {
             Client::from_url(url, inner)
         };
 
+        if self.run_rest_api {
+            wait_for_node_ready(&client).await?;
+        }
+
         Ok(StorageNodeHandle {
             storage_node: node,
             storage_directory: temp_dir,
@@ -398,6 +406,19 @@ impl Default for StorageNodeHandleBuilder {
             test_config: None,
         }
     }
+}
+
+/// Waits until the node is ready by querying the node's health info endpoint using the node
+/// client.
+async fn wait_for_node_ready(client: &Client) -> anyhow::Result<()> {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while let Err(err) = client.get_server_health_info().await {
+            tracing::trace!(%err, "node is not ready yet, retrying...");
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        Ok(())
+    })
+    .await?
 }
 
 /// Returns with a a test config for a storage node that would make a valid committee when paired

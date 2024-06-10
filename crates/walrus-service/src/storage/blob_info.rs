@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use sui_types::event::EventID;
 use walrus_core::{encoding::EncodingAxis, EncodingType, Epoch, ShardIndex, SliverType};
 use walrus_sdk::api::{BlobCertificationStatus as SdkBlobCertificationStatus, BlobStatus};
-use walrus_sui::types::{BlobCertified, BlobEvent, BlobRegistered, InvalidBlobID};
+use walrus_sui::types::{BlobCertified, BlobEvent, BlobRegistered, InvalidBlobId};
 
 pub(crate) trait Mergeable {
     type MergeOperand;
@@ -107,7 +107,7 @@ impl BlobInfo {
 
 impl From<BlobInfo> for BlobStatus {
     fn from(value: BlobInfo) -> Self {
-        Self {
+        Self::Existent {
             end_epoch: value.end_epoch,
             status: value.status.into(),
             status_event: value.current_status_event,
@@ -175,8 +175,8 @@ impl From<&BlobCertified> for BlobInfoMergeOperand {
     }
 }
 
-impl From<&InvalidBlobID> for BlobInfoMergeOperand {
-    fn from(value: &InvalidBlobID) -> Self {
+impl From<&InvalidBlobId> for BlobInfoMergeOperand {
+    fn from(value: &InvalidBlobId) -> Self {
         Self::ChangeStatus {
             end_epoch: value.epoch,
             status: BlobCertificationStatus::Invalid,

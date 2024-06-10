@@ -282,7 +282,6 @@ rest_api_error! {
 
 rest_api_error! {
     BlobStatusError: [
-        (Unknown, NOT_FOUND, Self::Unknown.to_string()),
         (Internal(_), INTERNAL_SERVER_ERROR, @canonical)
     ]
 }

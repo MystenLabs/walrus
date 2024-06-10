@@ -11,8 +11,17 @@ use std::{
 };
 
 use anyhow::Context;
-use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, DBCommon, MergeOperands, Options, DB};
+use rocksdb::{
+    ColumnFamily,
+    ColumnFamilyDescriptor,
+    DBCommon,
+    DBCompressionType,
+    MergeOperands,
+    Options,
+    DB,
+};
 use serde::{Deserialize, Serialize};
+use serde_with::skip_serializing_none;
 use sui_sdk::types::{digests::TransactionDigest, event::EventID};
 use tracing::Level;
 use typed_store::{
@@ -52,6 +61,154 @@ mod event_sequencer;
 mod shard;
 pub use shard::ShardStorage;
 
+/// Options for configuring a column family.
+#[serde_with::serde_as]
+#[skip_serializing_none]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DatabaseTableOptions {
+    // Set it to true to enable key-value separation.
+    enable_blob_files: Option<bool>,
+    // Values at or above this threshold will be written
+    // to blob files during flush or compaction
+    min_blob_size: Option<u64>,
+    // The size limit for blob files.
+    blob_file_size: Option<u64>,
+    // The compression type to use for blob files.
+    // All blobs in the same file are compressed using the same algorithm.
+    blob_compression_type: Option<String>,
+    // Set this to true to make BlobDB actively relocate valid blobs from the oldest
+    // blob files as they are encountered during compaction
+    enable_blob_garbage_collection: Option<bool>,
+    // The cutoff that the GC logic uses to determine which blob files should be considered “old.”
+    blob_garbage_collection_age_cutoff: Option<f64>,
+    // If the ratio of garbage in the oldest blob files exceeds this threshold, targeted compactions
+    // are scheduled in order to force garbage collecting the blob files in question, assuming they
+    // are all eligible based on the value of blob_garbage_collection_age_cutoff above. This can
+    // help reduce space amplification in the case of skewed workloads where the affected files
+    // would not otherwise be picked up for compaction.
+    blob_garbage_collection_force_threshold: Option<f64>,
+    // When set, BlobDB will prefetch data from blob files in chunks of the configured size during
+    // compaction
+    blob_compaction_read_ahead_size: Option<u64>,
+    // Size of the write buffer in bytes
+    write_buffer_size: Option<usize>,
+    // The target file size for level-1 files in bytes
+    target_file_size_base: Option<u64>,
+    // The maximum total data size for level 1 in bytes
+    max_bytes_for_level_base: Option<u64>,
+}
+
+impl Default for DatabaseTableOptions {
+    fn default() -> Self {
+        Self {
+            enable_blob_files: Some(false),
+            min_blob_size: Some(0),
+            blob_file_size: Some(0),
+            blob_compression_type: Some("none".to_string()),
+            enable_blob_garbage_collection: Some(false),
+            blob_garbage_collection_age_cutoff: Some(0.0),
+            blob_garbage_collection_force_threshold: Some(0.0),
+            blob_compaction_read_ahead_size: Some(0),
+            write_buffer_size: Some(64 << 20),
+            target_file_size_base: Some(64 << 20),
+            max_bytes_for_level_base: Some(512 << 20),
+        }
+    }
+}
+
+impl DatabaseTableOptions {
+    fn optimized_for_blobs() -> Self {
+        Self {
+            enable_blob_files: Some(true),
+            min_blob_size: Some(1 << 20),
+            blob_file_size: Some(1 << 28),
+            blob_compression_type: Some("zstd".to_string()),
+            enable_blob_garbage_collection: Some(true),
+            blob_garbage_collection_age_cutoff: Some(0.5),
+            blob_garbage_collection_force_threshold: Some(0.5),
+            blob_compaction_read_ahead_size: Some(10 << 20),
+            write_buffer_size: Some(256 << 20),
+            target_file_size_base: Some(4 << 20),
+            max_bytes_for_level_base: Some(32 << 20),
+        }
+    }
+
+    pub fn to_options(&self) -> Options {
+        let mut options = Options::default();
+        if let Some(enable_blob_files) = self.enable_blob_files {
+            options.set_enable_blob_files(enable_blob_files);
+        }
+        if let Some(min_blob_size) = self.min_blob_size {
+            options.set_min_blob_size(min_blob_size);
+        }
+        if let Some(blob_file_size) = self.blob_file_size {
+            options.set_blob_file_size(blob_file_size);
+        }
+        if let Some(blob_compression_type) = &self.blob_compression_type {
+            let compression_type = match blob_compression_type.as_str() {
+                "none" => DBCompressionType::None,
+                "snappy" => DBCompressionType::Snappy,
+                "zlib" => DBCompressionType::Zlib,
+                "lz4" => DBCompressionType::Lz4,
+                "lz4hc" => DBCompressionType::Lz4hc,
+                "zstd" => DBCompressionType::Zstd,
+                _ => DBCompressionType::None,
+            };
+            options.set_blob_compression_type(compression_type);
+        }
+        if let Some(enable_blob_garbage_collection) = self.enable_blob_garbage_collection {
+            options.set_enable_blob_gc(enable_blob_garbage_collection);
+        }
+        if let Some(blob_garbage_collection_age_cutoff) = self.blob_garbage_collection_age_cutoff {
+            options.set_blob_gc_age_cutoff(blob_garbage_collection_age_cutoff);
+        }
+        if let Some(blob_garbage_collection_force_threshold) =
+            self.blob_garbage_collection_force_threshold
+        {
+            options.set_blob_gc_force_threshold(blob_garbage_collection_force_threshold);
+        }
+        if let Some(blob_compaction_read_ahead_size) = self.blob_compaction_read_ahead_size {
+            options.set_blob_compaction_readahead_size(blob_compaction_read_ahead_size);
+        }
+        if let Some(write_buffer_size) = self.write_buffer_size {
+            options.set_write_buffer_size(write_buffer_size);
+        }
+        if let Some(target_file_size_base) = self.target_file_size_base {
+            options.set_target_file_size_base(target_file_size_base);
+        }
+        if let Some(max_bytes_for_level_base) = self.max_bytes_for_level_base {
+            options.set_max_bytes_for_level_base(max_bytes_for_level_base);
+        }
+        options
+    }
+}
+
+#[serde_with::serde_as]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DatabaseConfig {
+    metadata: DatabaseTableOptions,
+    blob_info: DatabaseTableOptions,
+    event_cursor: DatabaseTableOptions,
+    shard: DatabaseTableOptions,
+}
+
+impl DatabaseConfig {
+    pub fn shard(&self) -> &DatabaseTableOptions {
+        &self.shard
+    }
+}
+
+impl Default for DatabaseConfig {
+    fn default() -> Self {
+        Self {
+            metadata: DatabaseTableOptions::optimized_for_blobs(),
+            blob_info: DatabaseTableOptions::default(),
+            event_cursor: DatabaseTableOptions::default(),
+            shard: DatabaseTableOptions::optimized_for_blobs(),
+        }
+    }
+}
+
 /// Storage backing a [`StorageNode`][crate::StorageNode].
 ///
 /// Enables storing blob metadata, which is shared across all shards. The method
@@ -73,7 +230,11 @@ impl Storage {
     const EVENT_CURSOR_KEY: &'static str = "event_cursor";
 
     /// Opens the storage database located at the specified path, creating the database if absent.
-    pub fn open(path: &Path, metrics_config: MetricConf) -> Result<Self, anyhow::Error> {
+    pub fn open(
+        path: &Path,
+        db_config: &DatabaseConfig,
+        metrics_config: MetricConf,
+    ) -> Result<Self, anyhow::Error> {
         let mut db_opts = Options::default();
         db_opts.create_missing_column_families(true);
         db_opts.create_if_missing(true);
@@ -82,12 +243,12 @@ impl Storage {
         let mut shard_column_families: Vec<_> = existing_shards_ids
             .iter()
             .copied()
-            .map(ShardStorage::slivers_column_family_options)
+            .map(|id| ShardStorage::slivers_column_family_options(id, db_config))
             .collect();
 
-        let (metadata_cf_name, metadata_options) = Self::metadata_options();
-        let (blob_info_cf_name, blob_info_options) = Self::blob_info_options();
-        let (event_cursor_cf_name, event_cursor_options) = Self::event_cursor_options();
+        let (metadata_cf_name, metadata_options) = Self::metadata_options(db_config);
+        let (blob_info_cf_name, blob_info_options) = Self::blob_info_options(db_config);
+        let (event_cursor_cf_name, event_cursor_options) = Self::event_cursor_options(db_config);
 
         let mut expected_column_families: Vec<_> = shard_column_families
             .iter_mut()
@@ -122,7 +283,9 @@ impl Storage {
         )?;
         let shards = existing_shards_ids
             .into_iter()
-            .map(|id| ShardStorage::create_or_reopen(id, &database).map(|shard| (id, shard)))
+            .map(|id| {
+                ShardStorage::create_or_reopen(id, &database, db_config).map(|shard| (id, shard))
+            })
             .collect::<Result<_, _>>()?;
 
         Ok(Self {
@@ -139,11 +302,13 @@ impl Storage {
     pub fn create_storage_for_shard(
         &mut self,
         shard: ShardIndex,
+        db_config: &DatabaseConfig,
     ) -> Result<&ShardStorage, TypedStoreError> {
         match self.shards.entry(shard) {
             Entry::Occupied(entry) => Ok(entry.into_mut()),
             Entry::Vacant(entry) => {
-                let shard_storage = ShardStorage::create_or_reopen(shard, &self.database)?;
+                let shard_storage =
+                    ShardStorage::create_or_reopen(shard, &self.database, db_config)?;
                 Ok(entry.insert(shard_storage))
             }
         }
@@ -320,24 +485,24 @@ impl Storage {
         Ok(shards_with_sliver_pairs)
     }
 
-    fn metadata_options() -> (&'static str, Options) {
-        let mut options = Options::default();
-
-        // TODO(jsmith): Tune storage for metadata and slivers (#65)
-        options.set_enable_blob_files(true);
-
-        (Self::METADATA_COLUMN_FAMILY_NAME, options)
+    fn metadata_options(db_config: &DatabaseConfig) -> (&'static str, Options) {
+        (
+            Self::METADATA_COLUMN_FAMILY_NAME,
+            db_config.metadata.to_options(),
+        )
     }
 
-    fn blob_info_options() -> (&'static str, Options) {
-        let mut options = Options::default();
+    fn blob_info_options(db_config: &DatabaseConfig) -> (&'static str, Options) {
+        let mut options = db_config.blob_info.to_options();
         options.set_merge_operator("merge blob info", merge_blob_info, |_, _, _| None);
         (Self::BLOBINFO_COLUMN_FAMILY_NAME, options)
     }
 
-    fn event_cursor_options() -> (&'static str, Options) {
-        let mut options = Options::default();
-        (Self::EVENT_CURSOR_COLUMN_FAMILY_NAME, options)
+    fn event_cursor_options(db_config: &DatabaseConfig) -> (&'static str, Options) {
+        (
+            Self::EVENT_CURSOR_COLUMN_FAMILY_NAME,
+            db_config.event_cursor.to_options(),
+        )
     }
 
     /// Returns the shards currently present in the storage.
@@ -449,8 +614,11 @@ pub(crate) mod tests {
         let mut storage = empty_storage();
 
         let mut seed = 10u8;
+        let db_config = DatabaseConfig::default();
         for (shard, sliver_list) in spec {
-            storage.as_mut().create_storage_for_shard(*shard)?;
+            storage
+                .as_mut()
+                .create_storage_for_shard(*shard, &db_config)?;
             let shard_storage = storage.as_ref().shard_storage(*shard).unwrap();
 
             for (blob_id, which) in sliver_list.iter() {
@@ -714,7 +882,11 @@ pub(crate) mod tests {
         ])?;
 
         let result = Runtime::new()?.block_on(async move {
-            let storage = Storage::open(directory.path(), MetricConf::default())?;
+            let storage = Storage::open(
+                directory.path(),
+                &DatabaseConfig::default(),
+                MetricConf::default(),
+            )?;
 
             for shard_id in [SHARD_INDEX, OTHER_SHARD_INDEX] {
                 let Some(shard) = storage.shard_storage(SHARD_INDEX) else {

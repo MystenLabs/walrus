@@ -120,7 +120,7 @@ cargo run --bin walrus -- json \
         "config": "working_dir/client_config.yaml",
         "command": {
             "read": {
-                "blob_id": "4BKcDC0Ih5RJ8R0tFMz3MZVNZV8b2goT6_JiEEwNHQo"
+                "blobId": "4BKcDC0Ih5RJ8R0tFMz3MZVNZV8b2goT6_JiEEwNHQo"
             }
         }
     }'

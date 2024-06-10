@@ -4,7 +4,7 @@
 //! Storage client configuration module.
 
 use std::{
-    net::{Ipv4Addr, SocketAddr},
+    net::SocketAddr,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -21,7 +21,9 @@ use serde_with::{
 };
 use sui_sdk::types::base_types::ObjectID;
 use walrus_core::keys::{ProtocolKeyPair, ProtocolKeyPairParseError};
-use walrus_sui::utils::SuiNetwork;
+use walrus_sui::{types::NetworkAddress, utils::SuiNetwork};
+
+use crate::storage::DatabaseConfig;
 
 /// Trait for loading configuration from a YAML file.
 pub trait LoadConfig: DeserializeOwned {
@@ -43,6 +45,8 @@ pub trait LoadConfig: DeserializeOwned {
 pub struct StorageNodeConfig {
     /// Directory in which to persist the database
     pub storage_path: PathBuf,
+    /// Option config to tune storage db
+    pub db_config: Option<DatabaseConfig>,
     /// Key pair used in Walrus protocol messages
     #[serde_as(as = "PathOrInPlace<Base64>")]
     pub protocol_key_pair: PathOrInPlace<ProtocolKeyPair>,
@@ -81,6 +85,17 @@ pub struct SuiConfig {
 
 impl LoadConfig for SuiConfig {}
 
+/// Node-specific Testbed configuration.
+#[serde_with::serde_as]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TestbedNodeConfig {
+    /// The REST API address of the node.
+    pub network_address: NetworkAddress,
+    /// The key of the node.
+    #[serde_as(as = "Base64")]
+    pub keypair: ProtocolKeyPair,
+}
+
 /// Configuration for a Walrus Testbed.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TestbedConfig {
@@ -88,10 +103,7 @@ pub struct TestbedConfig {
     #[serde(default = "defaults::network")]
     pub sui_network: SuiNetwork,
     /// The list of ip addresses of the storage nodes.
-    pub ips: Vec<Ipv4Addr>,
-    /// The port on which the REST API of the storage nodes will listen.
-    #[serde(default = "defaults::rest_api_port")]
-    pub rest_api_port: u16,
+    pub nodes: Vec<TestbedNodeConfig>,
     /// Object ID of the walrus package.
     pub pkg_id: ObjectID,
     /// Object ID of walrus system object.

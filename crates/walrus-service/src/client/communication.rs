@@ -20,7 +20,7 @@ use walrus_core::{
     Sliver as SliverEnum,
     SliverPairIndex,
 };
-use walrus_sdk::{client::Client as StorageNodeClient, error::NodeError};
+use walrus_sdk::{api::BlobStatus, client::Client as StorageNodeClient, error::NodeError};
 use walrus_sui::types::StorageNode;
 
 use super::{
@@ -37,6 +37,7 @@ pub type NodeIndex = usize;
 ///
 /// Contains the epoch, the "weight" of the interaction (e.g., the number of shards for which an
 /// operation was performed), the storage node that issued it, and the result of the operation.
+#[derive(Debug, Clone)]
 pub struct NodeResult<T, E>(pub Epoch, pub usize, pub NodeIndex, pub Result<T, E>);
 
 impl<T, E> WeightedResult for NodeResult<T, E> {
@@ -170,6 +171,13 @@ impl<'a> NodeCommunication<'a> {
 
         // Each sliver is in this case requested individually, so the weight is 1.
         self.to_node_result(1, sliver)
+    }
+
+    /// Requests the status for a blob ID from the node.
+    #[tracing::instrument(level = Level::TRACE, parent = &self.span, skip_all)]
+    pub async fn get_blob_status(&self, blob_id: &BlobId) -> NodeResult<BlobStatus, NodeError> {
+        tracing::debug!(%blob_id, "retrieving blob status");
+        self.to_node_result_with_n_shards(self.client.get_blob_status(blob_id).await)
     }
 
     // Write operations.
