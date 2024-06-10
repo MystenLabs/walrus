@@ -18,12 +18,24 @@ use walrus_core::{
 };
 use walrus_sui::types::BlobCertified;
 
-use super::StorageNodeInner;
+use super::{
+    metrics::{self, NodeMetricSet},
+    StorageNodeInner,
+};
 use crate::{
     committee::CommitteeService,
     contract_service::SystemContractService,
     storage::Storage,
+    utils::FutureHelpers as _,
 };
+
+#[derive(Debug, thiserror::Error)]
+enum RecoverSliverError {
+    #[error("sliver inconsistent with metadata")]
+    Inconsistent(InconsistencyProof),
+    #[error(transparent)]
+    Database(#[from] TypedStoreError),
+}
 
 #[derive(Debug)]
 pub(super) struct BlobSynchronizer {
@@ -62,9 +74,18 @@ impl BlobSynchronizer {
         self.node.contract_service.as_ref()
     }
 
+    fn metrics(&self) -> &NodeMetricSet {
+        &self.node.metrics
+    }
+
     #[tracing::instrument(skip_all, fields(blob_id = %self.blob_id))]
-    pub async fn sync(self) -> anyhow::Result<()> {
-        let metadata = self.sync_metadata().await?;
+    pub async fn run(self) -> anyhow::Result<()> {
+        let histograms = &self.metrics().recover_blob_part_duration_seconds;
+
+        let (_, metadata) = self
+            .recover_metadata()
+            .observe(histograms.clone(), labels_from_metadata_result)
+            .await?;
 
         let mut sliver_sync_futures: FuturesUnordered<_> = self
             .storage()
@@ -72,22 +93,31 @@ impl BlobSynchronizer {
             .iter()
             .flat_map(|&shard| {
                 [
-                    Either::Left(self.sync_sliver::<Primary>(shard, &metadata)),
-                    Either::Right(self.sync_sliver::<Secondary>(shard, &metadata)),
+                    Either::Left(
+                        self.recover_sliver::<Primary>(shard, &metadata)
+                            .observe(histograms.clone(), labels_from_sliver_result::<Primary>),
+                    ),
+                    Either::Right(
+                        self.recover_sliver::<Secondary>(shard, &metadata)
+                            .observe(histograms.clone(), labels_from_sliver_result::<Secondary>),
+                    ),
                 ]
             })
             .collect();
 
         while let Some(result) = sliver_sync_futures.next().await {
             match result {
-                Ok(Some(inconsistency_proof)) => {
+                Err(RecoverSliverError::Inconsistent(inconsistency_proof)) => {
                     tracing::warn!("received an inconsistency proof");
-                    // No need to continue the other futures, sync the inconsistency proof
-                    // and return
-                    self.sync_inconsistency_proof(&inconsistency_proof).await;
+                    // No need to recover other slivers, sync the inconsistency proof and return
+                    self.sync_inconsistency_proof(&inconsistency_proof)
+                        .observe(histograms.clone(), labels_from_inconsistency_sync_result)
+                        .await;
                     break;
                 }
-                Err(err) => panic!("database operations should not fail: {:?}", err),
+                Err(RecoverSliverError::Database(err)) => {
+                    panic!("database operations should not fail: {:?}", err)
+                }
                 _ => (),
             }
         }
@@ -98,10 +128,13 @@ impl BlobSynchronizer {
         Ok(())
     }
 
-    async fn sync_metadata(&self) -> Result<VerifiedBlobMetadataWithId, TypedStoreError> {
+    /// Returns the metadata and true if it was recovered, false if it was retrieved from storage.
+    async fn recover_metadata(
+        &self,
+    ) -> Result<(bool, VerifiedBlobMetadataWithId), TypedStoreError> {
         if let Some(metadata) = self.storage().get_metadata(&self.blob_id)? {
             tracing::debug!("not syncing metadata: already stored");
-            return Ok(metadata);
+            return Ok((false, metadata));
         }
 
         tracing::debug!("syncing metadata");
@@ -115,15 +148,15 @@ impl BlobSynchronizer {
         self.storage().put_verified_metadata(&metadata)?;
 
         tracing::debug!("metadata successfully synced");
-        Ok(metadata)
+        Ok((true, metadata))
     }
 
     #[instrument(skip_all, fields(axis = ?A::default()))]
-    async fn sync_sliver<A: EncodingAxis>(
+    async fn recover_sliver<A: EncodingAxis>(
         &self,
         shard: ShardIndex,
         metadata: &VerifiedBlobMetadataWithId,
-    ) -> Result<Option<InconsistencyProof>, TypedStoreError> {
+    ) -> Result<bool, RecoverSliverError> {
         let shard_storage = self
             .storage()
             .shard_storage(shard)
@@ -135,7 +168,7 @@ impl BlobSynchronizer {
         // know about, which are stored and which are not fully stored.
         if shard_storage.is_sliver_stored::<A>(&self.blob_id)? {
             tracing::debug!("not syncing sliver: already stored");
-            return Ok(None);
+            return Ok(false);
         }
 
         let sliver_id = shard.to_pair_index(self.encoding_config().n_shards(), &self.blob_id);
@@ -151,9 +184,9 @@ impl BlobSynchronizer {
             Ok(sliver) => {
                 shard_storage.put_sliver(&self.blob_id, &sliver)?;
                 tracing::debug!("sliver successfully synced");
-                Ok(None)
+                Ok(true)
             }
-            Err(proof) => Ok(Some(proof)),
+            Err(proof) => Err(RecoverSliverError::Inconsistent(proof)),
         }
     }
 
@@ -191,4 +224,47 @@ async fn recover_sliver<A: EncodingAxis>(
             .map(Sliver::Secondary)
             .map_err(InconsistencyProof::Secondary)
     }
+}
+
+fn labels_from_metadata_result(
+    result: Option<&Result<(bool, VerifiedBlobMetadataWithId), TypedStoreError>>,
+) -> [&'static str; 2] {
+    const METADATA: &str = "metadata";
+
+    let status = match result {
+        None => metrics::STATUS_ABORTED,
+        Some(Ok((true, _))) => metrics::STATUS_SUCCESS,
+        Some(Ok((false, _))) => metrics::STATUS_SKIPPED,
+        Some(Err(_)) => metrics::STATUS_FAILURE,
+    };
+
+    [METADATA, status]
+}
+
+const fn labels_from_sliver_result<A: EncodingAxis>(
+    result: Option<&Result<bool, RecoverSliverError>>,
+) -> [&'static str; 2] {
+    let part = A::NAME;
+
+    let status = match result {
+        None => metrics::STATUS_ABORTED,
+        Some(Ok(true)) => metrics::STATUS_SUCCESS,
+        Some(Ok(false)) => metrics::STATUS_SKIPPED,
+        Some(Err(RecoverSliverError::Database(_))) => metrics::STATUS_FAILURE,
+        Some(Err(RecoverSliverError::Inconsistent(_))) => metrics::STATUS_INCONSISTENT,
+    };
+
+    [part, status]
+}
+
+const fn labels_from_inconsistency_sync_result(result: Option<&()>) -> [&'static str; 2] {
+    const INCONSISTENCY_PROOF: &str = "inconsistency-proof";
+
+    let status = if result.is_none() {
+        metrics::STATUS_ABORTED
+    } else {
+        metrics::STATUS_SUCCESS
+    };
+
+    [INCONSISTENCY_PROOF, status]
 }

@@ -3,16 +3,26 @@
 
 //! Utility functions used internally in the crate.
 
-use std::{fmt::Debug, future::Future, num::Saturating, sync::Arc, time::Duration};
+use std::{
+    fmt::Debug,
+    future::Future,
+    num::Saturating,
+    pin::Pin,
+    sync::Arc,
+    task::{ready, Context, Poll},
+    time::Duration,
+};
 
-use futures::FutureExt;
+use futures::{future::FusedFuture, FutureExt};
+use pin_project::pin_project;
+use prometheus::HistogramVec;
 use rand::{
     distributions::{DistIter, Uniform},
     rngs::StdRng,
     Rng,
     SeedableRng,
 };
-use tokio::sync::Semaphore;
+use tokio::{sync::Semaphore, time::Instant};
 
 /// The representation of a backoff strategy.
 pub trait BackoffStrategy {
@@ -180,9 +190,106 @@ pub(crate) trait FutureHelpers: Future {
             }
         }
     }
+
+    fn observe<F, const N: usize>(
+        self,
+        histograms: HistogramVec,
+        get_labels: F,
+    ) -> Observe<Self, F, N>
+    where
+        Self: Sized,
+        F: FnOnce(Option<&<Self as Future>::Output>) -> [&'static str; N],
+    {
+        Observe::new(self, histograms, get_labels)
+    }
 }
 
 impl<T: Future> FutureHelpers for T {}
+
+#[pin_project(PinnedDrop)]
+pub(crate) struct Observe<Fut, F, const N: usize>
+where
+    Fut: Future,
+    F: FnOnce(Option<&Fut::Output>) -> [&'static str; N],
+{
+    #[pin]
+    inner: Fut,
+    start: Instant,
+    histograms: HistogramVec,
+    // INV: Is Some until the future has completed.
+    get_labels: Option<F>,
+}
+
+impl<Fut, F, const N: usize> Observe<Fut, F, N>
+where
+    Fut: Future,
+    F: FnOnce(Option<&Fut::Output>) -> [&'static str; N],
+{
+    fn new(inner: Fut, histograms: HistogramVec, get_labels: F) -> Self {
+        Self {
+            inner,
+            histograms,
+            start: Instant::now(),
+            get_labels: Some(get_labels),
+        }
+    }
+
+    fn observe(self: Pin<&mut Self>, output: Option<&<Self as Future>::Output>) {
+        let this = self.project();
+
+        let Some(get_labels) = this.get_labels.take() else {
+            panic!("must not be called if terminated");
+        };
+
+        this.histograms
+            .with_label_values(&get_labels(output))
+            .observe(this.start.elapsed().as_secs_f64());
+    }
+}
+
+impl<Fut, F, const N: usize> FusedFuture for Observe<Fut, F, N>
+where
+    Fut: Future,
+    F: FnOnce(Option<&Fut::Output>) -> [&'static str; N],
+{
+    fn is_terminated(&self) -> bool {
+        self.get_labels.is_none()
+    }
+}
+
+impl<Fut, F, const N: usize> Future for Observe<Fut, F, N>
+where
+    Fut: Future,
+    F: FnOnce(Option<&Fut::Output>) -> [&'static str; N],
+{
+    type Output = Fut::Output;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if self.is_terminated() {
+            panic!("observe must not be called after it is terminated");
+        }
+
+        let this = self.as_mut().project();
+        let output = ready!(this.inner.poll(cx));
+
+        self.observe(Some(&output));
+
+        Poll::Ready(output)
+    }
+}
+
+#[pin_project::pinned_drop]
+impl<Fut, F, const N: usize> PinnedDrop for Observe<Fut, F, N>
+where
+    Fut: Future,
+    F: FnOnce(Option<&Fut::Output>) -> [&'static str; N],
+{
+    fn drop(self: Pin<&mut Self>) {
+        if !self.is_terminated() {
+            self.observe(None);
+        }
+    }
+}
 
 pub(crate) async fn retry<S, F, T, Fut>(mut strategy: S, mut func: F) -> T
 where

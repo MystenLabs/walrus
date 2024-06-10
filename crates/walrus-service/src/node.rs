@@ -408,22 +408,38 @@ impl StorageNode {
         event_sequence_number: usize,
         event: BlobCertified,
     ) -> anyhow::Result<()> {
+        let start = tokio::time::Instant::now();
+        let histogram_set = self.inner.metrics.recover_blob_duration_seconds.clone();
+
         if self.inner.storage.is_stored_at_all_shards(&event.blob_id)? {
             self.inner
                 .mark_event_completed(event_sequence_number, &event.event_id)?;
+
+            histogram_set
+                .with_label_values(&[metrics::STATUS_SKIPPED])
+                .observe(start.elapsed().as_secs_f64());
+
             return Ok(());
         }
 
-        // Slivers, and possible metadata, are not stored.
+        // Slivers, and possibly metadata, are not stored.
         // TODO(jsmith): Do not spawn if there is already a worker for this blob id (#366)
         // TODO(jsmith): Handle cancellation. (#366)
         // TODO(kwuest): Handle epoch change. (#405)
         let synchronizer = BlobSynchronizer::new(event, event_sequence_number, self.inner.clone());
         tokio::spawn(
-            async {
-                if let Err(err) = synchronizer.sync().await {
-                    tracing::error!(?err, "blob synchronizer failed")
-                }
+            async move {
+                // TODO(jsmith): Add a case for recording cancellation (#366).
+                let label = if let Err(err) = synchronizer.run().await {
+                    tracing::error!(?err, "blob synchronizer failed");
+                    metrics::STATUS_FAILURE
+                } else {
+                    metrics::STATUS_SUCCESS
+                };
+
+                histogram_set
+                    .with_label_values(&[label])
+                    .observe(start.elapsed().as_secs_f64());
             }
             .in_current_span(),
         );
