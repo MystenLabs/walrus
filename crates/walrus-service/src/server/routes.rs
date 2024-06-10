@@ -8,13 +8,10 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DisplayFromStr};
 use tracing::Level;
 use walrus_core::{
     messages::{InvalidBlobIdAttestation, StorageConfirmation},
     metadata::{BlobMetadata, UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
-    BlobId,
     InconsistencyProof,
     RecoverySymbol,
     Sliver,
@@ -23,21 +20,20 @@ use walrus_core::{
 };
 use walrus_sdk::api::{BlobStatus, ServiceHealthInfo};
 
-use super::{
-    extract::Bcs,
-    openapi,
-    responses::{ApiSuccess, OrRejection},
-};
-use crate::node::{
-    BlobStatusError,
-    ComputeStorageConfirmationError,
-    InconsistencyProofError,
-    RetrieveMetadataError,
-    RetrieveSliverError,
-    RetrieveSymbolError,
-    ServiceState,
-    StoreMetadataError,
-    StoreSliverError,
+use super::{extract::Bcs, openapi, responses::OrRejection};
+use crate::{
+    api::{self, ApiSuccess, BlobIdString},
+    node::{
+        BlobStatusError,
+        ComputeStorageConfirmationError,
+        InconsistencyProofError,
+        RetrieveMetadataError,
+        RetrieveSliverError,
+        RetrieveSymbolError,
+        ServiceState,
+        StoreMetadataError,
+        StoreSliverError,
+    },
 };
 
 /// Open API documentation endpoint
@@ -57,16 +53,6 @@ pub const INCONSISTENCY_PROOF_ENDPOINT: &str = "/v1/blobs/:blob_id/inconsistent/
 pub const STATUS_ENDPOINT: &str = "/v1/blobs/:blob_id/status";
 pub const HEALTH_ENDPOINT: &str = "/v1/health";
 
-/// A blob ID encoded as a URL-safe Base64 string, without the trailing equal (=) signs.
-#[serde_as]
-#[derive(Deserialize, Serialize, utoipa::ToSchema)]
-#[schema(
-    value_type = String,
-    format = Byte,
-    example = json!("E7_nNXvFU_3qZVu3OH1yycRG7LZlyn1-UxEDCDDqGGU"),
-)]
-pub(crate) struct BlobIdString(#[serde_as(as = "DisplayFromStr")] pub(crate) BlobId);
-
 /// Convenience trait to apply bounds on the ServiceState.
 trait SyncServiceState: ServiceState + Send + Sync + 'static {}
 impl<T: ServiceState + Send + Sync + 'static> SyncServiceState for T {}
@@ -77,7 +63,7 @@ impl<T: ServiceState + Send + Sync + 'static> SyncServiceState for T {}
 #[tracing::instrument(skip_all, fields(walrus.blob_id = %blob_id), err(level = Level::DEBUG))]
 #[utoipa::path(
     get,
-    path = openapi::rewrite_route(METADATA_ENDPOINT),
+    path = api::rewrite_route(METADATA_ENDPOINT),
     params(("blob_id" = BlobIdString,)),
     responses(
         (status = 200, description = "BCS encoded blob metadata", body = [u8]),
@@ -103,7 +89,7 @@ pub async fn get_metadata<S: SyncServiceState>(
 #[tracing::instrument(skip_all, fields(walrus.blob_id = %blob_id), err(level = Level::DEBUG))]
 #[utoipa::path(
     put,
-    path = openapi::rewrite_route(METADATA_ENDPOINT),
+    path = api::rewrite_route(METADATA_ENDPOINT),
     params(("blob_id" = BlobIdString,)),
     request_body(content = [u8], description = "BCS-encoded metadata octet-stream"),
     responses(
@@ -140,7 +126,7 @@ pub async fn put_metadata<S: SyncServiceState>(
 ))]
 #[utoipa::path(
     get,
-    path = openapi::rewrite_route(SLIVER_ENDPOINT),
+    path = api::rewrite_route(SLIVER_ENDPOINT),
     params(
         ("blob_id" = BlobIdString, ),
         ("sliver_pair_index" = SliverPairIndex, ),
@@ -180,7 +166,7 @@ pub async fn get_sliver<S: SyncServiceState>(
 ))]
 #[utoipa::path(
     put,
-    path = openapi::rewrite_route(SLIVER_ENDPOINT),
+    path = api::rewrite_route(SLIVER_ENDPOINT),
     params(
         ("blob_id" = BlobIdString, ),
         ("sliver_pair_index" = SliverPairIndex, ),
@@ -221,7 +207,7 @@ pub async fn put_sliver<S: SyncServiceState>(
 #[tracing::instrument(skip_all, fields(walrus.blob_id = %blob_id), err(level = Level::DEBUG))]
 #[utoipa::path(
     get,
-    path = openapi::rewrite_route(STORAGE_CONFIRMATION_ENDPOINT),
+    path = api::rewrite_route(STORAGE_CONFIRMATION_ENDPOINT),
     params(("blob_id" = BlobIdString,)),
     responses(
         (status = 200, description = "A signed confirmation of storage",
@@ -254,7 +240,7 @@ pub async fn get_storage_confirmation<S: SyncServiceState>(
 ))]
 #[utoipa::path(
     get,
-    path = openapi::rewrite_route(RECOVERY_ENDPOINT),
+    path = api::rewrite_route(RECOVERY_ENDPOINT),
     params(
         ("blob_id" = BlobIdString,),
         ("sliver_pair_index" = SliverPairIndex, ),
@@ -300,7 +286,7 @@ pub async fn get_recovery_symbol<S: SyncServiceState>(
 ))]
 #[utoipa::path(
     put,
-    path = openapi::rewrite_route(INCONSISTENCY_PROOF_ENDPOINT),
+    path = api::rewrite_route(INCONSISTENCY_PROOF_ENDPOINT),
     params(("blob_id" = BlobIdString,), ("sliver_type" = SliverType,)),
     request_body(content = [u8], description = "BCS-encoded inconsistency proof"),
     responses(
@@ -335,7 +321,7 @@ pub async fn inconsistency_proof<S: SyncServiceState>(
 #[tracing::instrument(skip_all, fields(walrus.blob_id = %blob_id), err(level = Level::DEBUG))]
 #[utoipa::path(
     get,
-    path = openapi::rewrite_route(STATUS_ENDPOINT),
+    path = api::rewrite_route(STATUS_ENDPOINT),
     params(("blob_id" = BlobIdString,)),
     responses(
         (status = 200, description = "The status of the blob", body = ApiSuccessBlobStatus),
@@ -356,7 +342,7 @@ pub async fn get_blob_status<S: SyncServiceState>(
 #[tracing::instrument(skip_all)]
 #[utoipa::path(
     get,
-    path = openapi::rewrite_route(HEALTH_ENDPOINT),
+    path = api::rewrite_route(HEALTH_ENDPOINT),
     responses(
         (status = 200, description = "Server is running", body = ApiSuccessServiceHealthInfo),
     ),

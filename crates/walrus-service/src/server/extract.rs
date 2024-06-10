@@ -10,8 +10,7 @@ use axum::{
 };
 use serde::{de::DeserializeOwned, Serialize};
 
-use super::responses::RestApiError;
-use crate::server::responses::RestApiJsonError;
+use crate::api::{RestApiError, RestApiJsonError};
 
 #[derive(Debug, thiserror::Error)]
 pub enum BcsRejection {

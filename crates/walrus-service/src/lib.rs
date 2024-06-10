@@ -3,6 +3,7 @@
 
 //! Service functionality for Walrus.
 
+pub(crate) mod api;
 pub mod cli_utils;
 pub mod client;
 pub mod committee;

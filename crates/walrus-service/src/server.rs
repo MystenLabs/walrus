@@ -22,10 +22,10 @@ use walrus_core::encoding::max_sliver_size_for_n_shards;
 use self::openapi::RestApiDoc;
 use crate::node::ServiceState;
 
-pub(crate) mod extract;
-pub(crate) mod openapi;
-pub(crate) mod responses;
-pub(crate) mod routes;
+mod extract;
+mod openapi;
+mod responses;
+mod routes;
 
 /// Additional space to be added to the maximum body size accepted by the server.
 ///

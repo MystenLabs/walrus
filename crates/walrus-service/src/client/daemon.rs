@@ -29,8 +29,8 @@ use walrus_core::encoding::Primary;
 use walrus_sui::client::ContractClient;
 
 use crate::{
+    api::BlobIdString,
     client::{BlobStoreResult, Client, ClientErrorKind},
-    server::routes::BlobIdString,
 };
 
 /// The path to get the blob with the given blob ID.
