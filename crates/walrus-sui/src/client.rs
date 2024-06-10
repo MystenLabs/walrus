@@ -134,13 +134,12 @@ impl SuiContractClient {
     /// Constructor for [`SuiContractClient`].
     pub async fn new(
         mut wallet: WalletContext,
-        system_pkg: ObjectID,
         system_object: ObjectID,
         gas_budget: u64,
     ) -> SuiClientResult<Self> {
         let sui_client = wallet.get_client().await?;
         let wallet_address = wallet.active_address()?;
-        let read_client = SuiReadClient::new(sui_client, system_pkg, system_object).await?;
+        let read_client = SuiReadClient::new(sui_client, system_object).await?;
         Ok(Self {
             wallet,
             read_client,

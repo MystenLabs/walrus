@@ -250,12 +250,8 @@ async fn default_setup() -> anyhow::Result<(
     .await?;
 
     // Build the walrus cluster
-    let sui_read_client = SuiReadClient::new(
-        wallet.as_ref().get_client().await?,
-        system_pkg,
-        system_object,
-    )
-    .await?;
+    let sui_read_client =
+        SuiReadClient::new(wallet.as_ref().get_client().await?, system_object).await?;
 
     // Create a contract service for the storage nodes using a wallet in a temp dir
     // The sui test cluster handler can be dropped since we already have one
@@ -290,7 +286,6 @@ async fn default_setup() -> anyhow::Result<(
             SuiContractClient::new_with_read_client(wallet, gas_budget, sui_read_client)
         })?;
     let config = Config {
-        system_pkg,
         system_object,
         wallet_config: None,
         communication_config: ClientCommunicationConfig::default_for_test(),

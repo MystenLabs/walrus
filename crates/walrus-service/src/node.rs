@@ -267,16 +267,13 @@ async fn create_read_client(
     config: &StorageNodeConfig,
 ) -> Result<(SuiReadClient, &SuiConfig), anyhow::Error> {
     let sui_config @ SuiConfig {
-        rpc,
-        pkg_id,
-        system_object,
-        ..
+        rpc, system_object, ..
     } = config
         .sui
         .as_ref()
         .expect("either a sui config or event provider must be specified");
 
-    let client = SuiReadClient::new_for_rpc(&rpc, *pkg_id, *system_object).await?;
+    let client = SuiReadClient::new_for_rpc(&rpc, *system_object).await?;
 
     Ok((client, sui_config))
 }

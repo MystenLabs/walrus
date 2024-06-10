@@ -272,7 +272,6 @@ mod commands {
         let testbed_config = TestbedConfig::load(testbed_config_path)?;
 
         let client_config = create_client_config(
-            testbed_config.pkg_id,
             testbed_config.system_object,
             working_dir.as_path(),
             testbed_config.sui_network,

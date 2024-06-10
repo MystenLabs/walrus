@@ -116,9 +116,7 @@ pub async fn get_contract_client(
     wallet: Result<WalletContext>,
     gas_budget: u64,
 ) -> Result<Client<SuiContractClient>> {
-    let sui_client =
-        SuiContractClient::new(wallet?, config.system_pkg, config.system_object, gas_budget)
-            .await?;
+    let sui_client = SuiContractClient::new(wallet?, config.system_object, gas_budget).await?;
     Ok(Client::new(config, sui_client).await?)
 }
 
@@ -171,7 +169,7 @@ pub async fn get_sui_read_client_from_rpc_node_or_wallet(
         },
     }?;
 
-    Ok(SuiReadClient::new(sui_client, config.system_pkg, config.system_object).await?)
+    Ok(SuiReadClient::new(sui_client, config.system_object).await?)
 }
 
 /// Returns the string `Success:` colored in green for terminal output.
