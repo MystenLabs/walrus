@@ -134,9 +134,12 @@ impl Ord for BlobStatus {
 #[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct ServiceHealthInfo {
     /// The uptime of the service.
+    #[schema(value_type = Object)]
     pub uptime: Duration,
     /// The epoch of the storage node.
+    #[schema(value_type = u64)]
     pub epoch: Epoch,
     /// The public key of the storage node.
+    #[schema(value_type = [u8], format = "Base58")]
     pub public_key: PublicKey,
 }
