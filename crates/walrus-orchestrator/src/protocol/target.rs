@@ -125,7 +125,7 @@ impl Default for ProtocolClientParameters {
 
 impl Display for ProtocolClientParameters {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "load: {} tx/s", self.target_load)
+        write!(f, "load: {} writes/s", self.target_load)
     }
 }
 
@@ -190,17 +190,6 @@ impl ProtocolCommands for TargetProtocol {
             testbed_config_path.display()
         );
 
-        let serialized_stress_parameters = serde_yaml::to_string(&parameters.client_parameters)
-            .expect("Failed to serialize stress parameters");
-        let stress_parameters_path = parameters
-            .settings
-            .working_dir
-            .join("stress_parameters.yaml");
-        let upload_stress_parameters_command = format!(
-            "echo -e '{serialized_stress_parameters}' > {}",
-            stress_parameters_path.display()
-        );
-
         // Generate a command to print all client and storage node configs on all instances.
         let generate_config_command = [
             &format!("./{BINARY_PATH}/walrus-node"),
@@ -218,7 +207,6 @@ impl ProtocolCommands for TargetProtocol {
         [
             "source $HOME/.cargo/env",
             &upload_testbed_config_command,
-            &upload_stress_parameters_command,
             &generate_config_command,
         ]
         .join(" && ")
@@ -275,27 +263,28 @@ impl ProtocolCommands for TargetProtocol {
     {
         let clients: Vec<_> = instances.into_iter().collect();
         let load_per_client = (parameters.load / clients.len()).max(1);
+        let number_of_tasks = load_per_client * 5;
+
         clients
             .into_iter()
             .map(|instance| {
                 let working_dir = &parameters.settings.working_dir;
                 let client_config_path = working_dir.clone().join("client_config.yaml");
-                // let stress_parameters_path = working_dir.clone().join("stress_parameters.yaml");
 
                 let run_command = [
-                    &format!("./{BINARY_PATH}/walrus-stress"),
-                    &format!("--target-load {load_per_client}"),
-                    &format!("--config-path {}", client_config_path.display()),
-                    "--n-clients 10",
-                    &format!(
+                    format!("./{BINARY_PATH}/walrus-stress"),
+                    format!("--target-load {load_per_client}"),
+                    format!("--config-path {}", client_config_path.display()),
+                    format!("--n-clients {number_of_tasks}"),
+                    format!(
                         "--metrics-port {}",
                         parameters.client_parameters.metrics_port
                     ),
-                    &format!(
+                    format!(
                         "--sui-network {}",
                         parameters.node_parameters.sui_network.r#type()
                     ),
-                    &format!("--blob-size {}", parameters.client_parameters.blob_size),
+                    format!("--blob-size {}", parameters.client_parameters.blob_size),
                 ]
                 .join(" ");
 

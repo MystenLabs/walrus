@@ -634,9 +634,8 @@ impl<T> Client<T> {
     }
 
     /// Returns the inner sui client.
-    // TODO: Ger rid of mut #478
-    pub fn sui_client(&mut self) -> &mut T {
-        &mut self.sui_client
+    pub fn sui_client(&self) -> &T {
+        &self.sui_client
     }
 
     fn build_reqwest_client(config: &Config) -> Result<ReqwestClient, ClientError> {
