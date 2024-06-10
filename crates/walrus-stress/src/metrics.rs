@@ -16,12 +16,11 @@ use prometheus::{
 };
 
 const LATENCY_SEC_BUCKETS: &[f64] = &[
-    0.1, 0.15, 0.20, 0.25, 0.5, 0.75, 1., 1.25, 1.5, 1.75, 2., 2.5, 5., 10.,
+    0.1, 0.15, 0.20, 0.25, 0.5, 0.75, 1., 1.25, 1.5, 1.75, 2., 2.5, 5., 10., 20., 40., 80., 160.,
 ];
 
 /// The workload types for the client.
 pub const WRITE_WORKLOAD: &str = "write";
-pub const READ_WORKLOAD: &str = "read";
 
 #[derive(Clone)]
 pub struct ClientMetrics {

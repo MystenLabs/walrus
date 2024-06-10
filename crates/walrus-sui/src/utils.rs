@@ -8,6 +8,7 @@ use std::{
     future::Future,
     path::{Path, PathBuf},
     str::FromStr,
+    time::Duration,
 };
 
 use anyhow::{anyhow, bail, Result};
@@ -369,23 +370,7 @@ pub fn create_wallet(
     load_wallet(Some(config_path.to_owned()))
 }
 
-/// Requests SUI coins for `address` on `network` from a faucet.
-#[tracing::instrument(skip(network, sui_client))]
-pub async fn request_sui_from_faucet(
-    address: SuiAddress,
-    network: SuiNetwork,
-    sui_client: &SuiClient,
-) -> Result<()> {
-    // Set of coins to allow checking if we have received a new coin from the faucet
-    let coins: HashSet<_> = handle_pagination(|cursor| {
-        sui_client
-            .coin_read_api()
-            .get_coins(address.to_owned(), None, cursor, None)
-    })
-    .await?
-    .map(|coin| coin.coin_object_id)
-    .collect();
-
+async fn send_faucet_request(address: SuiAddress, network: SuiNetwork) -> Result<()> {
     // send the request to the faucet
     let client = reqwest::Client::new();
     let data_raw = format!(
@@ -398,18 +383,43 @@ pub async fn request_sui_from_faucet(
         .body(data_raw)
         .send()
         .await?;
+    Ok(())
+}
 
-    tracing::info!("waiting to receive tokens from faucet");
-    // check if we have received a new coin from the faucet
-    while handle_pagination(|cursor| {
+async fn sui_coin_set(sui_client: &SuiClient, address: SuiAddress) -> Result<HashSet<ObjectID>> {
+    Ok(handle_pagination(|cursor| {
         sui_client
             .coin_read_api()
             .get_coins(address.to_owned(), None, cursor, None)
     })
     .await?
-    .all(|coin| coins.contains(&coin.coin_object_id))
-    {
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    .map(|coin| coin.coin_object_id)
+    .collect())
+}
+
+/// Requests SUI coins for `address` on `network` from a faucet.
+#[tracing::instrument(skip(network, sui_client))]
+pub async fn request_sui_from_faucet(
+    address: SuiAddress,
+    network: SuiNetwork,
+    sui_client: &SuiClient,
+) -> Result<()> {
+    let mut backoff = Duration::from_millis(100);
+    let max_backoff = Duration::from_secs(20);
+    // Set of coins to allow checking if we have received a new coin from the faucet
+    let coins = sui_coin_set(sui_client, address).await?;
+
+    loop {
+        let _ = send_faucet_request(address, network)
+            .await
+            .inspect_err(|e| tracing::warn!(error = ?e, "faucet request failed, retrying"))
+            .inspect(|_| tracing::info!("waiting to receive tokens from faucet"));
+        tracing::info!("sleeping for {backoff:?}");
+        tokio::time::sleep(backoff).await;
+        if sui_coin_set(sui_client, address).await? != coins {
+            break;
+        }
+        backoff = backoff.saturating_mul(2).min(max_backoff);
     }
     tracing::info!("received tokens from faucet");
     Ok(())

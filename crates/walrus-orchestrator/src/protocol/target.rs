@@ -4,7 +4,6 @@
 use std::{
     fmt::{Debug, Display},
     num::NonZeroU16,
-    ops::Deref,
     path::PathBuf,
     time::Duration,
 };
@@ -21,7 +20,6 @@ use walrus_service::{
         DeployTestbedContractParameters,
     },
 };
-use walrus_stress::StressParameters;
 use walrus_sui::utils::SuiNetwork;
 
 use super::{ProtocolCommands, ProtocolMetrics, ProtocolParameters, BINARY_PATH};
@@ -109,20 +107,15 @@ mod default_node_parameters {
 impl ProtocolParameters for ProtocolNodeParameters {}
 
 #[derive(Default, Clone, Serialize, Deserialize, Debug)]
-#[serde(transparent)]
-pub struct ProtocolClientParameters(StressParameters);
-
-impl Deref for ProtocolClientParameters {
-    type Target = StressParameters;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
+pub struct ProtocolClientParameters {
+    target_load: u64,
+    blob_size: usize,
+    metrics_port: u16,
 }
 
 impl Display for ProtocolClientParameters {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}% Writes", self.load_type)
+        write!(f, "load: {} tx/s", self.target_load)
     }
 }
 
@@ -168,7 +161,7 @@ impl ProtocolCommands for TargetProtocol {
             working_dir: parameters.settings.working_dir.as_path(),
             sui_network: parameters.node_parameters.sui_network,
             contract_path: parameters.node_parameters.contract_path.clone(),
-            gas_budget: parameters.client_parameters.gas_budget,
+            gas_budget: walrus_sui::test_utils::DEFAULT_GAS_BUDGET,
             shards_information: shards,
             ips: ips.clone(),
             rest_api_port: parameters.node_parameters.rest_api_port,
@@ -277,31 +270,22 @@ impl ProtocolCommands for TargetProtocol {
             .map(|instance| {
                 let working_dir = &parameters.settings.working_dir;
                 let client_config_path = working_dir.clone().join("client_config.yaml");
-                let stress_parameters_path = working_dir.clone().join("stress_parameters.yaml");
-                let skip_pre_generation = if parameters.client_parameters.skip_pre_generation {
-                    "--skip-pre-generation"
-                } else {
-                    ""
-                };
+                // let stress_parameters_path = working_dir.clone().join("stress_parameters.yaml");
 
                 let run_command = [
                     &format!("./{BINARY_PATH}/walrus-stress"),
-                    "-vv",
-                    &format!("--load {}", load_per_client),
+                    &format!("--target-load {load_per_client}"),
                     &format!("--config-path {}", client_config_path.display()),
+                    "--n-clients 10",
                     &format!(
-                        "--stress-parameters-path {}",
-                        stress_parameters_path.display()
-                    ),
-                    &format!(
-                        "--duration {}",
-                        parameters.settings.benchmark_duration.as_secs()
+                        "--metrics-port {}",
+                        parameters.client_parameters.metrics_port
                     ),
                     &format!(
                         "--sui-network {}",
                         parameters.node_parameters.sui_network.r#type()
                     ),
-                    skip_pre_generation,
+                    &format!("--blob-size {}", parameters.client_parameters.blob_size),
                 ]
                 .join(" ");
 

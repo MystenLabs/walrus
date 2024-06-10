@@ -1,233 +1,165 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Generate transactions for the stress test.
+//! Generate transactions for stress tests.
 
-use std::{sync::Arc, time::Duration};
+use std::time::{Duration, Instant};
 
-use rand::{rngs::StdRng, Rng, SeedableRng};
+use anyhow::Context;
+use futures::{future::try_join_all, stream::FuturesUnordered, StreamExt};
+use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use tokio::{
-    sync::{
-        mpsc::{channel, Receiver, Sender},
-        Notify,
-    },
-    task::JoinHandle,
-    time::sleep,
+    sync::mpsc::{self, error::TryRecvError, Receiver, Sender},
+    time::MissedTickBehavior,
 };
-use walrus_core::{encoding::SliverPair, metadata::VerifiedBlobMetadataWithId};
-use walrus_service::{
-    cli_utils::load_wallet_context,
-    client::{Client, Config},
+use walrus_service::client::{Client, Config};
+use walrus_sui::{
+    client::{SuiContractClient, SuiReadClient},
+    test_utils::wallet_for_testing_from_faucet,
+    utils::SuiNetwork,
 };
-use walrus_sui::{client::SuiContractClient, utils::SuiNetwork};
+use walrus_test_utils::WithTempDir;
 
-use crate::StressParameters;
+use crate::{metrics, metrics::ClientMetrics};
+
+const DEFAULT_GAS_BUDGET: u64 = 100_000_000;
+/// Timing burst precision.
+const PRECISION: u64 = 10;
 
 /// Create a random blob of a given size.
 pub fn create_random_blob(rng: &mut StdRng, blob_size: usize) -> Vec<u8> {
     (0..blob_size).map(|_| rng.gen::<u8>()).collect()
 }
 
-/// Create a simple Walrus client. This client does not interacts with the chain but simply reads
-/// and writes blobs. The walrus nodes are expected to be running without checking whether the
-/// metadata associated with the blobs are stored on the chain.
-pub async fn create_walrus_client(
-    config: Config,
-    stress_parameters: &StressParameters,
-) -> anyhow::Result<Client<SuiContractClient>> {
-    let wallet_path = config.wallet_config.clone();
-    let wallet = load_wallet_context(&wallet_path)?;
-    let sui_client = SuiContractClient::new(
-        wallet,
+/// A load generator for Walrus writes.
+#[derive(Debug)]
+pub struct LoadGenerator {
+    client_pool_tx: Sender<WithTempDir<Client<SuiContractClient>>>,
+    client_pool_rx: Receiver<WithTempDir<Client<SuiContractClient>>>,
+}
+
+impl LoadGenerator {
+    pub async fn new(
+        n_clients: usize,
+        client_config: Config,
+        network: SuiNetwork,
+    ) -> anyhow::Result<Self> {
+        let (client_pool_tx, client_pool_rx) = mpsc::channel(n_clients);
+        let futures =
+            (0..n_clients).map(|_| new_client(&client_config, network, DEFAULT_GAS_BUDGET));
+        for client in try_join_all(futures).await?.into_iter() {
+            client_pool_tx
+                .send(client)
+                .await
+                .expect("channel should not be closed");
+        }
+        Ok(Self {
+            client_pool_tx,
+            client_pool_rx,
+        })
+    }
+
+    /// Run the load generator.
+    pub async fn start(
+        &mut self,
+        load: u64,
+        blob_size: usize,
+        metrics: &ClientMetrics,
+    ) -> anyhow::Result<()> {
+        let (tx_per_burst, burst_duration) = if load > PRECISION {
+            (load / PRECISION, Duration::from_millis(1000 / PRECISION))
+        } else {
+            (load, Duration::from_secs(1))
+        };
+        tracing::info!(
+            "Submitting {tx_per_burst} transactions every {} ms",
+            burst_duration.as_millis()
+        );
+
+        let mut rng =
+            StdRng::from_rng(thread_rng()).expect("should be able to seed rng from thread_rng");
+
+        // Structures holding futures waiting for clients to finish their requests.
+        let mut write_finished = FuturesUnordered::new();
+
+        // Submit transactions.
+        let start = Instant::now();
+        let mut interval = tokio::time::interval(burst_duration);
+        interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        tokio::pin!(interval);
+
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    let burst_start = Instant::now();
+
+                    let duration_since_start = burst_start.duration_since(start);
+                    metrics.observe_benchmark_duration(duration_since_start);
+
+                    for _ in 0..tx_per_burst {
+                        let blob = create_random_blob(&mut rng, blob_size);
+                        let client = match self
+                            .client_pool_rx
+                            .try_recv() {
+                                Ok(client) => client,
+                                Err(TryRecvError::Empty) => {
+                                    tracing::warn!("No client available to submit write");
+                                    break;
+                                }
+                                Err(TryRecvError::Disconnected) => {
+                                    panic!("The channel should remain open")
+                                }
+                            };
+                        write_finished.push(tokio::spawn(async move {
+                            let now = Instant::now();
+                            let result = client.as_ref().reserve_and_store_blob(&blob, 1).await;
+                            (now, result, client)
+                        }));
+
+                        tracing::info!("Submitted write transaction");
+                        metrics.observe_submitted(metrics::WRITE_WORKLOAD);
+                    }
+
+                    // Check if the submission rate is too high.
+                    if burst_start.elapsed() > burst_duration {
+                        metrics.observe_error("rate too high");
+                        tracing::warn!("rate too high for this client");
+                    }
+                }
+                Some(Ok((instant, result, client))) = write_finished.next() => {
+                    tracing::info!("Write finished");
+                    let _certificate = result.context("Failed to obtain storage certificate")?;
+                    let elapsed = instant.elapsed();
+                    metrics.observe_latency(metrics::WRITE_WORKLOAD, elapsed);
+                    self.client_pool_tx.send(client).await.expect("channel should not be closed");
+                },
+                else => break
+            }
+        }
+
+        Ok(())
+    }
+}
+
+async fn new_client(
+    config: &Config,
+    network: SuiNetwork,
+    gas_budget: u64,
+) -> anyhow::Result<WithTempDir<Client<SuiContractClient>>> {
+    // Create the client with a separate wallet
+    let wallet = wallet_for_testing_from_faucet(network).await?;
+    let sui_read_client = SuiReadClient::new(
+        wallet.as_ref().get_client().await?,
         config.system_pkg,
         config.system_object,
-        stress_parameters.gas_budget,
     )
     .await?;
-    let client = Client::new(config, sui_client).await?;
-    Ok(client)
-}
+    let sui_contract_client = wallet.and_then(|wallet| {
+        SuiContractClient::new_with_read_client(wallet, gas_budget, sui_read_client)
+    })?;
 
-/// Reserve a blob on the chain.
-pub async fn reserve_blob(
-    config: Config,
-    stress_parameters: &StressParameters,
-    _sui_network: SuiNetwork,
-    rng: &mut StdRng,
-) -> anyhow::Result<(
-    Client<SuiContractClient>,
-    Vec<SliverPair>,
-    VerifiedBlobMetadataWithId,
-)> {
-    let client = create_walrus_client(config, stress_parameters).await?;
-
-    // Encode a blob.
-    let blob_size = stress_parameters.blob_size;
-    let blob = create_random_blob(rng, blob_size);
-    let (pairs, metadata) = client
-        .encoding_config()
-        .get_blob_encoder(&blob)?
-        .encode_with_metadata();
-
-    // Pay for the blob registration.
-    let epochs_ahead = 1;
-    let _blob_sui_object = client
-        .reserve_blob(&metadata, blob.len(), epochs_ahead)
+    let client = sui_contract_client
+        .and_then_async(|contract_client| Client::new(config.clone(), contract_client))
         .await?;
-
-    // TODO: Detect when the blob is stored by querying the storage nodes.
-    sleep(Duration::from_secs(3)).await;
-
-    Ok((client, pairs, metadata))
-}
-
-/// Make dumb (but valid) write transactions.
-#[derive(Debug)]
-pub struct WriteTransactionGenerator {
-    notify: Arc<Notify>,
-    _tx_transaction: Sender<(
-        Client<SuiContractClient>,
-        Vec<SliverPair>,
-        VerifiedBlobMetadataWithId,
-    )>,
-    rx_transaction: Receiver<(
-        Client<SuiContractClient>,
-        Vec<SliverPair>,
-        VerifiedBlobMetadataWithId,
-    )>,
-    _handler: JoinHandle<anyhow::Result<()>>,
-}
-
-impl WriteTransactionGenerator {
-    /// Start the write transaction generator.
-    pub async fn start(
-        config: Config,
-        stress_parameters: StressParameters,
-        sui_network: SuiNetwork,
-        pre_generation: usize,
-    ) -> anyhow::Result<Self> {
-        let (tx_transaction, rx_transaction) = channel((pre_generation + 1) * 10);
-        let notify = Arc::new(Notify::new());
-        let cloned_notify = notify.clone();
-
-        let mut rng = StdRng::from_entropy();
-
-        // Generate new transactions in the background.
-        let sender = tx_transaction.clone();
-        let handler = tokio::spawn(async move {
-            let mut i = 0;
-            loop {
-                if i % 10 == 0 {
-                    tracing::info!("Generated {i}/{pre_generation} tx");
-                }
-
-                // Generate a new transaction.
-                let (client, pairs, metadata) =
-                    reserve_blob(config.clone(), &stress_parameters, sui_network, &mut rng).await?;
-
-                if i == pre_generation {
-                    cloned_notify.notify_one();
-                }
-                i += 1;
-
-                // This call blocks when the channel is full.
-                sender
-                    .send((client, pairs, metadata))
-                    .await
-                    .expect("Failed to send tx");
-                tokio::task::yield_now().await;
-            }
-        });
-
-        Ok(Self {
-            notify,
-            _tx_transaction: tx_transaction,
-            rx_transaction,
-            _handler: handler,
-        })
-    }
-
-    /// Get a new transaction.
-    pub async fn make_tx(
-        &mut self,
-    ) -> (
-        Client<SuiContractClient>,
-        Vec<SliverPair>,
-        VerifiedBlobMetadataWithId,
-    ) {
-        self.rx_transaction
-            .recv()
-            .await
-            .expect("Failed to get new write tx")
-    }
-
-    /// Wait for the generator to finish pre-generating transactions.
-    pub async fn initialize(&self) {
-        self.notify.notified().await;
-    }
-}
-
-// Make dumb (but valid) read transactions.
-#[derive(Debug)]
-pub struct ReadTransactionGenerator {
-    notify: Arc<Notify>,
-    _tx_transaction: Sender<Client<SuiContractClient>>,
-    rx_transaction: Receiver<Client<SuiContractClient>>,
-    _handler: JoinHandle<anyhow::Result<()>>,
-}
-
-impl ReadTransactionGenerator {
-    /// Start the write transaction generator.
-    pub async fn start(
-        config: Config,
-        stress_parameters: StressParameters,
-        pre_generation: usize,
-    ) -> anyhow::Result<Self> {
-        let (tx_transaction, rx_transaction) = channel((pre_generation + 1) * 10);
-        let notify = Arc::new(Notify::new());
-        let cloned_notify = notify.clone();
-
-        // Generate new transactions in the background.
-        let sender = tx_transaction.clone();
-        let handler = tokio::spawn(async move {
-            let mut i = 0;
-            loop {
-                if i % 10 == 0 {
-                    tracing::info!("Generated {i}/{pre_generation} tx");
-                }
-
-                // Generate a new transaction.
-                let client = create_walrus_client(config.clone(), &stress_parameters).await?;
-
-                if i == pre_generation {
-                    cloned_notify.notify_one();
-                }
-                i += 1;
-
-                // This call blocks when the channel is full.
-                sender.send(client).await.expect("Failed to send tx");
-                tokio::task::yield_now().await;
-            }
-        });
-
-        Ok(Self {
-            notify,
-            _tx_transaction: tx_transaction,
-            rx_transaction,
-            _handler: handler,
-        })
-    }
-
-    /// Get a new transaction.
-    pub async fn make_tx(&mut self) -> Client<SuiContractClient> {
-        self.rx_transaction
-            .recv()
-            .await
-            .expect("Failed to get new write tx")
-    }
-
-    /// Wait for the generator to finish pre-generating transactions.
-    pub async fn initialize(&self) {
-        self.notify.notified().await;
-    }
+    Ok(client)
 }
