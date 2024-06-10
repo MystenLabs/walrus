@@ -9,11 +9,14 @@ use std::{
 
 use sui_types::event::EventID;
 
-/// On receiving a sequence of (sequence_number, EventID, BlobEventType) pairs, tracks the highest
-/// sequentially observed sequence_number, and allows sequentially accessing the resulting queue.
+/// A queue of contiguous events.
+///
+/// Given an arbitrary permutation of the index and [`EventID`] pairs `(0, EventID_0),
+/// (1, EventID_1), (2, EventID_2), ...`, this queue sorts the event IDs by the their index and
+/// provides access to the `EventID`s sequentially starting from 0.
 #[derive(Debug, Default)]
 pub(super) struct EventSequencer {
-    next_required_sequence_num: usize,
+    head_index: usize,
     queue: HashMap<usize, EventID>,
 }
 
@@ -22,38 +25,29 @@ impl EventSequencer {
         Self::default()
     }
 
-    /// Adds the provided (sequence_number, EventID) pair to those observed.
+    /// Adds the provided (index, EventID) pair to those observed.
     ///
-    /// Added sequence numbers must be unique over those observed up to this point.
-    pub fn add(&mut self, sequence_number: usize, event_id: EventID) {
-        if sequence_number < self.next_required_sequence_num {
+    /// # Panics
+    ///
+    /// Panics if the provided index has already been observed.
+    pub fn add(&mut self, index: usize, event_id: EventID) {
+        if index < self.head_index || self.queue.insert(index, event_id).is_some() {
             // This class provides the invariant that we never advance unless we have seen all
-            // prior sequence numbers, therefore anything encountered here is a duplicate.
-            debug_assert!(
-                false,
-                "sequence number repeated: ({sequence_number}, {event_id:?})"
-            );
-            tracing::warn!(sequence_number, ?event_id, "sequence number repeated");
-        }
-
-        if self.queue.insert(sequence_number, event_id).is_some() {
-            panic!("queued sequence number repeated")
+            // prior sequence numbers, therefore anything less than the head_index or with a prior
+            // inserted value is a repeat.
+            panic!("index repeated: ({index}, {event_id:?})");
         }
     }
 
-    /// Returns an iterator over queued events that form a contiguous sequence.
+    /// Returns an iterator the next contiguous observed event IDs.
     pub fn ready_events(&self) -> impl Iterator<Item = &EventID> {
-        (self.next_required_sequence_num..).scan((), |_, i| self.queue.get(&i))
+        (self.head_index..).scan((), |_, i| self.queue.get(&i))
     }
 
     /// Advances the queue to the next gap in the sequence, discarding all events before the gap.
     pub fn advance(&mut self) {
-        while self
-            .queue
-            .remove(&self.next_required_sequence_num)
-            .is_some()
-        {
-            self.next_required_sequence_num += 1;
+        while self.queue.remove(&self.head_index).is_some() {
+            self.head_index += 1;
         }
     }
 

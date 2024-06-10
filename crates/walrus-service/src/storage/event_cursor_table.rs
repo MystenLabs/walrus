@@ -65,20 +65,14 @@ impl EventCursorTable {
     }
 
     pub fn get_sequentially_processed_event_count(&self) -> Result<u64, TypedStoreError> {
-        if let Some((count, _)) = self.inner.get(&CURSOR_KEY)? {
-            Ok(count)
-        } else {
-            Ok(0)
-        }
+        let entry = self.inner.get(&CURSOR_KEY)?;
+        Ok(entry.map_or(0, |(count, _)| count))
     }
 
     /// Get the event cursor for `event_type`
     pub fn get_event_cursor(&self) -> Result<Option<EventID>, TypedStoreError> {
-        if let Some((_, cursor)) = self.inner.get(&CURSOR_KEY)? {
-            Ok(Some(cursor))
-        } else {
-            Ok(None)
-        }
+        let entry = self.inner.get(&CURSOR_KEY)?;
+        Ok(entry.map(|(_, cursor)| cursor))
     }
 
     pub fn maybe_advance_event_cursor(
@@ -106,17 +100,12 @@ impl EventCursorTable {
             batch.write()?;
 
             event_queue.advance();
-
-            Ok(EventProgress {
-                persisted: count,
-                pending: event_queue.remaining(),
-            })
-        } else {
-            Ok(EventProgress {
-                persisted: 0,
-                pending: event_queue.remaining(),
-            })
         }
+
+        Ok(EventProgress {
+            persisted: count,
+            pending: event_queue.remaining(),
+        })
     }
 }
 
@@ -130,15 +119,11 @@ fn update_cursor_and_progress(
         .map(|data| bcs::from_bytes(data).expect("value stored in database is decodable"));
 
     for operand_bytes in operands {
-        let (cursor, progress_increment) = bcs::from_bytes::<ProgressMergeOperand>(operand_bytes)
+        let (cursor, increment) = bcs::from_bytes::<ProgressMergeOperand>(operand_bytes)
             .expect("merge operand to be decodable");
-        tracing::debug!("updating {current_val:?} with {cursor:?} (+{progress_increment})");
+        tracing::debug!("updating {current_val:?} with {cursor:?} (+{increment})");
 
-        let updated_progress = if let Some((progress, _)) = current_val {
-            progress + progress_increment
-        } else {
-            progress_increment
-        };
+        let mut updated_progress = current_val.map_or(0, |(progress, _)| progress) + increment;
 
         current_val = Some((updated_progress, cursor));
     }
