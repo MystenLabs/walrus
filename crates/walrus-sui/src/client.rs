@@ -234,9 +234,8 @@ impl SuiContractClient {
     }
 
     /// Returns the wallet context used by the client.
-    // TODO: get rid of mut #478
-    pub fn wallet(&mut self) -> &mut WalletContext {
-        &mut self.wallet
+    pub fn wallet(&self) -> &WalletContext {
+        &self.wallet
     }
 }
 
