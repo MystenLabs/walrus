@@ -8,7 +8,6 @@ pub mod client;
 pub mod committee;
 pub mod config;
 pub mod contract_service;
-pub mod daemon;
 pub mod server;
 pub mod system_events;
 pub mod testbed;

@@ -58,6 +58,9 @@ mod communication;
 mod config;
 pub use config::{default_configuration_paths, ClientCommunicationConfig, Config};
 
+mod daemon;
+pub use daemon::ClientDaemon;
+
 mod error;
 pub use error::{ClientError, ClientErrorKind};
 

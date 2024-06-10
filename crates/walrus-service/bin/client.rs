@@ -42,8 +42,7 @@ use walrus_service::{
         HumanReadableMist,
         VERSION,
     },
-    client::{BlobStoreResult, Client},
-    daemon::ClientDaemon,
+    client::{BlobStoreResult, Client, ClientDaemon},
 };
 use walrus_sui::{
     client::{ContractClient, ReadClient},
