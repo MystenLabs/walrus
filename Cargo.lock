@@ -11886,6 +11886,7 @@ dependencies = [
  "opentelemetry-otlp 0.15.0",
  "opentelemetry-stdout",
  "opentelemetry_sdk 0.22.1",
+ "pin-project",
  "prettytable",
  "prometheus",
  "rand 0.8.5",

@@ -10,6 +10,12 @@ use prometheus::{
     Registry,
 };
 
+pub(crate) const STATUS_FAILURE: &str = "failure";
+pub(crate) const STATUS_SUCCESS: &str = "success";
+pub(crate) const STATUS_ABORTED: &str = "aborted";
+pub(crate) const STATUS_SKIPPED: &str = "skip";
+pub(crate) const STATUS_INCONSISTENT: &str = "inconsistent";
+
 macro_rules! with_label {
     ($metric:expr, $label:expr) => {
         $metric.with_label_values(&[$label.as_ref()])
@@ -36,7 +42,7 @@ macro_rules! define_node_metric_set {
         ),+ $(,)?
     ) => {
         #[derive(Debug)]
-        pub(super) struct NodeMetricSet {
+        pub(crate) struct NodeMetricSet {
             $($( pub $metric: $metric_type ),*),*
         }
 
@@ -82,5 +88,15 @@ define_node_metric_set! {
             "Time (in seconds) spent processing events",
             &["event_type"]
         ),
+        (
+            recover_blob_duration_seconds,
+            "Time (in seconds) spent recovering blobs",
+            &["status"]
+        ),
+        (
+            recover_blob_part_duration_seconds,
+            "Time (in seconds) spent recovering metadata or slivers of blobs",
+            &["part", "status"]
+        )
     ]
 }
