@@ -33,11 +33,9 @@ pub fn contract_path_for_testing(package: &str) -> anyhow::Result<PathBuf> {
 /// Publishes the package with a default system object.
 ///
 /// The system object has the default e2e test setup (compatible with the current tests), and
-/// returns the IDs of the package and the system object. The default test setup currently uses a
+/// returns the ID of the system object. The default test setup currently uses a
 /// single storage node with sk = 117.
-pub async fn publish_with_default_system(
-    wallet: &mut WalletContext,
-) -> Result<(ObjectID, ObjectID)> {
+pub async fn publish_with_default_system(wallet: &mut WalletContext) -> Result<ObjectID> {
     let (pkg_id, cap_id) = publish_package(
         wallet,
         contract_path_for_testing("blob_store")?,
@@ -69,5 +67,5 @@ pub async fn publish_with_default_system(
     let system_object_id =
         create_system_object(wallet, pkg_id, cap_id, &system_params, DEFAULT_GAS_BUDGET).await?;
 
-    Ok((pkg_id, system_object_id))
+    Ok(system_object_id)
 }

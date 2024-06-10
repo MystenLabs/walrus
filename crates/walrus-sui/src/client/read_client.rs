@@ -90,12 +90,8 @@ const EVENT_CHANNEL_CAPACITY: usize = 1024;
 
 impl SuiReadClient {
     /// Constructor for `SuiReadClient`.
-    pub async fn new(
-        sui_client: SuiClient,
-        system_pkg_id: ObjectID,
-        system_object_id: ObjectID,
-    ) -> SuiClientResult<Self> {
-        check_system_deployment(&sui_client, system_pkg_id, system_object_id).await?;
+    pub async fn new(sui_client: SuiClient, system_object_id: ObjectID) -> SuiClientResult<Self> {
+        let system_pkg_id = get_system_package_id(&sui_client, system_object_id).await?;
         let type_params = get_type_parameters(&sui_client, system_object_id).await?;
         ensure!(
             type_params.len() == 1,
@@ -116,11 +112,10 @@ impl SuiReadClient {
     /// provided fullnode's RPC address.
     pub async fn new_for_rpc<S: AsRef<str>>(
         rpc_address: S,
-        system_pkg: ObjectID,
         system_object: ObjectID,
     ) -> SuiClientResult<Self> {
         let client = SuiClientBuilder::default().build(rpc_address).await?;
-        Self::new(client, system_pkg, system_object).await
+        Self::new(client, system_object).await
     }
 
     pub(crate) async fn call_arg_from_system_obj(&self, mutable: bool) -> SuiClientResult<CallArg> {
@@ -231,12 +226,11 @@ impl fmt::Debug for SuiReadClient {
     }
 }
 
-/// Checks if the Walrus package and system object exist on chain.
-async fn check_system_deployment(
+/// Checks if the Walrus system object exist on chain and returns the Walrus package ID.
+async fn get_system_package_id(
     sui_client: &SuiClient,
-    system_pkg_id: ObjectID,
     system_object_id: ObjectID,
-) -> SuiClientResult<()> {
+) -> SuiClientResult<ObjectID> {
     let response = sui_client
         .read_api()
         .get_object_with_options(
@@ -251,10 +245,7 @@ async fn check_system_deployment(
 
     let object_pkg_id = get_package_id_from_object_response(&response)
         .map_err(|_| SuiClientError::WalrusSystemObjectDoesNotExist(system_object_id))?;
-    if object_pkg_id != system_pkg_id {
-        return Err(SuiClientError::WalrusPackageDoesNotExist(system_pkg_id));
-    }
-    Ok(())
+    Ok(object_pkg_id)
 }
 
 #[tracing::instrument(err, skip_all)]

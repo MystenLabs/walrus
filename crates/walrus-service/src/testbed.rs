@@ -254,14 +254,12 @@ pub async fn deploy_walrus_contract(
     Ok(TestbedConfig {
         sui_network,
         nodes: node_configs,
-        pkg_id,
         system_object,
     })
 }
 
 /// Create client configurations for the testbed.
 pub async fn create_client_config(
-    pkg_id: ObjectID,
     system_object: ObjectID,
     working_dir: &Path,
     sui_network: SuiNetwork,
@@ -305,7 +303,6 @@ pub async fn create_client_config(
 
     // Create the client config.
     let client_config = client::Config {
-        system_pkg: pkg_id,
         system_object,
         wallet_config: Some(wallet_path),
         communication_config: ClientCommunicationConfig::default(),
@@ -387,7 +384,6 @@ pub async fn create_storage_node_configs(
 
         let sui = Some(SuiConfig {
             rpc: rpc.clone(),
-            pkg_id: testbed_config.pkg_id,
             system_object: testbed_config.system_object,
             event_polling_interval: defaults::polling_interval(),
             wallet_config: wallet_path,

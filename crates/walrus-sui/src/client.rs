@@ -64,9 +64,6 @@ pub enum SuiClientError {
     #[error("no compatible gas coin found: {0}")]
     /// No matching gas coin found for the transaction.
     NoCompatibleGasCoin(anyhow::Error),
-    /// The Walrus package does not exist.
-    #[error("the specified Walrus package {0} does not exist")]
-    WalrusPackageDoesNotExist(ObjectID),
     /// The Walrus system object does not exist.
     #[error("the specified Walrus system object {0} does not exist")]
     WalrusSystemObjectDoesNotExist(ObjectID),
@@ -134,13 +131,12 @@ impl SuiContractClient {
     /// Constructor for [`SuiContractClient`].
     pub async fn new(
         mut wallet: WalletContext,
-        system_pkg: ObjectID,
         system_object: ObjectID,
         gas_budget: u64,
     ) -> SuiClientResult<Self> {
         let sui_client = wallet.get_client().await?;
         let wallet_address = wallet.active_address()?;
-        let read_client = SuiReadClient::new(sui_client, system_pkg, system_object).await?;
+        let read_client = SuiReadClient::new(sui_client, system_object).await?;
         Ok(Self {
             wallet,
             read_client,

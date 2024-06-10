@@ -68,8 +68,6 @@ impl LoadConfig for StorageNodeConfig {}
 pub struct SuiConfig {
     /// HTTP URL of the Sui full-node RPC endpoint (including scheme).
     pub rpc: String,
-    /// Object ID of the walrus package.
-    pub pkg_id: ObjectID,
     /// Object ID of walrus system object.
     pub system_object: ObjectID,
     /// Interval with which events are polled, in milliseconds.
@@ -104,8 +102,6 @@ pub struct TestbedConfig {
     pub sui_network: SuiNetwork,
     /// The list of ip addresses of the storage nodes.
     pub nodes: Vec<TestbedNodeConfig>,
-    /// Object ID of the walrus package.
-    pub pkg_id: ObjectID,
     /// Object ID of walrus system object.
     pub system_object: ObjectID,
 }

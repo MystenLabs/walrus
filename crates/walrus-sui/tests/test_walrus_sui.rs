@@ -28,13 +28,11 @@ const GAS_BUDGET: u64 = 1_000_000_000;
 async fn initialize_contract_and_wallet(
 ) -> anyhow::Result<(Arc<TestClusterHandle>, WithTempDir<SuiContractClient>)> {
     let (sui_cluster_handle, mut wallet) = new_wallet_on_global_test_cluster().await?;
-    let (package_id, system_object) = publish_with_default_system(&mut wallet.inner).await?;
+    let system_object = publish_with_default_system(&mut wallet.inner).await?;
     Ok((
         sui_cluster_handle,
         wallet
-            .and_then_async(|wallet| {
-                SuiContractClient::new(wallet, package_id, system_object, GAS_BUDGET)
-            })
+            .and_then_async(|wallet| SuiContractClient::new(wallet, system_object, GAS_BUDGET))
             .await?,
     ))
 }
