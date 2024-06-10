@@ -16,7 +16,6 @@ pub struct Monitor {
     clients: Vec<Instance>,
     nodes: Vec<Instance>,
     ssh_manager: SshConnectionManager,
-    dedicated_clients: bool,
 }
 
 impl Monitor {
@@ -26,14 +25,12 @@ impl Monitor {
         clients: Vec<Instance>,
         nodes: Vec<Instance>,
         ssh_manager: SshConnectionManager,
-        dedicated_clients: bool,
     ) -> Self {
         Self {
             instance,
             clients,
             nodes,
             ssh_manager,
-            dedicated_clients,
         }
     }
 
@@ -46,21 +43,20 @@ impl Monitor {
         commands
     }
 
-    /// Start a prometheus instance on each remote machine.
+    /// Start a prometheus instance on the dedicated motoring machine.
     pub async fn start_prometheus<P: ProtocolMetrics>(
         &self,
         protocol_commands: &P,
         parameters: &BenchmarkParameters,
     ) -> MonitorResult<()> {
-        // Select the instances to monitor.
-        let mut instances = self.nodes.clone();
-        if self.dedicated_clients {
-            instances.extend(self.clients.iter().cloned())
-        }
-
         // Configure and reload prometheus.
         let instance = [self.instance.clone()];
-        let commands = Prometheus::setup_commands(instances, protocol_commands, parameters);
+        let commands = Prometheus::setup_commands(
+            self.nodes.clone(),
+            self.clients.clone(),
+            protocol_commands,
+            parameters,
+        );
         self.ssh_manager
             .execute(instance, commands, CommandContext::default())
             .await?;
@@ -68,7 +64,7 @@ impl Monitor {
         Ok(())
     }
 
-    /// Start grafana on the local host.
+    /// Start grafana on the dedicated motoring machine.
     pub async fn start_grafana(&self) -> MonitorResult<()> {
         // Configure and reload grafana.
         let instance = std::iter::once(self.instance.clone());
@@ -105,7 +101,8 @@ impl Prometheus {
 
     /// Generate the commands to update the prometheus configuration and restart prometheus.
     pub fn setup_commands<I, P>(
-        instances: I,
+        nodes: I,
+        clients: I,
         protocol: &P,
         parameters: &BenchmarkParameters,
     ) -> String
@@ -116,9 +113,17 @@ impl Prometheus {
         // Generate the prometheus configuration.
         let mut config = vec![Self::global_configuration()];
 
-        let nodes_metrics_path = protocol.nodes_metrics_path(instances, parameters);
+        let nodes_metrics_path = protocol.nodes_metrics_path(nodes, parameters);
         for (i, (_, nodes_metrics_path)) in nodes_metrics_path.into_iter().enumerate() {
-            let scrape_config = Self::scrape_configuration(i, &nodes_metrics_path);
+            let id = format!("node-{i}");
+            let scrape_config = Self::scrape_configuration(&id, &nodes_metrics_path);
+            config.push(scrape_config);
+        }
+
+        let clients_metrics_path = protocol.clients_metrics_path(clients, parameters);
+        for (i, (_, client_metrics_path)) in clients_metrics_path.into_iter().enumerate() {
+            let id = format!("client-{i}");
+            let scrape_config = Self::scrape_configuration(&id, &client_metrics_path);
             config.push(scrape_config);
         }
 
@@ -144,7 +149,7 @@ impl Prometheus {
 
     /// Generate the prometheus configuration from the given metrics path.
     /// NOTE: The configuration file is a yaml file so spaces are important.
-    fn scrape_configuration(index: usize, nodes_metrics_path: &str) -> String {
+    fn scrape_configuration(id: &str, nodes_metrics_path: &str) -> String {
         let parts: Vec<_> = nodes_metrics_path.split('/').collect();
         let address = parts[0].parse::<SocketAddr>().unwrap();
         let ip = address.ip();
@@ -152,12 +157,12 @@ impl Prometheus {
         let path = parts[1];
 
         [
-            &format!("  - job_name: instance-{index}"),
+            &format!("  - job_name: instance-{id}"),
             &format!("    metrics_path: /{path}"),
             "    static_configs:",
             "      - targets:",
             &format!("        - {ip}:{port}"),
-            &format!("  - job_name: instance-node-exporter-{index}"),
+            &format!("  - job_name: instance-node-exporter-{id}"),
             "    static_configs:",
             "      - targets:",
             &format!("        - {ip}:9200"),
