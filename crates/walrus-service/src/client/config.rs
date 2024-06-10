@@ -12,7 +12,7 @@ use crate::config::LoadConfig;
 /// Config for the client.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
-    /// The walrus system object id.
+    /// The Walrus system object ID.
     pub system_object: ObjectID,
     /// Path to the wallet configuration.
     #[serde(default)]

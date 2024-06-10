@@ -64,9 +64,6 @@ pub enum SuiClientError {
     #[error("no compatible gas coin found: {0}")]
     /// No matching gas coin found for the transaction.
     NoCompatibleGasCoin(anyhow::Error),
-    /// The Walrus package does not exist.
-    #[error("the specified Walrus package {0} does not exist")]
-    WalrusPackageDoesNotExist(ObjectID),
     /// The Walrus system object does not exist.
     #[error("the specified Walrus system object {0} does not exist")]
     WalrusSystemObjectDoesNotExist(ObjectID),
