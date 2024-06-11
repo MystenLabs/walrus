@@ -147,9 +147,9 @@ impl ReqwestConfig {
 
 /// Returns the default paths for the Walrus configuration file.
 pub fn default_configuration_paths() -> Vec<PathBuf> {
-    let mut default_paths = vec!["./config.yaml".into()];
+    let mut default_paths = vec!["./client_config.yaml".into()];
     if let Some(home_dir) = home::home_dir() {
-        default_paths.push(home_dir.join(".walrus").join("config.yaml"))
+        default_paths.push(home_dir.join(".walrus").join("client_config.yaml"))
     }
     default_paths
 }

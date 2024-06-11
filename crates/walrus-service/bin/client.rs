@@ -53,8 +53,8 @@ struct App {
     /// The Walrus configuration is taken from the following locations:
     ///
     /// 1. From this configuration parameter, if set.
-    /// 2. From `./config.yaml`.
-    /// 3. From `~/.walrus/config.yaml`.
+    /// 2. From `./client_config.yaml`.
+    /// 3. From `~/.walrus/client_config.yaml`.
     ///
     /// If an invalid path is specified through this option, an error is returned.
     // NB: Keep this in sync with `walrus_service::cli_utils`.
