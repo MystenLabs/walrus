@@ -195,7 +195,7 @@ impl<T: ContractClient> Client<T> {
         // Return early if the blob is already certified or marked as invalid.
         if !force {
             // Use short timeout as this is only an optimization.
-            const STATUS_TIMEOUT: Duration = Duration::from_millis(500);
+            const STATUS_TIMEOUT: Duration = Duration::from_secs(5);
 
             match self
                 .get_verified_blob_status(
