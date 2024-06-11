@@ -18,7 +18,7 @@ futures.workspace = true
 prettytable-rs = "0.10"
 # TODO(alberto): Remove this dependency again (#284).
 prometheus-parse = { git = "https://github.com/asonnino/prometheus-parser", rev = "75334db" }
-reqwest = { workspace = true, features = ["json"] }
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serde_with.workspace = true

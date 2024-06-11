@@ -11,15 +11,15 @@ service = ["dep:tower-service"]
 
 [dependencies]
 bcs.workspace = true
-mime = "0.3.17"
-reqwest = { workspace = true, features = ["json"] }
+mime.workspace = true
+reqwest.workspace = true
 serde.workspace = true
-serde_json = "1.0.117"
+serde_json.workspace = true
 sui-types.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tower-service = { version = "0.3.2", optional = true }
-tracing = "0.1.40"
+tracing.workspace = true
 utoipa.workspace = true
 walrus-core.workspace = true
 

@@ -14,10 +14,12 @@ bcs = "0.1.6"
 clap = { version = "4.5.4", features = ["derive"] }
 fastcrypto = "0.1"
 futures = "0.3.30"
+mime = "0.3.17"
 move-core-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.26.0" }
 mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.26.0" }
+prometheus = "0.13.4"
 rand = "0.8.5"
-reqwest = { version = "0.12.4", default-features = false, features = ["http2", "rustls-tls"] }
+reqwest = { version = "0.12.4", default-features = false, features = ["http2", "json", "rustls-tls"] }
 serde = { version = "1.0.203", features = ["derive"] }
 serde_json = "1.0.117"
 serde_with = { version = "3.8", features = ["base64"] }
@@ -41,7 +43,6 @@ walrus-sui = { path = "crates/walrus-sui" }
 walrus-service = { path = "crates/walrus-service" }
 walrus-test-utils = { path = "crates/walrus-test-utils" }
 walrus-sdk = { path = "crates/walrus-sdk" }
-walrus-stress = { path = "crates/walrus-stress" }
 utoipa = { version = "4.2.3" }
 
 [workspace.lints.rust]

@@ -10,12 +10,12 @@ anyhow.workspace = true
 clap.workspace = true
 futures.workspace = true
 mysten-metrics.workspace = true
-prometheus = "0.13.4"
+prometheus.workspace = true
 rand.workspace = true
 serde.workspace = true
 tokio.workspace = true
 tracing.workspace = true
-tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+tracing-subscriber.workspace = true
 walrus-core.workspace = true
 walrus-service.workspace = true
 walrus-sui.workspace = true

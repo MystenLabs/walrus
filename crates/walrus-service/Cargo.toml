@@ -23,13 +23,13 @@ git-version = "0.3.9"
 home = "0.5.9"
 humantime = "2.1.0"
 indoc = "2.0.5"
-mime = "0.3.17"
+mime.workspace = true
 mysten-metrics.workspace = true
 prettytable = "0.10.0"
-prometheus = "0.13.4"
+prometheus.workspace = true
 rand.workspace = true
 regex = "1"
-reqwest = { workspace = true, features = ["json"] }
+reqwest.workspace = true
 rocksdb = "0.22.0"
 serde.workspace = true
 serde_json.workspace = true
