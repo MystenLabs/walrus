@@ -62,12 +62,9 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Starting metrics server on {metrics_address}");
 
     // Start the write transaction generator.
-    tracing::info!("Initializing clients...");
-    let mut load_generator = LoadGenerator::new(n_clients, config, args.sui_network).await?;
-    tracing::info!("Finished initializing clients...");
-    tracing::info!("Starting load generator...");
-    load_generator
-        .start(target_load, args.blob_size.get(), &metrics)
-        .await?;
+    let mut load_generator =
+        LoadGenerator::new(n_clients, args.blob_size.get(), config, args.sui_network).await?;
+
+    load_generator.start(target_load, &metrics).await?;
     Ok(())
 }

@@ -3,15 +3,15 @@
 
 //! Generate transactions for stress tests.
 
-use std::time::{Duration, Instant};
+use std::{
+    collections::VecDeque,
+    time::{Duration, Instant},
+};
 
 use anyhow::Context;
 use futures::{future::try_join_all, stream::FuturesUnordered, StreamExt};
-use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
-use tokio::{
-    sync::mpsc::{self, error::TryRecvError, Receiver, Sender},
-    time::MissedTickBehavior,
-};
+use rand::{rngs::StdRng, thread_rng, SeedableRng};
+use tokio::time::MissedTickBehavior;
 use walrus_service::client::{Client, Config};
 use walrus_sui::{
     client::{SuiContractClient, SuiReadClient},
@@ -26,46 +26,43 @@ const DEFAULT_GAS_BUDGET: u64 = 100_000_000;
 /// Timing burst precision.
 const PRECISION: u64 = 10;
 
-/// Create a random blob of a given size.
-pub fn create_random_blob(rng: &mut StdRng, blob_size: usize) -> Vec<u8> {
-    (0..blob_size).map(|_| rng.gen::<u8>()).collect()
-}
+mod blob;
+use blob::BlobData;
 
 /// A load generator for Walrus writes.
 #[derive(Debug)]
 pub struct LoadGenerator {
-    client_pool_tx: Sender<WithTempDir<Client<SuiContractClient>>>,
-    client_pool_rx: Receiver<WithTempDir<Client<SuiContractClient>>>,
+    client_pool: VecDeque<(WithTempDir<Client<SuiContractClient>>, BlobData)>,
 }
 
 impl LoadGenerator {
     pub async fn new(
         n_clients: usize,
+        blob_size: usize,
         client_config: Config,
         network: SuiNetwork,
     ) -> anyhow::Result<Self> {
-        let (client_pool_tx, client_pool_rx) = mpsc::channel(n_clients);
-        let futures =
-            (0..n_clients).map(|_| new_client(&client_config, network, DEFAULT_GAS_BUDGET));
-        for client in try_join_all(futures).await?.into_iter() {
-            client_pool_tx
-                .send(client)
-                .await
-                .expect("channel should not be closed");
-        }
-        Ok(Self {
-            client_pool_tx,
-            client_pool_rx,
-        })
+        tracing::info!("Initializing clients...");
+        let clients = try_join_all(
+            (0..n_clients).map(|_| new_client(&client_config, network, DEFAULT_GAS_BUDGET)),
+        )
+        .await?;
+
+        tracing::info!("Initializing blobs...");
+        let blobs = (0..n_clients).map(|_| {
+            BlobData::random(
+                StdRng::from_rng(thread_rng()).expect("rng should be seedable from thread_rng"),
+                blob_size,
+            )
+        });
+        let client_pool = clients.into_iter().zip(blobs).collect();
+        tracing::info!("Finished initializing clients and blobs.");
+        Ok(Self { client_pool })
     }
 
     /// Run the load generator.
-    pub async fn start(
-        &mut self,
-        load: u64,
-        blob_size: usize,
-        metrics: &ClientMetrics,
-    ) -> anyhow::Result<()> {
+    pub async fn start(&mut self, load: u64, metrics: &ClientMetrics) -> anyhow::Result<()> {
+        tracing::info!("Starting load generator...");
         let (tx_per_burst, burst_duration) = if load > PRECISION {
             (load / PRECISION, Duration::from_millis(1000 / PRECISION))
         } else {
@@ -75,9 +72,6 @@ impl LoadGenerator {
             "Submitting {tx_per_burst} transactions every {} ms",
             burst_duration.as_millis()
         );
-
-        let mut rng =
-            StdRng::from_rng(thread_rng()).expect("should be able to seed rng from thread_rng");
 
         // Structures holding futures waiting for clients to finish their requests.
         let mut write_finished = FuturesUnordered::new();
@@ -97,23 +91,16 @@ impl LoadGenerator {
                     metrics.observe_benchmark_duration(duration_since_start);
 
                     for _ in 0..tx_per_burst {
-                        let blob = create_random_blob(&mut rng, blob_size);
-                        let client = match self
-                            .client_pool_rx
-                            .try_recv() {
-                                Ok(client) => client,
-                                Err(TryRecvError::Empty) => {
-                                    tracing::warn!("No client available to submit write");
-                                    break;
-                                }
-                                Err(TryRecvError::Disconnected) => {
-                                    panic!("The channel should remain open")
-                                }
-                            };
+                        let Some((client, mut blob)) = self.client_pool.pop_front() else {
+                            tracing::warn!("No client available to submit write");
+                            break;
+                        };
                         write_finished.push(tokio::spawn(async move {
+                            blob.refresh();
                             let now = Instant::now();
-                            let result = client.as_ref().reserve_and_store_blob(&blob, 1, true).await;
-                            (now, result, client)
+                            let result = client.as_ref().reserve_and_store_blob(blob.as_ref(), 1, true).await;
+                            let elapsed = now.elapsed();
+                            (elapsed, result, client, blob)
                         }));
 
                         tracing::info!("Submitted write transaction");
@@ -126,12 +113,11 @@ impl LoadGenerator {
                         tracing::warn!("rate too high for this client");
                     }
                 }
-                Some(Ok((instant, result, client))) = write_finished.next() => {
-                    tracing::info!("Write finished");
+                Some(Ok((elapsed, result, client, blob))) = write_finished.next() => {
                     let _certificate = result.context("Failed to obtain storage certificate")?;
-                    let elapsed = instant.elapsed();
+                    tracing::info!("Write finished");
                     metrics.observe_latency(metrics::WRITE_WORKLOAD, elapsed);
-                    self.client_pool_tx.send(client).await.expect("channel should not be closed");
+                    self.client_pool.push_back((client, blob));
                 },
                 else => break
             }
