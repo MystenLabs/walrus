@@ -17,7 +17,7 @@ futures = "0.3.30"
 move-core-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.26.0" }
 mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.26.0" }
 rand = "0.8.5"
-reqwest = { version = "0.12.4", default-features = false, features = ["http2", "blocking", "json", "rustls-tls"] }
+reqwest = { version = "0.12.4", default-features = false, features = ["http2", "rustls-tls"] }
 serde = { version = "1.0.203", features = ["derive"] }
 serde_json = "1.0.117"
 serde_with = { version = "3.8", features = ["base64"] }

@@ -73,6 +73,12 @@ skip-tree = [
     # several crates depend on an older version of windows-sys
     { name = "windows-sys", depth = 3, version = "0.48" },
 ]
+deny = [
+  # TODO: Remove the following three lines after removing SSH. (#221)
+  { name = "openssl-sys", wrappers = ["libssh2-sys"] },
+  { name = "libssh2-sys", wrappers = ["ssh2"] },
+  { name = "ssh2", wrappers = ["walrus-orchestrator"] },
+]
 
 # This section is considered when running `cargo deny check sources`.
 # More documentation about the 'sources' section can be found here:
