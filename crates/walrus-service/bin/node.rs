@@ -120,7 +120,7 @@ struct DeploySystemContractArgs {
     // Note: The storage unit is set in `crates/walrus-sui/utils.rs`. Change the unit in
     // the doc comment here if it changes.
     /// The price to set per unit of storage (1 KiB) and epoch.
-    #[arg(long, default_value_t = 10)]
+    #[arg(long, default_value_t = 50)]
     price_per_unit: u64,
     /// The storage capacity in bytes to deploy the system with.
     #[arg(long, default_value_t = 1_000_000_000_000)]

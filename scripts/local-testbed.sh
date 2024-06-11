@@ -103,7 +103,8 @@ if ! $existing; then
     # Deploy system contract
     echo Deploying system contract...
     cargo run --bin walrus-node -- deploy-system-contract \
-    --working-dir $working_dir --sui-network $network --n-shards $shards --host-addresses $ips
+    --working-dir $working_dir --sui-network $network --n-shards $shards --host-addresses $ips \
+    --price-per-unit 1
 
     # Generate configs
     echo Generating configuration...
