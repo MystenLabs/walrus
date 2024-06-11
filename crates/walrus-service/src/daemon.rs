@@ -14,7 +14,14 @@ use axum::{
     Json,
     Router,
 };
-use reqwest::header::{ACCESS_CONTROL_ALLOW_ORIGIN, CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS};
+use reqwest::header::{
+    ACCESS_CONTROL_ALLOW_HEADERS,
+    ACCESS_CONTROL_ALLOW_METHODS,
+    ACCESS_CONTROL_ALLOW_ORIGIN,
+    ACCESS_CONTROL_MAX_AGE,
+    CONTENT_TYPE,
+    X_CONTENT_TYPE_OPTIONS,
+};
 use serde::Deserialize;
 use tower_http::trace::TraceLayer;
 use tracing::Level;
@@ -85,7 +92,9 @@ impl<T: ContractClient + 'static> ClientDaemon<T> {
     pub fn with_publisher(mut self, max_body_limit: usize) -> Self {
         self.router = self.router.route(
             BLOB_PUT_ENDPOINT,
-            put(store_blob).route_layer(DefaultBodyLimit::max(max_body_limit)),
+            put(store_blob)
+                .route_layer(DefaultBodyLimit::max(max_body_limit))
+                .options(store_blob_options),
         );
         self
     }
@@ -134,7 +143,7 @@ async fn store_blob<T: ContractClient>(
     blob: Bytes,
 ) -> Response {
     tracing::debug!("starting to store received blob");
-    match client
+    let mut response = match client
         .reserve_and_store_blob(&blob[..], epochs, force)
         .await
     {
@@ -155,7 +164,22 @@ async fn store_blob<T: ContractClient>(
                 _ => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
             }
         }
-    }
+    };
+
+    response
+        .headers_mut()
+        .insert(ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
+    response
+}
+
+#[tracing::instrument(level = Level::ERROR, skip_all)]
+async fn store_blob_options() -> impl IntoResponse {
+    [
+        (ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
+        (ACCESS_CONTROL_ALLOW_METHODS, "PUT, OPTIONS"),
+        (ACCESS_CONTROL_MAX_AGE, "86400"),
+        (ACCESS_CONTROL_ALLOW_HEADERS, "*"),
+    ]
 }
 
 #[derive(Debug, Deserialize)]
