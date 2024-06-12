@@ -59,7 +59,7 @@ pub fn path_or_defaults_if_exist(path: &Option<PathBuf>, defaults: &[PathBuf]) -
 // `crates/walrus-service/bin/client.rs`.
 #[allow(dead_code)]
 pub fn load_wallet_context(path: &Option<PathBuf>) -> Result<WalletContext> {
-    let mut default_paths = vec!["./client.yaml".into(), "./sui_config.yaml".into()];
+    let mut default_paths = vec!["./sui_config.yaml".into()];
     if let Some(home_dir) = home::home_dir() {
         default_paths.push(home_dir.join(".sui").join("sui_config").join("client.yaml"))
     }
