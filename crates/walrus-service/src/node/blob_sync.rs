@@ -1,11 +1,16 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Arc;
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    sync::Arc,
+};
 
 use futures::{future::Either, stream::FuturesUnordered, StreamExt};
 use sui_types::event::EventID;
-use tracing::instrument;
+use tokio::{select, sync::Mutex, task::JoinHandle};
+use tokio_util::sync::CancellationToken;
+use tracing::{instrument, Instrument};
 use typed_store::TypedStoreError;
 use walrus_core::{
     encoding::{EncodingAxis, EncodingConfig, Primary, Secondary},
@@ -29,6 +34,79 @@ use crate::{
     utils::FutureHelpers as _,
 };
 
+#[derive(Debug, Clone, Default)]
+pub(crate) struct BlobSyncHandler {
+    blob_syncs_in_progress: Arc<Mutex<HashMap<BlobId, InProgressSyncHandle>>>,
+}
+
+impl BlobSyncHandler {
+    pub async fn cancel_sync(&self, blob_id: &BlobId) -> anyhow::Result<Option<(usize, EventID)>> {
+        let mut guard = self.blob_syncs_in_progress.lock().await;
+        let Some(current_sync) = guard.remove(blob_id) else {
+            return Ok(None);
+        };
+        // drop the lock to prevent dead locks due to
+        drop(guard);
+        current_sync.cancel().await
+    }
+
+    async fn remove_sync_handle(
+        &self,
+        blob_id: &BlobId,
+        event_id: EventID,
+    ) -> Option<InProgressSyncHandle> {
+        let mut blob_syncs_guard = self.blob_syncs_in_progress.lock().await;
+
+        match blob_syncs_guard.get(blob_id) {
+            Some(current_sync) if current_sync.event_id == event_id => {
+                blob_syncs_guard.remove(blob_id)
+            }
+            _ => None,
+        }
+    }
+
+    pub async fn start_sync(
+        &self,
+        event: BlobCertified,
+        event_sequence_number: usize,
+        node: Arc<StorageNodeInner>,
+    ) -> Result<(), TypedStoreError> {
+        let blob_id = event.blob_id;
+        let mut blob_syncs_guard = self.blob_syncs_in_progress.lock().await;
+        if let Entry::Vacant(entry) = blob_syncs_guard.entry(blob_id) {
+            let event_id = event.event_id;
+            let synchronizer = BlobSynchronizer::new(event, event_sequence_number, node);
+            let cancel_token = synchronizer.cancel_token.clone();
+            let sync_handle = tokio::spawn(synchronizer.sync().in_current_span());
+            entry.insert(InProgressSyncHandle {
+                cancel_token,
+                blob_sync_handle: sync_handle,
+                event_id,
+            });
+        } else {
+            // A blob sync with a lower sequence number is already in progress. We can safely try to
+            // increase the event cursor since it will only be advanced once that sync is finished
+            // or cancelled due to an invalid blob event.
+            node.mark_event_completed(event_sequence_number, &event.event_id)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+struct InProgressSyncHandle {
+    cancel_token: CancellationToken,
+    blob_sync_handle: JoinHandle<anyhow::Result<Option<(usize, EventID)>>>,
+    event_id: EventID,
+}
+
+impl InProgressSyncHandle {
+    async fn cancel(self) -> anyhow::Result<Option<(usize, EventID)>> {
+        self.cancel_token.cancel();
+        self.blob_sync_handle.await?
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 enum RecoverSliverError {
     #[error("sliver inconsistent with metadata")]
@@ -42,7 +120,9 @@ pub(super) struct BlobSynchronizer {
     blob_id: BlobId,
     // TODO(jsmith): Consider making this a weak pointer.
     node: Arc<StorageNodeInner>,
-    cursor: (usize, EventID),
+    event_sequence_number: usize,
+    event_id: EventID,
+    cancel_token: CancellationToken,
 }
 
 impl BlobSynchronizer {
@@ -54,7 +134,9 @@ impl BlobSynchronizer {
         Self {
             blob_id: event.blob_id,
             node,
-            cursor: (event_sequence_number, event.event_id),
+            event_id: event.event_id,
+            event_sequence_number,
+            cancel_token: CancellationToken::new(),
         }
     }
 
@@ -78,8 +160,28 @@ impl BlobSynchronizer {
         &self.node.metrics
     }
 
+    #[tracing::instrument(skip_all, fields(blob_id = %self.blob_id), err)]
+    pub async fn sync(self) -> anyhow::Result<Option<(usize, EventID)>> {
+        select! {
+            _ = self.cancel_token.cancelled() => {
+                tracing::debug!("cancelled blob sync");
+                return Ok(Some((self.event_sequence_number, self.event_id)));
+            }
+            _= self.run() => (),
+        }
+
+        self.node
+            .blob_sync_handler
+            .remove_sync_handle(&self.blob_id, self.event_id)
+            .await;
+        self.node
+            .mark_event_completed(self.event_sequence_number, &self.event_id)?;
+
+        Ok(None)
+    }
+
     #[tracing::instrument(skip_all, fields(blob_id = %self.blob_id))]
-    pub async fn run(self) -> anyhow::Result<()> {
+    async fn run(&self) -> anyhow::Result<()> {
         let histograms = &self.metrics().recover_blob_part_duration_seconds;
 
         let (_, metadata) = self
@@ -121,9 +223,6 @@ impl BlobSynchronizer {
                 _ => (),
             }
         }
-
-        let (sequence_number, ref event_id) = self.cursor;
-        self.node.mark_event_completed(sequence_number, event_id)?;
 
         Ok(())
     }
