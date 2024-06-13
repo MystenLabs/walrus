@@ -128,7 +128,7 @@ enum Commands {
         #[serde(default)]
         out: Option<PathBuf>,
         #[clap(flatten)]
-        #[serde(default)]
+        #[serde(flatten)]
         rpc_arg: RpcArg,
     },
     /// Get the status of a blob.
@@ -143,13 +143,14 @@ enum Commands {
     /// "verified" status.
     BlobStatus {
         #[clap(flatten)]
+        #[serde(flatten)]
         file_or_blob_id: FileOrBlobId,
         /// Timeout for status requests to storage nodes.
         #[clap(short, long, value_parser = humantime::parse_duration, default_value = "1s")]
         #[serde(default = "default::status_timeout")]
         timeout: Duration,
         #[clap(flatten)]
-        #[serde(default)]
+        #[serde(flatten)]
         rpc_arg: RpcArg,
     },
     /// Run a publisher service at the provided network address.
@@ -158,27 +159,29 @@ enum Commands {
     /// deployment when real money is involved.
     Publisher {
         #[clap(flatten)]
+        #[serde(flatten)]
         args: PublisherArgs,
     },
     /// Run an aggregator service at the provided network address.
     Aggregator {
         #[clap(flatten)]
-        #[serde(default)]
+        #[serde(flatten)]
         rpc_arg: RpcArg,
-        /// The address to which to bind the aggregator.
-        #[clap(short, long)]
-        bind_address: SocketAddr,
+        #[clap(flatten)]
+        #[serde(flatten)]
+        bind_arg: BindArg,
     },
     /// Run a client daemon at the provided network address, combining the functionality of an
     /// aggregator and a publisher.
     Daemon {
         #[clap(flatten)]
+        #[serde(flatten)]
         args: PublisherArgs,
     },
     /// Print information about the Walrus storage system this client is connected to.
     Info {
         #[clap(flatten)]
-        #[serde(default)]
+        #[serde(flatten)]
         rpc_arg: RpcArg,
         /// Print extended information for developers.
         #[clap(long, action)]
@@ -201,7 +204,7 @@ enum Commands {
         /// configuration file, you can use the following JSON input:
         ///
         ///     {
-        ///       "config": "working_dir/client_config.yaml",
+        ///       "config": "path/to/client_config.yaml",
         ///       "command": {
         ///         "read": {
         ///           "blobId": "4BKcDC0Ih5RJ8R0tFMz3MZVNZV8b2goT6_JiEEwNHQo",
@@ -225,9 +228,10 @@ enum Commands {
         ///
         /// If not specified, the number of shards is read from chain.
         #[clap(short, long)]
+        #[serde(default)]
         n_shards: Option<NonZeroU16>,
         #[clap(flatten)]
-        #[serde(default)]
+        #[serde(flatten)]
         rpc_arg: RpcArg,
     },
 }
@@ -235,9 +239,9 @@ enum Commands {
 #[derive(Debug, Clone, Args, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PublisherArgs {
-    /// The address to which to bind the service.
-    #[clap(short, long)]
-    pub bind_address: SocketAddr,
+    #[clap(flatten)]
+    #[serde(flatten)]
+    bind_arg: BindArg,
     /// The maximum body size of PUT requests in KiB.
     #[clap(short, long = "max-body-size", default_value_t = default::max_body_size_kib())]
     #[serde(default = "default::max_body_size_kib")]
@@ -253,7 +257,17 @@ struct RpcArg {
     /// `fullnode.testnet.sui.io:443` is used.
     // NB: Keep this in sync with `walrus_service::cli_utils`.
     #[clap(short, long)]
+    #[serde(default)]
     rpc_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Args, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BindArg {
+    /// The address to which to bind the service.
+    #[clap(short, long, default_value_t = default::bind_address())]
+    #[serde(default = "default::bind_address")]
+    bind_address: SocketAddr,
 }
 
 #[serde_as]
@@ -263,20 +277,22 @@ struct RpcArg {
 struct FileOrBlobId {
     /// The file containing the blob to be checked.
     #[clap(short, long)]
+    #[serde(default)]
     file: Option<PathBuf>,
     /// The blob ID to be checked.
-    #[serde_as(as = "Option<DisplayFromStr>")]
     #[clap(short, long)]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[serde(default)]
     blob_id: Option<BlobId>,
 }
 
 impl FileOrBlobId {
     fn get_or_compute_blob_id(self, encoding_config: &EncodingConfig) -> Result<BlobId> {
-        Ok(match self {
+        match self {
             FileOrBlobId {
                 blob_id: Some(blob_id),
                 ..
-            } => blob_id,
+            } => Ok(blob_id),
             FileOrBlobId {
                 file: Some(file), ..
             } => {
@@ -284,18 +300,19 @@ impl FileOrBlobId {
                     file = %file.display(),
                     "checking status of blob read from the filesystem"
                 );
-                *encoding_config
+                Ok(*encoding_config
                     .get_blob_encoder(&std::fs::read(&file)?)?
                     .compute_metadata()
-                    .blob_id()
+                    .blob_id())
             }
-            _ => unreachable!("the CLI enforces exactly one of the options to be present"),
-        })
+            // This case is required for JSON mode where we don't have the clap checking.
+            _ => Err(anyhow!("either the file or blob ID must be defined")),
+        }
     }
 }
 
 mod default {
-    use std::time::Duration;
+    use std::{net::SocketAddr, time::Duration};
 
     pub(crate) fn gas_budget() -> u64 {
         500_000_000
@@ -311,6 +328,12 @@ mod default {
 
     pub(crate) fn status_timeout() -> Duration {
         Duration::from_secs(1)
+    }
+
+    pub(crate) fn bind_address() -> SocketAddr {
+        "127.0.0.1:31415"
+            .parse()
+            .expect("this is a correct socket address")
     }
 }
 
@@ -332,7 +355,7 @@ impl PublisherArgs {
 
     fn print_debug_message(&self, message: &str) {
         tracing::debug!(
-            bind_address = %self.bind_address,
+            bind_address = %self.bind_arg.bind_address,
             max_body_size = self.format_max_body_size(),
             message
         );
@@ -631,13 +654,13 @@ async fn run_app(app: App) -> Result<()> {
         Commands::Publisher { args } => {
             args.print_debug_message("attempting to run the Walrus publisher");
             let client = get_contract_client(config?, wallet, app.gas_budget).await?;
-            let publisher =
-                ClientDaemon::new(client, args.bind_address).with_publisher(args.max_body_size());
+            let publisher = ClientDaemon::new(client, args.bind_arg.bind_address)
+                .with_publisher(args.max_body_size());
             publisher.run().await?;
         }
         Commands::Aggregator {
             rpc_arg: RpcArg { rpc_url },
-            bind_address,
+            bind_arg: BindArg { bind_address },
         } => {
             tracing::debug!(?rpc_url, "attempting to run the Walrus aggregator");
             let client = get_read_client(config?, rpc_url, wallet, wallet_path.is_none()).await?;
@@ -647,7 +670,7 @@ async fn run_app(app: App) -> Result<()> {
         Commands::Daemon { args } => {
             args.print_debug_message("attempting to run the Walrus daemon");
             let client = get_contract_client(config?, wallet, app.gas_budget).await?;
-            let publisher = ClientDaemon::new(client, args.bind_address)
+            let publisher = ClientDaemon::new(client, args.bind_arg.bind_address)
                 .with_aggregator()
                 .with_publisher(args.max_body_size());
             publisher.run().await?;

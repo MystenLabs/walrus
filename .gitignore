@@ -23,6 +23,6 @@ build/
 # Misc
 *.key
 .env
-config.yml
+client_config.yaml
 working_dir
 *.log
