@@ -40,6 +40,7 @@ use inconsistency::{
 };
 use merkle::{MerkleAuth, MerkleProof, Node};
 use metadata::BlobMetadata;
+use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -157,11 +158,25 @@ impl FromStr for BlobId {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut blob_id = Self([0; Self::LENGTH]);
+
+        // Attempt interpreting the value as an URL-safe base64 string.
         if let Ok(Self::LENGTH) = URL_SAFE_NO_PAD.decode_slice(s, &mut blob_id.0) {
-            Ok(blob_id)
-        } else {
-            Err(BlobIdParseError)
+            return Ok(blob_id);
         }
+
+        // Attempt interpreting the ID as a decimal integer.
+        // NB: Valid decimal values with 43 digits are interpreted as base-64 strings. However, this
+        // does not happen in practice as the probability of such a small blob ID is less than
+        // 10^-33.
+        let bytes = BigUint::parse_bytes(s.as_bytes(), 10)
+            .ok_or(BlobIdParseError)?
+            .to_bytes_le();
+        if bytes.len() <= Self::LENGTH {
+            blob_id.0[..bytes.len()].copy_from_slice(&bytes);
+            return Ok(blob_id);
+        }
+
+        Err(BlobIdParseError)
     }
 }
 
@@ -646,4 +661,46 @@ macro_rules! ensure {
             return Err(anyhow::anyhow!($fmt, $($arg)*).into());
         }
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use walrus_test_utils::param_test;
+
+    use super::*;
+
+    param_test! {
+        test_parse_blob_id_matches_expected_slice_prefix: [
+            zero: ("0", &[0; 32]),
+            ten: ("256", &[0, 1]),
+            valid_decimal: (
+                "80885466015098902458382552429473803233277035186046880821304527730792838764083",
+                &[]
+            ),
+            valid_base64: ("M5YQinGO3RoRLaW_KbCfvXStVlWEqO5dGDe5cSiN07I", &[]),
+            // A 43-digit decimal value is parsed as a base-64 string.
+            valid_base64_and_decimal: (
+                "1000000000000000000000000000000000000000000",
+                &[215, 77, 52, 211, 77, 52, 211, 77, 52, 211, 77, 52, 211, 77, 52]),
+    ]}
+    fn test_parse_blob_id_matches_expected_slice_prefix(
+        input_string: &str,
+        expected_result: &[u8],
+    ) {
+        let blob_id = BlobId::from_str(input_string).unwrap();
+        assert_eq!(blob_id.0[..expected_result.len()], expected_result[..]);
+    }
+
+    param_test! {
+        test_parse_blob_id_failure: [
+            empty: (""),
+            too_short_base64: ("aaaa"),
+            two_pow_256: (
+                "115792089237316195423570985008687907853269984665640564039457584007913129639936"
+            )
+        ]
+    }
+    fn test_parse_blob_id_failure(input_string: &str) {
+        assert!(BlobId::from_str(input_string).is_err());
+    }
 }

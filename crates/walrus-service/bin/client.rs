@@ -115,6 +115,9 @@ enum Commands {
     /// Read a blob from Walrus, given the blob ID.
     Read {
         /// The blob ID to be read.
+        ///
+        /// This can be either in the Walrus standard format (URL-safe base-64 string) or the value
+        /// in decimal format (as shown by the Sui explorer).
         #[serde_as(as = "DisplayFromStr")]
         blob_id: BlobId,
         /// The file path where to write the blob.
@@ -261,8 +264,11 @@ struct FileOrBlobId {
     #[clap(short, long)]
     file: Option<PathBuf>,
     /// The blob ID to be checked.
-    #[serde_as(as = "Option<DisplayFromStr>")]
+    ///
+    /// This can be either in the Walrus standard format (URL-safe base-64 string) or the value in
+    /// decimal format (as shown by the Sui explorer).
     #[clap(short, long)]
+    #[serde_as(as = "Option<DisplayFromStr>")]
     blob_id: Option<BlobId>,
 }
 

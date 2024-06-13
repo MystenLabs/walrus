@@ -13,6 +13,7 @@ test-utils = ["walrus-test-utils"]
 base64 = "0.22.1"
 bcs.workspace = true
 fastcrypto.workspace = true
+num-bigint = { version = "0.4.5", default-features = false }
 rand.workspace = true
 raptorq = "2.0.0"
 serde.workspace = true
