@@ -3,7 +3,7 @@
 
 use std::{
     collections::{hash_map::Entry, HashMap},
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
 use futures::{
@@ -12,7 +12,7 @@ use futures::{
     StreamExt,
 };
 use sui_types::event::EventID;
-use tokio::{select, sync::Mutex, task::JoinHandle};
+use tokio::{select, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 use tracing::{instrument, Instrument};
 use typed_store::TypedStoreError;
@@ -40,6 +40,7 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub(crate) struct BlobSyncHandler {
+    // INV: For each blob id at most one sync is in progress at a time.
     blob_syncs_in_progress: Arc<Mutex<HashMap<BlobId, InProgressSyncHandle>>>,
     node: Arc<StorageNodeInner>,
 }
@@ -53,28 +54,23 @@ impl BlobSyncHandler {
     }
 
     pub async fn cancel_sync(&self, blob_id: &BlobId) -> anyhow::Result<Option<(usize, EventID)>> {
-        let mut guard = self.blob_syncs_in_progress.lock().await;
-        let Some(current_sync) = guard.remove(blob_id) else {
+        let Some(handle) = self
+            .blob_syncs_in_progress
+            .lock()
+            .expect("should be able to acquire lock")
+            .get_mut(blob_id)
+            .and_then(|sync| sync.cancel())
+        else {
             return Ok(None);
         };
-        // drop the lock to prevent deadlocks
-        drop(guard);
-        current_sync.cancel().await
+        Ok(handle.await??)
     }
 
-    async fn remove_sync_handle(
-        &self,
-        blob_id: &BlobId,
-        event_id: EventID,
-    ) -> Option<InProgressSyncHandle> {
-        let mut blob_syncs_guard = self.blob_syncs_in_progress.lock().await;
-
-        match blob_syncs_guard.get(blob_id) {
-            Some(current_sync) if current_sync.event_id == event_id => {
-                blob_syncs_guard.remove(blob_id)
-            }
-            _ => None,
-        }
+    async fn remove_sync_handle(&self, blob_id: &BlobId) -> Option<InProgressSyncHandle> {
+        self.blob_syncs_in_progress
+            .lock()
+            .expect("should be able to acquire lock")
+            .remove(blob_id)
     }
 
     pub async fn start_sync(
@@ -84,9 +80,11 @@ impl BlobSyncHandler {
         start: tokio::time::Instant,
     ) -> Result<(), TypedStoreError> {
         let blob_id = event.blob_id;
-        let mut blob_syncs_guard = self.blob_syncs_in_progress.lock().await;
+        let mut blob_syncs_guard = self
+            .blob_syncs_in_progress
+            .lock()
+            .expect("should be able to acquire lock");
         if let Entry::Vacant(entry) = blob_syncs_guard.entry(blob_id) {
-            let event_id = event.event_id;
             let cancel_token = CancellationToken::new();
             let synchronizer = BlobSynchronizer::new(
                 event,
@@ -98,8 +96,7 @@ impl BlobSyncHandler {
                 tokio::spawn(self.clone().sync(synchronizer, start).in_current_span());
             entry.insert(InProgressSyncHandle {
                 cancel_token,
-                blob_sync_handle: sync_handle,
-                event_id,
+                blob_sync_handle: Some(sync_handle),
             });
         } else {
             // A blob sync with a lower sequence number is already in progress. We can safely try to
@@ -116,64 +113,71 @@ impl BlobSyncHandler {
         self,
         blob_synchronizer: BlobSynchronizer,
         start: tokio::time::Instant,
-    ) -> anyhow::Result<Option<(usize, EventID)>> {
-        let histogram_set = blob_synchronizer
-            .node
-            .metrics
-            .recover_blob_duration_seconds
-            .clone();
+    ) -> Result<Option<(usize, EventID)>, TypedStoreError> {
+        let node = &blob_synchronizer.node;
+        let histogram_set = node.metrics.recover_blob_duration_seconds.clone();
+        let mut cancelled = false;
+        let label;
         select! {
             _ = blob_synchronizer.cancel_token.cancelled() => {
                 tracing::info!("cancelled blob sync");
-                histogram_set
-                    .with_label_values(&[metrics::STATUS_CANCELLED])
-                    .observe(start.elapsed().as_secs_f64());
-                return Ok(Some((blob_synchronizer.event_sequence_number, blob_synchronizer.event_id)));
+                cancelled = true;
+                label = metrics::STATUS_CANCELLED;
             }
             sync_result = blob_synchronizer.run() => {
-                let label = if sync_result.is_err() {
+                label = if sync_result.is_err() {
                     tracing::error!(?sync_result, "blob synchronizer failed");
                     metrics::STATUS_FAILURE
                 } else {
                     metrics::STATUS_SUCCESS
                 };
-                histogram_set
-                    .with_label_values(&[label])
-                    .observe(start.elapsed().as_secs_f64());
             }
         }
 
-        self.remove_sync_handle(&blob_synchronizer.blob_id, blob_synchronizer.event_id)
-            .await;
-        blob_synchronizer.node.mark_event_completed(
-            blob_synchronizer.event_sequence_number,
-            &blob_synchronizer.event_id,
-        )?;
-
-        Ok(None)
+        histogram_set
+            .with_label_values(&[label])
+            .observe(start.elapsed().as_secs_f64());
+        self.remove_sync_handle(&blob_synchronizer.blob_id).await;
+        if cancelled {
+            Ok(Some((
+                blob_synchronizer.event_sequence_number,
+                blob_synchronizer.event_id,
+            )))
+        } else {
+            node.mark_event_completed(
+                blob_synchronizer.event_sequence_number,
+                &blob_synchronizer.event_id,
+            )?;
+            Ok(None)
+        }
     }
 
     pub async fn cancel_all(&self) -> anyhow::Result<()> {
-        let mut guard = self.blob_syncs_in_progress.lock().await;
-        let syncs: Vec<_> = guard.drain().collect();
-        // drop the lock to prevent deadlocks
-        drop(guard);
-        try_join_all(syncs.into_iter().map(|(_, sync)| sync.cancel())).await?;
+        let join_handles: Vec<_> = self
+            .blob_syncs_in_progress
+            .lock()
+            .expect("should be able to acquire lock")
+            .iter_mut()
+            .filter_map(|(_, sync)| sync.cancel())
+            .collect();
+
+        try_join_all(join_handles).await?;
         Ok(())
     }
 }
 
+type SyncJoinHandle = JoinHandle<Result<Option<(usize, EventID)>, TypedStoreError>>;
+
 #[derive(Debug)]
 struct InProgressSyncHandle {
     cancel_token: CancellationToken,
-    blob_sync_handle: JoinHandle<anyhow::Result<Option<(usize, EventID)>>>,
-    event_id: EventID,
+    blob_sync_handle: Option<SyncJoinHandle>,
 }
 
 impl InProgressSyncHandle {
-    async fn cancel(self) -> anyhow::Result<Option<(usize, EventID)>> {
+    fn cancel(&mut self) -> Option<SyncJoinHandle> {
         self.cancel_token.cancel();
-        self.blob_sync_handle.await?
+        self.blob_sync_handle.take()
     }
 }
 
