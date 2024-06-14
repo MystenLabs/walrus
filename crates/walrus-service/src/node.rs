@@ -359,7 +359,9 @@ impl StorageNode {
                 Ok(()) => unreachable!("process_events should never return successfully"),
                 Err(err) => return Err(err),
             },
-            _ = cancel_token.cancelled() => (),
+            _ = cancel_token.cancelled() => {
+                self.inner.blob_sync_handler.cancel_all().await?;
+            },
         }
         Ok(())
     }

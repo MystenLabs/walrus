@@ -6,7 +6,11 @@ use std::{
     sync::Arc,
 };
 
-use futures::{future::Either, stream::FuturesUnordered, StreamExt};
+use futures::{
+    future::{try_join_all, Either},
+    stream::FuturesUnordered,
+    StreamExt,
+};
 use sui_types::event::EventID;
 use tokio::{select, sync::Mutex, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
@@ -37,6 +41,7 @@ use crate::{
 #[derive(Debug, Clone, Default)]
 pub(crate) struct BlobSyncHandler {
     blob_syncs_in_progress: Arc<Mutex<HashMap<BlobId, InProgressSyncHandle>>>,
+    cancel_token: CancellationToken,
 }
 
 impl BlobSyncHandler {
@@ -75,9 +80,10 @@ impl BlobSyncHandler {
         let mut blob_syncs_guard = self.blob_syncs_in_progress.lock().await;
         if let Entry::Vacant(entry) = blob_syncs_guard.entry(blob_id) {
             let event_id = event.event_id;
-            let synchronizer = BlobSynchronizer::new(event, event_sequence_number, node);
-            let cancel_token = synchronizer.cancel_token.clone();
-            let sync_handle = tokio::spawn(synchronizer.sync().in_current_span());
+            let cancel_token = self.cancel_token.child_token();
+            let synchronizer =
+                BlobSynchronizer::new(event, event_sequence_number, node, cancel_token.clone());
+            let sync_handle = tokio::spawn(Self::sync(synchronizer).in_current_span());
             entry.insert(InProgressSyncHandle {
                 cancel_token,
                 blob_sync_handle: sync_handle,
@@ -89,6 +95,40 @@ impl BlobSyncHandler {
             // or cancelled due to an invalid blob event.
             node.mark_event_completed(event_sequence_number, &event.event_id)?;
         }
+        Ok(())
+    }
+
+    #[tracing::instrument(skip_all, fields(blob_id = %blob_synchronizer.blob_id), err)]
+    pub async fn sync(
+        blob_synchronizer: BlobSynchronizer,
+    ) -> anyhow::Result<Option<(usize, EventID)>> {
+        select! {
+            _ = blob_synchronizer.cancel_token.cancelled() => {
+                tracing::debug!("cancelled blob sync");
+                return Ok(Some((blob_synchronizer.event_sequence_number, blob_synchronizer.event_id)));
+            }
+            _= blob_synchronizer.run() => (),
+        }
+
+        blob_synchronizer
+            .node
+            .blob_sync_handler
+            .remove_sync_handle(&blob_synchronizer.blob_id, blob_synchronizer.event_id)
+            .await;
+        blob_synchronizer.node.mark_event_completed(
+            blob_synchronizer.event_sequence_number,
+            &blob_synchronizer.event_id,
+        )?;
+
+        Ok(None)
+    }
+
+    pub async fn cancel_all(&self) -> anyhow::Result<()> {
+        let mut guard = self.blob_syncs_in_progress.lock().await;
+        let syncs: Vec<_> = guard.drain().collect();
+        // drop the lock to prevent deadlocks
+        drop(guard);
+        try_join_all(syncs.into_iter().map(|(_, sync)| sync.cancel())).await?;
         Ok(())
     }
 }
@@ -130,13 +170,14 @@ impl BlobSynchronizer {
         event: BlobCertified,
         event_sequence_number: usize,
         node: Arc<StorageNodeInner>,
+        cancel_token: CancellationToken,
     ) -> Self {
         Self {
             blob_id: event.blob_id,
             node,
             event_id: event.event_id,
             event_sequence_number,
-            cancel_token: CancellationToken::new(),
+            cancel_token,
         }
     }
 
@@ -158,26 +199,6 @@ impl BlobSynchronizer {
 
     fn metrics(&self) -> &NodeMetricSet {
         &self.node.metrics
-    }
-
-    #[tracing::instrument(skip_all, fields(blob_id = %self.blob_id), err)]
-    pub async fn sync(self) -> anyhow::Result<Option<(usize, EventID)>> {
-        select! {
-            _ = self.cancel_token.cancelled() => {
-                tracing::debug!("cancelled blob sync");
-                return Ok(Some((self.event_sequence_number, self.event_id)));
-            }
-            _= self.run() => (),
-        }
-
-        self.node
-            .blob_sync_handler
-            .remove_sync_handle(&self.blob_id, self.event_id)
-            .await;
-        self.node
-            .mark_event_completed(self.event_sequence_number, &self.event_id)?;
-
-        Ok(None)
     }
 
     #[tracing::instrument(skip_all, fields(blob_id = %self.blob_id))]
