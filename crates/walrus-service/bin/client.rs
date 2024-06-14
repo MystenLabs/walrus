@@ -4,6 +4,7 @@
 //! A client for the Walrus blob store.
 
 use std::{
+    env,
     fmt::{self, Display},
     io::Write,
     net::SocketAddr,
@@ -18,7 +19,10 @@ use clap::{Args, Parser, Subcommand};
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
 use serde_with::{base64::Base64, serde_as, DisplayFromStr};
-use tracing_subscriber::{util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{
+    util::{SubscriberInitExt, TryInitError},
+    EnvFilter,
+};
 use walrus_core::{
     encoding::{EncodingConfig, Primary},
     metadata::VerifiedBlobMetadataWithId,
@@ -511,11 +515,7 @@ impl Display for BlobStatusOutput {
 }
 
 async fn client() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_writer(std::io::stderr)
-        .with_env_filter(EnvFilter::from_default_env())
-        .finish()
-        .try_init()?;
+    init_tracing_subscriber()?;
     let mut app = App::parse();
 
     while let Commands::Json { command_string } = app.command {
@@ -537,6 +537,18 @@ async fn client() -> Result<()> {
     run_app(app).await
 }
 
+fn init_tracing_subscriber() -> Result<(), TryInitError> {
+    // Use INFO level by default.
+    let directive = format!(
+        "info,{}",
+        env::var(EnvFilter::DEFAULT_ENV).unwrap_or_default()
+    );
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .with_env_filter(EnvFilter::new(directive))
+        .finish()
+        .try_init()
+}
 async fn run_app(app: App) -> Result<()> {
     let config = load_configuration(&app.config);
     tracing::debug!(?app, ?config, "initializing the client");
