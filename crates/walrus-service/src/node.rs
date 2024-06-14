@@ -283,6 +283,7 @@ async fn create_read_client(
 #[derive(Debug)]
 pub struct StorageNode {
     inner: Arc<StorageNodeInner>,
+    blob_sync_handler: BlobSyncHandler,
 }
 
 #[derive(Debug)]
@@ -296,7 +297,6 @@ pub struct StorageNodeInner {
     _committee_service_factory: Box<dyn CommitteeServiceFactory>,
     start_time: Instant,
     metrics: NodeMetricSet,
-    blob_sync_handler: BlobSyncHandler,
 }
 
 impl StorageNode {
@@ -339,12 +339,16 @@ impl StorageNode {
             _committee_service_factory: committee_service_factory,
             metrics: NodeMetricSet::new(registry),
             start_time,
-            blob_sync_handler: Default::default(),
         });
 
         inner.init_gauges()?;
 
-        Ok(StorageNode { inner })
+        let blob_sync_handler = BlobSyncHandler::new(inner.clone());
+
+        Ok(StorageNode {
+            inner,
+            blob_sync_handler,
+        })
     }
 
     /// Creates a new [`StorageNodeBuilder`] for constructing a `StorageNode`.
@@ -360,7 +364,7 @@ impl StorageNode {
                 Err(err) => return Err(err),
             },
             _ = cancel_token.cancelled() => {
-                self.inner.blob_sync_handler.cancel_all().await?;
+                self.blob_sync_handler.cancel_all().await?;
             },
         }
         Ok(())
@@ -431,9 +435,8 @@ impl StorageNode {
         // TODO(kwuest): Handle epoch change. (#405)
 
         // Initiate blob sync
-        self.inner
-            .blob_sync_handler
-            .start_sync(event, event_sequence_number, self.inner.clone(), start)
+        self.blob_sync_handler
+            .start_sync(event, event_sequence_number, start)
             .await?;
 
         Ok(())
@@ -444,11 +447,8 @@ impl StorageNode {
         event_sequence_number: usize,
         event: InvalidBlobId,
     ) -> anyhow::Result<()> {
-        if let Some((event_seq_num, event_id)) = self
-            .inner
-            .blob_sync_handler
-            .cancel_sync(&event.blob_id)
-            .await?
+        if let Some((event_seq_num, event_id)) =
+            self.blob_sync_handler.cancel_sync(&event.blob_id).await?
         {
             // Advance the event cursor with the event of the cancelled sync. Since the blob is
             // invalid the associated blob certified event is completed without a sync.

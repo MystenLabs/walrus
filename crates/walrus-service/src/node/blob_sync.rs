@@ -38,13 +38,20 @@ use crate::{
     utils::FutureHelpers as _,
 };
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub(crate) struct BlobSyncHandler {
     blob_syncs_in_progress: Arc<Mutex<HashMap<BlobId, InProgressSyncHandle>>>,
-    cancel_token: CancellationToken,
+    node: Arc<StorageNodeInner>,
 }
 
 impl BlobSyncHandler {
+    pub fn new(node: Arc<StorageNodeInner>) -> Self {
+        Self {
+            blob_syncs_in_progress: Arc::default(),
+            node,
+        }
+    }
+
     pub async fn cancel_sync(&self, blob_id: &BlobId) -> anyhow::Result<Option<(usize, EventID)>> {
         let mut guard = self.blob_syncs_in_progress.lock().await;
         let Some(current_sync) = guard.remove(blob_id) else {
@@ -74,17 +81,21 @@ impl BlobSyncHandler {
         &self,
         event: BlobCertified,
         event_sequence_number: usize,
-        node: Arc<StorageNodeInner>,
         start: tokio::time::Instant,
     ) -> Result<(), TypedStoreError> {
         let blob_id = event.blob_id;
         let mut blob_syncs_guard = self.blob_syncs_in_progress.lock().await;
         if let Entry::Vacant(entry) = blob_syncs_guard.entry(blob_id) {
             let event_id = event.event_id;
-            let cancel_token = self.cancel_token.child_token();
-            let synchronizer =
-                BlobSynchronizer::new(event, event_sequence_number, node, cancel_token.clone());
-            let sync_handle = tokio::spawn(Self::sync(synchronizer, start).in_current_span());
+            let cancel_token = CancellationToken::new();
+            let synchronizer = BlobSynchronizer::new(
+                event,
+                event_sequence_number,
+                self.node.clone(),
+                cancel_token.clone(),
+            );
+            let sync_handle =
+                tokio::spawn(self.clone().sync(synchronizer, start).in_current_span());
             entry.insert(InProgressSyncHandle {
                 cancel_token,
                 blob_sync_handle: sync_handle,
@@ -94,13 +105,15 @@ impl BlobSyncHandler {
             // A blob sync with a lower sequence number is already in progress. We can safely try to
             // increase the event cursor since it will only be advanced once that sync is finished
             // or cancelled due to an invalid blob event.
-            node.mark_event_completed(event_sequence_number, &event.event_id)?;
+            self.node
+                .mark_event_completed(event_sequence_number, &event.event_id)?;
         }
         Ok(())
     }
 
     #[tracing::instrument(skip_all, fields(blob_id = %blob_synchronizer.blob_id), err)]
     pub async fn sync(
+        self,
         blob_synchronizer: BlobSynchronizer,
         start: tokio::time::Instant,
     ) -> anyhow::Result<Option<(usize, EventID)>> {
@@ -130,10 +143,7 @@ impl BlobSyncHandler {
             }
         }
 
-        blob_synchronizer
-            .node
-            .blob_sync_handler
-            .remove_sync_handle(&blob_synchronizer.blob_id, blob_synchronizer.event_id)
+        self.remove_sync_handle(&blob_synchronizer.blob_id, blob_synchronizer.event_id)
             .await;
         blob_synchronizer.node.mark_event_completed(
             blob_synchronizer.event_sequence_number,
