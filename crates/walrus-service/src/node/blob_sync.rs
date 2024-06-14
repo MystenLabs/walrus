@@ -45,7 +45,7 @@ impl BlobSyncHandler {
         let Some(current_sync) = guard.remove(blob_id) else {
             return Ok(None);
         };
-        // drop the lock to prevent dead locks due to
+        // drop the lock to prevent deadlocks
         drop(guard);
         current_sync.cancel().await
     }

@@ -415,11 +415,7 @@ impl StorageNode {
         let histogram_set = self.inner.metrics.recover_blob_duration_seconds.clone();
 
         if self.inner.storage.is_stored_at_all_shards(&event.blob_id)?
-            || self
-                .inner
-                .storage
-                .get_blob_info(&event.blob_id)?
-                .is_some_and(|blob_info| blob_info.is_invalid())
+            || self.inner.storage.is_invalid(&event.blob_id)?
         {
             self.inner
                 .mark_event_completed(event_sequence_number, &event.event_id)?;
@@ -429,7 +425,7 @@ impl StorageNode {
             return Ok(());
         }
 
-        // Slivers, and possible metadata, are not stored.
+        // Slivers, and possibly metadata, are not stored.
         // TODO(kwuest): Handle epoch change. (#405)
 
         // Initiate blob sync
@@ -452,7 +448,8 @@ impl StorageNode {
             .cancel_sync(&event.blob_id)
             .await?
         {
-            // Advance the event cursor with the event of the cancelled sync
+            // Advance the event cursor with the event of the cancelled sync. Since the blob is
+            // invalid the associated blob certified event is completed without a sync.
             self.inner.mark_event_completed(event_seq_num, &event_id)?;
         }
         self.inner.storage.delete_blob(&event.blob_id)?;

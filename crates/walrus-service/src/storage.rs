@@ -456,6 +456,13 @@ impl Storage {
         Ok(!self.shards.is_empty())
     }
 
+    /// Returns true if the provided blob-id is invalid.
+    pub fn is_invalid(&self, blob_id: &BlobId) -> Result<bool, TypedStoreError> {
+        Ok(self
+            .get_blob_info(blob_id)?
+            .is_some_and(|blob_info| blob_info.is_invalid()))
+    }
+
     /// Returns a list of identifiers of the shards that store their
     /// respective sliver for the specified blob.
     pub fn shards_with_sliver_pairs(
