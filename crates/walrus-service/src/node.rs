@@ -507,7 +507,7 @@ impl StorageNodeInner {
 
         let event_cursor_progress = &self.metrics.event_cursor_progress;
         metrics::with_label!(event_cursor_progress, "persisted").add(persisted);
-        metrics::with_label!(event_cursor_progress, "pending").add(pending);
+        metrics::with_label!(event_cursor_progress, "pending").set(pending);
 
         Ok(())
     }
