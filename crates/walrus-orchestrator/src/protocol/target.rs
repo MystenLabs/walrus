@@ -264,7 +264,7 @@ impl ProtocolCommands for TargetProtocol {
     {
         let clients: Vec<_> = instances.into_iter().collect();
         let load_per_client = (parameters.load / clients.len()).max(1);
-        let number_of_tasks = load_per_client * 5;
+        let number_of_tasks = (load_per_client / 10).max(1);
 
         clients
             .into_iter()
@@ -274,7 +274,8 @@ impl ProtocolCommands for TargetProtocol {
 
                 let run_command = [
                     format!("./{BINARY_PATH}/walrus-stress"),
-                    format!("--target-load {load_per_client}"),
+                    format!("--write-load {load_per_client}"),
+                    format!("--read-load {load_per_client}"),
                     format!("--config-path {}", client_config_path.display()),
                     format!("--n-clients {number_of_tasks}"),
                     format!(

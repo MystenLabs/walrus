@@ -25,8 +25,11 @@ use walrus_test_utils::WithTempDir;
 use crate::{metrics, metrics::ClientMetrics};
 
 const DEFAULT_GAS_BUDGET: u64 = 100_000_000;
-/// Timing burst precision.
-const PRECISION: u64 = 10;
+
+/// Minimum burst duration.
+const MIN_BURST_DURATION: Duration = Duration::from_millis(100);
+/// Number of seconds per load period.
+const SECS_PER_LOAD_PERIOD: u64 = 60;
 
 mod blob;
 use blob::BlobData;
@@ -79,7 +82,8 @@ impl LoadGenerator {
         })
     }
 
-    /// Run the load generator.
+    /// Run the load generator. The `write_load` and `read_load` are the number of respective
+    /// operations per minute.
     pub async fn start(
         &mut self,
         write_load: u64,
@@ -222,12 +226,17 @@ async fn new_client(
 }
 
 fn burst_load(load: u64) -> (u64, Interval) {
-    let (load, duration) = if load > PRECISION {
-        (load / PRECISION, Duration::from_millis(1000 / PRECISION))
+    let duration_per_op = Duration::from_secs_f64(SECS_PER_LOAD_PERIOD as f64 / (load as f64));
+    let (load_per_burst, burst_duration) = if duration_per_op < MIN_BURST_DURATION {
+        (
+            load / (SECS_PER_LOAD_PERIOD * 1_000 / MIN_BURST_DURATION.as_millis() as u64),
+            MIN_BURST_DURATION,
+        )
     } else {
-        (load, Duration::from_secs(1))
+        (1, duration_per_op)
     };
-    let mut interval = tokio::time::interval(duration);
+
+    let mut interval = tokio::time::interval(burst_duration);
     interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
-    (load, interval)
+    (load_per_burst, interval)
 }

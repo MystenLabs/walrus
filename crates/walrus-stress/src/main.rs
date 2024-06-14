@@ -23,13 +23,13 @@ mod metrics;
 #[clap(rename_all = "kebab-case")]
 #[command(author, version, about = "Walrus load generator", long_about = None)]
 struct Args {
-    /// The target write load to submit to the system (writes/s).
+    /// The target write load to submit to the system (writes/minute).
     /// The actual load may be limited by the number of clients.
-    #[clap(long, default_value = "2")]
+    #[clap(long, default_value = "60")]
     write_load: NonZeroU64,
-    /// The target read load to submit to the system (reads/s).
+    /// The target read load to submit to the system (reads/minute).
     /// The actual load may be limited by the number of clients.
-    #[clap(long, default_value = "2")]
+    #[clap(long, default_value = "60")]
     read_load: u64,
     /// The path to the client configuration file containing the system object address.
     #[clap(long, default_value = "./working_dir/client_config.yaml")]
