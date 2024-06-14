@@ -23,14 +23,18 @@ mod metrics;
 #[clap(rename_all = "kebab-case")]
 #[command(author, version, about = "Walrus load generator", long_about = None)]
 struct Args {
-    /// The target load to submit to the system (tx/s).
+    /// The target write load to submit to the system (writes/s).
     /// The actual load may be limited by the number of clients.
     #[clap(long, default_value = "2")]
-    target_load: NonZeroU64,
+    write_load: NonZeroU64,
+    /// The target read load to submit to the system (reads/s).
+    /// The actual load may be limited by the number of clients.
+    #[clap(long, default_value = "2")]
+    read_load: u64,
     /// The path to the client configuration file containing the system object address.
     #[clap(long, default_value = "./working_dir/client_config.yaml")]
     config_path: PathBuf,
-    /// The number of clients to use for the load generation.
+    /// The number of write clients to use for the load generation.
     #[clap(long, default_value = "10")]
     n_clients: NonZeroUsize,
     /// The port on which metrics are exposed.
@@ -52,7 +56,6 @@ async fn main() -> anyhow::Result<()> {
     let config = Config::load(args.config_path).context("Failed to load client config")?;
     //let percentage_writes = stress_parameters.load_type.min(100);
     let n_clients = args.n_clients.get();
-    let target_load = args.target_load.get();
 
     // Start the metrics server.
     let metrics_address = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), args.metrics_port);
@@ -65,6 +68,8 @@ async fn main() -> anyhow::Result<()> {
     let mut load_generator =
         LoadGenerator::new(n_clients, args.blob_size.get(), config, args.sui_network).await?;
 
-    load_generator.start(target_load, &metrics).await?;
+    load_generator
+        .start(args.write_load.get(), args.read_load, &metrics)
+        .await?;
     Ok(())
 }

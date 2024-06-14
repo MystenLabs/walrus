@@ -21,6 +21,7 @@ const LATENCY_SEC_BUCKETS: &[f64] = &[
 
 /// The workload types for the client.
 pub const WRITE_WORKLOAD: &str = "write";
+pub const READ_WORKLOAD: &str = "read";
 
 #[derive(Clone)]
 pub struct ClientMetrics {
