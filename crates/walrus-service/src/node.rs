@@ -433,7 +433,7 @@ impl StorageNode {
         // Initiate blob sync
         self.inner
             .blob_sync_handler
-            .start_sync(event, event_sequence_number, self.inner.clone())
+            .start_sync(event, event_sequence_number, self.inner.clone(), start)
             .await?;
 
         Ok(())

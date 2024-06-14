@@ -13,6 +13,7 @@ use prometheus::{
 pub(crate) const STATUS_FAILURE: &str = "failure";
 pub(crate) const STATUS_SUCCESS: &str = "success";
 pub(crate) const STATUS_ABORTED: &str = "aborted";
+pub(crate) const STATUS_CANCELLED: &str = "cancelled";
 pub(crate) const STATUS_SKIPPED: &str = "skip";
 pub(crate) const STATUS_INCONSISTENT: &str = "inconsistent";
 

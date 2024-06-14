@@ -75,6 +75,7 @@ impl BlobSyncHandler {
         event: BlobCertified,
         event_sequence_number: usize,
         node: Arc<StorageNodeInner>,
+        start: tokio::time::Instant,
     ) -> Result<(), TypedStoreError> {
         let blob_id = event.blob_id;
         let mut blob_syncs_guard = self.blob_syncs_in_progress.lock().await;
@@ -83,7 +84,7 @@ impl BlobSyncHandler {
             let cancel_token = self.cancel_token.child_token();
             let synchronizer =
                 BlobSynchronizer::new(event, event_sequence_number, node, cancel_token.clone());
-            let sync_handle = tokio::spawn(Self::sync(synchronizer).in_current_span());
+            let sync_handle = tokio::spawn(Self::sync(synchronizer, start).in_current_span());
             entry.insert(InProgressSyncHandle {
                 cancel_token,
                 blob_sync_handle: sync_handle,
@@ -101,13 +102,32 @@ impl BlobSyncHandler {
     #[tracing::instrument(skip_all, fields(blob_id = %blob_synchronizer.blob_id), err)]
     pub async fn sync(
         blob_synchronizer: BlobSynchronizer,
+        start: tokio::time::Instant,
     ) -> anyhow::Result<Option<(usize, EventID)>> {
+        let histogram_set = blob_synchronizer
+            .node
+            .metrics
+            .recover_blob_duration_seconds
+            .clone();
         select! {
             _ = blob_synchronizer.cancel_token.cancelled() => {
-                tracing::debug!("cancelled blob sync");
+                tracing::info!("cancelled blob sync");
+                histogram_set
+                    .with_label_values(&[metrics::STATUS_CANCELLED])
+                    .observe(start.elapsed().as_secs_f64());
                 return Ok(Some((blob_synchronizer.event_sequence_number, blob_synchronizer.event_id)));
             }
-            _= blob_synchronizer.run() => (),
+            sync_result = blob_synchronizer.run() => {
+                let label = if sync_result.is_err() {
+                    tracing::error!(?sync_result, "blob synchronizer failed");
+                    metrics::STATUS_FAILURE
+                } else {
+                    metrics::STATUS_SUCCESS
+                };
+                histogram_set
+                    .with_label_values(&[label])
+                    .observe(start.elapsed().as_secs_f64());
+            }
         }
 
         blob_synchronizer
