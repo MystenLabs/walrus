@@ -7,9 +7,9 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-aws-config = "1.4.0"
-aws-runtime = "1.2.2"
-aws-sdk-ec2 = "1.42.0"
+aws-config = "1.5.1"
+aws-runtime = "1.2.3"
+aws-sdk-ec2 = "1.51.1"
 clap.workspace = true
 color-eyre = "0.6.3"
 crossterm = "0.27.0"
