@@ -40,6 +40,8 @@ use walrus_sui::{
     types::{Blob, BlobEvent, Committee, StorageNode},
 };
 
+mod blocklist;
+pub use blocklist::Blocklist;
 mod communication;
 mod config;
 pub use config::{default_configuration_paths, ClientCommunicationConfig, Config};
@@ -73,6 +75,7 @@ pub struct Client<T> {
     max_concurrent_status_reads: usize,
     encoding_config: EncodingConfig,
     global_write_limit: Arc<Semaphore>,
+    blocklist: Option<Blocklist>,
 }
 
 impl Client<()> {
@@ -125,6 +128,7 @@ impl Client<()> {
             max_concurrent_metadata_reads,
             max_concurrent_status_reads,
             global_write_limit,
+            blocklist: None,
         })
     }
 
@@ -141,6 +145,7 @@ impl Client<()> {
             max_concurrent_status_reads,
             encoding_config,
             global_write_limit: global_connection_limit,
+            blocklist,
         } = self;
         Client::<T> {
             reqwest_client,
@@ -153,6 +158,7 @@ impl Client<()> {
             max_concurrent_status_reads,
             encoding_config,
             global_write_limit: global_connection_limit,
+            blocklist,
         }
     }
 }
@@ -182,6 +188,7 @@ impl<T: ContractClient> Client<T> {
             .map_err(ClientError::other)?
             .encode_with_metadata();
         let blob_id = *metadata.blob_id();
+        self.check_blob_id(&blob_id)?;
         tracing::Span::current().record("blob_id", blob_id.to_string());
         let pair = pairs.first().expect("the encoding produces sliver pairs");
         let symbol_size = pair.primary.symbols.symbol_size().get();
@@ -296,50 +303,15 @@ impl<T: ContractClient> Client<T> {
     }
 }
 
-/// Result when attempting to store a blob.
-#[serde_as]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
-pub enum BlobStoreResult {
-    /// The blob already exists within Walrus, was certified, and is stored for at least the
-    /// intended duration.
-    AlreadyCertified {
-        /// The blob ID.
-        #[serde_as(as = "DisplayFromStr")]
-        blob_id: BlobId,
-        /// The event where the blob was certified.
-        event: EventID,
-        /// The epoch until which the blob is stored (exclusive).
-        end_epoch: Epoch,
-    },
-    /// The blob was newly created; this contains the newly created Sui object associated with the
-    /// blob.
-    NewlyCreated(Blob),
-    /// The blob is known to Walrus but was marked as invalid.
-    ///
-    /// This indicates a bug within the client, the storage nodes, or more than a third malicious
-    /// storage nodes.
-    MarkedInvalid {
-        /// The blob ID.
-        #[serde_as(as = "DisplayFromStr")]
-        blob_id: BlobId,
-        /// The event where the blob was marked as invalid.
-        event: EventID,
-    },
-}
-
-impl BlobStoreResult {
-    /// Returns the blob ID.
-    pub fn blob_id(&self) -> &BlobId {
-        match self {
-            Self::AlreadyCertified { blob_id, .. } => blob_id,
-            Self::MarkedInvalid { blob_id, .. } => blob_id,
-            Self::NewlyCreated(Blob { blob_id, .. }) => blob_id,
-        }
-    }
-}
-
 impl<T> Client<T> {
+    /// Adds a [`Blocklist`] to the client that will be checked when storing or reading blobs.
+    ///
+    /// This can be called again to replace the blocklist.
+    pub fn with_blocklist(mut self, blocklist: Blocklist) -> Self {
+        self.blocklist = Some(blocklist);
+        self
+    }
+
     /// Stores the already-encoded metadata and sliver pairs for a blob into Walrus, by sending
     /// sliver pairs to at least 2f+1 shards.
     ///
@@ -459,6 +431,7 @@ impl<T> Client<T> {
         Sliver<U>: TryFrom<SliverEnum>,
     {
         tracing::debug!("starting to read blob");
+        self.check_blob_id(blob_id)?;
         let metadata = self.retrieve_metadata(blob_id).await?;
         self.request_slivers_and_decode::<U>(&metadata).await
     }
@@ -686,6 +659,18 @@ impl<T> Client<T> {
         Err(ClientErrorKind::NoValidStatusReceived.into())
     }
 
+    /// Returns a [`ClientError`] with [`ClientErrorKind::BlobIdBlocked`] if the provided blob ID is
+    /// contained in the blocklist.
+    fn check_blob_id(&self, blob_id: &BlobId) -> Result<(), ClientError> {
+        if let Some(blocklist) = &self.blocklist {
+            if blocklist.is_blocked(blob_id) {
+                tracing::debug!(%blob_id, "encountered blocked blob ID");
+                return Err(ClientErrorKind::BlobIdBlocked(*blob_id).into());
+            }
+        }
+        Ok(())
+    }
+
     /// Builds a [`NodeCommunication`] object for the given storage node.
     ///
     /// Returns `None` if the node has no shards.
@@ -816,6 +801,49 @@ impl<T> Client<T> {
     pub fn reset_reqwest_client(&mut self) -> Result<(), ClientError> {
         self.reqwest_client = Self::build_reqwest_client(&self.config)?;
         Ok(())
+    }
+}
+
+/// Result when attempting to store a blob.
+#[serde_as]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum BlobStoreResult {
+    /// The blob already exists within Walrus, was certified, and is stored for at least the
+    /// intended duration.
+    AlreadyCertified {
+        /// The blob ID.
+        #[serde_as(as = "DisplayFromStr")]
+        blob_id: BlobId,
+        /// The event where the blob was certified.
+        event: EventID,
+        /// The epoch until which the blob is stored (exclusive).
+        end_epoch: Epoch,
+    },
+    /// The blob was newly created; this contains the newly created Sui object associated with the
+    /// blob.
+    NewlyCreated(Blob),
+    /// The blob is known to Walrus but was marked as invalid.
+    ///
+    /// This indicates a bug within the client, the storage nodes, or more than a third malicious
+    /// storage nodes.
+    MarkedInvalid {
+        /// The blob ID.
+        #[serde_as(as = "DisplayFromStr")]
+        blob_id: BlobId,
+        /// The event where the blob was marked as invalid.
+        event: EventID,
+    },
+}
+
+impl BlobStoreResult {
+    /// Returns the blob ID.
+    pub fn blob_id(&self) -> &BlobId {
+        match self {
+            Self::AlreadyCertified { blob_id, .. } => blob_id,
+            Self::MarkedInvalid { blob_id, .. } => blob_id,
+            Self::NewlyCreated(Blob { blob_id, .. }) => blob_id,
+        }
     }
 }
 

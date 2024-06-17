@@ -169,7 +169,7 @@ enum Commands {
         rpc_arg: RpcArg,
         #[clap(flatten)]
         #[serde(flatten)]
-        bind_arg: BindArg,
+        daemon_args: DaemonArgs,
     },
     /// Run a client daemon at the provided network address, combining the functionality of an
     /// aggregator and a publisher.
@@ -241,7 +241,7 @@ enum Commands {
 struct PublisherArgs {
     #[clap(flatten)]
     #[serde(flatten)]
-    bind_arg: BindArg,
+    daemon_args: DaemonArgs,
     /// The maximum body size of PUT requests in KiB.
     #[clap(short, long = "max-body-size", default_value_t = default::max_body_size_kib())]
     #[serde(default = "default::max_body_size_kib")]
@@ -263,11 +263,15 @@ struct RpcArg {
 
 #[derive(Debug, Clone, Args, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct BindArg {
+struct DaemonArgs {
     /// The address to which to bind the service.
     #[clap(short, long, default_value_t = default::bind_address())]
     #[serde(default = "default::bind_address")]
     bind_address: SocketAddr,
+    /// Path to a blocklist file containing a list (in YAML syntax) of blocked blob IDs.
+    #[clap(long)]
+    #[serde(default)]
+    blocklist: Option<PathBuf>,
 }
 
 #[serde_as]
@@ -355,7 +359,7 @@ impl PublisherArgs {
 
     fn print_debug_message(&self, message: &str) {
         tracing::debug!(
-            bind_address = %self.bind_arg.bind_address,
+            bind_address = %self.daemon_args.bind_address,
             max_body_size = self.format_max_body_size(),
             message
         );
@@ -587,7 +591,7 @@ async fn run_app(app: App) -> Result<()> {
             epochs,
             force,
         } => {
-            let client = get_contract_client(config?, wallet, app.gas_budget).await?;
+            let client = get_contract_client(config?, wallet, app.gas_budget, &None).await?;
 
             tracing::info!(
                 file = %file.display(),
@@ -603,7 +607,8 @@ async fn run_app(app: App) -> Result<()> {
             out,
             rpc_arg: RpcArg { rpc_url },
         } => {
-            let client = get_read_client(config?, rpc_url, wallet, wallet_path.is_none()).await?;
+            let client =
+                get_read_client(config?, rpc_url, wallet, wallet_path.is_none(), &None).await?;
             let blob = client.read_blob::<Primary>(&blob_id).await?;
             match out.as_ref() {
                 Some(path) => std::fs::write(path, &blob)?,
@@ -653,24 +658,34 @@ async fn run_app(app: App) -> Result<()> {
         }
         Commands::Publisher { args } => {
             args.print_debug_message("attempting to run the Walrus publisher");
-            let client = get_contract_client(config?, wallet, app.gas_budget).await?;
-            let publisher = ClientDaemon::new(client, args.bind_arg.bind_address)
+            let client =
+                get_contract_client(config?, wallet, app.gas_budget, &args.daemon_args.blocklist)
+                    .await?;
+            let publisher = ClientDaemon::new(client, args.daemon_args.bind_address)
                 .with_publisher(args.max_body_size());
             publisher.run().await?;
         }
         Commands::Aggregator {
             rpc_arg: RpcArg { rpc_url },
-            bind_arg: BindArg { bind_address },
+            daemon_args:
+                DaemonArgs {
+                    bind_address,
+                    blocklist,
+                },
         } => {
             tracing::debug!(?rpc_url, "attempting to run the Walrus aggregator");
-            let client = get_read_client(config?, rpc_url, wallet, wallet_path.is_none()).await?;
+            let client =
+                get_read_client(config?, rpc_url, wallet, wallet_path.is_none(), &blocklist)
+                    .await?;
             let aggregator = ClientDaemon::new(client, bind_address).with_aggregator();
             aggregator.run().await?;
         }
         Commands::Daemon { args } => {
             args.print_debug_message("attempting to run the Walrus daemon");
-            let client = get_contract_client(config?, wallet, app.gas_budget).await?;
-            let publisher = ClientDaemon::new(client, args.bind_arg.bind_address)
+            let client =
+                get_contract_client(config?, wallet, app.gas_budget, &args.daemon_args.blocklist)
+                    .await?;
+            let publisher = ClientDaemon::new(client, args.daemon_args.bind_address)
                 .with_aggregator()
                 .with_publisher(args.max_body_size());
             publisher.run().await?;

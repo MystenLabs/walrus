@@ -3,7 +3,7 @@
 
 //! The errors for the storage client and the communication with storage nodes.
 
-use walrus_core::{SliverPairIndex, SliverType};
+use walrus_core::{BlobId, SliverPairIndex, SliverType};
 use walrus_sdk::error::NodeError;
 use walrus_sui::client::SuiClientError;
 
@@ -85,6 +85,9 @@ pub enum ClientErrorKind {
     /// The config provided to the client was invalid.
     #[error("the client config provided was invalid")]
     InvalidConfig,
+    /// The blob ID is blocked.
+    #[error("the blob ID {0} is blocked")]
+    BlobIdBlocked(BlobId),
     /// A failure internal to the node.
     #[error("client internal error: {0}")]
     Other(Box<dyn std::error::Error + Send + Sync + 'static>),

@@ -32,7 +32,7 @@ use walrus_sui::{
     utils::storage_units_from_size,
 };
 
-use crate::client::{default_configuration_paths, string_prefix, Client, Config};
+use crate::client::{default_configuration_paths, string_prefix, Blocklist, Client, Config};
 
 /// Default URL of the testnet RPC node.
 pub const TESTNET_RPC: &str = "https://fullnode.testnet.sui.io:443";
@@ -99,6 +99,7 @@ pub async fn get_read_client(
     rpc_url: Option<String>,
     wallet: Result<WalletContext>,
     allow_fallback_to_default: bool,
+    blocklist_path: &Option<PathBuf>,
 ) -> Result<Client<()>> {
     let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
         &config,
@@ -107,7 +108,13 @@ pub async fn get_read_client(
         allow_fallback_to_default,
     )
     .await?;
-    Ok(Client::new_read_client(config, &sui_read_client).await?)
+    let client = Client::new_read_client(config, &sui_read_client).await?;
+
+    if blocklist_path.is_some() {
+        Ok(client.with_blocklist(Blocklist::new(blocklist_path)?))
+    } else {
+        Ok(client)
+    }
 }
 
 /// Creates a [`Client<ContractClient>`] based on the provided [`Config`] with write access to Sui.
@@ -115,9 +122,16 @@ pub async fn get_contract_client(
     config: Config,
     wallet: Result<WalletContext>,
     gas_budget: u64,
+    blocklist_path: &Option<PathBuf>,
 ) -> Result<Client<SuiContractClient>> {
     let sui_client = SuiContractClient::new(wallet?, config.system_object, gas_budget).await?;
-    Ok(Client::new(config, sui_client).await?)
+    let client = Client::new(config, sui_client).await?;
+
+    if blocklist_path.is_some() {
+        Ok(client.with_blocklist(Blocklist::new(blocklist_path)?))
+    } else {
+        Ok(client)
+    }
 }
 
 /// Creates a [`SuiReadClient`] from the provided RPC URL or wallet.

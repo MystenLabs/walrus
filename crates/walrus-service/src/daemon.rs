@@ -125,9 +125,10 @@ async fn retrieve_blob<T: Send + Sync>(
         }
         Err(error) => match error.kind() {
             ClientErrorKind::BlobIdDoesNotExist => {
-                tracing::info!(?blob_id, "the requested blob ID does not exist");
+                tracing::debug!(?blob_id, "the requested blob ID does not exist");
                 StatusCode::NOT_FOUND.into_response()
             }
+            ClientErrorKind::BlobIdBlocked(_) => StatusCode::FORBIDDEN.into_response(),
             _ => {
                 tracing::error!(%error, "error retrieving blob");
                 StatusCode::INTERNAL_SERVER_ERROR.into_response()
@@ -161,6 +162,7 @@ async fn store_blob<T: ContractClient>(
                 ClientErrorKind::NotEnoughConfirmations(_, _) => {
                     StatusCode::GATEWAY_TIMEOUT.into_response()
                 }
+                ClientErrorKind::BlobIdBlocked(_) => StatusCode::FORBIDDEN.into_response(),
                 _ => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
             }
         }
