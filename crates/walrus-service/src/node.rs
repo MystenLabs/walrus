@@ -63,7 +63,11 @@ pub use self::errors::{
 
 mod blob_sync;
 pub(crate) mod metrics;
-use self::{blob_sync::BlobSyncHandler, errors::IndexOutOfRange, metrics::NodeMetricSet};
+use self::{
+    blob_sync::BlobSyncHandler,
+    errors::IndexOutOfRange,
+    metrics::{NodeMetricSet, STATUS_PENDING, STATUS_PERSISTED},
+};
 
 pub trait ServiceState {
     /// Retrieves the metadata associated with a blob.
@@ -510,8 +514,8 @@ impl StorageNodeInner {
             .maybe_advance_event_cursor(sequence_number, cursor)?;
 
         let event_cursor_progress = &self.metrics.event_cursor_progress;
-        metrics::with_label!(event_cursor_progress, "persisted").add(persisted);
-        metrics::with_label!(event_cursor_progress, "pending").set(pending);
+        metrics::with_label!(event_cursor_progress, STATUS_PERSISTED).add(persisted);
+        metrics::with_label!(event_cursor_progress, STATUS_PENDING).set(pending);
 
         Ok(())
     }

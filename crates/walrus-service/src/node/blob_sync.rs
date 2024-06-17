@@ -11,6 +11,7 @@ use futures::{
     stream::FuturesUnordered,
     StreamExt,
 };
+use mysten_metrics::{GaugeGuard, GaugeGuardFutureExt};
 use sui_types::event::EventID;
 use tokio::{select, sync::Semaphore, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
@@ -28,7 +29,7 @@ use walrus_core::{
 use walrus_sui::types::BlobCertified;
 
 use super::{
-    metrics::{self, NodeMetricSet},
+    metrics::{self, NodeMetricSet, STATUS_IN_PROGRESS, STATUS_QUEUED},
     StorageNodeInner,
 };
 use crate::{
@@ -120,12 +121,19 @@ impl BlobSyncHandler {
         start: tokio::time::Instant,
         semaphore: Arc<Semaphore>,
     ) -> Result<Option<(usize, EventID)>, TypedStoreError> {
+        let node = &blob_synchronizer.node;
+        let queued_gauge = metrics::with_label!(node.metrics.recover_blob_backlog, STATUS_QUEUED);
+
         let _permit = semaphore
             .acquire_owned()
+            .count_in_flight(&queued_gauge)
             .await
             .expect("semaphore should not be dropped");
 
-        let node = &blob_synchronizer.node;
+        let in_progress_gauge =
+            metrics::with_label!(node.metrics.recover_blob_backlog, STATUS_IN_PROGRESS);
+        let _decrement_guard = GaugeGuard::acquire(&in_progress_gauge);
+
         let histogram_set = node.metrics.recover_blob_duration_seconds.clone();
         let (is_cancelled, label) = select! {
             _ = blob_synchronizer.cancel_token.cancelled() => {

@@ -6,6 +6,7 @@ use prometheus::{
     HistogramVec,
     IntCounter,
     IntCounterVec,
+    IntGaugeVec,
     Opts,
     Registry,
 };
@@ -16,6 +17,10 @@ pub(crate) const STATUS_ABORTED: &str = "aborted";
 pub(crate) const STATUS_CANCELLED: &str = "cancelled";
 pub(crate) const STATUS_SKIPPED: &str = "skip";
 pub(crate) const STATUS_INCONSISTENT: &str = "inconsistent";
+pub(crate) const STATUS_QUEUED: &str = "queued";
+pub(crate) const STATUS_PENDING: &str = "pending";
+pub(crate) const STATUS_PERSISTED: &str = "persisted";
+pub(crate) const STATUS_IN_PROGRESS: &str = "in-progress";
 
 macro_rules! with_label {
     ($metric:expr, $label:expr) => {
@@ -82,6 +87,9 @@ define_node_metric_set! {
     ],
     GenericGaugeVec<AtomicU64>: [
         (event_cursor_progress, "The number of Walrus events processed", &["state"]),
+    ],
+    IntGaugeVec: [
+        (recover_blob_backlog, "The number of blob recoveries currently pending", &["state"]),
     ],
     HistogramVec: [
         (
