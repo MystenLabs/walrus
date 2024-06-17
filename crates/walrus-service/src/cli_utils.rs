@@ -27,9 +27,8 @@ use walrus_core::{
     },
 };
 use walrus_sui::{
-    client::{SuiContractClient, SuiReadClient},
-    types::Committee,
-    utils::storage_units_from_size,
+    client::{ReadClient, SuiContractClient, SuiReadClient},
+    utils::{storage_units_from_size, BYTES_PER_UNIT_SIZE},
 };
 
 use crate::client::{default_configuration_paths, string_prefix, Blocklist, Client, Config};
@@ -272,7 +271,7 @@ impl Display for HumanReadableMist {
 }
 
 /// Computes the MIST price given the unencoded blob size.
-fn mist_price_per_blob_size(
+pub fn mist_price_per_blob_size(
     unencoded_length: u64,
     n_shards: NonZeroU16,
     price_per_unit_size: u64,
@@ -299,7 +298,11 @@ fn thousands_separator(num: u64) -> String {
 }
 
 /// Pretty-prints information on the running Walrus system.
-pub fn print_walrus_info(committee: &Committee, price_per_unit_size: u64, dev: bool) {
+pub async fn print_walrus_info(sui_read_client: &impl ReadClient, dev: bool) -> Result<()> {
+    let committee = sui_read_client.current_committee().await?;
+    let price_per_unit_size = sui_read_client.price_per_unit_size().await?;
+
+    let epoch = committee.epoch;
     let n_shards = committee.n_shards();
     let (n_primary_source_symbols, n_secondary_source_symbols) =
         source_symbols_for_n_shards(n_shards);
@@ -309,11 +312,27 @@ pub fn print_walrus_info(committee: &Committee, price_per_unit_size: u64, dev: b
     let metadata_length = metadata_length_for_n_shards(n_shards);
     let metadata_price = storage_units_from_size(metadata_length) * price_per_unit_size;
 
-    // NOTE: keep price and text in sync with the changes on in the contracts.
+    let example_blob_0 = max_blob_size.next_power_of_two() / 1024;
+    let example_blob_1 = example_blob_0 * 32;
+    let blob_price = |blob_size: u64| {
+        HumanReadableMist(
+            mist_price_per_blob_size(blob_size, n_shards, price_per_unit_size)
+                .expect("we can encode the blob size"),
+        )
+    };
+
+    // Make sure our marginal size can actually be encoded.
+    let mut marginal_size = 1024 * 1024; // Start with 1 MiB.
+    while marginal_size > max_blob_size {
+        marginal_size /= 4;
+    }
+
+    // NOTE: keep price and text in sync with changes in the contracts.
     printdoc!(
         "
 
         {top_heading}
+        Current epoch: {epoch}
 
         {storage_heading}
         Number of nodes: {n_nodes}
@@ -321,34 +340,44 @@ pub fn print_walrus_info(committee: &Committee, price_per_unit_size: u64, dev: b
 
         {size_heading}
         Maximum blob size: {hr_max_blob} ({max_blob_size_sep} B)
+        Storage unit: {hr_storage_unit}
 
         {price_heading}
-        Price per encoded storage unit: {price_per_unit_size} MIST/KiB
+        Price per encoded storage unit: {hr_price_per_unit_size}
         Price to store metadata: {metadata_price}
-        Marginal price per additional 1 MiB (w/o metadata): {price_per_mib_input}
-        Total price per max blob ({hr_max_blob}): {price_max_blob}
+        Marginal price per additional {marginal_size:.0} (w/o metadata): {marginal_price}
+
+        {price_examples_heading}
+        {hr_example_blob_0}: {price_example_blob_0} per epoch
+        {hr_example_blob_1}: {price_example_blob_1} per epoch
+        Max blob ({hr_max_blob}): {price_max_blob} per epoch
         ",
         top_heading = "Walrus system information".bold(),
         storage_heading = "Storage nodes".bold().green(),
         size_heading = "Blob size".bold().green(),
         hr_max_blob = HumanReadableBytes(max_blob_size),
+        hr_storage_unit = HumanReadableBytes(BYTES_PER_UNIT_SIZE),
         max_blob_size_sep = thousands_separator(max_blob_size),
         price_heading = "Approximate storage prices per epoch".bold().green(),
+        hr_price_per_unit_size = HumanReadableMist(price_per_unit_size),
         metadata_price = HumanReadableMist(metadata_price),
-        price_per_mib_input = HumanReadableMist(
+        marginal_size = HumanReadableBytes(marginal_size),
+        marginal_price = HumanReadableMist(
             storage_units_from_size(
-                encoded_slivers_length_for_n_shards(n_shards, 1 << 20,)
+                encoded_slivers_length_for_n_shards(n_shards, marginal_size)
                     .expect("we can encode 1 MiB")
             ) * price_per_unit_size
         ),
-        price_max_blob = HumanReadableMist(
-            mist_price_per_blob_size(max_blob_size, n_shards, price_per_unit_size)
-                .expect("we can encode the max blob size")
-        )
+        price_examples_heading = "Total price for example blob sizes".bold().green(),
+        hr_example_blob_0 = HumanReadableBytes(example_blob_0),
+        price_example_blob_0 = blob_price(example_blob_0),
+        hr_example_blob_1 = HumanReadableBytes(example_blob_1),
+        price_example_blob_1 = blob_price(example_blob_1),
+        price_max_blob = blob_price(max_blob_size),
     );
 
     if !dev {
-        return;
+        return Ok(());
     }
 
     let max_sliver_size = max_sliver_size_for_n_secondary(n_secondary_source_symbols);
@@ -406,6 +435,8 @@ pub fn print_walrus_info(committee: &Committee, price_per_unit_size: u64, dev: b
         ]);
     }
     table.printstd();
+
+    Ok(())
 }
 
 /// Default style for tables printed to stdout.

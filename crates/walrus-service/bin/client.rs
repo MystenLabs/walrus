@@ -24,7 +24,7 @@ use tracing_subscriber::{
     EnvFilter,
 };
 use walrus_core::{
-    encoding::{EncodingConfig, Primary},
+    encoding::{encoded_blob_length_for_n_shards, EncodingConfig, Primary},
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
 };
@@ -38,14 +38,16 @@ use walrus_service::{
         get_sui_read_client_from_rpc_node_or_wallet,
         load_configuration,
         load_wallet_context,
+        mist_price_per_blob_size,
         print_walrus_info,
         success,
         HumanReadableBytes,
+        HumanReadableMist,
     },
     client::{BlobStoreResult, Client},
     daemon::ClientDaemon,
 };
-use walrus_sui::client::ReadClient;
+use walrus_sui::client::{ContractClient, ReadClient};
 
 #[derive(Parser, Debug, Clone, Deserialize)]
 #[command(author, version, about = "Walrus client", long_about = None)]
@@ -377,17 +379,15 @@ fn output_string<T: Display + Serialize>(output: &T, json: bool) -> Result<Strin
 
 /// The output of the `store` command.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct StoreOutput(BlobStoreResult);
-
-impl From<BlobStoreResult> for StoreOutput {
-    fn from(result: BlobStoreResult) -> Self {
-        Self(result)
-    }
+struct StoreOutput {
+    pub result: BlobStoreResult,
+    pub n_shards: NonZeroU16,
+    pub price_per_unit_size: u64,
 }
 
 impl Display for StoreOutput {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match &self.0 {
+        match &self.result {
             BlobStoreResult::AlreadyCertified {
                 blob_id,
                 event,
@@ -404,14 +404,30 @@ impl Display for StoreOutput {
                 )
             }
             BlobStoreResult::NewlyCreated(blob) => {
+                let unencoded_length = blob.size;
+                let encoded_size =
+                    encoded_blob_length_for_n_shards(self.n_shards, unencoded_length)
+                        .expect("must be valid as the store succeeded");
+                let price = mist_price_per_blob_size(
+                    unencoded_length,
+                    self.n_shards,
+                    self.price_per_unit_size,
+                )
+                .expect("must be valid as the store succeeded");
                 write!(
                     f,
                     "{} Blob stored successfully.\n\
-                    Blob ID: {}\nUnencoded size: {}\nSui object ID: {}",
+                    Blob ID: {}\n\
+                    Unencoded size: {}\n\
+                    Encoded size (including metadata): {}\n\
+                    Sui object ID: {}\n\
+                    Cost (excluding gas): {}",
                     success(),
                     blob.blob_id,
-                    HumanReadableBytes(blob.size),
+                    HumanReadableBytes(unencoded_length),
+                    HumanReadableBytes(encoded_size),
                     blob.id,
+                    HumanReadableMist(price),
                 )
             }
             BlobStoreResult::MarkedInvalid { blob_id, event } => {
@@ -523,14 +539,14 @@ impl Display for BlobStatusOutput {
             format!("{}", self.blob_id)
         };
         match self.status {
-            BlobStatus::Nonexistent => write!(f, "Blob {blob_str} does not exist."),
+            BlobStatus::Nonexistent => write!(f, "Blob ID {blob_str} is not stored on Walrus."),
             BlobStatus::Existent {
                 status,
                 end_epoch,
                 status_event,
             } => write!(
                 f,
-                "Status for {blob_str}: {}\n\
+                "Status for blob ID {blob_str}: {}\n\
                     End epoch: {}\n\
                     Related event: {}",
                 status.to_string().bold(),
@@ -600,7 +616,25 @@ async fn run_app(app: App) -> Result<()> {
             let result = client
                 .reserve_and_store_blob(&std::fs::read(file)?, epochs, force)
                 .await?;
-            println!("{}", output_string(&StoreOutput::from(result), app.json)?);
+            println!(
+                "{}",
+                output_string(
+                    &StoreOutput {
+                        result,
+                        n_shards: client.encoding_config().n_shards(),
+                        price_per_unit_size: client
+                            .sui_client()
+                            .read_client()
+                            .price_per_unit_size()
+                            .await
+                            .map_err(|error| {
+                                tracing::warn!(%error, "could not retrieve storage price");
+                            })
+                            .unwrap_or_default()
+                    },
+                    app.json
+                )?
+            );
         }
         Commands::Read {
             blob_id,
@@ -696,7 +730,7 @@ async fn run_app(app: App) -> Result<()> {
         } => {
             if app.json {
                 // TODO: Implement the info command for JSON as well. (#465)
-                return Err(anyhow!("the info command is only available in cli mode"));
+                return Err(anyhow!("the info command is not available in JSON mode"));
             }
             let config = config?;
             let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
@@ -706,8 +740,7 @@ async fn run_app(app: App) -> Result<()> {
                 wallet_path.is_none(),
             )
             .await?;
-            let price = sui_read_client.price_per_unit_size().await?;
-            print_walrus_info(&sui_read_client.current_committee().await?, price, dev);
+            print_walrus_info(&sui_read_client, dev).await?;
         }
         Commands::Json { .. } => {
             unreachable!("we unpack JSON commands until we obtain a different command")
