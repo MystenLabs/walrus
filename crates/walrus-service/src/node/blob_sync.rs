@@ -12,7 +12,7 @@ use futures::{
     StreamExt,
 };
 use sui_types::event::EventID;
-use tokio::{select, task::JoinHandle};
+use tokio::{select, sync::Semaphore, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 use tracing::{instrument, Instrument};
 use typed_store::TypedStoreError;
@@ -38,11 +38,15 @@ use crate::{
     utils::FutureHelpers as _,
 };
 
+// TODO(jsmith): Make configurable in the config
+const PARALLEL_SYNCS: usize = 2;
+
 #[derive(Debug, Clone)]
 pub(crate) struct BlobSyncHandler {
     // INV: For each blob id at most one sync is in progress at a time.
     blob_syncs_in_progress: Arc<Mutex<HashMap<BlobId, InProgressSyncHandle>>>,
     node: Arc<StorageNodeInner>,
+    semaphore: Arc<Semaphore>,
 }
 
 impl BlobSyncHandler {
@@ -50,6 +54,7 @@ impl BlobSyncHandler {
         Self {
             blob_syncs_in_progress: Arc::default(),
             node,
+            semaphore: Arc::new(Semaphore::new(PARALLEL_SYNCS)),
         }
     }
 
@@ -92,8 +97,11 @@ impl BlobSyncHandler {
                 self.node.clone(),
                 cancel_token.clone(),
             );
-            let sync_handle =
-                tokio::spawn(self.clone().sync(synchronizer, start).in_current_span());
+            let sync_handle = tokio::spawn(
+                self.clone()
+                    .sync(synchronizer, start, self.semaphore.clone())
+                    .in_current_span(),
+            );
             entry.insert(InProgressSyncHandle {
                 cancel_token,
                 blob_sync_handle: Some(sync_handle),
@@ -113,7 +121,13 @@ impl BlobSyncHandler {
         self,
         blob_synchronizer: BlobSynchronizer,
         start: tokio::time::Instant,
+        semaphore: Arc<Semaphore>,
     ) -> Result<Option<(usize, EventID)>, TypedStoreError> {
+        let _permit = semaphore
+            .acquire_owned()
+            .await
+            .expect("semaphore should not be dropped");
+
         let node = &blob_synchronizer.node;
         let histogram_set = node.metrics.recover_blob_duration_seconds.clone();
         let (is_cancelled, label) = select! {
