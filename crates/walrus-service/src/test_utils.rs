@@ -76,6 +76,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             metrics_address,
             storage_path: temp_dir.path().to_path_buf(),
             sui: None,
+            blob_recovery: Default::default(),
         },
         temp_dir,
     }
@@ -331,6 +332,7 @@ impl StorageNodeHandleBuilder {
             metrics_address: unused_socket_address(),
             sui: None,
             db_config: None,
+            blob_recovery: Default::default(),
         };
 
         let metrics_registry = Registry::default();
@@ -487,6 +489,7 @@ impl CommitteeServiceFactory for StubCommitteeServiceFactory<NodeCommitteeServic
         Ok(Box::new(NodeCommitteeService::new(
             self.committee.clone(),
             local_identity,
+            Default::default(),
         )?))
     }
 }

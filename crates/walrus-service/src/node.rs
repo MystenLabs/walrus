@@ -248,7 +248,10 @@ impl StorageNodeBuilder {
 
         let committee_service_factory = self.committee_service_factory.unwrap_or_else(|| {
             let (read_client, _) = sui_config_and_client.unwrap();
-            Box::new(SuiCommitteeServiceFactory::new(read_client))
+            Box::new(SuiCommitteeServiceFactory::new(
+                read_client,
+                config.blob_recovery.committee_service_config.clone(),
+            ))
         });
 
         StorageNode::new(
@@ -259,6 +262,7 @@ impl StorageNodeBuilder {
             committee_service_factory,
             contract_service,
             &metrics_registry,
+            config.blob_recovery.max_concurrent_blob_syncs,
         )
         .await
     }
@@ -300,6 +304,7 @@ pub struct StorageNodeInner {
 }
 
 impl StorageNode {
+    #[allow(clippy::too_many_arguments)]
     async fn new(
         key_pair: ProtocolKeyPair,
         mut storage: Storage,
@@ -308,6 +313,7 @@ impl StorageNode {
         committee_service_factory: Box<dyn CommitteeServiceFactory>,
         contract_service: Box<dyn SystemContractService>,
         registry: &Registry,
+        max_concurrent_blob_syncs: usize,
     ) -> Result<Self, anyhow::Error> {
         let start_time = Instant::now();
         let committee_service = committee_service_factory
@@ -343,7 +349,7 @@ impl StorageNode {
 
         inner.init_gauges()?;
 
-        let blob_sync_handler = BlobSyncHandler::new(inner.clone());
+        let blob_sync_handler = BlobSyncHandler::new(inner.clone(), max_concurrent_blob_syncs);
 
         Ok(StorageNode {
             inner,

@@ -8,7 +8,6 @@ use std::{
     iter,
     num::NonZeroU16,
     sync::{Arc, Mutex},
-    time::Duration,
 };
 
 use anyhow::{ensure, Context as _};
@@ -51,19 +50,23 @@ use walrus_sui::{
     types::{Committee, StorageNode as SuiStorageNode},
 };
 
-use crate::utils::{self, ExponentialBackoff, FutureHelpers};
+use crate::{
+    config::CommitteeServiceConfig,
+    utils::{self, ExponentialBackoff, FutureHelpers},
+};
 
 mod remote;
 
-const MIN_RETRY_INTERVAL: Duration = Duration::from_secs(1);
-const MAX_RETRY_INTERVAL: Duration = Duration::from_secs(3600);
-const MAX_REQUEST_DURATION: Duration = Duration::from_secs(1);
-
-/// Number of metadata requests which are run concurrently.
-const N_CONCURRENT_METADATA_REQUESTS: usize = 1;
-
-fn default_retry_strategy(seed: u64) -> ExponentialBackoff<StdRng> {
-    ExponentialBackoff::new_with_seed(MIN_RETRY_INTERVAL, MAX_RETRY_INTERVAL, None, seed)
+fn default_retry_strategy(
+    seed: u64,
+    config: &CommitteeServiceConfig,
+) -> ExponentialBackoff<StdRng> {
+    ExponentialBackoff::new_with_seed(
+        config.retry_interval_min,
+        config.retry_interval_max,
+        None,
+        seed,
+    )
 }
 
 /// Factory used to create services for interacting with the committee on each epoch.
@@ -157,6 +160,7 @@ trait NodeClient {
 #[derive(Debug, Clone)]
 pub struct SuiCommitteeServiceFactory<T> {
     read_client: T,
+    config: CommitteeServiceConfig,
 }
 
 impl<T> SuiCommitteeServiceFactory<T>
@@ -164,8 +168,11 @@ where
     T: ReadClient,
 {
     /// Creates a new service factory for the provided read client.
-    pub fn new(read_client: T) -> Self {
-        Self { read_client }
+    pub fn new(read_client: T, config: CommitteeServiceConfig) -> Self {
+        Self {
+            read_client,
+            config,
+        }
     }
 }
 
@@ -184,7 +191,7 @@ where
             .await
             .context("unable to create a committee service for the current epoch")?;
 
-        let service = NodeCommitteeService::new(committee, local_identity)?;
+        let service = NodeCommitteeService::new(committee, local_identity, self.config.clone())?;
 
         Ok(Box::new(service))
     }
@@ -201,9 +208,10 @@ impl NodeCommitteeService {
     pub fn new(
         committee: Committee,
         local_identity: Option<&PublicKey>,
+        config: CommitteeServiceConfig,
     ) -> Result<Self, anyhow::Error> {
         Ok(Self {
-            inner: NodeCommitteeServiceInner::new(committee, local_identity)?,
+            inner: NodeCommitteeServiceInner::new(committee, local_identity, config)?,
         })
     }
 }
@@ -214,6 +222,7 @@ struct NodeCommitteeServiceInner<T> {
     /// Clients corresponding to the respective committee members.
     node_clients: Vec<Option<T>>,
     local_identity: Option<PublicKey>,
+    config: CommitteeServiceConfig,
     rng: Arc<Mutex<StdRng>>,
 }
 
@@ -221,6 +230,7 @@ impl NodeCommitteeServiceInner<StorageNodeClient> {
     fn new_with_seed(
         committee: Committee,
         local_identity: Option<&PublicKey>,
+        config: CommitteeServiceConfig,
         seed: u64,
     ) -> Result<Self, anyhow::Error> {
         let http_client = reqwest::Client::builder().build()?;
@@ -252,6 +262,7 @@ impl NodeCommitteeServiceInner<StorageNodeClient> {
             committee,
             node_clients,
             local_identity: local_identity.cloned(),
+            config,
             rng: Arc::new(Mutex::new(StdRng::seed_from_u64(seed))),
         })
     }
@@ -259,8 +270,9 @@ impl NodeCommitteeServiceInner<StorageNodeClient> {
     fn new(
         committee: Committee,
         local_identity: Option<&PublicKey>,
+        config: CommitteeServiceConfig,
     ) -> Result<Self, anyhow::Error> {
-        Self::new_with_seed(committee, local_identity, rand::thread_rng().gen())
+        Self::new_with_seed(committee, local_identity, config, rand::thread_rng().gen())
     }
 }
 
@@ -291,7 +303,8 @@ where
         blob_id: &BlobId,
         config: &EncodingConfig,
     ) -> VerifiedBlobMetadataWithId {
-        let simultaneous_requests = Arc::new(Semaphore::new(N_CONCURRENT_METADATA_REQUESTS));
+        let simultaneous_requests =
+            Arc::new(Semaphore::new(self.config.max_concurrent_metadata_requests));
 
         let mut rng = StdRng::seed_from_u64(self.rng.lock().unwrap().gen());
 
@@ -300,14 +313,15 @@ where
             .filter(|node| !node.is_local())
             .map(|node| {
                 let public_key = node.public_key();
-                let retry_strategy = default_retry_strategy(self.rng.lock().unwrap().gen());
+                let retry_strategy =
+                    default_retry_strategy(self.rng.lock().unwrap().gen(), &self.config);
                 let simultaneous_requests = &simultaneous_requests;
 
                 utils::retry(retry_strategy, move || {
                     node.client()
                         .expect("only nodes with clients provided")
                         .get_and_verify_metadata(blob_id, config)
-                        .timeout_after(MAX_REQUEST_DURATION)
+                        .timeout_after(self.config.metadata_request_timeout)
                         .limit(simultaneous_requests.clone())
                 })
                 .instrument(tracing::info_span!("node", ?public_key))
@@ -352,7 +366,8 @@ where
                 // orthogonal sliver which may be already stored at this node.
                 let sliver_pair_at_remote = shard_id.to_pair_index(config.n_shards(), blob_id);
                 let simultaneous_requests = &simultaneous_requests;
-                let retry_strategy = default_retry_strategy(self.rng.lock().unwrap().gen());
+                let retry_strategy =
+                    default_retry_strategy(self.rng.lock().unwrap().gen(), &self.config);
 
                 utils::retry(retry_strategy, move || {
                     node.client()
@@ -363,7 +378,7 @@ where
                             sliver_pair_at_remote,
                             sliver_id,
                         )
-                        .timeout_after(MAX_REQUEST_DURATION)
+                        .timeout_after(self.config.sliver_request_timeout)
                         .limit(simultaneous_requests.clone())
                 })
                 .map(|result| {
@@ -442,7 +457,8 @@ where
             .shuffle_nodes_with_clients(&mut rng)
             .map(|node| {
                 let public_key = node.public_key();
-                let retry_strategy = default_retry_strategy(self.rng.lock().unwrap().gen());
+                let retry_strategy =
+                    default_retry_strategy(self.rng.lock().unwrap().gen(), &self.config);
                 utils::retry(retry_strategy, move || async move {
                     node.client()
                         .expect("only nodes with clients provided")
@@ -452,7 +468,7 @@ where
                             self.committee.epoch,
                             node.public_key(),
                         )
-                        .timeout_after(MAX_REQUEST_DURATION)
+                        .timeout_after(self.config.invalidity_sync_timeout)
                         .await
                         .map(|sig| (sig, node))
                 })
@@ -672,6 +688,7 @@ mod tests {
                 node_clients: node_clients.into_iter().map(Option::Some).collect(),
                 rng: Arc::new(Mutex::new(StdRng::seed_from_u64(32))),
                 local_identity: None,
+                config: Default::default(),
             };
 
             let _ = tokio::time::timeout(
@@ -727,6 +744,7 @@ mod tests {
                 node_clients: node_clients.into_iter().map(Option::Some).collect(),
                 rng: Arc::new(Mutex::new(StdRng::seed_from_u64(33))),
                 local_identity: None,
+                config: Default::default(),
             };
 
             let _ = tokio::time::timeout(

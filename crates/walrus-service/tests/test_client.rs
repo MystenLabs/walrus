@@ -265,7 +265,10 @@ async fn default_setup() -> anyhow::Result<(
 
     // Set up the cluster
     let cluster_builder = cluster_builder
-        .with_committee_service_factories(SuiCommitteeServiceFactory::new(sui_read_client.clone()))
+        .with_committee_service_factories(SuiCommitteeServiceFactory::new(
+            sui_read_client.clone(),
+            Default::default(),
+        ))
         .with_system_event_providers(SuiSystemEventProvider::new(
             sui_read_client.clone(),
             Duration::from_millis(100),

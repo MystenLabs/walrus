@@ -403,6 +403,7 @@ pub async fn create_storage_node_configs(
             rest_api_address,
             sui,
             db_config,
+            blob_recovery: Default::default(),
         });
     }
     Ok(storage_node_configs)

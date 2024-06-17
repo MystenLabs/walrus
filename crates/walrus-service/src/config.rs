@@ -58,9 +58,65 @@ pub struct StorageNodeConfig {
     pub rest_api_address: SocketAddr,
     /// Sui config for the node
     pub sui: Option<SuiConfig>,
+    /// Configuration of blob synchronization
+    #[serde(default)]
+    pub blob_recovery: BlobRecoveryConfig,
 }
 
 impl LoadConfig for StorageNodeConfig {}
+
+/// Configuration of a Walrus storage node.
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct BlobRecoveryConfig {
+    /// The number of in-parallel blobs synchronized
+    pub max_concurrent_blob_syncs: usize,
+    /// Configuration of the committee service timeouts and retries
+    #[serde(flatten)]
+    pub committee_service_config: CommitteeServiceConfig,
+}
+
+impl Default for BlobRecoveryConfig {
+    fn default() -> Self {
+        Self {
+            max_concurrent_blob_syncs: 10_000,
+            committee_service_config: CommitteeServiceConfig::default(),
+        }
+    }
+}
+
+/// Configuration of a Walrus storage node.
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct CommitteeServiceConfig {
+    /// The minimum number of seconds to wait before retrying an operation.
+    pub retry_interval_min: Duration,
+    /// The maximum number of seconds to wait before retrying an operation.
+    pub retry_interval_max: Duration,
+    /// The timeout when requesting metadata from a storage node, before contacting a separate node.
+    pub metadata_request_timeout: Duration,
+    /// The number of concurrent metadata requests
+    pub max_concurrent_metadata_requests: usize,
+    /// The timeout when requesting slivers from a storage node.
+    pub sliver_request_timeout: Duration,
+    /// The timeout when syncing invalidity certificates to a storage node
+    pub invalidity_sync_timeout: Duration,
+}
+
+impl Default for CommitteeServiceConfig {
+    fn default() -> Self {
+        Self {
+            retry_interval_min: Duration::from_secs(1),
+            retry_interval_max: Duration::from_secs(3600),
+            metadata_request_timeout: Duration::from_secs(1),
+            sliver_request_timeout: Duration::from_secs(1),
+            invalidity_sync_timeout: Duration::from_secs(1),
+            max_concurrent_metadata_requests: 1,
+        }
+    }
+}
 
 /// Sui-specific configuration for Walrus
 #[serde_with::serde_as]

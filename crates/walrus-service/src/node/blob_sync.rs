@@ -38,9 +38,6 @@ use crate::{
     utils::FutureHelpers as _,
 };
 
-// TODO(jsmith): Make configurable in the config
-const PARALLEL_SYNCS: usize = 2;
-
 #[derive(Debug, Clone)]
 pub(crate) struct BlobSyncHandler {
     // INV: For each blob id at most one sync is in progress at a time.
@@ -50,11 +47,11 @@ pub(crate) struct BlobSyncHandler {
 }
 
 impl BlobSyncHandler {
-    pub fn new(node: Arc<StorageNodeInner>) -> Self {
+    pub fn new(node: Arc<StorageNodeInner>, max_concurrent_blob_syncs: usize) -> Self {
         Self {
             blob_syncs_in_progress: Arc::default(),
             node,
-            semaphore: Arc::new(Semaphore::new(PARALLEL_SYNCS)),
+            semaphore: Arc::new(Semaphore::new(max_concurrent_blob_syncs)),
         }
     }
 
