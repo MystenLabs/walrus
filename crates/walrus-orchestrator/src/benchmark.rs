@@ -40,7 +40,7 @@ impl<N, C> Display for BenchmarkParametersGeneric<N, C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{} nodes ({}) - {} tx/s",
+            "{} nodes ({}) - {} ops/min",
             self.nodes, self.settings.faults, self.load
         )
     }

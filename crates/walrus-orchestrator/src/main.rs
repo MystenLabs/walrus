@@ -74,8 +74,8 @@ pub enum Operation {
         #[clap(long, value_name = "INT", default_value_t = 4, global = true)]
         committee: usize,
 
-        /// The set of loads to submit to the system (tx/s). Each load triggers a separate
-        /// benchmark run. Setting a load to zero will not deploy any benchmark clients
+        /// The set of loads to submit to the system (reads/writes per minunte). Each load triggers
+        /// a separate benchmark run. Setting a load to zero will not deploy any benchmark clients
         /// (useful to boot testbeds designed to run with external clients and load generators).
         #[clap(long, value_name = "[INT]", default_value = "200", global = true)]
         loads: Vec<usize>,

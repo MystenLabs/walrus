@@ -253,7 +253,7 @@ impl MeasurementsCollection {
         table.add_row(row![bH2->""]);
         table.add_row(row![b->"Nodes:", self.parameters.nodes]);
         table.add_row(row![b->"Faults:", self.parameters.settings.faults]);
-        table.add_row(row![b->"Load:", format!("{} tx/s", self.parameters.load)]);
+        table.add_row(row![b->"Load:", format!("{} ops/min", self.parameters.load)]);
         table.add_row(row![b->"Duration:", format!("{} s", duration.as_secs())]);
 
         let mut labels: Vec<_> = self.labels().collect();
