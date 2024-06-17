@@ -30,7 +30,7 @@ struct Args {
     /// The target read load to submit to the system (reads/minute).
     /// The actual load may be limited by the number of clients.
     #[clap(long, default_value = "60")]
-    read_load: u64,
+    read_load: NonZeroU64,
     /// The path to the client configuration file containing the system object address.
     #[clap(long, default_value = "./working_dir/client_config.yaml")]
     config_path: PathBuf,
@@ -69,7 +69,7 @@ async fn main() -> anyhow::Result<()> {
         LoadGenerator::new(n_clients, args.blob_size.get(), config, args.sui_network).await?;
 
     load_generator
-        .start(args.write_load.get(), args.read_load, &metrics)
+        .start(args.write_load.get(), args.read_load.get(), &metrics)
         .await?;
     Ok(())
 }

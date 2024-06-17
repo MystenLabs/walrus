@@ -264,6 +264,8 @@ impl ProtocolCommands for TargetProtocol {
     {
         let clients: Vec<_> = instances.into_iter().collect();
         let load_per_client = (parameters.load / clients.len()).max(1);
+        // Scale the number of "write clients" in the stress client proportionally with the load,
+        // making sure to have at least one.
         let number_of_tasks = (load_per_client / 10).max(1);
 
         clients

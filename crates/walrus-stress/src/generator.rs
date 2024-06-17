@@ -128,6 +128,7 @@ impl LoadGenerator {
                             break;
                         };
                         write_finished.push(tokio::spawn(async move {
+                            // Update the blob data to get a fresh value for the write.
                             blob.refresh();
                             let now = Instant::now();
                             let result = client.as_ref()
