@@ -86,12 +86,12 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
 pub fn empty_storage_with_shards(shards: &[ShardIndex]) -> WithTempDir<Storage> {
     let temp_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
     let db_config = DatabaseConfig::default();
-    let mut storage = Storage::open(temp_dir.path(), &db_config, MetricConf::default())
+    let mut storage = Storage::open(temp_dir.path(), db_config, MetricConf::default())
         .expect("storage creation must succeed");
 
     for shard in shards {
         storage
-            .create_storage_for_shard(*shard, &db_config)
+            .create_storage_for_shard(*shard)
             .expect("shard should be successfully created");
     }
 

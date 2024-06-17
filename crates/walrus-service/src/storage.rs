@@ -224,6 +224,7 @@ pub struct Storage {
     blob_info: DBMap<BlobId, BlobInfo>,
     event_cursor: EventCursorTable,
     shards: HashMap<ShardIndex, ShardStorage>,
+    config: DatabaseConfig,
 }
 
 impl Storage {
@@ -233,7 +234,7 @@ impl Storage {
     /// Opens the storage database located at the specified path, creating the database if absent.
     pub fn open(
         path: &Path,
-        db_config: &DatabaseConfig,
+        db_config: DatabaseConfig,
         metrics_config: MetricConf,
     ) -> Result<Self, anyhow::Error> {
         let mut db_opts = Options::default();
@@ -244,12 +245,12 @@ impl Storage {
         let mut shard_column_families: Vec<_> = existing_shards_ids
             .iter()
             .copied()
-            .map(|id| ShardStorage::slivers_column_family_options(id, db_config))
+            .map(|id| ShardStorage::slivers_column_family_options(id, &db_config))
             .collect();
 
-        let (metadata_cf_name, metadata_options) = Self::metadata_options(db_config);
-        let (blob_info_cf_name, blob_info_options) = Self::blob_info_options(db_config);
-        let (event_cursor_cf_name, event_cursor_options) = EventCursorTable::options(db_config);
+        let (metadata_cf_name, metadata_options) = Self::metadata_options(&db_config);
+        let (blob_info_cf_name, blob_info_options) = Self::blob_info_options(&db_config);
+        let (event_cursor_cf_name, event_cursor_options) = EventCursorTable::options(&db_config);
 
         let mut expected_column_families: Vec<_> = shard_column_families
             .iter_mut()
@@ -281,7 +282,7 @@ impl Storage {
         let shards = existing_shards_ids
             .into_iter()
             .map(|id| {
-                ShardStorage::create_or_reopen(id, &database, db_config).map(|shard| (id, shard))
+                ShardStorage::create_or_reopen(id, &database, &db_config).map(|shard| (id, shard))
             })
             .collect::<Result<_, _>>()?;
 
@@ -291,6 +292,7 @@ impl Storage {
             blob_info,
             event_cursor,
             shards,
+            config: db_config,
         })
     }
 
@@ -298,13 +300,12 @@ impl Storage {
     pub fn create_storage_for_shard(
         &mut self,
         shard: ShardIndex,
-        db_config: &DatabaseConfig,
     ) -> Result<&ShardStorage, TypedStoreError> {
         match self.shards.entry(shard) {
             Entry::Occupied(entry) => Ok(entry.into_mut()),
             Entry::Vacant(entry) => {
                 let shard_storage =
-                    ShardStorage::create_or_reopen(shard, &self.database, db_config)?;
+                    ShardStorage::create_or_reopen(shard, &self.database, &self.config)?;
                 Ok(entry.insert(shard_storage))
             }
         }
@@ -604,9 +605,7 @@ pub(crate) mod tests {
         let mut seed = 10u8;
         let db_config = DatabaseConfig::default();
         for (shard, sliver_list) in spec {
-            storage
-                .as_mut()
-                .create_storage_for_shard(*shard, &db_config)?;
+            storage.as_mut().create_storage_for_shard(*shard)?;
             let shard_storage = storage.as_ref().shard_storage(*shard).unwrap();
 
             for (blob_id, which) in sliver_list.iter() {
@@ -872,7 +871,7 @@ pub(crate) mod tests {
         let result = Runtime::new()?.block_on(async move {
             let storage = Storage::open(
                 directory.path(),
-                &DatabaseConfig::default(),
+                DatabaseConfig::default(),
                 MetricConf::default(),
             )?;
 
