@@ -116,38 +116,35 @@ impl BlobSyncHandler {
     ) -> Result<Option<(usize, EventID)>, TypedStoreError> {
         let node = &blob_synchronizer.node;
         let histogram_set = node.metrics.recover_blob_duration_seconds.clone();
-        let mut cancelled = false;
-        let label;
-        select! {
+        let (is_cancelled, label) = select! {
             _ = blob_synchronizer.cancel_token.cancelled() => {
                 tracing::info!("cancelled blob sync");
-                cancelled = true;
-                label = metrics::STATUS_CANCELLED;
+                (true, metrics::STATUS_CANCELLED)
             }
             sync_result = blob_synchronizer.run() => {
-                label = if sync_result.is_err() {
+                let sync_result = sync_result.and_then(|_| Ok(node.mark_event_completed(
+                    blob_synchronizer.event_sequence_number,
+                    &blob_synchronizer.event_id,
+                )?));
+                if sync_result.is_err() {
                     tracing::error!(?sync_result, "blob synchronizer failed");
-                    metrics::STATUS_FAILURE
+                    (false, metrics::STATUS_FAILURE)
                 } else {
-                    metrics::STATUS_SUCCESS
-                };
+                    (false, metrics::STATUS_SUCCESS)
+                }
             }
-        }
+        };
 
+        self.remove_sync_handle(&blob_synchronizer.blob_id).await;
         histogram_set
             .with_label_values(&[label])
             .observe(start.elapsed().as_secs_f64());
-        self.remove_sync_handle(&blob_synchronizer.blob_id).await;
-        if cancelled {
+        if is_cancelled {
             Ok(Some((
                 blob_synchronizer.event_sequence_number,
                 blob_synchronizer.event_id,
             )))
         } else {
-            node.mark_event_completed(
-                blob_synchronizer.event_sequence_number,
-                &blob_synchronizer.event_id,
-            )?;
             Ok(None)
         }
     }
@@ -161,7 +158,10 @@ impl BlobSyncHandler {
             .filter_map(|(_, sync)| sync.cancel())
             .collect();
 
-        try_join_all(join_handles).await?;
+        try_join_all(join_handles)
+            .await?
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(())
     }
 }
