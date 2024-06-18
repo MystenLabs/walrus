@@ -824,6 +824,7 @@ impl<T> Client<T> {
             .reqwest_config
             .apply(ClientBuilder::new());
 
+        // reqwest proxy uses lazy initialization, which breaks determinism. Turn it off in simtest.
         #[cfg(msim)]
         let client_builder = client_builder.no_proxy();
 

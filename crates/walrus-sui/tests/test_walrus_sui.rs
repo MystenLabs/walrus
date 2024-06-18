@@ -12,10 +12,10 @@ use tokio_stream::StreamExt;
 use walrus_core::{encoding::EncodingConfig, merkle::Node, BlobId, EncodingType, ShardIndex};
 use walrus_sui::{
     client::{ContractClient, ReadClient, SuiContractClient},
+    test_utils,
     test_utils::{
         get_default_blob_certificate,
         get_default_invalid_certificate,
-        global_sui_test_cluster,
         new_wallet_on_sui_test_cluster,
         system_setup::publish_with_default_system,
         TestClusterHandle,
@@ -29,9 +29,9 @@ const GAS_BUDGET: u64 = 1_000_000_000;
 async fn initialize_contract_and_wallet(
 ) -> anyhow::Result<(Arc<TestClusterHandle>, WithTempDir<SuiContractClient>)> {
     #[cfg(not(msim))]
-    let sui_cluster = global_sui_test_cluster();
+    let sui_cluster = test_utils::using_tokio::global_sui_test_cluster();
     #[cfg(msim)]
-    let sui_cluster = global_sui_test_cluster().await;
+    let sui_cluster = test_utils::using_msim::global_sui_test_cluster().await;
 
     // Get a wallet on the global sui test cluster
     let mut wallet = new_wallet_on_sui_test_cluster(sui_cluster.clone()).await?;

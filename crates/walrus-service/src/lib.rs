@@ -15,7 +15,7 @@ pub mod testbed;
 pub mod utils;
 
 mod node;
-/// TODO add documentation
+/// A module for creating a test Walrus cluster in process.
 pub mod test_cluster;
 pub use node::{StorageNode, StorageNodeBuilder};
 

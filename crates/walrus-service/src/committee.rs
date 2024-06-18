@@ -235,6 +235,7 @@ impl NodeCommitteeServiceInner<StorageNodeClient> {
     ) -> Result<Self, anyhow::Error> {
         let client_builder = reqwest::Client::builder();
 
+        // reqwest proxy uses lazy initialization, which breaks determinism. Turn it off in simtest.
         #[cfg(msim)]
         let client_builder = client_builder.no_proxy();
 

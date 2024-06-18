@@ -6,21 +6,20 @@ use sui_protocol_config::ProtocolConfig;
 use walrus_core::encoding::{Primary, Secondary};
 use walrus_service::{client::BlobStoreResult, test_cluster};
 
+// Tests that we can create a Walrus cluster with a Sui cluster and running basic
+// operations deterministically.
 #[sim_test(check_determinism)]
 async fn test_walrus_basic_determinism() {
     let _guard = ProtocolConfig::apply_overrides_for_testing(|_, mut config| {
-        // TODO: this test fails due to some non-determinism caused by submitting messages to
-        // consensus. It does not appear to be caused by this feature itself, so I'm disabling this
-        // until I have time to debug further.
+        // TODO: remove once Sui simtest can work with these features.
         config.set_enable_jwk_consensus_updates_for_testing(false);
         config.set_random_beacon_for_testing(false);
         config
     });
 
-    tracing::info!("ZZZZ start default setup");
-    let (sui_cluster, _walrus_cluster, mut client) = test_cluster::default_setup().await.unwrap();
-    tracing::info!("ZZZZ finish default setup");
+    let (_sui_cluster, _walrus_cluster, client) = test_cluster::default_setup().await.unwrap();
 
+    // Write a random blob.
     let blob = walrus_test_utils::random_data(31415);
     let BlobStoreResult::NewlyCreated(blob_confirmation) = client
         .as_ref()
@@ -31,32 +30,21 @@ async fn test_walrus_basic_determinism() {
         panic!("expect newly stored blob")
     };
 
-    // We need to reset the reqwest client to ensure that the client cannot communicate with nodes
-    // that are being shut down.
-    client
-        .as_mut()
-        .reset_reqwest_client()
-        .expect("Reset reqwest client failed");
-
-    // Read the blob.
+    // Read the blob using primary slivers.
     let read_blob = client
         .as_ref()
         .read_blob::<Primary>(&blob_confirmation.blob_id)
         .await
         .expect("Read blob failed");
 
+    // Check that blob is what we wrote.
     assert_eq!(read_blob, blob);
 
-    tracing::info!(
-        "ZZZZZ hold sui cluster {:?}",
-        sui_cluster._cluster.get_address_0()
-    );
-
+    // Read using secondary slivers and check the result.
     let read_blob = client
         .as_ref()
         .read_blob::<Secondary>(&blob_confirmation.blob_id)
         .await
         .expect("Read blob failed");
-
     assert_eq!(read_blob, blob);
 }

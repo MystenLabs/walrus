@@ -6,12 +6,9 @@
 mod mock_clients;
 pub mod system_setup;
 
-use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
 #[cfg(not(msim))]
-use std::{
-    sync::{mpsc, OnceLock, Weak},
-    thread,
-};
+use std::sync::mpsc;
+use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
 
 use fastcrypto::{
     bls12381::min_pk::{BLS12381AggregateSignature, BLS12381PrivateKey},
@@ -31,7 +28,7 @@ use sui_types::{
 };
 use test_cluster::{TestCluster, TestClusterBuilder};
 #[cfg(not(msim))]
-use tokio::runtime::{Builder, Runtime};
+use tokio::runtime::Runtime;
 #[cfg(msim)]
 use tokio::sync::mpsc;
 use tokio::sync::Mutex;
@@ -82,15 +79,14 @@ pub fn get_default_invalid_certificate(blob_id: BlobId, epoch: Epoch) -> Invalid
 #[allow(missing_debug_implementations)]
 pub struct TestClusterHandle {
     wallet_path: Mutex<PathBuf>,
-
-    /// TODO add documentation
-    pub _cluster: TestCluster,
+    _cluster: TestCluster,
 
     #[cfg(msim)]
     _node_handle: NodeHandle,
 }
 
 impl TestClusterHandle {
+    // Creates a test Sui cluster using tokio runtime.
     #[cfg(not(msim))]
     fn new(runtime: &Runtime) -> Self {
         tracing::debug!("building global sui test cluster");
@@ -108,6 +104,7 @@ impl TestClusterHandle {
         }
     }
 
+    // Creates a test Sui cluster using deterministic MSIM runtime.
     #[cfg(msim)]
     async fn new() -> Self {
         let (tx, mut rx) = mpsc::channel(10);
@@ -139,36 +136,58 @@ impl TestClusterHandle {
 
 /// Handler for the global sui test cluster.
 #[cfg(not(msim))]
-struct GlobalTestClusterHandler {
-    inner: Weak<TestClusterHandle>,
-    runtime: Runtime,
-}
+pub mod using_tokio {
+    use std::{
+        sync::{Arc, OnceLock, Weak},
+        thread,
+    };
 
-#[cfg(not(msim))]
-impl GlobalTestClusterHandler {
-    fn new() -> Self {
-        let runtime = thread::spawn(move || {
-            Builder::new_multi_thread()
-                .enable_all()
-                .build()
-                .expect("should be able to build runtime")
-        })
-        .join()
-        .expect("should be able to wait for thread to finish");
-        Self {
-            inner: Weak::new(),
-            runtime,
+    use tokio::runtime::{Builder, Runtime};
+
+    use super::TestClusterHandle;
+
+    struct GlobalTestClusterHandler {
+        inner: Weak<TestClusterHandle>,
+        runtime: Runtime,
+    }
+
+    impl GlobalTestClusterHandler {
+        fn new() -> Self {
+            let runtime = thread::spawn(move || {
+                Builder::new_multi_thread()
+                    .enable_all()
+                    .build()
+                    .expect("should be able to build runtime")
+            })
+            .join()
+            .expect("should be able to wait for thread to finish");
+            Self {
+                inner: Weak::new(),
+                runtime,
+            }
+        }
+
+        fn get_test_cluster_handle(&mut self) -> Arc<TestClusterHandle> {
+            if let Some(handle) = self.inner.upgrade() {
+                handle
+            } else {
+                let handle = Arc::new(TestClusterHandle::new(&self.runtime));
+                self.inner = Arc::downgrade(&handle);
+                handle
+            }
         }
     }
 
-    fn get_test_cluster_handle(&mut self) -> Arc<TestClusterHandle> {
-        if let Some(handle) = self.inner.upgrade() {
-            handle
-        } else {
-            let handle = Arc::new(TestClusterHandle::new(&self.runtime));
-            self.inner = Arc::downgrade(&handle);
-            handle
-        }
+    /// Returns a handle to the global instance of a Sui test cluster and the wallet config path.
+    ///
+    /// Initialises the test cluster it if it doesn't exist yet.
+    pub fn global_sui_test_cluster() -> Arc<TestClusterHandle> {
+        static CLUSTER: OnceLock<std::sync::Mutex<GlobalTestClusterHandler>> = OnceLock::new();
+        CLUSTER
+            .get_or_init(|| std::sync::Mutex::new(GlobalTestClusterHandler::new()))
+            .lock()
+            .unwrap()
+            .get_test_cluster_handle()
     }
 }
 
@@ -194,23 +213,17 @@ fn temp_dir_wallet(env: SuiEnv) -> anyhow::Result<WithTempDir<WalletContext>> {
     })
 }
 
-/// Returns a handle to the global instance of a Sui test cluster and the wallet config path.
-///
-/// Initialises the test cluster it if it doesn't exist yet.
-#[cfg(not(msim))]
-pub fn global_sui_test_cluster() -> Arc<TestClusterHandle> {
-    static CLUSTER: OnceLock<std::sync::Mutex<GlobalTestClusterHandler>> = OnceLock::new();
-    CLUSTER
-        .get_or_init(|| std::sync::Mutex::new(GlobalTestClusterHandler::new()))
-        .lock()
-        .unwrap()
-        .get_test_cluster_handle()
-}
-
 /// TODO add documentation
 #[cfg(msim)]
-pub async fn global_sui_test_cluster() -> Arc<TestClusterHandle> {
-    Arc::new(TestClusterHandle::new().await)
+pub mod using_msim {
+    use std::sync::Arc;
+
+    use super::TestClusterHandle;
+
+    /// Returns a handle to a newly created global instance of a Sui test cluster and the wallet config path.
+    pub async fn global_sui_test_cluster() -> Arc<TestClusterHandle> {
+        Arc::new(TestClusterHandle::new().await)
+    }
 }
 
 /// Returns a wallet on the global sui test cluster as well as a handle to the cluster.
@@ -249,16 +262,6 @@ pub async fn wallet_for_testing(
     )?;
     fund_address(funding_wallet, wallet.active_address()?).await?;
 
-    tracing::info!(
-        "ZZZZZ get all balance {:?}",
-        wallet
-            .get_client()
-            .await?
-            .coin_read_api()
-            .get_all_balances(wallet.active_address()?)
-            .await?
-    );
-
     Ok(WithTempDir {
         inner: wallet,
         temp_dir,
@@ -279,13 +282,6 @@ async fn fund_address(
         .object_ref();
 
     let mut ptb = ProgrammableTransactionBuilder::new();
-
-    tracing::info!(
-        "ZZZZZ funding {:?} {:?} from {:?}",
-        recipient,
-        DEFAULT_FUNDING_PER_COIN,
-        sender
-    );
 
     ptb.pay_sui(
         vec![recipient, recipient],

@@ -10,8 +10,8 @@ use tokio::sync::Mutex;
 use walrus_sui::{
     client::{SuiContractClient, SuiReadClient},
     system_setup::{create_system_object, publish_package, SystemParameters},
+    test_utils,
     test_utils::{
-        global_sui_test_cluster,
         new_wallet_on_sui_test_cluster,
         system_setup::contract_path_for_testing,
         TestClusterHandle,
@@ -35,9 +35,10 @@ pub async fn default_setup() -> anyhow::Result<(
     WithTempDir<Client<SuiContractClient>>,
 )> {
     #[cfg(not(msim))]
-    let sui_cluster = global_sui_test_cluster();
+    let sui_cluster = test_utils::using_tokio::global_sui_test_cluster();
     #[cfg(msim)]
-    let sui_cluster = global_sui_test_cluster().await;
+    let sui_cluster = test_utils::using_msim::global_sui_test_cluster().await;
+
     // Get a wallet on the global sui test cluster
     let mut wallet = new_wallet_on_sui_test_cluster(sui_cluster.clone()).await?;
 
