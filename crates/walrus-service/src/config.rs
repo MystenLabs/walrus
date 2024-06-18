@@ -140,7 +140,7 @@ pub struct SuiConfig {
     /// Interval with which events are polled, in milliseconds.
     #[serde_as(as = "serde_with::DurationMilliSeconds")]
     #[serde(
-        rename = "event_polling_interval_ms",
+        rename = "event_polling_interval_millis",
         default = "defaults::polling_interval"
     )]
     pub event_polling_interval: Duration,
