@@ -48,10 +48,16 @@ impl EventCursorTable {
             &ReadWriteOptions::default(),
         )?;
 
-        Ok(Self {
+        let this = Self {
             inner,
-            event_queue: Arc::new(Mutex::new(EventSequencer::default())),
-        })
+            event_queue: Arc::default(),
+        };
+
+        let next_index = this.get_sequentially_processed_event_count()?;
+        *this.event_queue.lock().unwrap() =
+            EventSequencer::continue_from(next_index.try_into().expect("64-bit architecture"));
+
+        Ok(this)
     }
 
     pub fn options(config: &DatabaseConfig) -> (&'static str, Options) {

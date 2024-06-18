@@ -25,6 +25,14 @@ impl EventSequencer {
         Self::default()
     }
 
+    /// Creates a new `EventSequencer`, that continues sequencing from the provided next index.
+    pub fn continue_from(next_index: usize) -> Self {
+        Self {
+            head_index: next_index,
+            ..Self::default()
+        }
+    }
+
     /// Adds the provided (index, EventID) pair to those observed.
     ///
     /// # Panics

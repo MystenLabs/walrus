@@ -4,7 +4,7 @@ use std::{future::Future, num::NonZeroU16, sync::Arc};
 
 use anyhow::{anyhow, bail, Context};
 use fastcrypto::traits::KeyPair;
-use futures::StreamExt;
+use futures::{stream, StreamExt};
 use prometheus::Registry;
 use serde::Serialize;
 use sui_types::event::EventID;
@@ -383,10 +383,16 @@ impl StorageNode {
     }
 
     async fn process_events(&self) -> anyhow::Result<()> {
-        let cursor = self.inner.storage.get_event_cursor()?;
+        let storage = &self.inner.storage;
+        let cursor = storage.get_event_cursor()?;
+        let next_index: usize = storage
+            .get_sequentially_processed_event_count()?
+            .try_into()
+            .expect("64-bit architecture");
 
-        let mut blob_events =
-            Box::into_pin(self.inner.event_provider.events(cursor).await?).enumerate();
+        let index_stream = stream::iter(next_index..);
+        let event_stream = Box::into_pin(self.inner.event_provider.events(cursor).await?);
+        let mut blob_events = index_stream.zip(event_stream);
 
         while let Some((sequence_number, event)) = blob_events.next().await {
             tracing::debug!(event = ?event.event_id(), "received system event");
@@ -398,7 +404,7 @@ impl StorageNode {
                 .with_label_values(&[event_label(&event)])
                 .start_timer();
 
-            self.inner.storage.update_blob_info(&event)?;
+            storage.update_blob_info(&event)?;
 
             match event {
                 BlobEvent::Certified(event) => {
