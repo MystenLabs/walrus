@@ -271,7 +271,7 @@ impl Display for HumanReadableMist {
 }
 
 /// Computes the MIST price given the unencoded blob size.
-pub fn mist_price_per_blob_size(
+pub(crate) fn mist_price_per_blob_size(
     unencoded_length: u64,
     n_shards: NonZeroU16,
     price_per_unit_size: u64,

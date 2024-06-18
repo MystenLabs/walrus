@@ -23,7 +23,14 @@ use tokio::{
 };
 use tracing::{Instrument, Level};
 use walrus_core::{
-    encoding::{BlobDecoder, EncodingAxis, EncodingConfig, Sliver, SliverPair},
+    encoding::{
+        encoded_blob_length_for_n_shards,
+        BlobDecoder,
+        EncodingAxis,
+        EncodingConfig,
+        Sliver,
+        SliverPair,
+    },
     ensure,
     messages::{Confirmation, ConfirmationCertificate, SignedStorageConfirmation},
     metadata::VerifiedBlobMetadataWithId,
@@ -55,7 +62,7 @@ use utils::WeightedFutures;
 
 use self::config::default;
 pub use self::error::{ClientError, ClientErrorKind};
-use crate::client::utils::CompletedReasonWeight;
+use crate::{cli_utils::mist_price_per_blob_size, client::utils::CompletedReasonWeight};
 
 /// A client to communicate with Walrus shards and storage nodes.
 #[derive(Debug, Clone)]
@@ -65,6 +72,7 @@ pub struct Client<T> {
     sui_client: T,
     // INV: committee.n_shards > 0
     committee: Committee,
+    storage_price_per_unit_size: u64,
     // The maximum number of nodes to contact in parallel when writing.
     max_concurrent_writes: usize,
     // The maximum number of shards to contact in parallel when reading slivers.
@@ -98,6 +106,10 @@ impl Client<()> {
                 ClientErrorKind::InvalidConfig.into(),
             );
         }
+        let storage_price_per_unit_size = sui_read_client
+            .price_per_unit_size()
+            .await
+            .map_err(ClientError::other)?;
 
         let encoding_config = EncodingConfig::new(committee.n_shards());
         // Try to store on n-f nodes concurrently, as the work to store is never wasted.
@@ -122,6 +134,7 @@ impl Client<()> {
             reqwest_client,
             sui_client: (),
             committee,
+            storage_price_per_unit_size,
             encoding_config,
             max_concurrent_writes,
             max_concurrent_sliver_reads,
@@ -139,6 +152,7 @@ impl Client<()> {
             config,
             sui_client: _,
             committee,
+            storage_price_per_unit_size,
             max_concurrent_writes,
             max_concurrent_sliver_reads,
             max_concurrent_metadata_reads,
@@ -152,6 +166,7 @@ impl Client<()> {
             config,
             sui_client,
             committee,
+            storage_price_per_unit_size,
             max_concurrent_writes,
             max_concurrent_sliver_reads,
             max_concurrent_metadata_reads,
@@ -265,7 +280,21 @@ impl<T: ContractClient> Client<T> {
             .certify_blob(blob_sui_object, &certificate)
             .await
             .map_err(|e| ClientError::from(ClientErrorKind::CertificationFailed(e)))?;
-        Ok(BlobStoreResult::NewlyCreated(blob))
+
+        let encoded_size =
+            encoded_blob_length_for_n_shards(self.encoding_config.n_shards(), blob.size)
+                .expect("must be valid as the store succeeded");
+        let cost = mist_price_per_blob_size(
+            blob.size,
+            self.encoding_config.n_shards(),
+            self.storage_price_per_unit_size,
+        )
+        .expect("must be valid as the store succeeded");
+        Ok(BlobStoreResult::NewlyCreated {
+            blob_object: blob,
+            encoded_size,
+            cost,
+        })
     }
 
     /// Reserves the space for the blob on chain.
@@ -822,7 +851,14 @@ pub enum BlobStoreResult {
     },
     /// The blob was newly created; this contains the newly created Sui object associated with the
     /// blob.
-    NewlyCreated(Blob),
+    NewlyCreated {
+        /// The Sui blob object that holds the newly created blob.
+        blob_object: Blob,
+        /// The encoded size, including metadata.
+        encoded_size: u64,
+        /// The storage cost, excluding gas.
+        cost: u64,
+    },
     /// The blob is known to Walrus but was marked as invalid.
     ///
     /// This indicates a bug within the client, the storage nodes, or more than a third malicious
@@ -842,7 +878,10 @@ impl BlobStoreResult {
         match self {
             Self::AlreadyCertified { blob_id, .. } => blob_id,
             Self::MarkedInvalid { blob_id, .. } => blob_id,
-            Self::NewlyCreated(Blob { blob_id, .. }) => blob_id,
+            Self::NewlyCreated {
+                blob_object: Blob { blob_id, .. },
+                ..
+            } => blob_id,
         }
     }
 }

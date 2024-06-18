@@ -106,7 +106,10 @@ async fn run_store_and_read_with_crash_failures(
 
     // Store a blob and get confirmations from each node.
     let blob = walrus_test_utils::random_data(31415);
-    let BlobStoreResult::NewlyCreated(blob_confirmation) = client
+    let BlobStoreResult::NewlyCreated {
+        blob_object: blob_confirmation,
+        ..
+    } = client
         .as_ref()
         .reserve_and_store_blob(&blob, 1, true)
         .await?
