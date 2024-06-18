@@ -21,7 +21,10 @@ async fn test_walrus_basic_determinism() {
 
     // Write a random blob.
     let blob = walrus_test_utils::random_data(31415);
-    let BlobStoreResult::NewlyCreated(blob_confirmation) = client
+    let BlobStoreResult::NewlyCreated {
+        blob_object: blob_confirmation,
+        ..
+    } = client
         .as_ref()
         .reserve_and_store_blob(&blob, 1, true)
         .await

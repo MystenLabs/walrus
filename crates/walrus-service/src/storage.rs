@@ -862,6 +862,7 @@ pub(crate) mod tests {
     }
 
     #[test]
+    #[cfg_attr(msim, ignore)]
     fn can_reopen_storage_with_shards_and_access_data() -> TestResult {
         let directory = populate_storage_then_close(&[
             (SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),

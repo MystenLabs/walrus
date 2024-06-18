@@ -134,7 +134,7 @@ impl TestClusterHandle {
     }
 }
 
-/// Handler for the global sui test cluster.
+/// Handler for the global sui test cluster using tokio runtime.
 #[cfg(not(msim))]
 pub mod using_tokio {
     use std::{
@@ -213,7 +213,7 @@ fn temp_dir_wallet(env: SuiEnv) -> anyhow::Result<WithTempDir<WalletContext>> {
     })
 }
 
-/// TODO add documentation
+/// Handler for the global sui test cluster using deterministic msim runtime.
 #[cfg(msim)]
 pub mod using_msim {
     use std::sync::Arc;
