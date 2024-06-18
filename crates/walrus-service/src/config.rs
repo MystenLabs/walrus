@@ -139,7 +139,10 @@ pub struct SuiConfig {
     pub system_object: ObjectID,
     /// Interval with which events are polled, in milliseconds.
     #[serde_as(as = "serde_with::DurationMilliSeconds")]
-    #[serde(default = "defaults::polling_interval")]
+    #[serde(
+        rename = "event_polling_interval_ms",
+        default = "defaults::polling_interval"
+    )]
     pub event_polling_interval: Duration,
     /// Location of the wallet config.
     pub wallet_config: PathBuf,
