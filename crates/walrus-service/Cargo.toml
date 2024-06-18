@@ -47,7 +47,7 @@ tempfile = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tokio-stream.workspace = true
-tokio-util = "0.7.10"
+tokio-util = "0.7.11"
 tower-http = { version = "0.5.2", features = ["trace"] }
 tracing.workspace = true
 tracing-opentelemetry = "0.24"
