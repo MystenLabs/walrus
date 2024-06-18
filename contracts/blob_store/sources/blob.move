@@ -39,7 +39,7 @@ module blob_store::blob {
         blob_id: u256,
         size: u64,
         erasure_code_type: u8,
-        certified: option::Option<u64>, // Store the epoch first certified
+        certified_epoch: option::Option<u64>, // Store the epoch first certified
         storage: Storage,
     }
 
@@ -61,8 +61,8 @@ module blob_store::blob {
         b.erasure_code_type
     }
 
-    public fun certified(b: &Blob) : &Option<u64> {
-        &b.certified
+    public fun certified_epoch(b: &Blob) : &Option<u64> {
+        &b.certified_epoch
     }
 
     public fun storage(b: &Blob) : &Storage {
@@ -141,7 +141,7 @@ module blob_store::blob {
             size,
             //
             erasure_code_type,
-            certified: option::none(),
+            certified_epoch: option::none(),
             storage,
         }
 
@@ -190,7 +190,7 @@ module blob_store::blob {
         assert!(blob_id(blob) == message.blob_id, ERROR_INVALID_BLOB_ID);
 
         // Check that the blob is not already certified
-        assert!(!option::is_some(&blob.certified), ERROR_ALREADY_CERTIFIED);
+        assert!(!option::is_some(&blob.certified_epoch), ERROR_ALREADY_CERTIFIED);
 
         // Check that the message is from the current epoch
         assert!(message.epoch == system::epoch(sys), ERROR_WRONG_EPOCH);
@@ -199,7 +199,7 @@ module blob_store::blob {
         assert!(message.epoch < end_epoch(storage(blob)), ERROR_RESOURCE_BOUNDS);
 
         // Mark the blob as certified
-        blob.certified = option::some(message.epoch);
+        blob.certified_epoch = option::some(message.epoch);
 
         // Emit certified event
         emit_blob_certified(
@@ -244,7 +244,7 @@ module blob_store::blob {
             blob_id: _,
             size: _,
             erasure_code_type: _,
-            certified: _,
+            certified_epoch: _,
             storage,
         } = blob;
 
@@ -265,7 +265,7 @@ module blob_store::blob {
         // conditions.
 
         // Assert this is a certified blob
-        assert!(option::is_some(&blob.certified), ERROR_NOT_CERTIFIED);
+        assert!(option::is_some(&blob.certified_epoch), ERROR_NOT_CERTIFIED);
 
         // Check the blob is within its availability period
         assert!(system::epoch(sys) < end_epoch(storage(blob)), ERROR_RESOURCE_BOUNDS);
@@ -283,7 +283,7 @@ module blob_store::blob {
         // reconfiguration this is the committee that has a quorum that hold the
         // resource.
         emit_blob_certified(
-            *option::borrow(&blob.certified),
+            *option::borrow(&blob.certified_epoch),
             blob.blob_id,
             end_epoch(storage(blob)),
         );
@@ -301,7 +301,7 @@ module blob_store::blob {
             blob_id: _,
             size: _,
             erasure_code_type: _,
-            certified: _,
+            certified_epoch: _,
             storage,
         } = b;
 

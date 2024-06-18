@@ -89,7 +89,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
         .await?;
     assert_eq!(blob_obj.blob_id, blob_id);
     assert_eq!(blob_obj.size, size);
-    assert_eq!(blob_obj.certified, None);
+    assert_eq!(blob_obj.certified_epoch, None);
     assert_eq!(blob_obj.storage, storage_resource);
     assert_eq!(blob_obj.stored_epoch, 0);
 
@@ -119,14 +119,14 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
         .as_ref()
         .certify_blob(blob_obj, &certificate)
         .await?;
-    assert_eq!(blob_obj.certified, Some(0));
+    assert_eq!(blob_obj.certified_epoch, Some(0));
 
     // Make sure that we got the expected event
     let BlobEvent::Certified(blob_certified) = events.next().await.unwrap() else {
         bail!("unexpected event type");
     };
     assert_eq!(blob_certified.blob_id, blob_id);
-    assert_eq!(Some(blob_registered.epoch), blob_obj.certified);
+    assert_eq!(Some(blob_registered.epoch), blob_obj.certified_epoch);
     assert_eq!(blob_certified.end_epoch, storage_resource.end_epoch);
 
     // Drop event stream

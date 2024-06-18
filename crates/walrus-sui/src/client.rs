@@ -338,7 +338,7 @@ impl ContractClient for SuiContractClient {
             .await?;
         let blob: Blob = get_sui_object(&self.read_client.sui_client, blob.id).await?;
         ensure!(
-            blob.certified.is_some(),
+            blob.certified_epoch.is_some(),
             "could not certify blob: {:?}",
             res.errors
         );

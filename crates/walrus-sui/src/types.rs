@@ -92,7 +92,7 @@ pub struct Blob {
     /// The erasure coding type used for the blob.
     pub erasure_code_type: EncodingType,
     /// The epoch in which the blob was first certified, `None` if the blob is uncertified.
-    pub certified: Option<Epoch>,
+    pub certified_epoch: Option<Epoch>,
     /// The [`StorageResource`] used to store the blob.
     pub storage: StorageResource,
 }
@@ -116,19 +116,27 @@ impl TryFrom<&SuiMoveStruct> for Blob {
         )?)?)?;
         // `SuiMoveValue::Option` seems to be replaced with `SuiMoveValue::String` directly
         // if it is not `None`.
-        let certified = get_dynamic_field!(sui_move_struct, "certified", SuiMoveValue::String)
-            .and_then(|s| Ok(Some(s.parse()?)))
-            .or_else(|_| {
-                match get_dynamic_field!(sui_move_struct, "certified", SuiMoveValue::Option)?
+        let certified_epoch =
+            get_dynamic_field!(sui_move_struct, "certified_epoch", SuiMoveValue::String)
+                .and_then(|s| Ok(Some(s.parse()?)))
+                .or_else(|_| {
+                    match get_dynamic_field!(
+                        sui_move_struct,
+                        "certified_epoch",
+                        SuiMoveValue::Option
+                    )?
                     .as_ref()
-                {
-                    None => Ok(None),
-                    // Below would be the expected behaviour in the not-None-case, so we capture
-                    // this nevertheless
-                    Some(SuiMoveValue::String(s)) => Ok(Some(s.parse()?)),
-                    Some(smv) => Err(anyhow!("unexpected type for field `certified`: {}", smv)),
-                }
-            })?;
+                    {
+                        None => Ok(None),
+                        // Below would be the expected behaviour in the not-None-case, so we capture
+                        // this nevertheless
+                        Some(SuiMoveValue::String(s)) => Ok(Some(s.parse()?)),
+                        Some(smv) => Err(anyhow!(
+                            "unexpected type for field `certified_epoch`: {}",
+                            smv
+                        )),
+                    }
+                })?;
         let storage = StorageResource::try_from(get_dynamic_field!(
             sui_move_struct,
             "storage",
@@ -140,7 +148,7 @@ impl TryFrom<&SuiMoveStruct> for Blob {
             blob_id,
             size,
             erasure_code_type,
-            certified,
+            certified_epoch,
             storage,
         })
     }

@@ -204,7 +204,7 @@ impl ContractClient for MockContractClient {
             blob_id,
             size: blob_size,
             erasure_code_type,
-            certified: None,
+            certified_epoch: None,
             storage: storage.clone(),
         })
     }
@@ -224,7 +224,7 @@ impl ContractClient for MockContractClient {
             .into(),
         );
         let mut blob = blob.clone();
-        blob.certified = Some(self.current_epoch);
+        blob.certified_epoch = Some(self.current_epoch);
         Ok(blob)
     }
 
@@ -305,7 +305,7 @@ mod tests {
             .await?;
         assert_eq!(blob_obj.blob_id, blob_id);
         assert_eq!(blob_obj.size, size);
-        assert_eq!(blob_obj.certified, None);
+        assert_eq!(blob_obj.certified_epoch, None);
         assert_eq!(blob_obj.storage, storage_resource);
         assert_eq!(blob_obj.stored_epoch, 0);
 
@@ -333,14 +333,14 @@ mod tests {
                 ),
             )
             .await?;
-        assert_eq!(blob_obj.certified, Some(0));
+        assert_eq!(blob_obj.certified_epoch, Some(0));
 
         // Make sure that we got the expected event
         let BlobEvent::Certified(blob_certified) = events.next().await.unwrap() else {
             bail!("unexpected event type");
         };
         assert_eq!(blob_certified.blob_id, blob_id);
-        assert_eq!(Some(blob_registered.epoch), blob_obj.certified);
+        assert_eq!(Some(blob_registered.epoch), blob_obj.certified_epoch);
         assert_eq!(blob_certified.end_epoch, storage_resource.end_epoch);
 
         // Get new event stream to check if we receive previous events

@@ -108,7 +108,7 @@ module blob_store::blob_tests {
         blob::certify_with_certified_msg(&system, certify_message, &mut blob1);
 
         // Assert certified
-        assert!(option::is_some(blob::certified(&blob1)), 0);
+        assert!(option::is_some(blob::certified_epoch(&blob1)), 0);
 
         coin::burn_for_testing(fake_coin);
         blob::drop_for_testing(blob1);
@@ -208,7 +208,7 @@ module blob_store::blob_tests {
         blob::certify(&system, &mut blob1, signature, vector[0], confirmation);
 
         // Assert certified
-        assert!(option::is_some(blob::certified(&blob1)), 0);
+        assert!(option::is_some(blob::certified_epoch(&blob1)), 0);
 
         coin::burn_for_testing(fake_coin);
         blob::drop_for_testing(blob1);
@@ -480,7 +480,7 @@ module blob_store::blob_tests {
         blob::extend(&system, &mut blob1, trailing_storage);
 
         // Assert certified
-        assert!(option::is_some(blob::certified(&blob1)), 0);
+        assert!(option::is_some(blob::certified_epoch(&blob1)), 0);
 
         destroy(storage_long);
         coin::burn_for_testing(fake_coin);
