@@ -414,15 +414,15 @@ pub async fn request_sui_from_faucet(
         let _ = send_faucet_request(address, network)
             .await
             .inspect_err(|e| tracing::warn!(error = ?e, "faucet request failed, retrying"))
-            .inspect(|_| tracing::info!("waiting to receive tokens from faucet"));
-        tracing::info!("sleeping for {backoff:?}");
+            .inspect(|_| tracing::debug!("waiting to receive tokens from faucet"));
+        tracing::debug!("sleeping for {backoff:?}");
         tokio::time::sleep(backoff).await;
         if sui_coin_set(sui_client, address).await? != coins {
             break;
         }
         backoff = backoff.saturating_mul(2).min(max_backoff);
     }
-    tracing::info!("received tokens from faucet");
+    tracing::debug!("received tokens from faucet");
     Ok(())
 }
 

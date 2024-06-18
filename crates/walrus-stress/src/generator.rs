@@ -10,9 +10,13 @@ use std::{
 };
 
 use anyhow::Context;
-use futures::{future::try_join_all, stream::FuturesUnordered, StreamExt};
+use futures::{
+    future::{self, try_join_all},
+    stream::FuturesUnordered,
+    StreamExt,
+};
 use rand::{rngs::StdRng, seq::SliceRandom, thread_rng, SeedableRng};
-use sui_sdk::{types::base_types::SuiAddress, SuiClientBuilder};
+use sui_sdk::{types::base_types::SuiAddress, SuiClient, SuiClientBuilder};
 use tokio::{
     task::JoinHandle,
     time::{Interval, MissedTickBehavior},
@@ -29,6 +33,7 @@ use walrus_test_utils::WithTempDir;
 use crate::{metrics, metrics::ClientMetrics};
 
 const DEFAULT_GAS_BUDGET: u64 = 100_000_000;
+const MIN_COIN_VALUE: u64 = 500_000_000;
 
 /// Minimum burst duration.
 const MIN_BURST_DURATION: Duration = Duration::from_millis(100);
@@ -42,7 +47,7 @@ use blob::BlobData;
 #[derive(Debug)]
 pub struct LoadGenerator {
     write_client_pool: VecDeque<(WithTempDir<Client<SuiContractClient>>, BlobData)>,
-    read_client: Client<()>,
+    read_client_pool: VecDeque<Client<()>>,
     metrics: Arc<ClientMetrics>,
     _gas_refill_handle: JoinHandle<anyhow::Result<()>>,
 }
@@ -57,23 +62,30 @@ impl LoadGenerator {
         metrics: Arc<ClientMetrics>,
     ) -> anyhow::Result<Self> {
         tracing::info!("Initializing clients...");
+
+        // Set up read clients
+        let sui_client = SuiClientBuilder::default()
+            .build(&network.env().rpc)
+            .await
+            .context(format!(
+                "cannot connect to Sui RPC node at {}",
+                &network.env().rpc
+            ))?;
+        let sui_read_client =
+            SuiReadClient::new(sui_client.clone(), client_config.system_object).await?;
+        let read_clients = VecDeque::from(
+            try_join_all(
+                (0..n_write_clients)
+                    .map(|_| Client::new_read_client(client_config.clone(), &sui_read_client)),
+            )
+            .await?,
+        );
+
+        // Set up write clients
         let mut clients = try_join_all(
             (0..n_write_clients).map(|_| new_client(&client_config, network, DEFAULT_GAS_BUDGET)),
         )
         .await?;
-
-        let sui_read_client = SuiReadClient::new(
-            SuiClientBuilder::default()
-                .build(&network.env().rpc)
-                .await
-                .context(format!(
-                    "cannot connect to Sui RPC node at {}",
-                    &network.env().rpc
-                ))?,
-            client_config.system_object,
-        )
-        .await?;
-        let read_client = Client::new_read_client(client_config.clone(), &sui_read_client).await?;
 
         tracing::info!("Spawning gas refill task...");
         let addresses = clients
@@ -87,7 +99,13 @@ impl LoadGenerator {
                     .expect("clients are created with an have an active address")
             })
             .collect();
-        let gas_refill_handle = refill_gas(addresses, network, gas_refill_period, metrics.clone());
+        let gas_refill_handle = refill_gas(
+            addresses,
+            network,
+            gas_refill_period,
+            metrics.clone(),
+            sui_client,
+        );
 
         tracing::info!("Initializing blobs...");
         let blobs = (0..n_write_clients).map(|_| {
@@ -100,7 +118,7 @@ impl LoadGenerator {
         tracing::info!("Finished initializing clients and blobs.");
         Ok(Self {
             write_client_pool,
-            read_client,
+            read_client_pool: read_clients,
             metrics,
             _gas_refill_handle: gas_refill_handle,
         })
@@ -110,25 +128,50 @@ impl LoadGenerator {
     /// operations per minute.
     pub async fn start(&mut self, write_load: u64, read_load: u64) -> anyhow::Result<()> {
         tracing::info!("Starting load generator...");
+
+        // Pool of blob IDs to read.
+        let mut blob_ids = Vec::with_capacity(read_load as usize);
+
         // Structures holding futures waiting for clients to finish their requests.
         let mut write_finished = FuturesUnordered::new();
         let mut read_finished = FuturesUnordered::new();
         let (writes_per_burst, write_interval) = burst_load(write_load);
+
         tokio::pin!(write_interval);
-        tracing::info!(
-            "Submitting {writes_per_burst} writes every {} ms",
-            write_interval.period().as_millis()
-        );
+        if writes_per_burst != 0 {
+            tracing::info!(
+                "Submitting {writes_per_burst} writes every {} ms",
+                write_interval.period().as_millis()
+            );
+        } else {
+            // Do a single write, s.t. we have a blob to read.
+            let (client, blob) = self
+                .write_client_pool
+                .pop_front()
+                .expect("write client should be available");
+            loop {
+                let result = client
+                    .as_ref()
+                    .reserve_and_store_blob(blob.as_ref(), 1, true)
+                    .await;
+                if let Ok(blob_result) = result {
+                    blob_ids.push(blob_result.blob_id().to_owned());
+                    break;
+                } else {
+                    tracing::error!("initial write failed, retrying");
+                }
+            }
+            self.write_client_pool.push_back((client, blob));
+        }
 
         let (reads_per_burst, read_interval) = burst_load(read_load);
-        tracing::info!(
-            "Submitting {reads_per_burst} reads every {} ms",
-            read_interval.period().as_millis()
-        );
+        if reads_per_burst != 0 {
+            tracing::info!(
+                "Submitting {reads_per_burst} reads every {} ms",
+                read_interval.period().as_millis()
+            );
+        }
         tokio::pin!(read_interval);
-
-        // Pool of blob IDs to read.
-        let mut blob_ids = Vec::with_capacity(read_load as usize);
 
         // Submit operations.
         let start = Instant::now();
@@ -177,12 +220,15 @@ impl LoadGenerator {
                             tracing::info!("no blobs have been written yet, skipping reads");
                             break;
                         };
-                        let client = self.read_client.clone();
+                        let Some(client) = self.read_client_pool.pop_front() else {
+                            tracing::warn!("No client available to submit read");
+                            break;
+                        };
                         read_finished.push(tokio::spawn(async move {
                             let now = Instant::now();
                             let result = client.read_blob::<Primary>(&blob_id).await;
                             let elapsed = now.elapsed();
-                            (elapsed, result)
+                            (elapsed, result, client)
                         }));
 
                         tracing::info!("Submitted read operation");
@@ -217,14 +263,18 @@ impl LoadGenerator {
                     }
                     self.write_client_pool.push_back((client, blob));
                 },
-                Some(Ok((elapsed, result))) = read_finished.next() => {
-                    if result.is_ok() {
-                        tracing::info!("Read finished");
-                        self.metrics.observe_latency(metrics::READ_WORKLOAD, elapsed);
-                    } else {
-                        tracing::warn!("failed to read blob");
-                        self.metrics.observe_error("failed to read blob");
+                Some(Ok((elapsed, result, client))) = read_finished.next() => {
+                    match result {
+                        Ok(_) => {
+                            tracing::info!("read finished");
+                            self.metrics.observe_latency(metrics::READ_WORKLOAD, elapsed);
+                        }
+                        Err(e) => {
+                            tracing::error!(error=?e, "failed to read blob");
+                            self.metrics.observe_error("failed to read blob");
+                        }
                     }
+                    self.read_client_pool.push_back(client);
                 },
                 else => break
             }
@@ -253,6 +303,9 @@ async fn new_client(
 }
 
 fn burst_load(load: u64) -> (u64, Interval) {
+    if load == 0 {
+        return (0, tokio::time::interval(Duration::MAX));
+    }
     let duration_per_op = Duration::from_secs_f64(SECS_PER_LOAD_PERIOD as f64 / (load as f64));
     let (load_per_burst, burst_duration) = if duration_per_op < MIN_BURST_DURATION {
         (
@@ -273,6 +326,7 @@ pub fn refill_gas(
     network: SuiNetwork,
     period: Duration,
     metrics: Arc<ClientMetrics>,
+    sui_client: SuiClient,
 ) -> JoinHandle<anyhow::Result<()>> {
     let mut interval = tokio::time::interval(period);
     interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -280,17 +334,27 @@ pub fn refill_gas(
     tokio::spawn(async move {
         loop {
             interval.tick().await;
-
-            try_join_all(
-                addresses
-                    .iter()
-                    .cloned()
-                    .map(|address| send_faucet_request(address, network)),
-            )
+            let sui_client = &sui_client;
+            let metrics = &metrics;
+            try_join_all(addresses.iter().cloned().map(|address| async move {
+                if sui_client
+                    .coin_read_api()
+                    .get_coins_stream(address, None)
+                    .filter(|coin| future::ready(coin.balance >= MIN_COIN_VALUE))
+                    .take(2)
+                    .collect::<Vec<_>>()
+                    .await
+                    .len()
+                    < 2
+                {
+                    tracing::debug!("Clients gas coins refilled");
+                    metrics.observe_gas_refill();
+                    send_faucet_request(address, network).await
+                } else {
+                    Ok(())
+                }
+            }))
             .await?;
-
-            tracing::debug!("Clients gas coins refilled");
-            metrics.observe_gas_refill();
         }
     })
 }

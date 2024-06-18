@@ -27,16 +27,17 @@ mod metrics;
 struct Args {
     /// The target write load to submit to the system (writes/minute).
     /// The actual load may be limited by the number of clients.
-    #[clap(long, default_value = "60")]
-    write_load: NonZeroU64,
+    /// If the write load is 0, a single write will be performed to enable reads.
+    #[clap(long, default_value_t = 60)]
+    write_load: u64,
     /// The target read load to submit to the system (reads/minute).
     /// The actual load may be limited by the number of clients.
-    #[clap(long, default_value = "60")]
-    read_load: NonZeroU64,
+    #[clap(long, default_value_t = 60)]
+    read_load: u64,
     /// The path to the client configuration file containing the system object address.
     #[clap(long, default_value = "./working_dir/client_config.yaml")]
     config_path: PathBuf,
-    /// The number of write clients to use for the load generation.
+    /// The number of clients to use for the load generation for reads and writes.
     #[clap(long, default_value = "10")]
     n_clients: NonZeroUsize,
     /// The port on which metrics are exposed.
@@ -48,10 +49,10 @@ struct Args {
     /// The blob size to use for the load generation.
     #[clap(long, default_value = "10000")]
     blob_size: NonZeroUsize,
-    /// The period in seconds for the gas refill. This option is useful for continuous load testing
+    /// The period in milliseconds to check if gas needs to be refilled. This is useful for continuous load testing
     /// where the gas budget need to be refilled periodically.
-    #[clap(long, default_value = "600")]
-    gas_refill_period: NonZeroU64,
+    #[clap(long, default_value = "1000")]
+    gas_refill_period_millis: NonZeroU64,
 }
 
 #[tokio::main]
@@ -71,7 +72,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Starting metrics server on {metrics_address}");
 
     // Start the write transaction generator.
-    let gas_refill_period = Duration::from_secs(args.gas_refill_period.get());
+    let gas_refill_period = Duration::from_millis(args.gas_refill_period_millis.get());
     let mut load_generator = LoadGenerator::new(
         n_clients,
         blob_size,
@@ -83,7 +84,7 @@ async fn main() -> anyhow::Result<()> {
     .await?;
 
     load_generator
-        .start(args.write_load.get(), args.read_load.get())
+        .start(args.write_load, args.read_load)
         .await?;
     Ok(())
 }
