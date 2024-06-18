@@ -17,6 +17,7 @@ use serde_with::{
     ser::SerializeAsWrap,
     serde_as,
     DeserializeAs,
+    DurationSeconds,
     SerializeAs,
 };
 use sui_sdk::types::base_types::ObjectID;
@@ -80,7 +81,7 @@ pub struct BlobRecoveryConfig {
 impl Default for BlobRecoveryConfig {
     fn default() -> Self {
         Self {
-            max_concurrent_blob_syncs: 10_000,
+            max_concurrent_blob_syncs: 10,
             committee_service_config: CommitteeServiceConfig::default(),
         }
     }
@@ -92,16 +93,26 @@ impl Default for BlobRecoveryConfig {
 #[serde(default)]
 pub struct CommitteeServiceConfig {
     /// The minimum number of seconds to wait before retrying an operation.
+    #[serde_as(as = "DurationSeconds<u64>")]
+    #[serde(rename = "retry_interval_min_secs")]
     pub retry_interval_min: Duration,
     /// The maximum number of seconds to wait before retrying an operation.
+    #[serde_as(as = "DurationSeconds<u64>")]
+    #[serde(rename = "retry_interval_max_secs")]
     pub retry_interval_max: Duration,
     /// The timeout when requesting metadata from a storage node, before contacting a separate node.
+    #[serde_as(as = "DurationSeconds<u64>")]
+    #[serde(rename = "metadata_request_timeout_secs")]
     pub metadata_request_timeout: Duration,
     /// The number of concurrent metadata requests
     pub max_concurrent_metadata_requests: usize,
     /// The timeout when requesting slivers from a storage node.
+    #[serde_as(as = "DurationSeconds<u64>")]
+    #[serde(rename = "sliver_request_timeout_secs")]
     pub sliver_request_timeout: Duration,
     /// The timeout when syncing invalidity certificates to a storage node
+    #[serde_as(as = "DurationSeconds<u64>")]
+    #[serde(rename = "invalidity_sync_timeout_secs")]
     pub invalidity_sync_timeout: Duration,
 }
 
@@ -110,9 +121,9 @@ impl Default for CommitteeServiceConfig {
         Self {
             retry_interval_min: Duration::from_secs(1),
             retry_interval_max: Duration::from_secs(3600),
-            metadata_request_timeout: Duration::from_secs(1),
-            sliver_request_timeout: Duration::from_secs(1),
-            invalidity_sync_timeout: Duration::from_secs(1),
+            metadata_request_timeout: Duration::from_secs(5),
+            sliver_request_timeout: Duration::from_secs(300),
+            invalidity_sync_timeout: Duration::from_secs(300),
             max_concurrent_metadata_requests: 1,
         }
     }
