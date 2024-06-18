@@ -247,6 +247,16 @@ impl ContractClient for SuiContractClient {
         let price = epochs_ahead
             * storage_units_from_size(encoded_size)
             * self.read_client.price_per_unit_size().await?;
+        tracing::info!(
+            "ZZZZZ checking balance {:?} prince {:?}",
+            self.wallet_address,
+            price
+        );
+        self.read_client
+            .get_payment_coins(self.wallet_address)
+            .await
+            .map_err(|_| SuiClientError::NoCompatiblePaymentCoin)?
+            .for_each(|coin| println!("ZZZZZ balance {} price {}", coin.balance, price));
         let payment_coin = self
             .read_client
             .get_payment_coins(self.wallet_address)

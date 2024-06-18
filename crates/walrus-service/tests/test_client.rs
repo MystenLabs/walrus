@@ -1,13 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{
-    num::NonZeroU16,
-    sync::{Arc, OnceLock},
-    time::Duration,
-};
+use std::{num::NonZeroU16, time::Duration};
 
-use tokio::sync::Mutex;
 use tokio_stream::StreamExt;
 use walrus_core::{
     encoding::Primary,
@@ -19,28 +14,16 @@ use walrus_core::{
 use walrus_service::{
     client::{
         BlobStoreResult,
-        Client,
-        ClientCommunicationConfig,
         ClientError,
         ClientErrorKind::{self, NoMetadataReceived, NotEnoughConfirmations, NotEnoughSlivers},
-        Config,
     },
-    committee::SuiCommitteeServiceFactory,
-    contract_service::SuiSystemContractService,
-    system_events::SuiSystemEventProvider,
-    test_utils::TestCluster,
+    test_cluster,
 };
 use walrus_sui::{
-    client::{ContractClient, ReadClient, SuiContractClient, SuiReadClient},
-    system_setup::{create_system_object, publish_package, SystemParameters},
-    test_utils::{
-        new_wallet_on_global_test_cluster,
-        system_setup::contract_path_for_testing,
-        TestClusterHandle,
-    },
-    types::{BlobEvent, Committee},
+    client::{ContractClient, ReadClient},
+    types::BlobEvent,
 };
-use walrus_test_utils::{async_param_test, WithTempDir};
+use walrus_test_utils::async_param_test;
 
 async_param_test! {
     test_store_and_read_blob_with_crash_failures : [
@@ -97,7 +80,7 @@ async fn run_store_and_read_with_crash_failures(
 ) -> anyhow::Result<()> {
     let _ = tracing_subscriber::fmt::try_init();
 
-    let (_sui_cluster_handle, mut cluster, mut client) = default_setup().await?;
+    let (_sui_cluster_handle, mut cluster, mut client) = test_cluster::default_setup().await?;
 
     // Stop the nodes in the write failure set.
     failed_shards_write
@@ -148,7 +131,7 @@ async_param_test! {
 async fn test_inconsistency(failed_shards: &[usize]) -> anyhow::Result<()> {
     let _ = tracing_subscriber::fmt::try_init();
 
-    let (_sui_cluster_handle, mut cluster, mut client) = default_setup().await?;
+    let (_sui_cluster_handle, mut cluster, mut client) = test_cluster::default_setup().await?;
 
     // Store a blob and get confirmations from each node.
     let blob = walrus_test_utils::random_data(31415);
@@ -213,100 +196,6 @@ async fn test_inconsistency(failed_shards: &[usize]) -> anyhow::Result<()> {
     })
     .await
     .map_err(anyhow::Error::new)
-}
-
-async fn default_setup() -> anyhow::Result<(
-    Arc<TestClusterHandle>,
-    TestCluster,
-    WithTempDir<Client<SuiContractClient>>,
-)> {
-    // Get a wallet on the global sui test cluster
-    let (sui_cluster, mut wallet) = new_wallet_on_global_test_cluster().await?;
-
-    let cluster_builder = TestCluster::builder();
-
-    // Get the default committee from the test cluster builder
-    let members = cluster_builder
-        .storage_node_test_configs()
-        .iter()
-        .enumerate()
-        .map(|(i, info)| info.to_storage_node_info(&format!("node-{i}")))
-        .collect();
-
-    // Publish package and set up system object
-    let gas_budget = 500_000_000;
-    let (system_pkg, committee_cap) = publish_package(
-        &mut wallet.inner,
-        contract_path_for_testing("blob_store")?,
-        gas_budget,
-    )
-    .await?;
-    let committee = Committee::new(members, 0)?;
-    let system_params = SystemParameters::new_with_sui(committee, 1_000_000_000_000, 10);
-    let system_object = create_system_object(
-        &mut wallet.inner,
-        system_pkg,
-        committee_cap,
-        &system_params,
-        gas_budget,
-    )
-    .await?;
-
-    // Build the walrus cluster
-    let sui_read_client =
-        SuiReadClient::new(wallet.as_ref().get_client().await?, system_object).await?;
-
-    // Create a contract service for the storage nodes using a wallet in a temp dir
-    // The sui test cluster handler can be dropped since we already have one
-    let sui_contract_service = new_wallet_on_global_test_cluster()
-        .await?
-        .1
-        .and_then(|wallet| {
-            SuiContractClient::new_with_read_client(wallet, gas_budget, sui_read_client.clone())
-        })?
-        .map(SuiSystemContractService::new);
-
-    // Set up the cluster
-    let cluster_builder = cluster_builder
-        .with_committee_service_factories(SuiCommitteeServiceFactory::new(
-            sui_read_client.clone(),
-            Default::default(),
-        ))
-        .with_system_event_providers(SuiSystemEventProvider::new(
-            sui_read_client.clone(),
-            Duration::from_millis(100),
-        ))
-        .with_system_contract_services(Arc::new(sui_contract_service));
-
-    let cluster = {
-        // Lock to avoid race conditions.
-        let _lock = global_test_lock().lock().await;
-        cluster_builder.build().await?
-    };
-
-    // Create the client with a separate wallet
-    let sui_contract_client = new_wallet_on_global_test_cluster()
-        .await?
-        .1
-        .and_then(|wallet| {
-            SuiContractClient::new_with_read_client(wallet, gas_budget, sui_read_client)
-        })?;
-    let config = Config {
-        system_object,
-        wallet_config: None,
-        communication_config: ClientCommunicationConfig::default_for_test(),
-    };
-
-    let client = sui_contract_client
-        .and_then_async(|contract_client| Client::new(config, contract_client))
-        .await?;
-    Ok((sui_cluster, cluster, client))
-}
-
-// Prevent tests running simultaneously to avoid interferences or race conditions.
-fn global_test_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(Mutex::default)
 }
 
 fn error_kind_matches(actual: &ClientErrorKind, expected: &ClientErrorKind) -> bool {

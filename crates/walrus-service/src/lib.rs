@@ -15,6 +15,8 @@ pub mod testbed;
 pub mod utils;
 
 mod node;
+/// TODO add documentation
+pub mod test_cluster;
 pub use node::{StorageNode, StorageNodeBuilder};
 
 mod storage;

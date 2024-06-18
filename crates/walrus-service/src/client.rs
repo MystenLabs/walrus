@@ -819,12 +819,15 @@ impl<T> Client<T> {
     }
 
     fn build_reqwest_client(config: &Config) -> Result<ReqwestClient, ClientError> {
-        config
+        let client_builder = config
             .communication_config
             .reqwest_config
-            .apply(ClientBuilder::new())
-            .build()
-            .map_err(ClientError::other)
+            .apply(ClientBuilder::new());
+
+        #[cfg(msim)]
+        let client_builder = client_builder.no_proxy();
+
+        client_builder.build().map_err(ClientError::other)
     }
 
     /// Resets the reqwest client inside the Walrus client.

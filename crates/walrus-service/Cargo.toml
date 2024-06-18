@@ -35,7 +35,7 @@ prometheus.workspace = true
 rand.workspace = true
 regex = "1"
 reqwest.workspace = true
-rocksdb = "0.21.0"
+rocksdb.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serde_with.workspace = true
@@ -47,7 +47,7 @@ tempfile = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tokio-stream.workspace = true
-tokio-util = "0.7.10"
+tokio-util.workspace = true
 tower-http = { version = "0.5.2", features = ["trace"] }
 tracing.workspace = true
 tracing-opentelemetry.workspace = true
@@ -77,3 +77,6 @@ rand.workspace = true
 tempfile.workspace = true
 walrus-core = { workspace = true, features = ["test-utils"] }
 walrus-test-utils.workspace = true
+
+[target.'cfg(msim)'.dependencies]
+sui-simulator.workspace = true

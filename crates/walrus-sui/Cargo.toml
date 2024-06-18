@@ -38,3 +38,6 @@ workspace = true
 
 [dev-dependencies]
 tracing-subscriber.workspace = true
+
+[target.'cfg(msim)'.dependencies]
+sui-simulator.workspace = true

@@ -6,10 +6,10 @@
 mod mock_clients;
 pub mod system_setup;
 
+use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
+#[cfg(not(msim))]
 use std::{
-    collections::BTreeSet,
-    path::PathBuf,
-    sync::{mpsc, Arc, OnceLock, Weak},
+    sync::{mpsc, OnceLock, Weak},
     thread,
 };
 
@@ -18,7 +18,11 @@ use fastcrypto::{
     traits::{Signer, ToFromBytes},
 };
 pub use mock_clients::{MockContractClient, MockSuiReadClient};
+#[cfg(msim)]
+use sui_config::local_ip_utils;
 use sui_sdk::{sui_client_config::SuiEnv, wallet_context::WalletContext};
+#[cfg(msim)]
+use sui_simulator::runtime::NodeHandle;
 use sui_types::{
     base_types::SuiAddress,
     digests::TransactionDigest,
@@ -26,10 +30,11 @@ use sui_types::{
     programmable_transaction_builder::ProgrammableTransactionBuilder,
 };
 use test_cluster::{TestCluster, TestClusterBuilder};
-use tokio::{
-    runtime::{Builder, Runtime},
-    sync::Mutex,
-};
+#[cfg(not(msim))]
+use tokio::runtime::{Builder, Runtime};
+#[cfg(msim)]
+use tokio::sync::mpsc;
+use tokio::sync::Mutex;
 use walrus_core::{
     messages::{Confirmation, ConfirmationCertificate, InvalidBlobCertificate, InvalidBlobIdMsg},
     BlobId,
@@ -77,10 +82,16 @@ pub fn get_default_invalid_certificate(blob_id: BlobId, epoch: Epoch) -> Invalid
 #[allow(missing_debug_implementations)]
 pub struct TestClusterHandle {
     wallet_path: Mutex<PathBuf>,
-    _cluster: TestCluster,
+
+    /// TODO add documentation
+    pub _cluster: TestCluster,
+
+    #[cfg(msim)]
+    _node_handle: NodeHandle,
 }
 
 impl TestClusterHandle {
+    #[cfg(not(msim))]
     fn new(runtime: &Runtime) -> Self {
         tracing::debug!("building global sui test cluster");
         let (tx, rx) = mpsc::channel();
@@ -96,14 +107,44 @@ impl TestClusterHandle {
             _cluster: cluster,
         }
     }
+
+    #[cfg(msim)]
+    async fn new() -> Self {
+        let (tx, mut rx) = mpsc::channel(10);
+        let handle = sui_simulator::runtime::Handle::current();
+        let builder = handle.create_node();
+        let node_handle = builder
+            .ip(local_ip_utils::get_new_ip().parse().unwrap())
+            .init(move || {
+                let tx = tx.clone();
+                async move {
+                    let mut test_cluster = sui_test_cluster().await;
+                    let wallet_path = test_cluster.wallet().config.path().to_path_buf();
+                    tx.send((test_cluster, wallet_path))
+                        .await
+                        .expect("Notifying cluster creation must succeed");
+                }
+            })
+            .build();
+        let Some((cluster, wallet_path)) = rx.recv().await else {
+            panic!("Unexpected end of channel");
+        };
+        Self {
+            wallet_path: Mutex::new(wallet_path),
+            _cluster: cluster,
+            _node_handle: node_handle,
+        }
+    }
 }
 
 /// Handler for the global sui test cluster.
+#[cfg(not(msim))]
 struct GlobalTestClusterHandler {
     inner: Weak<TestClusterHandle>,
     runtime: Runtime,
 }
 
+#[cfg(not(msim))]
 impl GlobalTestClusterHandler {
     fn new() -> Self {
         let runtime = thread::spawn(move || {
@@ -156,7 +197,8 @@ fn temp_dir_wallet(env: SuiEnv) -> anyhow::Result<WithTempDir<WalletContext>> {
 /// Returns a handle to the global instance of a Sui test cluster and the wallet config path.
 ///
 /// Initialises the test cluster it if it doesn't exist yet.
-fn global_sui_test_cluster() -> Arc<TestClusterHandle> {
+#[cfg(not(msim))]
+pub fn global_sui_test_cluster() -> Arc<TestClusterHandle> {
     static CLUSTER: OnceLock<std::sync::Mutex<GlobalTestClusterHandler>> = OnceLock::new();
     CLUSTER
         .get_or_init(|| std::sync::Mutex::new(GlobalTestClusterHandler::new()))
@@ -165,21 +207,27 @@ fn global_sui_test_cluster() -> Arc<TestClusterHandle> {
         .get_test_cluster_handle()
 }
 
+/// TODO add documentation
+#[cfg(msim)]
+pub async fn global_sui_test_cluster() -> Arc<TestClusterHandle> {
+    Arc::new(TestClusterHandle::new().await)
+}
+
 /// Returns a wallet on the global sui test cluster as well as a handle to the cluster.
 ///
 /// Initialises the test cluster it if it doesn't exist yet. The cluster handle (or at least one
 /// copy if the function is called multiple times) must be kept alive while the wallet is active.
-pub async fn new_wallet_on_global_test_cluster(
-) -> anyhow::Result<(Arc<TestClusterHandle>, WithTempDir<WalletContext>)> {
-    let cluster = global_sui_test_cluster();
-    let path_guard = cluster.wallet_path.lock().await;
+pub async fn new_wallet_on_sui_test_cluster(
+    sui_cluster: Arc<TestClusterHandle>,
+) -> anyhow::Result<WithTempDir<WalletContext>> {
+    let path_guard = sui_cluster.wallet_path.lock().await;
     // Load the cluster's wallet from file instead of using the wallet stored in the cluster.
     // This prevents tasks from being spawned in the current runtime that are expected by
     // the wallet to continue running.
     let mut cluster_wallet = WalletContext::new(&path_guard, None, None)?;
     let wallet = wallet_for_testing(&mut cluster_wallet).await?;
     drop(path_guard);
-    Ok((cluster, wallet))
+    Ok(wallet)
 }
 
 /// Creates and returns a sui test cluster.
@@ -200,6 +248,17 @@ pub async fn wallet_for_testing(
         None,
     )?;
     fund_address(funding_wallet, wallet.active_address()?).await?;
+
+    tracing::info!(
+        "ZZZZZ get all balance {:?}",
+        wallet
+            .get_client()
+            .await?
+            .coin_read_api()
+            .get_all_balances(wallet.active_address()?)
+            .await?
+    );
+
     Ok(WithTempDir {
         inner: wallet,
         temp_dir,
@@ -220,6 +279,13 @@ async fn fund_address(
         .object_ref();
 
     let mut ptb = ProgrammableTransactionBuilder::new();
+
+    tracing::info!(
+        "ZZZZZ funding {:?} {:?} from {:?}",
+        recipient,
+        DEFAULT_FUNDING_PER_COIN,
+        sender
+    );
 
     ptb.pay_sui(
         vec![recipient, recipient],

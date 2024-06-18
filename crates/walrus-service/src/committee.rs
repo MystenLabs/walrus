@@ -233,7 +233,12 @@ impl NodeCommitteeServiceInner<StorageNodeClient> {
         config: CommitteeServiceConfig,
         seed: u64,
     ) -> Result<Self, anyhow::Error> {
-        let http_client = reqwest::Client::builder().build()?;
+        let client_builder = reqwest::Client::builder();
+
+        #[cfg(msim)]
+        let client_builder = client_builder.no_proxy();
+
+        let http_client = client_builder.build()?;
 
         let node_clients: Vec<_> = committee
             .members()

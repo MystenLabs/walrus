@@ -15,7 +15,8 @@ use walrus_sui::{
     test_utils::{
         get_default_blob_certificate,
         get_default_invalid_certificate,
-        new_wallet_on_global_test_cluster,
+        global_sui_test_cluster,
+        new_wallet_on_sui_test_cluster,
         system_setup::publish_with_default_system,
         TestClusterHandle,
     },
@@ -27,10 +28,17 @@ const GAS_BUDGET: u64 = 1_000_000_000;
 
 async fn initialize_contract_and_wallet(
 ) -> anyhow::Result<(Arc<TestClusterHandle>, WithTempDir<SuiContractClient>)> {
-    let (sui_cluster_handle, mut wallet) = new_wallet_on_global_test_cluster().await?;
+    #[cfg(not(msim))]
+    let sui_cluster = global_sui_test_cluster();
+    #[cfg(msim)]
+    let sui_cluster = global_sui_test_cluster().await;
+
+    // Get a wallet on the global sui test cluster
+    let mut wallet = new_wallet_on_sui_test_cluster(sui_cluster.clone()).await?;
+
     let system_object = publish_with_default_system(&mut wallet.inner).await?;
     Ok((
-        sui_cluster_handle,
+        sui_cluster,
         wallet
             .and_then_async(|wallet| SuiContractClient::new(wallet, system_object, GAS_BUDGET))
             .await?,

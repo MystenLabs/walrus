@@ -31,3 +31,6 @@ workspace = true
 
 [package.metadata.docs.rs]
 all-features = true
+
+[target.'cfg(msim)'.dependencies]
+sui-simulator.workspace = true

@@ -1,0 +1,15 @@
+[patch."https://github.com/MystenLabs/sui"]
+sui-keys = { git = "https://www.github.com/MystenLabs/sui.git", rev = "285d4030315caeeeb7af4e6ce8729d56c6775e5f", package = "sui-keys" }
+sui-macros = { git = "https://www.github.com/MystenLabs/sui.git", rev = "285d4030315caeeeb7af4e6ce8729d56c6775e5f", package = "sui-macros" }
+sui-move-build = { git = "https://www.github.com/MystenLabs/sui.git", rev = "285d4030315caeeeb7af4e6ce8729d56c6775e5f", package = "sui-move-build" }
+sui-protocol-config = { git = "https://www.github.com/MystenLabs/sui.git", rev = "285d4030315caeeeb7af4e6ce8729d56c6775e5f", package = "sui-protocol-config" }
+sui-sdk = { git = "https://www.github.com/MystenLabs/sui.git", rev = "285d4030315caeeeb7af4e6ce8729d56c6775e5f", package = "sui-sdk" }
+sui-simulator = { git = "https://www.github.com/MystenLabs/sui.git", rev = "285d4030315caeeeb7af4e6ce8729d56c6775e5f", package = "sui-simulator" }
+sui-types = { git = "https://www.github.com/MystenLabs/sui.git", rev = "285d4030315caeeeb7af4e6ce8729d56c6775e5f", package = "sui-types" }
+sui-config = { git = "https://www.github.com/MystenLabs/sui.git", rev = "285d4030315caeeeb7af4e6ce8729d56c6775e5f", package = "sui-config" }
+sui-framework = { git = "https://www.github.com/MystenLabs/sui.git", rev = "285d4030315caeeeb7af4e6ce8729d56c6775e5f", package = "sui-framework" }
+move-core-types = { git = "https://www.github.com/MystenLabs/sui.git", rev = "285d4030315caeeeb7af4e6ce8729d56c6775e5f", package = "move-core-types" }
+mysten-metrics = { git = "https://www.github.com/MystenLabs/sui.git", rev = "285d4030315caeeeb7af4e6ce8729d56c6775e5f", package = "mysten-metrics" }
+telemetry-subscribers = { git = "https://www.github.com/MystenLabs/sui.git", rev = "285d4030315caeeeb7af4e6ce8729d56c6775e5f", package = "telemetry-subscribers" }
+test-cluster = { git = "https://www.github.com/MystenLabs/sui.git", rev = "285d4030315caeeeb7af4e6ce8729d56c6775e5f", package = "test-cluster" }
+typed-store = { git = "https://www.github.com/MystenLabs/sui.git", rev = "285d4030315caeeeb7af4e6ce8729d56c6775e5f", package = "typed-store" }

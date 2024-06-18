@@ -159,10 +159,18 @@ impl SuiReadClient {
         &self,
         owner_address: SuiAddress,
     ) -> Result<impl Iterator<Item = Coin> + '_, sui_sdk::error::Error> {
+        tracing::info!(
+            "ZZZZZ get all balance in get_payment_coins {:?} {:?}",
+            self.sui_client
+                .coin_read_api()
+                .get_all_balances(owner_address)
+                .await?,
+            owner_address
+        );
         handle_pagination(move |cursor| {
             self.sui_client.coin_read_api().get_coins(
                 owner_address,
-                Some(self.coin_type.to_canonical_string(true)),
+                None, // Some(self.coin_type.to_canonical_string(true)),
                 cursor,
                 None,
             )

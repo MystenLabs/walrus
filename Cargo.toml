@@ -2,6 +2,14 @@
 resolver = "2"
 members = ["crates/*"]
 
+[profile.simulator]
+inherits = "test"
+debug = true
+debug-assertions = true
+overflow-checks = true
+# opt-level 1 gives >5x speedup for simulator tests without slowing down build times very much.
+opt-level = 1
+
 [workspace.package]
 version = "0.1.0"
 authors = ["Mysten Labs <build@mystenlabs.com>"]
@@ -14,34 +22,43 @@ bcs = "0.1.6"
 clap = { version = "4.5.8", features = ["derive"] }
 fastcrypto = "0.1"
 futures = "0.3.30"
+futures-timer = "=3.0.2"
 mime = "0.3.17"
-move-core-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.27.2" }
-mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.27.2" }
+move-core-types = { git = "https://github.com/MystenLabs/sui", rev = "6c3a6ba165be8483fec3026394477a01bf48acda" }
+msim = { git = "https://github.com/MystenLabs/mysten-sim.git", rev = "862e52287eea423d132d462879631dad8e346147", package = "msim" }
+msim-macros = { git = "https://github.com/MystenLabs/mysten-sim.git", rev = "862e52287eea423d132d462879631dad8e346147", package = "msim-macros" }
+mysten-metrics = { git = "https://github.com/MystenLabs/sui", rev = "6c3a6ba165be8483fec3026394477a01bf48acda" }
 opentelemetry = "^0.23.0"
 opentelemetry-otlp = "^0.16"
 opentelemetry_sdk = "^0.23.0"
 prometheus = "0.13.4"
 rand = "0.8.5"
 reqwest = { version = "0.12.5", default-features = false, features = ["http2", "json", "rustls-tls"] }
+rocksdb = "0.21.0"
 serde = { version = "1.0.203", features = ["derive"] }
 serde_json = "1.0.119"
 serde_with = { version = "3.8", features = ["base64"] }
 serde_yaml = "0.9"
-sui-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.27.2" }
-sui-keys = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.27.2" }
-sui-move-build = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.27.2" }
-sui-sdk = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.27.2" }
-sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.27.2" }
-telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.27.2" }
+sui-config = { git = "https://github.com/MystenLabs/sui", rev = "6c3a6ba165be8483fec3026394477a01bf48acda" }
+sui-framework = { git = "https://github.com/MystenLabs/sui", rev = "6c3a6ba165be8483fec3026394477a01bf48acda" }
+sui-keys = { git = "https://github.com/MystenLabs/sui", rev = "6c3a6ba165be8483fec3026394477a01bf48acda" }
+sui-macros = { git = "https://github.com/MystenLabs/sui", rev = "6c3a6ba165be8483fec3026394477a01bf48acda" }
+sui-move-build = { git = "https://github.com/MystenLabs/sui", rev = "6c3a6ba165be8483fec3026394477a01bf48acda" }
+sui-protocol-config = { git = "https://github.com/MystenLabs/sui", rev = "6c3a6ba165be8483fec3026394477a01bf48acda" }
+sui-sdk = { git = "https://github.com/MystenLabs/sui", rev = "6c3a6ba165be8483fec3026394477a01bf48acda" }
+sui-simulator = { git = "https://github.com/MystenLabs/sui", rev = "6c3a6ba165be8483fec3026394477a01bf48acda" }
+sui-types = { git = "https://github.com/MystenLabs/sui", rev = "6c3a6ba165be8483fec3026394477a01bf48acda" }
+telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", rev = "6c3a6ba165be8483fec3026394477a01bf48acda" }
 tempfile = "3.10.1"
-test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.27.2" }
+test-cluster = { git = "https://github.com/MystenLabs/sui", rev = "6c3a6ba165be8483fec3026394477a01bf48acda" }
 thiserror = "1.0.61"
-tokio = "1.38.0"
+tokio = "=1.36.0"
 tokio-stream = "0.1.15"
+tokio-util = "0.7.10"
 tracing = "0.1.40"
 tracing-opentelemetry = "0.24"
 tracing-subscriber = "0.3.18"
-typed-store = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.27.2" }
+typed-store = { git = "https://github.com/MystenLabs/sui", rev = "6c3a6ba165be8483fec3026394477a01bf48acda" }
 utoipa = { version = "4.2.3" }
 walrus-core = { path = "crates/walrus-core" }
 walrus-sdk = { path = "crates/walrus-sdk" }
