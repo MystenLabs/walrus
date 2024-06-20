@@ -19,10 +19,7 @@ use clap::{Args, Parser, Subcommand};
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
 use serde_with::{base64::Base64, serde_as, DisplayFromStr};
-use tracing_subscriber::{
-    util::{SubscriberInitExt, TryInitError},
-    EnvFilter,
-};
+use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt, EnvFilter, Layer};
 use walrus_core::{
     encoding::{EncodingConfig, Primary},
     metadata::VerifiedBlobMetadataWithId,
@@ -575,17 +572,34 @@ async fn client() -> Result<()> {
     run_app(app).await
 }
 
-fn init_tracing_subscriber() -> Result<(), TryInitError> {
+fn init_tracing_subscriber() -> Result<()> {
     // Use INFO level by default.
     let directive = format!(
         "info,{}",
         env::var(EnvFilter::DEFAULT_ENV).unwrap_or_default()
     );
-    tracing_subscriber::fmt()
-        .with_writer(std::io::stderr)
-        .with_env_filter(EnvFilter::new(directive))
-        .finish()
-        .try_init()
+    let layer = tracing_subscriber::fmt::layer().with_writer(std::io::stderr);
+
+    // Control output format based on `LOG_FORMAT` env variable.
+    let format = env::var("LOG_FORMAT").ok();
+    let layer = if let Some(format) = &format {
+        match format.to_lowercase().as_str() {
+            "default" => layer.boxed(),
+            "compact" => layer.compact().boxed(),
+            "pretty" => layer.pretty().boxed(),
+            "json" => layer.json().boxed(),
+            s => Err(anyhow!("LOG_FORMAT '{}' is not supported", s))?,
+        }
+    } else {
+        tracing_subscriber::fmt::layer().boxed()
+    };
+
+    tracing_subscriber::registry()
+        .with(layer.with_filter(EnvFilter::new(directive.clone())))
+        .init();
+    tracing::debug!(%directive, ?format, "initialized tracing subscriber");
+
+    Ok(())
 }
 async fn run_app(app: App) -> Result<()> {
     let config = load_configuration(&app.config);
