@@ -190,11 +190,12 @@ impl LoadGenerator {
                         } else if let Some(entry) = blob_ids.choose_mut(&mut thread_rng()) {
                             blob_result.blob_id().clone_into(entry);
                         }
+                        self.write_client_pool.push_back((client, blob));
                     } else {
+                        // This may happen if the client runs out of gas.
                         tracing::warn!("failed to obtain storage certificate");
                         metrics.observe_error("failed to obtain storage certificate");
                     }
-                    self.write_client_pool.push_back((client, blob));
                 },
                 Some(Ok((elapsed, result))) = read_finished.next() => {
                     if result.is_ok() {
