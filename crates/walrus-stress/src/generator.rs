@@ -12,7 +12,11 @@ use anyhow::Context;
 use futures::{future::try_join_all, stream::FuturesUnordered, StreamExt};
 use rand::{rngs::StdRng, seq::SliceRandom, thread_rng, SeedableRng};
 use sui_sdk::SuiClientBuilder;
-use tokio::time::{Interval, MissedTickBehavior};
+use tokio::{
+    sync::mpsc::{Receiver, Sender},
+    task::JoinHandle,
+    time::{Interval, MissedTickBehavior},
+};
 use walrus_core::encoding::Primary;
 use walrus_service::client::{Client, Config};
 use walrus_sui::{
@@ -89,6 +93,7 @@ impl LoadGenerator {
         write_load: u64,
         read_load: u64,
         metrics: &ClientMetrics,
+        mut rx_new_clients: Receiver<Vec<(WithTempDir<Client<SuiContractClient>>, BlobData)>>,
     ) -> anyhow::Result<()> {
         tracing::info!("Starting load generator...");
         // Structures holding futures waiting for clients to finish their requests.
@@ -200,6 +205,9 @@ impl LoadGenerator {
                         metrics.observe_error("failed to read blob");
                     }
                 },
+                Some(new_clients) = rx_new_clients.recv() => {
+                    self.write_client_pool.extend(new_clients);
+                }
                 else => break
             }
         }
@@ -240,4 +248,35 @@ fn burst_load(load: u64) -> (u64, Interval) {
     let mut interval = tokio::time::interval(burst_duration);
     interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
     (load_per_burst, interval)
+}
+
+/// Generate `n_write_clients` write clients every `period`.
+pub fn write_clients_generator(
+    client_config: Config,
+    network: SuiNetwork,
+    gas_budget: u64,
+    n_write_clients: usize,
+    blob_size: usize,
+    period: Duration,
+    out: Sender<Vec<(WithTempDir<Client<SuiContractClient>>, BlobData)>>,
+) -> JoinHandle<anyhow::Result<()>> {
+    let mut interval = tokio::time::interval(period);
+    interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
+    tokio::spawn(async move {
+        loop {
+            interval.tick().await;
+            let clients = try_join_all(
+                (0..n_write_clients).map(|_| new_client(&client_config, network, gas_budget)),
+            )
+            .await?;
+            let blobs = (0..n_write_clients).map(|_| {
+                BlobData::random(
+                    StdRng::from_rng(thread_rng()).expect("rng should be seedable from thread_rng"),
+                    blob_size,
+                )
+            });
+            out.send(clients.into_iter().zip(blobs).collect()).await?;
+        }
+    })
 }
