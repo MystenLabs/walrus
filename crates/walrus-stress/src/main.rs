@@ -51,7 +51,7 @@ struct Args {
     blob_size: NonZeroUsize,
     /// The period in seconds for the gas refill. This option is useful for continuous load testing
     /// where the gas budget need to be refilled periodically.
-    #[clap(long, default_value = "None")]
+    #[clap(long)]
     gas_refill_period: Option<NonZeroU64>,
 }
 
