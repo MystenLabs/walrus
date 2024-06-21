@@ -3,16 +3,19 @@
 
 //! Formats and tools for success and error messages of our REST APIs.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt::Write as _};
 
 use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use opentelemetry::trace::TraceContextExt as _;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_with::{serde_as, DisplayFromStr};
+use tracing::Span;
+use tracing_opentelemetry::OpenTelemetrySpanExt as _;
 use utoipa::{
     openapi::{
         schema,
@@ -172,7 +175,14 @@ impl IntoResponse for RestApiJsonError<'_> {
 pub(crate) trait RestApiError: Sized {
     fn status(&self) -> StatusCode;
     fn body_text(&self) -> String;
-    fn to_response(self) -> Response {
+    fn to_response(&self) -> Response {
+        let mut message = self.body_text();
+        if self.status() == StatusCode::INTERNAL_SERVER_ERROR {
+            let trace_id = Span::current().context().span().span_context().trace_id();
+            write!(&mut message, " (TraceID: {:x})", trace_id)
+                .expect("writing to a string must succeed");
+        }
+
         RestApiJsonError::new(self.status(), &self.body_text()).into_response()
     }
 }
@@ -196,11 +206,13 @@ macro_rules! rest_api_error {
 
         impl IntoResponse for $enum {
             fn into_response(self) -> Response {
-                // TODO(jsmith): Unify with the errors being attached to traces (#463).
+                let mut response = self.to_response();
+
                 if self.status() == StatusCode::INTERNAL_SERVER_ERROR {
-                    tracing::error!(error = ?self, "internal error");
+                    response.extensions_mut().insert(crate::telemetry::InternalError(Arc::new(self)));
                 }
-                self.to_response()
+
+                response
             }
         }
 

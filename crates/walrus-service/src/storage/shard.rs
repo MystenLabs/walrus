@@ -84,6 +84,7 @@ impl ShardStorage {
     }
 
     /// Stores the provided primary or secondary sliver for the given blob ID.
+    #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
     pub fn put_sliver(&self, blob_id: &BlobId, sliver: &Sliver) -> Result<(), TypedStoreError> {
         match sliver {
             Sliver::Primary(primary) => self.primary_slivers.insert(&blob_id.into(), primary),
@@ -98,6 +99,7 @@ impl ShardStorage {
     }
 
     /// Returns the sliver of the specified type that is stored for that Blob ID, if any.
+    #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
     pub fn get_sliver(
         &self,
         blob_id: &BlobId,
@@ -114,6 +116,7 @@ impl ShardStorage {
     }
 
     /// Retrieves the stored primary sliver for the given blob ID.
+    #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
     pub fn get_primary_sliver(
         &self,
         blob_id: &BlobId,
@@ -122,6 +125,7 @@ impl ShardStorage {
     }
 
     /// Retrieves the stored secondary sliver for the given blob ID.
+    #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
     pub fn get_secondary_sliver(
         &self,
         blob_id: &BlobId,
@@ -130,12 +134,14 @@ impl ShardStorage {
     }
 
     /// Returns true iff the sliver-pair for the given blob ID is stored by the shard.
+    #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
     pub fn is_sliver_pair_stored(&self, blob_id: &BlobId) -> Result<bool, TypedStoreError> {
         Ok(self.is_sliver_stored::<Primary>(blob_id)?
             && self.is_sliver_stored::<Secondary>(blob_id)?)
     }
 
     /// Deletes the sliver pair for the given [`BlobId`].
+    #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
     pub fn delete_sliver_pair(
         &self,
         batch: &mut DBBatch,
@@ -152,6 +158,7 @@ impl ShardStorage {
         Ok(())
     }
 
+    #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
     pub fn is_sliver_stored<A: EncodingAxis>(
         &self,
         blob_id: &BlobId,
@@ -159,6 +166,7 @@ impl ShardStorage {
         self.is_sliver_type_stored(blob_id, A::sliver_type())
     }
 
+    #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
     pub fn is_sliver_type_stored(
         &self,
         blob_id: &BlobId,

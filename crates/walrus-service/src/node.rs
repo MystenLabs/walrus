@@ -4,12 +4,13 @@ use std::{future::Future, num::NonZeroU16, sync::Arc};
 
 use anyhow::{anyhow, bail, Context};
 use fastcrypto::traits::KeyPair;
-use futures::{stream, StreamExt};
+use futures::{stream, StreamExt, TryFutureExt};
 use prometheus::Registry;
 use serde::Serialize;
 use sui_types::event::EventID;
 use tokio::{select, time::Instant};
 use tokio_util::sync::CancellationToken;
+use tracing::{field, Instrument};
 use typed_store::{rocks::MetricConf, DBMetrics, TypedStoreError};
 use walrus_core::{
     encoding::{EncodingConfig, RecoverySymbolError},
@@ -28,6 +29,7 @@ use walrus_core::{
     BlobId,
     Epoch,
     InconsistencyProof,
+    PublicKey,
     RecoverySymbol,
     ShardIndex,
     Sliver,
@@ -44,6 +46,7 @@ use crate::{
     committee::{CommitteeService, CommitteeServiceFactory, SuiCommitteeServiceFactory},
     config::{StorageNodeConfig, SuiConfig},
     contract_service::{SuiSystemContractService, SystemContractService},
+    node::metrics::TelemetryLabel as _,
     storage::{blob_info::BlobInfoApi, EventProgress, ShardStorage, Storage},
     system_events::{SuiSystemEventProvider, SystemEventProvider},
 };
@@ -394,40 +397,66 @@ impl StorageNode {
         let event_stream = Box::into_pin(self.inner.event_provider.events(cursor).await?);
         let mut blob_events = index_stream.zip(event_stream);
 
-        while let Some((sequence_number, event)) = blob_events.next().await {
-            tracing::debug!(event = ?event.event_id(), "received system event");
+        while let Some((event_index, event)) = blob_events.next().await {
+            let span = tracing::info_span!(
+                parent: None,
+                "blob_store receive",
+                "otel.kind" = "CONSUMER",
+                "otel.status_code" = field::Empty,
+                "otel.status_message" = field::Empty,
+                "messaging.operation.type" = "receive",
+                "messaging.system" = "sui",
+                "messaging.destination.name" = "blob_store",
+                "messaging.client.id" = %self.inner.public_key(),
+                "walrus.event.index" = event_index,
+                "walrus.event.tx_digest" = ?event.event_id().tx_digest,
+                "walrus.event.event_seq" = ?event.event_id().event_seq,
+                "walrus.event.kind" = event.label(),
+                "walrus.blob_id" = %event.blob_id(),
+                "error.type" = field::Empty,
+            );
 
-            let _timer_guard = &self
-                .inner
-                .metrics
-                .event_process_duration_seconds
-                .with_label_values(&[event_label(&event)])
-                .start_timer();
+            async move {
+                let _timer_guard = &self
+                    .inner
+                    .metrics
+                    .event_process_duration_seconds
+                    .with_label_values(&[event.label()])
+                    .start_timer();
 
-            storage.update_blob_info(&event)?;
+                storage.update_blob_info(&event)?;
 
-            match event {
-                BlobEvent::Certified(event) => {
-                    self.process_blob_certified_event(sequence_number, event)
-                        .await?;
+                match event {
+                    BlobEvent::Certified(event) => {
+                        self.process_blob_certified_event(event_index, event)
+                            .await?;
+                    }
+                    BlobEvent::InvalidBlobID(event) => {
+                        self.process_blob_invalid_event(event_index, event).await?;
+                    }
+                    BlobEvent::Registered(_) => {
+                        self.inner
+                            .mark_event_completed(event_index, &event.event_id())?;
+                    }
                 }
-                BlobEvent::InvalidBlobID(event) => {
-                    self.process_blob_invalid_event(sequence_number, event)
-                        .await?;
-                }
-                BlobEvent::Registered(_) => {
-                    self.inner
-                        .mark_event_completed(sequence_number, &event.event_id())?;
-                }
+                Ok::<(), anyhow::Error>(())
             }
+            .inspect_err(|err| {
+                let span = tracing::Span::current();
+                span.record("otel.status_code", "error");
+                span.record("otel.status_message", field::display(err));
+            })
+            .instrument(span)
+            .await?;
         }
 
         bail!("event stream for blob events stopped")
     }
 
+    #[tracing::instrument(skip_all)]
     async fn process_blob_certified_event(
         &self,
-        event_sequence_number: usize,
+        event_index: usize,
         event: BlobCertified,
     ) -> anyhow::Result<()> {
         let start = tokio::time::Instant::now();
@@ -437,39 +466,44 @@ impl StorageNode {
             || self.inner.storage.is_invalid(&event.blob_id)?
         {
             self.inner
-                .mark_event_completed(event_sequence_number, &event.event_id)?;
-            histogram_set
-                .with_label_values(&[metrics::STATUS_SKIPPED])
+                .mark_event_completed(event_index, &event.event_id)?;
+
+            metrics::with_label!(histogram_set, metrics::STATUS_SKIPPED)
                 .observe(start.elapsed().as_secs_f64());
+
             return Ok(());
         }
 
-        // Slivers, and possibly metadata, are not stored.
+        // Slivers and (possibly) metadata are not stored, so initiate blob sync.
         // TODO(kwuest): Handle epoch change. (#405)
-
-        // Initiate blob sync
         self.blob_sync_handler
-            .start_sync(event, event_sequence_number, start)
+            .start_sync(event, event_index, start)
             .await?;
 
         Ok(())
     }
 
+    #[tracing::instrument(skip_all)]
     async fn process_blob_invalid_event(
         &self,
-        event_sequence_number: usize,
+        event_index: usize,
         event: InvalidBlobId,
     ) -> anyhow::Result<()> {
-        if let Some((event_seq_num, event_id)) =
+        if let Some((cancelled_event_index, cancelled_event_id)) =
             self.blob_sync_handler.cancel_sync(&event.blob_id).await?
         {
             // Advance the event cursor with the event of the cancelled sync. Since the blob is
             // invalid the associated blob certified event is completed without a sync.
-            self.inner.mark_event_completed(event_seq_num, &event_id)?;
+            //
+            // Race condition is avoided here by the fact that process_blob_invalid_event is not
+            // run concurrently with any logic for processing events from the stream, so a
+            // cancelled event cannot be restarted.
+            self.inner
+                .mark_event_completed(cancelled_event_index, &cancelled_event_id)?;
         }
         self.inner.storage.delete_blob(&event.blob_id)?;
         self.inner
-            .mark_event_completed(event_sequence_number, &event.event_id)?;
+            .mark_event_completed(event_index, &event.event_id)?;
         Ok(())
     }
 }
@@ -510,20 +544,25 @@ impl StorageNodeInner {
         Ok(())
     }
 
+    #[tracing::instrument(skip_all)]
     fn mark_event_completed(
         &self,
-        sequence_number: usize,
+        event_index: usize,
         cursor: &EventID,
     ) -> Result<(), TypedStoreError> {
         let EventProgress { persisted, pending } = self
             .storage
-            .maybe_advance_event_cursor(sequence_number, cursor)?;
+            .maybe_advance_event_cursor(event_index, cursor)?;
 
         let event_cursor_progress = &self.metrics.event_cursor_progress;
         metrics::with_label!(event_cursor_progress, STATUS_PERSISTED).add(persisted);
         metrics::with_label!(event_cursor_progress, STATUS_PENDING).set(pending);
 
         Ok(())
+    }
+
+    fn public_key(&self) -> &PublicKey {
+        self.protocol_key_pair.as_ref().public()
     }
 }
 
@@ -791,11 +830,12 @@ impl ServiceState for StorageNodeInner {
         ServiceHealthInfo {
             uptime: self.start_time.elapsed(),
             epoch: self.current_epoch(),
-            public_key: self.protocol_key_pair.as_ref().public().clone(),
+            public_key: self.public_key().clone(),
         }
     }
 }
 
+#[tracing::instrument(skip_all, err)]
 async fn sign_message<T, I>(
     message: T,
     signer: ProtocolKeyPair,
@@ -813,14 +853,6 @@ where
         })?;
 
     Ok(signed)
-}
-
-fn event_label(event: &BlobEvent) -> &'static str {
-    match event {
-        BlobEvent::Registered(_) => "registered",
-        BlobEvent::Certified(_) => "certified",
-        BlobEvent::InvalidBlobID(_) => "invalid-blob",
-    }
 }
 
 #[cfg(test)]

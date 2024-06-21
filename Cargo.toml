@@ -27,9 +27,10 @@ futures-timer = "=3.0.2" # required for MSIM
 mime = "0.3.17"
 move-core-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.29.2" }
 mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.29.2" }
-opentelemetry = "0.23.0"
-opentelemetry-otlp = "0.16"
-opentelemetry_sdk = "0.23.0"
+opentelemetry = "^0.23.0"
+opentelemetry-http = "^0.12.0"
+opentelemetry-otlp = "^0.16"
+opentelemetry_sdk = "^0.23.0"
 prometheus = "0.13.4"
 rand = "0.8.5"
 reqwest = { version = "0.12.5", default-features = false, features = ["http2", "json", "rustls-tls"] }

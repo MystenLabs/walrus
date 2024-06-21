@@ -17,7 +17,7 @@ use futures::{stream::FuturesUnordered, FutureExt, StreamExt as _};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use reqwest::Url;
 use tokio::sync::Semaphore;
-use tracing::Instrument;
+use tracing::{Instrument, Span};
 use walrus_core::{
     bft,
     encoding::{
@@ -130,7 +130,6 @@ pub trait CommitteeService: std::fmt::Debug + Send + Sync {
     ) -> InvalidBlobCertificate;
 }
 
-// Private trait used internally for testing the inner service.
 #[cfg_attr(test, mockall::automock)]
 trait NodeClient {
     fn get_and_verify_metadata(
@@ -303,7 +302,7 @@ where
             })
     }
 
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(name = "get_and_verify_metadata committee", skip_all)]
     async fn get_and_verify_metadata(
         &self,
         blob_id: &BlobId,
@@ -324,13 +323,24 @@ where
                 let simultaneous_requests = &simultaneous_requests;
 
                 utils::retry(retry_strategy, move || {
-                    node.client()
-                        .expect("only nodes with clients provided")
-                        .get_and_verify_metadata(blob_id, config)
-                        .timeout_after(self.config.metadata_request_timeout)
-                        .limit(simultaneous_requests.clone())
+                    let mut maybe_span: Option<Span> = None;
+                    async move {
+                        // We only create the span if we've been granted a permit to run.
+                        let span = maybe_span.get_or_insert_with(|| {
+                            tracing::info_span!(
+                                "get_and_verify_metadata node", walrus.node.public_key = %public_key
+                            )
+                        });
+
+                        node.client()
+                            .expect("only nodes with clients provided")
+                            .get_and_verify_metadata(blob_id, config)
+                            .timeout_after(self.config.metadata_request_timeout)
+                            .instrument(span.clone())
+                            .await
+                    }
+                    .limit(simultaneous_requests.clone())
                 })
-                .instrument(tracing::info_span!("node", ?public_key))
             })
             .collect::<FuturesUnordered<_>>();
 
@@ -341,6 +351,7 @@ where
             .expect("the backoff strategy ensures we wait until there is one success")
     }
 
+    #[tracing::instrument(name = "recover_sliver committee", skip_all)]
     async fn recover_sliver<A: EncodingAxis + 'static>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
@@ -376,21 +387,31 @@ where
                     default_retry_strategy(self.rng.lock().unwrap().gen(), &self.config);
 
                 utils::retry(retry_strategy, move || {
-                    node.client()
-                        .expect("only nodes with clients provided")
-                        .get_and_verify_recovery_symbol(
-                            metadata,
-                            config,
-                            sliver_pair_at_remote,
-                            sliver_id,
-                        )
-                        .timeout_after(self.config.sliver_request_timeout)
-                        .limit(simultaneous_requests.clone())
+                    let mut maybe_span: Option<Span> = None;
+                    async move {
+                        // We only create the span if we've been granted a permit to run.
+                        let span = maybe_span.get_or_insert_with(|| {
+                            tracing::info_span!(
+                                "recover_sliver node", walrus.node.public_key = %public_key
+                            )
+                        });
+                        node.client()
+                            .expect("only nodes with clients provided")
+                            .get_and_verify_recovery_symbol(
+                                metadata,
+                                config,
+                                sliver_pair_at_remote,
+                                sliver_id,
+                            )
+                            .timeout_after(self.config.sliver_request_timeout)
+                            .instrument(span.clone())
+                            .await
+                    }
+                    .limit(simultaneous_requests.clone())
                 })
                 .map(|result| {
                     result.expect("the strategy ensures we wait until a result is available")
                 })
-                .instrument(tracing::info_span!("node", ?public_key))
             })
             .collect::<FuturesUnordered<_>>();
 
@@ -404,12 +425,15 @@ where
                 n_symbols = recovery_symbols.len(),
                 "attempting to recover sliver using collected symbols"
             );
-            let result = Sliver::<A>::recover_sliver_or_generate_inconsistency_proof(
-                recovery_symbols.clone(),
-                sliver_id.to_sliver_index::<A>(config.n_shards()),
-                metadata.as_ref(),
-                config,
-            );
+
+            let result = tracing::info_span!("reconstruct_sliver").in_scope(|| {
+                Sliver::<A>::recover_sliver_or_generate_inconsistency_proof(
+                    recovery_symbols.clone(),
+                    sliver_id.to_sliver_index::<A>(config.n_shards()),
+                    metadata.as_ref(),
+                    config,
+                )
+            });
 
             match result {
                 Ok(SliverOrInconsistencyProof::Sliver(sliver)) => {
@@ -451,6 +475,7 @@ where
         }
     }
 
+    #[tracing::instrument(name = "get_invalid_blob_certificate committee", skip_all)]
     async fn get_invalid_blob_certificate(
         &self,
         blob_id: &BlobId,
@@ -465,6 +490,9 @@ where
                 let public_key = node.public_key();
                 let retry_strategy =
                     default_retry_strategy(self.rng.lock().unwrap().gen(), &self.config);
+                let span = tracing::info_span!(
+                    "get_invalid_blob_certificate node", walrus.node.public_key = %public_key
+                );
                 utils::retry(retry_strategy, move || async move {
                     node.client()
                         .expect("only nodes with clients provided")
@@ -481,7 +509,7 @@ where
                 .map(|result| {
                     result.expect("the strategy ensures we wait until a result is available")
                 })
-                .instrument(tracing::info_span!("node", ?public_key))
+                .instrument(span)
             })
             .collect::<FuturesUnordered<_>>();
 

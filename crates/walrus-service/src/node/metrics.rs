@@ -10,6 +10,7 @@ use prometheus::{
     Opts,
     Registry,
 };
+use walrus_sui::types::{BlobCertified, BlobEvent};
 
 pub(crate) const STATUS_FAILURE: &str = "failure";
 pub(crate) const STATUS_SUCCESS: &str = "success";
@@ -108,4 +109,24 @@ define_node_metric_set! {
             &["part", "status"]
         )
     ]
+}
+
+pub(crate) trait TelemetryLabel {
+    fn label(&self) -> &'static str;
+}
+
+impl TelemetryLabel for BlobEvent {
+    fn label(&self) -> &'static str {
+        match self {
+            BlobEvent::Registered(_) => "registered",
+            BlobEvent::Certified(event) => event.label(),
+            BlobEvent::InvalidBlobID(_) => "invalid-blob",
+        }
+    }
+}
+
+impl TelemetryLabel for BlobCertified {
+    fn label(&self) -> &'static str {
+        "certified"
+    }
 }

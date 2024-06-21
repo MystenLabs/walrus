@@ -7,20 +7,19 @@ use std::{net::SocketAddr, sync::Arc};
 
 use axum::{
     extract::{DefaultBodyLimit, MatchedPath, State},
-    http::Request,
     routing::{get, put},
     Router,
 };
 use prometheus::{register_histogram_vec_with_registry, HistogramVec, Registry};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
-use tower_http::trace::{MakeSpan, TraceLayer};
+use tower_http::trace::TraceLayer;
 use utoipa::OpenApi as _;
 use utoipa_redoc::{Redoc, Servable as _};
 use walrus_core::encoding::max_sliver_size_for_n_shards;
 
 use self::openapi::RestApiDoc;
-use crate::node::ServiceState;
+use crate::{node::ServiceState, telemetry::MakeHttpSpan};
 
 mod extract;
 mod openapi;
@@ -33,6 +32,7 @@ mod routes;
 /// `n_secondary_source_symbols * u16::MAX` bytes. However, we need a few extra bytes to accommodate
 /// the additional information encoded with the slivers.
 const HEADROOM: usize = 128;
+pub(crate) const UNMATCHED_ROUTE: &str = "invalid-route";
 
 /// Represents a user server.
 #[derive(Debug)]
@@ -86,13 +86,16 @@ where
             .route(routes::HEALTH_ENDPOINT, get(routes::health_info))
             .with_state(self.state.clone())
             // The following layers are executed from the bottom up
-            .layer(TraceLayer::new_for_http().make_span_with(RestApiSpans {
-                address: *network_address,
-            }))
+            .layer(
+                TraceLayer::new_for_http()
+                    .make_span_with(MakeHttpSpan::new())
+                    .on_response(MakeHttpSpan::new()),
+            )
             .layer(axum::middleware::from_fn_with_state(
                 self.metrics.clone(),
                 metrics_middleware,
-            ));
+            ))
+            .into_make_service_with_connect_info::<SocketAddr>();
 
         let listener = tokio::net::TcpListener::bind(network_address).await?;
         axum::serve(listener, app)
@@ -121,8 +124,6 @@ async fn metrics_middleware(
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
-    const INVALID_ROUTE_LABEL: &str = "invalid-route";
-
     // Manually record the time in seconds, since we do not yet know the status code which is
     // required to get the concrete histogram.
     let start = Instant::now();
@@ -132,7 +133,7 @@ async fn metrics_middleware(
     } else {
         // We do not want to return the requested URI, as this would lead to a new histogram
         // for each rest to an invalid URI. Use a
-        INVALID_ROUTE_LABEL.into()
+        UNMATCHED_ROUTE.into()
     };
 
     let response = next.run(request).await;
@@ -142,17 +143,6 @@ async fn metrics_middleware(
     histogram.observe(start.elapsed().as_secs_f64());
 
     response
-}
-
-#[derive(Debug, Clone, Copy)]
-struct RestApiSpans {
-    address: SocketAddr,
-}
-
-impl<B> MakeSpan<B> for RestApiSpans {
-    fn make_span(&mut self, _: &Request<B>) -> tracing::Span {
-        tracing::info_span!("rest-api", address = %self.address)
-    }
 }
 
 #[cfg(test)]

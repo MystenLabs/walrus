@@ -23,7 +23,7 @@ use rocksdb::{
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 use sui_sdk::types::{digests::TransactionDigest, event::EventID};
-use tracing::Level;
+use tracing::{instrument, Level};
 use typed_store::{
     rocks::{
         self,
@@ -324,6 +324,7 @@ impl Storage {
     }
 
     /// Store the verified metadata.
+    #[tracing::instrument(skip_all)]
     pub fn put_verified_metadata(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
@@ -341,17 +342,19 @@ impl Storage {
     }
 
     /// Get the blob info for `blob_id`
+    #[tracing::instrument(skip_all)]
     pub fn get_blob_info(&self, blob_id: &BlobId) -> Result<Option<BlobInfo>, TypedStoreError> {
         self.blob_info.get(blob_id)
     }
 
     /// Get the event cursor for `event_type`
+    #[tracing::instrument(skip_all)]
     pub fn get_event_cursor(&self) -> Result<Option<EventID>, TypedStoreError> {
         self.event_cursor.get_event_cursor()
     }
 
     /// Update the blob info for a blob based on the `BlobEvent`
-    #[tracing::instrument(level = Level::DEBUG, skip(self))]
+    #[tracing::instrument(skip_all)]
     pub fn update_blob_info(&self, event: &BlobEvent) -> Result<(), TypedStoreError> {
         self.merge_update_blob_info(&event.blob_id(), event.into())?;
         Ok(())
@@ -381,13 +384,14 @@ impl Storage {
     /// sequence; will remain at `cursor0` after the next call since `cursor2` is not the next in
     /// sequence; and will advance to cursor2 after the 3rd call, since `cursor1` fills the gap as
     /// identified by its sequence number.
+    #[tracing::instrument(skip_all)]
     pub(crate) fn maybe_advance_event_cursor(
         &self,
-        sequence_number: usize,
+        event_index: usize,
         cursor: &EventID,
     ) -> Result<EventProgress, TypedStoreError> {
         self.event_cursor
-            .maybe_advance_event_cursor(sequence_number, cursor)
+            .maybe_advance_event_cursor(event_index, cursor)
     }
 
     pub(crate) fn get_sequentially_processed_event_count(&self) -> Result<u64, TypedStoreError> {
@@ -395,6 +399,7 @@ impl Storage {
     }
 
     /// Returns true if the metadata for the specified blob is stored.
+    #[tracing::instrument(skip_all)]
     pub fn has_metadata(&self, blob_id: &BlobId) -> Result<bool, TypedStoreError> {
         Ok(self
             .get_blob_info(blob_id)?
@@ -404,6 +409,7 @@ impl Storage {
     }
 
     /// Gets the metadata for a given [`BlobId`] or None.
+    #[tracing::instrument(skip_all)]
     pub fn get_metadata(
         &self,
         blob_id: &BlobId,
@@ -415,6 +421,7 @@ impl Storage {
     }
 
     /// Deletes the provided [`BlobId`] from the storage.
+    #[tracing::instrument(skip_all)]
     pub fn delete_blob(&self, blob_id: &BlobId) -> Result<(), TypedStoreError> {
         let mut batch = self.metadata.batch();
         self.delete_metadata(&mut batch, blob_id)?;
@@ -450,6 +457,7 @@ impl Storage {
 
     /// Returns true if the sliver pairs for the provided blob-id is stored at
     /// all of the storage's shards.
+    #[tracing::instrument(skip_all)]
     pub fn is_stored_at_all_shards(&self, blob_id: &BlobId) -> Result<bool, TypedStoreError> {
         for shard in self.shards.values() {
             if !shard.is_sliver_pair_stored(blob_id)? {
@@ -461,6 +469,7 @@ impl Storage {
     }
 
     /// Returns true if the provided blob-id is invalid.
+    #[tracing::instrument(skip_all)]
     pub fn is_invalid(&self, blob_id: &BlobId) -> Result<bool, TypedStoreError> {
         Ok(self
             .get_blob_info(blob_id)?

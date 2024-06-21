@@ -122,7 +122,7 @@ pub async fn put_metadata<S: SyncServiceState>(
 #[tracing::instrument(skip_all, err(level = Level::DEBUG), fields(
     walrus.blob_id = %blob_id.0,
     walrus.sliver.pair_index = %sliver_pair_index,
-    walrus.sliver.type_ = %sliver_type
+    walrus.sliver.r#type = %sliver_type
 ))]
 #[utoipa::path(
     get,
@@ -162,7 +162,7 @@ pub async fn get_sliver<S: SyncServiceState>(
 #[tracing::instrument(skip_all, err(level = Level::DEBUG), ret, fields(
     walrus.blob_id = %blob_id.0,
     walrus.sliver.pair_index = %sliver_pair_index,
-    walrus.sliver.type_ = %sliver_type
+    walrus.sliver.r#type = %sliver_type
 ))]
 #[utoipa::path(
     put,
@@ -235,8 +235,8 @@ pub async fn get_storage_confirmation<S: SyncServiceState>(
 #[tracing::instrument(skip_all, err(level = Level::DEBUG), fields(
     walrus.blob_id = %blob_id.0,
     walrus.sliver.pair_index = %sliver_pair_index,
-    walrus.sliver.target_pair_index = %target_pair_index,
-    walrus.sliver.symbol_type = %sliver_type
+    walrus.sliver.remote_pair_index = %target_pair_index,
+    walrus.recovery.symbol_type = %sliver_type
 ))]
 #[utoipa::path(
     get,
@@ -282,7 +282,7 @@ pub async fn get_recovery_symbol<S: SyncServiceState>(
 /// that the specified blob is inconsistent.
 // TODO(jsmith): This endpoint should be a POST endpoint, not a PUT endpoint (#461).
 #[tracing::instrument(skip_all, err(level = Level::DEBUG), fields(
-    walrus.blob_id = %blob_id.0, walrus.sliver.type_ = %sliver_type
+    walrus.blob_id = %blob_id.0, walrus.sliver.r#type = %sliver_type
 ))]
 #[utoipa::path(
     put,

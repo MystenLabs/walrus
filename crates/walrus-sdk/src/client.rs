@@ -478,7 +478,7 @@ impl Client {
         let span = tracing::info_span!(
             "http_request",
             otel.name = format!("{} {}", request.method().as_str(), url_template),
-            otel.kind = "client",
+            otel.kind = "CLIENT",
             otel.status_code = field::Empty,
             otel.status_message = field::Empty,
             http.request.method = request.method().as_str(),
