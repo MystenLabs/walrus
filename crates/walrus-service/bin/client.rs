@@ -39,6 +39,7 @@ use walrus_service::{
         success,
         HumanReadableBytes,
         HumanReadableMist,
+        VERSION,
     },
     client::{BlobStoreResult, Client},
     daemon::ClientDaemon,
@@ -47,6 +48,8 @@ use walrus_sui::client::ReadClient;
 
 #[derive(Parser, Debug, Clone, Deserialize)]
 #[command(author, version, about = "Walrus client", long_about = None)]
+#[clap(name = env!("CARGO_BIN_NAME"))]
+#[clap(version = VERSION)]
 #[clap(rename_all = "kebab-case")]
 #[serde(rename_all = "camelCase")]
 struct App {

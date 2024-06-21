@@ -15,6 +15,14 @@ use alloc::{
 /// then consider including that crate.
 ///
 /// [const_str]: https://docs.rs/const-str/latest/const_str/
+///
+/// # Examples
+///
+/// ```
+/// # use walrus_core::concat_const_str;
+/// #
+/// assert_eq!(concat_const_str!("1", "2", "3"), "123");
+/// ```
 #[macro_export]
 macro_rules! concat_const_str {
     ($($str:expr),+ $(,)?) => {{
@@ -33,9 +41,9 @@ macro_rules! concat_const_str {
             let mut output = [0u8; OUTPUT_LENGTH];
             let mut output_index = 0;
             let mut str_index = 0;
-            let mut byte_index = 0;
 
             while str_index < STRS.len() {
+                let mut byte_index = 0;
                 let current_bytes = STRS[str_index].as_bytes();
                 while byte_index < current_bytes.len() {
                     output[output_index] = current_bytes[byte_index];

@@ -33,6 +33,25 @@ use walrus_sui::{
 
 use crate::client::{default_configuration_paths, string_prefix, Blocklist, Client, Config};
 
+/// The Git revision obtained through `git describe` at compile time.
+pub const GIT_REVISION: &str = {
+    if let Some(revision) = option_env!("GIT_REVISION") {
+        revision
+    } else {
+        let version = git_version::git_version!(
+            args = ["--always", "--abbrev=12", "--dirty", "--exclude", "*"],
+            fallback = ""
+        );
+        if version.is_empty() {
+            panic!("unable to query git revision");
+        }
+        version
+    }
+};
+/// The version consisting of the package version and git revision.
+pub const VERSION: &str =
+    walrus_core::concat_const_str!(env!("CARGO_PKG_VERSION"), "-", GIT_REVISION);
+
 /// Default URL of the testnet RPC node.
 pub const TESTNET_RPC: &str = "https://fullnode.testnet.sui.io:443";
 /// Default RPC URL to connect to if none is specified explicitly or in the wallet config.
