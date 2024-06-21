@@ -61,7 +61,7 @@ impl NodeClient for StorageNodeClient {
     ) -> Option<InvalidBlobIdAttestation> {
         tracing::debug!("requesting an invalid blob attestation from the remote storage node");
 
-        self.get_and_verify_invalid_blob_attestation(
+        self.submit_inconsistency_proof_and_verify_attestation(
             blob_id,
             inconsistency_proof,
             epoch,

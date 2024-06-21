@@ -275,7 +275,7 @@ impl<'a> NodeCommunication<'a> {
     ) -> Result<(), SliverStoreError> {
         utils::retry(self.backoff_strategy(), || {
             self.client
-                .store_sliver_by_axis(blob_id, pair_index, sliver)
+                .store_sliver(blob_id, pair_index, sliver)
                 // Ordering matters here. Since we don't want to block global connections while we
                 // wait for local connections, the innermost limit must be the global one.
                 .batch_limit(self.global_connection_limit.clone())

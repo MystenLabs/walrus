@@ -11894,15 +11894,17 @@ name = "walrus-sdk"
 version = "0.1.0"
 dependencies = [
  "bcs",
+ "futures",
  "mime",
+ "opentelemetry 0.23.0",
  "reqwest 0.12.5",
  "serde",
  "serde_json",
  "sui-types",
  "thiserror",
  "tokio",
- "tower-service",
  "tracing",
+ "tracing-opentelemetry 0.24.0",
  "utoipa",
  "walrus-core",
  "walrus-test-utils",

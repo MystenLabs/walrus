@@ -3,18 +3,20 @@
 
 //! Client for interacting with the StorageNode API.
 
-use reqwest::{Client as ReqwestClient, Url};
-use tracing::Level;
+use opentelemetry::propagation::Injector;
+use reqwest::{
+    header::{HeaderMap, HeaderName, HeaderValue},
+    Client as ReqwestClient,
+    Method,
+    Request,
+    Response,
+    Url,
+};
+use serde::{de::DeserializeOwned, Serialize};
+use tracing::{field, Instrument, Level, Span};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 use walrus_core::{
-    encoding::{
-        EncodingAxis,
-        EncodingConfig,
-        Primary,
-        RecoverySymbol,
-        Secondary,
-        Sliver,
-        SliverPair,
-    },
+    encoding::{EncodingAxis, EncodingConfig, Primary, RecoverySymbol, Secondary, Sliver},
     inconsistency::InconsistencyProof,
     merkle::MerkleProof,
     messages::{InvalidBlobIdAttestation, SignedStorageConfirmation, StorageConfirmation},
@@ -30,9 +32,18 @@ use walrus_core::{
 
 use crate::{
     api::{BlobStatus, ServiceHealthInfo},
-    error::{Kind, NodeError},
+    error::NodeError,
     node_response::NodeResponse as _,
 };
+
+const METADATA_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/metadata";
+const SLIVER_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/slivers/:sliver_pair_index/:sliver_type";
+const STORAGE_CONFIRMATION_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/confirmation";
+const RECOVERY_URL_TEMPLATE: &str =
+    "/v1/blobs/:blob_id/slivers/:sliver_pair_index/:sliver_type/:target_pair_index";
+const INCONSISTENCY_PROOF_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/inconsistent/:sliver_type";
+const STATUS_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/status";
+const HEALTH_URL_TEMPLATE: &str = "/v1/health";
 
 #[derive(Debug, Clone)]
 struct UrlEndpoints(Url);
@@ -110,17 +121,17 @@ impl Client {
     }
 
     /// Requests the metadata for a blob ID from the node.
+    #[tracing::instrument(skip_all, fields(walrus.blob_id = %blob_id), err(level = Level::DEBUG))]
     pub async fn get_metadata(
         &self,
         blob_id: &BlobId,
     ) -> Result<UnverifiedBlobMetadataWithId, NodeError> {
-        let url = self.endpoints.metadata(blob_id);
-        let response = self.inner.get(url).send().await.map_err(Kind::Reqwest)?;
-        response.response_error_for_status().await?.bcs().await
+        let request = Request::new(Method::GET, self.endpoints.metadata(blob_id));
+        self.request_bcs(request, METADATA_URL_TEMPLATE).await
     }
 
     /// Get the metadata and verify it against the provided config.
-    #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
+    #[tracing::instrument(skip_all, fields(walrus.blob_id = %blob_id), err(level = Level::DEBUG))]
     pub async fn get_and_verify_metadata(
         &self,
         blob_id: &BlobId,
@@ -133,34 +144,37 @@ impl Client {
     }
 
     /// Requests the status of a blob ID from the node.
-    #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
+    #[tracing::instrument(skip_all, fields(walrus.blob_id = %blob_id), err(level = Level::DEBUG))]
     pub async fn get_blob_status(&self, blob_id: &BlobId) -> Result<BlobStatus, NodeError> {
-        let url = self.endpoints.blob_status(blob_id);
-        let response = self.inner.get(url).send().await.map_err(Kind::Reqwest)?;
-        response
-            .response_error_for_status()
-            .await?
-            .service_response()
-            .await
+        let request = Request::new(Method::GET, self.endpoints.blob_status(blob_id));
+        self.request_json(request, STATUS_URL_TEMPLATE).await
     }
 
     /// Requests a storage confirmation from the node for the Blob specified by the given ID
     // TODO: This function is only used internally and in test functions in walrus-service. (#498)
+    #[tracing::instrument(skip_all, fields(walrus.blob_id = %blob_id), err(level = Level::DEBUG))]
     pub async fn get_confirmation(
         &self,
         blob_id: &BlobId,
     ) -> Result<SignedStorageConfirmation, NodeError> {
-        let url = self.endpoints.confirmation(blob_id);
-        let response = self.inner.get(url).send().await.map_err(Kind::Reqwest)?;
-
+        let request = Request::new(Method::GET, self.endpoints.confirmation(blob_id));
         // NOTE(giac): in the future additional values may be possible here.
-        let StorageConfirmation::Signed(confirmation) = response.service_response().await?;
-
+        let StorageConfirmation::Signed(confirmation) = self
+            .request_json(request, STORAGE_CONFIRMATION_URL_TEMPLATE)
+            .await?;
         Ok(confirmation)
     }
 
     /// Requests a storage confirmation from the node for the Blob specified by the given ID
-    #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
+    #[tracing::instrument(
+        skip_all,
+        fields(
+            walrus.blob_id = %blob_id,
+            walrus.epoch = epoch,
+            walrus.node.public_key = %public_key
+        ),
+        err(level = Level::DEBUG)
+    )]
     pub async fn get_and_verify_confirmation(
         &self,
         blob_id: &BlobId,
@@ -176,18 +190,28 @@ impl Client {
 
     /// Gets a primary or secondary sliver for the identified sliver pair.
     // TODO: This function is only used internally and in test functions in walrus-service. (#498)
+    #[tracing::instrument(
+        skip_all,
+        fields(
+            walrus.blob_id = %blob_id,
+            walrus.sliver.pair_index = %sliver_pair_index,
+            walrus.sliver.r#type = A::NAME,
+        ),
+        err(level = Level::DEBUG)
+    )]
     pub async fn get_sliver<A: EncodingAxis>(
         &self,
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
     ) -> Result<Sliver<A>, NodeError> {
         let url = self.endpoints.sliver::<A>(blob_id, sliver_pair_index);
-        let response = self.inner.get(url).send().await.map_err(Kind::Reqwest)?;
-        response.response_error_for_status().await?.bcs().await
+        self.request_bcs(Request::new(Method::GET, url), SLIVER_URL_TEMPLATE)
+            .await
     }
 
     /// Gets a primary or secondary sliver for the identified sliver pair.
     // TODO: This function is only used internally and in test functions in walrus-service. (#498)
+    #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
     pub async fn get_sliver_by_type(
         &self,
         blob_id: &BlobId,
@@ -213,7 +237,15 @@ impl Client {
     ///
     /// Panics if the provided encoding config is not applicable to the metadata, i.e., if
     /// [`VerifiedBlobMetadataWithId::is_encoding_config_applicable`] returns false.
-    #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
+    #[tracing::instrument(
+        skip_all,
+        fields(
+            walrus.blob_id = %metadata.blob_id(),
+            walrus.sliver.pair_index = %sliver_pair_index,
+            walrus.sliver.r#type = A::NAME,
+        ),
+        err(level = Level::DEBUG)
+    )]
     pub async fn get_and_verify_sliver<A: EncodingAxis>(
         &self,
         sliver_pair_index: SliverPairIndex,
@@ -239,46 +271,58 @@ impl Client {
     /// Gets the recovery symbol for a primary or secondary sliver.
     ///
     /// The symbol is identified by the (A, sliver_pair_at_remote, intersecting_pair_index) tuple.
-    #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
+    #[tracing::instrument(
+        skip_all,
+        fields(
+            walrus.blob_id = %blob_id,
+            walrus.sliver.pair_index = %local_sliver_pair,
+            walrus.sliver.remote_pair_index = %remote_sliver_pair,
+            walrus.recovery.symbol_type = A::NAME,
+        ),
+        err(level = Level::DEBUG)
+    )]
     pub async fn get_recovery_symbol<A: EncodingAxis>(
         &self,
         blob_id: &BlobId,
-        sliver_pair_at_remote: SliverPairIndex,
-        intersecting_pair_index: SliverPairIndex,
+        remote_sliver_pair: SliverPairIndex,
+        local_sliver_pair: SliverPairIndex,
     ) -> Result<RecoverySymbol<A, MerkleProof>, NodeError> {
-        let url = self.endpoints.recovery_symbol::<A>(
-            blob_id,
-            sliver_pair_at_remote,
-            intersecting_pair_index,
-        );
-        let response = self.inner.get(url).send().await.map_err(Kind::Reqwest)?;
-        response.response_error_for_status().await?.bcs().await
+        let url =
+            self.endpoints
+                .recovery_symbol::<A>(blob_id, remote_sliver_pair, local_sliver_pair);
+        self.request_bcs(Request::new(Method::GET, url), RECOVERY_URL_TEMPLATE)
+            .await
     }
 
     /// Gets the recovery symbol for a primary or secondary sliver.
     ///
     /// The symbol is identified by the (A, sliver_pair_at_remote, intersecting_pair_index) tuple.
-    #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
+    #[tracing::instrument(
+        skip_all,
+        fields(
+            walrus.blob_id = %metadata.blob_id(),
+            walrus.sliver.pair_index = %local_sliver_pair,
+            walrus.sliver.remote_pair_index = %remote_sliver_pair,
+            walrus.recovery.symbol_type = A::NAME,
+        ),
+        err(level = Level::DEBUG)
+    )]
     pub async fn get_and_verify_recovery_symbol<A: EncodingAxis>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         encoding_config: &EncodingConfig,
-        sliver_pair_at_remote: SliverPairIndex,
-        intersecting_pair_index: SliverPairIndex,
+        remote_sliver_pair: SliverPairIndex,
+        local_sliver_pair: SliverPairIndex,
     ) -> Result<RecoverySymbol<A, MerkleProof>, NodeError> {
         let symbol = self
-            .get_recovery_symbol::<A>(
-                metadata.blob_id(),
-                sliver_pair_at_remote,
-                intersecting_pair_index,
-            )
+            .get_recovery_symbol::<A>(metadata.blob_id(), remote_sliver_pair, local_sliver_pair)
             .await?;
 
         symbol
             .verify(
                 metadata.as_ref(),
                 encoding_config,
-                intersecting_pair_index.to_sliver_index::<A>(encoding_config.n_shards()),
+                local_sliver_pair.to_sliver_index::<A>(encoding_config.n_shards()),
             )
             .map_err(NodeError::other)?;
 
@@ -286,43 +330,38 @@ impl Client {
     }
 
     /// Stores the metadata on the node.
-    #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
+    #[tracing::instrument(
+        skip_all, fields(walrus.blob_id = %metadata.blob_id()), err(level = Level::DEBUG)
+    )]
     pub async fn store_metadata(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
     ) -> Result<(), NodeError> {
         let url = self.endpoints.metadata(metadata.blob_id());
-        let encoded_metadata = bcs::to_bytes(metadata.as_ref())
-            .expect("successfully bcs encodes within limit defaults");
-
-        let request = self.inner.put(url).body(encoded_metadata);
-        request
-            .send()
-            .await
-            .map_err(Kind::Reqwest)?
-            .response_error_for_status()
+        let request = self.create_request_with_payload(Method::PUT, url, metadata.as_ref())?;
+        self.request_json::<String>(request, METADATA_URL_TEMPLATE)
             .await?;
-
         Ok(())
     }
 
     /// Stores a sliver on a node.
-    #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
-    pub async fn store_sliver_by_axis<A: EncodingAxis>(
+    #[tracing::instrument(
+        skip_all,
+        fields(
+            walrus.blob_id = %blob_id,
+            walrus.sliver.pair_index = %pair_index,
+        ),
+        err(level = Level::DEBUG)
+    )]
+    pub async fn store_sliver<A: EncodingAxis>(
         &self,
         blob_id: &BlobId,
         pair_index: SliverPairIndex,
         sliver: &Sliver<A>,
     ) -> Result<(), NodeError> {
         let url = self.endpoints.sliver::<A>(blob_id, pair_index);
-        let encoded_sliver = bcs::to_bytes(&sliver).expect("internal types to be bcs encodable");
-
-        let request = self.inner.put(url).body(encoded_sliver);
-        request
-            .send()
-            .await
-            .map_err(Kind::Reqwest)?
-            .response_error_for_status()
+        let request = self.create_request_with_payload(Method::PUT, url, &sliver)?;
+        self.request_json::<String>(request, SLIVER_URL_TEMPLATE)
             .await?;
 
         Ok(())
@@ -330,82 +369,63 @@ impl Client {
 
     /// Stores a sliver on a node.
     // TODO: This function is only used internally and in test functions in walrus-service. (#498)
-    pub async fn store_sliver(
+    #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
+    pub async fn store_sliver_by_type(
         &self,
         blob_id: &BlobId,
         pair_index: SliverPairIndex,
         sliver: &SliverEnum,
     ) -> Result<(), NodeError> {
         match sliver {
-            SliverEnum::Primary(sliver) => {
-                self.store_sliver_by_axis(blob_id, pair_index, sliver).await
-            }
-            SliverEnum::Secondary(sliver) => {
-                self.store_sliver_by_axis(blob_id, pair_index, sliver).await
-            }
+            SliverEnum::Primary(sliver) => self.store_sliver(blob_id, pair_index, sliver).await,
+            SliverEnum::Secondary(sliver) => self.store_sliver(blob_id, pair_index, sliver).await,
         }
     }
 
-    /// Stores a sliver pair on the node.
-    ///
-    /// Returns an error if either storing the primary or secondary sliver fails.
-    // TODO: This function is currently not used at all. (#498)
-    pub async fn store_sliver_pair(
-        &self,
-        blob_id: &BlobId,
-        pair: &SliverPair,
-    ) -> Result<(), NodeError> {
-        let (primary, secondary) = tokio::join!(
-            self.store_sliver_by_axis(blob_id, pair.index(), &pair.primary),
-            self.store_sliver_by_axis(blob_id, pair.index(), &pair.secondary),
-        );
-        primary.and(secondary)
-    }
-
     /// Sends an inconsistency proof for the specified [`EncodingAxis`] to a node.
-    async fn send_inconsistency_proof_by_axis<A: EncodingAxis>(
+    #[tracing::instrument(skip_all, fields( walrus.blob_id = %blob_id), err(level = Level::DEBUG))]
+    async fn submit_inconsistency_proof<A: EncodingAxis>(
         &self,
         blob_id: &BlobId,
         inconsistency_proof: &InconsistencyProof<A, MerkleProof>,
     ) -> Result<InvalidBlobIdAttestation, NodeError> {
         let url = self.endpoints.inconsistency_proof::<A>(blob_id);
-        let encoded_proof =
-            bcs::to_bytes(&inconsistency_proof).expect("internal types to be bcs encodable");
+        let request = self.create_request_with_payload(Method::PUT, url, &inconsistency_proof)?;
 
-        let request = self.inner.put(url).body(encoded_proof);
-        let attestation = request
-            .send()
+        self.request_json(request, INCONSISTENCY_PROOF_URL_TEMPLATE)
             .await
-            .map_err(Kind::Reqwest)?
-            .response_error_for_status()
-            .await?
-            .service_response()
-            .await?;
-
-        Ok(attestation)
     }
 
     /// Sends an inconsistency proof to a node and requests the invalid blob id
     /// attestation from the node.
     #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
-    pub async fn send_inconsistency_proof(
+    pub async fn submit_inconsistency_proof_by_type(
         &self,
         blob_id: &BlobId,
         inconsistency_proof: &InconsistencyProofEnum,
     ) -> Result<InvalidBlobIdAttestation, NodeError> {
         match inconsistency_proof {
             InconsistencyProofEnum::Primary(proof) => {
-                self.send_inconsistency_proof_by_axis(blob_id, proof).await
+                self.submit_inconsistency_proof(blob_id, proof).await
             }
             InconsistencyProofEnum::Secondary(proof) => {
-                self.send_inconsistency_proof_by_axis(blob_id, proof).await
+                self.submit_inconsistency_proof(blob_id, proof).await
             }
         }
     }
 
     /// Sends an inconsistency proof to a node and verifies the returned invalid blob id
     /// attestation.
-    pub async fn get_and_verify_invalid_blob_attestation(
+    #[tracing::instrument(
+        skip_all,
+        fields(
+            walrus.blob_id = %blob_id,
+            walrus.epoch = epoch,
+            walrus.node.public_key = %public_key,
+        ),
+        err(level = Level::DEBUG)
+    )]
+    pub async fn submit_inconsistency_proof_and_verify_attestation(
         &self,
         blob_id: &BlobId,
         inconsistency_proof: &InconsistencyProofEnum,
@@ -413,7 +433,7 @@ impl Client {
         public_key: &PublicKey,
     ) -> Result<InvalidBlobIdAttestation, NodeError> {
         let attestation = self
-            .send_inconsistency_proof(blob_id, inconsistency_proof)
+            .submit_inconsistency_proof_by_type(blob_id, inconsistency_proof)
             .await?;
         let _ = attestation
             .verify(public_key, epoch, blob_id)
@@ -422,16 +442,114 @@ impl Client {
     }
 
     /// Gets the health information of the storage node.
+    #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
     pub async fn get_server_health_info(&self) -> Result<ServiceHealthInfo, NodeError> {
-        let server_health_info: ServiceHealthInfo = self
-            .inner
-            .get(self.endpoints.server_health_info())
-            .send()
-            .await
-            .map_err(Kind::Reqwest)?
-            .service_response()
-            .await?;
-        Ok(server_health_info)
+        let request = Request::new(Method::GET, self.endpoints.server_health_info());
+        self.request_json(request, HEALTH_URL_TEMPLATE).await
+    }
+
+    /// Send a request with tracing and context propagation.
+    ///
+    /// The HTTP span ends after the parsing of the headers, since the response may be streamed.
+    async fn send_request(
+        &self,
+        mut request: Request,
+        url_template: &'static str,
+    ) -> Result<(Response, Span), NodeError> {
+        let url = request.url();
+        let span = tracing::info_span!(
+            "http_request",
+            otel.name = format!("{} {}", request.method().as_str(), url_template),
+            otel.kind = "client",
+            otel.status_code = field::Empty,
+            otel.status_message = field::Empty,
+            http.request.method = request.method().as_str(),
+            http.response.status_code = field::Empty,
+            server.address = url.host_str(),
+            server.port = url.port_or_known_default(),
+            url.full = url.as_str(),
+            "error.type" = field::Empty,
+        );
+
+        // We use the global propagator as in the examples, since this allows a client using the
+        // library to completely disable propagation for contextual information.
+        opentelemetry::global::get_text_map_propagator(|propagator| {
+            propagator.inject_context(&span.context(), &mut HeaderInjector(request.headers_mut()));
+        });
+
+        let result = self.inner.execute(request).instrument(span.clone()).await;
+
+        match result {
+            Ok(response) => {
+                let status_code = response.status();
+                span.record("http.response.status_code", status_code.as_str());
+
+                // We don't handle anything that is not a 2xx, so they're all failures to us.
+                if !status_code.is_success() {
+                    span.record("otel.status_code", "ERROR");
+                    // For HTTP errors, otel recommends not setting status_message.
+                    span.record("error.type", status_code.as_str());
+                }
+
+                response
+                    .response_error_for_status()
+                    .instrument(span.clone())
+                    .await
+                    .map(|response| (response, span))
+            }
+            Err(err) => {
+                span.record("otel.status_code", "ERROR");
+                span.record("otel.status_message", err.to_string());
+                span.record("error.type", "reqwest::Error");
+
+                Err(NodeError::reqwest(err))
+            }
+        }
+    }
+
+    async fn request_bcs<T: DeserializeOwned>(
+        &self,
+        request: Request,
+        url_template: &'static str,
+    ) -> Result<T, NodeError> {
+        let (response, span) = self.send_request(request, url_template).await?;
+        response.bcs().instrument(span).await
+    }
+
+    async fn request_json<T: DeserializeOwned>(
+        &self,
+        request: Request,
+        url_template: &'static str,
+    ) -> Result<T, NodeError> {
+        let (response, span) = self.send_request(request, url_template).await?;
+        response.service_response().instrument(span).await
+    }
+
+    fn create_request_with_payload<T: Serialize>(
+        &self,
+        method: Method,
+        url: Url,
+        body: &T,
+    ) -> Result<Request, NodeError> {
+        self.inner
+            .request(method, url)
+            .body(bcs::to_bytes(body).expect("type must be bcs encodable"))
+            .build()
+            .map_err(NodeError::reqwest)
+    }
+}
+
+// opentelemetry_http currently uses too low a version of the http crate,
+// so we reimplement the injector here.
+struct HeaderInjector<'a>(pub &'a mut HeaderMap);
+
+impl<'a> Injector for HeaderInjector<'a> {
+    fn set(&mut self, key: &str, value: String) {
+        if let Ok(name) = HeaderName::from_bytes(key.as_bytes()) {
+            if let Ok(val) = HeaderValue::from_str(&value) {
+                self.0.insert(name, val);
+            }
+        }
     }
 }
 

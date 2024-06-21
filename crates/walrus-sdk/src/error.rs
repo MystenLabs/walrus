@@ -35,6 +35,10 @@ impl NodeError {
     {
         Kind::Other(err.into()).into()
     }
+
+    pub(crate) fn reqwest(err: reqwest::Error) -> Self {
+        Kind::Reqwest(err).into()
+    }
 }
 
 /// Errors returned during the communication with a storage node.

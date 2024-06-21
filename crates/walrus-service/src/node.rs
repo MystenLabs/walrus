@@ -1195,17 +1195,13 @@ mod tests {
 
             if store_at_shard(&shard, SliverType::Primary) {
                 node.client
-                    .store_sliver_by_axis(blob.blob_id(), sliver_pair.index(), &sliver_pair.primary)
+                    .store_sliver(blob.blob_id(), sliver_pair.index(), &sliver_pair.primary)
                     .await?;
             }
 
             if store_at_shard(&shard, SliverType::Secondary) {
                 node.client
-                    .store_sliver_by_axis(
-                        blob.blob_id(),
-                        sliver_pair.index(),
-                        &sliver_pair.secondary,
-                    )
+                    .store_sliver(blob.blob_id(), sliver_pair.index(), &sliver_pair.secondary)
                     .await?;
             }
         }

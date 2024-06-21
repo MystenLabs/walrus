@@ -6,20 +6,19 @@ version = { workspace = true }
 edition = { workspace = true }
 license = { workspace = true }
 
-[features]
-service = ["dep:tower-service"]
-
 [dependencies]
 bcs.workspace = true
+futures.workspace = true
 mime.workspace = true
+opentelemetry.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sui-types.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
-tower-service = { version = "0.3.2", optional = true }
 tracing.workspace = true
+tracing-opentelemetry.workspace = true
 utoipa.workspace = true
 walrus-core.workspace = true
 

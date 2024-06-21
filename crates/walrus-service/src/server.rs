@@ -526,7 +526,7 @@ mod test {
         let sliver_pair_id = SliverPairIndex(0); // Triggers an ok response
 
         client
-            .store_sliver(&blob_id, sliver_pair_id, &sliver)
+            .store_sliver_by_type(&blob_id, sliver_pair_id, &sliver)
             .await
             .expect("sliver should be successfully stored");
     }
@@ -541,7 +541,7 @@ mod test {
         let sliver_pair_id = SliverPairIndex(1); // Triggers an internal server error
 
         let err = client
-            .store_sliver(&blob_id, sliver_pair_id, &sliver)
+            .store_sliver_by_type(&blob_id, sliver_pair_id, &sliver)
             .await
             .expect_err("store sliver should fail");
 
@@ -595,7 +595,7 @@ mod test {
         ));
 
         client
-            .send_inconsistency_proof(&blob_id_for_valid_response(), &inconsistency_proof)
+            .submit_inconsistency_proof_by_type(&blob_id_for_valid_response(), &inconsistency_proof)
             .await
             .expect("should return a signed blob invalid message");
     }
@@ -620,7 +620,7 @@ mod test {
         ));
 
         let err = client
-            .send_inconsistency_proof(&blob_id, &inconsistency_proof)
+            .submit_inconsistency_proof_by_type(&blob_id, &inconsistency_proof)
             .await
             .expect_err("confirmation request should fail");
 
