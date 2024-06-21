@@ -7,7 +7,7 @@ use reqwest::ClientBuilder;
 use serde::{Deserialize, Serialize};
 use sui_types::base_types::ObjectID;
 
-use crate::config::LoadConfig;
+use crate::{config::LoadConfig, utils};
 
 /// Config for the client.
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -15,7 +15,7 @@ pub struct Config {
     /// The Walrus system object ID.
     pub system_object: ObjectID,
     /// Path to the wallet configuration.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "utils::resolve_home_dir_option")]
     pub wallet_config: Option<PathBuf>,
     /// Configuration for the client's network communication.
     #[serde(default)]

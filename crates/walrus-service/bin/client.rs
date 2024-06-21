@@ -61,7 +61,10 @@ struct App {
     /// If an invalid path is specified through this option, an error is returned.
     // NB: Keep this in sync with `walrus_service::cli_utils`.
     #[clap(short, long, verbatim_doc_comment)]
-    #[serde(default)]
+    #[serde(
+        default,
+        deserialize_with = "walrus_service::utils::resolve_home_dir_option"
+    )]
     config: Option<PathBuf>,
     /// The path to the Sui wallet configuration file.
     ///
@@ -76,7 +79,10 @@ struct App {
     /// is returned.
     // NB: Keep this in sync with `walrus_service::cli_utils`.
     #[clap(short, long, verbatim_doc_comment)]
-    #[serde(default)]
+    #[serde(
+        default,
+        deserialize_with = "walrus_service::utils::resolve_home_dir_option"
+    )]
     wallet: Option<PathBuf>,
     /// The gas budget for transactions.
     #[clap(short, long, default_value_t = default::gas_budget())]
@@ -101,6 +107,7 @@ enum Commands {
     #[clap(alias("write"))]
     Store {
         /// The file containing the blob to be published to Walrus.
+        #[serde(deserialize_with = "walrus_service::utils::resolve_home_dir")]
         file: PathBuf,
         /// The number of epochs ahead for which to store the blob.
         #[clap(short, long, default_value_t = default::epochs())]
@@ -123,7 +130,10 @@ enum Commands {
         ///
         /// If unset, prints the blob to stdout.
         #[clap(short, long)]
-        #[serde(default)]
+        #[serde(
+            default,
+            deserialize_with = "walrus_service::utils::resolve_home_dir_option"
+        )]
         out: Option<PathBuf>,
         #[clap(flatten)]
         #[serde(flatten)]
@@ -221,6 +231,7 @@ enum Commands {
     /// Encode the specified file to obtain its blob ID.
     BlobId {
         /// The file containing the blob for which to compute the blob ID.
+        #[serde(deserialize_with = "walrus_service::utils::resolve_home_dir")]
         file: PathBuf,
         /// The number of shards for which to compute the blob ID.
         ///
@@ -268,7 +279,10 @@ struct DaemonArgs {
     bind_address: SocketAddr,
     /// Path to a blocklist file containing a list (in YAML syntax) of blocked blob IDs.
     #[clap(long)]
-    #[serde(default)]
+    #[serde(
+        default,
+        deserialize_with = "walrus_service::utils::resolve_home_dir_option"
+    )]
     blocklist: Option<PathBuf>,
 }
 

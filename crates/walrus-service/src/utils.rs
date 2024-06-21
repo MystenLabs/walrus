@@ -1,18 +1,20 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Utility functions used internally in the crate.
+//! Utility functions for the Walrus service.
 
 use std::{
     fmt::Debug,
     future::Future,
     num::Saturating,
+    path::PathBuf,
     pin::Pin,
     sync::Arc,
     task::{ready, Context, Poll},
     time::Duration,
 };
 
+use anyhow::{Context as _, Result};
 use futures::{future::FusedFuture, FutureExt};
 use pin_project::pin_project;
 use prometheus::HistogramVec;
@@ -22,10 +24,11 @@ use rand::{
     Rng,
     SeedableRng,
 };
+use serde::{de::Error, Deserialize, Deserializer};
 use tokio::{sync::Semaphore, time::Instant};
 
 /// The representation of a backoff strategy.
-pub trait BackoffStrategy {
+pub(crate) trait BackoffStrategy {
     /// Steps the backoff iterator, returning the next delay and advances the backoff.
     ///
     /// Returns `None` if the strategy mandates that the consumer should stop backing off.
@@ -312,6 +315,41 @@ where
             tracing::debug!("last attempt failed, returning last failure value");
             return value;
         }
+    }
+}
+
+/// Can be used to deserialize optional paths such that the `~` is resolved to the user's home
+/// directory.
+pub fn resolve_home_dir<'de, D>(deserializer: D) -> Result<PathBuf, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let path: PathBuf = Deserialize::deserialize(deserializer)?;
+    path_with_resolved_home_dir(path).map_err(D::Error::custom)
+}
+
+/// Can be used to deserialize optional paths such that the `~` is resolved to the user's home
+/// directory.
+pub fn resolve_home_dir_option<'de, D>(deserializer: D) -> Result<Option<PathBuf>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let path: Option<PathBuf> = Deserialize::deserialize(deserializer)?;
+    let Some(path) = path else { return Ok(None) };
+    Ok(Some(
+        path_with_resolved_home_dir(path).map_err(D::Error::custom)?,
+    ))
+}
+
+fn path_with_resolved_home_dir(path: PathBuf) -> Result<PathBuf> {
+    if path.starts_with("~/") {
+        let home = home::home_dir().context("unable to resolve home directory")?;
+        return Ok(home.join(
+            path.strip_prefix("~")
+                .expect("we just checked for this prefix"),
+        ));
+    } else {
+        Ok(path)
     }
 }
 

@@ -24,7 +24,7 @@ use sui_sdk::types::base_types::ObjectID;
 use walrus_core::keys::{ProtocolKeyPair, ProtocolKeyPairParseError};
 use walrus_sui::{types::NetworkAddress, utils::SuiNetwork};
 
-use crate::storage::DatabaseConfig;
+use crate::{storage::DatabaseConfig, utils};
 
 /// Trait for loading configuration from a YAML file.
 pub trait LoadConfig: DeserializeOwned {
@@ -45,6 +45,7 @@ pub trait LoadConfig: DeserializeOwned {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct StorageNodeConfig {
     /// Directory in which to persist the database
+    #[serde(deserialize_with = "utils::resolve_home_dir")]
     pub storage_path: PathBuf,
     /// Option config to tune storage db
     pub db_config: Option<DatabaseConfig>,
@@ -145,6 +146,7 @@ pub struct SuiConfig {
     )]
     pub event_polling_interval: Duration,
     /// Location of the wallet config.
+    #[serde(deserialize_with = "utils::resolve_home_dir")]
     pub wallet_config: PathBuf,
     /// Gas budget for transactions.
     #[serde(default = "defaults::gas_budget")]
@@ -239,7 +241,7 @@ pub enum PathOrInPlace<T> {
     /// A value that is not present in the config, but at a path on the filesystem.
     Path {
         /// The path from which the value can be loaded.
-        #[serde(rename = "path")]
+        #[serde(rename = "path", deserialize_with = "utils::resolve_home_dir")]
         path: PathBuf,
         /// The value loaded from the specified path.
         #[serde(skip, default = "Option::default")]

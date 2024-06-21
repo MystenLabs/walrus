@@ -64,7 +64,7 @@ pub enum CloudProvider {
     Vultr,
 }
 
-/// The testbed settings. Those are topically specified in a file.
+/// The testbed settings. Those are typically specified in a file.
 #[serde_as]
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct Settings {
@@ -77,10 +77,14 @@ pub struct Settings {
     #[serde(skip_serializing)]
     pub token_file: PathBuf,
     /// The ssh private key to access the instances.
-    #[serde(skip_serializing)]
+    #[serde(
+        skip_serializing,
+        deserialize_with = "walrus_service::utils::resolve_home_dir"
+    )]
     pub ssh_private_key_file: PathBuf,
     /// The corresponding ssh public key registered on the instances. If not specified. the
     /// public key defaults the same path as the private key with an added extension 'pub'.
+    #[serde(deserialize_with = "walrus_service::utils::resolve_home_dir_option")]
     pub ssh_public_key_file: Option<PathBuf>,
     /// The list of cloud provider regions to deploy the testbed.
     pub regions: Vec<String>,

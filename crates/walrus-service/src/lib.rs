@@ -12,7 +12,7 @@ pub mod daemon;
 pub mod server;
 pub mod system_events;
 pub mod testbed;
-pub(crate) mod utils;
+pub mod utils;
 
 mod node;
 pub use node::{StorageNode, StorageNodeBuilder};
