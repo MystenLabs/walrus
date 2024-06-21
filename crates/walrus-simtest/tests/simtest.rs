@@ -38,7 +38,7 @@ async fn test_walrus_basic_determinism() {
         .as_ref()
         .read_blob::<Primary>(&blob_confirmation.blob_id)
         .await
-        .expect("Read blob failed");
+        .expect("should be able to read blob we just stored");
 
     // Check that blob is what we wrote.
     assert_eq!(read_blob, blob);
@@ -48,6 +48,6 @@ async fn test_walrus_basic_determinism() {
         .as_ref()
         .read_blob::<Secondary>(&blob_confirmation.blob_id)
         .await
-        .expect("Read blob failed");
+        .expect("should be able to read blob we just stored");
     assert_eq!(read_blob, blob);
 }

@@ -25,8 +25,6 @@ futures = "0.3.30"
 futures-timer = "=3.0.2" # required for MSIM
 mime = "0.3.17"
 move-core-types = { git = "https://github.com/MystenLabs/sui", rev = "6c3a6ba165be8483fec3026394477a01bf48acda" }
-msim = { git = "https://github.com/MystenLabs/mysten-sim.git", rev = "862e52287eea423d132d462879631dad8e346147", package = "msim" }
-msim-macros = { git = "https://github.com/MystenLabs/mysten-sim.git", rev = "862e52287eea423d132d462879631dad8e346147", package = "msim-macros" }
 mysten-metrics = { git = "https://github.com/MystenLabs/sui", rev = "6c3a6ba165be8483fec3026394477a01bf48acda" }
 opentelemetry = "^0.23.0"
 opentelemetry-otlp = "^0.16"
@@ -39,10 +37,8 @@ serde = { version = "1.0.203", features = ["derive"] }
 serde_json = "1.0.119"
 serde_with = { version = "3.8", features = ["base64"] }
 serde_yaml = "0.9"
-# TODO(zhewu): Right now, the pinned sui commit is testnet-v1.27.2 + latest MSIM. This is to allow simtest to work
-# before 1.28. We can switch back to official release after 1.28 since that will contain the latest MSIM change.
+# TODO(zhewu): Upgrade to 1.28 to use official sui release: https://github.com/MystenLabs/walrus/issues/569
 sui-config = { git = "https://github.com/MystenLabs/sui", rev = "6c3a6ba165be8483fec3026394477a01bf48acda" }
-# TODO(zhewu): sui-framework is only needed as dependency to work around the temporary patch. Remove after 1.28.
 sui-framework = { git = "https://github.com/MystenLabs/sui", rev = "6c3a6ba165be8483fec3026394477a01bf48acda" }
 sui-keys = { git = "https://github.com/MystenLabs/sui", rev = "6c3a6ba165be8483fec3026394477a01bf48acda" }
 sui-macros = { git = "https://github.com/MystenLabs/sui", rev = "6c3a6ba165be8483fec3026394477a01bf48acda" }

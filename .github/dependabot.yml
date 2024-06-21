@@ -18,11 +18,13 @@ updates:
           - "minor"
           - "patch"
     ignore:
+      - dependency-name: futures-timer
       - dependency-name: move-core-types
       - dependency-name: mysten-metrics
       - dependency-name: sui-*
       - dependency-name: telemetry-subscribers
       - dependency-name: test-cluster
+      - dependency-name: tokio
       - dependency-name: typed-store
 
   - package-ecosystem: "github-actions"

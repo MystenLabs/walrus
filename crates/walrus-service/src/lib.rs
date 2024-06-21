@@ -16,6 +16,7 @@ pub mod utils;
 
 mod node;
 /// A module for creating a test Walrus cluster in process.
+#[cfg(any(test, feature = "test-utils"))]
 pub mod test_cluster;
 pub use node::{StorageNode, StorageNodeBuilder};
 
