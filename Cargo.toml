@@ -19,7 +19,7 @@ move-core-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1
 mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.27.2" }
 prometheus = "0.13.4"
 rand = "0.8.5"
-reqwest = { version = "0.12.4", default-features = false, features = ["http2", "json", "rustls-tls"] }
+reqwest = { version = "0.12.5", default-features = false, features = ["http2", "json", "rustls-tls"] }
 serde = { version = "1.0.203", features = ["derive"] }
 serde_json = "1.0.117"
 serde_with = { version = "3.8", features = ["base64"] }
