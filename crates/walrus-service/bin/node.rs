@@ -16,7 +16,7 @@ use anyhow::Context;
 use clap::{Parser, Subcommand};
 use fastcrypto::traits::KeyPair;
 use prometheus::Registry;
-// use telemetry_subscribers::{TelemetryGuards, TracingHandle};
+use telemetry_subscribers::{TelemetryGuards, TracingHandle};
 use tokio::{
     runtime::{self, Runtime},
     sync::oneshot,
@@ -32,7 +32,6 @@ use walrus_service::{
         StorageNodeConfig,
     },
     server::UserServer,
-    telemetry,
     testbed::node_config_name_prefix,
     StorageNode,
 };
@@ -354,8 +353,8 @@ mod commands {
 
 struct MetricsAndLoggingRuntime {
     registry: Registry,
-    // _telemetry_guards: TelemetryGuards,
-    // _tracing_handle: TracingHandle,
+    _telemetry_guards: TelemetryGuards,
+    _tracing_handle: TracingHandle,
     // INV: Runtime must be dropped last.
     _runtime: Runtime,
 }
@@ -375,20 +374,17 @@ impl MetricsAndLoggingRuntime {
         let walrus_registry = registry_service.default_registry();
 
         // Initialize logging subscriber
-        // let (telemetry_guards, tracing_handle) = telemetry_subscribers::TelemetryConfig::new()
-        //     .with_env()
-        //     .with_prom_registry(&walrus_registry)
-        //     .with_log_level("debug")
-        //     .init();
-
-        // TODO(jsmith): Exporting needs to be debugged.
-        telemetry::test_tracing();
+        let (telemetry_guards, tracing_handle) = telemetry_subscribers::TelemetryConfig::new()
+            .with_env()
+            .with_prom_registry(&walrus_registry)
+            .with_log_level("debug")
+            .init();
 
         Ok(Self {
             _runtime: runtime,
             registry: walrus_registry,
-            // _telemetry_guards: telemetry_guards,
-            // _tracing_handle: tracing_handle,
+            _telemetry_guards: telemetry_guards,
+            _tracing_handle: tracing_handle,
         })
     }
 }

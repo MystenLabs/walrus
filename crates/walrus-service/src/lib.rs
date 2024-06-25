@@ -13,7 +13,7 @@ pub mod server;
 pub mod system_events;
 
 // TODO(jsmith): Should be only crate visible, move CLI logic into crate.
-pub mod telemetry;
+mod telemetry;
 pub mod testbed;
 pub mod utils;
 

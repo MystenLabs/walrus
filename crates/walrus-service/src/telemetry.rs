@@ -18,7 +18,6 @@ use axum::{
     },
 };
 use opentelemetry::propagation::Extractor;
-use opentelemetry_sdk::propagation::TraceContextPropagator;
 use tower_http::trace::{MakeSpan, OnResponse};
 use tracing::{field, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -220,57 +219,4 @@ fn get_header_as_str<B, K: AsHeaderName>(request: &Request<B>, key: K) -> Option
         .headers()
         .get(key)
         .and_then(|value| value.to_str().ok())
-}
-
-/// To be removed
-pub fn test_tracing() {
-    use opentelemetry::KeyValue;
-    use opentelemetry_sdk::{
-        trace::{BatchConfigBuilder, Config as TraceConfig},
-        Resource,
-    };
-    use tracing::Level;
-    use tracing_subscriber::{
-        filter::Targets,
-        layer::{Layer as _, SubscriberExt},
-        Registry,
-    };
-
-    let otlp_exporter = opentelemetry_otlp::new_exporter().tonic();
-    let tracer = opentelemetry_otlp::new_pipeline()
-        .tracing()
-        .with_trace_config(
-            TraceConfig::default()
-                .with_resource(Resource::new([KeyValue::new("service.name", "walrus")])),
-        )
-        .with_batch_config(
-            BatchConfigBuilder::default()
-                .with_max_queue_size(16_000)
-                .with_max_export_batch_size(2048)
-                .with_max_concurrent_exports(5)
-                .with_scheduled_delay(Duration::from_millis(100))
-                .build(),
-        )
-        .with_exporter(otlp_exporter)
-        .install_batch(opentelemetry_sdk::runtime::TokioCurrentThread)
-        .expect("installation to succeed");
-
-    let telemetry_layer = tracing_opentelemetry::layer().with_tracer(tracer);
-    let subscriber =
-        Registry::default().with(telemetry_layer.with_filter(Targets::new().with_targets([
-            ("walrus_service", Level::TRACE),
-            ("walrus_sdk", Level::TRACE),
-            ("walrus_sui", Level::TRACE),
-            ("walrus", Level::TRACE),
-        ])));
-    opentelemetry::global::set_text_map_propagator(TraceContextPropagator::new());
-    tracing::dispatcher::get_default(|dispatcher| {
-        dbg!(dispatcher);
-    });
-    let dispatch = tracing::Dispatch::new(subscriber);
-    dbg!(&dispatch);
-    tracing::dispatcher::set_global_default(dispatch).unwrap();
-    tracing::dispatcher::get_default(|dispatcher| {
-        dbg!(dispatcher);
-    });
 }
