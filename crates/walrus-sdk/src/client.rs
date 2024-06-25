@@ -53,16 +53,25 @@ impl UrlEndpoints {
         self.0.join(&format!("/v1/blobs/{blob_id}/")).unwrap()
     }
 
-    fn metadata(&self, blob_id: &BlobId) -> Url {
-        self.blob_resource(blob_id).join("metadata").unwrap()
+    fn metadata(&self, blob_id: &BlobId) -> (Url, &'static str) {
+        (
+            self.blob_resource(blob_id).join("metadata").unwrap(),
+            METADATA_URL_TEMPLATE,
+        )
     }
 
-    fn confirmation(&self, blob_id: &BlobId) -> Url {
-        self.blob_resource(blob_id).join("confirmation").unwrap()
+    fn confirmation(&self, blob_id: &BlobId) -> (Url, &'static str) {
+        (
+            self.blob_resource(blob_id).join("confirmation").unwrap(),
+            STORAGE_CONFIRMATION_URL_TEMPLATE,
+        )
     }
 
-    fn blob_status(&self, blob_id: &BlobId) -> Url {
-        self.blob_resource(blob_id).join("status").unwrap()
+    fn blob_status(&self, blob_id: &BlobId) -> (Url, &'static str) {
+        (
+            self.blob_resource(blob_id).join("status").unwrap(),
+            STATUS_URL_TEMPLATE,
+        )
     }
 
     fn recovery_symbol<A: EncodingAxis>(
@@ -70,32 +79,38 @@ impl UrlEndpoints {
         blob_id: &BlobId,
         sliver_pair_at_remote: SliverPairIndex,
         intersecting_pair_index: SliverPairIndex,
-    ) -> Url {
-        let mut url = self.sliver::<A>(blob_id, sliver_pair_at_remote);
+    ) -> (Url, &'static str) {
+        let (mut url, _) = self.sliver::<A>(blob_id, sliver_pair_at_remote);
         url.path_segments_mut()
             .unwrap()
             .push(&intersecting_pair_index.0.to_string());
-        url
+        (url, RECOVERY_URL_TEMPLATE)
     }
 
     fn sliver<A: EncodingAxis>(
         &self,
         blob_id: &BlobId,
         SliverPairIndex(sliver_pair_index): SliverPairIndex,
-    ) -> Url {
+    ) -> (Url, &'static str) {
         let sliver_type = SliverType::for_encoding::<A>();
         let path = format!("slivers/{sliver_pair_index}/{sliver_type}");
-        self.blob_resource(blob_id).join(&path).unwrap()
+        (
+            self.blob_resource(blob_id).join(&path).unwrap(),
+            SLIVER_URL_TEMPLATE,
+        )
     }
 
-    fn inconsistency_proof<A: EncodingAxis>(&self, blob_id: &BlobId) -> Url {
+    fn inconsistency_proof<A: EncodingAxis>(&self, blob_id: &BlobId) -> (Url, &'static str) {
         let sliver_type = SliverType::for_encoding::<A>();
         let path = format!("inconsistent/{sliver_type}");
-        self.blob_resource(blob_id).join(&path).unwrap()
+        (
+            self.blob_resource(blob_id).join(&path).unwrap(),
+            INCONSISTENCY_PROOF_URL_TEMPLATE,
+        )
     }
 
-    fn server_health_info(&self) -> Url {
-        self.0.join("/v1/health").unwrap()
+    fn server_health_info(&self) -> (Url, &'static str) {
+        (self.0.join("/v1/health").unwrap(), HEALTH_URL_TEMPLATE)
     }
 }
 
@@ -126,8 +141,8 @@ impl Client {
         &self,
         blob_id: &BlobId,
     ) -> Result<UnverifiedBlobMetadataWithId, NodeError> {
-        let request = Request::new(Method::GET, self.endpoints.metadata(blob_id));
-        self.send_and_parse_bcs_response(request, METADATA_URL_TEMPLATE)
+        let (url, template) = self.endpoints.metadata(blob_id);
+        self.send_and_parse_bcs_response(Request::new(Method::GET, url), template)
             .await
     }
 
@@ -147,8 +162,8 @@ impl Client {
     /// Requests the status of a blob ID from the node.
     #[tracing::instrument(skip_all, fields(walrus.blob_id = %blob_id), err(level = Level::DEBUG))]
     pub async fn get_blob_status(&self, blob_id: &BlobId) -> Result<BlobStatus, NodeError> {
-        let request = Request::new(Method::GET, self.endpoints.blob_status(blob_id));
-        self.send_and_parse_service_response(request, STATUS_URL_TEMPLATE)
+        let (url, template) = self.endpoints.blob_status(blob_id);
+        self.send_and_parse_service_response(Request::new(Method::GET, url), template)
             .await
     }
 
@@ -159,10 +174,10 @@ impl Client {
         &self,
         blob_id: &BlobId,
     ) -> Result<SignedStorageConfirmation, NodeError> {
-        let request = Request::new(Method::GET, self.endpoints.confirmation(blob_id));
+        let (url, template) = self.endpoints.confirmation(blob_id);
         // NOTE(giac): in the future additional values may be possible here.
         let StorageConfirmation::Signed(confirmation) = self
-            .send_and_parse_service_response(request, STORAGE_CONFIRMATION_URL_TEMPLATE)
+            .send_and_parse_service_response(Request::new(Method::GET, url), template)
             .await?;
         Ok(confirmation)
     }
@@ -206,8 +221,8 @@ impl Client {
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
     ) -> Result<Sliver<A>, NodeError> {
-        let url = self.endpoints.sliver::<A>(blob_id, sliver_pair_index);
-        self.send_and_parse_bcs_response(Request::new(Method::GET, url), SLIVER_URL_TEMPLATE)
+        let (url, template) = self.endpoints.sliver::<A>(blob_id, sliver_pair_index);
+        self.send_and_parse_bcs_response(Request::new(Method::GET, url), template)
             .await
     }
 
@@ -289,10 +304,10 @@ impl Client {
         remote_sliver_pair: SliverPairIndex,
         local_sliver_pair: SliverPairIndex,
     ) -> Result<RecoverySymbol<A, MerkleProof>, NodeError> {
-        let url =
+        let (url, template) =
             self.endpoints
                 .recovery_symbol::<A>(blob_id, remote_sliver_pair, local_sliver_pair);
-        self.send_and_parse_bcs_response(Request::new(Method::GET, url), RECOVERY_URL_TEMPLATE)
+        self.send_and_parse_bcs_response(Request::new(Method::GET, url), template)
             .await
     }
 
@@ -339,9 +354,9 @@ impl Client {
         &self,
         metadata: &VerifiedBlobMetadataWithId,
     ) -> Result<(), NodeError> {
-        let url = self.endpoints.metadata(metadata.blob_id());
+        let (url, template) = self.endpoints.metadata(metadata.blob_id());
         let request = self.create_request_with_payload(Method::PUT, url, metadata.as_ref())?;
-        self.send_and_parse_service_response::<String>(request, METADATA_URL_TEMPLATE)
+        self.send_and_parse_service_response::<String>(request, template)
             .await?;
         Ok(())
     }
@@ -361,9 +376,9 @@ impl Client {
         pair_index: SliverPairIndex,
         sliver: &Sliver<A>,
     ) -> Result<(), NodeError> {
-        let url = self.endpoints.sliver::<A>(blob_id, pair_index);
+        let (url, template) = self.endpoints.sliver::<A>(blob_id, pair_index);
         let request = self.create_request_with_payload(Method::PUT, url, &sliver)?;
-        self.send_and_parse_service_response::<String>(request, SLIVER_URL_TEMPLATE)
+        self.send_and_parse_service_response::<String>(request, template)
             .await?;
 
         Ok(())
@@ -391,10 +406,10 @@ impl Client {
         blob_id: &BlobId,
         inconsistency_proof: &InconsistencyProof<A, MerkleProof>,
     ) -> Result<InvalidBlobIdAttestation, NodeError> {
-        let url = self.endpoints.inconsistency_proof::<A>(blob_id);
+        let (url, template) = self.endpoints.inconsistency_proof::<A>(blob_id);
         let request = self.create_request_with_payload(Method::PUT, url, &inconsistency_proof)?;
 
-        self.send_and_parse_service_response(request, INCONSISTENCY_PROOF_URL_TEMPLATE)
+        self.send_and_parse_service_response(request, template)
             .await
     }
 
@@ -446,8 +461,8 @@ impl Client {
     /// Gets the health information of the storage node.
     #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
     pub async fn get_server_health_info(&self) -> Result<ServiceHealthInfo, NodeError> {
-        let request = Request::new(Method::GET, self.endpoints.server_health_info());
-        self.send_and_parse_service_response(request, HEALTH_URL_TEMPLATE)
+        let (url, template) = self.endpoints.server_health_info();
+        self.send_and_parse_service_response(Request::new(Method::GET, url), template)
             .await
     }
 
@@ -568,15 +583,15 @@ mod tests {
     param_test! {
         test_blob_url_endpoint: [
             blob: (|e| e.blob_resource(&BLOB_ID), ""),
-            metadata: (|e| e.metadata(&BLOB_ID), "metadata"),
-            confirmation: (|e| e.confirmation(&BLOB_ID), "confirmation"),
-            sliver: (|e| e.sliver::<Primary>(&BLOB_ID, SliverPairIndex(1)), "slivers/1/primary"),
+            metadata: (|e| e.metadata(&BLOB_ID).0, "metadata"),
+            confirmation: (|e| e.confirmation(&BLOB_ID).0, "confirmation"),
+            sliver: (|e| e.sliver::<Primary>(&BLOB_ID, SliverPairIndex(1)).0, "slivers/1/primary"),
             recovery_symbol: (
-                |e| e.recovery_symbol::<Primary>(&BLOB_ID, SliverPairIndex(1), SliverPairIndex(2)),
+                |e| e.recovery_symbol::<Primary>(&BLOB_ID, SliverPairIndex(1), SliverPairIndex(2)).0,
                 "slivers/1/primary/2"
             ),
             inconsistency_proof: (
-                |e| e.inconsistency_proof::<Primary>(&BLOB_ID), "inconsistent/primary"
+                |e| e.inconsistency_proof::<Primary>(&BLOB_ID).0, "inconsistent/primary"
             ),
         ]
     }
@@ -594,7 +609,7 @@ mod tests {
     #[test]
     fn test_url_health_info_endpoint() {
         let endpoints = UrlEndpoints(Url::parse("http://node.com").unwrap());
-        let url = endpoints.server_health_info();
+        let (url, _) = endpoints.server_health_info();
 
         assert_eq!(url.to_string(), "http://node.com/v1/health");
     }
