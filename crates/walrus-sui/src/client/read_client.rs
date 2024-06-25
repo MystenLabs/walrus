@@ -169,6 +169,11 @@ impl SuiReadClient {
         })
         .await
     }
+
+    /// Return the underlying Sui client.
+    pub fn sui_client(&self) -> &SuiClient {
+        &self.sui_client
+    }
 }
 
 impl ReadClient for SuiReadClient {

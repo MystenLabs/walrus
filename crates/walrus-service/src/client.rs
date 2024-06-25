@@ -316,7 +316,7 @@ impl<T: ContractClient> Client<T> {
             .sui_client
             .reserve_space(encoded_size, epochs_ahead)
             .await
-            .map_err(ClientError::other)?;
+            .map_err(ClientError::from)?;
         self.sui_client
             .register_blob(
                 &storage_resource,
@@ -328,7 +328,7 @@ impl<T: ContractClient> Client<T> {
                 metadata.metadata().encoding_type,
             )
             .await
-            .map_err(ClientError::other)
+            .map_err(ClientError::from)
     }
 }
 
@@ -809,8 +809,8 @@ impl<T> Client<T> {
     }
 
     /// Returns the inner sui client.
-    pub fn sui_client(&self) -> &T {
-        &self.sui_client
+    pub fn sui_client(&mut self) -> &mut T {
+        &mut self.sui_client
     }
 
     fn build_reqwest_client(config: &Config) -> Result<ReqwestClient, ClientError> {

@@ -23,13 +23,14 @@ const LATENCY_SEC_BUCKETS: &[f64] = &[
 pub const WRITE_WORKLOAD: &str = "write";
 pub const READ_WORKLOAD: &str = "read";
 
-#[derive(Clone)]
+#[derive(Debug)]
 pub struct ClientMetrics {
     pub benchmark_duration: IntCounter,
     pub submitted: CounterVec,
     pub latency_s: HistogramVec,
     pub latency_squared_s: CounterVec,
     pub errors: CounterVec,
+    pub gas_refill: IntCounter,
 }
 
 impl ClientMetrics {
@@ -70,6 +71,12 @@ impl ClientMetrics {
                 registry,
             )
             .unwrap(),
+            gas_refill: register_int_counter_with_registry!(
+                "gas_refill",
+                "Number of gas refills",
+                registry,
+            )
+            .unwrap(),
         }
     }
 
@@ -93,5 +100,9 @@ impl ClientMetrics {
 
     pub fn observe_error(&self, error: &str) {
         self.errors.with_label_values(&[error]).inc();
+    }
+
+    pub fn observe_gas_refill(&self) {
+        self.gas_refill.inc();
     }
 }

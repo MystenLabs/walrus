@@ -148,7 +148,7 @@ async_param_test! {
 async fn test_inconsistency(failed_shards: &[usize]) -> anyhow::Result<()> {
     let _ = tracing_subscriber::fmt::try_init();
 
-    let (_sui_cluster_handle, mut cluster, client) = default_setup().await?;
+    let (_sui_cluster_handle, mut cluster, mut client) = default_setup().await?;
 
     // Store a blob and get confirmations from each node.
     let blob = walrus_test_utils::random_data(31415);
@@ -189,14 +189,14 @@ async fn test_inconsistency(failed_shards: &[usize]) -> anyhow::Result<()> {
         .for_each(|&idx| cluster.cancel_node(idx));
 
     client
-        .as_ref()
+        .as_mut()
         .sui_client()
         .certify_blob(blob_sui_object, &certificate)
         .await?;
 
     // Wait to receive an inconsistent blob event.
     let events = client
-        .as_ref()
+        .as_mut()
         .sui_client()
         .read_client()
         .blob_events(Duration::from_millis(50), None)

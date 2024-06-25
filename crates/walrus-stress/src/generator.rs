@@ -5,15 +5,15 @@
 
 use std::{
     collections::VecDeque,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
 use anyhow::Context;
 use futures::{future::try_join_all, stream::FuturesUnordered, StreamExt};
 use rand::{rngs::StdRng, seq::SliceRandom, thread_rng, SeedableRng};
-use sui_sdk::SuiClientBuilder;
+use sui_sdk::{types::base_types::SuiAddress, SuiClient, SuiClientBuilder};
 use tokio::{
-    sync::mpsc::{Receiver, Sender},
     task::JoinHandle,
     time::{Interval, MissedTickBehavior},
 };
@@ -22,7 +22,7 @@ use walrus_service::client::{Client, Config};
 use walrus_sui::{
     client::{SuiContractClient, SuiReadClient},
     test_utils::wallet_for_testing_from_faucet,
-    utils::SuiNetwork,
+    utils::{request_sui_from_faucet, SuiNetwork},
 };
 use walrus_test_utils::WithTempDir;
 
@@ -43,6 +43,8 @@ use blob::BlobData;
 pub struct LoadGenerator {
     write_client_pool: VecDeque<(WithTempDir<Client<SuiContractClient>>, BlobData)>,
     read_client: Client<()>,
+    metrics: Arc<ClientMetrics>,
+    _gas_refill_handle: JoinHandle<anyhow::Result<()>>,
 }
 
 impl LoadGenerator {
@@ -51,9 +53,11 @@ impl LoadGenerator {
         blob_size: usize,
         client_config: Config,
         network: SuiNetwork,
+        gas_refill_period: Duration,
+        metrics: Arc<ClientMetrics>,
     ) -> anyhow::Result<Self> {
         tracing::info!("Initializing clients...");
-        let clients = try_join_all(
+        let mut clients = try_join_all(
             (0..n_write_clients).map(|_| new_client(&client_config, network, DEFAULT_GAS_BUDGET)),
         )
         .await?;
@@ -71,6 +75,26 @@ impl LoadGenerator {
         .await?;
         let read_client = Client::new_read_client(client_config.clone(), &sui_read_client).await?;
 
+        tracing::info!("Spawning gas refill task...");
+        let addresses = clients
+            .iter_mut()
+            .map(|client| {
+                client
+                    .as_mut()
+                    .sui_client()
+                    .wallet()
+                    .active_address()
+                    .unwrap()
+            })
+            .collect();
+        let gas_refill_handle = refill_gas(
+            addresses,
+            network,
+            sui_read_client.sui_client().clone(),
+            gas_refill_period,
+            metrics.clone(),
+        );
+
         tracing::info!("Initializing blobs...");
         let blobs = (0..n_write_clients).map(|_| {
             BlobData::random(
@@ -83,18 +107,14 @@ impl LoadGenerator {
         Ok(Self {
             write_client_pool,
             read_client,
+            metrics,
+            _gas_refill_handle: gas_refill_handle,
         })
     }
 
     /// Run the load generator. The `write_load` and `read_load` are the number of respective
     /// operations per minute.
-    pub async fn start(
-        &mut self,
-        write_load: u64,
-        read_load: u64,
-        metrics: &ClientMetrics,
-        mut rx_new_clients: Receiver<Vec<(WithTempDir<Client<SuiContractClient>>, BlobData)>>,
-    ) -> anyhow::Result<()> {
+    pub async fn start(&mut self, write_load: u64, read_load: u64) -> anyhow::Result<()> {
         tracing::info!("Starting load generator...");
         // Structures holding futures waiting for clients to finish their requests.
         let mut write_finished = FuturesUnordered::new();
@@ -125,7 +145,7 @@ impl LoadGenerator {
                     let burst_start = Instant::now();
 
                     let duration_since_start = burst_start.duration_since(start);
-                    metrics.observe_benchmark_duration(duration_since_start);
+                    self.metrics.observe_benchmark_duration(duration_since_start);
 
                     for _ in 0..writes_per_burst {
                         let Some((client, mut blob)) = self.write_client_pool.pop_front() else {
@@ -143,12 +163,12 @@ impl LoadGenerator {
                         }));
 
                         tracing::info!("Submitted write operation");
-                        metrics.observe_submitted(metrics::WRITE_WORKLOAD);
+                        self.metrics.observe_submitted(metrics::WRITE_WORKLOAD);
                     }
 
                     // Check if the submission rate is too high.
                     if burst_start.elapsed() > write_interval.period() {
-                        metrics.observe_error("write rate too high");
+                        self.metrics.observe_error("write rate too high");
                         tracing::warn!("write rate too high for this client");
                     }
                 }
@@ -156,7 +176,7 @@ impl LoadGenerator {
                     let burst_start = Instant::now();
 
                     let duration_since_start = burst_start.duration_since(start);
-                    metrics.observe_benchmark_duration(duration_since_start);
+                    self.metrics.observe_benchmark_duration(duration_since_start);
 
                     for _ in 0..reads_per_burst {
                         let Some(&blob_id) = blob_ids.choose(&mut thread_rng()) else {
@@ -172,43 +192,46 @@ impl LoadGenerator {
                         }));
 
                         tracing::info!("Submitted read operation");
-                        metrics.observe_submitted(metrics::READ_WORKLOAD);
+                        self.metrics.observe_submitted(metrics::READ_WORKLOAD);
                     }
 
                     // Check if the submission rate is too high.
                     if burst_start.elapsed() > read_interval.period() {
-                        metrics.observe_error("read rate too high");
+                        self.metrics.observe_error("read rate too high");
                         tracing::warn!("read rate too high for this client");
                     }
                 }
                 Some(Ok((elapsed, result, client, blob))) = write_finished.next() => {
-                    if let Ok(blob_result) = result {
-                        tracing::info!("Write finished");
-                        metrics.observe_latency(metrics::WRITE_WORKLOAD, elapsed);
-                        if (blob_ids.len() as u64) < read_load {
-                            blob_ids.push(blob_result.blob_id().to_owned());
-                        } else if let Some(entry) = blob_ids.choose_mut(&mut thread_rng()) {
-                            blob_result.blob_id().clone_into(entry);
+                    match result {
+                        Ok(blob_result) => {
+                            tracing::info!("Write finished");
+                            self.metrics.observe_latency(metrics::WRITE_WORKLOAD, elapsed);
+                            if (blob_ids.len() as u64) < read_load {
+                                blob_ids.push(blob_result.blob_id().to_owned());
+                            } else if let Some(entry) = blob_ids.choose_mut(&mut thread_rng()) {
+                                blob_result.blob_id().clone_into(entry);
+                            }
                         }
-                        self.write_client_pool.push_back((client, blob));
-                    } else {
-                        // This may happen if the client runs out of gas.
-                        tracing::warn!("failed to obtain storage certificate");
-                        metrics.observe_error("failed to obtain storage certificate");
+                        Err(error) => {
+                            // This may happen if the client runs out of gas.
+                            tracing::warn!("failed to obtain storage certificate");
+                           self.metrics.observe_error("failed to obtain storage certificate");
+                            if error.is_out_of_coin_error() {
+                                tracing::warn!("consider increasing the gas refill period");
+                            }
+                        }
                     }
+                    self.write_client_pool.push_back((client, blob));
                 },
                 Some(Ok((elapsed, result))) = read_finished.next() => {
                     if result.is_ok() {
                         tracing::info!("Read finished");
-                        metrics.observe_latency(metrics::READ_WORKLOAD, elapsed);
+                        self.metrics.observe_latency(metrics::READ_WORKLOAD, elapsed);
                     } else {
                         tracing::warn!("failed to read blob");
-                        metrics.observe_error("failed to read blob");
+                        self.metrics.observe_error("failed to read blob");
                     }
                 },
-                Some(new_clients) = rx_new_clients.recv() => {
-                    self.write_client_pool.extend(new_clients);
-                }
                 else => break
             }
         }
@@ -251,15 +274,12 @@ fn burst_load(load: u64) -> (u64, Interval) {
     (load_per_burst, interval)
 }
 
-/// Generate `n_write_clients` write clients every `period`.
-pub fn write_clients_generator(
-    client_config: Config,
+pub fn refill_gas(
+    addresses: Vec<SuiAddress>,
     network: SuiNetwork,
-    gas_budget: u64,
-    n_write_clients: usize,
-    blob_size: usize,
+    sui_client: SuiClient,
     period: Duration,
-    out: Sender<Vec<(WithTempDir<Client<SuiContractClient>>, BlobData)>>,
+    metrics: Arc<ClientMetrics>,
 ) -> JoinHandle<anyhow::Result<()>> {
     let mut interval = tokio::time::interval(period);
     interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -267,17 +287,17 @@ pub fn write_clients_generator(
     tokio::spawn(async move {
         loop {
             interval.tick().await;
-            let clients = try_join_all(
-                (0..n_write_clients).map(|_| new_client(&client_config, network, gas_budget)),
+
+            try_join_all(
+                addresses
+                    .iter()
+                    .cloned()
+                    .map(|address| request_sui_from_faucet(address, network, &sui_client)),
             )
             .await?;
-            let blobs = (0..n_write_clients).map(|_| {
-                BlobData::random(
-                    StdRng::from_rng(thread_rng()).expect("rng should be seedable from thread_rng"),
-                    blob_size,
-                )
-            });
-            out.send(clients.into_iter().zip(blobs).collect()).await?;
+
+            tracing::debug!("Clients gas coins refilled");
+            metrics.observe_gas_refill();
         }
     })
 }
