@@ -127,7 +127,8 @@ impl Client {
         blob_id: &BlobId,
     ) -> Result<UnverifiedBlobMetadataWithId, NodeError> {
         let request = Request::new(Method::GET, self.endpoints.metadata(blob_id));
-        self.request_bcs(request, METADATA_URL_TEMPLATE).await
+        self.send_and_parse_bcs_response(request, METADATA_URL_TEMPLATE)
+            .await
     }
 
     /// Get the metadata and verify it against the provided config.
@@ -147,7 +148,8 @@ impl Client {
     #[tracing::instrument(skip_all, fields(walrus.blob_id = %blob_id), err(level = Level::DEBUG))]
     pub async fn get_blob_status(&self, blob_id: &BlobId) -> Result<BlobStatus, NodeError> {
         let request = Request::new(Method::GET, self.endpoints.blob_status(blob_id));
-        self.request_json(request, STATUS_URL_TEMPLATE).await
+        self.send_and_parse_service_response(request, STATUS_URL_TEMPLATE)
+            .await
     }
 
     /// Requests a storage confirmation from the node for the Blob specified by the given ID
@@ -160,7 +162,7 @@ impl Client {
         let request = Request::new(Method::GET, self.endpoints.confirmation(blob_id));
         // NOTE(giac): in the future additional values may be possible here.
         let StorageConfirmation::Signed(confirmation) = self
-            .request_json(request, STORAGE_CONFIRMATION_URL_TEMPLATE)
+            .send_and_parse_service_response(request, STORAGE_CONFIRMATION_URL_TEMPLATE)
             .await?;
         Ok(confirmation)
     }
@@ -205,7 +207,7 @@ impl Client {
         sliver_pair_index: SliverPairIndex,
     ) -> Result<Sliver<A>, NodeError> {
         let url = self.endpoints.sliver::<A>(blob_id, sliver_pair_index);
-        self.request_bcs(Request::new(Method::GET, url), SLIVER_URL_TEMPLATE)
+        self.send_and_parse_bcs_response(Request::new(Method::GET, url), SLIVER_URL_TEMPLATE)
             .await
     }
 
@@ -290,7 +292,7 @@ impl Client {
         let url =
             self.endpoints
                 .recovery_symbol::<A>(blob_id, remote_sliver_pair, local_sliver_pair);
-        self.request_bcs(Request::new(Method::GET, url), RECOVERY_URL_TEMPLATE)
+        self.send_and_parse_bcs_response(Request::new(Method::GET, url), RECOVERY_URL_TEMPLATE)
             .await
     }
 
@@ -339,7 +341,7 @@ impl Client {
     ) -> Result<(), NodeError> {
         let url = self.endpoints.metadata(metadata.blob_id());
         let request = self.create_request_with_payload(Method::PUT, url, metadata.as_ref())?;
-        self.request_json::<String>(request, METADATA_URL_TEMPLATE)
+        self.send_and_parse_service_response::<String>(request, METADATA_URL_TEMPLATE)
             .await?;
         Ok(())
     }
@@ -361,7 +363,7 @@ impl Client {
     ) -> Result<(), NodeError> {
         let url = self.endpoints.sliver::<A>(blob_id, pair_index);
         let request = self.create_request_with_payload(Method::PUT, url, &sliver)?;
-        self.request_json::<String>(request, SLIVER_URL_TEMPLATE)
+        self.send_and_parse_service_response::<String>(request, SLIVER_URL_TEMPLATE)
             .await?;
 
         Ok(())
@@ -392,7 +394,7 @@ impl Client {
         let url = self.endpoints.inconsistency_proof::<A>(blob_id);
         let request = self.create_request_with_payload(Method::PUT, url, &inconsistency_proof)?;
 
-        self.request_json(request, INCONSISTENCY_PROOF_URL_TEMPLATE)
+        self.send_and_parse_service_response(request, INCONSISTENCY_PROOF_URL_TEMPLATE)
             .await
     }
 
@@ -445,7 +447,8 @@ impl Client {
     #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
     pub async fn get_server_health_info(&self) -> Result<ServiceHealthInfo, NodeError> {
         let request = Request::new(Method::GET, self.endpoints.server_health_info());
-        self.request_json(request, HEALTH_URL_TEMPLATE).await
+        self.send_and_parse_service_response(request, HEALTH_URL_TEMPLATE)
+            .await
     }
 
     /// Send a request with tracing and context propagation.
@@ -507,7 +510,7 @@ impl Client {
         }
     }
 
-    async fn request_bcs<T: DeserializeOwned>(
+    async fn send_and_parse_bcs_response<T: DeserializeOwned>(
         &self,
         request: Request,
         url_template: &'static str,
@@ -516,7 +519,7 @@ impl Client {
         response.bcs().instrument(span).await
     }
 
-    async fn request_json<T: DeserializeOwned>(
+    async fn send_and_parse_service_response<T: DeserializeOwned>(
         &self,
         request: Request,
         url_template: &'static str,
