@@ -58,15 +58,18 @@ impl ClientError {
 
     /// Whether the error is an out-of-gas error.
     pub fn is_out_of_coin_error(&self) -> bool {
-        matches!(&self.kind, ClientErrorKind::NotEnoughGas(..))
+        matches!(
+            &self.kind,
+            ClientErrorKind::NoCompatiblePaymentCoin | ClientErrorKind::NoCompatibleGasCoin(..)
+        )
     }
 }
 
 impl From<SuiClientError> for ClientError {
     fn from(value: SuiClientError) -> Self {
         let kind = match value {
-            SuiClientError::NoCompatiblePaymentCoin => ClientErrorKind::NotEnoughGas(None),
-            SuiClientError::NoCompatibleGasCoin(e) => ClientErrorKind::NotEnoughGas(Some(e)),
+            SuiClientError::NoCompatiblePaymentCoin => ClientErrorKind::NoCompatiblePaymentCoin,
+            SuiClientError::NoCompatibleGasCoin(e) => ClientErrorKind::NoCompatibleGasCoin(e),
             error => ClientErrorKind::Other(error.into()),
         };
         Self { kind }
@@ -104,9 +107,12 @@ pub enum ClientErrorKind {
     /// The blob ID is blocked.
     #[error("the blob ID {0} is blocked")]
     BlobIdBlocked(BlobId),
-    /// The client does not have enough gas coins to interact with the blockchain.
-    #[error("the client is out of gas")]
-    NotEnoughGas(Option<anyhow::Error>),
+    #[error("no compatible payment coin found")]
+    /// No matching payment coin found for the transaction.
+    NoCompatiblePaymentCoin,
+    #[error("no compatible gas coin found: {0}")]
+    /// No matching gas coin found for the transaction.
+    NoCompatibleGasCoin(anyhow::Error),
     /// A failure internal to the node.
     #[error("client internal error: {0}")]
     Other(Box<dyn std::error::Error + Send + Sync + 'static>),

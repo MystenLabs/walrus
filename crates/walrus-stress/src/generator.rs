@@ -12,7 +12,7 @@ use std::{
 use anyhow::Context;
 use futures::{future::try_join_all, stream::FuturesUnordered, StreamExt};
 use rand::{rngs::StdRng, seq::SliceRandom, thread_rng, SeedableRng};
-use sui_sdk::{types::base_types::SuiAddress, SuiClient, SuiClientBuilder};
+use sui_sdk::{types::base_types::SuiAddress, SuiClientBuilder};
 use tokio::{
     task::JoinHandle,
     time::{Interval, MissedTickBehavior},
@@ -22,7 +22,7 @@ use walrus_service::client::{Client, Config};
 use walrus_sui::{
     client::{SuiContractClient, SuiReadClient},
     test_utils::wallet_for_testing_from_faucet,
-    utils::{request_sui_from_faucet, SuiNetwork},
+    utils::{send_faucet_request, SuiNetwork},
 };
 use walrus_test_utils::WithTempDir;
 
@@ -84,16 +84,10 @@ impl LoadGenerator {
                     .sui_client()
                     .wallet()
                     .active_address()
-                    .unwrap()
+                    .expect("clients are created with an have an active address")
             })
             .collect();
-        let gas_refill_handle = refill_gas(
-            addresses,
-            network,
-            sui_read_client.sui_client().clone(),
-            gas_refill_period,
-            metrics.clone(),
-        );
+        let gas_refill_handle = refill_gas(addresses, network, gas_refill_period, metrics.clone());
 
         tracing::info!("Initializing blobs...");
         let blobs = (0..n_write_clients).map(|_| {
@@ -277,7 +271,6 @@ fn burst_load(load: u64) -> (u64, Interval) {
 pub fn refill_gas(
     addresses: Vec<SuiAddress>,
     network: SuiNetwork,
-    sui_client: SuiClient,
     period: Duration,
     metrics: Arc<ClientMetrics>,
 ) -> JoinHandle<anyhow::Result<()>> {
@@ -292,7 +285,7 @@ pub fn refill_gas(
                 addresses
                     .iter()
                     .cloned()
-                    .map(|address| request_sui_from_faucet(address, network, &sui_client)),
+                    .map(|address| send_faucet_request(address, network)),
             )
             .await?;
 

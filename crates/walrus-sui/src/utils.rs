@@ -370,7 +370,8 @@ pub fn create_wallet(
     load_wallet(Some(config_path.to_owned()))
 }
 
-async fn send_faucet_request(address: SuiAddress, network: SuiNetwork) -> Result<()> {
+/// Sends a request to the faucet to request coins for `address`.
+pub async fn send_faucet_request(address: SuiAddress, network: SuiNetwork) -> Result<()> {
     // send the request to the faucet
     let client = reqwest::Client::new();
     let data_raw = format!(
