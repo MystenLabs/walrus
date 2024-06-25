@@ -1,5 +1,6 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
+
 //! Walrus Storage Node entry point.
 
 use std::{
@@ -24,6 +25,7 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use walrus_core::keys::ProtocolKeyPair;
 use walrus_service::{
+    cli_utils::VERSION,
     config::{
         defaults::{METRICS_PORT, REST_API_PORT},
         LoadConfig,
@@ -34,22 +36,6 @@ use walrus_service::{
     StorageNode,
 };
 use walrus_sui::utils::SuiNetwork;
-
-const GIT_REVISION: &str = {
-    if let Some(revision) = option_env!("GIT_REVISION") {
-        revision
-    } else {
-        let version = git_version::git_version!(
-            args = ["--always", "--abbrev=12", "--dirty", "--exclude", "*"],
-            fallback = ""
-        );
-        if version.is_empty() {
-            panic!("unable to query git revision");
-        }
-        version
-    }
-};
-const VERSION: &str = walrus_core::concat_const_str!(env!("CARGO_PKG_VERSION"), "-", GIT_REVISION);
 
 #[derive(Parser)]
 #[clap(rename_all = "kebab-case")]
