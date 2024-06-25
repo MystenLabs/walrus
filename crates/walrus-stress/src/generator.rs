@@ -21,8 +21,8 @@ use tokio::{
     task::JoinHandle,
     time::{Interval, MissedTickBehavior},
 };
-use walrus_core::encoding::Primary;
-use walrus_service::client::{Client, Config};
+use walrus_core::{encoding::Primary, BlobId};
+use walrus_service::client::{Client, ClientError, Config};
 use walrus_sui::{
     client::{SuiContractClient, SuiReadClient},
     test_utils::wallet_for_testing_from_faucet,
@@ -33,7 +33,12 @@ use walrus_test_utils::WithTempDir;
 use crate::{metrics, metrics::ClientMetrics};
 
 const DEFAULT_GAS_BUDGET: u64 = 100_000_000;
+
+// If a node has less than `MIN_NUM_COINS` without at least `MIN_COIN_VALUE`,
+// we need to request additional coins from the faucet.
 const MIN_COIN_VALUE: u64 = 500_000_000;
+// We need at least a payment coin and a gas coin.
+const MIN_NUM_COINS: usize = 2;
 
 /// Minimum burst duration.
 const MIN_BURST_DURATION: Duration = Duration::from_millis(100);
@@ -144,24 +149,7 @@ impl LoadGenerator {
                 write_interval.period().as_millis()
             );
         } else {
-            // Do a single write, s.t. we have a blob to read.
-            let (client, blob) = self
-                .write_client_pool
-                .pop_front()
-                .expect("write client should be available");
-            loop {
-                let result = client
-                    .as_ref()
-                    .reserve_and_store_blob(blob.as_ref(), 1, true)
-                    .await;
-                if let Ok(blob_result) = result {
-                    blob_ids.push(blob_result.blob_id().to_owned());
-                    break;
-                } else {
-                    tracing::error!("initial write failed, retrying");
-                }
-            }
-            self.write_client_pool.push_back((client, blob));
+            self.single_write().await?;
         }
 
         let (reads_per_burst, read_interval) = burst_load(read_load);
@@ -281,6 +269,18 @@ impl LoadGenerator {
         }
         Ok(())
     }
+
+    async fn single_write(&self) -> Result<BlobId, ClientError> {
+        let (client, blob) = self
+            .write_client_pool
+            .front()
+            .expect("write client should be available");
+        client
+            .as_ref()
+            .reserve_and_store_blob(blob.as_ref(), 1, true)
+            .await
+            .map(|blob_result| blob_result.blob_id().to_owned())
+    }
 }
 
 async fn new_client(
@@ -336,25 +336,27 @@ pub fn refill_gas(
             interval.tick().await;
             let sui_client = &sui_client;
             let metrics = &metrics;
-            try_join_all(addresses.iter().cloned().map(|address| async move {
+            let _ = try_join_all(addresses.iter().cloned().map(|address| async move {
                 if sui_client
                     .coin_read_api()
                     .get_coins_stream(address, None)
                     .filter(|coin| future::ready(coin.balance >= MIN_COIN_VALUE))
-                    .take(2)
+                    .take(MIN_NUM_COINS)
                     .collect::<Vec<_>>()
                     .await
                     .len()
-                    < 2
+                    < MIN_NUM_COINS
                 {
+                    let result = send_faucet_request(address, network).await;
                     tracing::debug!("Clients gas coins refilled");
                     metrics.observe_gas_refill();
-                    send_faucet_request(address, network).await
+                    result
                 } else {
                     Ok(())
                 }
             }))
-            .await?;
+            .await
+            .inspect_err(|e| tracing::error!("error while refilling gas: {e}"));
         }
     })
 }
