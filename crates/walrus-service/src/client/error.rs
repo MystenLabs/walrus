@@ -47,7 +47,7 @@ impl ClientError {
     }
 
     /// Converts an error to a [`ClientError`] with `kind` [`ClientErrorKind::Other`].
-    pub(crate) fn other<E>(err: E) -> Self
+    pub fn other<E>(err: E) -> Self
     where
         E: std::error::Error + Send + Sync + 'static,
     {

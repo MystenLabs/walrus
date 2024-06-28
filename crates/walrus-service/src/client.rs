@@ -809,7 +809,12 @@ impl<T> Client<T> {
     }
 
     /// Returns the inner sui client.
-    pub fn sui_client(&mut self) -> &mut T {
+    pub fn sui_client(&self) -> &T {
+        &self.sui_client
+    }
+
+    /// Returns the inner sui client as mutable reference.
+    pub fn sui_client_mut(&mut self) -> &mut T {
         &mut self.sui_client
     }
 

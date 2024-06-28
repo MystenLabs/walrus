@@ -53,6 +53,9 @@ struct Args {
     /// where the gas budget need to be refilled periodically.
     #[clap(long, default_value = "1000")]
     gas_refill_period_millis: NonZeroU64,
+    /// The fraction of writes that write inconsistent blobs.
+    #[clap(long, default_value_t = 0.0)]
+    inconsistent_blob_rate: f64,
 }
 
 #[tokio::main]
@@ -84,7 +87,7 @@ async fn main() -> anyhow::Result<()> {
     .await?;
 
     load_generator
-        .start(args.write_load, args.read_load)
+        .start(args.write_load, args.read_load, args.inconsistent_blob_rate)
         .await?;
     Ok(())
 }

@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use rand::{rngs::StdRng, Rng};
+use rand::{rngs::StdRng, Rng, SeedableRng};
 
 #[derive(Debug)]
 pub(crate) struct BlobData {
@@ -11,11 +11,13 @@ pub(crate) struct BlobData {
 
 impl BlobData {
     /// Create a random blob of a given size.
-    pub fn random(mut rng: StdRng, size: usize) -> Self {
-        Self {
-            bytes: (0..size).map(|_| rng.gen::<u8>()).collect(),
-            rng,
-        }
+    pub async fn random(mut rng: StdRng, size: usize) -> Self {
+        let mut new_rng = StdRng::from_seed(rng.gen());
+        let bytes = tokio::spawn(async move { (0..size).map(|_| new_rng.gen::<u8>()).collect() })
+            .await
+            .expect("should be able to join spawned task");
+
+        Self { bytes, rng }
     }
 
     /// Changes the blob by incrementing (wrapping) a randomly chosen byte.
