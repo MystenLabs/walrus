@@ -259,6 +259,23 @@ impl LoadGenerator {
     ) -> anyhow::Result<()> {
         tracing::info!("Starting load generator...");
 
+        let (reads_per_burst, read_interval) = burst_load(read_load);
+        let read_blob_id = if reads_per_burst != 0 {
+            tracing::info!("Submitting initial write...");
+            let read_blob_id = self
+                .single_write()
+                .await
+                .inspect_err(|e| tracing::error!(error = ?e, "initial write failed"))?;
+            tracing::info!(
+                "Submitting {reads_per_burst} reads every {} ms",
+                read_interval.period().as_millis()
+            );
+            read_blob_id
+        } else {
+            BlobId([0; 32])
+        };
+        tokio::pin!(read_interval);
+
         let (writes_per_burst, write_interval) = burst_load(write_load);
 
         tokio::pin!(write_interval);
@@ -268,20 +285,6 @@ impl LoadGenerator {
                 write_interval.period().as_millis()
             );
         }
-
-        let read_blob_id = self
-            .single_write()
-            .await
-            .inspect_err(|e| tracing::error!(error = ?e, "initial write failed"))?;
-
-        let (reads_per_burst, read_interval) = burst_load(read_load);
-        if reads_per_burst != 0 {
-            tracing::info!(
-                "Submitting {reads_per_burst} reads every {} ms",
-                read_interval.period().as_millis()
-            );
-        }
-        tokio::pin!(read_interval);
 
         // Submit operations.
         let start = Instant::now();

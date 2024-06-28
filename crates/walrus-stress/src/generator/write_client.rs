@@ -9,7 +9,7 @@ use tracing::instrument;
 use walrus_core::{merkle::Node, metadata::VerifiedBlobMetadataWithId, BlobId, SliverPairIndex};
 use walrus_service::client::{Client, ClientError, Config};
 use walrus_sui::{
-    client::{ContractClient, SuiContractClient, SuiReadClient},
+    client::{ContractClient, ReadClient, SuiContractClient, SuiReadClient},
     test_utils::wallet_for_testing_from_faucet,
     types::Blob,
     utils::SuiNetwork,
@@ -77,7 +77,11 @@ impl WriteClient {
         Ok((blob_id, elapsed))
     }
 
-    /// Stores a blob that is inconsistent in primary sliver 0
+    /// Stores an inconsistent blob.
+    ///
+    /// If there are enough storage nodes to achieve a quorum even without two nodes, the blob
+    /// will be inconsistent in two slivers, s.t. each of them is held by a different storage
+    /// node, if the shards are distributed equally and assigned sequentially.
     async fn write_inconsistent_blob(&self) -> Result<Blob, ClientError> {
         let epochs = 1;
         let blob = self.blob.as_ref();
@@ -90,9 +94,24 @@ impl WriteClient {
             .map_err(ClientError::other)?
             .encode_with_metadata();
         let mut metadata = metadata.metadata().to_owned();
+        let n_members = self
+            .client
+            .as_ref()
+            .sui_client()
+            .read_client
+            .current_committee()
+            .await?
+            .n_members();
+        let n_shards = self.client.as_ref().encoding_config().n_shards();
 
         // Make primary sliver 0 inconsistent.
         metadata.hashes[0].primary_hash = Node::Digest([0; 32]);
+        // If the committee has 7 members, make a second sliver inconsistent.
+        if n_members >= 7 {
+            // Sliver `n_shards/2` will be held by a different node if the shards are assigned
+            // sequentially.
+            metadata.hashes[(n_shards.get() / 2) as usize].primary_hash = Node::Digest([0; 32]);
+        }
 
         let blob_id = BlobId::from_sliver_pair_metadata(&metadata);
         let metadata = VerifiedBlobMetadataWithId::new_verified_unchecked(blob_id, metadata);
