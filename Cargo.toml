@@ -11,7 +11,7 @@ license = "Apache-2.0"
 [workspace.dependencies]
 anyhow = "1.0.86"
 bcs = "0.1.6"
-clap = { version = "4.5.7", features = ["derive"] }
+clap = { version = "4.5.8", features = ["derive"] }
 fastcrypto = "0.1"
 futures = "0.3.30"
 mime = "0.3.17"
@@ -24,7 +24,7 @@ prometheus = "0.13.4"
 rand = "0.8.5"
 reqwest = { version = "0.12.5", default-features = false, features = ["http2", "json", "rustls-tls"] }
 serde = { version = "1.0.203", features = ["derive"] }
-serde_json = "1.0.117"
+serde_json = "1.0.119"
 serde_with = { version = "3.8", features = ["base64"] }
 serde_yaml = "0.9"
 sui-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.27.2" }

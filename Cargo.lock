@@ -657,9 +657,9 @@ dependencies = [
 
 [[package]]
 name = "aws-config"
-version = "1.5.1"
+version = "1.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ac9889352d632214df943e26740c46a0f3da6e329fbd28164fe7ae1b061da7b"
+checksum = "d93c287bea7af470c96d21e1dcf4b207ac760932477ebdf47720232047991685"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -723,9 +723,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-ec2"
-version = "1.52.0"
+version = "1.55.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc73d8f6459018ddc6406e667d07984a3330cadeb18d2b610dd6da890e5ae67e"
+checksum = "e2fd9674e7f6fd95c7df47694c7826ea34d0c997529b62708df886de4bab6887"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -747,9 +747,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-sso"
-version = "1.30.0"
+version = "1.33.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebb97e44983752cf7e12968c5f569a5d7562dbbc67006755c331d9d9c99580ae"
+checksum = "b8aee358b755b2738b3ffb8a5b54ee991b28c8a07483a0ff7d49a58305cc2609"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -769,9 +769,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-ssooidc"
-version = "1.31.0"
+version = "1.34.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad061d977235898e4a97ecbd5d882786cca41b4828943584dc792dcc35eb3d3c"
+checksum = "1d5ce026f0ae73e06b20be5932150dd0e9b063417fd7c3acf5ca97018b9cbd64"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -791,9 +791,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-sts"
-version = "1.30.0"
+version = "1.33.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "300ce43d1f7f4eb023e57d38b0921d964e8e62bed7f82f6b7849e7eab7a14575"
+checksum = "c820248cb02e4ea83630ad2e43d0721cdbccedba5ac902cd0b6fb84d7271f205"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -966,15 +966,14 @@ dependencies = [
 
 [[package]]
 name = "aws-types"
-version = "1.3.1"
+version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f734808d43702a67e57d478a12e227d4d038d0b90c9005a78c87890d3805922"
+checksum = "2009a9733865d0ebf428a314440bbe357cc10d0c16d86a8e15d32e9b47c1e80e"
 dependencies = [
  "aws-credential-types",
  "aws-smithy-async",
  "aws-smithy-runtime-api",
  "aws-smithy-types",
- "http 0.2.12",
  "rustc_version",
  "tracing",
 ]
@@ -1802,9 +1801,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.5.7"
+version = "4.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5db83dced34638ad474f39f250d7fea9598bdd239eaced1bdf45d597da0f433f"
+checksum = "84b3edb18336f4df585bc9aa31dd99c036dfa5dc5e9a2939a722a188f3a8970d"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -1812,9 +1811,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.5.7"
+version = "4.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7e204572485eb3fbf28f871612191521df159bc3e15a9f5064c66dba3a8c05f"
+checksum = "c1c09dd5ada6c6c78075d6fd0da3f90d8080651e2d6cc8eb2f1aaa4034ced708"
 dependencies = [
  "anstream",
  "anstyle",
@@ -1825,9 +1824,9 @@ dependencies = [
 
 [[package]]
 name = "clap_derive"
-version = "4.5.5"
+version = "4.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c780290ccf4fb26629baa7a1081e68ced113f1d3ec302fa5948f1c381ebf06c6"
+checksum = "2bac35c6dafb060fd4d275d9a4ffae97917c13a6327903a8be2153cd964f7085"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2 1.0.81",
@@ -8674,9 +8673,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.117"
+version = "1.0.119"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "455182ea6142b14f93f4bc5320a2b31c1f266b66a4a5c858b013302a5d8cbfc3"
+checksum = "e8eddb61f0697cc3989c5d64b452f5488e2b8a60fd7d5076a3045076ffef8cb0"
 dependencies = [
  "indexmap 2.2.6",
  "itoa",
