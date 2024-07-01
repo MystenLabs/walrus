@@ -144,8 +144,8 @@ client](#using-the-walrus-client) and prints the path to that configuration file
 
 Note that while the Walrus storage nodes of this testbed run on your local machine, the Sui devnet
 is used by default to deploy and interact with the contracts. To run the testbed fully locally, simply
-[start a local network with: `sui start --with-faucet --force-regenesis`](https://docs.sui.io/guides/developer/getting-started/local-network)
-and specify `localnet` when starting the Walrus testbed.
+[start a local network with `sui start --with-faucet --force-regenesis`](https://docs.sui.io/guides/developer/getting-started/local-network)
+(requires `sui` to be v1.28.0 or higher) and specify `localnet` when starting the Walrus testbed.
 
 ## Hardware requirements
 
