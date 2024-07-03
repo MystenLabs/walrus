@@ -1,6 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! A module for creating a test Walrus cluster in process.
+
 use std::{
     sync::{Arc, OnceLock},
     time::Duration,
