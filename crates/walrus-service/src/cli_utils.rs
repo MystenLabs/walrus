@@ -289,14 +289,20 @@ impl Display for HumanReadableMist {
     }
 }
 
-/// Computes the MIST price given the unencoded blob size.
-pub(crate) fn mist_price_per_blob_size(
+/// Computes the price in MIST given the unencoded blob size.
+pub fn price_for_unencoded_length(
     unencoded_length: u64,
     n_shards: NonZeroU16,
     price_per_unit_size: u64,
+    epochs: u64,
 ) -> Option<u64> {
     encoded_blob_length_for_n_shards(n_shards, unencoded_length)
-        .map(|size| storage_units_from_size(size) * price_per_unit_size)
+        .map(|encoded_length| price_for_encoded_length(encoded_length, price_per_unit_size, epochs))
+}
+
+/// Computes the price in MIST given the encoded blob size.
+pub fn price_for_encoded_length(encoded_length: u64, price_per_unit_size: u64, epochs: u64) -> u64 {
+    storage_units_from_size(encoded_length) * price_per_unit_size * epochs
 }
 
 fn mist_to_sui(mist: u64) -> f64 {
@@ -335,7 +341,7 @@ pub async fn print_walrus_info(sui_read_client: &impl ReadClient, dev: bool) -> 
     let example_blob_1 = example_blob_0 * 32;
     let blob_price = |blob_size: u64| {
         HumanReadableMist(
-            mist_price_per_blob_size(blob_size, n_shards, price_per_unit_size)
+            price_for_unencoded_length(blob_size, n_shards, price_per_unit_size, 1)
                 .expect("we can encode the blob size"),
         )
     };

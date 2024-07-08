@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::{base64::Base64, serde_as, DisplayFromStr};
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt, EnvFilter, Layer};
 use walrus_core::{
-    encoding::{EncodingConfig, Primary},
+    encoding::{encoded_blob_length_for_n_shards, EncodingConfig, Primary},
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
 };
@@ -35,6 +35,7 @@ use walrus_service::{
         get_sui_read_client_from_rpc_node_or_wallet,
         load_configuration,
         load_wallet_context,
+        price_for_encoded_length,
         print_walrus_info,
         success,
         HumanReadableBytes,
@@ -44,7 +45,7 @@ use walrus_service::{
     client::{BlobStoreResult, Client},
     daemon::ClientDaemon,
 };
-use walrus_sui::client::ReadClient;
+use walrus_sui::client::{ContractClient, ReadClient};
 
 #[derive(Parser, Debug, Clone, Deserialize)]
 #[command(author, version, about = "Walrus client", long_about = None)]
@@ -116,6 +117,12 @@ enum Commands {
         #[clap(short, long, default_value_t = default::epochs())]
         #[serde(default = "default::epochs")]
         epochs: u64,
+        /// Perform a dry-run of the store without performing any actions on chain.
+        ///
+        /// This assumes `--force`; i.e., it does not check the current status of the blob.
+        #[clap(long, action)]
+        #[serde(default)]
+        dry_run: bool,
         /// Do not check for the blob status before storing it.
         ///
         /// This will create a new blob even if the blob is already certified for a sufficient
@@ -528,6 +535,36 @@ impl BlobIdOutput {
     }
 }
 
+/// The output of the `store --dry-run` command.
+#[serde_as]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DryRunOutput {
+    #[serde_as(as = "DisplayFromStr")]
+    blob_id: BlobId,
+    unencoded_size: u64,
+    encoded_size: u64,
+    storage_cost: u64,
+}
+
+impl Display for DryRunOutput {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{} Store dry-run succeeded.\n\
+                Blob ID: {}\n\
+                Unencoded size: {}\n\
+                Encoded size (including metadata): {}\n\
+                Cost (excluding gas): {}\n",
+            success(),
+            self.blob_id,
+            HumanReadableBytes(self.unencoded_size),
+            HumanReadableBytes(self.encoded_size),
+            HumanReadableMist(self.storage_cost),
+        )
+    }
+}
+
 /// The output of the `blob-status` command.
 #[serde_as]
 #[derive(Debug, Clone, Serialize)]
@@ -608,7 +645,7 @@ fn init_tracing_subscriber() -> Result<()> {
             s => Err(anyhow!("LOG_FORMAT '{}' is not supported", s))?,
         }
     } else {
-        tracing_subscriber::fmt::layer().boxed()
+        layer.boxed()
     };
 
     tracing_subscriber::registry()
@@ -632,17 +669,47 @@ async fn run_app(app: App) -> Result<()> {
             file,
             epochs,
             force,
+            dry_run,
         } => {
             let client = get_contract_client(config?, wallet, app.gas_budget, &None).await?;
 
-            tracing::info!(
-                file = %file.display(),
-                "Storing blob read from the filesystem"
-            );
-            let result = client
-                .reserve_and_store_blob(&std::fs::read(file)?, epochs, force)
-                .await?;
-            println!("{}", output_string(&StoreOutput::from(result), app.json)?);
+            if dry_run {
+                tracing::info!("Performing dry-run store for file {}", file.display());
+                let encoding_config = client.encoding_config();
+                tracing::debug!(n_shards = encoding_config.n_shards(), "encoding the blob");
+                let metadata = encoding_config
+                    .get_blob_encoder(&std::fs::read(&file)?)?
+                    .compute_metadata();
+                let unencoded_size = metadata.metadata().unencoded_length.get();
+                let encoded_size =
+                    encoded_blob_length_for_n_shards(encoding_config.n_shards(), unencoded_size)
+                        .expect("must be valid as the encoding succeeded");
+                let price_per_unit_size = client
+                    .sui_client()
+                    .read_client()
+                    .price_per_unit_size()
+                    .await?;
+                let storage_cost =
+                    price_for_encoded_length(encoded_size, price_per_unit_size, epochs);
+                println!(
+                    "{}",
+                    output_string(
+                        &DryRunOutput {
+                            blob_id: *metadata.blob_id(),
+                            unencoded_size,
+                            encoded_size,
+                            storage_cost,
+                        },
+                        app.json
+                    )?
+                );
+            } else {
+                tracing::info!("Storing file {} as blob on Walrus", file.display());
+                let result = client
+                    .reserve_and_store_blob(&std::fs::read(file)?, epochs, force)
+                    .await?;
+                println!("{}", output_string(&StoreOutput::from(result), app.json)?);
+            }
         }
         Commands::Read {
             blob_id,

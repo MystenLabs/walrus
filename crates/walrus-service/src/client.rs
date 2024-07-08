@@ -62,7 +62,7 @@ use utils::WeightedFutures;
 
 use self::config::default;
 pub use self::error::{ClientError, ClientErrorKind};
-use crate::{cli_utils::mist_price_per_blob_size, client::utils::CompletedReasonWeight};
+use crate::{cli_utils::price_for_unencoded_length, client::utils::CompletedReasonWeight};
 
 /// A client to communicate with Walrus shards and storage nodes.
 #[derive(Debug, Clone)]
@@ -284,10 +284,11 @@ impl<T: ContractClient> Client<T> {
         let encoded_size =
             encoded_blob_length_for_n_shards(self.encoding_config.n_shards(), blob.size)
                 .expect("must be valid as the store succeeded");
-        let cost = mist_price_per_blob_size(
+        let cost = price_for_unencoded_length(
             blob.size,
             self.encoding_config.n_shards(),
             self.storage_price_per_unit_size,
+            epochs_ahead,
         )
         .expect("must be valid as the store succeeded");
         Ok(BlobStoreResult::NewlyCreated {
