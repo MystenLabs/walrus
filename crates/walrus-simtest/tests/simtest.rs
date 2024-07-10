@@ -9,6 +9,7 @@ use walrus_service::{client::BlobStoreResult, test_cluster};
 // Tests that we can create a Walrus cluster with a Sui cluster and running basic
 // operations deterministically.
 #[sim_test(check_determinism)]
+#[ignore = "ignore simtests by default"]
 async fn test_walrus_basic_determinism() {
     let _guard = ProtocolConfig::apply_overrides_for_testing(|_, mut config| {
         // TODO: remove once Sui simtest can work with these features.

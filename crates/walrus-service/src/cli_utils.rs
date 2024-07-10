@@ -6,7 +6,6 @@
 use std::{
     fmt::{self, Display},
     fs,
-    num::NonZeroU16,
     path::{Path, PathBuf},
 };
 
@@ -29,7 +28,7 @@ use walrus_core::{
 };
 use walrus_sui::{
     client::{ReadClient, SuiContractClient, SuiReadClient},
-    utils::{storage_units_from_size, BYTES_PER_UNIT_SIZE},
+    utils::{price_for_unencoded_length, storage_units_from_size, BYTES_PER_UNIT_SIZE},
 };
 
 use crate::client::{default_configuration_paths, string_prefix, Blocklist, Client, Config};
@@ -288,22 +287,6 @@ impl Display for HumanReadableMist {
         let sui = mist_to_sui(value);
         write!(f, "{sui:.digits$} SUI",)
     }
-}
-
-/// Computes the price in MIST given the unencoded blob size.
-pub fn price_for_unencoded_length(
-    unencoded_length: u64,
-    n_shards: NonZeroU16,
-    price_per_unit_size: u64,
-    epochs: u64,
-) -> Option<u64> {
-    encoded_blob_length_for_n_shards(n_shards, unencoded_length)
-        .map(|encoded_length| price_for_encoded_length(encoded_length, price_per_unit_size, epochs))
-}
-
-/// Computes the price in MIST given the encoded blob size.
-pub fn price_for_encoded_length(encoded_length: u64, price_per_unit_size: u64, epochs: u64) -> u64 {
-    storage_units_from_size(encoded_length) * price_per_unit_size * epochs
 }
 
 fn mist_to_sui(mist: u64) -> f64 {

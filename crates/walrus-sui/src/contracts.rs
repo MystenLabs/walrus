@@ -3,7 +3,6 @@
 
 //! Walrus contract bindings. Provides an interface for looking up contract function,
 //! modules, and type names.
-//!
 
 use anyhow::{Context, Result};
 use move_core_types::{identifier::Identifier, language_storage::StructTag as MoveStructTag};
@@ -18,29 +17,29 @@ use sui_types::TypeTag;
 /// Implementors of this trait are convertible from [SuiMoveStruct]s and can
 /// identify their associated contract type.
 pub trait AssociatedContractStruct: TryFrom<SuiMoveStruct> {
-    /// [`StructTag`] corresponding to the move struct associated type
+    /// [`StructTag`] corresponding to the Move struct associated type.
     const CONTRACT_STRUCT: StructTag<'static>;
 }
 
-/// A trait for types that correspond to a sui event.
+/// A trait for types that correspond to a Sui event.
 ///
 /// Implementors of this trait are convertible from [SuiEvent]s and can
 /// identify their associated contract type.
 pub trait AssociatedSuiEvent: TryFrom<SuiEvent> {
-    /// [`StructTag`] corresponding to the move struct of the associated event
+    /// [`StructTag`] corresponding to the Move struct of the associated event.
     const EVENT_STRUCT: StructTag<'static>;
 }
 
 /// Tag identifying contract functions based on their name and module.
 #[derive(Debug)]
 pub struct FunctionTag<'a> {
-    /// Move function name
+    /// Move function name.
     pub name: &'a str,
-    /// Move module of the function
+    /// Move module of the function.
     pub module: &'a str,
-    /// Type parameters of the function
+    /// Type parameters of the function.
     pub type_params: Vec<TypeTag>,
-    /// Number of sui objects that are outputs of the function
+    /// Number of Sui objects that are outputs of the function.
     pub n_object_outputs: u16,
 }
 
@@ -57,14 +56,14 @@ impl<'a> FunctionTag<'a> {
 /// Tag identifying contract structs based on their name and module.
 #[derive(Debug, PartialEq, Eq)]
 pub struct StructTag<'a> {
-    /// Move struct name
+    /// Move struct name.
     pub name: &'a str,
-    /// Move module of the struct
+    /// Move module of the struct.
     pub module: &'a str,
 }
 
 impl<'a> StructTag<'a> {
-    /// Return a Move StructTag for the identified struct, within the published contract module.
+    /// Returns a Move StructTag for the identified struct, within the published contract module.
     pub fn to_move_struct_tag(
         &self,
         package: ObjectID,
@@ -95,7 +94,7 @@ impl<'a> From<&'a MoveStructTag> for StructTag<'a> {
 macro_rules! contract_ident {
     (struct $modname:ident::$itemname:ident) => {
         #[allow(non_upper_case_globals)]
-        #[doc=stringify!([StructTag] for the move struct $modname::$itemname)]
+        #[doc=stringify!([StructTag] for the Move struct $modname::$itemname)]
         pub const $itemname: StructTag = StructTag {
             module: stringify!($modname),
             name: stringify!($itemname),
@@ -106,7 +105,7 @@ macro_rules! contract_ident {
     };
     (fn $modname:ident::$itemname:ident, $n_out:expr) => {
         #[allow(non_upper_case_globals)]
-        #[doc=stringify!([FunctionTag] for the move function $modname::$itemname)]
+        #[doc=stringify!([FunctionTag] for the Move function $modname::$itemname)]
         pub const $itemname: FunctionTag = FunctionTag {
             module: stringify!($modname),
             name: stringify!($itemname),
@@ -116,7 +115,7 @@ macro_rules! contract_ident {
     };
 }
 
-/// Module for tags corresponding to the move module `storage_resource`
+/// Module for tags corresponding to the Move module `storage_resource`.
 pub mod storage_resource {
     use super::*;
 
@@ -128,7 +127,7 @@ pub mod storage_resource {
     contract_ident!(struct storage_resource::Storage);
 }
 
-/// Module for tags corresponding to the move module `system`
+/// Module for tags corresponding to the Move module `system`.
 pub mod system {
     use super::*;
 
@@ -138,14 +137,14 @@ pub mod system {
     contract_ident!(fn system::invalidate_blob_id);
 }
 
-/// Module for tags corresponding to the move module `committee`
+/// Module for tags corresponding to the Move module `committee`.
 pub mod committee {
     use super::*;
 
     contract_ident!(struct committee::Committee);
 }
 
-/// Module for tags corresponding to the move module `storage_node`
+/// Module for tags corresponding to the Move module `storage_node`.
 pub mod storage_node {
     use super::*;
 
@@ -153,7 +152,7 @@ pub mod storage_node {
     contract_ident!(fn storage_node::create_storage_node_info, 1);
 }
 
-/// Module for tags corresponding to the move module `blob`
+/// Module for tags corresponding to the Move module `blob`.
 pub mod blob {
     use super::*;
 
@@ -162,7 +161,7 @@ pub mod blob {
     contract_ident!(struct blob::Blob);
 }
 
-/// Module for tags corresponding to the move module `blob_events`
+/// Module for tags corresponding to the Move module `blob_events`.
 pub mod blob_events {
     use super::*;
 

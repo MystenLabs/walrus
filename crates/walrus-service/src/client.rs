@@ -6,6 +6,8 @@
 use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use anyhow::anyhow;
+use communication::{NodeCommunication, NodeResult};
+use error::StoreError;
 use fastcrypto::{bls12381::min_pk::BLS12381AggregateSignature, traits::AggregateAuthenticator};
 use futures::Future;
 use rand::{seq::SliceRandom, thread_rng};
@@ -18,6 +20,7 @@ use tokio::{
     time::{sleep, Duration},
 };
 use tracing::{Instrument, Level};
+use utils::WeightedFutures;
 use walrus_core::{
     encoding::{
         encoded_blob_length_for_n_shards,
@@ -41,24 +44,27 @@ use walrus_sdk::{
 use walrus_sui::{
     client::{ContractClient, ReadClient},
     types::{Blob, BlobEvent, Committee, StorageNode},
+    utils::price_for_unencoded_length,
 };
+
+use self::config::default;
+use crate::client::utils::CompletedReasonWeight;
 
 mod blocklist;
 pub use blocklist::Blocklist;
+
 mod communication;
+
 mod config;
 pub use config::{default_configuration_paths, ClientCommunicationConfig, Config};
+
 mod error;
+pub use error::{ClientError, ClientErrorKind};
+
 mod utils;
-
-use communication::{NodeCommunication, NodeResult};
-use error::StoreError;
 pub use utils::string_prefix;
-use utils::WeightedFutures;
 
-use self::config::default;
-pub use self::error::{ClientError, ClientErrorKind};
-use crate::{cli_utils::price_for_unencoded_length, client::utils::CompletedReasonWeight};
+type ClientResult<T> = Result<T, ClientError>;
 
 /// A client to communicate with Walrus shards and storage nodes.
 #[derive(Debug, Clone)]
@@ -87,7 +93,7 @@ impl Client<()> {
     pub async fn new_read_client(
         config: Config,
         sui_read_client: &impl ReadClient,
-    ) -> Result<Self, ClientError> {
+    ) -> ClientResult<Self> {
         tracing::debug!(?config, "running client");
         let reqwest_client = Self::build_reqwest_client(&config)?;
 
@@ -176,7 +182,7 @@ impl Client<()> {
 
 impl<T: ContractClient> Client<T> {
     /// Creates a new client starting from a config file.
-    pub async fn new(config: Config, sui_client: T) -> Result<Self, ClientError> {
+    pub async fn new(config: Config, sui_client: T) -> ClientResult<Self> {
         Ok(Client::new_read_client(config, sui_client.read_client())
             .await?
             .with_client(sui_client)
@@ -192,7 +198,11 @@ impl<T: ContractClient> Client<T> {
         blob: &[u8],
         epochs_ahead: u64,
         force: bool,
-    ) -> Result<BlobStoreResult, ClientError> {
+    ) -> ClientResult<BlobStoreResult> {
+        if blob.is_empty() {
+            return Err(ClientErrorKind::EmptyBlob.into());
+        }
+
         let (pairs, metadata) = self
             .encoding_config
             .get_blob_encoder(blob)
@@ -264,7 +274,7 @@ impl<T: ContractClient> Client<T> {
 
         // Reserve space for the blob.
         let blob_sui_object = self
-            .reserve_blob(&metadata, blob.len(), epochs_ahead)
+            .reserve_and_register_blob(&metadata, epochs_ahead)
             .await?;
 
         // We need to wait to be sure that the storage nodes received the registration event.
@@ -294,36 +304,15 @@ impl<T: ContractClient> Client<T> {
         })
     }
 
-    /// Reserves the space for the blob on chain.
+    /// Reserves the space for the blob on chain and registers it.
     #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
-    pub async fn reserve_blob(
+    pub async fn reserve_and_register_blob(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
-        unencoded_size: usize,
         epochs_ahead: u64,
-    ) -> Result<Blob, ClientError> {
-        let encoded_size = self
-            .encoding_config
-            .encoded_blob_length_from_usize(unencoded_size)
-            .expect("valid for metadata created from the same config");
-        tracing::debug!(encoded_size, "starting to reserve storage for blob");
-
-        let root_hash = metadata.metadata().compute_root_hash();
-        let storage_resource = self
-            .sui_client
-            .reserve_space(encoded_size, epochs_ahead)
-            .await
-            .map_err(ClientError::from)?;
+    ) -> ClientResult<Blob> {
         self.sui_client
-            .register_blob(
-                &storage_resource,
-                *metadata.blob_id(),
-                root_hash.bytes(),
-                unencoded_size
-                    .try_into()
-                    .expect("conversion implicitly checked above"),
-                metadata.metadata().encoding_type,
-            )
+            .reserve_and_register_blob(epochs_ahead, metadata)
             .await
             .map_err(ClientError::from)
     }
@@ -347,7 +336,7 @@ impl<T> Client<T> {
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         pairs: &[SliverPair],
-    ) -> Result<ConfirmationCertificate, ClientError> {
+    ) -> ClientResult<ConfirmationCertificate> {
         let mut pairs_per_node = self.pairs_per_node(metadata.blob_id(), pairs);
         let comms = self.node_communications();
         let mut requests = WeightedFutures::new(comms.iter().map(|n| {
@@ -408,7 +397,7 @@ impl<T> Client<T> {
         &self,
         blob_id: &BlobId,
         confirmations: Vec<NodeResult<SignedStorageConfirmation, StoreError>>,
-    ) -> Result<ConfirmationCertificate, ClientError> {
+    ) -> ClientResult<ConfirmationCertificate> {
         let mut aggregate_weight = 0;
         let mut signers = Vec::with_capacity(confirmations.len());
         let mut valid_signatures = Vec::with_capacity(confirmations.len());
@@ -451,7 +440,7 @@ impl<T> Client<T> {
 
     /// Reconstructs the blob by reading slivers from Walrus shards.
     #[tracing::instrument(level = Level::ERROR, skip_all, fields (blob_id = %blob_id))]
-    pub async fn read_blob<U>(&self, blob_id: &BlobId) -> Result<Vec<u8>, ClientError>
+    pub async fn read_blob<U>(&self, blob_id: &BlobId) -> ClientResult<Vec<u8>>
     where
         U: EncodingAxis,
         Sliver<U>: TryFrom<SliverEnum>,
@@ -470,7 +459,7 @@ impl<T> Client<T> {
     async fn request_slivers_and_decode<U>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
-    ) -> Result<Vec<u8>, ClientError>
+    ) -> ClientResult<Vec<u8>>
     where
         U: EncodingAxis,
         Sliver<U>: TryFrom<SliverEnum>,
@@ -547,7 +536,7 @@ impl<T> Client<T> {
         decoder: &mut BlobDecoder<'a, U>,
         blob_id: &BlobId,
         mut n_not_found: usize,
-    ) -> Result<Vec<u8>, ClientError>
+    ) -> ClientResult<Vec<u8>>
     where
         U: EncodingAxis,
         I: Iterator<Item = Fut>,
@@ -612,7 +601,7 @@ impl<T> Client<T> {
     pub async fn retrieve_metadata(
         &self,
         blob_id: &BlobId,
-    ) -> Result<VerifiedBlobMetadataWithId, ClientError> {
+    ) -> ClientResult<VerifiedBlobMetadataWithId> {
         let comms = self.node_communications_quorum();
         let futures = comms.iter().map(|n| {
             n.retrieve_verified_metadata(blob_id)
@@ -653,7 +642,7 @@ impl<T> Client<T> {
         blob_id: &BlobId,
         read_client: &U,
         timeout: Duration,
-    ) -> Result<BlobStatus, ClientError> {
+    ) -> ClientResult<BlobStatus> {
         let comms = self.node_communications_quorum();
         let futures = comms
             .iter()
@@ -685,7 +674,7 @@ impl<T> Client<T> {
 
     /// Returns a [`ClientError`] with [`ClientErrorKind::BlobIdBlocked`] if the provided blob ID is
     /// contained in the blocklist.
-    fn check_blob_id(&self, blob_id: &BlobId) -> Result<(), ClientError> {
+    fn check_blob_id(&self, blob_id: &BlobId) -> ClientResult<()> {
         if let Some(blocklist) = &self.blocklist {
             if blocklist.is_blocked(blob_id) {
                 tracing::debug!(%blob_id, "encountered blocked blob ID");
@@ -739,7 +728,7 @@ impl<T> Client<T> {
     fn node_communications_threshold(
         &self,
         threshold_fn: impl Fn(usize) -> bool,
-    ) -> Result<Vec<NodeCommunication>, ClientError> {
+    ) -> ClientResult<Vec<NodeCommunication>> {
         let mut random_indices: Vec<_> = (0..self.committee.members().len()).collect();
         random_indices.shuffle(&mut thread_rng());
         let mut random_indices = random_indices.into_iter();
@@ -807,7 +796,7 @@ impl<T> Client<T> {
         &mut self.sui_client
     }
 
-    fn build_reqwest_client(config: &Config) -> Result<ReqwestClient, ClientError> {
+    fn build_reqwest_client(config: &Config) -> ClientResult<ReqwestClient> {
         let client_builder = config
             .communication_config
             .reqwest_config
@@ -825,7 +814,7 @@ impl<T> Client<T> {
     /// Useful to ensure that the client cannot communicate with storage nodes through connections
     /// that are being kept alive.
     #[cfg(feature = "test-utils")]
-    pub fn reset_reqwest_client(&mut self) -> Result<(), ClientError> {
+    pub fn reset_reqwest_client(&mut self) -> ClientResult<()> {
         self.reqwest_client = Self::build_reqwest_client(&self.config)?;
         Ok(())
     }

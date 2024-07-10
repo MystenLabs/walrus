@@ -127,7 +127,7 @@ impl WriteClient {
         let blob_sui_object = self
             .client
             .as_ref()
-            .reserve_blob(&metadata, blob.len(), epochs)
+            .reserve_and_register_blob(&metadata, epochs)
             .await?;
 
         // Wait to ensure that the storage nodes received the registration event.

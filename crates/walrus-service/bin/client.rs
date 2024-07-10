@@ -35,7 +35,6 @@ use walrus_service::{
         get_sui_read_client_from_rpc_node_or_wallet,
         load_configuration,
         load_wallet_context,
-        price_for_encoded_length,
         print_walrus_info,
         read_blob_from_file,
         success,
@@ -46,7 +45,10 @@ use walrus_service::{
     client::{BlobStoreResult, Client},
     daemon::ClientDaemon,
 };
-use walrus_sui::client::{ContractClient, ReadClient};
+use walrus_sui::{
+    client::{ContractClient, ReadClient},
+    utils::price_for_encoded_length,
+};
 
 #[derive(Parser, Debug, Clone, Deserialize)]
 #[command(author, version, about = "Walrus client", long_about = None)]

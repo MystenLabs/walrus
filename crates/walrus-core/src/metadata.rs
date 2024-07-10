@@ -11,7 +11,13 @@ use fastcrypto::hash::{Blake2b256, HashFunction};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    encoding::{source_symbols_for_n_shards, DataTooLargeError, EncodingAxis, EncodingConfig},
+    encoding::{
+        encoded_blob_length_for_n_shards,
+        source_symbols_for_n_shards,
+        DataTooLargeError,
+        EncodingAxis,
+        EncodingConfig,
+    },
     merkle::{MerkleTree, Node as MerkleNode, DIGEST_LEN},
     BlobId,
     EncodingType,
@@ -223,6 +229,18 @@ impl BlobMetadata {
         encoding_config: &EncodingConfig,
     ) -> Result<NonZeroU16, DataTooLargeError> {
         encoding_config.symbol_size_for_blob_from_nonzero(self.unencoded_length)
+    }
+
+    /// Returns the encoded size of the blob.
+    ///
+    /// This infers the number of shards from the length of the `hashes` vector.
+    ///
+    /// Returns `None` if `hashes.len()` is not between `1` and `u16::MAX` or if the `unencoded_length` cannot be encoded
+    pub fn encoded_size(&self) -> Option<u64> {
+        encoded_blob_length_for_n_shards(
+            NonZeroU16::new(self.hashes.len().try_into().ok()?)?,
+            self.unencoded_length.get(),
+        )
     }
 }
 

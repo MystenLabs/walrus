@@ -60,7 +60,7 @@ impl ClientError {
     pub fn is_out_of_coin_error(&self) -> bool {
         matches!(
             &self.kind,
-            ClientErrorKind::NoCompatiblePaymentCoin | ClientErrorKind::NoCompatibleGasCoin(..)
+            ClientErrorKind::NoCompatiblePaymentCoin | ClientErrorKind::NoCompatibleGasCoin
         )
     }
 }
@@ -69,7 +69,7 @@ impl From<SuiClientError> for ClientError {
     fn from(value: SuiClientError) -> Self {
         let kind = match value {
             SuiClientError::NoCompatiblePaymentCoin => ClientErrorKind::NoCompatiblePaymentCoin,
-            SuiClientError::NoCompatibleGasCoin(e) => ClientErrorKind::NoCompatibleGasCoin(e),
+            SuiClientError::NoCompatibleGasCoin(_) => ClientErrorKind::NoCompatibleGasCoin,
             error => ClientErrorKind::Other(error.into()),
         };
         Self { kind }
@@ -80,11 +80,17 @@ impl From<SuiClientError> for ClientError {
 #[derive(Debug, thiserror::Error)]
 #[error(transparent)]
 pub enum ClientErrorKind {
+    /// Empty blobs are not supported.
+    #[error("empty blobs are not supported")]
+    EmptyBlob,
     /// The certification of the blob failed.
     #[error("blob certification failed: {0}")]
     CertificationFailed(SuiClientError),
     /// The client could not retrieve sufficient confirmations to certify the blob.
-    #[error("could not retrieve enough confirmations to certify the blob: {0} / {1} required")]
+    #[error(
+        "could not retrieve enough confirmations to certify the blob: {0} / {1} required; \
+        this usually indicates a misconfiguration"
+    )]
     NotEnoughConfirmations(usize, usize),
     /// The client could not retrieve enough slivers to reconstruct the blob.
     #[error("could not retrieve enough slivers to reconstruct the blob")]
@@ -107,12 +113,15 @@ pub enum ClientErrorKind {
     /// The blob ID is blocked.
     #[error("the blob ID {0} is blocked")]
     BlobIdBlocked(BlobId),
-    #[error("no compatible payment coin found")]
     /// No matching payment coin found for the transaction.
+    #[error("no compatible payment coin found")]
     NoCompatiblePaymentCoin,
-    #[error("no compatible gas coin found: {0}")]
     /// No matching gas coin found for the transaction.
-    NoCompatibleGasCoin(anyhow::Error),
+    #[error(
+        "no compatible gas coin found; \
+        note that two separate coins with sufficient funds are required to reserve storage"
+    )]
+    NoCompatibleGasCoin,
     /// A failure internal to the node.
     #[error("client internal error: {0}")]
     Other(Box<dyn std::error::Error + Send + Sync + 'static>),

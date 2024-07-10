@@ -6,6 +6,7 @@
 use std::{
     collections::{BTreeSet, HashSet},
     future::Future,
+    num::NonZeroU16,
     path::{Path, PathBuf},
     str::FromStr,
     time::Duration,
@@ -38,7 +39,7 @@ use sui_types::{
     transaction::{CallArg, ProgrammableTransaction, TransactionData},
     TypeTag,
 };
-use walrus_core::BlobId;
+use walrus_core::{encoding::encoded_blob_length_for_n_shards, BlobId};
 
 use crate::{client::SuiClientResult, contracts::AssociatedContractStruct};
 
@@ -50,6 +51,22 @@ pub const BYTES_PER_UNIT_SIZE: u64 = 1024;
 /// given encoded size.
 pub fn storage_units_from_size(encoded_size: u64) -> u64 {
     (encoded_size + BYTES_PER_UNIT_SIZE - 1) / BYTES_PER_UNIT_SIZE
+}
+
+/// Computes the price in MIST given the unencoded blob size.
+pub fn price_for_unencoded_length(
+    unencoded_length: u64,
+    n_shards: NonZeroU16,
+    price_per_unit_size: u64,
+    epochs: u64,
+) -> Option<u64> {
+    encoded_blob_length_for_n_shards(n_shards, unencoded_length)
+        .map(|encoded_length| price_for_encoded_length(encoded_length, price_per_unit_size, epochs))
+}
+
+/// Computes the price in MIST given the encoded blob size.
+pub fn price_for_encoded_length(encoded_length: u64, price_per_unit_size: u64, epochs: u64) -> u64 {
+    storage_units_from_size(encoded_length) * price_per_unit_size * epochs
 }
 
 pub(crate) fn get_struct_from_object_response(

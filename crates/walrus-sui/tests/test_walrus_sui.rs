@@ -63,8 +63,8 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
         .blob_events(polling_duration, None)
         .await?;
 
-    let size = 10_000;
-    let resource_size = encoding_config.encoded_blob_length(size).unwrap();
+    let size = NonZeroU64::new(10_000).unwrap();
+    let resource_size = encoding_config.encoded_blob_length(size.get()).unwrap();
     let storage_resource = walrus_client
         .as_ref()
         .reserve_space(resource_size, 3)
@@ -80,11 +80,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
         1, 2, 3, 4, 5, 6, 7, 8,
     ];
 
-    let blob_id = BlobId::from_metadata(
-        Node::from(root_hash),
-        EncodingType::RedStuff,
-        NonZeroU64::new(size).unwrap(),
-    );
+    let blob_id = BlobId::from_metadata(Node::from(root_hash), EncodingType::RedStuff, size);
     let blob_obj = walrus_client
         .as_ref()
         .register_blob(
@@ -96,7 +92,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
         )
         .await?;
     assert_eq!(blob_obj.blob_id, blob_id);
-    assert_eq!(blob_obj.size, size);
+    assert_eq!(blob_obj.size, size.get());
     assert_eq!(blob_obj.certified_epoch, None);
     assert_eq!(blob_obj.storage, storage_resource);
     assert_eq!(blob_obj.stored_epoch, 0);
@@ -159,11 +155,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
         1, 2, 3, 4, 5, 6, 7, 0,
         1, 2, 3, 4, 5, 6, 7, 0,
     ];
-    let blob_id = BlobId::from_metadata(
-        Node::from(root_hash),
-        EncodingType::RedStuff,
-        NonZeroU64::new(size).unwrap(),
-    );
+    let blob_id = BlobId::from_metadata(Node::from(root_hash), EncodingType::RedStuff, size);
 
     let blob_obj = walrus_client
         .as_ref()
