@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
+    collections::HashMap,
     fmt::{self, Display},
+    hash::Hash,
     time::Duration,
 };
 
@@ -45,7 +47,7 @@ pub trait WeightedResult {
     {
         self.take_inner_result().ok()
     }
-    /// Returns a reference tothe inner result.
+    /// Returns a reference to the inner result.
     fn inner_result(&self) -> &Result<Self::Inner, Self::Error>;
     /// Returns the inner result, consuming `self`.
     #[allow(dead_code)]
@@ -200,6 +202,31 @@ where
             .into_iter()
             .filter_map(WeightedResult::inner_ok)
             .collect()
+    }
+}
+
+impl<I, Fut, T> WeightedFutures<I, Fut, T>
+where
+    I: Iterator<Item = Fut>,
+    Fut: Future<Output = T>,
+    T: WeightedResult,
+    T::Inner: Hash + Eq,
+{
+    /// Returns a [`HashMap`] mapping all successful results to the aggregated weight of requests
+    /// that returned that result.
+    pub fn take_unique_results_with_aggregate_weight(&mut self) -> HashMap<T::Inner, usize> {
+        let mut unique_results = HashMap::new();
+        for result in self.take_results() {
+            let weight = result.weight();
+            let value = result.inner_ok();
+            if let Some(value) = value {
+                unique_results
+                    .entry(value)
+                    .and_modify(|counter| *counter += weight)
+                    .or_insert(weight);
+            }
+        }
+        unique_results
     }
 }
 

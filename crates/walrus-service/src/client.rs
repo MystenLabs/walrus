@@ -3,11 +3,7 @@
 
 //! Client for the Walrus service.
 
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-    time::Instant,
-};
+use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use anyhow::anyhow;
 use fastcrypto::{bls12381::min_pk::BLS12381AggregateSignature, traits::AggregateAuthenticator};
@@ -658,7 +654,7 @@ impl<T> Client<T> {
         read_client: &U,
         timeout: Duration,
     ) -> Result<BlobStatus, ClientError> {
-        let comms = self.node_communications_with_correct_node();
+        let comms = self.node_communications_quorum();
         let futures = comms
             .iter()
             .map(|n| n.get_blob_status(blob_id).instrument(n.span.clone()));
@@ -667,20 +663,18 @@ impl<T> Client<T> {
             .execute_time(timeout, self.max_concurrent_status_reads)
             .await;
 
-        let mut statuses: Vec<_> =
-            // Using `HashSet` to get unique status responses.
-            HashSet::<BlobStatus>::from_iter(requests.take_inner_ok().into_iter())
-                .into_iter()
-                .collect();
+        let statuses = requests.take_unique_results_with_aggregate_weight();
+        tracing::debug!(?statuses, "received blob statuses from storage nodes");
+        let mut statuses_list: Vec<_> = statuses.keys().copied().collect();
 
         // Going through statuses from later (invalid) to earlier (nonexistent), see implementation
         // of `Ord` and `PartialOrd` for `BlobStatus`.
-        statuses.sort_unstable();
-        tracing::debug!(?statuses, "received blob statuses from storage nodes");
-        for status in statuses.into_iter().rev() {
-            if verify_blob_status(blob_id, status, read_client)
-                .await
-                .is_ok()
+        statuses_list.sort_unstable();
+        for status in statuses_list.into_iter().rev() {
+            if self.committee.is_above_validity(statuses[&status])
+                || verify_blob_status(blob_id, status, read_client)
+                    .await
+                    .is_ok()
             {
                 return Ok(status);
             }
@@ -773,12 +767,6 @@ impl<T> Client<T> {
     /// Returns a vector of [`NodeCommunication`] objects, the weight of which is at least a quorum.
     fn node_communications_quorum(&self) -> Vec<NodeCommunication> {
         self.node_communications_threshold(|weight| self.committee.is_quorum(weight))
-            .expect("the threshold is below the total number of shards")
-    }
-
-    /// Returns a vector of [`NodeCommunication`] objects which contains at least one correct node.
-    fn node_communications_with_correct_node(&self) -> Vec<NodeCommunication> {
-        self.node_communications_threshold(|weight| self.committee.is_above_validity(weight))
             .expect("the threshold is below the total number of shards")
     }
 
