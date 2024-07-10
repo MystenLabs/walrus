@@ -37,6 +37,7 @@ use walrus_service::{
         load_wallet_context,
         price_for_encoded_length,
         print_walrus_info,
+        read_blob_from_file,
         success,
         HumanReadableBytes,
         HumanReadableMist,
@@ -327,7 +328,7 @@ impl FileOrBlobId {
                     "checking status of blob read from the filesystem"
                 );
                 Ok(*encoding_config
-                    .get_blob_encoder(&std::fs::read(&file)?)?
+                    .get_blob_encoder(&read_blob_from_file(&file)?)?
                     .compute_metadata()
                     .blob_id())
             }
@@ -678,7 +679,7 @@ async fn run_app(app: App) -> Result<()> {
                 let encoding_config = client.encoding_config();
                 tracing::debug!(n_shards = encoding_config.n_shards(), "encoding the blob");
                 let metadata = encoding_config
-                    .get_blob_encoder(&std::fs::read(&file)?)?
+                    .get_blob_encoder(&read_blob_from_file(&file)?)?
                     .compute_metadata();
                 let unencoded_size = metadata.metadata().unencoded_length.get();
                 let encoded_size =
@@ -706,7 +707,7 @@ async fn run_app(app: App) -> Result<()> {
             } else {
                 tracing::info!("Storing file {} as blob on Walrus", file.display());
                 let result = client
-                    .reserve_and_store_blob(&std::fs::read(file)?, epochs, force)
+                    .reserve_and_store_blob(&read_blob_from_file(&file)?, epochs, force)
                     .await?;
                 println!("{}", output_string(&StoreOutput::from(result), app.json)?);
             }
@@ -842,7 +843,7 @@ async fn run_app(app: App) -> Result<()> {
 
             tracing::debug!(%n_shards, "encoding the blob");
             let metadata = EncodingConfig::new(n_shards)
-                .get_blob_encoder(&std::fs::read(&file)?)?
+                .get_blob_encoder(&read_blob_from_file(&file)?)?
                 .compute_metadata();
 
             println!(

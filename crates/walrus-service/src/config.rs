@@ -296,7 +296,8 @@ impl PathOrInPlace<ProtocolKeyPair> {
             value: value @ None,
         } = self
         {
-            let base64_string = std::fs::read_to_string(path.as_path())?;
+            let base64_string = std::fs::read_to_string(path.as_path())
+                .context(format!("unable to read key from '{}'", path.display()))?;
             let decoded: ProtocolKeyPair = base64_string
                 .parse()
                 .map_err(|err: ProtocolKeyPairParseError| anyhow::anyhow!(err.to_string()))?;

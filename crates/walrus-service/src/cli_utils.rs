@@ -5,8 +5,9 @@
 
 use std::{
     fmt::{self, Display},
+    fs,
     num::NonZeroU16,
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use anyhow::{anyhow, Context, Result};
@@ -82,7 +83,7 @@ pub fn load_wallet_context(path: &Option<PathBuf>) -> Result<WalletContext> {
         default_paths.push(home_dir.join(".sui").join("sui_config").join("client.yaml"))
     }
     let path = path_or_defaults_if_exist(path, &default_paths)
-        .ok_or(anyhow!("Could not find a valid wallet config file."))?;
+        .ok_or(anyhow!("could not find a valid wallet config file."))?;
     tracing::info!("Using wallet configuration from {}", path.display());
     WalletContext::new(&path, None, None)
 }
@@ -95,15 +96,15 @@ pub fn load_wallet_context(path: &Option<PathBuf>) -> Result<WalletContext> {
 // `crates/walrus-service/bin/client.rs`.
 pub fn load_configuration(path: &Option<PathBuf>) -> Result<Config> {
     let path = path_or_defaults_if_exist(path, &default_configuration_paths())
-        .ok_or(anyhow!("Could not find a valid Walrus configuration file."))?;
-    tracing::info!("Using Walrus configuration from {}", path.display());
+        .ok_or(anyhow!("could not find a valid Walrus configuration file"))?;
+    tracing::info!("using Walrus configuration from '{}'", path.display());
 
     serde_yaml::from_str(&std::fs::read_to_string(&path).context(format!(
-        "Unable to read Walrus configuration from {}",
+        "unable to read Walrus configuration from '{}'",
         path.display()
     ))?)
     .context(format!(
-        "Parsing Walrus configuration from {} failed",
+        "parsing Walrus configuration from '{}' failed",
         path.display()
     ))
 }
@@ -171,7 +172,7 @@ pub async fn get_sui_read_client_from_rpc_node_or_wallet(
     );
     let sui_client = match rpc_url {
         Some(url) => {
-            tracing::info!("Using explicitly set RPC URL {url}");
+            tracing::info!("using explicitly set RPC URL {url}");
             SuiClientBuilder::default()
                 .build(&url)
                 .await
@@ -179,7 +180,7 @@ pub async fn get_sui_read_client_from_rpc_node_or_wallet(
         }
         None => match wallet {
             Ok(wallet) => {
-                tracing::info!("Using RPC URL set in wallet configuration");
+                tracing::info!("using RPC URL set in wallet configuration");
                 wallet
                     .get_client()
                     .await
@@ -187,7 +188,7 @@ pub async fn get_sui_read_client_from_rpc_node_or_wallet(
             }
             Err(e) => {
                 if allow_fallback_to_default {
-                    tracing::info!("Using default RPC URL {DEFAULT_RPC_URL}");
+                    tracing::info!("using default RPC URL {DEFAULT_RPC_URL}");
                     SuiClientBuilder::default()
                         .build(DEFAULT_RPC_URL)
                         .await
@@ -462,6 +463,14 @@ pub async fn print_walrus_info(sui_read_client: &impl ReadClient, dev: bool) -> 
     table.printstd();
 
     Ok(())
+}
+
+/// Reads a blob from the filesystem or returns a helpful error message.
+pub fn read_blob_from_file(path: impl AsRef<Path>) -> anyhow::Result<Vec<u8>> {
+    fs::read(&path).context(format!(
+        "unable to read blob from '{}'",
+        path.as_ref().display()
+    ))
 }
 
 /// Default style for tables printed to stdout.
