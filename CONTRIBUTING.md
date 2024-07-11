@@ -29,6 +29,7 @@ We have CI jobs running for every PR to test and lint the repository. You can in
 that these check pass even *before pushing your changes* to GitHub. To use this, the following steps are required:
 
 1. Install [Rust](https://www.rust-lang.org/tools/install).
+1. Install [nextest](https://nexte.st/).
 1. [Install pre-commit](https://pre-commit.com/#install) using `pip` or your OS's package manager.
 1. Run `pre-commit install` in the repository.
 
@@ -64,7 +65,7 @@ for example Clippy.
 ## Tests
 
 The majority of our code is covered by automatic unit and integration tests which you can run
-through `cargo nextest run`.
+through `cargo test` or `cargo nextest run` (require [nextest](https://nexte.st/)).
 
 Integration and end-to-end tests are excluded by default when running `cargo nextest` as they depend on
 additional packages and take longer to run. You can run these test as follows:
