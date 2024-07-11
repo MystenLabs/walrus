@@ -64,13 +64,13 @@ for example Clippy.
 ## Tests
 
 The majority of our code is covered by automatic unit and integration tests which you can run
-through `cargo test`.
+through `cargo nextest run`.
 
-Integration and end-to-end tests are excluded by default when running `cargo test` as they depend on
+Integration and end-to-end tests are excluded by default when running `cargo nextest` as they depend on
 additional packages and take longer to run. You can run these test as follows:
 
 ```sh
-cargo test -- --ignored
+cargo nextest run --run-ignored ignored-only
 ```
 
 ### Test coverage

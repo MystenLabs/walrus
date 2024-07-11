@@ -54,7 +54,7 @@ repos:
     pass_filenames: false
   - id: cargo-test
     name: cargo-test
-    entry: cargo test
+    entry: cargo nextest run
     language: rust
     files: ^(crates/|Cargo\.(toml|lock)$)
     pass_filenames: false

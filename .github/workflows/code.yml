@@ -121,12 +121,13 @@ jobs:
     if: ${{ needs.diff.outputs.isRust == 'true' }}
     runs-on: ubuntu-ghcloud
     steps:
+      - uses: taiki-e/install-action@nextest
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2.7.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
       - name: Run tests
-        run: cargo test -- --include-ignored
+        run: cargo nextest run --run-ignored all
 
   test-coverage:
     name: Run all Rust tests and report coverage
@@ -187,8 +188,8 @@ jobs:
       - test-move
     runs-on: ubuntu-latest
     steps:
-    - name: Decide whether all needed jobs succeeded
-      uses: re-actors/alls-green@v1.2.2
-      with:
-        allowed-skips: ${{ toJSON(needs) }}
-        jobs: ${{ toJSON(needs) }}
+      - name: Decide whether all needed jobs succeeded
+        uses: re-actors/alls-green@v1.2.2
+        with:
+          allowed-skips: ${{ toJSON(needs) }}
+          jobs: ${{ toJSON(needs) }}
