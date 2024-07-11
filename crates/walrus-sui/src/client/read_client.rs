@@ -5,18 +5,21 @@
 //!
 
 use std::{
+    collections::BTreeSet,
     fmt::{self, Debug},
     future::Future,
+    str::FromStr,
     time::Duration,
 };
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use sui_sdk::{
     apis::EventApi,
     rpc_types::{Coin, EventFilter, SuiEvent, SuiObjectDataOptions},
     types::{base_types::ObjectID, transaction::CallArg},
     SuiClient,
     SuiClientBuilder,
+    SUI_COIN_TYPE,
 };
 use sui_types::{
     base_types::{SequenceNumber, SuiAddress},
@@ -155,19 +158,70 @@ impl SuiReadClient {
         Ok(initial_shared_version)
     }
 
-    pub(crate) async fn get_payment_coins(
+    pub(crate) async fn get_coins_of_type(
         &self,
         owner_address: SuiAddress,
+        coin_type: Option<String>,
     ) -> Result<impl Iterator<Item = Coin> + '_, sui_sdk::error::Error> {
         handle_pagination(move |cursor| {
             self.sui_client.coin_read_api().get_coins(
                 owner_address,
-                Some(self.coin_type.to_canonical_string(true)),
+                coin_type.clone(),
                 cursor,
                 None,
             )
         })
         .await
+    }
+
+    /// Returns a vector of coins of provided `coin_type` whose total balance is at least `balance`.
+    ///
+    /// Filters out any coin objects included in the `forbidden_objects` set.
+    ///
+    /// Returns `None` if no coins of sufficient total balance are found.
+    pub(crate) async fn get_coins_with_total_balance(
+        &self,
+        owner_address: SuiAddress,
+        coin_type: Option<String>,
+        balance: u64,
+        forbidden_objects: BTreeSet<ObjectID>,
+    ) -> Result<Vec<Coin>> {
+        let mut coins_iter = self.get_coins_of_type(owner_address, coin_type).await?;
+
+        let mut coins = vec![];
+        let mut total_balance = 0;
+        while total_balance < balance {
+            let coin = coins_iter.next().context("insufficient total balance")?;
+            if !forbidden_objects.contains(&coin.object_ref().0) {
+                total_balance += coin.balance;
+                coins.push(coin);
+            }
+        }
+        Ok(coins)
+    }
+
+    /// Returns a coin of provided `coin_type` whose balance is at least `balance`.
+    ///
+    /// Filters out any coin objects included in the `forbidden_objects` set.
+    ///
+    /// Returns `None` if no coin of sufficient balance is found.
+    pub(crate) async fn get_coin_with_balance(
+        &self,
+        owner_address: SuiAddress,
+        coin_type: Option<String>,
+        balance: u64,
+        forbidden_objects: BTreeSet<ObjectID>,
+    ) -> Result<Coin> {
+        self.get_coins_of_type(owner_address, coin_type)
+            .await?
+            .filter(|coin| !forbidden_objects.contains(&coin.object_ref().0))
+            .find(|coin| coin.balance >= balance)
+            .context("no coin with sufficient balance exists")
+    }
+
+    /// Returns `true` iff the system uses SUI as the coin type.
+    pub fn uses_sui_coin(&self) -> bool {
+        self.coin_type == TypeTag::from_str(SUI_COIN_TYPE).expect("SUI should be a valid type")
     }
 }
 

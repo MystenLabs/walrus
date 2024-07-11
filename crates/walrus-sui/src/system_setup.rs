@@ -49,7 +49,7 @@ pub struct SystemParameters {
 }
 
 impl SystemParameters {
-    /// Constructor for [`SystemParameters`] with sui as coin type.
+    /// Constructor for [`SystemParameters`] with SUI as coin type.
     pub fn new_with_sui(committee: Committee, capacity: u64, price: u64) -> Self {
         Self {
             committee,

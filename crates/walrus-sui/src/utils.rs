@@ -332,14 +332,14 @@ pub(crate) async fn sign_and_send_ptb(
     sender: SuiAddress,
     wallet: &WalletContext,
     programmable_transaction: ProgrammableTransaction,
-    gas_coin: ObjectRef,
+    gas_coins: Vec<ObjectRef>,
     gas_budget: u64,
 ) -> anyhow::Result<SuiTransactionBlockResponse> {
     let gas_price = wallet.get_reference_gas_price().await?;
 
     let transaction = TransactionData::new_programmable(
         sender,
-        vec![gas_coin],
+        gas_coins,
         programmable_transaction,
         gas_budget,
         gas_price,

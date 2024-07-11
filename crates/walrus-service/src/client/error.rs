@@ -60,7 +60,7 @@ impl ClientError {
     pub fn is_out_of_coin_error(&self) -> bool {
         matches!(
             &self.kind,
-            ClientErrorKind::NoCompatiblePaymentCoin | ClientErrorKind::NoCompatibleGasCoin
+            ClientErrorKind::NoCompatiblePaymentCoin | ClientErrorKind::NoCompatibleGasCoins
         )
     }
 }
@@ -69,7 +69,7 @@ impl From<SuiClientError> for ClientError {
     fn from(value: SuiClientError) -> Self {
         let kind = match value {
             SuiClientError::NoCompatiblePaymentCoin => ClientErrorKind::NoCompatiblePaymentCoin,
-            SuiClientError::NoCompatibleGasCoin(_) => ClientErrorKind::NoCompatibleGasCoin,
+            SuiClientError::NoCompatibleGasCoins(_) => ClientErrorKind::NoCompatibleGasCoins,
             error => ClientErrorKind::Other(error.into()),
         };
         Self { kind }
@@ -116,12 +116,9 @@ pub enum ClientErrorKind {
     /// No matching payment coin found for the transaction.
     #[error("no compatible payment coin found")]
     NoCompatiblePaymentCoin,
-    /// No matching gas coin found for the transaction.
-    #[error(
-        "no compatible gas coin found; \
-        note that two separate coins with sufficient funds are required to reserve storage"
-    )]
-    NoCompatibleGasCoin,
+    /// No gas coins with sufficient balance found for the transaction.
+    #[error("no compatible gas coins with sufficient total balance found")]
+    NoCompatibleGasCoins,
     /// A failure internal to the node.
     #[error("client internal error: {0}")]
     Other(Box<dyn std::error::Error + Send + Sync + 'static>),

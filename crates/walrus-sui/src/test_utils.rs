@@ -292,7 +292,7 @@ async fn fund_address(
         sender,
         funding_wallet,
         ptb.finish(),
-        gas_coin,
+        vec![gas_coin],
         DEFAULT_GAS_BUDGET,
     )
     .await?;
