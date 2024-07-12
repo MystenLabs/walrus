@@ -176,15 +176,12 @@ impl SuiReadClient {
 
     /// Returns a vector of coins of provided `coin_type` whose total balance is at least `balance`.
     ///
-    /// Filters out any coin objects included in the `forbidden_objects` set.
-    ///
     /// Returns `None` if no coins of sufficient total balance are found.
     pub(crate) async fn get_coins_with_total_balance(
         &self,
         owner_address: SuiAddress,
         coin_type: Option<String>,
         balance: u64,
-        forbidden_objects: BTreeSet<ObjectID>,
     ) -> Result<Vec<Coin>> {
         let mut coins_iter = self.get_coins_of_type(owner_address, coin_type).await?;
 
@@ -192,10 +189,8 @@ impl SuiReadClient {
         let mut total_balance = 0;
         while total_balance < balance {
             let coin = coins_iter.next().context("insufficient total balance")?;
-            if !forbidden_objects.contains(&coin.object_ref().0) {
-                total_balance += coin.balance;
-                coins.push(coin);
-            }
+            total_balance += coin.balance;
+            coins.push(coin);
         }
         Ok(coins)
     }

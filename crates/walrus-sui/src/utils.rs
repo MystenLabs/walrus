@@ -4,7 +4,7 @@
 //! Helper functions for the crate.
 
 use std::{
-    collections::{BTreeSet, HashSet},
+    collections::HashSet,
     future::Future,
     num::NonZeroU16,
     path::{Path, PathBuf},
@@ -36,7 +36,7 @@ use sui_sdk::{
 use sui_types::{
     base_types::{ObjectRef, ObjectType, SuiAddress},
     crypto::SignatureScheme,
-    transaction::{CallArg, ProgrammableTransaction, TransactionData},
+    transaction::{ProgrammableTransaction, TransactionData},
     TypeTag,
 };
 use walrus_core::{encoding::encoded_blob_length_for_n_shards, BlobId};
@@ -245,21 +245,6 @@ where
         iterators.push(page.data.into_iter());
     }
     Ok(iterators.into_iter().flatten())
-}
-
-pub(crate) fn call_args_to_object_ids<T>(call_args: T) -> BTreeSet<ObjectID>
-where
-    T: IntoIterator<Item = CallArg>,
-{
-    call_args
-        .into_iter()
-        .filter_map(|arg| match arg {
-            CallArg::Object(sui_sdk::types::transaction::ObjectArg::ImmOrOwnedObject(obj)) => {
-                Some(obj.0.to_owned())
-            }
-            _ => None,
-        })
-        .collect()
 }
 
 pub(crate) fn blob_id_from_u256(input: U256) -> BlobId {
