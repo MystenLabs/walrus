@@ -121,7 +121,9 @@ jobs:
     if: ${{ needs.diff.outputs.isRust == 'true' }}
     runs-on: ubuntu-ghcloud
     steps:
-      - uses: taiki-e/install-action@nextest
+      - uses: taiki-e/install-action@v2.41.14
+        with:
+          tool: cargo-nextest
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2.7.3
         with:
