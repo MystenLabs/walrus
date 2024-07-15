@@ -33,6 +33,9 @@ use walrus_sui::{
 
 use crate::client::{default_configuration_paths, string_prefix, Blocklist, Client, Config};
 
+mod cli_output;
+pub use cli_output::CliOutput;
+
 /// The Git revision obtained through `git describe` at compile time.
 pub const GIT_REVISION: &str = {
     if let Some(revision) = option_env!("GIT_REVISION") {

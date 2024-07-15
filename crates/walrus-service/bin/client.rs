@@ -5,31 +5,26 @@
 
 use std::{
     env,
-    fmt::{self, Display},
     io::Write,
     net::SocketAddr,
-    num::{NonZeroU16, NonZeroU64},
-    path::{Path, PathBuf},
+    num::NonZeroU16,
+    path::PathBuf,
     process::ExitCode,
     time::Duration,
 };
 
 use anyhow::{anyhow, Result};
 use clap::{Args, Parser, Subcommand};
-use colored::Colorize;
-use serde::{Deserialize, Serialize};
-use serde_with::{base64::Base64, serde_as, DisplayFromStr};
+use serde::Deserialize;
+use serde_with::{serde_as, DisplayFromStr};
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt, EnvFilter, Layer};
 use walrus_core::{
     encoding::{encoded_blob_length_for_n_shards, EncodingConfig, Primary},
-    metadata::VerifiedBlobMetadataWithId,
     BlobId,
 };
-use walrus_sdk::api::BlobStatus;
 use walrus_service::{
     cli_utils::{
         error,
-        format_event_id,
         get_contract_client,
         get_read_client,
         get_sui_read_client_from_rpc_node_or_wallet,
@@ -37,12 +32,19 @@ use walrus_service::{
         load_wallet_context,
         print_walrus_info,
         read_blob_from_file,
-        success,
+        CliOutput,
         HumanReadableBytes,
-        HumanReadableMist,
         VERSION,
     },
-    client::{BlobStoreResult, Client, ClientDaemon},
+    client::{
+        BlobIdOutput,
+        BlobStatusOutput,
+        Client,
+        ClientDaemon,
+        DryRunOutput,
+        ReadOutput,
+        StoreOutput,
+    },
 };
 use walrus_sui::{
     client::{ContractClient, ReadClient},
@@ -390,221 +392,6 @@ impl PublisherArgs {
     }
 }
 
-/// Helper function to get the correct string depending on the output mode.
-fn output_string<T: Display + Serialize>(output: &T, json: bool) -> Result<String> {
-    if json {
-        Ok(serde_json::to_string(&output)?)
-    } else {
-        Ok(output.to_string())
-    }
-}
-
-/// The output of the `store` command.
-#[derive(Debug, Clone, Serialize)]
-struct StoreOutput(BlobStoreResult);
-
-impl From<BlobStoreResult> for StoreOutput {
-    fn from(value: BlobStoreResult) -> Self {
-        Self(value)
-    }
-}
-
-impl Display for StoreOutput {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match &self.0 {
-            BlobStoreResult::AlreadyCertified {
-                blob_id,
-                event,
-                end_epoch,
-            } => {
-                write!(
-                    f,
-                    "{} Blob was previously certified within Walrus for a sufficient period.\n\
-                    Blob ID: {}\nCertification event ID: {}\nEnd epoch (exclusive): {}",
-                    success(),
-                    blob_id,
-                    format_event_id(event),
-                    end_epoch,
-                )
-            }
-            BlobStoreResult::NewlyCreated {
-                blob_object,
-                encoded_size,
-                cost,
-            } => {
-                write!(
-                    f,
-                    "{} Blob stored successfully.\n\
-                    Blob ID: {}\n\
-                    Unencoded size: {}\n\
-                    Encoded size (including metadata): {}\n\
-                    Sui object ID: {}\n\
-                    Cost (excluding gas): {}",
-                    success(),
-                    blob_object.blob_id,
-                    HumanReadableBytes(blob_object.size),
-                    HumanReadableBytes(*encoded_size),
-                    blob_object.id,
-                    HumanReadableMist(*cost),
-                )
-            }
-            BlobStoreResult::MarkedInvalid { blob_id, event } => {
-                write!(
-                    f,
-                    "{} Blob was marked as invalid.\nBlob ID: {}\nInvalidation event ID: {}",
-                    error(),
-                    blob_id,
-                    format_event_id(event),
-                )
-            }
-        }
-    }
-}
-
-/// The output of the `read` command.
-#[serde_as]
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ReadOutput {
-    #[serde(skip_serializing_if = "std::option::Option::is_none")]
-    out: Option<PathBuf>,
-    #[serde_as(as = "DisplayFromStr")]
-    blob_id: BlobId,
-    // When serializing to JSON, the blob is encoded as Base64 string.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    #[serde_as(as = "Base64")]
-    blob: Vec<u8>,
-}
-
-impl ReadOutput {
-    fn new(out: Option<PathBuf>, blob_id: BlobId, orig_blob: Vec<u8>) -> Self {
-        // Avoid serializing the blob if there is an output file.
-        let blob = if out.is_some() { vec![] } else { orig_blob };
-        Self { out, blob_id, blob }
-    }
-}
-
-impl Display for ReadOutput {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match &self.out {
-            Some(path) => {
-                write!(
-                    f,
-                    "{} Blob {} reconstructed from Walrus and written to {}.",
-                    success(),
-                    self.blob_id,
-                    path.display()
-                )
-            }
-            // The full blob has been written to stdout.
-            None => write!(f, ""),
-        }
-    }
-}
-
-/// The output of the `blob-id` command.
-#[serde_as]
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct BlobIdOutput {
-    #[serde_as(as = "DisplayFromStr")]
-    blob_id: BlobId,
-    file: PathBuf,
-    unencoded_length: NonZeroU64,
-}
-
-impl Display for BlobIdOutput {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{} Blob encoded successfully: {}.\n\
-                Unencoded size: {}\nBlob ID: {}",
-            success(),
-            self.file.display(),
-            self.unencoded_length,
-            self.blob_id,
-        )
-    }
-}
-
-impl BlobIdOutput {
-    fn new(file: &Path, metadata: &VerifiedBlobMetadataWithId) -> Self {
-        Self {
-            blob_id: *metadata.blob_id(),
-            file: file.to_owned(),
-            unencoded_length: metadata.metadata().unencoded_length,
-        }
-    }
-}
-
-/// The output of the `store --dry-run` command.
-#[serde_as]
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct DryRunOutput {
-    #[serde_as(as = "DisplayFromStr")]
-    blob_id: BlobId,
-    unencoded_size: u64,
-    encoded_size: u64,
-    storage_cost: u64,
-}
-
-impl Display for DryRunOutput {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{} Store dry-run succeeded.\n\
-                Blob ID: {}\n\
-                Unencoded size: {}\n\
-                Encoded size (including metadata): {}\n\
-                Cost (excluding gas): {}\n",
-            success(),
-            self.blob_id,
-            HumanReadableBytes(self.unencoded_size),
-            HumanReadableBytes(self.encoded_size),
-            HumanReadableMist(self.storage_cost),
-        )
-    }
-}
-
-/// The output of the `blob-status` command.
-#[serde_as]
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct BlobStatusOutput {
-    #[serde_as(as = "DisplayFromStr")]
-    blob_id: BlobId,
-    #[serde(skip_serializing_if = "std::option::Option::is_none")]
-    file: Option<PathBuf>,
-    status: BlobStatus,
-}
-
-impl Display for BlobStatusOutput {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let blob_str = if let Some(file) = self.file.clone() {
-            format!("{} (file: {})", self.blob_id, file.display())
-        } else {
-            format!("{}", self.blob_id)
-        };
-        match self.status {
-            BlobStatus::Nonexistent => write!(f, "Blob ID {blob_str} is not stored on Walrus."),
-            BlobStatus::Existent {
-                status,
-                end_epoch,
-                status_event,
-            } => write!(
-                f,
-                "Status for blob ID {blob_str}: {}\n\
-                    End epoch: {}\n\
-                    Related event: {}",
-                status.to_string().bold(),
-                end_epoch,
-                format_event_id(&status_event),
-            ),
-        }
-    }
-}
-
 async fn client() -> Result<()> {
     init_tracing_subscriber()?;
     let mut app = App::parse();
@@ -657,6 +444,7 @@ fn init_tracing_subscriber() -> Result<()> {
 
     Ok(())
 }
+
 async fn run_app(app: App) -> Result<()> {
     let config = load_configuration(&app.config);
     tracing::debug!(?app, ?config, "initializing the client");
@@ -693,24 +481,19 @@ async fn run_app(app: App) -> Result<()> {
                     .await?;
                 let storage_cost =
                     price_for_encoded_length(encoded_size, price_per_unit_size, epochs);
-                println!(
-                    "{}",
-                    output_string(
-                        &DryRunOutput {
-                            blob_id: *metadata.blob_id(),
-                            unencoded_size,
-                            encoded_size,
-                            storage_cost,
-                        },
-                        app.json
-                    )?
-                );
+                DryRunOutput {
+                    blob_id: *metadata.blob_id(),
+                    unencoded_size,
+                    encoded_size,
+                    storage_cost,
+                }
+                .print_output(app.json)?;
             } else {
                 tracing::info!("Storing file {} as blob on Walrus", file.display());
                 let result = client
                     .reserve_and_store_blob(&read_blob_from_file(&file)?, epochs, force)
                     .await?;
-                println!("{}", output_string(&StoreOutput::from(result), app.json)?);
+                StoreOutput::from(result).print_output(app.json)?;
             }
         }
         Commands::Read {
@@ -729,10 +512,7 @@ async fn run_app(app: App) -> Result<()> {
                     }
                 }
             }
-            println!(
-                "{}",
-                output_string(&ReadOutput::new(out, blob_id, blob), app.json)?
-            );
+            ReadOutput::new(out, blob_id, blob).print_output(app.json)?;
         }
         Commands::BlobStatus {
             file_or_blob_id,
@@ -755,17 +535,12 @@ async fn run_app(app: App) -> Result<()> {
             let status = client
                 .get_verified_blob_status(&blob_id, &sui_read_client, timeout)
                 .await?;
-            println!(
-                "{}",
-                output_string(
-                    &BlobStatusOutput {
-                        blob_id,
-                        file,
-                        status
-                    },
-                    app.json
-                )?
-            );
+            BlobStatusOutput {
+                blob_id,
+                file,
+                status,
+            }
+            .print_output(app.json)?;
         }
         Commands::Publisher { args } => {
             args.print_debug_message("attempting to run the Walrus publisher");
@@ -847,10 +622,7 @@ async fn run_app(app: App) -> Result<()> {
                 .get_blob_encoder(&read_blob_from_file(&file)?)?
                 .compute_metadata();
 
-            println!(
-                "{}",
-                output_string(&BlobIdOutput::new(&file, &metadata), app.json)?
-            );
+            BlobIdOutput::new(&file, &metadata).print_output(app.json)?;
         }
     }
     Ok(())

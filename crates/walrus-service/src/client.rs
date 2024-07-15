@@ -64,6 +64,9 @@ pub use daemon::ClientDaemon;
 mod error;
 pub use error::{ClientError, ClientErrorKind};
 
+mod responses;
+pub use responses::{BlobIdOutput, BlobStatusOutput, DryRunOutput, ReadOutput, StoreOutput};
+
 mod utils;
 pub use utils::string_prefix;
 
