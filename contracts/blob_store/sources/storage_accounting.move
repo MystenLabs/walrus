@@ -5,7 +5,7 @@ module blob_store::storage_accounting {
     use sui::balance::{Self, Balance};
 
     // Errors
-    const ERROR_INDEX_OUT_OF_BOUNDS: u64 = 3;
+    const EIndexOutOfBounds: u64 = 3;
 
     /// Holds information about a future epoch, namely how much
     /// storage needs to be reclaimed and the rewards to be distributed.
@@ -103,7 +103,7 @@ module blob_store::storage_accounting {
         epochs_in_future: u64,
     ): &mut FutureAccounting<WAL> {
         // Check for out-of-bounds access.
-        assert!(epochs_in_future < self.length, ERROR_INDEX_OUT_OF_BOUNDS);
+        assert!(epochs_in_future < self.length, EIndexOutOfBounds);
 
         let actual_index = (epochs_in_future + self.current_index) % self.length;
         vector::borrow_mut(&mut self.ring_buffer, actual_index)

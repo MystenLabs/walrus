@@ -23,12 +23,12 @@ module blob_store::blob {
 
     // Error codes
     const EInvalidMsgType: u64 = 1;
-    const ERROR_RESOURCE_BOUNDS: u64 = 2;
-    const ERROR_RESOURCE_SIZE: u64 = 3;
-    const ERROR_WRONG_EPOCH: u64 = 4;
-    const ERROR_ALREADY_CERTIFIED: u64 = 5;
-    const ERROR_INVALID_BLOB_ID: u64 = 6;
-    const ERROR_NOT_CERTIFIED: u64 = 7;
+    const EResourceBounds: u64 = 2;
+    const EResourceSize: u64 = 3;
+    const EWrongEpoch: u64 = 4;
+    const EAlreadyCertified: u64 = 5;
+    const EInvalidBlobId: u64 = 6;
+    const ENotCertified: u64 = 7;
 
     // Object definitions
 
@@ -103,8 +103,8 @@ module blob_store::blob {
         let stored_epoch = system::epoch(sys);
 
         // Check resource bounds.
-        assert!(stored_epoch >= start_epoch(&storage), ERROR_RESOURCE_BOUNDS);
-        assert!(stored_epoch < end_epoch(&storage), ERROR_RESOURCE_BOUNDS);
+        assert!(stored_epoch >= start_epoch(&storage), EResourceBounds);
+        assert!(stored_epoch < end_epoch(&storage), EResourceBounds);
 
         // check that the encoded size is less than the storage size
         let encoded_size = encoding::encoded_blob_length(
@@ -112,13 +112,13 @@ module blob_store::blob {
             erasure_code_type,
             system::n_shards(sys),
         );
-        assert!(encoded_size <= storage_size(&storage), ERROR_RESOURCE_SIZE);
+        assert!(encoded_size <= storage_size(&storage), EResourceSize);
 
         // Cryptographically verify that the Blob ID authenticates
         // both the size and fe_type.
         assert!(
             derive_blob_id(root_hash, erasure_code_type, size) == blob_id,
-            ERROR_INVALID_BLOB_ID,
+            EInvalidBlobId,
         );
 
         // Emit register event
@@ -174,16 +174,16 @@ module blob_store::blob {
         blob: &mut Blob,
     ) {
         // Check that the blob is registered in the system
-        assert!(blob_id(blob) == message.blob_id, ERROR_INVALID_BLOB_ID);
+        assert!(blob_id(blob) == message.blob_id, EInvalidBlobId);
 
         // Check that the blob is not already certified
-        assert!(!option::is_some(&blob.certified_epoch), ERROR_ALREADY_CERTIFIED);
+        assert!(!option::is_some(&blob.certified_epoch), EAlreadyCertified);
 
         // Check that the message is from the current epoch
-        assert!(message.epoch == system::epoch(sys), ERROR_WRONG_EPOCH);
+        assert!(message.epoch == system::epoch(sys), EWrongEpoch);
 
         // Check that the storage in the blob is still valid
-        assert!(message.epoch < end_epoch(storage(blob)), ERROR_RESOURCE_BOUNDS);
+        assert!(message.epoch < end_epoch(storage(blob)), EResourceBounds);
 
         // Mark the blob as certified
         blob.certified_epoch = option::some(message.epoch);
@@ -218,7 +218,7 @@ module blob_store::blob {
     /// After the period of validity expires for the blob we can destroy the blob resource.
     public fun destroy_blob<WAL>(sys: &System<WAL>, blob: Blob) {
         let current_epoch = system::epoch(sys);
-        assert!(current_epoch >= end_epoch(storage(&blob)), ERROR_RESOURCE_BOUNDS);
+        assert!(current_epoch >= end_epoch(storage(&blob)), EResourceBounds);
 
         // Destroy the blob
         let Blob {
@@ -244,14 +244,14 @@ module blob_store::blob {
         // conditions.
 
         // Assert this is a certified blob
-        assert!(option::is_some(&blob.certified_epoch), ERROR_NOT_CERTIFIED);
+        assert!(option::is_some(&blob.certified_epoch), ENotCertified);
 
         // Check the blob is within its availability period
-        assert!(system::epoch(sys) < end_epoch(storage(blob)), ERROR_RESOURCE_BOUNDS);
+        assert!(system::epoch(sys) < end_epoch(storage(blob)), EResourceBounds);
 
         // Check that the extension is valid, and the end
         // period of the extension is after the current period.
-        assert!(end_epoch(&extension) > end_epoch(storage(blob)), ERROR_RESOURCE_BOUNDS);
+        assert!(end_epoch(&extension) > end_epoch(storage(blob)), EResourceBounds);
 
         // Note: if the amounts do not match there will be an abort here.
         fuse_periods(&mut blob.storage, extension);

@@ -51,7 +51,7 @@ module blob_store::blob_tests {
         system
     }
 
-    #[test, expected_failure(abort_code=blob::ERROR_RESOURCE_SIZE)]
+    #[test, expected_failure(abort_code=blob::EResourceSize)]
     public fun test_blob_insufficient_space(): system::System<TESTWAL> {
         let mut ctx = tx_context::dummy();
 
@@ -452,7 +452,7 @@ module blob_store::blob_tests {
         system
     }
 
-    #[test, expected_failure(abort_code=blob::ERROR_WRONG_EPOCH)]
+    #[test, expected_failure(abort_code=blob::EWrongEpoch)]
     public fun test_blob_certify_bad_epoch(): system::System<TESTWAL> {
         let mut ctx = tx_context::dummy();
 
@@ -489,7 +489,7 @@ module blob_store::blob_tests {
         system
     }
 
-    #[test, expected_failure(abort_code=blob::ERROR_INVALID_BLOB_ID)]
+    #[test, expected_failure(abort_code=blob::EInvalidBlobId)]
     public fun test_blob_certify_bad_blob_id(): system::System<TESTWAL> {
         let mut ctx = tx_context::dummy();
 
@@ -526,7 +526,7 @@ module blob_store::blob_tests {
         system
     }
 
-    #[test, expected_failure(abort_code=blob::ERROR_RESOURCE_BOUNDS)]
+    #[test, expected_failure(abort_code=blob::EResourceBounds)]
     public fun test_blob_certify_past_epoch(): system::System<TESTWAL> {
         let mut ctx = tx_context::dummy();
 
@@ -632,7 +632,7 @@ module blob_store::blob_tests {
         system
     }
 
-    #[test, expected_failure(abort_code=blob::ERROR_RESOURCE_BOUNDS)]
+    #[test, expected_failure(abort_code=blob::EResourceBounds)]
     public fun test_blob_unhappy_destroy(): system::System<TESTWAL> {
         let mut ctx = tx_context::dummy();
 
@@ -863,7 +863,7 @@ module blob_store::blob_tests {
         system
     }
 
-    #[test,expected_failure(abort_code=blob::ERROR_RESOURCE_BOUNDS)]
+    #[test,expected_failure(abort_code=blob::EResourceBounds)]
     public fun test_blob_unhappy_extend(): system::System<TESTWAL> {
         let mut ctx = tx_context::dummy();
 

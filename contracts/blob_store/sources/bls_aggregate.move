@@ -8,9 +8,9 @@ module blob_store::bls_aggregate {
     use blob_store::storage_node::{Self, StorageNodeInfo};
 
     // Error codes
-    const ERROR_TOTAL_MEMBER_ORDER: u64 = 0;
-    const ERROR_SIG_VERIFICATION: u64 = 1;
-    const ERROR_NOT_ENOUGH_STAKE: u64 = 2;
+    const ETotalMemberOrder: u64 = 0;
+    const ESigVerification: u64 = 1;
+    const ENotEnoughStake: u64 = 2;
     const EIncorrectCommittee: u64 = 3;
 
     /// This represents a BLS signing committee.
@@ -121,7 +121,7 @@ module blob_store::bls_aggregate {
 
         while (i < vector::length(signers)) {
             let member_index = (*vector::borrow(signers, i) as u64);
-            assert!(member_index >= min_next_member_index, ERROR_TOTAL_MEMBER_ORDER);
+            assert!(member_index >= min_next_member_index, ETotalMemberOrder);
             min_next_member_index = member_index + 1;
 
             // Bounds check happens here
@@ -140,7 +140,7 @@ module blob_store::bls_aggregate {
         // stake >= 2f + 1
         assert!(
             3 * (aggregate_weight as u64) >= 2 * (self.n_shards as u64) + 1,
-            ERROR_NOT_ENOUGH_STAKE,
+            ENotEnoughStake,
         );
 
         // Verify the signature
@@ -151,7 +151,7 @@ module blob_store::bls_aggregate {
                 pub_key_bytes,
                 message,
             ),
-            ERROR_SIG_VERIFICATION,
+            ESigVerification,
         );
 
         (aggregate_weight as u16)

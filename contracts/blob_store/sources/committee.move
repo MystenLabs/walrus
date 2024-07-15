@@ -7,8 +7,8 @@ module blob_store::committee {
     const APP_ID: u8 = 3;
 
     // Errors
-    const ERROR_INCORRECT_APP_ID: u64 = 0;
-    const ERROR_INCORRECT_EPOCH: u64 = 1;
+    const EIncorrectAppId: u64 = 0;
+    const EIncorrectEpoch: u64 = 1;
 
     #[test_only]
     use blob_store::bls_aggregate::new_bls_committee_for_testing;
@@ -153,10 +153,10 @@ module blob_store::committee {
         let intent_version = bcs::peel_u8(&mut bcs_message);
 
         let intent_app = bcs::peel_u8(&mut bcs_message);
-        assert!(intent_app == APP_ID, ERROR_INCORRECT_APP_ID);
+        assert!(intent_app == APP_ID, EIncorrectAppId);
 
         let cert_epoch = bcs::peel_u64(&mut bcs_message);
-        assert!(cert_epoch == epoch(committee), ERROR_INCORRECT_EPOCH);
+        assert!(cert_epoch == epoch(committee), EIncorrectEpoch);
 
         let message = bcs::into_remainder_bytes(bcs_message);
 
