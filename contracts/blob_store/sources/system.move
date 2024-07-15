@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 module blob_store::system {
-    use sui::balance::{Self};
-    use sui::coin::{Self, Coin};
+    use sui::coin::Coin;
     use sui::event;
     use sui::table::{Self, Table};
     use sui::bcs;
@@ -137,11 +136,11 @@ module blob_store::system {
 
     /// An accessor for the current committee.
     public fun current_committee<WAL>(self: &System<WAL>): &Committee {
-        option::borrow(&self.current_committee)
+        self.current_committee.borrow()
     }
 
     public fun n_shards<WAL>(self: &System<WAL>): u16 {
-        committee::n_shards(current_committee(self))
+        current_committee(self).n_shards()
     }
 
     /// Update epoch to next epoch, and also update the committee, price and capacity.
@@ -158,29 +157,22 @@ module blob_store::system {
         // is proof that the time has come to move epochs.
         let old_epoch = epoch(self);
         let new_epoch = old_epoch + 1;
-        assert!(committee::epoch(&new_committee) == new_epoch, EIncorrectCommittee);
-        let old_committee = option::swap(&mut self.current_committee, new_committee);
+        assert!(new_committee.epoch() == new_epoch, EIncorrectCommittee);
+        let old_committee = self.current_committee.swap(new_committee);
 
         // Add the old committee to the past_committees table.
-        table::add(&mut self.past_committees, old_epoch, old_committee);
+        self.past_committees.add(old_epoch, old_committee);
 
         // Update the system object.
         self.total_capacity_size = new_capacity;
         self.price_per_unit_size = new_price;
         self.epoch_status = EPOCH_STATUS_SYNC;
 
-        let mut accounts_old_epoch = storage_accounting::ring_pop_expand(
-            &mut self.future_accounting,
-        );
-        assert!(
-            storage_accounting::epoch(&accounts_old_epoch) == old_epoch,
-            ESyncEpochChange,
-        );
+        let mut accounts_old_epoch = self.future_accounting.ring_pop_expand();
+        assert!(accounts_old_epoch.epoch() == old_epoch, ESyncEpochChange);
 
         // Update storage based on the accounts data.
-        self.used_capacity_size =
-            self.used_capacity_size -
-            storage_accounting::storage_to_reclaim(&mut accounts_old_epoch);
+        self.used_capacity_size = self.used_capacity_size - accounts_old_epoch.storage_to_reclaim();
 
         // Emit Sync event.
         event::emit(EpochChangeSync {
@@ -213,17 +205,17 @@ module blob_store::system {
         // Pay rewards for each future epoch into the future accounting.
         let storage_units = (storage_amount + BYTES_PER_UNIT_SIZE - 1) / BYTES_PER_UNIT_SIZE;
         let period_payment_due = self.price_per_unit_size * storage_units;
-        let coin_balance = coin::balance_mut(&mut payment);
+        let coin_balance = payment.balance_mut();
 
         let mut i = 0;
         while (i < periods_ahead) {
-            let accounts = storage_accounting::ring_lookup_mut(&mut self.future_accounting, i);
+            let accounts = self.future_accounting.ring_lookup_mut(i);
 
             // Distribute rewards
-            let rewards_balance = storage_accounting::rewards_to_distribute(accounts);
+            let rewards_balance = accounts.rewards_to_distribute();
             // Note this will abort if the balance is not enough.
-            let epoch_payment = balance::split(coin_balance, period_payment_due);
-            balance::join(rewards_balance, epoch_payment);
+            let epoch_payment = coin_balance.split(period_payment_due);
+            rewards_balance.join(epoch_payment);
 
             i = i + 1;
         };
@@ -232,11 +224,8 @@ module blob_store::system {
         self.used_capacity_size = self.used_capacity_size + storage_amount;
 
         // Account the space to reclaim in the future.
-        let final_account = storage_accounting::ring_lookup_mut(
-            &mut self.future_accounting,
-            periods_ahead - 1,
-        );
-        storage_accounting::increase_storage_to_reclaim(final_account, storage_amount);
+        let final_account = self.future_accounting.ring_lookup_mut(periods_ahead - 1);
+        final_account.increase_storage_to_reclaim(storage_amount);
 
         let self_epoch = epoch(self);
         (
@@ -268,13 +257,13 @@ module blob_store::system {
     /// implies a certified message, that is already checked.
     public fun certify_sync_done_message(message: committee::CertifiedMessage): CertifiedSyncDone {
         // Assert type is correct
-        assert!(committee::intent_type(&message) == EPOCH_DONE_MSG_TYPE, EInvalidMsgType);
+        assert!(message.intent_type() == EPOCH_DONE_MSG_TYPE, EInvalidMsgType);
 
         // The SyncDone message has no payload besides the epoch.
         // Which happens to already be parsed in the header of the
         // certified message.
 
-        CertifiedSyncDone { epoch: committee::cert_epoch(&message) }
+        CertifiedSyncDone { epoch: message.cert_epoch() }
     }
 
     // make a test only certified message.
@@ -319,17 +308,17 @@ module blob_store::system {
     ): CertifiedInvalidBlobID {
         // Assert type is correct
         assert!(
-            committee::intent_type(&message) == INVALID_BLOB_ID_MSG_TYPE,
+            message.intent_type() == INVALID_BLOB_ID_MSG_TYPE,
             EInvalidMsgType,
         );
 
         // The InvalidBlobID message has no payload besides the blob_id.
         // The certified blob message contain a blob_id : u256
-        let epoch = committee::cert_epoch(&message);
-        let message_body = committee::into_message(message);
+        let epoch = message.cert_epoch();
+        let message_body = message.into_message();
 
         let mut bcs_body = bcs::new(message_body);
-        let blob_id = bcs::peel_u256(&mut bcs_body);
+        let blob_id = bcs_body.peel_u256();
 
         // This output is provided as a service in case anything else needs to rely on
         // certified invalid blob ID information in the future. But out base design only
@@ -365,10 +354,9 @@ module blob_store::system {
         members: vector<u16>,
         message: vector<u8>,
     ): u256 {
-        let committee = option::borrow(&system.current_committee);
+        let committee = system.current_committee.borrow();
 
-        let certified_message = committee::verify_quorum_in_epoch(
-            committee,
+        let certified_message = committee.verify_quorum_in_epoch(
             signature,
             members,
             message,

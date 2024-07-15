@@ -26,8 +26,8 @@ module blob_store::bls_aggregate {
         // Compute the total number of shards
         let mut n_shards = 0;
         let mut i = 0;
-        while (i < vector::length(&members)) {
-            let added_weight = storage_node::weight(vector::borrow(&members, i));
+        while (i < members.length()) {
+            let added_weight = members[i].weight();
             assert!(added_weight > 0, EIncorrectCommittee);
             n_shards = n_shards + added_weight;
             i = i + 1;
@@ -40,64 +40,6 @@ module blob_store::bls_aggregate {
     /// Returns the number of shards held by the committee.
     public fun n_shards(self: &BlsCommittee): u16 {
         self.n_shards
-    }
-
-    #[test_only]
-    /// Test committee
-    public fun new_bls_committee_for_testing(): BlsCommittee {
-        // Pk corresponding to secret key scalar(117)
-        let pub_key_bytes = vector[
-            149,
-            234,
-            204,
-            58,
-            220,
-            9,
-            200,
-            39,
-            89,
-            63,
-            88,
-            30,
-            142,
-            45,
-            224,
-            104,
-            191,
-            76,
-            245,
-            208,
-            192,
-            235,
-            41,
-            229,
-            55,
-            47,
-            13,
-            35,
-            54,
-            71,
-            136,
-            238,
-            15,
-            155,
-            235,
-            17,
-            44,
-            138,
-            126,
-            156,
-            47,
-            12,
-            114,
-            4,
-            51,
-            112,
-            92,
-            240,
-        ];
-        let storage_node = storage_node::new_for_testing(pub_key_bytes, 100);
-        BlsCommittee { members: vector[storage_node], n_shards: 100 }
     }
 
     /// Verify an aggregate BLS signature is a certificate in the epoch, and return the type of
@@ -119,15 +61,15 @@ module blob_store::bls_aggregate {
         let mut aggregate_key = bls12381::g1_identity();
         let mut aggregate_weight = 0;
 
-        while (i < vector::length(signers)) {
-            let member_index = (*vector::borrow(signers, i) as u64);
+        while (i < signers.length()) {
+            let member_index = signers[i] as u64;
             assert!(member_index >= min_next_member_index, ETotalMemberOrder);
             min_next_member_index = member_index + 1;
 
             // Bounds check happens here
-            let member = vector::borrow(&self.members, member_index);
-            let key = storage_node::public_key(member);
-            let weight = storage_node::weight(member);
+            let member = &self.members[member_index];
+            let key = member.public_key();
+            let weight = member.weight();
 
             aggregate_key = bls12381::g1_add(&aggregate_key, key);
             aggregate_weight = aggregate_weight + weight;
@@ -155,5 +97,14 @@ module blob_store::bls_aggregate {
         );
 
         (aggregate_weight as u16)
+    }
+
+    #[test_only]
+    /// Test committee
+    public fun new_bls_committee_for_testing(): BlsCommittee {
+        // Pk corresponding to secret key scalar(117)
+        let pub_key_bytes = x"95eacc3adc09c827593f581e8e2de068bf4cf5d0c0eb29e5372f0d23364788ee0f9beb112c8a7e9c2f0c720433705cf0";
+        let storage_node = storage_node::new_for_testing(pub_key_bytes, 100);
+        BlsCommittee { members: vector[storage_node], n_shards: 100 }
     }
 }

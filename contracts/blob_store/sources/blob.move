@@ -6,7 +6,7 @@ module blob_store::blob {
     use sui::hash;
 
     use blob_store::committee::{Self, CertifiedMessage};
-    use blob_store::system::{Self, System};
+    use blob_store::system::System;
     use blob_store::storage_resource::{
         Storage,
         start_epoch,
@@ -83,7 +83,7 @@ module blob_store::blob {
         let serialized = bcs::to_bytes(&blob_id_struct);
         let encoded = hash::blake2b256(&serialized);
         let mut decoder = bcs::new(encoded);
-        let blob_id = bcs::peel_u256(&mut decoder);
+        let blob_id = decoder.peel_u256();
         blob_id
     }
 
@@ -100,7 +100,7 @@ module blob_store::blob {
         ctx: &mut TxContext,
     ): Blob {
         let id = object::new(ctx);
-        let stored_epoch = system::epoch(sys);
+        let stored_epoch = sys.epoch();
 
         // Check resource bounds.
         assert!(stored_epoch >= start_epoch(&storage), EResourceBounds);
@@ -110,7 +110,7 @@ module blob_store::blob {
         let encoded_size = encoding::encoded_blob_length(
             size,
             erasure_code_type,
-            system::n_shards(sys),
+            sys.n_shards(),
         );
         assert!(encoded_size <= storage_size(&storage), EResourceSize);
 
@@ -151,14 +151,14 @@ module blob_store::blob {
     /// implies a certified message, that is already checked.
     public fun certify_blob_message(message: CertifiedMessage): CertifiedBlobMessage {
         // Assert type is correct
-        assert!(committee::intent_type(&message) == BLOB_CERT_MSG_TYPE, EInvalidMsgType);
+        assert!(message.intent_type() == BLOB_CERT_MSG_TYPE, EInvalidMsgType);
 
         // The certified blob message contain a blob_id : u256
-        let epoch = committee::cert_epoch(&message);
-        let message_body = committee::into_message(message);
+        let epoch = message.cert_epoch();
+        let message_body = message.into_message();
 
         let mut bcs_body = bcs::new(message_body);
-        let blob_id = bcs::peel_u256(&mut bcs_body);
+        let blob_id = bcs_body.peel_u256();
 
         // On purpose we do not check that nothing is left in the message
         // to allow in the future for extensibility.
@@ -177,10 +177,10 @@ module blob_store::blob {
         assert!(blob_id(blob) == message.blob_id, EInvalidBlobId);
 
         // Check that the blob is not already certified
-        assert!(!option::is_some(&blob.certified_epoch), EAlreadyCertified);
+        assert!(!blob.certified_epoch.is_some(), EAlreadyCertified);
 
         // Check that the message is from the current epoch
-        assert!(message.epoch == system::epoch(sys), EWrongEpoch);
+        assert!(message.epoch == sys.epoch(), EWrongEpoch);
 
         // Check that the storage in the blob is still valid
         assert!(message.epoch < end_epoch(storage(blob)), EResourceBounds);
@@ -206,7 +206,7 @@ module blob_store::blob {
         message: vector<u8>,
     ) {
         let certified_msg = committee::verify_quorum_in_epoch(
-            system::current_committee(sys),
+            sys.current_committee(),
             signature,
             members,
             message,
@@ -217,7 +217,7 @@ module blob_store::blob {
 
     /// After the period of validity expires for the blob we can destroy the blob resource.
     public fun destroy_blob<WAL>(sys: &System<WAL>, blob: Blob) {
-        let current_epoch = system::epoch(sys);
+        let current_epoch = sys.epoch();
         assert!(current_epoch >= end_epoch(storage(&blob)), EResourceBounds);
 
         // Destroy the blob
@@ -231,7 +231,7 @@ module blob_store::blob {
             storage,
         } = blob;
 
-        object::delete(id);
+        id.delete();
         destroy(storage);
     }
 
@@ -244,10 +244,10 @@ module blob_store::blob {
         // conditions.
 
         // Assert this is a certified blob
-        assert!(option::is_some(&blob.certified_epoch), ENotCertified);
+        assert!(blob.certified_epoch.is_some(), ENotCertified);
 
         // Check the blob is within its availability period
-        assert!(system::epoch(sys) < end_epoch(storage(blob)), EResourceBounds);
+        assert!(sys.epoch() < end_epoch(storage(blob)), EResourceBounds);
 
         // Check that the extension is valid, and the end
         // period of the extension is after the current period.
@@ -283,7 +283,7 @@ module blob_store::blob {
             storage,
         } = b;
 
-        object::delete(id);
+        id.delete();
         destroy(storage);
     }
 

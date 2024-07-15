@@ -149,16 +149,16 @@ module blob_store::committee {
         // Here we BCS decode the header of the message to check intents, epochs, etc.
 
         let mut bcs_message = bcs::new(message);
-        let intent_type = bcs::peel_u8(&mut bcs_message);
-        let intent_version = bcs::peel_u8(&mut bcs_message);
+        let intent_type = bcs_message.peel_u8();
+        let intent_version = bcs_message.peel_u8();
 
-        let intent_app = bcs::peel_u8(&mut bcs_message);
+        let intent_app = bcs_message.peel_u8();
         assert!(intent_app == APP_ID, EIncorrectAppId);
 
-        let cert_epoch = bcs::peel_u64(&mut bcs_message);
+        let cert_epoch = bcs_message.peel_u64();
         assert!(cert_epoch == epoch(committee), EIncorrectEpoch);
 
-        let message = bcs::into_remainder_bytes(bcs_message);
+        let message = bcs_message.into_remainder_bytes();
 
         CertifiedMessage { intent_type, intent_version, cert_epoch, stake_support, message }
     }

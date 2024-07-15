@@ -84,7 +84,7 @@ module blob_store::storage_resource {
             end_epoch: second_end,
             storage_size: second_size,
         } = second;
-        object::delete(id);
+        id.delete();
         assert!(first.storage_size == second_size, EIncompatibleAmount);
         if (first.end_epoch == second_start) {
             first.end_epoch = second_end;
@@ -102,7 +102,7 @@ module blob_store::storage_resource {
             end_epoch: second_end,
             storage_size: second_size,
         } = second;
-        object::delete(id);
+        id.delete();
         assert!(
             first.start_epoch == second_start && first.end_epoch == second_end,
             EIncompatibleEpochs,
@@ -141,6 +141,6 @@ module blob_store::storage_resource {
             end_epoch: _,
             storage_size: _,
         } = storage;
-        object::delete(id);
+        id.delete();
     }
 }

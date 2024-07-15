@@ -57,7 +57,7 @@ module blob_store::storage_accounting {
             rewards_to_distribute,
         } = self;
 
-        balance::destroy_zero(rewards_to_distribute)
+        rewards_to_distribute.destroy_zero()
     }
 
     #[test_only]
@@ -68,7 +68,7 @@ module blob_store::storage_accounting {
             rewards_to_distribute,
         } = self;
 
-        balance::destroy_for_testing(rewards_to_distribute);
+        rewards_to_distribute.destroy_for_testing();
     }
 
     /// A ring buffer holding future accounts for a continuous range of epochs.
@@ -83,14 +83,11 @@ module blob_store::storage_accounting {
         let mut ring_buffer: vector<FutureAccounting<WAL>> = vector::empty();
         let mut i = 0;
         while (i < length) {
-            vector::push_back(
-                &mut ring_buffer,
-                FutureAccounting {
-                    epoch: i,
-                    storage_to_reclaim: 0,
-                    rewards_to_distribute: balance::zero(),
-                },
-            );
+            ring_buffer.push_back(FutureAccounting {
+                epoch: i,
+                storage_to_reclaim: 0,
+                rewards_to_distribute: balance::zero(),
+            });
             i = i + 1;
         };
 
@@ -106,7 +103,7 @@ module blob_store::storage_accounting {
         assert!(epochs_in_future < self.length, EIndexOutOfBounds);
 
         let actual_index = (epochs_in_future + self.current_index) % self.length;
-        vector::borrow_mut(&mut self.ring_buffer, actual_index)
+        &mut self.ring_buffer[actual_index]
     }
 
     public fun ring_pop_expand<WAL>(
@@ -114,20 +111,19 @@ module blob_store::storage_accounting {
     ): FutureAccounting<WAL> {
         // Get current epoch
         let current_index = self.current_index;
-        let current_epoch = vector::borrow_mut(&mut self.ring_buffer, current_index).epoch;
+        let current_epoch = self.ring_buffer[current_index].epoch;
 
         // Expand the ring buffer
-        vector::push_back(
-            &mut self.ring_buffer,
-            FutureAccounting {
+        self
+            .ring_buffer
+            .push_back(FutureAccounting {
                 epoch: current_epoch + self.length,
                 storage_to_reclaim: 0,
                 rewards_to_distribute: balance::zero(),
-            },
-        );
+            });
 
         // Now swap remove the current element and increment the current_index
-        let accounting = vector::swap_remove(&mut self.ring_buffer, current_index);
+        let accounting = self.ring_buffer.swap_remove(current_index);
         self.current_index = (current_index + 1) % self.length;
 
         accounting
