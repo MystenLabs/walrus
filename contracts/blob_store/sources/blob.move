@@ -13,7 +13,8 @@ module blob_store::blob {
         end_epoch,
         storage_size,
         fuse_periods,
-        destroy};
+        destroy,
+    };
     use blob_store::encoding;
     use blob_store::blob_events::{emit_blob_registered, emit_blob_certified};
 
@@ -27,7 +28,7 @@ module blob_store::blob {
     const ERROR_WRONG_EPOCH: u64 = 4;
     const ERROR_ALREADY_CERTIFIED: u64 = 5;
     const ERROR_INVALID_BLOB_ID: u64 = 6;
-    const ERROR_NOT_CERTIFIED : u64 = 7;
+    const ERROR_NOT_CERTIFIED: u64 = 7;
 
     // Object definitions
 
@@ -45,27 +46,27 @@ module blob_store::blob {
 
     // Accessor functions
 
-    public fun stored_epoch(b: &Blob) : u64 {
+    public fun stored_epoch(b: &Blob): u64 {
         b.stored_epoch
     }
 
-    public fun blob_id(b: &Blob) : u256 {
+    public fun blob_id(b: &Blob): u256 {
         b.blob_id
     }
 
-    public fun size(b: &Blob) : u64 {
+    public fun size(b: &Blob): u64 {
         b.size
     }
 
-    public fun erasure_code_type(b: &Blob) : u8 {
+    public fun erasure_code_type(b: &Blob): u8 {
         b.erasure_code_type
     }
 
-    public fun certified_epoch(b: &Blob) : &Option<u64> {
+    public fun certified_epoch(b: &Blob): &Option<u64> {
         &b.certified_epoch
     }
 
-    public fun storage(b: &Blob) : &Storage {
+    public fun storage(b: &Blob): &Storage {
         &b.storage
     }
 
@@ -76,13 +77,8 @@ module blob_store::blob {
     }
 
     /// Derive the blob_id for a blob given the root_hash, erasure_code_type and size.
-    public fun derive_blob_id(root_hash: u256, erasure_code_type: u8, size : u64) : u256 {
-
-        let blob_id_struct = BlobIdDerivation {
-            erasure_code_type,
-            size,
-            root_hash,
-        };
+    public fun derive_blob_id(root_hash: u256, erasure_code_type: u8, size: u64): u256 {
+        let blob_id_struct = BlobIdDerivation { erasure_code_type, size, root_hash };
 
         let serialized = bcs::to_bytes(&blob_id_struct);
         let encoded = hash::blake2b256(&serialized);
@@ -102,8 +98,7 @@ module blob_store::blob {
         size: u64,
         erasure_code_type: u8,
         ctx: &mut TxContext,
-        ) : Blob {
-
+    ): Blob {
         let id = object::new(ctx);
         let stored_epoch = system::epoch(sys);
 
@@ -115,15 +110,16 @@ module blob_store::blob {
         let encoded_size = encoding::encoded_blob_length(
             size,
             erasure_code_type,
-            system::n_shards(sys)
+            system::n_shards(sys),
         );
         assert!(encoded_size <= storage_size(&storage), ERROR_RESOURCE_SIZE);
 
         // Cryptographically verify that the Blob ID authenticates
         // both the size and fe_type.
-        assert!(derive_blob_id(root_hash, erasure_code_type, size) == blob_id,
-            ERROR_INVALID_BLOB_ID);
-
+        assert!(
+            derive_blob_id(root_hash, erasure_code_type, size) == blob_id,
+            ERROR_INVALID_BLOB_ID,
+        );
 
         // Emit register event
         emit_blob_registered(
@@ -144,7 +140,6 @@ module blob_store::blob {
             certified_epoch: option::none(),
             storage,
         }
-
     }
 
     public struct CertifiedBlobMessage has drop {
@@ -154,13 +149,9 @@ module blob_store::blob {
 
     /// Construct the certified blob message, note that constructing
     /// implies a certified message, that is already checked.
-    public fun certify_blob_message(
-        message: CertifiedMessage
-        ) : CertifiedBlobMessage {
-
+    public fun certify_blob_message(message: CertifiedMessage): CertifiedBlobMessage {
         // Assert type is correct
-        assert!(committee::intent_type(&message) == BLOB_CERT_MSG_TYPE,
-            ERROR_INVALID_MSG_TYPE);
+        assert!(committee::intent_type(&message) == BLOB_CERT_MSG_TYPE, ERROR_INVALID_MSG_TYPE);
 
         // The certified blob message contain a blob_id : u256
         let epoch = committee::cert_epoch(&message);
@@ -172,10 +163,7 @@ module blob_store::blob {
         // On purpose we do not check that nothing is left in the message
         // to allow in the future for extensibility.
 
-        CertifiedBlobMessage {
-            epoch,
-            blob_id,
-        }
+        CertifiedBlobMessage { epoch, blob_id }
     }
 
     /// Certify that a blob will be available in the storage system until the end epoch of the
@@ -184,8 +172,7 @@ module blob_store::blob {
         sys: &System<WAL>,
         message: CertifiedBlobMessage,
         blob: &mut Blob,
-    ){
-
+    ) {
         // Check that the blob is registered in the system
         assert!(blob_id(blob) == message.blob_id, ERROR_INVALID_BLOB_ID);
 
@@ -222,18 +209,14 @@ module blob_store::blob {
             system::current_committee(sys),
             signature,
             members,
-            message
+            message,
         );
         let certified_blob_msg = certify_blob_message(certified_msg);
         certify_with_certified_msg(sys, certified_blob_msg, blob);
     }
 
     /// After the period of validity expires for the blob we can destroy the blob resource.
-    public fun destroy_blob<WAL>(
-        sys: &System<WAL>,
-        blob: Blob,
-    ){
-
+    public fun destroy_blob<WAL>(sys: &System<WAL>, blob: Blob) {
         let current_epoch = system::epoch(sys);
         assert!(current_epoch >= end_epoch(storage(&blob)), ERROR_RESOURCE_BOUNDS);
 
@@ -255,11 +238,7 @@ module blob_store::blob {
     /// Extend the period of validity of a blob with a new storage resource.
     /// The new storage resource must be the same size as the storage resource
     /// used in the blob, and have a longer period of validity.
-    public fun extend<WAL>(
-        sys: &System<WAL>,
-        blob: &mut Blob,
-        extension: Storage){
-
+    public fun extend<WAL>(sys: &System<WAL>, blob: &mut Blob, extension: Storage) {
         // We only extend certified blobs within their period of validity
         // with storage that extends this period. First we check for these
         // conditions.
@@ -275,7 +254,7 @@ module blob_store::blob {
         assert!(end_epoch(&extension) > end_epoch(storage(blob)), ERROR_RESOURCE_BOUNDS);
 
         // Note: if the amounts do not match there will be an abort here.
-        fuse_periods(&mut blob.storage , extension);
+        fuse_periods(&mut blob.storage, extension);
 
         // Emit certified event
         //
@@ -287,7 +266,6 @@ module blob_store::blob {
             blob.blob_id,
             end_epoch(storage(blob)),
         );
-
     }
 
     // Testing Functions
@@ -311,19 +289,12 @@ module blob_store::blob {
 
     #[test_only]
     // Accessor for blob
-    public fun message_blob_id(m: &CertifiedBlobMessage) : u256 {
+    public fun message_blob_id(m: &CertifiedBlobMessage): u256 {
         m.blob_id
     }
 
     #[test_only]
-    public fun certified_blob_message_for_testing(
-        epoch: u64,
-        blob_id: u256,
-        ) : CertifiedBlobMessage {
-        CertifiedBlobMessage {
-            epoch,
-            blob_id,
-        }
+    public fun certified_blob_message_for_testing(epoch: u64, blob_id: u256): CertifiedBlobMessage {
+        CertifiedBlobMessage { epoch, blob_id }
     }
-
 }

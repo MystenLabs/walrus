@@ -26,33 +26,25 @@ module blob_store::storage_node {
         network_address: String,
         public_key: vector<u8>,
         shard_ids: vector<u16>,
-    ) : StorageNodeInfo {
-        StorageNodeInfo {
-            name,
-            network_address,
-            public_key: g1_from_bytes(&public_key),
-            shard_ids
-        }
+    ): StorageNodeInfo {
+        StorageNodeInfo { name, network_address, public_key: g1_from_bytes(&public_key), shard_ids }
     }
 
-    public fun public_key(self: &StorageNodeInfo) : &Element<G1> {
+    public fun public_key(self: &StorageNodeInfo): &Element<G1> {
         &self.public_key
     }
 
-    public fun shard_ids(self: &StorageNodeInfo) : &vector<u16> {
+    public fun shard_ids(self: &StorageNodeInfo): &vector<u16> {
         &self.shard_ids
     }
 
-    public fun weight(self: &StorageNodeInfo) : u16 {
+    public fun weight(self: &StorageNodeInfo): u16 {
         (vector::length(&self.shard_ids) as u16)
     }
 
     #[test_only]
     /// Create a storage node with dummy name & address
-    public fun new_for_testing(
-        public_key: vector<u8>,
-        weight: u16,
-    ) : StorageNodeInfo {
+    public fun new_for_testing(public_key: vector<u8>, weight: u16): StorageNodeInfo {
         let mut i: u16 = 0;
         let mut shard_ids = vector::empty();
         while (i < weight) {
@@ -63,7 +55,7 @@ module blob_store::storage_node {
             name: string::utf8(b"node"),
             network_address: string::utf8(b"127.0.0.1"),
             public_key: g1_from_bytes(&public_key),
-            shard_ids
+            shard_ids,
         }
     }
 }
