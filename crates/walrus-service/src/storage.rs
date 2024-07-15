@@ -272,12 +272,14 @@ impl Storage {
             &database,
             Some(metadata_cf_name),
             &ReadWriteOptions::default(),
+            false,
         )?;
         let event_cursor = EventCursorTable::reopen(&database)?;
         let blob_info = DBMap::reopen(
             &database,
             Some(blob_info_cf_name),
             &ReadWriteOptions::default(),
+            false,
         )?;
         let shards = existing_shards_ids
             .into_iter()

@@ -73,8 +73,8 @@ impl ShardStorage {
         }
 
         // Open both typed storage as maps over the same column family.
-        let primary_slivers = DBMap::reopen(database, Some(&cf_name), &rw_options)?;
-        let secondary_slivers = DBMap::reopen(database, Some(&cf_name), &rw_options)?;
+        let primary_slivers = DBMap::reopen(database, Some(&cf_name), &rw_options, false)?;
+        let secondary_slivers = DBMap::reopen(database, Some(&cf_name), &rw_options, false)?;
 
         Ok(Self {
             id,

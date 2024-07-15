@@ -46,6 +46,7 @@ impl EventCursorTable {
             database,
             Some(COLUMN_FAMILY_NAME),
             &ReadWriteOptions::default(),
+            false,
         )?;
 
         let this = Self {

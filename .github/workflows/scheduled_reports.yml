@@ -3,7 +3,7 @@ name: Weekly reports
 on:
   # Run workflow once a week on Sundays.
   schedule:
-    - cron: '14 3 * * 0'
+    - cron: "14 3 * * 0"
   # Run workflow on demand.
   workflow_dispatch:
 
@@ -30,7 +30,7 @@ env:
   # Don't emit giant backtraces in the CI logs.
   RUST_BACKTRACE: short
   RUSTDOCFLAGS: -D warnings
-  SUI_TAG: testnet-v1.27.2
+  SUI_TAG: testnet-v1.28.3
 
 jobs:
   test-coverage:

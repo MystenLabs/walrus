@@ -63,7 +63,7 @@ impl SystemParameters {
 fn compile_package(package_path: PathBuf) -> (PackageDependencies, Vec<Vec<u8>>) {
     let build_config = BuildConfig::new_for_testing();
     let compiled_package = build_config
-        .build(package_path)
+        .build(&package_path)
         .expect("Building package failed");
     let compiled_modules = compiled_package.get_package_bytes(false);
     (compiled_package.dependency_ids, compiled_modules)
