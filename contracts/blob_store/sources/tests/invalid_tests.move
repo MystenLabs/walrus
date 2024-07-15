@@ -216,7 +216,7 @@ module blob_store::invalid_tests {
     }
 
 
-    #[test, expected_failure(abort_code=system::ERROR_INVALID_ID_EPOCH)]
+    #[test, expected_failure(abort_code=system::EInvalidIdEpoch)]
     public fun test_system_invalid_id_wrong_epoch() : system::System<TESTWAL> {
 
         let mut ctx = tx_context::dummy();

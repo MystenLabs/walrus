@@ -14,12 +14,12 @@ module blob_store::system {
     use blob_store::blob_events::emit_invalid_blob_id;
 
     // Errors
-    const ERROR_INCORRECT_COMMITTEE: u64 = 0;
-    const ERROR_SYNC_EPOCH_CHANGE: u64 = 1;
-    const ERROR_INVALID_PERIODS_AHEAD: u64 = 2;
-    const ERROR_STORAGE_EXCEEDED: u64 = 3;
-    const ERROR_INVALID_MSG_TYPE: u64 = 4;
-    const ERROR_INVALID_ID_EPOCH: u64 = 5;
+    const EIncorrectCommittee: u64 = 0;
+    const ESyncEpochChange: u64 = 1;
+    const EInvalidPeriodsAhead: u64 = 2;
+    const EStorageExceeded: u64 = 3;
+    const EInvalidMsgType: u64 = 4;
+    const EInvalidIdEpoch: u64 = 5;
 
     // Message types:
     const EPOCH_DONE_MSG_TYPE: u8 = 0;
@@ -99,7 +99,7 @@ module blob_store::system {
         price: u64,
         ctx: &mut TxContext,
     ): System<WAL> {
-        assert!(committee::epoch(&first_committee) == 0, ERROR_INCORRECT_COMMITTEE);
+        assert!(committee::epoch(&first_committee) == 0, EIncorrectCommittee);
 
         // We emit both sync and done events for the first epoch.
         event::emit(EpochChangeSync {
@@ -152,13 +152,13 @@ module blob_store::system {
         new_price: u64,
     ): FutureAccounting<WAL> {
         // Must be in DONE state to move epochs. This is the way.
-        assert!(self.epoch_status == EPOCH_STATUS_DONE, ERROR_SYNC_EPOCH_CHANGE);
+        assert!(self.epoch_status == EPOCH_STATUS_DONE, ESyncEpochChange);
 
         // Check new committee is valid, the existence of a committee for the next epoch
         // is proof that the time has come to move epochs.
         let old_epoch = epoch(self);
         let new_epoch = old_epoch + 1;
-        assert!(committee::epoch(&new_committee) == new_epoch, ERROR_INCORRECT_COMMITTEE);
+        assert!(committee::epoch(&new_committee) == new_epoch, EIncorrectCommittee);
         let old_committee = option::swap(&mut self.current_committee, new_committee);
 
         // Add the old committee to the past_committees table.
@@ -174,7 +174,7 @@ module blob_store::system {
         );
         assert!(
             storage_accounting::epoch(&accounts_old_epoch) == old_epoch,
-            ERROR_SYNC_EPOCH_CHANGE,
+            ESyncEpochChange,
         );
 
         // Update storage based on the accounts data.
@@ -201,13 +201,13 @@ module blob_store::system {
         ctx: &mut TxContext,
     ): (Storage, Coin<WAL>) {
         // Check the period is within the allowed range.
-        assert!(periods_ahead > 0, ERROR_INVALID_PERIODS_AHEAD);
-        assert!(periods_ahead <= MAX_PERIODS_AHEAD, ERROR_INVALID_PERIODS_AHEAD);
+        assert!(periods_ahead > 0, EInvalidPeriodsAhead);
+        assert!(periods_ahead <= MAX_PERIODS_AHEAD, EInvalidPeriodsAhead);
 
         // Check capacity is available.
         assert!(
             self.used_capacity_size + storage_amount <= self.total_capacity_size,
-            ERROR_STORAGE_EXCEEDED,
+            EStorageExceeded,
         );
 
         // Pay rewards for each future epoch into the future accounting.
@@ -268,7 +268,7 @@ module blob_store::system {
     /// implies a certified message, that is already checked.
     public fun certify_sync_done_message(message: committee::CertifiedMessage): CertifiedSyncDone {
         // Assert type is correct
-        assert!(committee::intent_type(&message) == EPOCH_DONE_MSG_TYPE, ERROR_INVALID_MSG_TYPE);
+        assert!(committee::intent_type(&message) == EPOCH_DONE_MSG_TYPE, EInvalidMsgType);
 
         // The SyncDone message has no payload besides the epoch.
         // Which happens to already be parsed in the header of the
@@ -286,10 +286,10 @@ module blob_store::system {
     /// Use the certified message to advance the epoch status to DONE.
     public fun sync_done_for_epoch<WAL>(system: &mut System<WAL>, message: CertifiedSyncDone) {
         // Assert the epoch is correct.
-        assert!(message.epoch == epoch(system), ERROR_SYNC_EPOCH_CHANGE);
+        assert!(message.epoch == epoch(system), ESyncEpochChange);
 
         // Assert we are in the sync state.
-        assert!(system.epoch_status == EPOCH_STATUS_SYNC, ERROR_SYNC_EPOCH_CHANGE);
+        assert!(system.epoch_status == EPOCH_STATUS_SYNC, ESyncEpochChange);
 
         // Move to done state.
         system.epoch_status = EPOCH_STATUS_DONE;
@@ -320,7 +320,7 @@ module blob_store::system {
         // Assert type is correct
         assert!(
             committee::intent_type(&message) == INVALID_BLOB_ID_MSG_TYPE,
-            ERROR_INVALID_MSG_TYPE,
+            EInvalidMsgType,
         );
 
         // The InvalidBlobID message has no payload besides the blob_id.
@@ -347,7 +347,7 @@ module blob_store::system {
     ) {
         // Assert the epoch is correct.
         let epoch = message.epoch;
-        assert!(epoch == epoch(system), ERROR_INVALID_ID_EPOCH);
+        assert!(epoch == epoch(system), EInvalidIdEpoch);
 
         // Emit the event about a blob id being invalid here.
         emit_invalid_blob_id(

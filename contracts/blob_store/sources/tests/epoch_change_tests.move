@@ -129,7 +129,7 @@ module blob_store::epoch_change_tests {
         system
     }
 
-    #[test, expected_failure(abort_code=system::ERROR_SYNC_EPOCH_CHANGE)]
+    #[test, expected_failure(abort_code=system::ESyncEpochChange)]
     public fun test_move_sync_err_system(): system::System<TESTWAL> {
         let mut ctx = tx_context::dummy();
 
@@ -158,7 +158,7 @@ module blob_store::epoch_change_tests {
         system
     }
 
-    #[test, expected_failure(abort_code=system::ERROR_STORAGE_EXCEEDED)]
+    #[test, expected_failure(abort_code=system::EStorageExceeded)]
     public fun test_fail_capacity_system(): system::System<TESTWAL> {
         let mut ctx = tx_context::dummy();
 
@@ -225,7 +225,7 @@ module blob_store::epoch_change_tests {
         system
     }
 
-    #[test, expected_failure(abort_code=system::ERROR_SYNC_EPOCH_CHANGE)]
+    #[test, expected_failure(abort_code=system::ESyncEpochChange)]
     public fun test_sync_done_unhappy(): system::System<TESTWAL> {
         let mut ctx = tx_context::dummy();
 
@@ -254,7 +254,7 @@ module blob_store::epoch_change_tests {
         system
     }
 
-    #[test, expected_failure(abort_code=system::ERROR_SYNC_EPOCH_CHANGE)]
+    #[test, expected_failure(abort_code=system::ESyncEpochChange)]
     public fun test_twice_unhappy(): system::System<TESTWAL> {
         let mut ctx = tx_context::dummy();
 

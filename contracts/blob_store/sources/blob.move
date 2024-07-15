@@ -22,7 +22,7 @@ module blob_store::blob {
     const BLOB_CERT_MSG_TYPE: u8 = 1;
 
     // Error codes
-    const ERROR_INVALID_MSG_TYPE: u64 = 1;
+    const EInvalidMsgType: u64 = 1;
     const ERROR_RESOURCE_BOUNDS: u64 = 2;
     const ERROR_RESOURCE_SIZE: u64 = 3;
     const ERROR_WRONG_EPOCH: u64 = 4;
@@ -151,7 +151,7 @@ module blob_store::blob {
     /// implies a certified message, that is already checked.
     public fun certify_blob_message(message: CertifiedMessage): CertifiedBlobMessage {
         // Assert type is correct
-        assert!(committee::intent_type(&message) == BLOB_CERT_MSG_TYPE, ERROR_INVALID_MSG_TYPE);
+        assert!(committee::intent_type(&message) == BLOB_CERT_MSG_TYPE, EInvalidMsgType);
 
         // The certified blob message contain a blob_id : u256
         let epoch = committee::cert_epoch(&message);

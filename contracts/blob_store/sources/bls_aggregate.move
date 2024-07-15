@@ -11,7 +11,7 @@ module blob_store::bls_aggregate {
     const ERROR_TOTAL_MEMBER_ORDER: u64 = 0;
     const ERROR_SIG_VERIFICATION: u64 = 1;
     const ERROR_NOT_ENOUGH_STAKE: u64 = 2;
-    const ERROR_INCORRECT_COMMITTEE: u64 = 3;
+    const EIncorrectCommittee: u64 = 3;
 
     /// This represents a BLS signing committee.
     public struct BlsCommittee has store, drop {
@@ -28,11 +28,11 @@ module blob_store::bls_aggregate {
         let mut i = 0;
         while (i < vector::length(&members)) {
             let added_weight = storage_node::weight(vector::borrow(&members, i));
-            assert!(added_weight > 0, ERROR_INCORRECT_COMMITTEE);
+            assert!(added_weight > 0, EIncorrectCommittee);
             n_shards = n_shards + added_weight;
             i = i + 1;
         };
-        assert!(n_shards != 0, ERROR_INCORRECT_COMMITTEE);
+        assert!(n_shards != 0, EIncorrectCommittee);
 
         BlsCommittee { members, n_shards }
     }
