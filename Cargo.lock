@@ -723,9 +723,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-ec2"
-version = "1.57.0"
+version = "1.58.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c060a14297ee13504c3c01e57da7c4185cdc00f72f158ee9dc1d852824aae73d"
+checksum = "938992f9b1d5168a640663afacd2730ce129f7a6c87e487b1a53c970f5f00666"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -1801,9 +1801,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.5.8"
+version = "4.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "84b3edb18336f4df585bc9aa31dd99c036dfa5dc5e9a2939a722a188f3a8970d"
+checksum = "64acc1846d54c1fe936a78dc189c34e28d3f5afc348403f28ecf53660b9b8462"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -1811,9 +1811,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.5.8"
+version = "4.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1c09dd5ada6c6c78075d6fd0da3f90d8080651e2d6cc8eb2f1aaa4034ced708"
+checksum = "6fb8393d67ba2e7bfaf28a23458e4e2b543cc73a99595511eb207fdb8aede942"
 dependencies = [
  "anstream",
  "anstyle",
@@ -8754,9 +8754,9 @@ dependencies = [
 
 [[package]]
 name = "serde_with"
-version = "3.8.3"
+version = "3.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e73139bc5ec2d45e6c5fd85be5a46949c1c39a4c18e56915f5eb4c12f975e377"
+checksum = "69cecfa94848272156ea67b2b1a53f20fc7bc638c4a46d2f8abde08f05f4b857"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -8766,7 +8766,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
- "serde_with_macros 3.8.3",
+ "serde_with_macros 3.9.0",
  "time",
 ]
 
@@ -8784,9 +8784,9 @@ dependencies = [
 
 [[package]]
 name = "serde_with_macros"
-version = "3.8.3"
+version = "3.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b80d3d6b56b64335c0180e5ffde23b3c5e08c14c585b51a15bd0e95393f46703"
+checksum = "a8fee4991ef4f274617a51ad4af30519438dacb2f56ac773b08a1922ff743350"
 dependencies = [
  "darling 0.20.8",
  "proc-macro2 1.0.81",
@@ -10155,7 +10155,7 @@ dependencies = [
  "roaring",
  "serde",
  "serde_derive",
- "serde_with 3.8.3",
+ "serde_with 3.9.0",
  "winnow 0.6.9",
 ]
 
@@ -10804,18 +10804,18 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "1.0.61"
+version = "1.0.62"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c546c80d6be4bc6a00c0f01730c08df82eaa7a7a61f11d656526506112cc1709"
+checksum = "f2675633b1499176c2dff06b0856a27976a8f9d436737b4cf4f312d4d91d8bbb"
 dependencies = [
  "thiserror-impl",
 ]
 
 [[package]]
 name = "thiserror-impl"
-version = "1.0.61"
+version = "1.0.62"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46c3384250002a6d5af4d114f2845d37b57521033f30d5c3f46c4d70e1197533"
+checksum = "d20468752b09f49e909e55a5d338caa8bedf615594e9d80bc4c565d30faf798c"
 dependencies = [
  "proc-macro2 1.0.81",
  "quote 1.0.36",
@@ -11860,7 +11860,7 @@ dependencies = [
  "raptorq",
  "serde",
  "serde_test",
- "serde_with 3.8.3",
+ "serde_with 3.9.0",
  "thiserror",
  "tracing",
  "utoipa",
@@ -11884,7 +11884,7 @@ dependencies = [
  "reqwest 0.12.5",
  "serde",
  "serde_json",
- "serde_with 3.8.3",
+ "serde_with 3.9.0",
  "serde_yaml 0.9.34+deprecated",
  "ssh2",
  "tempfile",
@@ -11949,7 +11949,7 @@ dependencies = [
  "rocksdb",
  "serde",
  "serde_json",
- "serde_with 3.8.3",
+ "serde_with 3.9.0",
  "serde_yaml 0.9.34+deprecated",
  "sui-sdk 1.28.3",
  "sui-simulator",
@@ -12029,7 +12029,7 @@ dependencies = [
  "reqwest 0.12.5",
  "serde",
  "serde_json",
- "serde_with 3.8.3",
+ "serde_with 3.9.0",
  "sui-config",
  "sui-keys",
  "sui-move-build",

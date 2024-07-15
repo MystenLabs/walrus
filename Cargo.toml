@@ -19,7 +19,7 @@ license = "Apache-2.0"
 [workspace.dependencies]
 anyhow = "1.0.86"
 bcs = "0.1.6"
-clap = { version = "4.5.8", features = ["derive"] }
+clap = { version = "4.5.9", features = ["derive"] }
 fastcrypto = "0.1"
 futures = "0.3.30"
 futures-timer = "=3.0.2" # required for MSIM
@@ -35,7 +35,7 @@ reqwest = { version = "0.12.5", default-features = false, features = ["http2", "
 rocksdb = "0.21.0"
 serde = { version = "1.0.204", features = ["derive"] }
 serde_json = "1.0.120"
-serde_with = { version = "3.8", features = ["base64"] }
+serde_with = { version = "3.9", features = ["base64"] }
 serde_yaml = "0.9"
 # TODO(zhewu): Upgrade to 1.28 to use official sui release: https://github.com/MystenLabs/walrus/issues/569
 sui-config = { git = "https://github.com/MystenLabs/sui", rev = "ebf6df9225d998c1bd5cd0f4d584dd7af4961a37" }
@@ -50,7 +50,7 @@ sui-types = { git = "https://github.com/MystenLabs/sui", rev = "ebf6df9225d998c1
 telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", rev = "ebf6df9225d998c1bd5cd0f4d584dd7af4961a37" }
 tempfile = "3.10.1"
 test-cluster = { git = "https://github.com/MystenLabs/sui", rev = "ebf6df9225d998c1bd5cd0f4d584dd7af4961a37" }
-thiserror = "1.0.61"
+thiserror = "1.0.62"
 tokio = "=1.36.0"
 tokio-stream = "0.1.15"
 tokio-util = "0.7.10"
