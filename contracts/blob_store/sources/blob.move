@@ -78,7 +78,11 @@ module blob_store::blob {
 
     /// Derive the blob_id for a blob given the root_hash, erasure_code_type and size.
     public fun derive_blob_id(root_hash: u256, erasure_code_type: u8, size: u64): u256 {
-        let blob_id_struct = BlobIdDerivation { erasure_code_type, size, root_hash };
+        let blob_id_struct = BlobIdDerivation {
+            erasure_code_type,
+            size,
+            root_hash
+        };
 
         let serialized = bcs::to_bytes(&blob_id_struct);
         let encoded = hash::blake2b256(&serialized);
