@@ -98,7 +98,7 @@ module blob_store::system {
         price: u64,
         ctx: &mut TxContext,
     ): System<WAL> {
-        assert!(committee::epoch(&first_committee) == 0, EIncorrectCommittee);
+        assert!(first_committee.epoch() == 0, EIncorrectCommittee);
 
         // We emit both sync and done events for the first epoch.
         event::emit(EpochChangeSync {
