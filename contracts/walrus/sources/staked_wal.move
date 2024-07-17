@@ -1,6 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+#[allow(unused_variable)]
 /// Module: staked_wal
 module walrus::staked_wal {
     /// Represents a staked WAL, does not store the `Balance` inside, but uses
@@ -15,9 +16,9 @@ module walrus::staked_wal {
     }
 
     /// Protected method to create a new staked WAL.
-    public(package) fun mint(pool_id: ID, principal: u64): StakedWal {
+    public(package) fun mint(pool_id: ID, principal: u64, ctx: &mut TxContext): StakedWal {
         StakedWal {
-            id: 0,
+            id: object::new(ctx),
             pool_id,
             principal,
         }
@@ -25,9 +26,9 @@ module walrus::staked_wal {
 
     /// Burns the staked WAL and returns the `pool_id` and the `principal`.
     public(package) fun burn(staked_wal: StakedWal): (ID, u64) {
-        let StakeWal { id, pool_id, principal } = staked_wal;
+        let StakedWal { id, pool_id, principal } = staked_wal;
         id.delete();
-        (staked_wal.pool_id, staked_wal.principal)
+        (pool_id, principal)
     }
 
     /// Splits the staked WAL into two parts.
@@ -45,11 +46,13 @@ module walrus::staked_wal {
 
     /// Joins the staked WAL with another staked WAL.
     /// Both staked WALs must belong to the same staking pool.
-    public fun join(staked_wal: &mut StakedWal, other: StakedWal, ctx: &mut TxContext): StakedWal {
-        assert!(staked_wal.pool_id == other.pool_id);
-        staked_wal.principal = staked_wal.principal + other.principal;
-        other.principal = 0;
-        other
+    public fun join(staked_wal: &mut StakedWal, other: StakedWal, ctx: &mut TxContext) {
+        let StakedWal { id, pool_id, principal } = other;
+
+        assert!(staked_wal.pool_id == pool_id);
+        id.delete();
+
+        staked_wal.principal = staked_wal.principal + principal;
     }
 
     /// Returns the `pool_id` of the staked WAL.
