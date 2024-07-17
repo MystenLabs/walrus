@@ -61,14 +61,7 @@ mod error;
 pub use error::{ClientError, ClientErrorKind};
 
 mod responses;
-pub use responses::{
-    BlobIdOutput,
-    BlobStatusOutput,
-    BlobStoreResult,
-    DryRunOutput,
-    ReadOutput,
-    StoreOutput,
-};
+pub use responses::{BlobIdOutput, BlobStatusOutput, BlobStoreResult, DryRunOutput, ReadOutput};
 
 mod utils;
 pub use utils::string_prefix;

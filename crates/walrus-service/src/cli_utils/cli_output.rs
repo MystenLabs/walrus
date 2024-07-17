@@ -8,14 +8,7 @@ use walrus_sdk::api::BlobStatus;
 
 use crate::{
     cli_utils::{error, format_event_id, success, HumanReadableBytes, HumanReadableMist},
-    client::{
-        BlobIdOutput,
-        BlobStatusOutput,
-        BlobStoreResult,
-        DryRunOutput,
-        ReadOutput,
-        StoreOutput,
-    },
+    client::{BlobIdOutput, BlobStatusOutput, BlobStoreResult, DryRunOutput, ReadOutput},
 };
 
 /// Trait to differentiate output depending on the output mode.
@@ -39,10 +32,10 @@ pub trait CliOutput: Serialize {
     }
 }
 
-impl CliOutput for StoreOutput {
+impl CliOutput for BlobStoreResult {
     fn cli_output(&self) -> String {
-        match &self.0 {
-            BlobStoreResult::AlreadyCertified {
+        match &self {
+            Self::AlreadyCertified {
                 blob_id,
                 event,
                 end_epoch,
@@ -56,7 +49,7 @@ impl CliOutput for StoreOutput {
                     end_epoch,
                 )
             }
-            BlobStoreResult::NewlyCreated {
+            Self::NewlyCreated {
                 blob_object,
                 encoded_size,
                 cost,
@@ -76,7 +69,7 @@ impl CliOutput for StoreOutput {
                     HumanReadableMist(*cost),
                 )
             }
-            BlobStoreResult::MarkedInvalid { blob_id, event } => {
+            Self::MarkedInvalid { blob_id, event } => {
                 format!(
                     "{} Blob was marked as invalid.\nBlob ID: {}\nInvalidation event ID: {}",
                     error(),

@@ -36,15 +36,7 @@ use walrus_service::{
         HumanReadableBytes,
         VERSION,
     },
-    client::{
-        BlobIdOutput,
-        BlobStatusOutput,
-        Client,
-        ClientDaemon,
-        DryRunOutput,
-        ReadOutput,
-        StoreOutput,
-    },
+    client::{BlobIdOutput, BlobStatusOutput, Client, ClientDaemon, DryRunOutput, ReadOutput},
 };
 use walrus_sui::{
     client::{ContractClient, ReadClient},
@@ -493,7 +485,7 @@ async fn run_app(app: App) -> Result<()> {
                 let result = client
                     .reserve_and_store_blob(&read_blob_from_file(&file)?, epochs, force)
                     .await?;
-                StoreOutput::from(result).print_output(app.json)?;
+                result.print_output(app.json)?;
             }
         }
         Commands::Read {

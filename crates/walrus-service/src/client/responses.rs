@@ -68,16 +68,6 @@ impl BlobStoreResult {
     }
 }
 
-/// The output of the `store` command.
-#[derive(Debug, Clone, Serialize)]
-pub struct StoreOutput(pub(crate) BlobStoreResult);
-
-impl From<BlobStoreResult> for StoreOutput {
-    fn from(value: BlobStoreResult) -> Self {
-        Self(value)
-    }
-}
-
 /// The output of the `read` command.
 #[serde_as]
 #[derive(Debug, Clone, Serialize)]
