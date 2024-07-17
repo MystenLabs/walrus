@@ -41,7 +41,7 @@ module walrus::storage_node {
         let pool = staking_pool::new(ctx);
         let cap = StorageNodeCap {
             id: object::new(ctx),
-            node_id: object::id(&pool),
+            node_id: pool.id(),
         };
 
         (pool, cap)

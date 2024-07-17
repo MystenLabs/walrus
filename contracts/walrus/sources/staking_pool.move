@@ -12,23 +12,17 @@ module walrus::staking_pool {
     const ENotImplemented: u64 = 0;
 
     /// Represents a single staking pool for a token.
-    public struct StakingPool<phantom T> has key {
-        id: UID,
+    public struct StakingPool<phantom T> has store {
+        id: ID,
         total_staked: Balance<T>,
     }
 
     /// Create a new `StakingPool` object.
     public(package) fun new<T>(ctx: &mut TxContext): StakingPool<T> {
         StakingPool {
-            id: object::new(ctx),
+            id: ctx.fresh_object_address().to_id(),
             total_staked: balance::zero(),
         }
-    }
-
-    #[allow(lint(share_owned))]
-    /// Share the `StakingPool` object.
-    public(package) fun share<T>(pool: StakingPool<T>) {
-        transfer::share_object(pool)
     }
 
     /// Stake the given amount of WAL in the pool.
@@ -47,5 +41,9 @@ module walrus::staking_pool {
         ctx: &mut TxContext,
     ): Coin<T> {
         abort ENotImplemented
+    }
+
+    public fun id<T>(self: &StakingPool<T>): ID {
+        self.id
     }
 }
