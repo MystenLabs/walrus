@@ -12044,6 +12044,7 @@ dependencies = [
  "bcs",
  "clap",
  "colored",
+ "enum_dispatch",
  "fastcrypto 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures",
  "git-version",

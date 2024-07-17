@@ -51,11 +51,11 @@ use walrus_core::{
 use walrus_sui::types::{Blob, BlobEvent, BlobRegistered};
 
 use self::{
-    blob_info::{BlobCertificationStatus, BlobInfo, BlobInfoMergeOperand},
+    blob_info::{BlobCertificationStatus, BlobInfo, BlobInfoMergeOperand, BlobInfoV1},
     event_cursor_table::EventCursorTable,
     event_sequencer::EventSequencer,
 };
-use crate::storage::blob_info::Mergeable as _;
+use crate::storage::blob_info::{BlobInfoAPI, Mergeable as _};
 
 pub(crate) mod blob_info;
 mod event_cursor_table;
@@ -398,7 +398,7 @@ impl Storage {
     pub fn has_metadata(&self, blob_id: &BlobId) -> Result<bool, TypedStoreError> {
         Ok(self
             .get_blob_info(blob_id)?
-            .map(|info| info.is_metadata_stored)
+            .map(|info| info.is_metadata_stored())
             .unwrap_or_default())
     }
 
@@ -518,21 +518,39 @@ fn merge_blob_info(
 
         current_val = if let Some(info) = current_val {
             Some(info.merge(operand))
-        } else if let BlobInfoMergeOperand::ChangeStatus {
-            end_epoch,
-            status,
-            status_event,
-        } = operand
-        {
-            Some(BlobInfo::new(end_epoch, status, status_event))
         } else {
-            // TODO(jsmith): Deserialize the key.
-            tracing::error!(?key, "attempted to mutate the info for an untracked blob");
-            None
-        };
+            match operand {
+                BlobInfoMergeOperand::RegisterBlob {
+                    registered_epoch,
+                    end_epoch,
+                    status,
+                    status_event,
+                } => Some(BlobInfo::new(
+                    registered_epoch,
+                    end_epoch,
+                    status,
+                    status_event,
+                )),
+                BlobInfoMergeOperand::CertifyBlob { .. } => {
+                    let blob_id = bcs::from_bytes::<BlobId>(key);
+                    panic!("Certifying an unknown blob {:?}", blob_id);
+                }
+                BlobInfoMergeOperand::InvalidateBlob { .. } => {
+                    let blob_id = bcs::from_bytes::<BlobId>(key);
+                    panic!("Certifying an unknown blob {:?}", blob_id);
+                }
+                BlobInfoMergeOperand::MarkMetadataStored(_) => {
+                    let blob_id = bcs::from_bytes::<BlobId>(key);
+                    panic!(
+                        "Attempted to mutate the info for an untracked blob. Blob id: {:?}",
+                        blob_id
+                    );
+                }
+            }
+        }
     }
 
-    current_val.map(BlobInfo::to_bytes)
+    current_val.as_ref().map(BlobInfo::to_bytes)
 }
 
 fn deserialize_from_db<'de, T>(val: &'de [u8]) -> Option<T>
@@ -653,6 +671,9 @@ pub(crate) mod tests {
         let metadata = walrus_core::test_utils::verified_blob_metadata();
         let blob_id = metadata.blob_id();
 
+        storage.update_blob_info(&BlobEvent::Registered(BlobRegistered::for_testing(
+            *blob_id,
+        )))?;
         storage.update_blob_info(&BlobEvent::Certified(BlobCertified::for_testing(*blob_id)))?;
 
         storage.put_metadata(metadata.blob_id(), metadata.metadata())?;
@@ -689,31 +710,37 @@ pub(crate) mod tests {
         let blob_id = BLOB_ID;
 
         let state0 = BlobInfo::new(
+            1,
             42,
             BlobCertificationStatus::Registered,
             event_id_for_testing(),
         );
-        let state1 = BlobInfo::new(
+        let state1 = BlobInfo::new_for_testing(
+            1,
+            Some(2),
             42,
+            None,
             BlobCertificationStatus::Certified,
             event_id_for_testing(),
         );
 
         storage.merge_update_blob_info(
             &blob_id,
-            BlobInfoMergeOperand::ChangeStatus {
+            BlobInfoMergeOperand::RegisterBlob {
+                registered_epoch: 1,
                 end_epoch: 42,
                 status: BlobCertificationStatus::Registered,
-                status_event: state0.current_status_event,
+                status_event: state0.current_status_event(),
             },
         )?;
         assert_eq!(storage.get_blob_info(&blob_id)?, Some(state0));
         storage.merge_update_blob_info(
             &blob_id,
-            BlobInfoMergeOperand::ChangeStatus {
+            BlobInfoMergeOperand::CertifyBlob {
+                certified_epoch: 2,
                 end_epoch: 42,
                 status: BlobCertificationStatus::Certified,
-                status_event: state1.current_status_event,
+                status_event: state1.current_status_event(),
             },
         )?;
         assert_eq!(storage.get_blob_info(&blob_id)?, Some(state1));
@@ -727,21 +754,25 @@ pub(crate) mod tests {
         let blob_id = BLOB_ID;
 
         let state0 = BlobInfo::new(
+            1,
             42,
             BlobCertificationStatus::Registered,
             event_id_for_testing(),
         );
-        let state1 = BlobInfo {
+
+        let BlobInfo::V1(v1) = state0;
+        let state1 = BlobInfo::V1(BlobInfoV1 {
             is_metadata_stored: true,
-            ..state0
-        };
+            ..v1
+        });
 
         storage.merge_update_blob_info(
             &blob_id,
-            BlobInfoMergeOperand::ChangeStatus {
+            BlobInfoMergeOperand::RegisterBlob {
+                registered_epoch: 1,
                 end_epoch: 42,
                 status: BlobCertificationStatus::Registered,
-                status_event: state0.current_status_event,
+                status_event: state0.current_status_event(),
             },
         )?;
         assert_eq!(storage.get_blob_info(&blob_id)?, Some(state0));

@@ -44,7 +44,7 @@ use crate::{
     committee::{CommitteeService, CommitteeServiceFactory, SuiCommitteeServiceFactory},
     config::{StorageNodeConfig, SuiConfig},
     contract_service::{SuiSystemContractService, SystemContractService},
-    storage::{EventProgress, ShardStorage, Storage},
+    storage::{blob_info::BlobInfoAPI, EventProgress, ShardStorage, Storage},
     system_events::{SuiSystemEventProvider, SystemEventProvider},
 };
 
@@ -633,7 +633,7 @@ impl ServiceState for StorageNodeInner {
 
         if blob_info.is_invalid() {
             return Err(StoreMetadataError::InvalidBlob(
-                blob_info.current_status_event,
+                blob_info.current_status_event(),
             ));
         }
 
@@ -641,7 +641,7 @@ impl ServiceState for StorageNodeInner {
             return Err(StoreMetadataError::BlobExpired);
         }
 
-        if blob_info.is_metadata_stored {
+        if blob_info.is_metadata_stored() {
             return Ok(false);
         }
 
@@ -734,7 +734,13 @@ impl ServiceState for StorageNodeInner {
             .storage
             .get_blob_info(blob_id)
             .context("could not retrieve blob info")?
-            .map(BlobStatus::from)
+            .map(|value| -> BlobStatus {
+                BlobStatus::Existent {
+                    end_epoch: value.end_epoch(),
+                    status: value.status().into(),
+                    status_event: value.current_status_event(),
+                }
+            })
             .unwrap_or_default())
     }
 
@@ -1443,20 +1449,22 @@ mod tests {
         let own_shards = [ShardIndex(1), ShardIndex(6)];
 
         let blob1 = (0..80u8).collect::<Vec<_>>();
-        let blob2 = (80..160u8).collect::<Vec<_>>();
+        // let blob2 = (80..160u8).collect::<Vec<_>>();
         let blob3 = (160..255u8).collect::<Vec<_>>();
 
         let store_at_other_node_fn = |shard: &ShardIndex, _| !own_shards.contains(shard);
         let (cluster, events, blob1_details) =
             cluster_with_partially_stored_blob(shards, &blob1, store_at_other_node_fn).await?;
+        events.send(BlobRegistered::for_testing(*blob1_details.blob_id()).into())?;
         events.send(BlobCertified::for_testing(*blob1_details.blob_id()).into())?;
 
         let node_client = cluster.client(0);
         let config = &blob1_details.config;
 
         // Send events that some unobserved blob has been certified.
-        let blob2_details = EncodedBlob::new(&blob2, config.clone());
-        let blob2_registered_event = BlobRegistered::for_testing(*blob2_details.blob_id());
+        // let blob2_details = EncodedBlob::new(&blob2, config.clone());
+        // let blob2_registered_event = BlobRegistered::for_testing(*blob2_details.blob_id());
+        let blob2_registered_event = BlobRegistered::for_testing(BLOB_ID);
         events.send(blob2_registered_event.clone().into())?;
 
         // The node should not be able to advance past the following event.
@@ -1468,7 +1476,7 @@ mod tests {
         store_at_shards(&blob3_details, &cluster, store_at_other_node_fn).await?;
         events.send(BlobCertified::for_testing(*blob3_details.blob_id()).into())?;
 
-        // All shards for blobs 1 and 2 should be synced by the node.
+        // All shards for blobs 1 and 3 should be synced by the node.
         for blob_details in [blob1_details, blob3_details] {
             for shard in own_shards {
                 let synced_sliver_pair = expect_sliver_pair_stored_before_timeout(
