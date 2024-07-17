@@ -6,12 +6,67 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_with::{base64::Base64, serde_as, DisplayFromStr};
-use walrus_core::{metadata::VerifiedBlobMetadataWithId, BlobId};
+use sui_types::event::EventID;
+use utoipa::ToSchema;
+use walrus_core::{metadata::VerifiedBlobMetadataWithId, BlobId, Epoch};
 use walrus_sdk::api::BlobStatus;
+use walrus_sui::types::Blob;
 
-use super::BlobStoreResult;
+/// Result when attempting to store a blob.
+#[serde_as]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum BlobStoreResult {
+    /// The blob already exists within Walrus, was certified, and is stored for at least the
+    /// intended duration.
+    AlreadyCertified {
+        /// The blob ID.
+        #[serde_as(as = "DisplayFromStr")]
+        blob_id: BlobId,
+        /// The event where the blob was certified.
+        event: EventID,
+        /// The epoch until which the blob is stored (exclusive).
+        #[schema(value_type = u64)]
+        end_epoch: Epoch,
+    },
+    /// The blob was newly created; this contains the newly created Sui object associated with the
+    /// blob.
+    NewlyCreated {
+        /// The Sui blob object that holds the newly created blob.
+        blob_object: Blob,
+        /// The encoded size, including metadata.
+        encoded_size: u64,
+        /// The storage cost, excluding gas.
+        cost: u64,
+    },
+    /// The blob is known to Walrus but was marked as invalid.
+    ///
+    /// This indicates a bug within the client, the storage nodes, or more than a third malicious
+    /// storage nodes.
+    MarkedInvalid {
+        /// The blob ID.
+        #[serde_as(as = "DisplayFromStr")]
+        blob_id: BlobId,
+        /// The event where the blob was marked as invalid.
+        event: EventID,
+    },
+}
+
+impl BlobStoreResult {
+    /// Returns the blob ID.
+    pub fn blob_id(&self) -> &BlobId {
+        match self {
+            Self::AlreadyCertified { blob_id, .. } => blob_id,
+            Self::MarkedInvalid { blob_id, .. } => blob_id,
+            Self::NewlyCreated {
+                blob_object: Blob { blob_id, .. },
+                ..
+            } => blob_id,
+        }
+    }
+}
 
 /// The output of the `store` command.
 #[derive(Debug, Clone, Serialize)]

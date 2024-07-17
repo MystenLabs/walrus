@@ -10,8 +10,11 @@ use axum::{
     routing::{get, put},
     Router,
 };
+use openapi::{AggregatorApiDoc, DaemonApiDoc, PublisherApiDoc};
 use routes::{BLOB_GET_ENDPOINT, BLOB_PUT_ENDPOINT};
 use tower_http::trace::TraceLayer;
+use utoipa::OpenApi;
+use utoipa_redoc::{Redoc, Servable};
 use walrus_sui::client::ContractClient;
 
 use crate::client::Client;
@@ -21,8 +24,8 @@ mod routes;
 
 /// The client daemon.
 ///
-/// Exposes different HTTP endpoints depending on which functions `with_*` were applied after
-/// constructing it with [`ClientDaemon::new`].
+/// Exposes different HTTP endpoints depending on which function `ClientDaemon::new_*` it is
+/// constructed with.
 #[derive(Debug, Clone)]
 pub struct ClientDaemon<T> {
     client: Arc<Client<T>>,
@@ -31,21 +34,26 @@ pub struct ClientDaemon<T> {
 }
 
 impl<T: Send + Sync + 'static> ClientDaemon<T> {
+    /// Constructs a new [`ClientDaemon`] with aggregator functionality.
+    pub fn new_aggregator(client: Client<T>, network_address: SocketAddr) -> Self {
+        Self::new::<AggregatorApiDoc>(client, network_address).with_aggregator()
+    }
+
     /// Creates a new [`ClientDaemon`], which serves requests at the provided `network_address` and
     /// interacts with Walrus through the `client`.
     ///
     /// The exposed APIs can be defined by calling a subset of the functions `with_*`. The daemon is
     /// started through [`Self::run()`].
-    pub fn new(client: Client<T>, network_address: SocketAddr) -> Self {
+    fn new<A: OpenApi>(client: Client<T>, network_address: SocketAddr) -> Self {
         ClientDaemon {
             client: Arc::new(client),
             network_address,
-            router: Router::new(),
+            router: Router::new().merge(Redoc::with_url(routes::API_DOCS, A::openapi())),
         }
     }
 
     /// Specifies that the daemon should expose the aggregator interface (read blobs).
-    pub fn with_aggregator(mut self) -> Self {
+    fn with_aggregator(mut self) -> Self {
         self.router = self.router.route(BLOB_GET_ENDPOINT, get(routes::get_blob));
         self
     }
@@ -68,8 +76,28 @@ impl<T: Send + Sync + 'static> ClientDaemon<T> {
 }
 
 impl<T: ContractClient + 'static> ClientDaemon<T> {
+    /// Constructs a new [`ClientDaemon`] with publisher functionality.
+    pub fn new_publisher(
+        client: Client<T>,
+        network_address: SocketAddr,
+        max_body_limit: usize,
+    ) -> Self {
+        Self::new::<PublisherApiDoc>(client, network_address).with_publisher(max_body_limit)
+    }
+
+    /// Constructs a new [`ClientDaemon`] with combined aggregator and publisher functionality.
+    pub fn new_daemon(
+        client: Client<T>,
+        network_address: SocketAddr,
+        max_body_limit: usize,
+    ) -> Self {
+        Self::new::<DaemonApiDoc>(client, network_address)
+            .with_aggregator()
+            .with_publisher(max_body_limit)
+    }
+
     /// Specifies that the daemon should expose the publisher interface (store blobs).
-    pub fn with_publisher(mut self, max_body_limit: usize) -> Self {
+    fn with_publisher(mut self, max_body_limit: usize) -> Self {
         self.router = self.router.route(
             BLOB_PUT_ENDPOINT,
             put(routes::put_blob)

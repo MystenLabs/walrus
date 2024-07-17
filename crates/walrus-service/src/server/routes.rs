@@ -36,7 +36,7 @@ use crate::{
     },
 };
 
-/// Open API documentation endpoint
+/// OpenAPI documentation endpoint.
 pub const API_DOCS: &str = "/v1/api";
 /// The path to get and store blob metadata.
 pub const METADATA_ENDPOINT: &str = "/v1/blobs/:blob_id/metadata";

@@ -12,9 +12,6 @@ use fastcrypto::{bls12381::min_pk::BLS12381AggregateSignature, traits::Aggregate
 use futures::Future;
 use rand::{seq::SliceRandom, thread_rng};
 use reqwest::{Client as ReqwestClient, ClientBuilder};
-use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DisplayFromStr};
-use sui_types::event::EventID;
 use tokio::{
     sync::Semaphore,
     time::{sleep, Duration},
@@ -34,7 +31,6 @@ use walrus_core::{
     messages::{Confirmation, ConfirmationCertificate, SignedStorageConfirmation},
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
-    Epoch,
     Sliver as SliverEnum,
 };
 use walrus_sdk::{
@@ -65,7 +61,14 @@ mod error;
 pub use error::{ClientError, ClientErrorKind};
 
 mod responses;
-pub use responses::{BlobIdOutput, BlobStatusOutput, DryRunOutput, ReadOutput, StoreOutput};
+pub use responses::{
+    BlobIdOutput,
+    BlobStatusOutput,
+    BlobStoreResult,
+    DryRunOutput,
+    ReadOutput,
+    StoreOutput,
+};
 
 mod utils;
 pub use utils::string_prefix;
@@ -823,59 +826,6 @@ impl<T> Client<T> {
     pub fn reset_reqwest_client(&mut self) -> ClientResult<()> {
         self.reqwest_client = Self::build_reqwest_client(&self.config)?;
         Ok(())
-    }
-}
-
-/// Result when attempting to store a blob.
-#[serde_as]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
-pub enum BlobStoreResult {
-    /// The blob already exists within Walrus, was certified, and is stored for at least the
-    /// intended duration.
-    AlreadyCertified {
-        /// The blob ID.
-        #[serde_as(as = "DisplayFromStr")]
-        blob_id: BlobId,
-        /// The event where the blob was certified.
-        event: EventID,
-        /// The epoch until which the blob is stored (exclusive).
-        end_epoch: Epoch,
-    },
-    /// The blob was newly created; this contains the newly created Sui object associated with the
-    /// blob.
-    NewlyCreated {
-        /// The Sui blob object that holds the newly created blob.
-        blob_object: Blob,
-        /// The encoded size, including metadata.
-        encoded_size: u64,
-        /// The storage cost, excluding gas.
-        cost: u64,
-    },
-    /// The blob is known to Walrus but was marked as invalid.
-    ///
-    /// This indicates a bug within the client, the storage nodes, or more than a third malicious
-    /// storage nodes.
-    MarkedInvalid {
-        /// The blob ID.
-        #[serde_as(as = "DisplayFromStr")]
-        blob_id: BlobId,
-        /// The event where the blob was marked as invalid.
-        event: EventID,
-    },
-}
-
-impl BlobStoreResult {
-    /// Returns the blob ID.
-    pub fn blob_id(&self) -> &BlobId {
-        match self {
-            Self::AlreadyCertified { blob_id, .. } => blob_id,
-            Self::MarkedInvalid { blob_id, .. } => blob_id,
-            Self::NewlyCreated {
-                blob_object: Blob { blob_id, .. },
-                ..
-            } => blob_id,
-        }
     }
 }
 

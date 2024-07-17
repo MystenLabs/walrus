@@ -32,11 +32,41 @@ use utoipa::{
 #[serde_as]
 #[derive(Deserialize, Serialize, utoipa::ToSchema)]
 #[schema(
+    as = BlobId,
     value_type = String,
     format = Byte,
     example = json!("E7_nNXvFU_3qZVu3OH1yycRG7LZlyn1-UxEDCDDqGGU"),
 )]
 pub(crate) struct BlobIdString(#[serde_as(as = "DisplayFromStr")] pub(crate) BlobId);
+
+// Schema for the [`sui_types::event::EventID`] type.
+#[allow(unused)]
+#[derive(ToSchema)]
+#[schema(
+    as = EventID,
+    rename_all = "camelCase",
+    example = json!({
+        "txDigest": "EhtoQF9UpPyg5PsPUs69LdkcRrjQ3R4cTsHnwxZVTNrC",
+        "eventSeq": 0
+    })
+)]
+pub(crate) struct EventIdSchema {
+    #[schema(format = Byte)]
+    tx_digest: Vec<u8>,
+    // u64 represented as a string
+    #[schema(value_type = String)]
+    event_seq: u64,
+}
+
+// Schema for the [`sui_types::ObjectID`] type.
+#[allow(unused)]
+#[derive(ToSchema)]
+#[schema(
+    as = ObjectID,
+    title = "Sui object ID as a hex string",
+    example = "0x56ae1c86e17db174ea002f8340e28880bc8a8587c56e8604a4fa6b1170b23a60"
+)]
+pub(crate) struct ObjectIdSchema(String);
 
 /// Successful API response body as JSON.
 ///

@@ -35,6 +35,7 @@ use crate::{
 /// Sui object for storage resources.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct StorageResource {
     /// Object ID of the Sui object.
     pub id: ObjectID,
@@ -79,6 +80,7 @@ impl AssociatedContractStruct for StorageResource {
 #[serde_as]
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct Blob {
     /// Object ID of the Sui object.
     pub id: ObjectID,

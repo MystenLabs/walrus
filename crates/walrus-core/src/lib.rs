@@ -63,6 +63,14 @@ pub type DefaultHashFunction = Blake2b256;
 /// The epoch number.
 pub type Epoch = u64;
 
+/// Walrus epoch.
+// Schema definition for the type alias used in OpenAPI schemas.
+#[derive(Debug)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[schema(as = Epoch)]
+#[allow(dead_code)]
+pub struct EpochSchema(u64);
+
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 
@@ -540,6 +548,7 @@ pub struct InvalidEncodingType;
 /// Supported Walrus encoding types.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default, Serialize, Deserialize)]
 #[repr(u8)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub enum EncodingType {
     /// Default RaptorQ encoding.
     #[default]

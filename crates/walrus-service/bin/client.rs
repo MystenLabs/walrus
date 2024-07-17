@@ -547,9 +547,13 @@ async fn run_app(app: App) -> Result<()> {
             let client =
                 get_contract_client(config?, wallet, app.gas_budget, &args.daemon_args.blocklist)
                     .await?;
-            let publisher = ClientDaemon::new(client, args.daemon_args.bind_address)
-                .with_publisher(args.max_body_size());
-            publisher.run().await?;
+            ClientDaemon::new_publisher(
+                client,
+                args.daemon_args.bind_address,
+                args.max_body_size(),
+            )
+            .run()
+            .await?;
         }
         Commands::Aggregator {
             rpc_arg: RpcArg { rpc_url },
@@ -563,18 +567,18 @@ async fn run_app(app: App) -> Result<()> {
             let client =
                 get_read_client(config?, rpc_url, wallet, wallet_path.is_none(), &blocklist)
                     .await?;
-            let aggregator = ClientDaemon::new(client, bind_address).with_aggregator();
-            aggregator.run().await?;
+            ClientDaemon::new_aggregator(client, bind_address)
+                .run()
+                .await?;
         }
         Commands::Daemon { args } => {
             args.print_debug_message("attempting to run the Walrus daemon");
             let client =
                 get_contract_client(config?, wallet, app.gas_budget, &args.daemon_args.blocklist)
                     .await?;
-            let publisher = ClientDaemon::new(client, args.daemon_args.bind_address)
-                .with_aggregator()
-                .with_publisher(args.max_body_size());
-            publisher.run().await?;
+            ClientDaemon::new_daemon(client, args.daemon_args.bind_address, args.max_body_size())
+                .run()
+                .await?;
         }
         Commands::Info {
             rpc_arg: RpcArg { rpc_url },

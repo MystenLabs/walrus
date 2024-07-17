@@ -20,20 +20,34 @@ use reqwest::header::{
 };
 use serde::Deserialize;
 use tracing::Level;
+use utoipa::IntoParams;
 use walrus_core::encoding::Primary;
 use walrus_sui::client::ContractClient;
 
 use crate::{
-    api::BlobIdString,
+    api::{self, BlobIdString},
     client::{BlobStoreResult, Client, ClientErrorKind},
 };
 
+/// OpenAPI documentation endpoint.
+pub const API_DOCS: &str = "/v1/api";
 /// The path to get the blob with the given blob ID.
 pub const BLOB_GET_ENDPOINT: &str = "/v1/:blobId";
 /// The path to store a blob.
 pub const BLOB_PUT_ENDPOINT: &str = "/v1/store";
 
 #[tracing::instrument(level = Level::ERROR, skip_all, fields(%blob_id))]
+#[utoipa::path(
+    get,
+    path = api::rewrite_route(BLOB_GET_ENDPOINT),
+    params(("blob_id" = BlobIdString,)),
+    responses(
+        (status = 200, description = "The blob was reconstructed successfully", body = [u8]),
+        (status = 404, description = "The requested blob does not exist"),
+        (status = 500, description = "Internal server error" ),
+        // TODO(mlegner): Improve error responses. (#178, #462)
+    ),
+)]
 pub(super) async fn get_blob<T: Send + Sync>(
     request_headers: HeaderMap,
     State(client): State<Arc<Client<T>>>,
@@ -71,6 +85,20 @@ pub(super) async fn get_blob<T: Send + Sync>(
 }
 
 #[tracing::instrument(level = Level::ERROR, skip_all, fields(%epochs))]
+#[utoipa::path(
+    put,
+    path = api::rewrite_route(BLOB_PUT_ENDPOINT),
+    request_body(content = [u8], description = "Unencoded blob"),
+    params(PublisherQuery),
+    responses(
+        (status = 200, description = "The blob was stored successfully", body = BlobStoreResult),
+        (status = 400, description = "The request is malformed"),
+        (status = 413, description = "The blob is too large"),
+        (status = 500, description = "Internal server error"),
+        (status = 504, description = "Communication problem with Walrus storage nodes"),
+        // TODO(mlegner): Document error responses. (#178, #462)
+    ),
+)]
 pub(super) async fn put_blob<T: ContractClient>(
     State(client): State<Arc<Client<T>>>,
     Query(PublisherQuery { epochs, force }): Query<PublisherQuery>,
@@ -117,7 +145,7 @@ pub(super) async fn store_blob_options() -> impl IntoResponse {
     ]
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
 pub(super) struct PublisherQuery {
     #[serde(default = "default_epochs")]
     epochs: u64,

@@ -12043,6 +12043,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "tracing-subscriber",
+ "utoipa",
  "walrus-core",
  "walrus-test-utils",
 ]

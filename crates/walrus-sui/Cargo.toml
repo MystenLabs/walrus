@@ -30,6 +30,7 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["sync"] }
 tokio-stream.workspace = true
 tracing.workspace = true
+utoipa = { workspace = true, optional = true }
 walrus-core.workspace = true
 walrus-test-utils = { workspace = true, optional = true }
 
