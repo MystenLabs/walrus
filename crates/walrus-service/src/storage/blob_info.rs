@@ -6,7 +6,6 @@
 
 use std::cmp::Ordering;
 
-use axum::http::status;
 use enum_dispatch::enum_dispatch;
 use serde::{Deserialize, Serialize};
 use sui_types::event::EventID;
@@ -64,14 +63,27 @@ impl From<BlobCertificationStatus> for SdkBlobCertificationStatus {
 }
 
 #[enum_dispatch]
+/// The `BlobInfoAPI` trait defines methods for retrieving information about a blob.
 pub trait BlobInfoAPI {
+    /// Returns the end epoch of the blob.
     fn end_epoch(&self) -> Epoch;
+
+    /// Returns the certification status of the blob.
     fn status(&self) -> BlobCertificationStatus;
+
+    /// Returns the event ID of the current status of the blob.
     fn current_status_event(&self) -> EventID;
+
+    /// Returns a boolean indicating whether the metadata of the blob is stored.
     fn is_metadata_stored(&self) -> bool;
 
+    /// Returns the registered epoch of the blob, if available.
     fn registered_epoch(&self) -> Option<Epoch>;
+
+    /// Returns the certified epoch of the blob, if available.
     fn certified_epoch(&self) -> Option<Epoch>;
+
+    /// Returns the invalidated epoch of the blob, if available.
     fn invalidated_epoch(&self) -> Option<Epoch>;
 
     /// Returns true if the blob is certified.
@@ -89,25 +101,24 @@ pub trait BlobInfoAPI {
         self.end_epoch() <= current_epoch
     }
 
+    /// Converts the blob information to a `BlobStatus` object.
     fn to_blob_status(&self) -> BlobStatus;
 }
 
-/// Internal representation of the BlobInfo for use in the database etc.
-/// Use [`BlobStatus`] for anything public facing (e.g. communication to the client).
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy)]
 pub struct BlobInfoV1 {
     pub end_epoch: Epoch,
     pub status: BlobCertificationStatus,
     pub current_status_event: EventID,
     pub is_metadata_stored: bool,
-
     pub registered_epoch: Option<Epoch>,
     pub certified_epoch: Option<Epoch>,
     pub invalidated_epoch: Option<Epoch>,
 }
 
 impl BlobInfoV1 {
-    pub fn new(
+    /// Creates a new `BlobInfoV1` instance.
+    fn new(
         end_epoch: Epoch,
         status: BlobCertificationStatus,
         current_status_event: EventID,
@@ -126,6 +137,9 @@ impl BlobInfoV1 {
         }
     }
 
+    /// Updates the status of the blob.
+    /// If the new status is higher than the current status, the status is updated.
+    /// If the new status is the same as the current status, the status with the higher epoch is kept.
     fn update_status(
         &mut self,
         end_epoch: u64,
@@ -139,6 +153,7 @@ impl BlobInfoV1 {
         }
     }
 
+    /// Updates the epoch where the status changed.
     fn update_status_changing_epoch(
         &mut self,
         status: BlobCertificationStatus,
@@ -218,6 +233,8 @@ impl Mergeable for BlobInfoV1 {
     }
 }
 
+/// Internal representation of the BlobInfo for use in the database etc.
+/// Use [`BlobStatus`] for anything public facing (e.g. communication to the client).
 #[enum_dispatch(BlobInfoAPI)]
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
 pub enum BlobInfo {
@@ -378,7 +395,7 @@ mod tests {
                     create_merge_operand_and_expected_blob_info(
                         &initial_blob_info,
                         end_epoch,
-                        *status,
+                        *status, // Higher status
                         7,
                         true,
                     )
@@ -386,9 +403,9 @@ mod tests {
             })
             .chain(iter::once(create_merge_operand_and_expected_blob_info(
                 &initial_blob_info,
-                10,
+                10, // Higher end epoch
                 initial,
-                1,
+                7,
                 true,
             )));
 
@@ -401,7 +418,7 @@ mod tests {
                     create_merge_operand_and_expected_blob_info(
                         &initial_blob_info,
                         10,
-                        *status,
+                        *status, // Lower status
                         7,
                         false,
                     )
@@ -409,9 +426,9 @@ mod tests {
             })
             .chain(iter::once(create_merge_operand_and_expected_blob_info(
                 &initial_blob_info,
-                2,
+                2, // Lower end epoch
                 initial,
-                1,
+                7,
                 false,
             )));
 
@@ -424,6 +441,9 @@ mod tests {
         }
     }
 
+    // Helper function to create a merge operand and the expected blob info after merging.
+    // `to_end_epoch` `to_status` and `to_status_epoch` are the status the blob wants to change to.
+    // `status_change` indicates whether the status should change.
     fn create_merge_operand_and_expected_blob_info(
         initial_blob_info: &BlobInfo,
         to_end_epoch: Epoch,
@@ -446,9 +466,13 @@ mod tests {
         };
 
         let BlobInfo::V1(inner) = &mut expected;
+
+        // Initial status' changing epoch should be preserved.
         inner.registered_epoch = initial_blob_info.registered_epoch();
         inner.certified_epoch = initial_blob_info.certified_epoch();
         inner.invalidated_epoch = initial_blob_info.invalidated_epoch();
+
+        // Update new status' changing epoch.
         match to_status {
             Registered => inner.registered_epoch = Some(to_status_epoch),
             Certified => inner.certified_epoch = Some(to_status_epoch),

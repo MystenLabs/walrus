@@ -20,7 +20,7 @@ license = "Apache-2.0"
 anyhow = "1.0.86"
 bcs = "0.1.6"
 clap = { version = "4.5.9", features = ["derive"] }
-enum_dispatch = "^0.3"
+enum_dispatch = "0.3"
 fastcrypto = "0.1.8"
 futures = "0.3.30"
 futures-timer = "=3.0.2" # required for MSIM

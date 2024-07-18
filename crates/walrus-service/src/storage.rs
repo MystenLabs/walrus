@@ -11,7 +11,6 @@ use std::{
 };
 
 use anyhow::Context;
-use opentelemetry::trace::Status;
 use rocksdb::{
     ColumnFamily,
     ColumnFamilyDescriptor,
@@ -534,10 +533,11 @@ fn merge_blob_info(
                 )),
                 BlobInfoMergeOperand::MarkMetadataStored(_) => {
                     let blob_id = bcs::from_bytes::<BlobId>(key);
-                    panic!(
-                        "Attempted to mutate the info for an untracked blob. Blob id: {:?}",
-                        blob_id
+                    tracing::error!(
+                        ?blob_id,
+                        "attempted to mutate the info for an untracked blob"
                     );
+                    None
                 }
             }
         }
@@ -693,34 +693,43 @@ pub(crate) mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn update_blob_info() -> TestResult {
+    async_param_test! {
+        update_blob_info -> TestResult: [
+            contains_register: (false),
+            skip_register: (true),
+        ]
+    }
+    async fn update_blob_info(skip_register: bool) -> TestResult {
         let storage = empty_storage();
         let storage = storage.as_ref();
         let blob_id = BLOB_ID;
 
-        let state0 = BlobInfo::new(
-            1,
-            42,
-            BlobCertificationStatus::Registered,
-            event_id_for_testing(),
-        );
-        storage.merge_update_blob_info(
-            &blob_id,
-            BlobInfoMergeOperand::ChangeStatus {
-                status_changing_epoch: 1,
-                end_epoch: 42,
-                status: BlobCertificationStatus::Registered,
-                status_event: state0.current_status_event(),
-            },
-        )?;
-        assert_eq!(storage.get_blob_info(&blob_id)?, Some(state0));
+        if !skip_register {
+            let state0 = BlobInfo::new(
+                1,
+                42,
+                BlobCertificationStatus::Registered,
+                event_id_for_testing(),
+            );
+            storage.merge_update_blob_info(
+                &blob_id,
+                BlobInfoMergeOperand::ChangeStatus {
+                    status_changing_epoch: 1,
+                    end_epoch: 42,
+                    status: BlobCertificationStatus::Registered,
+                    status_event: state0.current_status_event(),
+                },
+            )?;
+            assert_eq!(storage.get_blob_info(&blob_id)?, Some(state0));
+        }
+
+        let registered_epoch = if skip_register { None } else { Some(1) };
 
         let state1 = BlobInfo::new_for_testing(
             42,
             BlobCertificationStatus::Certified,
             event_id_for_testing(),
-            Some(1),
+            registered_epoch,
             Some(2),
             None,
         );
@@ -734,11 +743,30 @@ pub(crate) mod tests {
             },
         )?;
         assert_eq!(storage.get_blob_info(&blob_id)?, Some(state1));
+
+        let state2 = BlobInfo::new_for_testing(
+            42,
+            BlobCertificationStatus::Invalid,
+            event_id_for_testing(),
+            registered_epoch,
+            Some(2),
+            Some(3),
+        );
+        storage.merge_update_blob_info(
+            &blob_id,
+            BlobInfoMergeOperand::ChangeStatus {
+                status_changing_epoch: 3,
+                end_epoch: 42,
+                status: BlobCertificationStatus::Invalid,
+                status_event: state2.current_status_event(),
+            },
+        )?;
+        assert_eq!(storage.get_blob_info(&blob_id)?, Some(state2));
         Ok(())
     }
 
     #[tokio::test]
-    async fn update_blob_info_stored() -> TestResult {
+    async fn update_blob_info_metadata_stored() -> TestResult {
         let storage = empty_storage();
         let storage = storage.as_ref();
         let blob_id = BLOB_ID;
