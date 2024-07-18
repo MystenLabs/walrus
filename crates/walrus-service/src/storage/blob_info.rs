@@ -63,8 +63,8 @@ impl From<BlobCertificationStatus> for SdkBlobCertificationStatus {
 }
 
 #[enum_dispatch]
-/// The `BlobInfoAPI` trait defines methods for retrieving information about a blob.
-pub trait BlobInfoAPI {
+/// The `BlobInfoApi` trait defines methods for retrieving information about a blob.
+pub trait BlobInfoApi {
     /// Returns the end epoch of the blob.
     fn end_epoch(&self) -> Epoch;
 
@@ -173,7 +173,7 @@ impl BlobInfoV1 {
     }
 }
 
-impl BlobInfoAPI for BlobInfoV1 {
+impl BlobInfoApi for BlobInfoV1 {
     fn end_epoch(&self) -> Epoch {
         self.end_epoch
     }
@@ -235,7 +235,7 @@ impl Mergeable for BlobInfoV1 {
 
 /// Internal representation of the BlobInfo for use in the database etc.
 /// Use [`BlobStatus`] for anything public facing (e.g. communication to the client).
-#[enum_dispatch(BlobInfoAPI)]
+#[enum_dispatch(BlobInfoApi)]
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
 pub enum BlobInfo {
     V1(BlobInfoV1),

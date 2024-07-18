@@ -44,7 +44,7 @@ use crate::{
     committee::{CommitteeService, CommitteeServiceFactory, SuiCommitteeServiceFactory},
     config::{StorageNodeConfig, SuiConfig},
     contract_service::{SuiSystemContractService, SystemContractService},
-    storage::{blob_info::BlobInfoAPI, EventProgress, ShardStorage, Storage},
+    storage::{blob_info::BlobInfoApi, EventProgress, ShardStorage, Storage},
     system_events::{SuiSystemEventProvider, SystemEventProvider},
 };
 

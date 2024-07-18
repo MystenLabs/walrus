@@ -55,7 +55,7 @@ use self::{
     event_cursor_table::EventCursorTable,
     event_sequencer::EventSequencer,
 };
-use crate::storage::blob_info::{BlobInfoAPI, Mergeable as _};
+use crate::storage::blob_info::{BlobInfoApi, Mergeable as _};
 
 pub(crate) mod blob_info;
 mod event_cursor_table;
@@ -398,7 +398,8 @@ impl Storage {
     pub fn has_metadata(&self, blob_id: &BlobId) -> Result<bool, TypedStoreError> {
         Ok(self
             .get_blob_info(blob_id)?
-            .map(|info| info.is_metadata_stored())
+            .as_ref()
+            .map(BlobInfo::is_metadata_stored)
             .unwrap_or_default())
     }
 
@@ -695,15 +696,17 @@ pub(crate) mod tests {
 
     async_param_test! {
         update_blob_info -> TestResult: [
-            contains_register: (false),
-            skip_register: (true),
+            in_order: (false, false),
+            skip_register: (true, false),
+            skip_certify: (false, true),
         ]
     }
-    async fn update_blob_info(skip_register: bool) -> TestResult {
+    async fn update_blob_info(skip_register: bool, skip_certify: bool) -> TestResult {
         let storage = empty_storage();
         let storage = storage.as_ref();
         let blob_id = BLOB_ID;
 
+        let registered_epoch = if skip_register { None } else { Some(1) };
         if !skip_register {
             let state0 = BlobInfo::new(
                 1,
@@ -723,33 +726,34 @@ pub(crate) mod tests {
             assert_eq!(storage.get_blob_info(&blob_id)?, Some(state0));
         }
 
-        let registered_epoch = if skip_register { None } else { Some(1) };
-
-        let state1 = BlobInfo::new_for_testing(
-            42,
-            BlobCertificationStatus::Certified,
-            event_id_for_testing(),
-            registered_epoch,
-            Some(2),
-            None,
-        );
-        storage.merge_update_blob_info(
-            &blob_id,
-            BlobInfoMergeOperand::ChangeStatus {
-                status_changing_epoch: 2,
-                end_epoch: 42,
-                status: BlobCertificationStatus::Certified,
-                status_event: state1.current_status_event(),
-            },
-        )?;
-        assert_eq!(storage.get_blob_info(&blob_id)?, Some(state1));
+        let certified_epoch = if skip_certify { None } else { Some(2) };
+        if !skip_certify {
+            let state1 = BlobInfo::new_for_testing(
+                42,
+                BlobCertificationStatus::Certified,
+                event_id_for_testing(),
+                registered_epoch,
+                certified_epoch,
+                None,
+            );
+            storage.merge_update_blob_info(
+                &blob_id,
+                BlobInfoMergeOperand::ChangeStatus {
+                    status_changing_epoch: 2,
+                    end_epoch: 42,
+                    status: BlobCertificationStatus::Certified,
+                    status_event: state1.current_status_event(),
+                },
+            )?;
+            assert_eq!(storage.get_blob_info(&blob_id)?, Some(state1));
+        }
 
         let state2 = BlobInfo::new_for_testing(
             42,
             BlobCertificationStatus::Invalid,
             event_id_for_testing(),
             registered_epoch,
-            Some(2),
+            certified_epoch,
             Some(3),
         );
         storage.merge_update_blob_info(
