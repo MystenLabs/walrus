@@ -27,7 +27,7 @@ mime.workspace = true
 mysten-metrics.workspace = true
 opentelemetry.workspace = true
 opentelemetry-otlp.workspace = true
-opentelemetry-stdout = { version = "^0.4.0", features = ["trace"] }
+opentelemetry-stdout = { version = "0.4.0", features = ["trace"] }
 opentelemetry_sdk = { workspace = true, features = ["trace", "rt-tokio", "rt-tokio-current-thread"] }
 pin-project = "1.1.5"
 prettytable = "0.10.0"

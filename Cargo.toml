@@ -20,15 +20,15 @@ license = "Apache-2.0"
 anyhow = "1.0.86"
 bcs = "0.1.6"
 clap = { version = "4.5.9", features = ["derive"] }
-fastcrypto = "0.1"
+fastcrypto = "0.1.8"
 futures = "0.3.30"
 futures-timer = "=3.0.2" # required for MSIM
 mime = "0.3.17"
-move-core-types = { git = "https://github.com/MystenLabs/sui", rev = "ebf6df9225d998c1bd5cd0f4d584dd7af4961a37" }
-mysten-metrics = { git = "https://github.com/MystenLabs/sui", rev = "ebf6df9225d998c1bd5cd0f4d584dd7af4961a37" }
-opentelemetry = "^0.23.0"
-opentelemetry-otlp = "^0.16"
-opentelemetry_sdk = "^0.23.0"
+move-core-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.29.2" }
+mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.29.2" }
+opentelemetry = "0.23.0"
+opentelemetry-otlp = "0.16"
+opentelemetry_sdk = "0.23.0"
 prometheus = "0.13.4"
 rand = "0.8.5"
 reqwest = { version = "0.12.5", default-features = false, features = ["http2", "json", "rustls-tls"] }
@@ -37,19 +37,18 @@ serde = { version = "1.0.204", features = ["derive"] }
 serde_json = "1.0.120"
 serde_with = { version = "3.9", features = ["base64"] }
 serde_yaml = "0.9"
-# TODO(zhewu): Upgrade to 1.28 to use official sui release: https://github.com/MystenLabs/walrus/issues/569
-sui-config = { git = "https://github.com/MystenLabs/sui", rev = "ebf6df9225d998c1bd5cd0f4d584dd7af4961a37" }
-sui-framework = { git = "https://github.com/MystenLabs/sui", rev = "ebf6df9225d998c1bd5cd0f4d584dd7af4961a37" }
-sui-keys = { git = "https://github.com/MystenLabs/sui", rev = "ebf6df9225d998c1bd5cd0f4d584dd7af4961a37" }
-sui-macros = { git = "https://github.com/MystenLabs/sui", rev = "ebf6df9225d998c1bd5cd0f4d584dd7af4961a37" }
-sui-move-build = { git = "https://github.com/MystenLabs/sui", rev = "ebf6df9225d998c1bd5cd0f4d584dd7af4961a37" }
-sui-protocol-config = { git = "https://github.com/MystenLabs/sui", rev = "ebf6df9225d998c1bd5cd0f4d584dd7af4961a37" }
-sui-sdk = { git = "https://github.com/MystenLabs/sui", rev = "ebf6df9225d998c1bd5cd0f4d584dd7af4961a37" }
-sui-simulator = { git = "https://github.com/MystenLabs/sui", rev = "ebf6df9225d998c1bd5cd0f4d584dd7af4961a37" }
-sui-types = { git = "https://github.com/MystenLabs/sui", rev = "ebf6df9225d998c1bd5cd0f4d584dd7af4961a37" }
-telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", rev = "ebf6df9225d998c1bd5cd0f4d584dd7af4961a37" }
+sui-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.29.2" }
+sui-framework = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.29.2" }
+sui-keys = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.29.2" }
+sui-macros = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.29.2" }
+sui-move-build = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.29.2" }
+sui-protocol-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.29.2" }
+sui-sdk = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.29.2" }
+sui-simulator = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.29.2" }
+sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.29.2" }
+telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.29.2" }
 tempfile = "3.10.1"
-test-cluster = { git = "https://github.com/MystenLabs/sui", rev = "ebf6df9225d998c1bd5cd0f4d584dd7af4961a37" }
+test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.29.2" }
 thiserror = "1.0.62"
 tokio = "=1.36.0"
 tokio-stream = "0.1.15"
@@ -57,7 +56,7 @@ tokio-util = "0.7.10"
 tracing = "0.1.40"
 tracing-opentelemetry = "0.24"
 tracing-subscriber = "0.3.18"
-typed-store = { git = "https://github.com/MystenLabs/sui", rev = "ebf6df9225d998c1bd5cd0f4d584dd7af4961a37" }
+typed-store = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.29.2" }
 utoipa = { version = "4.2.3" }
 walrus-core = { path = "crates/walrus-core" }
 walrus-sdk = { path = "crates/walrus-sdk" }
