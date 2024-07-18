@@ -30,19 +30,18 @@ module walrus::staking_pool {
         pool: &mut StakingPool<T>,
         to_stake: Coin<T>,
         ctx: &mut TxContext,
-    ): StakedWal {
+    ): StakedWal<T> {
         abort ENotImplemented
     }
 
     /// Withdraw the given amount of WAL from the pool, returning the `Coin<T>`.
     public fun withdraw_stake<T>(
         pool: &mut StakingPool<T>,
-        staked_wal: StakedWal,
+        staked_wal: StakedWal<T>,
         ctx: &mut TxContext,
     ): Coin<T> {
         abort ENotImplemented
     }
-
     public fun id<T>(self: &StakingPool<T>): ID {
         self.id
     }
