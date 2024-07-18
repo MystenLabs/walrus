@@ -239,7 +239,8 @@ impl EncodingConfig {
 
     /// The size (in bytes) of a sliver corresponding to a blob of size `blob_size`.
     ///
-    /// Returns `None` if `blob_size == 0` or `blob_size > self.max_blob_size()`.
+    /// Returns an [`InvalidDataSizeError`] if `blob_size == 0` or `blob_size >
+    /// self.max_blob_size()`.
     #[inline]
     pub fn sliver_size_for_blob<T: EncodingAxis>(
         &self,

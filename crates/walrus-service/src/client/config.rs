@@ -1,11 +1,16 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{path::PathBuf, time::Duration};
+use std::{
+    num::{NonZeroU16, NonZeroU64, NonZeroUsize},
+    path::PathBuf,
+    time::Duration,
+};
 
 use reqwest::ClientBuilder;
 use serde::{Deserialize, Serialize};
 use sui_types::base_types::ObjectID;
+use walrus_core::encoding::{EncodingConfig, Primary};
 
 use crate::{config::LoadConfig, utils};
 
@@ -25,7 +30,7 @@ pub struct Config {
 impl LoadConfig for Config {}
 
 /// Configuration for the communication parameters of the client
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(default)]
 pub struct ClientCommunicationConfig {
     /// The maximum number of open connections the client can have at any one time for writes.
@@ -37,26 +42,15 @@ pub struct ClientCommunicationConfig {
     /// by the client to `n - 2f`, depending on the number of shards `n`.
     pub max_concurrent_sliver_reads: Option<usize>,
     /// The maximum number of nodes the client contacts to get the blob metadata in parallel.
-    pub max_concurrent_metadata_reads: usize,
+    pub max_concurrent_metadata_reads: Option<usize>,
     /// The maximum number of nodes the client contacts to get a blob status in parallel.
     pub max_concurrent_status_reads: Option<usize>,
+    /// The maximum amount of data (in bytes) associated with concurrent requests.
+    pub max_data_in_flight: Option<usize>,
     /// The configuration for the `reqwest` client.
     pub reqwest_config: ReqwestConfig,
     /// The configuration specific to each node connection.
     pub request_rate_config: RequestRateConfig,
-}
-
-impl Default for ClientCommunicationConfig {
-    fn default() -> Self {
-        Self {
-            max_concurrent_writes: None,
-            max_concurrent_sliver_reads: None,
-            max_concurrent_metadata_reads: default::max_concurrent_metadata_reads(),
-            max_concurrent_status_reads: None,
-            reqwest_config: ReqwestConfig::default(),
-            request_rate_config: RequestRateConfig::default(),
-        }
-    }
 }
 
 impl ClientCommunicationConfig {
@@ -75,9 +69,118 @@ impl ClientCommunicationConfig {
     }
 }
 
+/// Communication limits in the client.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct CommunicationLimits {
+    pub max_concurrent_writes: usize,
+    pub max_concurrent_sliver_reads: usize,
+    pub max_concurrent_metadata_reads: usize,
+    pub max_concurrent_status_reads: usize,
+    pub max_data_in_flight: usize,
+}
+
+impl CommunicationLimits {
+    pub fn new(communication_config: &ClientCommunicationConfig, n_shards: NonZeroU16) -> Self {
+        // Try to store on up to `n-f` nodes concurrently, as the work to store is never wasted.
+        let max_concurrent_writes = communication_config
+            .max_concurrent_writes
+            .unwrap_or(default::max_concurrent_writes(n_shards));
+        // Read up to `n-2f` slivers concurrently to avoid wasted work on the storage nodes.
+        let max_concurrent_sliver_reads = communication_config
+            .max_concurrent_sliver_reads
+            .unwrap_or(default::max_concurrent_sliver_reads(n_shards));
+        let max_concurrent_metadata_reads = communication_config
+            .max_concurrent_metadata_reads
+            .unwrap_or(default::max_concurrent_metadata_reads());
+        let max_concurrent_status_reads = communication_config
+            .max_concurrent_status_reads
+            .unwrap_or(default::max_concurrent_status_reads(n_shards));
+        let max_data_in_flight = communication_config
+            .max_data_in_flight
+            .unwrap_or(default::max_data_in_flight());
+
+        Self {
+            max_concurrent_writes,
+            max_concurrent_sliver_reads,
+            max_concurrent_metadata_reads,
+            max_concurrent_status_reads,
+            max_data_in_flight,
+        }
+    }
+
+    fn max_connections_for_request_and_blob_size(
+        &self,
+        request_size: NonZeroUsize,
+        max_connections: usize,
+    ) -> usize {
+        (self.max_data_in_flight / request_size.get())
+            .min(max_connections)
+            .max(1)
+    }
+
+    fn sliver_size_for_blob(
+        &self,
+        blob_size: NonZeroU64,
+        encoding_config: &EncodingConfig,
+    ) -> NonZeroUsize {
+        encoding_config
+            .sliver_size_for_blob::<Primary>(blob_size.get())
+            .expect("blob must not be too large to be encoded")
+            .try_into()
+            .expect("we assume at least a 32-bit architecture")
+    }
+
+    /// This computes the maximum number of concurrent sliver writes based on the unencoded blob
+    /// size.
+    ///
+    /// This applies two limits:
+    /// 1. The result is at most [`self.max_concurrent_writes`][Self::max_concurrent_writes].
+    /// 2. The result multiplied with the primary sliver size does not exceed
+    ///    `self.max_data_in_flight`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the provided blob size is too large to be encoded, see
+    /// [EncodingConfig::sliver_size_for_blob].
+    pub fn max_concurrent_sliver_writes_for_blob_size(
+        &self,
+        blob_size: NonZeroU64,
+        encoding_config: &EncodingConfig,
+    ) -> usize {
+        self.max_connections_for_request_and_blob_size(
+            self.sliver_size_for_blob(blob_size, encoding_config),
+            self.max_concurrent_writes,
+        )
+    }
+
+    /// This computes the maximum number of concurrent sliver writes based on the unencoded blob
+    /// size.
+    ///
+    /// This applies two limits:
+    /// 1. The result is at most
+    ///    [`self.max_concurrent_sliver_reads`][Self::max_concurrent_sliver_reads].
+    /// 2. The result multiplied with the primary sliver size does not exceed
+    ///    `self.max_data_in_flight`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the provided blob size is too large to be encoded, see
+    /// [EncodingConfig::sliver_size_for_blob].
+    pub fn max_concurrent_sliver_reads_for_blob_size(
+        &self,
+        blob_size: NonZeroU64,
+        encoding_config: &EncodingConfig,
+    ) -> usize {
+        self.max_connections_for_request_and_blob_size(
+            self.sliver_size_for_blob(blob_size, encoding_config),
+            self.max_concurrent_sliver_reads,
+        )
+    }
+}
+
+/// Configuration for retries towards the storage nodes.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(default)]
-/// Configuration for retries towards the storage nodes.
 pub struct RequestRateConfig {
     /// The maximum number of connections the client can open towards each node.
     pub max_node_connections: usize,
@@ -175,9 +278,14 @@ pub(crate) mod default {
         3
     }
 
+    /// This corresponds to 100Mb, i.e., 1 second on a 100 Mbps connection.
+    pub fn max_data_in_flight() -> usize {
+        12_500_000
+    }
+
     /// Allows for enough time to transfer big slivers on the other side of the world.
     pub fn total_timeout() -> Duration {
-        Duration::from_secs(180)
+        Duration::from_secs(30)
     }
 
     /// Disabled by default, i.e., connections are kept alive.

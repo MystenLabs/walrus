@@ -7,8 +7,9 @@ system_object: 0xd6f0cacdb8b365cdda24ab954a32ebc86f8b8a1707322b4cc0ba54dcbbbc577
 # communication_config:
 #   max_concurrent_writes: null
 #   max_concurrent_sliver_reads: null
-#   max_concurrent_metadata_reads: 3
+#   max_concurrent_metadata_reads: null
 #   max_concurrent_status_reads: null
+#   max_data_in_flight: null
 #   reqwest_config:
 #     total_timeout:
 #       secs: 180

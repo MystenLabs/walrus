@@ -6,7 +6,8 @@
 use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use anyhow::anyhow;
-use communication::{NodeCommunication, NodeResult};
+use communication::{NodeCommunication, NodeReadCommunication, NodeResult, NodeWriteCommunication};
+use config::CommunicationLimits;
 use error::StoreError;
 use fastcrypto::{bls12381::min_pk::BLS12381AggregateSignature, traits::AggregateAuthenticator};
 use futures::Future;
@@ -43,7 +44,6 @@ use walrus_sui::{
     utils::price_for_unencoded_length,
 };
 
-use self::config::default;
 use crate::client::utils::CompletedReasonWeight;
 
 mod blocklist;
@@ -77,14 +77,7 @@ pub struct Client<T> {
     // INV: committee.n_shards > 0
     committee: Committee,
     storage_price_per_unit_size: u64,
-    // The maximum number of nodes to contact in parallel when writing.
-    max_concurrent_writes: usize,
-    // The maximum number of shards to contact in parallel when reading slivers.
-    max_concurrent_sliver_reads: usize,
-    // The maximum number of nodes to contact in parallel when reading metadata.
-    max_concurrent_metadata_reads: usize,
-    // The maximum number of nodes to contact in parallel when getting the blob status.
-    max_concurrent_status_reads: usize,
+    communication_limits: CommunicationLimits,
     encoding_config: EncodingConfig,
     global_write_limit: Arc<Semaphore>,
     blocklist: Option<Blocklist>,
@@ -116,23 +109,11 @@ impl Client<()> {
             .map_err(ClientError::other)?;
 
         let encoding_config = EncodingConfig::new(committee.n_shards());
-        // Try to store on n-f nodes concurrently, as the work to store is never wasted.
-        let max_concurrent_writes = config
-            .communication_config
-            .max_concurrent_writes
-            .unwrap_or(default::max_concurrent_writes(committee.n_shards()));
-        // Read n-2f slivers concurrently to avoid wasted work on the storage nodes.
-        let max_concurrent_sliver_reads = config
-            .communication_config
-            .max_concurrent_sliver_reads
-            .unwrap_or(default::max_concurrent_sliver_reads(committee.n_shards()));
-        let max_concurrent_metadata_reads =
-            config.communication_config.max_concurrent_metadata_reads;
-        let max_concurrent_status_reads = config
-            .communication_config
-            .max_concurrent_status_reads
-            .unwrap_or(default::max_concurrent_status_reads(committee.n_shards()));
-        let global_write_limit = Arc::new(Semaphore::new(max_concurrent_writes));
+        let communication_limits =
+            CommunicationLimits::new(&config.communication_config, encoding_config.n_shards());
+        let global_write_limit =
+            Arc::new(Semaphore::new(communication_limits.max_concurrent_writes));
+
         Ok(Self {
             config,
             reqwest_client,
@@ -140,10 +121,7 @@ impl Client<()> {
             committee,
             storage_price_per_unit_size,
             encoding_config,
-            max_concurrent_writes,
-            max_concurrent_sliver_reads,
-            max_concurrent_metadata_reads,
-            max_concurrent_status_reads,
+            communication_limits,
             global_write_limit,
             blocklist: None,
         })
@@ -157,12 +135,9 @@ impl Client<()> {
             sui_client: _,
             committee,
             storage_price_per_unit_size,
-            max_concurrent_writes,
-            max_concurrent_sliver_reads,
-            max_concurrent_metadata_reads,
-            max_concurrent_status_reads,
             encoding_config,
-            global_write_limit: global_connection_limit,
+            communication_limits,
+            global_write_limit,
             blocklist,
         } = self;
         Client::<T> {
@@ -171,12 +146,9 @@ impl Client<()> {
             sui_client,
             committee,
             storage_price_per_unit_size,
-            max_concurrent_writes,
-            max_concurrent_sliver_reads,
-            max_concurrent_metadata_reads,
-            max_concurrent_status_reads,
             encoding_config,
-            global_write_limit: global_connection_limit,
+            communication_limits,
+            global_write_limit,
             blocklist,
         }
     }
@@ -339,8 +311,20 @@ impl<T> Client<T> {
         metadata: &VerifiedBlobMetadataWithId,
         pairs: &[SliverPair],
     ) -> ClientResult<ConfirmationCertificate> {
+        tracing::info!("starting to send data to storage nodes");
         let mut pairs_per_node = self.pairs_per_node(metadata.blob_id(), pairs);
-        let comms = self.node_communications();
+        let sliver_write_limit = self
+            .communication_limits
+            .max_concurrent_sliver_writes_for_blob_size(
+                metadata.metadata().unencoded_length,
+                &self.encoding_config,
+            );
+        tracing::debug!(
+            communication_limits = sliver_write_limit,
+            "establishing node communications"
+        );
+        let comms = self.node_write_communications(Arc::new(Semaphore::new(sliver_write_limit)));
+
         let mut requests = WeightedFutures::new(comms.iter().map(|n| {
             n.store_metadata_and_pairs(
                 metadata,
@@ -466,9 +450,7 @@ impl<T> Client<T> {
         U: EncodingAxis,
         Sliver<U>: TryFrom<SliverEnum>,
     {
-        // TODO(giac): optimize by reading first from the shards that have the systematic part of
-        // the encoding. Currently the read order is randomized.
-        let comms = self.node_communications();
+        let comms = self.node_read_communications();
         // Create requests to get all slivers from all nodes.
         let futures = comms.iter().flat_map(|n| {
             // NOTE: the cloned here is needed because otherwise the compiler complains about the
@@ -487,7 +469,14 @@ impl<T> Client<T> {
         let enough_source_symbols =
             |weight| weight >= self.encoding_config.n_source_symbols::<U>().get().into();
         requests
-            .execute_weight(&enough_source_symbols, self.max_concurrent_sliver_reads)
+            .execute_weight(
+                &enough_source_symbols,
+                self.communication_limits
+                    .max_concurrent_sliver_reads_for_blob_size(
+                        metadata.metadata().unencoded_length,
+                        &self.encoding_config,
+                    ),
+            )
             .await;
 
         let mut n_not_found = 0; // Counts the number of "not found" status codes received.
@@ -519,13 +508,8 @@ impl<T> Client<T> {
         } else {
             // We were not able to decode. Keep requesting slivers and try decoding as soon as every
             // new sliver is received.
-            self.decode_sliver_by_sliver(
-                &mut requests,
-                &mut decoder,
-                metadata.blob_id(),
-                n_not_found,
-            )
-            .await
+            self.decode_sliver_by_sliver(&mut requests, &mut decoder, metadata, n_not_found)
+                .await
         }
     }
 
@@ -536,7 +520,7 @@ impl<T> Client<T> {
         &self,
         requests: &mut WeightedFutures<I, Fut, NodeResult<Sliver<U>, NodeError>>,
         decoder: &mut BlobDecoder<'a, U>,
-        blob_id: &BlobId,
+        metadata: &VerifiedBlobMetadataWithId,
         mut n_not_found: usize,
     ) -> ClientResult<Vec<u8>>
     where
@@ -544,13 +528,20 @@ impl<T> Client<T> {
         I: Iterator<Item = Fut>,
         Fut: Future<Output = NodeResult<Sliver<U>, NodeError>>,
     {
-        while let Some(NodeResult(_, _, node, result)) =
-            requests.next(self.max_concurrent_sliver_reads).await
+        while let Some(NodeResult(_, _, node, result)) = requests
+            .next(
+                self.communication_limits
+                    .max_concurrent_sliver_reads_for_blob_size(
+                        metadata.metadata().unencoded_length,
+                        &self.encoding_config,
+                    ),
+            )
+            .await
         {
             match result {
                 Ok(sliver) => {
                     let result = decoder
-                        .decode_and_verify(blob_id, [sliver])
+                        .decode_and_verify(metadata.blob_id(), [sliver])
                         .map_err(ClientError::other)?;
                     if let Some((blob, _meta)) = result {
                         return Ok(blob);
@@ -613,7 +604,10 @@ impl<T> Client<T> {
         let mut requests = WeightedFutures::new(futures);
         let just_one = |weight| weight >= 1;
         requests
-            .execute_weight(&just_one, self.max_concurrent_metadata_reads)
+            .execute_weight(
+                &just_one,
+                self.communication_limits.max_concurrent_metadata_reads,
+            )
             .await;
 
         let mut n_not_found = 0;
@@ -651,7 +645,10 @@ impl<T> Client<T> {
             .map(|n| n.get_blob_status(blob_id).instrument(n.span.clone()));
         let mut requests = WeightedFutures::new(futures);
         requests
-            .execute_time(timeout, self.max_concurrent_status_reads)
+            .execute_time(
+                timeout,
+                self.communication_limits.max_concurrent_status_reads,
+            )
             .await;
 
         let statuses = requests.take_unique_results_with_aggregate_weight();
@@ -686,36 +683,72 @@ impl<T> Client<T> {
         Ok(())
     }
 
-    /// Builds a [`NodeCommunication`] object for the given storage node.
+    /// Builds a [`NodeReadCommunication`] object for the given storage node.
     ///
     /// Returns `None` if the node has no shards.
-    fn new_node_communication<'a>(
+    fn new_node_read_communication<'a>(
         &'a self,
         index: usize,
         node: &'a StorageNode,
-    ) -> Option<NodeCommunication> {
-        NodeCommunication::new(
+    ) -> Option<NodeReadCommunication> {
+        NodeCommunication::<'_, ()>::new(
             index,
             self.committee.epoch,
             &self.reqwest_client,
             node,
             &self.encoding_config,
             self.config.communication_config.request_rate_config.clone(),
-            self.global_write_limit.clone(),
         )
     }
 
-    /// Returns a vector of [`NodeCommunication`] objects representing nodes in random order.
-    fn node_communications(&self) -> Vec<NodeCommunication> {
+    /// Builds a [`NodeWriteCommunication`] object for the given storage node.
+    ///
+    /// Returns `None` if the node has no shards.
+    fn new_node_write_communication<'a>(
+        &'a self,
+        index: usize,
+        node: &'a StorageNode,
+        sliver_write_limit: Arc<Semaphore>,
+    ) -> Option<NodeWriteCommunication> {
+        NodeReadCommunication::new(
+            index,
+            self.committee.epoch,
+            &self.reqwest_client,
+            node,
+            &self.encoding_config,
+            self.config.communication_config.request_rate_config.clone(),
+        )
+        .map(|nc| nc.with_write_limits(sliver_write_limit, self.global_write_limit.clone()))
+    }
+
+    fn node_communications<'a, W>(
+        &'a self,
+        constructor: impl Fn((usize, &'a StorageNode)) -> Option<NodeCommunication<'a, W>>,
+    ) -> Vec<NodeCommunication<'a, W>> {
         let mut comms: Vec<_> = self
             .committee
             .members()
             .iter()
             .enumerate()
-            .filter_map(|(index, node)| self.new_node_communication(index, node))
+            .filter_map(constructor)
             .collect();
         comms.shuffle(&mut thread_rng());
         comms
+    }
+
+    /// Returns a vector of [`NodeWriteCommunication`] objects representing nodes in random order.
+    fn node_write_communications(
+        &self,
+        sliver_write_limit: Arc<Semaphore>,
+    ) -> Vec<NodeWriteCommunication> {
+        self.node_communications(|(index, node)| {
+            self.new_node_write_communication(index, node, sliver_write_limit.clone())
+        })
+    }
+
+    /// Returns a vector of [`NodeReadCommunication`] objects representing nodes in random order.
+    fn node_read_communications(&self) -> Vec<NodeReadCommunication> {
+        self.node_communications(|(index, node)| self.new_node_read_communication(index, node))
     }
 
     /// Returns a vector of [`NodeCommunication`] objects the total weight of which fulfills the
@@ -748,7 +781,8 @@ impl<T> Client<T> {
                 .into());
             };
             weight += self.committee.members()[index].shard_ids.len();
-            if let Some(comm) = self.new_node_communication(index, &self.committee.members()[index])
+            if let Some(comm) =
+                self.new_node_read_communication(index, &self.committee.members()[index])
             {
                 comms.push(comm);
             }

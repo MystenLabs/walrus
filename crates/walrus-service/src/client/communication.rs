@@ -54,7 +54,7 @@ impl<T, E> WeightedResult for NodeResult<T, E> {
     }
 }
 
-pub(crate) struct NodeCommunication<'a> {
+pub(crate) struct NodeCommunication<'a, W = ()> {
     pub node_index: NodeIndex,
     pub epoch: Epoch,
     pub node: &'a StorageNode,
@@ -62,11 +62,15 @@ pub(crate) struct NodeCommunication<'a> {
     pub span: Span,
     pub client: StorageNodeClient,
     pub config: RequestRateConfig,
-    pub node_connection_limit: Arc<Semaphore>,
-    pub global_connection_limit: Arc<Semaphore>,
+    pub node_write_limit: W,
+    pub sliver_write_limit: W,
+    pub global_write_limit: W,
 }
 
-impl<'a> NodeCommunication<'a> {
+pub type NodeReadCommunication<'a> = NodeCommunication<'a, ()>;
+pub type NodeWriteCommunication<'a> = NodeCommunication<'a, Arc<Semaphore>>;
+
+impl<'a> NodeReadCommunication<'a> {
     /// Creates a new [`NodeCommunication`].
     ///
     /// Returns `None` if the `node` has no shards.
@@ -77,7 +81,6 @@ impl<'a> NodeCommunication<'a> {
         node: &'a StorageNode,
         encoding_config: &'a EncodingConfig,
         config: RequestRateConfig,
-        global_connection_limit: Arc<Semaphore>,
     ) -> Option<Self> {
         if node.shard_ids.is_empty() {
             tracing::debug!("do not create NodeCommunication for node without shards");
@@ -85,7 +88,6 @@ impl<'a> NodeCommunication<'a> {
         }
 
         let url = Url::parse(&format!("http://{}", node.network_address)).unwrap();
-        let node_connection_limit = Arc::new(Semaphore::new(config.max_node_connections));
         tracing::trace!(
             %node_index,
             %config.max_node_connections,
@@ -105,11 +107,44 @@ impl<'a> NodeCommunication<'a> {
             ),
             client: StorageNodeClient::from_url(url, client.clone()),
             config,
-            node_connection_limit,
-            global_connection_limit,
+            node_write_limit: (),
+            sliver_write_limit: (),
+            global_write_limit: (),
         })
     }
 
+    pub fn with_write_limits(
+        self,
+        sliver_write_limit: Arc<Semaphore>,
+        global_write_limit: Arc<Semaphore>,
+    ) -> NodeWriteCommunication<'a> {
+        let node_write_limit = Arc::new(Semaphore::new(self.config.max_node_connections));
+        let Self {
+            node_index,
+            epoch,
+            node,
+            encoding_config,
+            span,
+            client,
+            config,
+            ..
+        } = self;
+        NodeWriteCommunication {
+            node_index,
+            epoch,
+            node,
+            encoding_config,
+            span,
+            client,
+            config,
+            node_write_limit,
+            sliver_write_limit,
+            global_write_limit,
+        }
+    }
+}
+
+impl<'a, W> NodeCommunication<'a, W> {
     /// Returns the number of shards.
     pub fn n_shards(&self) -> NonZeroU16 {
         self.encoding_config.n_shards()
@@ -180,8 +215,15 @@ impl<'a> NodeCommunication<'a> {
         self.to_node_result_with_n_shards(self.client.get_blob_status(blob_id).await)
     }
 
-    // Write operations.
+    // Verification flows.
 
+    /// Converts the public key of the node.
+    fn public_key(&self) -> &PublicKey {
+        &self.node.public_key
+    }
+}
+
+impl<'a> NodeWriteCommunication<'a> {
     /// Stores metadata and sliver pairs on a node, and requests a storage confirmation.
     ///
     /// Returns a [`NodeResult`], where the weight is the number of shards for which the storage
@@ -192,13 +234,15 @@ impl<'a> NodeCommunication<'a> {
         metadata: &VerifiedBlobMetadataWithId,
         pairs: impl IntoIterator<Item = &SliverPair>,
     ) -> NodeResult<SignedStorageConfirmation, StoreError> {
-        tracing::debug!("storing metadata and sliver pairs",);
+        tracing::debug!("storing metadata and sliver pairs");
         let result = async {
             self.store_metadata_with_retries(metadata)
                 .await
                 .map_err(StoreError::Metadata)?;
+            tracing::debug!("finished storing metadata on node");
 
-            self.store_pairs(metadata.blob_id(), pairs).await?;
+            let n_stored_slivers = self.store_pairs(metadata.blob_id(), pairs).await?;
+            tracing::debug!(n_stored_slivers, "finished storing slivers on node");
 
             self.client
                 .get_and_verify_confirmation(metadata.blob_id(), self.epoch, self.public_key())
@@ -206,6 +250,7 @@ impl<'a> NodeCommunication<'a> {
                 .map_err(StoreError::Confirmation)
         }
         .await;
+        tracing::debug!("successfully stored metadata and sliver pairs");
         self.to_node_result_with_n_shards(result)
     }
 
@@ -217,8 +262,7 @@ impl<'a> NodeCommunication<'a> {
             self.client
                 .store_metadata(metadata)
                 // TODO(giac): consider adding timeouts and replace the Reqwest timeout.
-                .batch_limit(self.global_connection_limit.clone())
-                .batch_limit(self.node_connection_limit.clone())
+                .batch_limit(self.global_write_limit.clone())
         })
         .await
     }
@@ -228,11 +272,13 @@ impl<'a> NodeCommunication<'a> {
     /// Internally retries to store each of the slivers according to the `backoff_strategy`. If
     /// after `max_reties` a sliver cannot be stored, the function returns a [`SliverStoreError`]
     /// and terminates.
+    ///
+    /// Returns the number of slivers stored (twice the number of pairs).
     async fn store_pairs(
         &self,
         blob_id: &BlobId,
         pairs: impl IntoIterator<Item = &SliverPair>,
-    ) -> Result<(), SliverStoreError> {
+    ) -> Result<usize, SliverStoreError> {
         let mut requests = pairs
             .into_iter()
             .flat_map(|pair| {
@@ -248,8 +294,9 @@ impl<'a> NodeCommunication<'a> {
         while let Some(result) = requests.next().await {
             if let Err(error) = result {
                 tracing::warn!(
-                    node_permits=?self.node_connection_limit.available_permits(),
-                    global_permits=?self.global_connection_limit.available_permits(),
+                    node_permits=?self.node_write_limit.available_permits(),
+                    sliver_permits=?self.sliver_write_limit.available_permits(),
+                    global_permits=?self.global_write_limit.available_permits(),
                     ?error,
                     ?self.config.max_retries,
                     "could not store sliver after retrying; stopping storing on the node"
@@ -257,13 +304,14 @@ impl<'a> NodeCommunication<'a> {
                 return Err(error);
             }
             tracing::trace!(
-                node_permits=?self.node_connection_limit.available_permits(),
-                global_permits=?self.global_connection_limit.available_permits(),
+                node_permits=?self.node_write_limit.available_permits(),
+                sliver_permits=?self.sliver_write_limit.available_permits(),
+                global_permits=?self.global_write_limit.available_permits(),
                 progress = format!("{}/{}", n_slivers - requests.len(), n_slivers),
                 "sliver stored"
             );
         }
-        Ok(())
+        Ok(n_slivers)
     }
 
     /// Stores a sliver on a node.
@@ -278,8 +326,9 @@ impl<'a> NodeCommunication<'a> {
                 .store_sliver(blob_id, pair_index, sliver)
                 // Ordering matters here. Since we don't want to block global connections while we
                 // wait for local connections, the innermost limit must be the global one.
-                .batch_limit(self.global_connection_limit.clone())
-                .batch_limit(self.node_connection_limit.clone())
+                .batch_limit(self.global_write_limit.clone())
+                .batch_limit(self.sliver_write_limit.clone())
+                .batch_limit(self.node_write_limit.clone())
         })
         .await
         .map_err(|error| SliverStoreError {
@@ -297,12 +346,5 @@ impl<'a> NodeCommunication<'a> {
             self.config.max_retries,
             self.node_index as u64,
         )
-    }
-
-    // Verification flows.
-
-    /// Converts the public key of the node.
-    fn public_key(&self) -> &PublicKey {
-        &self.node.public_key
     }
 }
