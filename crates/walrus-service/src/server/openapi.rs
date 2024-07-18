@@ -73,8 +73,8 @@ mod tests {
     #[test]
     fn test_openapi_generation_does_not_panic() {
         std::fs::write(
-            // Can also be used to view the api.
-            Path::new("/tmp/api.html"),
+            // Can also be used to view the API.
+            Path::new("/tmp/api-node.html"),
             Redoc::new(RestApiDoc::openapi()).to_html().as_bytes(),
         )
         .unwrap();
