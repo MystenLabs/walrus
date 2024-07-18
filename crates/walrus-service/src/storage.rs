@@ -11,6 +11,7 @@ use std::{
 };
 
 use anyhow::Context;
+use opentelemetry::trace::Status;
 use rocksdb::{
     ColumnFamily,
     ColumnFamilyDescriptor,
@@ -520,25 +521,17 @@ fn merge_blob_info(
             Some(info.merge(operand))
         } else {
             match operand {
-                BlobInfoMergeOperand::RegisterBlob {
-                    registered_epoch,
+                BlobInfoMergeOperand::ChangeStatus {
+                    status_changing_epoch,
                     end_epoch,
                     status,
                     status_event,
                 } => Some(BlobInfo::new(
-                    registered_epoch,
+                    status_changing_epoch,
                     end_epoch,
                     status,
                     status_event,
                 )),
-                BlobInfoMergeOperand::CertifyBlob { .. } => {
-                    let blob_id = bcs::from_bytes::<BlobId>(key);
-                    panic!("Certifying an unknown blob {:?}", blob_id);
-                }
-                BlobInfoMergeOperand::InvalidateBlob { .. } => {
-                    let blob_id = bcs::from_bytes::<BlobId>(key);
-                    panic!("Certifying an unknown blob {:?}", blob_id);
-                }
                 BlobInfoMergeOperand::MarkMetadataStored(_) => {
                     let blob_id = bcs::from_bytes::<BlobId>(key);
                     panic!(
@@ -671,9 +664,6 @@ pub(crate) mod tests {
         let metadata = walrus_core::test_utils::verified_blob_metadata();
         let blob_id = metadata.blob_id();
 
-        storage.update_blob_info(&BlobEvent::Registered(BlobRegistered::for_testing(
-            *blob_id,
-        )))?;
         storage.update_blob_info(&BlobEvent::Certified(BlobCertified::for_testing(*blob_id)))?;
 
         storage.put_metadata(metadata.blob_id(), metadata.metadata())?;
@@ -715,29 +705,29 @@ pub(crate) mod tests {
             BlobCertificationStatus::Registered,
             event_id_for_testing(),
         );
-        let state1 = BlobInfo::new_for_testing(
-            1,
-            Some(2),
-            42,
-            None,
-            BlobCertificationStatus::Certified,
-            event_id_for_testing(),
-        );
-
         storage.merge_update_blob_info(
             &blob_id,
-            BlobInfoMergeOperand::RegisterBlob {
-                registered_epoch: 1,
+            BlobInfoMergeOperand::ChangeStatus {
+                status_changing_epoch: 1,
                 end_epoch: 42,
                 status: BlobCertificationStatus::Registered,
                 status_event: state0.current_status_event(),
             },
         )?;
         assert_eq!(storage.get_blob_info(&blob_id)?, Some(state0));
+
+        let state1 = BlobInfo::new_for_testing(
+            42,
+            BlobCertificationStatus::Certified,
+            event_id_for_testing(),
+            Some(1),
+            Some(2),
+            None,
+        );
         storage.merge_update_blob_info(
             &blob_id,
-            BlobInfoMergeOperand::CertifyBlob {
-                certified_epoch: 2,
+            BlobInfoMergeOperand::ChangeStatus {
+                status_changing_epoch: 2,
                 end_epoch: 42,
                 status: BlobCertificationStatus::Certified,
                 status_event: state1.current_status_event(),
@@ -760,22 +750,23 @@ pub(crate) mod tests {
             event_id_for_testing(),
         );
 
+        storage.merge_update_blob_info(
+            &blob_id,
+            BlobInfoMergeOperand::ChangeStatus {
+                status_changing_epoch: 1,
+                end_epoch: 42,
+                status: BlobCertificationStatus::Registered,
+                status_event: state0.current_status_event(),
+            },
+        )?;
+        assert_eq!(storage.get_blob_info(&blob_id)?, Some(state0.clone()));
+
         let BlobInfo::V1(v1) = state0;
         let state1 = BlobInfo::V1(BlobInfoV1 {
             is_metadata_stored: true,
             ..v1
         });
 
-        storage.merge_update_blob_info(
-            &blob_id,
-            BlobInfoMergeOperand::RegisterBlob {
-                registered_epoch: 1,
-                end_epoch: 42,
-                status: BlobCertificationStatus::Registered,
-                status_event: state0.current_status_event(),
-            },
-        )?;
-        assert_eq!(storage.get_blob_info(&blob_id)?, Some(state0));
         storage.merge_update_blob_info(&blob_id, BlobInfoMergeOperand::MarkMetadataStored(true))?;
         assert_eq!(storage.get_blob_info(&blob_id)?, Some(state1));
 

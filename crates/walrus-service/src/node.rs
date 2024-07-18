@@ -734,13 +734,7 @@ impl ServiceState for StorageNodeInner {
             .storage
             .get_blob_info(blob_id)
             .context("could not retrieve blob info")?
-            .map(|value| -> BlobStatus {
-                BlobStatus::Existent {
-                    end_epoch: value.end_epoch(),
-                    status: value.status().into(),
-                    status_event: value.current_status_event(),
-                }
-            })
+            .map(BlobStatus::from)
             .unwrap_or_default())
     }
 
@@ -1449,22 +1443,20 @@ mod tests {
         let own_shards = [ShardIndex(1), ShardIndex(6)];
 
         let blob1 = (0..80u8).collect::<Vec<_>>();
-        // let blob2 = (80..160u8).collect::<Vec<_>>();
+        let blob2 = (80..160u8).collect::<Vec<_>>();
         let blob3 = (160..255u8).collect::<Vec<_>>();
 
         let store_at_other_node_fn = |shard: &ShardIndex, _| !own_shards.contains(shard);
         let (cluster, events, blob1_details) =
             cluster_with_partially_stored_blob(shards, &blob1, store_at_other_node_fn).await?;
-        events.send(BlobRegistered::for_testing(*blob1_details.blob_id()).into())?;
         events.send(BlobCertified::for_testing(*blob1_details.blob_id()).into())?;
 
         let node_client = cluster.client(0);
         let config = &blob1_details.config;
 
         // Send events that some unobserved blob has been certified.
-        // let blob2_details = EncodedBlob::new(&blob2, config.clone());
-        // let blob2_registered_event = BlobRegistered::for_testing(*blob2_details.blob_id());
-        let blob2_registered_event = BlobRegistered::for_testing(BLOB_ID);
+        let blob2_details = EncodedBlob::new(&blob2, config.clone());
+        let blob2_registered_event = BlobRegistered::for_testing(*blob2_details.blob_id());
         events.send(blob2_registered_event.clone().into())?;
 
         // The node should not be able to advance past the following event.

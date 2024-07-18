@@ -6,6 +6,7 @@
 
 use std::cmp::Ordering;
 
+use axum::http::status;
 use enum_dispatch::enum_dispatch;
 use serde::{Deserialize, Serialize};
 use sui_types::event::EventID;
@@ -64,13 +65,14 @@ impl From<BlobCertificationStatus> for SdkBlobCertificationStatus {
 
 #[enum_dispatch]
 pub trait BlobInfoAPI {
-    fn registered_epoch(&self) -> Epoch;
-    fn certified_epoch(&self) -> Option<Epoch>;
     fn end_epoch(&self) -> Epoch;
-    fn invalidated_epoch(&self) -> Option<Epoch>;
     fn status(&self) -> BlobCertificationStatus;
     fn current_status_event(&self) -> EventID;
     fn is_metadata_stored(&self) -> bool;
+
+    fn registered_epoch(&self) -> Option<Epoch>;
+    fn certified_epoch(&self) -> Option<Epoch>;
+    fn invalidated_epoch(&self) -> Option<Epoch>;
 
     /// Returns true if the blob is certified.
     fn is_certified(&self) -> bool {
@@ -86,59 +88,45 @@ pub trait BlobInfoAPI {
     fn is_expired(&self, current_epoch: Epoch) -> bool {
         self.end_epoch() <= current_epoch
     }
+
+    fn to_blob_status(&self) -> BlobStatus;
 }
 
 /// Internal representation of the BlobInfo for use in the database etc.
 /// Use [`BlobStatus`] for anything public facing (e.g. communication to the client).
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy)]
 pub struct BlobInfoV1 {
-    pub registered_epoch: Epoch,
-    pub certified_epoch: Option<Epoch>,
     pub end_epoch: Epoch,
-    pub invalidated_epoch: Option<Epoch>,
     pub status: BlobCertificationStatus,
     pub current_status_event: EventID,
     pub is_metadata_stored: bool,
+
+    pub registered_epoch: Option<Epoch>,
+    pub certified_epoch: Option<Epoch>,
+    pub invalidated_epoch: Option<Epoch>,
 }
 
 impl BlobInfoV1 {
     pub fn new(
-        registered_epoch: Epoch,
         end_epoch: Epoch,
         status: BlobCertificationStatus,
         current_status_event: EventID,
+        registered_epoch: Option<Epoch>,
+        certified_epoch: Option<Epoch>,
+        invalidated_epoch: Option<Epoch>,
     ) -> Self {
         Self {
-            registered_epoch,
-            certified_epoch: None,
             end_epoch,
-            invalidated_epoch: None,
             status,
             current_status_event,
             is_metadata_stored: false,
-        }
-    }
-
-    pub fn new_for_testing(
-        registered_epoch: Epoch,
-        certified_epoch: Option<Epoch>,
-        end_epoch: Epoch,
-        invalidated_epoch: Option<Epoch>,
-        status: BlobCertificationStatus,
-        current_status_event: EventID,
-    ) -> Self {
-        Self {
             registered_epoch,
             certified_epoch,
-            end_epoch,
             invalidated_epoch,
-            status,
-            current_status_event,
-            is_metadata_stored: false,
         }
     }
 
-    fn update_info(
+    fn update_status(
         &mut self,
         end_epoch: u64,
         status: BlobCertificationStatus,
@@ -150,23 +138,29 @@ impl BlobInfoV1 {
             self.end_epoch = end_epoch;
         }
     }
+
+    fn update_status_changing_epoch(
+        &mut self,
+        status: BlobCertificationStatus,
+        status_changing_epoch: Epoch,
+    ) {
+        match status {
+            BlobCertificationStatus::Registered => {
+                self.registered_epoch = Some(status_changing_epoch);
+            }
+            BlobCertificationStatus::Certified => {
+                self.certified_epoch = Some(status_changing_epoch);
+            }
+            BlobCertificationStatus::Invalid => {
+                self.invalidated_epoch = Some(status_changing_epoch);
+            }
+        }
+    }
 }
 
 impl BlobInfoAPI for BlobInfoV1 {
-    fn registered_epoch(&self) -> Epoch {
-        self.registered_epoch
-    }
-
-    fn certified_epoch(&self) -> Option<Epoch> {
-        self.certified_epoch
-    }
-
     fn end_epoch(&self) -> Epoch {
         self.end_epoch
-    }
-
-    fn invalidated_epoch(&self) -> Option<Epoch> {
-        self.invalidated_epoch
     }
 
     fn status(&self) -> BlobCertificationStatus {
@@ -180,6 +174,26 @@ impl BlobInfoAPI for BlobInfoV1 {
     fn is_metadata_stored(&self) -> bool {
         self.is_metadata_stored
     }
+
+    fn registered_epoch(&self) -> Option<Epoch> {
+        self.registered_epoch
+    }
+
+    fn certified_epoch(&self) -> Option<Epoch> {
+        self.certified_epoch
+    }
+
+    fn invalidated_epoch(&self) -> Option<Epoch> {
+        self.invalidated_epoch
+    }
+
+    fn to_blob_status(&self) -> BlobStatus {
+        BlobStatus::Existent {
+            end_epoch: self.end_epoch,
+            status: self.status.into(),
+            status_event: self.current_status_event,
+        }
+    }
 }
 
 impl Mergeable for BlobInfoV1 {
@@ -187,32 +201,14 @@ impl Mergeable for BlobInfoV1 {
 
     fn merge(mut self, operand: Self::MergeOperand) -> Self {
         match operand {
-            BlobInfoMergeOperand::RegisterBlob {
-                registered_epoch,
+            BlobInfoMergeOperand::ChangeStatus {
+                status_changing_epoch,
                 end_epoch,
                 status,
                 status_event,
             } => {
-                self.registered_epoch = registered_epoch;
-                self.update_info(end_epoch, status, status_event);
-            }
-            BlobInfoMergeOperand::CertifyBlob {
-                certified_epoch,
-                end_epoch,
-                status,
-                status_event,
-            } => {
-                self.certified_epoch = Some(certified_epoch);
-                self.update_info(end_epoch, status, status_event);
-            }
-            BlobInfoMergeOperand::InvalidateBlob {
-                invalidated_epoch,
-                end_epoch,
-                status,
-                status_event,
-            } => {
-                self.invalidated_epoch = Some(invalidated_epoch);
-                self.update_info(end_epoch, status, status_event);
+                self.update_status_changing_epoch(status, status_changing_epoch);
+                self.update_status(end_epoch, status, status_event);
             }
             BlobInfoMergeOperand::MarkMetadataStored(stored) => {
                 self.is_metadata_stored = stored;
@@ -230,34 +226,41 @@ pub enum BlobInfo {
 
 impl BlobInfo {
     pub fn new(
-        registered_epoch: Epoch,
+        status_changing_epoch: Epoch,
         end_epoch: Epoch,
         status: BlobCertificationStatus,
         current_status_event: EventID,
     ) -> Self {
-        Self::V1(BlobInfoV1::new(
-            registered_epoch,
+        let mut blob_info = Self::V1(BlobInfoV1::new(
             end_epoch,
             status,
             current_status_event,
-        ))
+            None,
+            None,
+            None,
+        ));
+
+        let BlobInfo::V1(inner) = &mut blob_info;
+        inner.update_status_changing_epoch(status, status_changing_epoch);
+
+        blob_info
     }
 
     pub fn new_for_testing(
-        registered_epoch: Epoch,
-        certified_epoch: Option<Epoch>,
         end_epoch: Epoch,
-        invalidated_epoch: Option<Epoch>,
         status: BlobCertificationStatus,
         current_status_event: EventID,
+        registered_epoch: Option<Epoch>,
+        certified_epoch: Option<Epoch>,
+        invalidated_epoch: Option<Epoch>,
     ) -> Self {
-        Self::V1(BlobInfoV1::new_for_testing(
-            registered_epoch,
-            certified_epoch,
+        Self::V1(BlobInfoV1::new(
             end_epoch,
-            invalidated_epoch,
             status,
             current_status_event,
+            registered_epoch,
+            certified_epoch,
+            invalidated_epoch,
         ))
     }
 
@@ -276,22 +279,16 @@ impl Mergeable for BlobInfo {
     }
 }
 
+impl From<BlobInfo> for BlobStatus {
+    fn from(value: BlobInfo) -> Self {
+        value.to_blob_status()
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy)]
 pub enum BlobInfoMergeOperand {
-    RegisterBlob {
-        registered_epoch: Epoch,
-        end_epoch: Epoch,
-        status: BlobCertificationStatus,
-        status_event: EventID,
-    },
-    CertifyBlob {
-        certified_epoch: Epoch,
-        end_epoch: Epoch,
-        status: BlobCertificationStatus,
-        status_event: EventID,
-    },
-    InvalidateBlob {
-        invalidated_epoch: Epoch,
+    ChangeStatus {
+        status_changing_epoch: Epoch,
         end_epoch: Epoch,
         status: BlobCertificationStatus,
         status_event: EventID,
@@ -307,8 +304,8 @@ impl BlobInfoMergeOperand {
 
 impl From<&BlobRegistered> for BlobInfoMergeOperand {
     fn from(value: &BlobRegistered) -> Self {
-        Self::RegisterBlob {
-            registered_epoch: value.epoch,
+        Self::ChangeStatus {
+            status_changing_epoch: value.epoch,
             end_epoch: value.end_epoch,
             status: BlobCertificationStatus::Registered,
             status_event: value.event_id,
@@ -318,8 +315,8 @@ impl From<&BlobRegistered> for BlobInfoMergeOperand {
 
 impl From<&BlobCertified> for BlobInfoMergeOperand {
     fn from(value: &BlobCertified) -> Self {
-        Self::CertifyBlob {
-            certified_epoch: value.epoch,
+        Self::ChangeStatus {
+            status_changing_epoch: value.epoch,
             end_epoch: value.end_epoch,
             status: BlobCertificationStatus::Certified,
             status_event: value.event_id,
@@ -329,8 +326,8 @@ impl From<&BlobCertified> for BlobInfoMergeOperand {
 
 impl From<&InvalidBlobId> for BlobInfoMergeOperand {
     fn from(value: &InvalidBlobId) -> Self {
-        Self::InvalidateBlob {
-            invalidated_epoch: value.epoch,
+        Self::ChangeStatus {
+            status_changing_epoch: value.epoch,
             end_epoch: value.epoch,
             status: BlobCertificationStatus::Invalid,
             status_event: value.event_id,
@@ -360,7 +357,7 @@ mod tests {
 
     param_test! {
         blob_info_transitions_to_new_status: [
-            registered: (Registered, &[Certified]),
+            registered: (Registered, &[Certified, Invalid]),
             certified: (Certified, &[Invalid]),
             invalid: (Invalid, &[]),
         ]
@@ -371,53 +368,51 @@ mod tests {
     ) {
         const EPOCHS: &[Epoch] = &[2, 3, 4];
         const ALL_STATUSES: &[BlobCertificationStatus] = &[Registered, Certified, Invalid];
-
-        let initial_blob_info = match initial {
-            Registered => {
-                BlobInfo::new_for_testing(1, None, 3, None, initial, event_id_for_testing())
-            }
-            Certified => {
-                BlobInfo::new_for_testing(1, Some(2), 3, None, initial, event_id_for_testing())
-            }
-            Invalid => {
-                BlobInfo::new_for_testing(1, Some(2), 3, Some(10), initial, event_id_for_testing())
-            }
-        };
+        let initial_blob_info = BlobInfo::new(1, 3, initial, event_id_for_testing());
 
         // Must transition to every "higher" status and the current status with higher epoch
         let must_cases = must_transition_to
             .iter()
             .flat_map(|status| {
-                EPOCHS
-                    .iter()
-                    .map(|&end_epoch| create_blob_info_tuple(1, 2, end_epoch, 10, *status, None))
+                EPOCHS.iter().map(|&end_epoch| {
+                    create_merge_operand_and_expected_blob_info(
+                        &initial_blob_info,
+                        end_epoch,
+                        *status,
+                        7,
+                        true,
+                    )
+                })
             })
-            .chain(iter::once(create_blob_info_tuple(
-                1, 2, 4, 10, initial, None,
+            .chain(iter::once(create_merge_operand_and_expected_blob_info(
+                &initial_blob_info,
+                10,
+                initial,
+                1,
+                true,
             )));
+
         // Must not transition to "lower" statuses, or the same status with lower epoch
         let never_cases = ALL_STATUSES
             .iter()
             .filter(|status| status < &&initial)
             .flat_map(|status| {
                 EPOCHS.iter().map(|&end_epoch| {
-                    create_blob_info_tuple(
-                        1,
-                        2,
-                        end_epoch,
+                    create_merge_operand_and_expected_blob_info(
+                        &initial_blob_info,
                         10,
                         *status,
-                        Some(initial_blob_info.clone()),
+                        7,
+                        false,
                     )
                 })
             })
-            .chain(iter::once(create_blob_info_tuple(
-                1,
+            .chain(iter::once(create_merge_operand_and_expected_blob_info(
+                &initial_blob_info,
                 2,
-                2,
-                10,
                 initial,
-                Some(initial_blob_info.clone()),
+                1,
+                false,
             )));
 
         for (new, expected) in must_cases.chain(never_cases) {
@@ -429,61 +424,45 @@ mod tests {
         }
     }
 
-    fn create_blob_info_tuple(
-        registered_epoch: Epoch,
-        certified_epoch: Epoch,
-        end_epoch: Epoch,
-        invalidated_epoch: Epoch,
-        status: BlobCertificationStatus,
-        expected: Option<BlobInfo>,
+    fn create_merge_operand_and_expected_blob_info(
+        initial_blob_info: &BlobInfo,
+        to_end_epoch: Epoch,
+        to_status: BlobCertificationStatus,
+        to_status_epoch: Epoch,
+        status_change: bool,
     ) -> (BlobInfoMergeOperand, BlobInfo) {
         let status_event = event_id_for_testing();
-        let expected = expected.unwrap_or_else(|| match status {
-            Registered => BlobInfo::new_for_testing(
-                registered_epoch,
+        let mut expected = if status_change {
+            BlobInfo::new_for_testing(to_end_epoch, to_status, status_event, None, None, None)
+        } else {
+            BlobInfo::new_for_testing(
+                initial_blob_info.end_epoch(),
+                initial_blob_info.status(),
+                initial_blob_info.current_status_event(),
                 None,
-                end_epoch,
                 None,
-                status,
-                status_event,
-            ),
-            Certified => BlobInfo::new_for_testing(
-                registered_epoch,
-                Some(certified_epoch),
-                end_epoch,
                 None,
-                status,
-                status_event,
-            ),
-            Invalid => BlobInfo::new_for_testing(
-                registered_epoch,
-                Some(certified_epoch),
-                end_epoch,
-                Some(invalidated_epoch),
-                status,
-                status_event,
-            ),
-        });
-        let operand = match status {
-            Registered => BlobInfoMergeOperand::RegisterBlob {
-                registered_epoch,
-                end_epoch,
-                status,
-                status_event,
-            },
-            Certified => BlobInfoMergeOperand::CertifyBlob {
-                certified_epoch,
-                end_epoch,
-                status,
-                status_event,
-            },
-            Invalid => BlobInfoMergeOperand::InvalidateBlob {
-                invalidated_epoch,
-                end_epoch,
-                status,
-                status_event,
-            },
+            )
         };
-        (operand, expected)
+
+        let BlobInfo::V1(inner) = &mut expected;
+        inner.registered_epoch = initial_blob_info.registered_epoch();
+        inner.certified_epoch = initial_blob_info.certified_epoch();
+        inner.invalidated_epoch = initial_blob_info.invalidated_epoch();
+        match to_status {
+            Registered => inner.registered_epoch = Some(to_status_epoch),
+            Certified => inner.certified_epoch = Some(to_status_epoch),
+            Invalid => inner.invalidated_epoch = Some(to_status_epoch),
+        }
+
+        (
+            BlobInfoMergeOperand::ChangeStatus {
+                status_changing_epoch: to_status_epoch,
+                end_epoch: to_end_epoch,
+                status: to_status,
+                status_event,
+            },
+            expected,
+        )
     }
 }
