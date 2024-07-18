@@ -13,6 +13,7 @@ module walrus::staked_wal {
         pool_id: ID,
         /// The staked amount.
         principal: u64,
+        // TODO: epoch / activation_epoch
     }
 
     /// Protected method to create a new staked WAL.
