@@ -50,7 +50,7 @@ sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.29.2"
 telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.29.2" }
 tempfile = "3.10.1"
 test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.29.2" }
-thiserror = "1.0.62"
+thiserror = "1.0.63"
 tokio = "=1.36.0"
 tokio-stream = "0.1.15"
 tokio-util = "0.7.10"
