@@ -53,6 +53,10 @@ module walrus::system_state_inner {
     public(package) fun voting_end(self: &mut SystemStateInnerV1, clock: &Clock) {
         abort ENotImplemented
     }
+    
+    public(package) fun initiate_epoch_change(self: &mut SystemStateInnerV1, clock: &Clock) {
+        abort ENotImplemented
+    }
 
     public(package) fun epoch_sync_done(
         self: &mut SystemStateInnerV1,

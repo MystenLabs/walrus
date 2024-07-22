@@ -80,10 +80,18 @@ module walrus::system {
 
     /// Ends the voting period and runs the apportionment if the current time allows.
     /// Permissionless, can be called by anyone.
+    /// Emits: `VotingEnd` event.
     public fun voting_end(system: &mut System, clock: &Clock) {
         system.system_mut().voting_end(clock)
     }
 
+    /// Initiates the epoch change if the current time allows.
+    /// Emits: `EpochChangeSync` event.
+    public fun initiate_epoch_change(system: &mut System, clock: &Clock) {
+        system.system_mut().initiate_epoch_change(clock)
+    }
+
+    /// Marks the epoch sync as done for the specified node.
     public fun epoch_sync_done(system: &mut System, cap: &StorageNodeCap, epoch_number: u64) {
         system.system_mut().epoch_sync_done(cap, epoch_number)
     }
