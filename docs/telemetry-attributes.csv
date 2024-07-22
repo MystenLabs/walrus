@@ -5,8 +5,8 @@ walrus.node.public_key;string;Base64 encoded public key of a walrus node.
 walrus.shard_index;int;Index of a shard within the Walrus committee.
 walrus.sliver.pair_index;int;Index of a sliver pair within the encoding of a blob.
 walrus.sliver.remote_pair_index;int;Index of a sliver pair located at a remote node.
-walrus.sliver.type;string;Type of the encoded sliver.;Example `primary` or `secondary`.
-walrus.recovery.symbol_type;string;Type of the recovery symbol, either `primary` or `secondary`.
+walrus.sliver.type;string;Type of the encoded sliver.;One of `primary`, `secondary`.
+walrus.recovery.symbol_type;string;Type of the recovery symbol;One of `primary`, `secondary`.
 walrus.event.tx_digest;string;Digest of the Sui transaction that generated the event.
 walrus.event.event_seq;int;Sequence number of the event in the Sui transaction that generated it.
 walrus.event.kind;string;Type of the Walrus event;One of `certified`, `registered`, `invalid-blob`.

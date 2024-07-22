@@ -36,14 +36,14 @@ impl MakeHttpSpan {
         let route = self.get_route(request);
         let span = tracing::info_span!(
             "rest_api",
-            // Override the exported span name to "{http.request.method} {http.route}"
+            // Overrides the exported span name to "{http.request.method} {http.route}"
             "otel.name" = format!("{} {}", request.method(), route),
             "otel.kind" = "SERVER",
             "http.request.method" = %request.method(),
             "http.route" = route,
             "url.full" = %request.uri(),
             "url.path" = request.uri().path(),
-            "url.scheme" = "http",  // TODO(jsmith): Identify HTTPS once enabled
+            "url.scheme" = "http",  // TODO(jsmith): Identify HTTPS once enabled (#609)
             // Dynamically added to the span:
             "server.port" = field::Empty,
             "server.address" = field::Empty,
@@ -100,7 +100,7 @@ impl MakeHttpSpan {
         // Check the standard Forwarded header for the client's address, and fallback to the
         // de-facto but non-standardized X-Forwarded-For header, before accepting that the peer is
         // also the client.
-        // TODO(jsmith): Parse the forwarded headers to correctly report the client behind proxies
+        // TODO(jsmith): Parse the forwarded headers to report the client behind proxies (#609)
         if let Some(addr) = peer_ip {
             span.record("client.address", field::display(addr));
         }
@@ -114,7 +114,7 @@ impl MakeHttpSpan {
         //   X-Forwarded-Host, or a similar header.
         // - The :authority pseudo-header in case of HTTP/2 or HTTP/3
         // - The Host header.
-        // TODO(jsmith): Handle forwarded hosts and HTTP/2 authority
+        // TODO(jsmith): Handle forwarded hosts and HTTP/2 authority (#609)
         if let Some(host) = get_header_as_str(request, header::HOST) {
             // Attempt to parse as a socket address, otherwise assume it's just a domain name
             // or sole IP address.
@@ -140,18 +140,15 @@ impl MakeHttpSpan {
     }
 
     fn record_network_protocol_version<B>(&self, request: &Request<B>, span: &Span) {
-        if let Some((_, value)) = [
-            (http::version::Version::HTTP_09, "0.9"),
-            (http::version::Version::HTTP_10, "1.0"),
-            (http::version::Version::HTTP_11, "1.1"),
-            (http::version::Version::HTTP_2, "2.0"),
-            (http::version::Version::HTTP_3, "3.0"),
-        ]
-        .iter()
-        .find(|(version, _)| *version == request.version())
-        {
-            span.record("network.protocol.version", value);
-        }
+        let version = match request.version() {
+            http::version::Version::HTTP_09 => "0.9",
+            http::version::Version::HTTP_10 => "1.0",
+            http::version::Version::HTTP_11 => "1.1",
+            http::version::Version::HTTP_2 => "2.0",
+            http::version::Version::HTTP_3 => "3.0",
+            _ => return,
+        };
+        span.record("network.protocol.version", version);
     }
 
     fn propagate_context<B>(&self, request: &Request<B>, span: &Span) {

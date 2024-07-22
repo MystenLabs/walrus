@@ -426,14 +426,15 @@ where
                 "attempting to recover sliver using collected symbols"
             );
 
-            let result = tracing::info_span!("reconstruct_sliver").in_scope(|| {
-                Sliver::<A>::recover_sliver_or_generate_inconsistency_proof(
-                    recovery_symbols.clone(),
-                    sliver_id.to_sliver_index::<A>(config.n_shards()),
-                    metadata.as_ref(),
-                    config,
-                )
-            });
+            let result = tracing::info_span!("recover_sliver_or_generate_inconsistency_proof")
+                .in_scope(|| {
+                    Sliver::<A>::recover_sliver_or_generate_inconsistency_proof(
+                        recovery_symbols.clone(),
+                        sliver_id.to_sliver_index::<A>(config.n_shards()),
+                        metadata.as_ref(),
+                        config,
+                    )
+                });
 
             match result {
                 Ok(SliverOrInconsistencyProof::Sliver(sliver)) => {
