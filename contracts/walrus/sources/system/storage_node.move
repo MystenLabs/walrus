@@ -57,4 +57,10 @@ module walrus::storage_node {
             shard_ids,
         }
     }
+
+    #[test_only]
+    /// Create a storage node capability for testing.
+    public fun new_cap_for_testing(pool_id: ID, ctx: &mut TxContext): StorageNodeCap {
+        StorageNodeCap { id: object::new(ctx), pool_id }
+    }
 }

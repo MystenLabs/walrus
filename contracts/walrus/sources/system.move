@@ -21,7 +21,6 @@ module walrus::system {
     public struct System has key {
         id: UID,
         version: u64,
-        address: u8,
     }
 
     // === Public API: Storage Node ===
@@ -165,5 +164,103 @@ module walrus::system {
     fun staking_mut(system: &mut System): &mut StakingInnerV1 {
         assert!(system.version == VERSION);
         abort ENotImplemented
+    }
+
+    // === Tests ===
+
+    #[test_only]
+    use walrus::storage_node;
+
+    #[test_only]
+    use sui::{clock, coin};
+
+    #[test_only]
+    fun new(ctx: &mut TxContext): System { System { id: object::new(ctx), version: VERSION } }
+
+    #[test, expected_failure(abort_code = ENotImplemented)]
+    fun test_register_candidate() {
+        let ctx = &mut tx_context::dummy();
+        let cap = new(ctx).register_candidate(0, ctx);
+        abort 1337
+    }
+
+    #[test, expected_failure(abort_code = ENotImplemented)]
+    fun test_withdraw_node() {
+        let ctx = &mut tx_context::dummy();
+        let cap = storage_node::new_cap_for_testing(ctx.fresh_object_address().to_id(), ctx);
+        new(ctx).withdraw_node(cap);
+        abort 1337
+    }
+
+    #[test, expected_failure(abort_code = ENotImplemented)]
+    fun test_set_next_commission() {
+        let ctx = &mut tx_context::dummy();
+        let cap = storage_node::new_cap_for_testing(ctx.fresh_object_address().to_id(), ctx);
+        new(ctx).set_next_commission(&cap, 0);
+        abort 1337
+    }
+
+    #[test, expected_failure(abort_code = ENotImplemented)]
+    fun test_collect_commission() {
+        let ctx = &mut tx_context::dummy();
+        let cap = storage_node::new_cap_for_testing(ctx.fresh_object_address().to_id(), ctx);
+        let coin = new(ctx).collect_commission(&cap);
+        abort 1337
+    }
+
+    #[test, expected_failure(abort_code = ENotImplemented)]
+    fun test_vote_for_price_next_epoch() {
+        let ctx = &mut tx_context::dummy();
+        let cap = storage_node::new_cap_for_testing(ctx.fresh_object_address().to_id(), ctx);
+        new(ctx).vote_for_price_next_epoch(&cap, 0, 0, 0);
+        abort 1337
+    }
+
+    #[test, expected_failure(abort_code = ENotImplemented)]
+    fun test_voting_end() {
+        let ctx = &mut tx_context::dummy();
+        let clock = clock::create_for_testing(ctx);
+        new(ctx).voting_end(&clock);
+        abort 1337
+    }
+
+    #[test, expected_failure(abort_code = ENotImplemented)]
+    fun test_epoch_sync_done() {
+        let ctx = &mut tx_context::dummy();
+        let cap = storage_node::new_cap_for_testing(ctx.fresh_object_address().to_id(), ctx);
+        new(ctx).epoch_sync_done(&cap, 0);
+        abort 1337
+    }
+
+    #[test, expected_failure(abort_code = ENotImplemented)]
+    fun test_shard_transfer_failed() {
+        let ctx = &mut tx_context::dummy();
+        let cap = storage_node::new_cap_for_testing(ctx.fresh_object_address().to_id(), ctx);
+        new(ctx).shard_transfer_failed(&cap, vector[], vector[]);
+        abort 1337
+    }
+
+    #[test, expected_failure(abort_code = ENotImplemented)]
+    fun test_invalidate_blob_id() {
+        let ctx = &mut tx_context::dummy();
+        new(ctx).invalidate_blob_id(vector[], vector[], vector[]);
+        abort 1337
+    }
+
+    #[test, expected_failure(abort_code = ENotImplemented)]
+    fun test_certify_event_blob() {
+        let ctx = &mut tx_context::dummy();
+        let cap = storage_node::new_cap_for_testing(ctx.fresh_object_address().to_id(), ctx);
+        new(ctx).certify_event_blob(&cap, 0, 0);
+        abort 1337
+    }
+
+    #[test, expected_failure(abort_code = ENotImplemented)]
+    fun test_stake_with_pool() {
+        let ctx = &mut tx_context::dummy();
+        let coin = coin::mint_for_testing<SUI>(100, ctx);
+        let cap = storage_node::new_cap_for_testing(ctx.fresh_object_address().to_id(), ctx);
+        let staked_wal = new(ctx).stake_with_pool(coin, cap.pool_id(), ctx);
+        abort 1337
     }
 }
