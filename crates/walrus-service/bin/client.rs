@@ -57,15 +57,18 @@ use walrus_sui::{
 #[clap(rename_all = "kebab-case")]
 #[serde(rename_all = "camelCase")]
 struct App {
-    /// The path to the wallet configuration file.
+    /// The path to the Walrus configuration file.
     ///
-    /// The Walrus configuration is taken from the following locations:
+    /// If a path is specified through this option, the CLI attempts to read the specified file and
+    /// returns an error if the path is invalid.
     ///
-    /// 1. From this configuration parameter, if set.
-    /// 2. From `./client_config.yaml`.
-    /// 3. From `~/.walrus/client_config.yaml`.
+    /// If no path is specified explicitly, the CLI looks for `client_config.yaml` or
+    /// `client_config.yml` in the following locations (in order):
     ///
-    /// If an invalid path is specified through this option, an error is returned.
+    /// 1. The current working directory (`./`).
+    /// 2. If the environment variable `XDG_CONFIG_HOME` is set, in `$XDG_CONFIG_HOME/walrus/`.
+    /// 3. In `~/.config/walrus/`.
+    /// 4. In `~/.walrus/`.
     // NB: Keep this in sync with `walrus_service::cli_utils`.
     #[clap(short, long, verbatim_doc_comment)]
     #[serde(

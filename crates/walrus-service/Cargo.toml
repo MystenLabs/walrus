@@ -24,6 +24,7 @@ git-version = "0.3.9"
 home = "0.5.9"
 humantime = "2.1.0"
 indoc = "2.0.5"
+itertools = "0.13.0"
 mime.workspace = true
 mysten-metrics.workspace = true
 opentelemetry.workspace = true

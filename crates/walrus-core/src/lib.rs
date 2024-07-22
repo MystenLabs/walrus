@@ -67,7 +67,7 @@ pub type Epoch = u64;
 // Schema definition for the type alias used in OpenAPI schemas.
 #[derive(Debug)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
-#[schema(as = Epoch)]
+#[cfg_attr(feature = "utoipa", schema(as = Epoch))]
 #[allow(dead_code)]
 pub struct EpochSchema(u64);
 
