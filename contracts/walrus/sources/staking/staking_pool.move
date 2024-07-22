@@ -25,15 +25,17 @@ module walrus::staking_pool {
     public struct StakingPool has key, store {
         id: UID,
         state: PoolState,
+        commission_rate: u64,
         active_stake: Balance<SUI>,
         stake_to_withdraw: Balance<SUI>,
     }
 
     /// Create a new `StakingPool` object.
-    public(package) fun new(ctx: &mut TxContext): StakingPool {
+    public(package) fun new(commission_rate: u64, ctx: &mut TxContext): StakingPool {
         StakingPool {
             id: object::new(ctx),
             state: PoolState::Empty,
+            commission_rate,
             active_stake: balance::zero(),
             stake_to_withdraw: balance::zero(),
         }
@@ -106,7 +108,7 @@ module walrus::staking_pool {
         use sui::test_utils::{assert_eq, destroy};
 
         let ctx = &mut tx_context::dummy();
-        let mut pool = new(ctx);
+        let mut pool = new(0, ctx);
         assert_eq(pool.is_empty(), true);
         assert_eq(pool.is_active(), false);
         assert_eq(pool.is_withdrawing(), false);

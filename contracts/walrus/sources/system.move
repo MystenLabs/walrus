@@ -34,8 +34,8 @@ module walrus::system {
     ): StorageNodeCap {
         // use the Pool ID as the identifier of the storage node (?)
         // TODO: circle back on this
-        let pool_id = system.staking_mut().create_pool(ctx);
-        let node_cap = system.system_mut().register_candidate(pool_id, commission_rate, ctx);
+        let pool_id = system.staking_mut().create_pool(commission_rate, ctx);
+        let node_cap = system.system_mut().register_candidate(pool_id, ctx);
         node_cap
     }
 

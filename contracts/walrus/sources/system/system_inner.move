@@ -16,7 +16,6 @@ module walrus::system_state_inner {
     public(package) fun register_candidate(
         self: &mut SystemStateInnerV1,
         pool_id: ID,
-        commission_rate: u64,
         ctx: &mut TxContext,
     ): StorageNodeCap {
         abort ENotImplemented

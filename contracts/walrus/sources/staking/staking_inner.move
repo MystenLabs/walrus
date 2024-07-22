@@ -28,10 +28,10 @@ module walrus::staking_inner {
     /// Creates a new staking pool with the given `commission_rate`.
     public(package) fun create_pool(
         self: &mut StakingInnerV1,
-        // commission_rate: u64,
+        commission_rate: u64,
         ctx: &mut TxContext,
     ): ID {
-        let pool = staking_pool::new(ctx);
+        let pool = staking_pool::new(commission_rate, ctx);
         let pool_id = object::id(&pool);
         self.pools.add(pool_id, pool);
         pool_id
