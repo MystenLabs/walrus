@@ -14,7 +14,6 @@ test-utils = ["dep:tempfile", "dep:walrus-test-utils", "walrus-core/test-utils"]
 anyhow.workspace = true
 async-trait = "0.1.81"
 axum = { version = "0.7.5", features = ["http2"] }
-axum-macros = "0.4.1"
 bcs.workspace = true
 clap = { workspace = true, features = ["string"] }
 colored = "2.1.0"

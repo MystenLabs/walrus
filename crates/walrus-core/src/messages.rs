@@ -85,7 +85,8 @@ impl<T> SignedMessage<T> {
         Ok(())
     }
 
-    /// Verifies the signature on this message under `public_key`.
+    /// Verifies the signature on this message under `public_key`, and extracts the underlying message
+    /// upon successful verification.
     pub fn verify_signature_get_message<I>(
         &self,
         public_key: &PublicKey,

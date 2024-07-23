@@ -24,8 +24,6 @@ pub enum BcsRejection {
     BytesRejection(#[from] BytesRejection),
     #[error("Unable to decode request body as BCS")]
     DecodeError(#[from] bcs::Error),
-    #[error("Unable to authenticate request")]
-    AuthenticationError,
 }
 
 impl RestApiError for BcsRejection {
@@ -34,7 +32,6 @@ impl RestApiError for BcsRejection {
             BcsRejection::UnsupportedContentType => StatusCode::UNSUPPORTED_MEDIA_TYPE,
             BcsRejection::BytesRejection(rejection) => rejection.status(),
             BcsRejection::DecodeError(_) => StatusCode::BAD_REQUEST,
-            BcsRejection::AuthenticationError => StatusCode::UNAUTHORIZED,
         }
     }
 
@@ -76,25 +73,6 @@ where
         } else {
             Err(BcsRejection::UnsupportedContentType)
         }
-    }
-}
-
-#[async_trait]
-impl<S> FromRequestParts<S> for Bcs<String>
-where
-    S: Send + Sync,
-{
-    type Rejection = BcsRejection;
-
-    async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, Self::Rejection> {
-        let auth_header = parts.headers.get(AUTHORIZATION);
-
-        if auth_header.is_none() {
-            return Err(BcsRejection::AuthenticationError);
-        }
-
-        let key_bytes = auth_header.unwrap().as_bytes();
-        Self::from_bytes(key_bytes)
     }
 }
 
@@ -151,27 +129,7 @@ where
     }
 }
 
-// struct EndpointAuth(pub PublicKey);
-
-// #[async_trait]
-// impl<B> FromRequest<B> for EndpointAuth
-// where
-//     B: Send,
-// {
-//     type Rejection = (StatusCode, &'static str);
-
-//     async fn from_request(req: Request, state: &B) -> Result<Self, Self::Rejection> {
-//         let auth_header = req
-//             .headers()
-//             .get(AUTHORIZATION)
-//             .ok_or((StatusCode::UNAUTHORIZED, "Missing authorization header"))?
-//             .to_str()
-//             .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid authorization header"))?;
-
-//         Ok(EndpointAuth(PublicKey::from_bytes(auth_header).unwrap()))
-//     }
-// }
-
+// The following code is used to extract the Authorization header from a request.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[must_use]
 pub struct Authorization(pub String);
@@ -185,9 +143,15 @@ where
     async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, Self::Rejection> {
         let auth_header = parts.headers.get(AUTHORIZATION);
 
-        // TODO(zhewu): handle error.
+        if auth_header.is_none() {
+            return Err((StatusCode::UNAUTHORIZED, "Missing Authorization header"));
+        }
 
-        let key_bytes = auth_header.unwrap().to_str().unwrap();
-        Ok(Authorization(key_bytes.to_string()))
+        let key_bytes = auth_header.unwrap().to_str();
+        if key_bytes.is_err() {
+            return Err((StatusCode::BAD_REQUEST, "Invalid Authorization header"));
+        }
+
+        Ok(Authorization(key_bytes.unwrap().to_string()))
     }
 }

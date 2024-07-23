@@ -371,10 +371,10 @@ pub async fn health_info<S: SyncServiceState>(
     ),
     request_body(content = [u8], description = "BCS-encoded SignedMessage<SyncShardRequest>"),
     responses(
-        (status = 200, description = "BCS encoded vector", body = [u8]),
+        (status = 200, description = "BCS encoded vector of slivers", body = [u8]),
         SyncShardError
     ),
-    tag = openapi::GROUP_RECOVERY
+    tag = openapi::GROUP_SYNC_SHARD
 )]
 pub async fn sync_shard<S: SyncServiceState>(
     State(state): State<Arc<S>>,

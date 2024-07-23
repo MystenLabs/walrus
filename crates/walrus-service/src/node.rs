@@ -143,6 +143,7 @@ pub trait ServiceState {
     /// Returns the node health information of this ServiceState.
     fn health_info(&self) -> ServiceHealthInfo;
 
+    /// Returns the shard data with the provided signed request and the public key of the sender.
     fn sync_shard(
         &self,
         public_key: PublicKey,
@@ -1649,8 +1650,9 @@ mod tests {
         Ok(())
     }
 
+    // Tests the basic `sync_shard` API.
     #[tokio::test]
-    async fn sync_shard() -> TestResult {
+    async fn sync_shard_node_api() -> TestResult {
         let (cluster, _, _) =
             cluster_with_partially_stored_blob(&[&[0], &[1]], BLOB, |_, _| true).await?;
 

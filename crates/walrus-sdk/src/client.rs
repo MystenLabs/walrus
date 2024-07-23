@@ -480,7 +480,7 @@ impl Client {
             .await
     }
 
-    /// Sync shard
+    /// Syncs a shard from the storage node.
     #[tracing::instrument(
         skip_all,
         fields(
@@ -608,6 +608,7 @@ impl Client {
             .map_err(NodeError::reqwest)
     }
 
+    // Creates a request with a payload and a public key in the Authorization header.
     fn create_request_with_payload_and_public_key<T: Serialize>(
         &self,
         method: Method,
