@@ -5,6 +5,7 @@ use sui_types::event::EventID;
 use walrus_core::{
     encoding::SliverVerificationError,
     inconsistency::InconsistencyVerificationError,
+    messages::MessageVerificationError,
     metadata::VerificationError,
     Epoch,
     ShardIndex,
@@ -113,4 +114,12 @@ impl From<RetrieveMetadataError> for InconsistencyProofError {
 pub enum BlobStatusError {
     #[error(transparent)]
     Internal(#[from] InternalError),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum SyncShardError {
+    #[error("The client is not authorized to perform sync shard operation")]
+    Unauthorized,
+    #[error(transparent)]
+    MessageVerificationError(#[from] MessageVerificationError),
 }

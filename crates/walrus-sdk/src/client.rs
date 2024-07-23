@@ -3,6 +3,7 @@
 
 //! Client for interacting with the StorageNode API.
 
+use fastcrypto::traits::{EncodeDecodeBase64, KeyPair};
 use opentelemetry::propagation::Injector;
 use reqwest::{
     header::{HeaderMap, HeaderName, HeaderValue},
@@ -18,13 +19,21 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 use walrus_core::{
     encoding::{EncodingAxis, EncodingConfig, Primary, RecoverySymbol, Secondary, Sliver},
     inconsistency::InconsistencyProof,
+    keys::ProtocolKeyPair,
     merkle::MerkleProof,
-    messages::{InvalidBlobIdAttestation, SignedStorageConfirmation, StorageConfirmation},
+    messages::{
+        InvalidBlobIdAttestation,
+        SignedStorageConfirmation,
+        SignedSyncShardRequest,
+        StorageConfirmation,
+        SyncShardRequest,
+    },
     metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
     BlobId,
     Epoch,
     InconsistencyProof as InconsistencyProofEnum,
     PublicKey,
+    ShardIndex,
     Sliver as SliverEnum,
     SliverPairIndex,
     SliverType,
@@ -44,6 +53,7 @@ const RECOVERY_URL_TEMPLATE: &str =
 const INCONSISTENCY_PROOF_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/inconsistent/:sliver_type";
 const STATUS_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/status";
 const HEALTH_URL_TEMPLATE: &str = "/v1/health";
+const SYNC_SHARD_TEMPLATE: &str = "/v1/sync_shard";
 
 #[derive(Debug, Clone)]
 struct UrlEndpoints(Url);
@@ -111,6 +121,10 @@ impl UrlEndpoints {
 
     fn server_health_info(&self) -> (Url, &'static str) {
         (self.0.join("/v1/health").unwrap(), HEALTH_URL_TEMPLATE)
+    }
+
+    fn sync_shard(&self) -> (Url, &'static str) {
+        (self.0.join("/v1/sync_shard").unwrap(), SYNC_SHARD_TEMPLATE)
     }
 }
 
@@ -466,6 +480,44 @@ impl Client {
             .await
     }
 
+    /// Sync shard
+    #[tracing::instrument(
+        skip_all,
+        fields(
+            walrus.sync.shard_index = %shard_index,
+            walrus.sync.epoch = epoch,
+            walrus.sync.starting_blob_id = %starting_blob_id,
+            walrus.sync.num_blobs = %num_blobs,
+        ),
+        err(level = Level::DEBUG)
+    )]
+    pub async fn sync_shard<A: EncodingAxis>(
+        &self,
+        shard_index: ShardIndex,
+        starting_blob_id: BlobId,
+        num_blobs: u64,
+        epoch: Epoch,
+        key_pair: &ProtocolKeyPair,
+    ) -> Result<(), NodeError> {
+        let (url, template) = self.endpoints.sync_shard();
+        let request = SyncShardRequest::new(
+            shard_index,
+            A::IS_PRIMARY,
+            starting_blob_id,
+            num_blobs,
+            epoch,
+        );
+        let signed_request: SignedSyncShardRequest = key_pair.sign_message(&request);
+        let http_request = self.create_request_with_payload_and_public_key(
+            Method::POST,
+            url,
+            &signed_request,
+            key_pair.as_ref().public(),
+        )?;
+        self.send_and_parse_bcs_response(http_request, template)
+            .await
+    }
+
     /// Send a request with tracing and context propagation.
     ///
     /// The HTTP span ends after the parsing of the headers, since the response may be streamed.
@@ -554,6 +606,22 @@ impl Client {
             .body(bcs::to_bytes(body).expect("type must be bcs encodable"))
             .build()
             .map_err(NodeError::reqwest)
+    }
+
+    fn create_request_with_payload_and_public_key<T: Serialize>(
+        &self,
+        method: Method,
+        url: Url,
+        body: &T,
+        public_key: &PublicKey,
+    ) -> Result<Request, NodeError> {
+        let mut request = self.create_request_with_payload(method, url, body)?;
+        let encoded_key = public_key.encode_base64();
+        let public_key_header = HeaderValue::from_str(&encoded_key).map_err(NodeError::other)?;
+        request
+            .headers_mut()
+            .insert(reqwest::header::AUTHORIZATION, public_key_header);
+        Ok(request)
     }
 }
 

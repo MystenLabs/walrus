@@ -24,6 +24,7 @@ use crate::{
         RetrieveSymbolError,
         StoreMetadataError,
         StoreSliverError,
+        SyncShardError,
     },
 };
 
@@ -100,6 +101,13 @@ rest_api_error! {
     ]
 }
 
+rest_api_error!(
+    SyncShardError: [
+        (Unauthorized, UNAUTHORIZED, Self::Unauthorized.to_string()),
+        (MessageVerificationError(_), BAD_REQUEST, "Request verification failed"),
+    ]
+);
+
 /// Helper type for attaching [`BcsRejection`]s to errors.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum OrRejection<T> {
@@ -147,6 +155,12 @@ impl From<StoreSliverError> for OrRejection<StoreSliverError> {
 }
 impl From<InconsistencyProofError> for OrRejection<InconsistencyProofError> {
     fn from(value: InconsistencyProofError) -> Self {
+        Self::Err(value)
+    }
+}
+
+impl From<SyncShardError> for OrRejection<SyncShardError> {
+    fn from(value: SyncShardError) -> Self {
         Self::Err(value)
     }
 }

@@ -23,7 +23,7 @@ use serde_with::{
     SerializeAs,
 };
 
-use crate::messages::{ProtocolMessage, SignedMessage};
+use crate::messages::SignedMessage;
 
 /// Identifier for the type of public key being loaded from file.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
@@ -69,9 +69,9 @@ impl ProtocolKeyPair {
     }
 
     /// Sign `message` and return the resulting [`SignedMessage`].
-    pub fn sign_message<T, I>(&self, message: &T) -> SignedMessage<T>
+    pub fn sign_message<T>(&self, message: &T) -> SignedMessage<T>
     where
-        T: AsRef<ProtocolMessage<I>> + Serialize,
+        T: Serialize,
     {
         let serialized_message =
             bcs::to_bytes(message).expect("bcs encoding a message should not fail");

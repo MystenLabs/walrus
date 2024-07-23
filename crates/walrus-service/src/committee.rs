@@ -128,6 +128,9 @@ pub trait CommitteeService: std::fmt::Debug + Send + Sync {
         inconsistency_proof: &InconsistencyProofEnum,
         n_shards: NonZeroU16,
     ) -> InvalidBlobCertificate;
+
+    /// Checks if the given public key belongs to a Walrus storage node.
+    fn is_walrus_storage_node(&self, public_key: &PublicKey) -> bool;
 }
 
 #[cfg_attr(test, mockall::automock)]
@@ -153,6 +156,15 @@ trait NodeClient {
         epoch: Epoch,
         public_key: &PublicKey,
     ) -> Option<InvalidBlobIdAttestation>;
+
+    // async fn sync_shard<A: EncodingAxis + 'static>(
+    //     &self,
+    //     shard_index: ShardIndex,
+    //     starting_blob_id: BlobId,
+    //     num_blobs: u64,
+    //     epoch: Epoch,
+    //     key_pair: &ProtocolKeyPair,
+    // ) -> Option<Vec<(BlobId, Sliver<A>)>>;
 }
 
 /// Constructs [`NodeCommitteeService`]s by reading the current storage committee from the chain.
@@ -618,6 +630,14 @@ impl CommitteeService for NodeCommitteeService {
 
     fn committee(&self) -> &Committee {
         &self.inner.committee
+    }
+
+    fn is_walrus_storage_node(&self, public_key: &PublicKey) -> bool {
+        self.inner
+            .committee
+            .members()
+            .iter()
+            .any(|member| member.public_key == *public_key)
     }
 
     async fn get_and_verify_metadata(

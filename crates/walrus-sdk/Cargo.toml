@@ -8,6 +8,7 @@ license = { workspace = true }
 
 [dependencies]
 bcs.workspace = true
+fastcrypto.workspace = true
 futures.workspace = true
 mime.workspace = true
 opentelemetry.workspace = true

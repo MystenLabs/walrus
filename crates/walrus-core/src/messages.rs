@@ -19,6 +19,9 @@ pub use storage_confirmation::{Confirmation, SignedStorageConfirmation, StorageC
 mod invalid_blob_id;
 pub use invalid_blob_id::{InvalidBlobIdAttestation, InvalidBlobIdMsg};
 
+mod sync_shard;
+pub use sync_shard::{SignedSyncShardRequest, SyncShardRequest};
+
 mod certificate;
 pub use certificate::{CertificateError, ConfirmationCertificate, InvalidBlobCertificate};
 
@@ -77,7 +80,13 @@ impl<T> SignedMessage<T> {
 
 impl<T> SignedMessage<T> {
     /// Verifies the signature on this message under `public_key`.
-    pub fn verify_signature<I>(
+    pub fn verify_signature(&self, public_key: &PublicKey) -> Result<(), MessageVerificationError> {
+        public_key.verify(&self.serialized_message, &self.signature)?;
+        Ok(())
+    }
+
+    /// Verifies the signature on this message under `public_key`.
+    pub fn verify_signature_get_message<I>(
         &self,
         public_key: &PublicKey,
     ) -> Result<ProtocolMessage<T>, MessageVerificationError>

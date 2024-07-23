@@ -8,11 +8,13 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use fastcrypto::traits::EncodeDecodeBase64;
 use tracing::Level;
 use walrus_core::{
-    messages::{InvalidBlobIdAttestation, StorageConfirmation},
+    messages::{InvalidBlobIdAttestation, SignedSyncShardRequest, StorageConfirmation},
     metadata::{BlobMetadata, UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
     InconsistencyProof,
+    PublicKey,
     RecoverySymbol,
     Sliver,
     SliverPairIndex,
@@ -20,7 +22,11 @@ use walrus_core::{
 };
 use walrus_sdk::api::{BlobStatus, ServiceHealthInfo};
 
-use super::{extract::Bcs, openapi, responses::OrRejection};
+use super::{
+    extract::{Authorization, Bcs},
+    openapi,
+    responses::OrRejection,
+};
 use crate::{
     api::{self, ApiSuccess, BlobIdString},
     node::{
@@ -33,6 +39,7 @@ use crate::{
         ServiceState,
         StoreMetadataError,
         StoreSliverError,
+        SyncShardError,
     },
 };
 
@@ -52,6 +59,7 @@ pub const INCONSISTENCY_PROOF_ENDPOINT: &str = "/v1/blobs/:blob_id/inconsistent/
 /// The path to get the status of a blob.
 pub const STATUS_ENDPOINT: &str = "/v1/blobs/:blob_id/status";
 pub const HEALTH_ENDPOINT: &str = "/v1/health";
+pub const SYNC_SHARD_ENDPOINT: &str = "/v1/sync_shard";
 
 /// Convenience trait to apply bounds on the ServiceState.
 trait SyncServiceState: ServiceState + Send + Sync + 'static {}
@@ -352,4 +360,27 @@ pub async fn health_info<S: SyncServiceState>(
     State(state): State<Arc<S>>,
 ) -> ApiSuccess<ServiceHealthInfo> {
     ApiSuccess::ok(state.health_info())
+}
+
+#[tracing::instrument(skip_all)]
+#[utoipa::path(
+    post,
+    path = api::rewrite_route(SYNC_SHARD_ENDPOINT),
+    params(
+        ("Authorization" = String, Header, description = "Public key for authorization")
+    ),
+    request_body(content = [u8], description = "BCS-encoded SignedMessage<SyncShardRequest>"),
+    responses(
+        (status = 200, description = "BCS encoded vector", body = [u8]),
+        SyncShardError
+    ),
+    tag = openapi::GROUP_RECOVERY
+)]
+pub async fn sync_shard<S: SyncServiceState>(
+    State(state): State<Arc<S>>,
+    Authorization(base64_public_key): Authorization,
+    Bcs(signed_request): Bcs<SignedSyncShardRequest>,
+) -> Result<Response, OrRejection<SyncShardError>> {
+    let public_key = PublicKey::decode_base64(&base64_public_key).unwrap();
+    Ok(Bcs(state.sync_shard(public_key, signed_request)?).into_response())
 }

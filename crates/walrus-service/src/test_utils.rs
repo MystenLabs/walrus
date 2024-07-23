@@ -548,6 +548,13 @@ impl CommitteeService for StubCommitteeService {
     fn committee(&self) -> &Committee {
         &self.0
     }
+
+    fn is_walrus_storage_node(&self, public_key: &PublicKey) -> bool {
+        self.0
+            .members()
+            .iter()
+            .any(|node| node.public_key == *public_key)
+    }
 }
 
 /// A stub [`SystemContractService`].
