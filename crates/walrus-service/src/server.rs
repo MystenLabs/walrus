@@ -7,12 +7,7 @@ use std::{net::SocketAddr, sync::Arc};
 
 use axum::{
     extract::{DefaultBodyLimit, MatchedPath, State},
-<<<<<<< HEAD
-    routing::{get, put},
-=======
-    http::Request,
     routing::{get, post, put},
->>>>>>> 015ac6c (Create sync_shard storage node endpoint)
     Router,
 };
 use prometheus::{register_histogram_vec_with_registry, HistogramVec, Registry};
