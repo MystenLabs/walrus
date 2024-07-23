@@ -173,10 +173,6 @@ impl<T: ContractClient> Client<T> {
         epochs_ahead: u64,
         force: bool,
     ) -> ClientResult<BlobStoreResult> {
-        if blob.is_empty() {
-            return Err(ClientErrorKind::EmptyBlob.into());
-        }
-
         let (pairs, metadata) = self
             .encoding_config
             .get_blob_encoder(blob)

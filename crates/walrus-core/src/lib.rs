@@ -12,7 +12,7 @@ extern crate std;
 use alloc::vec::Vec;
 use core::{
     fmt::{self, Debug, Display},
-    num::{NonZeroU16, NonZeroU64},
+    num::NonZeroU16,
     ops::{Bound, Range, RangeBounds},
     str::FromStr,
 };
@@ -87,12 +87,8 @@ impl BlobId {
 
     /// Returns the blob ID as a hash over the Merkle root, encoding type,
     /// and unencoded_length of the blob.
-    pub fn from_metadata(
-        merkle_root: Node,
-        encoding: EncodingType,
-        unencoded_length: NonZeroU64,
-    ) -> Self {
-        Self::new_with_hash_function::<Blake2b256>(merkle_root, encoding, unencoded_length.get())
+    pub fn from_metadata(merkle_root: Node, encoding: EncodingType, unencoded_length: u64) -> Self {
+        Self::new_with_hash_function::<Blake2b256>(merkle_root, encoding, unencoded_length)
     }
 
     /// Computes the Merkle root over the [`SliverPairMetadata`][metadata::SliverPairMetadata],

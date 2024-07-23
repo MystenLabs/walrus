@@ -8,6 +8,7 @@ use raptorq::{SourceBlockDecoder, SourceBlockEncoder, SourceBlockEncodingPlan};
 use tracing::Level;
 
 use super::{utils, DecodingSymbol, EncodeError, EncodingAxis};
+use crate::encoding::InvalidDataSizeError;
 
 /// Wrapper to perform a single encoding with RaptorQ for the provided parameters.
 #[derive(Debug)]
@@ -55,11 +56,15 @@ impl Encoder {
     ) -> Result<Self, EncodeError> {
         tracing::trace!("creating a new Encoder");
         assert!(n_shards >= n_source_symbols);
+        if data.is_empty() {
+            return Err(InvalidDataSizeError::EmptyData.into());
+        }
         if data.len() % usize::from(n_source_symbols.get()) != 0 {
             return Err(EncodeError::MisalignedData(n_source_symbols));
         }
         let symbol_size =
-            utils::compute_symbol_size_from_usize(data.len(), n_source_symbols.into())?;
+            utils::compute_symbol_size_from_usize(data.len(), n_source_symbols.into())
+                .map_err(InvalidDataSizeError::from)?;
 
         Ok(Self {
             raptorq_encoder: SourceBlockEncoder::with_encoding_plan(

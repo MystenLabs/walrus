@@ -462,7 +462,7 @@ async fn run_app(app: App) -> Result<()> {
                 let metadata = encoding_config
                     .get_blob_encoder(&read_blob_from_file(&file)?)?
                     .compute_metadata();
-                let unencoded_size = metadata.metadata().unencoded_length.get();
+                let unencoded_size = metadata.metadata().unencoded_length;
                 let encoded_size =
                     encoded_blob_length_for_n_shards(encoding_config.n_shards(), unencoded_size)
                         .expect("must be valid as the encoding succeeded");

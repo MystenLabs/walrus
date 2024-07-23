@@ -80,9 +80,6 @@ impl From<SuiClientError> for ClientError {
 #[derive(Debug, thiserror::Error)]
 #[error(transparent)]
 pub enum ClientErrorKind {
-    /// Empty blobs are not supported.
-    #[error("empty blobs are not supported")]
-    EmptyBlob,
     /// The certification of the blob failed.
     #[error("blob certification failed: {0}")]
     CertificationFailed(SuiClientError),

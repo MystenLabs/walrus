@@ -4,7 +4,7 @@
 //! Client to call Walrus move functions from rust.
 
 use core::{fmt, str::FromStr};
-use std::{future::Future, num::NonZeroU64};
+use std::future::Future;
 
 use anyhow::{anyhow, Context, Result};
 use fastcrypto::traits::ToFromBytes;
@@ -103,7 +103,7 @@ pub trait ContractClient: Send + Sync {
         storage: &StorageResource,
         blob_id: BlobId,
         root_digest: [u8; DIGEST_LEN],
-        blob_size: NonZeroU64,
+        blob_size: u64,
         erasure_code_type: EncodingType,
     ) -> impl Future<Output = SuiClientResult<Blob>> + Send;
 
@@ -395,7 +395,7 @@ impl ContractClient for SuiContractClient {
         storage: &StorageResource,
         blob_id: BlobId,
         root_digest: [u8; DIGEST_LEN],
-        blob_size: NonZeroU64,
+        blob_size: u64,
         erasure_code_type: EncodingType,
     ) -> SuiClientResult<Blob> {
         let res = self
@@ -406,7 +406,7 @@ impl ContractClient for SuiContractClient {
                     self.wallet.get_object_ref(storage.id).await?.into(),
                     call_arg_pure!(&blob_id),
                     call_arg_pure!(&root_digest),
-                    blob_size.get().into(),
+                    blob_size.into(),
                     u8::from(erasure_code_type).into(),
                 ],
             )
@@ -448,7 +448,7 @@ impl ContractClient for SuiContractClient {
                 .metadata()
                 .compute_root_hash()
                 .bytes()))?,
-            pt_builder.input(blob_metadata.metadata().unencoded_length.get().into())?,
+            pt_builder.input(blob_metadata.metadata().unencoded_length.into())?,
             pt_builder.input(u8::from(blob_metadata.metadata().encoding_type).into())?,
         ];
         let register_result_index = self.add_move_call_to_ptb(

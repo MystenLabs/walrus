@@ -101,7 +101,7 @@ impl CliOutput for ReadOutput {
 impl CliOutput for BlobIdOutput {
     fn cli_output(&self) -> String {
         format!(
-            "{} Blob encoded successfully: {}.\n\
+            "{} Blob from file '{}' encoded successfully.\n\
                 Unencoded size: {}\nBlob ID: {}",
             success(),
             self.file.display(),

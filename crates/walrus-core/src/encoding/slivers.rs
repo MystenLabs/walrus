@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 use core::{
     fmt::Display,
     marker::PhantomData,
-    num::{NonZeroU16, NonZeroU32, NonZeroU64},
+    num::{NonZeroU16, NonZeroU32},
 };
 
 use fastcrypto::hash::{Blake2b256, HashFunction};
@@ -131,15 +131,15 @@ impl<T: EncodingAxis> Sliver<T> {
 
     /// Returns true iff the sliver has the length expected based on the encoding configuration and
     /// blob size.
-    fn has_correct_length(&self, config: &EncodingConfig, blob_size: NonZeroU64) -> bool {
+    fn has_correct_length(&self, config: &EncodingConfig, blob_size: u64) -> bool {
         self.expected_length(config, blob_size).is_some_and(|l| {
             self.len() == usize::try_from(l).expect("we assume at least a 32-bit architecture")
         })
     }
 
-    fn expected_length(&self, config: &EncodingConfig, blob_size: NonZeroU64) -> Option<u32> {
+    fn expected_length(&self, config: &EncodingConfig, blob_size: u64) -> Option<u32> {
         config
-            .sliver_size_for_blob::<T>(blob_size.get())
+            .sliver_size_for_blob::<T>(blob_size)
             .map(NonZeroU32::get)
             .ok()
     }
@@ -785,7 +785,7 @@ mod tests {
 
     param_test! {
         test_recover_all_slivers_from_f_plus_1: [
-            #[should_panic] recover_empty: (3, &[]),
+            recover_empty: (3, &[]),
             recover_single_byte: (3, &[1]),
             recover_one_byte_symbol: (3, &[
                 1,2,3,4,5,6,7,8,9,

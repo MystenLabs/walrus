@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-    num::{NonZeroU16, NonZeroU64, NonZeroUsize},
+    num::{NonZeroU16, NonZeroUsize},
     path::PathBuf,
     time::Duration,
 };
@@ -120,11 +120,11 @@ impl CommunicationLimits {
 
     fn sliver_size_for_blob(
         &self,
-        blob_size: NonZeroU64,
+        blob_size: u64,
         encoding_config: &EncodingConfig,
     ) -> NonZeroUsize {
         encoding_config
-            .sliver_size_for_blob::<Primary>(blob_size.get())
+            .sliver_size_for_blob::<Primary>(blob_size)
             .expect("blob must not be too large to be encoded")
             .try_into()
             .expect("we assume at least a 32-bit architecture")
@@ -144,7 +144,7 @@ impl CommunicationLimits {
     /// [EncodingConfig::sliver_size_for_blob].
     pub fn max_concurrent_sliver_writes_for_blob_size(
         &self,
-        blob_size: NonZeroU64,
+        blob_size: u64,
         encoding_config: &EncodingConfig,
     ) -> usize {
         self.max_connections_for_request_and_blob_size(
@@ -168,7 +168,7 @@ impl CommunicationLimits {
     /// [EncodingConfig::sliver_size_for_blob].
     pub fn max_concurrent_sliver_reads_for_blob_size(
         &self,
-        blob_size: NonZeroU64,
+        blob_size: u64,
         encoding_config: &EncodingConfig,
     ) -> usize {
         self.max_connections_for_request_and_blob_size(

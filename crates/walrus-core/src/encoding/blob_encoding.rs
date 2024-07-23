@@ -2,24 +2,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use alloc::{vec, vec::Vec};
-use core::{
-    cmp,
-    marker::PhantomData,
-    num::{NonZeroU16, NonZeroU64, NonZeroUsize},
-    slice::Chunks,
-};
+use core::{cmp, marker::PhantomData, num::NonZeroU16, slice::Chunks};
 
 use fastcrypto::hash::Blake2b256;
 use tracing::{Level, Span};
 
 use super::{
     utils,
+    DataTooLargeError,
     Decoder,
     DecodingSymbol,
     DecodingVerificationError,
     EncodingAxis,
     EncodingConfig,
-    InvalidDataSizeError,
     Primary,
     Secondary,
     Sliver,
@@ -64,15 +59,15 @@ impl<'a> BlobEncoder<'a> {
     ///
     /// # Errors
     ///
-    /// Returns an [`InvalidDataSizeError`] if the blob is empty or too large to be encoded. The
-    /// latter happens in two cases:
+    /// Returns a [`DataTooLargeError`] if the blob is too large to be encoded. This can happen in
+    /// two cases:
     ///
     /// 1. If the blob is too large to fit into the message matrix with valid symbols. The maximum
     ///    blob size for a given [`EncodingConfig`] is accessible through the
     ///    [`EncodingConfig::max_blob_size`] method.
     /// 2. On 32-bit architectures, the maximally supported blob size can actually be smaller than
     ///    that due to limitations of the address space.
-    pub fn new(config: &'a EncodingConfig, blob: &'a [u8]) -> Result<Self, InvalidDataSizeError> {
+    pub fn new(config: &'a EncodingConfig, blob: &'a [u8]) -> Result<Self, DataTooLargeError> {
         tracing::debug!("creating new blob encoder");
         let symbol_size =
             utils::compute_symbol_size_from_usize(blob.len(), config.source_symbols_per_blob())?;
@@ -268,7 +263,6 @@ struct ExpandedMessageMatrix<'a> {
 impl<'a> ExpandedMessageMatrix<'a> {
     fn new(config: &'a EncodingConfig, symbol_size: NonZeroU16, blob: &'a [u8]) -> Self {
         tracing::debug!("computing expanded message matrix");
-        assert!(!blob.is_empty());
         let matrix = vec![
             Symbols::zeros(config.n_shards().get().into(), symbol_size);
             config.n_shards().get().into()
@@ -353,17 +347,14 @@ impl<'a> ExpandedMessageMatrix<'a> {
 
     /// Computes the sliver pair metadata from the expanded message matrix.
     fn get_metadata(&self) -> VerifiedBlobMetadataWithId {
-        tracing::debug!("writing blob metadata");
+        tracing::debug!("computing blob metadata and ID");
         let mut metadata = vec![SliverPairMetadata::new_empty(); self.matrix.len()];
         self.write_secondary_metadata(&mut metadata);
         self.write_primary_metadata(&mut metadata);
         VerifiedBlobMetadataWithId::new_verified_from_metadata(
             metadata,
             EncodingType::RedStuff,
-            NonZeroU64::new(
-                u64::try_from(self.blob.len()).expect("any valid blob size fits into a `u64`"),
-            )
-            .expect("`self.blob` is guaranteed to be non-zero"),
+            u64::try_from(self.blob.len()).expect("any valid blob size fits into a `u64`"),
         )
     }
 
@@ -431,7 +422,7 @@ impl<'a> ExpandedMessageMatrix<'a> {
 pub struct BlobDecoder<'a, T: EncodingAxis = Primary> {
     _decoding_axis: PhantomData<T>,
     decoders: Vec<Decoder>,
-    blob_size: NonZeroUsize,
+    blob_size: usize,
     symbol_size: NonZeroU16,
     config: &'a EncodingConfig,
     /// A tracing span associated with this blob decoder.
@@ -449,17 +440,11 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
     ///
     /// # Errors
     ///
-    /// Returns an [`InvalidDataSizeError::DataTooLarge`] if the `blob_size` is too large to be
-    /// decoded.
-    pub fn new(
-        config: &'a EncodingConfig,
-        blob_size: NonZeroU64,
-    ) -> Result<Self, InvalidDataSizeError> {
+    /// Returns a [`DataTooLargeError`] if the `blob_size` is too large to be decoded.
+    pub fn new(config: &'a EncodingConfig, blob_size: u64) -> Result<Self, DataTooLargeError> {
         tracing::debug!("creating new blob decoder");
-        let symbol_size = config.symbol_size_for_blob(blob_size.get())?;
-        let blob_size = blob_size
-            .try_into()
-            .map_err(|_| InvalidDataSizeError::DataTooLarge)?;
+        let symbol_size = config.symbol_size_for_blob(blob_size)?;
+        let blob_size = blob_size.try_into().map_err(|_| DataTooLargeError)?;
         Ok(Self {
             _decoding_axis: PhantomData,
             decoders: vec![
@@ -559,7 +544,7 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
             columns_or_rows.into_iter().flatten().collect()
         };
 
-        blob.truncate(self.blob_size.get());
+        blob.truncate(self.blob_size);
         tracing::debug!("returning truncated decoded blob");
         Some(blob)
     }
@@ -696,7 +681,7 @@ mod tests {
     #[test]
     fn test_blob_encode_decode() {
         let blob = random_data(31415);
-        let blob_size = NonZeroU64::new(blob.len().try_into().unwrap()).unwrap();
+        let blob_size = blob.len().try_into().unwrap();
 
         let config = EncodingConfig::new(NonZeroU16::new(102).unwrap());
 
@@ -787,7 +772,7 @@ mod tests {
     #[test]
     fn test_encode_decode_and_verify() {
         let blob = random_data(16180);
-        let blob_size = NonZeroU64::new(blob.len().try_into().unwrap()).unwrap();
+        let blob_size = blob.len().try_into().unwrap();
         let n_shards = 102;
 
         let config = EncodingConfig::new(NonZeroU16::new(n_shards).unwrap());

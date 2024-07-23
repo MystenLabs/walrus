@@ -48,7 +48,7 @@ struct Args {
     sui_network: SuiNetwork,
     /// The blob size to use for the load generation.
     #[clap(long, default_value = "10000")]
-    blob_size: NonZeroUsize,
+    blob_size: usize,
     /// The period in milliseconds to check if gas needs to be refilled. This is useful for continuous load testing
     /// where the gas budget need to be refilled periodically.
     #[clap(long, default_value = "1000")]
@@ -65,7 +65,7 @@ async fn main() -> anyhow::Result<()> {
 
     let config = Config::load(args.config_path).context("Failed to load client config")?;
     let n_clients = args.n_clients.get();
-    let blob_size = args.blob_size.get();
+    let blob_size = args.blob_size;
 
     // Start the metrics server.
     let metrics_address = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), args.metrics_port);

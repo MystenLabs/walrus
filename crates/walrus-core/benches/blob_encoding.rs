@@ -3,10 +3,7 @@
 
 //! Benchmarks for the blob encoding and decoding with and without authentication.
 
-use core::{
-    num::{NonZeroU16, NonZeroU64},
-    time::Duration,
-};
+use core::{num::NonZeroU16, time::Duration};
 
 use criterion::{AxisScale, BatchSize, BenchmarkId, Criterion, PlotConfiguration};
 use walrus_core::encoding::{EncodingConfig, Primary};
@@ -84,9 +81,7 @@ fn blob_decoding(c: &mut Criterion) {
                 b.iter_batched(
                     || slivers.clone(),
                     |slivers| {
-                        let mut decoder = config
-                            .get_blob_decoder::<Primary>(NonZeroU64::new(*blob_size).unwrap())
-                            .unwrap();
+                        let mut decoder = config.get_blob_decoder::<Primary>(*blob_size).unwrap();
                         let _blob = decoder.decode(slivers).unwrap();
                     },
                     BatchSize::SmallInput,
@@ -101,9 +96,7 @@ fn blob_decoding(c: &mut Criterion) {
                 b.iter_batched(
                     || slivers.clone(),
                     |slivers| {
-                        let mut decoder = config
-                            .get_blob_decoder::<Primary>(NonZeroU64::new(*blob_size).unwrap())
-                            .unwrap();
+                        let mut decoder = config.get_blob_decoder::<Primary>(*blob_size).unwrap();
                         let _blob = decoder
                             .decode_and_verify(blob_id, slivers)
                             .unwrap()

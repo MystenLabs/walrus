@@ -1,10 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{
-    num::{NonZeroU16, NonZeroU64},
-    sync::Arc,
-};
+use std::{num::NonZeroU16, sync::Arc};
 
 use anyhow::bail;
 use fastcrypto::traits::ToFromBytes;
@@ -63,8 +60,8 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
         .blob_events(polling_duration, None)
         .await?;
 
-    let size = NonZeroU64::new(10_000).unwrap();
-    let resource_size = encoding_config.encoded_blob_length(size.get()).unwrap();
+    let size = 10_000;
+    let resource_size = encoding_config.encoded_blob_length(size).unwrap();
     let storage_resource = walrus_client
         .as_ref()
         .reserve_space(resource_size, 3)
@@ -92,7 +89,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
         )
         .await?;
     assert_eq!(blob_obj.blob_id, blob_id);
-    assert_eq!(blob_obj.size, size.get());
+    assert_eq!(blob_obj.size, size);
     assert_eq!(blob_obj.certified_epoch, None);
     assert_eq!(blob_obj.storage, storage_resource);
     assert_eq!(blob_obj.stored_epoch, 0);

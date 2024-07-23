@@ -4,7 +4,7 @@
 //! Metadata associated with a Blob and stored by storage nodes.
 
 use alloc::vec::Vec;
-use core::num::{NonZeroU16, NonZeroU64};
+use core::num::NonZeroU16;
 use std;
 
 use fastcrypto::hash::{Blake2b256, HashFunction};
@@ -43,9 +43,6 @@ pub enum VerificationError {
     /// available in the configuration provided.
     #[error("the unencoded blob length is too large for the given config")]
     UnencodedLengthTooLarge,
-    /// The blob is empty.
-    #[error("the blob is empty")]
-    EmptyBlob,
 }
 
 /// [`BlobMetadataWithId`] that has been verified with [`UnverifiedBlobMetadataWithId::verify`].
@@ -83,7 +80,7 @@ impl<const V: bool> BlobMetadataWithId<V> {
     pub fn new_verified_from_metadata(
         sliver_pair_meta: Vec<SliverPairMetadata>,
         encoding: EncodingType,
-        unencoded_length: NonZeroU64,
+        unencoded_length: u64,
     ) -> VerifiedBlobMetadataWithId {
         let blob_metadata = BlobMetadata {
             encoding_type: encoding,
@@ -166,7 +163,7 @@ impl UnverifiedBlobMetadataWithId {
             }
         );
         crate::ensure!(
-            self.metadata.unencoded_length.get() <= config.max_blob_size(),
+            self.metadata.unencoded_length <= config.max_blob_size(),
             VerificationError::UnencodedLengthTooLarge
         );
         let computed_blob_id = BlobId::from_sliver_pair_metadata(&self.metadata);
@@ -193,7 +190,7 @@ pub struct BlobMetadata {
     /// The type of encoding used to erasure encode the blob.
     pub encoding_type: EncodingType,
     /// The length of the unencoded blob.
-    pub unencoded_length: NonZeroU64,
+    pub unencoded_length: u64,
     /// The hashes over the slivers of the blob.
     pub hashes: Vec<SliverPairMetadata>,
 }
@@ -228,18 +225,19 @@ impl BlobMetadata {
         &self,
         encoding_config: &EncodingConfig,
     ) -> Result<NonZeroU16, DataTooLargeError> {
-        encoding_config.symbol_size_for_blob_from_nonzero(self.unencoded_length)
+        encoding_config.symbol_size_for_blob(self.unencoded_length)
     }
 
     /// Returns the encoded size of the blob.
     ///
     /// This infers the number of shards from the length of the `hashes` vector.
     ///
-    /// Returns `None` if `hashes.len()` is not between `1` and `u16::MAX` or if the `unencoded_length` cannot be encoded
+    /// Returns `None` if `hashes.len()` is not between `1` and `u16::MAX` or if the
+    /// `unencoded_length` cannot be encoded
     pub fn encoded_size(&self) -> Option<u64> {
         encoded_blob_length_for_n_shards(
             NonZeroU16::new(self.hashes.len().try_into().ok()?)?,
-            self.unencoded_length.get(),
+            self.unencoded_length,
         )
     }
 }
@@ -353,13 +351,10 @@ mod tests {
         fn fails_for_unencoded_length_too_large() {
             let config = test_utils::encoding_config();
             let mut metadata = test_utils::unverified_blob_metadata();
-            metadata.metadata.unencoded_length = NonZeroU64::new(
-                u64::from(u16::MAX)
-                    * u64::from(config.source_symbols_primary.get())
-                    * u64::from(config.source_symbols_secondary.get())
-                    + 1,
-            )
-            .unwrap();
+            metadata.metadata.unencoded_length = u64::from(u16::MAX)
+                * u64::from(config.source_symbols_primary.get())
+                * u64::from(config.source_symbols_secondary.get())
+                + 1;
 
             let err = metadata
                 .verify(&config)

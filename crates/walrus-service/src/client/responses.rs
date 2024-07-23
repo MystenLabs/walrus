@@ -1,10 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{
-    num::NonZeroU64,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use serde_with::{base64::Base64, serde_as, DisplayFromStr};
@@ -100,7 +97,7 @@ pub struct BlobIdOutput {
     #[serde_as(as = "DisplayFromStr")]
     pub(crate) blob_id: BlobId,
     pub(crate) file: PathBuf,
-    pub(crate) unencoded_length: NonZeroU64,
+    pub(crate) unencoded_length: u64,
 }
 
 impl BlobIdOutput {

@@ -4,7 +4,6 @@
 //! Test utilities for `walrus-sui`.
 
 use std::{
-    num::NonZeroU64,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -186,14 +185,14 @@ impl ContractClient for MockContractClient {
         storage: &StorageResource,
         blob_id: BlobId,
         _root_digest: [u8; DIGEST_LEN],
-        blob_size: NonZeroU64,
+        blob_size: u64,
         erasure_code_type: EncodingType,
     ) -> SuiClientResult<Blob> {
         self.read_client.add_event(
             BlobRegistered {
                 epoch: self.current_epoch,
                 blob_id,
-                size: blob_size.get(),
+                size: blob_size,
                 erasure_code_type,
                 end_epoch: storage.end_epoch,
                 event_id: event_id_for_testing(),
@@ -204,7 +203,7 @@ impl ContractClient for MockContractClient {
             id: ObjectID::random(),
             stored_epoch: self.current_epoch,
             blob_id,
-            size: blob_size.get(),
+            size: blob_size,
             erasure_code_type,
             certified_epoch: None,
             storage: storage.clone(),
@@ -304,7 +303,7 @@ mod tests {
         let mut events = pin!(read_client.blob_events(polling_duration, None).await?);
 
         let resource_size = 10_000_000;
-        let size = NonZeroU64::new(10_000).unwrap();
+        let size = 10_000;
         let storage_resource = walrus_client.reserve_space(resource_size, 3).await?;
         assert_eq!(storage_resource.start_epoch, 0);
         assert_eq!(storage_resource.end_epoch, 3);
@@ -326,7 +325,7 @@ mod tests {
             )
             .await?;
         assert_eq!(blob_obj.blob_id, blob_id);
-        assert_eq!(blob_obj.size, size.get());
+        assert_eq!(blob_obj.size, size);
         assert_eq!(blob_obj.certified_epoch, None);
         assert_eq!(blob_obj.storage, storage_resource);
         assert_eq!(blob_obj.stored_epoch, 0);
