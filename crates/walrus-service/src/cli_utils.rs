@@ -11,27 +11,11 @@ use std::{
 
 use anyhow::{anyhow, Context, Result};
 use colored::{ColoredString, Colorize};
-use indoc::printdoc;
-use prettytable::{format, row, Table};
 use sui_sdk::{wallet_context::WalletContext, SuiClientBuilder};
 use sui_types::event::EventID;
-use walrus_core::{
-    bft,
-    encoding::{
-        encoded_blob_length_for_n_shards,
-        encoded_slivers_length_for_n_shards,
-        max_blob_size_for_n_shards,
-        max_sliver_size_for_n_secondary,
-        metadata_length_for_n_shards,
-        source_symbols_for_n_shards,
-    },
-};
-use walrus_sui::{
-    client::{ReadClient, SuiContractClient, SuiReadClient},
-    utils::{price_for_unencoded_length, storage_units_from_size, BYTES_PER_UNIT_SIZE},
-};
+use walrus_sui::client::{SuiContractClient, SuiReadClient};
 
-use crate::client::{default_configuration_paths, string_prefix, Blocklist, Client, Config};
+use crate::client::{default_configuration_paths, Blocklist, Client, Config};
 
 mod cli_output;
 pub use cli_output::CliOutput;
@@ -309,170 +293,12 @@ fn thousands_separator(num: u64) -> String {
         .join(",")
 }
 
-/// Pretty-prints information on the running Walrus system.
-pub async fn print_walrus_info(sui_read_client: &impl ReadClient, dev: bool) -> Result<()> {
-    let committee = sui_read_client.current_committee().await?;
-    let price_per_unit_size = sui_read_client.price_per_unit_size().await?;
-
-    let epoch = committee.epoch;
-    let n_shards = committee.n_shards();
-    let (n_primary_source_symbols, n_secondary_source_symbols) =
-        source_symbols_for_n_shards(n_shards);
-
-    let n_nodes = committee.n_members();
-    let max_blob_size = max_blob_size_for_n_shards(n_shards);
-    let metadata_length = metadata_length_for_n_shards(n_shards);
-    let metadata_price = storage_units_from_size(metadata_length) * price_per_unit_size;
-
-    let example_blob_0 = max_blob_size.next_power_of_two() / 1024;
-    let example_blob_1 = example_blob_0 * 32;
-    let blob_price = |blob_size: u64| {
-        HumanReadableMist(
-            price_for_unencoded_length(blob_size, n_shards, price_per_unit_size, 1)
-                .expect("we can encode the blob size"),
-        )
-    };
-
-    // Make sure our marginal size can actually be encoded.
-    let mut marginal_size = 1024 * 1024; // Start with 1 MiB.
-    while marginal_size > max_blob_size {
-        marginal_size /= 4;
-    }
-
-    // NOTE: keep price and text in sync with changes in the contracts.
-    printdoc!(
-        "
-
-        {top_heading}
-        Current epoch: {epoch}
-
-        {storage_heading}
-        Number of nodes: {n_nodes}
-        Number of shards: {n_shards}
-
-        {size_heading}
-        Maximum blob size: {hr_max_blob} ({max_blob_size_sep} B)
-        Storage unit: {hr_storage_unit}
-
-        {price_heading}
-        Price per encoded storage unit: {hr_price_per_unit_size}
-        Price to store metadata: {metadata_price}
-        Marginal price per additional {marginal_size:.0} (w/o metadata): {marginal_price}
-
-        {price_examples_heading}
-        {hr_example_blob_0}: {price_example_blob_0} per epoch
-        {hr_example_blob_1}: {price_example_blob_1} per epoch
-        Max blob ({hr_max_blob}): {price_max_blob} per epoch
-        ",
-        top_heading = "Walrus system information".bold(),
-        storage_heading = "Storage nodes".bold().green(),
-        size_heading = "Blob size".bold().green(),
-        hr_max_blob = HumanReadableBytes(max_blob_size),
-        hr_storage_unit = HumanReadableBytes(BYTES_PER_UNIT_SIZE),
-        max_blob_size_sep = thousands_separator(max_blob_size),
-        price_heading = "Approximate storage prices per epoch".bold().green(),
-        hr_price_per_unit_size = HumanReadableMist(price_per_unit_size),
-        metadata_price = HumanReadableMist(metadata_price),
-        marginal_size = HumanReadableBytes(marginal_size),
-        marginal_price = HumanReadableMist(
-            storage_units_from_size(
-                encoded_slivers_length_for_n_shards(n_shards, marginal_size)
-                    .expect("we can encode 1 MiB")
-            ) * price_per_unit_size
-        ),
-        price_examples_heading = "Total price for example blob sizes".bold().green(),
-        hr_example_blob_0 = HumanReadableBytes(example_blob_0),
-        price_example_blob_0 = blob_price(example_blob_0),
-        hr_example_blob_1 = HumanReadableBytes(example_blob_1),
-        price_example_blob_1 = blob_price(example_blob_1),
-        price_max_blob = blob_price(max_blob_size),
-    );
-
-    if !dev {
-        return Ok(());
-    }
-
-    let max_sliver_size = max_sliver_size_for_n_secondary(n_secondary_source_symbols);
-    let max_encoded_blob_size =
-        encoded_blob_length_for_n_shards(n_shards, max_blob_size_for_n_shards(n_shards))
-            .expect("we can compute the encoded length of the max blob size");
-    let f = bft::max_n_faulty(n_shards);
-    let (min_nodes_above, shards_above) = committee.min_nodes_above_f();
-
-    printdoc!(
-        "
-
-        {encoding_heading}
-        Number of primary source symbols: {n_primary_source_symbols}
-        Number of secondary source symbols: {n_secondary_source_symbols}
-        Metadata size: {hr_metadata} ({metadata_length_sep} B)
-        Maximum sliver size: {hr_sliver} ({max_sliver_size_sep} B)
-        Maximum encoded blob size: {hr_encoded} ({max_encoded_blob_size_sep} B)
-
-        {bft_heading}
-        Tolerated faults (f): {f}
-        Quorum threshold (2f+1): {two_f_plus_1}
-        Minimum number of correct shards (n-f): {min_correct}
-        Minimum number of nodes to get above f: {min_nodes_above} ({shards_above} shards)
-
-        {node_heading}
-        ",
-        encoding_heading = "(dev) Encoding parameters and sizes".bold().yellow(),
-        hr_metadata = HumanReadableBytes(metadata_length),
-        metadata_length_sep = thousands_separator(metadata_length),
-        hr_sliver = HumanReadableBytes(max_sliver_size),
-        max_sliver_size_sep = thousands_separator(max_sliver_size),
-        hr_encoded = HumanReadableBytes(max_encoded_blob_size),
-        max_encoded_blob_size_sep = thousands_separator(max_encoded_blob_size),
-        bft_heading = "(dev) BFT system information".bold().yellow(),
-        two_f_plus_1 = 2 * f + 1,
-        min_correct = bft::min_n_correct(n_shards),
-        node_heading = "(dev) Storage node details and shard distribution"
-            .bold()
-            .yellow()
-    );
-
-    let mut table = Table::new();
-    table.set_format(default_table_format());
-    table.set_titles(row![b->"Idx", b->"# Shards", b->"Pk prefix", b->"Address"]);
-
-    for (i, node) in committee.members().iter().enumerate() {
-        let n_owned = node.shard_ids.len();
-        let n_owned_percent = (n_owned as f64) / (committee.n_shards().get() as f64) * 100.0;
-        table.add_row(row![
-            bFg->format!("{i}"),
-            format!("{} ({:.2}%)", n_owned, n_owned_percent),
-            string_prefix(&node.public_key),
-            node.network_address,
-        ]);
-    }
-    table.printstd();
-
-    Ok(())
-}
-
 /// Reads a blob from the filesystem or returns a helpful error message.
 pub fn read_blob_from_file(path: impl AsRef<Path>) -> anyhow::Result<Vec<u8>> {
     fs::read(&path).context(format!(
         "unable to read blob from '{}'",
         path.as_ref().display()
     ))
-}
-
-/// Default style for tables printed to stdout.
-// TODO: Consider deduplicating with `walrus_orchestrator::display`.
-fn default_table_format() -> format::TableFormat {
-    format::FormatBuilder::new()
-        .separators(
-            &[
-                format::LinePosition::Top,
-                format::LinePosition::Bottom,
-                format::LinePosition::Title,
-            ],
-            format::LineSeparator::new('-', '-', '-', '-'),
-        )
-        .padding(1, 1)
-        .build()
 }
 
 /// Format the event ID as the transaction digest and the sequence number.

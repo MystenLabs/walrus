@@ -1,46 +1,62 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::io::stdout;
+
 use anyhow::Result;
 use colored::Colorize;
+use indoc::printdoc;
+use prettytable::{format, row, Table};
 use serde::Serialize;
 use walrus_sdk::api::BlobStatus;
+use walrus_sui::utils::price_for_unencoded_length;
 
 use crate::{
-    cli_utils::{error, format_event_id, success, HumanReadableBytes, HumanReadableMist},
-    client::{BlobIdOutput, BlobStatusOutput, BlobStoreResult, DryRunOutput, ReadOutput},
+    cli_utils::{
+        error,
+        format_event_id,
+        success,
+        thousands_separator,
+        HumanReadableBytes,
+        HumanReadableMist,
+    },
+    client::{
+        string_prefix,
+        BlobIdOutput,
+        BlobStatusOutput,
+        BlobStoreResult,
+        DryRunOutput,
+        InfoDevOutput,
+        InfoOutput,
+        ReadOutput,
+    },
 };
 
 /// Trait to differentiate output depending on the output mode.
 pub trait CliOutput: Serialize {
-    /// Returns the output as a human-readable string for the CLI.
-    fn cli_output(&self) -> String;
-
-    /// Returns the output as a string formatted depending on the output mode.
-    fn output_string(&self, json: bool) -> Result<String> {
-        if json {
-            Ok(serde_json::to_string(&self)?)
-        } else {
-            Ok(self.cli_output())
-        }
-    }
+    /// Writes the output to stdout as a human-readable string for the CLI.
+    fn print_cli_output(&self);
 
     /// Writes the output to stdout formatted depending on the output mode.
     fn print_output(&self, json: bool) -> Result<()> {
-        println!("{}", self.output_string(json)?);
+        if json {
+            serde_json::to_writer_pretty(stdout(), &self)?;
+        } else {
+            self.print_cli_output();
+        }
         Ok(())
     }
 }
 
 impl CliOutput for BlobStoreResult {
-    fn cli_output(&self) -> String {
+    fn print_cli_output(&self) {
         match &self {
             Self::AlreadyCertified {
                 blob_id,
                 event,
                 end_epoch,
             } => {
-                format!(
+                println!(
                     "{} Blob was previously certified within Walrus for a sufficient period.\n\
                     Blob ID: {}\nCertification event ID: {}\nEnd epoch (exclusive): {}",
                     success(),
@@ -54,7 +70,7 @@ impl CliOutput for BlobStoreResult {
                 encoded_size,
                 cost,
             } => {
-                format!(
+                println!(
                     "{} Blob stored successfully.\n\
                     Blob ID: {}\n\
                     Unencoded size: {}\n\
@@ -70,7 +86,7 @@ impl CliOutput for BlobStoreResult {
                 )
             }
             Self::MarkedInvalid { blob_id, event } => {
-                format!(
+                println!(
                     "{} Blob was marked as invalid.\nBlob ID: {}\nInvalidation event ID: {}",
                     error(),
                     blob_id,
@@ -82,25 +98,21 @@ impl CliOutput for BlobStoreResult {
 }
 
 impl CliOutput for ReadOutput {
-    fn cli_output(&self) -> String {
-        match &self.out {
-            Some(path) => {
-                format!(
-                    "{} Blob {} reconstructed from Walrus and written to {}.",
-                    success(),
-                    self.blob_id,
-                    path.display()
-                )
-            }
-            // The full blob has been written to stdout.
-            None => "".into(),
+    fn print_cli_output(&self) {
+        if let Some(path) = &self.out {
+            println!(
+                "{} Blob {} reconstructed from Walrus and written to {}.",
+                success(),
+                self.blob_id,
+                path.display()
+            )
         }
     }
 }
 
 impl CliOutput for BlobIdOutput {
-    fn cli_output(&self) -> String {
-        format!(
+    fn print_cli_output(&self) {
+        println!(
             "{} Blob from file '{}' encoded successfully.\n\
                 Unencoded size: {}\nBlob ID: {}",
             success(),
@@ -112,8 +124,8 @@ impl CliOutput for BlobIdOutput {
 }
 
 impl CliOutput for DryRunOutput {
-    fn cli_output(&self) -> String {
-        format!(
+    fn print_cli_output(&self) {
+        println!(
             "{} Store dry-run succeeded.\n\
                 Blob ID: {}\n\
                 Unencoded size: {}\n\
@@ -129,19 +141,19 @@ impl CliOutput for DryRunOutput {
 }
 
 impl CliOutput for BlobStatusOutput {
-    fn cli_output(&self) -> String {
+    fn print_cli_output(&self) {
         let blob_str = if let Some(file) = self.file.clone() {
             format!("{} (file: {})", self.blob_id, file.display())
         } else {
             format!("{}", self.blob_id)
         };
         match self.status {
-            BlobStatus::Nonexistent => format!("Blob ID {blob_str} is not stored on Walrus."),
+            BlobStatus::Nonexistent => println!("Blob ID {blob_str} is not stored on Walrus."),
             BlobStatus::Existent {
                 status,
                 end_epoch,
                 status_event,
-            } => format!(
+            } => println!(
                 "Status for blob ID {blob_str}: {}\n\
                     End epoch: {}\n\
                     Related event: {}",
@@ -151,4 +163,152 @@ impl CliOutput for BlobStatusOutput {
             ),
         }
     }
+}
+
+impl CliOutput for InfoOutput {
+    fn print_cli_output(&self) {
+        let Self {
+            storage_unit_size: unit_size,
+            price_per_unit_size,
+            current_epoch,
+            n_shards,
+            n_nodes,
+            max_blob_size,
+            metadata_price,
+            marginal_size,
+            marginal_price,
+            dev_info,
+        } = self;
+
+        let example_blob_0 = max_blob_size.next_power_of_two() / 1024;
+        let example_blob_1 = example_blob_0 * 32;
+        let blob_price = |blob_size: u64| {
+            HumanReadableMist(
+                price_for_unencoded_length(blob_size, *n_shards, *price_per_unit_size, 1)
+                    .expect("we can encode the blob size"),
+            )
+        };
+
+        // NOTE: keep text in sync with changes in the contracts.
+        printdoc!(
+            "
+
+            {top_heading}
+            Current epoch: {current_epoch}
+
+            {storage_heading}
+            Number of nodes: {n_nodes}
+            Number of shards: {n_shards}
+
+            {size_heading}
+            Maximum blob size: {hr_max_blob} ({max_blob_size_sep} B)
+            Storage unit: {hr_storage_unit}
+
+            {price_heading}
+            Price per encoded storage unit: {hr_price_per_unit_size}
+            Price to store metadata: {metadata_price}
+            Marginal price per additional {marginal_size:.0} (w/o metadata): {marginal_price}
+
+            {price_examples_heading}
+            {hr_example_blob_0}: {price_example_blob_0} per epoch
+            {hr_example_blob_1}: {price_example_blob_1} per epoch
+            Max blob ({hr_max_blob}): {price_max_blob} per epoch
+            ",
+            top_heading = "Walrus system information".bold(),
+            storage_heading = "Storage nodes".bold().green(),
+            size_heading = "Blob size".bold().green(),
+            hr_max_blob = HumanReadableBytes(*max_blob_size),
+            hr_storage_unit = HumanReadableBytes(*unit_size),
+            max_blob_size_sep = thousands_separator(*max_blob_size),
+            price_heading = "Approximate storage prices per epoch".bold().green(),
+            hr_price_per_unit_size = HumanReadableMist(*price_per_unit_size),
+            metadata_price = HumanReadableMist(*metadata_price),
+            marginal_size = HumanReadableBytes(*marginal_size),
+            marginal_price = HumanReadableMist(*marginal_price),
+            price_examples_heading = "Total price for example blob sizes".bold().green(),
+            hr_example_blob_0 = HumanReadableBytes(example_blob_0),
+            price_example_blob_0 = blob_price(example_blob_0),
+            hr_example_blob_1 = HumanReadableBytes(example_blob_1),
+            price_example_blob_1 = blob_price(example_blob_1),
+            price_max_blob = blob_price(*max_blob_size),
+        );
+
+        let Some(InfoDevOutput {
+            n_primary_source_symbols,
+            n_secondary_source_symbols,
+            metadata_storage_size,
+            max_sliver_size,
+            max_encoded_blob_size,
+            max_faulty_shards,
+            min_correct_shards,
+            quorum_threshold,
+            storage_nodes,
+            committee,
+        }) = dev_info
+        else {
+            return;
+        };
+
+        let (min_nodes_above, shards_above) = committee.min_nodes_above_f();
+        printdoc!(
+            "
+
+            {encoding_heading}
+            Number of primary source symbols: {n_primary_source_symbols}
+            Number of secondary source symbols: {n_secondary_source_symbols}
+            Metadata size: {hr_metadata} ({metadata_storage_size_sep} B)
+            Maximum sliver size: {hr_sliver} ({max_sliver_size_sep} B)
+            Maximum encoded blob size: {hr_encoded} ({max_encoded_blob_size_sep} B)
+
+            {bft_heading}
+            Tolerated faults (f): {max_faulty_shards}
+            Quorum threshold (2f+1): {quorum_threshold}
+            Minimum number of correct shards (n-f): {min_correct_shards}
+            Minimum number of nodes to get above f: {min_nodes_above} ({shards_above} shards)
+
+            {node_heading}
+            ",
+            encoding_heading = "(dev) Encoding parameters and sizes".bold().yellow(),
+            hr_metadata = HumanReadableBytes(*metadata_storage_size),
+            metadata_storage_size_sep = thousands_separator(*metadata_storage_size),
+            hr_sliver = HumanReadableBytes(*max_sliver_size),
+            max_sliver_size_sep = thousands_separator(*max_sliver_size),
+            hr_encoded = HumanReadableBytes(*max_encoded_blob_size),
+            max_encoded_blob_size_sep = thousands_separator(*max_encoded_blob_size),
+            bft_heading = "(dev) BFT system information".bold().yellow(),
+            node_heading = "(dev) Storage node details and shard distribution"
+                .bold()
+                .yellow()
+        );
+
+        let mut table = Table::new();
+        table.set_format(default_table_format());
+        table.set_titles(row![b->"Idx", b->"# Shards", b->"Pk prefix", b->"Address"]);
+        for (i, node) in storage_nodes.iter().enumerate() {
+            let n_owned = node.n_shards;
+            let n_owned_percent = (n_owned as f64) / (n_shards.get() as f64) * 100.0;
+            table.add_row(row![
+                bFg->format!("{i}"),
+                format!("{} ({:.2}%)", n_owned, n_owned_percent),
+                string_prefix(&node.public_key),
+                node.network_address,
+            ]);
+        }
+        table.printstd();
+    }
+}
+
+/// Default style for tables printed to stdout.
+fn default_table_format() -> format::TableFormat {
+    format::FormatBuilder::new()
+        .separators(
+            &[
+                format::LinePosition::Top,
+                format::LinePosition::Bottom,
+                format::LinePosition::Title,
+            ],
+            format::LineSeparator::new('-', '-', '-', '-'),
+        )
+        .padding(1, 1)
+        .build()
 }

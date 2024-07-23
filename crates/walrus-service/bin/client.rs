@@ -30,13 +30,20 @@ use walrus_service::{
         get_sui_read_client_from_rpc_node_or_wallet,
         load_configuration,
         load_wallet_context,
-        print_walrus_info,
         read_blob_from_file,
         CliOutput,
         HumanReadableBytes,
         VERSION,
     },
-    client::{BlobIdOutput, BlobStatusOutput, Client, ClientDaemon, DryRunOutput, ReadOutput},
+    client::{
+        BlobIdOutput,
+        BlobStatusOutput,
+        Client,
+        ClientDaemon,
+        DryRunOutput,
+        InfoOutput,
+        ReadOutput,
+    },
 };
 use walrus_sui::{
     client::{ContractClient, ReadClient},
@@ -229,8 +236,6 @@ enum Commands {
         ///
         /// Important: If the "read" command does not have an "out" file specified, the output JSON
         /// string will contain the full bytes of the blob, encoded as a Base64 string.
-        ///
-        /// All commands except "info" are available.
         #[clap(verbatim_doc_comment)]
         command_string: Option<String>,
     },
@@ -576,10 +581,6 @@ async fn run_app(app: App) -> Result<()> {
             rpc_arg: RpcArg { rpc_url },
             dev,
         } => {
-            if app.json {
-                // TODO: Implement the info command for JSON as well. (#465)
-                return Err(anyhow!("the info command is not available in JSON mode"));
-            }
             let config = config?;
             let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
                 &config,
@@ -588,7 +589,9 @@ async fn run_app(app: App) -> Result<()> {
                 wallet_path.is_none(),
             )
             .await?;
-            print_walrus_info(&sui_read_client, dev).await?;
+            InfoOutput::get_system_info(&sui_read_client, dev)
+                .await?
+                .print_output(app.json)?;
         }
         Commands::Json { .. } => {
             unreachable!("we unpack JSON commands until we obtain a different command")
