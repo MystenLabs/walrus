@@ -9,7 +9,7 @@ use std::{cmp, cmp::Ordering};
 use enum_dispatch::enum_dispatch;
 use serde::{Deserialize, Serialize};
 use sui_types::event::EventID;
-use walrus_core::{encoding::EncodingAxis, EncodingType, Epoch, ShardIndex, SliverType};
+use walrus_core::{encoding::EncodingAxis, BlobId, EncodingType, Epoch, ShardIndex, SliverType};
 use walrus_sdk::api::{BlobCertificationStatus as SdkBlobCertificationStatus, BlobStatus};
 use walrus_sui::types::{BlobCertified, BlobEvent, BlobRegistered, InvalidBlobId};
 
@@ -140,16 +140,6 @@ impl BlobInfoV1 {
         status: BlobCertificationStatus,
         status_event: EventID,
     ) {
-        if self.status >= status {
-            // TODO(zhewu): revisit once we have a better understanding of contract behavior and
-            // whether out of order events are possible. (#606)
-            tracing::error!(
-                "Status already set to the same or a higher value: {:?} vs {:?}",
-                self.status,
-                status
-            );
-        }
-
         if self.status < status || self.status == status && self.end_epoch < end_epoch {
             self.status = status;
             self.current_status_event = status_event;
@@ -160,59 +150,36 @@ impl BlobInfoV1 {
     /// Updates the epoch where the status changed.
     fn update_status_changing_epoch(
         &mut self,
+        blob_id: &BlobId,
         status: BlobCertificationStatus,
         status_changing_epoch: Epoch,
     ) {
+        if let Some(current_status_epoch) = self.status_changing_epoch(status) {
+            if current_status_epoch <= status_changing_epoch {
+                // The status epoch is already set to a higher epoch.
+                return;
+            }
+
+            // TODO(zhewu): revisit once we have a better understanding of contract behavior and
+            // whether duplicated events are possible. (#606)
+            tracing::warn!(
+                "Blob {:?} {:?} status epoch already set to a higher epoch: {:?} vs {:?}",
+                blob_id,
+                status,
+                current_status_epoch,
+                status_changing_epoch
+            );
+        }
         match status {
-            BlobCertificationStatus::Registered => match self.registered_epoch {
-                Some(epoch) => {
-                    if epoch != status_changing_epoch {
-                        // TODO(zhewu): revisit once we have a better understanding of contract behavior and
-                        // whether duplicated events are possible. (#606)
-                        tracing::error!(
-                            "Registered epoch already set to a different value: {} vs {}",
-                            epoch,
-                            status_changing_epoch
-                        );
-                    }
-                    self.registered_epoch = Some(cmp::min(epoch, status_changing_epoch));
-                }
-                None => {
-                    self.registered_epoch = Some(status_changing_epoch);
-                }
-            },
-            BlobCertificationStatus::Certified => match self.certified_epoch {
-                Some(epoch) => {
-                    if epoch != status_changing_epoch {
-                        // TODO(zhewu): revisit once we have a better understanding of contract behavior and
-                        // whether duplicated events are possible. (#606)
-                        tracing::error!(
-                            "Certified epoch already set to a different value: {} vs {}",
-                            epoch,
-                            status_changing_epoch
-                        );
-                    }
-                    self.certified_epoch = Some(cmp::min(epoch, status_changing_epoch));
-                }
-                None => {
-                    self.certified_epoch = Some(status_changing_epoch);
-                }
-            },
-            BlobCertificationStatus::Invalid => match self.invalidated_epoch {
-                Some(epoch) => {
-                    if epoch != status_changing_epoch {
-                        tracing::info!(
-                            "Invalidated epoch already set to a different value: {} vs {}",
-                            epoch,
-                            status_changing_epoch
-                        );
-                    }
-                    self.invalidated_epoch = Some(cmp::min(epoch, status_changing_epoch));
-                }
-                None => {
-                    self.invalidated_epoch = Some(status_changing_epoch);
-                }
-            },
+            BlobCertificationStatus::Registered => {
+                self.registered_epoch = Some(status_changing_epoch);
+            }
+            BlobCertificationStatus::Certified => {
+                self.certified_epoch = Some(status_changing_epoch);
+            }
+            BlobCertificationStatus::Invalid => {
+                self.invalidated_epoch = Some(status_changing_epoch);
+            }
         }
     }
 }
@@ -257,12 +224,13 @@ impl Mergeable for BlobInfoV1 {
     fn merge(mut self, operand: Self::MergeOperand) -> Self {
         match operand {
             BlobInfoMergeOperand::ChangeStatus {
+                blob_id,
                 status_changing_epoch,
                 end_epoch,
                 status,
                 status_event,
             } => {
-                self.update_status_changing_epoch(status, status_changing_epoch);
+                self.update_status_changing_epoch(&blob_id, status, status_changing_epoch);
                 self.update_status(end_epoch, status, status_event);
             }
             BlobInfoMergeOperand::MarkMetadataStored(stored) => {
@@ -283,6 +251,7 @@ pub enum BlobInfo {
 
 impl BlobInfo {
     pub fn new(
+        blob_id: BlobId,
         status_changing_epoch: Epoch,
         end_epoch: Epoch,
         status: BlobCertificationStatus,
@@ -298,7 +267,7 @@ impl BlobInfo {
         ));
 
         let BlobInfo::V1(inner) = &mut blob_info;
-        inner.update_status_changing_epoch(status, status_changing_epoch);
+        inner.update_status_changing_epoch(&blob_id, status, status_changing_epoch);
 
         blob_info
     }
@@ -345,6 +314,7 @@ impl From<BlobInfo> for BlobStatus {
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy)]
 pub enum BlobInfoMergeOperand {
     ChangeStatus {
+        blob_id: BlobId,
         status_changing_epoch: Epoch,
         end_epoch: Epoch,
         status: BlobCertificationStatus,
@@ -362,6 +332,7 @@ impl BlobInfoMergeOperand {
 impl From<&BlobRegistered> for BlobInfoMergeOperand {
     fn from(value: &BlobRegistered) -> Self {
         Self::ChangeStatus {
+            blob_id: value.blob_id,
             status_changing_epoch: value.epoch,
             end_epoch: value.end_epoch,
             status: BlobCertificationStatus::Registered,
@@ -373,6 +344,7 @@ impl From<&BlobRegistered> for BlobInfoMergeOperand {
 impl From<&BlobCertified> for BlobInfoMergeOperand {
     fn from(value: &BlobCertified) -> Self {
         Self::ChangeStatus {
+            blob_id: value.blob_id,
             status_changing_epoch: value.epoch,
             end_epoch: value.end_epoch,
             status: BlobCertificationStatus::Certified,
@@ -384,6 +356,7 @@ impl From<&BlobCertified> for BlobInfoMergeOperand {
 impl From<&InvalidBlobId> for BlobInfoMergeOperand {
     fn from(value: &InvalidBlobId) -> Self {
         Self::ChangeStatus {
+            blob_id: value.blob_id,
             status_changing_epoch: value.epoch,
             end_epoch: value.epoch,
             status: BlobCertificationStatus::Invalid,
@@ -412,6 +385,8 @@ mod tests {
 
     use super::*;
 
+    pub(crate) const BLOB_ID: BlobId = BlobId([7; 32]);
+
     param_test! {
         blob_info_transitions_to_new_status: [
             registered: (Registered, &[Certified, Invalid]),
@@ -425,7 +400,7 @@ mod tests {
     ) {
         const EPOCHS: &[Epoch] = &[2, 3, 4];
         const ALL_STATUSES: &[BlobCertificationStatus] = &[Registered, Certified, Invalid];
-        let initial_blob_info = BlobInfo::new(1, 3, initial, event_id_for_testing());
+        let initial_blob_info = BlobInfo::new(BLOB_ID, 1, 3, initial, event_id_for_testing());
 
         // Must transition to every "higher" status and the current status with higher epoch
         let must_cases = must_transition_to
@@ -524,6 +499,7 @@ mod tests {
 
         (
             BlobInfoMergeOperand::ChangeStatus {
+                blob_id: BLOB_ID,
                 status_changing_epoch: to_status_epoch,
                 end_epoch: to_end_epoch,
                 status: to_status,
@@ -537,10 +513,11 @@ mod tests {
     #[test]
     fn duplicated_status_change() {
         [Registered, Certified, Invalid].iter().for_each(|status| {
-            let mut blob_info = BlobInfo::new(5, 3, *status, event_id_for_testing());
+            let mut blob_info = BlobInfo::new(BLOB_ID, 5, 3, *status, event_id_for_testing());
 
             // For the same status, can update to lower `status_change_epoch`.
             blob_info = blob_info.merge(BlobInfoMergeOperand::ChangeStatus {
+                blob_id: BLOB_ID,
                 status_changing_epoch: 1,
                 end_epoch: 3,
                 status: *status,
@@ -550,6 +527,7 @@ mod tests {
 
             // Cannot update to higher `status_change_epoch`.
             blob_info = blob_info.merge(BlobInfoMergeOperand::ChangeStatus {
+                blob_id: BLOB_ID,
                 status_changing_epoch: 3,
                 end_epoch: 3,
                 status: *status,
