@@ -50,12 +50,16 @@ serde_test = "1.0.176"
 serde_with = { version = "3.9", features = ["base64"] }
 serde_yaml = "0.9"
 sui-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.30.1" }
+sui-json-rpc-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.30.1" }
 sui-keys = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.30.1" }
 sui-macros = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.30.1" }
 sui-move-build = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.30.1" }
+sui-package-resolver = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.30.1" }
 sui-protocol-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.30.1" }
+sui-rest-api = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.30.1" }
 sui-sdk = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.30.1" }
 sui-simulator = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.30.1" }
+sui-storage = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.30.1" }
 sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.30.1" }
 telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.30.1" }
 tempfile = "3.11.0"
@@ -72,6 +76,7 @@ typed-store = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.30.
 utoipa = { version = "4.2.3" }
 utoipa-redoc = { version = "4.0.0", features = ["axum"] }
 walrus-core = { path = "crates/walrus-core" }
+walrus-event = { path = "crates/walrus-event" }
 walrus-sdk = { path = "crates/walrus-sdk" }
 walrus-service = { path = "crates/walrus-service" }
 walrus-sui = { path = "crates/walrus-sui" }

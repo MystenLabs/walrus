@@ -247,7 +247,6 @@ impl StorageNodeBuilder {
                 MetricConf::new("storage"),
             )?
         };
-
         let sui_config_and_client =
             if self.event_provider.is_none() || self.committee_service_factory.is_none() {
                 Some(create_read_client(config).await?)

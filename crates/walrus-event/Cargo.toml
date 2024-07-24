@@ -1,0 +1,33 @@
+[package]
+name = "walrus-event"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+async-trait = "0.1.81"
+bcs.workspace = true
+move-core-types.workspace = true
+rocksdb.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_as = "0.0.1"
+serde_json = "1.0.120"
+serde_with = "2.3.3"
+sui-config.workspace = true
+sui-json-rpc-types = { workspace = true, features = ["test-utils"] }
+sui-package-resolver.workspace = true
+sui-rest-api.workspace = true
+sui-sdk.workspace = true
+sui-storage.workspace = true
+sui-types = { workspace = true, features = ["test-utils"] }
+tempfile = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tokio-stream.workspace = true
+tokio-util.workspace = true
+typed-store.workspace = true
+
+[features]
+default = ["test-utils"]
+test-utils = ["dep:tempfile"]
