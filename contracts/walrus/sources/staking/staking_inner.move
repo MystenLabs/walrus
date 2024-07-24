@@ -6,8 +6,10 @@ module walrus::staking_inner {
     use sui::coin::Coin;
     use sui::object_table::{Self, ObjectTable};
     use sui::sui::SUI;
+    use sui::clock::Clock;
     use walrus::staking_pool::{Self, StakingPool};
     use walrus::staked_wal::{Self, StakedWal};
+    use walrus::storage_node::StorageNodeCap;
 
     /// TODO: remove this once the module is implemented.
     const ENotImplemented: u64 = 0;
@@ -25,6 +27,8 @@ module walrus::staking_inner {
         StakingInnerV1 { pools: object_table::new(ctx) }
     }
 
+    // === Storage Node ===
+
     /// Creates a new staking pool with the given `commission_rate`.
     public(package) fun create_pool(
         self: &mut StakingInnerV1,
@@ -36,6 +40,49 @@ module walrus::staking_inner {
         self.pools.add(pool_id, pool);
         pool_id
     }
+
+        public(package) fun register_candidate(
+        self: &mut StakingInnerV1,
+        pool_id: ID,
+        ctx: &mut TxContext,
+    ): StorageNodeCap {
+        abort ENotImplemented
+    }
+
+    public(package) fun withdraw_node(self: &mut StakingInnerV1, cap: StorageNodeCap) {
+        abort ENotImplemented
+    }
+
+    public(package) fun set_next_commission(
+        self: &mut StakingInnerV1,
+        cap: &StorageNodeCap,
+        commission_rate: u64,
+    ) {
+        abort ENotImplemented
+    }
+
+    public(package) fun collect_commission(
+        self: &mut StakingInnerV1,
+        cap: &StorageNodeCap,
+    ): Coin<SUI> {
+        abort ENotImplemented
+    }
+
+    public(package) fun vote_for_next_epoch(
+        self: &mut StakingInnerV1,
+        cap: &StorageNodeCap,
+        storage_price: u64,
+        write_price: u64,
+        storage_capacity: u64,
+    ) {
+        abort ENotImplemented
+    }
+
+    public(package) fun voting_end(self: &mut StakingInnerV1, clock: &Clock) {
+        abort ENotImplemented
+    }
+
+    // === Staking ===
 
     /// Blocks staking for the pool, marks it as "withdrawing".
     public(package) fun set_withdrawing(self: &mut StakingInnerV1, pool_id: ID) {
