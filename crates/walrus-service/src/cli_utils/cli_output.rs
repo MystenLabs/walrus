@@ -9,7 +9,6 @@ use indoc::printdoc;
 use prettytable::{format, row, Table};
 use serde::Serialize;
 use walrus_sdk::api::BlobStatus;
-use walrus_sui::utils::price_for_unencoded_length;
 
 use crate::{
     cli_utils::{
@@ -26,6 +25,7 @@ use crate::{
         BlobStatusOutput,
         BlobStoreResult,
         DryRunOutput,
+        ExampleBlobInfo,
         InfoDevOutput,
         InfoOutput,
         ReadOutput,
@@ -177,17 +177,9 @@ impl CliOutput for InfoOutput {
             metadata_price,
             marginal_size,
             marginal_price,
+            example_blobs,
             dev_info,
         } = self;
-
-        let example_blob_0 = max_blob_size.next_power_of_two() / 1024;
-        let example_blob_1 = example_blob_0 * 32;
-        let blob_price = |blob_size: u64| {
-            HumanReadableMist(
-                price_for_unencoded_length(blob_size, *n_shards, *price_per_unit_size, 1)
-                    .expect("we can encode the blob size"),
-            )
-        };
 
         // NOTE: keep text in sync with changes in the contracts.
         printdoc!(
@@ -210,9 +202,7 @@ impl CliOutput for InfoOutput {
             Marginal price per additional {marginal_size:.0} (w/o metadata): {marginal_price}
 
             {price_examples_heading}
-            {hr_example_blob_0}: {price_example_blob_0} per epoch
-            {hr_example_blob_1}: {price_example_blob_1} per epoch
-            Max blob ({hr_max_blob}): {price_max_blob} per epoch
+            {example_blob_output}
             ",
             top_heading = "Walrus system information".bold(),
             storage_heading = "Storage nodes".bold().green(),
@@ -226,11 +216,11 @@ impl CliOutput for InfoOutput {
             marginal_size = HumanReadableBytes(*marginal_size),
             marginal_price = HumanReadableMist(*marginal_price),
             price_examples_heading = "Total price for example blob sizes".bold().green(),
-            hr_example_blob_0 = HumanReadableBytes(example_blob_0),
-            price_example_blob_0 = blob_price(example_blob_0),
-            hr_example_blob_1 = HumanReadableBytes(example_blob_1),
-            price_example_blob_1 = blob_price(example_blob_1),
-            price_max_blob = blob_price(*max_blob_size),
+            example_blob_output = example_blobs
+                .iter()
+                .map(ExampleBlobInfo::cli_output)
+                .collect::<Vec<_>>()
+                .join("\n"),
         );
 
         let Some(InfoDevOutput {

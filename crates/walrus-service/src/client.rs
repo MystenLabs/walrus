@@ -66,10 +66,10 @@ pub use responses::{
     BlobStatusOutput,
     BlobStoreResult,
     DryRunOutput,
-    InfoDevOutput,
     InfoOutput,
     ReadOutput,
 };
+pub(crate) use responses::{ExampleBlobInfo, InfoDevOutput};
 
 mod utils;
 pub use utils::string_prefix;

@@ -29,8 +29,10 @@ use walrus_sdk::api::BlobStatus;
 use walrus_sui::{
     client::ReadClient,
     types::{Blob, Committee, NetworkAddress, StorageNode},
-    utils::{storage_units_from_size, BYTES_PER_UNIT_SIZE},
+    utils::{price_for_encoded_length, storage_units_from_size, BYTES_PER_UNIT_SIZE},
 };
+
+use crate::cli_utils::{HumanReadableBytes, HumanReadableMist};
 
 /// Result when attempting to store a blob.
 #[serde_as]
@@ -177,6 +179,7 @@ pub struct InfoOutput {
     pub(crate) marginal_size: u64,
     pub(crate) metadata_price: u64,
     pub(crate) marginal_price: u64,
+    pub(crate) example_blobs: Vec<ExampleBlobInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) dev_info: Option<InfoDevOutput>,
 }
@@ -185,7 +188,7 @@ pub struct InfoOutput {
 #[serde_as]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct InfoDevOutput {
+pub(crate) struct InfoDevOutput {
     pub(crate) n_primary_source_symbols: NonZeroU16,
     pub(crate) n_secondary_source_symbols: NonZeroU16,
     pub(crate) max_sliver_size: u64,
@@ -206,6 +209,39 @@ pub(crate) struct StorageNodeInfo {
     pub(crate) network_address: NetworkAddress,
     pub(crate) public_key: PublicKey,
     pub(crate) n_shards: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ExampleBlobInfo {
+    unencoded_size: u64,
+    encoded_size: u64,
+    price: u64,
+}
+
+impl ExampleBlobInfo {
+    pub(crate) fn new(
+        unencoded_size: u64,
+        n_shards: NonZeroU16,
+        price_per_unit_size: u64,
+    ) -> Option<Self> {
+        let encoded_size = encoded_blob_length_for_n_shards(n_shards, unencoded_size)?;
+        let price = price_for_encoded_length(encoded_size, price_per_unit_size, 1);
+        Some(Self {
+            unencoded_size,
+            encoded_size,
+            price,
+        })
+    }
+
+    pub(crate) fn cli_output(&self) -> String {
+        format!(
+            "{} unencoded ({} encoded): {} per epoch",
+            HumanReadableBytes(self.unencoded_size),
+            HumanReadableBytes(self.encoded_size),
+            HumanReadableMist(self.price)
+        )
+    }
 }
 
 impl From<StorageNode> for StorageNodeInfo {
@@ -256,11 +292,20 @@ impl InfoOutput {
                 .expect("we can encode 1 MiB"),
         ) * price_per_unit_size;
 
+        let example_blob_0 = max_blob_size.next_power_of_two() / 1024;
+        let example_blob_1 = example_blob_0 * 32;
+        let example_blobs = [example_blob_0, example_blob_1, max_blob_size]
+            .into_iter()
+            .map(|unencoded_size| {
+                ExampleBlobInfo::new(unencoded_size, n_shards, price_per_unit_size)
+                    .expect("we can encode the given examples")
+            })
+            .collect();
+
         let dev_info = dev.then_some({
             let max_sliver_size = max_sliver_size_for_n_secondary(n_secondary_source_symbols);
-            let max_encoded_blob_size =
-                encoded_blob_length_for_n_shards(n_shards, max_blob_size_for_n_shards(n_shards))
-                    .expect("we can compute the encoded length of the max blob size");
+            let max_encoded_blob_size = encoded_blob_length_for_n_shards(n_shards, max_blob_size)
+                .expect("we can compute the encoded length of the max blob size");
             let f = bft::max_n_faulty(n_shards);
             let storage_nodes = committee
                 .members()
@@ -292,6 +337,7 @@ impl InfoOutput {
             metadata_price,
             marginal_size,
             marginal_price,
+            example_blobs,
             dev_info,
         })
     }
