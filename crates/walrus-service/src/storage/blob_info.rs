@@ -136,10 +136,14 @@ impl BlobInfoV1 {
     /// If the new status is the same as the current status, the status with the higher epoch is kept.
     fn update_status(
         &mut self,
+        blob_id: &BlobId,
         end_epoch: u64,
         status: BlobCertificationStatus,
+        status_changing_epoch: Epoch,
         status_event: EventID,
     ) {
+        self.update_status_changing_epoch(blob_id, status, status_changing_epoch);
+
         if self.status < status || self.status == status && self.end_epoch < end_epoch {
             self.status = status;
             self.current_status_event = status_event;
@@ -230,8 +234,13 @@ impl Mergeable for BlobInfoV1 {
                 status,
                 status_event,
             } => {
-                self.update_status_changing_epoch(&blob_id, status, status_changing_epoch);
-                self.update_status(end_epoch, status, status_event);
+                self.update_status(
+                    &blob_id,
+                    end_epoch,
+                    status,
+                    status_changing_epoch,
+                    status_event,
+                );
             }
             BlobInfoMergeOperand::MarkMetadataStored(stored) => {
                 self.is_metadata_stored = stored;
