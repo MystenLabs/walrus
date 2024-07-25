@@ -23,7 +23,6 @@ module walrus::system {
         system.inner_mut().epoch_sync_done(cap, epoch_number)
     }
 
-
     /// Marks blob as invalid given an invalid blob certificate.
     public fun invalidate_blob_id(
         system: &mut System,
@@ -81,5 +80,4 @@ module walrus::system {
         new(ctx).certify_event_blob(&cap, 0, 0);
         abort 1337
     }
-
 }

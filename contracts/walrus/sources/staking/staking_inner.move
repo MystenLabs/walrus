@@ -41,7 +41,7 @@ module walrus::staking_inner {
         pool_id
     }
 
-        public(package) fun register_candidate(
+    public(package) fun register_candidate(
         self: &mut StakingInnerV1,
         pool_id: ID,
         ctx: &mut TxContext,
