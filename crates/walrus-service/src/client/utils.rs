@@ -10,7 +10,8 @@ use std::{
 
 use anyhow::Result;
 use futures::{stream::FuturesUnordered, Future, StreamExt};
-use tokio::time::timeout;
+use tokio::time;
+use tracing::Level;
 
 /// A trait representing a result that has a weight.
 pub trait WeightedResult {
@@ -81,6 +82,25 @@ where
         }
     }
 
+    /// Executes the futures until the provided `threshold` is met, the set `duration` is elapsed,
+    /// or all futures have been executed.
+    ///
+    /// This combines the behavior of the functions [`execute_weight`][Self::execute_weight] and
+    /// [`execute_time`][Self::execute_time].
+    #[tracing::instrument(level = Level::DEBUG, skip(self, threshold), ret)]
+    pub async fn execute_until(
+        &mut self,
+        threshold: &impl Fn(usize) -> bool,
+        duration: Duration,
+        n_concurrent: usize,
+    ) -> CompletedReason {
+        tracing::debug!("starting to execute weighted futures");
+        match time::timeout(duration, self.execute_weight(threshold, n_concurrent)).await {
+            Ok(complete_reason) => complete_reason.into(),
+            Err(_) => CompletedReason::Timeout(self.total_weight),
+        }
+    }
+
     /// Executes the futures until the provided threshold is met or all futures have been executed.
     ///
     /// Stops executing in two cases:
@@ -93,11 +113,13 @@ where
     ///
     /// `n_concurrent` is the maximum number of futures that are awaited at any one time to produce
     /// results.
+    #[tracing::instrument(level = Level::DEBUG, skip(self, threshold), ret)]
     pub async fn execute_weight(
         &mut self,
         threshold: &impl Fn(usize) -> bool,
         n_concurrent: usize,
     ) -> CompletedReasonWeight {
+        tracing::debug!("starting to execute weighted futures");
         self.total_weight = 0;
         while let Some(result) = self.next_threshold(n_concurrent, threshold).await {
             self.results.push(result);
@@ -116,12 +138,14 @@ where
     ///
     /// `n_concurrent` is the maximum number of futures that are awaited at any one time to produce
     /// results.
+    #[tracing::instrument(level = Level::DEBUG, skip(self), ret)]
     pub async fn execute_time(
         &mut self,
         duration: Duration,
         n_concurrent: usize,
     ) -> CompletedReasonTime {
-        match timeout(duration, self.execute_all(n_concurrent)).await {
+        tracing::debug!("starting to execute weighted futures");
+        match time::timeout(duration, self.execute_all(n_concurrent)).await {
             Ok(_) => CompletedReasonTime::FuturesConsumed,
             Err(_) => CompletedReasonTime::Timeout,
         }
@@ -229,6 +253,7 @@ where
 }
 
 /// Represents the reason why the [`WeightedFutures::execute_weight`] completed.
+#[derive(Debug, Clone, Copy)]
 pub enum CompletedReasonWeight {
     ThresholdReached,
     /// Contains the weight of successful futures.
@@ -236,6 +261,7 @@ pub enum CompletedReasonWeight {
 }
 
 /// Represents the reason why the [`WeightedFutures::execute_time`] completed.
+#[derive(Debug, Clone, Copy)]
 pub enum CompletedReasonTime {
     Timeout,
     FuturesConsumed,
@@ -243,11 +269,47 @@ pub enum CompletedReasonTime {
 
 impl Display for CompletedReasonTime {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let reason = match self {
-            Self::Timeout => "timeout elapsed",
-            Self::FuturesConsumed => "all futures consumed",
-        };
-        write!(f, "{}", reason)
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::Timeout => "timeout elapsed",
+                Self::FuturesConsumed => "all futures consumed",
+            }
+        )
+    }
+}
+
+/// Represents the reason why the [`WeightedFutures::execute_until`] completed.
+#[derive(Debug, Clone, Copy)]
+pub enum CompletedReason {
+    ThresholdReached,
+    /// Contains the total weight of successful futures.
+    Timeout(usize),
+    /// Contains the total weight of successful futures.
+    FuturesConsumed(usize),
+}
+
+impl Display for CompletedReason {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::ThresholdReached => "threshold reached",
+                Self::Timeout(_) => "timeout elapsed",
+                Self::FuturesConsumed(_) => "all futures consumed",
+            }
+        )
+    }
+}
+
+impl From<CompletedReasonWeight> for CompletedReason {
+    fn from(value: CompletedReasonWeight) -> Self {
+        match value {
+            CompletedReasonWeight::ThresholdReached => Self::ThresholdReached,
+            CompletedReasonWeight::FuturesConsumed(w) => Self::FuturesConsumed(w),
+        }
     }
 }
 

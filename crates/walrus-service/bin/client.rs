@@ -353,7 +353,7 @@ mod default {
     }
 
     pub(crate) fn status_timeout() -> Duration {
-        Duration::from_secs(1)
+        Duration::from_secs(10)
     }
 
     pub(crate) fn bind_address() -> SocketAddr {

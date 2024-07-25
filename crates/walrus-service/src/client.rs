@@ -337,7 +337,7 @@ impl<T> Client<T> {
         // connections is already limited by the `global_write_limit` semaphore.
         if let CompletedReasonWeight::FuturesConsumed(weight) = requests
             .execute_weight(
-                &|weight| self.quorum_check(weight),
+                &|weight| self.committee.is_at_least_min_n_correct(weight),
                 self.committee.n_shards().get().into(),
             )
             .await
@@ -399,7 +399,7 @@ impl<T> Client<T> {
             }
         }
         ensure!(
-            self.quorum_check(aggregate_weight),
+            self.committee.is_at_least_min_n_correct(aggregate_weight),
             self.not_enough_confirmations_error(aggregate_weight)
         );
 
@@ -412,10 +412,6 @@ impl<T> Client<T> {
             aggregate,
         );
         Ok(cert)
-    }
-
-    fn quorum_check(&self, weight: usize) -> bool {
-        self.committee.is_at_least_min_n_correct(weight)
     }
 
     fn not_enough_confirmations_error(&self, weight: usize) -> ClientError {
@@ -637,13 +633,14 @@ impl<T> Client<T> {
         read_client: &U,
         timeout: Duration,
     ) -> ClientResult<BlobStatus> {
-        let comms = self.node_communications_quorum();
+        let comms = self.node_read_communications();
         let futures = comms
             .iter()
             .map(|n| n.get_blob_status(blob_id).instrument(n.span.clone()));
         let mut requests = WeightedFutures::new(futures);
         requests
-            .execute_time(
+            .execute_until(
+                &|weight| self.committee.is_quorum(weight),
                 timeout,
                 self.communication_limits.max_concurrent_status_reads,
             )

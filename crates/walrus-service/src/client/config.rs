@@ -83,11 +83,9 @@ pub(super) struct CommunicationLimits {
 
 impl CommunicationLimits {
     pub fn new(communication_config: &ClientCommunicationConfig, n_shards: NonZeroU16) -> Self {
-        // Try to store on up to `n-f` nodes concurrently, as the work to store is never wasted.
         let max_concurrent_writes = communication_config
             .max_concurrent_writes
             .unwrap_or(default::max_concurrent_writes(n_shards));
-        // Read up to `n-2f` slivers concurrently to avoid wasted work on the storage nodes.
         let max_concurrent_sliver_reads = communication_config
             .max_concurrent_sliver_reads
             .unwrap_or(default::max_concurrent_sliver_reads(n_shards));
@@ -274,15 +272,18 @@ pub(crate) mod default {
     use walrus_core::bft;
 
     pub fn max_concurrent_writes(n_shards: NonZeroU16) -> usize {
-        (n_shards.get() - bft::max_n_faulty(n_shards)).into()
+        // No limit as we anyway want to store as many slivers as possible.
+        n_shards.get().into()
     }
 
     pub fn max_concurrent_sliver_reads(n_shards: NonZeroU16) -> usize {
+        // Read up to `n-2f` slivers concurrently to avoid wasted work on the storage nodes.
         (n_shards.get() - 2 * bft::max_n_faulty(n_shards)).into()
     }
 
     pub fn max_concurrent_status_reads(n_shards: NonZeroU16) -> usize {
-        (bft::max_n_faulty(n_shards) + 1).into()
+        // No limit as we need 2f+1 responses and requests are small.
+        n_shards.get().into()
     }
 
     pub fn max_concurrent_metadata_reads() -> usize {
