@@ -133,7 +133,7 @@ impl BlobInfoV1 {
 
     /// Updates the status of the blob.
     /// If the new status is higher than the current status, the status is updated.
-    /// If the new status is the same as the current status, the status with the higher epoch is kept.
+    /// If the new status is the same as the current status, the status with the higher end epoch is kept.
     fn update_status(
         &mut self,
         blob_id: &BlobId,
@@ -142,7 +142,7 @@ impl BlobInfoV1 {
         status_changing_epoch: Epoch,
         status_event: EventID,
     ) {
-        self.update_status_changing_epoch(blob_id, status, status_changing_epoch);
+        self.update_status_changing_epoch_to_earliest(blob_id, status, status_changing_epoch);
 
         if self.status < status || self.status == status && self.end_epoch < end_epoch {
             self.status = status;
@@ -152,7 +152,8 @@ impl BlobInfoV1 {
     }
 
     /// Updates the epoch where the status changed.
-    fn update_status_changing_epoch(
+    /// We keep the earliest epoch for each status.
+    fn update_status_changing_epoch_to_earliest(
         &mut self,
         blob_id: &BlobId,
         status: BlobCertificationStatus,
@@ -160,7 +161,7 @@ impl BlobInfoV1 {
     ) {
         if let Some(current_status_epoch) = self.status_changing_epoch(status) {
             if current_status_epoch <= status_changing_epoch {
-                // The status epoch is already set to a higher epoch.
+                // The status epoch is already set to a lower epoch.
                 return;
             }
 
@@ -276,7 +277,7 @@ impl BlobInfo {
         ));
 
         let BlobInfo::V1(inner) = &mut blob_info;
-        inner.update_status_changing_epoch(&blob_id, status, status_changing_epoch);
+        inner.update_status_changing_epoch_to_earliest(&blob_id, status, status_changing_epoch);
 
         blob_info
     }
