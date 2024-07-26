@@ -4,10 +4,14 @@
 #[allow(unused_variable, unused_function, unused_field, unused_mut_parameter)]
 /// Module: system
 module walrus::system {
-    use walrus::storage_node::StorageNodeCap;
-    use walrus::system_state_inner::SystemStateInnerV1;
+    use sui::coin::Coin;
+    use sui::sui::SUI;
+    use sui::dynamic_field;
 
-    const ENotImplemented: u64 = 0;
+    use walrus::storage_node::StorageNodeCap;
+    use walrus::system_state_inner::{Self, SystemStateInnerV1};
+    use walrus::committee::Committee;
+    use walrus::storage_resource::Storage;
 
     /// Flag to indicate the version of the system.
     const VERSION: u64 = 0;
@@ -33,6 +37,7 @@ module walrus::system {
         system.inner_mut().invalidate_blob_id(signature, members, message)
     }
 
+    /// Certifies a blob containing Walrus events.
     public fun certify_event_blob(
         system: &mut System,
         cap: &StorageNodeCap,
@@ -42,42 +47,67 @@ module walrus::system {
         system.inner_mut().certify_event_blob(cap, blob_id, size)
     }
 
+    /// Allows buying a storage reservation for a given period of epochs.
+    public fun reserve_space(
+        self: &mut System,
+        storage_amount: u64,
+        periods_ahead: u64,
+        payment: &mut Coin<SUI>,
+        ctx: &mut TxContext,
+    ): Storage {
+        self.inner_mut().reserve_space(storage_amount, periods_ahead, payment, ctx)
+    }
+
+    // === Public Accessors ===
+
+    /// Get epoch. Uses the committee to get the epoch.
+    public fun epoch(self: &System): u64 {
+        self.inner().epoch()
+    }
+
+    /// Accessor for total capacity size.
+    public fun total_capacity_size(self: &System): u64 {
+        self.inner().total_capacity_size()
+    }
+
+    /// Accessor for used capacity size.
+    public fun used_capacity_size(self: &System): u64 {
+        self.inner().used_capacity_size()
+    }
+
+    /// Accessor for the number of shards.
+    public fun n_shards(self: &System): u16 {
+        self.inner().n_shards()
+    }
+
+    // === Restricted to Package ===
+
+    /// Accessor for the current committee.
+    public(package) fun current_committee(self: &System): &Committee {
+        self.inner().current_committee()
+    }
+
     // === Internals ===
 
     /// Get a mutable reference to `SystemStateInner` from the `System`.
     fun inner_mut(system: &mut System): &mut SystemStateInnerV1 {
         assert!(system.version == VERSION);
-        abort ENotImplemented
+        dynamic_field::borrow_mut(&mut system.id, VERSION)
     }
 
-    // === Tests ===
+    /// Get an immutable reference to `SystemStateInner` from the `System`.
+    fun inner(system: &System): &SystemStateInnerV1 {
+        assert!(system.version == VERSION);
+        dynamic_field::borrow(&system.id, VERSION)
+    }
+
+    // === Testing ===
 
     #[test_only]
-    use walrus::storage_node;
-
-    #[test_only]
-    fun new(ctx: &mut TxContext): System { System { id: object::new(ctx), version: VERSION } }
-
-    #[test, expected_failure(abort_code = ENotImplemented)]
-    fun test_epoch_sync_done() {
-        let ctx = &mut tx_context::dummy();
-        let cap = storage_node::new_cap_for_testing(ctx.fresh_object_address().to_id(), ctx);
-        new(ctx).epoch_sync_done(&cap, 0);
-        abort 1337
-    }
-
-    #[test, expected_failure(abort_code = ENotImplemented)]
-    fun test_invalidate_blob_id() {
-        let ctx = &mut tx_context::dummy();
-        new(ctx).invalidate_blob_id(vector[], vector[], vector[]);
-        abort 1337
-    }
-
-    #[test, expected_failure(abort_code = ENotImplemented)]
-    fun test_certify_event_blob() {
-        let ctx = &mut tx_context::dummy();
-        let cap = storage_node::new_cap_for_testing(ctx.fresh_object_address().to_id(), ctx);
-        new(ctx).certify_event_blob(&cap, 0, 0);
-        abort 1337
+    public(package) fun new_for_testing(ctx: &mut TxContext): System {
+        let mut system = System { id: object::new(ctx), version: VERSION };
+        let system_state_inner = system_state_inner::new_for_testing(ctx);
+        dynamic_field::add(&mut system.id, VERSION, system_state_inner);
+        system
     }
 }

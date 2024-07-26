@@ -32,13 +32,6 @@ fi
 error=0
 for dir in contracts/*; do
 
-    # TODO: remove me when system is in a better shape
-    # Skip the `walrus` directory for now
-    # Tracking issue: https://github.com/MystenLabs/walrus/issues/612
-    if [ "$dir" == "contracts/walrus" ]; then
-        continue
-    fi
-
     cd $dir
     coverage_summary=$(sui move coverage summary)
     echo -e "\n${BOLD}Coverage summary for $dir:${NORMAL}\n$coverage_summary"
