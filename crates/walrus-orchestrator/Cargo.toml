@@ -15,7 +15,7 @@ color-eyre = "0.6.3"
 crossterm = "0.27.0"
 eyre = "0.6.12"
 futures.workspace = true
-prettytable-rs = "0.10"
+prettytable.workspace = true
 # TODO(alberto): Remove this dependency again (#284).
 prometheus-parse = { git = "https://github.com/asonnino/prometheus-parser", rev = "75334db" }
 reqwest.workspace = true
@@ -27,7 +27,7 @@ ssh2 = "0.9.4"
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 walrus-core.workspace = true
-walrus-service.workspace = true
+walrus-service = { workspace = true, features = ["deploy", "node"] }
 walrus-sui.workspace = true
 
 [dev-dependencies]

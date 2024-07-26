@@ -1,21 +1,13 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex};
 
-use rocksdb::{
-    BoundColumnFamily,
-    IteratorMode,
-    MergeOperands,
-    Options,
-    WriteBatch,
-    WriteBatchWithTransaction,
-};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use rocksdb::{MergeOperands, Options};
 use sui_types::event::EventID;
 use tracing::Level;
 use typed_store::{
-    rocks::{DBMap, ReadWriteOptions, RocksDB, RocksDBBatch},
+    rocks::{DBMap, ReadWriteOptions, RocksDB},
     Map,
     TypedStoreError,
 };
@@ -130,7 +122,7 @@ fn update_cursor_and_progress(
             .expect("merge operand to be decodable");
         tracing::debug!("updating {current_val:?} with {cursor:?} (+{increment})");
 
-        let mut updated_progress = current_val.map_or(0, |(progress, _)| progress) + increment;
+        let updated_progress = current_val.map_or(0, |(progress, _)| progress) + increment;
 
         current_val = Some((updated_progress, cursor));
     }

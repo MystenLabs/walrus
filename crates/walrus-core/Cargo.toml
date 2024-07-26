@@ -10,11 +10,11 @@ license.workspace = true
 test-utils = ["walrus-test-utils"]
 
 [dependencies]
-base64 = "0.22.1"
+base64.workspace = true
 bcs.workspace = true
 fastcrypto.workspace = true
 rand.workspace = true
-raptorq = "2.0.0"
+raptorq.workspace = true
 serde.workspace = true
 serde_with.workspace = true
 thiserror.workspace = true
@@ -22,14 +22,14 @@ tracing.workspace = true
 utoipa = { workspace = true, optional = true }
 walrus-test-utils = { workspace = true, optional = true }
 
-[lints]
-workspace = true
-
 [dev-dependencies]
 anyhow.workspace = true
-criterion = "0.5.1"
-serde_test = "1.0.176"
+criterion.workspace = true
+serde_test.workspace = true
 walrus-test-utils.workspace = true
+
+[lints]
+workspace = true
 
 [lib]
 bench = false

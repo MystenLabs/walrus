@@ -1,5 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
+
+//! Walrus storage node.
+
 use std::{future::Future, num::NonZeroU16, sync::Arc};
 
 use anyhow::{anyhow, bail, Context};
@@ -8,6 +11,7 @@ use futures::{stream, StreamExt, TryFutureExt};
 use prometheus::Registry;
 use serde::Serialize;
 use sui_types::event::EventID;
+use system_events::{SuiSystemEventProvider, SystemEventProvider};
 use tokio::{select, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{field, Instrument};
@@ -43,17 +47,28 @@ use walrus_sui::{
     types::{BlobCertified, BlobEvent, InvalidBlobId},
 };
 
-use crate::{
+use self::{
+    blob_sync::BlobSyncHandler,
     committee::{CommitteeService, CommitteeServiceFactory, SuiCommitteeServiceFactory},
     config::{StorageNodeConfig, SuiConfig},
     contract_service::{SuiSystemContractService, SystemContractService},
-    node::metrics::TelemetryLabel as _,
-    storage::{blob_info::BlobInfoApi, EventProgress, ShardStorage, Storage},
-    system_events::{SuiSystemEventProvider, SystemEventProvider},
+    errors::IndexOutOfRange,
+    metrics::{NodeMetricSet, TelemetryLabel as _, STATUS_PENDING, STATUS_PERSISTED},
+    storage::{blob_info::BlobInfoApi, EventProgress, ShardStorage},
 };
 
+pub mod committee;
+pub mod config;
+pub mod contract_service;
+pub mod server;
+pub mod system_events;
+
+pub(crate) mod metrics;
+
+mod blob_sync;
+
 mod errors;
-pub use self::errors::{
+use errors::{
     BlobStatusError,
     ComputeStorageConfirmationError,
     InconsistencyProofError,
@@ -66,14 +81,10 @@ pub use self::errors::{
     SyncShardError,
 };
 
-mod blob_sync;
-pub(crate) mod metrics;
-use self::{
-    blob_sync::BlobSyncHandler,
-    errors::IndexOutOfRange,
-    metrics::{NodeMetricSet, STATUS_PENDING, STATUS_PERSISTED},
-};
+mod storage;
+pub use storage::{DatabaseConfig, Storage};
 
+/// Trait for all functionality offered by a storage node.
 pub trait ServiceState {
     /// Retrieves the metadata associated with a blob.
     fn retrieve_metadata(
@@ -306,7 +317,8 @@ pub struct StorageNode {
 }
 
 #[derive(Debug)]
-pub struct StorageNodeInner {
+
+struct StorageNodeInner {
     protocol_key_pair: ProtocolKeyPair,
     storage: Storage,
     encoding_config: Arc<EncodingConfig>,
@@ -895,6 +907,13 @@ mod tests {
 
     use fastcrypto::traits::KeyPair;
     use reqwest::StatusCode;
+    use storage::tests::{
+        populated_storage,
+        WhichSlivers,
+        BLOB_ID,
+        OTHER_SHARD_INDEX,
+        SHARD_INDEX,
+    };
     use tokio::sync::{broadcast::Sender, Mutex};
     use walrus_core::{
         encoding::{self, EncodingAxis, Primary, Secondary, SliverPair},
@@ -908,16 +927,7 @@ mod tests {
     use walrus_test_utils::{async_param_test, Result as TestResult, WithTempDir};
 
     use super::*;
-    use crate::{
-        storage::tests::{
-            populated_storage,
-            WhichSlivers,
-            BLOB_ID,
-            OTHER_SHARD_INDEX,
-            SHARD_INDEX,
-        },
-        test_utils::{StorageNodeHandle, TestCluster},
-    };
+    use crate::test_utils::{StorageNodeHandle, TestCluster};
 
     const TIMEOUT: Duration = Duration::from_secs(1);
     const OTHER_BLOB_ID: BlobId = BlobId([247; 32]);

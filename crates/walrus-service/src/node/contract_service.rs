@@ -16,7 +16,8 @@ use tokio::sync::Mutex as TokioMutex;
 use walrus_core::messages::InvalidBlobCertificate;
 use walrus_sui::client::{ContractClient, SuiContractClient};
 
-use crate::{config::SuiConfig, utils::ExponentialBackoff};
+use super::config::SuiConfig;
+use crate::common::utils::{self, ExponentialBackoff};
 
 const MIN_BACKOFF: Duration = Duration::from_secs(1);
 const MAX_BACKOFF: Duration = Duration::from_secs(3600);
@@ -83,7 +84,7 @@ where
             None,
             self.rng.lock().unwrap().gen(),
         );
-        crate::utils::retry(backoff, || async {
+        utils::retry(backoff, || async {
             self.contract_client
                 .lock()
                 .await

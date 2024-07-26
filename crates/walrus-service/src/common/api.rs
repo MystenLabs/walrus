@@ -3,6 +3,9 @@
 
 //! Formats and tools for success and error messages of our REST APIs.
 
+// Not all functions here are used in every feature.
+#![allow(dead_code)]
+
 use std::{collections::BTreeMap, fmt::Write as _};
 
 use axum::{
@@ -30,10 +33,11 @@ use utoipa::{
     PartialSchema,
     ToSchema,
 };
+use walrus_core::BlobId;
 
 /// A blob ID encoded as a URL-safe Base64 string, without the trailing equal (=) signs.
 #[serde_as]
-#[derive(Deserialize, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
 #[schema(
     as = BlobId,
     value_type = String,
@@ -43,8 +47,8 @@ use utoipa::{
 pub(crate) struct BlobIdString(#[serde_as(as = "DisplayFromStr")] pub(crate) BlobId);
 
 // Schema for the [`sui_types::event::EventID`] type.
-#[allow(unused)]
-#[derive(ToSchema)]
+#[allow(missing_docs)]
+#[derive(Debug, ToSchema)]
 #[schema(
     as = EventID,
     rename_all = "camelCase",
@@ -62,8 +66,8 @@ pub(crate) struct EventIdSchema {
 }
 
 // Schema for the [`sui_types::ObjectID`] type.
-#[allow(unused)]
-#[derive(ToSchema)]
+#[allow(missing_docs)]
+#[derive(Debug, ToSchema)]
 #[schema(
     as = ObjectID,
     title = "Sui object ID as a hex string",
@@ -74,6 +78,7 @@ pub(crate) struct ObjectIdSchema(String);
 /// Successful API response body as JSON.
 ///
 /// Contains the HTTP code as well as a message or response object.
+#[allow(missing_docs)]
 #[derive(Debug, Serialize, Clone, Copy)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum ApiSuccess<T> {
@@ -81,20 +86,23 @@ pub(crate) enum ApiSuccess<T> {
 }
 
 impl<T> ApiSuccess<T> {
-    pub fn new(code: StatusCode, data: T) -> Self {
+    /// Generates a new message with the provided status code.
+    pub(crate) fn new(code: StatusCode, data: T) -> Self {
         Self::Success {
             code: code.as_u16(),
             data,
         }
     }
 
-    pub fn ok(data: T) -> Self {
+    /// Generates a new message with status code 200.
+    pub(crate) fn ok(data: T) -> Self {
         Self::Success {
             code: StatusCode::OK.as_u16(),
             data,
         }
     }
 
+    /// Generates the OpenAPI schema for this message.
     pub(crate) fn schema_with_data(data: RefOr<Schema>) -> RefOr<Schema> {
         let object = ObjectBuilder::new()
             .property(
@@ -122,25 +130,24 @@ impl<T: Serialize> IntoResponse for ApiSuccess<T> {
     }
 }
 
-macro_rules! api_success_alias_schema {
-    (PartialSchema $name:ident) => {
-        Self::schema_with_data($name::schema())
-    };
-    (ToSchema $name:ident) => {
-        <Self as PartialSchema>::schema()
-    };
-}
-
-// Creates `ToSchema` API implementations and type aliases for `ApiSuccess<T>`.
-// This is required as utoipa's current method for handling generics in schemas is not
-// working for enums. See https://github.com/juhaku/utoipa/issues/835.
+/// Creates `ToSchema` API implementations and type aliases for `ApiSuccess<T>`.
+///
+/// This is required as utoipa's current method for handling generics in schemas is not
+/// working for enums. See <https://github.com/juhaku/utoipa/issues/835>.
+#[macro_export]
 macro_rules! api_success_alias {
+    (@schema PartialSchema $name:ident) => {
+        $crate::common::api::ApiSuccess::<$name>::schema_with_data($name::schema())
+    };
+    (@schema ToSchema $name:ident) => {
+        <$crate::common::api::ApiSuccess<$name> as PartialSchema>::schema()
+    };
     ($name:ident as $alias:ident, $method:tt) => {
-        pub(crate) type $alias = $crate::api::ApiSuccess<$name>;
+        pub(crate) struct $alias;
 
         impl<'r> ToSchema<'r> for $alias {
             fn schema() -> (&'r str, RefOr<Schema>) {
-                (stringify!($alias), $crate::api::api_success_alias_schema!($method $name))
+                (stringify!($alias), $crate::common::api::api_success_alias!(@schema $method $name))
             }
         }
     };
@@ -149,6 +156,7 @@ macro_rules! api_success_alias {
 /// API response body for error responses as JSON.
 ///
 /// Contains the HTTP code as well as the textual reason.
+#[allow(missing_docs)]
 #[derive(ToSchema, Debug, Serialize, Clone, Copy)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum RestApiJsonError<'a> {
@@ -156,7 +164,8 @@ pub(crate) enum RestApiJsonError<'a> {
 }
 
 impl<'a> RestApiJsonError<'a> {
-    pub fn new(code: StatusCode, message: &'a str) -> Self {
+    /// Creates a new error with the provided status code and message.
+    pub(crate) fn new(code: StatusCode, message: &'a str) -> Self {
         Self::Error {
             code: code.as_u16(),
             message,
@@ -173,8 +182,13 @@ impl IntoResponse for RestApiJsonError<'_> {
 
 /// Defines a trait over errors that can be converted into a [`RestApiJsonError`]-based response.
 pub(crate) trait RestApiError: Sized {
+    /// Returns the HTTP status code.
     fn status(&self) -> StatusCode;
+
+    /// Returns the text to be written to the HTTP body.
     fn body_text(&self) -> String;
+
+    /// Converts the error into a [`Response`].
     fn to_response(&self) -> Response {
         let mut message = self.body_text();
         if self.status() == StatusCode::INTERNAL_SERVER_ERROR {
@@ -187,7 +201,19 @@ pub(crate) trait RestApiError: Sized {
     }
 }
 
+/// Implements various conversions for the error enum.
+#[macro_export]
 macro_rules! rest_api_error {
+    (@description $code:ident, @canonical) => {
+        StatusCode::$code
+            .canonical_reason()
+            .expect("code must have a canonical reason")
+            .to_string()
+    };
+    (@description $code:ident, $desc:expr) => {
+        $desc.into()
+    };
+
     ($enum:ident: [
         $( ($variant:pat, $code:ident, $($desc:tt)*) ),+$(,)?
     ]) => {
@@ -209,7 +235,7 @@ macro_rules! rest_api_error {
                 let mut response = self.to_response();
 
                 if self.status() == StatusCode::INTERNAL_SERVER_ERROR {
-                    response.extensions_mut().insert(crate::telemetry::InternalError(Arc::new(self)));
+                    response.extensions_mut().insert($crate::common::telemetry::InternalError(Arc::new(self)));
                 }
 
                 response
@@ -218,26 +244,15 @@ macro_rules! rest_api_error {
 
         impl IntoResponses for $enum {
             fn responses() -> BTreeMap<String, RefOr<OpenApiResponse>> {
-                $crate::api::into_responses([
-                    $( (StatusCode::$code, $crate::api::error_description!($code, $($desc)* ))),+
+                $crate::common::api::into_responses([
+                    $( (StatusCode::$code, rest_api_error!(@description $code, $($desc)* ))),+
                 ])
             }
         }
     };
 }
 
-macro_rules! error_description {
-    ($code:ident, @canonical) => {
-        StatusCode::$code
-            .canonical_reason()
-            .expect("code must have a canonical reason")
-            .to_string()
-    };
-    ($code:ident, $desc:expr) => {
-        $desc.into()
-    };
-}
-
+/// Generates OpenAPI schemas for error responses.
 pub(crate) fn into_responses<I>(iter: I) -> BTreeMap<String, RefOr<OpenApiResponse>>
 where
     I: IntoIterator<Item = (StatusCode, String)>,
@@ -289,8 +304,7 @@ pub(crate) fn rewrite_route(path: &str) -> String {
         .into()
 }
 
+#[allow(unused_imports)]
 pub(crate) use api_success_alias;
-pub(crate) use api_success_alias_schema;
-pub(crate) use error_description;
+#[allow(unused_imports)]
 pub(crate) use rest_api_error;
-use walrus_core::BlobId;

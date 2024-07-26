@@ -6,9 +6,6 @@
 use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use anyhow::anyhow;
-use communication::{NodeCommunication, NodeReadCommunication, NodeResult, NodeWriteCommunication};
-use config::CommunicationLimits;
-use error::StoreError;
 use fastcrypto::{bls12381::min_pk::BLS12381AggregateSignature, traits::AggregateAuthenticator};
 use futures::Future;
 use rand::{seq::SliceRandom, thread_rng};
@@ -18,7 +15,6 @@ use tokio::{
     time::{sleep, Duration},
 };
 use tracing::{Instrument, Level};
-use utils::WeightedFutures;
 use walrus_core::{
     encoding::{
         encoded_blob_length_for_n_shards,
@@ -44,7 +40,16 @@ use walrus_sui::{
     utils::price_for_unencoded_length,
 };
 
-use crate::client::utils::CompletedReasonWeight;
+use self::{
+    communication::{NodeCommunication, NodeReadCommunication, NodeResult, NodeWriteCommunication},
+    config::CommunicationLimits,
+    error::StoreError,
+    responses::BlobStoreResult,
+    utils::{CompletedReasonWeight, WeightedFutures},
+};
+
+pub mod cli_utils;
+pub mod responses;
 
 mod blocklist;
 pub use blocklist::Blocklist;
@@ -59,17 +64,6 @@ pub use daemon::ClientDaemon;
 
 mod error;
 pub use error::{ClientError, ClientErrorKind};
-
-mod responses;
-pub use responses::{
-    BlobIdOutput,
-    BlobStatusOutput,
-    BlobStoreResult,
-    DryRunOutput,
-    InfoOutput,
-    ReadOutput,
-};
-pub(crate) use responses::{ExampleBlobInfo, InfoDevOutput};
 
 mod utils;
 pub use utils::string_prefix;

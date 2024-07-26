@@ -28,7 +28,7 @@ use super::{
     error::{SliverStoreError, StoreError},
     utils::{string_prefix, WeightedResult},
 };
-use crate::utils::{self, ExponentialBackoff, FutureHelpers};
+use crate::common::utils::{self, ExponentialBackoff, FutureHelpers};
 
 /// Represents the index of the node in the vector of members of the committee.
 pub type NodeIndex = usize;

@@ -1,10 +1,12 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
+
 //! Test utilities for using storage nodes in tests.
 //!
 //! For creating an instance of a single storage node in a test, see [`StorageNodeHandleBuilder`] .
 //!
 //! For creating a cluster of test storage nodes, see [`TestClusterBuilder`].
+
 use std::{
     borrow::Borrow,
     marker::PhantomData,
@@ -49,59 +51,16 @@ use walrus_sui::types::{
 };
 use walrus_test_utils::WithTempDir;
 
-use crate::{
+use crate::node::{
     committee::{CommitteeService, CommitteeServiceFactory, NodeCommitteeService},
     config::{PathOrInPlace, StorageNodeConfig},
     contract_service::SystemContractService,
     server::UserServer,
-    storage::{DatabaseConfig, Storage},
     system_events::SystemEventProvider,
+    DatabaseConfig,
+    Storage,
     StorageNode,
 };
-
-/// Creates a new [`StorageNodeConfig`] object for testing.
-pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
-    let rest_api_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let rest_api_address = rest_api_listener.local_addr().unwrap();
-
-    let metrics_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let metrics_address = metrics_listener.local_addr().unwrap();
-
-    let temp_dir = TempDir::new().expect("able to create a temporary directory");
-    WithTempDir {
-        inner: StorageNodeConfig {
-            protocol_key_pair: PathOrInPlace::InPlace(walrus_core::test_utils::protocol_key_pair()),
-            network_key_pair: PathOrInPlace::InPlace(walrus_core::test_utils::network_key_pair()),
-            db_config: None,
-            rest_api_address,
-            metrics_address,
-            storage_path: temp_dir.path().to_path_buf(),
-            sui: None,
-            blob_recovery: Default::default(),
-        },
-        temp_dir,
-    }
-}
-
-/// Returns an empty storage, with the column families for the specified shards already created.
-pub fn empty_storage_with_shards(shards: &[ShardIndex]) -> WithTempDir<Storage> {
-    let temp_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
-    let db_config = DatabaseConfig::default();
-    let mut storage = Storage::open(temp_dir.path(), db_config, MetricConf::default())
-        .expect("storage creation must succeed");
-
-    for shard in shards {
-        storage
-            .create_storage_for_shard(*shard)
-            .expect("shard should be successfully created");
-    }
-
-    WithTempDir {
-        inner: storage,
-        temp_dir,
-    }
-}
-
 /// A storage node and associated data for testing.
 #[derive(Debug)]
 pub struct StorageNodeHandle {
@@ -117,11 +76,11 @@ pub struct StorageNodeHandle {
     pub rest_api_address: SocketAddr,
     /// The address of the metric service.
     pub metrics_address: SocketAddr,
-    /// Handle the REST API
+    /// Handle the REST API.
     pub rest_api: Arc<UserServer<StorageNode>>,
-    /// Cancellation token for the REST API
+    /// Cancellation token for the REST API.
     pub cancel: CancellationToken,
-    /// Client that can be used to communicate with the node
+    /// Client that can be used to communicate with the node.
     pub client: Client,
 }
 
@@ -949,6 +908,169 @@ pub(crate) fn test_committee(weights: &[u16]) -> Committee {
         .collect();
 
     Committee::new(members, 0).unwrap()
+}
+
+/// A module for creating a Walrus test cluster.
+pub mod test_cluster {
+    use std::sync::OnceLock;
+
+    use tokio::sync::Mutex;
+    use walrus_sui::{
+        client::{SuiContractClient, SuiReadClient},
+        system_setup::{self, SystemParameters},
+        test_utils::{self, TestClusterHandle},
+    };
+
+    use super::*;
+    use crate::{
+        client::{self, ClientCommunicationConfig, Config},
+        node::{
+            committee::SuiCommitteeServiceFactory,
+            contract_service::SuiSystemContractService,
+            system_events::SuiSystemEventProvider,
+        },
+    };
+
+    /// Performs the default setup for the test cluster.
+    pub async fn default_setup() -> anyhow::Result<(
+        Arc<TestClusterHandle>,
+        TestCluster,
+        WithTempDir<client::Client<SuiContractClient>>,
+    )> {
+        #[cfg(not(msim))]
+        let sui_cluster = test_utils::using_tokio::global_sui_test_cluster();
+        #[cfg(msim)]
+        let sui_cluster = test_utils::using_msim::global_sui_test_cluster().await;
+
+        // Get a wallet on the global sui test cluster
+        let mut wallet = test_utils::new_wallet_on_sui_test_cluster(sui_cluster.clone()).await?;
+
+        let cluster_builder = TestCluster::builder();
+
+        // Get the default committee from the test cluster builder
+        let members = cluster_builder
+            .storage_node_test_configs()
+            .iter()
+            .enumerate()
+            .map(|(i, info)| info.to_storage_node_info(&format!("node-{i}")))
+            .collect();
+
+        // Publish package and set up system object
+        let gas_budget = 500_000_000;
+        let (system_pkg, committee_cap) = system_setup::publish_package(
+            &mut wallet.inner,
+            test_utils::system_setup::contract_path_for_testing("blob_store")?,
+            gas_budget,
+        )
+        .await?;
+        let committee = Committee::new(members, 0)?;
+        let system_params = SystemParameters::new_with_sui(committee, 1_000_000_000_000, 10);
+        let system_object = system_setup::create_system_object(
+            &mut wallet.inner,
+            system_pkg,
+            committee_cap,
+            &system_params,
+            gas_budget,
+        )
+        .await?;
+
+        // Build the walrus cluster
+        let sui_read_client =
+            SuiReadClient::new(wallet.as_ref().get_client().await?, system_object).await?;
+
+        // Create a contract service for the storage nodes using a wallet in a temp dir
+        // The sui test cluster handler can be dropped since we already have one
+        let sui_contract_service = test_utils::new_wallet_on_sui_test_cluster(sui_cluster.clone())
+            .await?
+            .and_then(|wallet| {
+                SuiContractClient::new_with_read_client(wallet, gas_budget, sui_read_client.clone())
+            })?
+            .map(SuiSystemContractService::new);
+
+        // Set up the cluster
+        let cluster_builder = cluster_builder
+            .with_committee_service_factories(SuiCommitteeServiceFactory::new(
+                sui_read_client.clone(),
+                Default::default(),
+            ))
+            .with_system_event_providers(SuiSystemEventProvider::new(
+                sui_read_client.clone(),
+                Duration::from_millis(100),
+            ))
+            .with_system_contract_services(Arc::new(sui_contract_service));
+
+        let cluster = {
+            // Lock to avoid race conditions.
+            let _lock = global_test_lock().lock().await;
+            cluster_builder.build().await?
+        };
+
+        // Create the client with a separate wallet
+        let sui_contract_client = test_utils::new_wallet_on_sui_test_cluster(sui_cluster.clone())
+            .await?
+            .and_then(|wallet| {
+                SuiContractClient::new_with_read_client(wallet, gas_budget, sui_read_client)
+            })?;
+        let config = Config {
+            system_object,
+            wallet_config: None,
+            communication_config: ClientCommunicationConfig::default_for_test(),
+        };
+
+        let client = sui_contract_client
+            .and_then_async(|contract_client| client::Client::new(config, contract_client))
+            .await?;
+        Ok((sui_cluster, cluster, client))
+    }
+
+    // Prevent tests running simultaneously to avoid interferences or race conditions.
+    fn global_test_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(Mutex::default)
+    }
+}
+
+/// Creates a new [`StorageNodeConfig`] object for testing.
+pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
+    let rest_api_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let rest_api_address = rest_api_listener.local_addr().unwrap();
+
+    let metrics_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let metrics_address = metrics_listener.local_addr().unwrap();
+
+    let temp_dir = TempDir::new().expect("able to create a temporary directory");
+    WithTempDir {
+        inner: StorageNodeConfig {
+            protocol_key_pair: PathOrInPlace::InPlace(walrus_core::test_utils::protocol_key_pair()),
+            network_key_pair: PathOrInPlace::InPlace(walrus_core::test_utils::network_key_pair()),
+            db_config: None,
+            rest_api_address,
+            metrics_address,
+            storage_path: temp_dir.path().to_path_buf(),
+            sui: None,
+            blob_recovery: Default::default(),
+        },
+        temp_dir,
+    }
+}
+
+/// Returns an empty storage, with the column families for the specified shards already created.
+pub fn empty_storage_with_shards(shards: &[ShardIndex]) -> WithTempDir<Storage> {
+    let temp_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
+    let db_config = DatabaseConfig::default();
+    let mut storage = Storage::open(temp_dir.path(), db_config, MetricConf::default())
+        .expect("storage creation must succeed");
+
+    for shard in shards {
+        storage
+            .create_storage_for_shard(*shard)
+            .expect("shard should be successfully created");
+    }
+
+    WithTempDir {
+        inner: storage,
+        temp_dir,
+    }
 }
 
 #[cfg(test)]

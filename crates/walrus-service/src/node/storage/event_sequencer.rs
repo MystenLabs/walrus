@@ -1,11 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{
-    cmp::{Ordering, Reverse},
-    collections::{hash_map::Entry, BinaryHeap, HashMap},
-    sync::{Arc, Mutex},
-};
+use std::collections::HashMap;
 
 use sui_types::event::EventID;
 
@@ -21,6 +17,7 @@ pub(super) struct EventSequencer {
 }
 
 impl EventSequencer {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self::default()
     }

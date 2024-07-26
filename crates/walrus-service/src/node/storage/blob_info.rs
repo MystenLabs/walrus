@@ -2,14 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Blob status for the walrus shard storage
-//!
 
-use std::{cmp, cmp::Ordering};
+use std::cmp::Ordering;
 
 use enum_dispatch::enum_dispatch;
 use serde::{Deserialize, Serialize};
 use sui_types::event::EventID;
-use walrus_core::{encoding::EncodingAxis, BlobId, EncodingType, Epoch, ShardIndex, SliverType};
+use walrus_core::{BlobId, Epoch};
 use walrus_sdk::api::{BlobCertificationStatus as SdkBlobCertificationStatus, BlobStatus};
 use walrus_sui::types::{BlobCertified, BlobEvent, BlobRegistered, InvalidBlobId};
 
@@ -308,7 +307,7 @@ impl BlobInfo {
 impl Mergeable for BlobInfo {
     type MergeOperand = BlobInfoMergeOperand;
 
-    fn merge(mut self, operand: Self::MergeOperand) -> Self {
+    fn merge(self, operand: Self::MergeOperand) -> Self {
         match self {
             Self::V1(info) => Self::V1(info.merge(operand)),
         }
@@ -390,7 +389,7 @@ mod tests {
     use std::iter;
 
     use walrus_sui::test_utils::event_id_for_testing;
-    use walrus_test_utils::{assert_unordered_eq, param_test};
+    use walrus_test_utils::param_test;
     use BlobCertificationStatus::*;
 
     use super::*;
@@ -439,7 +438,7 @@ mod tests {
             .iter()
             .filter(|status| status < &&initial)
             .flat_map(|status| {
-                EPOCHS.iter().map(|&end_epoch| {
+                EPOCHS.iter().map(|_| {
                     create_merge_operand_and_expected_blob_info(
                         &initial_blob_info,
                         10,

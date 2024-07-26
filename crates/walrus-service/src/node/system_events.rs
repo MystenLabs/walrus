@@ -13,7 +13,7 @@ use walrus_sui::{
     types::BlobEvent,
 };
 
-use crate::config::SuiConfig;
+use super::config::SuiConfig;
 
 /// A provider of system events to a storage node.
 #[async_trait]

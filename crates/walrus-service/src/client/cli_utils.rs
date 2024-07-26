@@ -15,29 +15,10 @@ use sui_sdk::{wallet_context::WalletContext, SuiClientBuilder};
 use sui_types::event::EventID;
 use walrus_sui::client::{SuiContractClient, SuiReadClient};
 
-use crate::client::{default_configuration_paths, Blocklist, Client, Config};
+use super::{default_configuration_paths, Blocklist, Client, Config};
 
 mod cli_output;
 pub use cli_output::CliOutput;
-
-/// The Git revision obtained through `git describe` at compile time.
-pub const GIT_REVISION: &str = {
-    if let Some(revision) = option_env!("GIT_REVISION") {
-        revision
-    } else {
-        let version = git_version::git_version!(
-            args = ["--always", "--abbrev=12", "--dirty", "--exclude", "*"],
-            fallback = ""
-        );
-        if version.is_empty() {
-            panic!("unable to query git revision");
-        }
-        version
-    }
-};
-/// The version consisting of the package version and git revision.
-pub const VERSION: &str =
-    walrus_core::concat_const_str!(env!("CARGO_PKG_VERSION"), "-", GIT_REVISION);
 
 /// Default URL of the testnet RPC node.
 pub const TESTNET_RPC: &str = "https://fullnode.testnet.sui.io:443";
@@ -63,7 +44,6 @@ pub fn path_or_defaults_if_exist(path: &Option<PathBuf>, defaults: &[PathBuf]) -
 /// from the standard Sui configuration directory.
 // NB: When making changes to the logic, make sure to update the argument docs in
 // `crates/walrus-service/bin/client.rs`.
-#[allow(dead_code)]
 pub fn load_wallet_context(path: &Option<PathBuf>) -> Result<WalletContext> {
     let mut default_paths = vec!["./sui_config.yaml".into()];
     if let Some(home_dir) = home::home_dir() {

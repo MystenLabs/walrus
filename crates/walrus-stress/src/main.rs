@@ -13,7 +13,7 @@ use std::{
 
 use anyhow::Context;
 use clap::Parser;
-use walrus_service::{client::Config, config::LoadConfig};
+use walrus_service::{client::Config, utils::LoadConfig};
 use walrus_sui::utils::SuiNetwork;
 
 use crate::{generator::LoadGenerator, metrics::ClientMetrics};

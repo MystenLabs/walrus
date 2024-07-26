@@ -454,14 +454,7 @@ macro_rules! match_for_correct_type {
 macro_rules! get_dynamic_field {
     ($struct:expr, $field_name:expr, $field_type:path $({ $var:ident })*) => {
         match_for_correct_type!(
-            // TODO(mlegner): Change this back to $struct.field_value($field_name) when bumping Sui
-            // to a version that includes https://github.com/MystenLabs/sui/pull/18193.
-            match &$struct {
-                SuiMoveStruct::WithFields(fields) => fields.get($field_name).cloned(),
-                SuiMoveStruct::WithTypes { type_: _, fields } => fields.get($field_name).cloned(),
-                _ => None,
-            },
-            $field_type $({ $var })*
+            $struct.field_value($field_name), $field_type $({ $var })*
         ).ok_or(anyhow!(
             "SuiMoveStruct does not contain field {} with expected type {}: {:?}",
             $field_name,
@@ -501,5 +494,5 @@ macro_rules! get_u64_field_from_event {
 }
 
 pub(crate) use get_dynamic_field;
-#[allow(unused)]
+#[allow(unused_imports)]
 pub(crate) use get_field_from_event;

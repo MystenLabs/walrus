@@ -6603,18 +6603,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "opentelemetry-http"
-version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0ba633e55c5ea6f431875ba55e71664f2fa5d3a90bd34ec9302eecc41c865dd"
-dependencies = [
- "async-trait",
- "bytes",
- "http 0.2.12",
- "opentelemetry 0.23.0",
-]
-
-[[package]]
 name = "opentelemetry-otlp"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6623,7 +6611,7 @@ dependencies = [
  "async-trait",
  "futures-core",
  "http 0.2.12",
- "opentelemetry-proto 0.3.0",
+ "opentelemetry-proto",
  "opentelemetry-semantic-conventions",
  "opentelemetry_api",
  "opentelemetry_sdk 0.20.0",
@@ -6631,24 +6619,6 @@ dependencies = [
  "thiserror",
  "tokio",
  "tonic 0.9.2",
-]
-
-[[package]]
-name = "opentelemetry-otlp"
-version = "0.16.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a94c69209c05319cdf7460c6d4c055ed102be242a0a6245835d7bc42c6ec7f54"
-dependencies = [
- "async-trait",
- "futures-core",
- "http 0.2.12",
- "opentelemetry 0.23.0",
- "opentelemetry-proto 0.6.0",
- "opentelemetry_sdk 0.23.0",
- "prost 0.12.4",
- "thiserror",
- "tokio",
- "tonic 0.11.0",
 ]
 
 [[package]]
@@ -6664,41 +6634,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "opentelemetry-proto"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "984806e6cf27f2b49282e2a05e288f30594f3dbc74eb7a6e99422bc48ed78162"
-dependencies = [
- "opentelemetry 0.23.0",
- "opentelemetry_sdk 0.23.0",
- "prost 0.12.4",
- "tonic 0.11.0",
-]
-
-[[package]]
 name = "opentelemetry-semantic-conventions"
 version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "73c9f9340ad135068800e7f1b24e9e09ed9e7143f5bf8518ded3d3ec69789269"
 dependencies = [
  "opentelemetry 0.20.0",
-]
-
-[[package]]
-name = "opentelemetry-stdout"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6d080bf06af02b738feb2e6830cf72c30b76ca18b40f555cdf1b53e7b491bfe"
-dependencies = [
- "async-trait",
- "chrono",
- "futures-util",
- "opentelemetry 0.23.0",
- "opentelemetry_sdk 0.23.0",
- "ordered-float 4.2.0",
- "serde",
- "serde_json",
- "thiserror",
 ]
 
 [[package]]
@@ -6757,10 +6698,7 @@ dependencies = [
  "ordered-float 4.2.0",
  "percent-encoding",
  "rand 0.8.5",
- "serde_json",
  "thiserror",
- "tokio",
- "tokio-stream",
 ]
 
 [[package]]
@@ -7406,20 +7344,6 @@ name = "prettytable"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "46480520d1b77c9a3482d39939fcf96831537a250ec62d4fd8fbdf8e0302e781"
-dependencies = [
- "csv",
- "encode_unicode 1.0.0",
- "is-terminal",
- "lazy_static",
- "term",
- "unicode-width",
-]
-
-[[package]]
-name = "prettytable-rs"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eea25e07510aa6ab6547308ebe3c036016d162b8da920dbb079e3ba8acf3d95a"
 dependencies = [
  "csv",
  "encode_unicode 1.0.0",
@@ -10822,8 +10746,8 @@ dependencies = [
  "futures",
  "once_cell",
  "opentelemetry 0.20.0",
- "opentelemetry-otlp 0.13.0",
- "opentelemetry-proto 0.3.0",
+ "opentelemetry-otlp",
+ "opentelemetry-proto",
  "opentelemetry_api",
  "prometheus",
  "prost 0.11.9",
@@ -12006,6 +11930,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "walrus-e2e-tests"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+ "tracing-subscriber",
+ "walrus-core",
+ "walrus-service",
+ "walrus-sui",
+ "walrus-test-utils",
+]
+
+[[package]]
 name = "walrus-orchestrator"
 version = "0.1.0"
 dependencies = [
@@ -12017,7 +11956,7 @@ dependencies = [
  "crossterm 0.27.0",
  "eyre",
  "futures",
- "prettytable-rs",
+ "prettytable",
  "prometheus-parse",
  "reqwest 0.12.5",
  "serde",
@@ -12078,10 +12017,6 @@ dependencies = [
  "mockall 0.12.1",
  "mysten-metrics",
  "opentelemetry 0.23.0",
- "opentelemetry-http",
- "opentelemetry-otlp 0.16.0",
- "opentelemetry-stdout",
- "opentelemetry_sdk 0.23.0",
  "pin-project",
  "prettytable",
  "prometheus",

@@ -80,8 +80,8 @@ if ! [[ ${nets[@]} =~ $network ]]; then
 fi
 
 
-echo Building walrus-node binary...
-cargo build --bin walrus-node
+echo Building walrus-node and walrus-deploy binaries...
+cargo build --bin walrus-node --bin walrus-deploy
 
 # Set working directory
 working_dir="./working_dir"
@@ -102,13 +102,13 @@ if ! $existing; then
 
     # Deploy system contract
     echo Deploying system contract...
-    cargo run --bin walrus-node -- deploy-system-contract \
+    cargo run --bin walrus-deploy -- deploy-system-contract \
     --working-dir $working_dir --sui-network $network --n-shards $shards --host-addresses $ips \
     --price-per-unit 1
 
     # Generate configs
     echo Generating configuration...
-    cargo run --bin walrus-node -- generate-dry-run-configs \
+    cargo run --bin walrus-deploy -- generate-dry-run-configs \
     --working-dir $working_dir
 fi
 

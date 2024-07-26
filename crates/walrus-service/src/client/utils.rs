@@ -40,7 +40,6 @@ pub trait WeightedResult {
     }
     /// Converts `self` into an [`Option<T>`], where `T` is the type of the inner result, consuming
     /// `self`, and discarding the error, if any.
-    #[allow(dead_code)]
     fn inner_ok(self) -> Option<Self::Inner>
     where
         Self: Sized,
@@ -50,7 +49,6 @@ pub trait WeightedResult {
     /// Returns a reference to the inner result.
     fn inner_result(&self) -> &Result<Self::Inner, Self::Error>;
     /// Returns the inner result, consuming `self`.
-    #[allow(dead_code)]
     fn take_inner_result(self) -> Result<Self::Inner, Self::Error>;
 }
 

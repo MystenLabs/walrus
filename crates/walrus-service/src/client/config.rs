@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use sui_types::base_types::ObjectID;
 use walrus_core::encoding::{EncodingConfig, Primary};
 
-use crate::{config::LoadConfig, utils};
+use crate::common::utils::{self, LoadConfig};
 
 /// Config for the client.
 #[derive(Debug, Serialize, Deserialize, Clone)]

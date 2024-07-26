@@ -13,11 +13,11 @@ use walrus_core::{
 };
 use walrus_service::{
     client::{
-        BlobStoreResult,
+        responses::BlobStoreResult,
         ClientError,
         ClientErrorKind::{self, NoMetadataReceived, NotEnoughConfirmations, NotEnoughSlivers},
     },
-    test_cluster,
+    test_utils::test_cluster,
 };
 use walrus_sui::{
     client::{ContractClient, ReadClient},

@@ -10,7 +10,7 @@ use prettytable::{format, row, Table};
 use serde::Serialize;
 use walrus_sdk::api::BlobStatus;
 
-use crate::{
+use crate::client::{
     cli_utils::{
         error,
         format_event_id,
@@ -19,17 +19,17 @@ use crate::{
         HumanReadableBytes,
         HumanReadableMist,
     },
-    client::{
-        string_prefix,
+    responses::{
         BlobIdOutput,
         BlobStatusOutput,
-        BlobStoreResult,
         DryRunOutput,
         ExampleBlobInfo,
         InfoDevOutput,
         InfoOutput,
         ReadOutput,
     },
+    string_prefix,
+    BlobStoreResult,
 };
 
 /// Trait to differentiate output depending on the output mode.

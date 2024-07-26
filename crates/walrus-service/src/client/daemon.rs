@@ -17,7 +17,7 @@ use utoipa::OpenApi;
 use utoipa_redoc::{Redoc, Servable};
 use walrus_sui::client::ContractClient;
 
-use crate::client::Client;
+use super::Client;
 
 mod openapi;
 mod routes;

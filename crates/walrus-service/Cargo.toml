@@ -6,80 +6,113 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[[bin]]
+name = "walrus"
+path = "bin/client.rs"
+required-features = ["client"]
+
+[[bin]]
+name = "walrus-node"
+path = "bin/node.rs"
+required-features = ["node"]
+
+[[bin]]
+name = "walrus-deploy"
+path = "bin/deploy.rs"
+required-features = ["deploy"]
+
 [features]
-default = ["test-utils"]
-test-utils = ["dep:tempfile", "dep:walrus-test-utils", "walrus-core/test-utils"]
+client = [
+    "dep:bcs",
+    "dep:colored",
+    "dep:humantime",
+    "dep:indoc",
+    "dep:itertools",
+    "dep:prettytable",
+    "dep:telemetry-subscribers",
+    "dep:utoipa-redoc",
+    "dep:walrus-sdk"
+]
+deploy = ["client", "node"]
+node = [
+    "dep:async-trait",
+    "dep:bcs",
+    "dep:enum_dispatch",
+    "dep:mime",
+    "dep:mysten-metrics",
+    "dep:rocksdb",
+    "dep:telemetry-subscribers",
+    "dep:tokio-stream",
+    "dep:tokio-util",
+    "dep:typed-store",
+    "dep:utoipa-redoc",
+    "dep:walrus-sdk"
+]
+test-utils = [
+    "client",
+    "node",
+    "dep:tempfile",
+    "walrus-core/test-utils",
+    "dep:walrus-test-utils"
+]
 
 [dependencies]
 anyhow.workspace = true
-async-trait = "0.1.81"
-axum = { version = "0.7.5", features = ["http2"] }
-bcs.workspace = true
-clap = { workspace = true, features = ["string"] }
-colored = "2.1.0"
-enum_dispatch.workspace = true
+async-trait = { workspace = true, optional = true }
+axum.workspace = true
+bcs = { workspace = true, optional = true }
+clap.workspace = true
+colored = { workspace = true, optional = true }
+enum_dispatch = { workspace = true, optional = true }
 fastcrypto.workspace = true
 futures.workspace = true
-git-version = "0.3.9"
-home = "0.5.9"
-humantime = "2.1.0"
-indoc = "2.0.5"
-itertools = "0.13.0"
-mime.workspace = true
-mysten-metrics.workspace = true
+git-version.workspace = true
+home.workspace = true
+humantime = { workspace = true, optional = true }
+indoc = { workspace = true, optional = true }
+itertools = { workspace = true, optional = true }
+mime = { workspace = true, optional = true }
+mysten-metrics = { workspace = true, optional = true }
 opentelemetry.workspace = true
-opentelemetry-http.workspace = true
-opentelemetry-otlp.workspace = true
-opentelemetry-stdout = { version = "0.4.0", features = ["trace"] }
-opentelemetry_sdk = { workspace = true, features = ["trace", "rt-tokio", "rt-tokio-current-thread"] }
-pin-project = "1.1.5"
-prettytable = "0.10.0"
+pin-project.workspace = true
+prettytable = { workspace = true, optional = true }
 prometheus.workspace = true
 rand.workspace = true
-regex = "1"
+regex.workspace = true
 reqwest.workspace = true
-rocksdb.workspace = true
+rocksdb = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 serde_with.workspace = true
 serde_yaml.workspace = true
 sui-sdk.workspace = true
 sui-types.workspace = true
-telemetry-subscribers.workspace = true
+telemetry-subscribers = { workspace = true, optional = true }
 tempfile = { workspace = true, optional = true }
 thiserror.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
-tokio-stream.workspace = true
-tokio-util.workspace = true
-tower-http = { version = "0.5.2", features = ["trace"] }
+tokio.workspace = true
+tokio-stream = { workspace = true, optional = true }
+tokio-util = { workspace = true, optional = true }
+tower-http.workspace = true
 tracing.workspace = true
 tracing-opentelemetry.workspace = true
 tracing-subscriber.workspace = true
-typed-store.workspace = true
+typed-store = { workspace = true, optional = true }
 utoipa = { workspace = true, features = ["axum_extras"] }
-utoipa-redoc = { version = "4.0.0", features = ["axum"] }
+utoipa-redoc = { workspace = true, optional = true }
 walrus-core = { workspace = true, features = ["utoipa"] }
-walrus-sdk.workspace = true
+walrus-sdk = { workspace = true, optional = true }
 walrus-sui = { workspace = true, features = ["utoipa"] }
 walrus-test-utils = { workspace = true, optional = true }
 
-[lints]
-workspace = true
-
-[[bin]]
-name = "walrus"
-path = "bin/client.rs"
-
-[[bin]]
-name = "walrus-node"
-path = "bin/node.rs"
-
 [dev-dependencies]
-mockall = "0.12.1"
-rand.workspace = true
+mockall.workspace = true
 tempfile.workspace = true
 walrus-core = { workspace = true, features = ["test-utils"] }
 walrus-test-utils.workspace = true
+
+[lints]
+workspace = true
 
 [target.'cfg(msim)'.dependencies]
 sui-simulator.workspace = true

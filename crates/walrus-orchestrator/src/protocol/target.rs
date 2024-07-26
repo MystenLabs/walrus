@@ -11,14 +11,8 @@ use std::{
 use serde::{Deserialize, Serialize};
 use walrus_core::ShardIndex;
 use walrus_service::{
-    config,
-    testbed::{
-        deploy_walrus_contract,
-        even_shards_allocation,
-        metrics_socket_address,
-        node_config_name_prefix,
-        DeployTestbedContractParameters,
-    },
+    node::config,
+    testbed::{self, DeployTestbedContractParameters},
 };
 use walrus_sui::utils::SuiNetwork;
 
@@ -151,9 +145,10 @@ impl ProtocolCommands for TargetProtocol {
         // Create an admin wallet locally to setup the Walrus smart contract.
         let ips = instances.map(|x| x.main_ip).collect::<Vec<_>>();
         let shards = match &parameters.node_parameters.shards_allocation {
-            ShardsAllocation::Even(n) => {
-                even_shards_allocation(*n, NonZeroU16::new(parameters.nodes as u16).unwrap())
-            }
+            ShardsAllocation::Even(n) => testbed::even_shards_allocation(
+                *n,
+                NonZeroU16::new(parameters.nodes as u16).unwrap(),
+            ),
             ShardsAllocation::Manual(shards) => {
                 if parameters.nodes
                     != parameters
@@ -167,7 +162,7 @@ impl ProtocolCommands for TargetProtocol {
             }
         };
 
-        let testbed_config = deploy_walrus_contract(DeployTestbedContractParameters {
+        let testbed_config = testbed::deploy_walrus_contract(DeployTestbedContractParameters {
             working_dir: parameters.settings.working_dir.as_path(),
             sui_network: parameters.node_parameters.sui_network,
             contract_path: parameters.node_parameters.contract_path.clone(),
@@ -228,7 +223,7 @@ impl ProtocolCommands for TargetProtocol {
                 let working_dir = parameters.settings.working_dir.clone();
                 let node_config_name = format!(
                     "{}.yaml",
-                    node_config_name_prefix(
+                    testbed::node_config_name_prefix(
                         i as u16,
                         NonZeroU16::new(parameters.nodes as u16).unwrap()
                     )
@@ -318,7 +313,7 @@ impl ProtocolMetrics for TargetProtocol {
             .into_iter()
             .map(|instance| {
                 let metrics_port = parameters.node_parameters.metrics_port;
-                let metrics_address = metrics_socket_address(
+                let metrics_address = testbed::metrics_socket_address(
                     std::net::IpAddr::V4(instance.main_ip),
                     metrics_port,
                     None,

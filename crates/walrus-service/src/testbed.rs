@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Facilities to deploy a demo testbed.
+//! Facilities to deploy a Walrus testbed.
 
 use std::{
     collections::HashSet,
@@ -15,6 +15,8 @@ use anyhow::{anyhow, ensure, Context};
 use fastcrypto::traits::KeyPair;
 use futures::future::try_join_all;
 use rand::{rngs::StdRng, SeedableRng};
+use serde::{Deserialize, Serialize};
+use serde_with::base64::Base64;
 use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
 use tracing::instrument;
@@ -30,9 +32,37 @@ use walrus_sui::{
 
 use crate::{
     client::{self, ClientCommunicationConfig},
-    config::{defaults, StorageNodeConfig, SuiConfig, TestbedConfig, TestbedNodeConfig},
-    storage::DatabaseConfig,
+    common::utils::LoadConfig,
+    node::config::{defaults, StorageNodeConfig, SuiConfig},
 };
+
+/// Node-specific testbed configuration.
+#[serde_with::serde_as]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TestbedNodeConfig {
+    /// The REST API address of the node.
+    pub network_address: NetworkAddress,
+    /// The key of the node.
+    #[serde_as(as = "Base64")]
+    pub keypair: ProtocolKeyPair,
+    /// The network key of the node.
+    #[serde_as(as = "Base64")]
+    pub network_keypair: NetworkKeyPair,
+}
+
+/// Configuration for a Walrus testbed.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TestbedConfig {
+    /// Sui network for which the config is generated.
+    #[serde(default = "defaults::network")]
+    pub sui_network: SuiNetwork,
+    /// The list of ip addresses of the storage nodes.
+    pub nodes: Vec<TestbedNodeConfig>,
+    /// Object ID of walrus system object.
+    pub system_object: ObjectID,
+}
+
+impl LoadConfig for TestbedConfig {}
 
 /// Prefix for the node configuration file name.
 pub fn node_config_name_prefix(node_index: u16, committee_size: NonZeroU16) -> String {
@@ -400,7 +430,6 @@ pub async fn create_storage_node_configs(
             .or(set_config_dir.map(|path| path.join(&name)))
             .unwrap_or_else(|| working_dir.join(&name));
 
-        let db_config = Some(DatabaseConfig::default());
         storage_node_configs.push(StorageNodeConfig {
             storage_path,
             protocol_key_pair: node.keypair.into(),
@@ -408,7 +437,7 @@ pub async fn create_storage_node_configs(
             metrics_address,
             rest_api_address,
             sui,
-            db_config,
+            db_config: Some(Default::default()),
             blob_recovery: Default::default(),
         });
     }

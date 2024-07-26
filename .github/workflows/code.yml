@@ -113,8 +113,6 @@ jobs:
       - name: Build Rust code
         run: cargo build --verbose
 
-  # TODO(mlegner): Currently running all tests on all PRs touching Rust code.
-  # If the running time gets too long, we may need to separate the integration and E2E tests.
   test:
     name: Test Rust code
     needs: diff

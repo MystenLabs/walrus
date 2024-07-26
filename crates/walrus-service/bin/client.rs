@@ -23,27 +23,23 @@ use walrus_core::{
     BlobId,
 };
 use walrus_service::{
-    cli_utils::{
-        error,
-        get_contract_client,
-        get_read_client,
-        get_sui_read_client_from_rpc_node_or_wallet,
-        load_configuration,
-        load_wallet_context,
-        read_blob_from_file,
-        CliOutput,
-        HumanReadableBytes,
-        VERSION,
-    },
     client::{
-        BlobIdOutput,
-        BlobStatusOutput,
+        cli_utils::{
+            error,
+            get_contract_client,
+            get_read_client,
+            get_sui_read_client_from_rpc_node_or_wallet,
+            load_configuration,
+            load_wallet_context,
+            read_blob_from_file,
+            CliOutput,
+            HumanReadableBytes,
+        },
+        responses::{BlobIdOutput, BlobStatusOutput, DryRunOutput, InfoOutput, ReadOutput},
         Client,
         ClientDaemon,
-        DryRunOutput,
-        InfoOutput,
-        ReadOutput,
     },
+    utils::VERSION,
 };
 use walrus_sui::{
     client::{ContractClient, ReadClient},

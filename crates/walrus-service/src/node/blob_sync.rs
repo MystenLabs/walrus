@@ -30,16 +30,13 @@ use walrus_core::{
 use walrus_sui::types::BlobCertified;
 
 use super::{
-    metrics::{self, NodeMetricSet, STATUS_IN_PROGRESS, STATUS_QUEUED},
-    StorageNodeInner,
-};
-use crate::{
     committee::CommitteeService,
     contract_service::SystemContractService,
-    node::metrics::TelemetryLabel as _,
+    metrics::{self, NodeMetricSet, TelemetryLabel as _, STATUS_IN_PROGRESS, STATUS_QUEUED},
     storage::Storage,
-    utils::FutureHelpers as _,
+    StorageNodeInner,
 };
+use crate::common::utils::FutureHelpers as _;
 
 #[derive(Debug, Clone)]
 pub(crate) struct BlobSyncHandler {

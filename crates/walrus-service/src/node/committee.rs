@@ -51,8 +51,8 @@ use walrus_sui::{
 };
 
 use crate::{
-    config::CommitteeServiceConfig,
-    utils::{self, ExponentialBackoff, FutureHelpers},
+    common::utils::{self, ExponentialBackoff, FutureHelpers},
+    node::config::CommitteeServiceConfig,
 };
 
 mod remote;

@@ -11,7 +11,7 @@ use axum::{
 use reqwest::header::AUTHORIZATION;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-use crate::api::{RestApiError, RestApiJsonError};
+use crate::common::api::{RestApiError, RestApiJsonError};
 
 #[derive(Debug, thiserror::Error)]
 pub enum BcsRejection {

@@ -4,7 +4,7 @@
 use sui_macros::sim_test;
 use sui_protocol_config::ProtocolConfig;
 use walrus_core::encoding::{Primary, Secondary};
-use walrus_service::{client::BlobStoreResult, test_cluster};
+use walrus_service::{client::responses::BlobStoreResult, test_utils::test_cluster};
 
 // Tests that we can create a Walrus cluster with a Sui cluster and running basic
 // operations deterministically.

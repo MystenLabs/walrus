@@ -28,7 +28,7 @@ use super::{
     responses::OrRejection,
 };
 use crate::{
-    api::{self, ApiSuccess, BlobIdString},
+    common::api::{self, ApiSuccess, BlobIdString},
     node::{
         BlobStatusError,
         ComputeStorageConfirmationError,

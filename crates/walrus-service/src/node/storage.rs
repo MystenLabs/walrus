@@ -1,69 +1,44 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-#![allow(unused)]
-
 use std::{
-    collections::{hash_map::Entry, BinaryHeap, HashMap, HashSet},
+    collections::{hash_map::Entry, HashMap},
     fmt::Debug,
     path::Path,
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
 
-use anyhow::Context;
-use rocksdb::{
-    ColumnFamily,
-    ColumnFamilyDescriptor,
-    DBCommon,
-    DBCompressionType,
-    MergeOperands,
-    Options,
-    DB,
-};
+use rocksdb::{DBCompressionType, MergeOperands, Options};
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
-use sui_sdk::types::{digests::TransactionDigest, event::EventID};
-use tracing::{instrument, Level};
+use sui_sdk::types::event::EventID;
+use tracing::Level;
 use typed_store::{
-    rocks::{
-        self,
-        errors::typed_store_err_from_bcs_err,
-        DBBatch,
-        DBMap,
-        MetricConf,
-        ReadWriteOptions,
-        RocksDB,
-    },
+    rocks::{self, DBBatch, DBMap, MetricConf, ReadWriteOptions, RocksDB},
     Map,
     TypedStoreError,
 };
 use walrus_core::{
-    merkle::Node as MerkleNode,
-    metadata::{
-        BlobMetadata,
-        BlobMetadataWithId,
-        UnverifiedBlobMetadataWithId,
-        VerifiedBlobMetadataWithId,
-    },
+    metadata::{BlobMetadata, VerifiedBlobMetadataWithId},
     BlobId,
     ShardIndex,
 };
-use walrus_sui::types::{Blob, BlobEvent, BlobRegistered};
+use walrus_sui::types::BlobEvent;
 
 use self::{
-    blob_info::{BlobCertificationStatus, BlobInfo, BlobInfoMergeOperand, BlobInfoV1},
+    blob_info::{BlobInfo, BlobInfoApi, BlobInfoMergeOperand, Mergeable as _},
     event_cursor_table::EventCursorTable,
-    event_sequencer::EventSequencer,
 };
-use crate::storage::blob_info::{BlobInfoApi, Mergeable as _};
 
 pub(crate) mod blob_info;
-mod event_cursor_table;
-mod event_sequencer;
-mod shard;
-pub use shard::ShardStorage;
 
-pub(super) use self::event_cursor_table::EventProgress;
+mod event_cursor_table;
+pub(super) use event_cursor_table::EventProgress;
+
+mod event_sequencer;
+
+mod shard;
+pub(crate) use shard::ShardStorage;
 
 /// Options for configuring a column family.
 #[serde_with::serde_as]
@@ -187,6 +162,7 @@ impl DatabaseTableOptions {
     }
 }
 
+/// Database configuration for Walrus storage nodes.
 #[serde_with::serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DatabaseConfig {
@@ -197,6 +173,7 @@ pub struct DatabaseConfig {
 }
 
 impl DatabaseConfig {
+    /// Returns the shard configuration.
     pub fn shard(&self) -> &DatabaseTableOptions {
         &self.shard
     }
@@ -213,7 +190,7 @@ impl Default for DatabaseConfig {
     }
 }
 
-/// Storage backing a [`StorageNode`][crate::StorageNode].
+/// Storage backing a [`StorageNode`][crate::node::StorageNode].
 ///
 /// Enables storing blob metadata, which is shared across all shards. The method
 /// [`shard_storage()`][Self::shard_storage] can be used to retrieve shard-specific storage.
@@ -252,7 +229,7 @@ impl Storage {
         let (blob_info_cf_name, blob_info_options) = Self::blob_info_options(&db_config);
         let (event_cursor_cf_name, event_cursor_options) = EventCursorTable::options(&db_config);
 
-        let mut expected_column_families: Vec<_> = shard_column_families
+        let expected_column_families: Vec<_> = shard_column_families
             .iter_mut()
             .map(|(name, opts)| (name.as_str(), std::mem::take(opts)))
             .chain([
@@ -299,7 +276,7 @@ impl Storage {
     }
 
     /// Returns the storage for the specified shard, creating it if it does not exist.
-    pub fn create_storage_for_shard(
+    pub(crate) fn create_storage_for_shard(
         &mut self,
         shard: ShardIndex,
     ) -> Result<&ShardStorage, TypedStoreError> {
@@ -572,8 +549,8 @@ where
 #[cfg(test)]
 pub(crate) mod tests {
 
+    use blob_info::{BlobCertificationStatus, BlobInfoV1};
     use prometheus::Registry;
-    use sui_sdk::types::digests::TransactionDigest;
     use tempfile::TempDir;
     use tokio::runtime::Runtime;
     use walrus_core::{
@@ -586,7 +563,7 @@ pub(crate) mod tests {
         test_utils::{event_id_for_testing, EventForTesting},
         types::BlobCertified,
     };
-    use walrus_test_utils::{async_param_test, param_test, Result as TestResult, WithTempDir};
+    use walrus_test_utils::{async_param_test, Result as TestResult, WithTempDir};
 
     use super::*;
     use crate::test_utils::empty_storage_with_shards;
@@ -628,7 +605,6 @@ pub(crate) mod tests {
         let mut storage = empty_storage();
 
         let mut seed = 10u8;
-        let db_config = DatabaseConfig::default();
         for (shard, sliver_list) in spec {
             storage.as_mut().create_storage_for_shard(*shard)?;
             let shard_storage = storage.as_ref().shard_storage(*shard).unwrap();
@@ -858,7 +834,7 @@ pub(crate) mod tests {
         let storage = empty_storage();
         let storage = storage.as_ref();
 
-        storage.maybe_advance_event_cursor(1, &event_id_for_testing());
+        storage.maybe_advance_event_cursor(1, &event_id_for_testing())?;
         assert_eq!(storage.get_event_cursor()?, None);
 
         Ok(())
@@ -930,8 +906,7 @@ pub(crate) mod tests {
     /// are dropped to free the storage lock.
     #[tokio::main(flavor = "current_thread")]
     async fn populate_storage_then_close(spec: StorageSpec) -> TestResult<TempDir> {
-        let WithTempDir { inner, temp_dir } = populated_storage(spec)?;
-        Ok(temp_dir)
+        Ok(populated_storage(spec)?.temp_dir)
     }
 
     #[test]
@@ -942,7 +917,7 @@ pub(crate) mod tests {
             (OTHER_SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
         ])?;
 
-        let result = Runtime::new()?.block_on(async move {
+        Runtime::new()?.block_on(async move {
             let storage = Storage::open(
                 directory.path(),
                 DatabaseConfig::default(),
@@ -963,7 +938,7 @@ pub(crate) mod tests {
             }
 
             Result::<(), anyhow::Error>::Ok(())
-        });
+        })?;
 
         Ok(())
     }

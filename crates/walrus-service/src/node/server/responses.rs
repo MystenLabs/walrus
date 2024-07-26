@@ -14,7 +14,7 @@ use utoipa::{
 
 use super::extract::BcsRejection;
 use crate::{
-    api::{rest_api_error, RestApiError},
+    common::api::{rest_api_error, RestApiError},
     node::{
         BlobStatusError,
         ComputeStorageConfirmationError,

@@ -10,6 +10,7 @@ use axum::{
     routing::{get, post, put},
     Router,
 };
+use openapi::RestApiDoc;
 use prometheus::{register_histogram_vec_with_registry, HistogramVec, Registry};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
@@ -18,8 +19,10 @@ use utoipa::OpenApi as _;
 use utoipa_redoc::{Redoc, Servable as _};
 use walrus_core::encoding::max_sliver_size_for_n_shards;
 
-use self::openapi::RestApiDoc;
-use crate::{node::ServiceState, telemetry::MakeHttpSpan};
+use crate::{
+    common::telemetry::{MakeHttpSpan, UNMATCHED_ROUTE},
+    node::ServiceState,
+};
 
 mod extract;
 mod openapi;
@@ -32,7 +35,6 @@ mod routes;
 /// `n_secondary_source_symbols * u16::MAX` bytes. However, we need a few extra bytes to accommodate
 /// the additional information encoded with the slivers.
 const HEADROOM: usize = 128;
-pub(crate) const UNMATCHED_ROUTE: &str = "invalid-route";
 
 /// Represents a user server.
 #[derive(Debug)]
@@ -185,8 +187,8 @@ mod test {
 
     use super::*;
     use crate::{
-        config::StorageNodeConfig,
         node::{
+            config::StorageNodeConfig,
             BlobStatusError,
             ComputeStorageConfirmationError,
             InconsistencyProofError,

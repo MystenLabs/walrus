@@ -27,8 +27,8 @@ use walrus_core::encoding::Primary;
 use walrus_sui::client::ContractClient;
 
 use crate::{
-    api::{self, BlobIdString},
     client::{BlobStoreResult, Client, ClientErrorKind},
+    common::api::{self, BlobIdString},
 };
 
 /// OpenAPI documentation endpoint.

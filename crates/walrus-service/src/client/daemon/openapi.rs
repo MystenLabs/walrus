@@ -7,8 +7,8 @@ use walrus_sui::types::{Blob, StorageResource};
 
 use super::routes;
 use crate::{
-    api::{BlobIdString, EventIdSchema, ObjectIdSchema},
     client::BlobStoreResult,
+    common::api::{BlobIdString, EventIdSchema, ObjectIdSchema},
 };
 
 #[derive(OpenApi)]

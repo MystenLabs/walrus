@@ -1,6 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Structures of client results returned by the daemon or through the JSON API.
+
 use std::{
     num::NonZeroU16,
     path::{Path, PathBuf},
@@ -33,7 +35,7 @@ use walrus_sui::{
     utils::{price_for_encoded_length, storage_units_from_size, BYTES_PER_UNIT_SIZE},
 };
 
-use crate::cli_utils::{HumanReadableBytes, HumanReadableMist};
+use super::cli_utils::{HumanReadableBytes, HumanReadableMist};
 
 /// Result when attempting to store a blob.
 #[serde_as]

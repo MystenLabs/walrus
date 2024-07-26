@@ -14,7 +14,7 @@ use walrus_core::{
 use walrus_sdk::api::{BlobStatus, ServiceHealthInfo};
 
 use super::routes;
-use crate::api::{api_success_alias, BlobIdString, EventIdSchema, RestApiJsonError};
+use crate::common::api::{api_success_alias, BlobIdString, EventIdSchema, RestApiJsonError};
 
 pub(super) const GROUP_STORING_BLOBS: &str = "Writing Blobs";
 pub(super) const GROUP_READING_BLOBS: &str = "Reading Blobs";

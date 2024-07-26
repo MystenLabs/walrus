@@ -78,8 +78,9 @@ pub fn rotate_pairs_unchecked(pairs: &mut [SliverPair], blob_id: &BlobId) {
 }
 
 /// Check that the slice of sliver pairs is a valid rotation.
+///
+/// This only checks the first sliver of the pair, it does not check the internal state of the pair.
 fn is_rotation(pairs: &[SliverPair]) -> bool {
-    // TODO(mlegner): also check internal state of pair?
     pairs.iter().enumerate().all(|(index, pair)| {
         pair.index().as_usize() == (index + pairs[0].index().as_usize()) % pairs.len()
     })

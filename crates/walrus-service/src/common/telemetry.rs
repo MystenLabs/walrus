@@ -2,6 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Telemetry utilities for instrumenting walrus services.
+
+// Not all functions here are used in every feature.
+#![allow(dead_code)]
+
 use std::{
     net::{IpAddr, SocketAddr},
     str::FromStr as _,
@@ -22,13 +26,16 @@ use tower_http::trace::{MakeSpan, OnResponse};
 use tracing::{field, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-use crate::server::UNMATCHED_ROUTE;
+/// Route string used in metrics for invalid routes.
+pub(crate) const UNMATCHED_ROUTE: &str = "invalid-route";
 
+/// Struct to generate new [`tracing::Span`]s for HTTP requests.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct MakeHttpSpan;
 
 impl MakeHttpSpan {
-    pub fn new() -> MakeHttpSpan {
+    /// Creates a new `MakeHttpSpan` instance.
+    pub(crate) fn new() -> MakeHttpSpan {
         Self
     }
 
@@ -159,7 +166,7 @@ impl MakeHttpSpan {
     }
 }
 
-struct HeaderExtractor<'a>(pub &'a http::HeaderMap);
+struct HeaderExtractor<'a>(pub(crate) &'a http::HeaderMap);
 
 impl<'a> Extractor for HeaderExtractor<'a> {
     /// Get a value for a key from the HeaderMap.  If the value is not valid ASCII, returns None.
@@ -182,8 +189,9 @@ impl<B> MakeSpan<B> for MakeHttpSpan {
     }
 }
 
+/// Marks the wrapped error as an internal error to add corresponding log entries.
 #[derive(Debug, Clone)]
-pub(crate) struct InternalError(pub Arc<dyn std::error::Error + Sync + Send + 'static>);
+pub(crate) struct InternalError(pub(crate) Arc<dyn std::error::Error + Sync + Send + 'static>);
 
 impl<B> OnResponse<B> for MakeHttpSpan {
     fn on_response(self, response: &http::Response<B>, _: Duration, span: &Span) {

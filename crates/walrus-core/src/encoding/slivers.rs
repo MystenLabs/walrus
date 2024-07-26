@@ -181,7 +181,7 @@ impl<T: EncodingAxis> Sliver<T> {
         Self::check_index(index, config.n_shards)?;
         Ok(self
             .get_sliver_encoder(config)?
-            // TODO(mlegner): add more efficient function to encode a single symbol
+            // TODO(mlegner): Add more efficient function to encode a single symbol. (#624)
             .encode_range(index..index + 1)
             .next()
             .expect("the encoder should always be able to produce an encoding symbol"))

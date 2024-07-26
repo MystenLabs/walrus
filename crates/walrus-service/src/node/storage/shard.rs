@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Walrus shard storage.
-//!
+
 use std::{
     borrow::Borrow,
     collections::HashSet,
@@ -11,7 +11,7 @@ use std::{
 };
 
 use regex::Regex;
-use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, MergeOperands, Options, DB};
+use rocksdb::{Options, DB};
 use serde::{Deserialize, Serialize};
 use typed_store::{
     rocks::{errors::typed_store_err_from_rocks_err, DBBatch, DBMap, ReadWriteOptions, RocksDB},
@@ -26,7 +26,7 @@ use walrus_core::{
     SliverType,
 };
 
-use crate::storage::{DatabaseConfig, DatabaseTableOptions};
+use super::DatabaseConfig;
 
 type PrimarySliverKey = SliverKey<true>;
 type SecondarySliverKey = SliverKey<false>;
@@ -53,8 +53,9 @@ pub struct ShardStorage {
     secondary_slivers: DBMap<SecondarySliverKey, SecondarySliver>,
 }
 
+/// Storage corresponding to a single shard.
 impl ShardStorage {
-    pub fn create_or_reopen(
+    pub(crate) fn create_or_reopen(
         id: ShardIndex,
         database: &Arc<RocksDB>,
         db_config: &DatabaseConfig,
@@ -85,7 +86,11 @@ impl ShardStorage {
 
     /// Stores the provided primary or secondary sliver for the given blob ID.
     #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
-    pub fn put_sliver(&self, blob_id: &BlobId, sliver: &Sliver) -> Result<(), TypedStoreError> {
+    pub(crate) fn put_sliver(
+        &self,
+        blob_id: &BlobId,
+        sliver: &Sliver,
+    ) -> Result<(), TypedStoreError> {
         match sliver {
             Sliver::Primary(primary) => self.primary_slivers.insert(&blob_id.into(), primary),
             Sliver::Secondary(secondary) => {
@@ -94,13 +99,13 @@ impl ShardStorage {
         }
     }
 
-    pub fn id(&self) -> ShardIndex {
+    pub(crate) fn id(&self) -> ShardIndex {
         self.id
     }
 
     /// Returns the sliver of the specified type that is stored for that Blob ID, if any.
     #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
-    pub fn get_sliver(
+    pub(crate) fn get_sliver(
         &self,
         blob_id: &BlobId,
         sliver_type: SliverType,
@@ -117,7 +122,7 @@ impl ShardStorage {
 
     /// Retrieves the stored primary sliver for the given blob ID.
     #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
-    pub fn get_primary_sliver(
+    pub(crate) fn get_primary_sliver(
         &self,
         blob_id: &BlobId,
     ) -> Result<Option<PrimarySliver>, TypedStoreError> {
@@ -126,7 +131,7 @@ impl ShardStorage {
 
     /// Retrieves the stored secondary sliver for the given blob ID.
     #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
-    pub fn get_secondary_sliver(
+    pub(crate) fn get_secondary_sliver(
         &self,
         blob_id: &BlobId,
     ) -> Result<Option<SecondarySliver>, TypedStoreError> {
@@ -135,14 +140,14 @@ impl ShardStorage {
 
     /// Returns true iff the sliver-pair for the given blob ID is stored by the shard.
     #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
-    pub fn is_sliver_pair_stored(&self, blob_id: &BlobId) -> Result<bool, TypedStoreError> {
+    pub(crate) fn is_sliver_pair_stored(&self, blob_id: &BlobId) -> Result<bool, TypedStoreError> {
         Ok(self.is_sliver_stored::<Primary>(blob_id)?
             && self.is_sliver_stored::<Secondary>(blob_id)?)
     }
 
     /// Deletes the sliver pair for the given [`BlobId`].
     #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
-    pub fn delete_sliver_pair(
+    pub(crate) fn delete_sliver_pair(
         &self,
         batch: &mut DBBatch,
         blob_id: &BlobId,
@@ -159,7 +164,7 @@ impl ShardStorage {
     }
 
     #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
-    pub fn is_sliver_stored<A: EncodingAxis>(
+    pub(crate) fn is_sliver_stored<A: EncodingAxis>(
         &self,
         blob_id: &BlobId,
     ) -> Result<bool, TypedStoreError> {
@@ -167,7 +172,7 @@ impl ShardStorage {
     }
 
     #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
-    pub fn is_sliver_type_stored(
+    pub(crate) fn is_sliver_type_stored(
         &self,
         blob_id: &BlobId,
         type_: SliverType,
@@ -224,17 +229,20 @@ fn slivers_column_family_name(id: ShardIndex) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::fmt;
-
     use walrus_core::{
         encoding::{Primary, Secondary},
-        Sliver,
         SliverType,
     };
-    use walrus_test_utils::{async_param_test, param_test, Result as TestResult, WithTempDir};
+    use walrus_test_utils::{async_param_test, Result as TestResult};
 
     use crate::{
-        storage::tests::{empty_storage, get_sliver, BLOB_ID, OTHER_SHARD_INDEX, SHARD_INDEX},
+        node::storage::tests::{
+            empty_storage,
+            get_sliver,
+            BLOB_ID,
+            OTHER_SHARD_INDEX,
+            SHARD_INDEX,
+        },
         test_utils::empty_storage_with_shards,
     };
 
