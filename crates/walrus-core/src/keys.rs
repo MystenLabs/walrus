@@ -4,33 +4,52 @@
 //! Keys used with Walrus.
 
 use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
-use core::str::FromStr;
+use core::{fmt, str::FromStr};
 
 use fastcrypto::{
     bls12381::min_pk::BLS12381KeyPair,
+    ed25519::Ed25519KeyPair,
     encoding::{Base64, Encoding},
-    traits::{AllowedRng, KeyPair, Signer, ToFromBytes},
+    traits::{AllowedRng, KeyPair, Signer, SigningKey, ToFromBytes},
 };
 use serde::{
-    de::{Error, Unexpected},
+    de::{Error, SeqAccess, Unexpected, Visitor},
+    ser::SerializeTuple,
     Deserialize,
     Serialize,
 };
-use serde_with::{
-    base64::Base64 as SerdeWithBase64,
-    ser::SerializeAsWrap,
-    DeserializeAs,
-    SerializeAs,
-};
+use serde_with::{base64::Base64 as SerdeWithBase64, ser::SerializeAsWrap, SerializeAs};
 
 use crate::messages::{ProtocolMessage, SignedMessage};
+
+/// Key pair used in protocol messages.
+pub type ProtocolKeyPair = TaggedKeyPair<BLS12381KeyPair>;
+
+/// Key pair used to authenticate network communication.
+pub type NetworkKeyPair = TaggedKeyPair<Ed25519KeyPair>;
 
 /// Identifier for the type of public key being loaded from file.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 #[repr(u8)]
 pub enum SignatureScheme {
-    /// Identifies a BLS12-381 public key
+    /// Identifies a Ed25519 key.
+    ED25519 = 0x00,
+    /// Identifies a BLS12-381 key.
     BLS12381 = 0x04,
+}
+
+/// Marker trait for [`KeyPair`]s which are used in the system.
+pub trait SupportedKeyPair: KeyPair + ToFromBytes {
+    /// The [`SignatureScheme`] associated with the [`KeyPair`].
+    const SCHEME: SignatureScheme;
+}
+
+impl SupportedKeyPair for BLS12381KeyPair {
+    const SCHEME: SignatureScheme = SignatureScheme::BLS12381;
+}
+
+impl SupportedKeyPair for Ed25519KeyPair {
+    const SCHEME: SignatureScheme = SignatureScheme::ED25519;
 }
 
 impl SignatureScheme {
@@ -40,27 +59,28 @@ impl SignatureScheme {
     }
 }
 
-/// Key pair used in Walrus protocol messages.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProtocolKeyPair(pub Arc<BLS12381KeyPair>);
+const ENCODING_BUFFER_LENGTH: usize = 33;
 
-impl ProtocolKeyPair {
-    const KEY_LENGTH: usize = 32;
-    const ENCODED_LENGTH: usize = ProtocolKeyPair::KEY_LENGTH + 1;
+/// A [`KeyPair`] that is serialized, pre-pended with it's associated [`SignatureScheme`].
+#[derive(Debug, PartialEq, Eq)]
+pub struct TaggedKeyPair<T>(pub Arc<T>);
 
-    /// Create a new `ProtocolKeyPair` from a [`BLS12381KeyPair`].
-    pub fn new(keypair: BLS12381KeyPair) -> Self {
+impl<T: SupportedKeyPair> TaggedKeyPair<T> {
+    const ENCODED_LENGTH: usize = T::PrivKey::LENGTH + 1;
+
+    /// Create a scoped new key pair.
+    pub fn new(keypair: T) -> Self {
         Self(Arc::new(keypair))
     }
 
-    /// Encodes the keypair as `flag || bytes` in base64.
-    pub fn to_base64(&self) -> String {
-        Base64::encode(Vec::from(self))
+    /// The public key associated with the key pair.
+    pub fn public(&'_ self) -> &'_ T::PubKey {
+        self.0.public()
     }
 
     /// Generates a new key-pair using the specified random number generator.
     pub fn generate_with_rng(rng: &mut impl AllowedRng) -> Self {
-        Self::new(BLS12381KeyPair::generate(rng))
+        Self::new(T::generate(rng))
     }
 
     /// Generates a new key-pair using thread-local randomness.
@@ -68,6 +88,145 @@ impl ProtocolKeyPair {
         Self::generate_with_rng(&mut rand::thread_rng())
     }
 
+    /// Encodes the keypair as `flag || bytes` in base64.
+    pub fn to_base64(&self) -> String {
+        let mut buffer = [0u8; ENCODING_BUFFER_LENGTH];
+        let key_bytes = &mut buffer[..Self::ENCODED_LENGTH];
+        self.encode_to_buffer(key_bytes);
+        Base64::encode(key_bytes)
+    }
+
+    fn encode_to_buffer(&self, mut buffer: &mut [u8]) {
+        bcs::serialize_into(&mut buffer, self).expect("should never fail");
+    }
+}
+
+impl<T> Clone for TaggedKeyPair<T> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<T: SupportedKeyPair> From<T> for TaggedKeyPair<T> {
+    fn from(value: T) -> Self {
+        Self::new(value)
+    }
+}
+
+impl<T: SupportedKeyPair> TryFrom<Vec<u8>> for TaggedKeyPair<T> {
+    type Error = bcs::Error;
+
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        bcs::from_bytes(&value)
+    }
+}
+
+impl<T: SupportedKeyPair> From<&TaggedKeyPair<T>> for Vec<u8> {
+    fn from(value: &TaggedKeyPair<T>) -> Self {
+        bcs::to_bytes(value).expect("should never fail")
+    }
+}
+
+impl<T: SupportedKeyPair> AsRef<T> for TaggedKeyPair<T> {
+    fn as_ref(&self) -> &T {
+        &self.0
+    }
+}
+
+/// Error returned when trying to parse a [`ProtocolKeyPair`] from a string.
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+pub struct KeyPairParseError(Box<dyn std::error::Error>);
+
+impl<T: SupportedKeyPair> FromStr for TaggedKeyPair<T> {
+    type Err = KeyPairParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let bytes = Base64::decode(s).map_err(|err| KeyPairParseError(err.into()))?;
+        bcs::from_bytes(&bytes).map_err(|err| KeyPairParseError(err.into()))
+    }
+}
+
+impl<T: SupportedKeyPair> Serialize for TaggedKeyPair<T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut tuple = serializer.serialize_tuple(Self::ENCODED_LENGTH)?;
+
+        tuple.serialize_element(&T::SCHEME.to_u8())?;
+        for byte in self.0.as_bytes() {
+            tuple.serialize_element(byte)?;
+        }
+        tuple.end()
+    }
+}
+
+impl<T: SupportedKeyPair> SerializeAs<TaggedKeyPair<T>> for SerdeWithBase64 {
+    fn serialize_as<S>(source: &TaggedKeyPair<T>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        SerializeAsWrap::<Vec<u8>, SerdeWithBase64>::new(&Vec::from(source)).serialize(serializer)
+    }
+}
+
+struct BinaryBufferVisitor<const N: usize> {
+    length: usize,
+}
+
+impl<const N: usize> BinaryBufferVisitor<N> {
+    fn new(length: usize) -> Self {
+        Self { length }
+    }
+}
+
+impl<'de, const N: usize> Visitor<'de> for BinaryBufferVisitor<N> {
+    type Value = [u8; N];
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        write!(formatter, "an array of length {}", self.length)
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        let mut result = [0u8; N];
+        for element in &mut result[..self.length] {
+            match seq.next_element()? {
+                Some(e) => *element = e,
+                None => return Err(Error::invalid_length(self.length, &self)),
+            }
+        }
+        Ok(result)
+    }
+}
+
+impl<'de, T: SupportedKeyPair> Deserialize<'de> for TaggedKeyPair<T> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let decoded_bytes: [u8; ENCODING_BUFFER_LENGTH] = deserializer.deserialize_tuple(
+            Self::ENCODED_LENGTH,
+            BinaryBufferVisitor::new(Self::ENCODED_LENGTH),
+        )?;
+        let decoded_bytes = &decoded_bytes[..Self::ENCODED_LENGTH];
+
+        if decoded_bytes[0] == T::SCHEME.to_u8() {
+            let keypair = T::from_bytes(&decoded_bytes[1..]).map_err(D::Error::custom)?;
+            Ok(Self::new(keypair))
+        } else {
+            Err(D::Error::invalid_value(
+                Unexpected::Unsigned(decoded_bytes[0].into()),
+                &"a correct flag byte for the key type",
+            ))
+        }
+    }
+}
+
+impl ProtocolKeyPair {
     /// Sign `message` and return the resulting [`SignedMessage`].
     pub fn sign_message<T, I>(&self, message: &T) -> SignedMessage<T>
     where
@@ -78,89 +237,6 @@ impl ProtocolKeyPair {
 
         let signature = self.as_ref().sign(&serialized_message);
         SignedMessage::new_from_encoded(serialized_message, signature)
-    }
-}
-
-impl From<BLS12381KeyPair> for ProtocolKeyPair {
-    fn from(value: BLS12381KeyPair) -> Self {
-        Self::new(value)
-    }
-}
-
-impl TryFrom<Vec<u8>> for ProtocolKeyPair {
-    type Error = bcs::Error;
-
-    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
-        bcs::from_bytes(&value)
-    }
-}
-
-impl From<&ProtocolKeyPair> for Vec<u8> {
-    fn from(value: &ProtocolKeyPair) -> Self {
-        bcs::to_bytes(value).expect("should never fail")
-    }
-}
-
-impl AsRef<BLS12381KeyPair> for ProtocolKeyPair {
-    fn as_ref(&self) -> &BLS12381KeyPair {
-        &self.0
-    }
-}
-
-impl Serialize for ProtocolKeyPair {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut bytes = [0u8; Self::ENCODED_LENGTH];
-        bytes[0] = SignatureScheme::BLS12381.to_u8();
-        bytes[1..].copy_from_slice(self.0.as_ref().as_bytes());
-
-        <[serde_with::Same; Self::ENCODED_LENGTH]>::serialize_as(&bytes, serializer)
-    }
-}
-
-impl<'de> Deserialize<'de> for ProtocolKeyPair {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let decoded_bytes: [u8; Self::ENCODED_LENGTH] =
-            <[serde_with::Same; Self::ENCODED_LENGTH]>::deserialize_as(deserializer)?;
-
-        if decoded_bytes[0] == SignatureScheme::BLS12381.to_u8() {
-            let keypair =
-                BLS12381KeyPair::from_bytes(&decoded_bytes[1..]).map_err(D::Error::custom)?;
-            Ok(Self::new(keypair))
-        } else {
-            Err(D::Error::invalid_value(
-                Unexpected::Unsigned(decoded_bytes[0].into()),
-                &"a flag byte with value SignatureScheme::BLS12381",
-            ))
-        }
-    }
-}
-
-/// Error returned when trying to parse a [`ProtocolKeyPair`] from a string.
-#[derive(Debug, thiserror::Error)]
-#[error(transparent)]
-pub struct ProtocolKeyPairParseError(Box<dyn std::error::Error>);
-
-impl FromStr for ProtocolKeyPair {
-    type Err = ProtocolKeyPairParseError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let bytes = Base64::decode(s).map_err(|err| ProtocolKeyPairParseError(err.into()))?;
-        bcs::from_bytes(&bytes).map_err(|err| ProtocolKeyPairParseError(err.into()))
-    }
-}
-
-impl SerializeAs<ProtocolKeyPair> for SerdeWithBase64 {
-    fn serialize_as<S>(source: &ProtocolKeyPair, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        SerializeAsWrap::<Vec<u8>, SerdeWithBase64>::new(&Vec::from(source)).serialize(serializer)
     }
 }
 

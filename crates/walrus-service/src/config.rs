@@ -21,7 +21,7 @@ use serde_with::{
     SerializeAs,
 };
 use sui_sdk::types::base_types::ObjectID;
-use walrus_core::keys::{ProtocolKeyPair, ProtocolKeyPairParseError};
+use walrus_core::keys::{KeyPairParseError, ProtocolKeyPair};
 use walrus_sui::{types::NetworkAddress, utils::SuiNetwork};
 
 use crate::{storage::DatabaseConfig, utils};
@@ -300,7 +300,7 @@ impl PathOrInPlace<ProtocolKeyPair> {
                 .context(format!("unable to read key from '{}'", path.display()))?;
             let decoded: ProtocolKeyPair = base64_string
                 .parse()
-                .map_err(|err: ProtocolKeyPairParseError| anyhow::anyhow!(err.to_string()))?;
+                .map_err(|err: KeyPairParseError| anyhow::anyhow!(err.to_string()))?;
             *value = Some(decoded)
         };
         Ok(self.get().unwrap())
