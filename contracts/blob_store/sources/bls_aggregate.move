@@ -5,7 +5,7 @@ module blob_store::bls_aggregate {
     use sui::group_ops::Self;
     use sui::bls12381::{Self, bls12381_min_pk_verify};
 
-    use blob_store::storage_node::{Self, StorageNodeInfo};
+    use blob_store::storage_node::StorageNodeInfo;
 
     // Error codes
     const ETotalMemberOrder: u64 = 0;
@@ -98,6 +98,10 @@ module blob_store::bls_aggregate {
 
         (aggregate_weight as u16)
     }
+
+
+    #[test_only]
+    use blob_store::storage_node::Self;
 
     #[test_only]
     /// Test committee

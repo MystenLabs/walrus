@@ -17,6 +17,7 @@ module blob_store::blob_tests {
     use blob_store::storage_resource::{split_by_epoch, destroy};
 
     const RED_STUFF: u8 = 0;
+    const NETWORK_PUBLIC_KEY: vector<u8> = b"network-public-key";
 
     public struct TESTWAL has store, drop {}
 
@@ -181,6 +182,7 @@ module blob_store::blob_tests {
             string::utf8(b"node"),
             string::utf8(b"127.0.0.1"),
             public_key,
+            NETWORK_PUBLIC_KEY,
             vector[0, 1, 2, 3, 4, 5],
         );
 
