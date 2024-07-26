@@ -162,12 +162,7 @@ mod test {
         },
         keys::ProtocolKeyPair,
         merkle::MerkleProof,
-        messages::{
-            InvalidBlobIdAttestation,
-            SignedMessage,
-            StorageConfirmation,
-            SyncShardRequest,
-        },
+        messages::{InvalidBlobIdAttestation, SignedMessage, StorageConfirmation, SyncShardMsg},
         metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
         BlobId,
         InconsistencyProof,
@@ -336,7 +331,7 @@ mod test {
         fn sync_shard(
             &self,
             _public_key: PublicKey,
-            _signed_request: SignedMessage<SyncShardRequest>,
+            _signed_request: SignedMessage<SyncShardMsg>,
         ) -> Result<(), SyncShardError> {
             Ok(())
         }

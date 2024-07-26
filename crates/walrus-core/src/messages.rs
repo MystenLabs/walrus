@@ -20,7 +20,7 @@ mod invalid_blob_id;
 pub use invalid_blob_id::{InvalidBlobIdAttestation, InvalidBlobIdMsg};
 
 mod sync_shard;
-pub use sync_shard::{SignedSyncShardRequest, SyncShardRequest};
+pub use sync_shard::{SignedSyncShardRequest, SyncShardMsg, SyncShardRequest};
 
 mod certificate;
 pub use certificate::{CertificateError, ConfirmationCertificate, InvalidBlobCertificate};
@@ -85,17 +85,16 @@ impl<T> SignedMessage<T> {
         Ok(())
     }
 
-    /// Verifies the signature on this message under `public_key`, and extracts the underlying message
-    /// upon successful verification.
-    pub fn verify_signature_get_message<I>(
+    /// Extracts the underlying message and verifies the signature on this message under `public_key`.
+    pub fn verify_signature_and_get_message<I>(
         &self,
         public_key: &PublicKey,
-    ) -> Result<ProtocolMessage<T>, MessageVerificationError>
+    ) -> Result<T, MessageVerificationError>
     where
         T: AsRef<ProtocolMessage<I>> + DeserializeOwned,
     {
-        let message: ProtocolMessage<T> = bcs::from_bytes(&self.serialized_message)?;
-        public_key.verify(&self.serialized_message, &self.signature)?;
+        let message: T = bcs::from_bytes(&self.serialized_message)?;
+        self.verify_signature(public_key)?;
 
         Ok(message)
     }
@@ -173,6 +172,9 @@ wrapped_uint! {
         pub const BLOB_CERT_MSG: Self = Self(1);
         /// Intent type for invalid blob id messages.
         pub const INVALID_BLOB_ID_MSG: Self = Self(2);
+        /// Intent type for invalid blob id messages.
+        /// Note that this message is only used for communication between storage nodes.
+        pub const SYNC_SHARD_MSG: Self = Self(3);
     }
 }
 

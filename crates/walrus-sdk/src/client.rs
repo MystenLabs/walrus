@@ -24,8 +24,8 @@ use walrus_core::{
     messages::{
         InvalidBlobIdAttestation,
         SignedStorageConfirmation,
-        SignedSyncShardRequest,
         StorageConfirmation,
+        SyncShardMsg,
         SyncShardRequest,
     },
     metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
@@ -53,7 +53,7 @@ const RECOVERY_URL_TEMPLATE: &str =
 const INCONSISTENCY_PROOF_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/inconsistent/:sliver_type";
 const STATUS_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/status";
 const HEALTH_URL_TEMPLATE: &str = "/v1/health";
-const SYNC_SHARD_TEMPLATE: &str = "/v1/sync_shard";
+const SYNC_SHARD_TEMPLATE: &str = "/v1/migrate/sync_shard";
 
 #[derive(Debug, Clone)]
 struct UrlEndpoints(Url);
@@ -484,10 +484,10 @@ impl Client {
     #[tracing::instrument(
         skip_all,
         fields(
-            walrus.sync.shard_index = %shard_index,
-            walrus.sync.epoch = epoch,
-            walrus.sync.starting_blob_id = %starting_blob_id,
-            walrus.sync.num_blobs = %num_blobs,
+            walrus.shard_index = %shard_index,
+            walrus.epoch = epoch,
+            walrus.blob_id = %starting_blob_id,
+            walrus.sync.sliver_count = %sliver_count,
         ),
         err(level = Level::DEBUG)
     )]
@@ -495,7 +495,7 @@ impl Client {
         &self,
         shard_index: ShardIndex,
         starting_blob_id: BlobId,
-        num_blobs: u64,
+        sliver_count: u64,
         epoch: Epoch,
         key_pair: &ProtocolKeyPair,
     ) -> Result<(), NodeError> {
@@ -504,10 +504,12 @@ impl Client {
             shard_index,
             A::IS_PRIMARY,
             starting_blob_id,
-            num_blobs,
+            sliver_count,
             epoch,
         );
-        let signed_request: SignedSyncShardRequest = key_pair.sign_message(&request);
+
+        let sync_shard_msg = SyncShardMsg::new(epoch, request);
+        let signed_request = key_pair.sign_message(&sync_shard_msg);
         let http_request = self.create_request_with_payload_and_public_key(
             Method::POST,
             url,

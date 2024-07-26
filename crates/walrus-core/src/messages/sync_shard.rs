@@ -3,10 +3,12 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::SignedMessage;
-use crate::{BlobId, Epoch, ShardIndex};
+use super::{Intent, InvalidIntent, ProtocolMessage, SignedMessage};
+use crate::{messages::IntentType, BlobId, Epoch, ShardIndex};
 
-#[derive(Debug, Serialize, Deserialize)]
+/// Represents a version 1 of the sync shard request for transferring an entire shard from
+/// one storage node to another.
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SyncShardRequestV1 {
     /// The shard index that is requested to be synced.
     shard_index: ShardIndex,
@@ -19,13 +21,13 @@ pub struct SyncShardRequestV1 {
     /// The ID of the blob to start syncing from.
     starting_blob_id: BlobId,
 
-    /// The number of blobs to sync starting from `starting_blob_id`.
+    /// The number of slivers to sync starting from `starting_blob_id`.
     /// Since the blobs are stored in RocksDB ordered by the key, the sync basically
-    /// scans the RocksDB from `starting_blob_id` and reads `num_blobs` blobs for
+    /// scans the RocksDB from `starting_blob_id` and reads `sliver_count` slivers for
     /// efficient scanning.
     ///
     /// Note that only blobs certified at the moment of epoch change are synced.
-    num_blobs: u64,
+    sliver_count: u64,
 
     /// The epoch up until which blobs were certified. In the context of
     /// an epoch change, this is the previous epoch.
@@ -33,7 +35,7 @@ pub struct SyncShardRequestV1 {
 }
 
 /// Represents a request to sync a shard from a storage node.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum SyncShardRequest {
     /// Version 1 of the sync shard request.
     V1(SyncShardRequestV1),
@@ -45,18 +47,56 @@ impl SyncShardRequest {
         shard_index: ShardIndex,
         primary_sliver: bool,
         starting_blob_id: BlobId,
-        num_blobs: u64,
+        sliver_count: u64,
         epoch: Epoch,
     ) -> SyncShardRequest {
         Self::V1(SyncShardRequestV1 {
             shard_index,
             primary_sliver,
             starting_blob_id,
-            num_blobs,
+            sliver_count,
             epoch,
         })
     }
 }
 
+/// A message stating that a Blob Id is invalid.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "ProtocolMessage<SyncShardRequest>")]
+pub struct SyncShardMsg(pub(crate) ProtocolMessage<SyncShardRequest>);
+
+impl SyncShardMsg {
+    const INTENT: Intent = Intent::storage(IntentType::INVALID_BLOB_ID_MSG);
+
+    /// Creates a new InvalidBlobIdMsg message for the provided blob ID.
+    pub fn new(epoch: Epoch, request: SyncShardRequest) -> Self {
+        Self(ProtocolMessage {
+            intent: Intent::storage(IntentType::INVALID_BLOB_ID_MSG),
+            epoch,
+            message_contents: request,
+        })
+    }
+}
+
+impl TryFrom<ProtocolMessage<SyncShardRequest>> for SyncShardMsg {
+    type Error = InvalidIntent;
+    fn try_from(protocol_message: ProtocolMessage<SyncShardRequest>) -> Result<Self, Self::Error> {
+        if protocol_message.intent == Self::INTENT {
+            Ok(Self(protocol_message))
+        } else {
+            Err(InvalidIntent {
+                expected: Self::INTENT,
+                actual: protocol_message.intent,
+            })
+        }
+    }
+}
+
+impl AsRef<ProtocolMessage<SyncShardRequest>> for SyncShardMsg {
+    fn as_ref(&self) -> &ProtocolMessage<SyncShardRequest> {
+        &self.0
+    }
+}
+
 /// Represents a signed sync shard request.
-pub type SignedSyncShardRequest = SignedMessage<SyncShardRequest>;
+pub type SignedSyncShardRequest = SignedMessage<SyncShardMsg>;
