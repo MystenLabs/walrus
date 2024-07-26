@@ -752,6 +752,14 @@ impl ServiceState for StorageNodeInner {
 
         let shard_storage = self.get_shard_for_sliver_pair(sliver_pair_index, blob_id)?;
 
+        let shard_status = shard_storage
+            .status()
+            .context("Unable to retrieve shard status")?;
+
+        if !shard_status.is_owned_by_node() {
+            return Err(ShardNotAssigned(shard_storage.id(), self.current_epoch()).into());
+        }
+
         if shard_storage
             .is_sliver_type_stored(blob_id, sliver.r#type())
             .context("database error when checking sliver existence")?
@@ -1718,6 +1726,92 @@ mod tests {
                 Err(SyncShardError::MessageVerificationError(..))
             ));
         }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn can_read_locked_shard() -> TestResult {
+        let (cluster, _, blob) =
+            cluster_with_partially_stored_blob(&[&[0]], BLOB, |_, _| true).await?;
+
+        cluster.nodes[0]
+            .storage_node
+            .inner
+            .storage
+            .shard_storage(ShardIndex(0))
+            .unwrap()
+            .lock_shard_for_epoch_change()
+            .expect("Lock shard failed.");
+
+        let sliver = cluster.nodes[0]
+            .storage_node
+            .retrieve_sliver(blob.blob_id(), SliverPairIndex(0), SliverType::Primary)
+            .expect("Sliver retrieval failed.");
+
+        assert_eq!(
+            blob.assigned_sliver_pair(ShardIndex(0)).primary,
+            sliver.try_into().expect("Sliver conversion failed.")
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn reject_writes_if_shard_is_locked_in_node() -> TestResult {
+        let (cluster, _, blob) =
+            cluster_with_partially_stored_blob(&[&[0]], BLOB, |_, _| true).await?;
+
+        cluster.nodes[0]
+            .storage_node
+            .inner
+            .storage
+            .shard_storage(ShardIndex(0))
+            .unwrap()
+            .lock_shard_for_epoch_change()
+            .expect("Lock shard failed.");
+
+        let assigned_sliver_pair = blob.assigned_sliver_pair(ShardIndex(0));
+        assert!(matches!(
+            cluster.nodes[0].storage_node.store_sliver(
+                blob.blob_id(),
+                assigned_sliver_pair.index(),
+                &Sliver::Primary(assigned_sliver_pair.primary.clone()),
+            ),
+            Err(StoreSliverError::ShardNotAssigned(..))
+        ));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn compute_storage_confirmation_ignore_locked_shard() -> TestResult {
+        let (cluster, _, blob) =
+            cluster_with_partially_stored_blob(&[&[0, 1, 2]], BLOB, |index, _| index.get() != 0)
+                .await?;
+
+        assert!(matches!(
+            cluster.nodes[0]
+                .storage_node
+                .compute_storage_confirmation(blob.blob_id())
+                .await,
+            Err(ComputeStorageConfirmationError::NotFullyStored)
+        ));
+
+        cluster.nodes[0]
+            .storage_node
+            .inner
+            .storage
+            .shard_storage(ShardIndex(0))
+            .unwrap()
+            .lock_shard_for_epoch_change()
+            .expect("Lock shard failed.");
+
+        assert!(cluster.nodes[0]
+            .storage_node
+            .compute_storage_confirmation(blob.blob_id())
+            .await
+            .is_ok());
 
         Ok(())
     }

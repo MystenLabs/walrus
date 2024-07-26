@@ -38,7 +38,7 @@ pub(super) use event_cursor_table::EventProgress;
 mod event_sequencer;
 
 mod shard;
-pub(crate) use shard::ShardStorage;
+pub(crate) use shard::{ShardStatus, ShardStorage};
 
 /// Options for configuring a column family.
 #[serde_with::serde_as]
@@ -170,12 +170,17 @@ pub struct DatabaseConfig {
     blob_info: DatabaseTableOptions,
     event_cursor: DatabaseTableOptions,
     shard: DatabaseTableOptions,
+    shard_status: DatabaseTableOptions,
 }
 
 impl DatabaseConfig {
     /// Returns the shard configuration.
     pub fn shard(&self) -> &DatabaseTableOptions {
         &self.shard
+    }
+
+    pub fn shard_status(&self) -> &DatabaseTableOptions {
+        &self.shard_status
     }
 }
 
@@ -186,6 +191,7 @@ impl Default for DatabaseConfig {
             blob_info: DatabaseTableOptions::default(),
             event_cursor: DatabaseTableOptions::default(),
             shard: DatabaseTableOptions::optimized_for_blobs(),
+            shard_status: DatabaseTableOptions::default(),
         }
     }
 }
@@ -226,6 +232,9 @@ impl Storage {
                 ShardStorage::slivers_column_family_options(id, &db_config)
                     .into_iter()
                     .map(|(_, (cf_name, options))| (cf_name, options))
+                    .chain(ShardStorage::shard_status_column_family_options(
+                        id, &db_config,
+                    ))
             })
             .collect::<Vec<_>>();
 
@@ -441,6 +450,10 @@ impl Storage {
     #[tracing::instrument(skip_all)]
     pub fn is_stored_at_all_shards(&self, blob_id: &BlobId) -> Result<bool, TypedStoreError> {
         for shard in self.shards.values() {
+            if !shard.status()?.is_owned_by_node() {
+                continue;
+            }
+
             if !shard.is_sliver_pair_stored(blob_id)? {
                 return Ok(false);
             }
