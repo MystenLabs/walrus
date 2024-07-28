@@ -30,7 +30,7 @@ mysten-metrics.workspace = true
 opentelemetry.workspace = true
 opentelemetry-http.workspace = true
 opentelemetry-otlp.workspace = true
-opentelemetry-stdout = { version = "0.4.0", features = ["trace"] }
+opentelemetry-stdout = { version = "0.5.0", features = ["trace"] }
 opentelemetry_sdk = { workspace = true, features = ["trace", "rt-tokio", "rt-tokio-current-thread"] }
 pin-project = "1.1.5"
 prettytable = "0.10.0"
@@ -75,7 +75,7 @@ name = "walrus-node"
 path = "bin/node.rs"
 
 [dev-dependencies]
-mockall = "0.12.1"
+mockall = "0.13.0"
 rand.workspace = true
 tempfile.workspace = true
 walrus-core = { workspace = true, features = ["test-utils"] }
