@@ -79,12 +79,6 @@ impl<T> SignedMessage<T> {
 }
 
 impl<T> SignedMessage<T> {
-    /// Verifies the signature on this message under `public_key`.
-    pub fn verify_signature(&self, public_key: &PublicKey) -> Result<(), MessageVerificationError> {
-        public_key.verify(&self.serialized_message, &self.signature)?;
-        Ok(())
-    }
-
     /// Extracts the underlying message and verifies the signature on this message under `public_key`.
     pub fn verify_signature_and_get_message<I>(
         &self,
@@ -94,7 +88,7 @@ impl<T> SignedMessage<T> {
         T: AsRef<ProtocolMessage<I>> + DeserializeOwned,
     {
         let message: T = bcs::from_bytes(&self.serialized_message)?;
-        self.verify_signature(public_key)?;
+        public_key.verify(&self.serialized_message, &self.signature)?;
 
         Ok(message)
     }

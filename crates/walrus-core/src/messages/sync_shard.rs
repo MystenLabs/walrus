@@ -66,12 +66,12 @@ impl SyncShardRequest {
 pub struct SyncShardMsg(pub(crate) ProtocolMessage<SyncShardRequest>);
 
 impl SyncShardMsg {
-    const INTENT: Intent = Intent::storage(IntentType::INVALID_BLOB_ID_MSG);
+    const INTENT: Intent = Intent::storage(IntentType::SYNC_SHARD_MSG);
 
     /// Creates a new InvalidBlobIdMsg message for the provided blob ID.
     pub fn new(epoch: Epoch, request: SyncShardRequest) -> Self {
         Self(ProtocolMessage {
-            intent: Intent::storage(IntentType::INVALID_BLOB_ID_MSG),
+            intent: Intent::storage(IntentType::SYNC_SHARD_MSG),
             epoch,
             message_contents: request,
         })

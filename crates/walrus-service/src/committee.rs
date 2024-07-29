@@ -130,8 +130,9 @@ pub trait CommitteeService: std::fmt::Debug + Send + Sync {
     ) -> InvalidBlobCertificate;
 
     /// Checks if the given public key belongs to a Walrus storage node.
-    /// Note that the node may not be part of the current committee, since
-    /// it can be future or past committee member.
+    /// TODO (#629): once node catching up is implemented, we need to make sure that the node
+    /// may not be part of the current committee (node from past committee in the previous epoch
+    /// or will be come new committee in the future) can still communicate with each other.
     fn is_walrus_storage_node(&self, public_key: &PublicKey) -> bool;
 }
 
