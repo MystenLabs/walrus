@@ -345,11 +345,20 @@ impl SuiContractClient {
                 .with_type_params(&[self.read_client.coin_type.clone()]),
             reserve_arguments,
         )?;
-        // Transfer back payment coin.
-        pt_builder.transfer_arg(
-            self.wallet_address,
-            Argument::NestedResult(reserve_result_index, 1),
-        );
+
+        let returned_coin = Argument::NestedResult(reserve_result_index, 1);
+
+        if self.read_client.uses_sui_coin() {
+            // Join the return coin back into the gas coin. This ensures that there are no
+            // zero-balance coins left in the user's wallet.
+            pt_builder.command(Command::MergeCoins(Argument::GasCoin, vec![returned_coin]));
+        } else {
+            // Transfer back payment coin.
+            pt_builder.transfer_arg(
+                self.wallet_address,
+                Argument::NestedResult(reserve_result_index, 1),
+            );
+        }
 
         Ok((reserve_result_index, gas_coin_balance))
     }
