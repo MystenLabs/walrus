@@ -171,6 +171,7 @@ impl<T: SupportedKeyPair> SerializeAs<TaggedKeyPair<T>> for SerdeWithBase64 {
     }
 }
 
+/// Serde seserialization visitor for writing an array of known length into a pre-allocated buffer.
 struct BinaryBufferVisitor<const N: usize> {
     length: usize,
 }
