@@ -7,8 +7,9 @@ use std::{path::PathBuf, str::FromStr};
 
 use anyhow::Result;
 use fastcrypto::{bls12381::min_pk::BLS12381PublicKey, traits::ToFromBytes};
+use rand::{rngs::StdRng, SeedableRng as _};
 use sui_sdk::{types::base_types::ObjectID, wallet_context::WalletContext};
-use walrus_core::ShardIndex;
+use walrus_core::{keys::NetworkKeyPair, ShardIndex};
 
 use super::DEFAULT_GAS_BUDGET;
 use crate::{
@@ -46,6 +47,7 @@ pub async fn publish_with_default_system(wallet: &mut WalletContext) -> Result<O
     // Default system config, compatible with current tests
 
     // Pk corresponding to secret key scalar(117)
+    let network_key_pair = NetworkKeyPair::generate_with_rng(&mut StdRng::seed_from_u64(0));
     let pubkey_bytes = [
         149, 234, 204, 58, 220, 9, 200, 39, 89, 63, 88, 30, 142, 45, 224, 104, 191, 76, 245, 208,
         192, 235, 41, 229, 55, 47, 13, 35, 54, 71, 136, 238, 15, 155, 235, 17, 44, 138, 126, 156,
@@ -55,6 +57,7 @@ pub async fn publish_with_default_system(wallet: &mut WalletContext) -> Result<O
         name: "Test0".to_owned(),
         network_address: NetworkAddress::from_str("127.0.0.1:8080")?,
         public_key: BLS12381PublicKey::from_bytes(&pubkey_bytes)?,
+        network_public_key: network_key_pair.public().clone(),
         shard_ids: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
             .into_iter()
             .map(ShardIndex)

@@ -143,6 +143,7 @@ pub async fn create_system_object(
                 pt_builder.pure(node.name.to_owned())?,
                 pt_builder.pure(node.network_address.to_string())?,
                 pt_builder.pure(node.public_key.as_bytes())?,
+                pt_builder.pure(node.network_public_key.as_bytes())?,
                 pt_builder.pure(node.shard_ids.iter().map(|id| id.0).collect::<Vec<_>>())?,
             ])
         })

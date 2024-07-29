@@ -198,6 +198,7 @@ pub async fn deploy_walrus_contract(
         let node_index = i as u16;
         let name = node_config_name_prefix(node_index, NonZeroU16::new(committee_size).unwrap());
         let public_key = keypair.as_ref().public().clone();
+        let network_public_key = network_keypair.public().clone();
         let network_address = if collocated {
             public_rest_api_address(host, rest_api_port, Some(node_index), Some(committee_size))
         } else {
@@ -213,6 +214,7 @@ pub async fn deploy_walrus_contract(
         sui_storage_nodes.push(SuiStorageNode {
             name,
             network_address,
+            network_public_key,
             public_key,
             shard_ids: shard_ids.clone(),
         });

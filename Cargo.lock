@@ -12167,6 +12167,7 @@ dependencies = [
  "bcs",
  "fastcrypto 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "move-core-types",
+ "rand 0.8.5",
  "reqwest 0.12.5",
  "serde",
  "serde_json",

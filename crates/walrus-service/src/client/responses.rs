@@ -23,6 +23,7 @@ use walrus_core::{
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
     Epoch,
+    NetworkPublicKey,
     PublicKey,
 };
 use walrus_sdk::api::BlobStatus;
@@ -208,6 +209,7 @@ pub(crate) struct StorageNodeInfo {
     pub(crate) name: String,
     pub(crate) network_address: NetworkAddress,
     pub(crate) public_key: PublicKey,
+    pub(crate) network_public_key: NetworkPublicKey,
     pub(crate) n_shards: usize,
 }
 
@@ -250,12 +252,14 @@ impl From<StorageNode> for StorageNodeInfo {
             name,
             network_address,
             public_key,
+            network_public_key,
             shard_ids,
         } = value;
         Self {
             name,
             network_address,
             public_key,
+            network_public_key,
             n_shards: shard_ids.len(),
         }
     }
