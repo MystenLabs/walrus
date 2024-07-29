@@ -10,7 +10,7 @@ use rand::{rngs::StdRng, RngCore, SeedableRng};
 
 use crate::{
     encoding::{self, EncodingConfig, PrimaryRecoverySymbol, PrimarySliver},
-    keys::ProtocolKeyPair,
+    keys::{NetworkKeyPair, ProtocolKeyPair},
     merkle::{MerkleProof, Node},
     messages::SignedMessage,
     metadata::{
@@ -27,13 +27,19 @@ use crate::{
     SliverPairIndex,
 };
 
-/// Returns a deterministic fixed key pair for testing.
+/// Returns a deterministic fixed protocol key pair for testing.
 ///
 /// Various testing facilities can use this key and unit-test can re-generate it to verify the
 /// correctness of inputs and outputs.
-pub fn key_pair() -> ProtocolKeyPair {
+pub fn protocol_key_pair() -> ProtocolKeyPair {
     let mut rng = StdRng::seed_from_u64(0);
     ProtocolKeyPair::new(KeyPair::generate(&mut rng))
+}
+
+/// Returns a deterministic fixed network key pair for testing.
+pub fn network_key_pair() -> NetworkKeyPair {
+    let mut rng = StdRng::seed_from_u64(0);
+    NetworkKeyPair::generate_with_rng(&mut rng)
 }
 
 /// Returns an arbitrary signed message for tests.
@@ -42,7 +48,7 @@ pub fn random_signed_message<T>() -> SignedMessage<T> {
     let mut message = vec![0; 32];
     rng.fill_bytes(&mut message);
 
-    let signer = key_pair();
+    let signer = protocol_key_pair();
     let signature = signer.as_ref().sign(&message);
     SignedMessage::new_from_encoded(message, signature)
 }

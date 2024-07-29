@@ -21,7 +21,13 @@ use serde_with::{
     SerializeAs,
 };
 use sui_sdk::types::base_types::ObjectID;
-use walrus_core::keys::{KeyPairParseError, ProtocolKeyPair};
+use walrus_core::keys::{
+    KeyPairParseError,
+    NetworkKeyPair,
+    ProtocolKeyPair,
+    SupportedKeyPair,
+    TaggedKeyPair,
+};
 use walrus_sui::{types::NetworkAddress, utils::SuiNetwork};
 
 use crate::{storage::DatabaseConfig, utils};
@@ -52,6 +58,9 @@ pub struct StorageNodeConfig {
     /// Key pair used in Walrus protocol messages
     #[serde_as(as = "PathOrInPlace<Base64>")]
     pub protocol_key_pair: PathOrInPlace<ProtocolKeyPair>,
+    /// Key pair used to authenticate nodes in network communication.
+    #[serde_as(as = "PathOrInPlace<Base64>")]
+    pub network_key_pair: PathOrInPlace<NetworkKeyPair>,
     /// Socket address on which to the Prometheus server should export its metrics.
     #[serde(default = "defaults::metrics_address")]
     pub metrics_address: SocketAddr,
@@ -164,6 +173,9 @@ pub struct TestbedNodeConfig {
     /// The key of the node.
     #[serde_as(as = "Base64")]
     pub keypair: ProtocolKeyPair,
+    /// The network key of the node.
+    #[serde_as(as = "Base64")]
+    pub network_keypair: NetworkKeyPair,
 }
 
 /// Configuration for a Walrus Testbed.
@@ -286,11 +298,11 @@ impl<T> From<T> for PathOrInPlace<T> {
     }
 }
 
-impl PathOrInPlace<ProtocolKeyPair> {
-    /// Loads and returns a [`ProtocolKeyPair`] from the path on disk.
+impl<T: SupportedKeyPair> PathOrInPlace<TaggedKeyPair<T>> {
+    /// Loads and returns a key pair from the path on disk.
     ///
     /// If the value was already loaded, it is returned instead.
-    pub fn load(&mut self) -> Result<&ProtocolKeyPair, anyhow::Error> {
+    pub fn load(&mut self) -> Result<&TaggedKeyPair<T>, anyhow::Error> {
         if let PathOrInPlace::Path {
             path,
             value: value @ None,
@@ -298,7 +310,7 @@ impl PathOrInPlace<ProtocolKeyPair> {
         {
             let base64_string = std::fs::read_to_string(path.as_path())
                 .context(format!("unable to read key from '{}'", path.display()))?;
-            let decoded: ProtocolKeyPair = base64_string
+            let decoded: TaggedKeyPair<T> = base64_string
                 .parse()
                 .map_err(|err: KeyPairParseError| anyhow::anyhow!(err.to_string()))?;
             *value = Some(decoded)
@@ -377,7 +389,7 @@ mod tests {
 
     #[test]
     fn path_or_in_place_deserializes_from_base64() -> TestResult {
-        let expected_keypair = test_utils::key_pair();
+        let expected_keypair = test_utils::protocol_key_pair();
         let yaml_contents = expected_keypair.to_base64();
 
         let deserializer = serde_yaml::Deserializer::from_str(&yaml_contents);
@@ -391,7 +403,7 @@ mod tests {
 
     #[test]
     fn path_or_in_place_serializes_to_base64() -> TestResult {
-        let keypair = test_utils::key_pair();
+        let keypair = test_utils::protocol_key_pair();
         let expected_yaml = keypair.to_base64() + "\n";
 
         let mut written_yaml = vec![];
@@ -407,7 +419,7 @@ mod tests {
 
     #[test]
     fn loads_base64_protocol_keypair() -> TestResult {
-        let key = test_utils::key_pair();
+        let key = test_utils::protocol_key_pair();
         let key_file = NamedTempFile::new()?;
 
         key_file.as_file().write_all(key.to_base64().as_bytes())?;
@@ -423,7 +435,8 @@ mod tests {
     fn parses_config_file() -> TestResult {
         let yaml = "---\n\
         storage_path: target/storage\n\
-        protocol_key_pair:\n  BBlm7tRefoPuaKoVoxVtnUBBDCfy+BGPREM8B6oSkOEj";
+        protocol_key_pair:\n  BBlm7tRefoPuaKoVoxVtnUBBDCfy+BGPREM8B6oSkOEj\n\
+        network_key_pair:\n  AFzrKKEebJ56OhX4QHH9NQshlGKEQuwdD3HlE5d3n0jm";
 
         ProtocolKeyPair::from_str("BBlm7tRefoPuaKoVoxVtnUBBDCfy+BGPREM8B6oSkOEj")?;
 

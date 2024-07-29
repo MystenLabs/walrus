@@ -18,7 +18,10 @@ use rand::{rngs::StdRng, SeedableRng};
 use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
 use tracing::instrument;
-use walrus_core::{keys::ProtocolKeyPair, ShardIndex};
+use walrus_core::{
+    keys::{NetworkKeyPair, ProtocolKeyPair},
+    ShardIndex,
+};
 use walrus_sui::{
     system_setup::{create_system_object, publish_package, SystemParameters},
     types::{Committee, NetworkAddress, StorageNode as SuiStorageNode},
@@ -27,14 +30,7 @@ use walrus_sui::{
 
 use crate::{
     client::{self, ClientCommunicationConfig},
-    config::{
-        defaults,
-        PathOrInPlace,
-        StorageNodeConfig,
-        SuiConfig,
-        TestbedConfig,
-        TestbedNodeConfig,
-    },
+    config::{defaults, StorageNodeConfig, SuiConfig, TestbedConfig, TestbedNodeConfig},
     storage::DatabaseConfig,
 };
 
@@ -51,16 +47,22 @@ pub fn node_config_name_prefix(node_index: u16, committee_size: NonZeroU16) -> S
 }
 
 /// Generates deterministic keypairs for the benchmark purposes.
-pub fn deterministic_keypairs(n: usize) -> Vec<ProtocolKeyPair> {
+pub fn deterministic_keypairs(n: usize) -> Vec<(ProtocolKeyPair, NetworkKeyPair)> {
     let mut rng = StdRng::seed_from_u64(0);
-    (0..n)
+    // Generate key pairs sequentially to ensure backwards compatibility of the protocol keys.
+    let protocol_keys: Vec<_> = (0..n)
         .map(|_| ProtocolKeyPair::generate_with_rng(&mut rng))
-        .collect()
+        .collect();
+    let network_keys = (0..n).map(|_| NetworkKeyPair::generate_with_rng(&mut rng));
+
+    protocol_keys.into_iter().zip(network_keys).collect()
 }
 
 /// Generates a list of random keypairs.
-pub fn random_keypairs(n: usize) -> Vec<ProtocolKeyPair> {
-    (0..n).map(|_| ProtocolKeyPair::generate()).collect()
+pub fn random_keypairs(n: usize) -> Vec<(ProtocolKeyPair, NetworkKeyPair)> {
+    (0..n)
+        .map(|_| (ProtocolKeyPair::generate(), NetworkKeyPair::generate()))
+        .collect()
 }
 
 /// Formats the metrics address for a node. If the node index is provided, the port is adjusted
@@ -187,7 +189,7 @@ pub async fn deploy_walrus_contract(
     let mut node_configs = Vec::new();
     let mut sui_storage_nodes = Vec::new();
 
-    for (i, ((keypair, shard_ids), host)) in keypairs
+    for (i, (((keypair, network_keypair), shard_ids), host)) in keypairs
         .into_iter()
         .zip(shards_information.into_iter())
         .zip(hosts.iter().cloned())
@@ -205,6 +207,7 @@ pub async fn deploy_walrus_contract(
         node_configs.push(TestbedNodeConfig {
             network_address: network_address.clone(),
             keypair,
+            network_keypair,
         });
 
         sui_storage_nodes.push(SuiStorageNode {
@@ -398,7 +401,8 @@ pub async fn create_storage_node_configs(
         let db_config = Some(DatabaseConfig::default());
         storage_node_configs.push(StorageNodeConfig {
             storage_path,
-            protocol_key_pair: PathOrInPlace::InPlace(node.keypair),
+            protocol_key_pair: node.keypair.into(),
+            network_key_pair: node.network_keypair.into(),
             metrics_address,
             rest_api_address,
             sui,
