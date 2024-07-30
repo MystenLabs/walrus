@@ -68,7 +68,7 @@ pub trait LoadConfig: DeserializeOwned {
 }
 
 /// The representation of a backoff strategy.
-pub trait BackoffStrategy {
+pub(crate) trait BackoffStrategy {
     /// Steps the backoff iterator, returning the next delay and advances the backoff.
     ///
     /// Returns `None` if the strategy mandates that the consumer should stop backing off.
@@ -83,7 +83,7 @@ pub trait BackoffStrategy {
 /// For the `i`-th iterator element and bounds `min_backoff` and `max_backoff`, this returns the
 /// sequence `min(max_backoff, 2^i * min_backoff + rand_i)`.
 #[derive(Debug)]
-pub struct ExponentialBackoff<R> {
+pub(crate) struct ExponentialBackoff<R> {
     min_backoff: Duration,
     max_backoff: Duration,
     sequence_index: u32,
@@ -175,7 +175,7 @@ impl<R: Rng> Iterator for ExponentialBackoff<R> {
 }
 
 /// Trait to unify checking for success on `Result` and `Option` types.
-pub trait SuccessOrFailure {
+pub(crate) trait SuccessOrFailure {
     /// Returns true iff the value is considered successful.
     fn is_success(&self) -> bool;
 }
@@ -260,7 +260,7 @@ impl<T: Future> FutureHelpers for T {}
 /// Structure that can wrap a future to report metrics for that future.
 #[pin_project(PinnedDrop)]
 #[derive(Debug)]
-pub struct Observe<Fut, F, const N: usize>
+pub(crate) struct Observe<Fut, F, const N: usize>
 where
     Fut: Future,
     F: FnOnce(Option<&Fut::Output>) -> [&'static str; N],
@@ -346,7 +346,7 @@ where
 
 /// Repeatedly calls the provided function with the provided backoff strategy until it returns
 /// successfully.
-pub async fn retry<S, F, T, Fut>(mut strategy: S, mut func: F) -> T
+pub(crate) async fn retry<S, F, T, Fut>(mut strategy: S, mut func: F) -> T
 where
     S: BackoffStrategy,
     F: FnMut() -> Fut,

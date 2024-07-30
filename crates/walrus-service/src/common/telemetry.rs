@@ -166,7 +166,7 @@ impl MakeHttpSpan {
     }
 }
 
-struct HeaderExtractor<'a>(pub(crate) &'a http::HeaderMap);
+struct HeaderExtractor<'a>(pub &'a http::HeaderMap);
 
 impl<'a> Extractor for HeaderExtractor<'a> {
     /// Get a value for a key from the HeaderMap.  If the value is not valid ASCII, returns None.

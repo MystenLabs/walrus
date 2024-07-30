@@ -5,6 +5,7 @@
 
 storage_path: /path/to/node/storage
 protocol_key_pair: /path/to/keypair
+network_key_pair: /path/to/network_keypair
 sui:
   rpc: https://fullnode.testnet.sui.io:443
   system_object: 0xd6f0cacdb8b365cdda24ab954a32ebc86f8b8a1707322b4cc0ba54dcbbbc5772
