@@ -10,6 +10,7 @@ use sui::{bls12381::{G1, g1_from_bytes}, group_ops::Element};
 /// Represents a storage node in the system.
 public struct StorageNodeInfo has store, drop {
     name: String,
+    node_id: ID,
     network_address: String,
     public_key: Element<G1>,
     shard_ids: vector<u16>,
@@ -19,17 +20,25 @@ public struct StorageNodeInfo has store, drop {
 /// perform operations on the storage node.
 public struct StorageNodeCap has key, store {
     id: UID,
+    node_id: ID,
     pool_id: ID,
 }
 
 /// A public constructor for the StorageNodeInfo.
 public(package) fun new(
     name: String,
+    node_id: ID,
     network_address: String,
     public_key: vector<u8>,
     shard_ids: vector<u16>,
 ): StorageNodeInfo {
-    StorageNodeInfo { name, network_address, public_key: g1_from_bytes(&public_key), shard_ids }
+    StorageNodeInfo {
+        name,
+        node_id,
+        network_address,
+        public_key: g1_from_bytes(&public_key),
+        shard_ids,
+    }
 }
 
 /// Return the public key of the storage node.
@@ -44,13 +53,17 @@ public(package) fun weight(self: &StorageNodeInfo): u16 { self.shard_ids.length(
 /// Return the pool ID of the storage node.
 public fun pool_id(cap: &StorageNodeCap): ID { cap.pool_id }
 
+/// Return the node ID of the storage node.
+public fun node_id(cap: &StorageNodeCap): ID { cap.node_id }
+
 #[test_only]
 /// Create a storage node with dummy name & address
-public fun new_for_testing(public_key: vector<u8>, weight: u16): StorageNodeInfo {
+public fun new_for_testing(public_key: vector<u8>, node_id: ID, weight: u16): StorageNodeInfo {
     let mut shard_ids = vector[];
     weight.do!(|i| shard_ids.push_back(i));
     StorageNodeInfo {
         name: b"node".to_string(),
+        node_id,
         network_address: b"127.0.0.1".to_string(),
         public_key: g1_from_bytes(&public_key),
         shard_ids,
@@ -59,6 +72,6 @@ public fun new_for_testing(public_key: vector<u8>, weight: u16): StorageNodeInfo
 
 #[test_only]
 /// Create a storage node capability for testing.
-public fun new_cap_for_testing(pool_id: ID, ctx: &mut TxContext): StorageNodeCap {
-    StorageNodeCap { id: object::new(ctx), pool_id }
+public fun new_cap_for_testing(pool_id: ID, node_id: ID, ctx: &mut TxContext): StorageNodeCap {
+    StorageNodeCap { id: object::new(ctx), pool_id, node_id }
 }

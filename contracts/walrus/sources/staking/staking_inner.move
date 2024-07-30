@@ -39,7 +39,7 @@ public(package) fun create_pool(
     commission_rate: u64,
     ctx: &mut TxContext,
 ): ID {
-    let pool = staking_pool::new(commission_rate, ctx);
+    let pool = staking_pool::new(commission_rate, self.current_epoch + 1, ctx);
     let pool_id = object::id(&pool);
     self.pools.add(pool_id, pool);
     pool_id
@@ -86,6 +86,7 @@ public(package) fun voting_end(self: &mut StakingInnerV1, clock: &Clock) {
 // === Staking ===
 
 /// Blocks staking for the pool, marks it as "withdrawing".
+/// TODO: Is this action instant or should it be processed in the next epoch?
 public(package) fun set_withdrawing(self: &mut StakingInnerV1, pool_id: ID) {
     self.pools[pool_id].set_withdrawing();
 }
@@ -104,9 +105,11 @@ public(package) fun stake_with_pool(
     self: &mut StakingInnerV1,
     to_stake: Coin<SUI>,
     pool_id: ID,
-    _ctx: &mut TxContext,
+    ctx: &mut TxContext,
 ): StakedWal {
-    abort ENotImplemented
+    let pool = &mut self.pools[pool_id];
+    let activation_epoch = self.current_epoch + 1;
+    staking_pool::stake(pool, to_stake, activation_epoch, ctx)
 }
 
 /// Requests withdrawal of the given amount from the staked `T`, the withdraw is
@@ -131,6 +134,6 @@ public(package) fun withdraw_stake(
 // === System ===
 
 /// Sets the next epoch of the system.
-public(package) fun next_epoch(self: &mut StakingInnerV1) {
-    self.current_epoch = self.current_epoch + 1;
+public(package) fun advance_epoch(self: &mut StakingInnerV1, new_epoch: u64, ctx: &mut TxContext) {
+    self.current_epoch = new_epoch;
 }

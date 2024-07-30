@@ -1,7 +1,6 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-#[allow(unused_variable)]
 /// Module: staked_wal
 module walrus::staked_wal;
 /// Represents a staked WAL, does not store the `Balance` inside, but uses
@@ -33,22 +32,20 @@ public(package) fun mint(
 }
 
 /// Burns the staked WAL and returns the `pool_id` and the `principal`.
-public(package) fun burn(staked_wal: StakedWal) {
-    let StakedWal { id, .. } = staked_wal;
+public(package) fun burn(staked_wal: StakedWal): u64 {
+    let StakedWal { id, principal, .. } = staked_wal;
     id.delete();
+    principal
 }
-
-/// TODO: cycle back on this
-public fun split(_self: &mut StakedWal): StakedWal { abort 0 }
-
-/// Ditto.
-public fun join(_self: &mut StakedWal, _other: StakedWal) { abort 0 }
 
 /// Returns the `pool_id` of the staked WAL.
 public fun pool_id(staked_wal: &StakedWal): ID { staked_wal.pool_id }
 
-/// Returns the `principal` of the staked WAL. Called `value` to be consistent with `Coin`.
+/// Returns the `principal` of the staked WAL. Called `value` to be consistent
+/// with `Coin`.
 public fun value(staked_wal: &StakedWal): u64 { staked_wal.principal }
 
 /// Returns the `activation_epoch` of the staked WAL.
-public fun activation_epoch(staked_wal: &StakedWal): u64 { staked_wal.activation_epoch }
+public fun activation_epoch(staked_wal: &StakedWal): u64 {
+    staked_wal.activation_epoch
+}

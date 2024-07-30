@@ -1,20 +1,16 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-#[allow(unused_variable, unused_field, unused_mut_parameter)]
 /// Module: staking_pool
 module walrus::staking_pool;
 use sui::{balance::{Self, Balance}, coin::Coin, sui::SUI};
-use walrus::staked_wal::StakedWal;
-
-/// TODO: remove this once the module is implemented.
-const ENotImplemented: u64 = 0;
+use walrus::staked_wal::{Self, StakedWal};
 
 /// Represents the state of the staking pool.
 public enum PoolState has store, drop {
     Active,
     Withdrawing,
-    Empty,
+    New,
 }
 
 /// Represents a single staking pool for a token. Even though it is never
@@ -24,16 +20,31 @@ public struct StakingPool has key, store {
     id: UID,
     state: PoolState,
     commission_rate: u64,
+    /// The epoch when the pool is / will be activated.
+    /// Serves information purposes only, the checks are performed in the `state`
+    /// property.
+    activation_epoch: u64,
+    /// Currently
     active_stake: Balance<SUI>,
+    /// The amount of stake that will be added to the `active_stake` in the next
+    /// epoch.
+    pending_stake: Balance<SUI>,
+    /// The amount of stake that will be withdrawn in the next epoch.
     stake_to_withdraw: Balance<SUI>,
 }
 
 /// Create a new `StakingPool` object.
-public(package) fun new(commission_rate: u64, ctx: &mut TxContext): StakingPool {
+public(package) fun new(
+    commission_rate: u64,
+    activation_epoch: u64,
+    ctx: &mut TxContext,
+): StakingPool {
     StakingPool {
         id: object::new(ctx),
-        state: PoolState::Empty,
+        state: PoolState::New,
         commission_rate,
+        activation_epoch,
+        pending_stake: balance::zero(),
         active_stake: balance::zero(),
         stake_to_withdraw: balance::zero(),
     }
@@ -49,27 +60,68 @@ public(package) fun set_withdrawing(pool: &mut StakingPool) {
 public(package) fun stake(
     pool: &mut StakingPool,
     to_stake: Coin<SUI>,
+    current_epoch: u64,
     ctx: &mut TxContext,
 ): StakedWal {
     assert!(pool.is_active());
-    abort ENotImplemented
+    assert!(to_stake.value() > 0);
+
+    let amount = to_stake.value();
+    let staked_wal = staked_wal::mint(
+        pool.id.to_inner(),
+        amount,
+        current_epoch + 1, // always the next epoch
+        ctx,
+    );
+
+    pool.pending_stake.join(to_stake.into_balance());
+    staked_wal
 }
 
-/// Withdraw the given amount of WAL from the pool, returning the `Coin`.
+/// Withdraw the given amount of WAL from the pool + the rewards.
+/// TODO: rewards calculation.
 public(package) fun withdraw_stake(
     pool: &mut StakingPool,
     staked_wal: StakedWal,
+    current_epoch: u64,
     ctx: &mut TxContext,
 ): Coin<SUI> {
-    assert!(!pool.is_empty());
-    abort ENotImplemented
+    assert!(!pool.is_new());
+    assert!(staked_wal.pool_id() == pool.id.to_inner());
+    assert!(staked_wal.activation_epoch() <= current_epoch);
+
+    let principal = staked_wal.burn();
+    let to_withdraw = pool.active_stake.split(principal);
+
+    // TODO: if pool is out and is withdrawing, we can perform the withdrawal
+    //     immediately
+
+    // TODO: mark stake for withdrawing for the current ctx.sender()
+    // abort ENotImplemented
+
+    to_withdraw.into_coin(ctx)
 }
 
 // === Accessors ===
 
+// public(package) fun advance_epoch(pool: &mut StakingPool) {
+
+// }
+
+/// Set the state of the pool to `Active`.
+public(package) fun set_is_active(pool: &mut StakingPool) {
+    assert!(pool.is_new());
+    pool.state = PoolState::Active;
+}
+
 /// Returns the amount stored in the `active_stake`.
 public(package) fun active_stake_amount(pool: &StakingPool): u64 {
     pool.active_stake.value()
+}
+
+/// Returns the pending stake amount.
+public(package) fun pending_stake_amount(pool: &StakingPool): u64 {
+    pool.pending_stake.value()
 }
 
 /// Returns the amount stored in the `stake_to_withdraw`.
@@ -79,44 +131,28 @@ public(package) fun stake_to_withdraw_amount(pool: &StakingPool): u64 {
 
 /// Returns `true` if the pool is active.
 public(package) fun is_active(pool: &StakingPool): bool {
-    match (&pool.state) {
-        PoolState::Active => true,
-        _ => false,
-    }
+    matches!(&pool.state, PoolState::Active)
 }
 
 /// Returns `true` if the pool is withdrawing.
 public(package) fun is_withdrawing(pool: &StakingPool): bool {
-    match (&pool.state) {
-        PoolState::Withdrawing => true,
-        _ => false,
-    }
+    matches!(&pool.state, PoolState::Withdrawing)
 }
 
 /// Returns `true` if the pool is empty.
-public(package) fun is_empty(pool: &StakingPool): bool {
-    match (&pool.state) {
-        PoolState::Empty => true,
+public(package) fun is_new(pool: &StakingPool): bool {
+    matches!(&pool.state, PoolState::New)
+}
+
+#[allow(unused_variable)]
+/// Small helper to match the value. Rust says hi!
+macro fun matches<$T>($x: &$T, $p: $T): bool {
+    let p = $p;
+    match ($x) {
+        p => true,
         _ => false,
     }
 }
 
 #[test]
-fun test_staking_pool() {
-    use sui::test_utils::{assert_eq, destroy};
-
-    let ctx = &mut tx_context::dummy();
-    let mut pool = new(0, ctx);
-    assert_eq(pool.is_empty(), true);
-    assert_eq(pool.is_active(), false);
-    assert_eq(pool.is_withdrawing(), false);
-    assert_eq(pool.active_stake_amount(), 0);
-    assert_eq(pool.stake_to_withdraw_amount(), 0);
-
-    pool.set_withdrawing();
-    assert_eq(pool.is_empty(), false);
-    assert_eq(pool.is_active(), false);
-    assert_eq(pool.is_withdrawing(), true);
-
-    destroy(pool);
-}
+fun test_staking_pool() {}
