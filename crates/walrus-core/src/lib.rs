@@ -454,7 +454,7 @@ pub enum DecodingSymbolType {
 }
 
 /// A type indicating either a primary or secondary sliver.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "lowercase")]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub enum SliverType {

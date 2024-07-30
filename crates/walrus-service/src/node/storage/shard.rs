@@ -5,7 +5,7 @@
 
 use std::{
     borrow::Borrow,
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     path::Path,
     sync::{Arc, OnceLock},
 };
@@ -49,6 +49,8 @@ impl<const P: bool, T: Borrow<BlobId>> From<T> for SliverKey<P> {
 #[derive(Debug, Clone)]
 pub struct ShardStorage {
     id: ShardIndex,
+
+    // TODO: change both DBMap to be keyed by BlobId.
     primary_slivers: DBMap<PrimarySliverKey, PrimarySliver>,
     secondary_slivers: DBMap<SecondarySliverKey, SecondarySliver>,
 }
@@ -62,20 +64,27 @@ impl ShardStorage {
     ) -> Result<Self, TypedStoreError> {
         let rw_options = ReadWriteOptions::default();
 
-        // Both primary and secondary slivers are written into the same column family,
-        // and are differentiated by their keys.
-        let cf_name = slivers_column_family_name(id);
-
-        if database.cf_handle(&cf_name).is_none() {
-            let (_, options) = Self::slivers_column_family_options(id, db_config);
-            database
-                .create_cf(&cf_name, &options)
-                .map_err(typed_store_err_from_rocks_err)?;
+        let shard_cf_options = Self::slivers_column_family_options(id, db_config);
+        for (_, (cf_name, options)) in shard_cf_options.iter() {
+            if database.cf_handle(cf_name).is_none() {
+                database
+                    .create_cf(cf_name, options)
+                    .map_err(typed_store_err_from_rocks_err)?;
+            }
         }
 
-        // Open both typed storage as maps over the same column family.
-        let primary_slivers = DBMap::reopen(database, Some(&cf_name), &rw_options, false)?;
-        let secondary_slivers = DBMap::reopen(database, Some(&cf_name), &rw_options, false)?;
+        let primary_slivers = DBMap::reopen(
+            database,
+            Some(shard_cf_options[&SliverType::Primary].0.as_str()),
+            &rw_options,
+            false,
+        )?;
+        let secondary_slivers = DBMap::reopen(
+            database,
+            Some(shard_cf_options[&SliverType::Secondary].0.as_str()),
+            &rw_options,
+            false,
+        )?;
 
         Ok(Self {
             id,
@@ -187,11 +196,24 @@ impl ShardStorage {
     pub(crate) fn slivers_column_family_options(
         id: ShardIndex,
         db_config: &DatabaseConfig,
-    ) -> (String, Options) {
-        (
-            slivers_column_family_name(id),
-            db_config.shard().to_options(),
-        )
+    ) -> HashMap<SliverType, (String, Options)> {
+        [
+            (
+                SliverType::Primary,
+                (
+                    primary_slivers_column_family_name(id),
+                    db_config.shard().to_options(),
+                ),
+            ),
+            (
+                SliverType::Secondary,
+                (
+                    secondary_slivers_column_family_name(id),
+                    db_config.shard().to_options(),
+                ),
+            ),
+        ]
+        .into()
     }
 
     /// Returns the ids of existing shards in the database at the provided path.
@@ -206,7 +228,7 @@ impl ShardStorage {
 
 fn id_from_column_family_name(name: &str) -> Option<ShardIndex> {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"^shard-(\d+)/slivers$").expect("valid static regex"))
+    RE.get_or_init(|| Regex::new(r"^shard-(\d+)/secondary-slivers$").expect("valid static regex"))
         .captures(name)
         .and_then(|captures| {
             let Ok(id) = captures.get(1)?.as_str().parse() else {
@@ -223,8 +245,12 @@ fn base_column_family_name(id: ShardIndex) -> String {
 }
 
 #[inline]
-fn slivers_column_family_name(id: ShardIndex) -> String {
-    base_column_family_name(id) + "/slivers"
+fn primary_slivers_column_family_name(id: ShardIndex) -> String {
+    base_column_family_name(id) + "/primary-slivers"
+}
+
+fn secondary_slivers_column_family_name(id: ShardIndex) -> String {
+    base_column_family_name(id) + "/secondary-slivers"
 }
 
 #[cfg(test)]
