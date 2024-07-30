@@ -552,9 +552,6 @@ where
 
 #[cfg(test)]
 pub(crate) mod tests {
-
-    use std::ops::Deref;
-
     use blob_info::{BlobCertificationStatus, BlobInfoV1};
     use prometheus::Registry;
     use tempfile::TempDir;
