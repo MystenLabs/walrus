@@ -164,7 +164,8 @@ impl ShardStorage {
         }
     }
 
-    /// Returns the name and options for the column family for a shard with the specified index.
+    /// Returns the name and options for the column families for a shard's primary and secondary sliver
+    /// with the specified index.
     pub(crate) fn slivers_column_family_options(
         id: ShardIndex,
         db_config: &DatabaseConfig,
@@ -193,22 +194,36 @@ impl ShardStorage {
         DB::list_cf(options, path)
             .unwrap_or_default()
             .into_iter()
-            .filter_map(|cf_name| id_from_column_family_name(&cf_name))
+            .filter_map(|cf_name| match id_from_column_family_name(&cf_name) {
+                // To check existing shards, we only need to look at whether the secondary sliver column
+                // was created or not, as it was created after the primary sliver column.
+                Some((shard_index, SliverType::Secondary)) => Some(shard_index),
+                Some((_, SliverType::Primary)) | None => None,
+            })
             .collect()
     }
 }
 
-fn id_from_column_family_name(name: &str) -> Option<ShardIndex> {
+fn id_from_column_family_name(name: &str) -> Option<(ShardIndex, SliverType)> {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"^shard-(\d+)/secondary-slivers$").expect("valid static regex"))
-        .captures(name)
-        .and_then(|captures| {
-            let Ok(id) = captures.get(1)?.as_str().parse() else {
-                tracing::warn!(%name, "ignoring shard-like column family with an ID out of range");
-                return None;
-            };
-            Some(ShardIndex(id))
-        })
+    RE.get_or_init(|| {
+        Regex::new(r"^shard-(\d+)/(primary|secondary)-slivers$").expect("valid static regex")
+    })
+    .captures(name)
+    .and_then(|captures| {
+        let Ok(id) = captures.get(1)?.as_str().parse() else {
+            tracing::warn!(%name, "ignoring shard-like column family with an ID out of range");
+            return None;
+        };
+        let sliver_type = captures.get(2)?.as_str();
+        if sliver_type == "primary" {
+            Some((ShardIndex(id), SliverType::Primary))
+        } else if sliver_type == "secondary" {
+            Some((ShardIndex(id), SliverType::Secondary))
+        } else {
+            panic!("Invalid sliver type in regex capture");
+        }
+    })
 }
 
 #[inline]
@@ -221,6 +236,7 @@ fn primary_slivers_column_family_name(id: ShardIndex) -> String {
     base_column_family_name(id) + "/primary-slivers"
 }
 
+#[inline]
 fn secondary_slivers_column_family_name(id: ShardIndex) -> String {
     base_column_family_name(id) + "/secondary-slivers"
 }
@@ -229,10 +245,12 @@ fn secondary_slivers_column_family_name(id: ShardIndex) -> String {
 mod tests {
     use walrus_core::{
         encoding::{Primary, Secondary},
+        ShardIndex,
         SliverType,
     };
     use walrus_test_utils::{async_param_test, Result as TestResult};
 
+    use super::id_from_column_family_name;
     use crate::{
         node::storage::tests::{
             empty_storage,
@@ -390,6 +408,27 @@ mod tests {
         }
 
         assert_eq!(shard.is_sliver_pair_stored(&BLOB_ID)?, is_pair_stored);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_column_family_name() -> TestResult {
+        assert_eq!(
+            id_from_column_family_name("shard-10/primary-slivers"),
+            Some((ShardIndex(10), SliverType::Primary))
+        );
+
+        assert_eq!(
+            id_from_column_family_name("shard-20/secondary-slivers"),
+            Some((ShardIndex(20), SliverType::Secondary))
+        );
+
+        assert_eq!(id_from_column_family_name("shard-a/primary-slivers"), None);
+
+        assert_eq!(id_from_column_family_name("shard-20/random-slivers"), None);
+
+        assert_eq!(id_from_column_family_name("shard-20/slivers"), None);
 
         Ok(())
     }
