@@ -26,12 +26,12 @@ public fun new_bls_committee(members: vector<StorageNodeInfo>): BlsCommittee {
     // Compute the total number of shards
     let mut n_shards = 0;
     let mut i = 0;
-    while (i < members.length()) {
-        let added_weight = members[i].weight();
+    members.do_ref!(|member| {
+        let added_weight = member.weight();
         assert!(added_weight > 0, EIncorrectCommittee);
         n_shards = n_shards + added_weight;
         i = i + 1;
-    };
+    });
     assert!(n_shards != 0, EIncorrectCommittee);
 
     BlsCommittee { members, n_shards }

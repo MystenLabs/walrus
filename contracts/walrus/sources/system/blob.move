@@ -219,12 +219,8 @@ public fun destroy_blob_object(sys: &System, blob: Blob) {
     // Destroy the blob
     let Blob {
         id,
-        stored_epoch: _,
-        blob_id: _,
-        size: _,
-        erasure_code_type: _,
-        certified_epoch: _,
         storage,
+        ..
     } = blob;
 
     id.delete();
@@ -271,12 +267,8 @@ public fun drop_for_testing(b: Blob) {
     // deconstruct
     let Blob {
         id,
-        stored_epoch: _,
-        blob_id: _,
-        size: _,
-        erasure_code_type: _,
-        certified_epoch: _,
         storage,
+        ..
     } = b;
 
     id.delete();

@@ -48,9 +48,8 @@ public(package) fun rewards_to_distribute(accounting: &mut FutureAccounting): &m
 /// Destructor for FutureAccounting, when empty.
 public(package) fun delete_empty_future_accounting(self: FutureAccounting) {
     let FutureAccounting {
-        epoch: _,
-        storage_to_reclaim: _,
         rewards_to_distribute,
+        ..
     } = self;
 
     rewards_to_distribute.destroy_zero()
@@ -59,9 +58,8 @@ public(package) fun delete_empty_future_accounting(self: FutureAccounting) {
 #[test_only]
 public(package) fun burn_for_testing(self: FutureAccounting) {
     let FutureAccounting {
-        epoch: _,
-        storage_to_reclaim: _,
         rewards_to_distribute,
+        ..
     } = self;
 
     rewards_to_distribute.destroy_for_testing();

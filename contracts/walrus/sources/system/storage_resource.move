@@ -135,9 +135,7 @@ public fun create_for_test(
 public fun destroy(storage: Storage) {
     let Storage {
         id,
-        start_epoch: _,
-        end_epoch: _,
-        storage_size: _,
+        ..
     } = storage;
     id.delete();
 }

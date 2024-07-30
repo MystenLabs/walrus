@@ -58,20 +58,12 @@ fun metadata_size(n_shards: u16): u64 {
 fun decoding_safety_limit(n_shards: u16): u16 {
     // These ranges are chosen to ensure that the safety limit is at most 20% of f,
     // up to a safety limit of 5.
-    min_u16(max_byzantine(n_shards) / 5, 5)
+    (max_byzantine(n_shards) / 5).min(5)
 }
 
 /// Maximum number of byzantine shards, given `n_shards`.
 fun max_byzantine(n_shards: u16): u16 {
     (n_shards - 1) / 3
-}
-
-fun min_u16(a: u16, b: u16): u16 {
-    if (a < b) {
-        a
-    } else {
-        b
-    }
 }
 
 // Tests

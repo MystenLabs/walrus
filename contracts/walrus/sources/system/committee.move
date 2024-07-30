@@ -12,9 +12,6 @@ const APP_ID: u8 = 3;
 const EIncorrectAppId: u64 = 0;
 const EIncorrectEpoch: u64 = 1;
 
-#[test_only]
-use walrus::bls_aggregate::new_bls_committee_for_testing;
-
 
 /// Represents a committee for a given epoch.
 public struct Committee has store {
@@ -42,16 +39,6 @@ public(package) fun create_committee(epoch: u64, members: vector<StorageNodeInfo
     Committee { epoch, bls_committee }
 }
 
-#[test_only]
-public fun committee_for_testing(epoch: u64): Committee {
-    let bls_committee = new_bls_committee_for_testing();
-    Committee { epoch, bls_committee }
-}
-
-#[test_only]
-public fun committee_for_testing_with_bls(epoch: u64, bls_committee: BlsCommittee): Committee {
-    Committee { epoch, bls_committee }
-}
 
 public struct CertifiedMessage has drop {
     intent_type: u8,
@@ -59,17 +46,6 @@ public struct CertifiedMessage has drop {
     cert_epoch: u64,
     stake_support: u16,
     message: vector<u8>,
-}
-
-#[test_only]
-public fun certified_message_for_testing(
-    intent_type: u8,
-    intent_version: u8,
-    cert_epoch: u64,
-    stake_support: u16,
-    message: vector<u8>,
-): CertifiedMessage {
-    CertifiedMessage { intent_type, intent_version, cert_epoch, stake_support, message }
 }
 
 // == Accessors for CertifiedMessage ==
@@ -132,4 +108,29 @@ public fun verify_quorum_in_epoch(
     let message = bcs_message.into_remainder_bytes();
 
     CertifiedMessage { intent_type, intent_version, cert_epoch, stake_support, message }
+}
+
+#[test_only]
+use walrus::bls_aggregate::new_bls_committee_for_testing;
+
+#[test_only]
+public fun certified_message_for_testing(
+    intent_type: u8,
+    intent_version: u8,
+    cert_epoch: u64,
+    stake_support: u16,
+    message: vector<u8>,
+): CertifiedMessage {
+    CertifiedMessage { intent_type, intent_version, cert_epoch, stake_support, message }
+}
+
+#[test_only]
+public fun committee_for_testing(epoch: u64): Committee {
+    let bls_committee = new_bls_committee_for_testing();
+    Committee { epoch, bls_committee }
+}
+
+#[test_only]
+public fun committee_for_testing_with_bls(epoch: u64, bls_committee: BlsCommittee): Committee {
+    Committee { epoch, bls_committee }
 }
