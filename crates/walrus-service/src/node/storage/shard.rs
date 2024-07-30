@@ -213,14 +213,12 @@ fn id_from_column_family_name(name: &str) -> Option<(ShardIndex, SliverType)> {
             tracing::warn!(%name, "ignoring shard-like column family with an ID out of range");
             return None;
         };
-        let sliver_type = captures.get(2)?.as_str();
-        if sliver_type == "primary" {
-            Some((ShardIndex(id), SliverType::Primary))
-        } else if sliver_type == "secondary" {
-            Some((ShardIndex(id), SliverType::Secondary))
-        } else {
-            panic!("Invalid sliver type in regex capture");
-        }
+        let sliver_type = match captures.get(2)?.as_str() {
+            "primary" => SliverType::Primary,
+            "secondary" => SliverType::Secondary,
+            _ => panic!("Invalid sliver type in regex capture"),
+        };
+        Some((ShardIndex(id), sliver_type))
     })
 }
 
@@ -246,7 +244,7 @@ mod tests {
         ShardIndex,
         SliverType,
     };
-    use walrus_test_utils::{async_param_test, Result as TestResult};
+    use walrus_test_utils::{async_param_test, param_test, Result as TestResult};
 
     use super::id_from_column_family_name;
     use crate::{
@@ -410,24 +408,19 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_parse_column_family_name() -> TestResult {
-        assert_eq!(
-            id_from_column_family_name("shard-10/primary-slivers"),
-            Some((ShardIndex(10), SliverType::Primary))
-        );
-
-        assert_eq!(
-            id_from_column_family_name("shard-20/secondary-slivers"),
-            Some((ShardIndex(20), SliverType::Secondary))
-        );
-
-        assert_eq!(id_from_column_family_name("shard-a/primary-slivers"), None);
-
-        assert_eq!(id_from_column_family_name("shard-20/random-slivers"), None);
-
-        assert_eq!(id_from_column_family_name("shard-20/slivers"), None);
-
-        Ok(())
+    param_test! {
+        test_parse_column_family_name: [
+            primary: ("shard-10/primary-slivers", Some((ShardIndex(10), SliverType::Primary))),
+            secondary: ("shard-20/secondary-slivers", Some((ShardIndex(20), SliverType::Secondary))),
+            invalid_id: ("shard-a/primary-slivers", None),
+            invalid_sliver_type: ("shard-20/random-slivers", None),
+            invalid_sliver_name: ("shard-20/slivers", None),
+        ]
+    }
+    fn test_parse_column_family_name(
+        cf_name: &str,
+        expected_output: Option<(ShardIndex, SliverType)>,
+    ) {
+        assert_eq!(id_from_column_family_name(cf_name), expected_output);
     }
 }
