@@ -74,16 +74,11 @@ public struct FutureAccountingRingBuffer has store {
 
 /// Constructor for FutureAccountingRingBuffer
 public(package) fun ring_new(length: u64): FutureAccountingRingBuffer {
-    let mut ring_buffer: vector<FutureAccounting> = vector::empty();
-    let mut i = 0;
-    while (i < length) {
-        ring_buffer.push_back(FutureAccounting {
-            epoch: i,
-            storage_to_reclaim: 0,
-            rewards_to_distribute: balance::zero(),
-        });
-        i = i + 1;
-    };
+    let ring_buffer = vector::tabulate!(length, |epoch| FutureAccounting {
+        epoch,
+        storage_to_reclaim: 0,
+        rewards_to_distribute: balance::zero(),
+    });
 
     FutureAccountingRingBuffer { current_index: 0, length: length, ring_buffer: ring_buffer }
 }
