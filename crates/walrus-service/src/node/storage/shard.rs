@@ -29,9 +29,10 @@ use super::DatabaseConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ShardStatus {
+    /// The shard is active in this node serving reads and writes.
     Active,
-    ActiveSync,
-    ActiveRecover,
+
+    /// The shard is locked for moving to another node. Shard does not accept any more writes in this status.
     LockedToMove,
 }
 

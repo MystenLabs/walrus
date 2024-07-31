@@ -923,22 +923,37 @@ pub(crate) mod tests {
         }
     }
 
-    /// Open and populate the storage, then close it.
+    /// Open and populate the storage, optionally lock a shard, then close the storage.
     ///
     /// Runs in its own runtime to ensure that all tasked spawned by typed_store
     /// are dropped to free the storage lock.
     #[tokio::main(flavor = "current_thread")]
-    async fn populate_storage_then_close(spec: StorageSpec) -> TestResult<TempDir> {
-        Ok(populated_storage(spec)?.temp_dir)
+    async fn populate_storage_then_close(
+        spec: StorageSpec,
+        lock_shard: Option<ShardIndex>,
+    ) -> TestResult<TempDir> {
+        let storage = populated_storage(spec)?;
+        if let Some(shard) = lock_shard {
+            storage
+                .inner
+                .shard_storage(shard)
+                .unwrap()
+                .lock_shard_for_epoch_change()
+                .expect("shard should be sealed");
+        }
+        Ok(storage.temp_dir)
     }
 
     #[test]
     #[cfg_attr(msim, ignore)]
     fn can_reopen_storage_with_shards_and_access_data() -> TestResult {
-        let directory = populate_storage_then_close(&[
-            (SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
-            (OTHER_SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
-        ])?;
+        let directory = populate_storage_then_close(
+            &[
+                (SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
+                (OTHER_SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
+            ],
+            None,
+        )?;
 
         Runtime::new()?.block_on(async move {
             let storage = Storage::open(
@@ -959,6 +974,50 @@ pub(crate) mod tests {
                         .expect("sliver should be present");
                 }
             }
+
+            Result::<(), anyhow::Error>::Ok(())
+        })?;
+
+        Ok(())
+    }
+
+    // Tests that shard status can be restored upon restart.
+    #[test]
+    #[cfg_attr(msim, ignore)]
+    fn can_reopen_storage_with_shards_status() -> TestResult {
+        let directory = populate_storage_then_close(
+            &[
+                (SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
+                (OTHER_SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
+            ],
+            Some(SHARD_INDEX), // Lock SHARD_INDEX
+        )?;
+
+        Runtime::new()?.block_on(async move {
+            let storage = Storage::open(
+                directory.path(),
+                DatabaseConfig::default(),
+                MetricConf::default(),
+            )?;
+
+            // Check that the shard status is restored correctly.
+            assert_eq!(
+                storage
+                    .shard_storage(SHARD_INDEX)
+                    .expect("shard should exist")
+                    .status()
+                    .expect("status should be present"),
+                ShardStatus::LockedToMove
+            );
+
+            assert_eq!(
+                storage
+                    .shard_storage(OTHER_SHARD_INDEX)
+                    .expect("shard should exist")
+                    .status()
+                    .expect("status should be present"),
+                ShardStatus::Active
+            );
 
             Result::<(), anyhow::Error>::Ok(())
         })?;
@@ -1002,63 +1061,6 @@ pub(crate) mod tests {
             ShardStorage::existing_shards(storage.temp_dir.path(), &Options::default())
                 .contains(&test_shard_index)
         );
-
-        Ok(())
-    }
-
-    #[tokio::main(flavor = "current_thread")]
-    async fn populate_storage_lock_shard_and_then_close(
-        spec: StorageSpec,
-        seal_shard: ShardIndex,
-    ) -> TestResult<TempDir> {
-        let storage = populated_storage(spec)?;
-        storage
-            .inner
-            .shard_storage(seal_shard)
-            .unwrap()
-            .lock_shard_for_epoch_change()
-            .expect("shard should be sealed");
-        Ok(storage.temp_dir)
-    }
-
-    #[test]
-    #[cfg_attr(msim, ignore)]
-    fn can_reopen_storage_with_shards_status() -> TestResult {
-        let directory = populate_storage_lock_shard_and_then_close(
-            &[
-                (SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
-                (OTHER_SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
-            ],
-            SHARD_INDEX,
-        )?;
-
-        Runtime::new()?.block_on(async move {
-            let storage = Storage::open(
-                directory.path(),
-                DatabaseConfig::default(),
-                MetricConf::default(),
-            )?;
-
-            assert_eq!(
-                storage
-                    .shard_storage(SHARD_INDEX)
-                    .expect("shard should exist")
-                    .status()
-                    .expect("status should be present"),
-                ShardStatus::LockedToMove
-            );
-
-            assert_eq!(
-                storage
-                    .shard_storage(OTHER_SHARD_INDEX)
-                    .expect("shard should exist")
-                    .status()
-                    .expect("status should be present"),
-                ShardStatus::Active
-            );
-
-            Result::<(), anyhow::Error>::Ok(())
-        })?;
 
         Ok(())
     }
