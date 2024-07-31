@@ -11,6 +11,7 @@ use std::{
 use rocksdb::{DBCompressionType, MergeOperands, Options};
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
+use shard::ShardStatus;
 use sui_sdk::types::event::EventID;
 use tracing::Level;
 use typed_store::{
@@ -275,7 +276,8 @@ impl Storage {
         let shards = existing_shards_ids
             .into_iter()
             .map(|id| {
-                ShardStorage::create_or_reopen(id, &database, &db_config).map(|shard| (id, shard))
+                ShardStorage::create_or_reopen(id, &database, &db_config, None)
+                    .map(|shard| (id, shard))
             })
             .collect::<Result<_, _>>()?;
 
@@ -297,8 +299,12 @@ impl Storage {
         match self.shards.entry(shard) {
             Entry::Occupied(entry) => Ok(entry.into_mut()),
             Entry::Vacant(entry) => {
-                let shard_storage =
-                    ShardStorage::create_or_reopen(shard, &self.database, &self.config)?;
+                let shard_storage = ShardStorage::create_or_reopen(
+                    shard,
+                    &self.database,
+                    &self.config,
+                    Some(ShardStatus::Active),
+                )?;
                 Ok(entry.insert(shard_storage))
             }
         }
@@ -996,6 +1002,63 @@ pub(crate) mod tests {
             ShardStorage::existing_shards(storage.temp_dir.path(), &Options::default())
                 .contains(&test_shard_index)
         );
+
+        Ok(())
+    }
+
+    #[tokio::main(flavor = "current_thread")]
+    async fn populate_storage_lock_shard_and_then_close(
+        spec: StorageSpec,
+        seal_shard: ShardIndex,
+    ) -> TestResult<TempDir> {
+        let storage = populated_storage(spec)?;
+        storage
+            .inner
+            .shard_storage(seal_shard)
+            .unwrap()
+            .lock_shard_for_epoch_change()
+            .expect("shard should be sealed");
+        Ok(storage.temp_dir)
+    }
+
+    #[test]
+    #[cfg_attr(msim, ignore)]
+    fn can_reopen_storage_with_shards_status() -> TestResult {
+        let directory = populate_storage_lock_shard_and_then_close(
+            &[
+                (SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
+                (OTHER_SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
+            ],
+            SHARD_INDEX,
+        )?;
+
+        Runtime::new()?.block_on(async move {
+            let storage = Storage::open(
+                directory.path(),
+                DatabaseConfig::default(),
+                MetricConf::default(),
+            )?;
+
+            assert_eq!(
+                storage
+                    .shard_storage(SHARD_INDEX)
+                    .expect("shard should exist")
+                    .status()
+                    .expect("status should be present"),
+                ShardStatus::LockedToMove
+            );
+
+            assert_eq!(
+                storage
+                    .shard_storage(OTHER_SHARD_INDEX)
+                    .expect("shard should exist")
+                    .status()
+                    .expect("status should be present"),
+                ShardStatus::Active
+            );
+
+            Result::<(), anyhow::Error>::Ok(())
+        })?;
 
         Ok(())
     }

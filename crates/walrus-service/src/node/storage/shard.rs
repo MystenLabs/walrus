@@ -55,6 +55,7 @@ impl ShardStorage {
         id: ShardIndex,
         database: &Arc<RocksDB>,
         db_config: &DatabaseConfig,
+        initial_shard_status: Option<ShardStatus>,
     ) -> Result<Self, TypedStoreError> {
         let rw_options = ReadWriteOptions::default();
 
@@ -89,6 +90,10 @@ impl ShardStorage {
         )?;
         let shard_status =
             DBMap::reopen(database, Some(&shard_status_cf_name), &rw_options, false)?;
+
+        if let Some(status) = initial_shard_status {
+            shard_status.insert(&(), &status)?;
+        }
 
         Ok(Self {
             id,
@@ -244,6 +249,7 @@ impl ShardStorage {
             .map(|s| s.unwrap_or(ShardStatus::Active))
     }
 
+    #[cfg(test)]
     pub(crate) fn lock_shard_for_epoch_change(&self) -> Result<(), TypedStoreError> {
         self.shard_status.insert(&(), &ShardStatus::LockedToMove)
     }
