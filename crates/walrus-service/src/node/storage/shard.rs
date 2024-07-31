@@ -11,6 +11,7 @@ use std::{
 
 use regex::Regex;
 use rocksdb::{Options, DB};
+use serde::{Deserialize, Serialize};
 use typed_store::{
     rocks::{errors::typed_store_err_from_rocks_err, DBBatch, DBMap, ReadWriteOptions, RocksDB},
     Map,

@@ -38,7 +38,7 @@ pub(super) use event_cursor_table::EventProgress;
 mod event_sequencer;
 
 mod shard;
-pub(crate) use shard::{ShardStatus, ShardStorage};
+pub(crate) use shard::ShardStorage;
 
 /// Options for configuring a column family.
 #[serde_with::serde_as]
@@ -179,6 +179,7 @@ impl DatabaseConfig {
         &self.shard
     }
 
+    /// Returns the shard status database option.
     pub fn shard_status(&self) -> &DatabaseTableOptions {
         &self.shard_status
     }
@@ -232,9 +233,9 @@ impl Storage {
                 ShardStorage::slivers_column_family_options(id, &db_config)
                     .into_iter()
                     .map(|(_, (cf_name, options))| (cf_name, options))
-                    .chain(ShardStorage::shard_status_column_family_options(
+                    .chain([ShardStorage::shard_status_column_family_options(
                         id, &db_config,
-                    ))
+                    )])
             })
             .collect::<Vec<_>>();
 
