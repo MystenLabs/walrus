@@ -147,6 +147,19 @@ jobs:
         with:
           path: code-coverage-results.md
 
+  simtests:
+    name: Run all simtests
+    if: contains(github.event.pull_request.labels.*.name, 'run_simtests')
+    runs-on: ubuntu-ghcloud
+    continue-on-error: true
+    steps:
+      - uses: taiki-e/install-action@v2.41.14
+        with:
+          tool: cargo-nextest
+      - uses: actions/checkout@v4
+      - run: ./scripts/simtest/install.sh
+      - run: cargo simtest --run-ignored all simtest
+
   test-move:
     name: Test Move code
     needs: diff

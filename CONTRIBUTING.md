@@ -94,6 +94,29 @@ The configuration file for Tarpaulin is [.tarpaulin.toml](./.tarpaulin.toml).
 
 You can conveniently deploy and interact with a local Walrus testbed as described [here](README.md#run-a-local-walrus-testbed).
 
+### Simtests
+
+We use simulation testing to ensure that the Walrus system keeps working under various failure
+scenarios. The specific tests are in the `walrus-simtest` crate, but the necessary plumbing is
+spread throughout the other crates, in particular `walrus-service`.
+
+Please make sure to call simtests `simtest_*` as we apply `simtest` as a test filter.
+
+To run simulation tests, first install the `cargo simtest` tool:
+
+```sh
+./scripts/simtest/install.sh
+```
+
+You can then run all simtests with
+
+```sh
+cargo simtest --run-ignored all simtest
+```
+
+Further information about the simtest framework is available
+[here](https://github.com/MystenLabs/sui/tree/main/crates/sui-simulator#how-to-run-sim-tests).
+
 ## Benchmarks
 
 We run micro-benchmarks for encoding, decoding, and authentication using

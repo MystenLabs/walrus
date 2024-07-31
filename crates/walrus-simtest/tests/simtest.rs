@@ -10,7 +10,7 @@ use walrus_service::{client::responses::BlobStoreResult, test_utils::test_cluste
 // operations deterministically.
 #[sim_test(check_determinism)]
 #[ignore = "ignore simtests by default"]
-async fn test_walrus_basic_determinism() {
+async fn simtest_walrus_basic_determinism() {
     let _guard = ProtocolConfig::apply_overrides_for_testing(|_, mut config| {
         // TODO: remove once Sui simtest can work with these features.
         config.set_enable_jwk_consensus_updates_for_testing(false);

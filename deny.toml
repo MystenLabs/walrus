@@ -12,8 +12,6 @@ ignore = [
     # We have a vulnerable version of `rustls` in our dependency tree through the old version of
     # jsonrpsee used by sui.
     "RUSTSEC-2024-0336",
-    # Sui 1.29 depends on a vulnerable version of `object_store`.
-    "RUSTSEC-2024-0358",
 ]
 
 # This section is considered when running `cargo deny check licenses`
