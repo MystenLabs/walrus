@@ -39,12 +39,14 @@ use walrus_service::{
         Client,
         ClientDaemon,
     },
-    utils::VERSION,
+    version,
 };
 use walrus_sui::{
     client::{ContractClient, ReadClient},
     utils::price_for_encoded_length,
 };
+
+version!(VERSION);
 
 #[derive(Parser, Debug, Clone, Deserialize)]
 #[command(author, version, about = "Walrus client", long_about = None)]

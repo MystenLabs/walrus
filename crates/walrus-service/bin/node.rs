@@ -25,8 +25,10 @@ use tokio_util::sync::CancellationToken;
 use walrus_core::keys::ProtocolKeyPair;
 use walrus_service::{
     node::{config::StorageNodeConfig, server::UserServer, StorageNode},
-    utils::{LoadConfig as _, VERSION},
+    utils::{version, LoadConfig as _},
 };
+
+version!(VERSION);
 
 #[derive(Parser)]
 #[clap(rename_all = "kebab-case")]
