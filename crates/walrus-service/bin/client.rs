@@ -46,7 +46,7 @@ use walrus_sui::{
     utils::price_for_encoded_length,
 };
 
-version!(VERSION);
+const VERSION: &str = version!();
 
 #[derive(Parser, Debug, Clone, Deserialize)]
 #[command(author, version, about = "Walrus client", long_about = None)]

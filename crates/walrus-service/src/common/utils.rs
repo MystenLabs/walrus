@@ -33,10 +33,10 @@ use tokio::{sync::Semaphore, time::Instant};
 
 /// Defines a constant containing the version consisting of the package version and git revision.
 ///
-/// We are using a macro as placing this logic into a library can result in unessesary builds.
+/// We are using a macro as placing this logic into a library can result in unnecessary builds.
 #[macro_export]
 macro_rules! version {
-    ($const_name:ident) => {
+    () => {{
         /// The Git revision obtained through `git describe` at compile time.
         const GIT_REVISION: &str = {
             if let Some(revision) = option_env!("GIT_REVISION") {
@@ -54,11 +54,9 @@ macro_rules! version {
         };
 
         /// The version consisting of the package version and Git revision.
-        const $const_name: &str =
-            walrus_core::concat_const_str!(env!("CARGO_PKG_VERSION"), "-", GIT_REVISION);
-    };
+        walrus_core::concat_const_str!(env!("CARGO_PKG_VERSION"), "-", GIT_REVISION)
+    }};
 }
-pub use version;
 
 /// Trait for loading configuration from a YAML file.
 pub trait LoadConfig: DeserializeOwned {
