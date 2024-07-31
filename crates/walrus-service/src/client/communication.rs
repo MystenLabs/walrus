@@ -64,7 +64,6 @@ pub(crate) struct NodeCommunication<'a, W = ()> {
     pub config: RequestRateConfig,
     pub node_write_limit: W,
     pub sliver_write_limit: W,
-    pub global_write_limit: W,
 }
 
 pub type NodeReadCommunication<'a> = NodeCommunication<'a, ()>;
@@ -109,14 +108,12 @@ impl<'a> NodeReadCommunication<'a> {
             config,
             node_write_limit: (),
             sliver_write_limit: (),
-            global_write_limit: (),
         })
     }
 
     pub fn with_write_limits(
         self,
         sliver_write_limit: Arc<Semaphore>,
-        global_write_limit: Arc<Semaphore>,
     ) -> NodeWriteCommunication<'a> {
         let node_write_limit = Arc::new(Semaphore::new(self.config.max_node_connections));
         let Self {
@@ -139,7 +136,6 @@ impl<'a> NodeReadCommunication<'a> {
             config,
             node_write_limit,
             sliver_write_limit,
-            global_write_limit,
         }
     }
 }
@@ -259,10 +255,8 @@ impl<'a> NodeWriteCommunication<'a> {
         metadata: &VerifiedBlobMetadataWithId,
     ) -> Result<(), NodeError> {
         utils::retry(self.backoff_strategy(), || {
-            self.client
-                .store_metadata(metadata)
-                // TODO(giac): consider adding timeouts and replace the Reqwest timeout.
-                .batch_limit(self.global_write_limit.clone())
+            self.client.store_metadata(metadata)
+            // TODO(giac): consider adding timeouts and replace the Reqwest timeout.
         })
         .await
     }
@@ -296,7 +290,6 @@ impl<'a> NodeWriteCommunication<'a> {
                 tracing::warn!(
                     node_permits=?self.node_write_limit.available_permits(),
                     sliver_permits=?self.sliver_write_limit.available_permits(),
-                    global_permits=?self.global_write_limit.available_permits(),
                     ?error,
                     ?self.config.max_retries,
                     "could not store sliver after retrying; stopping storing on the node"
@@ -306,7 +299,6 @@ impl<'a> NodeWriteCommunication<'a> {
             tracing::trace!(
                 node_permits=?self.node_write_limit.available_permits(),
                 sliver_permits=?self.sliver_write_limit.available_permits(),
-                global_permits=?self.global_write_limit.available_permits(),
                 progress = format!("{}/{}", n_slivers - requests.len(), n_slivers),
                 "sliver stored"
             );
@@ -326,7 +318,6 @@ impl<'a> NodeWriteCommunication<'a> {
                 .store_sliver(blob_id, pair_index, sliver)
                 // Ordering matters here. Since we don't want to block global connections while we
                 // wait for local connections, the innermost limit must be the global one.
-                .batch_limit(self.global_write_limit.clone())
                 .batch_limit(self.sliver_write_limit.clone())
                 .batch_limit(self.node_write_limit.clone())
         })

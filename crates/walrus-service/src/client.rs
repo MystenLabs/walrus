@@ -81,7 +81,6 @@ pub struct Client<T> {
     storage_price_per_unit_size: u64,
     communication_limits: CommunicationLimits,
     encoding_config: EncodingConfig,
-    global_write_limit: Arc<Semaphore>,
     blocklist: Option<Blocklist>,
 }
 
@@ -113,8 +112,6 @@ impl Client<()> {
         let encoding_config = EncodingConfig::new(committee.n_shards());
         let communication_limits =
             CommunicationLimits::new(&config.communication_config, encoding_config.n_shards());
-        let global_write_limit =
-            Arc::new(Semaphore::new(communication_limits.max_concurrent_writes));
 
         Ok(Self {
             config,
@@ -124,7 +121,6 @@ impl Client<()> {
             storage_price_per_unit_size,
             encoding_config,
             communication_limits,
-            global_write_limit,
             blocklist: None,
         })
     }
@@ -139,7 +135,6 @@ impl Client<()> {
             storage_price_per_unit_size,
             encoding_config,
             communication_limits,
-            global_write_limit,
             blocklist,
         } = self;
         Client::<T> {
@@ -150,7 +145,6 @@ impl Client<()> {
             storage_price_per_unit_size,
             encoding_config,
             communication_limits,
-            global_write_limit,
             blocklist,
         }
     }
@@ -334,7 +328,7 @@ impl<T> Client<T> {
         let start = Instant::now();
 
         // We do not limit the number of concurrent futures awaited here, because the number of
-        // connections is already limited by the `global_write_limit` semaphore.
+        // connections is limited through a semaphore depending on the [`max_data_in_flight`][]
         if let CompletedReasonWeight::FuturesConsumed(weight) = requests
             .execute_weight(
                 &|weight| self.committee.is_at_least_min_n_correct(weight),
@@ -713,7 +707,7 @@ impl<T> Client<T> {
             &self.encoding_config,
             self.config.communication_config.request_rate_config.clone(),
         )
-        .map(|nc| nc.with_write_limits(sliver_write_limit, self.global_write_limit.clone()))
+        .map(|nc| nc.with_write_limits(sliver_write_limit))
     }
 
     fn node_communications<'a, W>(
