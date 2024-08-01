@@ -137,6 +137,7 @@ enum Commands {
     Read {
         /// The blob ID to be read.
         #[serde_as(as = "DisplayFromStr")]
+        #[clap(allow_hyphen_values = true)]
         blob_id: BlobId,
         /// The file path where to write the blob.
         ///
@@ -306,7 +307,7 @@ struct FileOrBlobId {
     #[serde(default)]
     file: Option<PathBuf>,
     /// The blob ID to be checked.
-    #[clap(short, long)]
+    #[clap(short, long, allow_hyphen_values = true)]
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[serde(default)]
     blob_id: Option<BlobId>,
