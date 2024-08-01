@@ -3,6 +3,7 @@
 
 /// Module: staked_wal
 module walrus::staked_wal;
+
 /// Represents a staked WAL, does not store the `Balance` inside, but uses
 /// `u64` to represent the staked amount. Behaves similarly to `Balance` and
 /// `Coin` providing methods to `split` and `join`.
@@ -31,7 +32,7 @@ public(package) fun mint(
     }
 }
 
-/// Burns the staked WAL and returns the `pool_id` and the `principal`.
+/// Burns the staked WAL and returns the `principal`.
 public(package) fun burn(staked_wal: StakedWal): u64 {
     let StakedWal { id, principal, .. } = staked_wal;
     id.delete();

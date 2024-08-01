@@ -3,7 +3,8 @@
 
 /// Module: staking_pool
 module walrus::staking_pool;
-use sui::{balance::{Self, Balance}, coin::Coin, sui::SUI};
+
+use sui::{balance::{Self, Balance}, coin as Coin, sui as SUI};
 use walrus::staked_wal::{Self, StakedWal};
 
 /// Represents the state of the staking pool.
@@ -13,17 +14,30 @@ public enum PoolState has store, drop {
     New,
 }
 
+/// The parameters for the staking pool. Stored for the next epoch.
+public struct PoolParams has store, copy, drop {
+    commission_rate: u64,
+}
+
 /// Represents a single staking pool for a token. Even though it is never
 /// transferred or shared, the `key` ability is added for discoverability
 /// in the `ObjectTable`.
 public struct StakingPool has key, store {
     id: UID,
     state: PoolState,
+    /// Current epoch's pool parameters.
+    params: PoolParams,
+    /// The pool parameters for the next epoch. If `Some`, the pool will be
+    /// updated in the next epoch.
+    params_next_epoch: Option<PoolParams>,
+    /// The commission rate of the pool.
     commission_rate: u64,
     /// The epoch when the pool is / will be activated.
     /// Serves information purposes only, the checks are performed in the `state`
     /// property.
     activation_epoch: u64,
+
+
     /// Currently
     active_stake: Balance<SUI>,
     /// The amount of stake that will be added to the `active_stake` in the next
@@ -103,10 +117,6 @@ public(package) fun withdraw_stake(
 }
 
 // === Accessors ===
-
-// public(package) fun advance_epoch(pool: &mut StakingPool) {
-
-// }
 
 /// Set the state of the pool to `Active`.
 public(package) fun set_is_active(pool: &mut StakingPool) {

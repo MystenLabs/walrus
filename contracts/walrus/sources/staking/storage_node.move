@@ -4,8 +4,9 @@
 /// Copies `blob_store::storage_node` with only addition of `StorageNodeCap` struct.
 #[allow(unused_field, unused_function, unused_variable, unused_use)]
 module walrus::storage_node;
+
 use std::string::String;
-use sui::{bls12381::{G1, g1_from_bytes}, group_ops::Element};
+use sui::{bls12381::{G1, g1_from_bytes}, group_ops as Element};
 
 /// Represents a storage node in the system.
 public struct StorageNodeInfo has store, drop {

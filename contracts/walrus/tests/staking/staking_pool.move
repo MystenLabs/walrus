@@ -23,8 +23,6 @@ fun test_staked_wal_flow() {
     assert!(pool.active_stake_amount() == 0);
 
     // step4 - advance the epoch to 2
-
-
     destroy(staked_wal);
     destroy(pool);
 }

@@ -3,11 +3,12 @@
 
 #[allow(unused_variable, unused_use, unused_mut_parameter)]
 module walrus::staking_inner;
-use sui::{clock::Clock, coin::Coin, object_table::{Self, ObjectTable}, sui::SUI};
+
+use sui::{clock as Clock, coin as Coin, object_table::{Self, ObjectTable}, sui as SUI};
 use walrus::{
     staked_wal::{Self, StakedWal},
     staking_pool::{Self, StakingPool},
-    storage_node::StorageNodeCap
+    storage_node as StorageNodeCap
 };
 
 /// TODO: remove this once the module is implemented.
