@@ -58,18 +58,19 @@ public(package) fun withdraw_node(self: &mut StakingInnerV1, cap: StorageNodeCap
     abort ENotImplemented
 }
 
+public(package) fun collect_commission(self: &mut StakingInnerV1, cap: &StorageNodeCap): Coin<SUI> {
+    abort ENotImplemented
+}
+
 public(package) fun set_next_commission(
     self: &mut StakingInnerV1,
     cap: &StorageNodeCap,
     commission_rate: u64,
 ) {
-    abort ENotImplemented
+    self.pools[cap.pool_id()].set_next_commission(commission_rate);
 }
 
-public(package) fun collect_commission(self: &mut StakingInnerV1, cap: &StorageNodeCap): Coin<SUI> {
-    abort ENotImplemented
-}
-
+/// Sets the parameters for the next epoch.
 public(package) fun vote_for_next_epoch(
     self: &mut StakingInnerV1,
     cap: &StorageNodeCap,

@@ -16,7 +16,8 @@ public enum PoolState has store, drop {
 
 /// The parameters for the staking pool. Stored for the next epoch.
 public struct PoolParams has store, copy, drop {
-    // commission_rate: u64,
+    /// Commission rate for the pool.
+    commission_rate: u64,
 }
 
 /// Represents a single staking pool for a token. Even though it is never
@@ -26,12 +27,10 @@ public struct StakingPool has key, store {
     id: UID,
     state: PoolState,
     /// Current epoch's pool parameters.
-    // params: PoolParams,
+    params: PoolParams,
     /// The pool parameters for the next epoch. If `Some`, the pool will be
     /// updated in the next epoch.
-    // params_next_epoch: Option<PoolParams>,
-    /// The commission rate of the pool.
-    commission_rate: u64,
+    params_next_epoch: Option<PoolParams>,
     /// The epoch when the pool is / will be activated.
     /// Serves information purposes only, the checks are performed in the `state`
     /// property.
@@ -54,7 +53,8 @@ public(package) fun new(
     StakingPool {
         id: object::new(ctx),
         state: PoolState::New,
-        commission_rate,
+        params: PoolParams { commission_rate },
+        params_next_epoch: option::none(),
         activation_epoch,
         pending_stake: balance::zero(),
         active_stake: balance::zero(),
@@ -114,6 +114,14 @@ public(package) fun withdraw_stake(
     to_withdraw.into_coin(ctx)
 }
 
+/// Sets the next commission rate for the pool.
+public(package) fun set_next_commission(
+    pool: &mut StakingPool,
+    commission_rate: u64,
+) {
+    pool.params_next_epoch.fill(PoolParams { commission_rate });
+}
+
 /// Destroy the pool if it is empty.
 public(package) fun destroy_empty(pool: StakingPool) {
     assert!(pool.is_empty());
@@ -122,7 +130,7 @@ public(package) fun destroy_empty(pool: StakingPool) {
         pending_stake,
         active_stake,
         stake_to_withdraw,
-        ..
+        ..,
     } = pool;
 
     id.delete();
@@ -184,6 +192,3 @@ macro fun matches<$T>($x: &$T, $p: $T): bool {
         _ => false,
     }
 }
-
-#[test]
-fun test_staking_pool() {}
