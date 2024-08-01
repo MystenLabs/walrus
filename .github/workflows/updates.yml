@@ -40,6 +40,9 @@ jobs:
       - name: Install sui
         if: steps.cache-sui-restore.outputs.cache-hit != 'true'
         run: cargo install --locked --git https://github.com/MystenLabs/sui.git --tag $SUI_TAG --debug sui
+      - uses: taiki-e/install-action@v2.41.14
+        with:
+          tool: cargo-nextest
 
       - run: pre-commit run --all-files
       - uses: peter-evans/create-pull-request@v6.1.0
