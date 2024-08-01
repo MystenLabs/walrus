@@ -71,3 +71,15 @@ sui:
 #     write_buffer_size: 268435456
 #     target_file_size_base: 4194304
 #     max_bytes_for_level_base: 33554432
+#   shard_status:
+#     enable_blob_files: false
+#     min_blob_size: 0
+#     blob_file_size: 0
+#     blob_compression_type: none
+#     enable_blob_garbage_collection: false
+#     blob_garbage_collection_age_cutoff: 0.0
+#     blob_garbage_collection_force_threshold: 0.0
+#     blob_compaction_read_ahead_size: 0
+#     write_buffer_size: 67108864
+#     target_file_size_base: 67108864
+#     max_bytes_for_level_base: 536870912
