@@ -126,9 +126,12 @@ module walrus::staking {
         staking.inner_mut().request_withdrawal(staked_wal, amount)
     }
 
+    #[allow(lint(self_transfer))]
     /// Withdraws the staked amount from the staking pool.
     public fun withdraw_stake(staking: &mut Staking, staked_wal: StakedWal, ctx: &mut TxContext) {
-        staking.inner_mut().withdraw_stake(staked_wal, ctx)
+        let coin = staking.inner_mut().withdraw_stake(staked_wal, ctx);
+        // TODO: we shouldn't return a Coin here
+        transfer::public_transfer(coin, ctx.sender())
     }
 
     // === Internals ===
@@ -160,7 +163,7 @@ module walrus::staking {
     #[test, expected_failure(abort_code = ENotImplemented)]
     fun test_withdraw_node() {
         let ctx = &mut tx_context::dummy();
-        let cap = storage_node::new_cap_for_testing(new_id(ctx), new_id(ctx), ctx);
+        let cap = storage_node::new_cap_for_testing(new_id(ctx), ctx);
         new(ctx).withdraw_node(cap);
         abort 1337
     }
@@ -168,7 +171,7 @@ module walrus::staking {
     #[test, expected_failure(abort_code = ENotImplemented)]
     fun test_set_next_commission() {
         let ctx = &mut tx_context::dummy();
-        let cap = storage_node::new_cap_for_testing(new_id(ctx), new_id(ctx), ctx);
+        let cap = storage_node::new_cap_for_testing(new_id(ctx), ctx);
         new(ctx).set_next_commission(&cap, 0);
         abort 1337
     }
@@ -176,7 +179,7 @@ module walrus::staking {
     #[test, expected_failure(abort_code = ENotImplemented)]
     fun test_collect_commission() {
         let ctx = &mut tx_context::dummy();
-        let cap = storage_node::new_cap_for_testing(new_id(ctx), new_id(ctx), ctx);
+        let cap = storage_node::new_cap_for_testing(new_id(ctx), ctx);
         let coin = new(ctx).collect_commission(&cap);
         abort 1337
     }
@@ -184,7 +187,7 @@ module walrus::staking {
     #[test, expected_failure(abort_code = ENotImplemented)]
     fun test_vote_for_price_next_epoch() {
         let ctx = &mut tx_context::dummy();
-        let cap = storage_node::new_cap_for_testing(new_id(ctx), new_id(ctx), ctx);
+        let cap = storage_node::new_cap_for_testing(new_id(ctx), ctx);
         new(ctx).vote_for_price_next_epoch(&cap, 0, 0, 0);
         abort 1337
     }
@@ -200,7 +203,7 @@ module walrus::staking {
     #[test, expected_failure(abort_code = ENotImplemented)]
     fun test_shard_transfer_failed() {
         let ctx = &mut tx_context::dummy();
-        let cap = storage_node::new_cap_for_testing(new_id(ctx), new_id(ctx), ctx);
+        let cap = storage_node::new_cap_for_testing(new_id(ctx), ctx);
         new(ctx).shard_transfer_failed(&cap, vector[], vector[]);
         abort 1337
     }
@@ -209,7 +212,7 @@ module walrus::staking {
     fun test_stake_with_pool() {
         let ctx = &mut tx_context::dummy();
         let coin = coin::mint_for_testing<SUI>(100, ctx);
-        let cap = storage_node::new_cap_for_testing(new_id(ctx), new_id(ctx), ctx);
+        let cap = storage_node::new_cap_for_testing(new_id(ctx), ctx);
         let staked_wal = new(ctx).stake_with_pool(coin, cap.pool_id(), ctx);
         abort 1337
     }

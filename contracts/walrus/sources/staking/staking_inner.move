@@ -4,11 +4,11 @@
 #[allow(unused_variable, unused_use, unused_mut_parameter)]
 module walrus::staking_inner;
 
-use sui::{clock as Clock, coin as Coin, object_table::{Self, ObjectTable}, sui as SUI};
+use sui::{clock::Clock, coin::Coin, object_table::{Self, ObjectTable}, sui::SUI};
 use walrus::{
     staked_wal::{Self, StakedWal},
     staking_pool::{Self, StakingPool},
-    storage_node as StorageNodeCap
+    storage_node::StorageNodeCap
 };
 
 /// TODO: remove this once the module is implemented.
@@ -98,7 +98,7 @@ public(package) fun destroy_empty_pool(
     pool_id: ID,
     _ctx: &mut TxContext,
 ) {
-    abort ENotImplemented
+    self.pools.remove(pool_id).destroy_empty()
 }
 
 /// Stakes the given amount of `T` with the pool.
@@ -127,9 +127,14 @@ public(package) fun request_withdrawal(
 public(package) fun withdraw_stake(
     self: &mut StakingInnerV1,
     staked_wal: StakedWal,
-    _ctx: &mut TxContext,
-) {
-    abort ENotImplemented
+    ctx: &mut TxContext,
+): Coin<SUI> {
+    self.pools[staked_wal.pool_id()].withdraw_stake(staked_wal, self.current_epoch, ctx)
+}
+
+/// Get the current epoch.
+public(package) fun epoch(self: &StakingInnerV1): u64 {
+    self.current_epoch
 }
 
 // === System ===
