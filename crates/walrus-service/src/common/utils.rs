@@ -57,6 +57,7 @@ macro_rules! version {
         walrus_core::concat_const_str!(env!("CARGO_PKG_VERSION"), "-", GIT_REVISION)
     }};
 }
+pub use version;
 
 /// Trait for loading configuration from a YAML file.
 pub trait LoadConfig: DeserializeOwned {

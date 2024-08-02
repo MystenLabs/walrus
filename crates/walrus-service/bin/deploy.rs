@@ -16,7 +16,7 @@ use tokio::sync::oneshot;
 use walrus_service::{
     node::config::defaults::{METRICS_PORT, REST_API_PORT},
     testbed,
-    version,
+    utils::version,
 };
 use walrus_sui::utils::SuiNetwork;
 

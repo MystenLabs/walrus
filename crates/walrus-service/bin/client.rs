@@ -39,7 +39,7 @@ use walrus_service::{
         Client,
         ClientDaemon,
     },
-    version,
+    utils::version,
 };
 use walrus_sui::{
     client::{ContractClient, ReadClient},
