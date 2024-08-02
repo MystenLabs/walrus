@@ -16,6 +16,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use fastcrypto::{bls12381::min_pk::BLS12381PublicKey, traits::KeyPair as _};
 use futures::StreamExt;
 use prometheus::Registry;
 use reqwest::Url;
@@ -36,7 +37,6 @@ use walrus_core::{
     BlobId,
     Epoch,
     InconsistencyProof as InconsistencyProofEnum,
-    NetworkPublicKey,
     PublicKey,
     ShardIndex,
     SliverPairIndex,
@@ -69,9 +69,7 @@ pub struct StorageNodeHandle {
     /// The temporary directory containing the node's storage.
     pub storage_directory: TempDir,
     /// The node's protocol public key.
-    pub public_key: PublicKey,
-    /// The node's protocol public key.
-    pub network_public_key: NetworkPublicKey,
+    pub public_key: BLS12381PublicKey,
     /// The address of the REST API.
     pub rest_api_address: SocketAddr,
     /// The address of the metric service.
@@ -264,8 +262,7 @@ impl StorageNodeHandleBuilder {
         // To be in the committee, the node must have at least one shard assigned to it.
         let is_in_committee = !node_info.shards.is_empty();
 
-        let public_key = node_info.key_pair.public().clone();
-        let network_public_key = node_info.network_key_pair.public().clone();
+        let public_key = node_info.key_pair.as_ref().public().clone();
 
         let committee_service_factory = self.committee_service_factory.unwrap_or_else(|| {
             // Create a list of the committee members, that contains one or two nodes.
@@ -353,7 +350,6 @@ impl StorageNodeHandleBuilder {
             storage_node: node,
             storage_directory: temp_dir,
             public_key,
-            network_public_key,
             rest_api_address: config.rest_api_address,
             metrics_address: config.metrics_address,
             rest_api,
@@ -596,7 +592,6 @@ impl TestCluster {
                 name: format!("node-{i}"),
                 network_address: node.rest_api_address.into(),
                 public_key: node.public_key.clone(),
-                network_public_key: node.network_public_key.clone(),
                 shard_ids: node.storage_node.shards(),
             })
             .collect();
@@ -811,8 +806,7 @@ impl StorageNodeTestConfig {
                 host: self.rest_api_address.ip().to_string(),
                 port: self.rest_api_address.port(),
             },
-            public_key: self.key_pair.public().clone(),
-            network_public_key: self.network_key_pair.public().clone(),
+            public_key: self.key_pair.as_ref().public().clone(),
             shard_ids: self.shards.clone(),
         }
     }
@@ -897,8 +891,7 @@ pub(crate) fn test_committee(weights: &[u16]) -> Committee {
                 .take(node_shard_count.into())
                 .map(ShardIndex)
                 .collect(),
-            public_key: ProtocolKeyPair::generate().public().clone(),
-            network_public_key: NetworkKeyPair::generate().public().clone(),
+            public_key: ProtocolKeyPair::generate().as_ref().public().clone(),
             name: String::new(),
             network_address: NetworkAddress {
                 host: String::new(),

@@ -6,9 +6,6 @@ module blob_store::storage_node {
     use sui::group_ops::Element;
     use sui::bls12381::{G1, g1_from_bytes};
 
-    // Error codes
-    const EInvalidNetworkPublicKey: u64 = 1;
-
     /// Represents a storage node and its meta-data.
     ///
     /// Creation and deletion of storage node info is an
@@ -18,7 +15,6 @@ module blob_store::storage_node {
         name: String,
         network_address: String,
         public_key: Element<G1>,
-        network_public_key: vector<u8>,
         shard_ids: vector<u16>,
     }
 
@@ -27,25 +23,13 @@ module blob_store::storage_node {
         name: String,
         network_address: String,
         public_key: vector<u8>,
-        network_public_key: vector<u8>,
         shard_ids: vector<u16>,
     ): StorageNodeInfo {
-        assert!(network_public_key.length() == 32, EInvalidNetworkPublicKey);
-        StorageNodeInfo {
-            name,
-            network_address,
-            public_key: g1_from_bytes(&public_key),
-            network_public_key,
-            shard_ids
-        }
+        StorageNodeInfo { name, network_address, public_key: g1_from_bytes(&public_key), shard_ids }
     }
 
     public fun public_key(self: &StorageNodeInfo): &Element<G1> {
         &self.public_key
-    }
-
-    public fun network_public_key(self: &StorageNodeInfo): &vector<u8> {
-        &self.network_public_key
     }
 
     public fun shard_ids(self: &StorageNodeInfo): &vector<u16> {
@@ -69,7 +53,6 @@ module blob_store::storage_node {
             name: b"node".to_string(),
             network_address: b"127.0.0.1".to_string(),
             public_key: g1_from_bytes(&public_key),
-            network_public_key: x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677",
             shard_ids,
         }
     }

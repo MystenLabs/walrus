@@ -20,16 +20,7 @@ use serde_with::{serde_as, DisplayFromStr};
 use sui_sdk::rpc_types::{SuiEvent, SuiMoveStruct, SuiMoveValue};
 use sui_types::{base_types::ObjectID, event::EventID};
 use thiserror::Error;
-use walrus_core::{
-    bft,
-    ensure,
-    BlobId,
-    EncodingType,
-    Epoch,
-    NetworkPublicKey,
-    PublicKey,
-    ShardIndex,
-};
+use walrus_core::{bft, ensure, BlobId, EncodingType, Epoch, PublicKey, ShardIndex};
 
 use crate::{
     contracts::{self, AssociatedContractStruct, AssociatedSuiEvent, StructTag},
@@ -232,8 +223,6 @@ pub struct StorageNode {
     pub network_address: NetworkAddress,
     /// The public key of the storage node.
     pub public_key: PublicKey,
-    /// The network key of the storage node.
-    pub network_public_key: NetworkPublicKey,
     /// The indices of the shards held by the storage node.
     pub shard_ids: Vec<ShardIndex>,
 }
@@ -261,9 +250,6 @@ impl TryFrom<&SuiMoveStruct> for StorageNode {
         let public_key = PublicKey::from_bytes(&sui_move_convert_numeric_vec(
             get_dynamic_field!(public_key_struct, "bytes", SuiMoveValue::Vector)?,
         )?)?;
-        let network_public_key = NetworkPublicKey::from_bytes(&sui_move_convert_numeric_vec(
-            get_dynamic_field!(sui_move_struct, "network_public_key", SuiMoveValue::Vector)?,
-        )?)?;
         let shard_ids = sui_move_convert_numeric_vec(get_dynamic_field!(
             sui_move_struct,
             "shard_ids",
@@ -276,7 +262,6 @@ impl TryFrom<&SuiMoveStruct> for StorageNode {
             name,
             network_address,
             public_key,
-            network_public_key,
             shard_ids,
         })
     }

@@ -11,8 +11,6 @@ module blob_store::invalid_tests {
     use blob_store::storage_node;
     use blob_store::storage_accounting as sa;
 
-    const NETWORK_PUBLIC_KEY: vector<u8> =
-        x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677";
     public struct TESTWAL has store, drop {}
 
 
@@ -45,7 +43,6 @@ module blob_store::invalid_tests {
             string::utf8(b"node"),
             string::utf8(b"127.0.0.1"),
             public_key,
-            NETWORK_PUBLIC_KEY,
             vector[0, 1, 2, 3, 4, 5]
         );
 
@@ -81,7 +78,6 @@ module blob_store::invalid_tests {
             string::utf8(b"node"),
             string::utf8(b"127.0.0.1"),
             public_key,
-            NETWORK_PUBLIC_KEY,
             vector[0, 1, 2, 3, 4, 5]
         );
 
@@ -103,7 +99,6 @@ module blob_store::invalid_tests {
                 string::utf8(b"node"),
                 string::utf8(b"127.0.0.1"),
                 public_key,
-                NETWORK_PUBLIC_KEY,
                 vector[0, 1, 2, 3, 4, 5]
             );
             let committee = committee::create_committee(&cap, epoch, vector[storage_node]);
@@ -155,7 +150,6 @@ module blob_store::invalid_tests {
             string::utf8(b"node"),
             string::utf8(b"127.0.0.1"),
             public_key,
-            NETWORK_PUBLIC_KEY,
             vector[0, 1, 2, 3, 4, 5]
         );
 
@@ -177,7 +171,6 @@ module blob_store::invalid_tests {
                 string::utf8(b"node"),
                 string::utf8(b"127.0.0.1"),
                 public_key,
-                NETWORK_PUBLIC_KEY,
                 vector[0, 1, 2, 3, 4, 5]
             );
             let committee = committee::create_committee(&cap, epoch, vector[storage_node]);
@@ -238,7 +231,6 @@ module blob_store::invalid_tests {
             string::utf8(b"node"),
             string::utf8(b"127.0.0.1"),
             public_key,
-            NETWORK_PUBLIC_KEY,
             vector[0, 1, 2, 3, 4, 5]
         );
 
@@ -260,7 +252,6 @@ module blob_store::invalid_tests {
                 string::utf8(b"node"),
                 string::utf8(b"127.0.0.1"),
                 public_key,
-                NETWORK_PUBLIC_KEY,
                 vector[0, 1, 2, 3, 4, 5]
             );
             let committee = committee::create_committee(&cap, epoch, vector[storage_node]);

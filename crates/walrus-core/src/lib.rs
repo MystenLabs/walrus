@@ -31,7 +31,6 @@ use encoding::{
 };
 use fastcrypto::{
     bls12381::min_pk::{BLS12381PublicKey, BLS12381Signature},
-    ed25519::Ed25519PublicKey,
     hash::{Blake2b256, HashFunction},
 };
 use inconsistency::{
@@ -53,10 +52,8 @@ pub mod messages;
 pub mod metadata;
 pub mod utils;
 
-/// A public key for protocol messages.
+/// A public key.
 pub type PublicKey = BLS12381PublicKey;
-/// A public key for network communication.
-pub type NetworkPublicKey = Ed25519PublicKey;
 /// A signature for a blob.
 pub type Signature = BLS12381Signature;
 /// A certificate for a blob, represented as a list of signer-signature pairs.

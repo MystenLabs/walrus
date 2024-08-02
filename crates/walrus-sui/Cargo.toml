@@ -20,7 +20,6 @@ anyhow.workspace = true
 bcs.workspace = true
 fastcrypto.workspace = true
 move-core-types.workspace = true
-rand.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
