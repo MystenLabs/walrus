@@ -26,6 +26,19 @@ use walrus_sui::{
 use walrus_test_utils::async_param_test;
 
 async_param_test! {
+    test_store_and_read_blob_without_failures : [
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] empty: (0),
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] one_byte: (1),
+    ]
+}
+async fn test_store_and_read_blob_without_failures(blob_size: usize) {
+    assert!(matches!(
+        run_store_and_read_with_crash_failures(&[], &[], blob_size).await,
+        Ok(()),
+    ))
+}
+
+async_param_test! {
     test_store_and_read_blob_with_crash_failures : [
         #[ignore = "ignore E2E tests by default"] #[tokio::test] no_failures: (&[], &[], &[]),
         #[ignore = "ignore E2E tests by default"] #[tokio::test] one_failure: (&[0], &[], &[]),
@@ -49,7 +62,8 @@ async fn test_store_and_read_blob_with_crash_failures(
 ) {
     let _ = tracing_subscriber::fmt::try_init();
     let result =
-        run_store_and_read_with_crash_failures(failed_shards_write, failed_shards_read).await;
+        run_store_and_read_with_crash_failures(failed_shards_write, failed_shards_read, 31415)
+            .await;
 
     match (result, expected_errors) {
         (Ok(()), []) => (),
@@ -77,6 +91,7 @@ async fn test_store_and_read_blob_with_crash_failures(
 async fn run_store_and_read_with_crash_failures(
     failed_shards_write: &[usize],
     failed_shards_read: &[usize],
+    data_length: usize,
 ) -> anyhow::Result<()> {
     let _ = tracing_subscriber::fmt::try_init();
 
@@ -88,7 +103,7 @@ async fn run_store_and_read_with_crash_failures(
         .for_each(|&idx| cluster.cancel_node(idx));
 
     // Store a blob and get confirmations from each node.
-    let blob = walrus_test_utils::random_data(31415);
+    let blob = walrus_test_utils::random_data(data_length);
     let BlobStoreResult::NewlyCreated {
         blob_object: blob_confirmation,
         ..

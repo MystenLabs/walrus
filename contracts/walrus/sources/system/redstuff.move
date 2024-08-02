@@ -8,9 +8,6 @@ const DIGEST_LEN: u64 = 32;
 // The length of a blob id in the stored metadata
 const BLOB_ID_LEN: u64 = 32;
 
-// Errors
-const EInvalidDataLength: u64 = 0;
-
 /// Computes the encoded length of a blob for the Red Stuff encoding, given its
 /// unencoded size and the number of shards. The output length includes the
 /// size of the metadata hashes and the blob ID.
@@ -42,8 +39,10 @@ fun n_source_symbols(n_shards: u16): u64 {
 /// Computes the symbol size given the `unencoded_length` and number of shards
 /// `n_shards`. If the resulting symbols would be larger than a `u16`, this
 /// results in an Error.
-fun symbol_size(unencoded_length: u64, n_shards: u16): u16 {
-    assert!(unencoded_length > 0, EInvalidDataLength);
+fun symbol_size(mut unencoded_length: u64, n_shards: u16): u16 {
+    if (unencoded_length == 0) {
+        unencoded_length = 1;
+    };
     let n_symbols = n_source_symbols(n_shards);
     ((unencoded_length - 1) / n_symbols + 1) as u16
 }
@@ -87,7 +86,7 @@ fun test_encoded_size() {
     );
 }
 
-#[test, expected_failure]
+#[test]
 fun test_zero_size() {
     //test should fail here
     encoded_blob_length(0, 10);
