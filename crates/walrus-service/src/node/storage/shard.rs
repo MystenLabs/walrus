@@ -11,7 +11,6 @@ use std::{
 
 use regex::Regex;
 use rocksdb::{Options, DB};
-use serde::{Deserialize, Serialize};
 use typed_store::{
     rocks::{errors::typed_store_err_from_rocks_err, DBBatch, DBMap, ReadWriteOptions, RocksDB},
     Map,
@@ -27,25 +26,9 @@ use walrus_core::{
 
 use super::DatabaseConfig;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum ShardStatus {
-    /// The shard is active in this node serving reads and writes.
-    Active,
-
-    /// The shard is locked for moving to another node. Shard does not accept any more writes in this status.
-    LockedToMove,
-}
-
-impl ShardStatus {
-    pub fn is_owned_by_node(&self) -> bool {
-        self != &ShardStatus::LockedToMove
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct ShardStorage {
     id: ShardIndex,
-    shard_status: DBMap<(), ShardStatus>,
     primary_slivers: DBMap<BlobId, PrimarySliver>,
     secondary_slivers: DBMap<BlobId, SecondarySliver>,
 }
@@ -56,7 +39,6 @@ impl ShardStorage {
         id: ShardIndex,
         database: &Arc<RocksDB>,
         db_config: &DatabaseConfig,
-        initial_shard_status: Option<ShardStatus>,
     ) -> Result<Self, TypedStoreError> {
         let rw_options = ReadWriteOptions::default();
 
@@ -67,14 +49,6 @@ impl ShardStorage {
                     .create_cf(cf_name, options)
                     .map_err(typed_store_err_from_rocks_err)?;
             }
-        }
-
-        let shard_status_cf_name = shard_status_column_family_name(id);
-        if database.cf_handle(&shard_status_cf_name).is_none() {
-            let (_, options) = Self::shard_status_column_family_options(id, db_config);
-            database
-                .create_cf(&shard_status_cf_name, &options)
-                .map_err(typed_store_err_from_rocks_err)?;
         }
 
         let primary_slivers = DBMap::reopen(
@@ -89,18 +63,11 @@ impl ShardStorage {
             &rw_options,
             false,
         )?;
-        let shard_status =
-            DBMap::reopen(database, Some(&shard_status_cf_name), &rw_options, false)?;
-
-        if let Some(status) = initial_shard_status {
-            shard_status.insert(&(), &status)?;
-        }
 
         Ok(Self {
             id,
             primary_slivers,
             secondary_slivers,
-            shard_status,
         })
     }
 
@@ -220,16 +187,6 @@ impl ShardStorage {
         .into()
     }
 
-    pub(crate) fn shard_status_column_family_options(
-        id: ShardIndex,
-        db_config: &DatabaseConfig,
-    ) -> (String, Options) {
-        (
-            shard_status_column_family_name(id),
-            db_config.shard_status().to_options(),
-        )
-    }
-
     /// Returns the ids of existing shards in the database at the provided path.
     pub(crate) fn existing_shards(path: &Path, options: &Options) -> HashSet<ShardIndex> {
         DB::list_cf(options, path)
@@ -242,17 +199,6 @@ impl ShardStorage {
                 Some((_, SliverType::Primary)) | None => None,
             })
             .collect()
-    }
-
-    pub(crate) fn status(&self) -> Result<ShardStatus, TypedStoreError> {
-        self.shard_status
-            .get(&())
-            .map(|s| s.unwrap_or(ShardStatus::Active))
-    }
-
-    #[cfg(test)]
-    pub(crate) fn lock_shard_for_epoch_change(&self) -> Result<(), TypedStoreError> {
-        self.shard_status.insert(&(), &ShardStatus::LockedToMove)
     }
 }
 
@@ -289,11 +235,6 @@ fn primary_slivers_column_family_name(id: ShardIndex) -> String {
 #[inline]
 fn secondary_slivers_column_family_name(id: ShardIndex) -> String {
     base_column_family_name(id) + "/secondary-slivers"
-}
-
-#[inline]
-fn shard_status_column_family_name(id: ShardIndex) -> String {
-    base_column_family_name(id) + "/status"
 }
 
 #[cfg(test)]
