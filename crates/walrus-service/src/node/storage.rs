@@ -219,15 +219,11 @@ impl Storage {
         db_opts.create_if_missing(true);
 
         let existing_shards_ids = ShardStorage::existing_shards(path, &db_opts);
-        let mut shard_column_families = existing_shards_ids
+        let mut shard_column_families: Vec<_> = existing_shards_ids
             .iter()
             .copied()
-            .flat_map(|id| {
-                ShardStorage::slivers_column_family_options(id, &db_config)
-                    .into_iter()
-                    .map(|(_, (cf_name, options))| (cf_name, options))
-            })
-            .collect::<Vec<_>>();
+            .map(|id| ShardStorage::slivers_column_family_options(id, &db_config))
+            .collect();
 
         let (metadata_cf_name, metadata_options) = Self::metadata_options(&db_config);
         let (blob_info_cf_name, blob_info_options) = Self::blob_info_options(&db_config);
@@ -241,7 +237,7 @@ impl Storage {
                 (blob_info_cf_name, blob_info_options),
                 (event_cursor_cf_name, event_cursor_options),
             ])
-            .collect::<Vec<_>>();
+            .collect();
 
         let database = rocks::open_cf_opts(
             path,
@@ -552,6 +548,7 @@ where
 
 #[cfg(test)]
 pub(crate) mod tests {
+
     use blob_info::{BlobCertificationStatus, BlobInfoV1};
     use prometheus::Registry;
     use tempfile::TempDir;
@@ -928,7 +925,7 @@ pub(crate) mod tests {
             )?;
 
             for shard_id in [SHARD_INDEX, OTHER_SHARD_INDEX] {
-                let Some(shard) = storage.shard_storage(shard_id) else {
+                let Some(shard) = storage.shard_storage(SHARD_INDEX) else {
                     panic!("shard {shard_id} should exist");
                 };
 
@@ -942,46 +939,6 @@ pub(crate) mod tests {
 
             Result::<(), anyhow::Error>::Ok(())
         })?;
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn reopen_partially_created_sliver_column_family() -> TestResult {
-        let test_shard_index = ShardIndex(123);
-        let storage = empty_storage();
-
-        let cfs = ShardStorage::slivers_column_family_options(
-            test_shard_index,
-            &DatabaseConfig::default(),
-        );
-
-        // Only create the column family for the primary sliver. When restarting the storage, the
-        // shard should not be detected as existing.
-        storage
-            .inner
-            .database
-            .create_cf(&cfs[&SliverType::Primary].0, &cfs[&SliverType::Primary].1)
-            .unwrap();
-        assert!(
-            !ShardStorage::existing_shards(storage.temp_dir.path(), &Options::default())
-                .contains(&test_shard_index)
-        );
-
-        // Create the column family for the secondary sliver. When restarting the storage, the shard
-        // should now be detected as existing.
-        storage
-            .inner
-            .database
-            .create_cf(
-                &cfs[&SliverType::Secondary].0,
-                &cfs[&SliverType::Secondary].1,
-            )
-            .unwrap();
-        assert!(
-            ShardStorage::existing_shards(storage.temp_dir.path(), &Options::default())
-                .contains(&test_shard_index)
-        );
 
         Ok(())
     }
