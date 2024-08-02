@@ -34,6 +34,7 @@ opentelemetry = "=0.23.0"
 pin-project = "1.1.5"
 prettytable = "0.10.0"
 prometheus = "0.13.4"
+quinn-proto = "0.11"
 rand = "0.8.5"
 raptorq = "2.0.0"
 regex = "1"
@@ -87,3 +88,6 @@ debug-assertions = true
 overflow-checks = true
 # opt-level 1 gives >5x speedup for simulator tests without slowing down build times very much.
 opt-level = 1
+
+[patch.crates-io]
+quinn-proto = { git = "https://github.com/quinn-rs/quinn.git", rev = "f0fa66f871b80b9d2d7075d76967c649aecc0b77" }

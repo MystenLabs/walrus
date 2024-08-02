@@ -103,4 +103,5 @@ allow-git = [
 # github.com organizations to allow git sources for
 github = [
     "MystenLabs",
+    "quinn-rs",
 ]
