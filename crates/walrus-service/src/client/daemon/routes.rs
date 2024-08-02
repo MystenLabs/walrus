@@ -142,6 +142,9 @@ pub(super) async fn put_blob<T: ContractClient>(
                     StatusCode::GATEWAY_TIMEOUT.into_response()
                 }
                 ClientErrorKind::BlobIdBlocked(_) => StatusCode::FORBIDDEN.into_response(),
+                ClientErrorKind::EmptyBlob => {
+                    (StatusCode::BAD_REQUEST, "Empty blobs are not supported").into_response()
+                }
                 _ => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
             }
         }

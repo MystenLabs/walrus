@@ -116,6 +116,9 @@ pub enum ClientErrorKind {
     /// No gas coins with sufficient balance found for the transaction.
     #[error("no compatible gas coins with sufficient total balance found")]
     NoCompatibleGasCoins,
+    /// Empty blobs are not supported by the currently deployed contracts.
+    #[error("empty blobs are not supported by the currently deployed contracts")]
+    EmptyBlob,
     /// A failure internal to the node.
     #[error("client internal error: {0}")]
     Other(Box<dyn std::error::Error + Send + Sync + 'static>),
