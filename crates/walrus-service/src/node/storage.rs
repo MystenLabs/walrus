@@ -508,13 +508,11 @@ fn merge_blob_info(
         } else {
             match operand {
                 BlobInfoMergeOperand::ChangeStatus {
-                    blob_id,
                     status_changing_epoch,
                     end_epoch,
                     status,
                     status_event,
                 } => Some(BlobInfo::new(
-                    blob_id,
                     status_changing_epoch,
                     end_epoch,
                     status,
@@ -696,7 +694,6 @@ pub(crate) mod tests {
         let registered_epoch = if skip_register { None } else { Some(1) };
         if !skip_register {
             let state0 = BlobInfo::new(
-                blob_id,
                 1,
                 42,
                 BlobCertificationStatus::Registered,
@@ -705,7 +702,6 @@ pub(crate) mod tests {
             storage.merge_update_blob_info(
                 &blob_id,
                 BlobInfoMergeOperand::ChangeStatus {
-                    blob_id,
                     status_changing_epoch: 1,
                     end_epoch: 42,
                     status: BlobCertificationStatus::Registered,
@@ -728,7 +724,6 @@ pub(crate) mod tests {
             storage.merge_update_blob_info(
                 &blob_id,
                 BlobInfoMergeOperand::ChangeStatus {
-                    blob_id,
                     status_changing_epoch: 2,
                     end_epoch: 42,
                     status: BlobCertificationStatus::Certified,
@@ -749,7 +744,6 @@ pub(crate) mod tests {
         storage.merge_update_blob_info(
             &blob_id,
             BlobInfoMergeOperand::ChangeStatus {
-                blob_id,
                 status_changing_epoch: 3,
                 end_epoch: 42,
                 status: BlobCertificationStatus::Invalid,
@@ -767,7 +761,6 @@ pub(crate) mod tests {
         let blob_id = BLOB_ID;
 
         let state0 = BlobInfo::new(
-            blob_id,
             1,
             42,
             BlobCertificationStatus::Registered,
@@ -777,7 +770,6 @@ pub(crate) mod tests {
         storage.merge_update_blob_info(
             &blob_id,
             BlobInfoMergeOperand::ChangeStatus {
-                blob_id,
                 status_changing_epoch: 1,
                 end_epoch: 42,
                 status: BlobCertificationStatus::Registered,
