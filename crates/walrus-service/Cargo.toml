@@ -32,7 +32,6 @@ client = [
 deploy = ["client", "node"]
 node = [
     "dep:async-trait",
-    "dep:enum_dispatch",
     "dep:mime",
     "dep:mysten-metrics",
     "dep:rocksdb",
@@ -55,7 +54,6 @@ axum.workspace = true
 bcs.workspace = true
 clap.workspace = true
 colored = { workspace = true, optional = true }
-enum_dispatch = { workspace = true, optional = true }
 fastcrypto.workspace = true
 futures.workspace = true
 git-version.workspace = true

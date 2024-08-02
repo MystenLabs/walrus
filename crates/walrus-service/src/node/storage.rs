@@ -26,7 +26,7 @@ use walrus_core::{
 use walrus_sui::types::BlobEvent;
 
 use self::{
-    blob_info::{BlobInfo, BlobInfoApi, BlobInfoMergeOperand, Mergeable as _},
+    blob_info::{BlobInfo, BlobInfoMergeOperand, Mergeable as _},
     event_cursor_table::EventCursorTable,
 };
 
@@ -380,8 +380,7 @@ impl Storage {
     pub fn has_metadata(&self, blob_id: &BlobId) -> Result<bool, TypedStoreError> {
         Ok(self
             .get_blob_info(blob_id)?
-            .as_ref()
-            .map(BlobInfo::is_metadata_stored)
+            .map(|info| info.is_metadata_stored)
             .unwrap_or_default())
     }
 
@@ -505,32 +504,21 @@ fn merge_blob_info(
 
         current_val = if let Some(info) = current_val {
             Some(info.merge(operand))
+        } else if let BlobInfoMergeOperand::ChangeStatus {
+            end_epoch,
+            status,
+            status_event,
+        } = operand
+        {
+            Some(BlobInfo::new(end_epoch, status, status_event))
         } else {
-            match operand {
-                BlobInfoMergeOperand::ChangeStatus {
-                    status_changing_epoch,
-                    end_epoch,
-                    status,
-                    status_event,
-                } => Some(BlobInfo::new(
-                    status_changing_epoch,
-                    end_epoch,
-                    status,
-                    status_event,
-                )),
-                BlobInfoMergeOperand::MarkMetadataStored(_) => {
-                    let blob_id = bcs::from_bytes::<BlobId>(key);
-                    tracing::error!(
-                        ?blob_id,
-                        "attempted to mutate the info for an untracked blob"
-                    );
-                    None
-                }
-            }
-        }
+            // TODO(jsmith): Deserialize the key.
+            tracing::error!(?key, "attempted to mutate the info for an untracked blob");
+            None
+        };
     }
 
-    current_val.as_ref().map(BlobInfo::to_bytes)
+    current_val.map(BlobInfo::to_bytes)
 }
 
 fn deserialize_from_db<'de, T>(val: &'de [u8]) -> Option<T>
@@ -547,7 +535,7 @@ where
 #[cfg(test)]
 pub(crate) mod tests {
 
-    use blob_info::{BlobCertificationStatus, BlobInfoV1};
+    use blob_info::BlobCertificationStatus;
     use prometheus::Registry;
     use tempfile::TempDir;
     use tokio::runtime::Runtime;
@@ -679,111 +667,69 @@ pub(crate) mod tests {
         Ok(())
     }
 
-    async_param_test! {
-        update_blob_info -> TestResult: [
-            in_order: (false, false),
-            skip_register: (true, false),
-            skip_certify: (false, true),
-        ]
-    }
-    async fn update_blob_info(skip_register: bool, skip_certify: bool) -> TestResult {
-        let storage = empty_storage();
-        let storage = storage.as_ref();
-        let blob_id = BLOB_ID;
-
-        let registered_epoch = if skip_register { None } else { Some(1) };
-        if !skip_register {
-            let state0 = BlobInfo::new(
-                1,
-                42,
-                BlobCertificationStatus::Registered,
-                event_id_for_testing(),
-            );
-            storage.merge_update_blob_info(
-                &blob_id,
-                BlobInfoMergeOperand::ChangeStatus {
-                    status_changing_epoch: 1,
-                    end_epoch: 42,
-                    status: BlobCertificationStatus::Registered,
-                    status_event: state0.current_status_event(),
-                },
-            )?;
-            assert_eq!(storage.get_blob_info(&blob_id)?, Some(state0));
-        }
-
-        let certified_epoch = if skip_certify { None } else { Some(2) };
-        if !skip_certify {
-            let state1 = BlobInfo::new_for_testing(
-                42,
-                BlobCertificationStatus::Certified,
-                event_id_for_testing(),
-                registered_epoch,
-                certified_epoch,
-                None,
-            );
-            storage.merge_update_blob_info(
-                &blob_id,
-                BlobInfoMergeOperand::ChangeStatus {
-                    status_changing_epoch: 2,
-                    end_epoch: 42,
-                    status: BlobCertificationStatus::Certified,
-                    status_event: state1.current_status_event(),
-                },
-            )?;
-            assert_eq!(storage.get_blob_info(&blob_id)?, Some(state1));
-        }
-
-        let state2 = BlobInfo::new_for_testing(
-            42,
-            BlobCertificationStatus::Invalid,
-            event_id_for_testing(),
-            registered_epoch,
-            certified_epoch,
-            Some(3),
-        );
-        storage.merge_update_blob_info(
-            &blob_id,
-            BlobInfoMergeOperand::ChangeStatus {
-                status_changing_epoch: 3,
-                end_epoch: 42,
-                status: BlobCertificationStatus::Invalid,
-                status_event: state2.current_status_event(),
-            },
-        )?;
-        assert_eq!(storage.get_blob_info(&blob_id)?, Some(state2));
-        Ok(())
-    }
-
     #[tokio::test]
-    async fn update_blob_info_metadata_stored() -> TestResult {
+    async fn update_blob_info() -> TestResult {
         let storage = empty_storage();
         let storage = storage.as_ref();
         let blob_id = BLOB_ID;
 
         let state0 = BlobInfo::new(
-            1,
             42,
             BlobCertificationStatus::Registered,
+            event_id_for_testing(),
+        );
+        let state1 = BlobInfo::new(
+            42,
+            BlobCertificationStatus::Certified,
             event_id_for_testing(),
         );
 
         storage.merge_update_blob_info(
             &blob_id,
             BlobInfoMergeOperand::ChangeStatus {
-                status_changing_epoch: 1,
                 end_epoch: 42,
                 status: BlobCertificationStatus::Registered,
-                status_event: state0.current_status_event(),
+                status_event: state0.current_status_event,
             },
         )?;
-        assert_eq!(storage.get_blob_info(&blob_id)?, Some(state0.clone()));
+        assert_eq!(storage.get_blob_info(&blob_id)?, Some(state0));
+        storage.merge_update_blob_info(
+            &blob_id,
+            BlobInfoMergeOperand::ChangeStatus {
+                end_epoch: 42,
+                status: BlobCertificationStatus::Certified,
+                status_event: state1.current_status_event,
+            },
+        )?;
+        assert_eq!(storage.get_blob_info(&blob_id)?, Some(state1));
+        Ok(())
+    }
 
-        let BlobInfo::V1(v1) = state0;
-        let state1 = BlobInfo::V1(BlobInfoV1 {
+    #[tokio::test]
+    async fn update_blob_info_stored() -> TestResult {
+        let storage = empty_storage();
+        let storage = storage.as_ref();
+        let blob_id = BLOB_ID;
+
+        let state0 = BlobInfo::new(
+            42,
+            BlobCertificationStatus::Registered,
+            event_id_for_testing(),
+        );
+        let state1 = BlobInfo {
             is_metadata_stored: true,
-            ..v1
-        });
+            ..state0
+        };
 
+        storage.merge_update_blob_info(
+            &blob_id,
+            BlobInfoMergeOperand::ChangeStatus {
+                end_epoch: 42,
+                status: BlobCertificationStatus::Registered,
+                status_event: state0.current_status_event,
+            },
+        )?;
+        assert_eq!(storage.get_blob_info(&blob_id)?, Some(state0));
         storage.merge_update_blob_info(&blob_id, BlobInfoMergeOperand::MarkMetadataStored(true))?;
         assert_eq!(storage.get_blob_info(&blob_id)?, Some(state1));
 
