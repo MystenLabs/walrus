@@ -30,7 +30,7 @@ use typed_store::rocks::MetricConf;
 use walrus_core::{
     encoding::{EncodingConfig, Primary, PrimarySliver, Secondary, SecondarySliver},
     inconsistency::InconsistencyProof,
-    keys::{NetworkKeyPair, ProtocolKeyPair},
+    keys::ProtocolKeyPair,
     merkle::MerkleProof,
     messages::InvalidBlobCertificate,
     metadata::VerifiedBlobMetadataWithId,
@@ -61,6 +61,7 @@ use crate::node::{
     Storage,
     StorageNode,
 };
+
 /// A storage node and associated data for testing.
 #[derive(Debug)]
 pub struct StorageNodeHandle {
@@ -288,7 +289,6 @@ impl StorageNodeHandleBuilder {
         let config = StorageNodeConfig {
             storage_path: temp_dir.path().to_path_buf(),
             protocol_key_pair: node_info.key_pair.into(),
-            network_key_pair: node_info.network_key_pair.into(),
             rest_api_address: node_info.rest_api_address,
             metrics_address: unused_socket_address(),
             sui: None,
@@ -783,7 +783,6 @@ impl TestClusterBuilder {
 #[derive(Debug)]
 pub struct StorageNodeTestConfig {
     key_pair: ProtocolKeyPair,
-    network_key_pair: NetworkKeyPair,
     shards: Vec<ShardIndex>,
     rest_api_address: SocketAddr,
 }
@@ -792,7 +791,6 @@ impl StorageNodeTestConfig {
     fn new(shards: Vec<ShardIndex>) -> Self {
         Self {
             key_pair: ProtocolKeyPair::generate(),
-            network_key_pair: NetworkKeyPair::generate(),
             rest_api_address: unused_socket_address(),
             shards,
         }
@@ -1034,8 +1032,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
     let temp_dir = TempDir::new().expect("able to create a temporary directory");
     WithTempDir {
         inner: StorageNodeConfig {
-            protocol_key_pair: PathOrInPlace::InPlace(walrus_core::test_utils::protocol_key_pair()),
-            network_key_pair: PathOrInPlace::InPlace(walrus_core::test_utils::network_key_pair()),
+            protocol_key_pair: PathOrInPlace::InPlace(walrus_core::test_utils::key_pair()),
             db_config: None,
             rest_api_address,
             metrics_address,
