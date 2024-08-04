@@ -46,6 +46,9 @@ jobs:
     name: Run all simtests
     runs-on: ubuntu-ghcloud
     steps:
+      - uses: taiki-e/install-action@v2.42.14
+        with:
+          tool: cargo-nextest
       - uses: actions/checkout@v4
       - run: ./scripts/simtest/install.sh
       - run: cargo simtest --run-ignored all simtest
