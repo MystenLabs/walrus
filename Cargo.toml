@@ -14,7 +14,7 @@ async-trait = "0.1.81"
 axum = { version = "0.7.5", features = ["http2"] }
 base64 = "0.22.1"
 bcs = "0.1.6"
-clap = { version = "4.5.9", features = ["derive"] }
+clap = { version = "4.5.13", features = ["derive"] }
 colored = "2.1.0"
 criterion = "0.5.1"
 enum_dispatch = "0.3"
@@ -45,7 +45,7 @@ reqwest = { version = "0.12.5", default-features = false, features = [
 ] }
 rocksdb = "0.21.0"
 serde = { version = "1.0.204", features = ["derive"] }
-serde_json = "1.0.120"
+serde_json = "1.0.122"
 serde_test = "1.0.176"
 serde_with = { version = "3.9", features = ["base64"] }
 serde_yaml = "0.9"
@@ -58,9 +58,9 @@ sui-sdk = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.30.1" }
 sui-simulator = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.30.1" }
 sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.30.1" }
 telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.30.1" }
-tempfile = "3.10.1"
+tempfile = "3.11.0"
 test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.30.1" }
-thiserror = "1.0.62"
+thiserror = "1.0.63"
 tokio = "=1.36.0"
 tokio-stream = "0.1.15"
 tokio-util = "0.7.10"
