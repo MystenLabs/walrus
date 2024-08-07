@@ -122,4 +122,10 @@ pub enum SyncShardError {
     Unauthorized,
     #[error(transparent)]
     MessageVerificationError(#[from] MessageVerificationError),
+    #[error("ZZZZ")]
+    ShardNotFound(ShardIndex),
+    #[error("XXXX")]
+    EpochTooOld((Epoch, Epoch)),
+    #[error(transparent)]
+    Internal(#[from] InternalError),
 }

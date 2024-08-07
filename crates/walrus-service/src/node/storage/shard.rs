@@ -250,6 +250,37 @@ impl ShardStorage {
             .map(|s| s.unwrap_or(ShardStatus::Active))
     }
 
+    pub(crate) fn scan_certified_slivers(
+        &self,
+        sliver_type: SliverType,
+        slivers_to_fetch: &[BlobId],
+    ) -> Result<Vec<(BlobId, Sliver)>, TypedStoreError> {
+        Ok(match sliver_type {
+            SliverType::Primary => self
+                .primary_slivers
+                .multi_get(slivers_to_fetch)?
+                .iter()
+                .zip(slivers_to_fetch)
+                .filter_map(|(sliver, blob_id)| {
+                    sliver
+                        .as_ref()
+                        .map(|s| (*blob_id, Sliver::Primary(s.clone())))
+                })
+                .collect(),
+            SliverType::Secondary => self
+                .secondary_slivers
+                .multi_get(slivers_to_fetch)?
+                .iter()
+                .zip(slivers_to_fetch)
+                .filter_map(|(sliver, blob_id)| {
+                    sliver
+                        .as_ref()
+                        .map(|s| (*blob_id, Sliver::Secondary(s.clone())))
+                })
+                .collect(),
+        })
+    }
+
     #[cfg(test)]
     pub(crate) fn lock_shard_for_epoch_change(&self) -> Result<(), TypedStoreError> {
         self.shard_status.insert(&(), &ShardStatus::LockedToMove)
@@ -300,6 +331,7 @@ fn shard_status_column_family_name(id: ShardIndex) -> String {
 mod tests {
     use walrus_core::{
         encoding::{Primary, Secondary},
+        BlobId,
         ShardIndex,
         SliverType,
     };
@@ -481,5 +513,39 @@ mod tests {
         expected_output: Option<(ShardIndex, SliverType)>,
     ) {
         assert_eq!(id_from_column_family_name(cf_name), expected_output);
+    }
+
+    #[tokio::test]
+    async fn scan_shard() -> TestResult {
+        let storage = empty_storage();
+        let shard = storage.as_ref().shard_storage(SHARD_INDEX).unwrap();
+
+        let blob_id_0 = BlobId([0; 32]);
+        let blob_id_1 = BlobId([1; 32]);
+
+        let primary0 = get_sliver(SliverType::Primary, 0);
+        let primary1 = get_sliver(SliverType::Primary, 1);
+        let secondary0 = get_sliver(SliverType::Secondary, 0);
+        let secondary1 = get_sliver(SliverType::Secondary, 1);
+
+        shard.put_sliver(&blob_id_0, &primary0)?;
+        shard.put_sliver(&blob_id_1, &primary1)?;
+        shard.put_sliver(&blob_id_0, &secondary0)?;
+        shard.put_sliver(&blob_id_1, &secondary1)?;
+
+        let fetched_slivers = shard.scan_certified_slivers(SliverType::Primary, &[blob_id_0])?;
+        assert_eq!(fetched_slivers, vec![(blob_id_0, primary0.clone())]);
+
+        let fetched_slivers = shard.scan_certified_slivers(SliverType::Primary, &[blob_id_1])?;
+        assert_eq!(fetched_slivers, vec![(blob_id_1, primary1.clone())]);
+
+        let fetched_slivers =
+            shard.scan_certified_slivers(SliverType::Primary, &[blob_id_0, blob_id_1])?;
+        assert_eq!(
+            fetched_slivers,
+            vec![(blob_id_0, primary0), (blob_id_1, primary1)]
+        );
+
+        Ok(())
     }
 }

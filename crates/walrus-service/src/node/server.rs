@@ -164,7 +164,13 @@ mod test {
         },
         keys::ProtocolKeyPair,
         merkle::MerkleProof,
-        messages::{InvalidBlobIdAttestation, SignedMessage, StorageConfirmation, SyncShardMsg},
+        messages::{
+            InvalidBlobIdAttestation,
+            SignedMessage,
+            StorageConfirmation,
+            SyncShardMsg,
+            SyncShardResponse,
+        },
         metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
         BlobId,
         InconsistencyProof,
@@ -334,8 +340,8 @@ mod test {
             &self,
             _public_key: PublicKey,
             _signed_request: SignedMessage<SyncShardMsg>,
-        ) -> Result<(), SyncShardError> {
-            Ok(())
+        ) -> Result<SyncShardResponse, SyncShardError> {
+            Ok(SyncShardResponse::V1(vec![]))
         }
     }
 

@@ -105,6 +105,9 @@ rest_api_error!(
     SyncShardError: [
         (Unauthorized, UNAUTHORIZED, Self::Unauthorized.to_string()),
         (MessageVerificationError(_), BAD_REQUEST, "Request verification failed"),
+        (ShardNotFound(_), NOT_FOUND, "The requested shard was not found"),
+        (EpochTooOld(_), BAD_REQUEST, "The requested epoch is too old"),
+        (Internal(_), INTERNAL_SERVER_ERROR, @canonical)
     ]
 );
 

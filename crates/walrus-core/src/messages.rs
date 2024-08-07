@@ -20,7 +20,7 @@ mod invalid_blob_id;
 pub use invalid_blob_id::{InvalidBlobIdAttestation, InvalidBlobIdMsg};
 
 mod sync_shard;
-pub use sync_shard::{SignedSyncShardRequest, SyncShardMsg, SyncShardRequest};
+pub use sync_shard::{SignedSyncShardRequest, SyncShardMsg, SyncShardRequest, SyncShardResponse};
 
 mod certificate;
 pub use certificate::{CertificateError, ConfirmationCertificate, InvalidBlobCertificate};

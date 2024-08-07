@@ -1,10 +1,12 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use alloc::vec::Vec;
+
 use serde::{Deserialize, Serialize};
 
 use super::{Intent, InvalidIntent, ProtocolMessage, SignedMessage};
-use crate::{messages::IntentType, BlobId, Epoch, ShardIndex};
+use crate::{messages::IntentType, BlobId, Epoch, ShardIndex, Sliver, SliverType};
 
 /// Represents a version 1 of the sync shard request for transferring an entire shard from
 /// one storage node to another.
@@ -16,7 +18,7 @@ pub struct SyncShardRequestV1 {
     /// Whether the sync is for the primary sliver or the secondary sliver in the shard.
     /// Note that storage node stores primary and secondary slivers in separate
     /// RocksDB column family, so it's more efficient to transfer them separately.
-    primary_sliver: bool,
+    sliver_type: SliverType,
 
     /// The ID of the blob to start syncing from.
     starting_blob_id: BlobId,
@@ -45,18 +47,53 @@ impl SyncShardRequest {
     /// Creates a new `SyncShardRequest` with the specified parameters.
     pub fn new(
         shard_index: ShardIndex,
-        primary_sliver: bool,
+        sliver_type: SliverType,
         starting_blob_id: BlobId,
         sliver_count: u64,
         epoch: Epoch,
     ) -> SyncShardRequest {
         Self::V1(SyncShardRequestV1 {
             shard_index,
-            primary_sliver,
+            sliver_type,
             starting_blob_id,
             sliver_count,
             epoch,
         })
+    }
+
+    /// Returns the shard index of the request.
+    pub fn shard_index(&self) -> ShardIndex {
+        match self {
+            Self::V1(request) => request.shard_index,
+        }
+    }
+
+    /// Returns the sliver type of the request.
+    pub fn sliver_type(&self) -> SliverType {
+        match self {
+            Self::V1(request) => request.sliver_type,
+        }
+    }
+
+    /// Returns the starting blob ID of the request.
+    pub fn starting_blob_id(&self) -> BlobId {
+        match self {
+            Self::V1(request) => request.starting_blob_id,
+        }
+    }
+
+    /// Returns the number of slivers to sync starting from the starting blob ID.
+    pub fn sliver_count(&self) -> u64 {
+        match self {
+            Self::V1(request) => request.sliver_count,
+        }
+    }
+
+    /// Returns the epoch of the request.
+    pub fn epoch(&self) -> Epoch {
+        match self {
+            Self::V1(request) => request.epoch,
+        }
     }
 }
 
@@ -100,3 +137,16 @@ impl AsRef<ProtocolMessage<SyncShardRequest>> for SyncShardMsg {
 
 /// Represents a signed sync shard request.
 pub type SignedSyncShardRequest = SignedMessage<SyncShardMsg>;
+
+/// Represents a version 1 of the sync shard response for transferring an entire shard from
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum SyncShardResponse {
+    /// Version 1 of the sync shard response.
+    V1(Vec<(BlobId, Sliver)>),
+}
+
+impl From<Vec<(BlobId, Sliver)>> for SyncShardResponse {
+    fn from(val: Vec<(BlobId, Sliver)>) -> Self {
+        Self::V1(val)
+    }
+}

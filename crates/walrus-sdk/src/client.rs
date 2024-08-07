@@ -27,6 +27,7 @@ use walrus_core::{
         StorageConfirmation,
         SyncShardMsg,
         SyncShardRequest,
+        SyncShardResponse,
     },
     metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
     BlobId,
@@ -503,11 +504,11 @@ impl Client {
         sliver_count: u64,
         epoch: Epoch,
         key_pair: &ProtocolKeyPair,
-    ) -> Result<(), NodeError> {
+    ) -> Result<SyncShardResponse, NodeError> {
         let (url, template) = self.endpoints.sync_shard();
         let request = SyncShardRequest::new(
             shard_index,
-            A::IS_PRIMARY,
+            A::sliver_type(),
             starting_blob_id,
             sliver_count,
             epoch,

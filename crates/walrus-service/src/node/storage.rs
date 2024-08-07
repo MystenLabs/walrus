@@ -8,6 +8,7 @@ use std::{
     sync::Arc,
 };
 
+use anyhow::Context;
 use rocksdb::{DBCompressionType, MergeOperands, Options};
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
@@ -20,6 +21,7 @@ use typed_store::{
     TypedStoreError,
 };
 use walrus_core::{
+    messages::{SyncShardRequest, SyncShardResponse},
     metadata::{BlobMetadata, VerifiedBlobMetadataWithId},
     BlobId,
     ShardIndex,
@@ -30,6 +32,7 @@ use self::{
     blob_info::{BlobInfo, BlobInfoApi, BlobInfoMergeOperand, Mergeable as _},
     event_cursor_table::EventCursorTable,
 };
+use crate::node::SyncShardError;
 
 pub(crate) mod blob_info;
 
@@ -510,6 +513,42 @@ impl Storage {
     /// Returns the shards currently present in the storage.
     pub(crate) fn shards_present(&self) -> Vec<ShardIndex> {
         self.shards.keys().copied().collect()
+    }
+
+    /// Handles a sync shard request.
+    pub fn handle_sync_shard_request(
+        &self,
+        request: &SyncShardRequest,
+    ) -> Result<SyncShardResponse, SyncShardError> {
+        let iter = self
+            .blob_info
+            .safe_iter_with_bounds(Some(request.starting_blob_id()), None);
+
+        let blobs_to_fetch = iter
+            .filter_map(|blob_info| match blob_info {
+                Ok((blob_id, blob_info)) => {
+                    if blob_info.is_certified() {
+                        Some(Ok(blob_id))
+                    } else {
+                        None
+                    }
+                }
+                Err(e) => Some(Err(e)),
+            })
+            .take(request.sliver_count() as usize)
+            .collect::<Result<Vec<_>, TypedStoreError>>()
+            .context("Store error")?;
+
+        let shard = self.shard_storage(request.shard_index());
+        if shard.is_none() {
+            return Err(SyncShardError::ShardNotFound(request.shard_index()));
+        }
+
+        Ok(shard
+            .unwrap()
+            .scan_certified_slivers(request.sliver_type(), &blobs_to_fetch)
+            .context("store error")?
+            .into())
     }
 }
 
