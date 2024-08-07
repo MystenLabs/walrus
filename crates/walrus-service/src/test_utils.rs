@@ -279,6 +279,7 @@ impl StorageNodeHandleBuilder {
                 StubCommitteeServiceFactory::<StubCommitteeService>::from_members(
                     // Remove the possible None in the members list
                     committee_members.into_iter().flatten().collect(),
+                    None,
                 ),
             )
         });
@@ -427,9 +428,10 @@ pub struct StubCommitteeServiceFactory<T> {
 }
 
 impl<T> StubCommitteeServiceFactory<T> {
-    fn from_members(members: Vec<SuiStorageNode>) -> Self {
+    fn from_members(members: Vec<SuiStorageNode>, initial_epoch: Option<Epoch>) -> Self {
         Self {
-            committee: Committee::new(members, 0).expect("valid members to be provided for tests"),
+            committee: Committee::new(members, initial_epoch.unwrap_or(0))
+                .expect("valid members to be provided for tests"),
             _service_type: PhantomData,
         }
     }
@@ -646,6 +648,7 @@ pub struct TestClusterBuilder {
     event_providers: Vec<Option<Box<dyn SystemEventProvider>>>,
     committee_factories: Vec<Option<Box<dyn CommitteeServiceFactory>>>,
     contract_services: Vec<Option<Box<dyn SystemContractService>>>,
+    initial_epoch: Option<Epoch>,
 }
 
 impl TestClusterBuilder {
@@ -735,6 +738,12 @@ impl TestClusterBuilder {
         self
     }
 
+    /// Sets the initial epoch for the cluster.
+    pub fn with_initial_epoch(mut self, epoch: Epoch) -> Self {
+        self.initial_epoch = Some(epoch);
+        self
+    }
+
     /// Creates the configured `TestCluster`.
     pub async fn build(self) -> anyhow::Result<TestCluster> {
         let mut nodes = vec![];
@@ -769,6 +778,7 @@ impl TestClusterBuilder {
                 builder = builder.with_committee_service_factory(Box::new(
                     StubCommitteeServiceFactory::<NodeCommitteeService>::from_members(
                         committee_members.clone(),
+                        self.initial_epoch,
                     ),
                 ));
             }
@@ -870,6 +880,7 @@ impl Default for TestClusterBuilder {
                 .into_iter()
                 .map(StorageNodeTestConfig::new)
                 .collect(),
+            initial_epoch: None,
         }
     }
 }

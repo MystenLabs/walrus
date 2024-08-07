@@ -520,6 +520,11 @@ impl Storage {
         &self,
         request: &SyncShardRequest,
     ) -> Result<SyncShardResponse, SyncShardError> {
+        let shard = self.shard_storage(request.shard_index());
+        if shard.is_none() {
+            return Err(SyncShardError::ShardNotFound(request.shard_index()));
+        }
+
         let iter = self
             .blob_info
             .safe_iter_with_bounds(Some(request.starting_blob_id()), None);
@@ -538,11 +543,6 @@ impl Storage {
             .take(request.sliver_count() as usize)
             .collect::<Result<Vec<_>, TypedStoreError>>()
             .context("Store error")?;
-
-        let shard = self.shard_storage(request.shard_index());
-        if shard.is_none() {
-            return Err(SyncShardError::ShardNotFound(request.shard_index()));
-        }
 
         Ok(shard
             .unwrap()
@@ -1106,18 +1106,19 @@ pub(crate) mod tests {
 
     async_param_test! {
         handle_sync_shard_request_behave_expected -> TestResult: [
-            test1: (SliverType::Primary, 1, 1, &[1]),
-            test2: (SliverType::Primary, 1, 5, &[1, 2, 3, 4, 5]),
-            test3: (SliverType::Primary, 3, 5, &[3, 4, 5]),
-            test4: (SliverType::Primary, 0, 2, &[1, 2]),
-            test5: (SliverType::Secondary, 1, 1, &[1]),
-            test6: (SliverType::Secondary, 1, 5, &[1, 2, 3, 4, 5]),
-            test7: (SliverType::Secondary, 3, 5, &[3, 4, 5]),
-            test8: (SliverType::Secondary, 0, 2, &[1, 2]),
+            test1: (SliverType::Primary, ShardIndex(3), 1, 1, &[1]),
+            test2: (SliverType::Primary, ShardIndex(5), 1, 5, &[1, 2, 3, 4, 5]),
+            test3: (SliverType::Primary, ShardIndex(3), 3, 5, &[3, 4, 5]),
+            test4: (SliverType::Primary, ShardIndex(5), 0, 2, &[1, 2]),
+            test5: (SliverType::Secondary, ShardIndex(5), 1, 1, &[1]),
+            test6: (SliverType::Secondary, ShardIndex(3), 1, 5, &[1, 2, 3, 4, 5]),
+            test7: (SliverType::Secondary, ShardIndex(5), 3, 5, &[3, 4, 5]),
+            test8: (SliverType::Secondary, ShardIndex(3), 0, 2, &[1, 2]),
         ]
     }
     async fn handle_sync_shard_request_behave_expected(
         sliver_type: SliverType,
+        shard_index: ShardIndex,
         start_blob_index: u8,
         count: u64,
         expected_blob_index_in_response: &[u8],
@@ -1172,7 +1173,7 @@ pub(crate) mod tests {
         }
 
         let request = SyncShardRequest::new(
-            ShardIndex(3),
+            shard_index,
             sliver_type,
             BlobId([start_blob_index; 32]),
             count,
@@ -1189,11 +1190,31 @@ pub(crate) mod tests {
             .map(|blob_index| {
                 (
                     BlobId([*blob_index; 32]),
-                    data[&ShardIndex(3)][&BlobId([*blob_index; 32])][&sliver_type].clone(),
+                    data[&shard_index][&BlobId([*blob_index; 32])][&sliver_type].clone(),
                 )
             })
             .collect::<Vec<_>>();
         assert_eq!(slivers, expected_response);
+
+        Ok(())
+    }
+
+    /// Tests that the storage returns an error when trying to sync a shard that does not exist.
+    #[tokio::test]
+    async fn handle_sync_shard_request_shard_not_found() -> TestResult {
+        let storage = empty_storage();
+
+        let request =
+            SyncShardRequest::new(ShardIndex(123), SliverType::Primary, BlobId([1; 32]), 1, 1);
+        let response = storage
+            .as_ref()
+            .handle_sync_shard_request(&request)
+            .unwrap_err();
+
+        assert!(matches!(
+            response,
+            SyncShardError::ShardNotFound(ShardIndex(123))
+        ));
 
         Ok(())
     }
