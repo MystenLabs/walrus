@@ -1103,4 +1103,98 @@ pub(crate) mod tests {
 
         Ok(())
     }
+
+    async_param_test! {
+        handle_sync_shard_request_behave_expected -> TestResult: [
+            test1: (SliverType::Primary, 1, 1, &[1]),
+            test2: (SliverType::Primary, 1, 5, &[1, 2, 3, 4, 5]),
+            test3: (SliverType::Primary, 3, 5, &[3, 4, 5]),
+            test4: (SliverType::Primary, 0, 2, &[1, 2]),
+            test5: (SliverType::Secondary, 1, 1, &[1]),
+            test6: (SliverType::Secondary, 1, 5, &[1, 2, 3, 4, 5]),
+            test7: (SliverType::Secondary, 3, 5, &[3, 4, 5]),
+            test8: (SliverType::Secondary, 0, 2, &[1, 2]),
+        ]
+    }
+    async fn handle_sync_shard_request_behave_expected(
+        sliver_type: SliverType,
+        start_blob_index: u8,
+        count: u64,
+        expected_blob_index_in_response: &[u8],
+    ) -> TestResult {
+        let mut storage = empty_storage();
+
+        let mut seed = 10u8;
+
+        let blob1 = BlobId([1; 32]);
+        let blob2 = BlobId([2; 32]);
+        let blob3 = BlobId([3; 32]);
+        let blob4 = BlobId([4; 32]);
+        let blob5 = BlobId([5; 32]);
+
+        let mut data: HashMap<ShardIndex, HashMap<BlobId, HashMap<SliverType, Sliver>>> =
+            HashMap::new();
+        for shard in [ShardIndex(3), ShardIndex(5)] {
+            storage.as_mut().create_storage_for_shard(shard).unwrap();
+            let shard_storage = storage.as_ref().shard_storage(shard).unwrap();
+            data.insert(shard, HashMap::new());
+            for blob in [blob1, blob2, blob3, blob4, blob5] {
+                data.get_mut(&shard).unwrap().insert(blob, HashMap::new());
+                for sliver_type in [SliverType::Primary, SliverType::Secondary] {
+                    let sliver_data = get_sliver(sliver_type, seed);
+                    seed += 1;
+                    data.get_mut(&shard)
+                        .unwrap()
+                        .get_mut(&blob)
+                        .unwrap()
+                        .insert(sliver_type, sliver_data.clone());
+                    shard_storage
+                        .put_sliver(&blob, &sliver_data)
+                        .expect("Store should succeed");
+                }
+            }
+        }
+
+        for blob in [blob1, blob2, blob3, blob4, blob5] {
+            storage
+                .as_mut()
+                .merge_update_blob_info(
+                    &blob,
+                    BlobInfoMergeOperand::ChangeStatus {
+                        blob_id: blob,
+                        status_changing_epoch: 1,
+                        end_epoch: 2,
+                        status: BlobCertificationStatus::Certified,
+                        status_event: event_id_for_testing(),
+                    },
+                )
+                .expect("Writing blob info should succeed");
+        }
+
+        let request = SyncShardRequest::new(
+            ShardIndex(3),
+            sliver_type,
+            BlobId([start_blob_index; 32]),
+            count,
+            1,
+        );
+        let response = storage
+            .as_ref()
+            .handle_sync_shard_request(&request)
+            .unwrap();
+
+        let SyncShardResponse::V1(slivers) = response;
+        let expected_response = expected_blob_index_in_response
+            .iter()
+            .map(|blob_index| {
+                (
+                    BlobId([*blob_index; 32]),
+                    data[&ShardIndex(3)][&BlobId([*blob_index; 32])][&sliver_type].clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(slivers, expected_response);
+
+        Ok(())
+    }
 }

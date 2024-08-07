@@ -329,10 +329,13 @@ fn shard_status_column_family_name(id: ShardIndex) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use walrus_core::{
         encoding::{Primary, Secondary},
         BlobId,
         ShardIndex,
+        Sliver,
         SliverType,
     };
     use walrus_test_utils::{async_param_test, param_test, Result as TestResult};
@@ -515,36 +518,73 @@ mod tests {
         assert_eq!(id_from_column_family_name(cf_name), expected_output);
     }
 
-    #[tokio::test]
-    async fn scan_shard() -> TestResult {
+    async_param_test! {
+        scan_shard -> TestResult: [
+            primary: (SliverType::Primary),
+            secondary: (SliverType::Secondary),
+        ]
+    }
+    async fn scan_shard(sliver_type: SliverType) -> TestResult {
         let storage = empty_storage();
         let shard = storage.as_ref().shard_storage(SHARD_INDEX).unwrap();
 
         let blob_id_0 = BlobId([0; 32]);
         let blob_id_1 = BlobId([1; 32]);
+        let blob_id_2 = BlobId([2; 32]);
 
-        let primary0 = get_sliver(SliverType::Primary, 0);
-        let primary1 = get_sliver(SliverType::Primary, 1);
-        let secondary0 = get_sliver(SliverType::Secondary, 0);
-        let secondary1 = get_sliver(SliverType::Secondary, 1);
+        let data = [
+            (
+                blob_id_0,
+                [
+                    (SliverType::Primary, get_sliver(SliverType::Primary, 0)),
+                    (SliverType::Secondary, get_sliver(SliverType::Secondary, 1)),
+                ]
+                .iter()
+                .cloned()
+                .collect::<HashMap<SliverType, Sliver>>(),
+            ),
+            (
+                blob_id_1,
+                [
+                    (SliverType::Primary, get_sliver(SliverType::Primary, 2)),
+                    (SliverType::Secondary, get_sliver(SliverType::Secondary, 3)),
+                ]
+                .iter()
+                .cloned()
+                .collect::<HashMap<SliverType, Sliver>>(),
+            ),
+        ]
+        .iter()
+        .cloned()
+        .collect::<HashMap<BlobId, HashMap<SliverType, Sliver>>>();
 
-        shard.put_sliver(&blob_id_0, &primary0)?;
-        shard.put_sliver(&blob_id_1, &primary1)?;
-        shard.put_sliver(&blob_id_0, &secondary0)?;
-        shard.put_sliver(&blob_id_1, &secondary1)?;
+        for blob_data in data.iter() {
+            for (_sliver_type, sliver) in blob_data.1.iter() {
+                shard.put_sliver(blob_data.0, sliver)?;
+            }
+        }
 
-        let fetched_slivers = shard.scan_certified_slivers(SliverType::Primary, &[blob_id_0])?;
-        assert_eq!(fetched_slivers, vec![(blob_id_0, primary0.clone())]);
-
-        let fetched_slivers = shard.scan_certified_slivers(SliverType::Primary, &[blob_id_1])?;
-        assert_eq!(fetched_slivers, vec![(blob_id_1, primary1.clone())]);
-
-        let fetched_slivers =
-            shard.scan_certified_slivers(SliverType::Primary, &[blob_id_0, blob_id_1])?;
         assert_eq!(
-            fetched_slivers,
-            vec![(blob_id_0, primary0), (blob_id_1, primary1)]
+            shard.scan_certified_slivers(sliver_type, &[blob_id_0])?,
+            vec![(blob_id_0, data[&blob_id_0][&sliver_type].clone())]
         );
+
+        assert_eq!(
+            shard.scan_certified_slivers(sliver_type, &[blob_id_1])?,
+            vec![(blob_id_1, data[&blob_id_1][&sliver_type].clone())]
+        );
+
+        assert_eq!(
+            shard.scan_certified_slivers(sliver_type, &[blob_id_0, blob_id_1])?,
+            vec![
+                (blob_id_0, data[&blob_id_0][&sliver_type].clone()),
+                (blob_id_1, data[&blob_id_1][&sliver_type].clone())
+            ]
+        );
+
+        assert!(shard
+            .scan_certified_slivers(sliver_type, &[blob_id_2])?
+            .is_empty());
 
         Ok(())
     }
