@@ -250,7 +250,8 @@ impl ShardStorage {
             .map(|s| s.unwrap_or(ShardStatus::Active))
     }
 
-    pub(crate) fn scan_certified_slivers(
+    /// Fetches the slivers with `sliver_type` for the provided blob IDs.
+    pub(crate) fn fetch_slivers(
         &self,
         sliver_type: SliverType,
         slivers_to_fetch: &[BlobId],
@@ -258,6 +259,7 @@ impl ShardStorage {
         Ok(match sliver_type {
             SliverType::Primary => self
                 .primary_slivers
+                // TODO(#648): compare multi_get with scan for large value size.
                 .multi_get(slivers_to_fetch)?
                 .iter()
                 .zip(slivers_to_fetch)
@@ -519,22 +521,26 @@ mod tests {
     }
 
     async_param_test! {
-        scan_shard -> TestResult: [
+        test_shard_storage_fetch_slivers -> TestResult: [
             primary: (SliverType::Primary),
             secondary: (SliverType::Secondary),
         ]
     }
-    async fn scan_shard(sliver_type: SliverType) -> TestResult {
+    async fn test_shard_storage_fetch_slivers(sliver_type: SliverType) -> TestResult {
         let storage = empty_storage();
         let shard = storage.as_ref().shard_storage(SHARD_INDEX).unwrap();
 
-        let blob_id_0 = BlobId([0; 32]);
-        let blob_id_1 = BlobId([1; 32]);
-        let blob_id_2 = BlobId([2; 32]);
+        let blob_ids = [
+            BlobId([0; 32]),
+            BlobId([1; 32]),
+            BlobId([2; 32]),
+            BlobId([3; 32]),
+        ];
 
+        // Only generates data for first and third blob IDs.
         let data = [
             (
-                blob_id_0,
+                blob_ids[0],
                 [
                     (SliverType::Primary, get_sliver(SliverType::Primary, 0)),
                     (SliverType::Secondary, get_sliver(SliverType::Secondary, 1)),
@@ -544,7 +550,7 @@ mod tests {
                 .collect::<HashMap<SliverType, Sliver>>(),
             ),
             (
-                blob_id_1,
+                blob_ids[2],
                 [
                     (SliverType::Primary, get_sliver(SliverType::Primary, 2)),
                     (SliverType::Secondary, get_sliver(SliverType::Secondary, 3)),
@@ -558,33 +564,44 @@ mod tests {
         .cloned()
         .collect::<HashMap<BlobId, HashMap<SliverType, Sliver>>>();
 
+        // Pupulates the shard with the generated data.
         for blob_data in data.iter() {
             for (_sliver_type, sliver) in blob_data.1.iter() {
                 shard.put_sliver(blob_data.0, sliver)?;
             }
         }
 
+        // Tests fetching single sliver.
         assert_eq!(
-            shard.scan_certified_slivers(sliver_type, &[blob_id_0])?,
-            vec![(blob_id_0, data[&blob_id_0][&sliver_type].clone())]
+            shard.fetch_slivers(sliver_type, &[blob_ids[0]])?,
+            vec![(blob_ids[0], data[&blob_ids[0]][&sliver_type].clone())]
         );
 
         assert_eq!(
-            shard.scan_certified_slivers(sliver_type, &[blob_id_1])?,
-            vec![(blob_id_1, data[&blob_id_1][&sliver_type].clone())]
+            shard.fetch_slivers(sliver_type, &[blob_ids[2]])?,
+            vec![(blob_ids[2], data[&blob_ids[2]][&sliver_type].clone())]
         );
 
+        // Tests fetching multiple slivers.
         assert_eq!(
-            shard.scan_certified_slivers(sliver_type, &[blob_id_0, blob_id_1])?,
+            shard.fetch_slivers(sliver_type, &[blob_ids[0], blob_ids[2]])?,
             vec![
-                (blob_id_0, data[&blob_id_0][&sliver_type].clone()),
-                (blob_id_1, data[&blob_id_1][&sliver_type].clone())
+                (blob_ids[0], data[&blob_ids[0]][&sliver_type].clone()),
+                (blob_ids[2], data[&blob_ids[2]][&sliver_type].clone())
             ]
         );
 
-        assert!(shard
-            .scan_certified_slivers(sliver_type, &[blob_id_2])?
-            .is_empty());
+        // Tests fetching non-existent slivers.
+        assert!(shard.fetch_slivers(sliver_type, &[blob_ids[1]])?.is_empty());
+
+        // Tests fetching a mix of existent and non-existent slivers.
+        assert_eq!(
+            shard.fetch_slivers(sliver_type, &blob_ids)?,
+            vec![
+                (blob_ids[0], data[&blob_ids[0]][&sliver_type].clone()),
+                (blob_ids[2], data[&blob_ids[2]][&sliver_type].clone())
+            ]
+        );
 
         Ok(())
     }

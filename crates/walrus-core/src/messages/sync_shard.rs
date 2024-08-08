@@ -15,7 +15,7 @@ pub struct SyncShardRequestV1 {
     /// The shard index that is requested to be synced.
     shard_index: ShardIndex,
 
-    /// Whether the sync is for the primary sliver or the secondary sliver in the shard.
+    /// The type of sliver to fetch.
     /// Note that storage node stores primary and secondary slivers in separate
     /// RocksDB column family, so it's more efficient to transfer them separately.
     sliver_type: SliverType,
@@ -138,7 +138,7 @@ impl AsRef<ProtocolMessage<SyncShardRequest>> for SyncShardMsg {
 /// Represents a signed sync shard request.
 pub type SignedSyncShardRequest = SignedMessage<SyncShardMsg>;
 
-/// Represents a version 1 of the sync shard response for transferring an entire shard from
+/// The sync shard response for transferring a shard from one storage node to another.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum SyncShardResponse {
     /// Version 1 of the sync shard response.

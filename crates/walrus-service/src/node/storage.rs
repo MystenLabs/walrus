@@ -515,21 +515,20 @@ impl Storage {
         self.shards.keys().copied().collect()
     }
 
-    /// Handles a sync shard request.
+    /// Handles a sync shard request. The validity of the request should be checked before calling
+    /// this function.
     pub fn handle_sync_shard_request(
         &self,
         request: &SyncShardRequest,
     ) -> Result<SyncShardResponse, SyncShardError> {
-        let shard = self.shard_storage(request.shard_index());
-        if shard.is_none() {
+        let Some(shard) = self.shard_storage(request.shard_index()) else {
             return Err(SyncShardError::ShardNotFound(request.shard_index()));
-        }
+        };
 
-        let iter = self
+        // Scan certified slivers to fetch.
+        let blobs_to_fetch = self
             .blob_info
-            .safe_iter_with_bounds(Some(request.starting_blob_id()), None);
-
-        let blobs_to_fetch = iter
+            .safe_iter_with_bounds(Some(request.starting_blob_id()), None)
             .filter_map(|blob_info| match blob_info {
                 Ok((blob_id, blob_info)) => {
                     if blob_info.is_certified() {
@@ -542,12 +541,11 @@ impl Storage {
             })
             .take(request.sliver_count() as usize)
             .collect::<Result<Vec<_>, TypedStoreError>>()
-            .context("Store error")?;
+            .context("Scanning blob_info table encountered RocksDb error.")?;
 
         Ok(shard
-            .unwrap()
-            .scan_certified_slivers(request.sliver_type(), &blobs_to_fetch)
-            .context("store error")?
+            .fetch_slivers(request.sliver_type(), &blobs_to_fetch)
+            .context("Fetching slivers encountered error.")?
             .into())
     }
 }
@@ -1106,14 +1104,15 @@ pub(crate) mod tests {
 
     async_param_test! {
         handle_sync_shard_request_behave_expected -> TestResult: [
-            test1: (SliverType::Primary, ShardIndex(3), 1, 1, &[1]),
-            test2: (SliverType::Primary, ShardIndex(5), 1, 5, &[1, 2, 3, 4, 5]),
-            test3: (SliverType::Primary, ShardIndex(3), 3, 5, &[3, 4, 5]),
-            test4: (SliverType::Primary, ShardIndex(5), 0, 2, &[1, 2]),
-            test5: (SliverType::Secondary, ShardIndex(5), 1, 1, &[1]),
-            test6: (SliverType::Secondary, ShardIndex(3), 1, 5, &[1, 2, 3, 4, 5]),
-            test7: (SliverType::Secondary, ShardIndex(5), 3, 5, &[3, 4, 5]),
-            test8: (SliverType::Secondary, ShardIndex(3), 0, 2, &[1, 2]),
+            scan_first: (SliverType::Primary, ShardIndex(3), 1, 1, &[1]),
+            scan_all: (SliverType::Primary, ShardIndex(5), 1, 5, &[1, 2, 3, 4, 5]),
+            scan_tail: (SliverType::Primary, ShardIndex(3), 3, 5, &[3, 4, 5]),
+            scan_head: (SliverType::Primary, ShardIndex(5), 0, 2, &[1, 2]),
+            scan_middle_single: (SliverType::Secondary, ShardIndex(5), 3, 1, &[3]),
+            scan_middle_range: (SliverType::Secondary, ShardIndex(3), 2, 2, &[2, 3]),
+            scan_end_over: (SliverType::Secondary, ShardIndex(5), 3, 5, &[3, 4, 5]),
+            scan_all_wide_range: (SliverType::Secondary, ShardIndex(3), 0, 100, &[1, 2, 3, 4, 5]),
+            scan_out_of_range: (SliverType::Secondary, ShardIndex(5), 6, 2, &[]),
         ]
     }
     async fn handle_sync_shard_request_behave_expected(
@@ -1125,13 +1124,20 @@ pub(crate) mod tests {
     ) -> TestResult {
         let mut storage = empty_storage();
 
+        // All tests use the same setup:
+        // - 2 shards: 3 and 5
+        // - 5 blobs: 1, 2, 3, 4, 5
+        // - 2 slivers per blob: primary and secondary
+
         let mut seed = 10u8;
 
-        let blob1 = BlobId([1; 32]);
-        let blob2 = BlobId([2; 32]);
-        let blob3 = BlobId([3; 32]);
-        let blob4 = BlobId([4; 32]);
-        let blob5 = BlobId([5; 32]);
+        let blob_ids = [
+            BlobId([1; 32]),
+            BlobId([2; 32]),
+            BlobId([3; 32]),
+            BlobId([4; 32]),
+            BlobId([5; 32]),
+        ];
 
         let mut data: HashMap<ShardIndex, HashMap<BlobId, HashMap<SliverType, Sliver>>> =
             HashMap::new();
@@ -1139,30 +1145,30 @@ pub(crate) mod tests {
             storage.as_mut().create_storage_for_shard(shard).unwrap();
             let shard_storage = storage.as_ref().shard_storage(shard).unwrap();
             data.insert(shard, HashMap::new());
-            for blob in [blob1, blob2, blob3, blob4, blob5] {
-                data.get_mut(&shard).unwrap().insert(blob, HashMap::new());
+            for blob in blob_ids.iter() {
+                data.get_mut(&shard).unwrap().insert(*blob, HashMap::new());
                 for sliver_type in [SliverType::Primary, SliverType::Secondary] {
                     let sliver_data = get_sliver(sliver_type, seed);
                     seed += 1;
                     data.get_mut(&shard)
                         .unwrap()
-                        .get_mut(&blob)
+                        .get_mut(blob)
                         .unwrap()
                         .insert(sliver_type, sliver_data.clone());
                     shard_storage
-                        .put_sliver(&blob, &sliver_data)
+                        .put_sliver(blob, &sliver_data)
                         .expect("Store should succeed");
                 }
             }
         }
 
-        for blob in [blob1, blob2, blob3, blob4, blob5] {
+        for blob in blob_ids.iter() {
             storage
                 .as_mut()
                 .merge_update_blob_info(
-                    &blob,
+                    blob,
                     BlobInfoMergeOperand::ChangeStatus {
-                        blob_id: blob,
+                        blob_id: *blob,
                         status_changing_epoch: 1,
                         end_epoch: 2,
                         status: BlobCertificationStatus::Certified,
@@ -1194,12 +1200,13 @@ pub(crate) mod tests {
                 )
             })
             .collect::<Vec<_>>();
+
         assert_eq!(slivers, expected_response);
 
         Ok(())
     }
 
-    /// Tests that the storage returns an error when trying to sync a shard that does not exist.
+    /// Tests that the storage returns correct error when trying to sync a shard that does not exist.
     #[tokio::test]
     async fn handle_sync_shard_request_shard_not_found() -> TestResult {
         let storage = empty_storage();

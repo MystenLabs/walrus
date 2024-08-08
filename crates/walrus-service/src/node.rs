@@ -886,6 +886,8 @@ impl ServiceState for StorageNodeInner {
 
         tracing::debug!("Sync shard request received: {:?}", request);
 
+        // If the epoch of the requester should not be older than the current epoch of the node.
+        // In a normal scenario, a storage node will never fetch shards from a future epoch.
         if request.epoch() < self.current_epoch() {
             return Err(SyncShardError::EpochTooOld(
                 request.epoch(),
@@ -1340,6 +1342,7 @@ mod tests {
         Ok((cluster, events, blob_details))
     }
 
+    // Creates a test cluster with custom initial epoch and a blob that is already certified.
     async fn cluster_with_initial_epoch_and_certified_blob<'a>(
         assignment: &[&[u16]],
         blob: &'a [u8],
@@ -1727,6 +1730,7 @@ mod tests {
             )
             .await;
         assert!(status.is_ok(), "Unexpected sync shard error: {:?}", status);
+
         let SyncShardResponse::V1(response) = status.unwrap();
         assert_eq!(response.len(), 1);
         assert_eq!(response[0].0, blob_id);
@@ -1800,6 +1804,7 @@ mod tests {
     // Tests SyncShardRequest with wrong epoch.
     #[tokio::test]
     async fn sync_shard_node_api_wrong_epoch() -> TestResult {
+        // Creates a cluster with initial epoch set to 10.
         let (cluster, _, blob_detail) =
             cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], BLOB, 10).await?;
 
@@ -1809,6 +1814,7 @@ mod tests {
             .committee_service
             .committee();
 
+        // Requests a shard from epoch 0.
         let status = cluster.nodes[0]
             .client
             .sync_shard::<Primary>(
