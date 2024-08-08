@@ -59,7 +59,7 @@ pub const INCONSISTENCY_PROOF_ENDPOINT: &str = "/v1/blobs/:blob_id/inconsistent/
 /// The path to get the status of a blob.
 pub const STATUS_ENDPOINT: &str = "/v1/blobs/:blob_id/status";
 pub const HEALTH_ENDPOINT: &str = "/v1/health";
-pub const SYNC_SHARD_ENDPOINT: &str = "/v1/sync_shard";
+pub const SYNC_SHARD_ENDPOINT: &str = "/v1/migrate/sync_shard";
 
 /// Convenience trait to apply bounds on the ServiceState.
 trait SyncServiceState: ServiceState + Send + Sync + 'static {}

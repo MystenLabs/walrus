@@ -124,7 +124,10 @@ impl UrlEndpoints {
     }
 
     fn sync_shard(&self) -> (Url, &'static str) {
-        (self.0.join("/v1/sync_shard").unwrap(), SYNC_SHARD_TEMPLATE)
+        (
+            self.0.join("/v1/migrate/sync_shard").unwrap(),
+            SYNC_SHARD_TEMPLATE,
+        )
     }
 }
 
