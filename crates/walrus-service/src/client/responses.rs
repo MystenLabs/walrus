@@ -285,7 +285,8 @@ impl InfoOutput {
         let n_nodes = committee.n_members();
         let max_blob_size = max_blob_size_for_n_shards(n_shards);
 
-        let metadata_storage_size = metadata_length_for_n_shards(n_shards);
+        let metadata_storage_size =
+            (n_shards.get() as u64) * metadata_length_for_n_shards(n_shards);
         let metadata_price = storage_units_from_size(metadata_storage_size) * price_per_unit_size;
 
         // Make sure our marginal size can actually be encoded.

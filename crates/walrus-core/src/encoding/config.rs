@@ -19,9 +19,6 @@ use super::{
 };
 use crate::{bft, merkle::DIGEST_LEN, BlobId};
 
-pub const UNENCODED_LENGTH_SIZE: usize = 8;
-pub const ENCODING_TYPE_SIZE: usize = 1;
-
 /// Configuration of the Walrus encoding.
 ///
 /// This consists of the number of source symbols for the two encodings, the total number of shards,
@@ -403,10 +400,6 @@ pub fn metadata_length_for_n_shards(n_shards: NonZeroU16) -> u64 {
         usize::from(n_shards.get()) * DIGEST_LEN * 2
         // The blob ID.
         + BlobId::LENGTH
-        // The u64 `unencoded_length`
-        + UNENCODED_LENGTH_SIZE
-        // The u8 `EncodingType`
-        + ENCODING_TYPE_SIZE
     )
         .try_into()
         .expect("this always fits into a `u64`")
@@ -520,16 +513,16 @@ mod tests {
 
     param_test! {
         test_encoded_size: [
-            zero_small_committee: (1, 10, 10*((4+7) + 10*2*32 + 32 + 8 + 1)),
-            one_small_committee: (1, 10, 10*((4+7) + 10*2*32 + 32 + 8 + 1)),
+            zero_small_committee: (1, 10, 10*((4+7) + 10*2*32 + 32)),
+            one_small_committee: (1, 10, 10*((4+7) + 10*2*32 + 32)),
             #[ignore] one_large_committee:
-                (1, 1000, 1000*((329+662) + 1000*2*32 + 32 + 8 + 1)),
+                (1, 1000, 1000*((329+662) + 1000*2*32 + 32)),
             larger_blob_small_committee:
-                ((4*7)*100, 10, 10*((4+7)*100 + 10*2*32 + 32 + 8 + 1)),
+                ((4*7)*100, 10, 10*((4+7)*100 + 10*2*32 + 32)),
             #[ignore] larger_blob_large_committee: (
                 (329*662)*100,
                 1000,
-                1000*((329+662)*100 + 1000*2*32 + 32 + 8 + 1),
+                1000*((329+662)*100 + 1000*2*32 + 32),
             ),
 
         ]
