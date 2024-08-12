@@ -193,12 +193,12 @@ pub mod using_tokio {
 
 /// Creates a wallet for testing funded with 2 coins by the faucet of the provided network.
 pub async fn wallet_for_testing_from_faucet(
-    network: SuiNetwork,
+    network: &SuiNetwork,
 ) -> anyhow::Result<WithTempDir<WalletContext>> {
     let mut wallet = temp_dir_wallet(network.env())?;
     let address = wallet.as_mut().active_address()?;
     let sui_client = wallet.as_ref().get_client().await?;
-    request_sui_from_faucet(address, network.clone(), &sui_client).await?;
+    request_sui_from_faucet(address, network, &sui_client).await?;
     request_sui_from_faucet(address, network, &sui_client).await?;
     Ok(wallet)
 }

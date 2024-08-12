@@ -399,7 +399,7 @@ pub fn create_wallet(
 }
 
 /// Sends a request to the faucet to request coins for `address`.
-pub async fn send_faucet_request(address: SuiAddress, network: SuiNetwork) -> Result<()> {
+pub async fn send_faucet_request(address: SuiAddress, network: &SuiNetwork) -> Result<()> {
     // send the request to the faucet
     let client = reqwest::Client::new();
     let data_raw = format!(
@@ -430,7 +430,7 @@ async fn sui_coin_set(sui_client: &SuiClient, address: SuiAddress) -> Result<Has
 #[tracing::instrument(skip(network, sui_client))]
 pub async fn request_sui_from_faucet(
     address: SuiAddress,
-    network: SuiNetwork,
+    network: &SuiNetwork,
     sui_client: &SuiClient,
 ) -> Result<()> {
     let mut backoff = Duration::from_millis(100);
@@ -444,7 +444,7 @@ pub async fn request_sui_from_faucet(
         // Send a request to the faucet if either the previous response did not return "ok"
         // or if we waited for at least 2 seconds after the previous request.
         successful_response = if !successful_response {
-            send_faucet_request(address, network.clone())
+            send_faucet_request(address, network)
                 .await
                 .inspect_err(|e| tracing::warn!(error = ?e, "faucet request failed, retrying"))
                 .inspect(|_| tracing::debug!("waiting to receive tokens from faucet"))

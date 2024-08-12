@@ -28,7 +28,7 @@ impl WriteClient {
     #[instrument(err, skip_all)]
     pub async fn new(
         config: &Config,
-        network: SuiNetwork,
+        network: &SuiNetwork,
         gas_budget: u64,
         blob_size: usize,
     ) -> anyhow::Result<Self> {
@@ -152,7 +152,7 @@ impl WriteClient {
 
 async fn new_client(
     config: &Config,
-    network: SuiNetwork,
+    network: &SuiNetwork,
     gas_budget: u64,
 ) -> anyhow::Result<WithTempDir<Client<SuiContractClient>>> {
     // Create the client with a separate wallet

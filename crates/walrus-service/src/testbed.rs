@@ -263,12 +263,7 @@ pub async fn deploy_walrus_contract(
 
     // Get coins from faucet for the wallets.
     let sui_client = admin_wallet.get_client().await?;
-    request_sui_from_faucet(
-        admin_wallet.active_address()?,
-        sui_network.clone(),
-        &sui_client,
-    )
-    .await?;
+    request_sui_from_faucet(admin_wallet.active_address()?, &sui_network, &sui_client).await?;
 
     // Publish package and set up system object
     let (pkg_id, committee_cap) =
@@ -311,7 +306,7 @@ pub async fn create_client_config(
 
     // Get coins from faucet for the wallets.
     let sui_client = client_wallet.get_client().await?;
-    request_sui_from_faucet(client_wallet.active_address()?, sui_network, &sui_client).await?;
+    request_sui_from_faucet(client_wallet.active_address()?, &sui_network, &sui_client).await?;
 
     let wallet_path = if let Some(final_directory) = set_config_dir {
         replace_keystore_path(&client_wallet_path, final_directory)
@@ -500,7 +495,7 @@ async fn create_storage_node_wallets(
             );
             tokio::time::sleep(cooldown).await;
         }
-        request_sui_from_faucet(wallet.active_address()?, sui_network.clone(), &sui_client).await?;
+        request_sui_from_faucet(wallet.active_address()?, &sui_network, &sui_client).await?;
     }
     Ok(storage_node_wallets)
 }
