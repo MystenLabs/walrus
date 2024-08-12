@@ -493,6 +493,13 @@ async fn create_storage_node_wallets(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    if faucet_cooldown.is_some() {
+        for wallet in storage_node_wallets.iter_mut() {
+            // Print out each address on stdout to make sure that they are available from CI output
+            println!("{}", wallet.active_address()?);
+        }
+    }
+
     let sui_client = storage_node_wallets[0].get_client().await?;
     // Get coins from faucet for the wallets.
     for (index, wallet) in storage_node_wallets.iter_mut().enumerate() {
