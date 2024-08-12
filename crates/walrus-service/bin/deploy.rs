@@ -223,6 +223,11 @@ mod commands {
         let testbed_config_path = get_testbed_config_path(testbed_config_path, &working_dir);
         let testbed_config = TestbedConfig::load(testbed_config_path)?;
 
+        if let Some(cooldown) = faucet_cooldown {
+            tracing::info!("sleeping for {} to let faucet cool down", cooldown);
+            tokio::time::sleep(cooldown.into()).await;
+        }
+
         let client_config = create_client_config(
             testbed_config.system_object,
             working_dir.as_path(),
@@ -230,6 +235,7 @@ mod commands {
             set_config_dir.as_deref(),
         )
         .await?;
+
         let serialized_client_config =
             serde_yaml::to_string(&client_config).context("Failed to serialize client configs")?;
         let client_config_path = working_dir.join("client_config.yaml");

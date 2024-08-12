@@ -6,6 +6,7 @@
 use std::{
     collections::HashSet,
     fs,
+    io::Write as _,
     net::{IpAddr, SocketAddr, ToSocketAddrs},
     num::NonZeroU16,
     path::{Path, PathBuf},
@@ -14,7 +15,6 @@ use std::{
 
 use anyhow::{anyhow, ensure, Context};
 use fastcrypto::traits::KeyPair;
-use futures::future::try_join_all;
 use rand::{rngs::StdRng, SeedableRng};
 use serde::{Deserialize, Serialize};
 use serde_with::base64::Base64;
@@ -263,15 +263,7 @@ pub async fn deploy_walrus_contract(
 
     // Get coins from faucet for the wallets.
     let sui_client = admin_wallet.get_client().await?;
-    let mut faucet_requests = Vec::with_capacity(2);
-    for _ in 0..2 {
-        faucet_requests.push(request_sui_from_faucet(
-            admin_wallet.active_address()?,
-            sui_network,
-            &sui_client,
-        ));
-    }
-    try_join_all(faucet_requests).await?;
+    request_sui_from_faucet(admin_wallet.active_address()?, sui_network, &sui_client).await?;
 
     // Publish package and set up system object
     let (pkg_id, committee_cap) =
@@ -314,16 +306,7 @@ pub async fn create_client_config(
 
     // Get coins from faucet for the wallets.
     let sui_client = client_wallet.get_client().await?;
-    let mut faucet_requests = Vec::with_capacity(2);
-    for _ in 0..2 {
-        faucet_requests.push(request_sui_from_faucet(
-            client_wallet.active_address()?,
-            sui_network,
-            &sui_client,
-        ))
-    }
-
-    try_join_all(faucet_requests).await?;
+    request_sui_from_faucet(client_wallet.active_address()?, sui_network, &sui_client).await?;
 
     let wallet_path = if let Some(final_directory) = set_config_dir {
         replace_keystore_path(&client_wallet_path, final_directory)
@@ -498,16 +481,19 @@ async fn create_storage_node_wallets(
             // Print out each address on stdout to make sure that they are available from CI output
             println!("{}", wallet.active_address()?);
         }
+        // Try to flush output
+        let _ = std::io::stdout().flush();
     }
 
     let sui_client = storage_node_wallets[0].get_client().await?;
     // Get coins from faucet for the wallets.
-    for (index, wallet) in storage_node_wallets.iter_mut().enumerate() {
+    for wallet in storage_node_wallets.iter_mut() {
         if let Some(cooldown) = faucet_cooldown {
-            if index != 0 {
-                tracing::debug!("waiting before requesting sui from faucet");
-                tokio::time::sleep(cooldown).await;
-            }
+            tracing::info!(
+                "sleeping for {} to let faucet cool down",
+                humantime::Duration::from(cooldown)
+            );
+            tokio::time::sleep(cooldown).await;
         }
         request_sui_from_faucet(wallet.active_address()?, sui_network, &sui_client).await?;
     }
