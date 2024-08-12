@@ -2,16 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 module walrus::committee;
+
 use sui::bcs;
-use walrus::bls_aggregate::{Self, BlsCommittee, new_bls_committee, verify_certificate};
-use walrus::storage_node::StorageNodeInfo;
+use walrus::{
+    bls_aggregate::{Self, BlsCommittee, new_bls_committee, verify_certificate},
+    storage_node::StorageNodeInfo
+};
 
 const APP_ID: u8 = 3;
 
 // Errors
 const EIncorrectAppId: u64 = 0;
 const EIncorrectEpoch: u64 = 1;
-
 
 /// Represents a committee for a given epoch.
 public struct Committee has store {
@@ -38,7 +40,6 @@ public(package) fun create_committee(epoch: u64, members: vector<StorageNodeInfo
 
     Committee { epoch, bls_committee }
 }
-
 
 public struct CertifiedMessage has drop {
     intent_type: u8,

@@ -2,15 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 module walrus::staking_pool_tests;
+
 use sui::{coin::{Self, Coin}, sui::SUI, test_utils::destroy};
-use walrus::staking_pool;
+use walrus::{staking_pool, walrus_context};
 
 #[test]
 fun test_staked_wal_flow() {
     let ctx = &mut tx_context::dummy();
+    let wctx = &walrus_context::new(1, true);
 
     // step1 - create a new pool which will get activated in epoch 1
-    let mut pool = staking_pool::new(1000, 1, ctx);
+    let mut pool = staking_pool::new(1000, wctx, ctx);
     assert!(pool.is_new());
 
     // step2 - set the pool to active, expecting that epoch is now 1
@@ -18,7 +20,7 @@ fun test_staked_wal_flow() {
     assert!(pool.is_active());
 
     // step3 - stake 1000 WALs in the pool
-    let staked_wal = pool.stake(mint(1000, ctx), 1, ctx);
+    let staked_wal = pool.stake(mint(1000, ctx), wctx, ctx);
     assert!(pool.pending_stake_amount() == 1000);
     assert!(pool.active_stake_amount() == 0);
 

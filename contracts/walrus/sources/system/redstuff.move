@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 module walrus::redstuff;
+
 // The length of a hash used for the Red Stuff metadata
 const DIGEST_LEN: u64 = 32;
 

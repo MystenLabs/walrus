@@ -2,13 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 module walrus::blob;
-use sui::bcs;
-use sui::hash;
-use walrus::blob_events::{emit_blob_registered, emit_blob_certified};
-use walrus::committee::{Self, CertifiedMessage};
-use walrus::encoding;
-use walrus::storage_resource::Storage;
-use walrus::system::System;
+
+use sui::{bcs, hash};
+use walrus::{
+    blob_events::{emit_blob_registered, emit_blob_certified},
+    committee::{Self, CertifiedMessage},
+    encoding,
+    storage_resource::Storage,
+    system::System
+};
 
 // A certify blob message structure
 const BLOB_CERT_MSG_TYPE: u8 = 1;
@@ -220,7 +222,7 @@ public fun destroy_blob_object(sys: &System, blob: Blob) {
     let Blob {
         id,
         storage,
-        ..
+        ..,
     } = blob;
 
     id.delete();
@@ -268,7 +270,7 @@ public fun drop_for_testing(b: Blob) {
     let Blob {
         id,
         storage,
-        ..
+        ..,
     } = b;
 
     id.delete();

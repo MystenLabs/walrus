@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 module walrus::storage_accounting;
-use sui::balance::{Self, Balance};
-use sui::sui::SUI;
+
+use sui::{balance::{Self, Balance}, sui::SUI};
 
 // Errors
 const EIndexOutOfBounds: u64 = 3;
@@ -49,7 +49,7 @@ public(package) fun rewards_to_distribute(accounting: &mut FutureAccounting): &m
 public(package) fun delete_empty_future_accounting(self: FutureAccounting) {
     let FutureAccounting {
         rewards_to_distribute,
-        ..
+        ..,
     } = self;
 
     rewards_to_distribute.destroy_zero()
@@ -59,7 +59,7 @@ public(package) fun delete_empty_future_accounting(self: FutureAccounting) {
 public(package) fun burn_for_testing(self: FutureAccounting) {
     let FutureAccounting {
         rewards_to_distribute,
-        ..
+        ..,
     } = self;
 
     rewards_to_distribute.destroy_for_testing();
@@ -74,11 +74,14 @@ public struct FutureAccountingRingBuffer has store {
 
 /// Constructor for FutureAccountingRingBuffer
 public(package) fun ring_new(length: u64): FutureAccountingRingBuffer {
-    let ring_buffer = vector::tabulate!(length, |epoch| FutureAccounting {
-        epoch,
-        storage_to_reclaim: 0,
-        rewards_to_distribute: balance::zero(),
-    });
+    let ring_buffer = vector::tabulate!(
+        length,
+        |epoch| FutureAccounting {
+            epoch,
+            storage_to_reclaim: 0,
+            rewards_to_distribute: balance::zero(),
+        },
+    );
 
     FutureAccountingRingBuffer { current_index: 0, length: length, ring_buffer: ring_buffer }
 }

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 module walrus::storage_resource;
+
 const EInvalidEpoch: u64 = 0;
 const EIncompatibleEpochs: u64 = 1;
 const EIncompatibleAmount: u64 = 2;
@@ -135,7 +136,7 @@ public fun create_for_test(
 public fun destroy(storage: Storage) {
     let Storage {
         id,
-        ..
+        ..,
     } = storage;
     id.delete();
 }

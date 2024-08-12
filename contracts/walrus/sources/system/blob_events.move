@@ -4,6 +4,7 @@
 /// Module to emit blob events. Used to allow filtering all blob events in the
 /// rust client (as work-around for the lack of composable event filters).
 module walrus::blob_events;
+
 use sui::event;
 
 // Event definitions

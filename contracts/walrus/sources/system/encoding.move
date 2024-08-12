@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 module walrus::encoding;
+
 use walrus::redstuff;
 
 // Supported Encoding Types

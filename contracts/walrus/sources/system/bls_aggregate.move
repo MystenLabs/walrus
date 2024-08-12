@@ -2,10 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 module walrus::bls_aggregate;
-use sui::bls12381::{Self, bls12381_min_pk_verify};
-use sui::group_ops;
-use walrus::storage_node::StorageNodeInfo;
 
+use sui::{bls12381::{Self, bls12381_min_pk_verify}, group_ops};
+use walrus::storage_node::StorageNodeInfo;
 
 // Error codes
 const ETotalMemberOrder: u64 = 0;
@@ -26,12 +25,14 @@ public fun new_bls_committee(members: vector<StorageNodeInfo>): BlsCommittee {
     // Compute the total number of shards
     let mut n_shards = 0;
     let mut i = 0;
-    members.do_ref!(|member| {
-        let added_weight = member.weight();
-        assert!(added_weight > 0, EIncorrectCommittee);
-        n_shards = n_shards + added_weight;
-        i = i + 1;
-    });
+    members.do_ref!(
+        |member| {
+            let added_weight = member.weight();
+            assert!(added_weight > 0, EIncorrectCommittee);
+            n_shards = n_shards + added_weight;
+            i = i + 1;
+        },
+    );
     assert!(n_shards != 0, EIncorrectCommittee);
 
     BlsCommittee { members, n_shards }

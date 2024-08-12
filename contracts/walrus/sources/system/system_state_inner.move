@@ -3,13 +3,14 @@
 
 #[allow(unused_variable, unused_mut_parameter, unused_field)]
 module walrus::system_state_inner;
-use sui::coin::Coin;
-use sui::sui::SUI;
-use walrus::committee::{Self, Committee};
-use walrus::storage_accounting::{Self, FutureAccountingRingBuffer};
-use walrus::storage_node::StorageNodeCap;
-use walrus::storage_resource::{Self, Storage};
 
+use sui::{coin::Coin, sui::SUI};
+use walrus::{
+    committee::{Self, Committee},
+    storage_accounting::{Self, FutureAccountingRingBuffer},
+    storage_node::StorageNodeCap,
+    storage_resource::{Self, Storage}
+};
 
 /// The maximum number of periods ahead we allow for storage reservations.
 /// TODO: the number here is a placeholder, and assumes an epoch is a week,
