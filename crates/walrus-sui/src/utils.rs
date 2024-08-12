@@ -412,11 +412,20 @@ pub async fn request_sui_from_faucet(
     // Set of coins to allow checking if we have received a new coin from the faucet
     let coins = sui_coin_set(sui_client, address).await?;
 
+    let mut successful_response = false;
+
     loop {
-        let _ = send_faucet_request(address, network)
-            .await
-            .inspect_err(|e| tracing::warn!(error = ?e, "faucet request failed, retrying"))
-            .inspect(|_| tracing::debug!("waiting to receive tokens from faucet"));
+        // Send a request to the faucet if either the previous response did not return "ok"
+        // or if we waited for at least 2 seconds after the previous request.
+        successful_response = if !successful_response {
+            send_faucet_request(address, network)
+                .await
+                .inspect_err(|e| tracing::warn!(error = ?e, "faucet request failed, retrying"))
+                .inspect(|_| tracing::debug!("waiting to receive tokens from faucet"))
+                .is_ok()
+        } else {
+            backoff <= Duration::from_secs(2)
+        };
         tracing::debug!("sleeping for {backoff:?}");
         tokio::time::sleep(backoff).await;
         if sui_coin_set(sui_client, address).await? != coins {
