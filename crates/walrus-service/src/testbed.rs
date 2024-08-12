@@ -263,7 +263,12 @@ pub async fn deploy_walrus_contract(
 
     // Get coins from faucet for the wallets.
     let sui_client = admin_wallet.get_client().await?;
-    request_sui_from_faucet(admin_wallet.active_address()?, sui_network, &sui_client).await?;
+    request_sui_from_faucet(
+        admin_wallet.active_address()?,
+        sui_network.clone(),
+        &sui_client,
+    )
+    .await?;
 
     // Publish package and set up system object
     let (pkg_id, committee_cap) =
@@ -495,7 +500,7 @@ async fn create_storage_node_wallets(
             );
             tokio::time::sleep(cooldown).await;
         }
-        request_sui_from_faucet(wallet.active_address()?, sui_network, &sui_client).await?;
+        request_sui_from_faucet(wallet.active_address()?, sui_network.clone(), &sui_client).await?;
     }
     Ok(storage_node_wallets)
 }

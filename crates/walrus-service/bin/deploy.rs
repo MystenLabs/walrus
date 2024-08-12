@@ -231,7 +231,7 @@ mod commands {
         let client_config = create_client_config(
             testbed_config.system_object,
             working_dir.as_path(),
-            testbed_config.sui_network,
+            testbed_config.sui_network.clone(),
             set_config_dir.as_deref(),
         )
         .await?;

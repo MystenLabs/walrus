@@ -164,7 +164,7 @@ impl ProtocolCommands for TargetProtocol {
 
         let testbed_config = testbed::deploy_walrus_contract(DeployTestbedContractParameters {
             working_dir: parameters.settings.working_dir.as_path(),
-            sui_network: parameters.node_parameters.sui_network,
+            sui_network: parameters.node_parameters.sui_network.clone(),
             contract_path: parameters.node_parameters.contract_path.clone(),
             gas_budget: walrus_sui::test_utils::DEFAULT_GAS_BUDGET,
             shards_information: shards,

@@ -259,14 +259,21 @@ const DEVNET_FAUCET: &str = "https://faucet.devnet.sui.io/v1/gas";
 const TESTNET_FAUCET: &str = "https://faucet.testnet.sui.io/v1/gas";
 
 /// Enum for the different sui networks.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SuiNetwork {
-    /// Local sui network
+    /// Local sui network.
     Localnet,
-    /// Sui Devnet
+    /// Sui Devnet.
     Devnet,
-    /// Sui Testnet
+    /// Sui Testnet.
     Testnet,
+    /// A custom Sui network.
+    Custom {
+        /// The RPC endpoint for the network.
+        rpc: String,
+        /// The faucet for the network.
+        faucet: String,
+    },
 }
 
 impl FromStr for SuiNetwork {
@@ -277,9 +284,20 @@ impl FromStr for SuiNetwork {
             "localnet" => Ok(SuiNetwork::Localnet),
             "devnet" => Ok(SuiNetwork::Devnet),
             "testnet" => Ok(SuiNetwork::Testnet),
-            _ => Err(anyhow!(
-                "network must be 'localnet', 'devnet', or 'testnet'"
-            )),
+            _ => {
+                let parts = s.split(';').collect::<Vec<_>>();
+                if parts.len() == 2 {
+                    Ok(SuiNetwork::Custom {
+                        rpc: parts[0].to_owned(),
+                        faucet: parts[1].to_owned(),
+                    })
+                } else {
+                    Err(anyhow!(
+                        "network must be 'localnet', 'devnet', 'testnet', \
+                        or a custom string in the form 'rpc_url;faucet_url'"
+                    ))
+                }
+            }
         }
     }
 }
@@ -290,6 +308,7 @@ impl SuiNetwork {
             SuiNetwork::Localnet => LOCALNET_FAUCET,
             SuiNetwork::Devnet => DEVNET_FAUCET,
             SuiNetwork::Testnet => TESTNET_FAUCET,
+            SuiNetwork::Custom { faucet, .. } => faucet,
         }
     }
 
@@ -299,15 +318,22 @@ impl SuiNetwork {
             SuiNetwork::Localnet => SuiEnv::localnet(),
             SuiNetwork::Devnet => SuiEnv::devnet(),
             SuiNetwork::Testnet => SuiEnv::testnet(),
+            SuiNetwork::Custom { rpc, .. } => SuiEnv {
+                alias: "custom".to_owned(),
+                rpc: rpc.to_string(),
+                ws: None,
+                basic_auth: None,
+            },
         }
     }
 
     /// Returns the string representation of the network.
-    pub fn r#type(&self) -> &str {
+    pub fn r#type(&self) -> String {
         match self {
-            SuiNetwork::Localnet => "localnet",
-            SuiNetwork::Devnet => "devnet",
-            SuiNetwork::Testnet => "testnet",
+            SuiNetwork::Localnet => "localnet".to_owned(),
+            SuiNetwork::Devnet => "devnet".to_owned(),
+            SuiNetwork::Testnet => "testnet".to_owned(),
+            SuiNetwork::Custom { rpc, faucet } => format!("custom({};{})", rpc, faucet),
         }
     }
 }
@@ -418,7 +444,7 @@ pub async fn request_sui_from_faucet(
         // Send a request to the faucet if either the previous response did not return "ok"
         // or if we waited for at least 2 seconds after the previous request.
         successful_response = if !successful_response {
-            send_faucet_request(address, network)
+            send_faucet_request(address, network.clone())
                 .await
                 .inspect_err(|e| tracing::warn!(error = ?e, "faucet request failed, retrying"))
                 .inspect(|_| tracing::debug!("waiting to receive tokens from faucet"))
