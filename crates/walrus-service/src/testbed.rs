@@ -9,6 +9,7 @@ use std::{
     net::{IpAddr, SocketAddr, ToSocketAddrs},
     num::NonZeroU16,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use anyhow::{anyhow, ensure, Context};
@@ -355,6 +356,7 @@ pub async fn create_storage_node_configs(
     metrics_port: u16,
     set_config_dir: Option<&Path>,
     set_db_path: Option<&Path>,
+    faucet_cooldown: Option<Duration>,
 ) -> anyhow::Result<Vec<StorageNodeConfig>> {
     let nodes = testbed_config.nodes;
     // Check whether the testbed collocates the storage nodes on the same machine
@@ -394,6 +396,7 @@ pub async fn create_storage_node_configs(
         working_dir,
         NonZeroU16::new(committee_size).expect("committee size must be > 0"),
         testbed_config.sui_network,
+        faucet_cooldown,
     )
     .await?;
     let rpc = wallets[0].config.get_active_env()?.rpc.clone();
@@ -475,6 +478,7 @@ async fn create_storage_node_wallets(
     working_dir: &Path,
     n_nodes: NonZeroU16,
     sui_network: SuiNetwork,
+    faucet_cooldown: Option<Duration>,
 ) -> anyhow::Result<Vec<WalletContext>> {
     // Create wallets for the storage nodes
     let mut storage_node_wallets = (0..n_nodes.get())
@@ -491,16 +495,14 @@ async fn create_storage_node_wallets(
 
     let sui_client = storage_node_wallets[0].get_client().await?;
     // Get coins from faucet for the wallets.
-    let mut faucet_requests = Vec::with_capacity(storage_node_wallets.len());
-    for wallet in storage_node_wallets.iter_mut() {
-        for _ in 0..2 {
-            faucet_requests.push(request_sui_from_faucet(
-                wallet.active_address()?,
-                sui_network,
-                &sui_client,
-            ))
+    for (index, wallet) in storage_node_wallets.iter_mut().enumerate() {
+        if let Some(cooldown) = faucet_cooldown {
+            if index != 0 {
+                tracing::debug!("waiting before requesting sui from faucet");
+                tokio::time::sleep(cooldown).await;
+            }
         }
+        request_sui_from_faucet(wallet.active_address()?, sui_network, &sui_client).await?;
     }
-    try_join_all(faucet_requests).await?;
     Ok(storage_node_wallets)
 }

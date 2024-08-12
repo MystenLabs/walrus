@@ -12,6 +12,7 @@ use std::{
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
+use humantime::Duration;
 use tokio::sync::oneshot;
 use walrus_service::{
     node::config::defaults::{METRICS_PORT, REST_API_PORT},
@@ -110,6 +111,12 @@ struct GenerateDryRunConfigsArgs {
     /// will be located in the config directory and have the same name as the node it belongs to.
     #[clap(long)]
     set_db_path: Option<PathBuf>,
+    /// Cooldown duration for the faucet.
+    ///
+    /// Setting this makes sure that we wait at least this duration after a faucet request, before
+    /// sending another request.
+    #[clap(long)]
+    faucet_cooldown: Option<Duration>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -201,6 +208,7 @@ mod commands {
             set_config_dir,
             listening_ips,
             set_db_path,
+            faucet_cooldown,
         }: GenerateDryRunConfigsArgs,
     ) -> anyhow::Result<()> {
         tracing_subscriber::fmt::init();
@@ -237,6 +245,7 @@ mod commands {
             metrics_port,
             set_config_dir.as_deref(),
             set_db_path.as_deref(),
+            faucet_cooldown.map(|duration| duration.into()),
         )
         .await?;
         for (i, storage_node_config) in storage_node_configs.into_iter().enumerate() {
