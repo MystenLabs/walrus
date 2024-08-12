@@ -333,7 +333,7 @@ impl SuiNetwork {
             SuiNetwork::Localnet => "localnet".to_owned(),
             SuiNetwork::Devnet => "devnet".to_owned(),
             SuiNetwork::Testnet => "testnet".to_owned(),
-            SuiNetwork::Custom { rpc, faucet } => format!("custom({};{})", rpc, faucet),
+            SuiNetwork::Custom { rpc, faucet } => format!("{};{}", rpc, faucet),
         }
     }
 }
