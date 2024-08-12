@@ -114,7 +114,7 @@ impl LoadGenerator {
         tracing::info!("Spawning gas refill task...");
         let gas_refill_handle = refill_gas(
             addresses,
-            network.clone(),
+            network,
             gas_refill_period,
             metrics.clone(),
             sui_client,
