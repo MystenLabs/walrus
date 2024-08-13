@@ -1,0 +1,4 @@
+# See https://nexte.st/docs/configuration/ for configuration parameters.
+
+[profile.default]
+retries = 2 # retry twice for a total of 3 attempts

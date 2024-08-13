@@ -60,6 +60,7 @@ jobs:
               - 'rust-toolchain.toml'
               - 'deny.toml'
               - '.github/workflows/code.yml'
+              - '.config/nextest.toml'
 
   dependencies:
     name: Check dependencies
