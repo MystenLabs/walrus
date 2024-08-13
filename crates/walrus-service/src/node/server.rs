@@ -368,7 +368,11 @@ mod test {
         let url = Url::parse(&format!("http://{network_address}")).unwrap();
 
         // Do not load any proxy information from the system, as it's slow (at least on MacOs).
-        let inner = reqwest::Client::builder().no_proxy().build().unwrap();
+        let inner = reqwest::Client::builder()
+            .no_proxy()
+            .http2_prior_knowledge()
+            .build()
+            .unwrap();
 
         Client::from_url(url, inner)
     }

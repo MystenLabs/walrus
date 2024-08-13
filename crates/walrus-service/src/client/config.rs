@@ -242,6 +242,7 @@ impl ReqwestConfig {
         builder
             .timeout(self.total_timeout)
             .pool_idle_timeout(self.pool_idle_timeout)
+            .http2_prior_knowledge()
             .http2_keep_alive_timeout(self.http2_keep_alive_timeout)
             .http2_keep_alive_interval(self.http2_keep_alive_interval)
             .http2_keep_alive_while_idle(self.http2_keep_alive_while_idle)
