@@ -105,7 +105,8 @@ rest_api_error!(
     SyncShardError: [
         (Unauthorized, UNAUTHORIZED, Self::Unauthorized.to_string()),
         (MessageVerificationError(_), BAD_REQUEST, "Request verification failed"),
-        (ShardNotFound(_), NOT_FOUND, "The requested shard was not found"),
+        (ShardNotAssigned(_), MISDIRECTED_REQUEST,
+        "the requested sliver is not stored at a shard assigned to this storage node"),
         (EpochTooOld(_, _), BAD_REQUEST, "The requested epoch is too old"),
         (Internal(_), INTERNAL_SERVER_ERROR, @canonical)
     ]

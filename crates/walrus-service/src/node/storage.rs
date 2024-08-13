@@ -24,6 +24,7 @@ use walrus_core::{
     messages::{SyncShardRequest, SyncShardResponse},
     metadata::{BlobMetadata, VerifiedBlobMetadataWithId},
     BlobId,
+    Epoch,
     ShardIndex,
 };
 use walrus_sui::types::BlobEvent;
@@ -32,6 +33,7 @@ use self::{
     blob_info::{BlobInfo, BlobInfoApi, BlobInfoMergeOperand, Mergeable as _},
     event_cursor_table::EventCursorTable,
 };
+use super::errors::ShardNotAssigned;
 use crate::node::SyncShardError;
 
 pub(crate) mod blob_info;
@@ -520,9 +522,10 @@ impl Storage {
     pub fn handle_sync_shard_request(
         &self,
         request: &SyncShardRequest,
+        current_epoch: Epoch,
     ) -> Result<SyncShardResponse, SyncShardError> {
         let Some(shard) = self.shard_storage(request.shard_index()) else {
-            return Err(SyncShardError::ShardNotFound(request.shard_index()));
+            return Err(ShardNotAssigned(request.shard_index(), current_epoch).into());
         };
 
         // Scan certified slivers to fetch.
@@ -1187,7 +1190,7 @@ pub(crate) mod tests {
         );
         let response = storage
             .as_ref()
-            .handle_sync_shard_request(&request)
+            .handle_sync_shard_request(&request, 1)
             .unwrap();
 
         let SyncShardResponse::V1(slivers) = response;
@@ -1215,13 +1218,10 @@ pub(crate) mod tests {
             SyncShardRequest::new(ShardIndex(123), SliverType::Primary, BlobId([1; 32]), 1, 1);
         let response = storage
             .as_ref()
-            .handle_sync_shard_request(&request)
+            .handle_sync_shard_request(&request, 0)
             .unwrap_err();
 
-        assert!(matches!(
-            response,
-            SyncShardError::ShardNotFound(ShardIndex(123))
-        ));
+        assert!(matches!(response, SyncShardError::ShardNotAssigned(..)));
 
         Ok(())
     }

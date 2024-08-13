@@ -333,6 +333,7 @@ fn shard_status_column_family_name(id: ShardIndex) -> String {
 mod tests {
     use std::collections::HashMap;
 
+    use typed_store::TypedStoreError;
     use walrus_core::{
         encoding::{Primary, Secondary},
         BlobId,
@@ -340,16 +341,13 @@ mod tests {
         Sliver,
         SliverType,
     };
-    use walrus_test_utils::{async_param_test, param_test, Result as TestResult};
+    use walrus_test_utils::{async_param_test, param_test, Result as TestResult, WithTempDir};
 
     use super::id_from_column_family_name;
     use crate::{
-        node::storage::tests::{
-            empty_storage,
-            get_sliver,
-            BLOB_ID,
-            OTHER_SHARD_INDEX,
-            SHARD_INDEX,
+        node::storage::{
+            tests::{empty_storage, get_sliver, BLOB_ID, OTHER_SHARD_INDEX, SHARD_INDEX},
+            Storage,
         },
         test_utils::empty_storage_with_shards,
     };
@@ -520,13 +518,13 @@ mod tests {
         assert_eq!(id_from_column_family_name(cf_name), expected_output);
     }
 
-    async_param_test! {
-        test_shard_storage_fetch_slivers -> TestResult: [
-            primary: (SliverType::Primary),
-            secondary: (SliverType::Secondary),
-        ]
+    struct ShardStorageFetchSliversSetup {
+        storage: WithTempDir<Storage>,
+        blob_ids: [BlobId; 4],
+        data: HashMap<BlobId, HashMap<SliverType, Sliver>>,
     }
-    async fn test_shard_storage_fetch_slivers(sliver_type: SliverType) -> TestResult {
+
+    fn setup_storage() -> Result<ShardStorageFetchSliversSetup, TypedStoreError> {
         let storage = empty_storage();
         let shard = storage.as_ref().shard_storage(SHARD_INDEX).unwrap();
 
@@ -571,7 +569,26 @@ mod tests {
             }
         }
 
-        // Tests fetching single sliver.
+        Ok(ShardStorageFetchSliversSetup {
+            storage,
+            blob_ids,
+            data,
+        })
+    }
+
+    async_param_test! {
+        test_shard_storage_fetch_single_sliver -> TestResult: [
+            primary: (SliverType::Primary),
+            secondary: (SliverType::Secondary),
+        ]
+    }
+    async fn test_shard_storage_fetch_single_sliver(sliver_type: SliverType) -> TestResult {
+        let ShardStorageFetchSliversSetup {
+            storage,
+            blob_ids,
+            data,
+        } = setup_storage()?;
+        let shard = storage.as_ref().shard_storage(SHARD_INDEX).unwrap();
         assert_eq!(
             shard.fetch_slivers(sliver_type, &[blob_ids[0]])?,
             vec![(blob_ids[0], data[&blob_ids[0]][&sliver_type].clone())]
@@ -582,7 +599,23 @@ mod tests {
             vec![(blob_ids[2], data[&blob_ids[2]][&sliver_type].clone())]
         );
 
-        // Tests fetching multiple slivers.
+        Ok(())
+    }
+
+    async_param_test! {
+        test_shard_storage_fetch_multiple_slivers -> TestResult: [
+            primary: (SliverType::Primary),
+            secondary: (SliverType::Secondary),
+        ]
+    }
+    async fn test_shard_storage_fetch_multiple_slivers(sliver_type: SliverType) -> TestResult {
+        let ShardStorageFetchSliversSetup {
+            storage,
+            blob_ids,
+            data,
+        } = setup_storage()?;
+        let shard = storage.as_ref().shard_storage(SHARD_INDEX).unwrap();
+
         assert_eq!(
             shard.fetch_slivers(sliver_type, &[blob_ids[0], blob_ids[2]])?,
             vec![
@@ -591,10 +624,42 @@ mod tests {
             ]
         );
 
-        // Tests fetching non-existent slivers.
+        Ok(())
+    }
+
+    async_param_test! {
+        test_shard_storage_fetch_non_existing_slivers -> TestResult: [
+            primary: (SliverType::Primary),
+            secondary: (SliverType::Secondary),
+        ]
+    }
+    async fn test_shard_storage_fetch_non_existing_slivers(sliver_type: SliverType) -> TestResult {
+        let ShardStorageFetchSliversSetup {
+            storage, blob_ids, ..
+        } = setup_storage()?;
+        let shard = storage.as_ref().shard_storage(SHARD_INDEX).unwrap();
+
         assert!(shard.fetch_slivers(sliver_type, &[blob_ids[1]])?.is_empty());
 
-        // Tests fetching a mix of existent and non-existent slivers.
+        Ok(())
+    }
+
+    async_param_test! {
+        test_shard_storage_fetch_mix_existing_non_existing_slivers -> TestResult: [
+            primary: (SliverType::Primary),
+            secondary: (SliverType::Secondary),
+        ]
+    }
+    async fn test_shard_storage_fetch_mix_existing_non_existing_slivers(
+        sliver_type: SliverType,
+    ) -> TestResult {
+        let ShardStorageFetchSliversSetup {
+            storage,
+            blob_ids,
+            data,
+        } = setup_storage()?;
+        let shard = storage.as_ref().shard_storage(SHARD_INDEX).unwrap();
+
         assert_eq!(
             shard.fetch_slivers(sliver_type, &blob_ids)?,
             vec![

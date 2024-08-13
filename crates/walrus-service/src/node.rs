@@ -895,7 +895,8 @@ impl ServiceState for StorageNodeInner {
             ));
         }
 
-        self.storage.handle_sync_shard_request(request)
+        self.storage
+            .handle_sync_shard_request(request, self.current_epoch())
     }
 }
 
