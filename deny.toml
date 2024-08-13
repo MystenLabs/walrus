@@ -12,8 +12,6 @@ ignore = [
     # We have a vulnerable version of `rustls` in our dependency tree through the old version of
     # jsonrpsee used by sui.
     "RUSTSEC-2024-0336",
-    # object-store is not maintained, but is a dependency in many of our packages.
-    "RUSTSEC-2024-0358"
 ]
 
 # This section is considered when running `cargo deny check licenses`
@@ -94,6 +92,7 @@ unknown-registry = "deny"
 unknown-git = "deny"
 allow-git = [
     "https://github.com/asonnino/prometheus-parser",
+    "https://github.com/bmwill/axum-server",
     "https://github.com/bmwill/openapiv3",
     "https://github.com/mystenmark/tokio-madsim-fork",
     "https://github.com/mystenmark/async-task",

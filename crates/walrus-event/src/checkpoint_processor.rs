@@ -314,7 +314,7 @@ impl CheckpointProcessor {
             false,
         )?;
         Ok(CheckpointProcessor {
-            client: Client::new("http://localhost:8080".to_string()),
+            client: Client::new("http://localhost:8080"),
             walrus_package_store,
             checkpoint_store,
             committee_store,
