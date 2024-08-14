@@ -6,7 +6,9 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use sui_types::base_types::ObjectID;
 
+mod blob_writer;
 mod checkpoint_processor;
+mod event_blob;
 
 /// Configuration for event processing.
 #[derive(Debug, Clone, Deserialize, Serialize)]

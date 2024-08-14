@@ -9,11 +9,16 @@ license.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 bcs.workspace = true
+byteorder.workspace = true
+futures-util.workspace = true
+integer-encoding.workspace = true
 move-core-types.workspace = true
+reqwest.workspace = true
 rocksdb.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 serde_with.workspace = true
+serde_yaml.workspace = true
 sui-config.workspace = true
 sui-json-rpc-types = { workspace = true, features = ["test-utils"] }
 sui-package-resolver.workspace = true
@@ -26,6 +31,10 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tokio-stream.workspace = true
 tokio-util.workspace = true
 typed-store.workspace = true
+url.workspace = true
+walrus-core.workspace = true
+walrus-sdk.workspace = true
+walrus-service = { workspace = true, features = ["node"] }
 
 [features]
 default = ["test-utils"]
