@@ -56,7 +56,7 @@ repos:
     name: cargo-test
     entry: cargo nextest run
     language: rust
-    files: ^(crates/|Cargo\.(toml|lock)$)
+    files: (^crates/|Cargo\.(toml|lock)$|nextest\.toml$)
     pass_filenames: false
   - id: clippy-with-tests
     name: clippy-with-tests

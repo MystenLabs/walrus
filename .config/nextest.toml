@@ -2,3 +2,8 @@
 
 [profile.default]
 retries = 2 # retry twice for a total of 3 attempts
+fail-fast = false # do not stop at first failure
+
+[[profile.default.overrides]]
+filter = 'package(walrus-e2e-tests)'
+threads-required = 4
