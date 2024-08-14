@@ -414,6 +414,13 @@ impl Committee {
         }
         unreachable!("threshold < n_shards")
     }
+
+    /// Returns the index of the member that holds the specified shard.
+    pub fn member_index_for_shard(&self, shard: ShardIndex) -> Option<usize> {
+        self.members
+            .iter()
+            .position(|node| node.shard_ids.contains(&shard))
+    }
 }
 
 impl TryFrom<&SuiMoveStruct> for Committee {

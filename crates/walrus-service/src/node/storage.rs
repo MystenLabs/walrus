@@ -21,6 +21,7 @@ use typed_store::{
     TypedStoreError,
 };
 use walrus_core::{
+    keys::ProtocolKeyPair,
     messages::{SyncShardRequest, SyncShardResponse},
     metadata::{BlobMetadata, VerifiedBlobMetadataWithId},
     BlobId,
@@ -33,7 +34,7 @@ use self::{
     blob_info::{BlobInfo, BlobInfoApi, BlobInfoMergeOperand, Mergeable as _},
     event_cursor_table::EventCursorTable,
 };
-use super::errors::ShardNotAssigned;
+use super::{committee::CommitteeService, errors::ShardNotAssigned, StorageNodeInner};
 use crate::node::SyncShardError;
 
 pub(crate) mod blob_info;
@@ -207,14 +208,17 @@ impl Default for DatabaseConfig {
 ///
 /// Enables storing blob metadata, which is shared across all shards. The method
 /// [`shard_storage()`][Self::shard_storage] can be used to retrieve shard-specific storage.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Storage {
     database: Arc<RocksDB>,
     metadata: DBMap<BlobId, BlobMetadata>,
-    blob_info: DBMap<BlobId, BlobInfo>,
+    blob_info: Arc<DBMap<BlobId, BlobInfo>>,
     event_cursor: EventCursorTable,
-    shards: HashMap<ShardIndex, ShardStorage>,
+    shards: HashMap<ShardIndex, Arc<ShardStorage>>,
+    shard_sync: HashMap<ShardIndex, tokio::task::JoinHandle<Result<(), TypedStoreError>>>,
     config: DatabaseConfig,
+    committee_service: Arc<dyn CommitteeService>,
+    key_pair: ProtocolKeyPair,
 }
 
 impl Storage {
@@ -226,6 +230,8 @@ impl Storage {
         path: &Path,
         db_config: DatabaseConfig,
         metrics_config: MetricConf,
+        committee_service: Arc<dyn CommitteeService>,
+        key_pair: ProtocolKeyPair,
     ) -> Result<Self, anyhow::Error> {
         let mut db_opts = Options::default();
         db_opts.create_missing_column_families(true);
@@ -272,28 +278,43 @@ impl Storage {
             false,
         )?;
         let event_cursor = EventCursorTable::reopen(&database)?;
-        let blob_info = DBMap::reopen(
+        let blob_info = Arc::new(DBMap::reopen(
             &database,
             Some(blob_info_cf_name),
             &ReadWriteOptions::default(),
             false,
-        )?;
-        let shards = existing_shards_ids
-            .into_iter()
-            .map(|id| {
-                ShardStorage::create_or_reopen(id, &database, &db_config, None)
-                    .map(|shard| (id, shard))
-            })
-            .collect::<Result<_, _>>()?;
+        )?);
 
-        Ok(Self {
-            database,
+        let mut storage = Self {
+            database: database.clone(),
             metadata,
-            blob_info,
+            blob_info: blob_info.clone(),
             event_cursor,
-            shards,
-            config: db_config,
-        })
+            shards: HashMap::new(),
+            shard_sync: HashMap::new(),
+            config: db_config.clone(),
+            committee_service: committee_service.clone(),
+            key_pair,
+        };
+
+        for id in existing_shards_ids.into_iter() {
+            let (shard_storage, sync_handle) = ShardStorage::create_or_reopen(
+                committee_service.get_epoch(),
+                id,
+                &database,
+                &db_config,
+                None,
+                blob_info.clone(),
+                committee_service.clone(),
+                &storage.key_pair,
+            )?;
+            storage.shards.insert(id, shard_storage);
+            if sync_handle.is_some() {
+                storage.shard_sync.insert(id, sync_handle.unwrap());
+            }
+        }
+
+        Ok(storage)
     }
 
     /// Returns the storage for the specified shard, creating it if it does not exist.
@@ -304,12 +325,19 @@ impl Storage {
         match self.shards.entry(shard) {
             Entry::Occupied(entry) => Ok(entry.into_mut()),
             Entry::Vacant(entry) => {
-                let shard_storage = ShardStorage::create_or_reopen(
+                let (shard_storage, sync_handle) = ShardStorage::create_or_reopen(
+                    self.committee_service.get_epoch(),
                     shard,
                     &self.database,
                     &self.config,
                     Some(ShardStatus::Active),
+                    self.blob_info.clone(),
+                    self.committee_service.clone(),
+                    &self.key_pair,
                 )?;
+                if let Some(sync_handle) = sync_handle {
+                    self.shard_sync.insert(shard, sync_handle);
+                }
                 Ok(entry.insert(shard_storage))
             }
         }
@@ -321,7 +349,7 @@ impl Storage {
     }
 
     /// Returns a handle over the storage for a single shard.
-    pub fn shard_storage(&self, shard: ShardIndex) -> Option<&ShardStorage> {
+    pub fn shard_storage(&self, shard: ShardIndex) -> Option<&Arc<ShardStorage>> {
         self.shards.get(&shard)
     }
 
@@ -624,12 +652,12 @@ pub(crate) mod tests {
     };
     use walrus_sui::{
         test_utils::{event_id_for_testing, EventForTesting},
-        types::BlobCertified,
+        types::{BlobCertified, Committee},
     };
     use walrus_test_utils::{async_param_test, Result as TestResult, WithTempDir};
 
     use super::*;
-    use crate::test_utils::empty_storage_with_shards;
+    use crate::test_utils::{empty_storage_with_shards, StubCommitteeService};
 
     type StorageSpec<'a> = &'a [(ShardIndex, Vec<(BlobId, WhichSlivers)>)];
 
@@ -1000,6 +1028,8 @@ pub(crate) mod tests {
                 directory.path(),
                 DatabaseConfig::default(),
                 MetricConf::default(),
+                Arc::new(StubCommitteeService(Committee::new(Vec::new(), 0).unwrap())),
+                ProtocolKeyPair::generate(),
             )?;
 
             for shard_id in [SHARD_INDEX, OTHER_SHARD_INDEX] {
@@ -1038,6 +1068,8 @@ pub(crate) mod tests {
                 directory.path(),
                 DatabaseConfig::default(),
                 MetricConf::default(),
+                Arc::new(StubCommitteeService(Committee::new(Vec::new(), 0).unwrap())),
+                ProtocolKeyPair::generate(),
             )?;
 
             // Check that the shard status is restored correctly.

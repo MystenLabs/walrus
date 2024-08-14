@@ -39,7 +39,9 @@ use walrus_core::{
     NetworkPublicKey,
     PublicKey,
     ShardIndex,
+    Sliver,
     SliverPairIndex,
+    SliverType,
 };
 use walrus_sdk::client::Client;
 use walrus_sui::types::{
@@ -513,6 +515,18 @@ impl CommitteeService for StubCommitteeService {
         _inconsistency_proof: &InconsistencyProofEnum,
         _n_shards: NonZeroU16,
     ) -> InvalidBlobCertificate {
+        std::future::pending().await
+    }
+
+    async fn sync_shard_to_epoch(
+        &self,
+        _shard_index: ShardIndex,
+        _starting_blob_id: BlobId,
+        _sliver_type: SliverType,
+        _sliver_count: u64,
+        _epoch: Epoch,
+        _key_pair: &ProtocolKeyPair,
+    ) -> Vec<(BlobId, Sliver)> {
         std::future::pending().await
     }
 
@@ -1073,8 +1087,14 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
 pub fn empty_storage_with_shards(shards: &[ShardIndex]) -> WithTempDir<Storage> {
     let temp_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
     let db_config = DatabaseConfig::default();
-    let mut storage = Storage::open(temp_dir.path(), db_config, MetricConf::default())
-        .expect("storage creation must succeed");
+    let mut storage = Storage::open(
+        temp_dir.path(),
+        db_config,
+        MetricConf::default(),
+        Arc::new(StubCommitteeService(Committee::new(Vec::new(), 0).unwrap())),
+        ProtocolKeyPair::generate(),
+    )
+    .expect("storage creation must succeed");
 
     for shard in shards {
         storage

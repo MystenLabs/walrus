@@ -3,11 +3,11 @@
 
 //! Walrus storage node.
 
-use std::{future::Future, num::NonZeroU16, sync::Arc};
+use std::{borrow::BorrowMut, future::Future, num::NonZeroU16, sync::Arc};
 
 use anyhow::{anyhow, bail, Context};
 use fastcrypto::traits::KeyPair;
-use futures::{stream, StreamExt, TryFutureExt};
+use futures::{channel::mpsc, stream, StreamExt, TryFutureExt};
 use prometheus::Registry;
 use serde::Serialize;
 use sui_types::event::EventID;
@@ -238,16 +238,7 @@ impl StorageNodeBuilder {
             .get()
             .expect("protocol keypair must already be loaded")
             .clone();
-        let db_config = config.db_config.clone().unwrap_or_default();
-        let storage = if let Some(storage) = self.storage {
-            storage
-        } else {
-            Storage::open(
-                config.storage_path.as_path(),
-                db_config,
-                MetricConf::new("storage"),
-            )?
-        };
+
         let sui_config_and_client =
             if self.event_provider.is_none() || self.committee_service_factory.is_none() {
                 Some(create_read_client(config).await?)
@@ -282,13 +273,13 @@ impl StorageNodeBuilder {
         });
 
         StorageNode::new(
+            config,
             protocol_key_pair,
-            storage,
             event_provider,
             committee_service_factory,
             contract_service,
             &metrics_registry,
-            config.blob_recovery.max_concurrent_blob_syncs,
+            self.storage,
         )
         .await
     }
@@ -332,23 +323,38 @@ struct StorageNodeInner {
 
 impl StorageNode {
     async fn new(
+        config: &StorageNodeConfig,
         key_pair: ProtocolKeyPair,
-        mut storage: Storage,
         event_provider: Box<dyn SystemEventProvider>,
         committee_service_factory: Box<dyn CommitteeServiceFactory>,
         contract_service: Box<dyn SystemContractService>,
         registry: &Registry,
-        max_concurrent_blob_syncs: usize,
+        pre_set_storage: Option<Storage>,
     ) -> Result<Self, anyhow::Error> {
         let start_time = Instant::now();
-        let committee_service = committee_service_factory
+        let committee_service: Arc<dyn CommitteeService> = committee_service_factory
             .new_for_epoch(Some(key_pair.as_ref().public()))
             .await
-            .context("unable to construct a committee service for the storage node")?;
+            .context("unable to construct a committee service for the storage node")?
+            .into();
 
         let encoding_config = Arc::new(EncodingConfig::new(committee_service.get_shard_count()));
 
-        let committee = committee_service.committee();
+        let committee = committee_service.committee().clone();
+
+        let db_config = config.db_config.clone().unwrap_or_default();
+        let mut storage = if let Some(storage) = pre_set_storage {
+            storage
+        } else {
+            Storage::open(
+                config.storage_path.as_path(),
+                db_config,
+                MetricConf::new("storage"),
+                committee_service.clone(),
+                key_pair.clone(),
+            )?
+        };
+
         let managed_shards = committee.shards_for_node_public_key(key_pair.as_ref().public());
         if managed_shards.is_empty() {
             tracing::info!(epoch = committee.epoch, "node does not manage any shards");
@@ -366,7 +372,7 @@ impl StorageNode {
             event_provider,
             encoding_config,
             contract_service: contract_service.into(),
-            committee_service: committee_service.into(),
+            committee_service,
             _committee_service_factory: committee_service_factory,
             metrics: NodeMetricSet::new(registry),
             start_time,
@@ -374,7 +380,10 @@ impl StorageNode {
 
         inner.init_gauges()?;
 
-        let blob_sync_handler = BlobSyncHandler::new(inner.clone(), max_concurrent_blob_syncs);
+        let blob_sync_handler = BlobSyncHandler::new(
+            inner.clone(),
+            config.blob_recovery.max_concurrent_blob_syncs,
+        );
 
         Ok(StorageNode {
             inner,
@@ -549,7 +558,7 @@ impl StorageNodeInner {
         &self,
         sliver_pair_index: SliverPairIndex,
         blob_id: &BlobId,
-    ) -> Result<&ShardStorage, ShardNotAssigned> {
+    ) -> Result<&Arc<ShardStorage>, ShardNotAssigned> {
         let shard_index =
             sliver_pair_index.to_shard_index(self.encoding_config.n_shards(), blob_id);
         self.storage

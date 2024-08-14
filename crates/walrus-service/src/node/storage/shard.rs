@@ -5,6 +5,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
+    ops::Bound::{Excluded, Unbounded},
     path::Path,
     sync::{Arc, OnceLock},
 };
@@ -12,6 +13,7 @@ use std::{
 use regex::Regex;
 use rocksdb::{Options, DB};
 use serde::{Deserialize, Serialize};
+use tokio::sync::Mutex;
 use typed_store::{
     rocks::{errors::typed_store_err_from_rocks_err, DBBatch, DBMap, ReadWriteOptions, RocksDB},
     Map,
@@ -19,18 +21,28 @@ use typed_store::{
 };
 use walrus_core::{
     encoding::{EncodingAxis, Primary, PrimarySliver, Secondary, SecondarySliver},
+    keys::ProtocolKeyPair,
     BlobId,
+    Epoch,
     ShardIndex,
     Sliver,
     SliverType,
 };
 
-use super::DatabaseConfig;
+use super::{
+    blob_info::{BlobInfo, BlobInfoApi},
+    DatabaseConfig,
+};
+use crate::node::committee::CommitteeService;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ShardStatus {
+    None,
+
     /// The shard is active in this node serving reads and writes.
     Active,
+
+    ActiveSync,
 
     /// The shard is locked for moving to another node. Shard does not accept any more writes in this status.
     LockedToMove,
@@ -42,7 +54,7 @@ impl ShardStatus {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ShardStorage {
     id: ShardIndex,
     shard_status: DBMap<(), ShardStatus>,
@@ -53,11 +65,21 @@ pub struct ShardStorage {
 /// Storage corresponding to a single shard.
 impl ShardStorage {
     pub(crate) fn create_or_reopen(
+        starting_epoch: Epoch,
         id: ShardIndex,
         database: &Arc<RocksDB>,
         db_config: &DatabaseConfig,
         initial_shard_status: Option<ShardStatus>,
-    ) -> Result<Self, TypedStoreError> {
+        blob_info: Arc<DBMap<BlobId, BlobInfo>>,
+        committee_service: Arc<dyn CommitteeService>,
+        key_pair: &ProtocolKeyPair,
+    ) -> Result<
+        (
+            Arc<Self>,
+            Option<tokio::task::JoinHandle<Result<(), TypedStoreError>>>,
+        ),
+        TypedStoreError,
+    > {
         let rw_options = ReadWriteOptions::default();
 
         let shard_cf_options = Self::slivers_column_family_options(id, db_config);
@@ -96,12 +118,27 @@ impl ShardStorage {
             shard_status.insert(&(), &status)?;
         }
 
-        Ok(Self {
+        let shard_storage = Arc::new(Self {
             id,
             primary_slivers,
             secondary_slivers,
             shard_status,
-        })
+        });
+
+        let shard_storage_clone = shard_storage.clone();
+        let key_pair_clone = key_pair.clone();
+        let handle = tokio::spawn(async move {
+            sync_shard_to_epoch(
+                shard_storage_clone,
+                starting_epoch - 1,
+                blob_info,
+                committee_service,
+                key_pair_clone,
+            )
+            .await
+        });
+
+        Ok((shard_storage, Some(handle)))
     }
 
     /// Stores the provided primary or secondary sliver for the given blob ID.
@@ -307,6 +344,118 @@ fn id_from_column_family_name(name: &str) -> Option<(ShardIndex, SliverType)> {
         };
         Some((ShardIndex(id), sliver_type))
     })
+}
+
+async fn sync_shard_to_epoch(
+    shard_storage: Arc<ShardStorage>,
+    epoch: u64,
+    blob_info: Arc<DBMap<BlobId, BlobInfo>>,
+    committee_service: Arc<dyn CommitteeService>,
+    key_pair: ProtocolKeyPair,
+) -> Result<(), TypedStoreError> {
+    if shard_storage.status()? != ShardStatus::None {
+        return Ok(());
+    }
+    shard_storage
+        .shard_status
+        .insert(&(), &ShardStatus::ActiveSync)?;
+
+    let synced_primary_blob_count = sync_shard_to_epoch_internal(
+        shard_storage.clone(),
+        epoch,
+        SliverType::Primary,
+        blob_info.clone(),
+        committee_service.clone(),
+        &key_pair,
+    )
+    .await?;
+
+    let synced_secondary_blob_count = sync_shard_to_epoch_internal(
+        shard_storage.clone(),
+        epoch,
+        SliverType::Secondary,
+        blob_info,
+        committee_service,
+        &key_pair,
+    )
+    .await?;
+
+    if synced_primary_blob_count != synced_secondary_blob_count {
+        tracing::warn!(
+            shard_index = %shard_storage.id(),
+            primary_blob_count = synced_primary_blob_count,
+            secondary_blob_count = synced_secondary_blob_count,
+            "synced different number of primary and secondary blobs"
+        );
+    }
+
+    shard_storage
+        .shard_status
+        .insert(&(), &ShardStatus::Active)?;
+
+    Ok(())
+}
+
+fn next_certified_blob_id(
+    epoch: Epoch,
+    blob_info: Arc<DBMap<BlobId, BlobInfo>>,
+    after_blob: Option<BlobId>,
+) -> Result<Option<BlobId>, TypedStoreError> {
+    let iter = blob_info.safe_range_iter((
+        if after_blob.is_some() {
+            Excluded(after_blob.unwrap())
+        } else {
+            Unbounded
+        },
+        Unbounded,
+    ));
+
+    for result in iter {
+        let (blob_id, blob_info) = result?;
+        if blob_info.is_certified()
+            && blob_info
+                .status_changing_epoch(super::blob_info::BlobCertificationStatus::Certified)
+                .unwrap()
+                <= epoch
+        {
+            return Ok(Some(blob_id));
+        }
+    }
+
+    Ok(None)
+}
+
+async fn sync_shard_to_epoch_internal(
+    shard_storage: Arc<ShardStorage>,
+    epoch: Epoch,
+    sliver_type: SliverType,
+    blob_info: Arc<DBMap<BlobId, BlobInfo>>,
+    committee_service: Arc<dyn CommitteeService>,
+    key_pair: &ProtocolKeyPair,
+) -> Result<u64, TypedStoreError> {
+    let mut starting_blob_id = None;
+    let mut blob_fetched: u64 = 0;
+    while let Some(next_starting_blob_id) =
+        next_certified_blob_id(epoch, blob_info.clone(), starting_blob_id)?
+    {
+        for blob in committee_service
+            .sync_shard_to_epoch(
+                shard_storage.id(),
+                next_starting_blob_id,
+                sliver_type,
+                10,
+                epoch,
+                key_pair,
+            )
+            .await
+        {
+            shard_storage.put_sliver(&blob.0, &blob.1)?;
+            blob_fetched += 1;
+            starting_blob_id = Some(blob.0);
+        }
+    }
+
+    Ok(blob_fetched)
 }
 
 #[inline]
