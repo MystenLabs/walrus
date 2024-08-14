@@ -21,7 +21,7 @@ use sui_sdk::{
     SUI_COIN_TYPE,
 };
 use sui_types::{
-    base_types::{SequenceNumber, SuiAddress},
+    base_types::{ObjectRef, SequenceNumber, SuiAddress},
     event::EventID,
     object::Owner,
     Identifier,
@@ -216,6 +216,17 @@ impl SuiReadClient {
     /// Returns `true` iff the system uses SUI as the coin type.
     pub fn uses_sui_coin(&self) -> bool {
         self.coin_type == TypeTag::from_str(SUI_COIN_TYPE).expect("SUI should be a valid type")
+    }
+
+    /// Get the latest object reference given an [`ObjectID`].
+    pub async fn get_object_ref(&self, object_id: ObjectID) -> Result<ObjectRef, anyhow::Error> {
+        Ok(self
+            .sui_client
+            .read_api()
+            .get_object_with_options(object_id, SuiObjectDataOptions::new())
+            .await?
+            .into_object()?
+            .object_ref())
     }
 }
 
