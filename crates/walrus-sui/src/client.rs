@@ -260,9 +260,8 @@ impl SuiContractClient {
     }
 
     /// Returns the active address of the client.
-    pub fn address(&mut self) -> anyhow::Result<SuiAddress> {
-        let mut wallet = self.wallet.blocking_lock();
-        wallet.active_address()
+    pub fn address(&self) -> SuiAddress {
+        self.wallet_address
     }
 
     async fn price_for_encoded_length(

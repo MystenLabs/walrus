@@ -42,7 +42,7 @@ impl WriteClient {
     }
 
     /// Returns the active address of the client.
-    pub fn address(&mut self) -> anyhow::Result<SuiAddress> {
+    pub fn address(&mut self) -> SuiAddress {
         self.client.as_mut().sui_client_mut().address()
     }
 
