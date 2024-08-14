@@ -92,12 +92,14 @@ public(package) fun collect_commission(self: &mut StakingInnerV1, cap: &StorageN
     abort ENotImplemented
 }
 
+
 public(package) fun set_next_commission(
     self: &mut StakingInnerV1,
     cap: &StorageNodeCap,
     commission_rate: u64,
 ) {
-    self.pools[cap.pool_id()].set_next_commission(commission_rate);
+    let wctx = &self.new_walrus_context();
+    self.pools[cap.pool_id()].set_next_commission(commission_rate, wctx);
 }
 
 /// Sets the parameters for the next epoch.
