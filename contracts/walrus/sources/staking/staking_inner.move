@@ -148,14 +148,14 @@ public(package) fun stake_with_pool(
 
 /// Requests withdrawal of the given amount from the staked `T`, the withdraw is
 /// not immediate and will be processed in the next epoch.
-public(package) fun request_withdrawal(
+public(package) fun request_withdraw_stake(
     self: &mut StakingInnerV1,
     staked_wal: &mut StakedWal,
     amount: u64,
     ctx: &mut TxContext,
-): Coin<SUI> {
-    let to_withdraw = staked_wal.split(amount, ctx);
-    withdraw_stake(self, to_withdraw, ctx)
+) {
+    let wctx = &self.new_walrus_context();
+    self.pools[staked_wal.pool_id()].request_withdraw_stake(staked_wal, wctx, ctx)
 }
 
 /// Similar to the `request_withdrawal` but takes the full value of the `StakedWal`.

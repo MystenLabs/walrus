@@ -46,9 +46,16 @@ public struct StakingPool has key, store {
     /// up to two keys: E+1 and E+2, due to the differences in the activation
     /// epoch.
     ///
+    /// ```
+    /// E+1 -> Balance
+    /// E+2 -> Balance
+    /// ```
+    ///
     /// Single key is cleared in the `advance_epoch` function, leaving only the
     /// next epoch's stake.
     pending_stake: VecMap<u64, Balance<SUI>>,
+    /// The amount of stake that will be withdrawn in the next epoch.
+    pending_withdrawal_amount: u64,
     /// The amount of stake that will be withdrawn in the next epoch.
     stake_to_withdraw: Balance<SUI>,
 }
@@ -75,6 +82,7 @@ public(package) fun new(
         activation_epoch,
         pending_stake: vec_map::empty(),
         active_stake: balance::zero(),
+        pending_withdrawal_amount: 0,
         stake_to_withdraw: balance::zero(),
     }
 }
@@ -120,10 +128,31 @@ public(package) fun stake(
     staked_wal
 }
 
-/// Withdraw the given amount of WAL from the pool + the rewards.
+/// Request withdrawal of the given amount from the staked WAL.
+/// Marks the `StakedWal` as withdrawing and updates the activation epoch.
+///
 /// TODO: rewards calculation.
 /// TODO: if pool is out and is withdrawing, we can perform the withdrawal immediately
 /// TODO: mark stake for withdrawing for the current ctx.sender()
+public(package) fun request_withdraw_stake(
+    pool: &mut StakingPool,
+    staked_wal: &mut StakedWal,
+    wctx: &WalrusContext,
+    _ctx: &mut TxContext,
+) {
+    assert!(!pool.is_new());
+    assert!(staked_wal.value() > 0);
+    assert!(staked_wal.pool_id() == pool.id.to_inner());
+    assert!(staked_wal.activation_epoch() <= wctx.epoch());
+
+    // depend on the committee selection + whether a node is active / has been active
+    staked_wal.set_withdrawing(wctx.epoch() + 1);
+
+    let principal = staked_wal.value();
+    pool.pending_withdrawal_amount = pool.pending_withdrawal_amount + principal;
+}
+
+/// Perform the withdrawal of the staked WAL, returning the amount to the caller.
 public(package) fun withdraw_stake(
     pool: &mut StakingPool,
     staked_wal: StakedWal,
@@ -131,13 +160,14 @@ public(package) fun withdraw_stake(
     ctx: &mut TxContext,
 ): Coin<SUI> {
     assert!(!pool.is_new());
+    assert!(staked_wal.value() > 0);
     assert!(staked_wal.pool_id() == pool.id.to_inner());
     assert!(staked_wal.activation_epoch() <= wctx.epoch());
+    assert!(staked_wal.is_withdrawing());
 
     let principal = staked_wal.burn();
-    let to_withdraw = pool.active_stake.split(principal);
-
-    to_withdraw.into_coin(ctx)
+    pool.pending_withdrawal_amount = pool.pending_withdrawal_amount - principal;
+    pool.stake_to_withdraw.split(principal).into_coin(ctx)
 }
 
 /// Sets the next commission rate for the pool.
@@ -185,15 +215,9 @@ public(package) fun advance_epoch(pool: &mut StakingPool, wctx: &WalrusContext) 
     };
 
     // Update the pool parameters if the activation epoch is the current epoch.
-    pool
-        .params_next_epoch
-        .do_ref!(
-            |params| {
-                if (params.activation_epoch == &wctx.epoch()) {
-                    pool.params = pool.params_next_epoch.extract();
-                }
-            },
-        );
+    if (pool.params_next_epoch.is_some()) {
+        pool.params = pool.params_next_epoch.extract()
+    }
 }
 
 /// Set the state of the pool to `Active`.

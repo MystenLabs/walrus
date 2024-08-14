@@ -9,6 +9,12 @@
 /// is performed via the `withdraw_stake` method in the `staking_pool`.
 module walrus::staked_wal;
 
+/// The state of the staked WAL.
+public enum StakedWalState has store, copy, drop {
+    Staked,
+    Withdrawing,
+}
+
 /// Represents a staked WAL, does not store the `Balance` inside, but uses
 /// `u64` to represent the staked amount. Behaves similarly to `Balance` and
 /// `Coin` providing methods to `split` and `join`.
@@ -17,6 +23,8 @@ module walrus::staked_wal;
 ///       upgrades in the future.
 public struct StakedWal has key, store {
     id: UID,
+    /// Whether the staked WAL is active or withdrawing.
+    state: StakedWalState,
     /// ID of the staking pool.
     pool_id: ID,
     /// The staked amount.
@@ -34,6 +42,7 @@ public(package) fun mint(
 ): StakedWal {
     StakedWal {
         id: object::new(ctx),
+        state: StakedWalState::Staked,
         pool_id,
         principal,
         activation_epoch,
@@ -45,6 +54,12 @@ public(package) fun burn(sw: StakedWal): u64 {
     let StakedWal { id, principal, .. } = sw;
     id.delete();
     principal
+}
+
+/// Sets the staked WAL state to `Withdrawing` and updates the `activation_epoch`
+public(package) fun set_withdrawing(sw: &mut StakedWal, activation_epoch: u64) {
+    sw.state = StakedWalState::Withdrawing;
+    sw.activation_epoch = activation_epoch;
 }
 
 // === Accessors ===
@@ -59,6 +74,12 @@ public fun value(sw: &StakedWal): u64 { sw.principal }
 /// Returns the `activation_epoch` of the staked WAL.
 public fun activation_epoch(sw: &StakedWal): u64 { sw.activation_epoch }
 
+/// Returns true if the staked WAL is in the `Staked` state.
+public fun is_staked(sw: &StakedWal): bool { sw.state == StakedWalState::Staked }
+
+/// Checks whether the staked WAL is in the `Withdrawing` state.
+public fun is_withdrawing(sw: &StakedWal): bool { sw.state == StakedWalState::Withdrawing }
+
 // === Public APIs ===
 
 // TODO: do we want to version them? And should we take precaution measures such
@@ -70,7 +91,8 @@ public fun activation_epoch(sw: &StakedWal): u64 { sw.activation_epoch }
 ///
 /// Aborts if the `pool_id` or `activation_epoch` of the staked WALs do not match.
 public fun join(sw: &mut StakedWal, other: StakedWal) {
-    let StakedWal { id, pool_id, activation_epoch, principal } = other;
+    let StakedWal { id, state, pool_id, activation_epoch, principal } = other;
+    assert!(sw.state == state);
     assert!(sw.pool_id == pool_id);
     assert!(sw.activation_epoch == activation_epoch);
     id.delete();
@@ -89,6 +111,7 @@ public fun split(sw: &mut StakedWal, amount: u64, ctx: &mut TxContext): StakedWa
 
     StakedWal {
         id: object::new(ctx),
+        state: sw.state, // state is preserved
         pool_id: sw.pool_id,
         principal: amount,
         activation_epoch: sw.activation_epoch,

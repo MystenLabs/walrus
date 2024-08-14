@@ -119,13 +119,13 @@ public fun stake_with_pool(
 /// Marks the amount as a withdrawal to be processed and removes it from the stake weight of the
 /// node. Allows the user to call withdraw_stake after the epoch change to the next epoch and
 /// shard transfer is done.
-public fun request_withdrawal(
+public fun request_withdraw_stake(
     staking: &mut Staking,
     staked_wal: &mut StakedWal,
     amount: u64,
     ctx: &mut TxContext,
-): Coin<SUI> {
-    staking.inner_mut().request_withdrawal(staked_wal, amount, ctx)
+) {
+    staking.inner_mut().request_withdraw_stake(staked_wal, amount, ctx);
 }
 
 #[allow(lint(self_transfer))]
