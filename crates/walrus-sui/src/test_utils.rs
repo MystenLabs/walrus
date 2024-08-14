@@ -75,7 +75,7 @@ pub fn get_default_invalid_certificate(blob_id: BlobId, epoch: Epoch) -> Invalid
     InvalidBlobCertificate::new(vec![0], invalid_blob_id_msg, signature)
 }
 
-/// Handle for the global sui test cluster.
+/// Handle for the global Sui test cluster.
 #[allow(missing_debug_implementations)]
 pub struct TestClusterHandle {
     wallet_path: Mutex<PathBuf>,
@@ -89,7 +89,7 @@ impl TestClusterHandle {
     // Creates a test Sui cluster using tokio runtime.
     #[cfg(not(msim))]
     fn new(runtime: &Runtime) -> Self {
-        tracing::debug!("building global sui test cluster");
+        tracing::debug!("building global Sui test cluster");
         let (tx, rx) = mpsc::channel();
         runtime.spawn(async move {
             let mut test_cluster = sui_test_cluster().await;
@@ -134,7 +134,7 @@ impl TestClusterHandle {
     }
 }
 
-/// Handler for the global sui test cluster using tokio runtime.
+/// Handler for the global Sui test cluster using the tokio runtime.
 #[cfg(not(msim))]
 pub mod using_tokio {
     use std::{
@@ -180,7 +180,7 @@ pub mod using_tokio {
 
     /// Returns a handle to the global instance of a Sui test cluster and the wallet config path.
     ///
-    /// Initialises the test cluster it if it doesn't exist yet.
+    /// Initializes the test cluster if it doesn't exist yet.
     pub fn global_sui_test_cluster() -> Arc<TestClusterHandle> {
         static CLUSTER: OnceLock<std::sync::Mutex<GlobalTestClusterHandler>> = OnceLock::new();
         CLUSTER
@@ -213,7 +213,7 @@ fn temp_dir_wallet(env: SuiEnv) -> anyhow::Result<WithTempDir<WalletContext>> {
     })
 }
 
-/// Handler for the global sui test cluster using deterministic msim runtime.
+/// Handler for the global Sui test cluster using the deterministic msim runtime.
 #[cfg(msim)]
 pub mod using_msim {
     use std::sync::Arc;
@@ -226,9 +226,9 @@ pub mod using_msim {
     }
 }
 
-/// Returns a wallet on the global sui test cluster as well as a handle to the cluster.
+/// Returns a wallet on the global Sui test cluster as well as a handle to the cluster.
 ///
-/// Initialises the test cluster it if it doesn't exist yet. The cluster handle (or at least one
+/// Initializes the test cluster if it doesn't exist yet. The cluster handle (or at least one
 /// copy if the function is called multiple times) must be kept alive while the wallet is active.
 pub async fn new_wallet_on_sui_test_cluster(
     sui_cluster: Arc<TestClusterHandle>,
@@ -243,9 +243,12 @@ pub async fn new_wallet_on_sui_test_cluster(
     Ok(wallet)
 }
 
-/// Creates and returns a sui test cluster.
+/// Creates and returns a Sui test cluster.
 pub async fn sui_test_cluster() -> TestCluster {
-    TestClusterBuilder::new().build().await
+    TestClusterBuilder::new()
+        .with_num_validators(2)
+        .build()
+        .await
 }
 
 /// Creates a wallet for testing in the same network as `funding_wallet`, funded by
