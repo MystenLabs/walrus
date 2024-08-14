@@ -276,8 +276,8 @@ impl<'a> ExpandedMessageMatrix<'a> {
             symbol_size,
         };
         expanded_matrix.fill_systematic_with_rows();
-        expanded_matrix.expand_columns_for_primary();
-        expanded_matrix.expand_all_rows();
+        expanded_matrix.expand_rows_for_secondary();
+        expanded_matrix.expand_all_columns();
         expanded_matrix
     }
 
@@ -308,10 +308,9 @@ impl<'a> ExpandedMessageMatrix<'a> {
         })
     }
 
-    /// Expands the first `source_symbols_secondary` columns from `self.columns` to get all
-    /// remaining primary slivers.
-    fn expand_columns_for_primary(&mut self) {
-        for col_index in 0..self.n_columns {
+    /// Expands all columns to completely fill the `n_shards * n_shards` expanded message matrix.
+    fn expand_all_columns(&mut self) {
+        for col_index in 0..self.config.n_shards().get().into() {
             let mut column = Symbols::with_capacity(self.n_rows, self.symbol_size);
             self.matrix.iter().take(self.n_rows).for_each(|row| {
                 let _ = column.extend(&row[col_index]);
@@ -329,10 +328,10 @@ impl<'a> ExpandedMessageMatrix<'a> {
         }
     }
 
-    /// Expands all `n_shards` primary slivers (rows) to completely fill the `n_shards * n_shards`
-    /// expanded message matrix.
-    fn expand_all_rows(&mut self) {
-        for row in self.matrix.iter_mut() {
+    /// Expands the first `source_symbols_primary` primary slivers (rows) to get all remaining
+    /// secondary slivers.
+    fn expand_rows_for_secondary(&mut self) {
+        for row in self.matrix.iter_mut().take(self.n_rows) {
             for (col_index, symbol) in self
                 .config
                 .get_encoder::<Secondary>(&row[0..self.n_columns])
