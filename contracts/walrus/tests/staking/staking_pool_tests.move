@@ -41,7 +41,7 @@ fun test_advance_pool_epoch() {
     pool.set_next_commission(100, &wctx(1, true));
     assert!(pool.commission_rate() == 1000);
 
-    // Alice stakes before committe selection, stake applied E+1
+    // Alice stakes before committee selection, stake applied E+1
     // Bob stakes after committee selection, stake applied in E+2
     let sw1 = pool.stake(mint(1000, ctx), &wctx(1, false), ctx);
     let sw2 = pool.stake(mint(1000, ctx), &wctx(1, true), ctx);

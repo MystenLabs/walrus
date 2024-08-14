@@ -59,6 +59,7 @@ public fun pool_id(cap: &StorageNodeCap): ID { cap.pool_id }
 #[test_only]
 /// Create a storage node with dummy name & address
 public fun new_for_testing(public_key: vector<u8>, weight: u16): StorageNodeInfo {
+    assert!(weight <= 0xFFFF);
     let mut shard_ids = vector[];
     weight.do!(|i| shard_ids.push_back(i));
     StorageNodeInfo {
