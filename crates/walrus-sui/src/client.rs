@@ -28,6 +28,7 @@ use sui_types::{
     transaction::{Argument, Command, ProgrammableTransaction},
     Identifier,
 };
+use tokio::sync::Mutex;
 use walrus_core::{
     ensure,
     merkle::DIGEST_LEN,
@@ -139,7 +140,7 @@ pub trait ContractClient: Send + Sync {
 
 /// Client implementation for interacting with the Walrus smart contracts.
 pub struct SuiContractClient {
-    wallet: WalletContext,
+    wallet: Mutex<WalletContext>,
     /// Client to read Walrus on-chain state.
     pub read_client: SuiReadClient,
     wallet_address: SuiAddress,
@@ -149,19 +150,12 @@ pub struct SuiContractClient {
 impl SuiContractClient {
     /// Constructor for [`SuiContractClient`].
     pub async fn new(
-        mut wallet: WalletContext,
+        wallet: WalletContext,
         system_object: ObjectID,
         gas_budget: u64,
     ) -> SuiClientResult<Self> {
-        let sui_client = wallet.get_client().await?;
-        let wallet_address = wallet.active_address()?;
-        let read_client = SuiReadClient::new(sui_client, system_object).await?;
-        Ok(Self {
-            wallet,
-            read_client,
-            wallet_address,
-            gas_budget,
-        })
+        let read_client = SuiReadClient::new(wallet.get_client().await?, system_object).await?;
+        Self::new_with_read_client(wallet, gas_budget, read_client)
     }
 
     /// Constructor for [`SuiContractClient`] with an existing [`SuiReadClient`].
@@ -172,7 +166,7 @@ impl SuiContractClient {
     ) -> SuiClientResult<Self> {
         let wallet_address = wallet.active_address()?;
         Ok(Self {
-            wallet,
+            wallet: Mutex::new(wallet),
             read_client,
             wallet_address,
             gas_budget,
@@ -243,9 +237,10 @@ impl SuiContractClient {
         programmable_transaction: ProgrammableTransaction,
         min_gas_coin_balance: Option<u64>,
     ) -> SuiClientResult<SuiTransactionBlockResponse> {
+        let wallet = self.wallet.lock().await;
         let response = sign_and_send_ptb(
             self.wallet_address,
-            &self.wallet,
+            &wallet,
             programmable_transaction,
             self.get_compatible_gas_coins(min_gas_coin_balance).await?,
             self.gas_budget,
@@ -264,9 +259,9 @@ impl SuiContractClient {
         }
     }
 
-    /// Returns the wallet context used by the client.
-    pub fn wallet(&mut self) -> &mut WalletContext {
-        &mut self.wallet
+    /// Returns the active address of the client.
+    pub fn address(&self) -> SuiAddress {
+        self.wallet_address
     }
 
     async fn price_for_encoded_length(
@@ -412,7 +407,7 @@ impl ContractClient for SuiContractClient {
                 contracts::blob::register.with_type_params(&[self.read_client.coin_type.clone()]),
                 vec![
                     self.read_client.call_arg_from_system_obj(true).await?,
-                    self.wallet.get_object_ref(storage.id).await?.into(),
+                    self.read_client.get_object_ref(storage.id).await?.into(),
                     call_arg_pure!(&blob_id),
                     call_arg_pure!(&root_digest),
                     blob_size.into(),
@@ -502,7 +497,7 @@ impl ContractClient for SuiContractClient {
                 contracts::blob::certify.with_type_params(&[self.read_client.coin_type.clone()]),
                 vec![
                     self.read_client.call_arg_from_system_obj(true).await?,
-                    self.wallet.get_object_ref(blob.id).await?.into(),
+                    self.read_client.get_object_ref(blob.id).await?.into(),
                     call_arg_pure!(certificate.signature.as_bytes()),
                     call_arg_pure!(&signers),
                     (&certificate.serialized_message).into(),

@@ -99,11 +99,7 @@ impl LoadGenerator {
 
         let addresses = write_clients
             .iter_mut()
-            .map(|client| {
-                client
-                    .address()
-                    .expect("clients are created with an have an active address")
-            })
+            .map(|client| client.address())
             .collect();
         for write_client in write_clients {
             write_client_pool_tx.send(write_client).await?;
