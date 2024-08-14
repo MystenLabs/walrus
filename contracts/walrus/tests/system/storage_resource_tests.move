@@ -3,6 +3,7 @@
 
 #[test_only]
 module walrus::storage_resource_tests;
+
 use walrus::storage_resource::{
     fuse,
     split_by_epoch,

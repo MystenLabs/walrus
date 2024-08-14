@@ -11,9 +11,10 @@
 module walrus::bls_tests;
 
 use sui::bls12381::bls12381_min_pk_verify;
-
-use walrus::bls_aggregate::{Self, BlsCommittee, new_bls_committee, verify_certificate};
-use walrus::storage_node;
+use walrus::{
+    bls_aggregate::{Self, BlsCommittee, new_bls_committee, verify_certificate},
+    storage_node
+};
 
 #[test]
 public fun test_basic_compatibility(){

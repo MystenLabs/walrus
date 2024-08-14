@@ -3,9 +3,8 @@
 
 #[test_only]
 module walrus::ringbuffer_tests;
-use walrus::storage_accounting::{Self as sa, FutureAccountingRingBuffer};
-public struct TESTCOIN has store, drop {}
 
+use walrus::storage_accounting::{Self as sa, FutureAccountingRingBuffer};
 
 // ------------- TESTS --------------------
 

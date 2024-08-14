@@ -5,12 +5,13 @@
 /// Module: system
 module walrus::system;
 
-use sui::{coin::Coin, dynamic_field, sui::SUI};
+use sui::{balance::Balance, coin::Coin, dynamic_field, sui::SUI};
 use walrus::{
+    blob::Blob,
     committee::Committee,
     storage_node::StorageNodeCap,
     storage_resource::Storage,
-    system_state_inner::SystemStateInnerV1
+    system_state_inner::{Self, SystemStateInnerV1}
 };
 
 /// Flag to indicate the version of the system.
@@ -29,12 +30,12 @@ public fun epoch_sync_done(system: &mut System, cap: &StorageNodeCap, epoch_numb
 
 /// Marks blob as invalid given an invalid blob certificate.
 public fun invalidate_blob_id(
-    system: &mut System,
+    system: &System,
     signature: vector<u8>,
     members: vector<u16>,
     message: vector<u8>,
-) {
-    system.inner_mut().invalidate_blob_id(signature, members, message)
+): u256 {
+    system.inner().invalidate_blob_id(signature, members, message)
 }
 
 /// Certifies a blob containing Walrus events.
@@ -51,6 +52,43 @@ public fun reserve_space(
     ctx: &mut TxContext,
 ): Storage {
     self.inner_mut().reserve_space(storage_amount, periods_ahead, payment, ctx)
+}
+
+/// Registers a new blob in the system.
+/// `size` is the size of the unencoded blob. The reserved space in `storage` must be at
+/// least the size of the encoded blob.
+public fun register_blob(
+    self: &mut System,
+    storage: Storage,
+    blob_id: u256,
+    root_hash: u256,
+    size: u64,
+    erasure_code_type: u8,
+    write_payment: &mut Coin<SUI>,
+    ctx: &mut TxContext,
+): Blob {
+    self
+        .inner_mut()
+        .register_blob(storage, blob_id, root_hash, size, erasure_code_type, write_payment, ctx)
+}
+
+/// Certify that a blob will be available in the storage system until the end epoch of the
+/// storage associated with it.
+public fun certify_blob(
+    self: &System,
+    blob: &mut Blob,
+    signature: vector<u8>,
+    members: vector<u16>,
+    message: vector<u8>,
+) {
+    self.inner().certify_blob(blob, signature, members, message);
+}
+
+/// Extend the period of validity of a blob with a new storage resource.
+/// The new storage resource must be the same size as the storage resource
+/// used in the blob, and have a longer period of validity.
+public fun extend_blob_with_resource(self: &System, blob: &mut Blob, extension: Storage) {
+    self.inner().extend_blob_with_resource(blob, extension);
 }
 
 // === Public Accessors ===
@@ -82,6 +120,20 @@ public(package) fun current_committee(self: &System): &Committee {
     self.inner().current_committee()
 }
 
+/// Update epoch to next epoch, and update the committee, price and capacity.
+///
+/// Called by the epoch change function that connects `Staking` and `System`. Returns
+/// the balance of the rewards from the previous epoch.
+public(package) fun next_epoch(
+    self: &mut System,
+    new_committee: Committee,
+    new_capacity: u64,
+    new_storage_price: u64,
+    new_write_price: u64,
+): Balance<SUI> {
+    self.inner_mut().next_epoch(new_committee, new_capacity, new_storage_price, new_write_price)
+}
+
 // === Internals ===
 
 /// Get a mutable reference to `SystemStateInner` from the `System`.
@@ -97,9 +149,6 @@ fun inner(system: &System): &SystemStateInnerV1 {
 }
 
 // === Testing ===
-
-#[test_only]
-use walrus::system_state_inner;
 
 #[test_only]
 public(package) fun new_for_testing(ctx: &mut TxContext): System {

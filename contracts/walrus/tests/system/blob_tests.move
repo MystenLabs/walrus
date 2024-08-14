@@ -3,19 +3,11 @@
 
 #[test_only]
 module walrus::blob_tests;
-use sui::bcs;
-use sui::coin;
-use sui::sui::SUI;
-use walrus::blob;
-use walrus::committee;
-use walrus::storage_resource::{split_by_epoch, destroy};
-use walrus::system;
 
-
+use sui::{bcs, coin, sui::SUI};
+use walrus::{blob, messages, storage_resource::{split_by_epoch, destroy}, system};
 
 const RED_STUFF: u8 = 0;
-
-public struct TESTWAL has store, drop {}
 
 #[test]
 public fun test_blob_register_happy_path(): system::System {
@@ -38,10 +30,18 @@ public fun test_blob_register_happy_path(): system::System {
 
     // Register a Blob
     let blob_id = blob::derive_blob_id(0xABC, RED_STUFF, 5000);
-    let blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, RED_STUFF, &mut ctx);
+    let blob1 = system.register_blob(
+        storage,
+        blob_id,
+        0xABC,
+        5000,
+        RED_STUFF,
+        &mut fake_coin,
+        &mut ctx,
+    );
 
     coin::burn_for_testing<SUI>(fake_coin);
-    blob::drop_for_testing(blob1);
+    blob1.burn();
     system
 }
 
@@ -66,10 +66,18 @@ public fun test_blob_insufficient_space(): system::System {
 
     // Register a Blob
     let blob_id = blob::derive_blob_id(0xABC, RED_STUFF, 5000);
-    let blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, RED_STUFF, &mut ctx);
+    let blob1 = system.register_blob(
+        storage,
+        blob_id,
+        0xABC,
+        5000,
+        RED_STUFF,
+        &mut fake_coin,
+        &mut ctx,
+    );
 
     coin::burn_for_testing<SUI>(fake_coin);
-    blob::drop_for_testing(blob1);
+    blob1.burn();
     system
 }
 
@@ -94,18 +102,26 @@ public fun test_blob_certify_happy_path(): system::System {
 
     // Register a Blob
     let blob_id = blob::derive_blob_id(0xABC, RED_STUFF, 5000);
-    let mut blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, RED_STUFF, &mut ctx);
+    let mut blob1 = system.register_blob(
+        storage,
+        blob_id,
+        0xABC,
+        5000,
+        RED_STUFF,
+        &mut fake_coin,
+        &mut ctx,
+    );
 
-    let certify_message = blob::certified_blob_message_for_testing(0, blob_id);
+    let certify_message = messages::certified_blob_message_for_testing(0, blob_id);
 
     // Set certify
-    blob::certify_with_certified_msg(&system, certify_message, &mut blob1);
+    blob1.certify_with_certified_msg(system.epoch(), certify_message);
 
     // Assert certified
     assert!(option::is_some(blob::certified_epoch(&blob1)), 0);
 
     coin::burn_for_testing<SUI>(fake_coin);
-    blob::drop_for_testing(blob1);
+    blob1.burn();
     system
 }
 
@@ -356,24 +372,24 @@ public fun test_blob_certify_single_function(): system::System {
     );
 
     // Register a Blob
-    let mut blob1 = blob::register(
-        &system,
+    let mut blob1 = system.register_blob(
         storage,
         blob_id,
         root_hash,
         10000,
         RED_STUFF,
+        &mut fake_coin,
         &mut ctx,
     );
 
     // Set certify
-    blob::certify(&system, &mut blob1, signature, vector[0], confirmation);
+    system.certify_blob(&mut blob1, signature, vector[0], confirmation);
 
     // Assert certified
     assert!(option::is_some(blob::certified_epoch(&blob1)), 0);
 
     coin::burn_for_testing<SUI>(fake_coin);
-    blob::drop_for_testing(blob1);
+    blob1.burn();
     system
 }
 
@@ -398,16 +414,24 @@ public fun test_blob_certify_bad_epoch(): system::System {
 
     // Register a Blob
     let blob_id = blob::derive_blob_id(0xABC, RED_STUFF, 5000);
-    let mut blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, RED_STUFF, &mut ctx);
+    let mut blob1 = system.register_blob(
+        storage,
+        blob_id,
+        0xABC,
+        5000,
+        RED_STUFF,
+        &mut fake_coin,
+        &mut ctx,
+    );
 
     // Set INCORRECT EPOCH TO 1
-    let certify_message = blob::certified_blob_message_for_testing(1, blob_id);
+    let certify_message = messages::certified_blob_message_for_testing(1, blob_id);
 
     // Set certify
-    blob::certify_with_certified_msg(&system, certify_message, &mut blob1);
+    blob1.certify_with_certified_msg(system.epoch(), certify_message);
 
     coin::burn_for_testing<SUI>(fake_coin);
-    blob::drop_for_testing(blob1);
+    blob1.burn();
     system
 }
 
@@ -416,7 +440,7 @@ public fun test_blob_certify_bad_blob_id(): system::System {
     let mut ctx = tx_context::dummy();
 
     // A test coin.
-    let mut fake_coin = coin::mint_for_testing<SUI>(100000000, &mut ctx);
+    let mut fake_coin = coin::mint_for_testing<SUI>(1000000000, &mut ctx);
 
     // Create a new system object
     let mut system: system::System = system::new_for_testing(&mut ctx);
@@ -432,22 +456,30 @@ public fun test_blob_certify_bad_blob_id(): system::System {
 
     // Register a Blob
     let blob_id = blob::derive_blob_id(0xABC, RED_STUFF, 5000);
-    let mut blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, RED_STUFF, &mut ctx);
+    let mut blob1 = system.register_blob(
+        storage,
+        blob_id,
+        0xABC,
+        5000,
+        RED_STUFF,
+        &mut fake_coin,
+        &mut ctx,
+    );
 
     // DIFFERENT blob id
-    let certify_message = blob::certified_blob_message_for_testing(0, 0xFFF);
+    let certify_message = messages::certified_blob_message_for_testing(0, 0xFFF);
 
     // Set certify
-    blob::certify_with_certified_msg(&system, certify_message, &mut blob1);
+    blob1.certify_with_certified_msg(system.epoch(), certify_message);
 
     coin::burn_for_testing<SUI>(fake_coin);
-    blob::drop_for_testing(blob1);
+    blob1.burn();
     system
 }
 
 #[test]
 public fun test_certified_blob_message() {
-    let msg = committee::certified_message_for_testing(
+    let msg = messages::certified_message_for_testing(
         1,
         0,
         10,
@@ -488,13 +520,13 @@ public fun test_certified_blob_message() {
         ],
     );
 
-    let message = blob::certify_blob_message(msg);
-    assert!(blob::message_blob_id(&message) == 0xAA, 0);
+    let message = msg.certify_blob_message();
+    assert!(message.certified_blob_id() == 0xAA, 0);
 }
 
 #[test, expected_failure]
 public fun test_certified_blob_message_too_short() {
-    let msg = committee::certified_message_for_testing(
+    let msg = messages::certified_message_for_testing(
         1,
         0,
         10,
@@ -534,8 +566,8 @@ public fun test_certified_blob_message_too_short() {
         ],
     );
 
-    let message = blob::certify_blob_message(msg);
-    assert!(blob::message_blob_id(&message) == 0xAA, 0);
+    let message = msg.certify_blob_message();
+    assert!(message.certified_blob_id() == 0xAA, 0);
 }
 
 #[test]
@@ -571,21 +603,29 @@ public fun test_blob_extend_happy_path(): system::System {
 
     // Register a Blob
     let blob_id = blob::derive_blob_id(0xABC, RED_STUFF, 5000);
-    let mut blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, RED_STUFF, &mut ctx);
-    let certify_message = blob::certified_blob_message_for_testing(0, blob_id);
+    let mut blob1 = system.register_blob(
+        storage,
+        blob_id,
+        0xABC,
+        5000,
+        RED_STUFF,
+        &mut fake_coin,
+        &mut ctx,
+    );
+    let certify_message = messages::certified_blob_message_for_testing(0, blob_id);
 
     // Set certify
-    blob::certify_with_certified_msg(&system, certify_message, &mut blob1);
+    blob1.certify_with_certified_msg(system.epoch(), certify_message);
 
     // Now extend the blob
-    blob::extend(&system, &mut blob1, trailing_storage);
+    system.extend_blob_with_resource(&mut blob1, trailing_storage);
 
     // Assert certified
     assert!(option::is_some(blob::certified_epoch(&blob1)), 0);
 
     destroy(storage_long);
     coin::burn_for_testing<SUI>(fake_coin);
-    blob::drop_for_testing(blob1);
+    blob1.burn();
     system
 }
 
@@ -622,17 +662,25 @@ public fun test_blob_extend_bad_period(): system::System {
 
     // Register a Blob
     let blob_id = blob::derive_blob_id(0xABC, RED_STUFF, 5000);
-    let mut blob1 = blob::register(&system, storage, blob_id, 0xABC, 5000, RED_STUFF, &mut ctx);
-    let certify_message = blob::certified_blob_message_for_testing(0, 0xABC);
+    let mut blob1 = system.register_blob(
+        storage,
+        blob_id,
+        0xABC,
+        5000,
+        RED_STUFF,
+        &mut fake_coin,
+        &mut ctx,
+    );
+    let certify_message = messages::certified_blob_message_for_testing(0, 0xABC);
 
     // Set certify
-    blob::certify_with_certified_msg(&system, certify_message, &mut blob1);
+    blob1.certify_with_certified_msg(system.epoch(), certify_message);
 
     // Now extend the blob // ITS THE WRONG PERIOD
-    blob::extend(&system, &mut blob1, trailing_storage);
+    system.extend_blob_with_resource(&mut blob1, trailing_storage);
 
     destroy(storage_long);
     coin::burn_for_testing<SUI>(fake_coin);
-    blob::drop_for_testing(blob1);
+    blob1.burn();
     system
 }

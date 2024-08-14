@@ -8,12 +8,17 @@ module walrus::storage_node;
 use std::string::String;
 use sui::{bls12381::{G1, g1_from_bytes}, group_ops::Element};
 
+// Error codes
+const EInvalidNetworkPublicKey: u64 = 1;
+
+
 /// Represents a storage node in the system.
 public struct StorageNodeInfo has store, drop {
     name: String,
     // node_id: ID,
     network_address: String,
     public_key: Element<G1>,
+    network_public_key: vector<u8>,
     shard_ids: vector<u16>,
 }
 
@@ -31,12 +36,15 @@ public(package) fun new(
     // node_id: ID,
     network_address: String,
     public_key: vector<u8>,
+    network_public_key: vector<u8>,
     shard_ids: vector<u16>,
 ): StorageNodeInfo {
+    assert!(network_public_key.length() == 32, EInvalidNetworkPublicKey);
     StorageNodeInfo {
         name,
         network_address,
         public_key: g1_from_bytes(&public_key),
+        network_public_key,
         shard_ids,
     }
 }
@@ -66,6 +74,7 @@ public fun new_for_testing(public_key: vector<u8>, weight: u16): StorageNodeInfo
         name: b"node".to_string(),
         network_address: b"127.0.0.1".to_string(),
         public_key: g1_from_bytes(&public_key),
+        network_public_key: x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677",
         shard_ids,
     }
 }

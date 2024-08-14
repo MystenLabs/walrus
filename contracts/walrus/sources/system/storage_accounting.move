@@ -41,18 +41,21 @@ public(package) fun increase_storage_to_reclaim(accounting: &mut FutureAccountin
 }
 
 /// Accessor for rewards_to_distribute, mutable.
-public(package) fun rewards_to_distribute(accounting: &mut FutureAccounting): &mut Balance<SUI> {
+public(package) fun rewards_balance(accounting: &mut FutureAccounting): &mut Balance<SUI> {
     &mut accounting.rewards_to_distribute
 }
 
 /// Destructor for FutureAccounting, when empty.
 public(package) fun delete_empty_future_accounting(self: FutureAccounting) {
+    self.unwrap_balance().destroy_zero()
+}
+
+public(package) fun unwrap_balance(self: FutureAccounting): Balance<SUI> {
     let FutureAccounting {
         rewards_to_distribute,
         ..,
     } = self;
-
-    rewards_to_distribute.destroy_zero()
+    rewards_to_distribute
 }
 
 #[test_only]
