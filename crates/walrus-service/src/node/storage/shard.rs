@@ -32,11 +32,10 @@ use crate::node::{errors::SyncShardError, StorageNodeInner};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ShardStatus {
-    None,
-
     /// The shard is active in this node serving reads and writes.
     Active,
 
+    /// The shard is being synced to the last epoch.
     ActiveSync,
 
     /// The shard is locked for moving to another node. Shard does not accept any more writes in
@@ -291,6 +290,7 @@ impl ShardStorage {
         })
     }
 
+    /// Syncs the shard to the last epoch of from the previous shard owner.
     pub async fn sync_shard_to_epoch(
         &self,
         node: Arc<StorageNodeInner>,
@@ -304,6 +304,9 @@ impl ShardStorage {
             .insert(&(), &ShardStatus::ActiveSync)
             .context("Update shard status encountered error")?;
 
+        // TODO: handle crash recovery.
+        // TODO: handle missing individual blobs.
+        // TODO: handle non-happy path.
         self.sync_shard_to_epoch_internal(&node, SliverType::Primary)
             .await?;
         self.sync_shard_to_epoch_internal(&node, SliverType::Secondary)
@@ -338,7 +341,7 @@ impl ShardStorage {
                     self.id(),
                     next_starting_blob_id,
                     sliver_type,
-                    10,
+                    10, // TODO: make this configurable.
                     node.current_epoch(),
                     &node.protocol_key_pair,
                 )
@@ -351,6 +354,7 @@ impl ShardStorage {
                     node.current_epoch(),
                     sliver_type
                 );
+                //TODO: verify sliver validity.
                 self.put_sliver(&blob.0, &blob.1)
                     .context("Storing synced slivers encountered error")?;
                 starting_blob_id = Some(blob.0);
@@ -371,10 +375,12 @@ impl ShardStorage {
     }
 }
 
+// Helper function to find the next certified blob ID after the provided blob ID.
 fn next_certified_blob_id(
     node: &Arc<StorageNodeInner>,
     after_blob: Option<BlobId>,
 ) -> Result<Option<BlobId>, TypedStoreError> {
+    // The query starts from the blob after the provided blob ID in `after_blob`.
     let iter = node.storage.blob_info.safe_range_iter((
         if let Some(starting_blob_id) = after_blob {
             Excluded(starting_blob_id)

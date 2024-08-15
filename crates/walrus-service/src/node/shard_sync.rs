@@ -8,6 +8,7 @@ use walrus_core::ShardIndex;
 
 use super::StorageNodeInner;
 
+/// Background process for handling syncing shards.
 pub async fn shard_sync_handler(
     node: Arc<StorageNodeInner>,
     mut shard_sync_receiver: Receiver<ShardIndex>,
@@ -28,6 +29,7 @@ pub async fn shard_sync_handler(
             node.current_epoch()
         );
 
+        // TODO: once the contract supports multiple epochs, this needs to be updated to the previous epoch.
         let epoch = node.current_epoch();
         let node_clone = node.clone();
         tokio::spawn(async move {

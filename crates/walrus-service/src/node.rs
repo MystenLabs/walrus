@@ -305,6 +305,7 @@ async fn create_read_client(
 pub struct StorageNode {
     inner: Arc<StorageNodeInner>,
     blob_sync_handler: BlobSyncHandler,
+    // Background task for handling shard syncs.
     _shard_sync_handler: tokio::task::JoinHandle<()>,
     _shard_sync_sender: Sender<ShardIndex>,
 }
@@ -332,7 +333,7 @@ impl StorageNode {
         committee_service_factory: Box<dyn CommitteeServiceFactory>,
         contract_service: Box<dyn SystemContractService>,
         registry: &Registry,
-        initial_storage: Option<Storage>,
+        initial_storage: Option<Storage>, // For testing purposes.
     ) -> Result<Self, anyhow::Error> {
         let start_time = Instant::now();
         let committee_service = committee_service_factory
@@ -340,6 +341,7 @@ impl StorageNode {
             .await
             .context("unable to construct a committee service for the storage node")?;
 
+        // Create a channel for shard syncs.
         let (tx, rx) = tokio::sync::mpsc::channel(10);
 
         let db_config = config.db_config.clone().unwrap_or_default();
@@ -350,7 +352,6 @@ impl StorageNode {
                 config.storage_path.as_path(),
                 db_config,
                 MetricConf::new("storage"),
-                Some(tx.clone()),
             )?
         };
 
@@ -392,6 +393,7 @@ impl StorageNode {
             shard_sync::shard_sync_handler(inner_clone, rx).await;
         });
 
+        // TODO: remove once shard storage drives the initialization of the shard sync.
         for shard in inner.storage.shards() {
             tx.send(shard).await?;
         }
@@ -1368,7 +1370,7 @@ mod tests {
         Ok((cluster, events, blob_details))
     }
 
-    // Creates a test cluster with custom initial epoch and a blob that is already certified.
+    // Creates a test cluster with custom initial epoch and blobs that are already certified.
     async fn cluster_with_initial_epoch_and_certified_blob<'a>(
         assignment: &[&[u16]],
         blobs: &[&'a [u8]],
@@ -1957,6 +1959,7 @@ mod tests {
         Ok(())
     }
 
+    // Tests the basic `sync_shard` API.
     #[tokio::test]
     async fn sync_shard_client_basic() -> TestResult {
         telemetry_subscribers::init_for_testing();
@@ -1973,14 +1976,15 @@ mod tests {
         )
         .await?;
 
+        // Make storage inner mutable so that we can manually add another shard to node 1.
         let node_inner = unsafe {
             &mut *(Arc::as_ptr(&cluster.nodes[1].storage_node.inner) as *mut StorageNodeInner)
         };
         node_inner.storage.create_storage_for_shard(ShardIndex(0))?;
         let shard_storage = node_inner.storage.shard_storage(ShardIndex(0)).unwrap();
-
         shard_storage.update_status_in_test(ShardStatus::ActiveSync)?;
 
+        // Starts the shard syncing process.
         cluster.nodes[1]
             .storage_node
             ._shard_sync_sender
@@ -2013,6 +2017,7 @@ mod tests {
 
         assert_eq!(blob_details.len(), 23);
 
+        // Checks that the shard is completely migrated.
         blob_details.iter().for_each(|details| {
             let blob_id = *details.blob_id();
             assert_eq!(

@@ -13,7 +13,6 @@ use rocksdb::{DBCompressionType, MergeOperands, Options};
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 use sui_sdk::types::event::EventID;
-use tokio::sync::mpsc::Sender;
 use tracing::Level;
 use typed_store::{
     rocks::{self, DBBatch, DBMap, MetricConf, ReadWriteOptions, RocksDB},
@@ -215,7 +214,6 @@ pub struct Storage {
     event_cursor: EventCursorTable,
     shards: HashMap<ShardIndex, Arc<ShardStorage>>,
     config: DatabaseConfig,
-    _sync_shard_sender: Option<Sender<ShardIndex>>,
 }
 
 impl Storage {
@@ -227,7 +225,6 @@ impl Storage {
         path: &Path,
         db_config: DatabaseConfig,
         metrics_config: MetricConf,
-        sync_shard_sender: Option<Sender<ShardIndex>>,
     ) -> Result<Self, anyhow::Error> {
         let mut db_opts = Options::default();
         db_opts.create_missing_column_families(true);
@@ -295,7 +292,6 @@ impl Storage {
             event_cursor,
             shards,
             config: db_config,
-            _sync_shard_sender: sync_shard_sender,
         })
     }
 
@@ -1003,7 +999,6 @@ pub(crate) mod tests {
                 directory.path(),
                 DatabaseConfig::default(),
                 MetricConf::default(),
-                None,
             )?;
 
             for shard_id in [SHARD_INDEX, OTHER_SHARD_INDEX] {
@@ -1042,7 +1037,6 @@ pub(crate) mod tests {
                 directory.path(),
                 DatabaseConfig::default(),
                 MetricConf::default(),
-                None,
             )?;
 
             // Check that the shard status is restored correctly.
