@@ -16,7 +16,7 @@ public enum StakedWalState has store, copy, drop {
     /// Default state of the staked WAL - it is staked in the staking pool.
     Staked,
     /// The staked WAL is in the process of withdrawing. The value inside the
-    /// invariant is the epoch when the staked WAL can be withdrawn.
+    /// variant is the epoch when the staked WAL can be withdrawn.
     Withdrawing(u64),
 }
 

@@ -15,8 +15,9 @@ public enum PoolState has store, copy, drop {
     New,
     /// The pool is active and can accept stakes.
     Active,
-    /// The pool awaits the stake to be withdrawn.
-    Withdrawing,
+    /// The pool awaits the stake to be withdrawn. The value inside the
+    /// variant is the epoch in which the pool will be withdrawn.
+    Withdrawing(u64),
     /// The pool is empty and can be destroyed.
     Withdrawn,
 }
@@ -91,9 +92,10 @@ public(package) fun new(
 }
 
 /// Set the state of the pool to `Withdrawing`.
-public(package) fun set_withdrawing(pool: &mut StakingPool, _wctx: &WalrusContext) {
+/// TODO: improve, once committee selection is implemented.
+public(package) fun set_withdrawing(pool: &mut StakingPool, wctx: &WalrusContext) {
     assert!(!pool.is_withdrawing());
-    pool.state = PoolState::Withdrawing;
+    pool.state = PoolState::Withdrawing(wctx.epoch() + 1);
 }
 
 /// Stake the given amount of WAL in the pool.
@@ -249,7 +251,10 @@ public(package) fun is_active(pool: &StakingPool): bool {
 
 /// Returns `true` if the pool is withdrawing.
 public(package) fun is_withdrawing(pool: &StakingPool): bool {
-    pool.state == PoolState::Withdrawing
+    match (pool.state) {
+        PoolState::Withdrawing(_) => true,
+        _ => false,
+    }
 }
 
 /// Returns `true` if the pool is empty.
