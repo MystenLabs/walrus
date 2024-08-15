@@ -61,7 +61,7 @@ public(package) fun unwrap(sw: StakedWal): Balance<SUI> {
     principal
 }
 
-/// Sets the staked WAL state to `Withdrawing` and updates the `activation_epoch`
+/// Sets the staked WAL state to `Withdrawing`
 public(package) fun set_withdrawing(sw: &mut StakedWal, withdraw_epoch: u64) {
     sw.state = StakedWalState::Withdrawing(withdraw_epoch);
 }
