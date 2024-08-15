@@ -5,7 +5,7 @@
 /// Module: staking
 module walrus::staking;
 
-use sui::{clock::Clock, coin::Coin, sui::SUI};
+use sui::{clock::Clock, coin::Coin, dynamic_field as df, sui::SUI};
 use walrus::{
     staked_wal::StakedWal,
     staking_inner::StakingInnerV1,
@@ -13,7 +13,8 @@ use walrus::{
     system::System
 };
 
-const ENotImplemented: u64 = 0;
+#[error]
+const ENotImplemented: vector<u8> = b"Function is not implemented";
 
 /// Flag to indicate the version of the Walrus system.
 const VERSION: u64 = 0;
@@ -152,44 +153,50 @@ public fun withdraw_stake(
 /// Get a mutable reference to `StakingInner` from the `Staking`.
 fun inner_mut(staking: &mut Staking): &mut StakingInnerV1 {
     assert!(staking.version == VERSION);
-    abort ENotImplemented
+    df::borrow_mut(&mut staking.id, VERSION)
 }
 
 // === Tests ===
 
 #[test_only]
-use walrus::storage_node;
+use walrus::{storage_node, staking_inner};
 
 #[test_only]
 use sui::{clock, coin};
 
 #[test_only]
-fun new(ctx: &mut TxContext): Staking { Staking { id: object::new(ctx), version: VERSION } }
+fun new(ctx: &mut TxContext): Staking {
+    let mut staking = Staking { id: object::new(ctx), version: VERSION };
+    df::add(&mut staking.id, VERSION, staking_inner::new(ctx));
+    staking
+}
 
-#[test, expected_failure(abort_code = ENotImplemented)]
+#[test, expected_failure]
 fun test_register_candidate() {
     let ctx = &mut tx_context::dummy();
     let cap = new(ctx).register_candidate(0, 0, 0, 0, ctx);
     abort 1337
 }
 
-#[test, expected_failure(abort_code = ENotImplemented)]
+#[test, expected_failure]
 fun test_withdraw_node() {
     let ctx = &mut tx_context::dummy();
-    let mut cap = storage_node::new_cap_for_testing(new_id(ctx), ctx);
-    new(ctx).withdraw_node(&mut cap);
+    let mut staking = new(ctx);
+    let mut cap = staking.register_candidate(0, 0, 0, 0, ctx);
+    staking.withdraw_node(&mut cap);
     abort 1337
 }
 
-#[test, expected_failure(abort_code = ENotImplemented)]
+#[test, expected_failure]
 fun test_set_next_commission() {
     let ctx = &mut tx_context::dummy();
-    let cap = storage_node::new_cap_for_testing(new_id(ctx), ctx);
-    new(ctx).set_next_commission(&cap, 0);
+    let mut staking = new(ctx);
+    let cap = staking.register_candidate(0, 0, 0, 0, ctx);
+    staking.set_next_commission(&cap, 0);
     abort 1337
 }
 
-#[test, expected_failure(abort_code = ENotImplemented)]
+#[test, expected_failure]
 fun test_collect_commission() {
     let ctx = &mut tx_context::dummy();
     let cap = storage_node::new_cap_for_testing(new_id(ctx), ctx);
@@ -197,7 +204,7 @@ fun test_collect_commission() {
     abort 1337
 }
 
-#[test, expected_failure(abort_code = ENotImplemented)]
+#[test, expected_failure]
 fun test_vote_for_price_next_epoch() {
     let ctx = &mut tx_context::dummy();
     let cap = storage_node::new_cap_for_testing(new_id(ctx), ctx);
@@ -205,7 +212,7 @@ fun test_vote_for_price_next_epoch() {
     abort 1337
 }
 
-#[test, expected_failure(abort_code = ENotImplemented)]
+#[test, expected_failure]
 fun test_voting_end() {
     let ctx = &mut tx_context::dummy();
     let clock = clock::create_for_testing(ctx);
@@ -213,7 +220,7 @@ fun test_voting_end() {
     abort 1337
 }
 
-#[test, expected_failure(abort_code = ENotImplemented)]
+#[test, expected_failure]
 fun test_shard_transfer_failed() {
     let ctx = &mut tx_context::dummy();
     let cap = storage_node::new_cap_for_testing(new_id(ctx), ctx);
@@ -221,7 +228,7 @@ fun test_shard_transfer_failed() {
     abort 1337
 }
 
-#[test, expected_failure(abort_code = ENotImplemented)]
+#[test, expected_failure]
 fun test_stake_with_pool() {
     let ctx = &mut tx_context::dummy();
     let coin = coin::mint_for_testing<SUI>(100, ctx);

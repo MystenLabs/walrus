@@ -277,6 +277,8 @@ public(package) fun advance_epoch(pool: &mut StakingPool, wctx: &WalrusContext) 
         pool.active_stake = pool.active_stake + stake;
     };
 
+    pool.active_stake = pool.active_stake - pool.pending_withdrawal_amount;
+
     // Update the pool parameters if the activation epoch is the current epoch.
     if (pool.params_next_epoch.is_some()) {
         pool.params = pool.params_next_epoch.extract()
@@ -302,9 +304,16 @@ public(package) fun stake_to_withdraw_amount(pool: &StakingPool): u64 {
 }
 
 /// Returns the commission rate for the pool.
-public(package) fun commission_rate(pool: &StakingPool): u64 {
-    pool.params.commission_rate
-}
+public(package) fun commission_rate(pool: &StakingPool): u64 { pool.params.commission_rate }
+
+/// Returns the storage price for the pool.
+public(package) fun storage_price(pool: &StakingPool): u64 { pool.params.storage_price }
+
+/// Returns the write price for the pool.
+public(package) fun write_price(pool: &StakingPool): u64 { pool.params.write_price }
+
+/// Returns the node capacity for the pool.
+public(package) fun node_capacity(pool: &StakingPool): u64 { pool.params.node_capacity }
 
 /// Returns `true` if the pool is active.
 public(package) fun is_active(pool: &StakingPool): bool {
