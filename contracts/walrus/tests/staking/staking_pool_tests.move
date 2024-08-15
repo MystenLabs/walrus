@@ -3,8 +3,8 @@
 
 module walrus::staking_pool_tests;
 
-use sui::{coin::{Self, Coin}, sui::SUI, test_utils::destroy};
-use walrus::{staking_pool, walrus_context::{Self, WalrusContext}};
+use sui::test_utils::destroy;
+use walrus::{staking_pool, test_utils::{mint, wctx}};
 
 #[test]
 fun test_staked_wal_flow() {
@@ -68,12 +68,4 @@ fun test_advance_pool_epoch() {
     destroy(pool);
     destroy(sw1);
     destroy(sw2);
-}
-
-fun wctx(epoch: u64, committee_selected: bool): WalrusContext {
-    walrus_context::new(epoch, committee_selected)
-}
-
-fun mint(amount: u64, ctx: &mut TxContext): Coin<SUI> {
-    coin::mint_for_testing(amount, ctx)
 }

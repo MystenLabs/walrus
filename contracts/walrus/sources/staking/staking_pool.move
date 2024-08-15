@@ -11,17 +11,20 @@ use walrus::{staked_wal::{Self, StakedWal}, walrus_context::WalrusContext};
 ///
 /// TODO: revisit the state machine.
 public enum PoolState has store, copy, drop {
-    Active,
-    Withdrawing,
+    /// The pool is new and awaits the stake to be added.
     New,
+    /// The pool is active and can accept stakes.
+    Active,
+    /// The pool awaits the stake to be withdrawn.
+    Withdrawing,
+    /// The pool is empty and can be destroyed.
+    Withdrawn,
 }
 
 /// The parameters for the staking pool. Stored for the next epoch.
 public struct PoolParams has store, copy, drop {
     /// Commission rate for the pool.
     commission_rate: u64,
-    /// Epoch when the parameters become active.
-    activation_epoch: u64,
 }
 
 /// Represents a single staking pool for a token. Even though it is never
@@ -41,7 +44,7 @@ public struct StakingPool has key, store {
     /// property.
     activation_epoch: u64,
     /// Currently
-    active_stake: Balance<SUI>,
+    active_stake: u64,
     /// The amount of stake that will be added to the `active_stake`. Can hold
     /// up to two keys: E+1 and E+2, due to the differences in the activation
     /// epoch.
@@ -53,7 +56,7 @@ public struct StakingPool has key, store {
     ///
     /// Single key is cleared in the `advance_epoch` function, leaving only the
     /// next epoch's stake.
-    pending_stake: VecMap<u64, Balance<SUI>>,
+    pending_stake: VecMap<u64, u64>,
     /// The amount of stake that will be withdrawn in the next epoch.
     pending_withdrawal_amount: u64,
     /// The amount of stake that will be withdrawn in the next epoch.
@@ -77,11 +80,11 @@ public(package) fun new(
     StakingPool {
         id: object::new(ctx),
         state,
-        params: PoolParams { commission_rate, activation_epoch },
+        params: PoolParams { commission_rate },
         params_next_epoch: option::none(),
         activation_epoch,
         pending_stake: vec_map::empty(),
-        active_stake: balance::zero(),
+        active_stake: 0,
         pending_withdrawal_amount: 0,
         stake_to_withdraw: balance::zero(),
     }
@@ -110,19 +113,20 @@ public(package) fun stake(
         current_epoch + 1
     };
 
-    let amount = to_stake.value();
+    let staked_amount = to_stake.value();
     let staked_wal = staked_wal::mint(
         pool.id.to_inner(),
-        amount,
+        to_stake.into_balance(),
         activation_epoch,
         ctx,
     );
 
     // Add the stake to the pending stake either for E+1 or E+2.
     if (!pool.pending_stake.contains(&activation_epoch)) {
-        pool.pending_stake.insert(activation_epoch, to_stake.into_balance());
+        pool.pending_stake.insert(activation_epoch, staked_amount);
     } else {
-        pool.pending_stake[&activation_epoch].join(to_stake.into_balance());
+        let curr = pool.pending_stake[&activation_epoch];
+        *&mut pool.pending_stake[&activation_epoch] = curr + staked_amount;
     };
 
     staked_wal
@@ -134,6 +138,7 @@ public(package) fun stake(
 /// TODO: rewards calculation.
 /// TODO: if pool is out and is withdrawing, we can perform the withdrawal immediately
 /// TODO: mark stake for withdrawing for the current ctx.sender()
+/// TODO: Only if the pool is already withdrawn.
 public(package) fun request_withdraw_stake(
     pool: &mut StakingPool,
     staked_wal: &mut StakedWal,
@@ -165,42 +170,36 @@ public(package) fun withdraw_stake(
     assert!(staked_wal.activation_epoch() <= wctx.epoch());
     assert!(staked_wal.is_withdrawing());
 
-    let principal = staked_wal.burn();
-    pool.pending_withdrawal_amount = pool.pending_withdrawal_amount - principal;
-    pool.stake_to_withdraw.split(principal).into_coin(ctx)
+    let principal = staked_wal.unwrap();
+    pool.pending_withdrawal_amount = pool.pending_withdrawal_amount - principal.value();
+    principal.into_coin(ctx)
 }
 
 /// Sets the next commission rate for the pool.
 public(package) fun set_next_commission(
     pool: &mut StakingPool,
     commission_rate: u64,
-    wctx: &WalrusContext,
+    _wctx: &WalrusContext,
 ) {
-    pool
-        .params_next_epoch
-        .fill(PoolParams {
-            commission_rate,
-            activation_epoch: wctx.epoch() + 1,
-        });
+    pool.params_next_epoch.fill(PoolParams { commission_rate });
 }
 
 /// Destroy the pool if it is empty.
 public(package) fun destroy_empty(pool: StakingPool) {
     assert!(pool.is_empty());
+
     let StakingPool {
         id,
         pending_stake,
-        active_stake,
         stake_to_withdraw,
         ..,
     } = pool;
 
     id.delete();
-    active_stake.destroy_zero();
     stake_to_withdraw.destroy_zero();
 
     let (_epochs, pending_stakes) = pending_stake.into_keys_values();
-    pending_stakes.do!(|stake| stake.destroy_zero());
+    pending_stakes.do!(|stake| assert!(stake == 0));
 }
 
 // === Accessors ===
@@ -211,7 +210,7 @@ public(package) fun advance_epoch(pool: &mut StakingPool, wctx: &WalrusContext) 
     let current_epoch = wctx.epoch();
     if (pool.pending_stake.contains(&current_epoch)) {
         let (_, stake) = pool.pending_stake.remove(&current_epoch);
-        pool.active_stake.join(stake);
+        pool.active_stake = pool.active_stake + stake;
     };
 
     // Update the pool parameters if the activation epoch is the current epoch.
@@ -228,7 +227,7 @@ public(package) fun set_is_active(pool: &mut StakingPool) {
 
 /// Returns the amount stored in the `active_stake`.
 public(package) fun active_stake_amount(pool: &StakingPool): u64 {
-    pool.active_stake.value()
+    pool.active_stake
 }
 
 // TODO: return pending stake for E+1 and E+2.
@@ -261,8 +260,8 @@ public(package) fun is_new(pool: &StakingPool): bool {
 //// Returns `true` if the pool is empty.
 public(package) fun is_empty(pool: &StakingPool): bool {
     let pending_stake_epochs = pool.pending_stake.keys();
-    let non_empty = pending_stake_epochs.count!(|epoch| pool.pending_stake[epoch].value() != 0);
+    let non_empty = pending_stake_epochs.count!(|epoch| pool.pending_stake[epoch] != 0);
 
-    pool.active_stake.value() == 0 && non_empty == 0 &&
+    pool.active_stake == 0 && non_empty == 0 &&
     pool.stake_to_withdraw.value() == 0
 }

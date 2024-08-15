@@ -46,7 +46,7 @@ public fun register_candidate(
 /// - still has to remain active while it is part of the committee and until all shards have
 ///     been transferred to its successor
 /// - The staking pool is deleted once the last funds have been withdrawn from it by its stakers
-public fun withdraw_node(staking: &mut Staking, cap: StorageNodeCap) {
+public fun withdraw_node(staking: &mut Staking, cap: &mut StorageNodeCap) {
     staking.inner_mut().set_withdrawing(cap.pool_id());
     staking.inner_mut().withdraw_node(cap);
 }
@@ -70,9 +70,9 @@ public fun vote_for_price_next_epoch(
     cap: &StorageNodeCap,
     storage_price: u64,
     write_price: u64,
-    storage_capacity: u64,
+    node_capacity: u64,
 ) {
-    staking.inner_mut().vote_for_next_epoch(cap, storage_price, write_price, storage_capacity)
+    staking.inner_mut().vote_for_next_epoch(cap, storage_price, write_price, node_capacity)
 }
 
 /// Ends the voting period and runs the apportionment if the current time allows.
@@ -94,7 +94,6 @@ public fun initiate_epoch_change(staking: &mut Staking, system: &mut System, clo
 /// - also checks that for the provided shards, this function has not been called before
 /// - if so, slashes both nodes and emits an event that allows the receiving node to start
 ///     shard recovery
-/// TODO(kwuest): decide whether to keep this in `staking` or move to `system`
 public fun shard_transfer_failed(
     staking: &mut Staking,
     cap: &StorageNodeCap,
@@ -122,18 +121,15 @@ public fun stake_with_pool(
 public fun request_withdraw_stake(
     staking: &mut Staking,
     staked_wal: &mut StakedWal,
-    amount: u64,
     ctx: &mut TxContext,
 ) {
-    staking.inner_mut().request_withdraw_stake(staked_wal, amount, ctx);
+    staking.inner_mut().request_withdraw_stake(staked_wal, ctx);
 }
 
 #[allow(lint(self_transfer))]
 /// Withdraws the staked amount from the staking pool.
-public fun withdraw_stake(staking: &mut Staking, staked_wal: StakedWal, ctx: &mut TxContext) {
-    let coin = staking.inner_mut().withdraw_stake(staked_wal, ctx);
-    // TODO: we shouldn't return a Coin here
-    transfer::public_transfer(coin, ctx.sender())
+public fun withdraw_stake(staking: &mut Staking, staked_wal: StakedWal, ctx: &mut TxContext): Coin<SUI> {
+    staking.inner_mut().withdraw_stake(staked_wal, ctx)
 }
 
 // === Internals ===
@@ -165,8 +161,8 @@ fun test_register_candidate() {
 #[test, expected_failure(abort_code = ENotImplemented)]
 fun test_withdraw_node() {
     let ctx = &mut tx_context::dummy();
-    let cap = storage_node::new_cap_for_testing(new_id(ctx), ctx);
-    new(ctx).withdraw_node(cap);
+    let mut cap = storage_node::new_cap_for_testing(new_id(ctx), ctx);
+    new(ctx).withdraw_node(&mut cap);
     abort 1337
 }
 

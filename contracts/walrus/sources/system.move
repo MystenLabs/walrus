@@ -10,7 +10,7 @@ use walrus::{
     committee::Committee,
     storage_node::StorageNodeCap,
     storage_resource::Storage,
-    system_state_inner::{Self, SystemStateInnerV1}
+    system_state_inner::SystemStateInnerV1
 };
 
 /// Flag to indicate the version of the system.
@@ -97,6 +97,9 @@ fun inner(system: &System): &SystemStateInnerV1 {
 }
 
 // === Testing ===
+
+#[test_only]
+use walrus::system_state_inner;
 
 #[test_only]
 public(package) fun new_for_testing(ctx: &mut TxContext): System {

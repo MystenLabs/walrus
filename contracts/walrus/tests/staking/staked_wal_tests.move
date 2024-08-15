@@ -2,14 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 module walrus::staked_wal_tests;
-use walrus::staked_wal;
+
+use sui::test_utils::destroy;
+use walrus::{staked_wal, test_utils::mint_balance};
 
 #[test]
 // Scenario: Test the staked WAL flow
 fun test_staked_wal_flow() {
     let ctx = &mut tx_context::dummy();
     let pool_id = ctx.fresh_object_address().to_id();
-    let mut staked_wal = staked_wal::mint(pool_id, 100, 1, ctx);
+    let mut staked_wal = staked_wal::mint(pool_id, mint_balance(100), 1, ctx);
 
     // assert that the staked WAL is created correctly
     assert!(staked_wal.value() == 100);
@@ -34,8 +36,10 @@ fun test_staked_wal_flow() {
     zero.destroy_zero();
 
     // test that the staked WAL can be burned
-    let principal = staked_wal.burn();
-    assert!(principal == 100);
+    let principal = staked_wal.unwrap();
+    assert!(principal.value() == 100);
+
+    destroy(principal);
 }
 
 #[test, expected_failure]
@@ -43,7 +47,7 @@ fun test_staked_wal_flow() {
 fun test_unable_to_split_larger_amount() {
     let ctx = &mut tx_context::dummy();
     let pool_id = ctx.fresh_object_address().to_id();
-    let mut staked_wal = staked_wal::mint(pool_id, 100, 1, ctx);
+    let mut staked_wal = staked_wal::mint(pool_id, mint_balance(100), 1, ctx);
 
     let _other = staked_wal.split(101, ctx);
 
@@ -55,8 +59,8 @@ fun test_unable_to_split_larger_amount() {
 fun test_unable_to_join_activation_epoch() {
     let ctx = &mut tx_context::dummy();
     let pool_id = ctx.fresh_object_address().to_id();
-    let mut sw1 = staked_wal::mint(pool_id, 100, 1, ctx);
-    let sw2 = staked_wal::mint(pool_id, 100, 2, ctx);
+    let mut sw1 = staked_wal::mint(pool_id, mint_balance(100), 1, ctx);
+    let sw2 = staked_wal::mint(pool_id, mint_balance(100), 2, ctx);
 
     sw1.join(sw2);
 
@@ -69,8 +73,8 @@ fun test_unable_to_join_different_pool() {
     let ctx = &mut tx_context::dummy();
     let pool_id1 = ctx.fresh_object_address().to_id();
     let pool_id2 = ctx.fresh_object_address().to_id();
-    let mut sw1 = staked_wal::mint(pool_id1, 100, 1, ctx);
-    let sw2 = staked_wal::mint(pool_id2, 100, 1, ctx);
+    let mut sw1 = staked_wal::mint(pool_id1, mint_balance(100), 1, ctx);
+    let sw2 = staked_wal::mint(pool_id2, mint_balance(100), 1, ctx);
 
     sw1.join(sw2);
 
@@ -82,7 +86,7 @@ fun test_unable_to_join_different_pool() {
 fun test_unable_to_destroy_non_zero() {
     let ctx = &mut tx_context::dummy();
     let pool_id = ctx.fresh_object_address().to_id();
-    let sw = staked_wal::mint(pool_id, 100, 1, ctx);
+    let sw = staked_wal::mint(pool_id, mint_balance(100), 1, ctx);
 
     sw.destroy_zero();
 

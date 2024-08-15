@@ -6,8 +6,8 @@ module walrus::system_state_inner;
 
 use sui::{coin::Coin, sui::SUI};
 use walrus::{
-    committee::{Self, Committee},
-    storage_accounting::{Self, FutureAccountingRingBuffer},
+    committee::Committee,
+    storage_accounting::FutureAccountingRingBuffer,
     storage_node::StorageNodeCap,
     storage_resource::{Self, Storage}
 };
@@ -25,6 +25,7 @@ const ENotImplemented: u64 = 0;
 const EStorageExceeded: u64 = 1;
 const EInvalidPeriodsAhead: u64 = 2;
 
+#[test_only]
 // Epoch status values
 const EPOCH_STATUS_DONE: u8 = 0;
 #[allow(unused_const)]
@@ -165,6 +166,9 @@ public(package) fun n_shards(self: &SystemStateInnerV1): u16 {
 }
 
 // == Testing ==
+
+#[test_only]
+use walrus::{committee, storage_accounting};
 
 #[test_only]
 public(package) fun new_for_testing(ctx: &mut TxContext): SystemStateInnerV1 {

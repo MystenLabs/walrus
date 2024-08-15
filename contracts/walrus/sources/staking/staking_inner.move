@@ -84,14 +84,13 @@ public(package) fun register_candidate(
     abort ENotImplemented
 }
 
-public(package) fun withdraw_node(self: &mut StakingInnerV1, cap: StorageNodeCap) {
+public(package) fun withdraw_node(self: &mut StakingInnerV1, cap: &mut StorageNodeCap) {
     abort ENotImplemented
 }
 
 public(package) fun collect_commission(self: &mut StakingInnerV1, cap: &StorageNodeCap): Coin<SUI> {
     abort ENotImplemented
 }
-
 
 public(package) fun set_next_commission(
     self: &mut StakingInnerV1,
@@ -108,7 +107,7 @@ public(package) fun vote_for_next_epoch(
     cap: &StorageNodeCap,
     storage_price: u64,
     write_price: u64,
-    storage_capacity: u64,
+    node_capacity: u64,
 ) {
     abort ENotImplemented
 }
@@ -135,7 +134,7 @@ public(package) fun destroy_empty_pool(
     self.pools.remove(pool_id).destroy_empty()
 }
 
-/// Stakes the given amount of `T` with the pool.
+/// Stakes the given amount of `T` with the pool, returning the `StakedWal`.
 public(package) fun stake_with_pool(
     self: &mut StakingInnerV1,
     to_stake: Coin<SUI>,
@@ -146,19 +145,21 @@ public(package) fun stake_with_pool(
     self.pools[pool_id].stake(to_stake, wctx, ctx)
 }
 
-/// Requests withdrawal of the given amount from the staked `T`, the withdraw is
-/// not immediate and will be processed in the next epoch.
+/// Requests withdrawal of the given amount from the `StakedWAL`, marking it as
+/// `Withdrawing`. Once the epoch is greater than the `withdraw_epoch`, the
+/// withdrawal can be performed.
 public(package) fun request_withdraw_stake(
     self: &mut StakingInnerV1,
     staked_wal: &mut StakedWal,
-    amount: u64,
     ctx: &mut TxContext,
 ) {
     let wctx = &self.new_walrus_context();
     self.pools[staked_wal.pool_id()].request_withdraw_stake(staked_wal, wctx, ctx)
 }
 
-/// Similar to the `request_withdrawal` but takes the full value of the `StakedWal`.
+/// Perform the withdrawal of the staked WAL, returning the amount to the caller.
+/// The `StakedWal` must be in the `Withdrawing` state, and the epoch must be
+/// greater than the `withdraw_epoch`.
 public(package) fun withdraw_stake(
     self: &mut StakingInnerV1,
     staked_wal: StakedWal,
