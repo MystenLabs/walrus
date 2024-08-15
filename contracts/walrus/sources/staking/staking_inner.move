@@ -33,27 +33,12 @@ public struct StakingInnerV1 has store {
     /// The current epoch of the Walrus system. The epochs are not the same as
     /// the Sui epochs, not to be mistaken with `ctx.epoch()`.
     current_epoch: u64,
-    /// The vote for the next epoch. Used to update the `storage_price`,
-    /// `write_price` and `storage_capacity`. If the vote is not changed, the
-    /// current values are used as a vote for the next epoch.
-    ///
-    /// TODO: Revisit and consider a Table approach to prevent hitting
-    /// the object size limit. Current solution is a temporary workaround.
-    voting: VecMap<ID, VotingParams>,
-}
-
-#[allow(unused_field)]
-public struct VotingParams has store, copy, drop {
-    storage_price: u64,
-    write_price: u64,
-    storage_capacity: u64,
 }
 
 public(package) fun new(ctx: &mut TxContext): StakingInnerV1 {
     StakingInnerV1 {
         pools: object_table::new(ctx),
         current_epoch: 0,
-        voting: vec_map::empty(),
     }
 }
 
@@ -63,10 +48,16 @@ public(package) fun new(ctx: &mut TxContext): StakingInnerV1 {
 public(package) fun create_pool(
     self: &mut StakingInnerV1,
     commission_rate: u64,
+    storage_price: u64,
+    write_price: u64,
+    node_capacity: u64,
     ctx: &mut TxContext,
 ): ID {
     let pool = staking_pool::new(
         commission_rate,
+        storage_price,
+        write_price,
+        node_capacity,
         &self.new_walrus_context(),
         ctx,
     );

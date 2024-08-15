@@ -26,6 +26,12 @@ public enum PoolState has store, copy, drop {
 public struct PoolParams has store, copy, drop {
     /// Commission rate for the pool.
     commission_rate: u64,
+    /// Voting: storage price for the next epoch.
+    storage_price: u64,
+    /// Voting: write price for the next epoch.
+    write_price: u64,
+    /// Voting: node capacity for the next epoch.
+    node_capacity: u64,
 }
 
 /// Represents a single staking pool for a token. Even though it is never
@@ -69,6 +75,9 @@ public struct StakingPool has key, store {
 /// Otherwise, it will be activated in the current epoch.
 public(package) fun new(
     commission_rate: u64,
+    storage_price: u64,
+    write_price: u64,
+    node_capacity: u64,
     wctx: &WalrusContext,
     ctx: &mut TxContext,
 ): StakingPool {
@@ -81,7 +90,7 @@ public(package) fun new(
     StakingPool {
         id: object::new(ctx),
         state,
-        params: PoolParams { commission_rate },
+        params: PoolParams { commission_rate, storage_price, write_price, node_capacity },
         params_next_epoch: option::none(),
         activation_epoch,
         pending_stake: vec_map::empty(),
@@ -105,7 +114,7 @@ public(package) fun stake(
     wctx: &WalrusContext,
     ctx: &mut TxContext,
 ): StakedWal {
-    assert!(pool.is_active());
+    assert!(pool.is_active() || pool.is_new());
     assert!(to_stake.value() > 0);
 
     let current_epoch = wctx.epoch();
@@ -177,13 +186,66 @@ public(package) fun withdraw_stake(
     principal.into_coin(ctx)
 }
 
+// === Pool parameters ===
+
 /// Sets the next commission rate for the pool.
 public(package) fun set_next_commission(
     pool: &mut StakingPool,
     commission_rate: u64,
     _wctx: &WalrusContext,
 ) {
-    pool.params_next_epoch.fill(PoolParams { commission_rate });
+    if (pool.params_next_epoch.is_none()) {
+        pool.params_next_epoch.fill(pool.params);
+    };
+
+    pool.params_next_epoch.do_mut!(|params| {
+        params.commission_rate = commission_rate;
+    });
+}
+
+/// Sets the next storage price for the pool.
+public(package) fun set_next_storage_price(
+    pool: &mut StakingPool,
+    storage_price: u64,
+    _wctx: &WalrusContext,
+) {
+    if (pool.params_next_epoch.is_none()) {
+        pool.params_next_epoch.fill(pool.params);
+    };
+
+    pool.params_next_epoch.do_mut!(|params| {
+        params.storage_price = storage_price;
+    });
+}
+
+/// Sets the next write price for the pool.
+public(package) fun set_next_write_price(
+    pool: &mut StakingPool,
+    write_price: u64,
+    _wctx: &WalrusContext,
+) {
+    if (pool.params_next_epoch.is_none()) {
+        pool.params_next_epoch.fill(pool.params);
+    };
+
+    pool.params_next_epoch.do_mut!(|params| {
+        params.write_price = write_price;
+    });
+}
+
+/// Sets the next node capacity for the pool.
+public(package) fun set_next_node_capacity(
+    pool: &mut StakingPool,
+    node_capacity: u64,
+    _wctx: &WalrusContext,
+) {
+    if (pool.params_next_epoch.is_none()) {
+        pool.params_next_epoch.fill(pool.params);
+    };
+
+    pool.params_next_epoch.do_mut!(|params| {
+        params.node_capacity = node_capacity;
+    });
 }
 
 /// Destroy the pool if it is empty.

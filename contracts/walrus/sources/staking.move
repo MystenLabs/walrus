@@ -29,13 +29,24 @@ public struct Staking has key {
 /// Creates a staking pool for the candidate, registers the candidate as a storage node.
 public fun register_candidate(
     staking: &mut Staking,
-    // TODO: node_parameters
     commission_rate: u64,
+    storage_price: u64,
+    write_price: u64,
+    node_capacity: u64,
     ctx: &mut TxContext,
 ): StorageNodeCap {
     // use the Pool ID as the identifier of the storage node (?)
     // TODO: circle back on this
-    let pool_id = staking.inner_mut().create_pool(commission_rate, ctx);
+    let pool_id = staking
+        .inner_mut()
+        .create_pool(
+            commission_rate,
+            storage_price,
+            write_price,
+            node_capacity,
+            ctx,
+        );
+
     let node_cap = staking.inner_mut().register_candidate(pool_id, ctx);
     node_cap
 }
@@ -128,7 +139,11 @@ public fun request_withdraw_stake(
 
 #[allow(lint(self_transfer))]
 /// Withdraws the staked amount from the staking pool.
-public fun withdraw_stake(staking: &mut Staking, staked_wal: StakedWal, ctx: &mut TxContext): Coin<SUI> {
+public fun withdraw_stake(
+    staking: &mut Staking,
+    staked_wal: StakedWal,
+    ctx: &mut TxContext,
+): Coin<SUI> {
     staking.inner_mut().withdraw_stake(staked_wal, ctx)
 }
 
@@ -154,7 +169,7 @@ fun new(ctx: &mut TxContext): Staking { Staking { id: object::new(ctx), version:
 #[test, expected_failure(abort_code = ENotImplemented)]
 fun test_register_candidate() {
     let ctx = &mut tx_context::dummy();
-    let cap = new(ctx).register_candidate(0, ctx);
+    let cap = new(ctx).register_candidate(0, 0, 0, 0, ctx);
     abort 1337
 }
 

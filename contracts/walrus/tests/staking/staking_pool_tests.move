@@ -4,7 +4,7 @@
 module walrus::staking_pool_tests;
 
 use sui::test_utils::destroy;
-use walrus::{staking_pool, test_utils::{mint, wctx}};
+use walrus::{test_utils::{mint, wctx, pool}};
 
 #[test]
 fun test_staked_wal_flow() {
@@ -12,7 +12,7 @@ fun test_staked_wal_flow() {
     let wctx = &wctx(1, true);
 
     // step1 - create a new pool which will get activated in epoch 1
-    let mut pool = staking_pool::new(1000, wctx, ctx);
+    let mut pool = pool().build(&wctx(1, true), ctx);
     assert!(pool.is_new());
 
     // step2 - set the pool to active, expecting that epoch is now 1
@@ -33,7 +33,7 @@ fun test_advance_pool_epoch() {
     let ctx = &mut tx_context::dummy();
 
     // create pool with commission rate 1000.
-    let mut pool = staking_pool::new(1000, &wctx(1, false), ctx);
+    let mut pool = pool().commission_rate(1000).build(&wctx(1, true), ctx);
     assert!(pool.active_stake_amount() == 0);
     assert!(pool.commission_rate() == 1000);
 
