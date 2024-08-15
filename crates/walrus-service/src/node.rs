@@ -12,7 +12,7 @@ use prometheus::Registry;
 use serde::Serialize;
 use sui_types::event::EventID;
 use system_events::{SuiSystemEventProvider, SystemEventProvider};
-use tokio::{select, sync::mpsc::Sender, time::Instant};
+use tokio::{select, sync::mpsc, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{field, Instrument};
 use typed_store::{rocks::MetricConf, DBMetrics, TypedStoreError};
@@ -305,9 +305,9 @@ async fn create_read_client(
 pub struct StorageNode {
     inner: Arc<StorageNodeInner>,
     blob_sync_handler: BlobSyncHandler,
-    // Background task for handling shard syncs.
+
+    // Background tasks for handling shard syncs.
     _shard_sync_handler: tokio::task::JoinHandle<()>,
-    _shard_sync_sender: Sender<ShardIndex>,
 }
 
 /// The internal state of a Walrus storage node.
@@ -333,7 +333,7 @@ impl StorageNode {
         committee_service_factory: Box<dyn CommitteeServiceFactory>,
         contract_service: Box<dyn SystemContractService>,
         registry: &Registry,
-        initial_storage: Option<Storage>, // For testing purposes.
+        pre_created_storage: Option<Storage>, // For testing purposes.
     ) -> Result<Self, anyhow::Error> {
         let start_time = Instant::now();
         let committee_service = committee_service_factory
@@ -342,16 +342,17 @@ impl StorageNode {
             .context("unable to construct a committee service for the storage node")?;
 
         // Create a channel for shard syncs.
-        let (tx, rx) = tokio::sync::mpsc::channel(10);
+        let (sync_shard_tx, sync_shard_rx) = mpsc::channel(10);
 
         let db_config = config.db_config.clone().unwrap_or_default();
-        let mut storage = if let Some(storage) = initial_storage {
-            storage
+        let mut storage = if let Some(storage) = pre_created_storage {
+            storage.with_shard_sync_sender(sync_shard_tx.clone())
         } else {
             Storage::open(
                 config.storage_path.as_path(),
                 db_config,
                 MetricConf::new("storage"),
+                Some(sync_shard_tx.clone()),
             )?
         };
 
@@ -390,19 +391,18 @@ impl StorageNode {
 
         let inner_clone = inner.clone();
         let shard_sync_handler = tokio::spawn(async move {
-            shard_sync::shard_sync_handler(inner_clone, rx).await;
+            shard_sync::shard_sync_handler(inner_clone, sync_shard_rx).await;
         });
 
         // TODO: remove once shard storage drives the initialization of the shard sync.
         for shard in inner.storage.shards() {
-            tx.send(shard).await?;
+            sync_shard_tx.send(shard).await?;
         }
 
         Ok(StorageNode {
             inner,
             blob_sync_handler,
             _shard_sync_handler: shard_sync_handler,
-            _shard_sync_sender: tx,
         })
     }
 
@@ -573,12 +573,11 @@ impl StorageNodeInner {
         &self,
         sliver_pair_index: SliverPairIndex,
         blob_id: &BlobId,
-    ) -> Result<&ShardStorage, ShardNotAssigned> {
+    ) -> Result<&Arc<ShardStorage>, ShardNotAssigned> {
         let shard_index =
             sliver_pair_index.to_shard_index(self.encoding_config.n_shards(), blob_id);
         self.storage
             .shard_storage(shard_index)
-            .map(|shard_storage| &**shard_storage)
             .ok_or(ShardNotAssigned(shard_index, self.current_epoch()))
     }
 
@@ -1393,7 +1392,6 @@ mod tests {
         let mut details = Vec::new();
         for blob in blobs {
             let blob_details = EncodedBlob::new(blob, config.clone());
-
             events.send(BlobRegistered::for_testing(*blob_details.blob_id()).into())?;
             store_at_shards(&blob_details, &cluster, |_, _| true).await?;
             events.send(BlobCertified::for_testing(*blob_details.blob_id()).into())?;
@@ -1987,9 +1985,9 @@ mod tests {
         // Starts the shard syncing process.
         cluster.nodes[1]
             .storage_node
-            ._shard_sync_sender
-            .send(ShardIndex(0))
-            .await?;
+            .inner
+            .storage
+            .init_shard_sync_for_test(ShardIndex(0));
 
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
