@@ -108,7 +108,9 @@ rest_api_error!(
         (ShardNotAssigned(_), MISDIRECTED_REQUEST,
         "the requested sliver is not stored at a shard assigned to this storage node"),
         (EpochTooOld(_, _), BAD_REQUEST, "The requested epoch is too old"),
-        (Internal(_), INTERNAL_SERVER_ERROR, @canonical)
+        (Internal(_), INTERNAL_SERVER_ERROR, @canonical),
+        (NoSyncClient, BAD_REQUEST, "No client found for syncing the shard"),
+        (NoOwnerForShard(_), BAD_REQUEST, "No owner found for the shard"),
     ]
 );
 

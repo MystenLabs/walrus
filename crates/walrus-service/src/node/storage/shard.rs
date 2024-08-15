@@ -5,10 +5,12 @@
 
 use std::{
     collections::{HashMap, HashSet},
+    ops::Bound::{Excluded, Unbounded},
     path::Path,
     sync::{Arc, OnceLock},
 };
 
+use anyhow::Context;
 use regex::Regex;
 use rocksdb::{Options, DB};
 use serde::{Deserialize, Serialize};
@@ -25,12 +27,17 @@ use walrus_core::{
     SliverType,
 };
 
-use super::DatabaseConfig;
+use super::{blob_info::BlobInfoApi, DatabaseConfig};
+use crate::node::{errors::SyncShardError, StorageNodeInner};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ShardStatus {
+    None,
+
     /// The shard is active in this node serving reads and writes.
     Active,
+
+    ActiveSync,
 
     /// The shard is locked for moving to another node. Shard does not accept any more writes in
     /// this status.
@@ -58,7 +65,7 @@ impl ShardStorage {
         database: &Arc<RocksDB>,
         db_config: &DatabaseConfig,
         initial_shard_status: Option<ShardStatus>,
-    ) -> Result<Self, TypedStoreError> {
+    ) -> Result<Arc<Self>, TypedStoreError> {
         let rw_options = ReadWriteOptions::default();
 
         let shard_cf_options = Self::slivers_column_family_options(id, db_config);
@@ -97,12 +104,12 @@ impl ShardStorage {
             shard_status.insert(&(), &status)?;
         }
 
-        Ok(Self {
+        Ok(Arc::new(Self {
             id,
             primary_slivers,
             secondary_slivers,
             shard_status,
-        })
+        }))
     }
 
     /// Stores the provided primary or secondary sliver for the given blob ID.
@@ -284,10 +291,112 @@ impl ShardStorage {
         })
     }
 
+    pub async fn sync_shard_to_epoch(
+        &self,
+        node: Arc<StorageNodeInner>,
+    ) -> Result<(), SyncShardError> {
+        tracing::info!(
+            "Syncing shard index: {} to epoch: {}",
+            self.id(),
+            node.current_epoch()
+        );
+        self.shard_status
+            .insert(&(), &ShardStatus::ActiveSync)
+            .context("Update shard status encountered error")?;
+
+        self.sync_shard_to_epoch_internal(&node, SliverType::Primary)
+            .await?;
+        self.sync_shard_to_epoch_internal(&node, SliverType::Secondary)
+            .await?;
+
+        self.shard_status
+            .insert(&(), &ShardStatus::Active)
+            .context("Update shard status encountered error")?;
+
+        Ok(())
+    }
+
+    async fn sync_shard_to_epoch_internal(
+        &self,
+        node: &Arc<StorageNodeInner>,
+        sliver_type: SliverType,
+    ) -> Result<(), SyncShardError> {
+        let mut starting_blob_id = None;
+        while let Some(next_starting_blob_id) = next_certified_blob_id(node, starting_blob_id)
+            .context("Scanning certified blobs encountered error")?
+        {
+            tracing::info!(
+                "Syncing shard index: {} to epoch: {} for sliver type: {}. Starting blob id: {}",
+                self.id(),
+                node.current_epoch(),
+                sliver_type,
+                next_starting_blob_id,
+            );
+            for blob in node
+                .committee_service
+                .sync_shard_to_epoch(
+                    self.id(),
+                    next_starting_blob_id,
+                    sliver_type,
+                    10,
+                    node.current_epoch(),
+                    &node.protocol_key_pair,
+                )
+                .await?
+            {
+                tracing::info!(
+                    "Synced blob id: {} for shard index: {} to epoch: {} for sliver type: {}",
+                    blob.0,
+                    self.id(),
+                    node.current_epoch(),
+                    sliver_type
+                );
+                self.put_sliver(&blob.0, &blob.1)
+                    .context("Storing synced slivers encountered error")?;
+                starting_blob_id = Some(blob.0);
+            }
+        }
+
+        Ok(())
+    }
+
     #[cfg(test)]
     pub(crate) fn lock_shard_for_epoch_change(&self) -> Result<(), TypedStoreError> {
         self.shard_status.insert(&(), &ShardStatus::LockedToMove)
     }
+
+    #[cfg(test)]
+    pub(crate) fn update_status_in_test(&self, status: ShardStatus) -> Result<(), TypedStoreError> {
+        self.shard_status.insert(&(), &status)
+    }
+}
+
+fn next_certified_blob_id(
+    node: &Arc<StorageNodeInner>,
+    after_blob: Option<BlobId>,
+) -> Result<Option<BlobId>, TypedStoreError> {
+    let iter = node.storage.blob_info.safe_range_iter((
+        if let Some(starting_blob_id) = after_blob {
+            Excluded(starting_blob_id)
+        } else {
+            Unbounded
+        },
+        Unbounded,
+    ));
+
+    for result in iter {
+        let (blob_id, blob_info) = result?;
+        if blob_info.is_certified()
+            && blob_info
+                .status_changing_epoch(super::blob_info::BlobCertificationStatus::Certified)
+                .unwrap()
+                <= node.current_epoch()
+        {
+            return Ok(Some(blob_id));
+        }
+    }
+
+    Ok(None)
 }
 
 fn id_from_column_family_name(name: &str) -> Option<(ShardIndex, SliverType)> {

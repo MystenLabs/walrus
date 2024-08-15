@@ -128,4 +128,8 @@ pub enum SyncShardError {
     EpochTooOld(Epoch, Epoch),
     #[error(transparent)]
     Internal(#[from] InternalError),
+    #[error("The destination node does not have a valid client to talk to the source node")]
+    NoSyncClient,
+    #[error("Unable to find the owner for shard {0}")]
+    NoOwnerForShard(ShardIndex),
 }

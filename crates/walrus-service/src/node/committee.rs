@@ -34,15 +34,23 @@ use walrus_core::{
         SliverVerificationError,
     },
     inconsistency::{InconsistencyProof, SliverOrInconsistencyProof},
+    keys::ProtocolKeyPair,
     merkle::MerkleProof,
-    messages::{CertificateError, InvalidBlobCertificate, InvalidBlobIdAttestation},
+    messages::{
+        CertificateError,
+        InvalidBlobCertificate,
+        InvalidBlobIdAttestation,
+        SyncShardResponse,
+    },
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
     Epoch,
     InconsistencyProof as InconsistencyProofEnum,
     PublicKey,
     ShardIndex,
+    Sliver as GeneralSliver,
     SliverPairIndex,
+    SliverType,
 };
 use walrus_sdk::client::Client as StorageNodeClient;
 use walrus_sui::{
@@ -50,6 +58,7 @@ use walrus_sui::{
     types::{Committee, StorageNode as SuiStorageNode},
 };
 
+use super::errors::SyncShardError;
 use crate::{
     common::utils::{self, ExponentialBackoff, FutureHelpers},
     node::config::CommitteeServiceConfig,
@@ -129,6 +138,17 @@ pub trait CommitteeService: std::fmt::Debug + Send + Sync {
         n_shards: NonZeroU16,
     ) -> InvalidBlobCertificate;
 
+    /// Syncs a shard to the given epoch.
+    async fn sync_shard_to_epoch(
+        &self,
+        shard: ShardIndex,
+        starting_blob_id: BlobId,
+        sliver_type: SliverType,
+        sliver_count: u64,
+        epoch: Epoch,
+        key_pair: &ProtocolKeyPair,
+    ) -> Result<Vec<(BlobId, GeneralSliver)>, anyhow::Error>;
+
     /// Checks if the given public key belongs to a Walrus storage node.
     /// TODO (#629): once node catching up is implemented, we need to make sure that the node
     /// may not be part of the current committee (node from past committee in the previous epoch
@@ -159,6 +179,15 @@ trait NodeClient {
         epoch: Epoch,
         public_key: &PublicKey,
     ) -> Option<InvalidBlobIdAttestation>;
+
+    async fn sync_shard<A: EncodingAxis + 'static>(
+        &self,
+        shard_index: ShardIndex,
+        starting_blob_id: BlobId,
+        sliver_count: u64,
+        epoch: Epoch,
+        key_pair: &ProtocolKeyPair,
+    ) -> Option<SyncShardResponse>;
 }
 
 /// Constructs [`NodeCommitteeService`]s by reading the current storage committee from the chain.
@@ -556,6 +585,31 @@ where
             }
         }
     }
+
+    async fn sync_shard_to_epoch<A: EncodingAxis + 'static>(
+        &self,
+        shard: ShardIndex,
+        starting_blob_id: BlobId,
+        sliver_count: u64,
+        epoch: Epoch,
+        key_pair: &ProtocolKeyPair,
+    ) -> Result<Vec<(BlobId, GeneralSliver)>, anyhow::Error> {
+        let Some(member_index) = self.committee.member_index_for_shard(shard) else {
+            return Err(SyncShardError::NoOwnerForShard(shard).into());
+        };
+
+        let node = self.node(member_index);
+
+        if let Some(client) = node.client() {
+            Ok(client
+                .sync_shard::<A>(shard, starting_blob_id, sliver_count, epoch, key_pair)
+                .await
+                .unwrap_or_default()
+                .into())
+        } else {
+            Err(SyncShardError::NoSyncClient.into())
+        }
+    }
 }
 
 /// Helper to access a storage node in the committee and its client.
@@ -679,6 +733,49 @@ impl CommitteeService for NodeCommitteeService {
         self.inner
             .get_invalid_blob_certificate(blob_id, inconsistency_proof, n_shards)
             .await
+    }
+
+    async fn sync_shard_to_epoch(
+        &self,
+        shard: ShardIndex,
+        starting_blob_id: BlobId,
+        sliver_type: SliverType,
+        sliver_count: u64,
+        epoch: Epoch,
+        key_pair: &ProtocolKeyPair,
+    ) -> Result<Vec<(BlobId, GeneralSliver)>, anyhow::Error> {
+        tracing::info!(
+            shard = %shard,
+            starting_blob_id = %starting_blob_id,
+            sliver_type = ?sliver_type,
+            sliver_count = sliver_count,
+            epoch = epoch,
+            "syncing shard to epoch"
+        );
+        match sliver_type {
+            SliverType::Primary => {
+                self.inner
+                    .sync_shard_to_epoch::<Primary>(
+                        shard,
+                        starting_blob_id,
+                        sliver_count,
+                        epoch,
+                        key_pair,
+                    )
+                    .await
+            }
+            SliverType::Secondary => {
+                self.inner
+                    .sync_shard_to_epoch::<Secondary>(
+                        shard,
+                        starting_blob_id,
+                        sliver_count,
+                        epoch,
+                        key_pair,
+                    )
+                    .await
+            }
+        }
     }
 }
 

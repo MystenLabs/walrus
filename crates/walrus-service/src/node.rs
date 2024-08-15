@@ -12,7 +12,7 @@ use prometheus::Registry;
 use serde::Serialize;
 use sui_types::event::EventID;
 use system_events::{SuiSystemEventProvider, SystemEventProvider};
-use tokio::{select, time::Instant};
+use tokio::{select, sync::mpsc::Sender, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{field, Instrument};
 use typed_store::{rocks::MetricConf, DBMetrics, TypedStoreError};
@@ -67,6 +67,7 @@ pub mod system_events;
 pub(crate) mod metrics;
 
 mod blob_sync;
+mod shard_sync;
 
 mod errors;
 use errors::{
@@ -238,16 +239,6 @@ impl StorageNodeBuilder {
             .get()
             .expect("protocol keypair must already be loaded")
             .clone();
-        let db_config = config.db_config.clone().unwrap_or_default();
-        let storage = if let Some(storage) = self.storage {
-            storage
-        } else {
-            Storage::open(
-                config.storage_path.as_path(),
-                db_config,
-                MetricConf::new("storage"),
-            )?
-        };
         let sui_config_and_client =
             if self.event_provider.is_none() || self.committee_service_factory.is_none() {
                 Some(create_read_client(config).await?)
@@ -282,13 +273,13 @@ impl StorageNodeBuilder {
         });
 
         StorageNode::new(
+            config,
             protocol_key_pair,
-            storage,
             event_provider,
             committee_service_factory,
             contract_service,
             &metrics_registry,
-            config.blob_recovery.max_concurrent_blob_syncs,
+            self.storage,
         )
         .await
     }
@@ -314,11 +305,14 @@ async fn create_read_client(
 pub struct StorageNode {
     inner: Arc<StorageNodeInner>,
     blob_sync_handler: BlobSyncHandler,
+    _shard_sync_handler: tokio::task::JoinHandle<()>,
+    _shard_sync_sender: Sender<ShardIndex>,
 }
 
+/// The internal state of a Walrus storage node.
 #[derive(Debug)]
 
-struct StorageNodeInner {
+pub struct StorageNodeInner {
     protocol_key_pair: ProtocolKeyPair,
     storage: Storage,
     encoding_config: Arc<EncodingConfig>,
@@ -332,19 +326,33 @@ struct StorageNodeInner {
 
 impl StorageNode {
     async fn new(
+        config: &StorageNodeConfig,
         key_pair: ProtocolKeyPair,
-        mut storage: Storage,
         event_provider: Box<dyn SystemEventProvider>,
         committee_service_factory: Box<dyn CommitteeServiceFactory>,
         contract_service: Box<dyn SystemContractService>,
         registry: &Registry,
-        max_concurrent_blob_syncs: usize,
+        initial_storage: Option<Storage>,
     ) -> Result<Self, anyhow::Error> {
         let start_time = Instant::now();
         let committee_service = committee_service_factory
             .new_for_epoch(Some(key_pair.as_ref().public()))
             .await
             .context("unable to construct a committee service for the storage node")?;
+
+        let (tx, rx) = tokio::sync::mpsc::channel(10);
+
+        let db_config = config.db_config.clone().unwrap_or_default();
+        let mut storage = if let Some(storage) = initial_storage {
+            storage
+        } else {
+            Storage::open(
+                config.storage_path.as_path(),
+                db_config,
+                MetricConf::new("storage"),
+                Some(tx.clone()),
+            )?
+        };
 
         let encoding_config = Arc::new(EncodingConfig::new(committee_service.get_shard_count()));
 
@@ -374,11 +382,25 @@ impl StorageNode {
 
         inner.init_gauges()?;
 
-        let blob_sync_handler = BlobSyncHandler::new(inner.clone(), max_concurrent_blob_syncs);
+        let blob_sync_handler = BlobSyncHandler::new(
+            inner.clone(),
+            config.blob_recovery.max_concurrent_blob_syncs,
+        );
+
+        let inner_clone = inner.clone();
+        let shard_sync_handler = tokio::spawn(async move {
+            shard_sync::shard_sync_handler(inner_clone, rx).await;
+        });
+
+        for shard in inner.storage.shards() {
+            tx.send(shard).await?;
+        }
 
         Ok(StorageNode {
             inner,
             blob_sync_handler,
+            _shard_sync_handler: shard_sync_handler,
+            _shard_sync_sender: tx,
         })
     }
 
@@ -554,6 +576,7 @@ impl StorageNodeInner {
             sliver_pair_index.to_shard_index(self.encoding_config.n_shards(), blob_id);
         self.storage
             .shard_storage(shard_index)
+            .map(|shard_storage| &**shard_storage)
             .ok_or(ShardNotAssigned(shard_index, self.current_epoch()))
     }
 
@@ -945,7 +968,10 @@ mod tests {
     use walrus_test_utils::{async_param_test, Result as TestResult, WithTempDir};
 
     use super::*;
-    use crate::test_utils::{StorageNodeHandle, TestCluster};
+    use crate::{
+        node::storage::ShardStatus,
+        test_utils::{StorageNodeHandle, TestCluster},
+    };
 
     const TIMEOUT: Duration = Duration::from_secs(1);
     const OTHER_BLOB_ID: BlobId = BlobId([247; 32]);
@@ -1345,9 +1371,9 @@ mod tests {
     // Creates a test cluster with custom initial epoch and a blob that is already certified.
     async fn cluster_with_initial_epoch_and_certified_blob<'a>(
         assignment: &[&[u16]],
-        blob: &'a [u8],
+        blobs: &[&'a [u8]],
         initial_epoch: Epoch,
-    ) -> TestResult<(TestCluster, Sender<BlobEvent>, EncodedBlob)> {
+    ) -> TestResult<(TestCluster, Sender<BlobEvent>, Vec<EncodedBlob>)> {
         let events = Sender::new(48);
 
         let cluster = {
@@ -1362,13 +1388,17 @@ mod tests {
         };
 
         let config = cluster.encoding_config();
-        let blob_details = EncodedBlob::new(blob, config);
+        let mut details = Vec::new();
+        for blob in blobs {
+            let blob_details = EncodedBlob::new(blob, config.clone());
 
-        events.send(BlobRegistered::for_testing(*blob_details.blob_id()).into())?;
-        store_at_shards(&blob_details, &cluster, |_, _| true).await?;
-        events.send(BlobCertified::for_testing(*blob_details.blob_id()).into())?;
+            events.send(BlobRegistered::for_testing(*blob_details.blob_id()).into())?;
+            store_at_shards(&blob_details, &cluster, |_, _| true).await?;
+            events.send(BlobCertified::for_testing(*blob_details.blob_id()).into())?;
+            details.push(blob_details);
+        }
 
-        Ok((cluster, events, blob_details))
+        Ok((cluster, events, details))
     }
 
     #[tokio::test]
@@ -1714,9 +1744,9 @@ mod tests {
     #[tokio::test]
     async fn sync_shard_node_api_success() -> TestResult {
         let (cluster, _, blob_detail) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], BLOB, 0).await?;
+            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &[BLOB], 0).await?;
 
-        let blob_id = *blob_detail.blob_id();
+        let blob_id = *blob_detail[0].blob_id();
 
         // Tests successful sync shard operation.
         let status = cluster.nodes[0]
@@ -1756,7 +1786,7 @@ mod tests {
     #[tokio::test]
     async fn sync_shard_node_api_unauthorized_error() -> TestResult {
         let (cluster, _, _) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], BLOB, 0).await?;
+            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &[BLOB], 0).await?;
 
         let response = cluster.nodes[0]
             .client
@@ -1777,7 +1807,7 @@ mod tests {
     #[tokio::test]
     async fn sync_shard_node_api_request_verification_error() -> TestResult {
         let (cluster, _, _) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], BLOB, 0).await?;
+            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &[BLOB], 0).await?;
 
         let request = SyncShardRequest::new(ShardIndex(0), SliverType::Primary, BLOB_ID, 10, 1);
         let sync_shard_msg = SyncShardMsg::new(1, request);
@@ -1810,7 +1840,7 @@ mod tests {
     async fn sync_shard_node_api_wrong_epoch() -> TestResult {
         // Creates a cluster with initial epoch set to 10.
         let (cluster, _, blob_detail) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], BLOB, 10).await?;
+            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &[BLOB], 10).await?;
 
         cluster.nodes[0]
             .storage_node
@@ -1823,7 +1853,7 @@ mod tests {
             .client
             .sync_shard::<Primary>(
                 ShardIndex(0),
-                *blob_detail.blob_id(),
+                *blob_detail[0].blob_id(),
                 10,
                 0,
                 &cluster.nodes[0].as_ref().inner.protocol_key_pair,
@@ -1923,6 +1953,89 @@ mod tests {
             .compute_storage_confirmation(blob.blob_id())
             .await
             .is_ok());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn sync_shard_client_basic() -> TestResult {
+        telemetry_subscribers::init_for_testing();
+
+        let (cluster, _, blob_details) = cluster_with_initial_epoch_and_certified_blob(
+            &[&[0], &[1]],
+            &[
+                &[1; 32], &[2; 32], &[3; 32], &[4; 32], &[5; 32], &[6; 32], &[7; 32], &[8; 32],
+                &[9; 32], &[10; 32], &[11; 32], &[12; 32], &[13; 32], &[14; 32], &[15; 32],
+                &[16; 32], &[17; 32], &[18; 32], &[19; 32], &[20; 32], &[21; 32], &[22; 32],
+                &[23; 32],
+            ],
+            0,
+        )
+        .await?;
+
+        let node_inner = unsafe {
+            &mut *(Arc::as_ptr(&cluster.nodes[1].storage_node.inner) as *mut StorageNodeInner)
+        };
+        node_inner.storage.create_storage_for_shard(ShardIndex(0))?;
+        let shard_storage = node_inner.storage.shard_storage(ShardIndex(0)).unwrap();
+
+        shard_storage.update_status_in_test(ShardStatus::ActiveSync)?;
+
+        cluster.nodes[1]
+            .storage_node
+            ._shard_sync_sender
+            .send(ShardIndex(0))
+            .await?;
+
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let status = shard_storage.status().unwrap();
+                if status == ShardStatus::Active {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        })
+        .await?;
+
+        let shard_storage_0 = cluster.nodes[0]
+            .storage_node
+            .inner
+            .storage
+            .shard_storage(ShardIndex(0))
+            .unwrap();
+        let shard_storage_1 = cluster.nodes[1]
+            .storage_node
+            .inner
+            .storage
+            .shard_storage(ShardIndex(0))
+            .unwrap();
+
+        assert_eq!(blob_details.len(), 23);
+
+        blob_details.iter().for_each(|details| {
+            let blob_id = *details.blob_id();
+            assert_eq!(
+                shard_storage_0
+                    .get_sliver(&blob_id, SliverType::Primary)
+                    .unwrap()
+                    .unwrap(),
+                shard_storage_1
+                    .get_sliver(&blob_id, SliverType::Primary)
+                    .unwrap()
+                    .unwrap()
+            );
+            assert_eq!(
+                shard_storage_0
+                    .get_sliver(&blob_id, SliverType::Secondary)
+                    .unwrap()
+                    .unwrap(),
+                shard_storage_1
+                    .get_sliver(&blob_id, SliverType::Secondary)
+                    .unwrap()
+                    .unwrap()
+            );
+        });
 
         Ok(())
     }

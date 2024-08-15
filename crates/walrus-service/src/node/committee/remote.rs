@@ -3,13 +3,15 @@
 
 use walrus_core::{
     encoding::{EncodingAxis, EncodingConfig, RecoverySymbol},
+    keys::ProtocolKeyPair,
     merkle::MerkleProof,
-    messages::InvalidBlobIdAttestation,
+    messages::{InvalidBlobIdAttestation, SyncShardResponse},
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
     Epoch,
     InconsistencyProof,
     PublicKey,
+    ShardIndex,
     SliverPairIndex,
 };
 use walrus_sdk::client::Client as StorageNodeClient;
@@ -71,5 +73,20 @@ impl NodeClient for StorageNodeClient {
         .inspect(|_| tracing::debug!("invalid blob attestation request succeeded"))
         .inspect_err(|err| tracing::debug!(%err, "invalid blob attestation request failed"))
         .ok()
+    }
+
+    async fn sync_shard<A: EncodingAxis>(
+        &self,
+        shard_index: ShardIndex,
+        starting_blob_id: BlobId,
+        sliver_count: u64,
+        epoch: Epoch,
+        key_pair: &ProtocolKeyPair,
+    ) -> Option<SyncShardResponse> {
+        self.sync_shard::<A>(shard_index, starting_blob_id, sliver_count, epoch, key_pair)
+            .await
+            .inspect(|_| tracing::debug!("Sync shard request succeeded"))
+            .inspect_err(|err| tracing::debug!(%err, "Sync shard request failed"))
+            .ok()
     }
 }

@@ -12,8 +12,8 @@ use anyhow::Context;
 use rocksdb::{DBCompressionType, MergeOperands, Options};
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
-use shard::ShardStatus;
 use sui_sdk::types::event::EventID;
+use tokio::sync::mpsc::Sender;
 use tracing::Level;
 use typed_store::{
     rocks::{self, DBBatch, DBMap, MetricConf, ReadWriteOptions, RocksDB},
@@ -44,7 +44,7 @@ pub(super) use event_cursor_table::EventProgress;
 mod event_sequencer;
 
 mod shard;
-pub(crate) use shard::ShardStorage;
+pub(crate) use shard::{ShardStatus, ShardStorage};
 
 /// Options for configuring a column family.
 #[serde_with::serde_as]
@@ -213,8 +213,9 @@ pub struct Storage {
     metadata: DBMap<BlobId, BlobMetadata>,
     blob_info: DBMap<BlobId, BlobInfo>,
     event_cursor: EventCursorTable,
-    shards: HashMap<ShardIndex, ShardStorage>,
+    shards: HashMap<ShardIndex, Arc<ShardStorage>>,
     config: DatabaseConfig,
+    _sync_shard_sender: Option<Sender<ShardIndex>>,
 }
 
 impl Storage {
@@ -226,6 +227,7 @@ impl Storage {
         path: &Path,
         db_config: DatabaseConfig,
         metrics_config: MetricConf,
+        sync_shard_sender: Option<Sender<ShardIndex>>,
     ) -> Result<Self, anyhow::Error> {
         let mut db_opts = Options::default();
         db_opts.create_missing_column_families(true);
@@ -293,6 +295,7 @@ impl Storage {
             event_cursor,
             shards,
             config: db_config,
+            _sync_shard_sender: sync_shard_sender,
         })
     }
 
@@ -321,7 +324,7 @@ impl Storage {
     }
 
     /// Returns a handle over the storage for a single shard.
-    pub fn shard_storage(&self, shard: ShardIndex) -> Option<&ShardStorage> {
+    pub fn shard_storage(&self, shard: ShardIndex) -> Option<&Arc<ShardStorage>> {
         self.shards.get(&shard)
     }
 
@@ -1000,6 +1003,7 @@ pub(crate) mod tests {
                 directory.path(),
                 DatabaseConfig::default(),
                 MetricConf::default(),
+                None,
             )?;
 
             for shard_id in [SHARD_INDEX, OTHER_SHARD_INDEX] {
@@ -1038,6 +1042,7 @@ pub(crate) mod tests {
                 directory.path(),
                 DatabaseConfig::default(),
                 MetricConf::default(),
+                None,
             )?;
 
             // Check that the shard status is restored correctly.

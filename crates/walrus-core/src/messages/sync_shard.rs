@@ -145,8 +145,22 @@ pub enum SyncShardResponse {
     V1(Vec<(BlobId, Sliver)>),
 }
 
+impl Default for SyncShardResponse {
+    fn default() -> Self {
+        Self::V1(Vec::new())
+    }
+}
+
 impl From<Vec<(BlobId, Sliver)>> for SyncShardResponse {
     fn from(val: Vec<(BlobId, Sliver)>) -> Self {
         Self::V1(val)
+    }
+}
+
+impl From<SyncShardResponse> for Vec<(BlobId, Sliver)> {
+    fn from(val: SyncShardResponse) -> Vec<(BlobId, Sliver)> {
+        match val {
+            SyncShardResponse::V1(val) => val,
+        }
     }
 }
