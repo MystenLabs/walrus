@@ -586,6 +586,7 @@ where
         }
     }
 
+    #[tracing::instrument(name = "sync_shard_to_epoch committee", skip_all)]
     async fn sync_shard_to_epoch<A: EncodingAxis + 'static>(
         &self,
         shard: ShardIndex,

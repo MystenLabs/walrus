@@ -957,6 +957,7 @@ mod tests {
         SHARD_INDEX,
     };
     use tokio::sync::{broadcast::Sender, Mutex};
+    use typed_store::Map;
     use walrus_core::{
         encoding::{self, EncodingAxis, Primary, Secondary, SliverPair},
         messages::{SyncShardMsg, SyncShardRequest},
@@ -1959,7 +1960,7 @@ mod tests {
 
     // Tests the basic `sync_shard` API.
     #[tokio::test]
-    async fn sync_shard_client_basic() -> TestResult {
+    async fn sync_shard_client_success() -> TestResult {
         telemetry_subscribers::init_for_testing();
 
         let (cluster, _, blob_details) = cluster_with_initial_epoch_and_certified_blob(
@@ -1974,13 +1975,26 @@ mod tests {
         )
         .await?;
 
-        // Make storage inner mutable so that we can manually add another shard to node 1.
+        // Makes storage inner mutable so that we can manually add another shard to node 1.
         let node_inner = unsafe {
             &mut *(Arc::as_ptr(&cluster.nodes[1].storage_node.inner) as *mut StorageNodeInner)
         };
         node_inner.storage.create_storage_for_shard(ShardIndex(0))?;
-        let shard_storage = node_inner.storage.shard_storage(ShardIndex(0)).unwrap();
-        shard_storage.update_status_in_test(ShardStatus::ActiveSync)?;
+        let shard_storage_dst = node_inner.storage.shard_storage(ShardIndex(0)).unwrap();
+        shard_storage_dst.update_status_in_test(ShardStatus::ActiveSync)?;
+
+        let shard_storage_src = cluster.nodes[0]
+            .storage_node
+            .inner
+            .storage
+            .shard_storage(ShardIndex(0))
+            .unwrap();
+
+        assert_eq!(blob_details.len(), 23);
+        assert_eq!(shard_storage_src.primary_slivers().keys().count(), 23);
+        assert_eq!(shard_storage_src.secondary_slivers().keys().count(), 23);
+        assert_eq!(shard_storage_dst.primary_slivers().keys().count(), 0);
+        assert_eq!(shard_storage_dst.secondary_slivers().keys().count(), 0);
 
         // Starts the shard syncing process.
         cluster.nodes[1]
@@ -1989,9 +2003,10 @@ mod tests {
             .storage
             .init_shard_sync_for_test(ShardIndex(0));
 
+        // Waits for the shard to be synced.
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
-                let status = shard_storage.status().unwrap();
+                let status = shard_storage_dst.status().unwrap();
                 if status == ShardStatus::Active {
                     break;
                 }
@@ -2000,18 +2015,8 @@ mod tests {
         })
         .await?;
 
-        let shard_storage_0 = cluster.nodes[0]
-            .storage_node
-            .inner
-            .storage
-            .shard_storage(ShardIndex(0))
-            .unwrap();
-        let shard_storage_1 = cluster.nodes[1]
-            .storage_node
-            .inner
-            .storage
-            .shard_storage(ShardIndex(0))
-            .unwrap();
+        assert_eq!(shard_storage_dst.primary_slivers().keys().count(), 23);
+        assert_eq!(shard_storage_dst.secondary_slivers().keys().count(), 23);
 
         assert_eq!(blob_details.len(), 23);
 
@@ -2019,21 +2024,21 @@ mod tests {
         blob_details.iter().for_each(|details| {
             let blob_id = *details.blob_id();
             assert_eq!(
-                shard_storage_0
+                shard_storage_src
                     .get_sliver(&blob_id, SliverType::Primary)
                     .unwrap()
                     .unwrap(),
-                shard_storage_1
+                shard_storage_dst
                     .get_sliver(&blob_id, SliverType::Primary)
                     .unwrap()
                     .unwrap()
             );
             assert_eq!(
-                shard_storage_0
+                shard_storage_src
                     .get_sliver(&blob_id, SliverType::Secondary)
                     .unwrap()
                     .unwrap(),
-                shard_storage_1
+                shard_storage_dst
                     .get_sliver(&blob_id, SliverType::Secondary)
                     .unwrap()
                     .unwrap()
