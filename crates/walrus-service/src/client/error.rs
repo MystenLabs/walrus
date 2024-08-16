@@ -4,7 +4,7 @@
 //! The errors for the storage client and the communication with storage nodes.
 
 use walrus_core::{BlobId, SliverPairIndex, SliverType};
-use walrus_sdk::error::NodeError;
+use walrus_sdk::error::{ClientBuildError, NodeError};
 use walrus_sui::client::SuiClientError;
 
 /// Storing the metadata and the set of sliver pairs onto the storage node, and retrieving the
@@ -116,6 +116,9 @@ pub enum ClientErrorKind {
     /// No gas coins with sufficient balance found for the transaction.
     #[error("no compatible gas coins with sufficient total balance found")]
     NoCompatibleGasCoins,
+    /// The client was unable to open connections to any storage node.
+    #[error("connecting to all storage nodes failed: {0}")]
+    AllConnectionsFailed(ClientBuildError),
     /// A failure internal to the node.
     #[error("client internal error: {0}")]
     Other(Box<dyn std::error::Error + Send + Sync + 'static>),

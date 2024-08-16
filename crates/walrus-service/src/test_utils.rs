@@ -18,7 +18,6 @@ use std::{
 use async_trait::async_trait;
 use futures::StreamExt;
 use prometheus::Registry;
-use reqwest::Url;
 use sui_types::event::EventID;
 use tempfile::TempDir;
 use tokio::time::Duration;
@@ -55,9 +54,9 @@ use walrus_test_utils::WithTempDir;
 
 use crate::node::{
     committee::{CommitteeService, CommitteeServiceFactory, NodeCommitteeService},
-    config::{PathOrInPlace, StorageNodeConfig},
+    config::StorageNodeConfig,
     contract_service::SystemContractService,
-    server::UserServer,
+    server::{UserServer, UserServerConfig},
     system_events::SystemEventProvider,
     DatabaseConfig,
     Storage,
@@ -296,10 +295,7 @@ impl StorageNodeHandleBuilder {
             protocol_key_pair: node_info.key_pair.into(),
             network_key_pair: node_info.network_key_pair.into(),
             rest_api_address: node_info.rest_api_address,
-            metrics_address: unused_socket_address(),
-            sui: None,
-            db_config: None,
-            blob_recovery: Default::default(),
+            ..storage_node_config().inner
         };
 
         let metrics_registry = Registry::default();
@@ -316,18 +312,16 @@ impl StorageNodeHandleBuilder {
         let rest_api = Arc::new(UserServer::new(
             node.clone(),
             cancel_token.clone(),
+            UserServerConfig::from(&config),
             &metrics_registry,
         ));
 
         if self.run_rest_api {
-            let rest_api_address = config.rest_api_address;
             let rest_api_clone = rest_api.clone();
 
-            tokio::task::spawn(
-                async move { rest_api_clone.run(&rest_api_address).await }.instrument(
-                    tracing::info_span!("cluster-node", address = %config.rest_api_address),
-                ),
-            );
+            tokio::task::spawn(async move { rest_api_clone.run().await }.instrument(
+                tracing::info_span!("cluster-node", address = %config.rest_api_address),
+            ));
         }
 
         if self.run_node {
@@ -339,18 +333,10 @@ impl StorageNodeHandleBuilder {
             ));
         }
 
-        let client = {
-            let url = Url::parse(&format!("http://{}", config.rest_api_address))?;
-
-            // Do not load any proxy information from the system, as it's slow (at least on MacOs).
-            let inner = reqwest::Client::builder()
-                .no_proxy()
-                .http2_prior_knowledge()
-                .build()
-                .unwrap();
-
-            Client::from_url(url, inner)
-        };
+        let client = Client::builder()
+            .authenticate_with_public_key(network_public_key.clone())
+            .no_proxy()
+            .build_for_remote_ip(config.rest_api_address)?;
 
         if self.run_rest_api {
             wait_for_node_ready(&client).await?;
@@ -1061,23 +1047,19 @@ pub mod test_cluster {
 
 /// Creates a new [`StorageNodeConfig`] object for testing.
 pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
-    let rest_api_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let rest_api_address = rest_api_listener.local_addr().unwrap();
-
-    let metrics_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let metrics_address = metrics_listener.local_addr().unwrap();
-
     let temp_dir = TempDir::new().expect("able to create a temporary directory");
     WithTempDir {
         inner: StorageNodeConfig {
-            protocol_key_pair: PathOrInPlace::InPlace(walrus_core::test_utils::protocol_key_pair()),
-            network_key_pair: PathOrInPlace::InPlace(walrus_core::test_utils::network_key_pair()),
-            db_config: None,
-            rest_api_address,
-            metrics_address,
+            protocol_key_pair: walrus_core::test_utils::protocol_key_pair().into(),
+            network_key_pair: walrus_core::test_utils::network_key_pair().into(),
+            rest_api_address: unused_socket_address(),
+            metrics_address: unused_socket_address(),
             storage_path: temp_dir.path().to_path_buf(),
+            db_config: None,
             sui: None,
             blob_recovery: Default::default(),
+            tls: Default::default(),
+            rest_graceful_shutdown_period_secs: Some(Some(0)),
         },
         temp_dir,
     }

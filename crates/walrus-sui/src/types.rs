@@ -177,7 +177,7 @@ impl AssociatedContractStruct for Blob {
 }
 
 /// Network address consisting of host name or IP and port.
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize, Deserialize)]
 pub struct NetworkAddress {
     /// Host name or IP address.
     pub host: String,
@@ -236,16 +236,6 @@ pub struct StorageNode {
     pub network_public_key: NetworkPublicKey,
     /// The indices of the shards held by the storage node.
     pub shard_ids: Vec<ShardIndex>,
-}
-
-impl StorageNode {
-    /// Returns the REST API URL of the node.
-    pub fn rest_api_url(&self) -> String {
-        format!(
-            "http://{}:{}",
-            self.network_address.host, self.network_address.port
-        )
-    }
 }
 
 impl TryFrom<&SuiMoveStruct> for StorageNode {

@@ -14,6 +14,14 @@ pub struct NodeError {
 }
 
 impl NodeError {
+    /// Returns true if the error is related to connecting to the server.
+    pub fn is_connect(&self) -> bool {
+        let Kind::Reqwest(ref err) = self.kind else {
+            return false;
+        };
+        err.is_connect()
+    }
+
     /// Returns the HTTP error status code associated with the error, if any.
     pub fn http_status_code(&self) -> Option<StatusCode> {
         if let Kind::Reqwest(inner) | Kind::StatusWithMessage { inner, .. } = &self.kind {
@@ -65,4 +73,28 @@ pub(crate) enum Kind {
     InvalidContentType,
     #[error(transparent)]
     Other(Box<dyn std::error::Error + Send + Sync>),
+}
+
+/// An error returned when building the client with a
+/// [`ClientBuilder`][crate::client::ClientBuilder] has failed.
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+pub struct ClientBuildError {
+    #[from]
+    kind: BuildErrorKind,
+}
+
+impl ClientBuildError {
+    pub(crate) fn reqwest(err: reqwest::Error) -> Self {
+        BuildErrorKind::Reqwest(err).into()
+    }
+}
+
+/// Errors returned during the communication with a storage node.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum BuildErrorKind {
+    #[error("invalid storage node authority")]
+    InvalidHostOrPort,
+    #[error(transparent)]
+    Reqwest(#[from] reqwest::Error),
 }

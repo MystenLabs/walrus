@@ -6,7 +6,6 @@ use std::{num::NonZeroU16, sync::Arc};
 use anyhow::Result;
 use futures::{future::Either, stream::FuturesUnordered, StreamExt};
 use rand::rngs::StdRng;
-use reqwest::{Client as ReqwestClient, Url};
 use tokio::sync::Semaphore;
 use tracing::{Level, Span};
 use walrus_core::{
@@ -81,7 +80,7 @@ impl<'a> NodeReadCommunication<'a> {
     pub fn new(
         node_index: NodeIndex,
         epoch: Epoch,
-        client: &'a ReqwestClient,
+        client: StorageNodeClient,
         node: &'a StorageNode,
         encoding_config: &'a EncodingConfig,
         config: RequestRateConfig,
@@ -91,7 +90,6 @@ impl<'a> NodeReadCommunication<'a> {
             return None;
         }
 
-        let url = Url::parse(&format!("http://{}", node.network_address)).unwrap();
         tracing::trace!(
             %node_index,
             %config.max_node_connections,
@@ -109,7 +107,7 @@ impl<'a> NodeReadCommunication<'a> {
                 epoch,
                 pk_prefix = string_prefix(&node.public_key)
             ),
-            client: StorageNodeClient::from_url(url, client.clone()),
+            client,
             config,
             node_write_limit: (),
             sliver_write_limit: (),

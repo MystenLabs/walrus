@@ -3,13 +3,17 @@
 
 //! Client for the Walrus service.
 
-use std::{collections::HashMap, sync::Arc, time::Instant};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    sync::{Arc, Mutex},
+    time::Instant,
+};
 
 use anyhow::anyhow;
 use fastcrypto::{bls12381::min_pk::BLS12381AggregateSignature, traits::AggregateAuthenticator};
 use futures::Future;
 use rand::{seq::SliceRandom, thread_rng};
-use reqwest::{Client as ReqwestClient, ClientBuilder};
+use reqwest::Client as ReqwestClient;
 use tokio::{
     sync::Semaphore,
     time::{sleep, Duration},
@@ -28,15 +32,17 @@ use walrus_core::{
     messages::{Confirmation, ConfirmationCertificate, SignedStorageConfirmation},
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
+    NetworkPublicKey,
     Sliver,
 };
 use walrus_sdk::{
     api::{BlobCertificationStatus, BlobStatus},
-    error::NodeError,
+    client::{Client as StorageNodeClient, ClientBuilder as StorageNodeClientBuilder},
+    error::{ClientBuildError, NodeError},
 };
 use walrus_sui::{
     client::{ContractClient, ReadClient},
-    types::{Blob, BlobEvent, Committee, StorageNode},
+    types::{Blob, BlobEvent, Committee, NetworkAddress, StorageNode},
     utils::price_for_unencoded_length,
 };
 
@@ -73,7 +79,6 @@ type ClientResult<T> = Result<T, ClientError>;
 /// A client to communicate with Walrus shards and storage nodes.
 #[derive(Debug, Clone)]
 pub struct Client<T> {
-    reqwest_client: ReqwestClient,
     config: Config,
     sui_client: T,
     // INV: committee.n_shards > 0
@@ -82,6 +87,7 @@ pub struct Client<T> {
     communication_limits: CommunicationLimits,
     encoding_config: EncodingConfig,
     blocklist: Option<Blocklist>,
+    communication_factory: NodeCommunicationFactory,
 }
 
 impl Client<()> {
@@ -91,7 +97,6 @@ impl Client<()> {
         sui_read_client: &impl ReadClient,
     ) -> ClientResult<Self> {
         tracing::debug!(?config, "running client");
-        let reqwest_client = Self::build_reqwest_client(&config)?;
 
         // Get the committee, and check that there is at least one shard per node.
         let committee = sui_read_client
@@ -114,21 +119,22 @@ impl Client<()> {
             CommunicationLimits::new(&config.communication_config, encoding_config.n_shards());
 
         Ok(Self {
-            config,
-            reqwest_client,
             sui_client: (),
             committee,
             storage_price_per_unit_size,
             encoding_config,
             communication_limits,
             blocklist: None,
+            communication_factory: NodeCommunicationFactory::new(
+                config.communication_config.clone(),
+            ),
+            config,
         })
     }
 
     /// Converts `self` to a [`Client::<T>`] by adding the `sui_client`.
     pub async fn with_client<T: ContractClient>(self, sui_client: T) -> Client<T> {
         let Self {
-            reqwest_client,
             config,
             sui_client: _,
             committee,
@@ -136,9 +142,9 @@ impl Client<()> {
             encoding_config,
             communication_limits,
             blocklist,
+            communication_factory: node_client_factory,
         } = self;
         Client::<T> {
-            reqwest_client,
             config,
             sui_client,
             committee,
@@ -146,6 +152,7 @@ impl Client<()> {
             encoding_config,
             communication_limits,
             blocklist,
+            communication_factory: node_client_factory,
         }
     }
 }
@@ -315,7 +322,7 @@ impl<T> Client<T> {
             communication_limits = sliver_write_limit,
             "establishing node communications"
         );
-        let comms = self.node_write_communications(Arc::new(Semaphore::new(sliver_write_limit)));
+        let comms = self.node_write_communications(Arc::new(Semaphore::new(sliver_write_limit)))?;
 
         let mut requests = WeightedFutures::new(comms.iter().map(|n| {
             n.store_metadata_and_pairs(
@@ -438,7 +445,7 @@ impl<T> Client<T> {
         U: EncodingAxis,
         SliverData<U>: TryFrom<Sliver>,
     {
-        let comms = self.node_read_communications();
+        let comms = self.node_read_communications()?;
         // Create requests to get all slivers from all nodes.
         let futures = comms.iter().flat_map(|n| {
             // NOTE: the cloned here is needed because otherwise the compiler complains about the
@@ -627,7 +634,7 @@ impl<T> Client<T> {
         read_client: &U,
         timeout: Duration,
     ) -> ClientResult<BlobStatus> {
-        let comms = self.node_read_communications();
+        let comms = self.node_read_communications()?;
         let futures = comms
             .iter()
             .map(|n| n.get_blob_status(blob_id).instrument(n.span.clone()));
@@ -672,72 +679,62 @@ impl<T> Client<T> {
         Ok(())
     }
 
-    /// Builds a [`NodeReadCommunication`] object for the given storage node.
-    ///
-    /// Returns `None` if the node has no shards.
-    fn new_node_read_communication<'a>(
-        &'a self,
-        index: usize,
-        node: &'a StorageNode,
-    ) -> Option<NodeReadCommunication> {
-        NodeCommunication::<'_, ()>::new(
-            index,
-            self.committee.epoch,
-            &self.reqwest_client,
-            node,
-            &self.encoding_config,
-            self.config.communication_config.request_rate_config.clone(),
-        )
-    }
-
-    /// Builds a [`NodeWriteCommunication`] object for the given storage node.
-    ///
-    /// Returns `None` if the node has no shards.
-    fn new_node_write_communication<'a>(
-        &'a self,
-        index: usize,
-        node: &'a StorageNode,
-        sliver_write_limit: Arc<Semaphore>,
-    ) -> Option<NodeWriteCommunication> {
-        NodeReadCommunication::new(
-            index,
-            self.committee.epoch,
-            &self.reqwest_client,
-            node,
-            &self.encoding_config,
-            self.config.communication_config.request_rate_config.clone(),
-        )
-        .map(|nc| nc.with_write_limits(sliver_write_limit))
-    }
-
     fn node_communications<'a, W>(
         &'a self,
-        constructor: impl Fn((usize, &'a StorageNode)) -> Option<NodeCommunication<'a, W>>,
-    ) -> Vec<NodeCommunication<'a, W>> {
-        let mut comms: Vec<_> = self
-            .committee
-            .members()
-            .iter()
-            .enumerate()
-            .filter_map(constructor)
+        constructor: impl Fn(usize) -> Result<Option<NodeCommunication<'a, W>>, ClientBuildError>,
+    ) -> ClientResult<Vec<NodeCommunication<'a, W>>> {
+        let mut comms: Vec<_> = (0..self.committee.n_members())
+            .map(|i| (i, constructor(i)))
+            .collect();
+
+        if comms.iter().all(|(_, result)| result.is_err()) {
+            let Some((_, Err(sample_error))) = comms.pop() else {
+                unreachable!("`all()` guarantees at least 1 result and all results are errors");
+            };
+            return Err(ClientErrorKind::AllConnectionsFailed(sample_error).into());
+        }
+
+        let mut comms: Vec<_> = comms
+            .into_iter()
+            .filter_map(|(index, result)| match result {
+                Ok(maybe_communication) => maybe_communication,
+                Err(err) => {
+                    tracing::warn!(
+                        node=index, %err, "unable to establish any connection to a storage node"
+                    );
+                    None
+                }
+            })
             .collect();
         comms.shuffle(&mut thread_rng());
-        comms
+
+        Ok(comms)
     }
 
     /// Returns a vector of [`NodeWriteCommunication`] objects representing nodes in random order.
     fn node_write_communications(
         &self,
         sliver_write_limit: Arc<Semaphore>,
-    ) -> Vec<NodeWriteCommunication> {
-        self.node_communications(|(index, node)| {
-            self.new_node_write_communication(index, node, sliver_write_limit.clone())
+    ) -> ClientResult<Vec<NodeWriteCommunication>> {
+        self.node_communications(|index| {
+            self.communication_factory.create_write_communication(
+                index,
+                &self.committee,
+                &self.encoding_config,
+                sliver_write_limit.clone(),
+            )
         })
     }
 
     /// Returns a vector of [`NodeReadCommunication`] objects representing nodes in random order.
-    fn node_read_communications(&self) -> Vec<NodeReadCommunication> {
-        self.node_communications(|(index, node)| self.new_node_read_communication(index, node))
+    fn node_read_communications(&self) -> ClientResult<Vec<NodeReadCommunication>> {
+        self.node_communications(|index| {
+            self.communication_factory.create_read_communication(
+                index,
+                &self.committee,
+                &self.encoding_config,
+            )
+        })
     }
 
     /// Returns a vector of [`NodeCommunication`] objects the total weight of which fulfills the
@@ -770,9 +767,14 @@ impl<T> Client<T> {
                 .into());
             };
             weight += self.committee.members()[index].shard_ids.len();
-            if let Some(comm) =
-                self.new_node_read_communication(index, &self.committee.members()[index])
-            {
+
+            // Since we are attempting this in a loop, we will retry until we have a threshold of
+            // successfully constructed clients (no error and with shards).
+            if let Ok(Some(comm)) = self.communication_factory.create_read_communication(
+                index,
+                &self.committee,
+                &self.encoding_config,
+            ) {
                 comms.push(comm);
             }
         }
@@ -820,29 +822,6 @@ impl<T> Client<T> {
     pub fn sui_client_mut(&mut self) -> &mut T {
         &mut self.sui_client
     }
-
-    fn build_reqwest_client(config: &Config) -> ClientResult<ReqwestClient> {
-        let client_builder = config
-            .communication_config
-            .reqwest_config
-            .apply(ClientBuilder::new());
-
-        // reqwest proxy uses lazy initialization, which breaks determinism. Turn it off in simtest.
-        #[cfg(msim)]
-        let client_builder = client_builder.no_proxy();
-
-        client_builder.build().map_err(ClientError::other)
-    }
-
-    /// Resets the reqwest client inside the Walrus client.
-    ///
-    /// Useful to ensure that the client cannot communicate with storage nodes through connections
-    /// that are being kept alive.
-    #[cfg(feature = "test-utils")]
-    pub fn reset_reqwest_client(&mut self) -> ClientResult<()> {
-        self.reqwest_client = Self::build_reqwest_client(&self.config)?;
-        Ok(())
-    }
 }
 
 #[tracing::instrument(skip(sui_read_client), err(level = Level::WARN))]
@@ -877,4 +856,81 @@ async fn verify_blob_status(
     anyhow::ensure!(blob_id == &event_blob_id, "blob ID mismatch");
 
     Ok(())
+}
+
+#[derive(Clone, Debug)]
+struct NodeCommunicationFactory {
+    config: ClientCommunicationConfig,
+    client_cache: Arc<Mutex<HashMap<(NetworkAddress, NetworkPublicKey), StorageNodeClient>>>,
+}
+
+impl NodeCommunicationFactory {
+    fn new(config: ClientCommunicationConfig) -> Self {
+        Self {
+            config,
+            client_cache: Default::default(),
+        }
+    }
+
+    /// Builds a [`NodeReadCommunication`] object for the identified storage node within the
+    /// committee.
+    ///
+    /// Returns `None` if the node has no shards.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is out of range of the committee members.
+    fn create_read_communication<'a>(
+        &self,
+        index: usize,
+        committee: &'a Committee,
+        encoding_config: &'a EncodingConfig,
+    ) -> Result<Option<NodeReadCommunication<'a>>, ClientBuildError> {
+        let node = &committee.members()[index];
+        let client = self.create_client(node)?;
+
+        Ok(NodeReadCommunication::new(
+            index,
+            committee.epoch,
+            client,
+            node,
+            encoding_config,
+            self.config.request_rate_config.clone(),
+        ))
+    }
+
+    /// Builds a [`NodeWriteCommunication`] object for the given storage node.
+    ///
+    /// Returns `None` if the node has no shards.
+    fn create_write_communication<'a>(
+        &self,
+        index: usize,
+        committee: &'a Committee,
+        encoding_config: &'a EncodingConfig,
+        sliver_write_limit: Arc<Semaphore>,
+    ) -> Result<Option<NodeWriteCommunication<'a>>, ClientBuildError> {
+        let maybe_node_communication = self
+            .create_read_communication(index, committee, encoding_config)?
+            .map(|nc| nc.with_write_limits(sliver_write_limit));
+        Ok(maybe_node_communication)
+    }
+
+    fn create_client(&self, node: &StorageNode) -> Result<StorageNodeClient, ClientBuildError> {
+        let node_client_id = (
+            node.network_address.clone(),
+            node.network_public_key.clone(),
+        );
+        let mut cache = self.client_cache.lock().unwrap();
+
+        match cache.entry(node_client_id) {
+            Entry::Occupied(occupied) => Ok(occupied.get().clone()),
+            Entry::Vacant(vacant) => {
+                let reqwest_builder = self.config.reqwest_config.apply(ReqwestClient::builder());
+                let client = StorageNodeClientBuilder::from_reqwest(reqwest_builder)
+                    .authenticate_with_public_key(node.network_public_key.clone())
+                    .build(&node.network_address.host, node.network_address.port)?;
+                Ok(vacant.insert(client).clone())
+            }
+        }
+    }
 }

@@ -8,8 +8,8 @@ use core::{fmt, str::FromStr};
 
 use fastcrypto::{
     bls12381::min_pk::BLS12381KeyPair,
-    ed25519::Ed25519KeyPair,
     encoding::{Base64, Encoding},
+    secp256r1::Secp256r1KeyPair,
     traits::{AllowedRng, KeyPair, Signer, SigningKey, ToFromBytes},
 };
 use serde::{
@@ -26,14 +26,14 @@ use crate::messages::{ProtocolMessage, SignedMessage};
 pub type ProtocolKeyPair = TaggedKeyPair<BLS12381KeyPair>;
 
 /// Key pair used to authenticate network communication.
-pub type NetworkKeyPair = TaggedKeyPair<Ed25519KeyPair>;
+pub type NetworkKeyPair = TaggedKeyPair<Secp256r1KeyPair>;
 
 /// Identifier for the type of public key being loaded from file.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 #[repr(u8)]
 pub enum SignatureScheme {
-    /// Identifies a Ed25519 key.
-    ED25519 = 0x00,
+    /// Identifies a NIST P-256 EC key.
+    Secp256r1 = 0x02,
     /// Identifies a BLS12-381 key.
     BLS12381 = 0x04,
 }
@@ -48,8 +48,8 @@ impl SupportedKeyPair for BLS12381KeyPair {
     const SCHEME: SignatureScheme = SignatureScheme::BLS12381;
 }
 
-impl SupportedKeyPair for Ed25519KeyPair {
-    const SCHEME: SignatureScheme = SignatureScheme::ED25519;
+impl SupportedKeyPair for Secp256r1KeyPair {
+    const SCHEME: SignatureScheme = SignatureScheme::Secp256r1;
 }
 
 impl SignatureScheme {
@@ -67,6 +67,9 @@ pub struct TaggedKeyPair<T>(pub Arc<T>);
 
 impl<T: SupportedKeyPair> TaggedKeyPair<T> {
     const ENCODED_LENGTH: usize = T::PrivKey::LENGTH + 1;
+
+    /// The length of the inner private key.
+    pub const LENGTH: usize = T::PrivKey::LENGTH;
 
     /// Create a scoped new key pair.
     pub fn new(keypair: T) -> Self {

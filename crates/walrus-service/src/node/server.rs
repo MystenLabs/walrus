@@ -3,22 +3,35 @@
 
 //! Server for the Walrus service.
 
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, ops::Deref, path::PathBuf, sync::Arc, time::Duration};
 
 use axum::{
     extract::{DefaultBodyLimit, MatchedPath, State},
+    middleware,
     routing::{get, post, put},
     Router,
 };
+use axum_server::{tls_rustls::RustlsConfig, Handle};
+use fastcrypto::{secp256r1::Secp256r1PrivateKey, traits::ToFromBytes};
+use futures::{future::Either, FutureExt};
 use openapi::RestApiDoc;
+use p256::{elliptic_curve::pkcs8::EncodePrivateKey as _, SecretKey};
 use prometheus::{register_histogram_vec_with_registry, HistogramVec, Registry};
-use tokio::time::Instant;
+use rcgen::{Certificate as RcGenCertificate, CertificateParams, DnType, KeyPair as RcGenKeyPair};
+use tokio::{sync::Mutex, time::Instant};
 use tokio_util::sync::CancellationToken;
+use tower::ServiceBuilder;
 use tower_http::trace::TraceLayer;
+use tracing::Instrument;
 use utoipa::OpenApi as _;
 use utoipa_redoc::{Redoc, Servable as _};
-use walrus_core::encoding::max_sliver_size_for_n_shards;
+use walrus_core::{
+    encoding::max_sliver_size_for_n_shards,
+    keys::NetworkKeyPair,
+    server_name_from_public_key,
+};
 
+use super::config::{defaults, StorageNodeConfig};
 use crate::{
     common::telemetry::{MakeHttpSpan, UNMATCHED_ROUTE},
     node::ServiceState,
@@ -36,12 +49,100 @@ mod routes;
 /// the additional information encoded with the slivers.
 const HEADROOM: usize = 128;
 
+/// Configuration for the rest API.
+#[derive(Debug)]
+pub struct UserServerConfig {
+    /// The socket address on which the server should listen.
+    pub bind_address: SocketAddr,
+
+    /// Source of the TLS certificate used to secure connections.
+    ///
+    /// If None, TLS will be disabled and only HTTP will be used. However, clients *always* connect
+    /// via HTTPS and so this should only be None if middleware is terminating the TLS connection
+    /// and TLS is not possible between the middleware and the server.
+    pub tls_certificate: Option<TlsCertificateSource>,
+
+    /// Duration for which to wait for connections to close, when shutting down the server.
+    ///
+    /// Zero waits indefinitely and None immediately closes the connections.
+    pub graceful_shutdown_period: Option<Duration>,
+}
+
+impl From<&StorageNodeConfig> for UserServerConfig {
+    fn from(config: &StorageNodeConfig) -> Self {
+        let tls_certificate = if config.tls.disable_tls {
+            None
+        } else if let Some(paths) = config.tls.pem_files.clone() {
+            Some(TlsCertificateSource::PemFiles {
+                certificate_path: paths.certificate_path,
+                key_path: paths.key_path,
+            })
+        } else {
+            let server_name = config
+                .tls
+                .server_name
+                .clone()
+                .unwrap_or_else(|| config.rest_api_address.ip().to_string());
+
+            Some(TlsCertificateSource::GenerateSelfSigned {
+                server_name,
+                network_key_pair: config.network_key_pair.get().cloned().unwrap(),
+            })
+        };
+
+        let graceful_shutdown_period = config
+            .rest_graceful_shutdown_period_secs
+            .unwrap_or(Some(defaults::REST_GRACEFUL_SHUTDOWN_PERIOD_SECS))
+            .map(Duration::from_secs);
+
+        UserServerConfig {
+            bind_address: config.rest_api_address,
+            tls_certificate,
+            graceful_shutdown_period,
+        }
+    }
+}
+
+/// Source of the TLS private key and certificate.
+#[derive(Debug)]
+pub enum TlsCertificateSource {
+    /// Load PEM encoded x509 certificate and a PKCS8 encoded private key from the specified paths.
+    ///
+    /// These ideally should be certificates issued to by a public CA such as Let's Encrypt,
+    /// but can also be self-signed certificates.
+    // TODO(jsmith): Do we need to occasionally reload this?
+    PemFiles {
+        /// Path to the x509 PEM encoded certificate.
+        certificate_path: PathBuf,
+        /// Path to the PEM encoded private key in PKCS8
+        ///
+        /// The private key should correspond to the
+        /// [`NetworkPublicKey`][walrus_core::NetworkPublicKey] published on chain in the
+        /// committee.
+        key_path: PathBuf,
+    },
+
+    /// Generate a self-signed certificate from the provided network key pair.
+    ///
+    /// This is a convenience for when the storage node has no publicly acceptable certificate
+    /// issued, and only allows communication between storage nodes (or other clients accepting
+    /// connections verifiable with the key presented on chain).
+    GenerateSelfSigned {
+        /// The server name (DNS name or IP address) to be placed in the certificate.
+        server_name: String,
+        /// The network key pair used to create the self-signed certificate.
+        network_key_pair: NetworkKeyPair,
+    },
+}
+
 /// Represents a user server.
 #[derive(Debug)]
 pub struct UserServer<S> {
     state: Arc<S>,
+    config: UserServerConfig,
     metrics: HistogramVec,
     cancel_token: CancellationToken,
+    handle: Mutex<Option<Handle>>,
 }
 
 impl<S> UserServer<S>
@@ -49,17 +150,152 @@ where
     S: ServiceState + Send + Sync + 'static,
 {
     /// Creates a new user server.
-    pub fn new(state: Arc<S>, cancel_token: CancellationToken, registry: &Registry) -> Self {
+    pub fn new(
+        state: Arc<S>,
+        cancel_token: CancellationToken,
+        config: UserServerConfig,
+        registry: &Registry,
+    ) -> Self {
         Self {
             state,
             metrics: Self::register_http_metrics(registry),
             cancel_token,
+            handle: Default::default(),
+            config,
         }
     }
 
-    /// Creates a new user server.
-    pub async fn run(&self, network_address: &SocketAddr) -> Result<(), std::io::Error> {
-        let app = Router::new()
+    /// Runs the server, may only be called once for a given instance.
+    pub async fn run(&self) -> Result<(), std::io::Error> {
+        {
+            let handle = self.handle.lock().await;
+            assert!(handle.is_none(), "run can only be called once");
+        }
+
+        let request_layers = ServiceBuilder::new()
+            .layer(middleware::from_fn_with_state(
+                self.metrics.clone(),
+                metrics_middleware,
+            ))
+            .layer(
+                TraceLayer::new_for_http()
+                    .make_span_with(MakeHttpSpan::new())
+                    .on_response(MakeHttpSpan::new()),
+            );
+
+        let app = self
+            .define_routes()
+            .with_state(self.state.clone())
+            .layer(request_layers)
+            .into_make_service_with_connect_info::<SocketAddr>();
+
+        let handle = self.init_handle().await;
+        let server = if let Some(tls_config) = self.configure_tls().await? {
+            Either::Left(
+                axum_server::bind_rustls(self.config.bind_address, tls_config)
+                    .handle(handle.clone())
+                    .serve(app),
+            )
+        } else {
+            Either::Right(
+                axum_server::bind(self.config.bind_address)
+                    .handle(handle.clone())
+                    .serve(app),
+            )
+        };
+
+        tokio::spawn(
+            Self::handle_shutdown_signal(
+                handle,
+                self.cancel_token.clone(),
+                self.config.graceful_shutdown_period,
+            )
+            .in_current_span(),
+        );
+
+        server
+            .inspect(|_| tracing::info!("server run has completed"))
+            .await
+    }
+
+    async fn handle_shutdown_signal(
+        handle: Handle,
+        cancel_token: CancellationToken,
+        shutdown_duration: Option<Duration>,
+    ) {
+        cancel_token.cancelled().await;
+
+        match shutdown_duration {
+            Some(Duration::ZERO) => {
+                tracing::info!("immediately shutting down server");
+                handle.shutdown();
+            }
+            Some(duration) => {
+                tracing::info!("gracefully shutting down server in {:?}", duration);
+                handle.graceful_shutdown(Some(duration));
+            }
+            None => {
+                tracing::info!("waiting for all connections to close before shutting down server");
+                handle.graceful_shutdown(None);
+            }
+        }
+
+        handle.graceful_shutdown(shutdown_duration);
+    }
+
+    async fn init_handle(&self) -> Handle {
+        let new_handle = Handle::new();
+        let mut handle = self.handle.lock().await;
+        *handle = Some(new_handle.clone());
+        new_handle
+    }
+
+    async fn configure_tls(&self) -> Result<Option<RustlsConfig>, std::io::Error> {
+        let Some(ref tls_certificate) = self.config.tls_certificate else {
+            return Ok(None);
+        };
+
+        match tls_certificate {
+            TlsCertificateSource::PemFiles {
+                certificate_path,
+                key_path,
+            } => RustlsConfig::from_pem_file(certificate_path, key_path)
+                .await
+                .map(Some),
+            TlsCertificateSource::GenerateSelfSigned {
+                server_name,
+                network_key_pair,
+            } => {
+                let (certificate, encoded_key_pair) =
+                    create_self_signed_certificate(network_key_pair, server_name.to_string());
+                let tls_config = RustlsConfig::from_der(
+                    vec![Vec::from(certificate.der().deref())],
+                    encoded_key_pair.serialize_der(),
+                )
+                .await
+                .expect("self signed certificate to result in valid config");
+                Ok(Some(tls_config))
+            }
+        }
+    }
+
+    #[cfg(test)]
+    async fn ready(&self) {
+        let handle = loop {
+            let handle = self.handle.lock().await;
+            if handle.is_none() {
+                drop(handle);
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            } else {
+                break handle;
+            }
+        };
+        // Returns only once bind has been completed
+        let _ = handle.as_ref().unwrap().listening().await;
+    }
+
+    fn define_routes(&self) -> Router<Arc<S>> {
+        Router::new()
             .merge(Redoc::with_url(routes::API_DOCS, RestApiDoc::openapi()))
             .route(
                 routes::METADATA_ENDPOINT,
@@ -87,23 +323,6 @@ where
             .route(routes::BLOB_STATUS_ENDPOINT, get(routes::get_blob_status))
             .route(routes::HEALTH_ENDPOINT, get(routes::health_info))
             .route(routes::SYNC_SHARD_ENDPOINT, post(routes::sync_shard))
-            .with_state(self.state.clone())
-            // The following layers are executed from the bottom up
-            .layer(
-                TraceLayer::new_for_http()
-                    .make_span_with(MakeHttpSpan::new())
-                    .on_response(MakeHttpSpan::new()),
-            )
-            .layer(axum::middleware::from_fn_with_state(
-                self.metrics.clone(),
-                metrics_middleware,
-            ))
-            .into_make_service_with_connect_info::<SocketAddr>();
-
-        let listener = tokio::net::TcpListener::bind(network_address).await?;
-        axum::serve(listener, app)
-            .with_graceful_shutdown(self.cancel_token.clone().cancelled_owned())
-            .await
     }
 
     fn register_http_metrics(registry: &Registry) -> HistogramVec {
@@ -125,7 +344,7 @@ where
 async fn metrics_middleware(
     State(metrics): State<HistogramVec>,
     request: axum::extract::Request,
-    next: axum::middleware::Next,
+    next: middleware::Next,
 ) -> axum::response::Response {
     // Manually record the time in seconds, since we do not yet know the status code which is
     // required to get the concrete histogram.
@@ -148,12 +367,41 @@ async fn metrics_middleware(
     response
 }
 
+fn create_self_signed_certificate(
+    key_pair: &NetworkKeyPair,
+    public_server_name: String,
+) -> (RcGenCertificate, RcGenKeyPair) {
+    let generated_server_name = server_name_from_public_key(key_pair.public());
+    let pkcs8_key_pair = to_pkcs8_key_pair(key_pair);
+
+    let mut params =
+        CertificateParams::new(vec![generated_server_name.clone(), public_server_name])
+            .expect("valid subject_alt_names");
+    params
+        .distinguished_name
+        .push(DnType::CommonName, generated_server_name.clone());
+    let certificate = params
+        .self_signed(&pkcs8_key_pair)
+        .expect("self-signing certificate must not fail");
+
+    (certificate, pkcs8_key_pair)
+}
+
+fn to_pkcs8_key_pair(keypair: &NetworkKeyPair) -> RcGenKeyPair {
+    let secret_key: SecretKey = Secp256r1PrivateKey::from_bytes(keypair.as_ref().as_bytes())
+        .expect("encode-decode of private key must not fail")
+        .privkey
+        .clone()
+        .into();
+    let document = secret_key.to_pkcs8_der().expect("valid keypair");
+    RcGenKeyPair::try_from(document.as_bytes()).expect("constructed keypair is valid")
+}
+
 #[cfg(test)]
 mod test {
     use anyhow::anyhow;
     use axum::http::StatusCode;
     use fastcrypto::traits::KeyPair;
-    use reqwest::Url;
     use tokio::{task::JoinHandle, time::Duration};
     use tokio_util::sync::CancellationToken;
     use walrus_core::{
@@ -190,12 +438,12 @@ mod test {
         client::Client,
     };
     use walrus_sui::test_utils::event_id_for_testing;
-    use walrus_test_utils::{async_param_test, WithTempDir};
+    use walrus_test_utils::{async_param_test, Result as TestResult, WithTempDir};
 
     use super::*;
     use crate::{
         node::{
-            config::StorageNodeConfig,
+            config::{StorageNodeConfig, TlsCertificateAndKey},
             BlobStatusError,
             ComputeStorageConfirmationError,
             InconsistencyProofError,
@@ -361,15 +609,19 @@ mod test {
     async fn start_rest_api_with_config(
         config: &StorageNodeConfig,
     ) -> JoinHandle<Result<(), std::io::Error>> {
+        let rest_api_config = UserServerConfig::from(config);
+
         let server = UserServer::new(
             Arc::new(MockServiceState),
             CancellationToken::new(),
+            rest_api_config,
             &Registry::new(),
         );
-        let network_address = config.rest_api_address;
-        let handle = tokio::spawn(async move { server.run(&network_address).await });
+        let server = Arc::new(server);
+        let server_copy = server.clone();
+        let handle = tokio::spawn(async move { server.run().await });
 
-        tokio::task::yield_now().await;
+        server_copy.ready().await;
         handle
     }
 
@@ -384,16 +636,13 @@ mod test {
 
     fn storage_node_client(config: &StorageNodeConfig) -> Client {
         let network_address = config.rest_api_address;
-        let url = Url::parse(&format!("http://{network_address}")).unwrap();
+        let network_public_key = config.network_key_pair.get().unwrap().public().clone();
 
-        // Do not load any proxy information from the system, as it's slow (at least on MacOs).
-        let inner = reqwest::Client::builder()
+        Client::builder()
+            .authenticate_with_public_key(network_public_key)
             .no_proxy()
-            .http2_prior_knowledge()
-            .build()
-            .unwrap();
-
-        Client::from_url(url, inner)
+            .build(&network_address.ip().to_string(), network_address.port())
+            .expect("must be able to construct client in tests")
     }
 
     fn blob_id_for_valid_response() -> BlobId {
@@ -515,7 +764,7 @@ mod test {
 
         let blob_id = metadata_with_blob_id.blob_id().to_string();
         let path = routes::METADATA_ENDPOINT.replace(":blob_id", &blob_id);
-        let url = format!("http://{}{path}", config.as_ref().rest_api_address);
+        let url = format!("https://{}{path}", config.as_ref().rest_api_address);
 
         let client = storage_node_client(config.as_ref()).into_inner();
         let res = client
@@ -656,16 +905,14 @@ mod test {
     #[tokio::test]
     async fn shutdown_server() {
         let cancel_token = CancellationToken::new();
+        let config = test_utils::storage_node_config();
         let server = UserServer::new(
             Arc::new(MockServiceState),
             cancel_token.clone(),
+            config.as_ref().into(),
             &Registry::new(),
         );
-        let config = test_utils::storage_node_config();
-        let handle = tokio::spawn(async move {
-            let network_address = config.as_ref().rest_api_address;
-            server.run(&network_address).await
-        });
+        let handle = tokio::spawn(async move { server.run().await });
 
         cancel_token.cancel();
         handle.await.unwrap().unwrap();
@@ -703,8 +950,80 @@ mod test {
         else {
             panic!("must return an error for pair-id 1");
         };
-        dbg!(&err);
 
         assert_eq!(err.http_status_code(), Some(StatusCode::NOT_FOUND));
+    }
+
+    #[tokio::test]
+    async fn client_fails_when_tls_disabled() -> TestResult {
+        let mut config = test_utils::storage_node_config();
+        config.as_mut().tls.disable_tls = true;
+
+        start_rest_api_with_config(config.as_ref()).await;
+        let client = storage_node_client(config.as_ref());
+
+        let err = client
+            .get_server_health_info()
+            .await
+            .expect_err("should fail to get health info since TLS is disabled");
+
+        assert!(
+            err.is_connect(),
+            "error must be due to a failure to connect"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn client_accepts_self_signed_certificate() -> TestResult {
+        let mut config = test_utils::storage_node_config();
+
+        // Enable self-signed certificates by enabling TLS but removing any certificate.
+        config.as_mut().tls.disable_tls = false;
+        config.as_mut().tls.pem_files = None;
+
+        start_rest_api_with_config(config.as_ref()).await;
+        let client = storage_node_client(config.as_ref());
+
+        let _info = client
+            .get_server_health_info()
+            .await
+            .expect("must successfully fetch health info with TLS");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn server_loads_certificates_from_pem() -> TestResult {
+        let mut config_with_dir = test_utils::storage_node_config();
+        let directory = config_with_dir.temp_dir.path().to_path_buf();
+        let config = config_with_dir.as_mut();
+
+        let (certificate, key_pair) = create_self_signed_certificate(
+            config.network_key_pair.get().unwrap(),
+            config.rest_api_address.ip().to_string(),
+        );
+
+        let certificate_path = directory.join("certificate.pem");
+        std::fs::write(&certificate_path, certificate.pem().as_bytes())?;
+        let key_path = directory.join("private_key.pem");
+        std::fs::write(&key_path, key_pair.serialize_pem().as_bytes())?;
+
+        config.tls.disable_tls = false;
+        config.tls.pem_files = Some(TlsCertificateAndKey {
+            certificate_path,
+            key_path,
+        });
+
+        start_rest_api_with_config(config).await;
+        let client = storage_node_client(config);
+
+        let _info = client
+            .get_server_health_info()
+            .await
+            .expect("must successfully fetch health info with TLS");
+
+        Ok(())
     }
 }

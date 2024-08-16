@@ -3,11 +3,14 @@
 
 //! Client for interacting with the StorageNode API.
 
+use std::net::SocketAddr;
+
 use fastcrypto::traits::{EncodeDecodeBase64, KeyPair};
 use opentelemetry::propagation::Injector;
 use reqwest::{
     header::{HeaderMap, HeaderName, HeaderValue},
     Client as ReqwestClient,
+    ClientBuilder as ReqwestClientBuilder,
     Method,
     Request,
     Response,
@@ -33,6 +36,7 @@ use walrus_core::{
     BlobId,
     Epoch,
     InconsistencyProof as InconsistencyProofEnum,
+    NetworkPublicKey,
     PublicKey,
     ShardIndex,
     Sliver,
@@ -40,10 +44,12 @@ use walrus_core::{
     SliverType,
 };
 
+use super::tls;
 use crate::{
     api::{BlobStatus, ServiceHealthInfo},
-    error::NodeError,
+    error::{BuildErrorKind, ClientBuildError, NodeError},
     node_response::NodeResponse as _,
+    tls::parse_subject_alt_name,
 };
 
 const METADATA_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/metadata";
@@ -132,6 +138,99 @@ impl UrlEndpoints {
     }
 }
 
+/// A builder that can be used to construct a [`Client`].
+///
+/// Can be created with [`Client::builder()`].
+#[derive(Debug, Default)]
+pub struct ClientBuilder {
+    inner: ReqwestClientBuilder,
+    server_public_key: Option<NetworkPublicKey>,
+}
+
+impl ClientBuilder {
+    /// Creates a new builder to construct a [`Client`].
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Creates a new builder using an existing request client builder.
+    ///
+    /// This can be used to preconfigure options on the client. These options may be overwritten,
+    /// however, during construction of the final client.
+    pub fn from_reqwest(builder: ReqwestClientBuilder) -> Self {
+        Self {
+            inner: builder,
+            ..Self::default()
+        }
+    }
+
+    /// Authenticate the server with the provided public key instead of the Web PKI.
+    ///
+    /// By default, to authenticate the connection to the storage node, the client verifies that the
+    /// storage node provides a valid, unexpired certificate which matches the `authority` provided
+    /// to [`build()`][Self::build]. Calling this method instead authenticates the storage node
+    /// solely on the basis that it is able to establish the TLS connection with the private key
+    /// corresponding to the provided public key.
+    pub fn authenticate_with_public_key(mut self, public_key: NetworkPublicKey) -> Self {
+        self.server_public_key = Some(public_key);
+        self
+    }
+
+    /// Clears proxy settings in the client, and disables fetching proxy settings from the operating
+    /// system. On some systems, this can speed up the construction of the client.
+    pub fn no_proxy(mut self) -> Self {
+        self.inner = self.inner.no_proxy();
+        self
+    }
+
+    /// Convenience function to build the client where the server is identified by a [`SocketAddr`].
+    ///
+    /// Equivalent `self.build(&remote.ip().to_string(), remote.port())`
+    pub fn build_for_remote_ip(self, remote: SocketAddr) -> Result<Client, ClientBuildError> {
+        self.build(&remote.ip().to_string(), remote.port())
+    }
+
+    /// Consume the `ClientBuilder` and return a configured [`Client`].
+    ///
+    /// This method fails if a valid URL cannot be created with the provided host and port, the
+    /// Rustls TLS backend cannot be initialized, or the resolver cannot load the system
+    /// configuration.
+    pub fn build(self, host: &str, port: u16) -> Result<Client, ClientBuildError> {
+        let url = Url::parse(&format!("https://{host}:{port}"))
+            .map_err(|_| BuildErrorKind::InvalidHostOrPort)?;
+        // We extract the host from the URL, since the provided host string may have details like a
+        // username or password.
+        let host = url
+            .host_str()
+            .ok_or(BuildErrorKind::InvalidHostOrPort)?
+            .to_string();
+        let subject_name =
+            parse_subject_alt_name(host).map_err(|_| BuildErrorKind::InvalidHostOrPort)?;
+
+        let endpoints = UrlEndpoints(url);
+
+        let mut builder = self
+            .inner
+            .https_only(true)
+            .http2_prior_knowledge()
+            .use_rustls_tls()
+            .tls_built_in_root_certs(false)
+            .tls_built_in_webpki_certs(false);
+
+        if let Some(public_key) = self.server_public_key {
+            let certificate = tls::create_unsigned_certificate(&public_key, subject_name);
+            builder = builder.add_root_certificate(certificate);
+        }
+
+        let inner = builder.build().map_err(ClientBuildError::reqwest)?;
+
+        #[cfg(msim)]
+        let inner = inner.no_proxy();
+
+        Ok(Client { inner, endpoints })
+    }
+}
+
 /// A client for communicating with a StorageNode.
 #[derive(Debug, Clone)]
 pub struct Client {
@@ -140,12 +239,25 @@ pub struct Client {
 }
 
 impl Client {
-    /// Creates a new client for the storage node at the specified URL.
-    pub fn from_url(url: Url, inner: ReqwestClient) -> Self {
-        Self {
-            endpoints: UrlEndpoints(url),
-            inner,
-        }
+    /// Returns a new [`ClientBuilder`] that can be used to construct a client.
+    pub fn builder() -> ClientBuilder {
+        ClientBuilder::default()
+    }
+
+    /// Creates a new client for the storage node identified by the DNS name or socket address,
+    /// and authenticated with the provided public key.
+    ///
+    /// This method ensures that the storage node is authenticated on the basis that the storage
+    /// node is able to establish the connection on the basis of certificate with the provided
+    /// identity and public key.
+    pub fn for_storage_node(
+        host: &str,
+        port: u16,
+        public_key: &NetworkPublicKey,
+    ) -> Result<Client, ClientBuildError> {
+        Self::builder()
+            .authenticate_with_public_key(public_key.clone())
+            .build(host, port)
     }
 
     /// Converts this to the inner client.
@@ -681,18 +793,18 @@ mod tests {
     where
         F: FnOnce(UrlEndpoints) -> Url,
     {
-        let endpoints = UrlEndpoints(Url::parse("http://node.com").unwrap());
+        let endpoints = UrlEndpoints(Url::parse("https://node.com").unwrap());
         let url = url_fn(endpoints);
-        let expected = format!("http://node.com/v1/blobs/{BLOB_ID}/{expected_path}");
+        let expected = format!("https://node.com/v1/blobs/{BLOB_ID}/{expected_path}");
 
         assert_eq!(url.to_string(), expected);
     }
 
     #[test]
     fn test_url_health_info_endpoint() {
-        let endpoints = UrlEndpoints(Url::parse("http://node.com").unwrap());
+        let endpoints = UrlEndpoints(Url::parse("https://node.com").unwrap());
         let (url, _) = endpoints.server_health_info();
 
-        assert_eq!(url.to_string(), "http://node.com/v1/health");
+        assert_eq!(url.to_string(), "https://node.com/v1/health");
     }
 }

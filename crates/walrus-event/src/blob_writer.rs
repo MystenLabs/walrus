@@ -20,7 +20,6 @@ use typed_store::{
     rocks::{errors::typed_store_err_from_rocks_err, DBMap, MetricConf, ReadWriteOptions},
     Map,
 };
-use url::Url;
 use walrus_core::{encoding::EncodingConfig, BlobId};
 use walrus_sdk::client::Client;
 use walrus_service::node::config::StorageNodeConfig;
@@ -96,11 +95,15 @@ impl EventBlobWriter {
             false,
         )?;
         let file = Self::next_file(&root_dir_path, EventBlob::MAGIC, EventBlob::FORMAT_VERSION)?;
-        let client = {
-            let url = Url::parse(&format!("http://{}", node_config.rest_api_address))?;
-            let inner = reqwest::Client::builder().no_proxy().build().unwrap();
-            Client::from_url(url, inner)
-        };
+        let client = Client::for_storage_node(
+            &node_config.rest_api_address.ip().to_string(),
+            node_config.rest_api_address.port(),
+            node_config
+                .network_key_pair
+                .get()
+                .expect("key should be loaded")
+                .public(),
+        )?;
         Ok(Self {
             root_dir_path,
             start: None,
@@ -152,11 +155,16 @@ impl EventBlobWriter {
         network_key_pair:\n  AFzrKKEebJ56OhX4QHH9NQshlGKEQuwdD3HlE5d3n0jm";
 
         let node_config: StorageNodeConfig = serde_yaml::from_str(yaml)?;
-        let client = {
-            let url = Url::parse(&format!("http://{}", node_config.rest_api_address))?;
-            let inner = reqwest::Client::builder().no_proxy().build().unwrap();
-            Client::from_url(url, inner)
-        };
+        let client = Client::for_storage_node(
+            &node_config.rest_api_address.ip().to_string(),
+            node_config.rest_api_address.port(),
+            node_config
+                .network_key_pair
+                .get()
+                .expect("key should be loaded")
+                .public(),
+        )?;
+
         Ok(Self {
             root_dir_path,
             start: None,

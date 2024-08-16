@@ -95,7 +95,7 @@ async fn run_store_and_read_with_crash_failures(
 ) -> anyhow::Result<()> {
     let _ = tracing_subscriber::fmt::try_init();
 
-    let (_sui_cluster_handle, mut cluster, mut client) = test_cluster::default_setup().await?;
+    let (_sui_cluster_handle, mut cluster, client) = test_cluster::default_setup().await?;
 
     // Stop the nodes in the write failure set.
     failed_shards_write
@@ -119,10 +119,6 @@ async fn run_store_and_read_with_crash_failures(
     failed_shards_read
         .iter()
         .for_each(|&idx| cluster.cancel_node(idx));
-
-    // We need to reset the reqwest client to ensure that the client cannot communicate with nodes
-    // that are being shut down.
-    client.as_mut().reset_reqwest_client()?;
 
     // Read the blob.
     let read_blob = client

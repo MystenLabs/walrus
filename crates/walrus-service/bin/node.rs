@@ -24,7 +24,11 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use walrus_core::keys::ProtocolKeyPair;
 use walrus_service::{
-    node::{config::StorageNodeConfig, server::UserServer, StorageNode},
+    node::{
+        config::StorageNodeConfig,
+        server::{UserServer, UserServerConfig},
+        StorageNode,
+    },
     utils::{version, LoadConfig as _},
 };
 
@@ -220,15 +224,19 @@ impl StorageNodeRuntime {
             result
         });
 
-        let rest_api = UserServer::new(walrus_node, cancel_token.child_token(), &metrics_registry);
+        let rest_api = UserServer::new(
+            walrus_node,
+            cancel_token.child_token(),
+            UserServerConfig::from(node_config),
+            &metrics_registry,
+        );
         let mut rest_api_address = node_config.rest_api_address;
         rest_api_address.set_ip(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
         let rest_api_handle = tokio::spawn(async move {
-            let result = rest_api.run(&rest_api_address).await;
-            if let Err(ref error) = result {
-                tracing::error!(?error, "rest API exited with an error");
-            }
-            result
+            rest_api
+                .run()
+                .await
+                .inspect_err(|error| tracing::error!(?error, "REST API exited with an error"))
         });
         tracing::info!("Started REST API on {}", node_config.rest_api_address);
 

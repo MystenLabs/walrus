@@ -12,6 +12,7 @@ license = "Apache-2.0"
 anyhow = "1.0.86"
 async-trait = "0.1.81"
 axum = { version = "0.7.5", features = ["http2"] }
+axum-server = { version = "0.7.1", default-features = false }
 base64 = "0.22.1"
 bcs = "0.1.6"
 byteorder = "1.5.0"
@@ -35,19 +36,17 @@ move-core-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1
 mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.31.1" }
 num-bigint = { version = "0.4.5", default-features = false }
 opentelemetry = "=0.23.0"
+p256 = "0.13.2"
 pin-project = "1.1.5"
 prettytable = "0.10.0"
 prometheus = "0.13.4"
-quinn-proto = "0.11"
 rand = "0.8.5"
 raptorq = "2.0.0"
+rcgen = "0.13.1"
 regex = "1"
-reqwest = { version = "0.12.5", default-features = false, features = [
-  "http2",
-  "json",
-  "rustls-tls",
-] }
+reqwest = { version = "0.12.5", default-features = false, features = [ "http2", "json", "rustls-tls", ] }
 rocksdb = "0.21.0"
+rustls = { version = "0.23.12", default-features = false, features = ["ring", "tls12", "logging"] }
 serde = { version = "1.0.207", features = ["derive"] }
 serde_json = "1.0.122"
 serde_test = "1.0.177"

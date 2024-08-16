@@ -53,11 +53,47 @@ pub struct StorageNodeConfig {
     /// Socket address on which the REST API listens.
     #[serde(default = "defaults::rest_api_address")]
     pub rest_api_address: SocketAddr,
+    /// Duration for which to wait for connections to close before shutting down.
+    ///
+    /// Set explicitly to None to wait indefinitely.
+    #[serde(
+        default = "defaults::rest_graceful_shutdown_period_secs",
+        skip_serializing_if = "Option::is_none",
+        with = "::serde_with::rust::double_option"
+    )]
+    pub rest_graceful_shutdown_period_secs: Option<Option<u64>>,
     /// Sui config for the node
     pub sui: Option<SuiConfig>,
     /// Configuration of blob synchronization
     #[serde(default)]
     pub blob_recovery: BlobRecoveryConfig,
+    /// Configuration for TLS of the rest API.
+    #[serde(default)]
+    pub tls: TlsConfig,
+}
+
+/// Configuration for TLS of the rest API.
+#[derive(Debug, Default, Clone, Deserialize, Serialize)]
+pub struct TlsConfig {
+    /// Do not use TLS on the REST API.
+    ///
+    /// Should only be disabled if TLS encryption is being offloaded to another
+    /// service in the network.
+    pub disable_tls: bool,
+    /// Paths to the certificate and key used to secure the REST API.
+    pub pem_files: Option<TlsCertificateAndKey>,
+    /// The server name add to self-signed certificates, if used. If not provided, any self-signed
+    /// certificates will use the IP address as the subject name.
+    pub server_name: Option<String>,
+}
+
+/// Paths to a TLS certificate and key.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TlsCertificateAndKey {
+    /// Path to the PEM-encoded x509 certificate.
+    pub certificate_path: PathBuf,
+    /// Path to the PEM-encoded PKCS8 certificate private key.
+    pub key_path: PathBuf,
 }
 
 impl LoadConfig for StorageNodeConfig {}
@@ -164,6 +200,8 @@ pub mod defaults {
     pub const REST_API_PORT: u16 = 9185;
     /// Default polling interval in milliseconds.
     pub const POLLING_INTERVAL_MS: u64 = 400;
+    /// Default number of seconds to wait for graceful shutdown.
+    pub const REST_GRACEFUL_SHUTDOWN_PERIOD_SECS: u64 = 60;
 
     /// Returns the default metrics port.
     pub fn metrics_port() -> u16 {
@@ -198,6 +236,10 @@ pub mod defaults {
     /// Returns the default network ([`SuiNetwork::Devnet`])
     pub fn network() -> SuiNetwork {
         SuiNetwork::Devnet
+    }
+
+    pub(super) const fn rest_graceful_shutdown_period_secs() -> Option<Option<u64>> {
+        Some(Some(REST_GRACEFUL_SHUTDOWN_PERIOD_SECS))
     }
 }
 
@@ -394,7 +436,7 @@ mod tests {
         let yaml = "---\n\
         storage_path: target/storage\n\
         protocol_key_pair:\n  BBlm7tRefoPuaKoVoxVtnUBBDCfy+BGPREM8B6oSkOEj\n\
-        network_key_pair:\n  AFzrKKEebJ56OhX4QHH9NQshlGKEQuwdD3HlE5d3n0jm";
+        network_key_pair:\n  As5tqQFRGrjPSvcZeKfBX98NwDuCUtZyJdzWR2bUn0oY";
 
         ProtocolKeyPair::from_str("BBlm7tRefoPuaKoVoxVtnUBBDCfy+BGPREM8B6oSkOEj")?;
 

@@ -15,7 +15,6 @@ use async_trait::async_trait;
 use fastcrypto::bls12381::min_pk::BLS12381PublicKey;
 use futures::{stream::FuturesUnordered, FutureExt, StreamExt as _};
 use rand::{rngs::StdRng, Rng, SeedableRng};
-use reqwest::Url;
 use tokio::sync::Semaphore;
 use tracing::{Instrument, Span};
 use walrus_core::{
@@ -267,29 +266,23 @@ impl NodeCommitteeServiceInner<StorageNodeClient> {
         config: CommitteeServiceConfig,
         seed: u64,
     ) -> Result<Self, anyhow::Error> {
-        let client_builder = reqwest::Client::builder().http2_prior_knowledge();
-
-        // reqwest proxy uses lazy initialization, which breaks determinism. Turn it off in simtest.
-        #[cfg(msim)]
-        let client_builder = client_builder.no_proxy();
-
-        let http_client = client_builder.build()?;
-
         let node_clients: Vec<_> = committee
             .members()
             .iter()
             .map(|member| {
-                let url = Url::parse(&member.rest_api_url())
-                    .inspect_err(|error| {
-                        tracing::warn!(
-                            ?member,
-                            %error,
-                            "unable to parse REST-API URL, skipping node"
-                        )
-                    })
-                    .ok()?;
+                let client = StorageNodeClient::for_storage_node(
+                    &member.network_address.host,
+                    member.network_address.port,
+                    &member.network_public_key,
+                )
+                .inspect_err(|error| {
+                    tracing::warn!(
+                        ?member, %error, "unable to create client for storage node, skipping node"
+                    )
+                })
+                .ok()?;
 
-                Some(StorageNodeClient::from_url(url, http_client.clone()))
+                Some(client)
             })
             .collect();
 

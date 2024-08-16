@@ -52,6 +52,7 @@ test-utils = [
 anyhow.workspace = true
 async-trait = { workspace = true, optional = true }
 axum.workspace = true
+axum-server = { workspace = true, features = ["tls-rustls-no-provider"] }
 bcs.workspace = true
 clap.workspace = true
 colored = { workspace = true, optional = true }
@@ -67,13 +68,16 @@ mime = { workspace = true, optional = true }
 mysten-metrics = { workspace = true, optional = true }
 num-bigint.workspace = true
 opentelemetry.workspace = true
+p256.workspace = true
 pin-project.workspace = true
 prettytable = { workspace = true, optional = true }
 prometheus.workspace = true
 rand.workspace = true
+rcgen.workspace = true
 regex.workspace = true
 reqwest.workspace = true
 rocksdb = { workspace = true, optional = true }
+rustls = { workspace = true }
 serde.workspace = true
 serde_json.workspace = true
 serde_with.workspace = true
@@ -86,6 +90,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tokio-stream = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true }
+tower = "0.4.13"
 tower-http.workspace = true
 tracing.workspace = true
 tracing-opentelemetry.workspace = true

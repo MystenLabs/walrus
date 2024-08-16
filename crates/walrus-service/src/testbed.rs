@@ -35,6 +35,7 @@ use crate::{
     client::{self, ClientCommunicationConfig},
     common::utils::LoadConfig,
     node::config::{defaults, StorageNodeConfig, SuiConfig},
+    test_utils,
 };
 
 /// Node-specific testbed configuration.
@@ -423,8 +424,7 @@ pub async fn create_storage_node_configs(
             metrics_address,
             rest_api_address,
             sui,
-            db_config: Some(Default::default()),
-            blob_recovery: Default::default(),
+            ..test_utils::storage_node_config().inner
         });
     }
     Ok(storage_node_configs)
