@@ -56,7 +56,7 @@ use crate::{
         Primary,
         RecoverySymbol,
         Secondary,
-        Sliver,
+        SliverData,
         SliverRecoveryError,
         SliverVerificationError,
     },
@@ -126,7 +126,7 @@ impl<T: EncodingAxis, U: MerkleAuth> InconsistencyProof<T, U> {
         metadata: &BlobMetadata,
         encoding_config: &EncodingConfig,
     ) -> Result<(), InconsistencyVerificationError> {
-        let sliver = Sliver::recover_sliver(
+        let sliver = SliverData::recover_sliver(
             self.recovery_symbols,
             self.target_sliver_index,
             metadata,
@@ -143,18 +143,18 @@ impl<T: EncodingAxis, U: MerkleAuth> InconsistencyProof<T, U> {
 
 /// Return type when attempting to recover a sliver.
 ///
-/// On successful recovery and verification, this contains the target [`Sliver`]. Otherwise, it
+/// On successful recovery and verification, this contains the target [`SliverData`]. Otherwise, it
 /// contains a generated [`InconsistencyProof`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SliverOrInconsistencyProof<T: EncodingAxis, U: MerkleAuth> {
     /// The recovered sliver.
-    Sliver(Sliver<T>),
+    Sliver(SliverData<T>),
     /// An inconsistency proof for the blob.
     InconsistencyProof(InconsistencyProof<T, U>),
 }
 
-impl<T: EncodingAxis, U: MerkleAuth> From<Sliver<T>> for SliverOrInconsistencyProof<T, U> {
-    fn from(value: Sliver<T>) -> Self {
+impl<T: EncodingAxis, U: MerkleAuth> From<SliverData<T>> for SliverOrInconsistencyProof<T, U> {
+    fn from(value: SliverData<T>) -> Self {
         Self::Sliver(value)
     }
 }

@@ -17,7 +17,7 @@ use super::{
     EncodingConfig,
     Primary,
     Secondary,
-    Sliver,
+    SliverData,
     SliverPair,
     Symbols,
 };
@@ -216,10 +216,10 @@ impl<'a> BlobEncoder<'a> {
         self.blob.chunks(self.n_columns * self.symbol_usize())
     }
 
-    fn empty_slivers<T: EncodingAxis>(&self) -> Vec<Sliver<T>> {
+    fn empty_slivers<T: EncodingAxis>(&self) -> Vec<SliverData<T>> {
         (0..self.config.n_shards().get())
             .map(|i| {
-                Sliver::<T>::new_empty(
+                SliverData::<T>::new_empty(
                     self.config.n_source_symbols::<T::OrthogonalAxis>().get(),
                     self.symbol_size,
                     SliverIndex(i),
@@ -416,7 +416,7 @@ impl<'a> ExpandedMessageMatrix<'a> {
 }
 
 /// Struct to reconstruct a blob from either [`Primary`] (default) or [`Secondary`]
-/// [`Sliver`s][Sliver].
+/// [`Sliver`s][SliverData].
 #[derive(Debug)]
 pub struct BlobDecoder<'a, T: EncodingAxis = Primary> {
     _decoding_axis: PhantomData<T>,
@@ -472,7 +472,7 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
     /// addition to the slivers, notably on 32-bit architectures.
     pub fn decode<S>(&mut self, slivers: S) -> Option<Vec<u8>>
     where
-        S: IntoIterator<Item = Sliver<T>>,
+        S: IntoIterator<Item = SliverData<T>>,
         T: EncodingAxis,
     {
         let _guard = self.span.enter();
@@ -576,7 +576,7 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
     pub fn decode_and_verify(
         &mut self,
         blob_id: &BlobId,
-        slivers: impl IntoIterator<Item = Sliver<T>>,
+        slivers: impl IntoIterator<Item = SliverData<T>>,
     ) -> Result<Option<(Vec<u8>, VerifiedBlobMetadataWithId)>, DecodingVerificationError> {
         let Some(decoded_blob) = self.decode(slivers) else {
             return Ok(None);

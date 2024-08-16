@@ -98,7 +98,7 @@ pub struct WrongSymbolSizeError;
 pub struct DecodingVerificationError;
 
 /// Error returned when trying to extract the wrong variant (primary or secondary) of
-/// [`Sliver`][super::Sliver] from it.
+/// [`Sliver`][super::SliverData] from it.
 #[derive(Debug, Error, PartialEq, Eq, Clone)]
 #[error("cannot convert the `Sliver` to the sliver variant requested")]
 pub struct WrongSliverVariantError;

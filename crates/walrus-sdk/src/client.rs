@@ -17,7 +17,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use tracing::{field, Instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use walrus_core::{
-    encoding::{EncodingAxis, EncodingConfig, Primary, RecoverySymbol, Secondary, Sliver},
+    encoding::{EncodingAxis, EncodingConfig, Primary, RecoverySymbol, Secondary, SliverData},
     inconsistency::InconsistencyProof,
     keys::ProtocolKeyPair,
     merkle::MerkleProof,
@@ -238,7 +238,7 @@ impl Client {
         &self,
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
-    ) -> Result<Sliver<A>, NodeError> {
+    ) -> Result<SliverData<A>, NodeError> {
         let (url, template) = self.endpoints.sliver::<A>(blob_id, sliver_pair_index);
         self.send_and_parse_bcs_response(Request::new(Method::GET, url), template)
             .await
@@ -286,7 +286,7 @@ impl Client {
         sliver_pair_index: SliverPairIndex,
         metadata: &VerifiedBlobMetadataWithId,
         encoding_config: &EncodingConfig,
-    ) -> Result<Sliver<A>, NodeError> {
+    ) -> Result<SliverData<A>, NodeError> {
         assert!(
             metadata.is_encoding_config_applicable(encoding_config),
             "encoding config is not applicable to the provided metadata and blob"
@@ -393,7 +393,7 @@ impl Client {
         &self,
         blob_id: &BlobId,
         pair_index: SliverPairIndex,
-        sliver: &Sliver<A>,
+        sliver: &SliverData<A>,
     ) -> Result<(), NodeError> {
         tracing::trace!("starting to store sliver");
         let (url, template) = self.endpoints.sliver::<A>(blob_id, pair_index);

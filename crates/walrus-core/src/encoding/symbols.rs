@@ -275,7 +275,7 @@ impl AsMut<[u8]> for Symbols {
 ///
 /// The type parameter `T` represents the [`EncodingAxis`] of the sliver that can be recovered from
 /// this symbol.  I.e., a [`DecodingSymbol<Primary>`] is used to recover a
-/// [`Sliver<Primary>`][super::slivers::Sliver<Primary>].
+/// [`Sliver<Primary>`][super::slivers::SliverData<Primary>].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DecodingSymbol<T> {
     /// The index of the symbol.

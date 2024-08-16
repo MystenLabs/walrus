@@ -1645,7 +1645,7 @@ mod tests {
         node_client: &Client,
         shard: ShardIndex,
         timeout: Duration,
-    ) -> encoding::Sliver<A> {
+    ) -> encoding::SliverData<A> {
         retry_until_success_or_timeout(timeout, || {
             let pair_to_sync = blob.assigned_sliver_pair(shard);
             node_client.get_sliver::<A>(blob.blob_id(), pair_to_sync.index())

@@ -400,9 +400,9 @@ impl Sliver {
     }
 
     /// Returns the [`Sliver<T>`][Sliver] contained within the enum.
-    pub fn to_raw<T>(self) -> Result<encoding::Sliver<T>, WrongSliverVariantError>
+    pub fn to_raw<T>(self) -> Result<encoding::SliverData<T>, WrongSliverVariantError>
     where
-        Self: TryInto<encoding::Sliver<T>>,
+        Self: TryInto<encoding::SliverData<T>>,
         T: EncodingAxis,
     {
         self.try_into().map_err(|_| WrongSliverVariantError)

@@ -46,7 +46,7 @@ mod mapping;
 pub use mapping::{rotate_pairs, rotate_pairs_unchecked, SliverAssignmentError};
 
 mod slivers;
-pub use slivers::{PrimarySliver, SecondarySliver, Sliver, SliverPair};
+pub use slivers::{PrimarySliver, SecondarySliver, SliverData, SliverPair};
 
 mod symbols;
 pub use symbols::{

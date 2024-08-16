@@ -38,14 +38,14 @@ use crate::{
 };
 
 /// A primary sliver resulting from an encoding of a blob.
-pub type PrimarySliver = Sliver<Primary>;
+pub type PrimarySliver = SliverData<Primary>;
 
 /// A secondary sliver resulting from an encoding of a blob.
-pub type SecondarySliver = Sliver<Secondary>;
+pub type SecondarySliver = SliverData<Secondary>;
 
 /// Encoded data corresponding to a single [`EncodingAxis`] assigned to one shard.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Sliver<T: EncodingAxis> {
+pub struct SliverData<T: EncodingAxis> {
     /// The encoded data.
     pub symbols: Symbols,
     /// Index of this sliver.
@@ -55,7 +55,7 @@ pub struct Sliver<T: EncodingAxis> {
     _sliver_type: PhantomData<T>,
 }
 
-impl<T: EncodingAxis> Sliver<T> {
+impl<T: EncodingAxis> SliverData<T> {
     /// Creates a new `Sliver` copying the provided slice of bytes.
     ///
     /// # Panics
@@ -217,7 +217,7 @@ impl<T: EncodingAxis> Sliver<T> {
 
     /// Gets the recovery symbol for a specific target sliver starting from the current sliver.
     ///
-    /// This contains the Merkle proof computed over the `n_shards` symbols of the [`Sliver`].
+    /// This contains the Merkle proof computed over the `n_shards` symbols of the [`SliverData`].
     ///
     /// The `target_pair_index` is the index of the [`SliverPair`] to which the sliver to be
     /// recovered belongs.
@@ -271,12 +271,12 @@ impl<T: EncodingAxis> Sliver<T> {
                     .into_iter()
                     .map(RecoverySymbol::into_decoding_symbol),
             )
-            .map(|data| Sliver::new(data, symbol_size, target_index))
+            .map(|data| SliverData::new(data, symbol_size, target_index))
     }
 
-    /// Recovers a [`Sliver`] from the provided recovery symbols, verifying each symbol.
+    /// Recovers a [`SliverData`] from the provided recovery symbols, verifying each symbol.
     ///
-    /// Returns the recovered [`Sliver`] if decoding succeeds or a [`SliverRecoveryError`] if
+    /// Returns the recovered [`SliverData`] if decoding succeeds or a [`SliverRecoveryError`] if
     /// decoding fails.
     ///
     /// Symbols that fail verification are logged and dropped.
@@ -353,7 +353,7 @@ impl<T: EncodingAxis> Sliver<T> {
     }
 
     /// Computes the Merkle root [`Node`][`crate::merkle::Node`] of the
-    /// [`MerkleTree`][`crate::merkle::MerkleTree`] over the symbols of the expanded [`Sliver`].
+    /// [`MerkleTree`][`crate::merkle::MerkleTree`] over the symbols of the expanded [`SliverData`].
     ///
     /// # Errors
     ///
@@ -392,7 +392,7 @@ impl<T: EncodingAxis> Sliver<T> {
     }
 }
 
-impl<T: EncodingAxis> Display for Sliver<T> {
+impl<T: EncodingAxis> Display for SliverData<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
@@ -421,19 +421,19 @@ impl SliverPair {
         self.primary.index.into()
     }
 
-    /// Creates a new sliver pair containing two empty [`Sliver`] instances of the specified size.
+    /// Creates a new sliver pair containing two empty [`SliverData`] instances of the specified size.
     pub fn new_empty(
         config: &EncodingConfig,
         symbol_size: NonZeroU16,
         index: SliverPairIndex,
     ) -> Self {
         SliverPair {
-            primary: Sliver::new_empty(
+            primary: SliverData::new_empty(
                 config.source_symbols_secondary.get(),
                 symbol_size,
                 index.into(),
             ),
-            secondary: Sliver::new_empty(
+            secondary: SliverData::new_empty(
                 config.source_symbols_primary.get(),
                 symbol_size,
                 index.to_sliver_index::<Secondary>(config.n_shards),
@@ -534,7 +534,7 @@ mod tests {
         expected_sliver_data: &[u8],
     ) {
         assert_eq!(
-            Sliver::<Primary>::new_empty(
+            SliverData::<Primary>::new_empty(
                 sliver_n_symbols,
                 symbol_size.try_into().unwrap(),
                 SliverIndex(0)
@@ -550,7 +550,7 @@ mod tests {
     fn new_sliver_copies_provided_slice() {
         let slice = [1, 2, 3, 4, 5];
         assert_eq!(
-            Sliver::<Primary>::new(slice, 1.try_into().unwrap(), SliverIndex(0))
+            SliverData::<Primary>::new(slice, 1.try_into().unwrap(), SliverIndex(0))
                 .symbols
                 .data(),
             &slice
@@ -622,7 +622,7 @@ mod tests {
                     .with_proof(test_utils::merkle_proof())
             })
             .collect::<Vec<_>>();
-        let recovered = Sliver::<Primary>::recover_sliver_without_verification(
+        let recovered = SliverData::<Primary>::recover_sliver_without_verification(
             recovery_symbols,
             SliverIndex(0),
             symbol_size.try_into().unwrap(),
@@ -666,7 +666,7 @@ mod tests {
             .collect();
 
             // Recover the primary sliver.
-            let recovered = Sliver::recover_sliver(
+            let recovered = SliverData::recover_sliver(
                 recovery_symbols.iter().map(|s| s.primary.clone()),
                 pair.primary.index,
                 &metadata,
@@ -676,7 +676,7 @@ mod tests {
             assert_eq!(recovered, pair.primary);
 
             // Recover the secondary sliver.
-            let recovered = Sliver::recover_sliver(
+            let recovered = SliverData::recover_sliver(
                 recovery_symbols.iter().map(|s| s.secondary.clone()),
                 pair.secondary.index,
                 &metadata,
@@ -710,8 +710,8 @@ mod tests {
         );
 
         // Interpret the sliver as both primary and secondary for testing.
-        let primary = Sliver::<Primary>::new(sliver_bytes, symbol_size, SliverIndex(0));
-        let secondary = Sliver::<Secondary>::new(sliver_bytes, symbol_size, SliverIndex(0));
+        let primary = SliverData::<Primary>::new(sliver_bytes, symbol_size, SliverIndex(0));
+        let secondary = SliverData::<Secondary>::new(sliver_bytes, symbol_size, SliverIndex(0));
 
         for (index, symbol) in primary.recovery_symbols(&config)?.to_symbols().enumerate() {
             assert_eq!(
@@ -741,7 +741,7 @@ mod tests {
     fn test_single_recovery_symbol_empty_sliver<T: EncodingAxis>() {
         let config = test_utils::encoding_config();
         assert_eq!(
-            Sliver::<T>::new([], 1.try_into().unwrap(), SliverIndex::new(0))
+            SliverData::<T>::new([], 1.try_into().unwrap(), SliverIndex::new(0))
                 .single_recovery_symbol(3, &config),
             Err(InvalidDataSizeError::EmptyData.into())
         );
@@ -756,7 +756,7 @@ mod tests {
     fn test_recovery_symbols_empty_sliver<T: EncodingAxis>() {
         let config = EncodingConfig::new_for_test(3, 3, 10);
         assert_eq!(
-            Sliver::<T>::new([], 1.try_into().unwrap(), SliverIndex::new(0))
+            SliverData::<T>::new([], 1.try_into().unwrap(), SliverIndex::new(0))
                 .recovery_symbols(&config),
             Err(InvalidDataSizeError::EmptyData.into())
         );
@@ -774,7 +774,7 @@ mod tests {
     fn test_single_recovery_symbol_indexes(index: u32, n_shards: u16, is_ok: bool) {
         let config = EncodingConfig::new_for_test(3, 3, n_shards);
         let result =
-            Sliver::<Primary>::new([1, 2, 3, 4, 5, 6], 2.try_into().unwrap(), SliverIndex(0))
+            SliverData::<Primary>::new([1, 2, 3, 4, 5, 6], 2.try_into().unwrap(), SliverIndex(0))
                 .single_recovery_symbol(index.try_into().unwrap(), &config);
         if is_ok {
             assert!(result.is_ok());
@@ -816,7 +816,7 @@ mod tests {
         let secondary_slivers = (0..n_shards)
             .map(|target_index| {
                 let index = SliverPairIndex(target_index);
-                Sliver::<Secondary>::recover_sliver(
+                SliverData::<Secondary>::recover_sliver(
                     primary_slivers
                         .iter()
                         .map(|p| p.recovery_symbol_for_sliver(index, &config).unwrap()),
@@ -831,7 +831,7 @@ mod tests {
         // Recover the missing primary slivers from 2f+1 of the reconstructed secondary slivers.
         primary_slivers.extend((to_reconstruct_from..n_shards).map(|target_index| {
             let index = SliverPairIndex(target_index);
-            Sliver::<Primary>::recover_sliver(
+            SliverData::<Primary>::recover_sliver(
                 secondary_slivers
                     .iter()
                     .take(config.source_symbols_secondary.get().into())
@@ -861,7 +861,7 @@ mod tests {
         let n_shards = 3 * f + 1;
         let config = EncodingConfig::new_for_test(f, 2 * f, n_shards);
         let sliver =
-            Sliver::<Secondary>::new(slice, symbol_size.try_into().unwrap(), SliverIndex(0));
+            SliverData::<Secondary>::new(slice, symbol_size.try_into().unwrap(), SliverIndex(0));
         let merkle_tree =
             MerkleTree::<Blake2b256>::build(sliver.recovery_symbols(&config).unwrap().to_symbols());
         for index in 0..n_shards {

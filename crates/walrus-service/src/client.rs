@@ -21,7 +21,7 @@ use walrus_core::{
         BlobDecoder,
         EncodingAxis,
         EncodingConfig,
-        Sliver,
+        SliverData,
         SliverPair,
     },
     ensure,
@@ -417,7 +417,7 @@ impl<T> Client<T> {
     pub async fn read_blob<U>(&self, blob_id: &BlobId) -> ClientResult<Vec<u8>>
     where
         U: EncodingAxis,
-        Sliver<U>: TryFrom<SliverEnum>,
+        SliverData<U>: TryFrom<SliverEnum>,
     {
         tracing::debug!("starting to read blob");
         self.check_blob_id(blob_id)?;
@@ -436,7 +436,7 @@ impl<T> Client<T> {
     ) -> ClientResult<Vec<u8>>
     where
         U: EncodingAxis,
-        Sliver<U>: TryFrom<SliverEnum>,
+        SliverData<U>: TryFrom<SliverEnum>,
     {
         let comms = self.node_read_communications();
         // Create requests to get all slivers from all nodes.
@@ -506,7 +506,7 @@ impl<T> Client<T> {
     #[tracing::instrument(level = Level::ERROR, skip_all)]
     async fn decode_sliver_by_sliver<'a, I, Fut, U>(
         &self,
-        requests: &mut WeightedFutures<I, Fut, NodeResult<Sliver<U>, NodeError>>,
+        requests: &mut WeightedFutures<I, Fut, NodeResult<SliverData<U>, NodeError>>,
         decoder: &mut BlobDecoder<'a, U>,
         metadata: &VerifiedBlobMetadataWithId,
         mut n_not_found: usize,
@@ -514,7 +514,7 @@ impl<T> Client<T> {
     where
         U: EncodingAxis,
         I: Iterator<Item = Fut>,
-        Fut: Future<Output = NodeResult<Sliver<U>, NodeError>>,
+        Fut: Future<Output = NodeResult<SliverData<U>, NodeError>>,
     {
         while let Some(NodeResult(_, _, node, result)) = requests
             .next(

@@ -29,7 +29,7 @@ use walrus_core::{
         RecoverySymbol,
         Secondary,
         SecondarySliver,
-        Sliver,
+        SliverData,
         SliverRecoveryOrVerificationError,
         SliverVerificationError,
     },
@@ -363,7 +363,7 @@ where
         metadata: &VerifiedBlobMetadataWithId,
         sliver_id: SliverPairIndex,
         config: &EncodingConfig,
-    ) -> Result<Sliver<A>, InconsistencyProof<A, MerkleProof>> {
+    ) -> Result<SliverData<A>, InconsistencyProof<A, MerkleProof>> {
         assert!(sliver_id.get() < config.n_shards().get());
 
         let blob_id = metadata.blob_id();
@@ -434,7 +434,7 @@ where
 
             let result = tracing::info_span!("recover_sliver_or_generate_inconsistency_proof")
                 .in_scope(|| {
-                    Sliver::<A>::recover_sliver_or_generate_inconsistency_proof(
+                    SliverData::<A>::recover_sliver_or_generate_inconsistency_proof(
                         recovery_symbols.clone(),
                         sliver_id.to_sliver_index::<A>(config.n_shards()),
                         metadata.as_ref(),

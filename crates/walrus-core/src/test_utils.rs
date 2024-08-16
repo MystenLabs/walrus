@@ -60,7 +60,7 @@ pub fn sliver() -> Sliver {
 
 /// Returns an arbitrary primary sliver with 7 symbols (compatible with 10 shards) for testing.
 pub fn primary_sliver() -> PrimarySliver {
-    encoding::Sliver::new(
+    encoding::SliverData::new(
         [
             1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
             25, 26, 27, 28,

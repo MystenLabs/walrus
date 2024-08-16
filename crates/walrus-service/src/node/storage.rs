@@ -617,7 +617,7 @@ pub(crate) mod tests {
     use tempfile::TempDir;
     use tokio::runtime::Runtime;
     use walrus_core::{
-        encoding::{EncodingAxis, Sliver as TypedSliver},
+        encoding::{EncodingAxis, SliverData},
         Sliver,
         SliverIndex,
         SliverType,
@@ -649,8 +649,8 @@ pub(crate) mod tests {
         empty_storage_with_shards(&[SHARD_INDEX])
     }
 
-    pub(crate) fn get_typed_sliver<E: EncodingAxis>(seed: u8) -> TypedSliver<E> {
-        TypedSliver::new(
+    pub(crate) fn get_typed_sliver<E: EncodingAxis>(seed: u8) -> SliverData<E> {
+        SliverData::new(
             vec![seed; usize::from(seed) * 512],
             16.try_into().unwrap(),
             SliverIndex(0),
