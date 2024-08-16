@@ -5,8 +5,8 @@ module walrus::blob;
 
 use sui::{bcs, hash};
 use walrus::{
-    blob_events::{emit_blob_registered, emit_blob_certified},
     encoding,
+    events::{emit_blob_registered, emit_blob_certified, emit_blob_deleted},
     messages::CertifiedBlobMessage,
     storage_resource::Storage
 };
@@ -18,6 +18,7 @@ const EWrongEpoch: u64 = 4;
 const EAlreadyCertified: u64 = 5;
 const EInvalidBlobId: u64 = 6;
 const ENotCertified: u64 = 7;
+const EBlobNotDeletable: u64 = 8;
 
 // == Object definitions ==
 
@@ -25,18 +26,21 @@ const ENotCertified: u64 = 7;
 /// and then may eventually be certified as being available in the system.
 public struct Blob has key, store {
     id: UID,
-    stored_epoch: u64,
+    registered_epoch: u64,
     blob_id: u256,
     size: u64,
     erasure_code_type: u8,
-    certified_epoch: option::Option<u64>, // Store the epoch first certified
+    // Stores the epoch first certified.
+    certified_epoch: option::Option<u64>,
     storage: Storage,
+    // Marks if this blob can be deleted.
+    deletable: bool,
 }
 
 // === Accessors ===
 
-public fun stored_epoch(self: &Blob): u64 {
-    self.stored_epoch
+public fun registered_epoch(self: &Blob): u64 {
+    self.registered_epoch
 }
 
 public fun blob_id(self: &Blob): u256 {
@@ -67,6 +71,19 @@ public fun encoded_size(self: &Blob, n_shards: u16): u64 {
     )
 }
 
+public(package) fun storage_mut(self: &mut Blob): &mut Storage {
+    &mut self.storage
+}
+
+/// Aborts if the blob is not certified or already expired.
+public(package) fun assert_certified_not_expired(self: &Blob, current_epoch: u64) {
+    // Assert this is a certified blob
+    assert!(self.certified_epoch.is_some(), ENotCertified);
+
+    // Check the blob is within its availability period
+    assert!(current_epoch < self.storage.end_epoch(), EResourceBounds);
+}
+
 public struct BlobIdDerivation has drop {
     erasure_code_type: u8,
     size: u64,
@@ -88,7 +105,7 @@ public(package) fun derive_blob_id(root_hash: u256, erasure_code_type: u8, size:
     blob_id
 }
 
-/// Creates a new blob in `stored_epoch`.
+/// Creates a new blob in `registered_epoch`.
 /// `size` is the size of the unencoded blob. The reserved space in `storage` must be at
 /// least the size of the encoded blob.
 public(package) fun new(
@@ -97,16 +114,17 @@ public(package) fun new(
     root_hash: u256,
     size: u64,
     erasure_code_type: u8,
+    deletable: bool,
     // TODO: replace with Walrus context
-    stored_epoch: u64,
+    registered_epoch: u64,
     n_shards: u16,
     ctx: &mut TxContext,
 ): Blob {
     let id = object::new(ctx);
 
     // Check resource bounds.
-    assert!(stored_epoch >= storage.start_epoch(), EResourceBounds);
-    assert!(stored_epoch < storage.end_epoch(), EResourceBounds);
+    assert!(registered_epoch >= storage.start_epoch(), EResourceBounds);
+    assert!(registered_epoch < storage.end_epoch(), EResourceBounds);
 
     // check that the encoded size is less than the storage size
     let encoded_size = encoding::encoded_blob_length(
@@ -125,22 +143,24 @@ public(package) fun new(
 
     // Emit register event
     emit_blob_registered(
-        stored_epoch,
+        registered_epoch,
         blob_id,
         size,
         erasure_code_type,
         storage.end_epoch(),
+        deletable,
+        id.to_inner(),
     );
 
     Blob {
         id,
-        stored_epoch,
+        registered_epoch,
         blob_id,
         size,
-        //
         erasure_code_type,
         certified_epoch: option::none(),
         storage,
+        deletable,
     }
 }
 
@@ -166,12 +186,27 @@ public(package) fun certify_with_certified_msg(
     // Mark the blob as certified
     blob.certified_epoch.fill(message.certified_epoch());
 
-    // Emit certified event
-    emit_blob_certified(
-        message.certified_epoch(),
-        message.certified_blob_id(),
-        blob.storage.end_epoch(),
-    );
+    blob.emit_certified(false);
+}
+
+/// Deletes a deletable blob and returns the contained storage.
+///
+/// Emits a `BlobDeleted` event for the given epoch.
+/// Aborts if the Blob is not deletable or already expired.
+public(package) fun delete(self: Blob, epoch: u64): Storage {
+    let Blob {
+        id,
+        storage,
+        deletable,
+        blob_id,
+        ..,
+    } = self;
+    assert!(deletable, EBlobNotDeletable);
+    assert!(storage.end_epoch() > epoch, EResourceBounds);
+    let object_id = id.to_inner();
+    id.delete();
+    emit_blob_deleted(epoch, blob_id, storage.end_epoch(), object_id);
+    storage
 }
 
 /// Allow the owner of a blob object to destroy it.
@@ -194,11 +229,7 @@ public(package) fun extend_with_resource(blob: &mut Blob, extension: Storage, cu
     // with storage that extends this period. First we check for these
     // conditions.
 
-    // Assert this is a certified blob
-    assert!(blob.certified_epoch.is_some(), ENotCertified);
-
-    // Check the blob is within its availability period
-    assert!(current_epoch < blob.storage.end_epoch(), EResourceBounds);
+    blob.assert_certified_not_expired(current_epoch);
 
     // Check that the extension is valid, and the end
     // period of the extension is after the current period.
@@ -207,14 +238,22 @@ public(package) fun extend_with_resource(blob: &mut Blob, extension: Storage, cu
     // Note: if the amounts do not match there will be an abort here.
     blob.storage.fuse_periods(extension);
 
+    blob.emit_certified(true);
+}
+
+/// Emits a `BlobCertified` event for the given blob.
+public(package) fun emit_certified(self: &Blob, is_extension: bool) {
     // Emit certified event
     //
-    // Note: We use the original certified period since for the purposes of
-    // reconfiguration this is the committee that has a quorum that hold the
-    // resource.
+    // Note: We use the original certified period also for extensions since
+    // for the purposes of reconfiguration this is the committee that has a
+    // quorum that hold the resource.
     emit_blob_certified(
-        *option::borrow(&blob.certified_epoch),
-        blob.blob_id,
-        blob.storage.end_epoch(),
+        *self.certified_epoch.borrow(),
+        self.blob_id,
+        self.storage.end_epoch(),
+        self.deletable,
+        self.id.to_inner(),
+        is_extension,
     );
 }

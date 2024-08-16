@@ -49,7 +49,7 @@ public fun test_basic_correct() {
 
 }
 
-#[test, expected_failure]
+#[test, expected_failure(abort_code = messages::EIncorrectEpoch)]
 public fun test_incorrect_epoch() {
     let pub_key_bytes = PUB_KEY_BYTES;
     let message = MESSAGE;

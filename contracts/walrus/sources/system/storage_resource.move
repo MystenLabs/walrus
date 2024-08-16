@@ -41,6 +41,11 @@ public(package) fun create_storage(
     Storage { id: object::new(ctx), start_epoch, end_epoch, storage_size }
 }
 
+/// Extends the end epoch by `extendion_epochs` epochs.
+public(package) fun extend_end_epoch(self: &mut Storage, extension_epochs: u64) {
+    self.end_epoch = self.end_epoch + extension_epochs;
+}
+
 /// Split the storage object into two based on `split_epoch`
 ///
 /// `storage` is modified to cover the period from `start_epoch` to `split_epoch`

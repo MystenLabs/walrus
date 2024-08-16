@@ -23,11 +23,6 @@ public struct System has key {
     version: u64,
 }
 
-/// Marks the epoch sync as done for the specified node.
-public fun epoch_sync_done(system: &mut System, cap: &StorageNodeCap, epoch_number: u64) {
-    system.inner_mut().epoch_sync_done(cap, epoch_number)
-}
-
 /// Marks blob as invalid given an invalid blob certificate.
 public fun invalidate_blob_id(
     system: &System,
@@ -47,11 +42,11 @@ public fun certify_event_blob(system: &mut System, cap: &StorageNodeCap, blob_id
 public fun reserve_space(
     self: &mut System,
     storage_amount: u64,
-    periods_ahead: u64,
+    epochs_ahead: u64,
     payment: &mut Coin<SUI>,
     ctx: &mut TxContext,
 ): Storage {
-    self.inner_mut().reserve_space(storage_amount, periods_ahead, payment, ctx)
+    self.inner_mut().reserve_space(storage_amount, epochs_ahead, payment, ctx)
 }
 
 /// Registers a new blob in the system.
@@ -64,12 +59,22 @@ public fun register_blob(
     root_hash: u256,
     size: u64,
     erasure_code_type: u8,
+    deletable: bool,
     write_payment: &mut Coin<SUI>,
     ctx: &mut TxContext,
 ): Blob {
     self
         .inner_mut()
-        .register_blob(storage, blob_id, root_hash, size, erasure_code_type, write_payment, ctx)
+        .register_blob(
+            storage,
+            blob_id,
+            root_hash,
+            size,
+            erasure_code_type,
+            deletable,
+            write_payment,
+            ctx,
+        )
 }
 
 /// Certify that a blob will be available in the storage system until the end epoch of the
@@ -84,11 +89,26 @@ public fun certify_blob(
     self.inner().certify_blob(blob, signature, members, message);
 }
 
+/// Deletes a deletable blob and returns the contained storage resource.
+public fun delete_blob(self: &System, blob: Blob): Storage {
+    self.inner().delete_blob(blob)
+}
+
 /// Extend the period of validity of a blob with a new storage resource.
 /// The new storage resource must be the same size as the storage resource
 /// used in the blob, and have a longer period of validity.
 public fun extend_blob_with_resource(self: &System, blob: &mut Blob, extension: Storage) {
     self.inner().extend_blob_with_resource(blob, extension);
+}
+
+/// Extend the period of validity of a blob by extending its contained storage resource.
+public fun extend_blob(
+    self: &mut System,
+    blob: &mut Blob,
+    epochs_ahead: u64,
+    payment: &mut Coin<SUI>,
+) {
+    self.inner_mut().extend_blob(blob, epochs_ahead, payment);
 }
 
 // === Public Accessors ===

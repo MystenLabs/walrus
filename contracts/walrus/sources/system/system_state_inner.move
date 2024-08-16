@@ -7,8 +7,8 @@ module walrus::system_state_inner;
 use sui::{balance::Balance, coin::Coin, sui::SUI};
 use walrus::{
     blob::{Self, Blob},
-    blob_events::emit_invalid_blob_id,
     bls_aggregate::BlsCommittee,
+    events::emit_invalid_blob_id,
     storage_accounting::{Self, FutureAccountingRingBuffer},
     storage_node::StorageNodeCap,
     storage_resource::{Self, Storage}
@@ -17,7 +17,7 @@ use walrus::{
 /// The maximum number of periods ahead we allow for storage reservations.
 /// TODO: the number here is a placeholder, and assumes an epoch is a week,
 /// and therefore 2 x 52 weeks = 2 years.
-const MAX_PERIODS_AHEAD: u64 = 104;
+const MAX_EPOCHS_AHEAD: u64 = 104;
 
 // Keep in sync with the same constant in `crates/walrus-sui/utils.rs`.
 const BYTES_PER_UNIT_SIZE: u64 = 1_024;
@@ -25,7 +25,7 @@ const BYTES_PER_UNIT_SIZE: u64 = 1_024;
 // Errors
 const ENotImplemented: u64 = 0;
 const EStorageExceeded: u64 = 1;
-const EInvalidPeriodsAhead: u64 = 2;
+const EInvalidEpochsAhead: u64 = 2;
 const EInvalidIdEpoch: u64 = 3;
 const EIncorrectCommittee: u64 = 4;
 const EInvalidAccountingEpoch: u64 = 5;
@@ -46,23 +46,6 @@ public struct SystemStateInnerV1 has store {
     previous_committee: Option<BlsCommittee>,
     /// Accounting ring buffer for future epochs.
     future_accounting: FutureAccountingRingBuffer,
-}
-
-public(package) fun epoch_sync_done(
-    self: &mut SystemStateInnerV1,
-    cap: &StorageNodeCap,
-    epoch_number: u64,
-) {
-    abort ENotImplemented
-}
-
-public(package) fun shard_transfer_failed(
-    self: &mut SystemStateInnerV1,
-    cap: &StorageNodeCap,
-    node_identity: vector<u8>,
-    shard_ids: vector<u16>,
-) {
-    abort ENotImplemented
 }
 
 /// Update epoch to next epoch, and update the committee, price and capacity.
@@ -105,13 +88,13 @@ public(package) fun advance_epoch(
 public(package) fun reserve_space(
     self: &mut SystemStateInnerV1,
     storage_amount: u64,
-    periods_ahead: u64,
+    epochs_ahead: u64,
     payment: &mut Coin<SUI>,
     ctx: &mut TxContext,
 ): Storage {
     // Check the period is within the allowed range.
-    assert!(periods_ahead > 0, EInvalidPeriodsAhead);
-    assert!(periods_ahead <= MAX_PERIODS_AHEAD, EInvalidPeriodsAhead);
+    assert!(epochs_ahead > 0, EInvalidEpochsAhead);
+    assert!(epochs_ahead <= MAX_EPOCHS_AHEAD, EInvalidEpochsAhead);
 
     // Check capacity is available.
     assert!(
@@ -120,35 +103,20 @@ public(package) fun reserve_space(
     );
 
     // Pay rewards for each future epoch into the future accounting.
-    let storage_units = storage_units_from_size(storage_amount);
-    let period_payment_due = self.storage_price_per_unit_size * storage_units;
-    let coin_balance = payment.balance_mut();
-
-    let mut i = 0;
-    while (i < periods_ahead) {
-        let accounts = self.future_accounting.ring_lookup_mut(i);
-
-        // Distribute rewards
-        let rewards_balance = accounts.rewards_balance();
-        // Note this will abort if the balance is not enough.
-        let epoch_payment = coin_balance.split(period_payment_due);
-        rewards_balance.join(epoch_payment);
-
-        i = i + 1;
-    };
+    self.process_storage_payments(storage_amount, 0, epochs_ahead, payment);
 
     // Update the storage accounting.
     self.used_capacity_size = self.used_capacity_size + storage_amount;
 
     // Account the space to reclaim in the future.
-    let final_account = self.future_accounting.ring_lookup_mut(periods_ahead - 1);
+    let final_account = self.future_accounting.ring_lookup_mut(epochs_ahead - 1);
     final_account.increase_storage_to_reclaim(storage_amount);
 
     let self_epoch = epoch(self);
 
     storage_resource::create_storage(
         self_epoch,
-        self_epoch + periods_ahead,
+        self_epoch + epochs_ahead,
         storage_amount,
         ctx,
     )
@@ -194,6 +162,7 @@ public(package) fun register_blob(
     root_hash: u256,
     size: u64,
     erasure_code_type: u8,
+    deletable: bool,
     write_payment_coin: &mut Coin<SUI>,
     ctx: &mut TxContext,
 ): Blob {
@@ -203,6 +172,7 @@ public(package) fun register_blob(
         root_hash,
         size,
         erasure_code_type,
+        deletable,
         self.epoch(),
         self.n_shards(),
         ctx,
@@ -233,6 +203,11 @@ public(package) fun certify_blob(
     blob.certify_with_certified_msg(self.epoch(), certified_blob_msg);
 }
 
+/// Deletes a deletable blob and returns the contained storage resource.
+public(package) fun delete_blob(self: &SystemStateInnerV1, blob: Blob): Storage {
+    blob.delete(self.epoch())
+}
+
 /// Extend the period of validity of a blob with a new storage resource.
 /// The new storage resource must be the same size as the storage resource
 /// used in the blob, and have a longer period of validity.
@@ -242,6 +217,71 @@ public(package) fun extend_blob_with_resource(
     extension: Storage,
 ) {
     blob.extend_with_resource(extension, self.epoch());
+}
+
+/// Extend the period of validity of a blob by extending its contained storage resource.
+public(package) fun extend_blob(
+    self: &mut SystemStateInnerV1,
+    blob: &mut Blob,
+    epochs_ahead: u64,
+    payment: &mut Coin<SUI>,
+) {
+    // Check that the blob is certified and not expired.
+    blob.assert_certified_not_expired(self.epoch());
+
+    let start_offset = blob.storage().end_epoch() - self.epoch();
+    let end_offset = start_offset + epochs_ahead;
+
+    // Check the period is within the allowed range.
+    assert!(epochs_ahead > 0, EInvalidEpochsAhead);
+    assert!(end_offset <= MAX_EPOCHS_AHEAD, EInvalidEpochsAhead);
+
+    // Pay rewards for each future epoch into the future accounting.
+    let storage_size = blob.storage().storage_size();
+    self.process_storage_payments(storage_size, start_offset, end_offset, payment);
+
+    // Account the space to reclaim in the future.
+
+    // First account for the space not being freed in the original end epoch.
+    self
+        .future_accounting
+        .ring_lookup_mut(start_offset - 1)
+        .decrease_storage_to_reclaim(storage_size);
+
+    // Then account for the space being freed in the new end epoch.
+    self
+        .future_accounting
+        .ring_lookup_mut(end_offset - 1)
+        .increase_storage_to_reclaim(storage_size);
+
+    blob.storage_mut().extend_end_epoch(epochs_ahead);
+
+    blob.emit_certified(true);
+}
+
+fun process_storage_payments(
+    self: &mut SystemStateInnerV1,
+    storage_size: u64,
+    start_offset: u64,
+    end_offset: u64,
+    payment: &mut Coin<SUI>,
+) {
+    let storage_units = storage_units_from_size(storage_size);
+    let period_payment_due = self.storage_price_per_unit_size * storage_units;
+    let coin_balance = payment.balance_mut();
+
+    start_offset.range_do!(
+        end_offset,
+        |i| {
+            let accounts = self.future_accounting.ring_lookup_mut(i);
+
+            // Distribute rewards
+            let rewards_balance = accounts.rewards_balance();
+            // Note this will abort if the balance is not enough.
+            let epoch_payment = coin_balance.split(period_payment_due);
+            rewards_balance.join(epoch_payment);
+        },
+    );
 }
 
 public(package) fun certify_event_blob(
@@ -303,6 +343,6 @@ public(package) fun new_for_testing(ctx: &mut TxContext): SystemStateInnerV1 {
         storage_price_per_unit_size: 5,
         write_price_per_unit_size: 1,
         previous_committee: option::none(),
-        future_accounting: storage_accounting::ring_new(MAX_PERIODS_AHEAD),
+        future_accounting: storage_accounting::ring_new(MAX_EPOCHS_AHEAD),
     }
 }

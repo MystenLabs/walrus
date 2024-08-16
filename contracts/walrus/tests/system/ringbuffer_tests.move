@@ -31,7 +31,7 @@ public fun test_basic_ring_buffer(): FutureAccountingRingBuffer {
     buffer
 }
 
-#[test, expected_failure]
+#[test, expected_failure(abort_code = sa::EIndexOutOfBounds)]
 public fun test_oob_fail_ring_buffer(): FutureAccountingRingBuffer {
     let mut buffer: FutureAccountingRingBuffer = sa::ring_new(3);
 

@@ -40,10 +40,10 @@ public fun test_invalid_blob_ok() {
 
 #[test]
 public fun test_invalidate_happy(): system::System {
-    let mut ctx = tx_context::dummy();
+    let ctx = &mut tx_context::dummy();
 
     // Create a new system object
-    let mut system = system::new_for_testing(&mut ctx);
+    let mut system = system::new_for_testing(ctx);
 
     let mut epoch = 0;
 
@@ -74,10 +74,10 @@ public fun test_invalidate_happy(): system::System {
 
 #[test, expected_failure(abort_code = messages::EIncorrectEpoch)]
 public fun test_system_invalid_id_wrong_epoch(): system::System {
-    let mut ctx = tx_context::dummy();
+    let ctx = &mut tx_context::dummy();
 
     // Create a new system object
-    let mut system = system::new_for_testing(&mut ctx);
+    let mut system = system::new_for_testing(ctx);
 
     let mut epoch = 0;
 

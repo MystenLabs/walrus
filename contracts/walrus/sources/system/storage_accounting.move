@@ -40,6 +40,11 @@ public(package) fun increase_storage_to_reclaim(accounting: &mut FutureAccountin
     accounting.storage_to_reclaim = accounting.storage_to_reclaim + amount;
 }
 
+/// Decrease storage to reclaim
+public(package) fun decrease_storage_to_reclaim(accounting: &mut FutureAccounting, amount: u64) {
+    accounting.storage_to_reclaim = accounting.storage_to_reclaim - amount;
+}
+
 /// Accessor for rewards_to_distribute, mutable.
 public(package) fun rewards_balance(accounting: &mut FutureAccounting): &mut Balance<SUI> {
     &mut accounting.rewards_to_distribute
