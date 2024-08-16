@@ -179,15 +179,22 @@ where
         I::IntoIter: ExactSizeIterator,
         I::Item: AsRef<[u8]>,
     {
+        Self::build_from_leaf_hashes(iter.into_iter().map(|leaf| leaf_hash::<T>(leaf.as_ref())))
+    }
+
+    /// Create the [`MerkleTree`] as a commitment to the provided data hashes.
+    pub fn build_from_leaf_hashes<I>(iter: I) -> Self
+    where
+        I: IntoIterator,
+        I::IntoIter: ExactSizeIterator<Item = Node>,
+    {
         let iter = iter.into_iter();
         tracing::trace!("building Merkle tree over {} items", iter.len());
 
         // Create the capacity that we know will be needed, since the vec will be
         // reused by the call to from_leaf_nodes.
         let mut nodes = Vec::with_capacity(n_nodes(iter.len()));
-
-        // Hash each leaf prefixed with `LEAF_PREFIX` and insert the hash into `nodes`
-        nodes.extend(iter.map(|leaf| leaf_hash::<T>(leaf.as_ref())));
+        nodes.extend(iter);
 
         let n_leaves = nodes.len();
         let mut level_nodes = n_leaves;
@@ -264,7 +271,8 @@ where
     }
 }
 
-fn leaf_hash<T>(input: &[u8]) -> Node
+/// Computes the hash of the provided input to be used as a leaf hash of a Merkle tree.
+pub(crate) fn leaf_hash<T>(input: &[u8]) -> Node
 where
     T: HashFunction<DIGEST_LEN>,
 {

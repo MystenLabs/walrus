@@ -22,7 +22,7 @@ use super::{
     Symbols,
 };
 use crate::{
-    merkle::MerkleTree,
+    merkle::{leaf_hash, MerkleTree},
     metadata::{SliverPairMetadata, VerifiedBlobMetadataWithId},
     BlobId,
     EncodingType,
@@ -264,8 +264,8 @@ impl<'a> ExpandedMessageMatrix<'a> {
     fn new(config: &'a EncodingConfig, symbol_size: NonZeroU16, blob: &'a [u8]) -> Self {
         tracing::debug!("computing expanded message matrix");
         let matrix = vec![
-            Symbols::zeros(config.n_shards().get().into(), symbol_size);
-            config.n_shards().get().into()
+            Symbols::zeros(config.n_shards_as_usize(), symbol_size);
+            config.n_shards_as_usize()
         ];
         let mut expanded_matrix = Self {
             matrix,
@@ -347,9 +347,35 @@ impl<'a> ExpandedMessageMatrix<'a> {
     /// Computes the sliver pair metadata from the expanded message matrix.
     fn get_metadata(&self) -> VerifiedBlobMetadataWithId {
         tracing::debug!("computing blob metadata and ID");
-        let mut metadata = vec![SliverPairMetadata::new_empty(); self.matrix.len()];
-        self.write_secondary_metadata(&mut metadata);
-        self.write_primary_metadata(&mut metadata);
+
+        let n_shards = self.config.n_shards_as_usize();
+        let mut leaf_hashes = Vec::with_capacity(n_shards * n_shards);
+        for row in 0..n_shards {
+            for col in 0..n_shards {
+                leaf_hashes.push(leaf_hash::<Blake2b256>(&self.matrix[row][col]));
+            }
+        }
+
+        let mut metadata = Vec::with_capacity(n_shards);
+        for sliver_index in 0..n_shards {
+            let primary_hash = MerkleTree::<Blake2b256>::build_from_leaf_hashes(
+                leaf_hashes[n_shards * sliver_index..n_shards * (sliver_index + 1)]
+                    .iter()
+                    .cloned(),
+            )
+            .root();
+            let secondary_hash = MerkleTree::<Blake2b256>::build_from_leaf_hashes(
+                (0..n_shards).map(|symbol_index| {
+                    leaf_hashes[n_shards * symbol_index + n_shards - 1 - sliver_index].clone()
+                }),
+            )
+            .root();
+            metadata.push(SliverPairMetadata {
+                primary_hash,
+                secondary_hash,
+            })
+        }
+
         VerifiedBlobMetadataWithId::new_verified_from_metadata(
             metadata,
             EncodingType::RedStuff,
@@ -358,6 +384,9 @@ impl<'a> ExpandedMessageMatrix<'a> {
     }
 
     /// Writes the secondary metadata to the provided mutable slice.
+    ///
+    /// This is no longer used in the actual code and just kept for testing.
+    #[cfg(test)]
     fn write_secondary_metadata(&self, metadata: &mut [SliverPairMetadata]) {
         metadata
             .iter_mut()
@@ -397,6 +426,9 @@ impl<'a> ExpandedMessageMatrix<'a> {
     }
 
     /// Writes the primary metadata to the provided mutable slice.
+    ///
+    /// This is no longer used in the actual code and just kept for testing.
+    #[cfg(test)]
     fn write_primary_metadata(&self, metadata: &mut [SliverPairMetadata]) {
         for (metadata, row) in metadata.iter_mut().zip(self.matrix.iter()) {
             metadata.primary_hash = MerkleTree::<Blake2b256>::build(row.to_symbols()).root();
@@ -675,6 +707,20 @@ mod tests {
 
         assert_eq!(rows, expected_rows);
         assert_eq!(columns, expected_columns);
+    }
+
+    #[test]
+    fn test_metadata_computations_are_equal() {
+        let blob = random_data(1000);
+        let config = EncodingConfig::new(NonZeroU16::new(10).unwrap());
+        let encoder = config.get_blob_encoder(&blob).unwrap();
+        let matrix = encoder.get_expanded_matrix();
+
+        let mut expected_metadata = vec![SliverPairMetadata::new_empty(); matrix.matrix.len()];
+        matrix.write_primary_metadata(&mut expected_metadata);
+        matrix.write_secondary_metadata(&mut expected_metadata);
+
+        assert_eq!(matrix.get_metadata().metadata().hashes, expected_metadata);
     }
 
     #[test]
