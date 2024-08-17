@@ -46,9 +46,15 @@ struct Args {
     /// Sui network for which the config is generated.
     #[clap(long, default_value = "testnet")]
     sui_network: SuiNetwork,
-    /// The blob size to use for the load generation.
-    #[clap(long, default_value = "10000")]
-    blob_size: usize,
+    /// The binary logarithm of the minimum blob size to use for the load generation.
+    ///
+    /// Blobs sizes are uniformly distributed across the powers of two between
+    /// this and the maximum blob size.
+    #[clap(long, default_value = "10")]
+    min_size_log2: u8,
+    /// The binary logarithm of the maximum blob size to use for the load generation.
+    #[clap(long, default_value = "20")]
+    max_size_log2: u8,
     /// The period in milliseconds to check if gas needs to be refilled. This is useful for continuous load testing
     /// where the gas budget need to be refilled periodically.
     #[clap(long, default_value = "1000")]
@@ -65,7 +71,6 @@ async fn main() -> anyhow::Result<()> {
 
     let config = Config::load(args.config_path).context("Failed to load client config")?;
     let n_clients = args.n_clients.get();
-    let blob_size = args.blob_size;
 
     // Start the metrics server.
     let metrics_address = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), args.metrics_port);
@@ -78,7 +83,8 @@ async fn main() -> anyhow::Result<()> {
     let gas_refill_period = Duration::from_millis(args.gas_refill_period_millis.get());
     let mut load_generator = LoadGenerator::new(
         n_clients,
-        blob_size,
+        args.min_size_log2,
+        args.max_size_log2,
         config,
         args.sui_network,
         gas_refill_period,

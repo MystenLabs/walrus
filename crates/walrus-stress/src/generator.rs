@@ -61,7 +61,8 @@ pub struct LoadGenerator {
 impl LoadGenerator {
     pub async fn new(
         n_clients: usize,
-        blob_size: usize,
+        min_size_log2: u8,
+        max_size_log2: u8,
         client_config: Config,
         network: SuiNetwork,
         gas_refill_period: Duration,
@@ -91,11 +92,20 @@ impl LoadGenerator {
 
         // Set up write clients
         let (write_client_pool_tx, write_client_pool) = mpsc::channel(n_clients);
-        let mut write_clients =
-            try_join_all((0..n_clients).map(|_| {
-                WriteClient::new(&client_config, &network, DEFAULT_GAS_BUDGET, blob_size)
-            }))
-            .await?;
+        let mut write_clients = Vec::with_capacity(n_clients);
+
+        for _ in 0..n_clients {
+            write_clients.push(
+                WriteClient::new(
+                    &client_config,
+                    &network,
+                    DEFAULT_GAS_BUDGET,
+                    min_size_log2,
+                    max_size_log2,
+                )
+                .await?,
+            )
+        }
 
         let addresses = write_clients
             .iter_mut()
@@ -293,7 +303,7 @@ impl LoadGenerator {
                 }
                 _ = read_interval.tick() => {
                     self.metrics.observe_benchmark_duration(Instant::now().duration_since(start));
-                    self.read_burst(reads_per_burst, write_interval.period(), read_blob_id);
+                    self.read_burst(reads_per_burst, read_interval.period(), read_blob_id);
                 }
                 else => break
             }
@@ -318,7 +328,11 @@ impl LoadGenerator {
 
 fn burst_load(load: u64) -> (u64, Interval) {
     if load == 0 {
-        return (0, tokio::time::interval(Duration::MAX));
+        // Set the interval to ~100 years. `Duration::MAX` causes an overflow in tokio.
+        return (
+            0,
+            tokio::time::interval(Duration::from_secs(100 * 365 * 24 * 60 * 60)),
+        );
     }
     let duration_per_op = Duration::from_secs_f64(SECS_PER_LOAD_PERIOD as f64 / (load as f64));
     let (load_per_burst, burst_duration) = if duration_per_op < MIN_BURST_DURATION {
