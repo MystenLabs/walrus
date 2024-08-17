@@ -164,7 +164,7 @@ public(package) fun certify_with_certified_msg(
     assert!(message.certified_epoch() < blob.storage.end_epoch(), EResourceBounds);
 
     // Mark the blob as certified
-    blob.certified_epoch = option::some(message.certified_epoch());
+    blob.certified_epoch.fill(message.certified_epoch());
 
     // Emit certified event
     emit_blob_certified(

@@ -124,14 +124,14 @@ public(package) fun current_committee(self: &System): &Committee {
 ///
 /// Called by the epoch change function that connects `Staking` and `System`. Returns
 /// the balance of the rewards from the previous epoch.
-public(package) fun next_epoch(
+public(package) fun advance_epoch(
     self: &mut System,
     new_committee: Committee,
     new_capacity: u64,
     new_storage_price: u64,
     new_write_price: u64,
 ): Balance<SUI> {
-    self.inner_mut().next_epoch(new_committee, new_capacity, new_storage_price, new_write_price)
+    self.inner_mut().advance_epoch(new_committee, new_capacity, new_storage_price, new_write_price)
 }
 
 // === Internals ===

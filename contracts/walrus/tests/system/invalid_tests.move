@@ -53,7 +53,7 @@ public fun test_invalidate_happy(): system::System {
     loop {
         epoch = epoch + 1;
         let committee = committee::committee_for_testing(epoch);
-        let epoch_balance = system.next_epoch(committee, 1000000000, 5, 1);
+        let epoch_balance = system.advance_epoch(committee, 1000000000, 5, 1);
         epoch_balance.destroy_for_testing();
 
         if (epoch == 5) {
@@ -87,7 +87,7 @@ public fun test_system_invalid_id_wrong_epoch(): system::System {
     loop {
         epoch = epoch + 1;
         let committee = committee::committee_for_testing(epoch);
-        let epoch_balance = system.next_epoch(committee, 1000000000, 5, 1);
+        let epoch_balance = system.advance_epoch(committee, 1000000000, 5, 1);
         epoch_balance.destroy_for_testing();
 
         // wrong epoch

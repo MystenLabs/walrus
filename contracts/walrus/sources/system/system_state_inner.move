@@ -70,7 +70,7 @@ public(package) fun shard_transfer_failed(
 ///
 /// Called by the epoch change function that connects `Staking` and `System`. Returns
 /// the balance of the rewards from the previous epoch.
-public(package) fun next_epoch(
+public(package) fun advance_epoch(
     self: &mut SystemStateInnerV1,
     new_committee: Committee,
     new_capacity: u64,
