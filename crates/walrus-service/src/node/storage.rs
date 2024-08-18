@@ -13,7 +13,6 @@ use rocksdb::{DBCompressionType, MergeOperands, Options};
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 use sui_sdk::types::event::EventID;
-use tokio::sync::mpsc::Sender;
 use tracing::Level;
 use typed_store::{
     rocks::{self, DBBatch, DBMap, MetricConf, ReadWriteOptions, RocksDB},
@@ -33,7 +32,7 @@ use self::{
     blob_info::{BlobInfo, BlobInfoApi, BlobInfoMergeOperand, Mergeable as _},
     event_cursor_table::EventCursorTable,
 };
-use super::errors::ShardNotAssigned;
+use super::{errors::ShardNotAssigned, StorageNodeInner};
 use crate::node::SyncShardError;
 
 pub(crate) mod blob_info;
@@ -215,7 +214,6 @@ pub struct Storage {
     event_cursor: EventCursorTable,
     shards: HashMap<ShardIndex, Arc<ShardStorage>>,
     config: DatabaseConfig,
-    shard_sync_sender: Option<Sender<ShardIndex>>,
 }
 
 impl Storage {
@@ -227,7 +225,6 @@ impl Storage {
         path: &Path,
         db_config: DatabaseConfig,
         metrics_config: MetricConf,
-        shard_sync_sender: Option<Sender<ShardIndex>>,
     ) -> Result<Self, anyhow::Error> {
         let mut db_opts = Options::default();
         db_opts.create_missing_column_families(true);
@@ -295,7 +292,6 @@ impl Storage {
             event_cursor,
             shards,
             config: db_config,
-            shard_sync_sender,
         })
     }
 
@@ -555,19 +551,28 @@ impl Storage {
             .into())
     }
 
-    /// Updates the shard sync sender.
-    pub fn with_shard_sync_sender(mut self, sender: Sender<ShardIndex>) -> Self {
-        self.shard_sync_sender = Some(sender);
-        self
-    }
-
-    #[cfg(test)]
-    pub fn init_shard_sync_for_test(&self, shard: ShardIndex) {
-        self.shard_sync_sender
-            .as_ref()
-            .unwrap()
-            .try_send(shard)
-            .expect("failed to send shard sync message");
+    /// Starts syncing a shard to the specified epoch.
+    pub async fn sync_shard_to_epoch(
+        &self,
+        epoch: Epoch,
+        shard_index: ShardIndex,
+        node: Arc<StorageNodeInner>,
+        restarting: bool,
+    ) -> Result<(), SyncShardError> {
+        match self.shard_storage(shard_index) {
+            Some(shard) => {
+                shard
+                    .start_sync_shard_to_epoch(epoch, node, restarting)
+                    .await
+            }
+            None => {
+                tracing::warn!(
+                    "Failed to get shard storage for shard index: {}",
+                    shard_index
+                );
+                Ok(())
+            }
+        }
     }
 }
 
@@ -1018,7 +1023,6 @@ pub(crate) mod tests {
                 directory.path(),
                 DatabaseConfig::default(),
                 MetricConf::default(),
-                None,
             )?;
 
             for shard_id in [SHARD_INDEX, OTHER_SHARD_INDEX] {
@@ -1057,7 +1061,6 @@ pub(crate) mod tests {
                 directory.path(),
                 DatabaseConfig::default(),
                 MetricConf::default(),
-                None,
             )?;
 
             // Check that the shard status is restored correctly.

@@ -10,9 +10,10 @@ use fastcrypto::traits::KeyPair;
 use futures::{stream, StreamExt, TryFutureExt};
 use prometheus::Registry;
 use serde::Serialize;
+use shard_sync_handler::ShardSyncHandler;
 use sui_types::event::EventID;
 use system_events::{SuiSystemEventProvider, SystemEventProvider};
-use tokio::{select, sync::mpsc, time::Instant};
+use tokio::{select, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{field, Instrument};
 use typed_store::{rocks::MetricConf, DBMetrics, TypedStoreError};
@@ -67,7 +68,7 @@ pub mod system_events;
 pub(crate) mod metrics;
 
 mod blob_sync;
-mod shard_sync;
+mod shard_sync_handler;
 
 mod errors;
 use errors::{
@@ -305,9 +306,7 @@ async fn create_read_client(
 pub struct StorageNode {
     inner: Arc<StorageNodeInner>,
     blob_sync_handler: BlobSyncHandler,
-
-    // Background tasks for handling shard syncs.
-    _shard_sync_handler: tokio::task::JoinHandle<()>,
+    _shard_sync_handler: ShardSyncHandler,
 }
 
 /// The internal state of a Walrus storage node.
@@ -341,18 +340,14 @@ impl StorageNode {
             .await
             .context("unable to construct a committee service for the storage node")?;
 
-        // Create a channel for shard syncs.
-        let (sync_shard_tx, sync_shard_rx) = mpsc::channel(10);
-
         let db_config = config.db_config.clone().unwrap_or_default();
         let mut storage = if let Some(storage) = pre_created_storage {
-            storage.with_shard_sync_sender(sync_shard_tx.clone())
+            storage
         } else {
             Storage::open(
                 config.storage_path.as_path(),
                 db_config,
                 MetricConf::new("storage"),
-                Some(sync_shard_tx.clone()),
             )?
         };
 
@@ -389,14 +384,11 @@ impl StorageNode {
             config.blob_recovery.max_concurrent_blob_syncs,
         );
 
-        let inner_clone = inner.clone();
-        let shard_sync_handler = tokio::spawn(async move {
-            shard_sync::shard_sync_handler(inner_clone, sync_shard_rx).await;
-        });
+        let shard_sync_handler = ShardSyncHandler::new(inner.clone());
 
         // TODO: remove once shard storage drives the initialization of the shard sync.
         for shard in inner.storage.shards() {
-            sync_shard_tx.send(shard).await?;
+            shard_sync_handler.start_shard_sync(shard, true).await;
         }
 
         Ok(StorageNode {
@@ -1999,9 +1991,9 @@ mod tests {
         // Starts the shard syncing process.
         cluster.nodes[1]
             .storage_node
-            .inner
-            .storage
-            .init_shard_sync_for_test(ShardIndex(0));
+            ._shard_sync_handler
+            .start_shard_sync(ShardIndex(0), false)
+            .await;
 
         // Waits for the shard to be synced.
         tokio::time::timeout(Duration::from_secs(5), async {

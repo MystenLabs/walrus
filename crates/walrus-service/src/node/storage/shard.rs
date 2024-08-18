@@ -304,12 +304,24 @@ impl ShardStorage {
         ),
         err
     )]
-    pub async fn sync_shard_to_epoch(
+    pub async fn start_sync_shard_to_epoch(
         &self,
+        epoch: Epoch,
         node: Arc<StorageNodeInner>,
+        restarting: bool,
     ) -> Result<(), SyncShardError> {
-        tracing::info!("Syncing shard to epoch: {}", node.current_epoch());
-        // TODO: make sure that the shard is in a valid status to sync.
+        tracing::info!("Syncing shard to epoch: {}", epoch);
+        if restarting
+            && self
+                .status()
+                .context("Checking shard status before restarting sync.")?
+                != ShardStatus::ActiveSync
+        {
+            return Err(SyncShardError::Internal(anyhow::anyhow!(
+                "Shard is not in active sync status"
+            )));
+        }
+
         self.shard_status
             .insert(&(), &ShardStatus::ActiveSync)
             .context("Update shard status encountered error")?;
@@ -317,9 +329,9 @@ impl ShardStorage {
         // TODO: handle crash recovery.
         // TODO: handle missing individual blobs.
         // TODO: handle non-happy path.
-        self.sync_shard_to_epoch_internal(&node, SliverType::Primary)
+        self.sync_shard_to_epoch_internal(epoch, node.clone(), SliverType::Primary)
             .await?;
-        self.sync_shard_to_epoch_internal(&node, SliverType::Secondary)
+        self.sync_shard_to_epoch_internal(epoch, node, SliverType::Secondary)
             .await?;
 
         self.shard_status
@@ -338,20 +350,18 @@ impl ShardStorage {
     )]
     async fn sync_shard_to_epoch_internal(
         &self,
-        node: &Arc<StorageNodeInner>,
+        epoch: Epoch,
+        node: Arc<StorageNodeInner>,
         sliver_type: SliverType,
     ) -> Result<(), SyncShardError> {
         let mut starting_blob_id = None;
-        while let Some(next_starting_blob_id) = next_certified_blob_id(
-            &node.storage.blob_info,
-            node.current_epoch(),
-            starting_blob_id,
-        )
-        .context("Scanning certified blobs encountered error")?
+        while let Some(next_starting_blob_id) =
+            next_certified_blob_id(&node.storage.blob_info, epoch, starting_blob_id)
+                .context("Scanning certified blobs encountered error")?
         {
             tracing::debug!(
                 "Syncing shard to epoch: {}. Starting blob id: {}",
-                node.current_epoch(),
+                epoch,
                 next_starting_blob_id,
             );
             for blob in node
@@ -361,16 +371,12 @@ impl ShardStorage {
                     next_starting_blob_id,
                     sliver_type,
                     10, // TODO: make this configurable.
-                    node.current_epoch(),
+                    epoch,
                     &node.protocol_key_pair,
                 )
                 .await?
             {
-                tracing::debug!(
-                    "Synced blob id: {} to epoch: {}.",
-                    blob.0,
-                    node.current_epoch(),
-                );
+                tracing::debug!("Synced blob id: {} to epoch: {}.", blob.0, epoch,);
                 //TODO: verify sliver validity.
                 //  - blob is certified
                 //  - metadata is correct
