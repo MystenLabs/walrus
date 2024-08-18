@@ -9,6 +9,7 @@ module blob_store::blob_tests {
     use std::string;
 
     use blob_store::committee;
+    use blob_store::encoding;
     use blob_store::system;
     use blob_store::storage_accounting as sa;
     use blob_store::blob;
@@ -642,6 +643,51 @@ module blob_store::blob_tests {
 
         destroy(storage_long);
         coin::burn_for_testing(fake_coin);
+        system
+    }
+
+    // if we use register_thrifty
+    #[test]
+    public fun test_blob_over_register(): system::System<TESTWAL> {
+        let mut ctx = tx_context::dummy();
+
+        // A test coin.
+        let fake_coin = coin::mint_for_testing<TESTWAL>(100000000, &mut ctx);
+
+        // Create a new committee
+        let committee = committee::committee_for_testing(0);
+
+        // Create a new system object
+        let mut system: system::System<TESTWAL> = system::new(committee, 1000000000, 5, &mut ctx);
+
+        // get `leftover_amount` storage more than we need to register our blob
+        let blob_size = 5000;
+        let encoded_size = encoding::encoded_blob_length(
+            blob_size,
+            RED_STUFF,
+            system.n_shards(),
+        );
+        let leftover_amount= 500000;
+        // Get some space for a few epochs
+        let (storage, fake_coin) = system::reserve_space(
+            &mut system,
+            encoded_size + leftover_amount,
+            3,
+            fake_coin,
+            &mut ctx,
+        );
+
+        // use register_thrifty to get a refund when using a storage resource that is too large
+        let blob_id = blob::derive_blob_id(0xABC, RED_STUFF, blob_size);
+        let (blob, leftovers_opt) = blob::register_thrifty(&system, storage, blob_id, 0xABC, blob_size, RED_STUFF, &mut ctx);
+        assert!(leftovers_opt.is_some());
+        let leftovers = leftovers_opt.destroy_some();
+        // check that we got back our change
+        sui::test_utils::assert_eq(leftovers.storage_size(), leftover_amount);
+        leftovers.destroy();
+
+        coin::burn_for_testing(fake_coin);
+        blob::drop_for_testing(blob);
         system
     }
 }

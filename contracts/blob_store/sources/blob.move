@@ -91,6 +91,55 @@ module blob_store::blob {
         blob_id
     }
 
+    /// Variant of register that refunds leftover storage resources if `size` is smaller than
+    /// `storage.size`
+    public fun register_thrifty<WAL>(
+        sys: &System<WAL>,
+        mut storage: Storage,
+        blob_id: u256,
+        root_hash: u256,
+        size: u64,
+        erasure_code_type: u8,
+        ctx: &mut TxContext,
+    ): (Blob, Option<Storage>) {
+        let storage_size = storage.storage_size();
+        // check that the encoded size is less than the storage size
+        let encoded_size = encoding::encoded_blob_length(
+            size,
+            erasure_code_type,
+            sys.n_shards(),
+        );
+        if (encoded_size < storage_size) {
+            let leftovers = storage.split_by_size(encoded_size, ctx);
+            (register(sys, storage, blob_id, root_hash, size, erasure_code_type, ctx), option::some(leftovers))
+        } else {
+            (register(sys, storage, blob_id, root_hash, size, erasure_code_type, ctx), option::none())
+        }
+    }
+
+    #[allow(lint(self_transfer))]
+    /// Like `register_thrifty`, but sends the blob and leftover storage resource (if any) to
+    /// the sender
+    public fun register_thrifty_keep<WAL>(
+        sys: &System<WAL>,
+        storage: Storage,
+        blob_id: u256,
+        root_hash: u256,
+        size: u64,
+        erasure_code_type: u8,
+        ctx: &mut TxContext,
+    ) {
+        let (blob, storage_opt) = register_thrifty(sys, storage, blob_id, root_hash, size, erasure_code_type, ctx);
+        transfer::transfer(blob, ctx.sender());
+        // doesn't work because option::destroy is buggy :(
+        //storage_opt.destroy!(|storage_resource| transfer::transfer(storage_resource, ctx.sender()))
+        if (storage_opt.is_some()) {
+             transfer::public_transfer(storage_opt.destroy_some(), ctx.sender())
+        } else {
+            storage_opt.destroy_none()
+        }
+    }
+
     /// Register a new blob in the system.
     /// `size` is the size of the unencoded blob. The reserved space in `storage` must be at
     /// least the size of the encoded blob.
@@ -116,6 +165,7 @@ module blob_store::blob {
             erasure_code_type,
             sys.n_shards(),
         );
+        // TODO: could eliminate this if we only used register_thrifty
         assert!(encoded_size <= storage_size(&storage), EResourceSize);
 
         // Cryptographically verify that the Blob ID authenticates
