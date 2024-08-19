@@ -1,6 +1,6 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
@@ -250,80 +250,6 @@ impl CheckpointProcessor {
         Ok(())
     }
 
-    pub async fn new_for_testing() -> Result<Self, anyhow::Error> {
-        let metric_conf = MetricConf::default();
-        let mut db_opts = Options::default();
-        db_opts.create_missing_column_families(true);
-        db_opts.create_if_missing(true);
-        let dir: PathBuf = tempfile::tempdir()
-            .expect("Failed to open temporary directory")
-            .into_path();
-        let database = rocks::open_cf_opts(
-            dir,
-            Some(db_opts),
-            metric_conf,
-            &[
-                (CHECKPOINT_STORE, rocksdb::Options::default()),
-                (WALRUS_PACKAGE_STORE, rocksdb::Options::default()),
-                (COMMITTEE_STORE, rocksdb::Options::default()),
-                (EVENT_STORE, rocksdb::Options::default()),
-            ],
-        )?;
-        if database.cf_handle(CHECKPOINT_STORE).is_none() {
-            database
-                .create_cf(CHECKPOINT_STORE, &rocksdb::Options::default())
-                .map_err(typed_store_err_from_rocks_err)?;
-        }
-        if database.cf_handle(WALRUS_PACKAGE_STORE).is_none() {
-            database
-                .create_cf(WALRUS_PACKAGE_STORE, &rocksdb::Options::default())
-                .map_err(typed_store_err_from_rocks_err)?;
-        }
-        if database.cf_handle(COMMITTEE_STORE).is_none() {
-            database
-                .create_cf(COMMITTEE_STORE, &rocksdb::Options::default())
-                .map_err(typed_store_err_from_rocks_err)?;
-        }
-        if database.cf_handle(EVENT_STORE).is_none() {
-            database
-                .create_cf(EVENT_STORE, &rocksdb::Options::default())
-                .map_err(typed_store_err_from_rocks_err)?;
-        }
-        let checkpoint_store = DBMap::reopen(
-            &database,
-            Some(CHECKPOINT_STORE),
-            &ReadWriteOptions::default(),
-            false,
-        )?;
-        let walrus_package_store = DBMap::reopen(
-            &database,
-            Some(WALRUS_PACKAGE_STORE),
-            &ReadWriteOptions::default(),
-            false,
-        )?;
-        let committee_store = DBMap::reopen(
-            &database,
-            Some(CHECKPOINT_STORE),
-            &ReadWriteOptions::default(),
-            false,
-        )?;
-        let event_store = DBMap::<CheckpointOrderedEventID, CheckpointSuiEvent>::reopen(
-            &database,
-            Some(EVENT_STORE),
-            &ReadWriteOptions::default(),
-            false,
-        )?;
-        Ok(CheckpointProcessor {
-            client: Client::new("http://localhost:8080"),
-            walrus_package_store,
-            checkpoint_store,
-            committee_store,
-            event_store,
-            system_pkg_id: ObjectID::random(),
-            event_store_next_cursor: CheckpointOrderedEventID::new(0, 0),
-        })
-    }
-
     pub async fn new(config: EventConfig) -> Result<Self, anyhow::Error> {
         // return a new CheckpointProcessor
         let client = Client::new(config.rest_url);
@@ -438,20 +364,98 @@ impl PackageStore for CheckpointProcessor {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::sync::OnceLock;
 
-    use sui_sdk::rpc_types::SuiEvent;
-    use typed_store::Map;
+    use tokio::sync::Mutex;
 
-    use crate::checkpoint_processor::{
-        CheckpointOrderedEventID,
-        CheckpointProcessor,
-        CheckpointSuiEvent,
-    };
+    use super::*;
+
+    // Prevent tests running simultaneously to avoid interferences or race conditions.
+    fn global_test_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(Mutex::default)
+    }
+
+    async fn new_checkpoint_processor_for_testing() -> Result<CheckpointProcessor, anyhow::Error> {
+        let metric_conf = MetricConf::default();
+        let mut db_opts = Options::default();
+        db_opts.create_missing_column_families(true);
+        db_opts.create_if_missing(true);
+        let dir = tempfile::tempdir()
+            .expect("Failed to open temporary directory")
+            .into_path();
+        let database = {
+            let _lock = global_test_lock().lock().await;
+            rocks::open_cf_opts(
+                dir,
+                Some(db_opts),
+                metric_conf,
+                &[
+                    (CHECKPOINT_STORE, rocksdb::Options::default()),
+                    (WALRUS_PACKAGE_STORE, rocksdb::Options::default()),
+                    (COMMITTEE_STORE, rocksdb::Options::default()),
+                    (EVENT_STORE, rocksdb::Options::default()),
+                ],
+            )?
+        };
+        if database.cf_handle(CHECKPOINT_STORE).is_none() {
+            database
+                .create_cf(CHECKPOINT_STORE, &rocksdb::Options::default())
+                .map_err(typed_store_err_from_rocks_err)?;
+        }
+        if database.cf_handle(WALRUS_PACKAGE_STORE).is_none() {
+            database
+                .create_cf(WALRUS_PACKAGE_STORE, &rocksdb::Options::default())
+                .map_err(typed_store_err_from_rocks_err)?;
+        }
+        if database.cf_handle(COMMITTEE_STORE).is_none() {
+            database
+                .create_cf(COMMITTEE_STORE, &rocksdb::Options::default())
+                .map_err(typed_store_err_from_rocks_err)?;
+        }
+        if database.cf_handle(EVENT_STORE).is_none() {
+            database
+                .create_cf(EVENT_STORE, &rocksdb::Options::default())
+                .map_err(typed_store_err_from_rocks_err)?;
+        }
+        let checkpoint_store = DBMap::reopen(
+            &database,
+            Some(CHECKPOINT_STORE),
+            &ReadWriteOptions::default(),
+            false,
+        )?;
+        let walrus_package_store = DBMap::reopen(
+            &database,
+            Some(WALRUS_PACKAGE_STORE),
+            &ReadWriteOptions::default(),
+            false,
+        )?;
+        let committee_store = DBMap::reopen(
+            &database,
+            Some(CHECKPOINT_STORE),
+            &ReadWriteOptions::default(),
+            false,
+        )?;
+        let event_store = DBMap::<CheckpointOrderedEventID, CheckpointSuiEvent>::reopen(
+            &database,
+            Some(EVENT_STORE),
+            &ReadWriteOptions::default(),
+            false,
+        )?;
+        Ok(CheckpointProcessor {
+            client: Client::new("http://localhost:8080"),
+            walrus_package_store,
+            checkpoint_store,
+            committee_store,
+            event_store,
+            system_pkg_id: ObjectID::random(),
+            event_store_next_cursor: CheckpointOrderedEventID::new(0, 0),
+        })
+    }
 
     #[tokio::test]
     async fn test_poll() {
-        let mut processor = CheckpointProcessor::new_for_testing().await.unwrap();
+        let mut processor = new_checkpoint_processor_for_testing().await.unwrap();
         // add 100 events to the event store
         let mut expected_events = vec![];
         for i in 0..100 {
@@ -475,7 +479,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_multiple_poll() {
-        let mut processor = CheckpointProcessor::new_for_testing().await.unwrap();
+        let mut processor = new_checkpoint_processor_for_testing().await.unwrap();
         // add 100 events to the event store
         let mut expected_events1 = vec![];
         for i in 0..100 {
@@ -516,7 +520,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_commit() {
-        let mut processor = CheckpointProcessor::new_for_testing().await.unwrap();
+        let mut processor = new_checkpoint_processor_for_testing().await.unwrap();
         // add 100 events to the event store
         let mut expected_events = vec![];
         for i in 0..100 {
