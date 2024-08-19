@@ -38,6 +38,7 @@ use crate::node::{errors::SyncShardError, StorageNodeInner};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ShardStatus {
+    /// Initial status of the shard when just created.
     None,
 
     /// The shard is active in this node serving reads and writes.
@@ -88,7 +89,7 @@ impl ShardStorage {
         database: &Arc<RocksDB>,
         db_config: &DatabaseConfig,
         initial_shard_status: Option<ShardStatus>,
-    ) -> Result<Arc<Self>, TypedStoreError> {
+    ) -> Result<Self, TypedStoreError> {
         let rw_options = ReadWriteOptions::default();
 
         let shard_cf_options = Self::slivers_column_family_options(id, db_config);
@@ -127,12 +128,12 @@ impl ShardStorage {
             shard_status.insert(&(), &status)?;
         }
 
-        Ok(Arc::new(Self {
+        Ok(Self {
             id,
             primary_slivers,
             secondary_slivers,
             shard_status,
-        }))
+        })
     }
 
     /// Stores the provided primary or secondary sliver for the given blob ID.
@@ -314,7 +315,7 @@ impl ShardStorage {
         })
     }
 
-    /// Syncs the shard to the last epoch of from the previous shard owner.
+    /// Syncs the shard to the current epoch from the previous shard owner.
     #[tracing::instrument(
         skip_all,
         fields(
@@ -323,7 +324,7 @@ impl ShardStorage {
         ),
         err
     )]
-    pub async fn start_sync_shard_to_epoch(
+    pub async fn start_sync_shard_before_epoch(
         &self,
         epoch: Epoch,
         node: Arc<StorageNodeInner>,
@@ -337,12 +338,12 @@ impl ShardStorage {
 
         assert_eq!(self.status()?, ShardStatus::ActiveSync);
 
-        // TODO: handle crash recovery.
+        // TODO: handle better crash recovery (we shouldn't always restart from beginning to sync).
         // TODO: handle missing individual blobs.
         // TODO: handle non-happy path.
-        self.sync_shard_to_epoch_internal(epoch, node.clone(), SliverType::Primary)
+        self.sync_shard_before_epoch_internal(epoch, node.clone(), SliverType::Primary)
             .await?;
-        self.sync_shard_to_epoch_internal(epoch, node, SliverType::Secondary)
+        self.sync_shard_before_epoch_internal(epoch, node, SliverType::Secondary)
             .await?;
 
         self.shard_status
@@ -359,7 +360,7 @@ impl ShardStorage {
         ),
         err
     )]
-    async fn sync_shard_to_epoch_internal(
+    async fn sync_shard_before_epoch_internal(
         &self,
         epoch: Epoch,
         node: Arc<StorageNodeInner>,
@@ -382,7 +383,7 @@ impl ShardStorage {
 
             for blob in node
                 .committee_service
-                .sync_shard_to_epoch(
+                .sync_shard_before_epoch(
                     self.id(),
                     next_starting_blob_id,
                     sliver_type,

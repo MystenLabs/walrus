@@ -417,6 +417,8 @@ impl Committee {
 
     /// Returns the index of the member that holds the specified shard.
     pub fn member_index_for_shard(&self, shard: ShardIndex) -> Option<usize> {
+        // TODO: add a system invariant check so that we can assert the shard
+        // must exist.
         self.members
             .iter()
             .position(|node| node.shard_ids.contains(&shard))

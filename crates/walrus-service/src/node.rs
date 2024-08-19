@@ -332,7 +332,7 @@ impl StorageNode {
         committee_service_factory: Box<dyn CommitteeServiceFactory>,
         contract_service: Box<dyn SystemContractService>,
         registry: &Registry,
-        pre_created_storage: Option<Storage>, // For testing purposes. TODO(create todo to remove)
+        pre_created_storage: Option<Storage>, // For testing purposes. TODO: consider this test only input.
     ) -> Result<Self, anyhow::Error> {
         let start_time = Instant::now();
         let committee_service = committee_service_factory
@@ -385,6 +385,7 @@ impl StorageNode {
         );
 
         let shard_sync_handler = ShardSyncHandler::new(inner.clone());
+        // Upon restart, resume any ongoing blob syncs if there is any.
         shard_sync_handler.restart_syncs().await?;
 
         Ok(StorageNode {

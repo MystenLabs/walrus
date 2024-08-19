@@ -281,7 +281,7 @@ impl Storage {
             .into_iter()
             .map(|id| {
                 ShardStorage::create_or_reopen(id, &database, &db_config, None)
-                    .map(|shard| (id, shard))
+                    .map(|shard| (id, Arc::new(shard)))
             })
             .collect::<Result<_, _>>()?;
 
@@ -303,12 +303,12 @@ impl Storage {
         match self.shards.entry(shard) {
             Entry::Occupied(entry) => Ok(entry.into_mut()),
             Entry::Vacant(entry) => {
-                let shard_storage = ShardStorage::create_or_reopen(
+                let shard_storage = Arc::new(ShardStorage::create_or_reopen(
                     shard,
                     &self.database,
                     &self.config,
                     Some(ShardStatus::Active),
-                )?;
+                )?);
                 Ok(entry.insert(shard_storage))
             }
         }

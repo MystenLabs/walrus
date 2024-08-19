@@ -16,6 +16,7 @@ use super::{
 };
 use crate::node::errors::ShardNotAssigned;
 
+/// Manages tasks for syncing shards during epoch change.
 #[derive(Debug, Clone)]
 pub struct ShardSyncHandler {
     node: Arc<StorageNodeInner>,
@@ -30,20 +31,8 @@ impl ShardSyncHandler {
         }
     }
 
-    pub async fn restart_syncs(&self) -> Result<(), anyhow::Error> {
-        for shard_index in self.node.storage.shards() {
-            let shard_storage = self.node.storage.shard_storage(shard_index).unwrap();
-
-            if shard_storage.status()? != ShardStatus::ActiveSync {
-                continue;
-            }
-
-            self.start_shard_sync_impl(shard_storage.clone()).await;
-        }
-        Ok(())
-    }
-
     #[allow(dead_code)]
+    /// Starts syncing a new shard. This method is used when a new shard is assigned to the node.
     pub async fn start_new_shard_sync(
         &self,
         shard_index: ShardIndex,
@@ -70,6 +59,21 @@ impl ShardSyncHandler {
         }
     }
 
+    /// Restarts syncing shards that were previously syncing. This method is used when restarting the node.
+    pub async fn restart_syncs(&self) -> Result<(), anyhow::Error> {
+        for shard_index in self.node.storage.shards() {
+            let shard_storage = self.node.storage.shard_storage(shard_index).unwrap();
+
+            // Restart the syncing task for shards that were previously syncing (in ActiveSync status).
+            if shard_storage.status()? != ShardStatus::ActiveSync {
+                continue;
+            }
+
+            self.start_shard_sync_impl(shard_storage.clone()).await;
+        }
+        Ok(())
+    }
+
     async fn start_shard_sync_impl(&self, shard_storage: Arc<ShardStorage>) {
         // TODO: This needs to be the previous epoch, once storage node has a notion of multiple epochs.
         let epoch_to_sync = self.node.current_epoch();
@@ -87,7 +91,7 @@ impl ShardSyncHandler {
             let shard_sync_task = tokio::spawn(async move {
                 let shard_index = shard_storage.id();
                 let sync_result = shard_storage
-                    .start_sync_shard_to_epoch(epoch_to_sync, node_clone)
+                    .start_sync_shard_before_epoch(epoch_to_sync, node_clone)
                     .await;
 
                 if let Err(err) = sync_result {
@@ -105,6 +109,7 @@ impl ShardSyncHandler {
                     );
                 }
 
+                // Remove the task from the shard_sync_in_progress map upon completion.
                 shard_sync_handler_clone
                     .shard_sync_in_progress
                     .lock()

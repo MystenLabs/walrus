@@ -518,7 +518,7 @@ impl CommitteeService for StubCommitteeService {
         std::future::pending().await
     }
 
-    async fn sync_shard_to_epoch(
+    async fn sync_shard_before_epoch(
         &self,
         _shard_index: ShardIndex,
         _starting_blob_id: BlobId,

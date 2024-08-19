@@ -139,7 +139,7 @@ pub trait CommitteeService: std::fmt::Debug + Send + Sync {
     ) -> InvalidBlobCertificate;
 
     /// Syncs a shard to the given epoch.
-    async fn sync_shard_to_epoch(
+    async fn sync_shard_before_epoch(
         &self,
         shard: ShardIndex,
         starting_blob_id: BlobId,
@@ -586,8 +586,8 @@ where
         }
     }
 
-    #[tracing::instrument(name = "sync_shard_to_epoch committee", skip_all)]
-    async fn sync_shard_to_epoch<A: EncodingAxis + 'static>(
+    #[tracing::instrument(name = "sync_shard_before_epoch committee", skip_all)]
+    async fn sync_shard_before_epoch<A: EncodingAxis + 'static>(
         &self,
         shard: ShardIndex,
         starting_blob_id: BlobId,
@@ -736,7 +736,8 @@ impl CommitteeService for NodeCommitteeService {
             .await
     }
 
-    async fn sync_shard_to_epoch(
+    #[tracing::instrument(skip(self, key_pair))]
+    async fn sync_shard_before_epoch(
         &self,
         shard: ShardIndex,
         starting_blob_id: BlobId,
@@ -745,18 +746,11 @@ impl CommitteeService for NodeCommitteeService {
         epoch: Epoch,
         key_pair: &ProtocolKeyPair,
     ) -> Result<Vec<(BlobId, GeneralSliver)>, anyhow::Error> {
-        tracing::info!(
-            shard = %shard,
-            starting_blob_id = %starting_blob_id,
-            sliver_type = ?sliver_type,
-            sliver_count = sliver_count,
-            epoch = epoch,
-            "syncing shard to epoch"
-        );
+        tracing::info!("syncing shard to epoch");
         match sliver_type {
             SliverType::Primary => {
                 self.inner
-                    .sync_shard_to_epoch::<Primary>(
+                    .sync_shard_before_epoch::<Primary>(
                         shard,
                         starting_blob_id,
                         sliver_count,
@@ -767,7 +761,7 @@ impl CommitteeService for NodeCommitteeService {
             }
             SliverType::Secondary => {
                 self.inner
-                    .sync_shard_to_epoch::<Secondary>(
+                    .sync_shard_before_epoch::<Secondary>(
                         shard,
                         starting_blob_id,
                         sliver_count,
