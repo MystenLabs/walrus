@@ -9,7 +9,11 @@ use std::{
 use tokio::sync::Mutex;
 use walrus_core::ShardIndex;
 
-use super::StorageNodeInner;
+use super::{
+    storage::{ShardStatus, ShardStorage},
+    StorageNodeInner,
+};
+use crate::node::errors::ShardNotAssigned;
 
 #[derive(Debug, Clone)]
 pub struct ShardSyncHandler {
@@ -25,53 +29,85 @@ impl ShardSyncHandler {
         }
     }
 
-    pub async fn start_shard_sync(&self, sync_shard_index: ShardIndex, restarting: bool) {
+    pub async fn restart_syncs(&self) -> Result<(), anyhow::Error> {
+        for shard_index in self.node.storage.shards() {
+            let shard_storage = self.node.storage.shard_storage(shard_index).unwrap();
+
+            if shard_storage.status()? != ShardStatus::ActiveSync {
+                continue;
+            }
+
+            self.start_shard_sync_impl(shard_storage.clone()).await;
+        }
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    pub async fn start_new_shard_sync(&self, shard_index: ShardIndex) -> Result<(), anyhow::Error> {
+        match self.node.storage.shard_storage(shard_index) {
+            Some(shard_storage) => {
+                if shard_storage.status()? == ShardStatus::None {
+                    return Ok(());
+                }
+                self.start_shard_sync_impl(shard_storage.clone()).await;
+                Ok(())
+            }
+            None => {
+                tracing::error!(
+                    "Shard index: {} is not assigned to this node. Cannot start shard sync.",
+                    shard_index
+                );
+                Err(ShardNotAssigned(shard_index, self.node.current_epoch()).into())
+            }
+        }
+    }
+
+    async fn start_shard_sync_impl(&self, shard_storage: Arc<ShardStorage>) {
+        // TODO: This needs to be the previous epoch, once storage node has a notion of multiple epochs.
+        let epoch_to_sync = self.node.current_epoch();
         tracing::info!(
-            "Syncing shard index: {} to epoch: {}",
-            sync_shard_index,
-            self.node.current_epoch()
+            "Syncing shard index {} to the end of epoch {}",
+            shard_storage.id(),
+            epoch_to_sync
         );
 
+        // TODO: implement rate limiting for shard syncs.
         let mut shard_sync_in_progress = self.shard_sync_in_progress.lock().await;
-
-        if let Entry::Vacant(entry) = shard_sync_in_progress.entry(sync_shard_index) {
-            // TODO: once the contract supports multiple epochs, this needs to be updated to the previous epoch.
-            let epoch = self.node.current_epoch();
+        if let Entry::Vacant(entry) = shard_sync_in_progress.entry(shard_storage.id()) {
             let node_clone = self.node.clone();
-            let handler_clone = self.clone();
-            let sync_handle = tokio::spawn(async move {
-                let sync_result = node_clone
-                    .clone()
-                    .storage
-                    .sync_shard_to_epoch(epoch, sync_shard_index, node_clone, restarting)
+            let shard_sync_handler_clone = self.clone();
+            let shard_sync_task = tokio::spawn(async move {
+                let shard_index = shard_storage.id();
+                let sync_result = shard_storage
+                    .start_sync_shard_to_epoch(epoch_to_sync, node_clone)
                     .await;
 
                 if let Err(err) = sync_result {
                     tracing::error!(
                         "Failed to sync shard index: {} to epoch: {}. Error: {}",
-                        sync_shard_index,
-                        epoch,
+                        shard_index,
+                        epoch_to_sync,
                         err
                     );
                 } else {
                     tracing::info!(
                         "Successfully synced shard index: {} to epoch: {}",
-                        sync_shard_index,
-                        epoch
+                        shard_index,
+                        epoch_to_sync
                     );
                 }
 
-                handler_clone
+                shard_sync_handler_clone
                     .shard_sync_in_progress
                     .lock()
                     .await
-                    .remove(&sync_shard_index);
+                    .remove(&shard_index);
             });
-            entry.insert(sync_handle);
+            entry.insert(shard_sync_task);
         } else {
             tracing::info!(
-                "Shard index: {} is already being synced. Skipping.",
-                sync_shard_index
+                "Shard index: {} is already being synced. Skipping starting new sync task.",
+                shard_storage.id()
             );
         }
     }

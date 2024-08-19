@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use sui_types::event::EventID;
+use typed_store::TypedStoreError;
 use walrus_core::{
     encoding::SliverVerificationError,
     inconsistency::InconsistencyVerificationError,
@@ -132,4 +133,6 @@ pub enum SyncShardError {
     NoSyncClient,
     #[error("Unable to find the owner for shard {0}")]
     NoOwnerForShard(ShardIndex),
+    #[error(transparent)]
+    StorageError(#[from] TypedStoreError),
 }

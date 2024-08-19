@@ -37,6 +37,8 @@ use crate::node::{errors::SyncShardError, StorageNodeInner};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ShardStatus {
+    None,
+
     /// The shard is active in this node serving reads and writes.
     Active,
 
@@ -259,7 +261,7 @@ impl ShardStorage {
     pub(crate) fn status(&self) -> Result<ShardStatus, TypedStoreError> {
         self.shard_status
             .get(&())
-            .map(|s| s.unwrap_or(ShardStatus::Active))
+            .map(|s| s.unwrap_or(ShardStatus::None))
     }
 
     /// Fetches the slivers with `sliver_type` for the provided blob IDs.
@@ -308,23 +310,15 @@ impl ShardStorage {
         &self,
         epoch: Epoch,
         node: Arc<StorageNodeInner>,
-        restarting: bool,
     ) -> Result<(), SyncShardError> {
         tracing::info!("Syncing shard to epoch: {}", epoch);
-        if restarting
-            && self
-                .status()
-                .context("Checking shard status before restarting sync.")?
-                != ShardStatus::ActiveSync
-        {
-            return Err(SyncShardError::Internal(anyhow::anyhow!(
-                "Shard is not in active sync status"
-            )));
+        if self.status()? == ShardStatus::None {
+            self.shard_status
+                .insert(&(), &ShardStatus::ActiveSync)
+                .context("Update shard status encountered error")?;
         }
 
-        self.shard_status
-            .insert(&(), &ShardStatus::ActiveSync)
-            .context("Update shard status encountered error")?;
+        assert_eq!(self.status()?, ShardStatus::ActiveSync);
 
         // TODO: handle crash recovery.
         // TODO: handle missing individual blobs.

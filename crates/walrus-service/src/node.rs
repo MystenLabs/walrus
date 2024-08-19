@@ -385,11 +385,7 @@ impl StorageNode {
         );
 
         let shard_sync_handler = ShardSyncHandler::new(inner.clone());
-
-        // TODO: remove once shard storage drives the initialization of the shard sync.
-        for shard in inner.storage.shards() {
-            shard_sync_handler.start_shard_sync(shard, true).await;
-        }
+        shard_sync_handler.restart_syncs().await?;
 
         Ok(StorageNode {
             inner,
@@ -1992,8 +1988,8 @@ mod tests {
         cluster.nodes[1]
             .storage_node
             ._shard_sync_handler
-            .start_shard_sync(ShardIndex(0), false)
-            .await;
+            .start_new_shard_sync(ShardIndex(0))
+            .await?;
 
         // Waits for the shard to be synced.
         tokio::time::timeout(Duration::from_secs(5), async {

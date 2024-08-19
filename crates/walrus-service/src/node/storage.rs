@@ -32,7 +32,7 @@ use self::{
     blob_info::{BlobInfo, BlobInfoApi, BlobInfoMergeOperand, Mergeable as _},
     event_cursor_table::EventCursorTable,
 };
-use super::{errors::ShardNotAssigned, StorageNodeInner};
+use super::errors::ShardNotAssigned;
 use crate::node::SyncShardError;
 
 pub(crate) mod blob_info;
@@ -549,30 +549,6 @@ impl Storage {
             .fetch_slivers(request.sliver_type(), &blobs_to_fetch)
             .context("Fetching slivers encountered error.")?
             .into())
-    }
-
-    /// Starts syncing a shard to the specified epoch.
-    pub async fn sync_shard_to_epoch(
-        &self,
-        epoch: Epoch,
-        shard_index: ShardIndex,
-        node: Arc<StorageNodeInner>,
-        restarting: bool,
-    ) -> Result<(), SyncShardError> {
-        match self.shard_storage(shard_index) {
-            Some(shard) => {
-                shard
-                    .start_sync_shard_to_epoch(epoch, node, restarting)
-                    .await
-            }
-            None => {
-                tracing::warn!(
-                    "Failed to get shard storage for shard index: {}",
-                    shard_index
-                );
-                Ok(())
-            }
-        }
     }
 }
 
