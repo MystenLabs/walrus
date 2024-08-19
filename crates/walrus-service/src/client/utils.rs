@@ -285,9 +285,9 @@ impl Display for CompletedReasonTime {
 pub enum CompletedReason {
     ThresholdReached,
     /// Contains the total weight of successful futures.
-    Timeout(usize),
+    Timeout(#[allow(dead_code)] usize),
     /// Contains the total weight of successful futures.
-    FuturesConsumed(usize),
+    FuturesConsumed(#[allow(dead_code)] usize),
 }
 
 impl Display for CompletedReason {
