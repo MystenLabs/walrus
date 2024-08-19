@@ -12,6 +12,8 @@ use walrus_core::{
     ShardIndex,
 };
 
+use super::storage::ShardStatus;
+
 /// Type used for internal errors.
 pub type InternalError = anyhow::Error;
 
@@ -135,4 +137,6 @@ pub enum SyncShardError {
     NoOwnerForShard(ShardIndex),
     #[error(transparent)]
     StorageError(#[from] TypedStoreError),
+    #[error("The shard {0} is not in a valid status for syncing: {1}")]
+    InvalidShardStatusToSync(ShardIndex, ShardStatus),
 }

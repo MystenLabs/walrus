@@ -10,6 +10,7 @@ use tokio::sync::Mutex;
 use walrus_core::ShardIndex;
 
 use super::{
+    errors::SyncShardError,
     storage::{ShardStatus, ShardStorage},
     StorageNodeInner,
 };
@@ -43,11 +44,18 @@ impl ShardSyncHandler {
     }
 
     #[allow(dead_code)]
-    pub async fn start_new_shard_sync(&self, shard_index: ShardIndex) -> Result<(), anyhow::Error> {
+    pub async fn start_new_shard_sync(
+        &self,
+        shard_index: ShardIndex,
+    ) -> Result<(), SyncShardError> {
         match self.node.storage.shard_storage(shard_index) {
             Some(shard_storage) => {
-                if shard_storage.status()? == ShardStatus::None {
-                    return Ok(());
+                let shard_status = shard_storage.status()?;
+                if shard_status != ShardStatus::None {
+                    return Err(SyncShardError::InvalidShardStatusToSync(
+                        shard_index,
+                        shard_status,
+                    ));
                 }
                 self.start_shard_sync_impl(shard_storage.clone()).await;
                 Ok(())
@@ -110,5 +118,91 @@ impl ShardSyncHandler {
                 shard_storage.id()
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_utils::TestCluster;
+
+    async fn create_test_cluster<'a>(assignment: &[&[u16]]) -> TestCluster {
+        TestCluster::builder()
+            .with_shard_assignment(assignment)
+            .build()
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_restart_syncs() {
+        let cluster = create_test_cluster(&[&[0, 1, 2]]).await;
+        for i in [0, 2] {
+            cluster.nodes[0]
+                .storage_node
+                .inner
+                .storage
+                .shard_storage(ShardIndex(i))
+                .expect("Failed to get shard storage")
+                .update_status_in_test(ShardStatus::ActiveSync)
+                .expect("Failed to update shard status");
+        }
+        let shard_sync_handler = ShardSyncHandler::new(cluster.nodes[0].storage_node.inner.clone());
+        shard_sync_handler
+            .restart_syncs()
+            .await
+            .expect("Failed to restart syncs");
+        assert_eq!(
+            shard_sync_handler.shard_sync_in_progress.lock().await.len(),
+            2
+        );
+        assert!(shard_sync_handler
+            .shard_sync_in_progress
+            .lock()
+            .await
+            .contains_key(&ShardIndex(0)));
+        assert!(shard_sync_handler
+            .shard_sync_in_progress
+            .lock()
+            .await
+            .contains_key(&ShardIndex(2)));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_start_new_shard_sync() {
+        let cluster = create_test_cluster(&[&[0]]).await;
+        let shard_sync_handler = ShardSyncHandler::new(cluster.nodes[0].storage_node.inner.clone());
+
+        assert!(matches!(
+            shard_sync_handler.start_new_shard_sync(ShardIndex(0)).await,
+            Err(SyncShardError::InvalidShardStatusToSync(..))
+        ));
+
+        cluster.nodes[0]
+            .storage_node
+            .inner
+            .storage
+            .shard_storage(ShardIndex(0))
+            .expect("Failed to get shard storage")
+            .update_status_in_test(ShardStatus::None)
+            .expect("Failed to update shard status");
+
+        assert_eq!(
+            shard_sync_handler.shard_sync_in_progress.lock().await.len(),
+            0
+        );
+        shard_sync_handler
+            .start_new_shard_sync(ShardIndex(0))
+            .await
+            .expect("Failed to start new shard sync");
+        assert_eq!(
+            shard_sync_handler.shard_sync_in_progress.lock().await.len(),
+            1
+        );
+
+        assert!(matches!(
+            shard_sync_handler.start_new_shard_sync(ShardIndex(1)).await,
+            Err(SyncShardError::ShardNotAssigned(..))
+        ));
     }
 }

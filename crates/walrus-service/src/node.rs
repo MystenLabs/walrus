@@ -332,7 +332,7 @@ impl StorageNode {
         committee_service_factory: Box<dyn CommitteeServiceFactory>,
         contract_service: Box<dyn SystemContractService>,
         registry: &Registry,
-        pre_created_storage: Option<Storage>, // For testing purposes.
+        pre_created_storage: Option<Storage>, // For testing purposes. TODO(create todo to remove)
     ) -> Result<Self, anyhow::Error> {
         let start_time = Instant::now();
         let committee_service = committee_service_factory
@@ -1777,7 +1777,7 @@ mod tests {
         let (cluster, _, _) =
             cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &[BLOB], 0).await?;
 
-        let response = cluster.nodes[0]
+        let response: Result<SyncShardResponse, walrus_sdk::error::NodeError> = cluster.nodes[0]
             .client
             .sync_shard::<Primary>(ShardIndex(0), BLOB_ID, 10, 1, &ProtocolKeyPair::generate())
             .await;
@@ -1951,17 +1951,10 @@ mod tests {
     async fn sync_shard_client_success() -> TestResult {
         telemetry_subscribers::init_for_testing();
 
-        let (cluster, _, blob_details) = cluster_with_initial_epoch_and_certified_blob(
-            &[&[0], &[1]],
-            &[
-                &[1; 32], &[2; 32], &[3; 32], &[4; 32], &[5; 32], &[6; 32], &[7; 32], &[8; 32],
-                &[9; 32], &[10; 32], &[11; 32], &[12; 32], &[13; 32], &[14; 32], &[15; 32],
-                &[16; 32], &[17; 32], &[18; 32], &[19; 32], &[20; 32], &[21; 32], &[22; 32],
-                &[23; 32],
-            ],
-            0,
-        )
-        .await?;
+        let blobs: Vec<[u8; 32]> = (1..24).map(|i| [i; 32]).collect();
+        let blobs: Vec<_> = blobs.iter().map(|b| &b[..]).collect();
+        let (cluster, _, blob_details) =
+            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &blobs, 0).await?;
 
         // Makes storage inner mutable so that we can manually add another shard to node 1.
         let node_inner = unsafe {
@@ -1969,7 +1962,7 @@ mod tests {
         };
         node_inner.storage.create_storage_for_shard(ShardIndex(0))?;
         let shard_storage_dst = node_inner.storage.shard_storage(ShardIndex(0)).unwrap();
-        shard_storage_dst.update_status_in_test(ShardStatus::ActiveSync)?;
+        shard_storage_dst.update_status_in_test(ShardStatus::None)?;
 
         let shard_storage_src = cluster.nodes[0]
             .storage_node

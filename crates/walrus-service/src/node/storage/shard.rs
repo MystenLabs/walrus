@@ -3,6 +3,7 @@
 
 //! Walrus shard storage.
 
+use core::fmt::{self, Display};
 use std::{
     collections::{HashMap, HashSet},
     ops::Bound::{Excluded, Unbounded},
@@ -50,9 +51,25 @@ pub enum ShardStatus {
     LockedToMove,
 }
 
+impl Display for ShardStatus {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
 impl ShardStatus {
     pub fn is_owned_by_node(&self) -> bool {
         self != &ShardStatus::LockedToMove
+    }
+
+    /// Provides a string representation of the enum variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ShardStatus::None => "None",
+            ShardStatus::Active => "Active",
+            ShardStatus::ActiveSync => "ActiveSync",
+            ShardStatus::LockedToMove => "LockedToMove",
+        }
     }
 }
 
@@ -358,6 +375,11 @@ impl ShardStorage {
                 epoch,
                 next_starting_blob_id,
             );
+            let mut batch = match sliver_type {
+                SliverType::Primary => self.primary_slivers.batch(),
+                SliverType::Secondary => self.secondary_slivers.batch(),
+            };
+
             for blob in node
                 .committee_service
                 .sync_shard_to_epoch(
@@ -371,13 +393,23 @@ impl ShardStorage {
                 .await?
             {
                 tracing::debug!("Synced blob id: {} to epoch: {}.", blob.0, epoch,);
+                //TODO: Track missing blobs.
                 //TODO: verify sliver validity.
                 //  - blob is certified
                 //  - metadata is correct
-                self.put_sliver(&blob.0, &blob.1)
-                    .context("Storing synced slivers encountered error")?;
+                match blob.1 {
+                    Sliver::Primary(primary) => {
+                        assert_eq!(sliver_type, SliverType::Primary);
+                        batch.insert_batch(&self.primary_slivers, [(blob.0, primary)])?;
+                    }
+                    Sliver::Secondary(secondary) => {
+                        assert_eq!(sliver_type, SliverType::Secondary);
+                        batch.insert_batch(&self.secondary_slivers, [(blob.0, secondary)])?;
+                    }
+                }
                 starting_blob_id = Some(blob.0);
             }
+            batch.write()?;
         }
 
         Ok(())

@@ -112,6 +112,7 @@ rest_api_error!(
         (NoSyncClient, BAD_REQUEST, "No client found for syncing the shard"),
         (NoOwnerForShard(_), BAD_REQUEST, "No owner found for the shard"),
         (StorageError(_), INTERNAL_SERVER_ERROR, "Storage error"),
+        (InvalidShardStatusToSync(_,_), BAD_REQUEST, "Invalid shard status to sync"),
     ]
 );
 
