@@ -43,10 +43,17 @@ impl BlobData {
         self.bytes[index] = self.bytes[index].wrapping_add(1);
     }
 
+    /// Returns a slice of the blob with a size `2^x`, where `x` is chosen uniformly at random
+    /// between `min_size_log2` and `max_size_log2`.
     pub fn random_size_slice(&self) -> &[u8] {
         let blob_size_log2 = thread_rng().gen_range(self.min_size_log2..=self.max_size_log2);
         let blob_size = 2_usize.pow(blob_size_log2 as u32);
         &self.bytes[..blob_size]
+    }
+
+    pub fn refresh_and_get_random_slice(&mut self) -> &[u8] {
+        self.refresh();
+        self.random_size_slice()
     }
 }
 
