@@ -30,7 +30,7 @@ module blob_store::storage_node {
         network_public_key: vector<u8>,
         shard_ids: vector<u16>,
     ): StorageNodeInfo {
-        assert!(network_public_key.length() == 32, EInvalidNetworkPublicKey);
+        assert!(network_public_key.length() == 33, EInvalidNetworkPublicKey);
         StorageNodeInfo {
             name,
             network_address,
