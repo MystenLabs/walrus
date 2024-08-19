@@ -1616,7 +1616,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test(start_paused = true)]
+    #[tokio::test(start_paused = false)]
     async fn recovers_sliver_from_a_small_set() -> TestResult {
         let shards: &[&[u16]] = &[&[0], &(1..=6).collect::<Vec<_>>()];
         let store_secondary_at: Vec<_> = ShardIndex::range(0..5).collect();
@@ -1639,7 +1639,7 @@ mod tests {
                     &blob,
                     node_client,
                     shard.into(),
-                    Duration::from_secs(20),
+                    Duration::from_secs(10),
                 )
                 .await;
 
