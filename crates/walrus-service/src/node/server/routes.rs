@@ -11,6 +11,7 @@ use axum::{
 use fastcrypto::traits::EncodeDecodeBase64;
 use tracing::Level;
 use walrus_core::{
+    encoding::{Primary as PrimaryEncoding, Secondary as SecondaryEncoding},
     messages::{InvalidBlobIdAttestation, SignedSyncShardRequest, StorageConfirmation},
     metadata::{BlobMetadata, UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
     InconsistencyProof,
@@ -49,6 +50,9 @@ pub const API_DOCS: &str = "/v1/api";
 pub const METADATA_ENDPOINT: &str = "/v1/blobs/:blob_id/metadata";
 /// The path to get and store slivers.
 pub const SLIVER_ENDPOINT: &str = "/v1/blobs/:blob_id/slivers/:sliver_pair_index/:sliver_type";
+/// The path to check if a sliver is stored.
+pub const SLIVER_STATUS_ENDPOINT: &str =
+    "/v1/blobs/:blob_id/slivers/:sliver_pair_index/:sliver_type/status";
 /// The path to get storage confirmations.
 pub const STORAGE_CONFIRMATION_ENDPOINT: &str = "/v1/blobs/:blob_id/confirmation";
 /// The path to get recovery symbols.
@@ -57,7 +61,7 @@ pub const RECOVERY_ENDPOINT: &str =
 /// The path to push inconsistency proofs.
 pub const INCONSISTENCY_PROOF_ENDPOINT: &str = "/v1/blobs/:blob_id/inconsistent/:sliver_type";
 /// The path to get the status of a blob.
-pub const STATUS_ENDPOINT: &str = "/v1/blobs/:blob_id/status";
+pub const BLOB_STATUS_ENDPOINT: &str = "/v1/blobs/:blob_id/status";
 pub const HEALTH_ENDPOINT: &str = "/v1/health";
 pub const SYNC_SHARD_ENDPOINT: &str = "/v1/migrate/sync_shard";
 
@@ -208,6 +212,50 @@ pub async fn put_sliver<S: SyncServiceState>(
     Ok(ApiSuccess::ok("sliver stored successfully"))
 }
 
+/// Check if the blob slivers are present.
+///
+///
+/// Checks if the primary or secondary sliver identified by the specified blob ID and index are
+/// present in the database. The index should represent a sliver that is assigned to be stored at
+/// one of the shards managed by this storage node during this epoch.
+#[tracing::instrument(skip_all, err(level = Level::DEBUG), fields(
+    walrus.blob_id = %blob_id.0,
+    walrus.sliver.pair_index = %sliver_pair_index,
+    walrus.sliver.r#type = %sliver_type
+))]
+#[utoipa::path(
+    get,
+    path = api::rewrite_route(SLIVER_STATUS_ENDPOINT),
+    params(
+        ("blob_id" = BlobIdString, ),
+        ("sliver_pair_index" = SliverPairIndex, ),
+        ("sliver_type" = SliverType, ),
+    ),
+    responses(
+        (status = 200, description = "The primary or secondary sliver is stored and available"),
+        RetrieveSliverError,
+    ),
+    tag = openapi::GROUP_READING_BLOBS
+)]
+pub async fn get_sliver_status<S: SyncServiceState>(
+    State(state): State<Arc<S>>,
+    Path((blob_id, sliver_pair_index, sliver_type)): Path<(
+        BlobIdString,
+        SliverPairIndex,
+        SliverType,
+    )>,
+) -> Result<bool, RetrieveSliverError> {
+    let blob_id = blob_id.0;
+    match sliver_type {
+        SliverType::Primary => {
+            state.is_sliver_stored::<PrimaryEncoding>(&blob_id, sliver_pair_index)
+        }
+        SliverType::Secondary => {
+            state.is_sliver_stored::<SecondaryEncoding>(&blob_id, sliver_pair_index)
+        }
+    }
+}
+
 /// Get storage confirmation.
 ///
 /// Gets a signed storage confirmation from this storage node, indicating that all shards assigned
@@ -329,7 +377,7 @@ pub async fn inconsistency_proof<S: SyncServiceState>(
 #[tracing::instrument(skip_all, fields(walrus.blob_id = %blob_id), err(level = Level::DEBUG))]
 #[utoipa::path(
     get,
-    path = api::rewrite_route(STATUS_ENDPOINT),
+    path = api::rewrite_route(BLOB_STATUS_ENDPOINT),
     params(("blob_id" = BlobIdString,)),
     responses(
         (status = 200, description = "The status of the blob", body = ApiSuccessBlobStatus),

@@ -17,7 +17,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{field, Instrument};
 use typed_store::{rocks::MetricConf, DBMetrics, TypedStoreError};
 use walrus_core::{
-    encoding::{EncodingConfig, RecoverySymbolError},
+    encoding::{EncodingAxis, EncodingConfig, RecoverySymbolError},
     ensure,
     keys::ProtocolKeyPair,
     merkle::MerkleProof,
@@ -154,6 +154,13 @@ pub trait ServiceState {
 
     /// Returns the node health information of this ServiceState.
     fn health_info(&self) -> ServiceHealthInfo;
+
+    /// Returns whether the sliver is stored in the shard.
+    fn is_sliver_stored<A: EncodingAxis>(
+        &self,
+        blob_id: &BlobId,
+        sliver_pair_index: SliverPairIndex,
+    ) -> Result<bool, RetrieveSliverError>;
 
     /// Returns the shard data with the provided signed request and the public key of the sender.
     fn sync_shard(
@@ -666,6 +673,14 @@ impl ServiceState for StorageNode {
         self.inner.health_info()
     }
 
+    fn is_sliver_stored<A: EncodingAxis>(
+        &self,
+        blob_id: &BlobId,
+        sliver_pair_index: SliverPairIndex,
+    ) -> Result<bool, RetrieveSliverError> {
+        self.inner.is_sliver_stored::<A>(blob_id, sliver_pair_index)
+    }
+
     fn sync_shard(
         &self,
         public_key: PublicKey,
@@ -868,6 +883,21 @@ impl ServiceState for StorageNodeInner {
             uptime: self.start_time.elapsed(),
             epoch: self.current_epoch(),
             public_key: self.public_key().clone(),
+        }
+    }
+
+    fn is_sliver_stored<A: EncodingAxis>(
+        &self,
+        blob_id: &BlobId,
+        sliver_pair_index: SliverPairIndex,
+    ) -> Result<bool, RetrieveSliverError> {
+        match self
+            .get_shard_for_sliver_pair(sliver_pair_index, blob_id)?
+            .is_sliver_stored::<A>(blob_id)
+        {
+            Ok(true) => Ok(true),
+            Ok(false) => Err(RetrieveSliverError::Unavailable),
+            Err(err) => Err(RetrieveSliverError::Internal(err.into())),
         }
     }
 
@@ -1102,6 +1132,46 @@ mod tests {
         assert_eq!(status_event, blob_event.event_id);
         assert_eq!(end_epoch, blob_event.end_epoch);
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn returns_correct_sliver_status() -> TestResult {
+        let storage_node = storage_node_with_storage(populated_storage(&[
+            (SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
+            (OTHER_SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Primary)]),
+        ])?)
+        .await;
+
+        let pair_index =
+            SHARD_INDEX.to_pair_index(storage_node.as_ref().inner.n_shards(), &BLOB_ID);
+        let other_pair_index =
+            OTHER_SHARD_INDEX.to_pair_index(storage_node.as_ref().inner.n_shards(), &BLOB_ID);
+
+        check_sliver_status::<Primary>(&storage_node, pair_index, Ok(true))?;
+        check_sliver_status::<Secondary>(&storage_node, pair_index, Ok(true))?;
+        check_sliver_status::<Primary>(&storage_node, other_pair_index, Ok(true))?;
+        check_sliver_status::<Secondary>(
+            &storage_node,
+            other_pair_index,
+            Err(RetrieveSliverError::Unavailable),
+        )?;
+        Ok(())
+    }
+    fn check_sliver_status<A: EncodingAxis>(
+        storage_node: &StorageNodeHandle,
+        pair_index: SliverPairIndex,
+        expected: Result<bool, RetrieveSliverError>,
+    ) -> TestResult {
+        let effective = storage_node
+            .as_ref()
+            .inner
+            .is_sliver_stored::<A>(&BLOB_ID, pair_index);
+        match (effective, expected) {
+            (Ok(eff), Ok(exp)) => assert_eq!(eff, exp),
+            (Err(RetrieveSliverError::Unavailable), Err(RetrieveSliverError::Unavailable)) => (),
+            _ => panic!("unexpected result"),
+        }
         Ok(())
     }
 
