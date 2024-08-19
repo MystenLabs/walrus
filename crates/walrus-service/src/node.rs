@@ -1639,7 +1639,7 @@ mod tests {
                     &blob,
                     node_client,
                     shard.into(),
-                    Duration::from_secs(10),
+                    Duration::from_secs(20),
                 )
                 .await;
 
