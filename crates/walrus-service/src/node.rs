@@ -42,7 +42,7 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
-use walrus_sdk::api::{BlobStatus, ServiceHealthInfo};
+use walrus_sdk::api::{BlobStatus, ServiceHealthInfo, SliverStatus};
 use walrus_sui::{
     client::SuiReadClient,
     types::{BlobCertified, BlobEvent, InvalidBlobId},
@@ -160,7 +160,7 @@ pub trait ServiceState {
         &self,
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
-    ) -> Result<bool, RetrieveSliverError>;
+    ) -> Result<SliverStatus, RetrieveSliverError>;
 
     /// Returns the shard data with the provided signed request and the public key of the sender.
     fn sync_shard(
@@ -677,7 +677,7 @@ impl ServiceState for StorageNode {
         &self,
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
-    ) -> Result<bool, RetrieveSliverError> {
+    ) -> Result<SliverStatus, RetrieveSliverError> {
         self.inner.is_sliver_stored::<A>(blob_id, sliver_pair_index)
     }
 
@@ -890,13 +890,13 @@ impl ServiceState for StorageNodeInner {
         &self,
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
-    ) -> Result<bool, RetrieveSliverError> {
+    ) -> Result<SliverStatus, RetrieveSliverError> {
         match self
             .get_shard_for_sliver_pair(sliver_pair_index, blob_id)?
             .is_sliver_stored::<A>(blob_id)
         {
-            Ok(true) => Ok(true),
-            Ok(false) => Err(RetrieveSliverError::Unavailable),
+            Ok(true) => Ok(SliverStatus::Stored),
+            Ok(false) => Ok(SliverStatus::Nonexistent),
             Err(err) => Err(RetrieveSliverError::Internal(err.into())),
         }
     }
@@ -1148,30 +1148,26 @@ mod tests {
         let other_pair_index =
             OTHER_SHARD_INDEX.to_pair_index(storage_node.as_ref().inner.n_shards(), &BLOB_ID);
 
-        check_sliver_status::<Primary>(&storage_node, pair_index, Ok(true))?;
-        check_sliver_status::<Secondary>(&storage_node, pair_index, Ok(true))?;
-        check_sliver_status::<Primary>(&storage_node, other_pair_index, Ok(true))?;
+        check_sliver_status::<Primary>(&storage_node, pair_index, SliverStatus::Stored)?;
+        check_sliver_status::<Secondary>(&storage_node, pair_index, SliverStatus::Stored)?;
+        check_sliver_status::<Primary>(&storage_node, other_pair_index, SliverStatus::Stored)?;
         check_sliver_status::<Secondary>(
             &storage_node,
             other_pair_index,
-            Err(RetrieveSliverError::Unavailable),
+            SliverStatus::Nonexistent,
         )?;
         Ok(())
     }
     fn check_sliver_status<A: EncodingAxis>(
         storage_node: &StorageNodeHandle,
         pair_index: SliverPairIndex,
-        expected: Result<bool, RetrieveSliverError>,
+        expected: SliverStatus,
     ) -> TestResult {
         let effective = storage_node
             .as_ref()
             .inner
-            .is_sliver_stored::<A>(&BLOB_ID, pair_index);
-        match (effective, expected) {
-            (Ok(eff), Ok(exp)) => assert_eq!(eff, exp),
-            (Err(RetrieveSliverError::Unavailable), Err(RetrieveSliverError::Unavailable)) => (),
-            _ => panic!("unexpected result"),
-        }
+            .is_sliver_stored::<A>(&BLOB_ID, pair_index)?;
+        assert_eq!(effective, expected);
         Ok(())
     }
 

@@ -130,6 +130,19 @@ impl Ord for BlobStatus {
     }
 }
 
+/// Contains the status of a sliver.
+#[derive(
+    Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy, Default, Hash, utoipa::ToSchema,
+)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum SliverStatus {
+    /// The sliver does not exist on the storage node.
+    #[default]
+    Nonexistent,
+    /// The sliver is stored on the storage node.
+    Stored,
+}
+
 /// Represents information about the health of the storage node service.
 #[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct ServiceHealthInfo {

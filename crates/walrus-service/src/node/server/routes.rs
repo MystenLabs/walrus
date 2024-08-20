@@ -21,7 +21,7 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
-use walrus_sdk::api::{BlobStatus, ServiceHealthInfo};
+use walrus_sdk::api::{BlobStatus, ServiceHealthInfo, SliverStatus};
 
 use super::{
     extract::{Authorization, Bcs},
@@ -232,7 +232,7 @@ pub async fn put_sliver<S: SyncServiceState>(
         ("sliver_type" = SliverType, ),
     ),
     responses(
-        (status = 200, description = "The primary or secondary sliver is stored and available"),
+        (status = 200, description = "The primary or secondary sliver is stored and available", body=ApiSuccessSliverStatus),
         RetrieveSliverError,
     ),
     tag = openapi::GROUP_READING_BLOBS
@@ -244,16 +244,17 @@ pub async fn get_sliver_status<S: SyncServiceState>(
         SliverPairIndex,
         SliverType,
     )>,
-) -> Result<bool, RetrieveSliverError> {
+) -> Result<ApiSuccess<SliverStatus>, RetrieveSliverError> {
     let blob_id = blob_id.0;
-    match sliver_type {
+    let status = match sliver_type {
         SliverType::Primary => {
             state.is_sliver_stored::<PrimaryEncoding>(&blob_id, sliver_pair_index)
         }
         SliverType::Secondary => {
             state.is_sliver_stored::<SecondaryEncoding>(&blob_id, sliver_pair_index)
         }
-    }
+    }?;
+    Ok(ApiSuccess::ok(status))
 }
 
 /// Get storage confirmation.

@@ -185,6 +185,7 @@ mod test {
             BlobCertificationStatus as SdkBlobCertificationStatus,
             BlobStatus,
             ServiceHealthInfo,
+            SliverStatus,
         },
         client::Client,
     };
@@ -309,12 +310,12 @@ mod test {
         fn is_sliver_stored<A: EncodingAxis>(
             &self,
             blob_id: &BlobId,
-            sliver_pair_index: SliverPairIndex,
-        ) -> Result<bool, RetrieveSliverError> {
-            if blob_id.0[0] == 0 && sliver_pair_index.as_usize() == 0 {
-                Ok(true)
+            _sliver_pair_index: SliverPairIndex,
+        ) -> Result<SliverStatus, RetrieveSliverError> {
+            if blob_id.0[0] == 0 {
+                Ok(SliverStatus::Stored)
             } else {
-                Err(RetrieveSliverError::Unavailable)
+                Ok(SliverStatus::Nonexistent)
             }
         }
 
