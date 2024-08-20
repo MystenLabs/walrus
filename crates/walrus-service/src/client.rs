@@ -28,7 +28,7 @@ use walrus_core::{
     messages::{Confirmation, ConfirmationCertificate, SignedStorageConfirmation},
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
-    Sliver as SliverEnum,
+    Sliver,
 };
 use walrus_sdk::{
     api::{BlobCertificationStatus, BlobStatus},
@@ -417,7 +417,7 @@ impl<T> Client<T> {
     pub async fn read_blob<U>(&self, blob_id: &BlobId) -> ClientResult<Vec<u8>>
     where
         U: EncodingAxis,
-        SliverData<U>: TryFrom<SliverEnum>,
+        SliverData<U>: TryFrom<Sliver>,
     {
         tracing::debug!("starting to read blob");
         self.check_blob_id(blob_id)?;
@@ -436,7 +436,7 @@ impl<T> Client<T> {
     ) -> ClientResult<Vec<u8>>
     where
         U: EncodingAxis,
-        SliverData<U>: TryFrom<SliverEnum>,
+        SliverData<U>: TryFrom<Sliver>,
     {
         let comms = self.node_read_communications();
         // Create requests to get all slivers from all nodes.

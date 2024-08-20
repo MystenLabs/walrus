@@ -35,7 +35,7 @@ use walrus_core::{
     InconsistencyProof as InconsistencyProofEnum,
     PublicKey,
     ShardIndex,
-    Sliver as SliverEnum,
+    Sliver,
     SliverPairIndex,
     SliverType,
 };
@@ -252,16 +252,16 @@ impl Client {
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
         sliver_type: SliverType,
-    ) -> Result<SliverEnum, NodeError> {
+    ) -> Result<Sliver, NodeError> {
         match sliver_type {
             SliverType::Primary => self
                 .get_sliver::<Primary>(blob_id, sliver_pair_index)
                 .await
-                .map(SliverEnum::Primary),
+                .map(Sliver::Primary),
             SliverType::Secondary => self
                 .get_sliver::<Secondary>(blob_id, sliver_pair_index)
                 .await
-                .map(SliverEnum::Secondary),
+                .map(Sliver::Secondary),
         }
     }
 
@@ -411,11 +411,11 @@ impl Client {
         &self,
         blob_id: &BlobId,
         pair_index: SliverPairIndex,
-        sliver: &SliverEnum,
+        sliver: &Sliver,
     ) -> Result<(), NodeError> {
         match sliver {
-            SliverEnum::Primary(sliver) => self.store_sliver(blob_id, pair_index, sliver).await,
-            SliverEnum::Secondary(sliver) => self.store_sliver(blob_id, pair_index, sliver).await,
+            Sliver::Primary(sliver) => self.store_sliver(blob_id, pair_index, sliver).await,
+            Sliver::Secondary(sliver) => self.store_sliver(blob_id, pair_index, sliver).await,
         }
     }
 

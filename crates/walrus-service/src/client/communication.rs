@@ -17,7 +17,7 @@ use walrus_core::{
     Epoch,
     PublicKey,
     ShardIndex,
-    Sliver as SliverEnum,
+    Sliver,
     SliverPairIndex,
 };
 use walrus_sdk::{api::BlobStatus, client::Client as StorageNodeClient, error::NodeError};
@@ -191,7 +191,7 @@ impl<'a, W> NodeCommunication<'a, W> {
         shard_index: ShardIndex,
     ) -> NodeResult<SliverData<T>, NodeError>
     where
-        SliverData<T>: TryFrom<SliverEnum>,
+        SliverData<T>: TryFrom<Sliver>,
     {
         tracing::debug!(%shard_index, sliver_type = T::NAME, "retrieving verified sliver");
         let sliver_pair_index = shard_index.to_pair_index(self.n_shards(), metadata.blob_id());
