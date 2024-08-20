@@ -10,7 +10,7 @@ use fastcrypto::traits::KeyPair;
 use futures::{stream, StreamExt, TryFutureExt};
 use prometheus::Registry;
 use serde::Serialize;
-use shard_sync_handler::ShardSyncHandler;
+use shard_sync::ShardSyncHandler;
 use sui_types::event::EventID;
 use system_events::{SuiSystemEventProvider, SystemEventProvider};
 use tokio::{select, time::Instant};
@@ -68,7 +68,7 @@ pub mod system_events;
 pub(crate) mod metrics;
 
 mod blob_sync;
-mod shard_sync_handler;
+mod shard_sync;
 
 mod errors;
 use errors::{
@@ -332,7 +332,7 @@ impl StorageNode {
         committee_service_factory: Box<dyn CommitteeServiceFactory>,
         contract_service: Box<dyn SystemContractService>,
         registry: &Registry,
-        pre_created_storage: Option<Storage>, // For testing purposes. TODO: consider this test only input.
+        pre_created_storage: Option<Storage>, // For testing purposes. TODO(#703): consider this test only input.
     ) -> Result<Self, anyhow::Error> {
         let start_time = Instant::now();
         let committee_service = committee_service_factory
@@ -946,7 +946,6 @@ mod tests {
         SHARD_INDEX,
     };
     use tokio::sync::{broadcast::Sender, Mutex};
-    use typed_store::Map;
     use walrus_core::{
         encoding::{self, EncodingAxis, Primary, Secondary, SliverPair},
         messages::{SyncShardMsg, SyncShardRequest},
@@ -1382,6 +1381,7 @@ mod tests {
         let mut details = Vec::new();
         for blob in blobs {
             let blob_details = EncodedBlob::new(blob, config.clone());
+            // Note: register and certify the blob are always using epoch 0.
             events.send(BlobRegistered::for_testing(*blob_details.blob_id()).into())?;
             store_at_shards(&blob_details, &cluster, |_, _| true).await?;
             events.send(BlobCertified::for_testing(*blob_details.blob_id()).into())?;
@@ -1955,7 +1955,7 @@ mod tests {
         let blobs: Vec<[u8; 32]> = (1..24).map(|i| [i; 32]).collect();
         let blobs: Vec<_> = blobs.iter().map(|b| &b[..]).collect();
         let (cluster, _, blob_details) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &blobs, 0).await?;
+            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &blobs, 1).await?;
 
         // Makes storage inner mutable so that we can manually add another shard to node 1.
         let node_inner = unsafe {
@@ -1973,10 +1973,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(blob_details.len(), 23);
-        assert_eq!(shard_storage_src.primary_slivers().keys().count(), 23);
-        assert_eq!(shard_storage_src.secondary_slivers().keys().count(), 23);
-        assert_eq!(shard_storage_dst.primary_slivers().keys().count(), 0);
-        assert_eq!(shard_storage_dst.secondary_slivers().keys().count(), 0);
+        assert_eq!(shard_storage_src.sliver_count(SliverType::Primary), 23);
+        assert_eq!(shard_storage_src.sliver_count(SliverType::Secondary), 23);
+        assert_eq!(shard_storage_dst.sliver_count(SliverType::Primary), 0);
+        assert_eq!(shard_storage_dst.sliver_count(SliverType::Secondary), 0);
 
         // Starts the shard syncing process.
         cluster.nodes[1]
@@ -1997,8 +1997,8 @@ mod tests {
         })
         .await?;
 
-        assert_eq!(shard_storage_dst.primary_slivers().keys().count(), 23);
-        assert_eq!(shard_storage_dst.secondary_slivers().keys().count(), 23);
+        assert_eq!(shard_storage_dst.sliver_count(SliverType::Primary), 23);
+        assert_eq!(shard_storage_dst.sliver_count(SliverType::Secondary), 23);
 
         assert_eq!(blob_details.len(), 23);
 

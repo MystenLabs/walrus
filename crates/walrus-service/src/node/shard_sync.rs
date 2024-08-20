@@ -65,64 +65,62 @@ impl ShardSyncHandler {
             let shard_storage = self.node.storage.shard_storage(shard_index).unwrap();
 
             // Restart the syncing task for shards that were previously syncing (in ActiveSync status).
-            if shard_storage.status()? != ShardStatus::ActiveSync {
-                continue;
+            if shard_storage.status()? == ShardStatus::ActiveSync {
+                self.start_shard_sync_impl(shard_storage.clone()).await;
             }
-
-            self.start_shard_sync_impl(shard_storage.clone()).await;
         }
         Ok(())
     }
 
     async fn start_shard_sync_impl(&self, shard_storage: Arc<ShardStorage>) {
-        // TODO: This needs to be the previous epoch, once storage node has a notion of multiple epochs.
-        let epoch_to_sync = self.node.current_epoch();
+        let current_epoch = self.node.current_epoch();
         tracing::info!(
             "Syncing shard index {} to the end of epoch {}",
             shard_storage.id(),
-            epoch_to_sync
+            current_epoch
         );
 
-        // TODO: implement rate limiting for shard syncs.
+        // TODO(#705): implement rate limiting for shard syncs.
         let mut shard_sync_in_progress = self.shard_sync_in_progress.lock().await;
-        if let Entry::Vacant(entry) = shard_sync_in_progress.entry(shard_storage.id()) {
-            let node_clone = self.node.clone();
-            let shard_sync_handler_clone = self.clone();
-            let shard_sync_task = tokio::spawn(async move {
-                let shard_index = shard_storage.id();
-                let sync_result = shard_storage
-                    .start_sync_shard_before_epoch(epoch_to_sync, node_clone)
-                    .await;
-
-                if let Err(err) = sync_result {
-                    tracing::error!(
-                        "Failed to sync shard index: {} to epoch: {}. Error: {}",
-                        shard_index,
-                        epoch_to_sync,
-                        err
-                    );
-                } else {
-                    tracing::info!(
-                        "Successfully synced shard index: {} to epoch: {}",
-                        shard_index,
-                        epoch_to_sync
-                    );
-                }
-
-                // Remove the task from the shard_sync_in_progress map upon completion.
-                shard_sync_handler_clone
-                    .shard_sync_in_progress
-                    .lock()
-                    .await
-                    .remove(&shard_index);
-            });
-            entry.insert(shard_sync_task);
-        } else {
+        let Entry::Vacant(entry) = shard_sync_in_progress.entry(shard_storage.id()) else {
             tracing::info!(
                 "Shard index: {} is already being synced. Skipping starting new sync task.",
                 shard_storage.id()
             );
-        }
+            return;
+        };
+
+        let node_clone = self.node.clone();
+        let shard_sync_handler_clone = self.clone();
+        let shard_sync_task = tokio::spawn(async move {
+            let shard_index = shard_storage.id();
+            let sync_result = shard_storage
+                .start_sync_shard_before_epoch(current_epoch, node_clone)
+                .await;
+
+            if let Err(err) = sync_result {
+                tracing::error!(
+                    "Failed to sync shard index: {} to before epoch: {}. Error: {}",
+                    shard_index,
+                    current_epoch,
+                    err
+                );
+            } else {
+                tracing::info!(
+                    "Successfully synced shard index: {} to before epoch: {}",
+                    shard_index,
+                    current_epoch
+                );
+            }
+
+            // Remove the task from the shard_sync_in_progress map upon completion.
+            shard_sync_handler_clone
+                .shard_sync_in_progress
+                .lock()
+                .await
+                .remove(&shard_index);
+        });
+        entry.insert(shard_sync_task);
     }
 }
 

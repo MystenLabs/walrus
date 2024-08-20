@@ -4,6 +4,7 @@
 use std::{
     collections::{hash_map::Entry, HashMap},
     fmt::Debug,
+    ops::RangeBounds,
     path::Path,
     sync::Arc,
 };
@@ -346,6 +347,18 @@ impl Storage {
     #[tracing::instrument(skip_all)]
     pub fn get_blob_info(&self, blob_id: &BlobId) -> Result<Option<BlobInfo>, TypedStoreError> {
         self.blob_info.get(blob_id)
+    }
+
+    /// Returns an iterator over the blob info table.
+    #[tracing::instrument(skip_all)]
+    pub fn blob_info_iter(
+        &self,
+        range: Option<impl RangeBounds<BlobId>>,
+    ) -> impl Iterator<Item = Result<(BlobId, BlobInfo), TypedStoreError>> + '_ {
+        match range {
+            Some(range) => self.blob_info.safe_range_iter(range),
+            None => self.blob_info.safe_iter(),
+        }
     }
 
     /// Get the event cursor for `event_type`
