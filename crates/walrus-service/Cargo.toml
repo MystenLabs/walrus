@@ -65,6 +65,7 @@ indoc = { workspace = true, optional = true }
 itertools = { workspace = true, optional = true }
 mime = { workspace = true, optional = true }
 mysten-metrics = { workspace = true, optional = true }
+num-bigint.workspace = true
 opentelemetry.workspace = true
 pin-project.workspace = true
 prettytable = { workspace = true, optional = true }

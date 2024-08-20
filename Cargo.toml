@@ -33,6 +33,7 @@ mime = "0.3.17"
 mockall = "0.12.1"
 move-core-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.31.1" }
 mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.31.1" }
+num-bigint = { version = "0.4.5", default-features = false }
 opentelemetry = "=0.23.0"
 pin-project = "1.1.5"
 prettytable = "0.10.0"

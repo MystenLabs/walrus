@@ -31,6 +31,7 @@ use walrus_service::{
             get_sui_read_client_from_rpc_node_or_wallet,
             load_configuration,
             load_wallet_context,
+            parse_blob_id,
             read_blob_from_file,
             CliOutput,
             HumanReadableBytes,
@@ -139,7 +140,7 @@ enum Commands {
     Read {
         /// The blob ID to be read.
         #[serde_as(as = "DisplayFromStr")]
-        #[clap(allow_hyphen_values = true)]
+        #[clap(allow_hyphen_values = true, value_parser = parse_blob_id)]
         blob_id: BlobId,
         /// The file path where to write the blob.
         ///
@@ -309,7 +310,7 @@ struct FileOrBlobId {
     #[serde(default)]
     file: Option<PathBuf>,
     /// The blob ID to be checked.
-    #[clap(short, long, allow_hyphen_values = true)]
+    #[clap(short, long, allow_hyphen_values = true, value_parser = parse_blob_id)]
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[serde(default)]
     blob_id: Option<BlobId>,
@@ -393,6 +394,7 @@ impl PublisherArgs {
 
 async fn client() -> Result<()> {
     init_tracing_subscriber()?;
+    tracing::info!("client version: {}", VERSION);
     let mut app = App::parse();
 
     while let Commands::Json { command_string } = app.command {

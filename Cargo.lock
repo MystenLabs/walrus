@@ -12081,6 +12081,7 @@ dependencies = [
  "mime",
  "mockall 0.12.1",
  "mysten-metrics",
+ "num-bigint 0.4.6",
  "opentelemetry 0.23.0",
  "pin-project",
  "prettytable",
