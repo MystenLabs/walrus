@@ -48,29 +48,30 @@ public struct InvalidBlobID has copy, drop {
     blob_id: u256,
 }
 
-/// Signals that the epoch change has started.
+/// Signals that epoch `epoch` has started and the epoch change is in progress.
 public struct EpochChangeStart has copy, drop {
     epoch: u64,
 }
 
-/// Signals that nodes with 2f+1 shards have finished the epoch change.
+/// Signals that a set of storage nodes holding at least 2f+1 shards have finished the epoch
+/// change, i.e., received all of their assigned shards.
 public struct EpochChangeDone has copy, drop {
     epoch: u64,
 }
 
-/// Signals that a specific node has received all shards for the new epoch.
-public struct AllShardsReceived has copy, drop {
+/// Signals that a node has received the specified shards for the new epoch.
+public struct ShardsReceived has copy, drop {
     epoch: u64,
-    node_id: ID,
+    shards: vector<u16>,
 }
 
-/// Signals that the committee for the next epoch has been selected.
-public struct CommitteeSelected has copy, drop {
-    epoch: u64,
+/// Signals that the committee and the system parameters for `next_epoch` have been selected.
+public struct EpochParametersSelected has copy, drop {
+    next_epoch: u64,
 }
 
-/// Signals that the happy path shard transfer has failed for the given shards.
-public struct ShardTransferFailed has copy, drop {
+/// Signals that the given shards can be recovered using the shard recovery endpoint.
+public struct ShardRecoveryStart has copy, drop {
     epoch: u64,
     shards: vector<u16>,
 }
@@ -124,14 +125,14 @@ public(package) fun emit_epoch_change_done(epoch: u64) {
     event::emit(EpochChangeDone { epoch })
 }
 
-public(package) fun emit_all_shards_received(epoch: u64, node_id: ID) {
-    event::emit(AllShardsReceived { epoch, node_id })
+public(package) fun emit_shards_received(epoch: u64, shards: vector<u16>) {
+    event::emit(ShardsReceived { epoch, shards })
 }
 
-public(package) fun emit_committee_selected(epoch: u64) {
-    event::emit(CommitteeSelected { epoch })
+public(package) fun emit_epoch_parameters_selected(next_epoch: u64) {
+    event::emit(EpochParametersSelected { next_epoch })
 }
 
-public(package) fun emit_shard_transfer_failed(epoch: u64, shards: vector<u16>) {
-    event::emit(ShardTransferFailed { epoch, shards })
+public(package) fun emit_shard_recovery_start(epoch: u64, shards: vector<u16>) {
+    event::emit(ShardRecoveryStart { epoch, shards })
 }
