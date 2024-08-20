@@ -48,6 +48,35 @@ public struct InvalidBlobID has copy, drop {
     blob_id: u256,
 }
 
+/// Signals that the epoch change has started.
+public struct EpochChangeStart has copy, drop {
+    epoch: u64,
+}
+
+/// Signals that nodes with 2f+1 shards have finished the epoch change.
+public struct EpochChangeDone has copy, drop {
+    epoch: u64,
+}
+
+/// Signals that a specific node has received all shards for the new epoch.
+public struct AllShardsReceived has copy, drop {
+    epoch: u64,
+    node_id: ID,
+}
+
+/// Signals that the committee for the next epoch has been selected.
+public struct CommitteeSelected has copy, drop {
+    epoch: u64,
+}
+
+/// Signals that the happy path shard transfer has failed for the given shards.
+public struct ShardTransferFailed has copy, drop {
+    epoch: u64,
+    shards: vector<u16>,
+}
+
+// == Functions to emit the events from other modules ==
+
 public(package) fun emit_blob_registered(
     epoch: u64,
     blob_id: u256,
@@ -85,4 +114,24 @@ public(package) fun emit_invalid_blob_id(epoch: u64, blob_id: u256) {
 
 public(package) fun emit_blob_deleted(epoch: u64, blob_id: u256, end_epoch: u64, object_id: ID) {
     event::emit(BlobDeleted { epoch, blob_id, end_epoch, object_id });
+}
+
+public(package) fun emit_epoch_change_start(epoch: u64) {
+    event::emit(EpochChangeStart { epoch })
+}
+
+public(package) fun emit_epoch_change_done(epoch: u64) {
+    event::emit(EpochChangeDone { epoch })
+}
+
+public(package) fun emit_all_shards_received(epoch: u64, node_id: ID) {
+    event::emit(AllShardsReceived { epoch, node_id })
+}
+
+public(package) fun emit_committee_selected(epoch: u64) {
+    event::emit(CommitteeSelected { epoch })
+}
+
+public(package) fun emit_shard_transfer_failed(epoch: u64, shards: vector<u16>) {
+    event::emit(ShardTransferFailed { epoch, shards })
 }
