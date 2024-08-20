@@ -107,7 +107,7 @@ use walrus::storage_node;
 /// Test committee
 public fun new_bls_committee_for_testing(): BlsCommittee {
     // Pk corresponding to secret key scalar(117)
-    let pub_key_bytes = x"95eacc3adc09c827593f581e8e2de068bf4cf5d0c0eb29e5372f0d23364788ee0f9beb112c8a7e9c2f0c720433705cf0";
+    let pub_key_bytes = x"95eacc3adc09c827593f581e8e2de068bf4cf5d0c0eb29e5372f0d23364788ee0f9beb112c8a7e9c2f0c720433705cf0"; // editorconfig-checker-disable-line
     let storage_node = storage_node::new_for_testing(pub_key_bytes, 100);
     BlsCommittee { members: vector[storage_node], n_shards: 100 }
 }

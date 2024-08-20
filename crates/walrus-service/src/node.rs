@@ -1762,9 +1762,13 @@ mod tests {
             .client
             .sync_shard::<Primary>(ShardIndex(0), BLOB_ID, 10, 1, &ProtocolKeyPair::generate())
             .await;
-        assert!(matches!(response,
-                Err(err) if err.http_status_code() == Some(StatusCode::UNAUTHORIZED) &&
-                            err.to_string().contains("The client is not authorized to perform sync shard operation")));
+        assert!(matches!(
+            response,
+            Err(err) if err.http_status_code() == Some(StatusCode::UNAUTHORIZED) &&
+                        err.to_string().contains(
+                            "The client is not authorized to perform sync shard operation"
+                        )
+        ));
 
         Ok(())
     }
@@ -1829,7 +1833,10 @@ mod tests {
         assert!(matches!(
             status,
             Err(err) if err.http_status_code() == Some(StatusCode::BAD_REQUEST) &&
-                err.to_string().contains("The request came from an epoch that is too old: 0. Current epoch is 10")));
+                err.to_string().contains(
+                    "The request came from an epoch that is too old: 0. Current epoch is 10"
+                )
+        ));
 
         Ok(())
     }

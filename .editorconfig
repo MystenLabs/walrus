@@ -17,7 +17,7 @@ trim_trailing_whitespace = true
 indent_size = unset
 max_line_length = 150
 
-[{*.yml,*.yaml,*.toml}]
+[{*.json,*.sh,*.toml,*.yml,*.yaml,cargo-simtest}]
 indent_size = 2
 max_line_length = 150
 
@@ -25,13 +25,7 @@ max_line_length = 150
 indent_size = unset
 
 # Ignore paths
-[{
-    .git/**/*,**/*.lock,
-    **/Move.toml,
-    LICENSE,
-    docs/devnet-public/glossary.md,
-    crates/walrus-orchestrator/assets/*
-}]
+[{.git/**/*,**/*.lock,**/Move.toml,LICENSE,docs/devnet-public/glossary.md,crates/walrus-orchestrator/assets/*,.editorconfig}]
 charset = unset
 end_of_line = unset
 indent_size = unset

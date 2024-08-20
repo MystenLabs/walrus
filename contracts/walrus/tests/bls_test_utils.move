@@ -22,7 +22,7 @@ public fun bls_min_pk_from_sk(sk: &vector<u8>): vector<u8> {
 #[test]
 fun test_bls_pk() {
     let sk = x"0000000000000000000000000000000000000000000000000000000000000075";
-    let pub_key_bytes = x"95eacc3adc09c827593f581e8e2de068bf4cf5d0c0eb29e5372f0d23364788ee0f9beb112c8a7e9c2f0c720433705cf0";
+    let pub_key_bytes = x"95eacc3adc09c827593f581e8e2de068bf4cf5d0c0eb29e5372f0d23364788ee0f9beb112c8a7e9c2f0c720433705cf0"; // editorconfig-checker-disable-line
     assert!(bls_min_pk_from_sk(&sk) == pub_key_bytes)
 }
 

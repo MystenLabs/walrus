@@ -667,7 +667,9 @@ mod tests {
             confirmation: (|e| e.confirmation(&BLOB_ID).0, "confirmation"),
             sliver: (|e| e.sliver::<Primary>(&BLOB_ID, SliverPairIndex(1)).0, "slivers/1/primary"),
             recovery_symbol: (
-                |e| e.recovery_symbol::<Primary>(&BLOB_ID, SliverPairIndex(1), SliverPairIndex(2)).0,
+                |e| e.recovery_symbol::<Primary>(
+                    &BLOB_ID, SliverPairIndex(1), SliverPairIndex(2)
+                ).0,
                 "slivers/1/primary/2"
             ),
             inconsistency_proof: (

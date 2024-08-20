@@ -32,7 +32,8 @@ pub enum ShardStatus {
     /// The shard is active in this node serving reads and writes.
     Active,
 
-    /// The shard is locked for moving to another node. Shard does not accept any more writes in this status.
+    /// The shard is locked for moving to another node. Shard does not accept any more writes in
+    /// this status.
     LockedToMove,
 }
 
@@ -195,8 +196,8 @@ impl ShardStorage {
         }
     }
 
-    /// Returns the name and options for the column families for a shard's primary and secondary sliver
-    /// with the specified index.
+    /// Returns the name and options for the column families for a shard's primary and secondary
+    /// sliver with the specified index.
     pub(crate) fn slivers_column_family_options(
         id: ShardIndex,
         db_config: &DatabaseConfig,
@@ -236,8 +237,8 @@ impl ShardStorage {
             .unwrap_or_default()
             .into_iter()
             .filter_map(|cf_name| match id_from_column_family_name(&cf_name) {
-                // To check existing shards, we only need to look at whether the secondary sliver column
-                // was created or not, as it was created after the primary sliver column.
+                // To check existing shards, we only need to look at whether the secondary sliver
+                // column was created or not, as it was created after the primary sliver column.
                 Some((shard_index, SliverType::Secondary)) => Some(shard_index),
                 Some((_, SliverType::Primary)) | None => None,
             })
@@ -505,7 +506,10 @@ mod tests {
     param_test! {
         test_parse_column_family_name: [
             primary: ("shard-10/primary-slivers", Some((ShardIndex(10), SliverType::Primary))),
-            secondary: ("shard-20/secondary-slivers", Some((ShardIndex(20), SliverType::Secondary))),
+            secondary: (
+                "shard-20/secondary-slivers",
+                Some((ShardIndex(20), SliverType::Secondary))
+            ),
             invalid_id: ("shard-a/primary-slivers", None),
             invalid_sliver_type: ("shard-20/random-slivers", None),
             invalid_sliver_name: ("shard-20/slivers", None),

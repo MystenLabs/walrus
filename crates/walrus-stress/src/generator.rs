@@ -299,7 +299,11 @@ impl LoadGenerator {
             tokio::select! {
                 _ = write_interval.tick() => {
                     self.metrics.observe_benchmark_duration(Instant::now().duration_since(start));
-                    self.write_burst(writes_per_burst, write_interval.period(), inconsistent_blob_rate);
+                    self.write_burst(
+                        writes_per_burst,
+                        write_interval.period(),
+                        inconsistent_blob_rate,
+                    );
                 }
                 _ = read_interval.tick() => {
                     self.metrics.observe_benchmark_duration(Instant::now().duration_since(start));

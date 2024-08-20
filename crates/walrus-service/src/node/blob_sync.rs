@@ -162,7 +162,9 @@ impl BlobSyncHandler {
                 }
                 sync_result = synchronizer.run() => match sync_result {
                     Ok(()) => {
-                        node.mark_event_completed(synchronizer.event_index, &synchronizer.event_id)?;
+                        node.mark_event_completed(
+                            synchronizer.event_index, &synchronizer.event_id
+                        )?;
                         Ok(None)
                     }
                     // NOTE(jsmith): This changes behaviour from the previous implementation.

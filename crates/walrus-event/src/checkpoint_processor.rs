@@ -225,11 +225,12 @@ impl CheckpointProcessor {
             let next_checkpoint = prev_checkpoint.inner().sequence_number().saturating_add(1);
             let Ok(checkpoint) = self.get_full_checkpoint(next_checkpoint).await else {
                 // TODO:
-                // 1. Read walrus events from event blobs s we've fallen behind the first unpruned
-                // checkpoint on the fullnode or the fullnode doesn't have the new checkpoint yet
-                // 2. Reset the committee and previous checkpoint using a light client
-                // based approach so we can continue processing events from full node
-                // 3. Reset the walrus package store with the latest walrus package object from fullnode
+                // 1. Read walrus events from event blobs as we've fallen behind the first unpruned
+                //    checkpoint on the fullnode or the fullnode doesn't have the new checkpoint yet
+                // 2. Reset the committee and previous checkpoint using a light client based
+                //    approach so we can continue processing events from full node
+                // 3. Reset the walrus package store with the latest walrus package object from
+                //    fullnode
                 bail!("Failed to get checkpoint {}", next_checkpoint);
             };
             let Some(committee) = self.committee_store.get(&())? else {

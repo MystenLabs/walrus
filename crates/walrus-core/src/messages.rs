@@ -79,7 +79,8 @@ impl<T> SignedMessage<T> {
 }
 
 impl<T> SignedMessage<T> {
-    /// Extracts the underlying message and verifies the signature on this message under `public_key`.
+    /// Extracts the underlying message and verifies the signature on this message under
+    /// `public_key`.
     pub fn verify_signature_and_get_message<I>(
         &self,
         public_key: &PublicKey,

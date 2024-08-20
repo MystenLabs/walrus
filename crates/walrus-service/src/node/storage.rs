@@ -1209,7 +1209,8 @@ pub(crate) mod tests {
         Ok(())
     }
 
-    /// Tests that the storage returns correct error when trying to sync a shard that does not exist.
+    /// Tests that the storage returns correct error when trying to sync a shard that does not
+    /// exist.
     #[tokio::test]
     async fn handle_sync_shard_request_shard_not_found() -> TestResult {
         let storage = empty_storage();

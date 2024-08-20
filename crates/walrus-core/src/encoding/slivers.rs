@@ -421,7 +421,8 @@ impl SliverPair {
         self.primary.index.into()
     }
 
-    /// Creates a new sliver pair containing two empty [`SliverData`] instances of the specified size.
+    /// Creates a new sliver pair containing two empty [`SliverData`] instances of the specified
+    /// size.
     pub fn new_empty(
         config: &EncodingConfig,
         symbol_size: NonZeroU16,

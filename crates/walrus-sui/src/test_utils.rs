@@ -220,7 +220,8 @@ pub mod using_msim {
 
     use super::TestClusterHandle;
 
-    /// Returns a handle to a newly created global instance of a Sui test cluster and the wallet config path.
+    /// Returns a handle to a newly created global instance of a Sui test cluster and the wallet
+    /// config path.
     pub async fn global_sui_test_cluster() -> Arc<TestClusterHandle> {
         Arc::new(TestClusterHandle::new().await)
     }

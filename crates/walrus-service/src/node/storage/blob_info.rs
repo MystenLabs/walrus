@@ -131,8 +131,10 @@ impl BlobInfoV1 {
     }
 
     /// Updates the status of the blob.
+    ///
     /// If the new status is higher than the current status, the status is updated.
-    /// If the new status is the same as the current status, the status with the higher end epoch is kept.
+    /// If the new status is the same as the current status, the status with the higher end epoch is
+    /// kept.
     fn update_status(
         &mut self,
         blob_id: &BlobId,

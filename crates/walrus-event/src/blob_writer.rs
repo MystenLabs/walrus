@@ -222,7 +222,7 @@ impl EventBlobWriter {
         self.client.store_metadata(&blob_metadata).await?;
         // TODO: Once shard assignment per storage node will be read from walrus
         // system object at the beginning of the walrus epoch, we can only store the blob for
-        // shards that are locally assigned to this node
+        // shards that are locally assigned to this node. (#682)
         try_join_all(sliver_pairs.iter().map(|sliver_pair| async {
             self.client
                 .store_sliver(
@@ -259,8 +259,8 @@ impl EventBlobWriter {
         }))
         .await
         .map(|_| ())?;
-        // TODO: Once slivers are stored locally, invoke the new sui contract endpoint to certify the
-        // event blob
+        // TODO: Once slivers are stored locally, invoke the new sui contract endpoint to certify
+        // the event blob. (#683)
         let event_blob_metadata = EventBlobMetadata {
             blob_id: *blob_metadata.blob_id(),
             start: self.start.as_ref().cloned().unwrap_or_default(),

@@ -115,7 +115,9 @@ impl MakeHttpSpan {
 
     /// Record the server's address as the host identified in the header, or forwarded by a proxy.
     fn record_server_address<B>(&self, request: &Request<B>, span: &Span) {
-        // Set the server address based on https://opentelemetry.io/docs/specs/semconv/http/http-spans/
+        // Set the server address based on
+        // https://opentelemetry.io/docs/specs/semconv/http/http-spans/
+        //
         // Should be the first of:
         // - The original host which may be passed by the reverse proxy in the Forwarded#host,
         //   X-Forwarded-Host, or a similar header.

@@ -55,8 +55,10 @@ struct Args {
     /// The binary logarithm of the maximum blob size to use for the load generation.
     #[clap(long, default_value = "20")]
     max_size_log2: u8,
-    /// The period in milliseconds to check if gas needs to be refilled. This is useful for continuous load testing
-    /// where the gas budget need to be refilled periodically.
+    /// The period in milliseconds to check if gas needs to be refilled.
+    ///
+    /// This is useful for continuous load testing where the gas budget need to be refilled
+    /// periodically.
     #[clap(long, default_value = "1000")]
     gas_refill_period_millis: NonZeroU64,
     /// The fraction of writes that write inconsistent blobs.

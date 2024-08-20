@@ -45,7 +45,8 @@ pub struct BlobEntry {
 }
 
 impl BlobEntry {
-    /// The maximum length of a varint in bytes. This is the maximum length of the length field of a blob.
+    /// The maximum length of a varint in bytes. This is the maximum length of the length field of a
+    /// blob.
     pub const MAX_VARINT_LENGTH: usize = 10;
     /// The number of bytes used to encode the encoding of the event. This is a single byte.
     pub const EVENT_ENCODING_BYTES: usize = 1;

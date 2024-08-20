@@ -235,7 +235,9 @@ macro_rules! rest_api_error {
                 let mut response = self.to_response();
 
                 if self.status() == StatusCode::INTERNAL_SERVER_ERROR {
-                    response.extensions_mut().insert($crate::common::telemetry::InternalError(Arc::new(self)));
+                    response.extensions_mut().insert(
+                        $crate::common::telemetry::InternalError(Arc::new(self))
+                    );
                 }
 
                 response
