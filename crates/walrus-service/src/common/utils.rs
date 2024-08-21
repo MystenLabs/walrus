@@ -180,6 +180,23 @@ impl<R: Rng> Iterator for ExponentialBackoff<R> {
     }
 }
 
+#[derive(Debug)]
+pub(crate) struct FixedIntervalRetry {
+    retry_interval: Duration,
+}
+
+impl FixedIntervalRetry {
+    pub fn new(retry_interval: Duration) -> Self {
+        Self { retry_interval }
+    }
+}
+
+impl BackoffStrategy for FixedIntervalRetry {
+    fn next_delay(&mut self) -> Option<Duration> {
+        Some(self.retry_interval)
+    }
+}
+
 /// Trait to unify checking for success on `Result` and `Option` types.
 pub(crate) trait SuccessOrFailure {
     /// Returns true iff the value is considered successful.
@@ -195,6 +212,12 @@ impl<T, E> SuccessOrFailure for Result<T, E> {
 impl<T> SuccessOrFailure for Option<T> {
     fn is_success(&self) -> bool {
         self.is_some()
+    }
+}
+
+impl SuccessOrFailure for bool {
+    fn is_success(&self) -> bool {
+        *self
     }
 }
 

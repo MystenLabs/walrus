@@ -457,5 +457,5 @@ pub async fn sync_shard<S: SyncServiceState>(
     Bcs(signed_request): Bcs<SignedSyncShardRequest>,
 ) -> Result<Response, OrRejection<SyncShardError>> {
     let public_key = PublicKey::decode_base64(&base64_public_key).unwrap();
-    Ok(Bcs(state.sync_shard(public_key, signed_request)?).into_response())
+    Ok(Bcs(state.sync_shard(public_key, signed_request).await?).into_response())
 }

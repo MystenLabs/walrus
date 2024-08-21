@@ -3,7 +3,7 @@
 
 //! Walrus storage node.
 
-use std::{future::Future, num::NonZeroU16, sync::Arc};
+use std::{future::Future, num::NonZeroU16, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, bail, Context};
 use fastcrypto::traits::KeyPair;
@@ -58,6 +58,7 @@ use self::{
     metrics::{NodeMetricSet, TelemetryLabel as _, STATUS_PENDING, STATUS_PERSISTED},
     storage::{blob_info::BlobInfoApi, EventProgress, ShardStorage},
 };
+use crate::utils::{self, FixedIntervalRetry};
 
 pub mod committee;
 pub mod config;
@@ -175,7 +176,7 @@ pub trait ServiceState {
         &self,
         public_key: PublicKey,
         signed_request: SignedSyncShardRequest,
-    ) -> Result<SyncShardResponse, SyncShardError>;
+    ) -> impl Future<Output = Result<SyncShardResponse, SyncShardError>> + Send;
 }
 
 /// Builder to construct a [`StorageNode`].
@@ -711,7 +712,7 @@ impl ServiceState for StorageNode {
         &self,
         public_key: PublicKey,
         signed_request: SignedSyncShardRequest,
-    ) -> Result<SyncShardResponse, SyncShardError> {
+    ) -> impl Future<Output = Result<SyncShardResponse, SyncShardError>> + Send {
         self.inner.sync_shard(public_key, signed_request)
     }
 }
@@ -938,7 +939,7 @@ impl ServiceState for StorageNodeInner {
         }
     }
 
-    fn sync_shard(
+    async fn sync_shard(
         &self,
         public_key: PublicKey,
         signed_request: SignedSyncShardRequest,
@@ -960,6 +961,13 @@ impl ServiceState for StorageNodeInner {
                 self.current_epoch(),
             ));
         }
+
+        // Wait until the current storage node receives the epoch change event, so that the node
+        // contains the full list of certified blobs to send to the requester.
+        utils::retry(FixedIntervalRetry::new(Duration::from_secs(1)), || async {
+            request.epoch() == self.current_epoch()
+        })
+        .await;
 
         self.storage
             .handle_sync_shard_request(request, self.current_epoch())
@@ -999,7 +1007,10 @@ mod tests {
         OTHER_SHARD_INDEX,
         SHARD_INDEX,
     };
-    use tokio::sync::{broadcast::Sender, Mutex};
+    use tokio::{
+        sync::{broadcast::Sender, Mutex},
+        time::error::Elapsed,
+    };
     use walrus_core::{
         encoding::{self, EncodingAxis, Primary, Secondary, SliverPair},
         messages::{SyncShardMsg, SyncShardRequest},
@@ -1842,7 +1853,7 @@ mod tests {
     #[tokio::test]
     async fn sync_shard_node_api_success() -> TestResult {
         let (cluster, _, blob_detail) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &[BLOB], 0).await?;
+            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &[BLOB], 1).await?;
 
         let blob_id = *blob_detail[0].blob_id();
 
@@ -1876,6 +1887,33 @@ mod tests {
                     .unwrap()
             )
         );
+
+        Ok(())
+    }
+
+    // Tests that the `sync_shard` API does not return blobs certified after the requested epoch.
+    #[tokio::test]
+    async fn sync_shard_do_not_send_certified_after_requested_epoch() -> TestResult {
+        // Note that the blobs are certified in epoch 0.
+        let (cluster, _, blob_detail) =
+            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], BLOB, 0).await?;
+
+        let blob_id = *blob_detail.blob_id();
+
+        let status = cluster.nodes[0]
+            .client
+            .sync_shard::<Primary>(
+                ShardIndex(0),
+                blob_id,
+                10,
+                0,
+                &cluster.nodes[0].as_ref().inner.protocol_key_pair,
+            )
+            .await;
+        assert!(status.is_ok(), "Unexpected sync shard error: {:?}", status);
+
+        let SyncShardResponse::V1(response) = status.unwrap();
+        assert_eq!(response.len(), 0);
 
         Ok(())
     }
@@ -1915,20 +1953,45 @@ mod tests {
             .protocol_key_pair
             .sign_message(&sync_shard_msg);
 
-        let result = cluster.nodes[0].storage_node.sync_shard(
-            cluster.nodes[1]
-                .as_ref()
-                .inner
-                .protocol_key_pair
-                .0
-                .public()
-                .clone(),
-            signed_request,
-        );
+        let result = cluster.nodes[0]
+            .storage_node
+            .sync_shard(
+                cluster.nodes[1]
+                    .as_ref()
+                    .inner
+                    .protocol_key_pair
+                    .0
+                    .public()
+                    .clone(),
+                signed_request,
+            )
+            .await;
         assert!(matches!(
             result,
             Err(SyncShardError::MessageVerificationError(..))
         ));
+
+        Ok(())
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn sync_shard_wait_until_epoch_match() -> TestResult {
+        let (cluster, _, _) =
+            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], BLOB, 0).await?;
+
+        let result = tokio::time::timeout(
+            Duration::from_secs(120),
+            cluster.nodes[0].client.sync_shard::<Primary>(
+                ShardIndex(0),
+                BLOB_ID,
+                10,
+                10,
+                &cluster.nodes[0].as_ref().inner.protocol_key_pair,
+            ),
+        )
+        .await;
+
+        assert!(matches!(result, Err(Elapsed { .. })));
 
         Ok(())
     }

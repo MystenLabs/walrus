@@ -10,6 +10,7 @@ use std::{
 };
 
 use anyhow::Context;
+use blob_info::BlobCertificationStatus;
 use rocksdb::{DBCompressionType, MergeOperands, Options};
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
@@ -553,10 +554,9 @@ impl Storage {
             .safe_iter_with_bounds(Some(request.starting_blob_id()), None)
             .filter_map(|blob_info| match blob_info {
                 Ok((blob_id, blob_info)) => {
-                    if blob_info.is_certified() {
-                        Some(Ok(blob_id))
-                    } else {
-                        None
+                    match blob_info.status_changing_epoch(BlobCertificationStatus::Certified) {
+                        Some(epoch) if epoch < current_epoch => Some(Ok(blob_id)),
+                        _ => None,
                     }
                 }
                 Err(e) => Some(Err(e)),
@@ -1191,7 +1191,7 @@ pub(crate) mod tests {
                     blob,
                     BlobInfoMergeOperand::ChangeStatus {
                         blob_id: *blob,
-                        status_changing_epoch: 1,
+                        status_changing_epoch: 0,
                         end_epoch: 2,
                         status: BlobCertificationStatus::Certified,
                         status_event: event_id_for_testing(),
