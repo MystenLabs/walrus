@@ -25,8 +25,7 @@ public struct StorageNodeInfo has store, drop {
 /// perform operations on the storage node.
 public struct StorageNodeCap has key, store {
     id: UID,
-    // node_id: ID,
-    pool_id: ID, // TODO: switch all pool_id to node_id?
+    node_id: ID,
 }
 
 /// A public constructor for the StorageNodeInfo.
@@ -62,7 +61,7 @@ public(package) fun weight(self: &StorageNodeInfo): u16 { self.shard_ids.length(
 public fun id(self: &StorageNodeInfo): ID { self.node_id }
 
 /// Return the pool ID of the storage node.
-public fun pool_id(cap: &StorageNodeCap): ID { cap.pool_id }
+public fun node_id(cap: &StorageNodeCap): ID { cap.node_id }
 
 /// Return the node ID of the storage node.
 // public fun node_id(cap: &StorageNodeCap): ID { cap.node_id }
@@ -89,6 +88,6 @@ public fun new_for_testing(public_key: vector<u8>, weight: u16): StorageNodeInfo
 
 #[test_only]
 /// Create a storage node capability for testing.
-public fun new_cap_for_testing(pool_id: ID, ctx: &mut TxContext): StorageNodeCap {
-    StorageNodeCap { id: object::new(ctx), pool_id }
+public fun new_cap_for_testing(node_id: ID, ctx: &mut TxContext): StorageNodeCap {
+    StorageNodeCap { id: object::new(ctx), node_id }
 }

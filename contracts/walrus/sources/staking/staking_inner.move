@@ -62,14 +62,14 @@ public(package) fun create_pool(
         ctx,
     );
 
-    let pool_id = object::id(&pool);
-    self.pools.add(pool_id, pool);
-    pool_id
+    let node_id = object::id(&pool);
+    self.pools.add(node_id, pool);
+    node_id
 }
 
 public(package) fun register_candidate(
     self: &mut StakingInnerV1,
-    pool_id: ID,
+    node_id: ID,
     ctx: &mut TxContext,
 ): StorageNodeCap {
     abort ENotImplemented
@@ -89,7 +89,7 @@ public(package) fun set_next_commission(
     commission_rate: u64,
 ) {
     let wctx = &self.new_walrus_context();
-    self.pools[cap.pool_id()].set_next_commission(commission_rate, wctx);
+    self.pools[cap.node_id()].set_next_commission(commission_rate, wctx);
 }
 
 /// Sets the parameters for the next epoch.
@@ -111,29 +111,29 @@ public(package) fun voting_end(self: &mut StakingInnerV1, clock: &Clock) {
 
 /// Blocks staking for the pool, marks it as "withdrawing".
 /// TODO: Is this action instant or should it be processed in the next epoch?
-public(package) fun set_withdrawing(self: &mut StakingInnerV1, pool_id: ID) {
+public(package) fun set_withdrawing(self: &mut StakingInnerV1, node_id: ID) {
     let wctx = &self.new_walrus_context();
-    self.pools[pool_id].set_withdrawing(wctx);
+    self.pools[node_id].set_withdrawing(wctx);
 }
 
 /// Destroys the pool if it is empty, after the last stake has been withdrawn.
 public(package) fun destroy_empty_pool(
     self: &mut StakingInnerV1,
-    pool_id: ID,
+    node_id: ID,
     _ctx: &mut TxContext,
 ) {
-    self.pools.remove(pool_id).destroy_empty()
+    self.pools.remove(node_id).destroy_empty()
 }
 
 /// Stakes the given amount of `T` with the pool, returning the `StakedWal`.
 public(package) fun stake_with_pool(
     self: &mut StakingInnerV1,
     to_stake: Coin<SUI>,
-    pool_id: ID,
+    node_id: ID,
     ctx: &mut TxContext,
 ): StakedWal {
     let wctx = &self.new_walrus_context();
-    self.pools[pool_id].stake(to_stake, wctx, ctx)
+    self.pools[node_id].stake(to_stake, wctx, ctx)
 }
 
 /// Requests withdrawal of the given amount from the `StakedWAL`, marking it as
@@ -145,7 +145,7 @@ public(package) fun request_withdraw_stake(
     ctx: &mut TxContext,
 ) {
     let wctx = &self.new_walrus_context();
-    self.pools[staked_wal.pool_id()].request_withdraw_stake(staked_wal, wctx, ctx)
+    self.pools[staked_wal.node_id()].request_withdraw_stake(staked_wal, wctx, ctx)
 }
 
 /// Perform the withdrawal of the staked WAL, returning the amount to the caller.
@@ -157,7 +157,7 @@ public(package) fun withdraw_stake(
     ctx: &mut TxContext,
 ): Coin<SUI> {
     let wctx = &self.new_walrus_context();
-    self.pools[staked_wal.pool_id()].withdraw_stake(staked_wal, wctx, ctx)
+    self.pools[staked_wal.node_id()].withdraw_stake(staked_wal, wctx, ctx)
 }
 
 /// Get the current epoch.

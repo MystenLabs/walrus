@@ -31,7 +31,7 @@ public struct StakedWal has key, store {
     /// Whether the staked WAL is active or withdrawing.
     state: StakedWalState,
     /// ID of the staking pool.
-    pool_id: ID,
+    node_id: ID,
     /// The staked amount.
     principal: Balance<SUI>,
     /// The Walrus epoch when the staked WAL was activated.
@@ -40,7 +40,7 @@ public struct StakedWal has key, store {
 
 /// Protected method to create a new staked WAL.
 public(package) fun mint(
-    pool_id: ID,
+    node_id: ID,
     principal: Balance<SUI>,
     activation_epoch: u64,
     ctx: &mut TxContext,
@@ -48,7 +48,7 @@ public(package) fun mint(
     StakedWal {
         id: object::new(ctx),
         state: StakedWalState::Staked,
-        pool_id,
+        node_id,
         principal,
         activation_epoch,
     }
@@ -68,8 +68,8 @@ public(package) fun set_withdrawing(sw: &mut StakedWal, withdraw_epoch: u64) {
 
 // === Accessors ===
 
-/// Returns the `pool_id` of the staked WAL.
-public fun pool_id(sw: &StakedWal): ID { sw.pool_id }
+/// Returns the `node_id` of the staked WAL.
+public fun node_id(sw: &StakedWal): ID { sw.node_id }
 
 /// Returns the `principal` of the staked WAL. Called `value` to be consistent
 /// with `Coin`.
@@ -98,11 +98,11 @@ public fun is_withdrawing(sw: &StakedWal): bool {
 /// Joins the staked WAL with another staked WAL, adding the `principal` of the
 /// `other` staked WAL to the current staked WAL.
 ///
-/// Aborts if the `pool_id` or `activation_epoch` of the staked WALs do not match.
+/// Aborts if the `node_id` or `activation_epoch` of the staked WALs do not match.
 public fun join(sw: &mut StakedWal, other: StakedWal) {
-    let StakedWal { id, state, pool_id, activation_epoch, principal } = other;
+    let StakedWal { id, state, node_id, activation_epoch, principal } = other;
     assert!(sw.state == state);
-    assert!(sw.pool_id == pool_id);
+    assert!(sw.node_id == node_id);
     assert!(sw.activation_epoch == activation_epoch);
     id.delete();
 
@@ -110,7 +110,7 @@ public fun join(sw: &mut StakedWal, other: StakedWal) {
 }
 
 /// Splits the staked WAL into two parts, one with the `amount` and the other
-/// with the remaining `principal`. The `pool_id`, `activation_epoch` are the
+/// with the remaining `principal`. The `node_id`, `activation_epoch` are the
 /// same for both the staked WALs.
 ///
 /// Aborts if the `amount` is greater than the `principal` of the staked WAL.
@@ -120,13 +120,13 @@ public fun split(sw: &mut StakedWal, amount: u64, ctx: &mut TxContext): StakedWa
     StakedWal {
         id: object::new(ctx),
         state: sw.state, // state is preserved
-        pool_id: sw.pool_id,
+        node_id: sw.node_id,
         principal: sw.principal.split(amount),
         activation_epoch: sw.activation_epoch,
     }
 }
 
-/// Destroys the staked WAL if the `principal` is zero. Ignores the `pool_id`
+/// Destroys the staked WAL if the `principal` is zero. Ignores the `node_id`
 /// and `activation_epoch` of the staked WAL given that it is zero.
 public fun destroy_zero(sw: StakedWal) {
     assert!(sw.principal.value() == 0);

@@ -36,9 +36,8 @@ public fun register_candidate(
     node_capacity: u64,
     ctx: &mut TxContext,
 ): StorageNodeCap {
-    // use the Pool ID as the identifier of the storage node (?)
-    // TODO: circle back on this
-    let pool_id = staking
+    // use the Pool Object ID as the identifier of the storage node
+    let node_id = staking
         .inner_mut()
         .create_pool(
             commission_rate,
@@ -48,7 +47,7 @@ public fun register_candidate(
             ctx,
         );
 
-    let node_cap = staking.inner_mut().register_candidate(pool_id, ctx);
+    let node_cap = staking.inner_mut().register_candidate(node_id, ctx);
     node_cap
 }
 
@@ -59,7 +58,7 @@ public fun register_candidate(
 ///     been transferred to its successor
 /// - The staking pool is deleted once the last funds have been withdrawn from it by its stakers
 public fun withdraw_node(staking: &mut Staking, cap: &mut StorageNodeCap) {
-    staking.inner_mut().set_withdrawing(cap.pool_id());
+    staking.inner_mut().set_withdrawing(cap.node_id());
     staking.inner_mut().withdraw_node(cap);
 }
 
@@ -121,10 +120,10 @@ public fun shard_transfer_failed(
 public fun stake_with_pool(
     staking: &mut Staking,
     to_stake: Coin<SUI>,
-    pool_id: ID,
+    node_id: ID,
     ctx: &mut TxContext,
 ): StakedWal {
-    staking.inner_mut().stake_with_pool(to_stake, pool_id, ctx)
+    staking.inner_mut().stake_with_pool(to_stake, node_id, ctx)
 }
 
 /// Marks the amount as a withdrawal to be processed and removes it from the stake weight of the
@@ -233,7 +232,7 @@ fun test_stake_with_pool() {
     let ctx = &mut tx_context::dummy();
     let coin = coin::mint_for_testing<SUI>(100, ctx);
     let cap = storage_node::new_cap_for_testing(new_id(ctx), ctx);
-    let staked_wal = new(ctx).stake_with_pool(coin, cap.pool_id(), ctx);
+    let staked_wal = new(ctx).stake_with_pool(coin, cap.node_id(), ctx);
     abort 1337
 }
 

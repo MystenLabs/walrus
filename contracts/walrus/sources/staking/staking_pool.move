@@ -158,7 +158,7 @@ public(package) fun request_withdraw_stake(
 ) {
     assert!(!pool.is_new());
     assert!(staked_wal.value() > 0);
-    assert!(staked_wal.pool_id() == pool.id.to_inner());
+    assert!(staked_wal.node_id() == pool.id.to_inner());
     assert!(staked_wal.activation_epoch() <= wctx.epoch());
 
     // depend on the committee selection + whether a node is active / has been active
@@ -177,7 +177,7 @@ public(package) fun withdraw_stake(
 ): Coin<SUI> {
     assert!(!pool.is_new());
     assert!(staked_wal.value() > 0);
-    assert!(staked_wal.pool_id() == pool.id.to_inner());
+    assert!(staked_wal.node_id() == pool.id.to_inner());
     assert!(staked_wal.activation_epoch() <= wctx.epoch());
     assert!(staked_wal.is_withdrawing());
 
