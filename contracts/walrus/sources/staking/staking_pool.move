@@ -4,8 +4,13 @@
 /// Module: staking_pool
 module walrus::staking_pool;
 
+use std::string::String;
 use sui::{balance::{Self, Balance}, coin::Coin, sui::SUI, vec_map::{Self, VecMap}};
-use walrus::{staked_wal::{Self, StakedWal}, walrus_context::WalrusContext};
+use walrus::{
+    staked_wal::{Self, StakedWal},
+    storage_node::{Self, StorageNodeInfo},
+    walrus_context::WalrusContext
+};
 
 /// Represents the state of the staking pool.
 ///
@@ -43,6 +48,8 @@ public struct StakingPool has key, store {
     state: PoolState,
     /// Current epoch's pool parameters.
     params: PoolParams,
+    /// The storage node info for the pool.
+    node_info: StorageNodeInfo,
     /// The pool parameters for the next epoch. If `Some`, the pool will be
     /// updated in the next epoch.
     params_next_epoch: Option<PoolParams>,
@@ -74,6 +81,10 @@ public struct StakingPool has key, store {
 /// If committee is selected, the pool will be activated in the next epoch.
 /// Otherwise, it will be activated in the current epoch.
 public(package) fun new(
+    name: String,
+    network_address: String,
+    public_key: vector<u8>,
+    network_public_key: vector<u8>,
     commission_rate: u64,
     storage_price: u64,
     write_price: u64,
@@ -81,6 +92,8 @@ public(package) fun new(
     wctx: &WalrusContext,
     ctx: &mut TxContext,
 ): StakingPool {
+    let id = object::new(ctx);
+    let node_id = id.to_inner();
     let (activation_epoch, state) = if (wctx.committee_selected()) {
         (wctx.epoch() + 1, PoolState::New)
     } else {
@@ -88,9 +101,16 @@ public(package) fun new(
     };
 
     StakingPool {
-        id: object::new(ctx),
+        id,
         state,
         params: PoolParams { commission_rate, storage_price, write_price, node_capacity },
+        node_info: storage_node::new(
+            name,
+            node_id,
+            network_address,
+            public_key,
+            network_public_key,
+        ),
         params_next_epoch: option::none(),
         activation_epoch,
         pending_stake: vec_map::empty(),
@@ -198,9 +218,7 @@ public(package) fun set_next_commission(
         pool.params_next_epoch.fill(pool.params);
     };
 
-    pool.params_next_epoch.do_mut!(|params| {
-        params.commission_rate = commission_rate;
-    });
+    pool.params_next_epoch.do_mut!(|params| params.commission_rate = commission_rate);
 }
 
 /// Sets the next storage price for the pool.
@@ -213,9 +231,7 @@ public(package) fun set_next_storage_price(
         pool.params_next_epoch.fill(pool.params);
     };
 
-    pool.params_next_epoch.do_mut!(|params| {
-        params.storage_price = storage_price;
-    });
+    pool.params_next_epoch.do_mut!(|params| params.storage_price = storage_price);
 }
 
 /// Sets the next write price for the pool.
@@ -228,9 +244,7 @@ public(package) fun set_next_write_price(
         pool.params_next_epoch.fill(pool.params);
     };
 
-    pool.params_next_epoch.do_mut!(|params| {
-        params.write_price = write_price;
-    });
+    pool.params_next_epoch.do_mut!(|params| params.write_price = write_price);
 }
 
 /// Sets the next node capacity for the pool.
@@ -243,9 +257,7 @@ public(package) fun set_next_node_capacity(
         pool.params_next_epoch.fill(pool.params);
     };
 
-    pool.params_next_epoch.do_mut!(|params| {
-        params.node_capacity = node_capacity;
-    });
+    pool.params_next_epoch.do_mut!(|params| params.node_capacity = node_capacity);
 }
 
 /// Destroy the pool if it is empty.
@@ -338,6 +350,5 @@ public(package) fun is_empty(pool: &StakingPool): bool {
     let pending_stake_epochs = pool.pending_stake.keys();
     let non_empty = pending_stake_epochs.count!(|epoch| pool.pending_stake[epoch] != 0);
 
-    pool.active_stake == 0 && non_empty == 0 &&
-    pool.stake_to_withdraw.value() == 0
+    pool.active_stake == 0 && non_empty == 0 && pool.stake_to_withdraw.value() == 0
 }

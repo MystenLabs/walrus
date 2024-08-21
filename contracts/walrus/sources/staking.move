@@ -5,6 +5,7 @@
 /// Module: staking
 module walrus::staking;
 
+use std::string::String;
 use sui::{clock::Clock, coin::Coin, dynamic_field as df, sui::SUI};
 use walrus::{
     staked_wal::StakedWal,
@@ -30,6 +31,12 @@ public struct Staking has key {
 /// Creates a staking pool for the candidate, registers the candidate as a storage node.
 public fun register_candidate(
     staking: &mut Staking,
+    // node info
+    name: String,
+    network_address: String,
+    public_key: vector<u8>,
+    network_public_key: vector<u8>,
+    // voting parameters
     commission_rate: u64,
     storage_price: u64,
     write_price: u64,
@@ -40,6 +47,10 @@ public fun register_candidate(
     let node_id = staking
         .inner_mut()
         .create_pool(
+            name,
+            network_address,
+            public_key,
+            network_public_key,
             commission_rate,
             storage_price,
             write_price,
@@ -47,8 +58,7 @@ public fun register_candidate(
             ctx,
         );
 
-    let node_cap = staking.inner_mut().register_candidate(node_id, ctx);
-    node_cap
+    storage_node::new_cap(node_id, ctx)
 }
 
 /// Blocks staking for the nodes staking pool
@@ -173,7 +183,17 @@ fun new(ctx: &mut TxContext): Staking {
 #[test, expected_failure]
 fun test_register_candidate() {
     let ctx = &mut tx_context::dummy();
-    let cap = new(ctx).register_candidate(0, 0, 0, 0, ctx);
+    let cap = new(ctx).register_candidate(
+        b"node".to_string(),
+        b"127.0.0.1".to_string(),
+        x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677",
+        x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677",
+        0,
+        0,
+        0,
+        0,
+        ctx,
+    );
     abort 1337
 }
 
@@ -181,7 +201,17 @@ fun test_register_candidate() {
 fun test_withdraw_node() {
     let ctx = &mut tx_context::dummy();
     let mut staking = new(ctx);
-    let mut cap = staking.register_candidate(0, 0, 0, 0, ctx);
+    let mut cap = staking.register_candidate(
+        b"node".to_string(),
+        b"127.0.0.1".to_string(),
+        x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677",
+        x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677",
+        0,
+        0,
+        0,
+        0,
+        ctx,
+    );
     staking.withdraw_node(&mut cap);
     abort 1337
 }
@@ -190,7 +220,17 @@ fun test_withdraw_node() {
 fun test_set_next_commission() {
     let ctx = &mut tx_context::dummy();
     let mut staking = new(ctx);
-    let cap = staking.register_candidate(0, 0, 0, 0, ctx);
+    let cap = staking.register_candidate(
+        b"node".to_string(),
+        b"127.0.0.1".to_string(),
+        x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677",
+        x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677",
+        0,
+        0,
+        0,
+        0,
+        ctx,
+    );
     staking.set_next_commission(&cap, 0);
     abort 1337
 }

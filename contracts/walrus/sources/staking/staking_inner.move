@@ -4,6 +4,7 @@
 #[allow(unused_variable, unused_use, unused_mut_parameter)]
 module walrus::staking_inner;
 
+use std::string::String;
 use sui::{
     clock::Clock,
     coin::Coin,
@@ -12,11 +13,18 @@ use sui::{
     vec_map::{Self, VecMap}
 };
 use walrus::{
+    active_set::{Self, ActiveSet},
+    bls_aggregate::{Self, BlsCommittee},
     staked_wal::{Self, StakedWal},
     staking_pool::{Self, StakingPool},
-    storage_node::StorageNodeCap,
+    storage_node::{Self, StorageNodeCap, StorageNodeInfo},
     walrus_context::{Self, WalrusContext}
 };
+
+/// The number of shards in the system.
+const SHARDS: u16 = 1000;
+/// The minimum amount of staked WAL required to be included in the active set.
+const MIN_STAKE: u64 = 0;
 
 // TODO: remove this once the module is implemented.
 #[error]
@@ -33,12 +41,19 @@ public struct StakingInnerV1 has store {
     /// The current epoch of the Walrus system. The epochs are not the same as
     /// the Sui epochs, not to be mistaken with `ctx.epoch()`.
     current_epoch: u64,
+    /// Stores the active set of storage nodes. Provides automatic sorting and
+    /// tracks the total amount of staked WAL.
+    active_set: ActiveSet,
+    /// The current committee in the system.
+    committee: BlsCommittee,
 }
 
 public(package) fun new(ctx: &mut TxContext): StakingInnerV1 {
     StakingInnerV1 {
         pools: object_table::new(ctx),
         current_epoch: 0,
+        active_set: active_set::new(SHARDS, MIN_STAKE),
+        committee: bls_aggregate::new_bls_committee(0, &vector[]),
     }
 }
 
@@ -47,6 +62,10 @@ public(package) fun new(ctx: &mut TxContext): StakingInnerV1 {
 /// Creates a new staking pool with the given `commission_rate`.
 public(package) fun create_pool(
     self: &mut StakingInnerV1,
+    name: String,
+    network_address: String,
+    public_key: vector<u8>,
+    network_public_key: vector<u8>,
     commission_rate: u64,
     storage_price: u64,
     write_price: u64,
@@ -54,6 +73,10 @@ public(package) fun create_pool(
     ctx: &mut TxContext,
 ): ID {
     let pool = staking_pool::new(
+        name,
+        network_address,
+        public_key,
+        network_public_key,
         commission_rate,
         storage_price,
         write_price,
