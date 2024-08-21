@@ -291,16 +291,18 @@ pub fn format_event_id(event_id: &EventID) -> String {
     format!("(tx: {}, seq: {})", event_id.tx_digest, event_id.event_seq)
 }
 
-/// Error type distinguishing between a valid blob ID in decimal format and any other parse error.
+/// Error type distinguishing between a decimal value that corresponds to a valid blob ID and any
+/// other parse error.
 #[derive(Debug, thiserror::Error)]
 pub enum BlobIdParseError {
-    /// Attempting to parse a decimal value for the blob ID.
+    /// Returned when attempting to parse a decimal value for the blob ID.
     #[error(
-        "you seem to be using the numeric value for the blob ID (maybe copied from a Sui explorer) \
-        whereas Walrus uses URL-safe base64 encoding;\nthe provided value correctly encoded is {0}"
+        "you seem to be using a numeric value in decimal format corresponding to a Walrus blob ID \
+        (maybe copied from a Sui explorer) whereas Walrus uses URL-safe base64 encoding;\n\
+        the Walrus blob ID corresponding to the provided value is {0}"
     )]
     BlobIdInDecimalFormat(BlobId),
-    /// Attempting to parse any other invalid string as a blob ID.
+    /// Returned when attempting to parse any other invalid string as a blob ID.
     #[error("the provided blob ID is invalid")]
     InvalidBlobId,
 }
@@ -317,30 +319,44 @@ pub fn parse_blob_id(input: &str) -> Result<BlobId, BlobIdParseError> {
     })
 }
 
-/// Helper struct to parse blob IDs from decimal format.
+/// Helper struct to parse and format blob IDs as decimal numbers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
 #[repr(transparent)]
 pub struct BlobIdDecimal(BlobId);
 
-/// Error returned when unable to parse a blob ID in decimal format.
+/// Error returned when unable to parse a decimal value corresponding to a Walrus blob ID.
 #[derive(Debug, thiserror::Error)]
-#[error("failed to parse blob ID in decimal format")]
-pub struct ParseBlobIdDecimalError;
+pub enum BlobIdDecimalParseError {
+    /// Returned when attempting to parse an actual Walrus blob ID.
+    #[error(
+        "the provided value is already a valid Walrus blob ID;\n\
+        the value represented as a decimal number is {0}"
+    )]
+    BlobIdInBase64Format(BlobIdDecimal),
+    /// Returned when attempting to parse any other invalid string as a decimal blob ID.
+    #[error("the provided value cannot be converted to a Walrus blob ID")]
+    InvalidBlobId,
+}
 
 impl FromStr for BlobIdDecimal {
-    type Err = ParseBlobIdDecimalError;
+    type Err = BlobIdDecimalParseError;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        let bytes = BigUint::parse_bytes(s.as_bytes(), 10)
-            .ok_or(ParseBlobIdDecimalError)?
-            .to_bytes_le();
-        if bytes.len() > BlobId::LENGTH {
-            return Err(ParseBlobIdDecimalError);
+        if let Some(number) = BigUint::parse_bytes(s.as_bytes(), 10) {
+            let bytes = number.to_bytes_le();
+
+            if bytes.len() <= BlobId::LENGTH {
+                let mut blob_id = [0; BlobId::LENGTH];
+                blob_id[..bytes.len()].copy_from_slice(&bytes);
+                return Ok(Self(BlobId(blob_id)));
+            }
         }
 
-        let mut blob_id = [0; BlobId::LENGTH];
-        blob_id[..bytes.len()].copy_from_slice(&bytes);
-        Ok(Self(BlobId(blob_id)))
+        Err(if let Ok(blob_id) = BlobId::from_str(s) {
+            BlobIdDecimalParseError::BlobIdInBase64Format(blob_id.into())
+        } else {
+            BlobIdDecimalParseError::InvalidBlobId
+        })
     }
 }
 

@@ -265,10 +265,11 @@ enum Commands {
         #[serde(flatten)]
         rpc_arg: RpcArg,
     },
+    /// Convert a decimal value to the Walrus blob ID (using URL-safe base64 encoding).
     ConvertBlobId {
-        #[clap(flatten)]
-        #[serde(flatten)]
-        blob_id: BlobIdDecimalOrBase64,
+        /// The decimal value to be converted to the Walrus blob ID.
+        #[serde_as(as = "DisplayFromStr")]
+        blob_id_decimal: BlobIdDecimal,
     },
 }
 
@@ -352,23 +353,6 @@ impl FileOrBlobId {
             _ => Err(anyhow!("either the file or blob ID must be defined")),
         }
     }
-}
-
-#[serde_as]
-#[derive(Debug, Clone, Args, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[group(required = true, multiple = false)]
-struct BlobIdDecimalOrBase64 {
-    /// The blob ID in decimal format.
-    #[clap(short, long)]
-    #[serde_as(as = "Option<DisplayFromStr>")]
-    #[serde(default)]
-    decimal: Option<BlobIdDecimal>,
-    /// The blob ID in URL-safe base64 format.
-    #[clap(short, long, allow_hyphen_values = true)]
-    #[serde_as(as = "Option<DisplayFromStr>")]
-    #[serde(default)]
-    base64: Option<BlobId>,
 }
 
 mod default {
@@ -657,25 +641,8 @@ async fn run_app(app: App) -> Result<()> {
 
             BlobIdOutput::new(&file, &metadata).print_output(app.json)?;
         }
-        Commands::ConvertBlobId { blob_id } => {
-            match blob_id {
-                BlobIdDecimalOrBase64 {
-                    decimal: Some(blob_id_decimal),
-                    ..
-                } => {
-                    BlobIdConversionOutput::from(blob_id_decimal).print_output(app.json)?;
-                }
-                BlobIdDecimalOrBase64 {
-                    base64: Some(blob_id),
-                    ..
-                } => {
-                    BlobIdConversionOutput::from(blob_id).print_output(app.json)?;
-                }
-                // This case is required for JSON mode where we don't have the clap checking.
-                _ => Err(anyhow!(
-                    "the blob ID must be provided either in decimal or base64 format"
-                ))?,
-            }
+        Commands::ConvertBlobId { blob_id_decimal } => {
+            BlobIdConversionOutput::from(blob_id_decimal).print_output(app.json)?;
         }
     }
     Ok(())

@@ -141,22 +141,11 @@ impl BlobIdOutput {
 #[serde_as]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub enum BlobIdConversionOutput {
-    /// Blob ID in base64 format.
-    Base64(#[serde_as(as = "DisplayFromStr")] BlobId),
-    /// Blob ID in decimal format.
-    Decimal(#[serde_as(as = "DisplayFromStr")] BlobIdDecimal),
-}
-
-impl From<BlobId> for BlobIdConversionOutput {
-    fn from(value: BlobId) -> Self {
-        Self::Decimal(value.into())
-    }
-}
+pub struct BlobIdConversionOutput(#[serde_as(as = "DisplayFromStr")] pub BlobId);
 
 impl From<BlobIdDecimal> for BlobIdConversionOutput {
     fn from(value: BlobIdDecimal) -> Self {
-        Self::Base64(value.into())
+        Self(value.into())
     }
 }
 

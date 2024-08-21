@@ -168,14 +168,7 @@ impl CliOutput for BlobStatusOutput {
 
 impl CliOutput for BlobIdConversionOutput {
     fn print_cli_output(&self) {
-        match self {
-            BlobIdConversionOutput::Base64(blob_id) => {
-                println!("Blob ID in standard format: {}", blob_id)
-            }
-            BlobIdConversionOutput::Decimal(blob_id_decimal) => {
-                println!("Blob ID in decimal format: {}", blob_id_decimal)
-            }
-        }
+        println!("Walrus blob ID: {}", self.0);
     }
 }
 
