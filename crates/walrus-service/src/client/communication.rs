@@ -4,7 +4,7 @@
 use std::{num::NonZeroU16, sync::Arc};
 
 use anyhow::Result;
-use futures::{future::Either, stream::FuturesUnordered, StreamExt};
+use futures::{future::Either, stream::FuturesUnordered, Future, StreamExt};
 use rand::rngs::StdRng;
 use tokio::sync::Semaphore;
 use tracing::{Level, Span};
@@ -19,7 +19,11 @@ use walrus_core::{
     Sliver,
     SliverPairIndex,
 };
-use walrus_sdk::{api::BlobStatus, client::Client as StorageNodeClient, error::NodeError};
+use walrus_sdk::{
+    api::{BlobStatus, SliverStatus},
+    client::Client as StorageNodeClient,
+    error::NodeError,
+};
 use walrus_sui::types::StorageNode;
 
 use super::{
@@ -188,15 +192,15 @@ impl<'a, W> NodeCommunication<'a, W> {
     /// Requests a sliver from the storage node, and verifies that it matches the metadata and
     /// encoding config.
     #[tracing::instrument(level = Level::TRACE, parent = &self.span, skip(self, metadata))]
-    pub async fn retrieve_verified_sliver<T: EncodingAxis>(
+    pub async fn retrieve_verified_sliver<A: EncodingAxis>(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         shard_index: ShardIndex,
-    ) -> NodeResult<SliverData<T>, NodeError>
+    ) -> NodeResult<SliverData<A>, NodeError>
     where
-        SliverData<T>: TryFrom<Sliver>,
+        SliverData<A>: TryFrom<Sliver>,
     {
-        tracing::debug!(%shard_index, sliver_type = T::NAME, "retrieving verified sliver");
+        tracing::debug!(%shard_index, sliver_type = A::NAME, "retrieving verified sliver");
         let sliver_pair_index = shard_index.to_pair_index(self.n_shards(), metadata.blob_id());
         let sliver = self
             .client
@@ -280,8 +284,12 @@ impl<'a> NodeWriteCommunication<'a> {
             .into_iter()
             .flat_map(|pair| {
                 vec![
-                    Either::Left(self.store_sliver(blob_id, &pair.primary, pair.index())),
-                    Either::Right(self.store_sliver(blob_id, &pair.secondary, pair.index())),
+                    Either::Left(self.check_and_store_sliver(blob_id, &pair.primary, pair.index())),
+                    Either::Right(self.check_and_store_sliver(
+                        blob_id,
+                        &pair.secondary,
+                        pair.index(),
+                    )),
                 ]
             })
             .collect::<FuturesUnordered<_>>();
@@ -309,25 +317,64 @@ impl<'a> NodeWriteCommunication<'a> {
         Ok(n_slivers)
     }
 
-    /// Stores a sliver on a node.
-    async fn store_sliver<T: EncodingAxis>(
+    /// Stores a sliver on a node, first checking that the sliver is not already stored.
+    ///
+    ///  If the sliver is already stored, the function returns.
+    async fn check_and_store_sliver<A: EncodingAxis>(
         &self,
         blob_id: &BlobId,
-        sliver: &SliverData<T>,
+        sliver: &SliverData<A>,
         pair_index: SliverPairIndex,
     ) -> Result<(), SliverStoreError> {
-        utils::retry(self.backoff_strategy(), || {
-            self.client
-                .store_sliver(blob_id, pair_index, sliver)
-                // Ordering matters here. Since we don't want to block global connections while we
-                // wait for local connections, the innermost limit must be the global one.
-                .batch_limit(self.sliver_write_limit.clone())
-                .batch_limit(self.node_write_limit.clone())
+        match self.get_sliver_status::<A>(blob_id, pair_index).await? {
+            SliverStatus::Stored => {
+                tracing::trace!(
+                    ?pair_index,
+                    sliver_type=?A::sliver_type(),
+                    "sliver already stored"
+                );
+                Ok(())
+            }
+            SliverStatus::Nonexistent => {
+                tracing::debug!(
+                    ?pair_index,
+                    sliver_type=?A::sliver_type(),
+                    "sliver not already stored; storing sliver"
+                );
+                self.store_sliver(blob_id, sliver, pair_index).await
+            }
+        }
+    }
+
+    /// Stores a sliver on a node.
+    async fn store_sliver<A: EncodingAxis>(
+        &self,
+        blob_id: &BlobId,
+        sliver: &SliverData<A>,
+        pair_index: SliverPairIndex,
+    ) -> Result<(), SliverStoreError> {
+        self.retry_with_limits_and_backoff(|| self.client.store_sliver(blob_id, pair_index, sliver))
+            .await
+            .map_err(|error| SliverStoreError {
+                pair_index,
+                sliver_type: A::sliver_type(),
+                error,
+            })
+    }
+
+    /// Requests the status for sliver after retrying.
+    async fn get_sliver_status<A: EncodingAxis>(
+        &self,
+        blob_id: &BlobId,
+        pair_index: SliverPairIndex,
+    ) -> Result<SliverStatus, SliverStoreError> {
+        self.retry_with_limits_and_backoff(|| {
+            self.client.get_sliver_status::<A>(blob_id, pair_index)
         })
         .await
         .map_err(|error| SliverStoreError {
             pair_index,
-            sliver_type: T::sliver_type(),
+            sliver_type: A::sliver_type(),
             error,
         })
     }
@@ -340,5 +387,16 @@ impl<'a> NodeWriteCommunication<'a> {
             self.config.max_retries,
             self.node_index as u64,
         )
+    }
+
+    async fn retry_with_limits_and_backoff<F, Fut, T, E>(&self, f: F) -> Result<T, E>
+    where
+        F: FnMut() -> Fut,
+        Fut: Future<Output = Result<T, E>>,
+    {
+        utils::retry(self.backoff_strategy(), f)
+            .batch_limit(self.node_write_limit.clone())
+            .batch_limit(self.sliver_write_limit.clone())
+            .await
     }
 }

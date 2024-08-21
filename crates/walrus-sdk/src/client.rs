@@ -46,7 +46,7 @@ use walrus_core::{
 };
 
 use crate::{
-    api::{BlobStatus, ServiceHealthInfo},
+    api::{BlobStatus, ServiceHealthInfo, SliverStatus},
     error::{BuildErrorKind, ClientBuildError, NodeError},
     node_response::NodeResponse as _,
     tls::TlsCertificateVerifier,
@@ -419,7 +419,7 @@ impl Client {
         &self,
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
-    ) -> Result<BlobStatus, NodeError> {
+    ) -> Result<SliverStatus, NodeError> {
         let (url, template) = self
             .endpoints
             .sliver_status::<A>(blob_id, sliver_pair_index);
