@@ -3,11 +3,9 @@
 
 module walrus::bls_aggregate;
 
-use sui::{bls12381::{Self, bls12381_min_pk_verify, G1}, group_ops};
-use walrus::messages::{Self, CertifiedMessage};
-use walrus::storage_node::StorageNodeInfo;
+use sui::{bls12381::{Self, bls12381_min_pk_verify, G1}, group_ops::{Self, Element}};
+use walrus::{messages::{Self, CertifiedMessage}, storage_node::StorageNodeInfo};
 
-use sui::group_ops::Element;
 
 // Error codes
 const ETotalMemberOrder: u64 = 0;
@@ -141,7 +139,6 @@ public(package) fun verify_certificate(
     (aggregate_weight as u16)
 }
 
-
 #[test_only]
 use sui::bls12381::g1_from_bytes;
 
@@ -159,5 +156,5 @@ public fun new_bls_committee_for_testing(epoch: u64): BlsCommittee {
         weight: 100,
         node_id,
     };
-    BlsCommittee { members: vector[member], n_shards: 100, epoch}
+    BlsCommittee { members: vector[member], n_shards: 100, epoch }
 }
