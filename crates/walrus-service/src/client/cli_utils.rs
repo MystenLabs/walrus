@@ -13,6 +13,7 @@ use std::{
 use anyhow::{anyhow, Context, Result};
 use colored::{ColoredString, Colorize};
 use num_bigint::BigUint;
+use serde::{Deserialize, Serialize};
 use sui_sdk::{wallet_context::WalletContext, SuiClientBuilder};
 use sui_types::event::EventID;
 use walrus_core::BlobId;
@@ -296,7 +297,7 @@ pub enum BlobIdParseError {
     /// Attempting to parse a decimal value for the blob ID.
     #[error(
         "you seem to be using the numeric value for the blob ID (maybe copied from a Sui explorer) \
-         whereas Walrus uses URL-safe base64 encoding;\nthe provided value correctly encoded is {0}"
+        whereas Walrus uses URL-safe base64 encoding;\nthe provided value correctly encoded is {0}"
     )]
     BlobIdInDecimalFormat(BlobId),
     /// Attempting to parse any other invalid string as a blob ID.
@@ -310,21 +311,55 @@ pub fn parse_blob_id(input: &str) -> Result<BlobId, BlobIdParseError> {
     if let Ok(blob_id) = BlobId::from_str(input) {
         return Ok(blob_id);
     }
+    Err(match BlobIdDecimal::from_str(input) {
+        Err(_) => BlobIdParseError::InvalidBlobId,
+        Ok(blob_id) => BlobIdParseError::BlobIdInDecimalFormat(blob_id.into()),
+    })
+}
 
-    // Attempt interpreting the ID as a decimal integer.
-    // NB: Valid decimal values with 43 digits are interpreted as base-64 strings. However, this
-    // does not happen in practice as the probability of such a small blob ID is less than
-    // 10^-33.
-    let bytes = BigUint::parse_bytes(input.as_bytes(), 10)
-        .ok_or(BlobIdParseError::InvalidBlobId)?
-        .to_bytes_le();
-    if bytes.len() > BlobId::LENGTH {
-        return Err(BlobIdParseError::InvalidBlobId);
+/// Helper struct to parse blob IDs from decimal format.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
+#[repr(transparent)]
+pub struct BlobIdDecimal(BlobId);
+
+/// Error returned when unable to parse a blob ID in decimal format.
+#[derive(Debug, thiserror::Error)]
+#[error("failed to parse blob ID in decimal format")]
+pub struct ParseBlobIdDecimalError;
+
+impl FromStr for BlobIdDecimal {
+    type Err = ParseBlobIdDecimalError;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        let bytes = BigUint::parse_bytes(s.as_bytes(), 10)
+            .ok_or(ParseBlobIdDecimalError)?
+            .to_bytes_le();
+        if bytes.len() > BlobId::LENGTH {
+            return Err(ParseBlobIdDecimalError);
+        }
+
+        let mut blob_id = [0; BlobId::LENGTH];
+        blob_id[..bytes.len()].copy_from_slice(&bytes);
+        Ok(Self(BlobId(blob_id)))
     }
+}
 
-    let mut blob_id = [0; BlobId::LENGTH];
-    blob_id[..bytes.len()].copy_from_slice(&bytes);
-    Err(BlobIdParseError::BlobIdInDecimalFormat(BlobId(blob_id)))
+impl From<BlobIdDecimal> for BlobId {
+    fn from(value: BlobIdDecimal) -> Self {
+        value.0
+    }
+}
+
+impl From<BlobId> for BlobIdDecimal {
+    fn from(value: BlobId) -> Self {
+        Self(value)
+    }
+}
+
+impl Display for BlobIdDecimal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", BigUint::from_bytes_le(self.0.as_ref()))
+    }
 }
 
 #[cfg(test)]

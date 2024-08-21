@@ -35,7 +35,7 @@ use walrus_sui::{
     utils::{price_for_encoded_length, storage_units_from_size, BYTES_PER_UNIT_SIZE},
 };
 
-use super::cli_utils::{HumanReadableBytes, HumanReadableMist};
+use super::cli_utils::{BlobIdDecimal, HumanReadableBytes, HumanReadableMist};
 
 /// Result when attempting to store a blob.
 #[serde_as]
@@ -137,13 +137,36 @@ impl BlobIdOutput {
     }
 }
 
+/// The output of the `convert-blob-id` command.
+#[serde_as]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BlobIdConversionOutput {
+    /// Blob ID in base64 format.
+    Base64(#[serde_as(as = "DisplayFromStr")] BlobId),
+    /// Blob ID in decimal format.
+    Decimal(#[serde_as(as = "DisplayFromStr")] BlobIdDecimal),
+}
+
+impl From<BlobId> for BlobIdConversionOutput {
+    fn from(value: BlobId) -> Self {
+        Self::Decimal(value.into())
+    }
+}
+
+impl From<BlobIdDecimal> for BlobIdConversionOutput {
+    fn from(value: BlobIdDecimal) -> Self {
+        Self::Base64(value.into())
+    }
+}
+
 /// The output of the `store --dry-run` command.
 #[serde_as]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DryRunOutput {
-    #[serde_as(as = "DisplayFromStr")]
     /// The blob ID.
+    #[serde_as(as = "DisplayFromStr")]
     pub blob_id: BlobId,
     /// The size of the unencoded blob (in bytes).
     pub unencoded_size: u64,

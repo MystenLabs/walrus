@@ -20,6 +20,7 @@ use crate::client::{
         HumanReadableMist,
     },
     responses::{
+        BlobIdConversionOutput,
         BlobIdOutput,
         BlobStatusOutput,
         DryRunOutput,
@@ -161,6 +162,19 @@ impl CliOutput for BlobStatusOutput {
                 end_epoch,
                 format_event_id(&status_event),
             ),
+        }
+    }
+}
+
+impl CliOutput for BlobIdConversionOutput {
+    fn print_cli_output(&self) {
+        match self {
+            BlobIdConversionOutput::Base64(blob_id) => {
+                println!("Blob ID in standard format: {}", blob_id)
+            }
+            BlobIdConversionOutput::Decimal(blob_id_decimal) => {
+                println!("Blob ID in decimal format: {}", blob_id_decimal)
+            }
         }
     }
 }
