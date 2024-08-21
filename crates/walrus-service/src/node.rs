@@ -1896,9 +1896,9 @@ mod tests {
     async fn sync_shard_do_not_send_certified_after_requested_epoch() -> TestResult {
         // Note that the blobs are certified in epoch 0.
         let (cluster, _, blob_detail) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], BLOB, 0).await?;
+            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &[BLOB], 0).await?;
 
-        let blob_id = *blob_detail.blob_id();
+        let blob_id = *blob_detail[0].blob_id();
 
         let status = cluster.nodes[0]
             .client
@@ -1977,7 +1977,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn sync_shard_wait_until_epoch_match() -> TestResult {
         let (cluster, _, _) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], BLOB, 0).await?;
+            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &[BLOB], 0).await?;
 
         let result = tokio::time::timeout(
             Duration::from_secs(120),
