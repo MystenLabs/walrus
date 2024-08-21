@@ -332,7 +332,7 @@ impl StorageNode {
         committee_service_factory: Box<dyn CommitteeServiceFactory>,
         contract_service: Box<dyn SystemContractService>,
         registry: &Registry,
-        pre_created_storage: Option<Storage>, // For testing purposes. TODO(#703): consider this test only input.
+        pre_created_storage: Option<Storage>, // For testing purposes. TODO(#703): remove.
     ) -> Result<Self, anyhow::Error> {
         let start_time = Instant::now();
         let committee_service = committee_service_factory

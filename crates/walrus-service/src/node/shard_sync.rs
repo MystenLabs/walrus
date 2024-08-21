@@ -59,12 +59,14 @@ impl ShardSyncHandler {
         }
     }
 
-    /// Restarts syncing shards that were previously syncing. This method is used when restarting the node.
+    /// Restarts syncing shards that were previously syncing. This method is used when restarting
+    /// the node.
     pub async fn restart_syncs(&self) -> Result<(), anyhow::Error> {
         for shard_index in self.node.storage.shards() {
             let shard_storage = self.node.storage.shard_storage(shard_index).unwrap();
 
-            // Restart the syncing task for shards that were previously syncing (in ActiveSync status).
+            // Restart the syncing task for shards that were previously syncing (in ActiveSync
+            // status).
             if shard_storage.status()? == ShardStatus::ActiveSync {
                 self.start_shard_sync_impl(shard_storage.clone()).await;
             }

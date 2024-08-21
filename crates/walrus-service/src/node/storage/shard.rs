@@ -335,7 +335,8 @@ impl ShardStorage {
 
         assert_eq!(self.status()?, ShardStatus::ActiveSync);
 
-        // TODO(#705): handle better crash recovery (we shouldn't always restart from beginning to sync).
+        // TODO(#705): handle better crash recovery (we shouldn't always restart from beginning
+        //             to sync).
         // TODO(#705): handle missing individual blobs.
         // TODO(#259): handle non-happy path.
         self.sync_shard_before_epoch_internal(epoch, node.clone(), SliverType::Primary)
