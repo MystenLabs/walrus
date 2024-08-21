@@ -231,7 +231,11 @@ pub async fn put_sliver<S: SyncServiceState>(
         ("sliver_type" = SliverType, ),
     ),
     responses(
-        (status = 200, description = "The storage status of the primary or secondary sliver", body=ApiSuccessSliverStatus),
+        (
+            status = 200,
+            description = "The storage status of the primary or secondary sliver",
+            body=ApiSuccessSliverStatus,
+        ),
         RetrieveSliverError,
     ),
     tag = openapi::GROUP_READING_BLOBS
