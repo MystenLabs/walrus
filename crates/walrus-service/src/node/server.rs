@@ -110,7 +110,7 @@ pub enum TlsCertificateSource {
     ///
     /// These ideally should be certificates issued to by a public CA such as Let's Encrypt,
     /// but can also be self-signed certificates.
-    // TODO(jsmith): Do we need to occasionally reload this?
+    // TODO(jsmith): Reload the certificate on change (#709)
     PemFiles {
         /// Path to the x509 PEM encoded certificate.
         certificate_path: PathBuf,
