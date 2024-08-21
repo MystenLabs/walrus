@@ -1,14 +1,16 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// registering the node
-// selecting the committee
-// adding staked wal to the pool
-// withdrawing staked wal from the pool
+// TODO:
+// 1. registering the node
+// 2. adding staked wal to the pool
+// 3. selecting the committee
+// 4. withdrawing staked wal from the pool
 //
-// advance_epoch - initiates the epoch change
-// initiate epoch change - bumped in `initiate_epoch_change`
-// get "epoch_sync_done" event
+// NOTES:
+// - advance_epoch - initiates the epoch change
+// - initiate epoch change - bumped in `advance_epoch`
+// - get "epoch_sync_done" event
 #[allow(unused_variable, unused_use, unused_mut_parameter)]
 module walrus::staking_inner;
 
@@ -58,6 +60,7 @@ public struct StakingInnerV1 has store {
     previous_committee: BlsCommittee,
 }
 
+/// Creates a new `StakingInnerV1` object with default values.
 public(package) fun new(ctx: &mut TxContext): StakingInnerV1 {
     StakingInnerV1 {
         pools: object_table::new(ctx),
@@ -68,7 +71,7 @@ public(package) fun new(ctx: &mut TxContext): StakingInnerV1 {
     }
 }
 
-// === Storage Node ===
+// === Staking Pool / Storage Node ===
 
 /// Creates a new staking pool with the given `commission_rate`.
 public(package) fun create_pool(
@@ -101,22 +104,23 @@ public(package) fun create_pool(
     node_id
 }
 
-public(package) fun register_candidate(
-    self: &mut StakingInnerV1,
-    node_id: ID,
-    ctx: &mut TxContext,
-): StorageNodeCap {
-    abort ENotImplemented
-}
-
+/// Blocks staking for the pool, marks it as "withdrawing".
 public(package) fun withdraw_node(self: &mut StakingInnerV1, cap: &mut StorageNodeCap) {
-    abort ENotImplemented
+    let wctx = &self.new_walrus_context();
+    self.pools[cap.node_id()].set_withdrawing(wctx);
 }
 
 public(package) fun collect_commission(self: &mut StakingInnerV1, cap: &StorageNodeCap): Coin<SUI> {
     abort ENotImplemented
 }
 
+public(package) fun voting_end(self: &mut StakingInnerV1, clock: &Clock) {
+    abort ENotImplemented
+}
+
+// === Voting ===
+
+/// Sets the next commission rate for the pool.
 public(package) fun set_next_commission(
     self: &mut StakingInnerV1,
     cap: &StorageNodeCap,
@@ -126,19 +130,34 @@ public(package) fun set_next_commission(
     self.pools[cap.node_id()].set_next_commission(commission_rate, wctx);
 }
 
-/// Sets the parameters for the next epoch.
-public(package) fun vote_for_next_epoch(
+/// Sets the next storage price for the pool.
+public(package) fun set_next_storage_price(
     self: &mut StakingInnerV1,
     cap: &StorageNodeCap,
     storage_price: u64,
-    write_price: u64,
-    node_capacity: u64,
 ) {
-    abort ENotImplemented
+    let wctx = &self.new_walrus_context();
+    self.pools[cap.node_id()].set_next_storage_price(storage_price, wctx);
 }
 
-public(package) fun voting_end(self: &mut StakingInnerV1, clock: &Clock) {
-    abort ENotImplemented
+/// Sets the next write price for the pool.
+public(package) fun set_next_write_price(
+    self: &mut StakingInnerV1,
+    cap: &StorageNodeCap,
+    write_price: u64,
+) {
+    let wctx = &self.new_walrus_context();
+    self.pools[cap.node_id()].set_next_write_price(write_price, wctx);
+}
+
+/// Sets the next node capacity for the pool.
+public(package) fun set_next_node_capacity(
+    self: &mut StakingInnerV1,
+    cap: &StorageNodeCap,
+    node_capacity: u64,
+) {
+    let wctx = &self.new_walrus_context();
+    self.pools[cap.node_id()].set_next_node_capacity(node_capacity, wctx);
 }
 
 // === Staking ===
@@ -202,16 +221,33 @@ public(package) fun epoch(self: &StakingInnerV1): u64 {
 // === System ===
 
 /// Sets the next epoch of the system.
+///
 /// TODO: add rewards argument and perform the reward distribution.
+/// TODO: `advance_epoch` needs to be either pre or post handled by each staking pool as well.
 public(package) fun advance_epoch(self: &mut StakingInnerV1, ctx: &mut TxContext) {
     let new_epoch = self.current_epoch + 1;
-    let info_list = self.active_set.active_ids().map!(|id| *self.pools[id].node_info());
+    let wctx = &self.new_walrus_context();
+    let mut info_list = vector[];
+
+    self
+        .active_set
+        .active_ids()
+        .do_ref!(
+            |id| {
+                let pool = &mut self.pools[*id];
+                pool.advance_epoch(wctx);
+                info_list.push_back(*pool.node_info());
+            },
+        );
+
     let committee = bls_aggregate::new_bls_committee(new_epoch, &info_list);
 
     self.previous_committee = self.committee;
     self.committee = committee;
     self.current_epoch = new_epoch;
 }
+
+// === Internal ===
 
 fun new_walrus_context(self: &StakingInnerV1): WalrusContext {
     walrus_context::new(self.current_epoch, true, self.committee.to_vec_map())

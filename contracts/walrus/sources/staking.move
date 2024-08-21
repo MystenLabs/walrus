@@ -83,9 +83,7 @@ public fun collect_commission(staking: &mut Staking, cap: &StorageNodeCap): Coin
     staking.inner_mut().collect_commission(cap)
 }
 
-/// TODO: split these into separate functions.
-/// Changes the votes for the storage node. Can be called arbitrarily often, if not called, the
-/// votes remain the same as in the previous epoch.
+/// TODO: split these into separate functions to match ones in the StakingInnerV1
 public fun vote_for_price_next_epoch(
     staking: &mut Staking,
     cap: &StorageNodeCap,
@@ -93,7 +91,7 @@ public fun vote_for_price_next_epoch(
     write_price: u64,
     node_capacity: u64,
 ) {
-    staking.inner_mut().vote_for_next_epoch(cap, storage_price, write_price, node_capacity)
+    abort ENotImplemented
 }
 
 /// Ends the voting period and runs the apportionment if the current time allows.
