@@ -3,9 +3,12 @@
 
 module walrus::bls_aggregate;
 
-use sui::{bls12381::{Self, bls12381_min_pk_verify, G1}, group_ops::{Self, Element}};
+use sui::{
+    bls12381::{Self, bls12381_min_pk_verify, G1},
+    group_ops::{Self, Element},
+    vec_map::{Self, VecMap}
+};
 use walrus::{messages::{Self, CertifiedMessage}, storage_node::StorageNodeInfo};
-
 
 // Error codes
 const ETotalMemberOrder: u64 = 0;
@@ -13,14 +16,14 @@ const ESigVerification: u64 = 1;
 const ENotEnoughStake: u64 = 2;
 const EIncorrectCommittee: u64 = 3;
 
-public struct BlsCommitteeMember has store, drop {
+public struct BlsCommitteeMember has store, copy, drop {
     public_key: Element<G1>,
     weight: u16,
     node_id: ID,
 }
 
 /// This represents a BLS signing committee for a given epoch.
-public struct BlsCommittee has store, drop {
+public struct BlsCommittee has store, copy, drop {
     /// A vector of committee members
     members: vector<BlsCommitteeMember>,
     /// The total number of shards held by the committee
@@ -62,6 +65,13 @@ public(package) fun n_shards(self: &BlsCommittee): u16 {
     self.n_shards
 }
 
+/// Returns the members of the committee with their weights.
+public(package) fun to_vec_map(self: &BlsCommittee): VecMap<ID, u16> {
+    let mut result = vec_map::empty();
+    self.members.do_ref!(|member| result.insert(member.node_id, member.weight));
+    result
+}
+
 /// Verifies that a message is signed by a quorum of the members of a committee.
 ///
 /// The members are listed in increasing order and with no repetitions. And the signatures
@@ -96,26 +106,24 @@ public(package) fun verify_certificate(
 
     // Lower bound for the next `member_index` to ensure they are monotonically increasing
     let mut min_next_member_index = 0;
-    let mut i = 0;
-
     let mut aggregate_key = bls12381::g1_identity();
     let mut aggregate_weight = 0;
 
-    while (i < signers.length()) {
-        let member_index = signers[i] as u64;
-        assert!(member_index >= min_next_member_index, ETotalMemberOrder);
-        min_next_member_index = member_index + 1;
+    signers.do_ref!(
+        |member_index| {
+            let member_index = *member_index as u64;
+            assert!(member_index >= min_next_member_index, ETotalMemberOrder);
+            min_next_member_index = member_index + 1;
 
-        // Bounds check happens here
-        let member = &self.members[member_index];
-        let key = &member.public_key;
-        let weight = member.weight;
+            // Bounds check happens here
+            let member = &self.members[member_index];
+            let key = &member.public_key;
+            let weight = member.weight;
 
-        aggregate_key = bls12381::g1_add(&aggregate_key, key);
-        aggregate_weight = aggregate_weight + weight;
-
-        i = i + 1;
-    };
+            aggregate_key = bls12381::g1_add(&aggregate_key, key);
+            aggregate_weight = aggregate_weight + weight;
+        },
+    );
 
     // The expression below is the solution to the inequality:
     // n_shards = 3 f + 1

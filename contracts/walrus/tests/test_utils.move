@@ -9,14 +9,15 @@ use sui::{
     balance::{Self, Balance},
     bls12381::{Self, bls12381_min_pk_verify},
     coin::{Self, Coin},
-    sui::SUI
+    sui::SUI,
+    vec_map
 };
 use walrus::{staking_pool::{Self, StakingPool}, walrus_context::{Self, WalrusContext}};
 
 // === Coins and Context ===
 
 public fun wctx(epoch: u64, committee_selected: bool): WalrusContext {
-    walrus_context::new(epoch, committee_selected)
+    walrus_context::new(epoch, committee_selected, vec_map::empty())
 }
 
 public fun mint(amount: u64, ctx: &mut TxContext): Coin<SUI> {

@@ -12,7 +12,7 @@ use sui::{bls12381::{G1, g1_from_bytes}, group_ops::Element};
 const EInvalidNetworkPublicKey: u64 = 1;
 
 /// Represents a storage node in the system.
-public struct StorageNodeInfo has store, drop {
+public struct StorageNodeInfo has store, copy, drop {
     name: String,
     node_id: ID,
     network_address: String,

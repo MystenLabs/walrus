@@ -1,6 +1,14 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+// registering the node
+// selecting the committee
+// adding staked wal to the pool
+// withdrawing staked wal from the pool
+//
+// advance_epoch - initiates the epoch change
+// initiate epoch change - bumped in `initiate_epoch_change`
+// get "epoch_sync_done" event
 #[allow(unused_variable, unused_use, unused_mut_parameter)]
 module walrus::staking_inner;
 
@@ -46,6 +54,8 @@ public struct StakingInnerV1 has store {
     active_set: ActiveSet,
     /// The current committee in the system.
     committee: BlsCommittee,
+    /// The previous committee in the system.
+    previous_committee: BlsCommittee,
 }
 
 public(package) fun new(ctx: &mut TxContext): StakingInnerV1 {
@@ -54,6 +64,7 @@ public(package) fun new(ctx: &mut TxContext): StakingInnerV1 {
         current_epoch: 0,
         active_set: active_set::new(SHARDS, MIN_STAKE),
         committee: bls_aggregate::new_bls_committee(0, &vector[]),
+        previous_committee: bls_aggregate::new_bls_committee(0, &vector[]),
     }
 }
 
@@ -191,10 +202,17 @@ public(package) fun epoch(self: &StakingInnerV1): u64 {
 // === System ===
 
 /// Sets the next epoch of the system.
-public(package) fun advance_epoch(self: &mut StakingInnerV1, new_epoch: u64, ctx: &mut TxContext) {
+/// TODO: add rewards argument and perform the reward distribution.
+public(package) fun advance_epoch(self: &mut StakingInnerV1, ctx: &mut TxContext) {
+    let new_epoch = self.current_epoch + 1;
+    let info_list = self.active_set.active_ids().map!(|id| *self.pools[id].node_info());
+    let committee = bls_aggregate::new_bls_committee(new_epoch, &info_list);
+
+    self.previous_committee = self.committee;
+    self.committee = committee;
     self.current_epoch = new_epoch;
 }
 
 fun new_walrus_context(self: &StakingInnerV1): WalrusContext {
-    walrus_context::new(self.current_epoch, true)
+    walrus_context::new(self.current_epoch, true, self.committee.to_vec_map())
 }

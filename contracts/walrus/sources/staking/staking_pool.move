@@ -327,6 +327,12 @@ public(package) fun write_price(pool: &StakingPool): u64 { pool.params.write_pri
 /// Returns the node capacity for the pool.
 public(package) fun node_capacity(pool: &StakingPool): u64 { pool.params.node_capacity }
 
+/// Returns the activation epoch for the pool.
+public(package) fun activation_epoch(pool: &StakingPool): u64 { pool.activation_epoch }
+
+/// Returns the node info for the pool.
+public(package) fun node_info(pool: &StakingPool): &StorageNodeInfo { &pool.node_info }
+
 /// Returns `true` if the pool is active.
 public(package) fun is_active(pool: &StakingPool): bool {
     pool.state == PoolState::Active
