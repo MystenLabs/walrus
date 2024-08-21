@@ -13,7 +13,6 @@ module walrus::committee_cert_tests;
 use sui::bls12381::bls12381_min_pk_verify;
 use walrus::{
     bls_aggregate::new_bls_committee,
-    committee::{Committee, committee_for_testing_with_bls, verify_quorum_in_epoch},
     messages,
     storage_node
 };
@@ -25,7 +24,7 @@ const SIGNATURE: vector<u8>  = vector[173, 231, 27, 143, 41, 154, 49, 14, 85, 88
 
 
 #[test]
-public fun test_basic_correct(): Committee {
+public fun test_basic_correct() {
     let pub_key_bytes = PUB_KEY_BYTES;
     let message = MESSAGE;
     let signature = SIGNATURE;
@@ -40,22 +39,18 @@ public fun test_basic_correct(): Committee {
     );
 
     // Make a new committee
-    let bls_committee = new_bls_committee(vector[
+    let committee_at_5 = new_bls_committee(5, &vector[
         storage_node::new_for_testing(pub_key_bytes, 10),
     ]);
 
-    // actual committee
-
-    let committee_at_5: Committee = committee_for_testing_with_bls(5, bls_committee);
-    let cert = verify_quorum_in_epoch(&committee_at_5, signature, vector[0], message);
+    let cert = committee_at_5.verify_quorum_in_epoch(signature, vector[0], message);
 
     assert!(messages::intent_type(&cert) == 1, 0);
 
-    committee_at_5
 }
 
 #[test, expected_failure]
-public fun test_incorrect_epoch(): Committee {
+public fun test_incorrect_epoch() {
     let pub_key_bytes = PUB_KEY_BYTES;
     let message = MESSAGE;
     let signature = SIGNATURE;
@@ -70,16 +65,11 @@ public fun test_incorrect_epoch(): Committee {
     );
 
     // Make a new committee
-    let bls_committee = new_bls_committee(vector[
+    let committee_at_6 = new_bls_committee(6, &vector[
         storage_node::new_for_testing(pub_key_bytes, 10),
     ]);
 
-    // actual committee
-
-    // INCORRECT EPOCH
-    let committee_at_6: Committee = committee_for_testing_with_bls(6, bls_committee);
     // Test fails here
-    let _cert = verify_quorum_in_epoch(&committee_at_6, signature, vector[0], message);
+    let _cert = committee_at_6.verify_quorum_in_epoch(signature, vector[0], message);
 
-    committee_at_6
 }

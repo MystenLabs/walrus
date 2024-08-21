@@ -8,7 +8,7 @@ use sui::{balance::Balance, coin::Coin, sui::SUI};
 use walrus::{
     blob::{Self, Blob},
     blob_events::emit_invalid_blob_id,
-    committee::{Self, Committee},
+    bls_aggregate::BlsCommittee,
     storage_accounting::{Self, FutureAccountingRingBuffer},
     storage_node::StorageNodeCap,
     storage_resource::{Self, Storage}
@@ -34,8 +34,7 @@ const EInvalidAccountingEpoch: u64 = 5;
 #[allow(unused_field)]
 public struct SystemStateInnerV1 has store {
     /// The current committee, with the current epoch.
-    /// The option is always Some, but need it for swap.
-    current_committee: Option<Committee>,
+    current_committee: Option<BlsCommittee>,
     // Some accounting
     total_capacity_size: u64,
     used_capacity_size: u64,
@@ -44,7 +43,7 @@ public struct SystemStateInnerV1 has store {
     /// The write price per unit size.
     write_price_per_unit_size: u64,
     /// The previous committee.
-    previous_committee: Option<Committee>,
+    previous_committee: Option<BlsCommittee>,
     /// Accounting ring buffer for future epochs.
     future_accounting: FutureAccountingRingBuffer,
 }
@@ -72,7 +71,7 @@ public(package) fun shard_transfer_failed(
 /// the balance of the rewards from the previous epoch.
 public(package) fun advance_epoch(
     self: &mut SystemStateInnerV1,
-    new_committee: Committee,
+    new_committee: BlsCommittee,
     new_capacity: u64,
     new_storage_price: u64,
     new_write_price: u64,
@@ -272,7 +271,7 @@ public(package) fun used_capacity_size(self: &SystemStateInnerV1): u64 {
 }
 
 /// An accessor for the current committee.
-public(package) fun current_committee(self: &SystemStateInnerV1): &Committee {
+public(package) fun current_committee(self: &SystemStateInnerV1): &BlsCommittee {
     self.current_committee.borrow()
 }
 
@@ -292,8 +291,11 @@ fun storage_units_from_size(size: u64): u64 {
 // == Testing ==
 
 #[test_only]
+use walrus::bls_aggregate;
+
+#[test_only]
 public(package) fun new_for_testing(ctx: &mut TxContext): SystemStateInnerV1 {
-    let committee = committee::committee_for_testing(0);
+    let committee = bls_aggregate::new_bls_committee_for_testing(0);
     SystemStateInnerV1 {
         current_committee: option::some(committee),
         total_capacity_size: 1_000_000_000,

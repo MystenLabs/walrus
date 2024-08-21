@@ -4,7 +4,7 @@
 #[test_only]
 module walrus::invalid_tests;
 
-use walrus::{committee, messages, system};
+use walrus::{bls_aggregate, messages, system};
 
 const BLOB_ID : u256 = 0xabababababababababababababababababababababababababababababababab;
 
@@ -23,12 +23,11 @@ const MESSAGE_SIGNATURE: vector<u8> = vector[
     ];
 
 #[test]
-public fun test_invalid_blob_ok(): committee::Committee {
+public fun test_invalid_blob_ok() {
     // Create a new committee
-    let committee = committee::committee_for_testing(5);
+    let committee = bls_aggregate::new_bls_committee_for_testing(5);
 
-    let certified_message = committee::verify_quorum_in_epoch(
-        &committee,
+    let certified_message = committee.verify_quorum_in_epoch(
         MESSAGE_SIGNATURE,
         vector[0],
         INVALID_MESSAGE,
@@ -37,8 +36,6 @@ public fun test_invalid_blob_ok(): committee::Committee {
     // Now check this is a invalid blob message
     let invalid_blob_msg = certified_message.invalid_blob_id_message();
     assert!(invalid_blob_msg.invalid_blob_id() == BLOB_ID, 0);
-
-    committee
 }
 
 #[test]
@@ -52,7 +49,7 @@ public fun test_invalidate_happy(): system::System {
 
     loop {
         epoch = epoch + 1;
-        let committee = committee::committee_for_testing(epoch);
+        let committee = bls_aggregate::new_bls_committee_for_testing(epoch);
         let epoch_balance = system.advance_epoch(committee, 1000000000, 5, 1);
         epoch_balance.destroy_for_testing();
 
@@ -86,7 +83,7 @@ public fun test_system_invalid_id_wrong_epoch(): system::System {
 
     loop {
         epoch = epoch + 1;
-        let committee = committee::committee_for_testing(epoch);
+        let committee = bls_aggregate::new_bls_committee_for_testing(epoch);
         let epoch_balance = system.advance_epoch(committee, 1000000000, 5, 1);
         epoch_balance.destroy_for_testing();
 

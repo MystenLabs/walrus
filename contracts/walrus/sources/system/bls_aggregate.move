@@ -3,8 +3,11 @@
 
 module walrus::bls_aggregate;
 
-use sui::{bls12381::{Self, bls12381_min_pk_verify}, group_ops};
+use sui::{bls12381::{Self, bls12381_min_pk_verify, G1}, group_ops};
+use walrus::messages::{Self, CertifiedMessage};
 use walrus::storage_node::StorageNodeInfo;
+
+use sui::group_ops::Element;
 
 // Error codes
 const ETotalMemberOrder: u64 = 0;
@@ -12,42 +15,80 @@ const ESigVerification: u64 = 1;
 const ENotEnoughStake: u64 = 2;
 const EIncorrectCommittee: u64 = 3;
 
-/// This represents a BLS signing committee.
-public struct BlsCommittee has store, drop {
-    /// A vector of committee members
-    members: vector<StorageNodeInfo>,
-    /// The total number of shards held by the committee
-    n_shards: u16,
+public struct BlsCommitteeMember has store, drop {
+    public_key: Element<G1>,
+    weight: u16,
+    node_id: ID,
 }
 
-/// Constructor
-public fun new_bls_committee(members: vector<StorageNodeInfo>): BlsCommittee {
+/// This represents a BLS signing committee for a given epoch.
+public struct BlsCommittee has store, drop {
+    /// A vector of committee members
+    members: vector<BlsCommitteeMember>,
+    /// The total number of shards held by the committee
+    n_shards: u16,
+    /// The epoch in which the committee is active.
+    epoch: u64,
+}
+
+/// Constructor for committee
+public(package) fun new_bls_committee(epoch: u64, members: &vector<StorageNodeInfo>): BlsCommittee {
     // Compute the total number of shards
     let mut n_shards = 0;
-    let mut i = 0;
-    members.do_ref!(
+    let bls_members = members.map_ref!(
         |member| {
-            let added_weight = member.weight();
-            assert!(added_weight > 0, EIncorrectCommittee);
-            n_shards = n_shards + added_weight;
-            i = i + 1;
+            let weight = member.weight();
+            assert!(weight > 0, EIncorrectCommittee);
+            n_shards = n_shards + weight;
+            BlsCommitteeMember {
+                public_key: *member.public_key(),
+                weight,
+                node_id: member.id(),
+            }
         },
     );
     assert!(n_shards != 0, EIncorrectCommittee);
 
-    BlsCommittee { members, n_shards }
+    BlsCommittee { members: bls_members, n_shards, epoch }
+}
+
+// == Accessors for BlsCommittee ==
+
+/// Get the epoch of the committee.
+public fun epoch(self: &BlsCommittee): u64 {
+    self.epoch
 }
 
 /// Returns the number of shards held by the committee.
-public fun n_shards(self: &BlsCommittee): u16 {
+public(package) fun n_shards(self: &BlsCommittee): u16 {
     self.n_shards
+}
+
+/// Verifies that a message is signed by a quorum of the members of a committee.
+///
+/// The members are listed in increasing order and with no repetitions. And the signatures
+/// match the order of the members. The total stake is returned, but if a quorum is not reached
+/// the function aborts with an error.
+public(package) fun verify_quorum_in_epoch(
+    self: &BlsCommittee,
+    signature: vector<u8>,
+    members: vector<u16>,
+    message: vector<u8>,
+): CertifiedMessage {
+    let stake_support = self.verify_certificate(
+        &signature,
+        &members,
+        &message,
+    );
+
+    messages::new_certified_message(message, self.epoch, stake_support)
 }
 
 /// Verify an aggregate BLS signature is a certificate in the epoch, and return the type of
 /// certificate and the bytes certified. The `signers` vector is an increasing list of indexes
 /// into the `members` vector of the committee. If there is a certificate, the function
 /// returns the total stake. Otherwise, it aborts.
-public fun verify_certificate(
+public(package) fun verify_certificate(
     self: &BlsCommittee,
     signature: &vector<u8>,
     signers: &vector<u16>,
@@ -69,8 +110,8 @@ public fun verify_certificate(
 
         // Bounds check happens here
         let member = &self.members[member_index];
-        let key = member.public_key();
-        let weight = member.weight();
+        let key = &member.public_key;
+        let weight = member.weight;
 
         aggregate_key = bls12381::g1_add(&aggregate_key, key);
         aggregate_weight = aggregate_weight + weight;
@@ -100,14 +141,23 @@ public fun verify_certificate(
     (aggregate_weight as u16)
 }
 
+
 #[test_only]
-use walrus::storage_node;
+use sui::bls12381::g1_from_bytes;
 
 #[test_only]
 /// Test committee
-public fun new_bls_committee_for_testing(): BlsCommittee {
+public fun new_bls_committee_for_testing(epoch: u64): BlsCommittee {
+    let ctx = &mut tx_context::dummy();
+    let id = object::new(ctx);
+    let node_id = id.to_inner();
+    id.delete();
     // Pk corresponding to secret key scalar(117)
     let pub_key_bytes = x"95eacc3adc09c827593f581e8e2de068bf4cf5d0c0eb29e5372f0d23364788ee0f9beb112c8a7e9c2f0c720433705cf0"; // editorconfig-checker-disable-line
-    let storage_node = storage_node::new_for_testing(pub_key_bytes, 100);
-    BlsCommittee { members: vector[storage_node], n_shards: 100 }
+    let member = BlsCommitteeMember {
+        public_key: g1_from_bytes(&pub_key_bytes),
+        weight: 100,
+        node_id,
+    };
+    BlsCommittee { members: vector[member], n_shards: 100, epoch}
 }

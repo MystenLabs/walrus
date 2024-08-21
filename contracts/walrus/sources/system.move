@@ -8,7 +8,7 @@ module walrus::system;
 use sui::{balance::Balance, coin::Coin, dynamic_field, sui::SUI};
 use walrus::{
     blob::Blob,
-    committee::Committee,
+    bls_aggregate::BlsCommittee,
     storage_node::StorageNodeCap,
     storage_resource::Storage,
     system_state_inner::{Self, SystemStateInnerV1}
@@ -116,7 +116,7 @@ public fun n_shards(self: &System): u16 {
 // === Restricted to Package ===
 
 /// Accessor for the current committee.
-public(package) fun current_committee(self: &System): &Committee {
+public(package) fun current_committee(self: &System): &BlsCommittee {
     self.inner().current_committee()
 }
 
@@ -126,7 +126,7 @@ public(package) fun current_committee(self: &System): &Committee {
 /// the balance of the rewards from the previous epoch.
 public(package) fun advance_epoch(
     self: &mut System,
-    new_committee: Committee,
+    new_committee: BlsCommittee,
     new_capacity: u64,
     new_storage_price: u64,
     new_write_price: u64,

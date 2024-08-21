@@ -14,7 +14,7 @@ const EInvalidNetworkPublicKey: u64 = 1;
 /// Represents a storage node in the system.
 public struct StorageNodeInfo has store, drop {
     name: String,
-    // node_id: ID,
+    node_id: ID,
     network_address: String,
     public_key: Element<G1>,
     network_public_key: vector<u8>,
@@ -26,13 +26,13 @@ public struct StorageNodeInfo has store, drop {
 public struct StorageNodeCap has key, store {
     id: UID,
     // node_id: ID,
-    pool_id: ID,
+    pool_id: ID, // TODO: switch all pool_id to node_id?
 }
 
 /// A public constructor for the StorageNodeInfo.
 public(package) fun new(
     name: String,
-    // node_id: ID,
+    node_id: ID,
     network_address: String,
     public_key: vector<u8>,
     network_public_key: vector<u8>,
@@ -41,6 +41,7 @@ public(package) fun new(
     assert!(network_public_key.length() == 32, EInvalidNetworkPublicKey);
     StorageNodeInfo {
         name,
+        node_id,
         network_address,
         public_key: g1_from_bytes(&public_key),
         network_public_key,
@@ -57,6 +58,9 @@ public(package) fun shard_ids(self: &StorageNodeInfo): &vector<u16> { &self.shar
 /// Return the weight of the storage node.
 public(package) fun weight(self: &StorageNodeInfo): u16 { self.shard_ids.length() as u16 }
 
+/// Return the node ID of the storage node.
+public fun id(self: &StorageNodeInfo): ID { self.node_id }
+
 /// Return the pool ID of the storage node.
 public fun pool_id(cap: &StorageNodeCap): ID { cap.pool_id }
 
@@ -67,6 +71,10 @@ public fun pool_id(cap: &StorageNodeCap): ID { cap.pool_id }
 /// Create a storage node with dummy name & address
 public fun new_for_testing(public_key: vector<u8>, weight: u16): StorageNodeInfo {
     assert!(weight <= 0xFFFF);
+    let ctx = &mut tx_context::dummy();
+    let id = object::new(ctx);
+    let node_id = id.to_inner();
+    id.delete();
     let mut shard_ids = vector[];
     weight.do!(|i| shard_ids.push_back(i));
     StorageNodeInfo {
@@ -75,6 +83,7 @@ public fun new_for_testing(public_key: vector<u8>, weight: u16): StorageNodeInfo
         public_key: g1_from_bytes(&public_key),
         network_public_key: x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677",
         shard_ids,
+        node_id,
     }
 }
 

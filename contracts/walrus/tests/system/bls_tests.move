@@ -51,7 +51,8 @@ public fun test_check_aggregate(): BlsCommittee {
 
     // Make a new committee
     let committee = new_bls_committee(
-        vector[
+        0,
+        &vector[
             storage_node::new_for_testing(pk0, 1), storage_node::new_for_testing(pk1, 1), storage_node::new_for_testing(pk2, 1), storage_node::new_for_testing(pk3, 1), storage_node::new_for_testing(pk4, 1), storage_node::new_for_testing(pk5, 1), storage_node::new_for_testing(pk6, 1), storage_node::new_for_testing(pk7, 1), storage_node::new_for_testing(pk8, 1), storage_node::new_for_testing(pk9, 1)
         ]
     );
@@ -85,7 +86,8 @@ public fun test_add_members_error(): BlsCommittee {
 
     // Make a new committee
     let committee = new_bls_committee(
-        vector[
+        0,
+        &vector[
             storage_node::new_for_testing(pk0, 1), storage_node::new_for_testing(pk1, 1), storage_node::new_for_testing(pk2, 1), storage_node::new_for_testing(pk3, 1), storage_node::new_for_testing(pk4, 1), storage_node::new_for_testing(pk5, 1), storage_node::new_for_testing(pk6, 1), storage_node::new_for_testing(pk7, 1), storage_node::new_for_testing(pk8, 1), storage_node::new_for_testing(pk9, 1)
         ]
     );
@@ -120,7 +122,8 @@ public fun test_incorrect_signature_error(): BlsCommittee {
 
     // Make a new committee
     let committee = new_bls_committee(
-        vector[
+        0,
+        &vector[
             storage_node::new_for_testing(pk0, 1), storage_node::new_for_testing(pk1, 1), storage_node::new_for_testing(pk2, 1), storage_node::new_for_testing(pk3, 1), storage_node::new_for_testing(pk4, 1), storage_node::new_for_testing(pk5, 1), storage_node::new_for_testing(pk6, 1), storage_node::new_for_testing(pk7, 1), storage_node::new_for_testing(pk8, 1), storage_node::new_for_testing(pk9, 1)
         ]
     );
@@ -155,7 +158,8 @@ public fun test_duplicate_member_error(): BlsCommittee {
 
     // Make a new committee
     let committee = new_bls_committee(
-        vector[
+        0,
+        &vector[
             storage_node::new_for_testing(pk0, 1), storage_node::new_for_testing(pk1, 1), storage_node::new_for_testing(pk2, 1), storage_node::new_for_testing(pk3, 1), storage_node::new_for_testing(pk4, 1), storage_node::new_for_testing(pk5, 1), storage_node::new_for_testing(pk6, 1), storage_node::new_for_testing(pk7, 1), storage_node::new_for_testing(pk8, 1), storage_node::new_for_testing(pk9, 1)
         ]
     );
@@ -190,7 +194,8 @@ public fun test_incorrect_stake_error(): BlsCommittee {
 
     // Make a new committee
     let committee = new_bls_committee(
-        vector[
+        0,
+        &vector[
             storage_node::new_for_testing(pk0, 1), storage_node::new_for_testing(pk1, 2), storage_node::new_for_testing(pk2, 2), storage_node::new_for_testing(pk3, 2), storage_node::new_for_testing(pk4, 2), storage_node::new_for_testing(pk5, 2), storage_node::new_for_testing(pk6, 2), storage_node::new_for_testing(pk7, 2), storage_node::new_for_testing(pk8, 2), storage_node::new_for_testing(pk9, 3)
         ]
     );
