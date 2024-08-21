@@ -54,11 +54,13 @@ use crate::{
 
 const METADATA_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/metadata";
 const SLIVER_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/slivers/:sliver_pair_index/:sliver_type";
+const SLIVER_STATUS_TEMPLATE: &str =
+    "/v1/blobs/:blob_id/slivers/:sliver_pair_index/:sliver_type/status";
 const STORAGE_CONFIRMATION_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/confirmation";
 const RECOVERY_URL_TEMPLATE: &str =
     "/v1/blobs/:blob_id/slivers/:sliver_pair_index/:sliver_type/:target_pair_index";
 const INCONSISTENCY_PROOF_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/inconsistent/:sliver_type";
-const STATUS_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/status";
+const BLOB_STATUS_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/status";
 const HEALTH_URL_TEMPLATE: &str = "/v1/health";
 const SYNC_SHARD_TEMPLATE: &str = "/v1/migrate/sync_shard";
 
@@ -87,7 +89,7 @@ impl UrlEndpoints {
     fn blob_status(&self, blob_id: &BlobId) -> (Url, &'static str) {
         (
             self.blob_resource(blob_id).join("status").unwrap(),
-            STATUS_URL_TEMPLATE,
+            BLOB_STATUS_URL_TEMPLATE,
         )
     }
 
@@ -114,6 +116,19 @@ impl UrlEndpoints {
         (
             self.blob_resource(blob_id).join(&path).unwrap(),
             SLIVER_URL_TEMPLATE,
+        )
+    }
+
+    fn sliver_status<A: EncodingAxis>(
+        &self,
+        blob_id: &BlobId,
+        sliver_pair_index: SliverPairIndex,
+    ) -> (Url, &'static str) {
+        let sliver_type = SliverType::for_encoding::<A>();
+        let path = format!("slivers/{sliver_pair_index}/{sliver_type}");
+        (
+            self.blob_resource(blob_id).join(&path).unwrap(),
+            SLIVER_STATUS_TEMPLATE,
         )
     }
 
@@ -388,6 +403,27 @@ impl Client {
     ) -> Result<SliverData<A>, NodeError> {
         let (url, template) = self.endpoints.sliver::<A>(blob_id, sliver_pair_index);
         self.send_and_parse_bcs_response(Request::new(Method::GET, url), template)
+            .await
+    }
+
+    /// Requests the status of a sliver from the node.
+    #[tracing::instrument(
+        skip_all,
+        fields(
+            walrus.blob_id = %blob_id,
+            walrus.sliver.pair_index = %sliver_pair_index,
+            walrus.sliver.r#type = A::NAME,
+            ),
+        err(level = Level::DEBUG))]
+    pub async fn get_sliver_status<A: EncodingAxis>(
+        &self,
+        blob_id: &BlobId,
+        sliver_pair_index: SliverPairIndex,
+    ) -> Result<BlobStatus, NodeError> {
+        let (url, template) = self
+            .endpoints
+            .sliver_status::<A>(blob_id, sliver_pair_index);
+        self.send_and_parse_service_response(Request::new(Method::GET, url), template)
             .await
     }
 
