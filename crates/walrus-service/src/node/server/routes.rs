@@ -214,7 +214,6 @@ pub async fn put_sliver<S: SyncServiceState>(
 
 /// Check if the blob slivers are present.
 ///
-///
 /// Checks if the primary or secondary sliver identified by the specified blob ID and index are
 /// present in the database. The index should represent a sliver that is assigned to be stored at
 /// one of the shards managed by this storage node during this epoch.
@@ -232,7 +231,7 @@ pub async fn put_sliver<S: SyncServiceState>(
         ("sliver_type" = SliverType, ),
     ),
     responses(
-        (status = 200, description = "The primary or secondary sliver is stored and available", body=ApiSuccessSliverStatus),
+        (status = 200, description = "The storage status of the primary or secondary sliver", body=ApiSuccessSliverStatus),
         RetrieveSliverError,
     ),
     tag = openapi::GROUP_READING_BLOBS
