@@ -335,7 +335,9 @@ impl StorageNodeHandleBuilder {
 
         let client = Client::builder()
             .authenticate_with_public_key(network_public_key.clone())
+            // Disable proxy and root certs from the OS for tests.
             .no_proxy()
+            .tls_built_in_root_certs(false)
             .build_for_remote_ip(config.rest_api_address)?;
 
         if self.run_rest_api {

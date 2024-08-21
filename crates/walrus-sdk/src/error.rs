@@ -5,6 +5,8 @@
 
 use reqwest::StatusCode;
 
+use crate::tls::VerifierBuildError;
+
 /// Error raised during communication with a node.
 #[derive(Debug, thiserror::Error)]
 #[error(transparent)]
@@ -93,8 +95,12 @@ impl ClientBuildError {
 /// Errors returned during the communication with a storage node.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum BuildErrorKind {
+    #[error("unable to secure the client with TLS: {0}")]
+    Tls(#[from] VerifierBuildError),
     #[error("invalid storage node authority")]
     InvalidHostOrPort,
     #[error(transparent)]
     Reqwest(#[from] reqwest::Error),
+    #[error("unable to load trusted certificates from the OS: {0}")]
+    FailedToLoadCerts(#[from] std::io::Error),
 }

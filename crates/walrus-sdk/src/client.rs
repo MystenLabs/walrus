@@ -3,7 +3,7 @@
 
 //! Client for interacting with the StorageNode API.
 
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
 
 use fastcrypto::traits::{EncodeDecodeBase64, KeyPair};
 use opentelemetry::propagation::Injector;
@@ -16,6 +16,7 @@ use reqwest::{
     Response,
     Url,
 };
+use rustls::pki_types::CertificateDer;
 use serde::{de::DeserializeOwned, Serialize};
 use tracing::{field, Instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -44,12 +45,11 @@ use walrus_core::{
     SliverType,
 };
 
-use super::tls;
 use crate::{
     api::{BlobStatus, ServiceHealthInfo},
     error::{BuildErrorKind, ClientBuildError, NodeError},
     node_response::NodeResponse as _,
-    tls::parse_subject_alt_name,
+    tls::TlsCertificateVerifier,
 };
 
 const METADATA_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/metadata";
@@ -145,6 +145,8 @@ impl UrlEndpoints {
 pub struct ClientBuilder {
     inner: ReqwestClientBuilder,
     server_public_key: Option<NetworkPublicKey>,
+    roots: Vec<CertificateDer<'static>>,
+    no_built_in_root_certs: bool,
 }
 
 impl ClientBuilder {
@@ -157,6 +159,8 @@ impl ClientBuilder {
     ///
     /// This can be used to preconfigure options on the client. These options may be overwritten,
     /// however, during construction of the final client.
+    ///
+    /// TLS settings are not preserved.
     pub fn from_reqwest(builder: ReqwestClientBuilder) -> Self {
         Self {
             inner: builder,
@@ -185,6 +189,23 @@ impl ClientBuilder {
         self
     }
 
+    /// Add a custom DER-encoded root certificate.
+    ///
+    /// It is the responsibility of the caller to check the certificate for validity.
+    pub fn add_root_certificate(mut self, certificate: &[u8]) -> Self {
+        self.roots
+            .push(CertificateDer::from(certificate).into_owned());
+        self
+    }
+
+    /// Controls the use of built-in/preloaded certificates during certificate validation.
+    ///
+    /// Defaults to true – built-in system certs will be used.
+    pub fn tls_built_in_root_certs(mut self, tls_built_in_root_certs: bool) -> Self {
+        self.no_built_in_root_certs = !tls_built_in_root_certs;
+        self
+    }
+
     /// Convenience function to build the client where the server is identified by a [`SocketAddr`].
     ///
     /// Equivalent `self.build(&remote.ip().to_string(), remote.port())`
@@ -197,7 +218,10 @@ impl ClientBuilder {
     /// This method fails if a valid URL cannot be created with the provided host and port, the
     /// Rustls TLS backend cannot be initialized, or the resolver cannot load the system
     /// configuration.
-    pub fn build(self, host: &str, port: u16) -> Result<Client, ClientBuildError> {
+    pub fn build(mut self, host: &str, port: u16) -> Result<Client, ClientBuildError> {
+        #[cfg(msim)]
+        self.no_proxy();
+
         let url = Url::parse(&format!("https://{host}:{port}"))
             .map_err(|_| BuildErrorKind::InvalidHostOrPort)?;
         // We extract the host from the URL, since the provided host string may have details like a
@@ -206,27 +230,34 @@ impl ClientBuilder {
             .host_str()
             .ok_or(BuildErrorKind::InvalidHostOrPort)?
             .to_string();
-        let subject_name =
-            parse_subject_alt_name(host).map_err(|_| BuildErrorKind::InvalidHostOrPort)?;
-
         let endpoints = UrlEndpoints(url);
 
-        let mut builder = self
+        if !self.no_built_in_root_certs {
+            self.roots.extend(
+                rustls_native_certs::load_native_certs()
+                    .map_err(BuildErrorKind::FailedToLoadCerts)?,
+            );
+        }
+
+        let verifier = if let Some(public_key) = self.server_public_key {
+            TlsCertificateVerifier::new_with_pinned_public_key(public_key, host, self.roots)
+                .map_err(BuildErrorKind::Tls)?
+        } else {
+            TlsCertificateVerifier::new(self.roots).map_err(BuildErrorKind::Tls)?
+        };
+
+        let rustls_config = rustls::ClientConfig::builder()
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(verifier))
+            .with_no_client_auth();
+
+        let inner = self
             .inner
             .https_only(true)
             .http2_prior_knowledge()
-            .use_rustls_tls()
-            .tls_built_in_root_certs(false)
-
-        if let Some(public_key) = self.server_public_key {
-            let certificate = tls::create_unsigned_certificate(&public_key, subject_name);
-            builder = builder.add_root_certificate(certificate);
-        }
-
-        let inner = builder.build().map_err(ClientBuildError::reqwest)?;
-
-        #[cfg(msim)]
-        let inner = inner.no_proxy();
+            .use_preconfigured_tls(rustls_config)
+            .build()
+            .map_err(ClientBuildError::reqwest)?;
 
         Ok(Client { inner, endpoints })
     }

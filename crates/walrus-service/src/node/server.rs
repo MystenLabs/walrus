@@ -17,7 +17,7 @@ use futures::{future::Either, FutureExt};
 use openapi::RestApiDoc;
 use p256::{elliptic_curve::pkcs8::EncodePrivateKey as _, SecretKey};
 use prometheus::{register_histogram_vec_with_registry, HistogramVec, Registry};
-use rcgen::{Certificate as RcGenCertificate, CertificateParams, DnType, KeyPair as RcGenKeyPair};
+use rcgen::{CertificateParams, CertifiedKey, DnType, KeyPair as RcGenKeyPair};
 use tokio::{sync::Mutex, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tower::ServiceBuilder;
@@ -267,11 +267,11 @@ where
                 server_name,
                 network_key_pair,
             } => {
-                let (certificate, encoded_key_pair) =
+                let certified_key_pair =
                     create_self_signed_certificate(network_key_pair, server_name.to_string());
                 let tls_config = RustlsConfig::from_der(
-                    vec![Vec::from(certificate.der().deref())],
-                    encoded_key_pair.serialize_der(),
+                    vec![Vec::from(certified_key_pair.cert.der().deref())],
+                    certified_key_pair.key_pair.serialize_der(),
                 )
                 .await
                 .expect("self signed certificate to result in valid config");
@@ -371,7 +371,7 @@ async fn metrics_middleware(
 fn create_self_signed_certificate(
     key_pair: &NetworkKeyPair,
     public_server_name: String,
-) -> (RcGenCertificate, RcGenKeyPair) {
+) -> CertifiedKey {
     let generated_server_name = server_name_from_public_key(key_pair.public());
     let pkcs8_key_pair = to_pkcs8_key_pair(key_pair);
 
@@ -385,7 +385,10 @@ fn create_self_signed_certificate(
         .self_signed(&pkcs8_key_pair)
         .expect("self-signing certificate must not fail");
 
-    (certificate, pkcs8_key_pair)
+    CertifiedKey {
+        cert: certificate,
+        key_pair: pkcs8_key_pair,
+    }
 }
 
 fn to_pkcs8_key_pair(keypair: &NetworkKeyPair) -> RcGenKeyPair {
@@ -399,10 +402,11 @@ fn to_pkcs8_key_pair(keypair: &NetworkKeyPair) -> RcGenKeyPair {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use anyhow::anyhow;
     use axum::http::StatusCode;
     use fastcrypto::traits::KeyPair;
+    use rcgen::{BasicConstraints, Certificate as RcGenCertificate, CertifiedKey, IsCa};
     use tokio::{task::JoinHandle, time::Duration};
     use tokio_util::sync::CancellationToken;
     use walrus_core::{
@@ -436,7 +440,7 @@ mod test {
             ServiceHealthInfo,
             SliverStatus,
         },
-        client::Client,
+        client::{Client, ClientBuilder},
     };
     use walrus_sui::test_utils::event_id_for_testing;
     use walrus_test_utils::{async_param_test, Result as TestResult, WithTempDir};
@@ -635,13 +639,16 @@ mod test {
         (config, handle)
     }
 
+    fn default_client_builder() -> ClientBuilder {
+        Client::builder().no_proxy().tls_built_in_root_certs(false)
+    }
+
     fn storage_node_client(config: &StorageNodeConfig) -> Client {
         let network_address = config.rest_api_address;
         let network_public_key = config.network_key_pair.get().unwrap().public().clone();
 
-        Client::builder()
+        default_client_builder()
             .authenticate_with_public_key(network_public_key)
-            .no_proxy()
             .build(&network_address.ip().to_string(), network_address.port())
             .expect("must be able to construct client in tests")
     }
@@ -955,76 +962,166 @@ mod test {
         assert_eq!(err.http_status_code(), Some(StatusCode::NOT_FOUND));
     }
 
-    #[tokio::test]
-    async fn client_fails_when_tls_disabled() -> TestResult {
-        let mut config = test_utils::storage_node_config();
-        config.as_mut().tls.disable_tls = true;
+    mod tls {
+        use walrus_sdk::error::NodeError;
 
-        start_rest_api_with_config(config.as_ref()).await;
-        let client = storage_node_client(config.as_ref());
+        use super::*;
 
-        let err = client
-            .get_server_health_info()
-            .await
-            .expect_err("should fail to get health info since TLS is disabled");
+        async fn try_tls_request(client: Client) -> Result<(), NodeError> {
+            client.get_server_health_info().await.map(|_| ())
+        }
 
-        assert!(
-            err.is_connect(),
-            "error must be due to a failure to connect"
-        );
+        /// Enable self-signed certificates by enabling TLS but removing any certificate.
+        fn use_self_signed_certificates(config: &mut StorageNodeConfig) {
+            config.tls.disable_tls = false;
+            config.tls.pem_files = None;
+        }
 
-        Ok(())
-    }
+        fn configure_certificates_from_disk(
+            certified_key: CertifiedKey,
+            config_with_dir: &mut WithTempDir<StorageNodeConfig>,
+        ) -> TestResult {
+            let directory = config_with_dir.temp_dir.path().to_path_buf();
+            let config = config_with_dir.as_mut();
 
-    #[tokio::test]
-    async fn client_accepts_self_signed_certificate() -> TestResult {
-        let mut config = test_utils::storage_node_config();
+            let certificate_path = directory.join("certificate.pem");
+            std::fs::write(&certificate_path, certified_key.cert.pem().as_bytes())?;
+            let key_path = directory.join("private_key.pem");
+            std::fs::write(&key_path, certified_key.key_pair.serialize_pem().as_bytes())?;
 
-        // Enable self-signed certificates by enabling TLS but removing any certificate.
-        config.as_mut().tls.disable_tls = false;
-        config.as_mut().tls.pem_files = None;
+            config.tls.disable_tls = false;
+            config.tls.pem_files = Some(TlsCertificateAndKey {
+                certificate_path,
+                key_path,
+            });
 
-        start_rest_api_with_config(config.as_ref()).await;
-        let client = storage_node_client(config.as_ref());
+            Ok(())
+        }
 
-        let _info = client
-            .get_server_health_info()
-            .await
-            .expect("must successfully fetch health info with TLS");
+        fn create_non_self_signed_certificate(
+            key_pair: &NetworkKeyPair,
+            public_server_name: String,
+        ) -> TestResult<(CertifiedKey, RcGenCertificate)> {
+            let pkcs8_key_pair = to_pkcs8_key_pair(key_pair);
+            let issuer = generate_issuer_certificate()?;
 
-        Ok(())
-    }
+            let params = CertificateParams::new(vec![public_server_name])?;
+            let certificate = params.signed_by(&pkcs8_key_pair, &issuer.cert, &issuer.key_pair)?;
 
-    #[tokio::test]
-    async fn server_loads_certificates_from_pem() -> TestResult {
-        let mut config_with_dir = test_utils::storage_node_config();
-        let directory = config_with_dir.temp_dir.path().to_path_buf();
-        let config = config_with_dir.as_mut();
+            let certified_key = CertifiedKey {
+                cert: certificate,
+                key_pair: pkcs8_key_pair,
+            };
 
-        let (certificate, key_pair) = create_self_signed_certificate(
-            config.network_key_pair.get().unwrap(),
-            config.rest_api_address.ip().to_string(),
-        );
+            Ok((certified_key, issuer.cert))
+        }
 
-        let certificate_path = directory.join("certificate.pem");
-        std::fs::write(&certificate_path, certificate.pem().as_bytes())?;
-        let key_path = directory.join("private_key.pem");
-        std::fs::write(&key_path, key_pair.serialize_pem().as_bytes())?;
+        fn generate_issuer_certificate() -> TestResult<CertifiedKey> {
+            let key_pair = rcgen::KeyPair::generate()?;
+            let mut params = rcgen::CertificateParams::new(["my-issuer-ca".to_owned()])?;
+            params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+            let cert = params.self_signed(&key_pair)?;
 
-        config.tls.disable_tls = false;
-        config.tls.pem_files = Some(TlsCertificateAndKey {
-            certificate_path,
-            key_path,
-        });
+            Ok(CertifiedKey { cert, key_pair })
+        }
 
-        start_rest_api_with_config(config).await;
-        let client = storage_node_client(config);
+        #[tokio::test]
+        async fn client_fails_when_tls_disabled() -> TestResult {
+            let mut config = test_utils::storage_node_config();
+            config.as_mut().tls.disable_tls = true;
 
-        let _info = client
-            .get_server_health_info()
-            .await
-            .expect("must successfully fetch health info with TLS");
+            start_rest_api_with_config(config.as_ref()).await;
 
-        Ok(())
+            let err = try_tls_request(storage_node_client(config.as_ref()))
+                .await
+                .expect_err("must fail since TLS is disabled");
+            assert!(err.is_connect(), "should fail to connect");
+
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn client_accepts_self_signed_certificate() -> TestResult {
+            let mut config = test_utils::storage_node_config();
+
+            use_self_signed_certificates(config.as_mut());
+
+            start_rest_api_with_config(config.as_ref()).await;
+            try_tls_request(storage_node_client(config.as_ref())).await?;
+
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn server_loads_certificates_from_pem() -> TestResult {
+            let mut config = test_utils::storage_node_config();
+
+            let certified_key_pair = create_self_signed_certificate(
+                config.as_ref().network_key_pair(),
+                config.as_ref().rest_api_address.ip().to_string(),
+            );
+
+            configure_certificates_from_disk(certified_key_pair, &mut config)?;
+
+            start_rest_api_with_config(config.as_ref()).await;
+
+            try_tls_request(storage_node_client(config.as_ref())).await?;
+
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn server_can_use_non_self_signed_certificates() -> TestResult {
+            let mut config = test_utils::storage_node_config();
+            let network_key_pair = config.as_ref().network_key_pair().clone();
+            let rest_api_address = config.as_ref().rest_api_address;
+
+            let (certified_key_pair, issuer_cert) = create_non_self_signed_certificate(
+                &network_key_pair,
+                rest_api_address.ip().to_string(),
+            )?;
+
+            configure_certificates_from_disk(certified_key_pair, &mut config)?;
+            start_rest_api_with_config(config.as_ref()).await;
+
+            let client = default_client_builder()
+                .add_root_certificate(issuer_cert.der())
+                .authenticate_with_public_key(network_key_pair.public().clone())
+                .build(&rest_api_address.ip().to_string(), rest_api_address.port())
+                .expect("must be able to construct client in tests");
+
+            try_tls_request(client).await?;
+
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn client_rejects_valid_certificate_with_wrong_key() -> TestResult {
+            let mut config = test_utils::storage_node_config();
+            let network_key_pair = config.as_ref().network_key_pair().clone();
+            let other_network_public_key = NetworkKeyPair::generate().public().clone();
+            let rest_api_address = config.as_ref().rest_api_address;
+
+            let (certified_key_pair, issuer_cert) = create_non_self_signed_certificate(
+                &network_key_pair,
+                rest_api_address.ip().to_string(),
+            )?;
+
+            configure_certificates_from_disk(certified_key_pair, &mut config)?;
+            start_rest_api_with_config(config.as_ref()).await;
+
+            let client = default_client_builder()
+                .add_root_certificate(issuer_cert.der())
+                .authenticate_with_public_key(other_network_public_key)
+                .build(&rest_api_address.ip().to_string(), rest_api_address.port())
+                .expect("must be able to construct client in tests");
+
+            let err = try_tls_request(client)
+                .await
+                .expect_err("must fail since TLS is disabled");
+            assert!(err.is_connect(), "should fail to connect");
+
+            Ok(())
+        }
     }
 }

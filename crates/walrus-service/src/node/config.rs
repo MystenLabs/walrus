@@ -72,6 +72,19 @@ pub struct StorageNodeConfig {
     pub tls: TlsConfig,
 }
 
+impl StorageNodeConfig {
+    /// Returns the network key pair.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the key has not yet been loaded from disk.
+    pub fn network_key_pair(&self) -> &NetworkKeyPair {
+        self.network_key_pair
+            .get()
+            .expect("key pair should already be loaded into memory")
+    }
+}
+
 /// Configuration for TLS of the rest API.
 #[derive(Debug, Default, Clone, Deserialize, Serialize)]
 pub struct TlsConfig {
