@@ -137,6 +137,7 @@ pub enum TlsCertificateSource {
 
 /// Represents a user server.
 #[derive(Debug)]
+// TODO(jsmith):  Rename to something more appropriate (#710)
 pub struct UserServer<S> {
     state: Arc<S>,
     config: UserServerConfig,

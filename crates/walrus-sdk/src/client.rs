@@ -176,8 +176,10 @@ impl ClientBuilder {
         self
     }
 
-    /// Clears proxy settings in the client, and disables fetching proxy settings from the operating
-    /// system. On some systems, this can speed up the construction of the client.
+    /// Clears proxy settings in the client, and disables fetching proxy settings from the OS.
+    ///
+    /// On some systems, this can speed up the construction of the client.
+
     pub fn no_proxy(mut self) -> Self {
         self.inner = self.inner.no_proxy();
         self
@@ -215,7 +217,6 @@ impl ClientBuilder {
             .http2_prior_knowledge()
             .use_rustls_tls()
             .tls_built_in_root_certs(false)
-            .tls_built_in_webpki_certs(false);
 
         if let Some(public_key) = self.server_public_key {
             let certificate = tls::create_unsigned_certificate(&public_key, subject_name);
@@ -244,12 +245,15 @@ impl Client {
         ClientBuilder::default()
     }
 
-    /// Creates a new client for the storage node identified by the DNS name or socket address,
-    /// and authenticated with the provided public key.
+    /// Creates a new client for the storage node.
     ///
-    /// This method ensures that the storage node is authenticated on the basis that the storage
-    /// node is able to establish the connection on the basis of certificate with the provided
+    /// The storage node is identified by the DNS name or socket address, and authenticated with
+    /// the provided public key.
+    ///
+    /// This method ensures that the storage node is authenticated: Only the storage node can
+    /// establish the connection using the self-signed certificate corresponding to the provided
     /// identity and public key.
+
     pub fn for_storage_node(
         host: &str,
         port: u16,

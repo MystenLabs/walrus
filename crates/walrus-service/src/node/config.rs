@@ -59,7 +59,7 @@ pub struct StorageNodeConfig {
     #[serde(
         default = "defaults::rest_graceful_shutdown_period_secs",
         skip_serializing_if = "Option::is_none",
-        with = "::serde_with::rust::double_option"
+        with = "serde_with::rust::double_option"
     )]
     pub rest_graceful_shutdown_period_secs: Option<Option<u64>>,
     /// Sui config for the node
