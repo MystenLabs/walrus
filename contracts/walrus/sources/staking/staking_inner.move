@@ -227,7 +227,9 @@ public(package) fun epoch(self: &StakingInnerV1): u64 {
 public(package) fun advance_epoch(self: &mut StakingInnerV1, ctx: &mut TxContext) {
     let new_epoch = self.current_epoch + 1;
     let wctx = &self.new_walrus_context();
+    let shard_threshold = self.active_set.total_staked() / (SHARDS as u64);
     let mut info_list = vector[];
+    let mut shard_idx: u16 = 0;
 
     self
         .active_set
@@ -236,6 +238,14 @@ public(package) fun advance_epoch(self: &mut StakingInnerV1, ctx: &mut TxContext
             |id| {
                 let pool = &mut self.pools[*id];
                 pool.advance_epoch(wctx);
+
+                let shards_num = pool.active_stake_amount() / shard_threshold;
+                let shards = vector::tabulate!(shards_num, |x| {
+                    shard_idx = shard_idx + 1;
+                    shard_idx
+                });
+
+                pool.assign_shards(shards);
                 info_list.push_back(*pool.node_info());
             },
         );

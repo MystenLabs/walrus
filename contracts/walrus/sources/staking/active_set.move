@@ -34,9 +34,10 @@ public struct ActiveSet has store, copy, drop {
     nodes: VecMap<ID, u64>,
     /// The total amount of staked WAL in the active set.
     total_staked: u64,
-    /// Stores sorted indexes of the nodes in the active set. This allows us to
-    /// quickly find the index of a node in the sorted list of nodes. Uses `u16`
-    /// to save space, as the active set can only contain up to 1000 nodes.
+    /// Stores indexes of the nodes in the active set sorted by stake. This
+    /// allows us to quickly find the index of a node in the sorted list of
+    /// nodes. Uses `u16` to save space, as the active set can only contain up
+    /// to 1000 nodes.
     idx_sorted: vector<u16>,
 }
 
@@ -56,6 +57,9 @@ public(package) fun new(max_size: u16, min_stake: u64): ActiveSet {
 
 public(package) fun insert(set: &mut ActiveSet, node_id: ID, staked_amount: u64) {
     assert!(!set.nodes.contains(&node_id));
+
+    // check if the staked amount is enough to be included in the active set
+    if (staked_amount < set.min_stake) return;
 
     // happy path for the first node, no need to sort, just insert
     if (set.nodes.size() == 0) {
@@ -155,6 +159,7 @@ fun test_insert() {
 
     assert_eq(set.size(), 3);
     assert_eq(set.min_stake(), 300);
+
     let active_ids = set.active_ids();
     assert!(active_ids.contains(&@0x2.to_id()));
     assert!(active_ids.contains(&@0x3.to_id()));
@@ -167,6 +172,7 @@ fun test_insert() {
 
     assert_eq(set.size(), 3);
     assert_eq(set.min_stake(), 1000);
+
     let active_ids = set.active_ids();
     assert!(active_ids.contains(&@0x6.to_id()));
     assert!(active_ids.contains(&@0x7.to_id()));
