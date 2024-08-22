@@ -50,13 +50,12 @@ public struct StakingInnerV1 has store {
     pools: ObjectTable<ID, StakingPool>,
     /// The current epoch of the Walrus system. The epochs are not the same as
     /// the Sui epochs, not to be mistaken with `ctx.epoch()`.
-    current_epoch: u64,
-    /// Flag to indicate if the committee has been selected for the next epoch.
-    /// TODO: implement flagging.
-    committee_selected: bool,
+    epoch: u64,
     /// Stores the active set of storage nodes. Provides automatic sorting and
     /// tracks the total amount of staked WAL.
     active_set: ActiveSet,
+    /// The next committee in the system.
+    next_committee: Option<BlsCommittee>,
     /// The current committee in the system.
     committee: BlsCommittee,
     /// The previous committee in the system.
@@ -68,9 +67,9 @@ public(package) fun new(shards: u16, ctx: &mut TxContext): StakingInnerV1 {
     StakingInnerV1 {
         shards,
         pools: object_table::new(ctx),
-        current_epoch: 0,
-        committee_selected: false,
+        epoch: 0,
         active_set: active_set::new(shards, MIN_STAKE),
+        next_committee: option::none(),
         committee: bls_aggregate::new_bls_committee(0, &vector[]),
         previous_committee: bls_aggregate::new_bls_committee(0, &vector[]),
     }
@@ -225,7 +224,7 @@ public(package) fun withdraw_stake(
 
 /// Get the current epoch.
 public(package) fun epoch(self: &StakingInnerV1): u64 {
-    self.current_epoch
+    self.epoch
 }
 
 /// Get the current committee.
@@ -245,15 +244,10 @@ public(package) fun has_pool(self: &StakingInnerV1, node_id: ID): bool {
 
 // === System ===
 
-/// Sets the next epoch of the system.
-///
-/// TODO: add rewards argument and perform the reward distribution.
-/// TODO: `advance_epoch` needs to be either pre or post handled by each staking pool as well.
-/// TODO: current solution is silly, we need to have a proper algorithm for shard assignment.
-public(package) fun advance_epoch(self: &mut StakingInnerV1, ctx: &mut TxContext) {
-    self.current_epoch = self.current_epoch + 1;
+/// Selects the committee for the next epoch.
+public(package) fun select_committee(self: &mut StakingInnerV1, ctx: &mut TxContext) {
+    assert!(self.next_committee.is_none());
 
-    let wctx = &self.new_walrus_context();
     let shard_threshold = self.active_set.total_stake() / (self.shards as u64);
     let mut info_list = vector[];
     let mut shard_idx: u16 = 0;
@@ -266,9 +260,7 @@ public(package) fun advance_epoch(self: &mut StakingInnerV1, ctx: &mut TxContext
         .do_ref!(
             |id| {
                 let pool = &mut self.pools[*id];
-                pool.advance_epoch(wctx);
-
-                let shards_num = pool.active_stake() / shard_threshold;
+                let shards_num = pool.stake_at_epoch(self.epoch + 1) / shard_threshold;
                 let shards = vector::tabulate!(
                     shards_num,
                     |x| {
@@ -296,18 +288,33 @@ public(package) fun advance_epoch(self: &mut StakingInnerV1, ctx: &mut TxContext
         );
     };
 
-    let committee = bls_aggregate::new_bls_committee(self.current_epoch, &info_list);
+    let committee = bls_aggregate::new_bls_committee(self.epoch, &info_list);
+    self.next_committee = option::some(committee);
+}
 
+/// Sets the next epoch of the system.
+///
+/// TODO: add rewards argument and perform the reward distribution.
+/// TODO: `advance_epoch` needs to be either pre or post handled by each staking pool as well.
+/// TODO: current solution is silly, we need to have a proper algorithm for shard assignment.
+public(package) fun advance_epoch(self: &mut StakingInnerV1, ctx: &mut TxContext) {
+    assert!(self.next_committee.is_some());
+
+    self.epoch = self.epoch + 1;
     self.previous_committee = self.committee;
-    self.committee = committee;
+    self.committee = self.next_committee.extract();
+
+    let wctx = &self.new_walrus_context();
+
+    self.committee.to_vec_map().keys().do!(|node| self.pools[node].advance_epoch(wctx));
 }
 
 // === Internal ===
 
 fun new_walrus_context(self: &StakingInnerV1): WalrusContext {
     walrus_context::new(
-        self.current_epoch,
-        self.committee_selected,
+        self.epoch,
+        self.next_committee.is_some(),
         self.committee.to_vec_map(),
     )
 }

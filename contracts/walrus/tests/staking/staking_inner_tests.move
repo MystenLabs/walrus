@@ -55,6 +55,7 @@ fun test_staking_active_set() {
     assert!(staking.active_set().min_stake() == 0);
 
     // trigger `advance_epoch` to update the committee
+    staking.select_committee(ctx);
     staking.advance_epoch(ctx);
 
     // we expect:
