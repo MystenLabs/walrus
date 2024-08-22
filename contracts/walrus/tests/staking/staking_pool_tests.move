@@ -16,15 +16,15 @@ fun test_staked_wal_flow() {
     // step3 - stake 1000 WALs in the pool
     let mut staked_wal_a = pool.stake(mint(1000, ctx), &wctx(1, false), ctx);
     let mut staked_wal_b = pool.stake(mint(1000, ctx), &wctx(1, true), ctx);
-    assert!(pool.active_stake_amount() == 0);
+    assert!(pool.active_stake() == 0);
 
     // step4 - advance the epoch to 2, expecting that the stake A is applied
     pool.advance_epoch(&wctx(2, false));
-    assert!(pool.active_stake_amount() == 1000);
+    assert!(pool.active_stake() == 1000);
 
     // step5 - advance the epoch to 3, expecting that the stake B is applied
     pool.advance_epoch(&wctx(3, false));
-    assert!(pool.active_stake_amount() == 2000);
+    assert!(pool.active_stake() == 2000);
 
     // step6 - withdraw the stake A and B
     pool.request_withdraw_stake(&mut staked_wal_a, &wctx(3, false), ctx);
@@ -32,7 +32,7 @@ fun test_staked_wal_flow() {
 
     // step7 - advance the epoch to 4, expecting that the stake A is withdrawn
     pool.advance_epoch(&wctx(4, false));
-    assert!(pool.active_stake_amount() == 0);
+    assert!(pool.active_stake() == 0);
 
     let coin_a = pool.withdraw_stake(staked_wal_a, &wctx(4, false), ctx);
     let coin_b = pool.withdraw_stake(staked_wal_b, &wctx(4, false), ctx);
@@ -57,7 +57,7 @@ fun test_advance_pool_epoch() {
         .node_capacity(1)
         .build(&wctx(1, true), ctx);
 
-    assert!(pool.active_stake_amount() == 0);
+    assert!(pool.active_stake() == 0);
     assert!(pool.commission_rate() == 1000);
     assert!(pool.write_price() == 1);
     assert!(pool.storage_price() == 1);
@@ -79,7 +79,7 @@ fun test_advance_pool_epoch() {
     // Bob stakes after committee selection, stake applied in E+2
     let sw1 = pool.stake(mint(1000, ctx), &wctx(1, false), ctx);
     let sw2 = pool.stake(mint(1000, ctx), &wctx(1, true), ctx);
-    assert!(pool.active_stake_amount() == 0);
+    assert!(pool.active_stake() == 0);
 
     // advance epoch to 2
     // we expect Alice's stake to be applied already, Bob's not yet
@@ -87,7 +87,7 @@ fun test_advance_pool_epoch() {
     let wctx = &wctx(2, false);
     pool.advance_epoch(wctx);
 
-    assert!(pool.active_stake_amount() == 1000);
+    assert!(pool.active_stake() == 1000);
     assert!(pool.commission_rate() == 100);
     assert!(pool.node_capacity() == 1000);
     assert!(pool.write_price() == 100);
@@ -101,7 +101,7 @@ fun test_advance_pool_epoch() {
     // we expect Bob's stake to be applied
     // and commission rate to be updated
     pool.advance_epoch(&wctx(3, false));
-    assert!(pool.active_stake_amount() == 2000);
+    assert!(pool.active_stake() == 2000);
     assert!(pool.commission_rate() == 1000);
 
     destroy(pool);

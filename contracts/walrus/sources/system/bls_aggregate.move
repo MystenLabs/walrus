@@ -48,7 +48,11 @@ public(package) fun new_bls_committee(epoch: u64, members: &vector<StorageNodeIn
             }
         },
     );
-    assert!(n_shards != 0, EIncorrectCommittee);
+
+    // TODO: if we keep this check, there has to be a test for it
+    // TODO: discuss relaxing this restriction to allow for empty committee in
+    //       the staking, and don't require Option<BlsCommittee> there.
+    // assert!(n_shards != 0, EIncorrectCommittee);
 
     BlsCommittee { members: bls_members, n_shards, epoch }
 }

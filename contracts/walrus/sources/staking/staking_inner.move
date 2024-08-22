@@ -31,8 +31,6 @@ use walrus::{
     walrus_context::{Self, WalrusContext}
 };
 
-/// The number of shards in the system.
-const SHARDS: u16 = 1000;
 /// The minimum amount of staked WAL required to be included in the active set.
 const MIN_STAKE: u64 = 0;
 
@@ -42,6 +40,8 @@ const ENotImplemented: vector<u8> = b"Function is not implemented";
 
 /// The inner object for the staking part of the system.
 public struct StakingInnerV1 has store {
+    /// The number of shards in the system.
+    shards: u16,
     /// Stored staking pools, each identified by a unique `ID` and contains
     /// the `StakingPool` object. Uses `ObjectTable` to make the pool discovery
     /// easier by avoiding wrapping.
@@ -51,6 +51,9 @@ public struct StakingInnerV1 has store {
     /// The current epoch of the Walrus system. The epochs are not the same as
     /// the Sui epochs, not to be mistaken with `ctx.epoch()`.
     current_epoch: u64,
+    /// Flag to indicate if the committee has been selected for the next epoch.
+    /// TODO: implement flagging.
+    committee_selected: bool,
     /// Stores the active set of storage nodes. Provides automatic sorting and
     /// tracks the total amount of staked WAL.
     active_set: ActiveSet,
@@ -61,11 +64,13 @@ public struct StakingInnerV1 has store {
 }
 
 /// Creates a new `StakingInnerV1` object with default values.
-public(package) fun new(ctx: &mut TxContext): StakingInnerV1 {
+public(package) fun new(shards: u16, ctx: &mut TxContext): StakingInnerV1 {
     StakingInnerV1 {
+        shards,
         pools: object_table::new(ctx),
         current_epoch: 0,
-        active_set: active_set::new(SHARDS, MIN_STAKE),
+        committee_selected: false,
+        active_set: active_set::new(shards, MIN_STAKE),
         committee: bls_aggregate::new_bls_committee(0, &vector[]),
         previous_committee: bls_aggregate::new_bls_committee(0, &vector[]),
     }
@@ -186,7 +191,12 @@ public(package) fun stake_with_pool(
     ctx: &mut TxContext,
 ): StakedWal {
     let wctx = &self.new_walrus_context();
-    self.pools[node_id].stake(to_stake, wctx, ctx)
+    let pool = &mut self.pools[node_id];
+    let staked_wal = pool.stake(to_stake, wctx, ctx);
+
+    self.active_set.insert(node_id, pool.stake_at_epoch(wctx.epoch() + 1));
+
+    staked_wal
 }
 
 /// Requests withdrawal of the given amount from the `StakedWAL`, marking it as
@@ -218,19 +228,38 @@ public(package) fun epoch(self: &StakingInnerV1): u64 {
     self.current_epoch
 }
 
+/// Get the current committee.
+public(package) fun committee(self: &StakingInnerV1): &BlsCommittee {
+    &self.committee
+}
+
+/// Get the previous committee.
+public(package) fun previous_committee(self: &StakingInnerV1): &BlsCommittee {
+    &self.previous_committee
+}
+
+/// Check if a node with the given `ID` exists in the staking pools.
+public(package) fun has_pool(self: &StakingInnerV1, node_id: ID): bool {
+    self.pools.contains(node_id)
+}
+
 // === System ===
 
 /// Sets the next epoch of the system.
 ///
 /// TODO: add rewards argument and perform the reward distribution.
 /// TODO: `advance_epoch` needs to be either pre or post handled by each staking pool as well.
+/// TODO: current solution is silly, we need to have a proper algorithm for shard assignment.
 public(package) fun advance_epoch(self: &mut StakingInnerV1, ctx: &mut TxContext) {
-    let new_epoch = self.current_epoch + 1;
+    self.current_epoch = self.current_epoch + 1;
+
     let wctx = &self.new_walrus_context();
-    let shard_threshold = self.active_set.total_staked() / (SHARDS as u64);
+    let shard_threshold = self.active_set.total_stake() / (self.shards as u64);
     let mut info_list = vector[];
     let mut shard_idx: u16 = 0;
 
+    // NOTE: the solution for shard assignment is a temporary one, it does not
+    //       guarantee correct and full distribution just yet.
     self
         .active_set
         .active_ids()
@@ -239,26 +268,53 @@ public(package) fun advance_epoch(self: &mut StakingInnerV1, ctx: &mut TxContext
                 let pool = &mut self.pools[*id];
                 pool.advance_epoch(wctx);
 
-                let shards_num = pool.active_stake_amount() / shard_threshold;
-                let shards = vector::tabulate!(shards_num, |x| {
-                    shard_idx = shard_idx + 1;
-                    shard_idx
-                });
+                let shards_num = pool.active_stake() / shard_threshold;
+                let shards = vector::tabulate!(
+                    shards_num,
+                    |x| {
+                        shard_idx = shard_idx + 1;
+                        shard_idx
+                    },
+                );
 
                 pool.assign_shards(shards);
                 info_list.push_back(*pool.node_info());
             },
         );
 
-    let committee = bls_aggregate::new_bls_committee(new_epoch, &info_list);
+    let committee = bls_aggregate::new_bls_committee(self.current_epoch, &info_list);
 
     self.previous_committee = self.committee;
     self.committee = committee;
-    self.current_epoch = new_epoch;
 }
 
 // === Internal ===
 
 fun new_walrus_context(self: &StakingInnerV1): WalrusContext {
-    walrus_context::new(self.current_epoch, true, self.committee.to_vec_map())
+    walrus_context::new(
+        self.current_epoch,
+        self.committee_selected,
+        self.committee.to_vec_map(),
+    )
+}
+
+// ==== Tests ===
+
+#[test_only]
+public(package) fun active_set(self: &mut StakingInnerV1): &mut ActiveSet {
+    &mut self.active_set
+}
+
+#[test_only]
+#[syntax(index)]
+/// Get the pool with the given `ID`.
+public(package) fun borrow(self: &StakingInnerV1, node_id: ID): &StakingPool {
+    &self.pools[node_id]
+}
+
+#[test_only]
+#[syntax(index)]
+/// Get mutable reference to the pool with the given `ID`.
+public(package) fun borrow_mut(self: &mut StakingInnerV1, node_id: ID): &mut StakingPool {
+    &mut self.pools[node_id]
 }

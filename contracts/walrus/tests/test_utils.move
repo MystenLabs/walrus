@@ -12,7 +12,11 @@ use sui::{
     sui::SUI,
     vec_map
 };
-use walrus::{staking_pool::{Self, StakingPool}, walrus_context::{Self, WalrusContext}};
+use walrus::{
+    staking_inner::StakingInnerV1,
+    staking_pool::{Self, StakingPool},
+    walrus_context::{Self, WalrusContext}
+};
 
 // === Coins and Context ===
 
@@ -72,46 +76,55 @@ public fun pool(): PoolBuilder {
     }
 }
 
+/// Sets the commission rate for the pool.
 public fun commission_rate(mut self: PoolBuilder, commission_rate: u64): PoolBuilder {
     self.commission_rate.fill(commission_rate);
     self
 }
 
+/// Sets the storage price for the pool.
 public fun storage_price(mut self: PoolBuilder, storage_price: u64): PoolBuilder {
     self.storage_price.fill(storage_price);
     self
 }
 
+/// Sets the write price for the pool.
 public fun write_price(mut self: PoolBuilder, write_price: u64): PoolBuilder {
     self.write_price.fill(write_price);
     self
 }
 
+/// Sets the node capacity for the pool.
 public fun node_capacity(mut self: PoolBuilder, node_capacity: u64): PoolBuilder {
     self.node_capacity.fill(node_capacity);
     self
 }
 
+/// Sets the name for the pool.
 public fun name(mut self: PoolBuilder, name: String): PoolBuilder {
     self.name.fill(name);
     self
 }
 
+/// Sets the network address for the pool.
 public fun network_address(mut self: PoolBuilder, network_address: String): PoolBuilder {
     self.network_address.fill(network_address);
     self
 }
 
+/// Sets the public key for the pool.
 public fun public_key(mut self: PoolBuilder, public_key: vector<u8>): PoolBuilder {
     self.public_key.fill(public_key);
     self
 }
 
+/// Sets the network public key for the pool.
 public fun network_public_key(mut self: PoolBuilder, network_public_key: vector<u8>): PoolBuilder {
     self.network_public_key.fill(network_public_key);
     self
 }
 
+/// Builds a staking pool with the parameters set in the builder.
 public fun build(self: PoolBuilder, wctx: &WalrusContext, ctx: &mut TxContext): StakingPool {
     let PoolBuilder {
         name,
@@ -138,6 +151,37 @@ public fun build(self: PoolBuilder, wctx: &WalrusContext, ctx: &mut TxContext): 
         write_price.destroy_with_default(1000),
         node_capacity.destroy_with_default(1000),
         wctx,
+        ctx,
+    )
+}
+
+/// Similar to `build` but registers the pool with the staking inner, using the same set of
+/// parameters.
+public fun register(self: PoolBuilder, inner: &mut StakingInnerV1, ctx: &mut TxContext): ID {
+    let PoolBuilder {
+        name,
+        network_address,
+        public_key,
+        network_public_key,
+        commission_rate,
+        storage_price,
+        write_price,
+        node_capacity,
+    } = self;
+
+    inner.create_pool(
+        name.destroy_with_default(b"pool".to_string()),
+        network_address.destroy_with_default(b"127.0.0.1".to_string()),
+        public_key.destroy_with_default(
+            x"a60e75190e62b6a54142d147289a735c4ce11a9d997543da539a3db57def5ed83ba40b74e55065f02b35aa1d504c404b",
+        ),
+        network_public_key.destroy_with_default(
+            x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677",
+        ),
+        commission_rate.destroy_with_default(1000),
+        storage_price.destroy_with_default(1000),
+        write_price.destroy_with_default(1000),
+        node_capacity.destroy_with_default(1000),
         ctx,
     )
 }

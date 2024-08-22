@@ -174,7 +174,7 @@ use sui::{clock, coin};
 #[test_only]
 fun new(ctx: &mut TxContext): Staking {
     let mut staking = Staking { id: object::new(ctx), version: VERSION };
-    df::add(&mut staking.id, VERSION, staking_inner::new(ctx));
+    df::add(&mut staking.id, VERSION, staking_inner::new(1000, ctx));
     staking
 }
 

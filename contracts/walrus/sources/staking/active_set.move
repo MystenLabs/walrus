@@ -33,7 +33,7 @@ public struct ActiveSet has store, copy, drop {
     /// The storage nodes in the active set, sorted by the amount of staked WAL.
     nodes: VecMap<ID, u64>,
     /// The total amount of staked WAL in the active set.
-    total_staked: u64,
+    total_stake: u64,
     /// Stores indexes of the nodes in the active set sorted by stake. This
     /// allows us to quickly find the index of a node in the sorted list of
     /// nodes. Uses `u16` to save space, as the active set can only contain up
@@ -50,7 +50,7 @@ public(package) fun new(max_size: u16, min_stake: u64): ActiveSet {
         min_stake,
         nodes: vec_map::empty(),
         // sorted_nodes: vector[],
-        total_staked: 0,
+        total_stake: 0,
         idx_sorted: vector[],
     }
 }
@@ -63,7 +63,7 @@ public(package) fun insert(set: &mut ActiveSet, node_id: ID, staked_amount: u64)
 
     // happy path for the first node, no need to sort, just insert
     if (set.nodes.size() == 0) {
-        set.total_staked = set.total_staked + staked_amount;
+        set.total_stake = set.total_stake + staked_amount;
         set.nodes.insert(node_id, staked_amount);
         set.idx_sorted.push_back(0);
         return
@@ -71,7 +71,7 @@ public(package) fun insert(set: &mut ActiveSet, node_id: ID, staked_amount: u64)
 
     //
     if (set.nodes.size() as u16 < set.max_size) {
-        set.total_staked = set.total_staked + staked_amount;
+        set.total_stake = set.total_stake + staked_amount;
         set.nodes.insert(node_id, staked_amount);
 
         let map_idx = set.nodes.size() as u16 - 1;
@@ -101,7 +101,7 @@ public(package) fun insert(set: &mut ActiveSet, node_id: ID, staked_amount: u64)
         let (_, min_stake) = set.nodes.remove(&min_node_id);
 
         // decrease the total staked WAL
-        set.total_staked = set.total_staked - min_stake;
+        set.total_stake = set.total_stake - min_stake;
 
         // insert the new node as if the set was not full
         insert(set, node_id, staked_amount);
@@ -123,7 +123,7 @@ public(package) fun active_ids(set: &ActiveSet): vector<ID> { set.nodes.keys() }
 public(package) fun min_stake(set: &ActiveSet): u64 { set.min_stake }
 
 /// The total amount of staked WAL in the active set.
-public(package) fun total_staked(set: &ActiveSet): u64 { set.total_staked }
+public(package) fun total_stake(set: &ActiveSet): u64 { set.total_stake }
 
 #[test]
 fun test_insert() {

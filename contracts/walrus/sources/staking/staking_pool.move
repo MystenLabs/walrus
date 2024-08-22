@@ -309,10 +309,22 @@ public(package) fun set_is_active(pool: &mut StakingPool) {
 }
 
 /// Returns the amount stored in the `active_stake`.
-public(package) fun active_stake_amount(pool: &StakingPool): u64 {
+public(package) fun active_stake(pool: &StakingPool): u64 {
     pool.active_stake
 }
 
+/// Returns the expected active stake for epoch `E`.
+public(package) fun stake_at_epoch(pool: &StakingPool, epoch: u64): u64 {
+    let mut expected = pool.active_stake;
+    let pending_stake_epochs = pool.pending_stake.keys();
+    pending_stake_epochs.do!(
+        |e| if (e <= epoch) {
+            expected = expected + pool.pending_stake[&e]
+        },
+    );
+
+    expected
+}
 // TODO: return pending stake for E+1 and E+2.
 
 /// Returns the amount stored in the `stake_to_withdraw`.
