@@ -6,6 +6,7 @@ module walrus::messages;
 use sui::bcs;
 
 const APP_ID: u8 = 3;
+const INTENT_VERSION: u8 = 0;
 
 // Message Types
 const BLOB_CERT_MSG_TYPE: u8 = 1;
@@ -15,6 +16,7 @@ const INVALID_BLOB_ID_MSG_TYPE: u8 = 2;
 const EIncorrectAppId: u64 = 0;
 const EIncorrectEpoch: u64 = 1;
 const EInvalidMsgType: u64 = 2;
+const EIncorrectIntentVersion: u64 = 3;
 
 /// A message certified by nodes holding `stake_support` shards.
 public struct CertifiedMessage has drop {
@@ -55,6 +57,7 @@ public(package) fun new_certified_message(
     let mut bcs_message = bcs::new(message_bytes);
     let intent_type = bcs_message.peel_u8();
     let intent_version = bcs_message.peel_u8();
+    assert!(intent_version == INTENT_VERSION, EIncorrectIntentVersion);
 
     let intent_app = bcs_message.peel_u8();
     assert!(intent_app == APP_ID, EIncorrectAppId);
@@ -172,4 +175,36 @@ public fun certified_message_for_testing(
 #[test_only]
 public fun certified_blob_message_for_testing(epoch: u64, blob_id: u256): CertifiedBlobMessage {
     CertifiedBlobMessage { epoch, blob_id }
+}
+
+#[test_only]
+public fun certified_message_bytes(epoch: u64, blob_id: u256): vector<u8> {
+    let mut message = vector<u8>[];
+    message.push_back(BLOB_CERT_MSG_TYPE);
+    message.push_back(INTENT_VERSION);
+    message.push_back(APP_ID);
+    message.append(bcs::to_bytes(&epoch));
+    message.append(bcs::to_bytes(&blob_id));
+    message
+}
+
+#[test_only]
+public fun invalid_message_bytes(epoch: u64, blob_id: u256): vector<u8> {
+    let mut message = vector<u8>[];
+    message.push_back(INVALID_BLOB_ID_MSG_TYPE);
+    message.push_back(INTENT_VERSION);
+    message.push_back(APP_ID);
+    message.append(bcs::to_bytes(&epoch));
+    message.append(bcs::to_bytes(&blob_id));
+    message
+}
+
+#[test]
+fun test_message_creation() {
+    let epoch = 42;
+    let blob_id = 0xdeadbeefdeadbeefdeadbeefdeadbeef;
+    let msg = certified_message_bytes(epoch, blob_id);
+    let cert_msg = new_certified_message(msg, epoch, 1).certify_blob_message();
+    assert!(cert_msg.blob_id == blob_id);
+    assert!(cert_msg.epoch == epoch);
 }

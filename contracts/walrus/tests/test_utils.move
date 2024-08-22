@@ -202,18 +202,60 @@ public fun bls_min_pk_from_sk(sk: &vector<u8>): vector<u8> {
     *pk.bytes()
 }
 
+// Prepends the key with zeros to get 32 bytes.
+public fun pad_bls_sk(sk: &vector<u8>): vector<u8> {
+    let mut sk = *sk;
+    if (sk.length() < 32) {
+        // Prepend with zeros to get 32 bytes.
+        sk.reverse();
+        (32 - sk.length()).do!(|_| sk.push_back(0) );
+        sk.reverse();
+    };
+    sk
+}
+
+/// Returns the secret key scalar 117
+public fun bls_sk_for_testing(): vector<u8> {
+    pad_bls_sk(&x"75")
+}
+
+/// Returns 10 bls secret keys.
+public fun bls_secret_keys_for_testing(): vector<vector<u8>> {
+    vector[
+        x"DEADBEEF",
+        x"BEEF",
+        x"CAFE",
+        x"C0DE",
+        x"C0FFEE",
+        x"DEAD",
+        x"DECADE",
+        x"DEC0DE",
+        x"FACE",
+        x"F00D",
+    ].map!(|key| pad_bls_sk(&key) )
+}
+
+/// Aggregates the given signatures into one signature.
+public fun bls_aggregate_sigs(signatures: &vector<vector<u8>>): vector<u8> {
+    let mut aggregate = bls12381::g2_identity();
+    signatures.do_ref!(|sig|
+    aggregate = bls12381::g2_add(&aggregate, &bls12381::g2_from_bytes(sig))
+    );
+    *aggregate.bytes()
+}
+
 // == Unit Tests ==
 
 #[test]
 fun test_bls_pk() {
-    let sk = x"0000000000000000000000000000000000000000000000000000000000000075";
+    let sk = bls_sk_for_testing();
     let pub_key_bytes = x"95eacc3adc09c827593f581e8e2de068bf4cf5d0c0eb29e5372f0d23364788ee0f9beb112c8a7e9c2f0c720433705cf0"; // editorconfig-checker-disable-line
     assert!(bls_min_pk_from_sk(&sk) == pub_key_bytes)
 }
 
 #[test]
 fun test_bls_sign() {
-    let sk = x"0000000000000000000000000000000000000000000000000000000000000075";
+    let sk = bls_sk_for_testing();
     let pub_key_bytes = bls_min_pk_from_sk(&sk);
     let msg = x"deadbeef";
     let sig = bls_min_pk_sign(&msg, &sk);

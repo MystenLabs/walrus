@@ -174,7 +174,8 @@ fun inner(system: &System): &SystemStateInnerV1 {
 use walrus::system_state_inner;
 
 #[test_only]
-public(package) fun new_for_testing(ctx: &mut TxContext): System {
+public(package) fun new_for_testing(): System {
+    let ctx = &mut tx_context::dummy();
     let mut system = System { id: object::new(ctx), version: VERSION };
     let system_state_inner = system_state_inner::new_for_testing(ctx);
     dynamic_field::add(&mut system.id, VERSION, system_state_inner);

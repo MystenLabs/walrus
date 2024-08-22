@@ -6,8 +6,6 @@ module walrus::ringbuffer_tests;
 
 use walrus::storage_accounting::{Self as sa, FutureAccountingRingBuffer};
 
-// ------------- TESTS --------------------
-
 #[test]
 public fun test_basic_ring_buffer(): FutureAccountingRingBuffer {
     let mut buffer: FutureAccountingRingBuffer = sa::ring_new(3);

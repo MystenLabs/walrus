@@ -4,102 +4,90 @@
 #[test_only]
 module walrus::invalid_tests;
 
-use walrus::{bls_aggregate, messages, system};
+use walrus::{bls_aggregate, messages, system, test_utils};
 
-const BLOB_ID : u256 = 0xabababababababababababababababababababababababababababababababab;
-
-// BCS confirmation message for epoch 5 and blob id `blob_id` with intents
-const INVALID_MESSAGE: vector<u8> = vector[2, 0, 3, 5, 0, 0, 0, 0, 0, 0, 0,
-    171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171,
-    171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171];
-
-// Signature from private key scalar(117) on `INVALID_MESSAGE`
-const MESSAGE_SIGNATURE: vector<u8> = vector[
-    143, 92, 248, 128, 87, 79, 148, 183, 217, 204, 80, 23, 165, 20, 177, 244, 195, 58, 211,
-    68, 96, 54, 23, 17, 187, 131, 69, 35, 243, 61, 209, 23, 11, 75, 236, 235, 199, 245, 53,
-    10, 120, 47, 152, 39, 205, 152, 188, 230, 12, 213, 35, 133, 121, 27, 238, 80, 93, 35,
-    241, 26, 55, 151, 38, 190, 131, 149, 149, 89, 134, 115, 85, 8, 133, 11, 220, 82, 100,
-    14, 214, 146, 147, 200, 192, 155, 181, 143, 199, 38, 202, 125, 25, 22, 246, 117, 30, 82
-    ];
+const BLOB_ID: u256 = 0xC0FFEE;
 
 #[test]
 public fun test_invalid_blob_ok() {
+    let epoch = 5;
     // Create a new committee
-    let committee = bls_aggregate::new_bls_committee_for_testing(5);
+    let committee = bls_aggregate::new_bls_committee_for_testing(epoch);
+
+    let invalid_blob_message = messages::invalid_message_bytes(epoch, BLOB_ID);
+    let signature = test_utils::bls_min_pk_sign(
+        &invalid_blob_message,
+        &test_utils::bls_sk_for_testing(),
+    );
 
     let certified_message = committee.verify_quorum_in_epoch(
-        MESSAGE_SIGNATURE,
+        signature,
         vector[0],
-        INVALID_MESSAGE,
+        invalid_blob_message,
     );
 
     // Now check this is a invalid blob message
     let invalid_blob_msg = certified_message.invalid_blob_id_message();
-    assert!(invalid_blob_msg.invalid_blob_id() == BLOB_ID, 0);
+    assert!(invalid_blob_msg.invalid_blob_id() == BLOB_ID);
 }
 
 #[test]
 public fun test_invalidate_happy(): system::System {
-    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing();
 
-    // Create a new system object
-    let mut system = system::new_for_testing(ctx);
-
-    let mut epoch = 0;
-
-    loop {
-        epoch = epoch + 1;
-        let committee = bls_aggregate::new_bls_committee_for_testing(epoch);
-        let epoch_balance = system.advance_epoch(committee, 1000000000, 5, 1);
-        epoch_balance.destroy_for_testing();
-
-        if (epoch == 5) {
-            assert!(system.epoch() == 5);
-            break
-        }
-    };
-
-    // Now check this is a invalid blob message
-    let blob_id = system::invalidate_blob_id(
-        &system,
-        MESSAGE_SIGNATURE,
-        vector[0],
-        INVALID_MESSAGE,
+    1u64.range_do_eq!(
+        5,
+        |epoch| {
+            let committee = bls_aggregate::new_bls_committee_for_testing(epoch);
+            let epoch_balance = system.advance_epoch(committee, 1000000000, 5, 1);
+            epoch_balance.destroy_for_testing();
+        },
     );
 
-    assert!(blob_id == BLOB_ID, 0);
+    // Create invalid blob message.
+    let invalid_blob_message = messages::invalid_message_bytes(system.epoch(), BLOB_ID);
+    let signature = test_utils::bls_min_pk_sign(
+        &invalid_blob_message,
+        &test_utils::bls_sk_for_testing(),
+    );
+
+    // Now check this is a invalid blob message
+    let blob_id = system.invalidate_blob_id(
+        signature,
+        vector[0],
+        invalid_blob_message,
+    );
+
+    assert!(blob_id == BLOB_ID);
 
     system
 }
 
 #[test, expected_failure(abort_code = messages::EIncorrectEpoch)]
 public fun test_system_invalid_id_wrong_epoch(): system::System {
-    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing();
 
-    // Create a new system object
-    let mut system = system::new_for_testing(ctx);
+    1u64.range_do_eq!(
+        5,
+        |epoch| {
+            let committee = bls_aggregate::new_bls_committee_for_testing(epoch);
+            let epoch_balance = system.advance_epoch(committee, 1000000000, 5, 1);
+            epoch_balance.destroy_for_testing();
+        },
+    );
 
-    let mut epoch = 0;
+    // Create invalid blob message for wrong epoch.
+    let invalid_blob_message = messages::invalid_message_bytes(system.epoch() - 1, BLOB_ID);
+    let signature = test_utils::bls_min_pk_sign(
+        &invalid_blob_message,
+        &test_utils::bls_sk_for_testing(),
+    );
 
-    loop {
-        epoch = epoch + 1;
-        let committee = bls_aggregate::new_bls_committee_for_testing(epoch);
-        let epoch_balance = system.advance_epoch(committee, 1000000000, 5, 1);
-        epoch_balance.destroy_for_testing();
-
-        // wrong epoch
-        if (epoch == 6) {
-            break
-        }
-    };
-
-    // Now check this is a invalid blob message
-    // Test should fail here
-    let _blob_id = system::invalidate_blob_id(
-        &system,
-        MESSAGE_SIGNATURE,
+    // Now check this is a invalid blob message. Test fails here.
+    let _blob_id = system.invalidate_blob_id(
+        signature,
         vector[0],
-        INVALID_MESSAGE,
+        invalid_blob_message,
     );
 
     system

@@ -78,18 +78,18 @@ public(package) fun to_vec_map(self: &BlsCommittee): VecMap<ID, u16> {
 
 /// Verifies that a message is signed by a quorum of the members of a committee.
 ///
-/// The members are listed in increasing order and with no repetitions. And the signatures
-/// match the order of the members. The total stake is returned, but if a quorum is not reached
-/// the function aborts with an error.
+/// The signers are listed as indices into the `members` vector of the committee in increasing
+/// order and with no repetitions. The total weight of the signers (i.e. total number of shards)
+/// is returned, but if a quorum is not reached the function aborts with an error.
 public(package) fun verify_quorum_in_epoch(
     self: &BlsCommittee,
     signature: vector<u8>,
-    members: vector<u16>,
+    signers: vector<u16>,
     message: vector<u8>,
 ): CertifiedMessage {
     let stake_support = self.verify_certificate(
         &signature,
-        &members,
+        &signers,
         &message,
     );
 
@@ -155,18 +155,28 @@ public(package) fun verify_certificate(
 use sui::bls12381::g1_from_bytes;
 
 #[test_only]
-/// Test committee
+use walrus::test_utils;
+
+#[test_only]
+/// Test committee with one committee member and 100 shards, using
+/// `test_utils::bls_sk_for_testing()` as secret key.
 public fun new_bls_committee_for_testing(epoch: u64): BlsCommittee {
     let ctx = &mut tx_context::dummy();
     let id = object::new(ctx);
     let node_id = id.to_inner();
     id.delete();
-    // Pk corresponding to secret key scalar(117)
-    let pub_key_bytes = x"95eacc3adc09c827593f581e8e2de068bf4cf5d0c0eb29e5372f0d23364788ee0f9beb112c8a7e9c2f0c720433705cf0"; // editorconfig-checker-disable-line
+    let sk = test_utils::bls_sk_for_testing();
+    let pub_key_bytes = test_utils::bls_min_pk_from_sk(&sk);
     let member = BlsCommitteeMember {
         public_key: g1_from_bytes(&pub_key_bytes),
         weight: 100,
         node_id,
     };
     BlsCommittee { members: vector[member], n_shards: 100, epoch }
+}
+
+#[test_only]
+/// Increments the committee epoch by one.
+public fun increment_epoch_for_testing(self: &mut BlsCommittee) {
+    self.epoch = self.epoch + 1;
 }
