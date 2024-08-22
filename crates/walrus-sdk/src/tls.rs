@@ -45,7 +45,8 @@ use x509_cert::{
 /// The subject (and issuer) is the storage node identified by
 /// `walrus_core::server_name_from_public_key(public_key)`, whose alternative name is provided by
 /// `subject_alt_name`. The alternative name should correspond to the DNS name or IP-address to
-///  which the connection is established, so that the certificate can be used to verify the connection.
+///  which the connection is established, so that the certificate can be used to verify the
+///  connection.
 ///
 /// When using the Rustls TLS backend, a certificate generated in this way can be used to establish
 /// a root of trust for securing TLS connections, as Rustls assumes that the certificate's
