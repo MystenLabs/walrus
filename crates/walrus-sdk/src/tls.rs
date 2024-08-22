@@ -112,7 +112,7 @@ fn parse_subject_alt_name(server_name: String) -> Result<GeneralName, ()> {
 fn generate_names_from_public_key(
     public_key: &NetworkPublicKey,
 ) -> (DistinguishedName, GeneralName) {
-    let generated_server_name = walrus_core::server_name_from_public_key(public_key);
+    let generated_server_name = crate::server_name_from_public_key(public_key);
     let distinguished_name = DistinguishedName::from_str(&format!("CN={generated_server_name}"))
         .expect("static name is always valid");
 

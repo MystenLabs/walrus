@@ -25,11 +25,7 @@ use tower_http::trace::TraceLayer;
 use tracing::Instrument;
 use utoipa::OpenApi as _;
 use utoipa_redoc::{Redoc, Servable as _};
-use walrus_core::{
-    encoding::max_sliver_size_for_n_shards,
-    keys::NetworkKeyPair,
-    server_name_from_public_key,
-};
+use walrus_core::{encoding::max_sliver_size_for_n_shards, keys::NetworkKeyPair};
 
 use super::config::{defaults, StorageNodeConfig};
 use crate::{
@@ -372,7 +368,7 @@ fn create_self_signed_certificate(
     key_pair: &NetworkKeyPair,
     public_server_name: String,
 ) -> CertifiedKey {
-    let generated_server_name = server_name_from_public_key(key_pair.public());
+    let generated_server_name = walrus_sdk::server_name_from_public_key(key_pair.public());
     let pkcs8_key_pair = to_pkcs8_key_pair(key_pair);
 
     let mut params =

@@ -9,9 +9,9 @@
 extern crate alloc;
 extern crate std;
 
-use alloc::{string::String, vec::Vec};
+use alloc::vec::Vec;
 use core::{
-    fmt::{self, Debug, Display, Write},
+    fmt::{self, Debug, Display},
     num::NonZeroU16,
     ops::{Bound, Range, RangeBounds},
     str::FromStr,
@@ -33,7 +33,6 @@ use fastcrypto::{
     bls12381::min_pk::{BLS12381PublicKey, BLS12381Signature},
     hash::{Blake2b256, HashFunction},
     secp256r1::Secp256r1PublicKey,
-    traits::ToFromBytes as _,
 };
 use inconsistency::{
     InconsistencyVerificationError,
@@ -655,18 +654,4 @@ macro_rules! ensure {
             return Err(anyhow::anyhow!($fmt, $($arg)*).into());
         }
     };
-}
-
-/// Returns a string `<first-4-bytes-as-hex>.network.walrus.alt` corresponding to the public key.
-pub fn server_name_from_public_key(public_key: &NetworkPublicKey) -> String {
-    const N_PUBLIC_KEY_BYTES_IN_SUBJECT: usize = 4;
-
-    let public_key_bytes = public_key.as_bytes();
-
-    let mut server_name = String::new();
-    for byte in public_key_bytes.iter().take(N_PUBLIC_KEY_BYTES_IN_SUBJECT) {
-        write!(&mut server_name, "{:x}", byte).unwrap();
-    }
-    server_name.push_str(".network.walrus.alt");
-    server_name
 }
