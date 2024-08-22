@@ -1,13 +1,15 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Blob status for the walrus shard storage
+//! Blob status for the Walrus shard storage.
 
 use std::cmp::Ordering;
 
 use enum_dispatch::enum_dispatch;
+use rocksdb::MergeOperands;
 use serde::{Deserialize, Serialize};
 use sui_types::event::EventID;
+use tracing::Level;
 use walrus_core::{BlobId, Epoch};
 use walrus_sdk::api::{BlobCertificationStatus as SdkBlobCertificationStatus, BlobStatus};
 use walrus_sui::types::{BlobCertified, BlobEvent, BlobRegistered, InvalidBlobId};
@@ -384,6 +386,63 @@ impl From<&BlobEvent> for BlobInfoMergeOperand {
             BlobEvent::InvalidBlobID(event) => event.into(),
         }
     }
+}
+
+#[tracing::instrument(level = Level::DEBUG, skip(operands))]
+pub(super) fn merge_blob_info(
+    key: &[u8],
+    existing_val: Option<&[u8]>,
+    operands: &MergeOperands,
+) -> Option<Vec<u8>> {
+    let mut current_val: Option<BlobInfo> = existing_val.and_then(deserialize_from_db);
+
+    for operand_bytes in operands {
+        let Some(operand) = deserialize_from_db::<BlobInfoMergeOperand>(operand_bytes) else {
+            continue;
+        };
+        tracing::debug!("updating {current_val:?} with {operand:?}");
+
+        current_val = if let Some(info) = current_val {
+            Some(info.merge(operand))
+        } else {
+            match operand {
+                BlobInfoMergeOperand::ChangeStatus {
+                    blob_id,
+                    status_changing_epoch,
+                    end_epoch,
+                    status,
+                    status_event,
+                } => Some(BlobInfo::new(
+                    blob_id,
+                    status_changing_epoch,
+                    end_epoch,
+                    status,
+                    status_event,
+                )),
+                BlobInfoMergeOperand::MarkMetadataStored(_) => {
+                    let blob_id = bcs::from_bytes::<BlobId>(key);
+                    tracing::error!(
+                        ?blob_id,
+                        "attempted to mutate the info for an untracked blob"
+                    );
+                    None
+                }
+            }
+        }
+    }
+
+    current_val.as_ref().map(BlobInfo::to_bytes)
+}
+
+fn deserialize_from_db<'de, T>(val: &'de [u8]) -> Option<T>
+where
+    T: Deserialize<'de>,
+{
+    bcs::from_bytes(val)
+        .inspect_err(|error| {
+            tracing::error!(?error, data=?val, "failed to deserialize value stored in database")
+        })
+        .ok()
 }
 
 #[cfg(test)]
