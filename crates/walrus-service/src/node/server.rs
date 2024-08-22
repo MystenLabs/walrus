@@ -309,6 +309,10 @@ where
                     .get(routes::get_sliver),
             )
             .route(
+                routes::SLIVER_STATUS_ENDPOINT,
+                get(routes::get_sliver_status),
+            )
+            .route(
                 routes::STORAGE_CONFIRMATION_ENDPOINT,
                 get(routes::get_storage_confirmation),
             )

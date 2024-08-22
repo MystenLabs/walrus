@@ -122,10 +122,10 @@ impl UrlEndpoints {
     fn sliver_status<A: EncodingAxis>(
         &self,
         blob_id: &BlobId,
-        sliver_pair_index: SliverPairIndex,
+        SliverPairIndex(sliver_pair_index): SliverPairIndex,
     ) -> (Url, &'static str) {
         let sliver_type = SliverType::for_encoding::<A>();
-        let path = format!("slivers/{sliver_pair_index}/{sliver_type}");
+        let path = format!("slivers/{sliver_pair_index}/{sliver_type}/status");
         (
             self.blob_resource(blob_id).join(&path).unwrap(),
             SLIVER_STATUS_TEMPLATE,

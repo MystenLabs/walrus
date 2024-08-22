@@ -328,10 +328,10 @@ impl<'a> NodeWriteCommunication<'a> {
     ) -> Result<(), SliverStoreError> {
         match self.get_sliver_status::<A>(blob_id, pair_index).await? {
             SliverStatus::Stored => {
-                tracing::trace!(
+                tracing::debug!(
                     ?pair_index,
                     sliver_type=?A::sliver_type(),
-                    "sliver already stored"
+                    "sliver already stored on the node"
                 );
                 Ok(())
             }
@@ -339,7 +339,7 @@ impl<'a> NodeWriteCommunication<'a> {
                 tracing::debug!(
                     ?pair_index,
                     sliver_type=?A::sliver_type(),
-                    "sliver not already stored; storing sliver"
+                    "sliver not already stored on the node; storing sliver"
                 );
                 self.store_sliver(blob_id, sliver, pair_index).await
             }
