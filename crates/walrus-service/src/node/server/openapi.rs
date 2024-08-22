@@ -11,7 +11,7 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
-use walrus_sdk::api::{BlobStatus, ServiceHealthInfo, SliverStatus};
+use walrus_sdk::api::{BlobStatus, ServiceHealthInfo, StorageStatus};
 
 use super::routes;
 use crate::common::api::{api_success_alias, BlobIdString, EventIdSchema, RestApiJsonError};
@@ -44,7 +44,7 @@ pub(super) const GROUP_SYNC_SHARD: &str = "Sync Shard";
         ApiSuccessSignedMessage,
         ApiSuccessMessage,
         ApiSuccessBlobStatus,
-        ApiSuccessSliverStatus,
+        ApiSuccessStorageStatus,
         EventIdSchema,
         ApiSuccessStorageConfirmation,
         ApiSuccessServiceHealthInfo,
@@ -60,7 +60,7 @@ api_success_alias!(
 );
 api_success_alias!(UntypedSignedMessage as ApiSuccessSignedMessage, ToSchema);
 api_success_alias!(BlobStatus as ApiSuccessBlobStatus, ToSchema);
-api_success_alias!(SliverStatus as ApiSuccessSliverStatus, ToSchema);
+api_success_alias!(StorageStatus as ApiSuccessStorageStatus, ToSchema);
 api_success_alias!(String as ApiSuccessMessage, PartialSchema);
 api_success_alias!(ServiceHealthInfo as ApiSuccessServiceHealthInfo, ToSchema);
 

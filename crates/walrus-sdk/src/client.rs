@@ -46,13 +46,14 @@ use walrus_core::{
 };
 
 use crate::{
-    api::{BlobStatus, ServiceHealthInfo, SliverStatus},
+    api::{BlobStatus, ServiceHealthInfo, StorageStatus},
     error::{BuildErrorKind, ClientBuildError, NodeError},
     node_response::NodeResponse as _,
     tls::TlsCertificateVerifier,
 };
 
 const METADATA_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/metadata";
+const METADATA_STATUS_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/metadata/status";
 const SLIVER_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/slivers/:sliver_pair_index/:sliver_type";
 const SLIVER_STATUS_TEMPLATE: &str =
     "/v1/blobs/:blob_id/slivers/:sliver_pair_index/:sliver_type/status";
@@ -76,6 +77,13 @@ impl UrlEndpoints {
         (
             self.blob_resource(blob_id).join("metadata").unwrap(),
             METADATA_URL_TEMPLATE,
+        )
+    }
+
+    fn metadata_status(&self, blob_id: &BlobId) -> (Url, &'static str) {
+        (
+            self.blob_resource(blob_id).join("metadata/status").unwrap(),
+            METADATA_STATUS_URL_TEMPLATE,
         )
     }
 
@@ -328,6 +336,14 @@ impl Client {
             .await
     }
 
+    /// Requests the status of metadata for a blob ID from the node.
+    #[tracing::instrument(skip_all, fields(walrus.blob_id = %blob_id), err(level = Level::DEBUG))]
+    pub async fn get_metadata_status(&self, blob_id: &BlobId) -> Result<StorageStatus, NodeError> {
+        let (url, template) = self.endpoints.metadata_status(blob_id);
+        self.send_and_parse_service_response(Request::new(Method::GET, url), template)
+            .await
+    }
+
     /// Get the metadata and verify it against the provided config.
     #[tracing::instrument(skip_all, fields(walrus.blob_id = %blob_id), err(level = Level::DEBUG))]
     pub async fn get_and_verify_metadata(
@@ -421,7 +437,7 @@ impl Client {
         &self,
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
-    ) -> Result<SliverStatus, NodeError> {
+    ) -> Result<StorageStatus, NodeError> {
         let (url, template) = self
             .endpoints
             .sliver_status::<A>(blob_id, sliver_pair_index);

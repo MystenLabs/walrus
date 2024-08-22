@@ -130,16 +130,17 @@ impl Ord for BlobStatus {
     }
 }
 
-/// Contains the status of a sliver.
+/// Contains the storage status of status of a sliver or metadata.
 #[derive(
     Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy, Default, Hash, utoipa::ToSchema,
 )]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
-pub enum SliverStatus {
-    /// The sliver does not exist on the storage node.
+// TODO(giac): Is this fine as a name? Do we want to separate sliver and metadata statuses?
+pub enum StorageStatus {
+    /// The sliver or metadata does not exist on the storage node.
     #[default]
     Nonexistent,
-    /// The sliver is stored on the storage node.
+    /// The sliver or metadata is stored on the storage node.
     Stored,
 }
 

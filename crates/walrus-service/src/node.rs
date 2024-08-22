@@ -43,7 +43,7 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
-use walrus_sdk::api::{BlobStatus, ServiceHealthInfo, SliverStatus};
+use walrus_sdk::api::{BlobStatus, ServiceHealthInfo, StorageStatus};
 use walrus_sui::{
     client::SuiReadClient,
     types::{BlobCertified, BlobEvent, InvalidBlobId},
@@ -102,6 +102,9 @@ pub trait ServiceState {
         &self,
         metadata: UnverifiedBlobMetadataWithId,
     ) -> Result<bool, StoreMetadataError>;
+
+    /// Returns whether the metadata is stored in the shard.
+    fn metadata_status(&self, blob_id: &BlobId) -> Result<StorageStatus, RetrieveMetadataError>;
 
     /// Retrieves a primary or secondary sliver for a blob for a shard held by this storage node.
     fn retrieve_sliver(
@@ -162,7 +165,7 @@ pub trait ServiceState {
         &self,
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
-    ) -> Result<SliverStatus, RetrieveSliverError>;
+    ) -> Result<StorageStatus, RetrieveSliverError>;
 
     /// Returns the shard data with the provided signed request and the public key of the sender.
     fn sync_shard(
@@ -622,6 +625,10 @@ impl ServiceState for StorageNode {
         self.inner.store_metadata(metadata)
     }
 
+    fn metadata_status(&self, blob_id: &BlobId) -> Result<StorageStatus, RetrieveMetadataError> {
+        self.inner.metadata_status(blob_id)
+    }
+
     fn retrieve_sliver(
         &self,
         blob_id: &BlobId,
@@ -690,7 +697,7 @@ impl ServiceState for StorageNode {
         &self,
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
-    ) -> Result<SliverStatus, RetrieveSliverError> {
+    ) -> Result<StorageStatus, RetrieveSliverError> {
         self.inner.sliver_status::<A>(blob_id, sliver_pair_index)
     }
 
@@ -749,6 +756,19 @@ impl ServiceState for StorageNodeInner {
         self.metrics.metadata_stored_total.inc();
 
         Ok(true)
+    }
+
+    fn metadata_status(&self, blob_id: &BlobId) -> Result<StorageStatus, RetrieveMetadataError> {
+        if let Some(blob_info) = self
+            .storage
+            .get_blob_info(blob_id)
+            .context("could not retrieve blob info")?
+        {
+            if blob_info.is_metadata_stored() {
+                return Ok(StorageStatus::Stored);
+            }
+        }
+        Ok(StorageStatus::Nonexistent)
     }
 
     fn retrieve_sliver(
@@ -903,13 +923,13 @@ impl ServiceState for StorageNodeInner {
         &self,
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
-    ) -> Result<SliverStatus, RetrieveSliverError> {
+    ) -> Result<StorageStatus, RetrieveSliverError> {
         match self
             .get_shard_for_sliver_pair(sliver_pair_index, blob_id)?
             .is_sliver_stored::<A>(blob_id)
         {
-            Ok(true) => Ok(SliverStatus::Stored),
-            Ok(false) => Ok(SliverStatus::Nonexistent),
+            Ok(true) => Ok(StorageStatus::Stored),
+            Ok(false) => Ok(StorageStatus::Nonexistent),
             Err(err) => Err(RetrieveSliverError::Internal(err.into())),
         }
     }
@@ -979,6 +999,7 @@ mod tests {
     use walrus_core::{
         encoding::{self, EncodingAxis, Primary, Secondary, SliverPair},
         messages::{SyncShardMsg, SyncShardRequest},
+        test_utils::generate_config_metadata_and_valid_recovery_symbols,
     };
     use walrus_sdk::{api::BlobCertificationStatus as SdkBlobCertificationStatus, client::Client};
     use walrus_sui::{
@@ -1164,26 +1185,39 @@ mod tests {
         let other_pair_index =
             OTHER_SHARD_INDEX.to_pair_index(storage_node.as_ref().inner.n_shards(), &BLOB_ID);
 
-        check_sliver_status::<Primary>(&storage_node, pair_index, SliverStatus::Stored)?;
-        check_sliver_status::<Secondary>(&storage_node, pair_index, SliverStatus::Stored)?;
-        check_sliver_status::<Primary>(&storage_node, other_pair_index, SliverStatus::Stored)?;
+        check_sliver_status::<Primary>(&storage_node, pair_index, StorageStatus::Stored)?;
+        check_sliver_status::<Secondary>(&storage_node, pair_index, StorageStatus::Stored)?;
+        check_sliver_status::<Primary>(&storage_node, other_pair_index, StorageStatus::Stored)?;
         check_sliver_status::<Secondary>(
             &storage_node,
             other_pair_index,
-            SliverStatus::Nonexistent,
+            StorageStatus::Nonexistent,
         )?;
         Ok(())
     }
     fn check_sliver_status<A: EncodingAxis>(
         storage_node: &StorageNodeHandle,
         pair_index: SliverPairIndex,
-        expected: SliverStatus,
+        expected: StorageStatus,
     ) -> TestResult {
         let effective = storage_node
             .as_ref()
             .inner
             .sliver_status::<A>(&BLOB_ID, pair_index)?;
         assert_eq!(effective, expected);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn returns_correct_metadata_status() -> TestResult {
+        let (_ec, metadata, _idx, _rs) = generate_config_metadata_and_valid_recovery_symbols()?;
+        let storage_node = set_up_node_with_metadata(metadata.clone().into_unverified()).await?;
+
+        let metadata_status = storage_node
+            .as_ref()
+            .inner
+            .metadata_status(metadata.blob_id())?;
+        assert_eq!(metadata_status, StorageStatus::Stored);
         Ok(())
     }
 
@@ -1204,6 +1238,32 @@ mod tests {
         Ok(())
     }
 
+    async fn set_up_node_with_metadata(
+        metadata: UnverifiedBlobMetadataWithId,
+    ) -> anyhow::Result<StorageNodeHandle> {
+        let blob_id = metadata.blob_id().to_owned();
+
+        let shards = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(ShardIndex::new);
+
+        // create a storage node with a registered event for the blob id
+        let node = StorageNodeHandle::builder()
+            .with_system_event_provider(vec![BlobEvent::Registered(BlobRegistered::for_testing(
+                blob_id,
+            ))])
+            .with_shard_assignment(&shards)
+            .with_node_started(true)
+            .build()
+            .await?;
+
+        // make sure that the event is received by the node
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // store the metadata in the storage node
+        node.as_ref().store_metadata(metadata)?;
+
+        Ok(node)
+    }
+
     mod inconsistency_proof {
 
         use fastcrypto::traits::VerifyingKey;
@@ -1214,32 +1274,6 @@ mod tests {
         };
 
         use super::*;
-
-        async fn set_up_node_with_metadata(
-            metadata: UnverifiedBlobMetadataWithId,
-        ) -> anyhow::Result<StorageNodeHandle> {
-            let blob_id = metadata.blob_id().to_owned();
-
-            let shards = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(ShardIndex::new);
-
-            // create a storage node with a registered event for the blob id
-            let node = StorageNodeHandle::builder()
-                .with_system_event_provider(vec![BlobEvent::Registered(
-                    BlobRegistered::for_testing(blob_id),
-                )])
-                .with_shard_assignment(&shards)
-                .with_node_started(true)
-                .build()
-                .await?;
-
-            // make sure that the event is received by the node
-            tokio::time::sleep(Duration::from_millis(50)).await;
-
-            // store the metadata in the storage node
-            node.as_ref().store_metadata(metadata)?;
-
-            Ok(node)
-        }
 
         #[tokio::test]
         async fn returns_err_for_invalid_proof() -> TestResult {

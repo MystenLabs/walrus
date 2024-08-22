@@ -299,6 +299,10 @@ where
                 get(routes::get_metadata).put(routes::put_metadata),
             )
             .route(
+                routes::METADATA_STATUS_ENDPOINT,
+                get(routes::get_metadata_status),
+            )
+            .route(
                 routes::SLIVER_ENDPOINT,
                 put(routes::put_sliver)
                     .route_layer(DefaultBodyLimit::max(
@@ -438,7 +442,7 @@ mod tests {
             BlobCertificationStatus as SdkBlobCertificationStatus,
             BlobStatus,
             ServiceHealthInfo,
-            SliverStatus,
+            StorageStatus,
         },
         client::{Client, ClientBuilder},
     };
@@ -487,6 +491,18 @@ mod tests {
             _metadata: UnverifiedBlobMetadataWithId,
         ) -> Result<bool, StoreMetadataError> {
             Ok(true)
+        }
+
+        fn metadata_status(
+            &self,
+            blob_id: &BlobId,
+        ) -> Result<walrus_sdk::api::StorageStatus, RetrieveMetadataError> {
+            if blob_id.0[0] == 0 {
+                // A blob ID starting with 0 triggers a valid response.
+                Ok(walrus_sdk::api::StorageStatus::Stored)
+            } else {
+                Ok(walrus_sdk::api::StorageStatus::Nonexistent)
+            }
         }
 
         fn retrieve_sliver(
@@ -564,11 +580,11 @@ mod tests {
             &self,
             _blob_id: &BlobId,
             SliverPairIndex(sliver_pair_index): SliverPairIndex,
-        ) -> Result<SliverStatus, RetrieveSliverError> {
+        ) -> Result<StorageStatus, RetrieveSliverError> {
             if sliver_pair_index == 0 {
-                Ok(SliverStatus::Stored)
+                Ok(StorageStatus::Stored)
             } else {
-                Ok(SliverStatus::Nonexistent)
+                Ok(StorageStatus::Nonexistent)
             }
         }
 
@@ -721,6 +737,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn retrieve_metadata_status() {
+        let (config, _handle) = start_rest_api_with_test_config().await;
+        let client = storage_node_client(config.as_ref());
+
+        let stored_status = client
+            .get_metadata_status(&blob_id_for_valid_response())
+            .await
+            .expect("metadata status request is valid");
+        let nonexistent_status = client
+            .get_metadata_status(&blob_id_for_nonexistent())
+            .await
+            .expect("metadata status request is valid");
+
+        assert_eq!(stored_status, StorageStatus::Stored);
+        assert_eq!(nonexistent_status, StorageStatus::Nonexistent);
+    }
+
+    #[tokio::test]
     async fn get_blob_status() {
         let (config, _handle) = start_rest_api_with_test_config().await;
         let client = storage_node_client(config.as_ref());
@@ -815,8 +849,8 @@ mod tests {
             .await
             .expect("should successfully retrieve sliver status");
 
-        assert_eq!(stored_sliver, SliverStatus::Stored);
-        assert_eq!(nonexistent_sliver, SliverStatus::Nonexistent);
+        assert_eq!(stored_sliver, StorageStatus::Stored);
+        assert_eq!(nonexistent_sliver, StorageStatus::Nonexistent);
     }
 
     #[tokio::test]

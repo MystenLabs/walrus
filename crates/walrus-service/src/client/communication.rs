@@ -20,7 +20,7 @@ use walrus_core::{
     SliverPairIndex,
 };
 use walrus_sdk::{
-    api::{BlobStatus, SliverStatus},
+    api::{BlobStatus, StorageStatus},
     client::Client as StorageNodeClient,
     error::NodeError,
 };
@@ -272,11 +272,19 @@ impl<'a> NodeWriteCommunication<'a> {
         &self,
         metadata: &VerifiedBlobMetadataWithId,
     ) -> Result<(), NodeError> {
-        utils::retry(self.backoff_strategy(), || {
-            self.client.store_metadata(metadata)
-            // TODO(giac): consider adding timeouts and replace the Reqwest timeout.
-        })
-        .await
+        match self
+            .retry_with_limits_and_backoff(|| self.client.get_metadata_status(metadata.blob_id()))
+            .await?
+        {
+            StorageStatus::Stored => {
+                tracing::debug!("the metadata is already stored on the node");
+                Ok(())
+            }
+            StorageStatus::Nonexistent => {
+                self.retry_with_limits_and_backoff(|| self.client.store_metadata(metadata))
+                    .await
+            }
+        }
     }
 
     /// Stores the sliver pairs on the node.
@@ -345,7 +353,7 @@ impl<'a> NodeWriteCommunication<'a> {
                 "the sliver is sufficiently small not to require a status check; storing the sliver"
             );
         } else if self.get_sliver_status::<A>(blob_id, pair_index).await?
-            == SliverStatus::Nonexistent
+            == StorageStatus::Nonexistent
         {
             tracing::debug!(
                 ?pair_index,
@@ -387,7 +395,7 @@ impl<'a> NodeWriteCommunication<'a> {
         &self,
         blob_id: &BlobId,
         pair_index: SliverPairIndex,
-    ) -> Result<SliverStatus, SliverStoreError> {
+    ) -> Result<StorageStatus, SliverStoreError> {
         self.retry_with_limits_and_backoff(|| {
             self.client.get_sliver_status::<A>(blob_id, pair_index)
         })

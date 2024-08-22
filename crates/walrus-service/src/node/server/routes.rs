@@ -21,7 +21,7 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
-use walrus_sdk::api::{BlobStatus, ServiceHealthInfo, SliverStatus};
+use walrus_sdk::api::{BlobStatus, ServiceHealthInfo, StorageStatus};
 
 use super::{
     extract::{Authorization, Bcs},
@@ -48,6 +48,8 @@ use crate::{
 pub const API_DOCS: &str = "/v1/api";
 /// The path to get and store blob metadata.
 pub const METADATA_ENDPOINT: &str = "/v1/blobs/:blob_id/metadata";
+/// The path to get the status of metadata for a blob.
+pub const METADATA_STATUS_ENDPOINT: &str = "/v1/blobs/:blob_id/metadata/status";
 /// The path to get and store slivers.
 pub const SLIVER_ENDPOINT: &str = "/v1/blobs/:blob_id/slivers/:sliver_pair_index/:sliver_type";
 /// The path to check if a sliver is stored.
@@ -88,6 +90,29 @@ pub async fn get_metadata<S: SyncServiceState>(
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
 ) -> Result<Bcs<VerifiedBlobMetadataWithId>, RetrieveMetadataError> {
     Ok(Bcs(state.retrieve_metadata(&blob_id)?))
+}
+
+/// Check if the metadata for a blob is already stored.
+#[tracing::instrument(skip_all, fields(walrus.blob_id = %blob_id), err(level = Level::DEBUG))]
+#[utoipa::path(
+    get,
+    path = api::rewrite_route(METADATA_STATUS_ENDPOINT),
+    params(("blob_id" = BlobIdString,)),
+    responses(
+        (
+            status = 200,
+            description = "The storage status of the blob metadata",
+            body = ApiSuccessSliverStatus
+        ),
+        RetrieveMetadataError
+    ),
+    tag = openapi::GROUP_STATUS
+)]
+pub async fn get_metadata_status<S: SyncServiceState>(
+    State(state): State<Arc<S>>,
+    Path(BlobIdString(blob_id)): Path<BlobIdString>,
+) -> Result<ApiSuccess<StorageStatus>, RetrieveMetadataError> {
+    Ok(ApiSuccess::ok(state.metadata_status(&blob_id)?))
 }
 
 /// Store blob metadata.
@@ -234,11 +259,11 @@ pub async fn put_sliver<S: SyncServiceState>(
         (
             status = 200,
             description = "The storage status of the primary or secondary sliver",
-            body=ApiSuccessSliverStatus,
+            body=ApiSuccessStorageStatus,
         ),
         RetrieveSliverError,
     ),
-    tag = openapi::GROUP_READING_BLOBS
+    tag = openapi::GROUP_STATUS
 )]
 pub async fn get_sliver_status<S: SyncServiceState>(
     State(state): State<Arc<S>>,
@@ -247,7 +272,7 @@ pub async fn get_sliver_status<S: SyncServiceState>(
         SliverPairIndex,
         SliverType,
     )>,
-) -> Result<ApiSuccess<SliverStatus>, RetrieveSliverError> {
+) -> Result<ApiSuccess<StorageStatus>, RetrieveSliverError> {
     let blob_id = blob_id.0;
     let status = match sliver_type {
         SliverType::Primary => state.sliver_status::<PrimaryEncoding>(&blob_id, sliver_pair_index),
