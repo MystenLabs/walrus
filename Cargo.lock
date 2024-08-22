@@ -6764,7 +6764,6 @@ dependencies = [
  "futures-channel",
  "futures-executor",
  "futures-util",
- "glob",
  "lazy_static",
  "once_cell",
  "opentelemetry 0.23.0",
@@ -11530,10 +11529,8 @@ dependencies = [
  "once_cell",
  "opentelemetry 0.23.0",
  "opentelemetry_sdk 0.23.0",
- "smallvec",
  "tracing",
  "tracing-core",
- "tracing-log 0.2.0",
  "tracing-subscriber",
  "web-time",
 ]

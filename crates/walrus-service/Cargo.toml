@@ -51,7 +51,9 @@ test-utils = [
 [dependencies]
 anyhow.workspace = true
 async-trait = { workspace = true, optional = true }
-axum.workspace = true
+axum = { workspace = true, features = [
+    "http1", "http2", "matched-path", "tokio", "tower-log", "tracing"
+] }
 axum-server = { workspace = true, features = ["tls-rustls-no-provider"] }
 bcs.workspace = true
 clap.workspace = true

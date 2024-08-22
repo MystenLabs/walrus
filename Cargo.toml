@@ -11,7 +11,7 @@ license = "Apache-2.0"
 [workspace.dependencies]
 anyhow = "1.0.86"
 async-trait = "0.1.81"
-axum = { version = "0.7.5", features = ["http2"] }
+axum = { version = "0.7.5", default-features = false }
 axum-server = { version = "0.7.1", default-features = false }
 base64 = "0.22.1"
 bcs = "0.1.6"
@@ -21,7 +21,7 @@ colored = "2.1.0"
 criterion = "0.5.1"
 enum_dispatch = "0.3"
 fastcrypto = "0.1.8"
-futures = "0.3.30"
+futures = { version = "0.3.30", default-features = false, features = ["async-await", "std"] }
 futures-timer = "=3.0.2" # required for MSIM
 futures-util = "0.3.30"
 git-version = "0.3.9"
@@ -35,7 +35,7 @@ mockall = "0.12.1"
 move-core-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.31.1" }
 mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.31.1" }
 num-bigint = { version = "0.4.5", default-features = false }
-opentelemetry = "=0.23.0"
+opentelemetry = { version = "=0.23.0", default-features = false, features = ["trace"] }
 p256 = "0.13.2"
 pin-project = "1.1.5"
 prettytable = "0.10.0"
@@ -73,8 +73,8 @@ tokio-stream = "0.1.15"
 tokio-util = "0.7.10"
 tower-http = { version = "0.5.2", features = ["trace"] }
 tracing = "0.1.40"
-tracing-opentelemetry = "0.24"
-tracing-subscriber = "0.3.18"
+tracing-opentelemetry = { version = "0.24", default-features = false }
+tracing-subscriber = { version = "0.3.18", default-features = false }
 typed-store = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.31.1" }
 url = "2.5.2"
 utoipa = { version = "4.2.3" }
