@@ -7,9 +7,9 @@
 /// WAL to make the calculation of the rewards and voting power distribution easier.
 ///
 /// TODOs:
-/// - consider using a different data structure for the active set
+/// - consider using a different data structure for the active set (#714)
 /// - consider removing `min_stake` field, use threshold from number of
-///   shards + total_staked
+///   shards and total_staked (#715)
 module walrus::active_set;
 
 use sui::vec_map::{Self, VecMap};
