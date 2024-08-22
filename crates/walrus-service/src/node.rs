@@ -158,7 +158,7 @@ pub trait ServiceState {
     fn health_info(&self) -> ServiceHealthInfo;
 
     /// Returns whether the sliver is stored in the shard.
-    fn is_sliver_stored<A: EncodingAxis>(
+    fn sliver_status<A: EncodingAxis>(
         &self,
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
@@ -686,12 +686,12 @@ impl ServiceState for StorageNode {
         self.inner.health_info()
     }
 
-    fn is_sliver_stored<A: EncodingAxis>(
+    fn sliver_status<A: EncodingAxis>(
         &self,
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
     ) -> Result<SliverStatus, RetrieveSliverError> {
-        self.inner.is_sliver_stored::<A>(blob_id, sliver_pair_index)
+        self.inner.sliver_status::<A>(blob_id, sliver_pair_index)
     }
 
     fn sync_shard(
@@ -899,7 +899,7 @@ impl ServiceState for StorageNodeInner {
         }
     }
 
-    fn is_sliver_stored<A: EncodingAxis>(
+    fn sliver_status<A: EncodingAxis>(
         &self,
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
@@ -1182,7 +1182,7 @@ mod tests {
         let effective = storage_node
             .as_ref()
             .inner
-            .is_sliver_stored::<A>(&BLOB_ID, pair_index)?;
+            .sliver_status::<A>(&BLOB_ID, pair_index)?;
         assert_eq!(effective, expected);
         Ok(())
     }

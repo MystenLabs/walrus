@@ -250,11 +250,9 @@ pub async fn get_sliver_status<S: SyncServiceState>(
 ) -> Result<ApiSuccess<SliverStatus>, RetrieveSliverError> {
     let blob_id = blob_id.0;
     let status = match sliver_type {
-        SliverType::Primary => {
-            state.is_sliver_stored::<PrimaryEncoding>(&blob_id, sliver_pair_index)
-        }
+        SliverType::Primary => state.sliver_status::<PrimaryEncoding>(&blob_id, sliver_pair_index),
         SliverType::Secondary => {
-            state.is_sliver_stored::<SecondaryEncoding>(&blob_id, sliver_pair_index)
+            state.sliver_status::<SecondaryEncoding>(&blob_id, sliver_pair_index)
         }
     }?;
     Ok(ApiSuccess::ok(status))
