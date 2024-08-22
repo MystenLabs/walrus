@@ -30,7 +30,7 @@ public struct ActiveSet has store, copy, drop {
     /// The minimum amount of staked WAL in the active set. This is used to
     /// determine if a storage node can be added to the active set.
     min_stake: u64,
-    /// The storage nodes in the active set, sorted by the amount of staked WAL.
+    /// The amount of staked WAL for each storage node in the active set.
     nodes: VecMap<ID, u64>,
     /// The total amount of staked WAL in the active set.
     total_stake: u64,
