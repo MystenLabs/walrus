@@ -139,7 +139,7 @@ mod tests {
             .unwrap()
     }
 
-    #[tokio::test(start_paused = true)]
+    #[tokio::test(start_paused = false)]
     async fn test_restart_syncs() {
         let cluster = create_test_cluster(&[&[0, 1, 2]]).await;
         for i in [0, 2] {
@@ -173,7 +173,7 @@ mod tests {
             .contains_key(&ShardIndex(2)));
     }
 
-    #[tokio::test(start_paused = true)]
+    #[tokio::test(start_paused = false)]
     async fn test_start_new_shard_sync() {
         let cluster = create_test_cluster(&[&[0]]).await;
         let shard_sync_handler = ShardSyncHandler::new(cluster.nodes[0].storage_node.inner.clone());

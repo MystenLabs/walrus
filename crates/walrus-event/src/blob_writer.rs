@@ -149,12 +149,12 @@ impl EventBlobWriter {
         )?;
         let file = Self::next_file(&root_dir_path, EventBlob::MAGIC, EventBlob::FORMAT_VERSION)?;
         let encoding_config = EncodingConfig::new(100.try_into().unwrap());
-        let yaml = "---\n\
-        storage_path: target/storage\n\
-        protocol_key_pair:\n  BBlm7tRefoPuaKoVoxVtnUBBDCfy+BGPREM8B6oSkOEj\n\
-        network_key_pair:\n  AFzrKKEebJ56OhX4QHH9NQshlGKEQuwdD3HlE5d3n0jm";
 
-        let node_config: StorageNodeConfig = serde_yaml::from_str(yaml)?;
+        let node_config = StorageNodeConfig {
+            storage_path: "target/storage".into(),
+            ..walrus_service::test_utils::storage_node_config().inner
+        };
+
         let client = Client::for_storage_node(
             &node_config.rest_api_address.ip().to_string(),
             node_config.rest_api_address.port(),
