@@ -6,23 +6,12 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-anyhow.workspace = true
-clap.workspace = true
-futures.workspace = true
-futures-timer.workspace = true
-mysten-metrics.workspace = true
-prometheus.workspace = true
-rand.workspace = true
-serde.workspace = true
+sui-json-rpc-types = { workspace = true, features = ["test-utils"] }
 sui-macros.workspace = true
 sui-protocol-config.workspace = true
-sui-simulator.workspace = true
 tokio.workspace = true
-tracing.workspace = true
-tracing-subscriber.workspace = true
 walrus-core.workspace = true
 walrus-service = { workspace = true, features = ["test-utils"] }
-walrus-sui.workspace = true
 walrus-test-utils.workspace = true
 
 [lints]

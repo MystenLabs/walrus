@@ -17,10 +17,8 @@ reqwest.workspace = true
 rocksdb.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
-serde_with.workspace = true
 serde_yaml.workspace = true
 sui-config.workspace = true
-sui-json-rpc-types = { workspace = true, features = ["test-utils"] }
 sui-package-resolver.workspace = true
 sui-rest-api.workspace = true
 sui-sdk.workspace = true
@@ -28,7 +26,6 @@ sui-storage.workspace = true
 sui-types = { workspace = true, features = ["test-utils"] }
 tempfile = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
-tokio-stream.workspace = true
 tokio-util.workspace = true
 typed-store.workspace = true
 url.workspace = true

@@ -9,7 +9,6 @@ license = { workspace = true }
 [dependencies]
 bcs.workspace = true
 fastcrypto.workspace = true
-futures.workspace = true
 mime.workspace = true
 opentelemetry.workspace = true
 p256.workspace = true
@@ -18,7 +17,6 @@ reqwest.workspace = true
 rustls.workspace = true
 rustls-native-certs = "0.7.2"
 serde.workspace = true
-serde_json.workspace = true
 sui-types.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
