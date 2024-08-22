@@ -33,6 +33,13 @@ use super::{
 };
 use crate::common::utils::{self, ExponentialBackoff, FutureHelpers};
 
+/// Below this threshold, the `NodeCommunication` client will not check if the sliver is present on
+/// the node, but directly try to store it. This threshold is chosen as follows: Assume an MSS of
+/// 1480 Bytes, and an initial congestion window size of 4 packets. If we want the sliver to fit
+/// into the initial congestion window, it has to be smaller than 1480 * 4 = 5920.
+// TODO(giac): the above is quite arbitrary, and disregards TLS. Suggestions?
+const SLIVER_CHECK_THRESHOLD: usize = 5920;
+
 /// Represents the index of the node in the vector of members of the committee.
 pub type NodeIndex = usize;
 
@@ -326,6 +333,16 @@ impl<'a> NodeWriteCommunication<'a> {
         sliver: &SliverData<A>,
         pair_index: SliverPairIndex,
     ) -> Result<(), SliverStoreError> {
+        if sliver.len() < SLIVER_CHECK_THRESHOLD {
+            tracing::debug!(
+                ?pair_index,
+                sliver_type=?A::sliver_type(),
+                sliver_len=sliver.len(),
+                "the sliver is sufficiently small not to require a check"
+            );
+            return self.store_sliver(blob_id, sliver, pair_index).await;
+        }
+
         match self.get_sliver_status::<A>(blob_id, pair_index).await? {
             SliverStatus::Stored => {
                 tracing::debug!(
