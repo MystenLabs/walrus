@@ -55,6 +55,31 @@ public(package) fun new(max_size: u16, min_stake: u64): ActiveSet {
     }
 }
 
+/// Performs the `insert` if the node is not in the active set, otherwise calls
+/// the `update`.
+public(package) fun insert_or_update(set: &mut ActiveSet, node_id: ID, staked_amount: u64) {
+    if (set.nodes.contains(&node_id)) {
+        update(set, node_id, staked_amount);
+    } else {
+        insert(set, node_id, staked_amount);
+    }
+}
+
+/// Updates the staked amount of the storage node with the given `node_id` in
+/// the active set.
+public(package) fun update(set: &mut ActiveSet, node_id: ID, staked_amount: u64) {
+    let idx = set.nodes.get_idx(&node_id);
+    let (_, old_stake) = set.nodes.remove(&node_id);
+    set.total_stake = set.total_stake - old_stake;
+    set.idx_sorted.remove(idx);
+
+    insert(set, node_id, staked_amount);
+}
+
+/// Inserts a storage node with the given `node_id` and `staked_amount` into the
+/// active set. The node is only added if it has enough staked WAL to be included
+/// in the active set. If the active set is full, the node with the smallest
+/// staked WAL is removed to make space for the new node.
 public(package) fun insert(set: &mut ActiveSet, node_id: ID, staked_amount: u64) {
     assert!(!set.nodes.contains(&node_id));
 
@@ -110,6 +135,17 @@ public(package) fun insert(set: &mut ActiveSet, node_id: ID, staked_amount: u64)
     // or operation didn't happen
 }
 
+/// Removes the storage node with the given `node_id` from the active set.
+public(package) fun remove(set: &mut ActiveSet, node_id: ID) {
+    if (!set.nodes.contains(&node_id)) return;
+
+    let idx = set.nodes.get_idx(&node_id);
+    let (_, staked_amount) = set.nodes.remove(&node_id);
+
+    set.idx_sorted.remove(idx);
+    set.total_stake = set.total_stake - staked_amount;
+}
+
 /// The maximum size of the active set.
 public(package) fun max_size(set: &ActiveSet): u16 { set.max_size }
 
@@ -124,6 +160,16 @@ public(package) fun min_stake(set: &ActiveSet): u64 { set.min_stake }
 
 /// The total amount of staked WAL in the active set.
 public(package) fun total_stake(set: &ActiveSet): u64 { set.total_stake }
+
+#[syntax(index)]
+/// Get the `node_id` by the given `idx`. The `idx` is the index of the node in
+/// the sorted list of nodes, meaning that `0` is the node with the highest
+/// staked WAL, `1` is the second highest, and so on.
+public(package) fun borrow(set: &ActiveSet, idx: u64): &ID {
+    let idx = set.idx_sorted[idx];
+    let (node_id, _) = set.nodes.get_entry_by_idx(idx as u64);
+    node_id
+}
 
 #[test]
 fun test_insert() {

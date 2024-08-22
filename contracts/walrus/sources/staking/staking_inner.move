@@ -282,6 +282,20 @@ public(package) fun advance_epoch(self: &mut StakingInnerV1, ctx: &mut TxContext
             },
         );
 
+    // TODO: handle the remaining shards
+    let remaining_shards = self.shards - shard_idx;
+    if (remaining_shards > 0) {
+        info_list[0].add_shards(
+            vector::tabulate!(
+                remaining_shards as u64,
+                |i| {
+                    shard_idx = shard_idx + 1;
+                    shard_idx
+                },
+            ),
+        );
+    };
+
     let committee = bls_aggregate::new_bls_committee(self.current_epoch, &info_list);
 
     self.previous_committee = self.committee;

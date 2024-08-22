@@ -4,7 +4,7 @@
 module walrus::staking_inner_tests;
 
 use sui::test_utils::destroy;
-use walrus::{staked_wal, staking_inner::{Self, StakingInnerV1}, storage_node, test_utils as test};
+use walrus::{staking_inner, storage_node, test_utils as test};
 
 #[test]
 fun test_registration() {
@@ -45,13 +45,14 @@ fun test_staking_active_set() {
     let pool_three = test::pool().name(b"pool_3".to_string()).register(&mut staking, ctx);
 
     // now Alice, Bob, and Carl stake in the pools
-    let wal_alice = staking.stake_with_pool(test::mint(10000000000, ctx), pool_one, ctx);
-    let wal_bob = staking.stake_with_pool(test::mint(10000000000, ctx), pool_two, ctx);
-    let wal_carl = staking.stake_with_pool(test::mint(10000000000, ctx), pool_three, ctx);
+    let wal_alice = staking.stake_with_pool(test::mint(100000, ctx), pool_one, ctx);
+    let wal_bob = staking.stake_with_pool(test::mint(200000, ctx), pool_two, ctx);
+    let wal_carl = staking.stake_with_pool(test::mint(700000, ctx), pool_three, ctx);
 
     // expect the active set to be modified
-    assert!(staking.active_set().total_stake() == 30000000000);
+    assert!(staking.active_set().total_stake() == 1000000);
     assert!(staking.active_set().active_ids().length() == 3);
+    assert!(staking.active_set().min_stake() == 0);
 
     // trigger `advance_epoch` to update the committee
     staking.advance_epoch(ctx);

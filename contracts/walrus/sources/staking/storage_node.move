@@ -60,6 +60,11 @@ public(package) fun assign_shards(self: &mut StorageNodeInfo, shard_ids: vector<
     self.shard_ids = shard_ids;
 }
 
+/// Add the extra shards to the storage node.
+public(package) fun add_shards(self: &mut StorageNodeInfo, shard_ids: vector<u16>) {
+    self.shard_ids.append(shard_ids);
+}
+
 /// Return the public key of the storage node.
 public(package) fun public_key(self: &StorageNodeInfo): &Element<G1> { &self.public_key }
 
