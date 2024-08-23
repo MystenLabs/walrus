@@ -43,7 +43,7 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
-use walrus_sdk::api::{BlobStatus, ServiceHealthInfo, StorageStatus};
+use walrus_sdk::api::{BlobStatus, ServiceHealthInfo, StoredOnNodeStatus};
 use walrus_sui::{
     client::SuiReadClient,
     types::{BlobCertified, BlobEvent, InvalidBlobId},
@@ -104,7 +104,10 @@ pub trait ServiceState {
     ) -> Result<bool, StoreMetadataError>;
 
     /// Returns whether the metadata is stored in the shard.
-    fn metadata_status(&self, blob_id: &BlobId) -> Result<StorageStatus, RetrieveMetadataError>;
+    fn metadata_status(
+        &self,
+        blob_id: &BlobId,
+    ) -> Result<StoredOnNodeStatus, RetrieveMetadataError>;
 
     /// Retrieves a primary or secondary sliver for a blob for a shard held by this storage node.
     fn retrieve_sliver(
@@ -165,7 +168,7 @@ pub trait ServiceState {
         &self,
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
-    ) -> Result<StorageStatus, RetrieveSliverError>;
+    ) -> Result<StoredOnNodeStatus, RetrieveSliverError>;
 
     /// Returns the shard data with the provided signed request and the public key of the sender.
     fn sync_shard(
@@ -625,7 +628,10 @@ impl ServiceState for StorageNode {
         self.inner.store_metadata(metadata)
     }
 
-    fn metadata_status(&self, blob_id: &BlobId) -> Result<StorageStatus, RetrieveMetadataError> {
+    fn metadata_status(
+        &self,
+        blob_id: &BlobId,
+    ) -> Result<StoredOnNodeStatus, RetrieveMetadataError> {
         self.inner.metadata_status(blob_id)
     }
 
@@ -697,7 +703,7 @@ impl ServiceState for StorageNode {
         &self,
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
-    ) -> Result<StorageStatus, RetrieveSliverError> {
+    ) -> Result<StoredOnNodeStatus, RetrieveSliverError> {
         self.inner.sliver_status::<A>(blob_id, sliver_pair_index)
     }
 
@@ -758,17 +764,20 @@ impl ServiceState for StorageNodeInner {
         Ok(true)
     }
 
-    fn metadata_status(&self, blob_id: &BlobId) -> Result<StorageStatus, RetrieveMetadataError> {
+    fn metadata_status(
+        &self,
+        blob_id: &BlobId,
+    ) -> Result<StoredOnNodeStatus, RetrieveMetadataError> {
         if let Some(blob_info) = self
             .storage
             .get_blob_info(blob_id)
             .context("could not retrieve blob info")?
         {
             if blob_info.is_metadata_stored() {
-                return Ok(StorageStatus::Stored);
+                return Ok(StoredOnNodeStatus::Stored);
             }
         }
-        Ok(StorageStatus::Nonexistent)
+        Ok(StoredOnNodeStatus::Nonexistent)
     }
 
     fn retrieve_sliver(
@@ -923,13 +932,13 @@ impl ServiceState for StorageNodeInner {
         &self,
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
-    ) -> Result<StorageStatus, RetrieveSliverError> {
+    ) -> Result<StoredOnNodeStatus, RetrieveSliverError> {
         match self
             .get_shard_for_sliver_pair(sliver_pair_index, blob_id)?
             .is_sliver_stored::<A>(blob_id)
         {
-            Ok(true) => Ok(StorageStatus::Stored),
-            Ok(false) => Ok(StorageStatus::Nonexistent),
+            Ok(true) => Ok(StoredOnNodeStatus::Stored),
+            Ok(false) => Ok(StoredOnNodeStatus::Nonexistent),
             Err(err) => Err(RetrieveSliverError::Internal(err.into())),
         }
     }
@@ -1185,20 +1194,24 @@ mod tests {
         let other_pair_index =
             OTHER_SHARD_INDEX.to_pair_index(storage_node.as_ref().inner.n_shards(), &BLOB_ID);
 
-        check_sliver_status::<Primary>(&storage_node, pair_index, StorageStatus::Stored)?;
-        check_sliver_status::<Secondary>(&storage_node, pair_index, StorageStatus::Stored)?;
-        check_sliver_status::<Primary>(&storage_node, other_pair_index, StorageStatus::Stored)?;
+        check_sliver_status::<Primary>(&storage_node, pair_index, StoredOnNodeStatus::Stored)?;
+        check_sliver_status::<Secondary>(&storage_node, pair_index, StoredOnNodeStatus::Stored)?;
+        check_sliver_status::<Primary>(
+            &storage_node,
+            other_pair_index,
+            StoredOnNodeStatus::Stored,
+        )?;
         check_sliver_status::<Secondary>(
             &storage_node,
             other_pair_index,
-            StorageStatus::Nonexistent,
+            StoredOnNodeStatus::Nonexistent,
         )?;
         Ok(())
     }
     fn check_sliver_status<A: EncodingAxis>(
         storage_node: &StorageNodeHandle,
         pair_index: SliverPairIndex,
-        expected: StorageStatus,
+        expected: StoredOnNodeStatus,
     ) -> TestResult {
         let effective = storage_node
             .as_ref()
@@ -1217,7 +1230,7 @@ mod tests {
             .as_ref()
             .inner
             .metadata_status(metadata.blob_id())?;
-        assert_eq!(metadata_status, StorageStatus::Stored);
+        assert_eq!(metadata_status, StoredOnNodeStatus::Stored);
         Ok(())
     }
 

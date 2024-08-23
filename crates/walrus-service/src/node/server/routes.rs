@@ -21,7 +21,7 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
-use walrus_sdk::api::{BlobStatus, ServiceHealthInfo, StorageStatus};
+use walrus_sdk::api::{BlobStatus, ServiceHealthInfo, StoredOnNodeStatus};
 
 use super::{
     extract::{Authorization, Bcs},
@@ -102,7 +102,7 @@ pub async fn get_metadata<S: SyncServiceState>(
         (
             status = 200,
             description = "The storage status of the blob metadata",
-            body = ApiSuccessSliverStatus
+            body = ApiSuccessStoredOnNodeStatus
         ),
         RetrieveMetadataError
     ),
@@ -111,7 +111,7 @@ pub async fn get_metadata<S: SyncServiceState>(
 pub async fn get_metadata_status<S: SyncServiceState>(
     State(state): State<Arc<S>>,
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
-) -> Result<ApiSuccess<StorageStatus>, RetrieveMetadataError> {
+) -> Result<ApiSuccess<StoredOnNodeStatus>, RetrieveMetadataError> {
     Ok(ApiSuccess::ok(state.metadata_status(&blob_id)?))
 }
 
@@ -259,7 +259,7 @@ pub async fn put_sliver<S: SyncServiceState>(
         (
             status = 200,
             description = "The storage status of the primary or secondary sliver",
-            body=ApiSuccessStorageStatus,
+            body=ApiSuccessStoredOnNodeStatus,
         ),
         RetrieveSliverError,
     ),
@@ -272,7 +272,7 @@ pub async fn get_sliver_status<S: SyncServiceState>(
         SliverPairIndex,
         SliverType,
     )>,
-) -> Result<ApiSuccess<StorageStatus>, RetrieveSliverError> {
+) -> Result<ApiSuccess<StoredOnNodeStatus>, RetrieveSliverError> {
     let blob_id = blob_id.0;
     let status = match sliver_type {
         SliverType::Primary => state.sliver_status::<PrimaryEncoding>(&blob_id, sliver_pair_index),

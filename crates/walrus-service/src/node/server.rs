@@ -442,7 +442,7 @@ mod tests {
             BlobCertificationStatus as SdkBlobCertificationStatus,
             BlobStatus,
             ServiceHealthInfo,
-            StorageStatus,
+            StoredOnNodeStatus,
         },
         client::{Client, ClientBuilder},
     };
@@ -496,12 +496,12 @@ mod tests {
         fn metadata_status(
             &self,
             blob_id: &BlobId,
-        ) -> Result<walrus_sdk::api::StorageStatus, RetrieveMetadataError> {
+        ) -> Result<walrus_sdk::api::StoredOnNodeStatus, RetrieveMetadataError> {
             if blob_id.0[0] == 0 {
                 // A blob ID starting with 0 triggers a valid response.
-                Ok(walrus_sdk::api::StorageStatus::Stored)
+                Ok(walrus_sdk::api::StoredOnNodeStatus::Stored)
             } else {
-                Ok(walrus_sdk::api::StorageStatus::Nonexistent)
+                Ok(walrus_sdk::api::StoredOnNodeStatus::Nonexistent)
             }
         }
 
@@ -580,11 +580,11 @@ mod tests {
             &self,
             _blob_id: &BlobId,
             SliverPairIndex(sliver_pair_index): SliverPairIndex,
-        ) -> Result<StorageStatus, RetrieveSliverError> {
+        ) -> Result<StoredOnNodeStatus, RetrieveSliverError> {
             if sliver_pair_index == 0 {
-                Ok(StorageStatus::Stored)
+                Ok(StoredOnNodeStatus::Stored)
             } else {
-                Ok(StorageStatus::Nonexistent)
+                Ok(StoredOnNodeStatus::Nonexistent)
             }
         }
 
@@ -750,8 +750,8 @@ mod tests {
             .await
             .expect("metadata status request is valid");
 
-        assert_eq!(stored_status, StorageStatus::Stored);
-        assert_eq!(nonexistent_status, StorageStatus::Nonexistent);
+        assert_eq!(stored_status, StoredOnNodeStatus::Stored);
+        assert_eq!(nonexistent_status, StoredOnNodeStatus::Nonexistent);
     }
 
     #[tokio::test]
@@ -849,8 +849,8 @@ mod tests {
             .await
             .expect("should successfully retrieve sliver status");
 
-        assert_eq!(stored_sliver, StorageStatus::Stored);
-        assert_eq!(nonexistent_sliver, StorageStatus::Nonexistent);
+        assert_eq!(stored_sliver, StoredOnNodeStatus::Stored);
+        assert_eq!(nonexistent_sliver, StoredOnNodeStatus::Nonexistent);
     }
 
     #[tokio::test]

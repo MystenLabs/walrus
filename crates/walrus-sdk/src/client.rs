@@ -46,7 +46,7 @@ use walrus_core::{
 };
 
 use crate::{
-    api::{BlobStatus, ServiceHealthInfo, StorageStatus},
+    api::{BlobStatus, ServiceHealthInfo, StoredOnNodeStatus},
     error::{BuildErrorKind, ClientBuildError, NodeError},
     node_response::NodeResponse as _,
     tls::TlsCertificateVerifier,
@@ -338,7 +338,10 @@ impl Client {
 
     /// Requests the status of metadata for a blob ID from the node.
     #[tracing::instrument(skip_all, fields(walrus.blob_id = %blob_id), err(level = Level::DEBUG))]
-    pub async fn get_metadata_status(&self, blob_id: &BlobId) -> Result<StorageStatus, NodeError> {
+    pub async fn get_metadata_status(
+        &self,
+        blob_id: &BlobId,
+    ) -> Result<StoredOnNodeStatus, NodeError> {
         let (url, template) = self.endpoints.metadata_status(blob_id);
         self.send_and_parse_service_response(Request::new(Method::GET, url), template)
             .await
@@ -437,7 +440,7 @@ impl Client {
         &self,
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
-    ) -> Result<StorageStatus, NodeError> {
+    ) -> Result<StoredOnNodeStatus, NodeError> {
         let (url, template) = self
             .endpoints
             .sliver_status::<A>(blob_id, sliver_pair_index);
