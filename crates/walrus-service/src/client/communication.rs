@@ -34,11 +34,15 @@ use super::{
 use crate::common::utils::{self, ExponentialBackoff, FutureHelpers};
 
 /// Below this threshold, the `NodeCommunication` client will not check if the sliver is present on
-/// the node, but directly try to store it. This threshold is chosen as follows: Assume an MSS of
-/// 1480 Bytes, and an initial congestion window size of 4 packets. If we want the sliver to fit
-/// into the initial congestion window, it has to be smaller than 1480 * 4 = 5920.
-// TODO(giac): the above is quite arbitrary, and disregards TLS. Suggestions?
-const SLIVER_CHECK_THRESHOLD: usize = 5920;
+/// the node, but directly try to store it.
+///
+/// The threshold is chosend in a somewhat arbitrary way, but with the guiding principle that the
+/// direct sliver store should only take 1 RTT, therefore having similar latency to the sliver
+/// status check. To ensure this is the case, we take compute the threshold as follows: take the TCP
+/// payload size (1440 B); multiply it for an initial congestion window of 4 packets (although in
+/// modern systems this is usually 10, there may be other data being sent in this window); and
+/// conservatively subtract 200 B to account for HTTP headers and other overheads.
+const SLIVER_CHECK_THRESHOLD: usize = 5560;
 
 /// Represents the index of the node in the vector of members of the committee.
 pub type NodeIndex = usize;
@@ -338,29 +342,28 @@ impl<'a> NodeWriteCommunication<'a> {
                 ?pair_index,
                 sliver_type=?A::sliver_type(),
                 sliver_len=sliver.len(),
-                "the sliver is sufficiently small not to require a check"
+                "the sliver is sufficiently small not to require a status check; storing the sliver"
             );
-            return self.store_sliver(blob_id, sliver, pair_index).await;
+        } else if self.get_sliver_status::<A>(blob_id, pair_index).await?
+            == SliverStatus::Nonexistent
+        {
+            tracing::debug!(
+                ?pair_index,
+                sliver_type=?A::sliver_type(),
+                sliver_len=sliver.len(),
+                "the sliver is not stored on the node; storing the sliver"
+            );
+        } else {
+            tracing::debug!(
+                ?pair_index,
+                sliver_type=?A::sliver_type(),
+                sliver_len=sliver.len(),
+                "the sliver is already stored on the node"
+            );
+            return Ok(());
         }
 
-        match self.get_sliver_status::<A>(blob_id, pair_index).await? {
-            SliverStatus::Stored => {
-                tracing::debug!(
-                    ?pair_index,
-                    sliver_type=?A::sliver_type(),
-                    "sliver already stored on the node"
-                );
-                Ok(())
-            }
-            SliverStatus::Nonexistent => {
-                tracing::debug!(
-                    ?pair_index,
-                    sliver_type=?A::sliver_type(),
-                    "sliver not already stored on the node; storing sliver"
-                );
-                self.store_sliver(blob_id, sliver, pair_index).await
-            }
-        }
+        self.store_sliver(blob_id, sliver, pair_index).await
     }
 
     /// Stores a sliver on a node.
