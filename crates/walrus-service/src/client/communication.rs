@@ -250,12 +250,15 @@ impl<'a> NodeWriteCommunication<'a> {
     ) -> NodeResult<SignedStorageConfirmation, StoreError> {
         tracing::debug!("storing metadata and sliver pairs");
         let result = async {
-            self.store_metadata_with_retries(metadata)
+            let metadata_status = self
+                .store_metadata_with_retries(metadata)
                 .await
                 .map_err(StoreError::Metadata)?;
-            tracing::debug!("finished storing metadata on node");
+            tracing::debug!(?metadata_status, "finished storing metadata on node");
 
-            let n_stored_slivers = self.store_pairs(metadata.blob_id(), pairs).await?;
+            let n_stored_slivers = self
+                .store_pairs(metadata.blob_id(), &metadata_status, pairs)
+                .await?;
             tracing::debug!(n_stored_slivers, "finished storing slivers on node");
 
             self.client
@@ -268,23 +271,28 @@ impl<'a> NodeWriteCommunication<'a> {
         self.to_node_result_with_n_shards(result)
     }
 
+    /// Stores the metadata on the storage node.
+    ///
+    /// Before storing the metadata, it checks whether the metadata is already stored.
+    /// Returns the [`StoredOnNodeStatus`] of the metadata.
     async fn store_metadata_with_retries(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
-    ) -> Result<(), NodeError> {
-        match self
+    ) -> Result<StoredOnNodeStatus, NodeError> {
+        let metadata_status = self
             .retry_with_limits_and_backoff(|| self.client.get_metadata_status(metadata.blob_id()))
-            .await?
-        {
+            .await?;
+
+        match metadata_status {
             StoredOnNodeStatus::Stored => {
                 tracing::debug!("the metadata is already stored on the node");
-                Ok(())
             }
             StoredOnNodeStatus::Nonexistent => {
                 self.retry_with_limits_and_backoff(|| self.client.store_metadata(metadata))
-                    .await
+                    .await?;
             }
         }
+        Ok(metadata_status)
     }
 
     /// Stores the sliver pairs on the node.
@@ -293,19 +301,31 @@ impl<'a> NodeWriteCommunication<'a> {
     /// after `max_reties` a sliver cannot be stored, the function returns a [`SliverStoreError`]
     /// and terminates.
     ///
+    /// The `metadata_status` is used to decide internally whether to check if the slivers are
+    /// stored. If the metadata was not stored on the node, it is highly likely that the slivers
+    /// are also not stored (the only unlikely scenario is when the same blob is uploaded by
+    /// multiple clients concurrently).
+    ///
     /// Returns the number of slivers stored (twice the number of pairs).
     async fn store_pairs(
         &self,
         blob_id: &BlobId,
+        metadata_status: &StoredOnNodeStatus,
         pairs: impl IntoIterator<Item = &SliverPair>,
     ) -> Result<usize, SliverStoreError> {
         let mut requests = pairs
             .into_iter()
             .flat_map(|pair| {
                 vec![
-                    Either::Left(self.check_and_store_sliver(blob_id, &pair.primary, pair.index())),
+                    Either::Left(self.check_and_store_sliver(
+                        blob_id,
+                        metadata_status,
+                        &pair.primary,
+                        pair.index(),
+                    )),
                     Either::Right(self.check_and_store_sliver(
                         blob_id,
+                        metadata_status,
                         &pair.secondary,
                         pair.index(),
                     )),
@@ -338,14 +358,25 @@ impl<'a> NodeWriteCommunication<'a> {
 
     /// Stores a sliver on a node, first checking that the sliver is not already stored.
     ///
-    ///  If the sliver is already stored, the function returns.
+    /// If the sliver is already stored, the function returns.
+    ///
+    /// If the metadata was not previously stored on the node, it means that likely the slivers
+    /// weren't either. Therefore, in this case, the checks are skipped.
     async fn check_and_store_sliver<A: EncodingAxis>(
         &self,
         blob_id: &BlobId,
+        metdadata_status: &StoredOnNodeStatus,
         sliver: &SliverData<A>,
         pair_index: SliverPairIndex,
     ) -> Result<(), SliverStoreError> {
-        if sliver.len() < SLIVER_CHECK_THRESHOLD {
+        if metdadata_status == &StoredOnNodeStatus::Nonexistent {
+            tracing::debug!(
+                ?pair_index,
+                sliver_type=?A::sliver_type(),
+                sliver_len=sliver.len(),
+                "the metadata has just been stored on the node; storing the sliver directly"
+            );
+        } else if sliver.len() < SLIVER_CHECK_THRESHOLD {
             tracing::debug!(
                 ?pair_index,
                 sliver_type=?A::sliver_type(),
