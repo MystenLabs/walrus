@@ -130,7 +130,7 @@ impl Ord for BlobStatus {
     }
 }
 
-/// Contains the storage status of status of a sliver or metadata.
+/// Contains the storage status of a sliver or metadata.
 #[derive(
     Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy, Default, Hash, utoipa::ToSchema,
 )]
