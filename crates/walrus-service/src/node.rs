@@ -768,16 +768,11 @@ impl ServiceState for StorageNodeInner {
         &self,
         blob_id: &BlobId,
     ) -> Result<StoredOnNodeStatus, RetrieveMetadataError> {
-        if let Some(blob_info) = self
-            .storage
-            .get_blob_info(blob_id)
-            .context("could not retrieve blob info")?
-        {
-            if blob_info.is_metadata_stored() {
-                return Ok(StoredOnNodeStatus::Stored);
-            }
+        match self.storage.has_metadata(blob_id) {
+            Ok(true) => Ok(StoredOnNodeStatus::Stored),
+            Ok(false) => Ok(StoredOnNodeStatus::Nonexistent),
+            Err(err) => Err(RetrieveMetadataError::Internal(err.into())),
         }
-        Ok(StoredOnNodeStatus::Nonexistent)
     }
 
     fn retrieve_sliver(
