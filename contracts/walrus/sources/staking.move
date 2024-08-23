@@ -10,7 +10,7 @@ use sui::{clock::Clock, coin::Coin, dynamic_field as df, sui::SUI};
 use walrus::{
     staked_wal::StakedWal,
     staking_inner::StakingInnerV1,
-    storage_node::StorageNodeCap,
+    storage_node::{Self, StorageNodeCap},
     system::System
 };
 
@@ -166,7 +166,7 @@ fun inner_mut(staking: &mut Staking): &mut StakingInnerV1 {
 // === Tests ===
 
 #[test_only]
-use walrus::{storage_node, staking_inner};
+use walrus::staking_inner;
 
 #[test_only]
 use sui::{clock, coin};

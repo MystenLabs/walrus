@@ -9,7 +9,7 @@ use walrus::{
     blob::{Self, Blob},
     bls_aggregate::BlsCommittee,
     events::emit_invalid_blob_id,
-    storage_accounting::{Self, FutureAccountingRingBuffer},
+    storage_accounting::FutureAccountingRingBuffer,
     storage_node::StorageNodeCap,
     storage_resource::{Self, Storage}
 };
@@ -331,7 +331,7 @@ fun storage_units_from_size(size: u64): u64 {
 // == Testing ==
 
 #[test_only]
-use walrus::bls_aggregate;
+use walrus::{bls_aggregate, storage_accounting};
 
 #[test_only]
 public(package) fun new_for_testing(ctx: &mut TxContext): SystemStateInnerV1 {

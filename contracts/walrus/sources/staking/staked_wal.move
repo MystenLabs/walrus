@@ -13,10 +13,10 @@ use sui::{balance::Balance, sui::SUI};
 
 /// The state of the staked WAL.
 public enum StakedWalState has store, copy, drop {
-    /// Default state of the staked WAL - it is staked in the staking pool.
+    // Default state of the staked WAL - it is staked in the staking pool.
     Staked,
-    /// The staked WAL is in the process of withdrawing. The value inside the
-    /// variant is the epoch when the staked WAL can be withdrawn.
+    // The staked WAL is in the process of withdrawing. The value inside the
+    // variant is the epoch when the staked WAL can be withdrawn.
     Withdrawing(u64),
 }
 

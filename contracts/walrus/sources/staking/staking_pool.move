@@ -16,14 +16,14 @@ use walrus::{
 ///
 /// TODO: revisit the state machine.
 public enum PoolState has store, copy, drop {
-    /// The pool is new and awaits the stake to be added.
+    // The pool is new and awaits the stake to be added.
     New,
-    /// The pool is active and can accept stakes.
+    // The pool is active and can accept stakes.
     Active,
-    /// The pool awaits the stake to be withdrawn. The value inside the
-    /// variant is the epoch in which the pool will be withdrawn.
+    // The pool awaits the stake to be withdrawn. The value inside the
+    // variant is the epoch in which the pool will be withdrawn.
     Withdrawing(u64),
-    /// The pool is empty and can be destroyed.
+    // The pool is empty and can be destroyed.
     Withdrawn,
 }
 
