@@ -12205,11 +12205,13 @@ dependencies = [
 name = "walrus-simtest"
 version = "0.1.0"
 dependencies = [
+ "prometheus",
  "sui-json-rpc-types",
  "sui-macros",
  "sui-protocol-config",
  "sui-simulator",
  "tokio",
+ "tracing",
  "walrus-core",
  "walrus-service",
  "walrus-test-utils",
