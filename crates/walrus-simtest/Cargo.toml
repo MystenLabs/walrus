@@ -13,6 +13,8 @@ tokio.workspace = true
 walrus-core.workspace = true
 walrus-service = { workspace = true, features = ["test-utils"] }
 walrus-test-utils.workspace = true
+prometheus.workspace = true
+tracing.workspace = true
 
 [lints]
 workspace = true
