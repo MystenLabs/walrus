@@ -2035,6 +2035,29 @@ mod tests {
         Ok((cluster, blob_details, shard_storage_dst.clone()))
     }
 
+    // Checks that all primary and secondary slivers match between two shard storages.
+    fn check_all_blobs_are_synced(
+        blob_details: &[EncodedBlob],
+        shard_storage_src: &ShardStorage,
+        shard_storage_dst: &ShardStorage,
+    ) -> anyhow::Result<()> {
+        blob_details.iter().try_for_each(|details| {
+            let blob_id = *details.blob_id();
+            for sliver_type in [SliverType::Primary, SliverType::Secondary] {
+                let src_sliver = shard_storage_src.get_sliver(&blob_id, sliver_type);
+                let dst_sliver = shard_storage_dst.get_sliver(&blob_id, sliver_type);
+                if src_sliver != dst_sliver {
+                    return Err(anyhow!(
+                        "Sliver mismatch for blob {:?} and sliver type {:?}",
+                        blob_id,
+                        sliver_type
+                    ));
+                }
+            }
+            Ok(())
+        })
+    }
+
     // Tests the basic `sync_shard` API.
     #[tokio::test]
     async fn sync_shard_client_success() -> TestResult {
@@ -2081,19 +2104,14 @@ mod tests {
         assert_eq!(blob_details.len(), 23);
 
         // Checks that the shard is completely migrated.
-        blob_details.iter().for_each(|details| {
-            let blob_id = *details.blob_id();
-            for sliver_type in [SliverType::Primary, SliverType::Secondary] {
-                assert_eq!(
-                    shard_storage_src.get_sliver(&blob_id, sliver_type),
-                    shard_storage_dst.get_sliver(&blob_id, sliver_type),
-                );
-            }
-        });
+        check_all_blobs_are_synced(&blob_details, shard_storage_src, &shard_storage_dst)?;
 
         Ok(())
     }
 
+    // TODO(#726): We want to migrate the following tests to use Sui failpoint instead of
+    // the public fail crate, since simtest anyway requires Sui failpoint. Also, these tests
+    // should be moved under walrus-simtest.
     #[cfg(feature = "failure_injection")]
     mod failure_injection_tests {
         use fail::FailScenario;
@@ -2196,15 +2214,7 @@ mod tests {
             wait_until_no_sync_tasks(&cluster.nodes[1].storage_node._shard_sync_handler).await?;
 
             // Checks that the shard is completely migrated.
-            blob_details.iter().for_each(|details| {
-                let blob_id = *details.blob_id();
-                for sliver_type in [SliverType::Primary, SliverType::Secondary] {
-                    assert_eq!(
-                        shard_storage_src.get_sliver(&blob_id, sliver_type),
-                        shard_storage_dst.get_sliver(&blob_id, sliver_type),
-                    );
-                }
-            });
+            check_all_blobs_are_synced(&blob_details, shard_storage_src, &shard_storage_dst)?;
 
             Ok(())
         }

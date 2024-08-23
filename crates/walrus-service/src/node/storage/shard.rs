@@ -73,6 +73,9 @@ impl ShardStatus {
     }
 }
 
+// When syncing a shard, the task first requests the primary slivers following
+// the order of the blob IDs, and then all the secondary slivers.
+// This struct represents the current progress of syncing a shard.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct ShardSyncProgressV1 {
     last_synced_blob_id: BlobId,
@@ -387,7 +390,7 @@ impl ShardStorage {
         assert_eq!(self.status()?, ShardStatus::ActiveSync);
 
         // Checks if the shard was previously syncing and resumes syncing from the last synced blob.
-        let (mut starting_blob_id, skip_primary) = match self.shard_sync_progress.get(&())? {
+        let (mut last_synced_blob_id, skip_primary) = match self.shard_sync_progress.get(&())? {
             Some(ShardSyncProgress::V1(ShardSyncProgressV1 {
                 last_synced_blob_id,
                 sliver_type,
@@ -412,14 +415,19 @@ impl ShardStorage {
                 epoch,
                 node.clone(),
                 SliverType::Primary,
-                starting_blob_id,
+                last_synced_blob_id,
             )
             .await?;
-            starting_blob_id = None;
+            last_synced_blob_id = None;
         }
 
-        self.sync_shard_before_epoch_internal(epoch, node, SliverType::Secondary, starting_blob_id)
-            .await?;
+        self.sync_shard_before_epoch_internal(
+            epoch,
+            node,
+            SliverType::Secondary,
+            last_synced_blob_id,
+        )
+        .await?;
 
         let mut batch = self.shard_status.batch();
         batch.insert_batch(&self.shard_status, [((), ShardStatus::Active)])?;
@@ -443,12 +451,12 @@ impl ShardStorage {
         epoch: Epoch,
         node: Arc<StorageNodeInner>,
         sliver_type: SliverType,
-        mut starting_blob_id: Option<BlobId>,
+        mut last_synced_blob_id: Option<BlobId>,
     ) -> Result<(), SyncShardError> {
         // Helper to track the number of scanned blobs to test recovery. Not used in production.
         let mut _scan_count = 0;
         while let Some(next_starting_blob_id) =
-            next_certified_blob_id_before_epoch(&node.storage, epoch, starting_blob_id)
+            next_certified_blob_id_before_epoch(&node.storage, epoch, last_synced_blob_id)
                 .context("Scanning certified blobs encountered error")?
         {
             tracing::debug!(
@@ -490,7 +498,8 @@ impl ShardStorage {
                 }
 
                 // Inject a failure point to simulate a sync failure.
-                if fail::has_failpoints() {
+                #[cfg(feature = "failure_injection")]
+                {
                     (|| -> Result<(), anyhow::Error> {
                         _scan_count += 1;
                         fail::fail_point!("fail_point_fetch_sliver", |arg| {
@@ -520,8 +529,8 @@ impl ShardStorage {
                 }
             }
 
-            starting_blob_id = fetched_slivers.last().map(|(id, _)| *id);
-            if let Some(last_synced_blob_id) = starting_blob_id {
+            last_synced_blob_id = fetched_slivers.last().map(|(id, _)| *id);
+            if let Some(last_synced_blob_id) = last_synced_blob_id {
                 batch.insert_batch(
                     &self.shard_sync_progress,
                     [((), ShardSyncProgress::new(last_synced_blob_id, sliver_type))],
