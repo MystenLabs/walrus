@@ -2083,26 +2083,12 @@ mod tests {
         // Checks that the shard is completely migrated.
         blob_details.iter().for_each(|details| {
             let blob_id = *details.blob_id();
-            assert_eq!(
-                shard_storage_src
-                    .get_sliver(&blob_id, SliverType::Primary)
-                    .unwrap()
-                    .unwrap(),
-                shard_storage_dst
-                    .get_sliver(&blob_id, SliverType::Primary)
-                    .unwrap()
-                    .unwrap()
-            );
-            assert_eq!(
-                shard_storage_src
-                    .get_sliver(&blob_id, SliverType::Secondary)
-                    .unwrap()
-                    .unwrap(),
-                shard_storage_dst
-                    .get_sliver(&blob_id, SliverType::Secondary)
-                    .unwrap()
-                    .unwrap()
-            );
+            for sliver_type in [SliverType::Primary, SliverType::Secondary] {
+                assert_eq!(
+                    shard_storage_src.get_sliver(&blob_id, sliver_type),
+                    shard_storage_dst.get_sliver(&blob_id, sliver_type),
+                );
+            }
         });
 
         Ok(())
@@ -2212,27 +2198,46 @@ mod tests {
             // Checks that the shard is completely migrated.
             blob_details.iter().for_each(|details| {
                 let blob_id = *details.blob_id();
-                assert_eq!(
-                    shard_storage_src
-                        .get_sliver(&blob_id, SliverType::Primary)
-                        .unwrap()
-                        .unwrap(),
-                    shard_storage_dst
-                        .get_sliver(&blob_id, SliverType::Primary)
-                        .unwrap()
-                        .unwrap()
-                );
-                assert_eq!(
-                    shard_storage_src
-                        .get_sliver(&blob_id, SliverType::Secondary)
-                        .unwrap()
-                        .unwrap(),
-                    shard_storage_dst
-                        .get_sliver(&blob_id, SliverType::Secondary)
-                        .unwrap()
-                        .unwrap()
-                );
+                for sliver_type in [SliverType::Primary, SliverType::Secondary] {
+                    assert_eq!(
+                        shard_storage_src.get_sliver(&blob_id, sliver_type),
+                        shard_storage_dst.get_sliver(&blob_id, sliver_type),
+                    );
+                }
             });
+
+            Ok(())
+        }
+
+        // Tests that there is a discrepancy between the source and destination shards in terms
+        // of certified blobs. If the source doesn't return any blobs, the destination should
+        // finish the sync process.
+        #[tokio::test]
+        async fn sync_shard_src_return_empty() -> TestResult {
+            telemetry_subscribers::init_for_testing();
+
+            // This test requires using failpoints to simulate failures.
+            assert!(fail::has_failpoints());
+
+            let (cluster, _blob_details, _shard_storage_dst) =
+                setup_cluster_for_shard_sync_tests().await?;
+
+            let scenario = FailScenario::setup();
+            fail::cfg("fail_point_sync_shard_return_empty", "return")?;
+
+            // Starts the shard syncing process in the new shard, which will fail at the specified
+            // break index.
+            cluster.nodes[1]
+                .storage_node
+                ._shard_sync_handler
+                .start_new_shard_sync(ShardIndex(0))
+                .await?;
+
+            // Waits for the shard sync process to stop.
+            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node._shard_sync_handler).await?;
+
+            // Remove failure injection.
+            scenario.teardown();
 
             Ok(())
         }

@@ -334,6 +334,8 @@ impl ShardStorage {
         sliver_type: SliverType,
         slivers_to_fetch: &[BlobId],
     ) -> Result<Vec<(BlobId, Sliver)>, TypedStoreError> {
+        fail::fail_point!("fail_point_sync_shard_return_empty", |_| { Ok(Vec::new()) });
+
         Ok(match sliver_type {
             SliverType::Primary => self
                 .primary_slivers
@@ -526,6 +528,8 @@ impl ShardStorage {
                 )?;
 
                 batch.write()?;
+            } else {
+                break;
             }
         }
 
