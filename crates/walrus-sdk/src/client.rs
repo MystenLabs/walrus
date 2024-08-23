@@ -220,7 +220,9 @@ impl ClientBuilder {
     /// configuration.
     pub fn build(mut self, host: &str, port: u16) -> Result<Client, ClientBuildError> {
         #[cfg(msim)]
-        self.no_proxy();
+        {
+            self = self.no_proxy();
+        }
 
         let url = Url::parse(&format!("https://{host}:{port}"))
             .map_err(|_| BuildErrorKind::InvalidHostOrPort)?;
