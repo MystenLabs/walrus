@@ -135,7 +135,6 @@ impl Ord for BlobStatus {
     Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy, Default, Hash, utoipa::ToSchema,
 )]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
-// TODO(giac): Is this fine as a name? Do we want to separate sliver and metadata statuses?
 pub enum StoredOnNodeStatus {
     /// The sliver or metadata does not exist on the storage node.
     #[default]
