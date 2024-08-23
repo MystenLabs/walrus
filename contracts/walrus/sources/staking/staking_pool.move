@@ -302,6 +302,11 @@ public(package) fun assign_shards(pool: &mut StakingPool, shards: vector<u16>) {
     pool.node_info.assign_shards(shards);
 }
 
+/// Add shards.
+public(package) fun add_shards(pool: &mut StakingPool, shards: vector<u16>) {
+    pool.node_info.add_shards(shards);
+}
+
 /// Set the state of the pool to `Active`.
 public(package) fun set_is_active(pool: &mut StakingPool) {
     assert!(pool.is_new());

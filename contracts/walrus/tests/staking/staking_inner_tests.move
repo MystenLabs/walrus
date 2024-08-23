@@ -19,9 +19,8 @@ fun test_registration() {
     assert!(staking.epoch() == 0);
     assert!(staking.has_pool(pool_one));
     assert!(staking.has_pool(pool_two));
-    assert!(staking.committee().n_shards() == 0);
-    assert!(staking.committee().to_vec_map().size() == 0);
-    assert!(staking.previous_committee().to_vec_map().size() == 0);
+    assert!(staking.committee().size() == 0);
+    assert!(staking.previous_committee().size() == 0);
 
     // destroy empty pools
     staking.destroy_empty_pool(pool_one, ctx);

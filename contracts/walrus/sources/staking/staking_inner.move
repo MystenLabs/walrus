@@ -55,11 +55,11 @@ public struct StakingInnerV1 has store {
     /// tracks the total amount of staked WAL.
     active_set: ActiveSet,
     /// The next committee in the system.
-    next_committee: Option<BlsCommittee>,
+    next_committee: Option<VecMap<ID, u16>>,
     /// The current committee in the system.
-    committee: BlsCommittee,
+    committee: VecMap<ID, u16>,
     /// The previous committee in the system.
-    previous_committee: BlsCommittee,
+    previous_committee: VecMap<ID, u16>,
 }
 
 /// Creates a new `StakingInnerV1` object with default values.
@@ -70,8 +70,8 @@ public(package) fun new(shards: u16, ctx: &mut TxContext): StakingInnerV1 {
         epoch: 0,
         active_set: active_set::new(shards, MIN_STAKE),
         next_committee: option::none(),
-        committee: bls_aggregate::new_bls_committee(0, &vector[]),
-        previous_committee: bls_aggregate::new_bls_committee(0, &vector[]),
+        committee: vec_map::empty(),
+        previous_committee: vec_map::empty(),
     }
 }
 
@@ -228,12 +228,12 @@ public(package) fun epoch(self: &StakingInnerV1): u64 {
 }
 
 /// Get the current committee.
-public(package) fun committee(self: &StakingInnerV1): &BlsCommittee {
+public(package) fun committee(self: &StakingInnerV1): &VecMap<ID, u16> {
     &self.committee
 }
 
 /// Get the previous committee.
-public(package) fun previous_committee(self: &StakingInnerV1): &BlsCommittee {
+public(package) fun previous_committee(self: &StakingInnerV1): &VecMap<ID, u16> {
     &self.previous_committee
 }
 
@@ -249,7 +249,7 @@ public(package) fun select_committee(self: &mut StakingInnerV1, ctx: &mut TxCont
     assert!(self.next_committee.is_none());
 
     let shard_threshold = self.active_set.total_stake() / (self.shards as u64);
-    let mut info_list = vector[];
+    let mut committee = vec_map::empty();
     let mut shard_idx: u16 = 0;
 
     // NOTE: the solution for shard assignment is a temporary one, it does not
@@ -270,25 +270,25 @@ public(package) fun select_committee(self: &mut StakingInnerV1, ctx: &mut TxCont
                 );
 
                 pool.assign_shards(shards);
-                info_list.push_back(*pool.node_info());
+                committee.insert(*id, shards_num as u16);
             },
         );
 
     // TODO: handle the remaining shards
     let remaining_shards = self.shards - shard_idx;
     if (remaining_shards > 0) {
-        info_list[0].add_shards(
+        let (first_node, _) = committee.get_entry_by_idx(0);
+        self.pools[*first_node].add_shards(
             vector::tabulate!(
                 remaining_shards as u64,
                 |i| {
                     shard_idx = shard_idx + 1;
                     shard_idx
                 },
-            ),
+            )
         );
     };
 
-    let committee = bls_aggregate::new_bls_committee(self.epoch, &info_list);
     self.next_committee = option::some(committee);
 }
 
@@ -306,7 +306,7 @@ public(package) fun advance_epoch(self: &mut StakingInnerV1, ctx: &mut TxContext
 
     let wctx = &self.new_walrus_context();
 
-    self.committee.to_vec_map().keys().do!(|node| self.pools[node].advance_epoch(wctx));
+    self.committee.keys().do!(|node| self.pools[node].advance_epoch(wctx));
 }
 
 // === Internal ===
@@ -315,7 +315,7 @@ fun new_walrus_context(self: &StakingInnerV1): WalrusContext {
     walrus_context::new(
         self.epoch,
         self.next_committee.is_some(),
-        self.committee.to_vec_map(),
+        self.committee,
     )
 }
 
