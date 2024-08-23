@@ -3313,6 +3313,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "fail"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe5e43d0f78a42ad591453aedb1d7ae631ce7ee445c7643691055a9ed8d3b01c"
+dependencies = [
+ "log",
+ "once_cell",
+ "rand 0.8.5",
+]
+
+[[package]]
 name = "fastcrypto"
 version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5669,7 +5680,7 @@ version = "0.1.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.31.1#1bf77fe12ab932de55d2027cb0da5a7ecd054360"
 dependencies = [
  "better_any",
- "fail",
+ "fail 0.4.0",
  "move-binary-format",
  "move-bytecode-verifier",
  "move-core-types",
@@ -5688,7 +5699,7 @@ version = "0.1.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.31.1#1bf77fe12ab932de55d2027cb0da5a7ecd054360"
 dependencies = [
  "better_any",
- "fail",
+ "fail 0.4.0",
  "move-binary-format",
  "move-bytecode-verifier-v0",
  "move-core-types",
@@ -5707,7 +5718,7 @@ version = "0.1.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.31.1#1bf77fe12ab932de55d2027cb0da5a7ecd054360"
 dependencies = [
  "better_any",
- "fail",
+ "fail 0.4.0",
  "move-binary-format",
  "move-bytecode-verifier-v1",
  "move-core-types",
@@ -5726,7 +5737,7 @@ version = "0.1.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.31.1#1bf77fe12ab932de55d2027cb0da5a7ecd054360"
 dependencies = [
  "better_any",
- "fail",
+ "fail 0.4.0",
  "move-binary-format",
  "move-bytecode-verifier-v2",
  "move-core-types",
@@ -12160,6 +12171,7 @@ dependencies = [
  "clap",
  "colored",
  "enum_dispatch",
+ "fail 0.5.1",
  "fastcrypto 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures",
  "git-version",

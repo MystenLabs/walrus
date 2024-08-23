@@ -2013,11 +2013,12 @@ mod tests {
         Ok(())
     }
 
-    // Tests the basic `sync_shard` API.
-    #[tokio::test]
-    async fn sync_shard_client_success() -> TestResult {
-        telemetry_subscribers::init_for_testing();
-
+    // The common setup for shard sync tests.
+    //   - Initial cluster with 2 nodes. Shard 0 in node 0 and shard 1 in node 1.
+    //   - 23 blobs created and certified in node 0.
+    //   - Create a new shard in node 1 with shard index 0 to test sync.
+    async fn setup_cluster_for_shard_sync_tests(
+    ) -> TestResult<(TestCluster, Vec<EncodedBlob>, Arc<ShardStorage>)> {
         let blobs: Vec<[u8; 32]> = (1..24).map(|i| [i; 32]).collect();
         let blobs: Vec<_> = blobs.iter().map(|b| &b[..]).collect();
         let (cluster, _, blob_details) =
@@ -2030,6 +2031,17 @@ mod tests {
         node_inner.storage.create_storage_for_shard(ShardIndex(0))?;
         let shard_storage_dst = node_inner.storage.shard_storage(ShardIndex(0)).unwrap();
         shard_storage_dst.update_status_in_test(ShardStatus::None)?;
+
+        Ok((cluster, blob_details, shard_storage_dst.clone()))
+    }
+
+    // Tests the basic `sync_shard` API.
+    #[tokio::test]
+    async fn sync_shard_client_success() -> TestResult {
+        telemetry_subscribers::init_for_testing();
+
+        let (cluster, blob_details, shard_storage_dst) =
+            setup_cluster_for_shard_sync_tests().await?;
 
         let shard_storage_src = cluster.nodes[0]
             .storage_node
@@ -2094,5 +2106,135 @@ mod tests {
         });
 
         Ok(())
+    }
+
+    #[cfg(feature = "failure_injection")]
+    mod failure_injection_tests {
+        use fail::FailScenario;
+
+        use super::*;
+
+        async fn wait_until_no_sync_tasks(shard_sync_handler: &ShardSyncHandler) -> TestResult {
+            tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    if shard_sync_handler.current_sync_task_count().await == 0 {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            })
+            .await?;
+            Ok(())
+        }
+
+        // Tests that shard sync can be resumed from a specific progress point.
+        // `break_index` is the index of the blob to break the sync process.
+        // Note that currently, each sync batch contains 10 blobs. So testing various interesting
+        // places to break the sync process.
+        // TODO(#705): make shard sync parameters configurable.
+        async_param_test! {
+            sync_shard_start_from_progress -> TestResult: [
+                primary1: (1, SliverType::Primary),
+                primary5: (5, SliverType::Primary),
+                primary10: (10, SliverType::Primary),
+                primary11: (11, SliverType::Primary),
+                primary15: (15, SliverType::Primary),
+                primary23: (23, SliverType::Primary),
+                secondary1: (1, SliverType::Secondary),
+                secondary5: (5, SliverType::Secondary),
+                secondary10: (10, SliverType::Secondary),
+                secondary11: (11, SliverType::Secondary),
+                secondary15: (15, SliverType::Secondary),
+                secondary23: (23, SliverType::Secondary),
+            ]
+        }
+        async fn sync_shard_start_from_progress(
+            break_index: u64,
+            sliver_type: SliverType,
+        ) -> TestResult {
+            telemetry_subscribers::init_for_testing();
+
+            // This test requires using failpoints to simulate failures.
+            assert!(fail::has_failpoints());
+
+            let (cluster, blob_details, shard_storage_dst) =
+                setup_cluster_for_shard_sync_tests().await?;
+
+            let scenario = FailScenario::setup();
+            fail::cfg(
+                "fail_point_fetch_sliver",
+                format!(
+                    "return({},{})",
+                    sliver_type == SliverType::Primary,
+                    break_index,
+                )
+                .as_str(),
+            )?;
+
+            // Starts the shard syncing process in the new shard, which will fail at the specified
+            // break index.
+            cluster.nodes[1]
+                .storage_node
+                ._shard_sync_handler
+                .start_new_shard_sync(ShardIndex(0))
+                .await?;
+
+            // Waits for the shard sync process to stop.
+            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node._shard_sync_handler).await?;
+
+            // Check that shard sync process is not finished.
+            let shard_storage_src = cluster.nodes[0]
+                .storage_node
+                .inner
+                .storage
+                .shard_storage(ShardIndex(0))
+                .unwrap();
+            assert!(
+                shard_storage_dst.sliver_count(SliverType::Primary)
+                    < shard_storage_src.sliver_count(SliverType::Primary)
+                    || shard_storage_dst.sliver_count(SliverType::Secondary)
+                        < shard_storage_src.sliver_count(SliverType::Secondary)
+            );
+
+            // Remove failure injection.
+            scenario.teardown();
+
+            // restart the shard syncing process, to simulate a reboot.
+            cluster.nodes[1]
+                .storage_node
+                ._shard_sync_handler
+                .restart_syncs()
+                .await?;
+
+            // Waits for the shard to be synced.
+            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node._shard_sync_handler).await?;
+
+            // Checks that the shard is completely migrated.
+            blob_details.iter().for_each(|details| {
+                let blob_id = *details.blob_id();
+                assert_eq!(
+                    shard_storage_src
+                        .get_sliver(&blob_id, SliverType::Primary)
+                        .unwrap()
+                        .unwrap(),
+                    shard_storage_dst
+                        .get_sliver(&blob_id, SliverType::Primary)
+                        .unwrap()
+                        .unwrap()
+                );
+                assert_eq!(
+                    shard_storage_src
+                        .get_sliver(&blob_id, SliverType::Secondary)
+                        .unwrap()
+                        .unwrap(),
+                    shard_storage_dst
+                        .get_sliver(&blob_id, SliverType::Secondary)
+                        .unwrap()
+                        .unwrap()
+                );
+            });
+
+            Ok(())
+        }
     }
 }

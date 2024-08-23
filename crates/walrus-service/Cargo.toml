@@ -47,6 +47,7 @@ test-utils = [
     "walrus-core/test-utils",
     "dep:walrus-test-utils"
 ]
+failure_injection = ["fail/failpoints"]
 
 [dependencies]
 anyhow.workspace = true
@@ -57,6 +58,7 @@ bcs.workspace = true
 clap.workspace = true
 colored = { workspace = true, optional = true }
 enum_dispatch = { workspace = true, optional = true }
+fail.workspace = true
 fastcrypto.workspace = true
 futures.workspace = true
 git-version.workspace = true

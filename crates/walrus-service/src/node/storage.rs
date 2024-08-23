@@ -177,6 +177,7 @@ pub struct DatabaseConfig {
     event_cursor: DatabaseTableOptions,
     shard: DatabaseTableOptions,
     shard_status: DatabaseTableOptions,
+    shard_sync_progress: DatabaseTableOptions,
 }
 
 impl DatabaseConfig {
@@ -189,6 +190,11 @@ impl DatabaseConfig {
     pub fn shard_status(&self) -> &DatabaseTableOptions {
         &self.shard_status
     }
+
+    /// Returns the shard sync progress database option.
+    pub fn shard_sync_progress(&self) -> &DatabaseTableOptions {
+        &self.shard_sync_progress
+    }
 }
 
 impl Default for DatabaseConfig {
@@ -199,6 +205,7 @@ impl Default for DatabaseConfig {
             event_cursor: DatabaseTableOptions::default(),
             shard: DatabaseTableOptions::optimized_for_blobs(),
             shard_status: DatabaseTableOptions::default(),
+            shard_sync_progress: DatabaseTableOptions::default(),
         }
     }
 }

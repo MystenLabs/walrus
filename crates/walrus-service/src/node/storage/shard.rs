@@ -11,6 +11,8 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
+#[cfg(feature = "failure_injection")]
+use anyhow::anyhow;
 use anyhow::Context;
 use fastcrypto::traits::KeyPair;
 use regex::Regex;
@@ -71,12 +73,35 @@ impl ShardStatus {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct ShardSyncProgressV1 {
+    last_synced_blob_id: BlobId,
+    sliver_type: SliverType,
+}
+
+// Represents the progress of syncing a shard. It is used to resume syncing a shard
+// if it was interrupted.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+enum ShardSyncProgress {
+    V1(ShardSyncProgressV1),
+}
+
+impl ShardSyncProgress {
+    fn new(last_synced_blob_id: BlobId, sliver_type: SliverType) -> Self {
+        Self::V1(ShardSyncProgressV1 {
+            last_synced_blob_id,
+            sliver_type,
+        })
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ShardStorage {
     id: ShardIndex,
     shard_status: DBMap<(), ShardStatus>,
     primary_slivers: DBMap<BlobId, PrimarySliver>,
     secondary_slivers: DBMap<BlobId, SecondarySliver>,
+    shard_sync_progress: DBMap<(), ShardSyncProgress>,
 }
 
 /// Storage corresponding to a single shard.
@@ -105,6 +130,13 @@ impl ShardStorage {
                 .create_cf(&shard_status_cf_name, &options)
                 .map_err(typed_store_err_from_rocks_err)?;
         }
+        let shard_sync_progress_cf_name = shard_sync_progress_column_family_name(id);
+        if database.cf_handle(&shard_sync_progress_cf_name).is_none() {
+            let (_, options) = Self::shard_sync_progress_column_family_options(id, db_config);
+            database
+                .create_cf(&shard_sync_progress_cf_name, &options)
+                .map_err(typed_store_err_from_rocks_err)?;
+        }
 
         let primary_slivers = DBMap::reopen(
             database,
@@ -120,6 +152,12 @@ impl ShardStorage {
         )?;
         let shard_status =
             DBMap::reopen(database, Some(&shard_status_cf_name), &rw_options, false)?;
+        let shard_sync_progress = DBMap::reopen(
+            database,
+            Some(&shard_sync_progress_cf_name),
+            &rw_options,
+            false,
+        )?;
 
         if let Some(status) = initial_shard_status {
             shard_status.insert(&(), &status)?;
@@ -127,9 +165,10 @@ impl ShardStorage {
 
         Ok(Self {
             id,
+            shard_status,
             primary_slivers,
             secondary_slivers,
-            shard_status,
+            shard_sync_progress,
         })
     }
 
@@ -259,6 +298,16 @@ impl ShardStorage {
         )
     }
 
+    pub(crate) fn shard_sync_progress_column_family_options(
+        id: ShardIndex,
+        db_config: &DatabaseConfig,
+    ) -> (String, Options) {
+        (
+            shard_sync_progress_column_family_name(id),
+            db_config.shard_sync_progress().to_options(),
+        )
+    }
+
     /// Returns the ids of existing shards in the database at the provided path.
     pub(crate) fn existing_shards(path: &Path, options: &Options) -> HashSet<ShardIndex> {
         DB::list_cf(options, path)
@@ -335,17 +384,46 @@ impl ShardStorage {
 
         assert_eq!(self.status()?, ShardStatus::ActiveSync);
 
-        // TODO(#705): handle better crash recovery (we shouldn't always restart from beginning
-        //             to sync).
+        // Checks if the shard was previously syncing and resumes syncing from the last synced blob.
+        let (mut starting_blob_id, skip_primary) = match self.shard_sync_progress.get(&())? {
+            Some(ShardSyncProgress::V1(ShardSyncProgressV1 {
+                last_synced_blob_id,
+                sliver_type,
+            })) => {
+                tracing::info!(
+                    "Resuming shard sync from blob id: {}, sliver type: {}",
+                    last_synced_blob_id,
+                    sliver_type
+                );
+                (
+                    Some(last_synced_blob_id),
+                    sliver_type == SliverType::Secondary,
+                )
+            }
+            None => (None, false),
+        };
+
         // TODO(#705): handle missing individual blobs.
         // TODO(#259): handle non-happy path.
-        self.sync_shard_before_epoch_internal(epoch, node.clone(), SliverType::Primary)
+        if !skip_primary {
+            self.sync_shard_before_epoch_internal(
+                epoch,
+                node.clone(),
+                SliverType::Primary,
+                starting_blob_id,
+            )
             .await?;
-        self.sync_shard_before_epoch_internal(epoch, node, SliverType::Secondary)
+            starting_blob_id = None;
+        }
+
+        self.sync_shard_before_epoch_internal(epoch, node, SliverType::Secondary, starting_blob_id)
             .await?;
 
-        self.shard_status
-            .insert(&(), &ShardStatus::Active)
+        let mut batch = self.shard_status.batch();
+        batch.insert_batch(&self.shard_status, [((), ShardStatus::Active)])?;
+        batch.delete_batch(&self.shard_sync_progress, [()])?;
+        batch
+            .write()
             .context("Update shard status encountered error")?;
 
         Ok(())
@@ -363,8 +441,10 @@ impl ShardStorage {
         epoch: Epoch,
         node: Arc<StorageNodeInner>,
         sliver_type: SliverType,
+        mut starting_blob_id: Option<BlobId>,
     ) -> Result<(), SyncShardError> {
-        let mut starting_blob_id = None;
+        // Helper to track the number of scanned blobs to test recovery. Not used in production.
+        let mut _scan_count = 0;
         while let Some(next_starting_blob_id) =
             next_certified_blob_id_before_epoch(&node.storage, epoch, starting_blob_id)
                 .context("Scanning certified blobs encountered error")?
@@ -379,7 +459,7 @@ impl ShardStorage {
                 SliverType::Secondary => self.secondary_slivers.batch(),
             };
 
-            for blob in node
+            let fetched_slivers = node
                 .committee_service
                 .sync_shard_before_epoch(
                     self.id(),
@@ -389,14 +469,14 @@ impl ShardStorage {
                     epoch,
                     &node.protocol_key_pair,
                 )
-                .await?
-            {
+                .await?;
+            for blob in fetched_slivers.iter() {
                 tracing::debug!("Synced blob id: {} to before epoch: {}.", blob.0, epoch,);
                 //TODO(#705): Track missing blobs.
                 //TODO(#705): verify sliver validity.
                 //  - blob is certified
                 //  - metadata is correct
-                match blob.1 {
+                match &blob.1 {
                     Sliver::Primary(primary) => {
                         assert_eq!(sliver_type, SliverType::Primary);
                         batch.insert_batch(&self.primary_slivers, [(blob.0, primary)])?;
@@ -406,9 +486,47 @@ impl ShardStorage {
                         batch.insert_batch(&self.secondary_slivers, [(blob.0, secondary)])?;
                     }
                 }
-                starting_blob_id = Some(blob.0);
+
+                // Inject a failure point to simulate a sync failure.
+                if fail::has_failpoints() {
+                    (|| -> Result<(), anyhow::Error> {
+                        _scan_count += 1;
+                        fail::fail_point!("fail_point_fetch_sliver", |arg| {
+                            if let Some(arg) = arg {
+                                let parts: Vec<&str> = arg.split(',').collect();
+                                let trigger_in_primary = parts[0].parse::<bool>().unwrap();
+                                let trigger_at = parts[1].parse::<u64>().unwrap();
+                                tracing::info!(
+                                    fail_point = "fail_point_fetch_sliver",
+                                    arg = ?arg,
+                                    if_trigger_in_primary = ?trigger_in_primary,
+                                    trigger_index = ?trigger_at,
+                                    blob_count = ?_scan_count
+                                );
+                                if ((trigger_in_primary && sliver_type == SliverType::Primary)
+                                    || (!trigger_in_primary
+                                        && sliver_type == SliverType::Secondary))
+                                    && trigger_at == _scan_count
+                                {
+                                    return Err(anyhow!("fetch_sliver simulated sync failure"));
+                                }
+                            }
+                            Ok(())
+                        });
+                        Ok(())
+                    })()?;
+                }
             }
-            batch.write()?;
+
+            starting_blob_id = fetched_slivers.last().map(|(id, _)| *id);
+            if let Some(last_synced_blob_id) = starting_blob_id {
+                batch.insert_batch(
+                    &self.shard_sync_progress,
+                    [((), ShardSyncProgress::new(last_synced_blob_id, sliver_type))],
+                )?;
+
+                batch.write()?;
+            }
         }
 
         Ok(())
@@ -502,6 +620,11 @@ fn secondary_slivers_column_family_name(id: ShardIndex) -> String {
 #[inline]
 fn shard_status_column_family_name(id: ShardIndex) -> String {
     base_column_family_name(id) + "/status"
+}
+
+#[inline]
+fn shard_sync_progress_column_family_name(id: ShardIndex) -> String {
+    base_column_family_name(id) + "/sync_progress"
 }
 
 #[cfg(test)]
