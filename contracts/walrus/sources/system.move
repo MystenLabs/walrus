@@ -42,7 +42,7 @@ public fun certify_event_blob(system: &mut System, cap: &StorageNodeCap, blob_id
 public fun reserve_space(
     self: &mut System,
     storage_amount: u64,
-    epochs_ahead: u64,
+    epochs_ahead: u32,
     payment: &mut Coin<SUI>,
     ctx: &mut TxContext,
 ): Storage {
@@ -105,7 +105,7 @@ public fun extend_blob_with_resource(self: &System, blob: &mut Blob, extension: 
 public fun extend_blob(
     self: &mut System,
     blob: &mut Blob,
-    epochs_ahead: u64,
+    epochs_ahead: u32,
     payment: &mut Coin<SUI>,
 ) {
     self.inner_mut().extend_blob(blob, epochs_ahead, payment);
@@ -114,7 +114,7 @@ public fun extend_blob(
 // === Public Accessors ===
 
 /// Get epoch. Uses the committee to get the epoch.
-public fun epoch(self: &System): u64 {
+public fun epoch(self: &System): u32 {
     self.inner().epoch()
 }
 

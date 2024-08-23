@@ -20,7 +20,7 @@ use walrus::{
 
 // === Coins and Context ===
 
-public fun wctx(epoch: u64, committee_selected: bool): WalrusContext {
+public fun wctx(epoch: u32, committee_selected: bool): WalrusContext {
     walrus_context::new(epoch, committee_selected, vec_map::empty())
 }
 

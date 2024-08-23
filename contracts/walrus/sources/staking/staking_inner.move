@@ -50,7 +50,7 @@ public struct StakingInnerV1 has store {
     pools: ObjectTable<ID, StakingPool>,
     /// The current epoch of the Walrus system. The epochs are not the same as
     /// the Sui epochs, not to be mistaken with `ctx.epoch()`.
-    epoch: u64,
+    epoch: u32,
     /// Stores the active set of storage nodes. Provides automatic sorting and
     /// tracks the total amount of staked WAL.
     active_set: ActiveSet,
@@ -223,7 +223,7 @@ public(package) fun withdraw_stake(
 }
 
 /// Get the current epoch.
-public(package) fun epoch(self: &StakingInnerV1): u64 {
+public(package) fun epoch(self: &StakingInnerV1): u32 {
     self.epoch
 }
 

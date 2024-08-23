@@ -29,11 +29,11 @@ public struct BlsCommittee has store, copy, drop {
     /// The total number of shards held by the committee
     n_shards: u16,
     /// The epoch in which the committee is active.
-    epoch: u64,
+    epoch: u32,
 }
 
 /// Constructor for committee
-public(package) fun new_bls_committee(epoch: u64, members: &vector<StorageNodeInfo>): BlsCommittee {
+public(package) fun new_bls_committee(epoch: u32, members: &vector<StorageNodeInfo>): BlsCommittee {
     // Compute the total number of shards
     let mut n_shards = 0;
     let bls_members = members.map_ref!(
@@ -60,7 +60,7 @@ public(package) fun new_bls_committee(epoch: u64, members: &vector<StorageNodeIn
 // == Accessors for BlsCommittee ==
 
 /// Get the epoch of the committee.
-public fun epoch(self: &BlsCommittee): u64 {
+public fun epoch(self: &BlsCommittee): u32 {
     self.epoch
 }
 
@@ -160,7 +160,7 @@ use walrus::test_utils;
 #[test_only]
 /// Test committee with one committee member and 100 shards, using
 /// `test_utils::bls_sk_for_testing()` as secret key.
-public fun new_bls_committee_for_testing(epoch: u64): BlsCommittee {
+public fun new_bls_committee_for_testing(epoch: u32): BlsCommittee {
     let ctx = &mut tx_context::dummy();
     let id = object::new(ctx);
     let node_id = id.to_inner();

@@ -17,7 +17,7 @@ public enum StakedWalState has store, copy, drop {
     Staked,
     // The staked WAL is in the process of withdrawing. The value inside the
     // variant is the epoch when the staked WAL can be withdrawn.
-    Withdrawing(u64),
+    Withdrawing(u32),
 }
 
 /// Represents a staked WAL, does not store the `Balance` inside, but uses
@@ -35,14 +35,14 @@ public struct StakedWal has key, store {
     /// The staked amount.
     principal: Balance<SUI>,
     /// The Walrus epoch when the staked WAL was activated.
-    activation_epoch: u64,
+    activation_epoch: u32,
 }
 
 /// Protected method to create a new staked WAL.
 public(package) fun mint(
     node_id: ID,
     principal: Balance<SUI>,
-    activation_epoch: u64,
+    activation_epoch: u32,
     ctx: &mut TxContext,
 ): StakedWal {
     StakedWal {
@@ -62,7 +62,7 @@ public(package) fun unwrap(sw: StakedWal): Balance<SUI> {
 }
 
 /// Sets the staked WAL state to `Withdrawing`
-public(package) fun set_withdrawing(sw: &mut StakedWal, withdraw_epoch: u64) {
+public(package) fun set_withdrawing(sw: &mut StakedWal, withdraw_epoch: u32) {
     sw.state = StakedWalState::Withdrawing(withdraw_epoch);
 }
 
@@ -76,7 +76,7 @@ public fun node_id(sw: &StakedWal): ID { sw.node_id }
 public fun value(sw: &StakedWal): u64 { sw.principal.value() }
 
 /// Returns the `activation_epoch` of the staked WAL.
-public fun activation_epoch(sw: &StakedWal): u64 { sw.activation_epoch }
+public fun activation_epoch(sw: &StakedWal): u32 { sw.activation_epoch }
 
 /// Returns true if the staked WAL is in the `Staked` state.
 public fun is_staked(sw: &StakedWal): bool { sw.state == StakedWalState::Staked }

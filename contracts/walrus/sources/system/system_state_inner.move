@@ -17,7 +17,7 @@ use walrus::{
 /// The maximum number of periods ahead we allow for storage reservations.
 /// TODO: the number here is a placeholder, and assumes an epoch is a week,
 /// and therefore 2 x 52 weeks = 2 years.
-const MAX_EPOCHS_AHEAD: u64 = 104;
+const MAX_EPOCHS_AHEAD: u32 = 104;
 
 // Keep in sync with the same constant in `crates/walrus-sui/utils.rs`.
 const BYTES_PER_UNIT_SIZE: u64 = 1_024;
@@ -88,7 +88,7 @@ public(package) fun advance_epoch(
 public(package) fun reserve_space(
     self: &mut SystemStateInnerV1,
     storage_amount: u64,
-    epochs_ahead: u64,
+    epochs_ahead: u32,
     payment: &mut Coin<SUI>,
     ctx: &mut TxContext,
 ): Storage {
@@ -223,7 +223,7 @@ public(package) fun extend_blob_with_resource(
 public(package) fun extend_blob(
     self: &mut SystemStateInnerV1,
     blob: &mut Blob,
-    epochs_ahead: u64,
+    epochs_ahead: u32,
     payment: &mut Coin<SUI>,
 ) {
     // Check that the blob is certified and not expired.
@@ -262,8 +262,8 @@ public(package) fun extend_blob(
 fun process_storage_payments(
     self: &mut SystemStateInnerV1,
     storage_size: u64,
-    start_offset: u64,
-    end_offset: u64,
+    start_offset: u32,
+    end_offset: u32,
     payment: &mut Coin<SUI>,
 ) {
     let storage_units = storage_units_from_size(storage_size);
@@ -296,7 +296,7 @@ public(package) fun certify_event_blob(
 // === Accessors ===
 
 /// Get epoch. Uses the committee to get the epoch.
-public(package) fun epoch(self: &SystemStateInnerV1): u64 {
+public(package) fun epoch(self: &SystemStateInnerV1): u32 {
     self.current_committee.borrow().epoch()
 }
 

@@ -35,7 +35,7 @@ public fun test_invalid_blob_ok() {
 public fun test_invalidate_happy(): system::System {
     let mut system = system::new_for_testing();
 
-    1u64.range_do_eq!(
+    1u32.range_do_eq!(
         5,
         |epoch| {
             let committee = bls_aggregate::new_bls_committee_for_testing(epoch);
@@ -67,7 +67,7 @@ public fun test_invalidate_happy(): system::System {
 public fun test_system_invalid_id_wrong_epoch(): system::System {
     let mut system = system::new_for_testing();
 
-    1u64.range_do_eq!(
+    1u32.range_do_eq!(
         5,
         |epoch| {
             let committee = bls_aggregate::new_bls_committee_for_testing(epoch);

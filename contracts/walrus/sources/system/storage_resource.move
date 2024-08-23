@@ -10,18 +10,18 @@ const EIncompatibleAmount: u64 = 2;
 /// Reservation for storage for a given period, which is inclusive start, exclusive end.
 public struct Storage has key, store {
     id: UID,
-    start_epoch: u64,
-    end_epoch: u64,
+    start_epoch: u32,
+    end_epoch: u32,
     storage_size: u64,
 }
 
 // == Accessors ==
 
-public fun start_epoch(self: &Storage): u64 {
+public fun start_epoch(self: &Storage): u32 {
     self.start_epoch
 }
 
-public fun end_epoch(self: &Storage): u64 {
+public fun end_epoch(self: &Storage): u32 {
     self.end_epoch
 }
 
@@ -33,8 +33,8 @@ public fun storage_size(self: &Storage): u64 {
 /// Necessary to allow `blob_store::system` to create storage objects.
 /// Cannot be called outside of the current module and [blob_store::system].
 public(package) fun create_storage(
-    start_epoch: u64,
-    end_epoch: u64,
+    start_epoch: u32,
+    end_epoch: u32,
     storage_size: u64,
     ctx: &mut TxContext,
 ): Storage {
@@ -42,7 +42,7 @@ public(package) fun create_storage(
 }
 
 /// Extends the end epoch by `extendion_epochs` epochs.
-public(package) fun extend_end_epoch(self: &mut Storage, extension_epochs: u64) {
+public(package) fun extend_end_epoch(self: &mut Storage, extension_epochs: u32) {
     self.end_epoch = self.end_epoch + extension_epochs;
 }
 
@@ -50,7 +50,7 @@ public(package) fun extend_end_epoch(self: &mut Storage, extension_epochs: u64) 
 ///
 /// `storage` is modified to cover the period from `start_epoch` to `split_epoch`
 /// and a new storage object covering `split_epoch` to `end_epoch` is returned.
-public fun split_by_epoch(storage: &mut Storage, split_epoch: u64, ctx: &mut TxContext): Storage {
+public fun split_by_epoch(storage: &mut Storage, split_epoch: u32, ctx: &mut TxContext): Storage {
     assert!(
         split_epoch >= storage.start_epoch && split_epoch <= storage.end_epoch,
         EInvalidEpoch,
@@ -129,8 +129,8 @@ public fun fuse(first: &mut Storage, second: Storage) {
 #[test_only]
 /// Constructor for [Storage] objects for tests
 public fun create_for_test(
-    start_epoch: u64,
-    end_epoch: u64,
+    start_epoch: u32,
+    end_epoch: u32,
     storage_size: u64,
     ctx: &mut TxContext,
 ): Storage {

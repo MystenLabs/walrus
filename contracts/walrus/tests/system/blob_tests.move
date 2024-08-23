@@ -17,11 +17,11 @@ use walrus::{
 };
 
 const RED_STUFF: u8 = 0;
-const MAX_EPOCHS_AHEAD: u64 = 104;
+const MAX_EPOCHS_AHEAD: u32 = 104;
 
 const ROOT_HASH: u256 = 0xABC;
 const SIZE: u64 = 5_000_000;
-const EPOCH: u64 = 0;
+const EPOCH: u32 = 0;
 
 const N_COINS: u64 = 1_000_000_000;
 
@@ -379,7 +379,7 @@ public fun test_delete_undeletable_blob(): system::System {
 
 // == Helper functions ==
 
-fun get_storage_resource(system: &mut System, unencoded_size: u64, epochs_ahead: u64): Storage {
+fun get_storage_resource(system: &mut System, unencoded_size: u64, epochs_ahead: u32): Storage {
     let ctx = &mut tx_context::dummy();
     let mut fake_coin = test_utils::mint(N_COINS, ctx);
     let storage_size = encoding::encoded_blob_length(unencoded_size, RED_STUFF, system.n_shards());

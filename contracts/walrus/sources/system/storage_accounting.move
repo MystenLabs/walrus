@@ -11,14 +11,14 @@ const EIndexOutOfBounds: u64 = 3;
 /// Holds information about a future epoch, namely how much
 /// storage needs to be reclaimed and the rewards to be distributed.
 public struct FutureAccounting has store {
-    epoch: u64,
+    epoch: u32,
     storage_to_reclaim: u64,
     rewards_to_distribute: Balance<SUI>,
 }
 
 /// Constructor for FutureAccounting
 public(package) fun new_future_accounting(
-    epoch: u64,
+    epoch: u32,
     storage_to_reclaim: u64,
     rewards_to_distribute: Balance<SUI>,
 ): FutureAccounting {
@@ -26,7 +26,7 @@ public(package) fun new_future_accounting(
 }
 
 /// Accessor for epoch, read-only
-public(package) fun epoch(accounting: &FutureAccounting): u64 {
+public(package) fun epoch(accounting: &FutureAccounting): u32 {
     *&accounting.epoch
 }
 
@@ -75,17 +75,17 @@ public(package) fun burn_for_testing(self: FutureAccounting) {
 
 /// A ring buffer holding future accounts for a continuous range of epochs.
 public struct FutureAccountingRingBuffer has store {
-    current_index: u64,
-    length: u64,
+    current_index: u32,
+    length: u32,
     ring_buffer: vector<FutureAccounting>,
 }
 
 /// Constructor for FutureAccountingRingBuffer
-public(package) fun ring_new(length: u64): FutureAccountingRingBuffer {
+public(package) fun ring_new(length: u32): FutureAccountingRingBuffer {
     let ring_buffer = vector::tabulate!(
-        length,
+        length as u64,
         |epoch| FutureAccounting {
-            epoch,
+            epoch: epoch as u32,
             storage_to_reclaim: 0,
             rewards_to_distribute: balance::zero(),
         },
@@ -97,19 +97,19 @@ public(package) fun ring_new(length: u64): FutureAccountingRingBuffer {
 /// Lookup an entry a number of epochs in the future.
 public(package) fun ring_lookup_mut(
     self: &mut FutureAccountingRingBuffer,
-    epochs_in_future: u64,
+    epochs_in_future: u32,
 ): &mut FutureAccounting {
     // Check for out-of-bounds access.
     assert!(epochs_in_future < self.length, EIndexOutOfBounds);
 
     let actual_index = (epochs_in_future + self.current_index) % self.length;
-    &mut self.ring_buffer[actual_index]
+    &mut self.ring_buffer[actual_index as u64]
 }
 
 public(package) fun ring_pop_expand(self: &mut FutureAccountingRingBuffer): FutureAccounting {
     // Get current epoch
     let current_index = self.current_index;
-    let current_epoch = self.ring_buffer[current_index].epoch;
+    let current_epoch = self.ring_buffer[current_index as u64].epoch;
 
     // Expand the ring buffer
     self
@@ -121,7 +121,7 @@ public(package) fun ring_pop_expand(self: &mut FutureAccountingRingBuffer): Futu
         });
 
     // Now swap remove the current element and increment the current_index
-    let accounting = self.ring_buffer.swap_remove(current_index);
+    let accounting = self.ring_buffer.swap_remove(current_index as u64);
     self.current_index = (current_index + 1) % self.length;
 
     accounting

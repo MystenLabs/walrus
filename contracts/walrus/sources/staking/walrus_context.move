@@ -16,7 +16,7 @@ use sui::vec_map::VecMap;
 /// too many parameters to functions, and allows for easier testing.
 public struct WalrusContext has drop {
     /// Current Walrus epoch
-    epoch: u64,
+    epoch: u32,
     /// Whether the committee has been selected for the next epoch.
     committee_selected: bool,
     /// The current committee in the system.
@@ -25,7 +25,7 @@ public struct WalrusContext has drop {
 
 /// Create a new `WalrusContext` object.
 public(package) fun new(
-    epoch: u64,
+    epoch: u32,
     committee_selected: bool,
     committee: VecMap<ID, u16>,
 ): WalrusContext {
@@ -33,7 +33,7 @@ public(package) fun new(
 }
 
 /// Read the current `epoch` from the context.
-public(package) fun epoch(self: &WalrusContext): u64 { self.epoch }
+public(package) fun epoch(self: &WalrusContext): u32 { self.epoch }
 
 /// Read the current `committee_selected` from the context.
 public(package) fun committee_selected(self: &WalrusContext): bool { self.committee_selected }

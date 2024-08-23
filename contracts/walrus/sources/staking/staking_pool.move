@@ -22,7 +22,7 @@ public enum PoolState has store, copy, drop {
     Active,
     // The pool awaits the stake to be withdrawn. The value inside the
     // variant is the epoch in which the pool will be withdrawn.
-    Withdrawing(u64),
+    Withdrawing(u32),
     // The pool is empty and can be destroyed.
     Withdrawn,
 }
@@ -56,7 +56,7 @@ public struct StakingPool has key, store {
     /// The epoch when the pool is / will be activated.
     /// Serves information purposes only, the checks are performed in the `state`
     /// property.
-    activation_epoch: u64,
+    activation_epoch: u32,
     /// Currently
     active_stake: u64,
     /// The amount of stake that will be added to the `active_stake`. Can hold
@@ -70,7 +70,7 @@ public struct StakingPool has key, store {
     ///
     /// Single key is cleared in the `advance_epoch` function, leaving only the
     /// next epoch's stake.
-    pending_stake: VecMap<u64, u64>,
+    pending_stake: VecMap<u32, u64>,
     /// The amount of stake that will be withdrawn in the next epoch.
     pending_withdrawal_amount: u64,
     /// The amount of stake that will be withdrawn in the next epoch.
@@ -319,7 +319,7 @@ public(package) fun active_stake(pool: &StakingPool): u64 {
 }
 
 /// Returns the expected active stake for epoch `E`.
-public(package) fun stake_at_epoch(pool: &StakingPool, epoch: u64): u64 {
+public(package) fun stake_at_epoch(pool: &StakingPool, epoch: u32): u64 {
     let mut expected = pool.active_stake;
     let pending_stake_epochs = pool.pending_stake.keys();
     pending_stake_epochs.do!(
@@ -350,7 +350,7 @@ public(package) fun write_price(pool: &StakingPool): u64 { pool.params.write_pri
 public(package) fun node_capacity(pool: &StakingPool): u64 { pool.params.node_capacity }
 
 /// Returns the activation epoch for the pool.
-public(package) fun activation_epoch(pool: &StakingPool): u64 { pool.activation_epoch }
+public(package) fun activation_epoch(pool: &StakingPool): u32 { pool.activation_epoch }
 
 /// Returns the node info for the pool.
 public(package) fun node_info(pool: &StakingPool): &StorageNodeInfo { &pool.node_info }

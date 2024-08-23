@@ -22,7 +22,7 @@ const EIncorrectIntentVersion: u64 = 3;
 public struct CertifiedMessage has drop {
     intent_type: u8,
     intent_version: u8,
-    cert_epoch: u64,
+    cert_epoch: u32,
     stake_support: u16,
     message: vector<u8>,
 }
@@ -32,7 +32,7 @@ public struct CertifiedMessage has drop {
 /// Constructed from a `CertifiedMessage`, states that `blob_id` has been certified in `epoch`
 /// by a quorum.
 public struct CertifiedBlobMessage has drop {
-    epoch: u64,
+    epoch: u32,
     blob_id: u256,
 }
 
@@ -41,7 +41,7 @@ public struct CertifiedBlobMessage has drop {
 /// Constructed from a `CertifiedMessage`, states that `blob_id` has been marked as invalid
 /// in `epoch` by a quorum.
 public struct CertifiedInvalidBlobId has drop {
-    epoch: u64,
+    epoch: u32,
     blob_id: u256,
 }
 
@@ -49,7 +49,7 @@ public struct CertifiedInvalidBlobId has drop {
 /// verifying the intent and the message epoch.
 public(package) fun new_certified_message(
     message_bytes: vector<u8>,
-    committee_epoch: u64,
+    committee_epoch: u32,
     stake_support: u16,
 ): CertifiedMessage {
     // Here we BCS decode the header of the message to check intents, epochs, etc.
@@ -62,7 +62,7 @@ public(package) fun new_certified_message(
     let intent_app = bcs_message.peel_u8();
     assert!(intent_app == APP_ID, EIncorrectAppId);
 
-    let cert_epoch = bcs_message.peel_u64();
+    let cert_epoch = bcs_message.peel_u32();
     assert!(cert_epoch == committee_epoch, EIncorrectEpoch);
 
     let message = bcs_message.into_remainder_bytes();
@@ -122,7 +122,7 @@ public(package) fun intent_version(self: &CertifiedMessage): u8 {
     self.intent_version
 }
 
-public(package) fun cert_epoch(self: &CertifiedMessage): u64 {
+public(package) fun cert_epoch(self: &CertifiedMessage): u32 {
     self.cert_epoch
 }
 
@@ -141,7 +141,7 @@ public(package) fun into_message(self: CertifiedMessage): vector<u8> {
 
 // == Accessors for CertifiedBlobMessage ==
 
-public(package) fun certified_epoch(self: &CertifiedBlobMessage): u64 {
+public(package) fun certified_epoch(self: &CertifiedBlobMessage): u32 {
     self.epoch
 }
 
@@ -151,7 +151,7 @@ public(package) fun certified_blob_id(self: &CertifiedBlobMessage): u256 {
 
 // == Accessors for CertifiedInvalidBlobId ==
 
-public(package) fun certified_invalid_epoch(self: &CertifiedInvalidBlobId): u64 {
+public(package) fun certified_invalid_epoch(self: &CertifiedInvalidBlobId): u32 {
     self.epoch
 }
 
@@ -165,7 +165,7 @@ public(package) fun invalid_blob_id(self: &CertifiedInvalidBlobId): u256 {
 public fun certified_message_for_testing(
     intent_type: u8,
     intent_version: u8,
-    cert_epoch: u64,
+    cert_epoch: u32,
     stake_support: u16,
     message: vector<u8>,
 ): CertifiedMessage {
@@ -173,12 +173,12 @@ public fun certified_message_for_testing(
 }
 
 #[test_only]
-public fun certified_blob_message_for_testing(epoch: u64, blob_id: u256): CertifiedBlobMessage {
+public fun certified_blob_message_for_testing(epoch: u32, blob_id: u256): CertifiedBlobMessage {
     CertifiedBlobMessage { epoch, blob_id }
 }
 
 #[test_only]
-public fun certified_message_bytes(epoch: u64, blob_id: u256): vector<u8> {
+public fun certified_message_bytes(epoch: u32, blob_id: u256): vector<u8> {
     let mut message = vector<u8>[];
     message.push_back(BLOB_CERT_MSG_TYPE);
     message.push_back(INTENT_VERSION);
@@ -189,7 +189,7 @@ public fun certified_message_bytes(epoch: u64, blob_id: u256): vector<u8> {
 }
 
 #[test_only]
-public fun invalid_message_bytes(epoch: u64, blob_id: u256): vector<u8> {
+public fun invalid_message_bytes(epoch: u32, blob_id: u256): vector<u8> {
     let mut message = vector<u8>[];
     message.push_back(INVALID_BLOB_ID_MSG_TYPE);
     message.push_back(INTENT_VERSION);

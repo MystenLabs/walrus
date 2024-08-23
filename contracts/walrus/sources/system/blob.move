@@ -26,12 +26,12 @@ const EBlobNotDeletable: u64 = 8;
 /// and then may eventually be certified as being available in the system.
 public struct Blob has key, store {
     id: UID,
-    registered_epoch: u64,
+    registered_epoch: u32,
     blob_id: u256,
     size: u64,
     erasure_code_type: u8,
     // Stores the epoch first certified.
-    certified_epoch: option::Option<u64>,
+    certified_epoch: option::Option<u32>,
     storage: Storage,
     // Marks if this blob can be deleted.
     deletable: bool,
@@ -39,7 +39,7 @@ public struct Blob has key, store {
 
 // === Accessors ===
 
-public fun registered_epoch(self: &Blob): u64 {
+public fun registered_epoch(self: &Blob): u32 {
     self.registered_epoch
 }
 
@@ -55,7 +55,7 @@ public fun erasure_code_type(self: &Blob): u8 {
     self.erasure_code_type
 }
 
-public fun certified_epoch(self: &Blob): &Option<u64> {
+public fun certified_epoch(self: &Blob): &Option<u32> {
     &self.certified_epoch
 }
 
@@ -76,7 +76,7 @@ public(package) fun storage_mut(self: &mut Blob): &mut Storage {
 }
 
 /// Aborts if the blob is not certified or already expired.
-public(package) fun assert_certified_not_expired(self: &Blob, current_epoch: u64) {
+public(package) fun assert_certified_not_expired(self: &Blob, current_epoch: u32) {
     // Assert this is a certified blob
     assert!(self.certified_epoch.is_some(), ENotCertified);
 
@@ -116,7 +116,7 @@ public(package) fun new(
     erasure_code_type: u8,
     deletable: bool,
     // TODO: replace with Walrus context
-    registered_epoch: u64,
+    registered_epoch: u32,
     n_shards: u16,
     ctx: &mut TxContext,
 ): Blob {
@@ -168,7 +168,7 @@ public(package) fun new(
 /// storage associated with it, given a [`CertifiedBlobMessage`].
 public(package) fun certify_with_certified_msg(
     blob: &mut Blob,
-    current_epoch: u64,
+    current_epoch: u32,
     message: CertifiedBlobMessage,
 ) {
     // Check that the blob is registered in the system
@@ -193,7 +193,7 @@ public(package) fun certify_with_certified_msg(
 ///
 /// Emits a `BlobDeleted` event for the given epoch.
 /// Aborts if the Blob is not deletable or already expired.
-public(package) fun delete(self: Blob, epoch: u64): Storage {
+public(package) fun delete(self: Blob, epoch: u32): Storage {
     let Blob {
         id,
         storage,
@@ -224,7 +224,7 @@ public fun burn(blob: Blob) {
 /// Extend the period of validity of a blob with a new storage resource.
 /// The new storage resource must be the same size as the storage resource
 /// used in the blob, and have a longer period of validity.
-public(package) fun extend_with_resource(blob: &mut Blob, extension: Storage, current_epoch: u64) {
+public(package) fun extend_with_resource(blob: &mut Blob, extension: Storage, current_epoch: u32) {
     // We only extend certified blobs within their period of validity
     // with storage that extends this period. First we check for these
     // conditions.
