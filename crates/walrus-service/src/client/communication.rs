@@ -369,29 +369,26 @@ impl<'a> NodeWriteCommunication<'a> {
         sliver: &SliverData<A>,
         pair_index: SliverPairIndex,
     ) -> Result<(), SliverStoreError> {
-        if metdadata_status == &StoredOnNodeStatus::Nonexistent {
+        let print_debug = |message| {
             tracing::debug!(
                 ?pair_index,
                 sliver_type=?A::sliver_type(),
                 sliver_len=sliver.len(),
-                "the metadata has just been stored on the node; storing the sliver directly"
+                message
+            );
+        };
+        if metdadata_status == &StoredOnNodeStatus::Nonexistent {
+            print_debug(
+                "the metadata has just been stored on the node; storing the sliver directly",
             );
         } else if sliver.len() < SLIVER_CHECK_THRESHOLD {
-            tracing::debug!(
-                ?pair_index,
-                sliver_type=?A::sliver_type(),
-                sliver_len=sliver.len(),
+            print_debug(
                 "the sliver is sufficiently small not to require a status check; storing the sliver"
             );
         } else if self.get_sliver_status::<A>(blob_id, pair_index).await?
             == StoredOnNodeStatus::Nonexistent
         {
-            tracing::debug!(
-                ?pair_index,
-                sliver_type=?A::sliver_type(),
-                sliver_len=sliver.len(),
-                "the sliver is not stored on the node; storing the sliver"
-            );
+            print_debug("the sliver is not stored on the node; storing the sliver");
         } else {
             tracing::debug!(
                 ?pair_index,
