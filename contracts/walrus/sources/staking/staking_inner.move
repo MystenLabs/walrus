@@ -273,11 +273,13 @@ public(package) fun select_committee(self: &mut StakingInnerV1, ctx: &mut TxCont
 
     // if we're dealing with the first epoch, we need to assign the shards to the
     // nodes in a sequential manner. Assuming there's at least 1 node in the set.
-    if (self.committee.size() == 0) {
-        self.next_committee = option::some(committee::initialize(distribution));
+    let committee = if (self.committee.size() == 0) {
+        committee::initialize(distribution)
     } else {
-        self.next_committee = option::some(self.committee.transition(distribution));
-    }
+        self.committee.transition(distribution)
+    };
+
+    self.next_committee = option::some(committee);
 }
 
 /// Sets the next epoch of the system.
