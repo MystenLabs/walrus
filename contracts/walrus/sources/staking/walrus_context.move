@@ -20,14 +20,14 @@ public struct WalrusContext has drop {
     /// Whether the committee has been selected for the next epoch.
     committee_selected: bool,
     /// The current committee in the system.
-    committee: VecMap<ID, u16>,
+    committee: VecMap<ID, vector<u16>>,
 }
 
 /// Create a new `WalrusContext` object.
 public(package) fun new(
     epoch: u32,
     committee_selected: bool,
-    committee: VecMap<ID, u16>,
+    committee: VecMap<ID, vector<u16>>,
 ): WalrusContext {
     WalrusContext { epoch, committee_selected, committee }
 }
@@ -39,4 +39,4 @@ public(package) fun epoch(self: &WalrusContext): u32 { self.epoch }
 public(package) fun committee_selected(self: &WalrusContext): bool { self.committee_selected }
 
 /// Read the current `committee` from the context.
-public(package) fun committee(self: &WalrusContext): &VecMap<ID, u16> { &self.committee }
+public(package) fun committee(self: &WalrusContext): &VecMap<ID, vector<u16>> { &self.committee }
