@@ -198,12 +198,6 @@ impl<T> SuccessOrFailure for Option<T> {
     }
 }
 
-impl SuccessOrFailure for bool {
-    fn is_success(&self) -> bool {
-        *self
-    }
-}
-
 /// Helper functions applied to futures.
 pub(crate) trait FutureHelpers: Future {
     /// Limits the number of simultaneously executing futures.

@@ -4,16 +4,15 @@
 use core::num::NonZeroU16;
 use std;
 
-use serde::Serialize;
 use thiserror::Error;
 
 /// Error indicating that the data is too large to be encoded/decoded.
-#[derive(Debug, Error, PartialEq, Eq, Clone, Serialize)]
+#[derive(Debug, Error, PartialEq, Eq, Clone)]
 #[error("the data is too large to be encoded/decoded")]
 pub struct DataTooLargeError;
 
 /// Error returned when encoding/decoding is impossible due to the given data size.
-#[derive(Debug, Error, PartialEq, Eq, Clone, Serialize)]
+#[derive(Debug, Error, PartialEq, Eq, Clone)]
 pub enum InvalidDataSizeError {
     /// The data is too large to be encoded/decoded.
     #[error("the data is too large")]
@@ -30,7 +29,7 @@ impl From<DataTooLargeError> for InvalidDataSizeError {
 }
 
 /// Error type returned when encoding fails.
-#[derive(Debug, Error, PartialEq, Eq, Clone, Serialize)]
+#[derive(Debug, Error, PartialEq, Eq, Clone)]
 pub enum EncodeError {
     /// The data size is invalid for this encoder.
     #[error(transparent)]
@@ -42,7 +41,7 @@ pub enum EncodeError {
 }
 
 /// Error type returned when computing recovery symbols fails.
-#[derive(Debug, Error, PartialEq, Eq, Clone, Serialize)]
+#[derive(Debug, Error, PartialEq, Eq, Clone)]
 pub enum RecoverySymbolError {
     /// The index of the recovery symbol can be at most `n_shards`.
     #[error("the index of the recovery symbol can be at most `n_shards`")]
@@ -59,7 +58,7 @@ impl From<InvalidDataSizeError> for RecoverySymbolError {
 }
 
 /// Error type returned when attempting to recover a sliver from recovery symbols fails.
-#[derive(Debug, Error, PartialEq, Eq, Clone, Serialize)]
+#[derive(Debug, Error, PartialEq, Eq, Clone)]
 pub enum SliverRecoveryError {
     /// The blob size in the metadata is is too large.
     #[error("the blob size in the metadata is too large")]
@@ -105,7 +104,7 @@ pub struct DecodingVerificationError;
 pub struct WrongSliverVariantError;
 
 /// Error returned when sliver verification fails.
-#[derive(Debug, Error, PartialEq, Eq, Clone, serde::Serialize)]
+#[derive(Debug, Error, PartialEq, Eq, Clone)]
 pub enum SliverVerificationError {
     /// The sliver index is too large for the number of shards in the metadata.
     #[error("the sliver index is too large for the number of shards in the metadata")]

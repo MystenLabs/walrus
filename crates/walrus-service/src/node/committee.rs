@@ -605,10 +605,12 @@ where
                     if let Some(WalrusServiceError::SyncShardInvalidEpoch(invalid_epoch_error)) =
                         err.walrus_service_error()
                     {
-                        return Err(SyncShardError::InvalidEpoch(invalid_epoch_error.clone()));
+                        Err(SyncShardError::InvalidEpoch(invalid_epoch_error.clone()))
+                    } else {
+                        Err(SyncShardError::Internal(anyhow::anyhow!(err
+                            .error_message()
+                            .unwrap_or_default())))
                     }
-                    let err_message = err.error_message().unwrap_or_default();
-                    return Err(SyncShardError::Internal(anyhow::anyhow!(err_message)));
                 }
             }
         } else {

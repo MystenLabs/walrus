@@ -53,8 +53,6 @@ serde_json = "1.0.127"
 serde_test = "1.0.177"
 serde_with = { version = "3.9", features = ["base64"] }
 serde_yaml = "0.9"
-strum = "0.24"
-strum_macros = "0.24"
 sui-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.31.1" }
 sui-json-rpc-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.31.1" }
 sui-keys = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.31.1" }

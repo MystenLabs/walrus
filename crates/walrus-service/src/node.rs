@@ -2000,7 +2000,7 @@ mod tests {
 
         assert!(matches!(
             status,
-            Err(err) if
+            Err(err) if err.walrus_service_error().is_some() &&
                 err.to_string().contains(
                     error_message
                 )
