@@ -1,19 +1,12 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{
-    fs::File,
-    io::{BufReader, BufWriter},
-    sync::Arc,
-    time::Duration,
-};
+use std::{fmt::Debug, path::Path, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use move_core_types::annotated_value::{MoveDatatypeLayout, MoveTypeLayout};
 use rocksdb::Options;
-use serde::{Deserialize, Serialize};
 use sui_config::genesis::Genesis;
 use sui_package_resolver::{error::Error as PackageResolverError, Package, PackageStore, Resolver};
 use sui_rest_api::Client;
@@ -26,15 +19,21 @@ use sui_types::{
     messages_checkpoint::{CheckpointSequenceNumber, TrustedCheckpoint, VerifiedCheckpoint},
     object::Object,
 };
-use tokio::time::{sleep, Instant};
+use tokio::{
+    join,
+    select,
+    sync::Mutex,
+    time::{sleep, Instant},
+};
 use tokio_util::sync::CancellationToken;
 use typed_store::{
     rocks,
     rocks::{errors::typed_store_err_from_rocks_err, DBMap, MetricConf, ReadWriteOptions},
     Map,
 };
+use walrus_sui::types::BlobEvent;
 
-use crate::EventConfig;
+use crate::{EventProcessorConfig, EventSequenceNumber, IndexedStreamElement};
 
 /// The name of the checkpoint store.
 #[allow(dead_code)]
@@ -52,143 +51,63 @@ const EVENT_STORE: &str = "event_store";
 const MAX_TIMEOUT: Duration = Duration::from_secs(60);
 /// The delay between retries when polling the full node.
 const RETRY_DELAY: Duration = Duration::from_secs(5);
-
-#[derive(Eq, PartialEq, Default, Clone, Debug, Serialize, Deserialize)]
-pub struct WalrusEventID {
-    /// The sequence number of the Sui checkpoint this event belongs to.
-    pub sequence_number: CheckpointSequenceNumber,
-    /// The counter of the event.
-    pub counter: u64,
-}
-
-impl WalrusEventID {
-    pub fn new(sequence_number: CheckpointSequenceNumber, counter: u64) -> Self {
-        WalrusEventID {
-            sequence_number,
-            counter,
-        }
-    }
-    /// Writes the event ID to the given buffer.
-    #[allow(dead_code)]
-    pub fn write(&self, wbuf: &mut BufWriter<File>) -> Result<()> {
-        wbuf.write_u64::<BigEndian>(self.sequence_number)?;
-        wbuf.write_u64::<BigEndian>(self.counter)?;
-        Ok(())
-    }
-    /// Reads an event ID from the given buffer.
-    #[allow(dead_code)]
-    pub(crate) fn read(rbuf: &mut BufReader<File>) -> Result<WalrusEventID> {
-        let sequence = rbuf.read_u64::<BigEndian>()?;
-        let counter = rbuf.read_u64::<BigEndian>()?;
-        Ok(WalrusEventID::new(sequence, counter))
-    }
-}
-
-#[derive(Eq, PartialEq, Clone, Debug, Serialize, Deserialize)]
-pub struct WalrusEvent {
-    /// The serialized event.
-    pub serialized_event: Vec<u8>,
-    /// The event ID.
-    pub event_id: WalrusEventID,
-    /// Whether this event is the end of an epoch.
-    pub is_end_of_walrus_epoch_event: bool,
-}
-
-impl WalrusEvent {
-    #[allow(dead_code)]
-    pub fn new(
-        serialized_event: Vec<u8>,
-        event_id: WalrusEventID,
-        is_end_of_walrus_epoch_event: bool,
-    ) -> Self {
-        Self {
-            serialized_event,
-            event_id,
-            is_end_of_walrus_epoch_event,
-        }
-    }
-    /// Creates a new (non-existent) marker event that indicates the end of a checkpoint. This is
-    /// used to commit the blob file at the end of every N checkpoints.
-    pub fn new_end_of_checkpoint(sequence_number: CheckpointSequenceNumber) -> Self {
-        Self {
-            serialized_event: vec![],
-            event_id: WalrusEventID::new(sequence_number, u64::MAX),
-            is_end_of_walrus_epoch_event: false,
-        }
-    }
-
-    /// Returns true if this event is the end of a checkpoint.
-    pub fn is_end_of_checkpoint_marker(&self) -> bool {
-        self.event_id.counter == u64::MAX
-    }
-}
+/// The capacity of the event channel.
 
 #[derive(Clone)]
-pub struct CheckpointProcessor {
+pub struct EventProcessor {
     /// Full node REST client.
-    client: Client,
+    pub client: Client,
+    /// Event polling interval
+    pub event_polling_interval: Duration,
     /// The address of the Walrus system package.
-    system_pkg_id: ObjectID,
-    /// Event to read next.
-    event_store_next_cursor: WalrusEventID,
+    pub system_pkg_id: ObjectID,
+    /// Event index before which events are pruned.
+    pub event_store_commit_index: Arc<Mutex<u64>>,
+    /// Event store pruning duration
+    pub pruning_duration: Duration,
     /// Store which only stores the latest checkpoint.
-    checkpoint_store: DBMap<(), TrustedCheckpoint>,
+    pub checkpoint_store: DBMap<(), TrustedCheckpoint>,
     /// Store which only stores the latest Walrus package.
-    walrus_package_store: DBMap<(), Object>,
+    pub walrus_package_store: DBMap<(), Object>,
     /// Store which only stores the latest Sui committee.
-    committee_store: DBMap<(), Committee>,
-    /// Store which only stores all uncommitted events.
-    event_store: DBMap<WalrusEventID, WalrusEvent>,
+    pub committee_store: DBMap<(), Committee>,
+    /// Store which only stores all event stream elements.
+    pub event_store: DBMap<u64, IndexedStreamElement>,
 }
+
+impl Debug for EventProcessor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EventProcessor")
+            .field("system_pkg_id", &self.system_pkg_id)
+            .field("checkpoint_store", &self.checkpoint_store)
+            .field("walrus_package_store", &self.walrus_package_store)
+            .field("committee_store", &self.committee_store)
+            .field("event_store", &self.event_store)
+            .finish()
+    }
+}
+
 #[allow(dead_code)]
-impl CheckpointProcessor {
-    /// Polls the event store for new events. Returns a list of events that have been added to the
-    /// event store since the last poll.
-    async fn poll(&mut self, timeout: Duration) -> Result<Vec<WalrusEvent>> {
-        let mut events = vec![];
+impl EventProcessor {
+    pub async fn poll(&self, from: u64) -> Result<Vec<IndexedStreamElement>> {
+        let mut elements = vec![];
         let mut iter = self.event_store.unbounded_iter();
-        iter = iter.skip_to(&self.event_store_next_cursor)?;
-        let start_time = std::time::Instant::now();
-        while start_time.elapsed() < timeout {
-            if let Some((checkpoint_event_id, event)) = iter.next() {
-                events.push(event.clone());
-                self.event_store_next_cursor = WalrusEventID::new(
-                    checkpoint_event_id.sequence_number,
-                    checkpoint_event_id.counter.saturating_add(1),
-                );
-            } else {
-                break;
-            }
+        iter = iter.skip_to(&from)?;
+        for (_, event) in iter {
+            elements.push(event.clone());
         }
-        Ok(events)
+        Ok(elements)
     }
 
-    /// Commits events up to the given event ID. All events with an ID less than or equal to the
-    /// given event ID will be removed from the event store.
-    async fn commit(&mut self, committed_event_id: WalrusEventID) -> Result<()> {
-        let iter = self.event_store.unbounded_iter();
-        let rev_iter = iter.skip_to(&committed_event_id)?.reverse();
-        let mut write_batch = self.event_store.batch();
-        for (event_id, _) in rev_iter {
-            write_batch
-                .delete_batch(&self.event_store, std::iter::once(event_id))
-                .map_err(|e| anyhow!("Failed to remove event from event store: {}", e))?;
+    pub async fn start(&self, cancellation_token: CancellationToken) -> Result<(), anyhow::Error> {
+        let (pruning_task, tailing_task) = join!(
+            self.start_pruning_events(cancellation_token.clone()),
+            self.start_tailing_checkpoints(cancellation_token.clone())
+        );
+        match (pruning_task, tailing_task) {
+            (Ok(_), Ok(_)) => Ok(()),
+            (Err(e), _) | (_, Err(e)) => Err(e),
         }
-        write_batch
-            .write()
-            .map_err(|e| anyhow!("Failed to remove event from event store: {}", e))?;
-        Ok(())
-    }
-
-    /// Starts the checkpoint processor. This method will spawn a background task that tails the
-    /// full node for new checkpoints and processes them.
-    pub async fn start(&self) -> Result<CancellationToken> {
-        let cancellation_token = CancellationToken::new();
-        tokio::task::spawn(Self::start_tailing_checkpoints(
-            self.clone(),
-            cancellation_token.clone(),
-        ));
-        Ok(cancellation_token)
     }
 
     /// Gets the full checkpoint with the given sequence number. This method will retry until the
@@ -214,10 +133,38 @@ impl CheckpointProcessor {
         }
     }
 
+    /// Starts a periodic pruning process for events in the event store. This method will run until
+    /// the cancellation token is cancelled.
+    pub async fn start_pruning_events(&self, cancel_token: CancellationToken) -> Result<()> {
+        loop {
+            select! {
+                _ = sleep(self.pruning_duration) => {
+                    let commit_index = *self.event_store_commit_index.lock().await;
+                    if commit_index == 0 {
+                        continue;
+                    }
+                    let mut write_batch = self.event_store.batch();
+                    write_batch.schedule_delete_range(&self.event_store, &0, &commit_index)?;
+                    write_batch.write()?;
+                }
+                _ = cancel_token.cancelled() => {
+                    return Ok(());
+                },
+            }
+        }
+    }
+
     /// Tails the full node for new checkpoints and processes them. This method will run until the
     /// cancellation token is cancelled. If the checkpoint processor falls behind the full node, it
     /// will read events from the event blobs so it can catch up.
-    async fn start_tailing_checkpoints(self, cancel_token: CancellationToken) -> Result<()> {
+    pub async fn start_tailing_checkpoints(&self, cancel_token: CancellationToken) -> Result<()> {
+        let mut next_event_index = self
+            .event_store
+            .unbounded_iter()
+            .skip_to_last()
+            .next()
+            .map(|(k, _)| k + 1)
+            .unwrap_or(0);
         while !cancel_token.is_cancelled() {
             let Some(prev_checkpoint) = self.checkpoint_store.get(&())? else {
                 bail!("No checkpoint found in the checkpoint store");
@@ -249,6 +196,7 @@ impl CheckpointProcessor {
             })?;
             let resolver = Resolver::new(self.clone());
             let mut write_batch = self.event_store.batch();
+            let mut counter = 0;
             for tx in checkpoint.transactions.into_iter() {
                 for object in tx.output_objects.into_iter() {
                     if object.id() == self.system_pkg_id {
@@ -284,30 +232,32 @@ impl CheckpointProcessor {
                         None,
                         move_datatype_layout,
                     )?;
-                    let checkpoint_event_id = WalrusEventID::new(
+                    let blob_event: BlobEvent = sui_event.try_into()?;
+                    let event_sequence_number = EventSequenceNumber::new(
                         *checkpoint.checkpoint_summary.sequence_number(),
-                        seq as u64,
+                        counter,
                     );
-                    let checkpoint_event = WalrusEvent {
-                        serialized_event: serde_json::to_vec(&sui_event)?,
-                        event_id: checkpoint_event_id.clone(),
-                        // TODO: Set this to true if this is epoch closing event
-                        is_end_of_walrus_epoch_event: false,
-                    };
+                    let walrus_event =
+                        IndexedStreamElement::new(blob_event, event_sequence_number.clone());
                     write_batch
                         .insert_batch(
                             &self.event_store,
-                            std::iter::once((checkpoint_event_id, checkpoint_event)),
+                            std::iter::once((next_event_index, walrus_event)),
                         )
                         .map_err(|e| anyhow!("Failed to insert event into event store: {}", e))?;
+                    counter += 1;
+                    next_event_index += 1;
                 }
             }
-            let end_of_checkpoint =
-                WalrusEvent::new_end_of_checkpoint(checkpoint.checkpoint_summary.sequence_number);
+            let end_of_checkpoint = IndexedStreamElement::new_checkpoint_boundary(
+                checkpoint.checkpoint_summary.sequence_number,
+                counter,
+            );
             write_batch.insert_batch(
                 &self.event_store,
-                std::iter::once((end_of_checkpoint.event_id.clone(), end_of_checkpoint)),
+                std::iter::once((next_event_index, end_of_checkpoint)),
             )?;
+            next_event_index += 1;
             if let Some(end_of_epoch_data) = &checkpoint.checkpoint_summary.end_of_epoch_data {
                 let next_committee = end_of_epoch_data
                     .next_epoch_committee
@@ -339,22 +289,27 @@ impl CheckpointProcessor {
     /// given configuration to connect to the full node and the checkpoint store. If the checkpoint
     /// store is not found, it will be created. If the checkpoint store is found, the processor will
     /// resume from the last checkpoint.
-    pub async fn new(config: EventConfig) -> Result<Self, anyhow::Error> {
+    pub async fn new(
+        config: &EventProcessorConfig,
+        system_pkg_id: ObjectID,
+        event_polling_interval: Duration,
+        db_path: &Path,
+    ) -> Result<Self, anyhow::Error> {
         // return a new CheckpointProcessor
-        let client = Client::new(config.rest_url);
+        let client = Client::new(&config.rest_url);
         let metric_conf = MetricConf::default();
         let mut db_opts = Options::default();
         db_opts.create_missing_column_families(true);
         db_opts.create_if_missing(true);
         let database = rocks::open_cf_opts(
-            config.path,
+            db_path,
             Some(db_opts),
             metric_conf,
             &[
-                (CHECKPOINT_STORE, rocksdb::Options::default()),
-                (WALRUS_PACKAGE_STORE, rocksdb::Options::default()),
-                (COMMITTEE_STORE, rocksdb::Options::default()),
-                (EVENT_STORE, rocksdb::Options::default()),
+                (CHECKPOINT_STORE, Options::default()),
+                (WALRUS_PACKAGE_STORE, Options::default()),
+                (COMMITTEE_STORE, Options::default()),
+                (EVENT_STORE, Options::default()),
             ],
         )?;
         if database.cf_handle(CHECKPOINT_STORE).is_none() {
@@ -398,7 +353,7 @@ impl CheckpointProcessor {
         let event_store = DBMap::reopen(
             &database,
             Some(EVENT_STORE),
-            &ReadWriteOptions::default(),
+            &ReadWriteOptions::default().set_ignore_range_deletions(true),
             false,
         )?;
         if checkpoint_store.is_empty() {
@@ -406,33 +361,29 @@ impl CheckpointProcessor {
             committee_store.schedule_delete_all()?;
             event_store.schedule_delete_all()?;
             walrus_package_store.schedule_delete_all()?;
-            let genesis = Genesis::load(config.sui_genesis_path)?;
+            let genesis = Genesis::load(&config.sui_genesis_path)?;
             let genesis_committee = genesis.committee()?;
             let checkpoint = genesis.checkpoint();
             committee_store.insert(&(), &genesis_committee)?;
             checkpoint_store.insert(&(), checkpoint.serializable_ref())?;
         }
-        let event_iter = event_store.unbounded_iter();
-        let event_store_next_cursor = event_iter
-            .seek_to_first()
-            .next()
-            .map(|item| item.0)
-            .unwrap_or(WalrusEventID::new(0, 0));
-        let checkpoint_processor = CheckpointProcessor {
+        let event_processor = EventProcessor {
             client,
             walrus_package_store,
             checkpoint_store,
             committee_store,
             event_store,
-            system_pkg_id: config.system_pkg_id,
-            event_store_next_cursor,
+            system_pkg_id,
+            event_polling_interval,
+            event_store_commit_index: Arc::new(Mutex::new(0)),
+            pruning_duration: Duration::from_secs(config.pruning_interval),
         };
-        Ok(checkpoint_processor)
+        Ok(event_processor)
     }
 }
 
 #[async_trait]
-impl PackageStore for CheckpointProcessor {
+impl PackageStore for EventProcessor {
     async fn fetch(
         &self,
         id: move_core_types::account_address::AccountAddress,
@@ -456,6 +407,8 @@ mod tests {
     use std::sync::OnceLock;
 
     use tokio::sync::Mutex;
+    use walrus_core::BlobId;
+    use walrus_sui::{test_utils::EventForTesting, types::BlobCertified};
 
     use super::*;
 
@@ -465,46 +418,46 @@ mod tests {
         LOCK.get_or_init(Mutex::default)
     }
 
-    async fn new_checkpoint_processor_for_testing() -> Result<CheckpointProcessor, anyhow::Error> {
+    async fn new_event_processor_for_testing() -> Result<EventProcessor, anyhow::Error> {
         let metric_conf = MetricConf::default();
         let mut db_opts = Options::default();
         db_opts.create_missing_column_families(true);
         db_opts.create_if_missing(true);
-        let dir = tempfile::tempdir()
+        let root_dir_path = tempfile::tempdir()
             .expect("Failed to open temporary directory")
             .into_path();
         let database = {
             let _lock = global_test_lock().lock().await;
             rocks::open_cf_opts(
-                dir,
+                root_dir_path.as_path(),
                 Some(db_opts),
                 metric_conf,
                 &[
-                    (CHECKPOINT_STORE, rocksdb::Options::default()),
-                    (WALRUS_PACKAGE_STORE, rocksdb::Options::default()),
-                    (COMMITTEE_STORE, rocksdb::Options::default()),
-                    (EVENT_STORE, rocksdb::Options::default()),
+                    (CHECKPOINT_STORE, Options::default()),
+                    (WALRUS_PACKAGE_STORE, Options::default()),
+                    (COMMITTEE_STORE, Options::default()),
+                    (EVENT_STORE, Options::default()),
                 ],
             )?
         };
         if database.cf_handle(CHECKPOINT_STORE).is_none() {
             database
-                .create_cf(CHECKPOINT_STORE, &rocksdb::Options::default())
+                .create_cf(CHECKPOINT_STORE, &Options::default())
                 .map_err(typed_store_err_from_rocks_err)?;
         }
         if database.cf_handle(WALRUS_PACKAGE_STORE).is_none() {
             database
-                .create_cf(WALRUS_PACKAGE_STORE, &rocksdb::Options::default())
+                .create_cf(WALRUS_PACKAGE_STORE, &Options::default())
                 .map_err(typed_store_err_from_rocks_err)?;
         }
         if database.cf_handle(COMMITTEE_STORE).is_none() {
             database
-                .create_cf(COMMITTEE_STORE, &rocksdb::Options::default())
+                .create_cf(COMMITTEE_STORE, &Options::default())
                 .map_err(typed_store_err_from_rocks_err)?;
         }
         if database.cf_handle(EVENT_STORE).is_none() {
             database
-                .create_cf(EVENT_STORE, &rocksdb::Options::default())
+                .create_cf(EVENT_STORE, &Options::default())
                 .map_err(typed_store_err_from_rocks_err)?;
         }
         let checkpoint_store = DBMap::reopen(
@@ -525,47 +478,47 @@ mod tests {
             &ReadWriteOptions::default(),
             false,
         )?;
-        let event_store = DBMap::<WalrusEventID, WalrusEvent>::reopen(
+        let event_store = DBMap::<u64, IndexedStreamElement>::reopen(
             &database,
             Some(EVENT_STORE),
             &ReadWriteOptions::default(),
             false,
         )?;
-        Ok(CheckpointProcessor {
+        Ok(EventProcessor {
             client: Client::new("http://localhost:8080"),
             walrus_package_store,
             checkpoint_store,
             committee_store,
             event_store,
             system_pkg_id: ObjectID::random(),
-            event_store_next_cursor: WalrusEventID::new(0, 0),
+            event_store_commit_index: Arc::new(Mutex::new(0)),
+            pruning_duration: Duration::from_secs(10),
+            event_polling_interval: Duration::from_secs(1),
         })
     }
 
     fn default_event_for_testing(
         checkpoint_sequence_number: CheckpointSequenceNumber,
         counter: u64,
-    ) -> WalrusEvent {
-        WalrusEvent::new(
-            serde_json::to_vec(&SuiEvent::random_for_testing()).unwrap(),
-            WalrusEventID::new(checkpoint_sequence_number, counter),
-            false,
+    ) -> IndexedStreamElement {
+        IndexedStreamElement::new(
+            BlobCertified::for_testing(BlobId([7; 32])).into(),
+            EventSequenceNumber::new(checkpoint_sequence_number, counter),
         )
     }
     #[tokio::test]
     async fn test_poll() {
-        let mut processor = new_checkpoint_processor_for_testing().await.unwrap();
+        let processor = new_event_processor_for_testing().await.unwrap();
         // add 100 events to the event store
         let mut expected_events = vec![];
         for i in 0..100 {
             let event = default_event_for_testing(0, i);
             expected_events.push(event.clone());
-            let key: WalrusEventID = WalrusEventID::new(0, i);
-            processor.event_store.insert(&key, &event).unwrap();
+            processor.event_store.insert(&i, &event).unwrap();
         }
 
-        // poll events
-        let events = processor.poll(Duration::from_secs(100)).await.unwrap();
+        // poll events from beginning
+        let events = processor.poll(0).await.unwrap();
         assert_eq!(events.len(), 100);
         // assert events are the same
         for (expected, actual) in expected_events.iter().zip(events.iter()) {
@@ -575,18 +528,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_multiple_poll() {
-        let mut processor = new_checkpoint_processor_for_testing().await.unwrap();
+        let processor = new_event_processor_for_testing().await.unwrap();
         // add 100 events to the event store
         let mut expected_events1 = vec![];
         for i in 0..100 {
             let event = default_event_for_testing(0, i);
             expected_events1.push(event.clone());
-            let key: WalrusEventID = WalrusEventID::new(0, i);
-            processor.event_store.insert(&key, &event).unwrap();
+            processor.event_store.insert(&i, &event).unwrap();
         }
 
         // poll events
-        let events = processor.poll(Duration::from_secs(100)).await.unwrap();
+        let events = processor.poll(0).await.unwrap();
         assert_eq!(events.len(), 100);
         // assert events are the same
         for (expected, actual) in expected_events1.iter().zip(events.iter()) {
@@ -596,38 +548,12 @@ mod tests {
         for i in 100..200 {
             let event = default_event_for_testing(0, i);
             expected_events2.push(event.clone());
-            let key: WalrusEventID = WalrusEventID::new(0, i);
-            processor.event_store.insert(&key, &event).unwrap();
+            processor.event_store.insert(&i, &event).unwrap();
         }
-
-        let events = processor.poll(Duration::from_secs(100)).await.unwrap();
+        let events = processor.poll(100).await.unwrap();
         assert_eq!(events.len(), 100);
         // assert events are the same
         for (expected, actual) in expected_events2.iter().zip(events.iter()) {
-            assert_eq!(expected, actual);
-        }
-    }
-
-    #[tokio::test]
-    async fn test_commit() {
-        let mut processor = new_checkpoint_processor_for_testing().await.unwrap();
-        // add 100 events to the event store
-        let mut expected_events = vec![];
-        for i in 0..100 {
-            let event = default_event_for_testing(0, i);
-            expected_events.push(event.clone());
-            let key: WalrusEventID = WalrusEventID::new(0, i);
-            processor.event_store.insert(&key, &event).unwrap();
-        }
-        // commit first 10 events
-        let committed_event_id = WalrusEventID::new(0, 9);
-        processor.commit(committed_event_id.clone()).await.unwrap();
-
-        // poll events
-        let events = processor.poll(Duration::from_secs(100)).await.unwrap();
-        assert_eq!(events.len(), 90);
-        // assert events are the same
-        for (expected, actual) in expected_events.iter().skip(10).zip(events.iter()) {
             assert_eq!(expected, actual);
         }
     }

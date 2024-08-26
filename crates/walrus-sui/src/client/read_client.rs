@@ -187,6 +187,11 @@ impl SuiReadClient {
         Ok(initial_shared_version)
     }
 
+    /// Returns the system package ID.
+    pub fn get_system_package_id(&self) -> ObjectID {
+        self.system_pkg_id
+    }
+
     pub(crate) async fn get_coins_of_type(
         &self,
         owner_address: SuiAddress,

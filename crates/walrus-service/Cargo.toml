@@ -57,16 +57,19 @@ axum = { workspace = true, features = [
 ] }
 axum-server = { workspace = true, features = ["tls-rustls-no-provider"] }
 bcs.workspace = true
+byteorder.workspace = true
 clap.workspace = true
 colored = { workspace = true, optional = true }
 enum_dispatch = { workspace = true, optional = true }
 fail.workspace = true
 fastcrypto.workspace = true
 futures.workspace = true
+futures-util.workspace = true
 git-version.workspace = true
 home.workspace = true
 humantime = { workspace = true, optional = true }
 indoc = { workspace = true, optional = true }
+integer-encoding.workspace = true
 itertools = { workspace = true, optional = true }
 mime = { workspace = true, optional = true }
 mysten-metrics = { workspace = true, optional = true }
@@ -103,6 +106,7 @@ typed-store = { workspace = true, optional = true }
 utoipa = { workspace = true, features = ["axum_extras"] }
 utoipa-redoc.workspace = true
 walrus-core = { workspace = true, features = ["utoipa"] }
+walrus-event.workspace = true
 walrus-sdk.workspace = true
 walrus-sui = { workspace = true, features = ["utoipa"] }
 walrus-test-utils = { workspace = true, optional = true }

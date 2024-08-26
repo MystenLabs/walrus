@@ -42,7 +42,10 @@ pub(super) use event_cursor_table::EventProgress;
 
 mod event_sequencer;
 
+pub mod event_blob;
+pub mod event_blob_writer;
 mod shard;
+
 pub(crate) use shard::{ShardStatus, ShardStorage};
 
 /// Storage backing a [`StorageNode`][crate::node::StorageNode].
@@ -281,7 +284,7 @@ impl Storage {
 
     /// Get the event cursor for `event_type`
     #[tracing::instrument(skip_all)]
-    pub fn get_event_cursor(&self) -> Result<Option<EventID>, TypedStoreError> {
+    pub fn get_event_cursor(&self) -> Result<Option<(u64, EventID)>, TypedStoreError> {
         self.event_cursor.get_event_cursor()
     }
 
@@ -778,7 +781,7 @@ pub(crate) mod tests {
             storage.maybe_advance_event_cursor(*seq_id, cursor)?;
 
             assert_eq!(
-                storage.get_event_cursor()?,
+                storage.get_event_cursor()?.map(|(_, event_id)| event_id),
                 Some(cursor_lookup[expected_observed])
             );
         }

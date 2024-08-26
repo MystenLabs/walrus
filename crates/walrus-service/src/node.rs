@@ -3,16 +3,16 @@
 
 //! Walrus storage node.
 
-use std::{future::Future, num::NonZeroU16, sync::Arc};
+use std::{future::Future, num::NonZeroU16, path::PathBuf, sync::Arc};
 
 use anyhow::{anyhow, bail, Context};
 use fastcrypto::traits::KeyPair;
-use futures::{stream, StreamExt, TryFutureExt};
+use futures::{StreamExt, TryFutureExt};
+use futures_util::stream;
 use prometheus::Registry;
 use serde::Serialize;
 use shard_sync::ShardSyncHandler;
-use sui_types::event::EventID;
-use system_events::{SuiSystemEventProvider, SystemEventProvider};
+use sui_types::{digests::TransactionDigest, event::EventID};
 use tokio::{select, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{field, Instrument};
@@ -43,6 +43,7 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
+use walrus_event::event_processor::EventProcessor;
 use walrus_sdk::api::{BlobStatus, ServiceHealthInfo, StoredOnNodeStatus};
 use walrus_sui::{
     client::SuiReadClient,
@@ -87,6 +88,12 @@ use errors::{
 
 mod storage;
 pub use storage::{DatabaseConfig, Storage};
+use walrus_event::{EventStreamCursor, EventStreamElement};
+
+use crate::node::{
+    storage::event_blob_writer::EventBlobWriter,
+    system_events::{EventManager, SuiSystemEventProvider},
+};
 
 /// Trait for all functionality offered by a storage node.
 pub trait ServiceState {
@@ -183,7 +190,7 @@ pub trait ServiceState {
 #[derive(Debug, Default)]
 pub struct StorageNodeBuilder {
     storage: Option<Storage>,
-    event_provider: Option<Box<dyn SystemEventProvider>>,
+    event_manager: Option<Box<dyn EventManager>>,
     committee_service_factory: Option<Box<dyn CommitteeServiceFactory>>,
     contract_service: Option<Box<dyn SystemContractService>>,
 }
@@ -200,12 +207,9 @@ impl StorageNodeBuilder {
         self
     }
 
-    /// Sets the [`SystemEventProvider`] to be used with the node.
-    pub fn with_system_event_provider(
-        mut self,
-        event_provider: Box<dyn SystemEventProvider>,
-    ) -> Self {
-        self.event_provider = Some(event_provider);
+    /// Sets the [`EventManager`] to be used with the node.
+    pub fn with_system_event_manager(mut self, event_manager: Box<dyn EventManager>) -> Self {
+        self.event_manager = Some(event_manager);
         self
     }
 
@@ -230,15 +234,15 @@ impl StorageNodeBuilder {
     /// Consumes the builder and constructs a new [`StorageNode`].
     ///
     /// The constructed storage node will use dependent services provided to the builder, otherwise,
-    /// it will construct a new underlying storage and [`SuiSystemEventProvider`] from parameters in
-    /// the config.
+    /// it will construct a new underlying storage and [`EventManager`] from
+    /// parameters in the config.
     ///
     /// # Panics
     ///
-    /// Panics if `config.sui` is `None` and no [`SystemEventProvider`], no
+    /// Panics if `config.sui` is `None` and no [`EventManager`], no
     /// [`CommitteeServiceFactory`], or no [`SystemContractService`] was configured with
     /// their respective functions
-    /// ([`with_system_event_provider()`][Self::with_system_event_provider],
+    /// ([`with_system_event_manager()`][Self::with_system_event_manager],
     /// [`with_committee_service_factory()`][Self::with_committee_service_factory],
     /// [`with_system_contract_service()`][Self::with_system_contract_service]); or if the
     /// `config.protocol_key_pair` has not yet been loaded into memory.
@@ -256,7 +260,7 @@ impl StorageNodeBuilder {
             .clone();
 
         let sui_config_and_client =
-            if self.event_provider.is_none() || self.committee_service_factory.is_none() {
+            if self.event_manager.is_none() || self.committee_service_factory.is_none() {
                 let sui_config = config.sui.as_ref().expect(
                     "either a Sui config or an event provider and committee service \
                             factory must be specified",
@@ -266,15 +270,29 @@ impl StorageNodeBuilder {
                 None
             };
 
-        let event_provider = self.event_provider.unwrap_or_else(|| {
+        let event_manager: Box<dyn EventManager> = if let Some(event_manager) = self.event_manager {
+            event_manager
+        } else {
             let (read_client, sui_config) = sui_config_and_client
                 .as_ref()
-                .expect("this is always created if self.event_provider.is_none()");
-            Box::new(SuiSystemEventProvider::new(
-                read_client.clone(),
-                sui_config.event_polling_interval,
-            ))
-        });
+                .expect("this is always created if self.event_manager.is_none()");
+            let event_manager: Box<dyn EventManager> = match &config.event_processor_config {
+                Some(event_processor_config) => Box::new(
+                    EventProcessor::new(
+                        event_processor_config,
+                        read_client.get_system_package_id(),
+                        sui_config.event_polling_interval,
+                        &config.storage_path,
+                    )
+                    .await?,
+                ),
+                None => Box::new(SuiSystemEventProvider::new(
+                    read_client.clone(),
+                    sui_config.event_polling_interval,
+                )),
+            };
+            event_manager
+        };
 
         let contract_service = match self.contract_service {
             None => Box::new(
@@ -298,7 +316,7 @@ impl StorageNodeBuilder {
         StorageNode::new(
             config,
             protocol_key_pair,
-            event_provider,
+            event_manager,
             committee_service_factory,
             contract_service,
             &metrics_registry,
@@ -336,11 +354,12 @@ pub struct StorageNodeInner {
     protocol_key_pair: ProtocolKeyPair,
     storage: Storage,
     encoding_config: Arc<EncodingConfig>,
-    event_provider: Box<dyn SystemEventProvider>,
+    event_manager: Box<dyn EventManager>,
     contract_service: Arc<dyn SystemContractService>,
     committee_service: Arc<dyn CommitteeService>,
     _committee_service_factory: Box<dyn CommitteeServiceFactory>,
     start_time: Instant,
+    db_root_dir_path: PathBuf,
     metrics: NodeMetricSet,
 }
 
@@ -348,7 +367,7 @@ impl StorageNode {
     async fn new(
         config: &StorageNodeConfig,
         key_pair: ProtocolKeyPair,
-        event_provider: Box<dyn SystemEventProvider>,
+        event_manager: Box<dyn EventManager>,
         committee_service_factory: Box<dyn CommitteeServiceFactory>,
         contract_service: Box<dyn SystemContractService>,
         registry: &Registry,
@@ -388,13 +407,14 @@ impl StorageNode {
         let inner = Arc::new(StorageNodeInner {
             protocol_key_pair: key_pair,
             storage,
-            event_provider,
+            event_manager,
             encoding_config,
             contract_service: contract_service.into(),
             committee_service: committee_service.into(),
             _committee_service_factory: committee_service_factory,
             metrics: NodeMetricSet::new(registry),
             start_time,
+            db_root_dir_path: config.storage_path.clone(),
         });
 
         inner.init_gauges()?;
@@ -442,17 +462,16 @@ impl StorageNode {
 
     async fn process_events(&self) -> anyhow::Result<()> {
         let storage = &self.inner.storage;
-        let cursor = storage.get_event_cursor()?;
-        let next_index: usize = storage
-            .get_sequentially_processed_event_count()?
-            .try_into()
-            .expect("64-bit architecture");
-
+        let mut event_blob_writer =
+            EventBlobWriter::new(&self.inner.db_root_dir_path, self.inner.clone())?;
+        let from_event_id = storage.get_event_cursor()?.map(|(_, cursor)| cursor);
+        let from_element_index = self.get_last_committed_event_index(&event_blob_writer)?;
+        let event_cursor = EventStreamCursor::new(from_event_id, from_element_index);
+        let event_stream = Box::into_pin(self.inner.event_manager.events(event_cursor).await?);
+        let next_index: usize = from_element_index.try_into().expect("64-bit architecture");
         let index_stream = stream::iter(next_index..);
-        let event_stream = Box::into_pin(self.inner.event_provider.events(cursor).await?);
-        let mut blob_events = index_stream.zip(event_stream);
-
-        while let Some((event_index, event)) = blob_events.next().await {
+        let mut indexed_element_stream = index_stream.zip(event_stream);
+        while let Some((element_index, stream_element)) = indexed_element_stream.next().await {
             let span = tracing::info_span!(
                 parent: None,
                 "blob_store receive",
@@ -463,35 +482,40 @@ impl StorageNode {
                 "messaging.system" = "sui",
                 "messaging.destination.name" = "blob_store",
                 "messaging.client.id" = %self.inner.public_key(),
-                "walrus.event.index" = event_index,
-                "walrus.event.tx_digest" = ?event.event_id().tx_digest,
-                "walrus.event.event_seq" = ?event.event_id().event_seq,
-                "walrus.event.kind" = event.label(),
-                "walrus.blob_id" = %event.blob_id(),
+                "walrus.event.index" = element_index,
+                "walrus.event.tx_digest" = ?stream_element.element.event_id().map(|c| c.tx_digest),
+                "walrus.event.checkpoint_seq" = ?stream_element.global_sequence_number
+                    .checkpoint_sequence_number,
+                "walrus.event.kind" = stream_element.element.label(),
+                "walrus.blob_id" = ?stream_element.element.blob_id(),
                 "error.type" = field::Empty,
             );
-
+            let cloned_stream_element = stream_element.clone();
             async move {
                 let _timer_guard = &self
                     .inner
                     .metrics
                     .event_process_duration_seconds
-                    .with_label_values(&[event.label()])
+                    .with_label_values(&[stream_element.element.label()])
                     .start_timer();
-
-                storage.update_blob_info(&event)?;
-
-                match event {
-                    BlobEvent::Certified(event) => {
-                        self.process_blob_certified_event(event_index, event)
+                if let Some(blob_event) = stream_element.element.event() {
+                    storage.update_blob_info(blob_event)?;
+                }
+                match stream_element.element {
+                    EventStreamElement::BlobEvent(BlobEvent::Certified(event)) => {
+                        self.process_blob_certified_event(element_index, event)
                             .await?;
                     }
-                    BlobEvent::InvalidBlobID(event) => {
-                        self.process_blob_invalid_event(event_index, event).await?;
+                    EventStreamElement::BlobEvent(BlobEvent::InvalidBlobID(event)) => {
+                        self.process_blob_invalid_event(element_index, event)
+                            .await?;
                     }
-                    BlobEvent::Registered(_) => {
+                    EventStreamElement::BlobEvent(event @ BlobEvent::Registered(_)) => {
                         self.inner
-                            .mark_event_completed(event_index, &event.event_id())?;
+                            .mark_event_completed(element_index, &event.event_id())?;
+                    }
+                    EventStreamElement::CheckpointBoundary => {
+                        self.inner.mark_element_at_index(element_index)?;
                     }
                 }
                 Ok::<(), anyhow::Error>(())
@@ -503,9 +527,38 @@ impl StorageNode {
             })
             .instrument(span)
             .await?;
+            event_blob_writer
+                .write(cloned_stream_element, element_index as u64)
+                .await?;
+            self.inner
+                .event_manager
+                .drop_events_before(EventStreamCursor::new(
+                    None,
+                    self.get_last_committed_event_index(&event_blob_writer)?,
+                ))
+                .await?;
         }
 
         bail!("event stream for blob events stopped")
+    }
+
+    #[tracing::instrument(skip_all)]
+    fn get_last_committed_event_index(
+        &self,
+        event_blob_writer: &EventBlobWriter,
+    ) -> anyhow::Result<u64> {
+        let storage = &self.inner.storage;
+        let last_committed_sequencer_index: Option<u64> =
+            storage.get_event_cursor()?.map(|(index, _)| index);
+        let last_committed_event_blob_writer_index: Option<u64> =
+            event_blob_writer.latest_committed_event_index();
+        // if both are some, return minimum of the two otherwise return 0
+        Ok(last_committed_sequencer_index
+            .zip(last_committed_event_blob_writer_index)
+            .map(|(sequencer_index, blob_writer_index)| {
+                u64::min(sequencer_index, blob_writer_index)
+            })
+            .unwrap_or(0))
     }
 
     #[tracing::instrument(skip_all)]
@@ -613,6 +666,13 @@ impl StorageNodeInner {
         metrics::with_label!(event_cursor_progress, STATUS_PERSISTED).add(persisted);
         metrics::with_label!(event_cursor_progress, STATUS_PENDING).set(pending);
 
+        Ok(())
+    }
+
+    #[tracing::instrument(skip_all)]
+    fn mark_element_at_index(&self, element_index: usize) -> Result<(), TypedStoreError> {
+        let event_id = EventID::from((TransactionDigest::random(), 0));
+        self.mark_event_completed(element_index, &event_id)?;
         Ok(())
     }
 
@@ -1806,7 +1866,8 @@ mod tests {
             .storage_node
             .inner
             .storage
-            .get_event_cursor()?;
+            .get_event_cursor()?
+            .map(|(_, cursor)| cursor);
         assert_eq!(latest_cursor, Some(blob2_registered_event.event_id));
 
         Ok(())

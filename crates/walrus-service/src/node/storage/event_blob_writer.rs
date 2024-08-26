@@ -7,9 +7,10 @@ use std::{
     fs::{File, OpenOptions},
     io::{BufWriter, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use byteorder::{BigEndian, WriteBytesExt};
 use futures_util::future::try_join_all;
 use rocksdb::Options;
@@ -20,16 +21,18 @@ use typed_store::{
     rocks::{errors::typed_store_err_from_rocks_err, DBMap, MetricConf, ReadWriteOptions},
     Map,
 };
-use walrus_core::{encoding::EncodingConfig, BlobId};
-use walrus_sdk::client::Client;
-use walrus_service::node::config::StorageNodeConfig;
+use walrus_core::{BlobId, Sliver};
+use walrus_event::{EventSequenceNumber, IndexedStreamElement};
 
-use crate::{
-    checkpoint_processor::WalrusEvent,
-    event_blob::{BlobEntry, EventBlob},
+use crate::node::{
+    errors::StoreSliverError,
+    storage::event_blob::{BlobEntry, EventBlob},
+    ServiceState,
+    StorageNodeInner,
 };
 
 const EVENT_BLOB_METADATA_STORE: &str = "event_blob_metadata_store";
+const NUM_CHECKPOINTS_PER_BLOB: u64 = 100;
 
 #[derive(Eq, PartialEq, Debug, Clone, Deserialize, Serialize)]
 struct EventBlobMetadata {
@@ -39,9 +42,14 @@ struct EventBlobMetadata {
     start: CheckpointSequenceNumber,
     /// Ending Sui checkpoint sequence number of the events in the blob (inclusive).
     end: CheckpointSequenceNumber,
+    /// EventSequenceNumber of the last event in the blob.
+    last_event_sequence_number: EventSequenceNumber,
+    /// index of the last event in the blob.
+    last_event_index: u64,
 }
 
-struct EventBlobWriter {
+#[derive(Debug)]
+pub struct EventBlobWriter {
     /// Root directory path where the event blobs are stored.
     root_dir_path: PathBuf,
     /// Starting Sui checkpoint sequence number of the events in the current blob (inclusive).
@@ -57,22 +65,23 @@ struct EventBlobWriter {
     /// DBMap from () to the metadata of the previous event blob.
     prev_blob_id: DBMap<(), EventBlobMetadata>,
     /// Client to store the slivers and metadata of the event blob.
-    client: Client,
-    /// Encoding configuration for the event blob.
-    encoding_config: EncodingConfig,
+    node: Arc<StorageNodeInner>,
+    /// The latest event sequence number in the current blob.
+    latest_sequence_number: Option<EventSequenceNumber>,
+    /// The latest event index in the current blob.
+    latest_event_index: Option<u64>,
+    /// The last event sequence number in the prev committed blob.
+    latest_committed_event_sequence_number: Option<EventSequenceNumber>,
+    /// The last event index in the prev committed blob.
+    latest_committed_event_index: Option<u64>,
 }
 
 impl EventBlobWriter {
-    fn new(
-        root_dir_path: PathBuf,
-        number_of_checkpoints_per_blob: u64,
-        node_config: StorageNodeConfig,
-        encoding_config: EncodingConfig,
-    ) -> Result<Self> {
+    pub fn new(root_dir_path: &Path, node: Arc<StorageNodeInner>) -> Result<Self> {
         if root_dir_path.exists() {
-            fs::remove_dir_all(&root_dir_path)?;
+            fs::remove_dir_all(root_dir_path)?;
         }
-        fs::create_dir_all(&root_dir_path)?;
+        fs::create_dir_all(root_dir_path)?;
         let mut db_opts = Options::default();
         let metric_conf = MetricConf::default();
         db_opts.create_missing_column_families(true);
@@ -94,26 +103,27 @@ impl EventBlobWriter {
             &ReadWriteOptions::default(),
             false,
         )?;
-        let file = Self::next_file(&root_dir_path, EventBlob::MAGIC, EventBlob::FORMAT_VERSION)?;
-        let client = Client::for_storage_node(
-            &node_config.rest_api_address.ip().to_string(),
-            node_config.rest_api_address.port(),
-            node_config
-                .network_key_pair
-                .get()
-                .expect("key should be loaded")
-                .public(),
-        )?;
+        let file = Self::next_file(root_dir_path, EventBlob::MAGIC, EventBlob::FORMAT_VERSION)?;
+        let latest_committed_event_sequence_number = prev_blob_id
+            .get(&())?
+            .map(|b: EventBlobMetadata| b.last_event_sequence_number);
+        let latest_committed_event_index = prev_blob_id
+            .get(&())?
+            .map(|b: EventBlobMetadata| b.last_event_index);
         Ok(Self {
-            root_dir_path,
+            root_dir_path: root_dir_path.to_path_buf(),
             start: None,
             end: None,
             wbuf: BufWriter::new(file),
             buf_offset: EventBlob::MAGIC_BYTES_SIZE,
-            number_of_checkpoints_per_blob,
+            // TODO: Read this from system object on epoch change
+            number_of_checkpoints_per_blob: NUM_CHECKPOINTS_PER_BLOB,
             prev_blob_id,
-            client,
-            encoding_config,
+            node,
+            latest_sequence_number: None,
+            latest_event_index: None,
+            latest_committed_event_sequence_number,
+            latest_committed_event_index,
         })
     }
 
@@ -121,6 +131,7 @@ impl EventBlobWriter {
     fn new_for_testing(
         root_dir_path: PathBuf,
         number_of_checkpoints_per_blob: u64,
+        node: Arc<StorageNodeInner>,
     ) -> Result<Self> {
         if root_dir_path.exists() {
             fs::remove_dir_all(&root_dir_path)?;
@@ -148,23 +159,12 @@ impl EventBlobWriter {
             false,
         )?;
         let file = Self::next_file(&root_dir_path, EventBlob::MAGIC, EventBlob::FORMAT_VERSION)?;
-        let encoding_config = EncodingConfig::new(100.try_into().unwrap());
-
-        let node_config = StorageNodeConfig {
-            storage_path: "target/storage".into(),
-            ..walrus_service::test_utils::storage_node_config().inner
-        };
-
-        let client = Client::for_storage_node(
-            &node_config.rest_api_address.ip().to_string(),
-            node_config.rest_api_address.port(),
-            node_config
-                .network_key_pair
-                .get()
-                .expect("key should be loaded")
-                .public(),
-        )?;
-
+        let latest_committed_event_sequence_number: Option<EventSequenceNumber> = prev_blob_id
+            .get(&())?
+            .map(|b: EventBlobMetadata| b.last_event_sequence_number);
+        let latest_committed_event_index = prev_blob_id
+            .get(&())?
+            .map(|b: EventBlobMetadata| b.last_event_index);
         Ok(Self {
             root_dir_path,
             start: None,
@@ -173,8 +173,11 @@ impl EventBlobWriter {
             buf_offset: EventBlob::MAGIC_BYTES_SIZE,
             number_of_checkpoints_per_blob,
             prev_blob_id,
-            client,
-            encoding_config,
+            node,
+            latest_sequence_number: None,
+            latest_event_index: None,
+            latest_committed_event_sequence_number,
+            latest_committed_event_index,
         })
     }
 
@@ -224,58 +227,57 @@ impl EventBlobWriter {
         Ok(())
     }
 
-    async fn store_slivers(&mut self, content: &[u8]) -> Result<()> {
-        let blob_encoder = self.encoding_config.get_blob_encoder(content)?;
+    async fn store_slivers(&mut self, content: &[u8]) -> Result<BlobId> {
+        let blob_encoder = self.node.encoding_config.get_blob_encoder(content)?;
         let (sliver_pairs, blob_metadata) = blob_encoder.encode_with_metadata();
-        self.client.store_metadata(&blob_metadata).await?;
+        self.node
+            .storage
+            .put_verified_metadata(&blob_metadata)
+            .context("unable to store metadata")?;
         // TODO: Once shard assignment per storage node will be read from walrus
         // system object at the beginning of the walrus epoch, we can only store the blob for
         // shards that are locally assigned to this node. (#682)
         try_join_all(sliver_pairs.iter().map(|sliver_pair| async {
-            self.client
+            self.node
                 .store_sliver(
                     blob_metadata.blob_id(),
                     sliver_pair.index(),
-                    &sliver_pair.primary,
+                    &Sliver::Primary(sliver_pair.primary.clone()),
                 )
-                .await
-                .or_else(|e| {
-                    if e.is_shard_not_assigned() {
-                        Ok(())
-                    } else {
-                        Err(e)
-                    }
-                })
+                .map_or_else(
+                    |e| {
+                        if matches!(e, StoreSliverError::ShardNotAssigned(_)) {
+                            Ok(())
+                        } else {
+                            Err(e)
+                        }
+                    },
+                    |_| Ok(()),
+                )
         }))
         .await
         .map(|_| ())?;
         try_join_all(sliver_pairs.iter().map(|sliver_pair| async {
-            self.client
+            self.node
                 .store_sliver(
                     blob_metadata.blob_id(),
                     sliver_pair.index(),
-                    &sliver_pair.secondary,
+                    &Sliver::Secondary(sliver_pair.secondary.clone()),
                 )
-                .await
-                .or_else(|e| {
-                    if e.is_shard_not_assigned() {
-                        Ok(())
-                    } else {
-                        Err(e)
-                    }
-                })
+                .map_or_else(
+                    |e| {
+                        if matches!(e, StoreSliverError::ShardNotAssigned(_)) {
+                            Ok(())
+                        } else {
+                            Err(e)
+                        }
+                    },
+                    |_| Ok(()),
+                )
         }))
         .await
         .map(|_| ())?;
-        // TODO: Once slivers are stored locally, invoke the new sui contract endpoint to certify
-        // the event blob. (#683)
-        let event_blob_metadata = EventBlobMetadata {
-            blob_id: *blob_metadata.blob_id(),
-            start: self.start.as_ref().cloned().unwrap_or_default(),
-            end: self.end.as_ref().cloned().unwrap_or_default(),
-        };
-        self.prev_blob_id.insert(&(), &event_blob_metadata)?;
-        Ok(())
+        Ok(*blob_metadata.blob_id())
     }
 
     #[cfg(not(test))]
@@ -285,7 +287,19 @@ impl EventBlobWriter {
         file.seek(SeekFrom::Start(0))?;
         let mut file_content = Vec::new();
         file.read_to_end(&mut file_content)?;
-        self.store_slivers(&file_content).await?;
+        let blob_id = self.store_slivers(&file_content).await?;
+        // TODO: Once slivers are stored locally, invoke the new sui contract endpoint to certify
+        // the event blob. (#683)
+        let event_blob_metadata = EventBlobMetadata {
+            blob_id,
+            start: self.start.as_ref().cloned().unwrap_or_default(),
+            end: self.end.as_ref().cloned().unwrap_or_default(),
+            last_event_sequence_number: self.latest_sequence_number.clone().unwrap_or_default(),
+            last_event_index: self.latest_committed_event_index.unwrap_or_default(),
+        };
+        self.prev_blob_id.insert(&(), &event_blob_metadata)?;
+        self.latest_committed_event_sequence_number = self.latest_sequence_number.clone();
+        self.latest_committed_event_index = self.latest_event_index;
         Ok(())
     }
 
@@ -302,30 +316,46 @@ impl EventBlobWriter {
         Ok(())
     }
 
-    pub async fn write(&mut self, event: WalrusEvent) -> Result<()> {
-        self.update_sequence_range(&event);
-        self.write_event_to_buffer(&event)?;
-        let cut_new_blob = event.is_end_of_walrus_epoch_event
-            || (event.is_end_of_checkpoint_marker()
-                && (event.event_id.sequence_number + 1) % self.number_of_checkpoints_per_blob == 0);
+    /// Write an event to the current blob. If the event is an end of epoch event or the current
+    /// blob reaches the maximum number of processed sui checkpoints, the current blob is committed
+    /// and a new blob is started.
+    pub async fn write(&mut self, element: IndexedStreamElement, element_index: u64) -> Result<()> {
+        if self
+            .latest_committed_event_index()
+            .map_or(false, |i| i >= element_index)
+        {
+            // It is possible to receive committed events upon restart
+            return Ok(());
+        }
+
+        self.update_sequence_range(&element, element_index);
+        self.write_event_to_buffer(&element)?;
+        let cut_new_blob = element.is_end_of_epoch_event()
+            || (element.is_end_of_checkpoint_marker()
+                && (element.global_sequence_number.checkpoint_sequence_number + 1)
+                    % self.number_of_checkpoints_per_blob
+                    == 0);
         if cut_new_blob {
             self.commit().await?;
         }
+
         Ok(())
     }
 
-    fn update_sequence_range(&mut self, event: &WalrusEvent) {
+    fn update_sequence_range(&mut self, element: &IndexedStreamElement, element_index: u64) {
         if self.start.is_none() {
-            self.start = Some(event.event_id.sequence_number);
+            self.start = Some(element.global_sequence_number.checkpoint_sequence_number);
         }
-        self.end = Some(event.event_id.sequence_number);
+        self.end = Some(element.global_sequence_number.checkpoint_sequence_number);
+        self.latest_sequence_number = Some(element.global_sequence_number.clone());
+        self.latest_event_index = Some(element_index);
     }
 
-    fn write_event_to_buffer(&mut self, event: &WalrusEvent) -> Result<()> {
+    fn write_event_to_buffer(&mut self, event: &IndexedStreamElement) -> Result<()> {
         if event.is_end_of_checkpoint_marker() {
             return Ok(());
         }
-        let entry = BlobEntry::encode(event, crate::event_blob::EntryEncoding::Bcs)?;
+        let entry = BlobEntry::encode(event, crate::node::storage::event_blob::EntryEncoding::Bcs)?;
         self.buf_offset += entry.write(&mut self.wbuf)?;
         Ok(())
     }
@@ -334,6 +364,14 @@ impl EventBlobWriter {
         self.cut().await?;
         self.reset()?;
         Ok(())
+    }
+
+    pub fn latest_committed_event_sequence_number(&self) -> Option<EventSequenceNumber> {
+        self.latest_committed_event_sequence_number.clone()
+    }
+
+    pub fn latest_committed_event_index(&self) -> Option<u64> {
+        self.latest_committed_event_index
     }
 }
 
@@ -344,45 +382,62 @@ mod tests {
         path::{Path, PathBuf},
     };
 
+    use walrus_core::{BlobId, ShardIndex};
+    use walrus_event::{EventStreamElement, IndexedStreamElement};
+    use walrus_sui::{test_utils::EventForTesting, types::BlobCertified};
+
     use crate::{
-        blob_writer::EventBlobWriter,
-        checkpoint_processor::{WalrusEvent, WalrusEventID},
+        node::storage::event_blob_writer::{EventBlobWriter, EventSequenceNumber},
+        test_utils::StorageNodeHandle,
     };
 
     #[tokio::test]
-    async fn test_e2e() {
+    async fn test_e2e() -> anyhow::Result<()> {
         let dir: PathBuf = tempfile::tempdir()
             .expect("Failed to open temporary directory")
             .into_path();
-        let mut blob_writer = EventBlobWriter::new_for_testing(dir, 100).unwrap();
+        let node = StorageNodeHandle::builder()
+            .with_system_event_provider(vec![])
+            .with_shard_assignment(&[ShardIndex(0)])
+            .with_node_started(true)
+            .build()
+            .await?;
+        let mut blob_writer =
+            EventBlobWriter::new_for_testing(dir, 100, node.storage_node.inner.clone())?;
         if Path::new("/tmp/event_blob").exists() {
-            fs::remove_file("/tmp/event_blob").unwrap();
+            fs::remove_file("/tmp/event_blob")?;
         }
+        let mut counter = 0;
         // Write events into the blob
         for i in 0..100 {
-            let serialized_event = vec![0u8; 1024];
-            let event = WalrusEvent {
-                event_id: WalrusEventID::new(i, 0),
-                serialized_event,
-                is_end_of_walrus_epoch_event: false,
+            let event = IndexedStreamElement {
+                global_sequence_number: EventSequenceNumber::new(i as u64, 0),
+                element: EventStreamElement::BlobEvent(
+                    BlobCertified::for_testing(BlobId([7; 32])).into(),
+                ),
             };
-            blob_writer.write(event).await.unwrap();
-            let end_of_checkpoint_marker_event = WalrusEvent::new_end_of_checkpoint(i);
+            blob_writer.write(event, counter).await?;
+            counter += 1;
+            let end_of_checkpoint_marker_event =
+                IndexedStreamElement::new_checkpoint_boundary(i as u64, 1);
             blob_writer
-                .write(end_of_checkpoint_marker_event)
-                .await
-                .unwrap();
+                .write(end_of_checkpoint_marker_event, counter)
+                .await?;
+            counter += 1;
         }
         // Read back the events from the blob
-        let file = std::fs::File::open("/tmp/event_blob").unwrap();
-        let event_blob = crate::event_blob::EventBlob::new(file).unwrap();
+        let file = std::fs::File::open("/tmp/event_blob")?;
+        let event_blob = crate::node::storage::event_blob::EventBlob::new(file)?;
         assert_eq!(event_blob.start_checkpoint_sequence_number(), 0);
         assert_eq!(event_blob.end_checkpoint_sequence_number(), 99);
         let events: Vec<_> = event_blob.collect();
         assert_eq!(events.len(), 100);
         for (i, event) in events.iter().enumerate() {
-            assert_eq!(event.event_id.sequence_number, i as u64);
-            assert_eq!(event.serialized_event.len(), 1024);
+            assert_eq!(
+                event.global_sequence_number.checkpoint_sequence_number,
+                i as u64
+            );
         }
+        Ok(())
     }
 }

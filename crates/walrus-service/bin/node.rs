@@ -22,14 +22,17 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 use walrus_core::keys::ProtocolKeyPair;
+use walrus_event::{event_processor::EventProcessor, EventProcessorConfig};
 use walrus_service::{
     node::{
-        config::StorageNodeConfig,
+        config::{StorageNodeConfig, SuiConfig},
         server::{UserServer, UserServerConfig},
+        system_events::{EventManager, SuiSystemEventProvider},
         StorageNode,
     },
     utils::{version, LoadConfig as _, MetricsAndLoggingRuntime},
 };
+use walrus_sui::client::SuiReadClient;
 
 const VERSION: &str = version!();
 
@@ -124,10 +127,21 @@ mod commands {
         let cancel_token = CancellationToken::new();
         let (exit_notifier, exit_listener) = oneshot::channel::<()>();
 
+        let (event_manager, mut event_processor_runtime) = EventProcessorRuntime::start(
+            config
+                .sui
+                .clone()
+                .expect("SUI configuration must be present"),
+            config.event_processor_config.clone(),
+            &config.storage_path,
+            cancel_token.child_token(),
+        )?;
+
         let mut node_runtime = StorageNodeRuntime::start(
             &config,
             metrics_runtime.registry.clone(),
             exit_notifier,
+            event_manager,
             cancel_token.child_token(),
         )?;
 
@@ -135,6 +149,8 @@ mod commands {
 
         // Cancel the node runtime, if it is still executing.
         cancel_token.cancel();
+
+        event_processor_runtime.join()?;
 
         // Wait for the node runtime to complete, may take a moment as
         // the REST-API waits for open connections to close before exiting.
@@ -151,6 +167,99 @@ mod commands {
     }
 }
 
+struct EventProcessorRuntime {
+    event_processor_handle: JoinHandle<anyhow::Result<()>>,
+    // INV: Runtime must be dropped last.
+    runtime: Runtime,
+}
+
+impl EventProcessorRuntime {
+    async fn build_event_processor(
+        sui_config: SuiConfig,
+        event_processor_config: Option<EventProcessorConfig>,
+        db_path: &Path,
+    ) -> anyhow::Result<Option<Arc<EventProcessor>>> {
+        let SuiConfig {
+            rpc,
+            system_object,
+            staking_object,
+            ..
+        } = sui_config;
+
+        let read_client = SuiReadClient::new_for_rpc(&rpc, system_object, staking_object).await?;
+        match &event_processor_config {
+            Some(event_processor_config) => Ok(Some(Arc::new(
+                EventProcessor::new(
+                    event_processor_config,
+                    read_client.get_system_package_id(),
+                    sui_config.event_polling_interval,
+                    db_path,
+                )
+                .await?,
+            ))),
+            None => Ok(None),
+        }
+    }
+    fn start(
+        sui_config: SuiConfig,
+        event_processor_config: Option<EventProcessorConfig>,
+        db_path: &Path,
+        cancel_token: CancellationToken,
+    ) -> anyhow::Result<(Box<dyn EventManager>, Self)> {
+        let runtime = runtime::Builder::new_multi_thread()
+            .thread_name("event-manager-runtime")
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .context("event manager runtime creation failed")?;
+        let _guard = runtime.enter();
+        let (read_client, event_processor) = runtime.block_on(async {
+            let read_client = SuiReadClient::new_for_rpc(
+                &sui_config.rpc,
+                sui_config.system_object,
+                sui_config.staking_object,
+            )
+            .await?;
+            let event_processor =
+                Self::build_event_processor(sui_config.clone(), event_processor_config, db_path)
+                    .await?;
+            anyhow::Ok((read_client, event_processor))
+        })?;
+        let cloned_event_processor = event_processor.clone();
+        let event_manager: Box<dyn EventManager> = match cloned_event_processor {
+            Some(event_processor) => Box::new(event_processor.clone()),
+            None => Box::new(SuiSystemEventProvider::new(
+                read_client,
+                sui_config.event_polling_interval,
+            )),
+        };
+        let event_processor_handle = tokio::spawn(async move {
+            let result = if let Some(event_processor) = event_processor {
+                event_processor.start(cancel_token).await
+            } else {
+                Ok(())
+            };
+            if let Err(ref error) = result {
+                tracing::error!(?error, "event manager exited with an error");
+            }
+            result
+        });
+
+        Ok((
+            event_manager,
+            Self {
+                runtime,
+                event_processor_handle,
+            },
+        ))
+    }
+
+    fn join(&mut self) -> Result<(), anyhow::Error> {
+        tracing::debug!("waiting for the event processor to shutdown...");
+        self.runtime.block_on(&mut self.event_processor_handle)?
+    }
+}
+
 struct StorageNodeRuntime {
     walrus_node_handle: JoinHandle<anyhow::Result<()>>,
     rest_api_handle: JoinHandle<Result<(), io::Error>>,
@@ -163,6 +272,7 @@ impl StorageNodeRuntime {
         node_config: &StorageNodeConfig,
         metrics_registry: Registry,
         exit_notifier: oneshot::Sender<()>,
+        event_manager: Box<dyn EventManager>,
         cancel_token: CancellationToken,
     ) -> anyhow::Result<Self> {
         let runtime = runtime::Builder::new_multi_thread()
@@ -173,8 +283,11 @@ impl StorageNodeRuntime {
         let _guard = runtime.enter();
 
         let walrus_node = Arc::new(
-            runtime
-                .block_on(StorageNode::builder().build(node_config, metrics_registry.clone()))?,
+            runtime.block_on(
+                StorageNode::builder()
+                    .with_system_event_manager(event_manager)
+                    .build(node_config, metrics_registry.clone()),
+            )?,
         );
 
         let walrus_node_clone = walrus_node.clone();

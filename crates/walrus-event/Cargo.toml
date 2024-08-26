@@ -31,7 +31,7 @@ typed-store.workspace = true
 url.workspace = true
 walrus-core.workspace = true
 walrus-sdk.workspace = true
-walrus-service = { workspace = true, features = ["node"] }
+walrus-sui.workspace = true
 
 [features]
 default = ["test-utils"]

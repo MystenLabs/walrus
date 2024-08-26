@@ -12,8 +12,7 @@ use byteorder::ReadBytesExt;
 use integer_encoding::{VarInt, VarIntReader};
 use sui_types::messages_checkpoint::CheckpointSequenceNumber;
 use walrus_core::BlobId;
-
-use crate::checkpoint_processor::WalrusEvent;
+use walrus_event::IndexedStreamElement;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum EntryEncoding {
@@ -52,7 +51,7 @@ impl BlobEntry {
     pub const EVENT_ENCODING_BYTES: usize = 1;
 
     /// Encode the given value into a blob entry.
-    pub fn encode(value: &WalrusEvent, encoding: EntryEncoding) -> Result<Self> {
+    pub fn encode(value: &IndexedStreamElement, encoding: EntryEncoding) -> Result<Self> {
         let value_buf = bcs::to_bytes(value)?;
         let (data, encoding) = match encoding {
             EntryEncoding::Bcs => (value_buf, encoding),
@@ -61,7 +60,7 @@ impl BlobEntry {
     }
 
     /// Decode the blob entry into a value.
-    pub fn decode(self) -> Result<WalrusEvent> {
+    pub fn decode(self) -> Result<IndexedStreamElement> {
         let data = match &self.encoding {
             EntryEncoding::Bcs => self.data,
         };
@@ -104,7 +103,7 @@ impl BlobEntry {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn decode_from_bytes(bytes: &[u8]) -> Result<WalrusEvent> {
+    pub fn decode_from_bytes(bytes: &[u8]) -> Result<IndexedStreamElement> {
         let (encoding, data) = bytes.split_first().ok_or(anyhow!("empty bytes"))?;
         BlobEntry {
             data: data.to_vec(),
@@ -187,16 +186,16 @@ impl EventBlob {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn start_checkpoint_sequence_number(&self) -> CheckpointSequenceNumber {
+    pub fn start_checkpoint_sequence_number(&self) -> CheckpointSequenceNumber {
         self.start
     }
 
     #[allow(dead_code)]
-    pub(crate) fn end_checkpoint_sequence_number(&self) -> CheckpointSequenceNumber {
+    pub fn end_checkpoint_sequence_number(&self) -> CheckpointSequenceNumber {
         self.end
     }
 
-    fn next_event(&mut self) -> Result<WalrusEvent> {
+    fn next_event(&mut self) -> Result<IndexedStreamElement> {
         let entry = BlobEntry::read(&mut self.reader)?;
         self.current_pos += entry.size() as u64;
         entry.decode()
@@ -204,7 +203,7 @@ impl EventBlob {
 }
 
 impl Iterator for EventBlob {
-    type Item = WalrusEvent;
+    type Item = IndexedStreamElement;
     fn next(&mut self) -> Option<Self::Item> {
         if self.current_pos >= self.total_size {
             return None;

@@ -28,6 +28,7 @@ use walrus_core::keys::{
     SupportedKeyPair,
     TaggedKeyPair,
 };
+use walrus_event::EventProcessorConfig;
 
 use super::storage::DatabaseConfig;
 use crate::common::utils::{self, LoadConfig};
@@ -73,6 +74,9 @@ pub struct StorageNodeConfig {
     /// Configuration for shard synchronization.
     #[serde(default)]
     pub shard_sync_config: ShardSyncConfig,
+    /// Configuration for running checkpoint processor
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_processor_config: Option<EventProcessorConfig>,
 }
 
 impl StorageNodeConfig {

@@ -18,7 +18,7 @@ use std::{
 use async_trait::async_trait;
 use futures::StreamExt;
 use prometheus::Registry;
-use sui_types::{base_types::ObjectID, event::EventID};
+use sui_types::base_types::ObjectID;
 use tempfile::TempDir;
 use tokio::time::Duration;
 use tokio_stream::{wrappers::BroadcastStream, Stream};
@@ -42,6 +42,7 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
+use walrus_event::{EventSequenceNumber, EventStreamCursor, IndexedStreamElement};
 use walrus_sdk::client::Client;
 use walrus_sui::types::{
     BlobEvent,
@@ -58,11 +59,48 @@ use crate::node::{
     contract_service::SystemContractService,
     errors::SyncShardClientError,
     server::{UserServer, UserServerConfig},
-    system_events::SystemEventProvider,
+    system_events::{EventManager, EventRetentionManager, SystemEventProvider},
     DatabaseConfig,
     Storage,
     StorageNode,
 };
+
+/// A system event manager that provides events from a stream. It does not support dropping events.
+#[derive(Debug)]
+pub struct DefaultSystemEventManager {
+    event_provider: Box<dyn SystemEventProvider>,
+}
+
+impl DefaultSystemEventManager {
+    /// Creates a new system event manager with the provided event provider.
+    pub fn new(event_provider: Box<dyn SystemEventProvider>) -> Self {
+        Self { event_provider }
+    }
+}
+
+#[async_trait]
+impl SystemEventProvider for DefaultSystemEventManager {
+    async fn events(
+        &self,
+        cursor: EventStreamCursor,
+    ) -> anyhow::Result<
+        Box<dyn Stream<Item = IndexedStreamElement> + Send + Sync + 'life0>,
+        anyhow::Error,
+    > {
+        self.event_provider.events(cursor).await
+    }
+}
+
+#[async_trait]
+impl EventRetentionManager for DefaultSystemEventManager {
+    async fn drop_events_before(&self, _cursor: EventStreamCursor) -> Result<(), anyhow::Error> {
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl EventManager for DefaultSystemEventManager {}
+
 /// A storage node and associated data for testing.
 #[derive(Debug)]
 pub struct StorageNodeHandle {
@@ -302,7 +340,9 @@ impl StorageNodeHandleBuilder {
         let metrics_registry = Registry::default();
         let node = StorageNode::builder()
             .with_storage(storage)
-            .with_system_event_provider(self.event_provider)
+            .with_system_event_manager(Box::new(DefaultSystemEventManager::new(
+                self.event_provider,
+            )))
             .with_committee_service_factory(committee_service_factory)
             .with_system_contract_service(contract_service)
             .build(&config, metrics_registry.clone())
@@ -563,10 +603,16 @@ fn try_unused_socket_address() -> anyhow::Result<SocketAddr> {
 impl SystemEventProvider for Vec<BlobEvent> {
     async fn events(
         &self,
-        _cursor: Option<EventID>,
-    ) -> Result<Box<dyn Stream<Item = BlobEvent> + Send + Sync + 'life0>, anyhow::Error> {
+        _cursor: EventStreamCursor,
+    ) -> Result<Box<dyn Stream<Item = IndexedStreamElement> + Send + Sync + 'life0>, anyhow::Error>
+    {
         Ok(Box::new(
-            tokio_stream::iter(self.clone()).chain(tokio_stream::pending()),
+            tokio_stream::iter(
+                self.clone()
+                    .into_iter()
+                    .map(|c| IndexedStreamElement::new(c, EventSequenceNumber::new(0, 0))),
+            )
+            .chain(tokio_stream::pending()),
         ))
     }
 }
@@ -575,10 +621,16 @@ impl SystemEventProvider for Vec<BlobEvent> {
 impl SystemEventProvider for tokio::sync::broadcast::Sender<BlobEvent> {
     async fn events(
         &self,
-        _cursor: Option<EventID>,
-    ) -> Result<Box<dyn Stream<Item = BlobEvent> + Send + Sync + 'life0>, anyhow::Error> {
+        _cursor: EventStreamCursor,
+    ) -> Result<Box<dyn Stream<Item = IndexedStreamElement> + Send + Sync + 'life0>, anyhow::Error>
+    {
         Ok(Box::new(BroadcastStream::new(self.subscribe()).map(
-            |value| value.expect("should not return errors in test"),
+            |value| {
+                IndexedStreamElement::new(
+                    value.expect("should not return errors in test"),
+                    EventSequenceNumber::new(0, 0),
+                )
+            },
         )))
     }
 }
@@ -1123,6 +1175,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             tls: Default::default(),
             rest_graceful_shutdown_period_secs: Some(Some(0)),
             shard_sync_config: Default::default(),
+            event_processor_config: None,
         },
         temp_dir,
     }

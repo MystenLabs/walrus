@@ -4,7 +4,7 @@
 //! Walrus event type bindings. Replicates the move event types in Rust.
 
 use anyhow::anyhow;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sui_sdk::rpc_types::SuiEvent;
 use sui_types::{base_types::ObjectID, event::EventID};
 use walrus_core::{ensure, BlobId, EncodingType, Epoch};
@@ -31,7 +31,7 @@ fn ensure_event_type(
 }
 
 /// Sui event that blob has been registered.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlobRegistered {
     /// The epoch in which the blob has been registered.
     pub epoch: Epoch,
@@ -78,7 +78,7 @@ impl TryFrom<SuiEvent> for BlobRegistered {
 }
 
 /// Sui event that blob has been certified.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlobCertified {
     /// The epoch in which the blob was certified.
     pub epoch: Epoch,
@@ -121,7 +121,7 @@ impl TryFrom<SuiEvent> for BlobCertified {
 }
 
 /// Sui event that a blob ID is invalid.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InvalidBlobId {
     /// The epoch in which the blob was marked as invalid.
     pub epoch: Epoch,
@@ -151,7 +151,7 @@ impl TryFrom<SuiEvent> for InvalidBlobId {
 }
 
 /// Enum to wrap blob events.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BlobEvent {
     /// A registration event.
     Registered(BlobRegistered),

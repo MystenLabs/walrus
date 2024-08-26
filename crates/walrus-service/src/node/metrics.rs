@@ -10,6 +10,7 @@ use prometheus::{
     Opts,
     Registry,
 };
+use walrus_event::EventStreamElement;
 use walrus_sui::types::{BlobCertified, BlobEvent};
 
 pub(crate) const STATUS_FAILURE: &str = "failure";
@@ -123,6 +124,15 @@ impl TelemetryLabel for BlobEvent {
             BlobEvent::Registered(_) => "registered",
             BlobEvent::Certified(event) => event.label(),
             BlobEvent::InvalidBlobID(_) => "invalid-blob",
+        }
+    }
+}
+
+impl TelemetryLabel for EventStreamElement {
+    fn label(&self) -> &'static str {
+        match self {
+            EventStreamElement::BlobEvent(event) => event.label(),
+            EventStreamElement::CheckpointBoundary => "end-of-checkpoint",
         }
     }
 }
