@@ -454,7 +454,8 @@ impl ShardStorage {
         mut last_synced_blob_id: Option<BlobId>,
     ) -> Result<(), SyncShardError> {
         // Helper to track the number of scanned blobs to test recovery. Not used in production.
-        let mut _scan_count = 0;
+        #[cfg(feature = "failure_injection")]
+        let mut scan_count = 0;
         while let Some(next_starting_blob_id) =
             next_certified_blob_id_before_epoch(&node.storage, epoch, last_synced_blob_id)
                 .context("Scanning certified blobs encountered error")?
@@ -501,7 +502,7 @@ impl ShardStorage {
                 #[cfg(feature = "failure_injection")]
                 {
                     (|| -> Result<(), anyhow::Error> {
-                        _scan_count += 1;
+                        scan_count += 1;
                         fail::fail_point!("fail_point_fetch_sliver", |arg| {
                             if let Some(arg) = arg {
                                 let parts: Vec<&str> = arg.split(',').collect();
@@ -512,12 +513,12 @@ impl ShardStorage {
                                     arg = ?arg,
                                     if_trigger_in_primary = ?trigger_in_primary,
                                     trigger_index = ?trigger_at,
-                                    blob_count = ?_scan_count
+                                    blob_count = ?scan_count
                                 );
                                 if ((trigger_in_primary && sliver_type == SliverType::Primary)
                                     || (!trigger_in_primary
                                         && sliver_type == SliverType::Secondary))
-                                    && trigger_at == _scan_count
+                                    && trigger_at == scan_count
                                 {
                                     return Err(anyhow!("fetch_sliver simulated sync failure"));
                                 }
