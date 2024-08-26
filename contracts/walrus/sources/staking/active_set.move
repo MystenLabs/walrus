@@ -49,7 +49,6 @@ public(package) fun new(max_size: u16, min_stake: u64): ActiveSet {
         max_size,
         min_stake,
         nodes: vec_map::empty(),
-        // sorted_nodes: vector[],
         total_stake: 0,
         idx_sorted: vector[],
     }
@@ -162,10 +161,15 @@ public(package) fun min_stake(set: &ActiveSet): u64 { set.min_stake }
 public(package) fun total_stake(set: &ActiveSet): u64 { set.total_stake }
 
 #[syntax(index)]
+/// Get the staked amount of the storage node with the given `node_id`.
+public(package) fun borrow(set: &ActiveSet, node_id: &ID): &u64 {
+    &set.nodes[node_id]
+}
+
 /// Get the `node_id` by the given `idx`. The `idx` is the index of the node in
 /// the sorted list of nodes, meaning that `0` is the node with the highest
 /// staked WAL, `1` is the second highest, and so on.
-public(package) fun borrow(set: &ActiveSet, idx: u64): &ID {
+public(package) fun get_by_stake_idx(set: &ActiveSet, idx: u64): &ID {
     let idx = set.idx_sorted[idx];
     let (node_id, _) = set.nodes.get_entry_by_idx(idx as u64);
     node_id

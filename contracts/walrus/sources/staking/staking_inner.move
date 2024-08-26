@@ -25,6 +25,7 @@ use sui::{
 use walrus::{
     active_set::{Self, ActiveSet},
     bls_aggregate::{Self, BlsCommittee},
+    committee::{Self, Committee},
     staked_wal::{Self, StakedWal},
     staking_pool::{Self, StakingPool},
     storage_node::{Self, StorageNodeCap, StorageNodeInfo},
@@ -37,9 +38,6 @@ const MIN_STAKE: u64 = 0;
 // TODO: remove this once the module is implemented.
 #[error]
 const ENotImplemented: vector<u8> = b"Function is not implemented";
-
-/// The committee in the system.
-public struct Committee(VecMap<ID, vector<u16>>) has store, copy, drop;
 
 /// The inner object for the staking part of the system.
 public struct StakingInnerV1 has store {
@@ -73,8 +71,8 @@ public(package) fun new(shards: u16, ctx: &mut TxContext): StakingInnerV1 {
         epoch: 0,
         active_set: active_set::new(shards, MIN_STAKE),
         next_committee: option::none(),
-        committee: Committee(vec_map::empty()),
-        previous_committee: Committee(vec_map::empty()),
+        committee: committee::empty(),
+        previous_committee: committee::empty(),
     }
 }
 
@@ -231,13 +229,13 @@ public(package) fun epoch(self: &StakingInnerV1): u32 {
 }
 
 /// Get the current committee.
-public(package) fun committee(self: &StakingInnerV1): &VecMap<ID, vector<u16>> {
-    &self.committee.0
+public(package) fun committee(self: &StakingInnerV1): &Committee {
+    &self.committee
 }
 
 /// Get the previous committee.
-public(package) fun previous_committee(self: &StakingInnerV1): &VecMap<ID, vector<u16>> {
-    &self.previous_committee.0
+public(package) fun previous_committee(self: &StakingInnerV1): &Committee {
+    &self.previous_committee
 }
 
 /// Check if a node with the given `ID` exists in the staking pools.
@@ -252,49 +250,34 @@ public(package) fun select_committee(self: &mut StakingInnerV1, ctx: &mut TxCont
     assert!(self.next_committee.is_none());
 
     let shard_threshold = self.active_set.total_stake() / (self.shards as u64);
-    let mut committee = vec_map::empty();
-    let mut shard_idx: u16 = 0;
+    let mut shards_assigned: u16 = 0;
 
-    // NOTE: the solution for shard assignment is a temporary one, it does not
-    //       guarantee correct and full distribution just yet.
-    self
-        .active_set
-        .active_ids()
-        .do_ref!(
-            |id| {
-                let pool = &mut self.pools[*id];
-                let shards_num = pool.stake_at_epoch(self.epoch + 1) / shard_threshold;
-                let shards = vector::tabulate!(
-                    shards_num,
-                    |x| {
-                        shard_idx = shard_idx + 1;
-                        shard_idx
-                    },
-                );
+    let mut distribution = vec_map::from_keys_values(
+        self.active_set.active_ids(),
+        self
+            .active_set
+            .active_ids()
+            .map_ref!(
+                |node_id| {
+                    let value = (self.active_set[node_id] / shard_threshold) as u16;
+                    shards_assigned = shards_assigned + value;
+                    value
+                },
+            ),
+    );
 
-                pool.assign_shards(shards);
-                committee.insert(*id, shards);
-            },
-        );
-
-    // TODO: handle the remaining shards
-    let remaining_shards = self.shards - shard_idx;
-    if (remaining_shards > 0) {
-        let (first_node, _) = committee.get_entry_by_idx(0);
-        let first_node = *first_node;
-        let shards = vector::tabulate!(
-            remaining_shards as u64,
-            |i| {
-                shard_idx = shard_idx + 1;
-                shard_idx
-            },
-        );
-
-        committee[&first_node].append(shards);
-        self.pools[first_node].add_shards(shards);
+    if (shards_assigned < self.shards) {
+        let (_first_node, shards) = distribution.get_entry_by_idx_mut(0);
+        *shards = *shards + (self.shards - shards_assigned);
     };
 
-    self.next_committee = option::some(Committee(committee));
+    // if we're dealing with the first epoch, we need to assign the shards to the
+    // nodes in a sequential manner. Assuming there's at least 1 node in the set.
+    if (self.committee.size() == 0) {
+        self.next_committee = option::some(committee::initialize(distribution));
+    } else {
+        self.next_committee = option::some(self.committee.transition(distribution));
+    }
 }
 
 /// Sets the next epoch of the system.
@@ -311,7 +294,7 @@ public(package) fun advance_epoch(self: &mut StakingInnerV1, ctx: &mut TxContext
 
     let wctx = &self.new_walrus_context();
 
-    self.committee.0.keys().do!(|node| self.pools[node].advance_epoch(wctx));
+    self.committee.inner().keys().do_ref!(|node| self.pools[*node].advance_epoch(wctx));
 }
 
 // === Internal ===
@@ -320,7 +303,7 @@ fun new_walrus_context(self: &StakingInnerV1): WalrusContext {
     walrus_context::new(
         self.epoch,
         self.next_committee.is_some(),
-        self.committee.0,
+        self.committee.to_inner(),
     )
 }
 

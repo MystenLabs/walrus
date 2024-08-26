@@ -12,9 +12,13 @@ use sui::vec_map::{Self, VecMap};
 /// has assigned shard IDs.
 public struct Committee(VecMap<ID, vector<u16>>) has store, copy, drop;
 
+/// Creates an empty committee. Only relevant for epoch 0, when no nodes are
+/// assigned any shards.
+public(package) fun empty(): Committee { Committee(vec_map::empty()) }
+
 /// Initializes the committee with the given `assigned_number` of shards per
 /// node. Shards are assigned sequentially to each node.
-public fun initialize(assigned_number: VecMap<ID, u16>): Committee {
+public(package) fun initialize(assigned_number: VecMap<ID, u16>): Committee {
     let mut shard_idx: u16 = 0;
     let (keys, values) = assigned_number.into_keys_values();
     let cmt = vec_map::from_keys_values(
@@ -40,7 +44,7 @@ public fun initialize(assigned_number: VecMap<ID, u16>): Committee {
 ///
 /// This assumes that the number of shards in the new committee is equal to the
 /// number of shards in the current committee. Check for this is not performed.
-public fun transition(cmt: &Committee, assigned_number: VecMap<ID, u16>): Committee {
+public(package) fun transition(cmt: &Committee, assigned_number: VecMap<ID, u16>): Committee {
     let mut new_cmt = vec_map::empty();
     let mut to_move = vector[];
     let mut revisit = assigned_number.keys();
@@ -121,13 +125,23 @@ public fun transition(cmt: &Committee, assigned_number: VecMap<ID, u16>): Commit
 
 #[syntax(index)]
 /// Get the shards assigned to the given `node_id`.
-public fun shards(cmt: &Committee, node_id: &ID): &vector<u16> {
+public(package) fun shards(cmt: &Committee, node_id: &ID): &vector<u16> {
     cmt.0.get(node_id)
 }
 
 /// Get the number of nodes in the committee.
-public fun size(cmt: &Committee): u64 {
+public(package) fun size(cmt: &Committee): u64 {
     cmt.0.size()
+}
+
+/// Get the inner representation of the committee.
+public(package) fun inner(cmt: &Committee): &VecMap<ID, vector<u16>> {
+    &cmt.0
+}
+
+/// Copy the inner representation of the committee.
+public(package) fun to_inner(cmt: &Committee): VecMap<ID, vector<u16>> {
+    cmt.0
 }
 
 #[test]
