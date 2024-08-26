@@ -75,6 +75,7 @@ use errors::{
     BlobStatusError,
     ComputeStorageConfirmationError,
     InconsistencyProofError,
+    InvalidEpochError,
     RetrieveMetadataError,
     RetrieveSliverError,
     RetrieveSymbolError,
@@ -83,7 +84,6 @@ use errors::{
     StoreSliverError,
     SyncShardError,
 };
-use walrus_core::errors::InvalidEpoch;
 
 mod storage;
 pub use storage::{DatabaseConfig, Storage};
@@ -176,7 +176,7 @@ pub trait ServiceState {
         &self,
         public_key: PublicKey,
         signed_request: SignedSyncShardRequest,
-    ) -> impl Future<Output = Result<SyncShardResponse, SyncShardError>> + Send;
+    ) -> Result<SyncShardResponse, SyncShardError>;
 }
 
 /// Builder to construct a [`StorageNode`].
@@ -712,7 +712,7 @@ impl ServiceState for StorageNode {
         &self,
         public_key: PublicKey,
         signed_request: SignedSyncShardRequest,
-    ) -> impl Future<Output = Result<SyncShardResponse, SyncShardError>> + Send {
+    ) -> Result<SyncShardResponse, SyncShardError> {
         self.inner.sync_shard(public_key, signed_request)
     }
 }
@@ -939,7 +939,7 @@ impl ServiceState for StorageNodeInner {
         }
     }
 
-    async fn sync_shard(
+    fn sync_shard(
         &self,
         public_key: PublicKey,
         signed_request: SignedSyncShardRequest,
@@ -956,11 +956,11 @@ impl ServiceState for StorageNodeInner {
         // If the epoch of the requester should not be older than the current epoch of the node.
         // In a normal scenario, a storage node will never fetch shards from a future epoch.
         if request.epoch() < self.current_epoch() {
-            return Err(InvalidEpoch::TooOld(self.current_epoch()).into());
+            return Err(InvalidEpochError::TooOld(self.current_epoch()).into());
         }
 
         if request.epoch() > self.current_epoch() {
-            return Err(InvalidEpoch::TooNew(self.current_epoch()).into());
+            return Err(InvalidEpochError::TooNew(self.current_epoch()).into());
         }
 
         self.storage
@@ -1942,19 +1942,16 @@ mod tests {
             .protocol_key_pair
             .sign_message(&sync_shard_msg);
 
-        let result = cluster.nodes[0]
-            .storage_node
-            .sync_shard(
-                cluster.nodes[1]
-                    .as_ref()
-                    .inner
-                    .protocol_key_pair
-                    .0
-                    .public()
-                    .clone(),
-                signed_request,
-            )
-            .await;
+        let result = cluster.nodes[0].storage_node.sync_shard(
+            cluster.nodes[1]
+                .as_ref()
+                .inner
+                .protocol_key_pair
+                .0
+                .public()
+                .clone(),
+            signed_request,
+        );
         assert!(matches!(
             result,
             Err(SyncShardError::MessageVerificationError(..))
@@ -2000,7 +1997,7 @@ mod tests {
 
         assert!(matches!(
             status,
-            Err(err) if err.walrus_service_error().is_some() &&
+            Err(err) if err.reason().is_some() &&
                 err.to_string().contains(
                     error_message
                 )

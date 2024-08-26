@@ -618,7 +618,7 @@ mod tests {
             }
         }
 
-        async fn sync_shard(
+        fn sync_shard(
             &self,
             _public_key: PublicKey,
             _signed_request: SignedMessage<SyncShardMsg>,

@@ -32,7 +32,6 @@ use walrus_core::{
         SliverRecoveryOrVerificationError,
         SliverVerificationError,
     },
-    errors::WalrusServiceError,
     inconsistency::{InconsistencyProof, SliverOrInconsistencyProof},
     keys::ProtocolKeyPair,
     merkle::MerkleProof,
@@ -596,23 +595,10 @@ where
         let node = self.node(member_index);
 
         if let Some(client) = node.client() {
-            let result = client
+            Ok(client
                 .sync_shard::<A>(shard, starting_blob_id, sliver_count, epoch, key_pair)
-                .await;
-            match result {
-                Ok(response) => Ok(response.into()),
-                Err(err) => {
-                    if let Some(WalrusServiceError::SyncShardInvalidEpoch(invalid_epoch_error)) =
-                        err.walrus_service_error()
-                    {
-                        Err(SyncShardError::InvalidEpoch(invalid_epoch_error.clone()))
-                    } else {
-                        Err(SyncShardError::Internal(anyhow::anyhow!(err
-                            .error_message()
-                            .unwrap_or_default())))
-                    }
-                }
-            }
+                .await?
+                .into())
         } else {
             Err(SyncShardError::NoSyncClient)
         }

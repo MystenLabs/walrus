@@ -11,12 +11,13 @@ use utoipa::{
     openapi::{response::Response as OpenApiResponse, RefOr},
     IntoResponses,
 };
+use walrus_sdk::error::ServiceErrorReason;
 
 use super::extract::BcsRejection;
 use crate::{
     common::api::{rest_api_error, RestApiError},
     node::{
-        errors::WalrusServiceError,
+        errors::InvalidEpochError,
         BlobStatusError,
         ComputeStorageConfirmationError,
         InconsistencyProofError,
@@ -31,89 +32,93 @@ use crate::{
 
 rest_api_error! {
     RetrieveMetadataError: [
-        (Unavailable, NOT_FOUND, Self::Unavailable.to_string()),
-        (Internal(_), INTERNAL_SERVER_ERROR, @canonical),
+        (Unavailable, NOT_FOUND, None, Self::Unavailable.to_string()),
+        (Internal(_), INTERNAL_SERVER_ERROR, None, @canonical),
     ]
 }
 
 rest_api_error! {
     StoreMetadataError: [
-        (NotRegistered, CONFLICT, Self::NotRegistered.to_string()),
-        (InvalidMetadata(_), BAD_REQUEST, "the provided metadata cannot be verified"),
-        (InvalidBlob(_), CONFLICT, "the blob for the provided metadata is invalid"),
-        (BlobExpired, GONE, Self::BlobExpired.to_string()),
-        (Internal(_), INTERNAL_SERVER_ERROR, @canonical),
+        (NotRegistered, CONFLICT, None, Self::NotRegistered.to_string()),
+        (InvalidMetadata(_), BAD_REQUEST, None, "the provided metadata cannot be verified"),
+        (InvalidBlob(_), CONFLICT, None, "the blob for the provided metadata is invalid"),
+        (BlobExpired, GONE, None, Self::BlobExpired.to_string()),
+        (Internal(_), INTERNAL_SERVER_ERROR, None, @canonical),
     ]
 }
 
 rest_api_error! {
     RetrieveSliverError: [
-        (ShardNotAssigned(_), MISDIRECTED_REQUEST,
+        (ShardNotAssigned(_), MISDIRECTED_REQUEST, None,
         "the requested sliver is not stored at a shard assigned to this storage node"),
-        (SliverOutOfRange(_), BAD_REQUEST, "the requested sliver index is out of range"),
-        (Unavailable, NOT_FOUND, Self::Unavailable.to_string()),
-        (Internal(_), INTERNAL_SERVER_ERROR, @canonical)
+        (SliverOutOfRange(_), BAD_REQUEST, None, "the requested sliver index is out of range"),
+        (Unavailable, NOT_FOUND, None, Self::Unavailable.to_string()),
+        (Internal(_), INTERNAL_SERVER_ERROR, None, @canonical)
     ]
 }
 
 rest_api_error! {
     StoreSliverError: [
-        (SliverOutOfRange(_), BAD_REQUEST, "the requested sliver index is out of range"),
-        (MissingMetadata, CONFLICT, Self::MissingMetadata.to_string()),
-        (InvalidSliver(_), BAD_REQUEST, "the provided sliver failed verification"),
-        (ShardNotAssigned(_), MISDIRECTED_REQUEST,
+        (SliverOutOfRange(_), BAD_REQUEST, None, "the requested sliver index is out of range"),
+        (MissingMetadata, CONFLICT, None, Self::MissingMetadata.to_string()),
+        (InvalidSliver(_), BAD_REQUEST, None, "the provided sliver failed verification"),
+        (ShardNotAssigned(_), MISDIRECTED_REQUEST, None,
         "the requested sliver is not stored at a shard assigned to this storage node"),
-        (Internal(_), INTERNAL_SERVER_ERROR, @canonical)
+        (Internal(_), INTERNAL_SERVER_ERROR, None, @canonical)
     ]
 }
 
 rest_api_error! {
     RetrieveSymbolError: [
-        (RecoverySymbolOutOfRange(_), BAD_REQUEST, "the requested recovery symbol is out of range"),
-        (RetrieveSliver(RetrieveSliverError::Internal(_)), INTERNAL_SERVER_ERROR, @canonical),
-        (RetrieveSliver(RetrieveSliverError::SliverOutOfRange(_)), BAD_REQUEST,
+        (RecoverySymbolOutOfRange(_), BAD_REQUEST, None,
+        "the requested recovery symbol is out of range"),
+        (RetrieveSliver(RetrieveSliverError::Internal(_)), INTERNAL_SERVER_ERROR, None, @canonical),
+        (RetrieveSliver(RetrieveSliverError::SliverOutOfRange(_)), BAD_REQUEST, None,
         "invalid index for the sliver providing the recovery symbol"),
-        (RetrieveSliver(RetrieveSliverError::ShardNotAssigned(_)), MISDIRECTED_REQUEST,
+        (RetrieveSliver(RetrieveSliverError::ShardNotAssigned(_)), MISDIRECTED_REQUEST, None,
         "the sliver providing the requested symbol is not stored at this node's shards"),
-        (RetrieveSliver(RetrieveSliverError::Unavailable), NOT_FOUND,
+        (RetrieveSliver(RetrieveSliverError::Unavailable), NOT_FOUND, None,
         "the sliver providing the requested symbol was not found"),
-        (Internal(_), INTERNAL_SERVER_ERROR, @canonical)
+        (Internal(_), INTERNAL_SERVER_ERROR, None, @canonical)
     ]
 }
 
 rest_api_error! {
     ComputeStorageConfirmationError: [
-        (NotFullyStored, NOT_FOUND, Self::NotFullyStored.to_string()),
-        (Internal(_), INTERNAL_SERVER_ERROR, @canonical)
+        (NotFullyStored, NOT_FOUND, None, Self::NotFullyStored.to_string()),
+        (Internal(_), INTERNAL_SERVER_ERROR, None, @canonical)
     ]
 }
 
 rest_api_error! {
     InconsistencyProofError: [
-        (MissingMetadata, NOT_FOUND, Self::MissingMetadata.to_string()),
-        (InvalidProof(_), BAD_REQUEST, "the provided inconsistency proof was invalid"),
-        (Internal(_), INTERNAL_SERVER_ERROR, @canonical)
+        (MissingMetadata, NOT_FOUND, None, Self::MissingMetadata.to_string()),
+        (InvalidProof(_), BAD_REQUEST, None, "the provided inconsistency proof was invalid"),
+        (Internal(_), INTERNAL_SERVER_ERROR, None, @canonical)
     ]
 }
 
 rest_api_error! {
     BlobStatusError: [
-        (Internal(_), INTERNAL_SERVER_ERROR, @canonical)
+        (Internal(_), INTERNAL_SERVER_ERROR, None, @canonical)
     ]
 }
 
 rest_api_error!(
     SyncShardError: [
-        (Unauthorized, UNAUTHORIZED, Self::Unauthorized.to_string()),
-        (MessageVerificationError(_), BAD_REQUEST, "Request verification failed"),
-        (ShardNotAssigned(_), MISDIRECTED_REQUEST,
+        (Unauthorized, UNAUTHORIZED, None, Self::Unauthorized.to_string()),
+        (MessageVerificationError(_), BAD_REQUEST, None, "Request verification failed"),
+        (ShardNotAssigned(_), MISDIRECTED_REQUEST, None,
         "the requested sliver is not stored at a shard assigned to this storage node"),
-        (InvalidEpoch(_), BAD_REQUEST, "The requested epoch is invalid"),
-        (Internal(_), INTERNAL_SERVER_ERROR, @canonical),
-        (NoSyncClient, BAD_REQUEST, "No client found for syncing the shard"),
-        (NoOwnerForShard(_), BAD_REQUEST, "No owner found for the shard"),
-        (StorageError(_), INTERNAL_SERVER_ERROR, "Storage error"),
-        (InvalidShardStatusToSync(_,_), BAD_REQUEST, "Invalid shard status to sync"),
+        (InvalidEpoch(InvalidEpochError::TooOld(epoch)), BAD_REQUEST,
+        Some(ServiceErrorReason::InvalidEpochTooOld(*epoch)), "The requested epoch is invalid"),
+        (InvalidEpoch(InvalidEpochError::TooNew(epoch)), BAD_REQUEST,
+        Some(ServiceErrorReason::InvalidEpochTooNew(*epoch)), "The requested epoch is invalid"),
+        (Internal(_), INTERNAL_SERVER_ERROR, None, @canonical),
+        (NoSyncClient, BAD_REQUEST, None, "No client found for syncing the shard"),
+        (NoOwnerForShard(_), BAD_REQUEST, None, "No owner found for the shard"),
+        (StorageError(_), INTERNAL_SERVER_ERROR, None, "Storage error"),
+        (InvalidShardStatusToSync(_,_), BAD_REQUEST, None, "Invalid shard status to sync"),
     ]
 );
 
@@ -138,6 +143,13 @@ impl<T: RestApiError> RestApiError for OrRejection<T> {
         match self {
             OrRejection::Err(err) => err.body_text(),
             OrRejection::BcsRejection(err) => err.body_text(),
+        }
+    }
+
+    fn reason(&self) -> Option<ServiceErrorReason> {
+        match self {
+            OrRejection::Err(err) => err.reason(),
+            OrRejection::BcsRejection(err) => err.reason(),
         }
     }
 
@@ -177,12 +189,6 @@ impl From<InconsistencyProofError> for OrRejection<InconsistencyProofError> {
 
 impl From<SyncShardError> for OrRejection<SyncShardError> {
     fn from(value: SyncShardError) -> Self {
-        Self::Err(value)
-    }
-}
-
-impl From<WalrusServiceError> for OrRejection<WalrusServiceError> {
-    fn from(value: WalrusServiceError) -> Self {
         Self::Err(value)
     }
 }

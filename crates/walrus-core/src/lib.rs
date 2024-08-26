@@ -46,7 +46,6 @@ use thiserror::Error;
 
 pub mod bft;
 pub mod encoding;
-pub mod errors;
 pub mod inconsistency;
 pub mod keys;
 pub mod merkle;

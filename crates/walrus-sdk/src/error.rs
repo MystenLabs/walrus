@@ -4,7 +4,8 @@
 //! Errors that may be encountered while interacting with a storage node.
 
 use reqwest::StatusCode;
-use walrus_core::errors::WalrusServiceError;
+use serde::{Deserialize, Serialize};
+use walrus_core::Epoch;
 
 use crate::tls::VerifierBuildError;
 
@@ -57,24 +58,20 @@ impl NodeError {
         Kind::Reqwest(err).into()
     }
 
-    /// Returns the error message provided by the server, if any.
-    pub fn error_message(&self) -> Option<String> {
+    /// Returns the reason for the error, if any.
+    pub fn reason(&self) -> Option<ServiceErrorReason> {
         match &self.kind {
-            Kind::StatusWithMessage { message, .. } => Some(message.clone()),
-            Kind::WalrusServiceError {
-                walrus_service_error,
-            } => Some(walrus_service_error.to_string()),
+            Kind::StatusWithReason { reason, .. } => Some(*reason),
             _ => None,
         }
     }
 
-    /// Returns the [`walrus_core::errors::WalrusServiceError`] associated with the error, if any.
-    pub fn walrus_service_error(&self) -> Option<&WalrusServiceError> {
+    /// Returns the error message provided by the server, if any.
+    pub fn error_message(&self) -> Option<String> {
         match &self.kind {
-            Kind::WalrusServiceError {
-                walrus_service_error,
-            } => Some(walrus_service_error),
-            _ => None,
+            Kind::StatusWithMessage { message, .. } => Some(message.clone()),
+            Kind::StatusWithReason { message, .. } => Some(message.clone()),
+            _ => Some(self.to_string()),
         }
     }
 }
@@ -95,12 +92,14 @@ pub(crate) enum Kind {
     ErrorInNonErrorMessage { code: u16, message: String },
     #[error("invalid content type in response")]
     InvalidContentType,
+    #[error("{inner}: {message}. Reason: {reason:?}")]
+    StatusWithReason {
+        inner: reqwest::Error,
+        message: String,
+        reason: ServiceErrorReason,
+    },
     #[error(transparent)]
     Other(Box<dyn std::error::Error + Send + Sync>),
-    #[error(transparent)]
-    WalrusServiceError {
-        walrus_service_error: WalrusServiceError,
-    },
 }
 
 /// An error returned when building the client with a
@@ -129,4 +128,13 @@ pub(crate) enum BuildErrorKind {
     Reqwest(#[from] reqwest::Error),
     #[error("unable to load trusted certificates from the OS: {0}")]
     FailedToLoadCerts(#[from] std::io::Error),
+}
+
+/// The reason for a service error.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+pub enum ServiceErrorReason {
+    /// The requested epoch is invalid because it is too old.
+    InvalidEpochTooOld(Epoch),
+    /// The requested epoch is invalid because it is too new.
+    InvalidEpochTooNew(Epoch),
 }

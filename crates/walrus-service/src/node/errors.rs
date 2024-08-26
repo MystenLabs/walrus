@@ -6,13 +6,13 @@ use sui_types::event::EventID;
 use typed_store::TypedStoreError;
 use walrus_core::{
     encoding::SliverVerificationError,
-    errors::InvalidEpoch,
     inconsistency::InconsistencyVerificationError,
     messages::MessageVerificationError,
     metadata::VerificationError,
     Epoch,
     ShardIndex,
 };
+use walrus_sdk::error::{NodeError, ServiceErrorReason};
 
 use super::storage::ShardStatus;
 
@@ -121,6 +121,17 @@ pub enum BlobStatusError {
     Internal(#[from] InternalError),
 }
 
+/// Error returned when the epoch in a request is invalid.
+#[derive(Debug, thiserror::Error, Serialize, Clone)]
+pub enum InvalidEpochError {
+    /// The requester's epoch is too old.
+    #[error("Requester epoch too old. Server epoch: {0}")]
+    TooOld(Epoch),
+    /// The requester's epoch is too new.
+    #[error("Requester epoch too new. Server epoch: {0}")]
+    TooNew(Epoch),
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum SyncShardError {
     #[error("The client is not authorized to perform sync shard operation")]
@@ -130,7 +141,7 @@ pub enum SyncShardError {
     #[error(transparent)]
     ShardNotAssigned(#[from] ShardNotAssigned),
     #[error(transparent)]
-    InvalidEpoch(#[from] InvalidEpoch),
+    InvalidEpoch(#[from] InvalidEpochError),
     #[error(transparent)]
     Internal(#[from] InternalError),
     #[error("The destination node does not have a valid client to talk to the source node")]
@@ -143,22 +154,16 @@ pub enum SyncShardError {
     InvalidShardStatusToSync(ShardIndex, ShardStatus),
 }
 
-/// Error type used to communicate Walrus Service error to the client. This is the server side
-/// definition, which matches the client side definition in the
-#[derive(Debug, thiserror::Error, Serialize)]
-pub enum WalrusServiceError {
-    #[error(transparent)]
-    SyncShardInvalidEpoch(#[from] InvalidEpoch),
-    #[error("Internal error {0}")]
-    Internal(String),
-}
-
-impl From<SyncShardError> for WalrusServiceError {
-    fn from(value: SyncShardError) -> Self {
-        let error_message = value.to_string();
-        match value {
-            SyncShardError::InvalidEpoch(err) => WalrusServiceError::SyncShardInvalidEpoch(err),
-            _ => WalrusServiceError::Internal(error_message),
+impl From<NodeError> for SyncShardError {
+    fn from(error: NodeError) -> Self {
+        match error.reason() {
+            Some(ServiceErrorReason::InvalidEpochTooOld(epoch)) => {
+                Self::InvalidEpoch(InvalidEpochError::TooOld(epoch))
+            }
+            Some(ServiceErrorReason::InvalidEpochTooNew(epoch)) => {
+                Self::InvalidEpoch(InvalidEpochError::TooNew(epoch))
+            }
+            _ => Self::Internal(error.into()),
         }
     }
 }

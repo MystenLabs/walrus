@@ -6,7 +6,7 @@
 // Not all functions here are used in every feature.
 #![allow(dead_code)]
 
-use std::{collections::BTreeMap, fmt::Write as _, sync::Arc};
+use std::{collections::BTreeMap, fmt::Write as _};
 
 use axum::{
     response::{IntoResponse, Response},
@@ -30,7 +30,6 @@ use utoipa::{
         ResponsesBuilder,
         Schema,
     },
-    IntoResponses,
     PartialSchema,
     ToSchema,
 };
@@ -164,40 +163,29 @@ pub(crate) enum RestApiJsonError<'a> {
     Error {
         code: u16,
         message: &'a str,
-    },
-    WalrusServiceError {
-        walrus_service_error: &'a WalrusServiceError,
+        reason: Option<ServiceErrorReason>,
     },
 }
 
 impl<'a> RestApiJsonError<'a> {
     /// Creates a new error with the provided status code and message.
-    pub(crate) fn new(code: StatusCode, message: &'a str) -> Self {
+    pub(crate) fn new(
+        code: StatusCode,
+        message: &'a str,
+        reason: Option<ServiceErrorReason>,
+    ) -> Self {
         Self::Error {
             code: code.as_u16(),
             message,
-        }
-    }
-
-    pub(crate) fn new_walrus_error(walrus_service_error: &'a WalrusServiceError) -> Self {
-        Self::WalrusServiceError {
-            walrus_service_error,
+            reason,
         }
     }
 }
 
 impl IntoResponse for RestApiJsonError<'_> {
     fn into_response(self) -> Response {
-        match self {
-            Self::Error { code, .. } => {
-                (StatusCode::from_u16(code).unwrap(), Json(self)).into_response()
-            }
-            Self::WalrusServiceError { .. } => (
-                StatusCode::from_u16(StatusCode::INTERNAL_SERVER_ERROR.into()).unwrap(),
-                Json(self),
-            )
-                .into_response(),
-        }
+        let Self::Error { ref code, .. } = self;
+        (StatusCode::from_u16(*code).unwrap(), Json(self)).into_response()
     }
 }
 
@@ -209,6 +197,8 @@ pub(crate) trait RestApiError: Sized {
     /// Returns the text to be written to the HTTP body.
     fn body_text(&self) -> String;
 
+    fn reason(&self) -> Option<ServiceErrorReason>;
+
     /// Converts the error into a [`Response`].
     fn to_response(&self) -> Response {
         let mut message = self.body_text();
@@ -218,41 +208,7 @@ pub(crate) trait RestApiError: Sized {
                 .expect("writing to a string must succeed");
         }
 
-        RestApiJsonError::new(self.status(), &self.body_text()).into_response()
-    }
-}
-
-impl RestApiError for WalrusServiceError {
-    fn status(&self) -> StatusCode {
-        StatusCode::INTERNAL_SERVER_ERROR
-    }
-
-    fn body_text(&self) -> String {
-        self.to_string()
-    }
-
-    fn to_response(&self) -> Response {
-        RestApiJsonError::new_walrus_error(self).into_response()
-    }
-}
-
-impl IntoResponse for WalrusServiceError {
-    fn into_response(self) -> Response {
-        let mut response = self.to_response();
-
-        if self.status() == StatusCode::INTERNAL_SERVER_ERROR {
-            response
-                .extensions_mut()
-                .insert(crate::common::telemetry::InternalError(Arc::new(self)));
-        }
-
-        response
-    }
-}
-
-impl IntoResponses for WalrusServiceError {
-    fn responses() -> BTreeMap<String, RefOr<OpenApiResponse>> {
-        into_responses([])
+        RestApiJsonError::new(self.status(), &self.body_text(), self.reason()).into_response()
     }
 }
 
@@ -270,11 +226,12 @@ macro_rules! rest_api_error {
     };
 
     ($enum:ident: [
-        $( ($variant:pat, $code:ident, $($desc:tt)*) ),+$(,)?
+        $( ($variant:pat, $code:ident, $reason:expr, $($desc:tt)*) ),+$(,)?
     ]) => {
         impl RestApiError for $enum {
             fn status(&self) -> StatusCode {
                 use $enum::*;
+                #[allow(unused_variables)]
                 match self {
                     $( $variant => StatusCode::$code ),+
                 }
@@ -282,6 +239,13 @@ macro_rules! rest_api_error {
 
             fn body_text(&self) -> String {
                 self.to_string()
+            }
+
+            fn reason(&self) -> Option<ServiceErrorReason> {
+                use $enum::*;
+                match self {
+                    $( $variant => $reason ),+
+                }
             }
         }
 
@@ -337,7 +301,7 @@ where
             .canonical_reason()
             .expect("all used codes have canonical reasons");
         let example_reason = format!("'{canonical_reason}' or more detailed information");
-        let example = RestApiJsonError::new(code, &example_reason);
+        let example = RestApiJsonError::new(code, &example_reason, None);
         let content = ContentBuilder::new()
             .schema(schema::Ref::from_schema_name("RestApiJsonError"))
             .example(Some(json!(example)))
@@ -365,5 +329,4 @@ pub(crate) fn rewrite_route(path: &str) -> String {
 pub(crate) use api_success_alias;
 #[allow(unused_imports)]
 pub(crate) use rest_api_error;
-
-use crate::node::errors::WalrusServiceError;
+use walrus_sdk::error::ServiceErrorReason;

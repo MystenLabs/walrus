@@ -7,14 +7,14 @@ use std::{
 };
 
 use tokio::{sync::Mutex, time::Duration};
-use walrus_core::{errors::InvalidEpoch, ShardIndex};
+use walrus_core::ShardIndex;
 
 use super::{
     errors::SyncShardError,
     storage::{ShardStatus, ShardStorage},
     StorageNodeInner,
 };
-use crate::node::errors::ShardNotAssigned;
+use crate::node::errors::{InvalidEpochError, ShardNotAssigned};
 
 /// Manages tasks for syncing shards during epoch change.
 #[derive(Debug, Clone)]
@@ -109,7 +109,7 @@ impl ShardSyncHandler {
                         err
                     );
 
-                    if let SyncShardError::InvalidEpoch(InvalidEpoch::TooNew(_)) = err {
+                    if let SyncShardError::InvalidEpoch(InvalidEpochError::TooNew(_)) = err {
                         let retry_interval = Duration::from_secs(1);
                         tracing::info!(
                             "Source storage node hasn't reached the epoch yet.
