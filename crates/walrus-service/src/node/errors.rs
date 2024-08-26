@@ -1,10 +1,12 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use serde::Serialize;
 use sui_types::event::EventID;
 use typed_store::TypedStoreError;
 use walrus_core::{
     encoding::SliverVerificationError,
+    errors::InvalidEpoch,
     inconsistency::InconsistencyVerificationError,
     messages::MessageVerificationError,
     metadata::VerificationError,
@@ -127,8 +129,8 @@ pub enum SyncShardError {
     MessageVerificationError(#[from] MessageVerificationError),
     #[error(transparent)]
     ShardNotAssigned(#[from] ShardNotAssigned),
-    #[error("The request came from an epoch that is too old: {0}. Current epoch is {1}")]
-    EpochTooOld(Epoch, Epoch),
+    #[error(transparent)]
+    InvalidEpoch(#[from] InvalidEpoch),
     #[error(transparent)]
     Internal(#[from] InternalError),
     #[error("The destination node does not have a valid client to talk to the source node")]
@@ -139,4 +141,24 @@ pub enum SyncShardError {
     StorageError(#[from] TypedStoreError),
     #[error("The shard {0} is not in a valid status for syncing: {1}")]
     InvalidShardStatusToSync(ShardIndex, ShardStatus),
+}
+
+/// Error type used to communicate Walrus Service error to the client. This is the server side
+/// definition, which matches the client side definition in the
+#[derive(Debug, thiserror::Error, Serialize)]
+pub enum WalrusServiceError {
+    #[error(transparent)]
+    SyncShardInvalidEpoch(#[from] InvalidEpoch),
+    #[error("Internal error {0}")]
+    Internal(String),
+}
+
+impl From<SyncShardError> for WalrusServiceError {
+    fn from(value: SyncShardError) -> Self {
+        let error_message = value.to_string();
+        match value {
+            SyncShardError::InvalidEpoch(err) => WalrusServiceError::SyncShardInvalidEpoch(err),
+            _ => WalrusServiceError::Internal(error_message),
+        }
+    }
 }

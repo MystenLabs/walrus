@@ -32,6 +32,7 @@ use walrus_core::{
         SliverRecoveryOrVerificationError,
         SliverVerificationError,
     },
+    errors::WalrusServiceError,
     inconsistency::{InconsistencyProof, SliverOrInconsistencyProof},
     keys::ProtocolKeyPair,
     merkle::MerkleProof,
@@ -47,11 +48,11 @@ use walrus_core::{
     InconsistencyProof as InconsistencyProofEnum,
     PublicKey,
     ShardIndex,
-    Sliver as GeneralSliver,
+    Sliver,
     SliverPairIndex,
     SliverType,
 };
-use walrus_sdk::client::Client as StorageNodeClient;
+use walrus_sdk::{client::Client as StorageNodeClient, error::NodeError};
 use walrus_sui::{
     client::ReadClient,
     types::{Committee, StorageNode as SuiStorageNode},
@@ -146,7 +147,7 @@ pub trait CommitteeService: std::fmt::Debug + Send + Sync {
         sliver_count: u64,
         epoch: Epoch,
         key_pair: &ProtocolKeyPair,
-    ) -> Result<Vec<(BlobId, GeneralSliver)>, anyhow::Error>;
+    ) -> Result<Vec<(BlobId, Sliver)>, SyncShardError>;
 
     /// Checks if the given public key belongs to a Walrus storage node.
     /// TODO (#629): once node catching up is implemented, we need to make sure that the node
@@ -186,7 +187,7 @@ trait NodeClient {
         sliver_count: u64,
         epoch: Epoch,
         key_pair: &ProtocolKeyPair,
-    ) -> Option<SyncShardResponse>;
+    ) -> Result<SyncShardResponse, NodeError>;
 }
 
 /// Constructs [`NodeCommitteeService`]s by reading the current storage committee from the chain.
@@ -587,21 +588,31 @@ where
         sliver_count: u64,
         epoch: Epoch,
         key_pair: &ProtocolKeyPair,
-    ) -> Result<Vec<(BlobId, GeneralSliver)>, anyhow::Error> {
+    ) -> Result<Vec<(BlobId, Sliver)>, SyncShardError> {
         let Some(member_index) = self.committee.member_index_for_shard(shard) else {
-            return Err(SyncShardError::NoOwnerForShard(shard).into());
+            return Err(SyncShardError::NoOwnerForShard(shard));
         };
 
         let node = self.node(member_index);
 
         if let Some(client) = node.client() {
-            Ok(client
+            let result = client
                 .sync_shard::<A>(shard, starting_blob_id, sliver_count, epoch, key_pair)
-                .await
-                .unwrap_or_default()
-                .into())
+                .await;
+            match result {
+                Ok(response) => Ok(response.into()),
+                Err(err) => {
+                    if let Some(WalrusServiceError::SyncShardInvalidEpoch(invalid_epoch_error)) =
+                        err.walrus_service_error()
+                    {
+                        return Err(SyncShardError::InvalidEpoch(invalid_epoch_error.clone()));
+                    }
+                    let err_message = err.error_message().unwrap_or_default();
+                    return Err(SyncShardError::Internal(anyhow::anyhow!(err_message)));
+                }
+            }
         } else {
-            Err(SyncShardError::NoSyncClient.into())
+            Err(SyncShardError::NoSyncClient)
         }
     }
 }
@@ -738,7 +749,7 @@ impl CommitteeService for NodeCommitteeService {
         sliver_count: u64,
         epoch: Epoch,
         key_pair: &ProtocolKeyPair,
-    ) -> Result<Vec<(BlobId, GeneralSliver)>, anyhow::Error> {
+    ) -> Result<Vec<(BlobId, Sliver)>, SyncShardError> {
         tracing::info!("syncing shard to epoch");
         match sliver_type {
             SliverType::Primary => {

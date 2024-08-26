@@ -34,11 +34,20 @@ impl NodeResponse for Response {
             return Err(Kind::Reqwest(inner).into());
         }
 
-        if let Ok(ServiceResponse::<()>::Error { message, .. }) = self.json().await {
-            Err(Kind::StatusWithMessage { inner, message }.into())
-        } else {
-            tracing::debug!("unable to parse the service's JSON response");
-            Err(Kind::Reqwest(inner).into())
+        match self.json().await {
+            Ok(ServiceResponse::WalrusServiceError {
+                walrus_service_error,
+            }) => Err(Kind::WalrusServiceError {
+                walrus_service_error,
+            }
+            .into()),
+            Ok(ServiceResponse::<()>::Error { message, .. }) => {
+                Err(Kind::StatusWithMessage { inner, message }.into())
+            }
+            _ => {
+                tracing::debug!("unable to parse the service's JSON response");
+                Err(Kind::Reqwest(inner).into())
+            }
         }
     }
 
@@ -67,6 +76,12 @@ impl NodeResponse for Response {
             .map_err(Kind::Reqwest)?
         {
             ServiceResponse::Success { data, .. } => Ok(data),
+            ServiceResponse::WalrusServiceError {
+                walrus_service_error,
+            } => Err(Kind::WalrusServiceError {
+                walrus_service_error,
+            }
+            .into()),
             ServiceResponse::Error { message, code } => {
                 Err(Kind::ErrorInNonErrorMessage { message, code }.into())
             }

@@ -4,6 +4,7 @@
 //! Errors that may be encountered while interacting with a storage node.
 
 use reqwest::StatusCode;
+use walrus_core::errors::WalrusServiceError;
 
 use crate::tls::VerifierBuildError;
 
@@ -55,6 +56,27 @@ impl NodeError {
     pub(crate) fn reqwest(err: reqwest::Error) -> Self {
         Kind::Reqwest(err).into()
     }
+
+    /// Returns the error message provided by the server, if any.
+    pub fn error_message(&self) -> Option<String> {
+        match &self.kind {
+            Kind::StatusWithMessage { message, .. } => Some(message.clone()),
+            Kind::WalrusServiceError {
+                walrus_service_error,
+            } => Some(walrus_service_error.to_string()),
+            _ => None,
+        }
+    }
+
+    /// Returns the [`walrus_core::errors::WalrusServiceError`] associated with the error, if any.
+    pub fn walrus_service_error(&self) -> Option<&WalrusServiceError> {
+        match &self.kind {
+            Kind::WalrusServiceError {
+                walrus_service_error,
+            } => Some(walrus_service_error),
+            _ => None,
+        }
+    }
 }
 
 /// Errors returned during the communication with a storage node.
@@ -75,6 +97,10 @@ pub(crate) enum Kind {
     InvalidContentType,
     #[error(transparent)]
     Other(Box<dyn std::error::Error + Send + Sync>),
+    #[error(transparent)]
+    WalrusServiceError {
+        walrus_service_error: WalrusServiceError,
+    },
 }
 
 /// An error returned when building the client with a

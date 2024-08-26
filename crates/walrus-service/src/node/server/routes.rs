@@ -31,6 +31,7 @@ use super::{
 use crate::{
     common::api::{self, ApiSuccess, BlobIdString},
     node::{
+        errors::WalrusServiceError,
         BlobStatusError,
         ComputeStorageConfirmationError,
         InconsistencyProofError,
@@ -40,7 +41,6 @@ use crate::{
         ServiceState,
         StoreMetadataError,
         StoreSliverError,
-        SyncShardError,
     },
 };
 
@@ -447,7 +447,7 @@ pub async fn health_info<S: SyncServiceState>(
     request_body(content = [u8], description = "BCS-encoded SignedMessage<SyncShardRequest>"),
     responses(
         (status = 200, description = "BCS encoded vector of slivers", body = [u8]),
-        SyncShardError
+        WalrusServiceError
     ),
     tag = openapi::GROUP_SYNC_SHARD
 )]
@@ -455,7 +455,11 @@ pub async fn sync_shard<S: SyncServiceState>(
     State(state): State<Arc<S>>,
     Authorization(base64_public_key): Authorization,
     Bcs(signed_request): Bcs<SignedSyncShardRequest>,
-) -> Result<Response, OrRejection<SyncShardError>> {
+) -> Result<Response, OrRejection<WalrusServiceError>> {
     let public_key = PublicKey::decode_base64(&base64_public_key).unwrap();
-    Ok(Bcs(state.sync_shard(public_key, signed_request).await?).into_response())
+    Ok(Bcs(state
+        .sync_shard(public_key, signed_request)
+        .await
+        .map_err(WalrusServiceError::from)?)
+    .into_response())
 }

@@ -14,7 +14,7 @@ use walrus_core::{
     ShardIndex,
     SliverPairIndex,
 };
-use walrus_sdk::client::Client as StorageNodeClient;
+use walrus_sdk::{client::Client as StorageNodeClient, error::NodeError};
 
 use super::NodeClient;
 
@@ -82,11 +82,10 @@ impl NodeClient for StorageNodeClient {
         sliver_count: u64,
         epoch: Epoch,
         key_pair: &ProtocolKeyPair,
-    ) -> Option<SyncShardResponse> {
+    ) -> Result<SyncShardResponse, NodeError> {
         self.sync_shard::<A>(shard_index, starting_blob_id, sliver_count, epoch, key_pair)
             .await
             .inspect(|_| tracing::debug!("Sync shard request succeeded"))
             .inspect_err(|err| tracing::debug!(%err, "Sync shard request failed"))
-            .ok()
     }
 }

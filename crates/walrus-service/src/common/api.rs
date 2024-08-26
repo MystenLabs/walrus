@@ -6,7 +6,7 @@
 // Not all functions here are used in every feature.
 #![allow(dead_code)]
 
-use std::{collections::BTreeMap, fmt::Write as _};
+use std::{collections::BTreeMap, fmt::Write as _, sync::Arc};
 
 use axum::{
     response::{IntoResponse, Response},
@@ -30,6 +30,7 @@ use utoipa::{
         ResponsesBuilder,
         Schema,
     },
+    IntoResponses,
     PartialSchema,
     ToSchema,
 };
@@ -160,7 +161,13 @@ macro_rules! api_success_alias {
 #[derive(ToSchema, Debug, Serialize, Clone, Copy)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum RestApiJsonError<'a> {
-    Error { code: u16, message: &'a str },
+    Error {
+        code: u16,
+        message: &'a str,
+    },
+    WalrusServiceError {
+        walrus_service_error: &'a WalrusServiceError,
+    },
 }
 
 impl<'a> RestApiJsonError<'a> {
@@ -171,12 +178,26 @@ impl<'a> RestApiJsonError<'a> {
             message,
         }
     }
+
+    pub(crate) fn new_walrus_error(walrus_service_error: &'a WalrusServiceError) -> Self {
+        Self::WalrusServiceError {
+            walrus_service_error,
+        }
+    }
 }
 
 impl IntoResponse for RestApiJsonError<'_> {
     fn into_response(self) -> Response {
-        let Self::Error { ref code, .. } = self;
-        (StatusCode::from_u16(*code).unwrap(), Json(self)).into_response()
+        match self {
+            Self::Error { code, .. } => {
+                (StatusCode::from_u16(code).unwrap(), Json(self)).into_response()
+            }
+            Self::WalrusServiceError { .. } => (
+                StatusCode::from_u16(StatusCode::INTERNAL_SERVER_ERROR.into()).unwrap(),
+                Json(self),
+            )
+                .into_response(),
+        }
     }
 }
 
@@ -198,6 +219,40 @@ pub(crate) trait RestApiError: Sized {
         }
 
         RestApiJsonError::new(self.status(), &self.body_text()).into_response()
+    }
+}
+
+impl RestApiError for WalrusServiceError {
+    fn status(&self) -> StatusCode {
+        StatusCode::INTERNAL_SERVER_ERROR
+    }
+
+    fn body_text(&self) -> String {
+        self.to_string()
+    }
+
+    fn to_response(&self) -> Response {
+        RestApiJsonError::new_walrus_error(self).into_response()
+    }
+}
+
+impl IntoResponse for WalrusServiceError {
+    fn into_response(self) -> Response {
+        let mut response = self.to_response();
+
+        if self.status() == StatusCode::INTERNAL_SERVER_ERROR {
+            response
+                .extensions_mut()
+                .insert(crate::common::telemetry::InternalError(Arc::new(self)));
+        }
+
+        response
+    }
+}
+
+impl IntoResponses for WalrusServiceError {
+    fn responses() -> BTreeMap<String, RefOr<OpenApiResponse>> {
+        into_responses([])
     }
 }
 
@@ -310,3 +365,5 @@ pub(crate) fn rewrite_route(path: &str) -> String {
 pub(crate) use api_success_alias;
 #[allow(unused_imports)]
 pub(crate) use rest_api_error;
+
+use crate::node::errors::WalrusServiceError;

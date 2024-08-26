@@ -9,7 +9,6 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::Context;
 use blob_info::BlobCertificationStatus;
 use rocksdb::{DBCompressionType, MergeOperands, Options};
 use serde::{Deserialize, Serialize};
@@ -562,12 +561,10 @@ impl Storage {
                 Err(e) => Some(Err(e)),
             })
             .take(request.sliver_count() as usize)
-            .collect::<Result<Vec<_>, TypedStoreError>>()
-            .context("Scanning blob_info table encountered RocksDb error.")?;
+            .collect::<Result<Vec<_>, TypedStoreError>>()?;
 
         Ok(shard
-            .fetch_slivers(request.sliver_type(), &blobs_to_fetch)
-            .context("Fetching slivers encountered error.")?
+            .fetch_slivers(request.sliver_type(), &blobs_to_fetch)?
             .into())
     }
 }

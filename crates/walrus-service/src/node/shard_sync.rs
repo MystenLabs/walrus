@@ -6,8 +6,8 @@ use std::{
     sync::Arc,
 };
 
-use tokio::sync::Mutex;
-use walrus_core::ShardIndex;
+use tokio::{sync::Mutex, time::Duration};
+use walrus_core::{errors::InvalidEpoch, ShardIndex};
 
 use super::{
     errors::SyncShardError,
@@ -96,23 +96,38 @@ impl ShardSyncHandler {
         let shard_sync_handler_clone = self.clone();
         let shard_sync_task = tokio::spawn(async move {
             let shard_index = shard_storage.id();
-            let sync_result = shard_storage
-                .start_sync_shard_before_epoch(current_epoch, node_clone)
-                .await;
+            loop {
+                let sync_result = shard_storage
+                    .start_sync_shard_before_epoch(current_epoch, node_clone.clone())
+                    .await;
 
-            if let Err(err) = sync_result {
-                tracing::error!(
-                    "Failed to sync shard index: {} to before epoch: {}. Error: {}",
-                    shard_index,
-                    current_epoch,
-                    err
-                );
-            } else {
-                tracing::info!(
-                    "Successfully synced shard index: {} to before epoch: {}",
-                    shard_index,
-                    current_epoch
-                );
+                if let Err(err) = sync_result {
+                    tracing::error!(
+                        "Failed to sync shard index: {} to before epoch: {}. Error: {:?}",
+                        shard_index,
+                        current_epoch,
+                        err
+                    );
+
+                    if let SyncShardError::InvalidEpoch(InvalidEpoch::TooNew(_)) = err {
+                        let retry_interval = Duration::from_secs(1);
+                        tracing::info!(
+                            "Source storage node hasn't reached the epoch yet.
+                            Retrying the sync after {:?} seconds.",
+                            retry_interval
+                        );
+                        tokio::time::sleep(retry_interval).await;
+                        // If the error is due to the epoch being invalid, retry the sync.
+                        continue;
+                    }
+                } else {
+                    tracing::info!(
+                        "Successfully synced shard index: {} to before epoch: {}",
+                        shard_index,
+                        current_epoch
+                    );
+                }
+                break;
             }
 
             // Remove the task from the shard_sync_in_progress map upon completion.

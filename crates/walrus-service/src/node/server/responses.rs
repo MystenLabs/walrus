@@ -16,6 +16,7 @@ use super::extract::BcsRejection;
 use crate::{
     common::api::{rest_api_error, RestApiError},
     node::{
+        errors::WalrusServiceError,
         BlobStatusError,
         ComputeStorageConfirmationError,
         InconsistencyProofError,
@@ -31,7 +32,7 @@ use crate::{
 rest_api_error! {
     RetrieveMetadataError: [
         (Unavailable, NOT_FOUND, Self::Unavailable.to_string()),
-        (Internal(_), INTERNAL_SERVER_ERROR, @canonical)
+        (Internal(_), INTERNAL_SERVER_ERROR, @canonical),
     ]
 }
 
@@ -41,7 +42,7 @@ rest_api_error! {
         (InvalidMetadata(_), BAD_REQUEST, "the provided metadata cannot be verified"),
         (InvalidBlob(_), CONFLICT, "the blob for the provided metadata is invalid"),
         (BlobExpired, GONE, Self::BlobExpired.to_string()),
-        (Internal(_), INTERNAL_SERVER_ERROR, @canonical)
+        (Internal(_), INTERNAL_SERVER_ERROR, @canonical),
     ]
 }
 
@@ -107,7 +108,7 @@ rest_api_error!(
         (MessageVerificationError(_), BAD_REQUEST, "Request verification failed"),
         (ShardNotAssigned(_), MISDIRECTED_REQUEST,
         "the requested sliver is not stored at a shard assigned to this storage node"),
-        (EpochTooOld(_, _), BAD_REQUEST, "The requested epoch is too old"),
+        (InvalidEpoch(_), BAD_REQUEST, "The requested epoch is invalid"),
         (Internal(_), INTERNAL_SERVER_ERROR, @canonical),
         (NoSyncClient, BAD_REQUEST, "No client found for syncing the shard"),
         (NoOwnerForShard(_), BAD_REQUEST, "No owner found for the shard"),
@@ -137,6 +138,13 @@ impl<T: RestApiError> RestApiError for OrRejection<T> {
         match self {
             OrRejection::Err(err) => err.body_text(),
             OrRejection::BcsRejection(err) => err.body_text(),
+        }
+    }
+
+    fn to_response(&self) -> Response {
+        match self {
+            OrRejection::Err(err) => err.to_response(),
+            OrRejection::BcsRejection(err) => err.to_response(),
         }
     }
 }
@@ -169,6 +177,12 @@ impl From<InconsistencyProofError> for OrRejection<InconsistencyProofError> {
 
 impl From<SyncShardError> for OrRejection<SyncShardError> {
     fn from(value: SyncShardError) -> Self {
+        Self::Err(value)
+    }
+}
+
+impl From<WalrusServiceError> for OrRejection<WalrusServiceError> {
+    fn from(value: WalrusServiceError) -> Self {
         Self::Err(value)
     }
 }

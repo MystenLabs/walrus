@@ -12200,6 +12200,8 @@ dependencies = [
  "serde_json",
  "serde_with 3.9.0",
  "serde_yaml 0.9.34+deprecated",
+ "strum 0.24.1",
+ "strum_macros 0.24.3",
  "sui-sdk 1.31.1",
  "sui-simulator",
  "sui-types",

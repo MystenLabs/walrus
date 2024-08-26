@@ -8,7 +8,7 @@ use std::cmp::Ordering;
 use serde::{Deserialize, Serialize};
 use sui_types::event::EventID;
 use tokio::time::Duration;
-use walrus_core::{Epoch, PublicKey};
+use walrus_core::{errors::WalrusServiceError, Epoch, PublicKey};
 
 /// Error message returned by the service.
 #[derive(Debug, Serialize, Deserialize)]
@@ -27,6 +27,11 @@ pub enum ServiceResponse<T> {
         code: u16,
         /// The error message.
         message: String,
+    },
+    /// The error message returned by the service.
+    WalrusServiceError {
+        /// The error message.
+        walrus_service_error: WalrusServiceError,
     },
 }
 
