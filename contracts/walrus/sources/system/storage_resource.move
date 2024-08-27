@@ -15,7 +15,7 @@ public struct Storage has key, store {
     storage_size: u64,
 }
 
-// == Accessors ==
+// === Accessors ===
 
 public fun start_epoch(self: &Storage): u32 {
     self.start_epoch

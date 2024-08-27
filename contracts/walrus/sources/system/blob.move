@@ -20,7 +20,7 @@ const EInvalidBlobId: u64 = 6;
 const ENotCertified: u64 = 7;
 const EBlobNotDeletable: u64 = 8;
 
-// == Object definitions ==
+// === Object definitions ===
 
 /// The blob structure represents a blob that has been registered to with some storage,
 /// and then may eventually be certified as being available in the system.

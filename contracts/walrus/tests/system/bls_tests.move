@@ -4,10 +4,10 @@
 #[test_only]
 module walrus::bls_tests;
 
+use sui::bls12381;
 use walrus::{
     bls_aggregate::{Self, BlsCommittee, new_bls_committee, verify_certificate},
     messages,
-    storage_node,
     test_utils::{
         bls_aggregate_sigs,
         bls_min_pk_from_sk,
@@ -15,6 +15,7 @@ use walrus::{
         bls_secret_keys_for_testing
     }
 };
+
 
 #[test]
 public fun test_check_aggregate() {
@@ -109,7 +110,7 @@ fun create_committee_and_cert(
     weights: Option<vector<u16>>,
 ): (BlsCommittee, vector<u8>, vector<u16>, vector<u8>) {
     let sks = bls_secret_keys_for_testing();
-    let pks = sks.map_ref!(|sk| bls_min_pk_from_sk(sk));
+    let pks = sks.map_ref!(|sk| bls12381::g1_from_bytes(&bls_min_pk_from_sk(sk)));
     let weights = weights.get_with_default(vector[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
     let epoch = 5;
 
@@ -121,10 +122,17 @@ fun create_committee_and_cert(
     let agg_sig = bls_aggregate_sigs(&sigs);
 
     // Make a new committee with equal weight
-    let members = pks.zip_map!(weights, |pk, weight| storage_node::new_for_testing(pk, weight));
+    let members = pks.zip_map!(
+        weights,
+        |pk, weight| bls_aggregate::new_bls_committee_member(
+            pk,
+            weight,
+            tx_context::dummy().fresh_object_address().to_id(),
+        ),
+    );
     let committee = new_bls_committee(
         epoch,
-        &members,
+        members,
     );
     let signers = vector[0, 1, 2, 3, 4, 5, 6];
     (committee, agg_sig, signers, message)

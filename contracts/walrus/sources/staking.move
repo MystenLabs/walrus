@@ -96,15 +96,20 @@ public fun vote_for_price_next_epoch(
 
 /// Ends the voting period and runs the apportionment if the current time allows.
 /// Permissionless, can be called by anyone.
-/// Emits: `VotingEnd` event.
+/// Emits: `EpochParametersSelected` event.
 public fun voting_end(staking: &mut Staking, clock: &Clock) {
     staking.inner_mut().voting_end(clock)
 }
 
 /// Initiates the epoch change if the current time allows.
-/// Emits: `EpochChangeSync` event.
+/// Emits: `EpochChangeStart` event.
 public fun initiate_epoch_change(staking: &mut Staking, system: &mut System, clock: &Clock) {
-    abort ENotImplemented
+    let staking_inner = staking.inner_mut();
+    let balance = system.advance_epoch(
+        staking_inner.next_bls_committee(),
+        staking_inner.next_epoch_params(),
+    );
+    staking_inner.initiate_epoch_change(clock, balance);
 }
 
 /// Checks if the node should either have received the specified shards from the specified node
@@ -116,9 +121,14 @@ public fun initiate_epoch_change(staking: &mut Staking, system: &mut System, clo
 public fun shard_transfer_failed(
     staking: &mut Staking,
     cap: &StorageNodeCap,
-    node_identity: vector<u8>,
+    other_node_id: ID,
     shard_ids: vector<u16>,
 ) {
+    abort ENotImplemented
+}
+
+/// Signals to the contract that the node has received all its shards for the new epoch.
+public fun epoch_sync_done(staking: &mut Staking, cap: &StorageNodeCap) {
     abort ENotImplemented
 }
 
@@ -161,6 +171,12 @@ public fun withdraw_stake(
 fun inner_mut(staking: &mut Staking): &mut StakingInnerV1 {
     assert!(staking.version == VERSION);
     df::borrow_mut(&mut staking.id, VERSION)
+}
+
+/// Get an immutable reference to `StakingInner` from the `Staking`.
+fun inner(staking: &Staking): &StakingInnerV1 {
+    assert!(staking.version == VERSION);
+    df::borrow(&staking.id, VERSION)
 }
 
 // === Tests ===
@@ -261,7 +277,7 @@ fun test_voting_end() {
 fun test_shard_transfer_failed() {
     let ctx = &mut tx_context::dummy();
     let cap = storage_node::new_cap_for_testing(new_id(ctx), ctx);
-    new(ctx).shard_transfer_failed(&cap, vector[], vector[]);
+    new(ctx).shard_transfer_failed(&cap, new_id(ctx), vector[]);
     abort 1337
 }
 

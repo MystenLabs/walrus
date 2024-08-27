@@ -4,7 +4,7 @@
 #[test_only]
 module walrus::invalid_tests;
 
-use walrus::{bls_aggregate, messages, system, test_utils};
+use walrus::{epoch_parameters::epoch_params_for_testing, messages, system, test_utils};
 
 const BLOB_ID: u256 = 0xC0FFEE;
 
@@ -12,7 +12,7 @@ const BLOB_ID: u256 = 0xC0FFEE;
 public fun test_invalid_blob_ok() {
     let epoch = 5;
     // Create a new committee
-    let committee = bls_aggregate::new_bls_committee_for_testing(epoch);
+    let committee = test_utils::new_bls_committee_for_testing(epoch);
 
     let invalid_blob_message = messages::invalid_message_bytes(epoch, BLOB_ID);
     let signature = test_utils::bls_min_pk_sign(
@@ -38,8 +38,8 @@ public fun test_invalidate_happy(): system::System {
     1u32.range_do_eq!(
         5,
         |epoch| {
-            let committee = bls_aggregate::new_bls_committee_for_testing(epoch);
-            let epoch_balance = system.advance_epoch(committee, 1000000000, 5, 1);
+            let committee = test_utils::new_bls_committee_for_testing(epoch);
+            let epoch_balance = system.advance_epoch(committee, epoch_params_for_testing());
             epoch_balance.destroy_for_testing();
         },
     );
@@ -70,8 +70,8 @@ public fun test_system_invalid_id_wrong_epoch(): system::System {
     1u32.range_do_eq!(
         5,
         |epoch| {
-            let committee = bls_aggregate::new_bls_committee_for_testing(epoch);
-            let epoch_balance = system.advance_epoch(committee, 1000000000, 5, 1);
+            let committee = test_utils::new_bls_committee_for_testing(epoch);
+            let epoch_balance = system.advance_epoch(committee, epoch_params_for_testing());
             epoch_balance.destroy_for_testing();
         },
     );

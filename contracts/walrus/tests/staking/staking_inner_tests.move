@@ -3,7 +3,7 @@
 
 module walrus::staking_inner_tests;
 
-use sui::test_utils::destroy;
+use sui::{balance, test_utils::destroy};
 use walrus::{staking_inner, storage_node, test_utils as test};
 
 #[test]
@@ -54,8 +54,8 @@ fun test_staking_active_set() {
     assert!(staking.active_set().min_stake() == 0);
 
     // trigger `advance_epoch` to update the committee
-    staking.select_committee(ctx);
-    staking.advance_epoch(ctx);
+    staking.select_committee();
+    staking.advance_epoch(balance::create_for_testing(1000));
 
     // we expect:
     // - all 3 pools have been advanced

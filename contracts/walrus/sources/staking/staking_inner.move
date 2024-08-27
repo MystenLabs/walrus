@@ -16,6 +16,7 @@ module walrus::staking_inner;
 
 use std::string::String;
 use sui::{
+    balance::{Self, Balance},
     clock::Clock,
     coin::Coin,
     object_table::{Self, ObjectTable},
@@ -26,6 +27,8 @@ use walrus::{
     active_set::{Self, ActiveSet},
     bls_aggregate::{Self, BlsCommittee},
     committee::{Self, Committee},
+    epoch_parameters::{Self, EpochParams},
+    events,
     staked_wal::{Self, StakedWal},
     staking_pool::{Self, StakingPool},
     storage_node::{Self, StorageNodeCap, StorageNodeInfo},
@@ -35,14 +38,38 @@ use walrus::{
 /// The minimum amount of staked WAL required to be included in the active set.
 const MIN_STAKE: u64 = 0;
 
+// TODO: decide epoch duration. Consider making it a system parameter.
+
+/// The duration of an epoch in ms.
+/// Currently one week.
+const EPOCH_DURATION: u64 = 7 * 24 * 60 * 60 * 1000;
+
+/// The delta between the epoch change finishing and selecting the next epoch parameters in ms.
+/// Currently half of an epoch.
+const PARAM_SELECTION_DELTA: u64 = 7 * 24 * 60 * 60 * 1000 / 2;
+
 // TODO: remove this once the module is implemented.
 #[error]
 const ENotImplemented: vector<u8> = b"Function is not implemented";
 
+#[error]
+const EWrongEpochState: vector<u8> = b"Current epoch state does not allow this operation";
+
+/// The epoch state.
+public enum EpochState has store, copy, drop {
+    // Epoch change is currently in progress.
+    EpochChangeSync,
+    // Epoch change has been completed at the contained timestamp.
+    EpochChangeDone(u64),
+    // The parameters for the next epoch have been selected.
+    // The contained timestamp is the start of the current epoch.
+    NextParamsSelected(u64),
+}
+
 /// The inner object for the staking part of the system.
 public struct StakingInnerV1 has store {
     /// The number of shards in the system.
-    shards: u16,
+    n_shards: u16,
     /// Stored staking pools, each identified by a unique `ID` and contains
     /// the `StakingPool` object. Uses `ObjectTable` to make the pool discovery
     /// easier by avoiding wrapping.
@@ -61,19 +88,36 @@ public struct StakingInnerV1 has store {
     committee: Committee,
     /// The previous committee in the system.
     previous_committee: Committee,
+    /// The next epoch parameters.
+    next_epoch_params: Option<EpochParams>,
+    /// The state of the current epoch.
+    epoch_state: EpochState,
+    /// Rewards left over from the previous epoch that couldn't be distributed due to rounding.
+    leftover_rewards: Balance<SUI>,
 }
 
 /// Creates a new `StakingInnerV1` object with default values.
-public(package) fun new(shards: u16, ctx: &mut TxContext): StakingInnerV1 {
+public(package) fun new(n_shards: u16, ctx: &mut TxContext): StakingInnerV1 {
     StakingInnerV1 {
-        shards,
+        n_shards,
         pools: object_table::new(ctx),
         epoch: 0,
-        active_set: active_set::new(shards, MIN_STAKE),
+        active_set: active_set::new(n_shards, MIN_STAKE),
         next_committee: option::none(),
         committee: committee::empty(),
         previous_committee: committee::empty(),
+        next_epoch_params: option::none(),
+        // TODO: when we create this for the first time, set to the current time.
+        epoch_state: EpochState::EpochChangeDone(0),
+        leftover_rewards: balance::zero(),
     }
+}
+
+// === Accessors ===
+
+/// Returns the next epoch parameters if set, otherwise aborts with an error.
+public(package) fun next_epoch_params(self: &StakingInnerV1): EpochParams {
+    *self.next_epoch_params.borrow()
 }
 
 // === Staking Pool / Storage Node ===
@@ -120,7 +164,23 @@ public(package) fun collect_commission(self: &mut StakingInnerV1, cap: &StorageN
 }
 
 public(package) fun voting_end(self: &mut StakingInnerV1, clock: &Clock) {
-    abort ENotImplemented
+    // Check if it's time to end the voting.
+    let last_epoch_change = match (self.epoch_state) {
+        EpochState::EpochChangeDone(last_epoch_change) => last_epoch_change,
+        _ => abort EWrongEpochState,
+    };
+    let now = clock.timestamp_ms();
+    assert!(now >= last_epoch_change + PARAM_SELECTION_DELTA, EWrongEpochState);
+
+    // Assign the next epoch committee.
+    self.select_committee();
+
+    // TODO: perform the voting for the next epoch params, replace dummy.
+    // Set a dummy value.
+    self.next_epoch_params.fill(epoch_parameters::new(1_000_000_000_000, 5, 1));
+
+    // Emit event that parameters have been selected.
+    events::emit_epoch_parameters_selected(self.epoch + 1);
 }
 
 // === Voting ===
@@ -240,6 +300,19 @@ public(package) fun previous_committee(self: &StakingInnerV1): &Committee {
     &self.previous_committee
 }
 
+/// Construct the BLS committee for the next epoch.
+public(package) fun next_bls_committee(self: &StakingInnerV1): BlsCommittee {
+    let (ids, shard_assignments) = (*self.next_committee.borrow().inner()).into_keys_values();
+    let members = ids.zip_map!(
+        shard_assignments,
+        |id, shards| {
+            let pk = self.pools.borrow(id).node_info().public_key();
+            bls_aggregate::new_bls_committee_member(*pk, shards.length() as u16, id)
+        },
+    );
+    bls_aggregate::new_bls_committee(self.epoch, members)
+}
+
 /// Check if a node with the given `ID` exists in the staking pools.
 public(package) fun has_pool(self: &StakingInnerV1, node_id: ID): bool {
     self.pools.contains(node_id)
@@ -248,10 +321,12 @@ public(package) fun has_pool(self: &StakingInnerV1, node_id: ID): bool {
 // === System ===
 
 /// Selects the committee for the next epoch.
-public(package) fun select_committee(self: &mut StakingInnerV1, ctx: &mut TxContext) {
+///
+/// TODO: current solution is temporary, we need to have a proper algorithm for shard assignment.
+public(package) fun select_committee(self: &mut StakingInnerV1) {
     assert!(self.next_committee.is_none());
 
-    let shard_threshold = self.active_set.total_stake() / (self.shards as u64);
+    let shard_threshold = self.active_set.total_stake() / (self.n_shards as u64);
     let mut shards_assigned: u16 = 0;
 
     let mut distribution = vec_map::from_keys_values(
@@ -268,9 +343,11 @@ public(package) fun select_committee(self: &mut StakingInnerV1, ctx: &mut TxCont
             ),
     );
 
-    if (shards_assigned < self.shards) {
+    // Just distribute remaining shards to first node.
+    // TODO: change to correct apportionment algorithm.
+    if (shards_assigned < self.n_shards) {
         let (_first_node, shards) = distribution.get_entry_by_idx_mut(0);
-        *shards = *shards + (self.shards - shards_assigned);
+        *shards = *shards + (self.n_shards - shards_assigned);
     };
 
     // if we're dealing with the first epoch, we need to assign the shards to the
@@ -284,24 +361,64 @@ public(package) fun select_committee(self: &mut StakingInnerV1, ctx: &mut TxCont
     self.next_committee = option::some(committee);
 }
 
-/// Sets the next epoch of the system.
+/// Initiates the epoch change if the current time allows.
+public(package) fun initiate_epoch_change(
+    self: &mut StakingInnerV1,
+    clock: &Clock,
+    rewards: Balance<SUI>,
+) {
+    let last_epoch_change = match (self.epoch_state) {
+        EpochState::NextParamsSelected(last_epoch_change) => last_epoch_change,
+        _ => abort EWrongEpochState,
+    };
+    let now = clock.timestamp_ms();
+    assert!(now >= last_epoch_change + EPOCH_DURATION, EWrongEpochState);
+    self.advance_epoch(rewards);
+}
+
+/// Sets the next epoch of the system and emits the epoch change start event.
 ///
-/// TODO: add rewards argument and perform the reward distribution.
 /// TODO: `advance_epoch` needs to be either pre or post handled by each staking pool as well.
-/// TODO: current solution is silly, we need to have a proper algorithm for shard assignment.
-public(package) fun advance_epoch(self: &mut StakingInnerV1, ctx: &mut TxContext) {
-    assert!(self.next_committee.is_some());
+public(package) fun advance_epoch(self: &mut StakingInnerV1, mut rewards: Balance<SUI>) {
+    assert!(self.next_committee.is_some(), EWrongEpochState);
 
     self.epoch = self.epoch + 1;
     self.previous_committee = self.committee;
     self.committee = self.next_committee.extract(); // overwrites the current committee
+    self.epoch_state = EpochState::EpochChangeSync;
 
     let wctx = &self.new_walrus_context();
 
-    self.committee.inner().keys().do_ref!(|node| {
-        self.pools[*node].advance_epoch(wctx);
-        self.active_set.update(*node, self.pools[*node].stake_at_epoch(wctx.epoch() + 1));
-    });
+    self
+        .committee
+        .inner()
+        .keys()
+        .do_ref!(
+            |node| {
+                self.pools[*node].advance_epoch(wctx);
+                self.active_set.update(*node, self.pools[*node].stake_at_epoch(wctx.epoch() + 1));
+            },
+        );
+
+    // Distribute the rewards.
+
+    // Add any leftover rewards to the rewards to distribute.
+    let leftover_value = self.leftover_rewards.value();
+    rewards.join(self.leftover_rewards.split(leftover_value));
+    let rewards_per_shard = rewards.value() / (self.n_shards as u64);
+    let (node_ids, shard_assignments) = (*self.previous_committee.inner()).into_keys_values();
+    node_ids.zip_do!(
+        shard_assignments,
+        |node_id, shards| self
+            .pools[node_id]
+            .add_rewards(rewards.split(rewards_per_shard * shards.length())),
+    );
+
+    // Save any leftover rewards due to rounding.
+    self.leftover_rewards.join(rewards);
+
+    // Emit epoch change start event.
+    events::emit_epoch_change_start(self.epoch);
 }
 
 // === Internal ===

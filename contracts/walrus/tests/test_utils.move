@@ -15,7 +15,8 @@ use sui::{
 use walrus::{
     staking_inner::StakingInnerV1,
     staking_pool::{Self, StakingPool},
-    walrus_context::{Self, WalrusContext}
+    walrus_context::{Self, WalrusContext},
+    bls_aggregate,
 };
 
 // === Coins and Context ===
@@ -186,7 +187,7 @@ public fun register(self: PoolBuilder, inner: &mut StakingInnerV1, ctx: &mut TxC
     )
 }
 
-// == BLS Helpers ==
+// === BLS Helpers ===
 
 public fun bls_min_pk_sign(msg: &vector<u8>, sk: &vector<u8>): vector<u8> {
     let sk_element = bls12381::scalar_from_bytes(sk);
@@ -244,7 +245,17 @@ public fun bls_aggregate_sigs(signatures: &vector<vector<u8>>): vector<u8> {
     *aggregate.bytes()
 }
 
-// == Unit Tests ==
+/// Test committee with one committee member and 100 shards, using
+/// `test_utils::bls_sk_for_testing()` as secret key.
+public fun new_bls_committee_for_testing(epoch: u32): bls_aggregate::BlsCommittee {
+    let node_id = tx_context::dummy().fresh_object_address().to_id();
+    let sk = bls_sk_for_testing();
+    let pub_key = bls12381::g1_from_bytes(&bls_min_pk_from_sk(&sk));
+    let member = bls_aggregate::new_bls_committee_member(pub_key, 100, node_id);
+    bls_aggregate::new_bls_committee(epoch, vector[member])
+}
+
+// === Unit Tests ===
 
 #[test]
 fun test_bls_pk() {

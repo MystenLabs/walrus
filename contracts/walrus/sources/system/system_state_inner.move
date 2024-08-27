@@ -8,6 +8,7 @@ use sui::{balance::Balance, coin::Coin, sui::SUI};
 use walrus::{
     blob::{Self, Blob},
     bls_aggregate::BlsCommittee,
+    epoch_parameters::EpochParams,
     events::emit_invalid_blob_id,
     storage_accounting::FutureAccountingRingBuffer,
     storage_node::StorageNodeCap,
@@ -34,7 +35,7 @@ const EInvalidAccountingEpoch: u64 = 5;
 #[allow(unused_field)]
 public struct SystemStateInnerV1 has store {
     /// The current committee, with the current epoch.
-    current_committee: Option<BlsCommittee>,
+    committee: BlsCommittee,
     // Some accounting
     total_capacity_size: u64,
     used_capacity_size: u64,
@@ -42,8 +43,6 @@ public struct SystemStateInnerV1 has store {
     storage_price_per_unit_size: u64,
     /// The write price per unit size.
     write_price_per_unit_size: u64,
-    /// The previous committee.
-    previous_committee: Option<BlsCommittee>,
     /// Accounting ring buffer for future epochs.
     future_accounting: FutureAccountingRingBuffer,
 }
@@ -55,9 +54,7 @@ public struct SystemStateInnerV1 has store {
 public(package) fun advance_epoch(
     self: &mut SystemStateInnerV1,
     new_committee: BlsCommittee,
-    new_capacity: u64,
-    new_storage_price: u64,
-    new_write_price: u64,
+    new_epoch_params: EpochParams,
 ): Balance<SUI> {
     // Check new committee is valid, the existence of a committee for the next epoch
     // is proof that the time has come to move epochs.
@@ -65,13 +62,12 @@ public(package) fun advance_epoch(
     let new_epoch = old_epoch + 1;
 
     assert!(new_committee.epoch() == new_epoch, EIncorrectCommittee);
-    let previous_committee = self.current_committee.swap(new_committee);
-    let _ = self.previous_committee.swap_or_fill(previous_committee);
+    self.committee = new_committee;
 
     // Update the system object.
-    self.total_capacity_size = new_capacity;
-    self.storage_price_per_unit_size = new_storage_price;
-    self.write_price_per_unit_size = new_write_price;
+    self.total_capacity_size = new_epoch_params.capacity().max(self.used_capacity_size);
+    self.storage_price_per_unit_size = new_epoch_params.storage_price();
+    self.write_price_per_unit_size = new_epoch_params.write_price();
 
     let accounts_old_epoch = self.future_accounting.ring_pop_expand();
 
@@ -130,13 +126,13 @@ public(package) fun invalidate_blob_id(
     members: vector<u16>,
     message: vector<u8>,
 ): u256 {
-    let committee = self.current_committee.borrow();
-
-    let certified_message = committee.verify_quorum_in_epoch(
-        signature,
-        members,
-        message,
-    );
+    let certified_message = self
+        .committee
+        .verify_quorum_in_epoch(
+            signature,
+            members,
+            message,
+        );
 
     let invalid_blob_message = certified_message.invalid_blob_id_message();
     let blob_id = invalid_blob_message.invalid_blob_id();
@@ -193,7 +189,7 @@ public(package) fun certify_blob(
     message: vector<u8>,
 ) {
     let certified_msg = self
-        .current_committee()
+        .committee()
         .verify_quorum_in_epoch(
             signature,
             members,
@@ -297,7 +293,7 @@ public(package) fun certify_event_blob(
 
 /// Get epoch. Uses the committee to get the epoch.
 public(package) fun epoch(self: &SystemStateInnerV1): u32 {
-    self.current_committee.borrow().epoch()
+    self.committee.epoch()
 }
 
 /// Accessor for total capacity size.
@@ -311,12 +307,12 @@ public(package) fun used_capacity_size(self: &SystemStateInnerV1): u64 {
 }
 
 /// An accessor for the current committee.
-public(package) fun current_committee(self: &SystemStateInnerV1): &BlsCommittee {
-    self.current_committee.borrow()
+public(package) fun committee(self: &SystemStateInnerV1): &BlsCommittee {
+    &self.committee
 }
 
 public(package) fun n_shards(self: &SystemStateInnerV1): u16 {
-    current_committee(self).n_shards()
+    self.committee.n_shards()
 }
 
 public(package) fun write_price(self: &SystemStateInnerV1, write_size: u64): u64 {
@@ -328,21 +324,20 @@ fun storage_units_from_size(size: u64): u64 {
     (size + BYTES_PER_UNIT_SIZE - 1) / BYTES_PER_UNIT_SIZE
 }
 
-// == Testing ==
+// === Testing ===
 
 #[test_only]
-use walrus::{bls_aggregate, storage_accounting};
+use walrus::{test_utils, storage_accounting};
 
 #[test_only]
 public(package) fun new_for_testing(ctx: &mut TxContext): SystemStateInnerV1 {
-    let committee = bls_aggregate::new_bls_committee_for_testing(0);
+    let committee = test_utils::new_bls_committee_for_testing(0);
     SystemStateInnerV1 {
-        current_committee: option::some(committee),
+        committee,
         total_capacity_size: 1_000_000_000,
         used_capacity_size: 0,
         storage_price_per_unit_size: 5,
         write_price_per_unit_size: 1,
-        previous_committee: option::none(),
         future_accounting: storage_accounting::ring_new(MAX_EPOCHS_AHEAD),
     }
 }

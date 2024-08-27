@@ -7,7 +7,7 @@ module walrus::events;
 
 use sui::event;
 
-// == Event definitions ==
+// === Event definitions ===
 
 /// Signals that a blob with meta-data has been registered.
 public struct BlobRegistered has copy, drop {
@@ -76,7 +76,7 @@ public struct ShardRecoveryStart has copy, drop {
     shards: vector<u16>,
 }
 
-// == Functions to emit the events from other modules ==
+// === Functions to emit the events from other modules ===
 
 public(package) fun emit_blob_registered(
     epoch: u32,

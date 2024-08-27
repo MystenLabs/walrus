@@ -75,6 +75,8 @@ public struct StakingPool has key, store {
     pending_withdrawal_amount: u64,
     /// The amount of stake that will be withdrawn in the next epoch.
     stake_to_withdraw: Balance<SUI>,
+    /// The rewards that the pool has received.
+    rewards: Balance<SUI>,
 }
 
 /// Create a new `StakingPool` object.
@@ -122,6 +124,7 @@ public(package) fun new(
         active_stake: 0,
         pending_withdrawal_amount: 0,
         stake_to_withdraw: balance::zero(),
+        rewards: balance::zero(),
     }
 }
 
@@ -217,6 +220,11 @@ public(package) fun withdraw_stake(
     principal.into_coin(ctx)
 }
 
+public(package) fun add_rewards(pool: &mut StakingPool, rewards: Balance<SUI>) {
+    // TODO: do bookkeeping for commission.
+    pool.rewards.join(rewards);
+}
+
 // === Pool parameters ===
 
 /// Sets the next commission rate for the pool.
@@ -279,11 +287,13 @@ public(package) fun destroy_empty(pool: StakingPool) {
         id,
         pending_stake,
         stake_to_withdraw,
+        rewards,
         ..,
     } = pool;
 
     id.delete();
     stake_to_withdraw.destroy_zero();
+    rewards.destroy_zero();
 
     let (_epochs, pending_stakes) = pending_stake.into_keys_values();
     pending_stakes.do!(|stake| assert!(stake == 0));

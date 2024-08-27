@@ -7,8 +7,8 @@ module walrus::blob_tests;
 use sui::bcs;
 use walrus::{
     blob::{Self, Blob},
-    bls_aggregate,
     encoding,
+    epoch_parameters::epoch_params_for_testing,
     messages,
     storage_resource::{Self, split_by_epoch, destroy, Storage},
     system::{Self, System},
@@ -292,8 +292,8 @@ public fun test_direct_extend_expired(): system::System {
     blob.certify_with_certified_msg(system.epoch(), certify_message);
 
     // Advance the epoch
-    let committee = bls_aggregate::new_bls_committee_for_testing(1);
-    let epoch_balance = system.advance_epoch(committee, 1000000000000, 5, 1);
+    let committee = test_utils::new_bls_committee_for_testing(1);
+    let epoch_balance = system.advance_epoch(committee, epoch_params_for_testing());
     epoch_balance.destroy_for_testing();
 
     let mut fake_coin = test_utils::mint(N_COINS, &mut tx_context::dummy());
@@ -377,7 +377,7 @@ public fun test_delete_undeletable_blob(): system::System {
     system
 }
 
-// == Helper functions ==
+// === Helper functions ===
 
 fun get_storage_resource(system: &mut System, unencoded_size: u64, epochs_ahead: u32): Storage {
     let ctx = &mut tx_context::dummy();

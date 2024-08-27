@@ -8,7 +8,7 @@ use sui::{
     group_ops::{Self, Element},
     vec_map::{Self, VecMap}
 };
-use walrus::{messages::{Self, CertifiedMessage}, storage_node::StorageNodeInfo};
+use walrus::messages::{Self, CertifiedMessage};
 
 // Error codes
 const ETotalMemberOrder: u64 = 0;
@@ -32,20 +32,18 @@ public struct BlsCommittee has store, copy, drop {
     epoch: u32,
 }
 
-/// Constructor for committee
-public(package) fun new_bls_committee(epoch: u32, members: &vector<StorageNodeInfo>): BlsCommittee {
+/// Constructor for committee.
+public(package) fun new_bls_committee(
+    epoch: u32,
+    members: vector<BlsCommitteeMember>,
+): BlsCommittee {
     // Compute the total number of shards
     let mut n_shards = 0;
-    let bls_members = members.map_ref!(
+    members.do_ref!(
         |member| {
-            let weight = member.weight();
+            let weight = member.weight;
             assert!(weight > 0, EIncorrectCommittee);
             n_shards = n_shards + weight;
-            BlsCommitteeMember {
-                public_key: *member.public_key(),
-                weight,
-                node_id: member.id(),
-            }
         },
     );
 
@@ -54,10 +52,23 @@ public(package) fun new_bls_committee(epoch: u32, members: &vector<StorageNodeIn
     //       the staking, and don't require Option<BlsCommittee> there.
     // assert!(n_shards != 0, EIncorrectCommittee);
 
-    BlsCommittee { members: bls_members, n_shards, epoch }
+    BlsCommittee { members, n_shards, epoch }
 }
 
-// == Accessors for BlsCommittee ==
+/// Constructor for committee member.
+public(package) fun new_bls_committee_member(
+    public_key: Element<G1>,
+    weight: u16,
+    node_id: ID,
+): BlsCommitteeMember {
+    BlsCommitteeMember {
+        public_key,
+        weight,
+        node_id,
+    }
+}
+
+// === Accessors for BlsCommittee ===
 
 /// Get the epoch of the committee.
 public fun epoch(self: &BlsCommittee): u32 {
@@ -149,30 +160,6 @@ public(package) fun verify_certificate(
     );
 
     (aggregate_weight as u16)
-}
-
-#[test_only]
-use sui::bls12381::g1_from_bytes;
-
-#[test_only]
-use walrus::test_utils;
-
-#[test_only]
-/// Test committee with one committee member and 100 shards, using
-/// `test_utils::bls_sk_for_testing()` as secret key.
-public fun new_bls_committee_for_testing(epoch: u32): BlsCommittee {
-    let ctx = &mut tx_context::dummy();
-    let id = object::new(ctx);
-    let node_id = id.to_inner();
-    id.delete();
-    let sk = test_utils::bls_sk_for_testing();
-    let pub_key_bytes = test_utils::bls_min_pk_from_sk(&sk);
-    let member = BlsCommitteeMember {
-        public_key: g1_from_bytes(&pub_key_bytes),
-        weight: 100,
-        node_id,
-    };
-    BlsCommittee { members: vector[member], n_shards: 100, epoch }
 }
 
 #[test_only]

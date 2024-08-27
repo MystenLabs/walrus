@@ -112,7 +112,7 @@ public(package) fun invalid_blob_id_message(message: CertifiedMessage): Certifie
     CertifiedInvalidBlobId { epoch, blob_id }
 }
 
-// == Accessors for CertifiedMessage ==
+// === Accessors for CertifiedMessage ===
 
 public(package) fun intent_type(self: &CertifiedMessage): u8 {
     self.intent_type
@@ -139,7 +139,7 @@ public(package) fun into_message(self: CertifiedMessage): vector<u8> {
     self.message
 }
 
-// == Accessors for CertifiedBlobMessage ==
+// === Accessors for CertifiedBlobMessage ===
 
 public(package) fun certified_epoch(self: &CertifiedBlobMessage): u32 {
     self.epoch
@@ -149,7 +149,7 @@ public(package) fun certified_blob_id(self: &CertifiedBlobMessage): u256 {
     self.blob_id
 }
 
-// == Accessors for CertifiedInvalidBlobId ==
+// === Accessors for CertifiedInvalidBlobId ===
 
 public(package) fun certified_invalid_epoch(self: &CertifiedInvalidBlobId): u32 {
     self.epoch
@@ -159,7 +159,7 @@ public(package) fun invalid_blob_id(self: &CertifiedInvalidBlobId): u256 {
     self.blob_id
 }
 
-// == Test only functions ==
+// === Test only functions ===
 
 #[test_only]
 public fun certified_message_for_testing(

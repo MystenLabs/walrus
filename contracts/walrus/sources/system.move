@@ -9,9 +9,10 @@ use sui::{balance::Balance, coin::Coin, dynamic_field, sui::SUI};
 use walrus::{
     blob::Blob,
     bls_aggregate::BlsCommittee,
+    epoch_parameters::EpochParams,
     storage_node::StorageNodeCap,
     storage_resource::Storage,
-    system_state_inner::SystemStateInnerV1,
+    system_state_inner::SystemStateInnerV1
 };
 
 /// Flag to indicate the version of the system.
@@ -136,8 +137,8 @@ public fun n_shards(self: &System): u16 {
 // === Restricted to Package ===
 
 /// Accessor for the current committee.
-public(package) fun current_committee(self: &System): &BlsCommittee {
-    self.inner().current_committee()
+public(package) fun committee(self: &System): &BlsCommittee {
+    self.inner().committee()
 }
 
 /// Update epoch to next epoch, and update the committee, price and capacity.
@@ -147,11 +148,9 @@ public(package) fun current_committee(self: &System): &BlsCommittee {
 public(package) fun advance_epoch(
     self: &mut System,
     new_committee: BlsCommittee,
-    new_capacity: u64,
-    new_storage_price: u64,
-    new_write_price: u64,
+    new_epoch_params: EpochParams,
 ): Balance<SUI> {
-    self.inner_mut().advance_epoch(new_committee, new_capacity, new_storage_price, new_write_price)
+    self.inner_mut().advance_epoch(new_committee, new_epoch_params)
 }
 
 // === Internals ===
