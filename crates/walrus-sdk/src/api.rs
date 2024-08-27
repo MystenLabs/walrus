@@ -29,7 +29,7 @@ pub enum ServiceResponse<T> {
         code: u16,
         /// The error message.
         message: String,
-        /// The reason for the error.
+        /// Optionally contains a more detailed server side reason for the error.
         reason: Option<ServiceErrorReason>,
     },
 }

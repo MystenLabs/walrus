@@ -197,6 +197,7 @@ pub(crate) trait RestApiError: Sized {
     /// Returns the text to be written to the HTTP body.
     fn body_text(&self) -> String;
 
+    /// Returns the detailed server side reason for the error, if any.
     fn reason(&self) -> Option<ServiceErrorReason>;
 
     /// Converts the error into a [`Response`].

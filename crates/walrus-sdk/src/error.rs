@@ -65,15 +65,6 @@ impl NodeError {
             _ => None,
         }
     }
-
-    /// Returns the error message provided by the server, if any.
-    pub fn error_message(&self) -> Option<String> {
-        match &self.kind {
-            Kind::StatusWithMessage { message, .. } => Some(message.clone()),
-            Kind::StatusWithReason { message, .. } => Some(message.clone()),
-            _ => Some(self.to_string()),
-        }
-    }
 }
 
 /// Errors returned during the communication with a storage node.
@@ -92,7 +83,7 @@ pub(crate) enum Kind {
     ErrorInNonErrorMessage { code: u16, message: String },
     #[error("invalid content type in response")]
     InvalidContentType,
-    #[error("{inner}: {message}. Reason: {reason:?}")]
+    #[error("{inner}: {message}. Detailed reason: {reason:?}")]
     StatusWithReason {
         inner: reqwest::Error,
         message: String,
@@ -130,7 +121,7 @@ pub(crate) enum BuildErrorKind {
     FailedToLoadCerts(#[from] std::io::Error),
 }
 
-/// The reason for a service error.
+/// Defines a more detailed server side reason that can be returned with an error.
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 pub enum ServiceErrorReason {
     /// The requested epoch is invalid because it is too old.
