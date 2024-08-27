@@ -10,7 +10,7 @@ use axum::{
 };
 use reqwest::header::AUTHORIZATION;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use walrus_sdk::error::ServiceErrorReason;
+use walrus_sdk::error::ServiceError;
 
 use crate::common::api::{RestApiError, RestApiJsonError};
 
@@ -40,7 +40,7 @@ impl RestApiError for BcsRejection {
         self.to_string()
     }
 
-    fn reason(&self) -> Option<ServiceErrorReason> {
+    fn service_error(&self) -> Option<ServiceError> {
         None
     }
 }

@@ -11,7 +11,7 @@ use utoipa::{
     openapi::{response::Response as OpenApiResponse, RefOr},
     IntoResponses,
 };
-use walrus_sdk::error::ServiceErrorReason;
+use walrus_sdk::error::ServiceError;
 
 use super::extract::BcsRejection;
 use crate::{
@@ -111,9 +111,9 @@ rest_api_error!(
         (ShardNotAssigned(_), MISDIRECTED_REQUEST, None,
         "the requested sliver is not stored at a shard assigned to this storage node"),
         (InvalidEpoch(InvalidEpochError::TooOld(epoch)), BAD_REQUEST,
-        Some(ServiceErrorReason::InvalidEpochTooOld(*epoch)), "The requested epoch is invalid"),
+        Some(ServiceError::InvalidEpochTooOld(*epoch)), "The requested epoch is invalid"),
         (InvalidEpoch(InvalidEpochError::TooNew(epoch)), BAD_REQUEST,
-        Some(ServiceErrorReason::InvalidEpochTooNew(*epoch)), "The requested epoch is invalid"),
+        Some(ServiceError::InvalidEpochTooNew(*epoch)), "The requested epoch is invalid"),
         (Internal(_), INTERNAL_SERVER_ERROR, None, @canonical),
         (NoSyncClient, BAD_REQUEST, None, "No client found for syncing the shard"),
         (NoOwnerForShard(_), BAD_REQUEST, None, "No owner found for the shard"),
@@ -146,10 +146,10 @@ impl<T: RestApiError> RestApiError for OrRejection<T> {
         }
     }
 
-    fn reason(&self) -> Option<ServiceErrorReason> {
+    fn service_error(&self) -> Option<ServiceError> {
         match self {
-            OrRejection::Err(err) => err.reason(),
-            OrRejection::BcsRejection(err) => err.reason(),
+            OrRejection::Err(err) => err.service_error(),
+            OrRejection::BcsRejection(err) => err.service_error(),
         }
     }
 

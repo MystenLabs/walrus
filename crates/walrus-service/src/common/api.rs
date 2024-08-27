@@ -163,17 +163,13 @@ pub(crate) enum RestApiJsonError<'a> {
     Error {
         code: u16,
         message: &'a str,
-        reason: Option<ServiceErrorReason>,
+        reason: Option<ServiceError>,
     },
 }
 
 impl<'a> RestApiJsonError<'a> {
     /// Creates a new error with the provided status code and message.
-    pub(crate) fn new(
-        code: StatusCode,
-        message: &'a str,
-        reason: Option<ServiceErrorReason>,
-    ) -> Self {
+    pub(crate) fn new(code: StatusCode, message: &'a str, reason: Option<ServiceError>) -> Self {
         Self::Error {
             code: code.as_u16(),
             message,
@@ -197,8 +193,8 @@ pub(crate) trait RestApiError: Sized {
     /// Returns the text to be written to the HTTP body.
     fn body_text(&self) -> String;
 
-    /// Returns the detailed server side reason for the error, if any.
-    fn reason(&self) -> Option<ServiceErrorReason>;
+    /// Returns the detailed server error, if any.
+    fn service_error(&self) -> Option<ServiceError>;
 
     /// Converts the error into a [`Response`].
     fn to_response(&self) -> Response {
@@ -209,7 +205,8 @@ pub(crate) trait RestApiError: Sized {
                 .expect("writing to a string must succeed");
         }
 
-        RestApiJsonError::new(self.status(), &self.body_text(), self.reason()).into_response()
+        RestApiJsonError::new(self.status(), &self.body_text(), self.service_error())
+            .into_response()
     }
 }
 
@@ -242,7 +239,7 @@ macro_rules! rest_api_error {
                 self.to_string()
             }
 
-            fn reason(&self) -> Option<ServiceErrorReason> {
+            fn service_error(&self) -> Option<ServiceError> {
                 use $enum::*;
                 match self {
                     $( $variant => $reason ),+
@@ -330,4 +327,4 @@ pub(crate) fn rewrite_route(path: &str) -> String {
 pub(crate) use api_success_alias;
 #[allow(unused_imports)]
 pub(crate) use rest_api_error;
-use walrus_sdk::error::ServiceErrorReason;
+use walrus_sdk::error::ServiceError;

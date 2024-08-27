@@ -1997,7 +1997,7 @@ mod tests {
 
         assert!(matches!(
             status,
-            Err(err) if err.reason().is_some() &&
+            Err(err) if err.service_error().is_some() &&
                 err.to_string().contains(
                     error_message
                 )

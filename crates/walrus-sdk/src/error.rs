@@ -59,9 +59,9 @@ impl NodeError {
     }
 
     /// Returns the reason for the error, if any.
-    pub fn reason(&self) -> Option<ServiceErrorReason> {
+    pub fn service_error(&self) -> Option<ServiceError> {
         match &self.kind {
-            Kind::StatusWithReason { reason, .. } => Some(*reason),
+            Kind::StatusWithServiceError { service_error, .. } => Some(*service_error),
             _ => None,
         }
     }
@@ -83,11 +83,11 @@ pub(crate) enum Kind {
     ErrorInNonErrorMessage { code: u16, message: String },
     #[error("invalid content type in response")]
     InvalidContentType,
-    #[error("{inner}: {message}. Detailed reason: {reason:?}")]
-    StatusWithReason {
+    #[error("{message} ({service_error:?})")]
+    StatusWithServiceError {
         inner: reqwest::Error,
         message: String,
-        reason: ServiceErrorReason,
+        service_error: ServiceError,
     },
     #[error(transparent)]
     Other(Box<dyn std::error::Error + Send + Sync>),
@@ -123,7 +123,7 @@ pub(crate) enum BuildErrorKind {
 
 /// Defines a more detailed server side reason that can be returned with an error.
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
-pub enum ServiceErrorReason {
+pub enum ServiceError {
     /// The requested epoch is invalid because it is too old.
     InvalidEpochTooOld(Epoch),
     /// The requested epoch is invalid because it is too new.

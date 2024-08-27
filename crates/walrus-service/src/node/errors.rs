@@ -12,7 +12,7 @@ use walrus_core::{
     Epoch,
     ShardIndex,
 };
-use walrus_sdk::error::{NodeError, ServiceErrorReason};
+use walrus_sdk::error::{NodeError, ServiceError};
 
 use super::storage::ShardStatus;
 
@@ -156,11 +156,11 @@ pub enum SyncShardError {
 
 impl From<NodeError> for SyncShardError {
     fn from(error: NodeError) -> Self {
-        match error.reason() {
-            Some(ServiceErrorReason::InvalidEpochTooOld(epoch)) => {
+        match error.service_error() {
+            Some(ServiceError::InvalidEpochTooOld(epoch)) => {
                 Self::InvalidEpoch(InvalidEpochError::TooOld(epoch))
             }
-            Some(ServiceErrorReason::InvalidEpochTooNew(epoch)) => {
+            Some(ServiceError::InvalidEpochTooNew(epoch)) => {
                 Self::InvalidEpoch(InvalidEpochError::TooNew(epoch))
             }
             _ => Self::Internal(error.into()),

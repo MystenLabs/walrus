@@ -38,10 +38,10 @@ impl NodeResponse for Response {
             Ok(ServiceResponse::<()>::Error {
                 message, reason, ..
             }) => match reason {
-                Some(reason) => Err(Kind::StatusWithReason {
+                Some(service_error) => Err(Kind::StatusWithServiceError {
                     inner,
                     message,
-                    reason,
+                    service_error,
                 }
                 .into()),
                 None => Err(Kind::StatusWithMessage { inner, message }.into()),
