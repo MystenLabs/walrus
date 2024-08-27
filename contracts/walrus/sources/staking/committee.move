@@ -44,34 +44,38 @@ public(package) fun initialize(assigned_number: VecMap<ID, u16>): Committee {
 ///
 /// This assumes that the number of shards in the new committee is equal to the
 /// number of shards in the current committee. Check for this is not performed.
-public(package) fun transition(cmt: &Committee, assigned_number: VecMap<ID, u16>): Committee {
+public(package) fun transition(cmt: &Committee, mut new_assignments: VecMap<ID, u16>): Committee {
     let mut new_cmt = vec_map::empty();
     let mut to_move = vector[];
-    let mut revisit = assigned_number.keys();
     let size = cmt.0.size();
 
     size.do!(
         |idx| {
             let (node_id, prev_shards) = cmt.0.get_entry_by_idx(idx);
             let node_id = *node_id;
+            let assigned_len = new_assignments
+                .get_idx_opt(&node_id)
+                .map!(
+                    |idx| {
+                        let (_, value) = new_assignments.remove_entry_by_idx(idx);
+                        value as u64
+                    },
+                );
 
             // if the node is not in the new committee, remove all shards, make
             // them available for reassignment
-            if (!assigned_number.contains(&node_id)) {
+            if (assigned_len.is_none() || assigned_len.borrow() == &0) {
                 let shards = cmt.0.get(&node_id);
                 to_move.append(*shards);
                 return
             };
 
             let curr_len = prev_shards.length();
-            let assigned_len = *assigned_number.get(&node_id) as u64;
+            let assigned_len = assigned_len.destroy_some();
 
             // node stays the same, we copy the shards over, best scenario
             if (curr_len == assigned_len) {
                 new_cmt.insert(node_id, *prev_shards);
-                revisit
-                    .find_index!(|e| e == &node_id)
-                    .do!(|found_idx| { revisit.remove(found_idx); })
             };
 
             // if the node is in the new committee, check if the number of shards
@@ -81,9 +85,6 @@ public(package) fun transition(cmt: &Committee, assigned_number: VecMap<ID, u16>
                 let mut node_shards = *prev_shards;
                 (curr_len - assigned_len).do!(|_| to_move.push_back(node_shards.pop_back()));
                 new_cmt.insert(node_id, node_shards);
-                revisit
-                    .find_index!(|e| e == &node_id)
-                    .do!(|found_idx| { revisit.remove(found_idx); })
             };
 
             // if the node is in the new committee, and we already freed enough
@@ -96,27 +97,30 @@ public(package) fun transition(cmt: &Committee, assigned_number: VecMap<ID, u16>
                     let mut node_shards = *prev_shards;
                     diff.do!(|_| node_shards.push_back(to_move.pop_back()));
                     new_cmt.insert(node_id, node_shards);
-                    revisit
-                        .find_index!(|e| e == &node_id)
-                        .do!(|found_idx| { revisit.remove(found_idx); })
-                }
-
-                // else, node remains in the revisit list, we need to free up more
-                // shards to assign to this node
+                } else {
+                    // insert it back, we didn't have enough shards to assign
+                    new_assignments.insert(node_id, assigned_len as u16);
+                };
             };
         },
     );
 
-    // In the `revisit` set we have either nodes that need more shards or nodes
-    // that were not in the new committee. Last step is to assign the remaining
-    // shards to the nodes that need them
-    revisit.destroy!(
-        |node_id| {
-            let mut node_shards = cmt.0.try_get(&node_id).destroy_or!(vector[]);
-            let assigned_len = *assigned_number.get(&node_id) as u64;
-            let diff = assigned_len - node_shards.length();
-            diff.do!(|_| node_shards.push_back(to_move.pop_back()));
-            new_cmt.insert(node_id, node_shards);
+    // Now the `new_assignments` only contains nodes for which we didn't have
+    // enough shards to assign, and the nodes that were not part of the old
+    // committee.
+    let (keys, values) = new_assignments.into_keys_values();
+    keys.zip_do!(
+        values,
+        |key, value| {
+            if (value == 0) return; // ignore nodes with 0 shards
+
+            let mut current_shards = cmt.0.try_get(&key).destroy_or!(vector[]);
+            current_shards
+                .length()
+                .diff(value as u64)
+                .do!(|_| current_shards.push_back(to_move.pop_back()));
+
+            new_cmt.insert(key, current_shards);
         },
     );
 
