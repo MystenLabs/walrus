@@ -407,6 +407,8 @@ public(package) fun advance_epoch(self: &mut StakingInnerV1, mut rewards: Balanc
     rewards.join(self.leftover_rewards.split(leftover_value));
     let rewards_per_shard = rewards.value() / (self.n_shards as u64);
     let (node_ids, shard_assignments) = (*self.previous_committee.inner()).into_keys_values();
+    // TODO: check if we can combine this with the iteration over the current committee above
+    // to reduce the accesses to dynamic fields.
     node_ids.zip_do!(
         shard_assignments,
         |node_id, shards| self
