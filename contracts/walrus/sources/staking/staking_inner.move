@@ -194,6 +194,8 @@ public(package) fun stake_with_pool(
     let pool = &mut self.pools[node_id];
     let staked_wal = pool.stake(to_stake, wctx, ctx);
 
+    // active set only tracks the stake for the next epoch, pool already knows
+    // whether the stake was applied to E+1 or E+2.
     self.active_set.insert(node_id, pool.stake_at_epoch(wctx.epoch() + 1));
 
     staked_wal
@@ -292,7 +294,7 @@ public(package) fun advance_epoch(self: &mut StakingInnerV1, ctx: &mut TxContext
 
     self.epoch = self.epoch + 1;
     self.previous_committee = self.committee;
-    self.committee = self.next_committee.extract();
+    self.committee = self.next_committee.extract(); // overwrites the current committee
 
     let wctx = &self.new_walrus_context();
 
