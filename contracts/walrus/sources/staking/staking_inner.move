@@ -296,7 +296,10 @@ public(package) fun advance_epoch(self: &mut StakingInnerV1, ctx: &mut TxContext
 
     let wctx = &self.new_walrus_context();
 
-    self.committee.inner().keys().do_ref!(|node| self.pools[*node].advance_epoch(wctx));
+    self.committee.inner().keys().do_ref!(|node| {
+        self.pools[*node].advance_epoch(wctx);
+        self.active_set.update(*node, self.pools[*node].stake_at_epoch(wctx.epoch() + 1));
+    });
 }
 
 // === Internal ===
