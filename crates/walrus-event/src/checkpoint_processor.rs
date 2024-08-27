@@ -205,7 +205,7 @@ impl CheckpointProcessor {
                 Err(inner) => {
                     let elapsed = start_time.elapsed();
                     if elapsed >= MAX_TIMEOUT {
-                        return Err(inner);
+                        return Err(inner.into());
                     }
                     let delay = RETRY_DELAY.min(MAX_TIMEOUT - elapsed);
                     sleep(delay).await;
