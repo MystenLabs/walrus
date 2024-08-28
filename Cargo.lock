@@ -12212,6 +12212,7 @@ dependencies = [
  "itertools 0.13.0",
  "mime",
  "mockall 0.12.1",
+ "mysten-common",
  "mysten-metrics",
  "num-bigint 0.4.6",
  "opentelemetry 0.23.0",

@@ -34,6 +34,7 @@ node = [
     "dep:async-trait",
     "dep:enum_dispatch",
     "dep:mime",
+    "dep:mysten-common",
     "dep:mysten-metrics",
     "dep:rocksdb",
     "dep:tokio-stream",
@@ -69,6 +70,7 @@ humantime = { workspace = true, optional = true }
 indoc = { workspace = true, optional = true }
 itertools = { workspace = true, optional = true }
 mime = { workspace = true, optional = true }
+mysten-common = { workspace = true, optional = true }
 mysten-metrics = { workspace = true, optional = true }
 num-bigint.workspace = true
 opentelemetry.workspace = true

@@ -34,6 +34,7 @@ itertools = "0.13.0"
 mime = "0.3.17"
 mockall = "0.12.1"
 move-core-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.32.0" }
+mysten-common = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.32.0" }
 mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.32.0" }
 num-bigint = { version = "0.4.5", default-features = false }
 opentelemetry = { version = "=0.23.0", default-features = false, features = ["trace"] }

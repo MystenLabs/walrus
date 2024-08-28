@@ -319,7 +319,7 @@ async fn create_read_client(
 #[derive(Debug)]
 pub struct StorageNode {
     inner: Arc<StorageNodeInner>,
-    blob_sync_handler: BlobSyncHandler,
+    blob_sync_handler: Arc<BlobSyncHandler>,
     _shard_sync_handler: ShardSyncHandler,
 }
 
@@ -393,12 +393,12 @@ impl StorageNode {
 
         inner.init_gauges()?;
 
-        let blob_sync_handler = BlobSyncHandler::new(
+        let blob_sync_handler = Arc::new(BlobSyncHandler::new(
             inner.clone(),
             config.blob_recovery.max_concurrent_blob_syncs,
-        );
+        ));
 
-        let shard_sync_handler = ShardSyncHandler::new(inner.clone());
+        let shard_sync_handler = ShardSyncHandler::new(inner.clone(), blob_sync_handler.clone());
         // Upon restart, resume any ongoing blob syncs if there is any.
         shard_sync_handler.restart_syncs().await?;
 

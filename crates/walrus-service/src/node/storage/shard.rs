@@ -6,19 +6,27 @@
 use core::fmt::{self, Display};
 use std::{
     collections::{HashMap, HashSet},
-    ops::Bound::{Excluded, Unbounded},
     path::Path,
     sync::{Arc, OnceLock},
+    time::Duration,
 };
 
 #[cfg(feature = "failure_injection")]
 use anyhow::anyhow;
 use fastcrypto::traits::KeyPair;
+use futures::{stream::FuturesUnordered, StreamExt};
 use regex::Regex;
 use rocksdb::{Options, DB};
 use serde::{Deserialize, Serialize};
 use typed_store::{
-    rocks::{errors::typed_store_err_from_rocks_err, DBBatch, DBMap, ReadWriteOptions, RocksDB},
+    rocks::{
+        be_fix_int_ser as ToRocksDbKey,
+        errors::typed_store_err_from_rocks_err,
+        DBBatch,
+        DBMap,
+        ReadWriteOptions,
+        RocksDB,
+    },
     Map,
     TypedStoreError,
 };
@@ -31,8 +39,8 @@ use walrus_core::{
     SliverType,
 };
 
-use super::{blob_info::BlobInfoApi, DatabaseConfig, Storage};
-use crate::node::{errors::SyncShardClientError, StorageNodeInner};
+use super::{blob_info::BlobInfo, BlobInfoIter, DatabaseConfig};
+use crate::node::{blob_sync::BlobSyncHandler, errors::SyncShardClientError, StorageNodeInner};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ShardStatus {
@@ -44,6 +52,10 @@ pub enum ShardStatus {
 
     /// The shard is being synced to the last epoch.
     ActiveSync,
+
+    /// The shard is being synced to the last epoch and recovering missing blobs using sliver
+    /// recovery mechanism.
+    ActiveRecover,
 
     /// The shard is locked for moving to another node. Shard does not accept any more writes in
     /// this status.
@@ -67,6 +79,7 @@ impl ShardStatus {
             ShardStatus::None => "None",
             ShardStatus::Active => "Active",
             ShardStatus::ActiveSync => "ActiveSync",
+            ShardStatus::ActiveRecover => "ActiveRecover",
             ShardStatus::LockedToMove => "LockedToMove",
         }
     }
@@ -104,6 +117,7 @@ pub struct ShardStorage {
     primary_slivers: DBMap<BlobId, PrimarySliver>,
     secondary_slivers: DBMap<BlobId, SecondarySliver>,
     shard_sync_progress: DBMap<(), ShardSyncProgress>,
+    pending_recover_slivers: DBMap<(SliverType, BlobId), ()>,
 }
 
 /// Storage corresponding to a single shard.
@@ -139,6 +153,16 @@ impl ShardStorage {
                 .create_cf(&shard_sync_progress_cf_name, &options)
                 .map_err(typed_store_err_from_rocks_err)?;
         }
+        let pending_recover_slivers_cf_name = pending_recover_slivers_column_family_name(id);
+        if database
+            .cf_handle(&pending_recover_slivers_cf_name)
+            .is_none()
+        {
+            let (_, options) = Self::pending_recover_slivers_column_family_options(id, db_config);
+            database
+                .create_cf(&pending_recover_slivers_cf_name, &options)
+                .map_err(typed_store_err_from_rocks_err)?;
+        }
 
         let primary_slivers = DBMap::reopen(
             database,
@@ -160,6 +184,12 @@ impl ShardStorage {
             &rw_options,
             false,
         )?;
+        let pending_recover_slivers = DBMap::reopen(
+            database,
+            Some(&pending_recover_slivers_cf_name),
+            &rw_options,
+            false,
+        )?;
 
         if let Some(status) = initial_shard_status {
             shard_status.insert(&(), &status)?;
@@ -171,6 +201,7 @@ impl ShardStorage {
             primary_slivers,
             secondary_slivers,
             shard_sync_progress,
+            pending_recover_slivers,
         })
     }
 
@@ -310,6 +341,16 @@ impl ShardStorage {
         )
     }
 
+    pub(crate) fn pending_recover_slivers_column_family_options(
+        id: ShardIndex,
+        db_config: &DatabaseConfig,
+    ) -> (String, Options) {
+        (
+            pending_recover_slivers_column_family_name(id),
+            db_config.pending_recover_slivers().to_options(),
+        )
+    }
+
     /// Returns the ids of existing shards in the database at the provided path.
     pub(crate) fn existing_shards(path: &Path, options: &Options) -> HashSet<ShardIndex> {
         DB::list_cf(options, path)
@@ -378,35 +419,45 @@ impl ShardStorage {
         &self,
         epoch: Epoch,
         node: Arc<StorageNodeInner>,
+        blob_sync_handler: Arc<BlobSyncHandler>,
     ) -> Result<(), SyncShardClientError> {
         tracing::info!("Syncing shard to before epoch: {}", epoch);
         if self.status()? == ShardStatus::None {
             self.shard_status.insert(&(), &ShardStatus::ActiveSync)?
         }
 
-        assert_eq!(self.status()?, ShardStatus::ActiveSync);
+        let shard_status = self.status()?;
+        assert!(
+            shard_status == ShardStatus::ActiveSync || shard_status == ShardStatus::ActiveRecover
+        );
 
         // Checks if the shard was previously syncing and resumes syncing from the last synced blob.
-        let (mut last_synced_blob_id, skip_primary) = match self.shard_sync_progress.get(&())? {
-            Some(ShardSyncProgress::V1(ShardSyncProgressV1 {
-                last_synced_blob_id,
-                sliver_type,
-            })) => {
-                tracing::info!(
-                    "Resuming shard sync from blob id: {}, sliver type: {}",
-                    last_synced_blob_id,
-                    sliver_type
-                );
-                (
-                    Some(last_synced_blob_id),
-                    sliver_type == SliverType::Secondary,
-                )
-            }
-            None => (None, false),
-        };
+        let (mut last_synced_blob_id, skip_primary, skip_secondary) =
+            if shard_status == ShardStatus::ActiveRecover {
+                // We are in recovery mode. Skip happy path syncing and directly jump to recover
+                // missing blobs.
+                (None, true, true)
+            } else {
+                match self.shard_sync_progress.get(&())? {
+                    Some(ShardSyncProgress::V1(ShardSyncProgressV1 {
+                        last_synced_blob_id,
+                        sliver_type,
+                    })) => {
+                        tracing::info!(
+                            "Resuming shard sync from blob id: {}, sliver type: {}",
+                            last_synced_blob_id,
+                            sliver_type
+                        );
+                        (
+                            Some(last_synced_blob_id),
+                            sliver_type == SliverType::Secondary,
+                            false,
+                        )
+                    }
+                    None => (None, false, false),
+                }
+            };
 
-        // TODO(#705): handle missing individual blobs.
-        // TODO(#259): handle non-happy path.
         if !skip_primary {
             self.sync_shard_before_epoch_internal(
                 epoch,
@@ -418,13 +469,34 @@ impl ShardStorage {
             last_synced_blob_id = None;
         }
 
-        self.sync_shard_before_epoch_internal(
-            epoch,
-            node,
-            SliverType::Secondary,
-            last_synced_blob_id,
-        )
-        .await?;
+        if !skip_secondary {
+            self.sync_shard_before_epoch_internal(
+                epoch,
+                node.clone(),
+                SliverType::Secondary,
+                last_synced_blob_id,
+            )
+            .await?;
+        }
+
+        if !self.pending_recover_slivers.is_empty() {
+            self.shard_status.insert(&(), &ShardStatus::ActiveRecover)?;
+            loop {
+                self.recover_missing_blobs(blob_sync_handler.clone())
+                    .await?;
+
+                if self.pending_recover_slivers.is_empty() {
+                    // TODO: check recovered blob consistency.
+                    break;
+                }
+                tracing::warn!(
+                    "Recovering missing blobs for shard: {} still misses blobs.
+                    Retrying in 60 seconds.",
+                    self.id
+                );
+                tokio::time::sleep(Duration::from_secs(60)).await;
+            }
+        }
 
         let mut batch = self.shard_status.batch();
         batch.insert_batch(&self.shard_status, [((), ShardStatus::Active)])?;
@@ -451,9 +523,14 @@ impl ShardStorage {
         // Helper to track the number of scanned blobs to test recovery. Not used in production.
         #[cfg(feature = "failure_injection")]
         let mut scan_count = 0;
-        while let Some(next_starting_blob_id) =
-            next_certified_blob_id_before_epoch(&node.storage, epoch, last_synced_blob_id)?
-        {
+
+        let mut blob_info_iter = node
+            .storage
+            .certified_blob_info_iter_before_epoch(epoch, last_synced_blob_id);
+
+        let mut next_blob_info = blob_info_iter.next().transpose()?;
+        while next_blob_info.is_some() {
+            let next_starting_blob_id = next_blob_info.as_ref().unwrap().0;
             tracing::debug!(
                 "Syncing shard to before epoch: {}. Starting blob id: {}",
                 epoch,
@@ -477,7 +554,6 @@ impl ShardStorage {
                 .await?;
             for blob in fetched_slivers.iter() {
                 tracing::debug!("Synced blob id: {} to before epoch: {}.", blob.0, epoch,);
-                //TODO(#705): Track missing blobs.
                 //TODO(#705): verify sliver validity.
                 //  - blob is certified
                 //  - metadata is correct
@@ -491,6 +567,14 @@ impl ShardStorage {
                         batch.insert_batch(&self.secondary_slivers, [(blob.0, secondary)])?;
                     }
                 }
+
+                next_blob_info = self.check_missing_blobs(
+                    &mut blob_info_iter,
+                    next_blob_info,
+                    blob.0,
+                    sliver_type,
+                    &mut batch,
+                )?;
 
                 // Inject a failure point to simulate a sync failure.
                 #[cfg(feature = "failure_injection")]
@@ -530,14 +614,125 @@ impl ShardStorage {
                     &self.shard_sync_progress,
                     [((), ShardSyncProgress::new(last_synced_blob_id, sliver_type))],
                 )?;
+            }
 
-                batch.write()?;
-            } else {
+            batch.write()?;
+            if last_synced_blob_id.is_none() {
                 break;
             }
         }
 
+        if next_blob_info.is_none() {
+            return Ok(());
+        }
+
+        // Caveats: crash right in between syncing primary and secondary slivers.
+        let mut batch = match sliver_type {
+            SliverType::Primary => self.primary_slivers.batch(),
+            SliverType::Secondary => self.secondary_slivers.batch(),
+        };
+
+        // TODO: add test
+        while let Some((blob_id, _)) = next_blob_info {
+            batch.insert_batch(
+                &self.pending_recover_slivers,
+                [((sliver_type, blob_id), ())],
+            )?;
+            next_blob_info = blob_info_iter.next().transpose()?;
+        }
+        batch.write()?;
+
         Ok(())
+    }
+
+    // Given a iterator over blob info table that is currently pointing to `next_blob_info`,
+    // and `fetched_blob_id` returned from the remote storage node, checks if there are any
+    // missing blobs between `next_blob_info` and `fetched_blob_id`.
+    // Returns the next blob info that is greater than `fetched_blob_id` or None if there are no.
+    fn check_missing_blobs(
+        &self,
+        blob_info_iter: &mut BlobInfoIter,
+        mut next_blob_info: Option<(BlobId, BlobInfo)>,
+        fetched_blob_id: BlobId,
+        sliver_type: SliverType,
+        db_batch: &mut DBBatch,
+    ) -> Result<Option<(BlobId, BlobInfo)>, TypedStoreError> {
+        let Some((mut next_blob_id, _)) = next_blob_info else {
+            assert!(blob_info_iter.next().transpose()?.is_none());
+            return Ok(None);
+        };
+
+        if next_blob_id == fetched_blob_id {
+            return blob_info_iter.next().transpose();
+        }
+
+        while ToRocksDbKey(&next_blob_id) < ToRocksDbKey(&fetched_blob_id) {
+            db_batch.insert_batch(
+                &self.pending_recover_slivers,
+                [((sliver_type, next_blob_id), ())],
+            )?;
+
+            next_blob_info = blob_info_iter.next().transpose()?;
+            if let Some((blob_id, _)) = next_blob_info {
+                next_blob_id = blob_id;
+            } else {
+                return Ok(None);
+            }
+        }
+
+        if next_blob_id == fetched_blob_id {
+            return blob_info_iter.next().transpose();
+        }
+
+        Ok(next_blob_info)
+    }
+
+    // Recovers missing blob slivers stored in `pending_recover_slivers` table, using
+    // `blob_sync_handler`.
+    async fn recover_missing_blobs(
+        &self,
+        blob_sync_handler: Arc<BlobSyncHandler>,
+    ) -> Result<(), TypedStoreError> {
+        let futures = FuturesUnordered::new();
+        for recover_blob in self.pending_recover_slivers.safe_iter() {
+            let ((_, blob_id), _) = recover_blob?;
+            futures.push(self.recover_blob(blob_sync_handler.clone(), blob_id));
+        }
+
+        futures
+            .collect::<Vec<_>>()
+            .await
+            .into_iter()
+            .collect::<Result<(), _>>()
+    }
+
+    // Recovers the missing blob sliver for the given blob ID.
+    async fn recover_blob(
+        &self,
+        blob_sync_handler: Arc<BlobSyncHandler>,
+        blob_id: BlobId,
+    ) -> Result<(), TypedStoreError> {
+        let start_time = tokio::time::Instant::now();
+        // Note that `blob_sync_handler` tries to recover ALL missing shards for the given blob
+        // id. `start_sync_for_blob_recovery` can be called multiple times, but there will
+        // be only one active recovery task for the given blob id.
+        blob_sync_handler
+            .start_sync_for_blob_recovery(blob_id, start_time)
+            .await;
+        if self.is_sliver_pair_stored(&blob_id)? {
+            let mut batch = self.pending_recover_slivers.batch();
+            batch.delete_batch(
+                &self.pending_recover_slivers,
+                [
+                    (SliverType::Primary, blob_id),
+                    (SliverType::Secondary, blob_id),
+                ],
+            )?;
+            batch.write()
+        } else {
+            // Later retry will revisit this blob again.
+            Ok(())
+        }
     }
 
     #[cfg(test)]
@@ -557,37 +752,26 @@ impl ShardStorage {
     pub(crate) fn update_status_in_test(&self, status: ShardStatus) -> Result<(), TypedStoreError> {
         self.shard_status.insert(&(), &status)
     }
-}
 
-// Helper function to find the next certified blob ID after the provided blob ID.
-fn next_certified_blob_id_before_epoch(
-    storage: &Storage,
-    certified_before_epoch: Epoch,
-    after_blob: Option<BlobId>,
-) -> Result<Option<BlobId>, TypedStoreError> {
-    // The query starts from the blob after the provided blob ID in `after_blob`.
-    let iter = storage.blob_info_iter(Some((
-        if let Some(starting_blob_id) = after_blob {
-            Excluded(starting_blob_id)
-        } else {
-            Unbounded
-        },
-        Unbounded,
-    )));
-
-    for result in iter {
-        let (blob_id, blob_info) = result?;
-        if blob_info.is_certified()
-            && blob_info
-                .status_changing_epoch(super::blob_info::BlobCertificationStatus::Certified)
-                .unwrap()
-                < certified_before_epoch
-        {
-            return Ok(Some(blob_id));
-        }
+    #[cfg(test)]
+    pub(crate) fn check_missing_blobs_in_test(
+        &self,
+        blob_info_iter: &mut BlobInfoIter,
+        next_blob_info: Option<(BlobId, BlobInfo)>,
+        fetched_blob_id: BlobId,
+        sliver_type: SliverType,
+    ) -> Result<Option<(BlobId, BlobInfo)>, TypedStoreError> {
+        let mut db_batch = self.pending_recover_slivers.batch();
+        let next_blob_info = self.check_missing_blobs(
+            blob_info_iter,
+            next_blob_info,
+            fetched_blob_id,
+            sliver_type,
+            &mut db_batch,
+        )?;
+        db_batch.write()?;
+        Ok(next_blob_info)
     }
-
-    Ok(None)
 }
 
 fn id_from_column_family_name(name: &str) -> Option<(ShardIndex, SliverType)> {
@@ -635,6 +819,11 @@ fn shard_sync_progress_column_family_name(id: ShardIndex) -> String {
     base_column_family_name(id) + "/sync_progress"
 }
 
+#[inline]
+fn pending_recover_slivers_column_family_name(id: ShardIndex) -> String {
+    base_column_family_name(id) + "/pending_recover_slivers"
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -654,7 +843,6 @@ mod tests {
     use crate::{
         node::storage::{
             blob_info::{BlobCertificationStatus, BlobInfo},
-            shard,
             tests::{empty_storage, get_sliver, BLOB_ID, OTHER_SHARD_INDEX, SHARD_INDEX},
             Storage,
         },
@@ -983,8 +1171,16 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_next_certified_blob_id_before_epoch() -> TestResult {
+    async_param_test! {
+        test_check_missing_blobs -> TestResult: [
+            test1: (1, 4, &[BlobId([3; 32]), BlobId([4; 32])]),
+        ]
+    }
+    async fn test_check_missing_blobs(
+        next_blob_info_index: usize,
+        fetched_blob_id_index: usize,
+        _expected_missing_blobs: &[BlobId],
+    ) -> TestResult {
         let storage = empty_storage();
         let blob_info = storage.inner.blob_info.clone();
         let new_epoch = 3;
@@ -998,94 +1194,36 @@ mod tests {
             BlobId([6; 32]), // Certified within epoch 2
         ];
 
-        blob_info.insert(
-            &blob_ids[0],
-            &BlobInfo::new_for_testing(
-                10,
-                BlobCertificationStatus::Registered,
-                event_id_for_testing(),
-                Some(0),
-                None,
-                None,
-            ),
-        )?;
+        for blob_id in blob_ids {
+            blob_info.insert(
+                &blob_id,
+                &BlobInfo::new_for_testing(
+                    10,
+                    BlobCertificationStatus::Certified,
+                    event_id_for_testing(),
+                    Some(0),
+                    Some(1),
+                    None,
+                ),
+            )?;
+        }
 
-        blob_info.insert(
-            &blob_ids[2],
-            &BlobInfo::new_for_testing(
-                10,
-                BlobCertificationStatus::Certified,
-                event_id_for_testing(),
-                Some(0),
-                Some(1),
-                None,
-            ),
+        let shard = storage.as_ref().shard_storage(SHARD_INDEX).unwrap();
+        let mut blob_info_iter = storage
+            .inner
+            .certified_blob_info_iter_before_epoch(new_epoch, Some(blob_ids[2]));
+        shard.check_missing_blobs_in_test(
+            &mut blob_info_iter,
+            Some((
+                blob_ids[next_blob_info_index],
+                blob_info
+                    .get(&blob_ids[next_blob_info_index])
+                    .unwrap()
+                    .unwrap(),
+            )),
+            blob_ids[fetched_blob_id_index],
+            SliverType::Primary,
         )?;
-
-        blob_info.insert(
-            &blob_ids[3],
-            &BlobInfo::new_for_testing(
-                10,
-                BlobCertificationStatus::Certified,
-                event_id_for_testing(),
-                Some(0),
-                Some(3),
-                None,
-            ),
-        )?;
-
-        blob_info.insert(
-            &blob_ids[4],
-            &BlobInfo::new_for_testing(
-                10,
-                BlobCertificationStatus::Invalid,
-                event_id_for_testing(),
-                Some(0),
-                Some(1),
-                Some(1),
-            ),
-        )?;
-
-        blob_info.insert(
-            &blob_ids[5],
-            &BlobInfo::new_for_testing(
-                10,
-                BlobCertificationStatus::Certified,
-                event_id_for_testing(),
-                Some(0),
-                Some(2),
-                None,
-            ),
-        )?;
-
-        assert_eq!(
-            shard::next_certified_blob_id_before_epoch(&storage.inner, new_epoch, None)?,
-            Some(blob_ids[2])
-        );
-        assert_eq!(
-            shard::next_certified_blob_id_before_epoch(
-                &storage.inner,
-                new_epoch,
-                Some(blob_ids[1])
-            )?,
-            Some(blob_ids[2])
-        );
-        assert_eq!(
-            shard::next_certified_blob_id_before_epoch(
-                &storage.inner,
-                new_epoch,
-                Some(blob_ids[2])
-            )?,
-            Some(blob_ids[5])
-        );
-        assert_eq!(
-            shard::next_certified_blob_id_before_epoch(
-                &storage.inner,
-                new_epoch,
-                Some(blob_ids[5])
-            )?,
-            None,
-        );
 
         Ok(())
     }
