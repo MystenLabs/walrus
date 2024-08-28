@@ -33,8 +33,7 @@ use self::{
     blob_info::{BlobInfo, BlobInfoApi, BlobInfoMergeOperand, Mergeable as _},
     event_cursor_table::EventCursorTable,
 };
-use super::errors::ShardNotAssigned;
-use crate::node::SyncShardError;
+use super::errors::{ShardNotAssigned, SyncShardServiceError};
 
 pub(crate) mod blob_info;
 
@@ -542,7 +541,7 @@ impl Storage {
         &self,
         request: &SyncShardRequest,
         current_epoch: Epoch,
-    ) -> Result<SyncShardResponse, SyncShardError> {
+    ) -> Result<SyncShardResponse, SyncShardServiceError> {
         let Some(shard) = self.shard_storage(request.shard_index()) else {
             return Err(ShardNotAssigned(request.shard_index(), current_epoch).into());
         };
@@ -1238,7 +1237,10 @@ pub(crate) mod tests {
             .handle_sync_shard_request(&request, 0)
             .unwrap_err();
 
-        assert!(matches!(response, SyncShardError::ShardNotAssigned(..)));
+        assert!(matches!(
+            response,
+            SyncShardServiceError::ShardNotAssigned(..)
+        ));
 
         Ok(())
     }

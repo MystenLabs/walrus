@@ -37,15 +37,12 @@ impl NodeResponse for Response {
         match self.json().await {
             Ok(ServiceResponse::<()>::Error {
                 message, reason, ..
-            }) => match reason {
-                Some(service_error) => Err(Kind::StatusWithServiceError {
-                    inner,
-                    message,
-                    service_error,
-                }
-                .into()),
-                None => Err(Kind::StatusWithMessage { inner, message }.into()),
-            },
+            }) => Err(Kind::StatusWithMessage {
+                inner,
+                message,
+                service_error: reason,
+            }
+            .into()),
             _ => {
                 tracing::debug!("unable to parse the service's JSON response");
                 Err(Kind::Reqwest(inner).into())

@@ -32,7 +32,7 @@ use walrus_core::{
 };
 
 use super::{blob_info::BlobInfoApi, DatabaseConfig, Storage};
-use crate::node::{errors::SyncShardError, StorageNodeInner};
+use crate::node::{errors::SyncShardClientError, StorageNodeInner};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ShardStatus {
@@ -378,7 +378,7 @@ impl ShardStorage {
         &self,
         epoch: Epoch,
         node: Arc<StorageNodeInner>,
-    ) -> Result<(), SyncShardError> {
+    ) -> Result<(), SyncShardClientError> {
         tracing::info!("Syncing shard to before epoch: {}", epoch);
         if self.status()? == ShardStatus::None {
             self.shard_status.insert(&(), &ShardStatus::ActiveSync)?
@@ -447,7 +447,7 @@ impl ShardStorage {
         node: Arc<StorageNodeInner>,
         sliver_type: SliverType,
         mut last_synced_blob_id: Option<BlobId>,
-    ) -> Result<(), SyncShardError> {
+    ) -> Result<(), SyncShardClientError> {
         // Helper to track the number of scanned blobs to test recovery. Not used in production.
         #[cfg(feature = "failure_injection")]
         let mut scan_count = 0;

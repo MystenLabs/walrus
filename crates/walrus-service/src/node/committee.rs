@@ -57,7 +57,7 @@ use walrus_sui::{
     types::{Committee, StorageNode as SuiStorageNode},
 };
 
-use super::errors::SyncShardError;
+use super::errors::SyncShardClientError;
 use crate::{
     common::utils::{self, ExponentialBackoff, FutureHelpers},
     node::config::CommitteeServiceConfig,
@@ -146,7 +146,7 @@ pub trait CommitteeService: std::fmt::Debug + Send + Sync {
         sliver_count: u64,
         epoch: Epoch,
         key_pair: &ProtocolKeyPair,
-    ) -> Result<Vec<(BlobId, Sliver)>, SyncShardError>;
+    ) -> Result<Vec<(BlobId, Sliver)>, SyncShardClientError>;
 
     /// Checks if the given public key belongs to a Walrus storage node.
     /// TODO (#629): once node catching up is implemented, we need to make sure that the node
@@ -587,9 +587,9 @@ where
         sliver_count: u64,
         epoch: Epoch,
         key_pair: &ProtocolKeyPair,
-    ) -> Result<Vec<(BlobId, Sliver)>, SyncShardError> {
+    ) -> Result<Vec<(BlobId, Sliver)>, SyncShardClientError> {
         let Some(member_index) = self.committee.member_index_for_shard(shard) else {
-            return Err(SyncShardError::NoOwnerForShard(shard));
+            return Err(SyncShardClientError::NoOwnerForShard(shard));
         };
 
         let node = self.node(member_index);
@@ -600,7 +600,7 @@ where
                 .await?
                 .into())
         } else {
-            Err(SyncShardError::NoSyncClient)
+            Err(SyncShardClientError::NoSyncClient)
         }
     }
 }
@@ -737,7 +737,7 @@ impl CommitteeService for NodeCommitteeService {
         sliver_count: u64,
         epoch: Epoch,
         key_pair: &ProtocolKeyPair,
-    ) -> Result<Vec<(BlobId, Sliver)>, SyncShardError> {
+    ) -> Result<Vec<(BlobId, Sliver)>, SyncShardClientError> {
         tracing::info!("syncing shard to epoch");
         match sliver_type {
             SliverType::Primary => {

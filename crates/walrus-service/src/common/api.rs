@@ -34,6 +34,7 @@ use utoipa::{
     ToSchema,
 };
 use walrus_core::BlobId;
+use walrus_sdk::error::ServiceError;
 
 /// A blob ID encoded as a URL-safe Base64 string, without the trailing equal (=) signs.
 #[serde_as]
@@ -147,7 +148,7 @@ macro_rules! api_success_alias {
 
         impl<'r> ToSchema<'r> for $alias {
             fn schema() -> (&'r str, RefOr<Schema>) {
-                (stringify!($alias), $crate::common::api::api_success_alias!(@schema $method $name))
+                (stringify!($alias), $crate::api_success_alias!(@schema $method $name))
             }
         }
     };
@@ -163,6 +164,7 @@ pub(crate) enum RestApiJsonError<'a> {
     Error {
         code: u16,
         message: &'a str,
+        #[serde(flatten)]
         reason: Option<ServiceError>,
     },
 }
@@ -193,7 +195,7 @@ pub(crate) trait RestApiError: Sized {
     /// Returns the text to be written to the HTTP body.
     fn body_text(&self) -> String;
 
-    /// Returns the detailed server error, if any.
+    /// Returns the detailed server side error, if any.
     fn service_error(&self) -> Option<ServiceError>;
 
     /// Converts the error into a [`Response`].
@@ -322,9 +324,3 @@ pub(crate) fn rewrite_route(path: &str) -> String {
         .as_ref()
         .into()
 }
-
-#[allow(unused_imports)]
-pub(crate) use api_success_alias;
-#[allow(unused_imports)]
-pub(crate) use rest_api_error;
-use walrus_sdk::error::ServiceError;

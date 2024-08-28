@@ -56,7 +56,7 @@ use crate::node::{
     committee::{CommitteeService, CommitteeServiceFactory, NodeCommitteeService},
     config::StorageNodeConfig,
     contract_service::SystemContractService,
-    errors::SyncShardError,
+    errors::SyncShardClientError,
     server::{UserServer, UserServerConfig},
     system_events::SystemEventProvider,
     DatabaseConfig,
@@ -515,7 +515,7 @@ impl CommitteeService for StubCommitteeService {
         _sliver_count: u64,
         _epoch: Epoch,
         _key_pair: &ProtocolKeyPair,
-    ) -> Result<Vec<(BlobId, Sliver)>, SyncShardError> {
+    ) -> Result<Vec<(BlobId, Sliver)>, SyncShardClientError> {
         std::future::pending().await
     }
 

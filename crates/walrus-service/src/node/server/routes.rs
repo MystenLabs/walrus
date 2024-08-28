@@ -40,7 +40,7 @@ use crate::{
         ServiceState,
         StoreMetadataError,
         StoreSliverError,
-        SyncShardError,
+        SyncShardServiceError,
     },
 };
 
@@ -447,7 +447,7 @@ pub async fn health_info<S: SyncServiceState>(
     request_body(content = [u8], description = "BCS-encoded SignedMessage<SyncShardRequest>"),
     responses(
         (status = 200, description = "BCS encoded vector of slivers", body = [u8]),
-        SyncShardError
+        SyncShardServiceError
     ),
     tag = openapi::GROUP_SYNC_SHARD
 )]
@@ -455,7 +455,7 @@ pub async fn sync_shard<S: SyncServiceState>(
     State(state): State<Arc<S>>,
     Authorization(base64_public_key): Authorization,
     Bcs(signed_request): Bcs<SignedSyncShardRequest>,
-) -> Result<Response, OrRejection<SyncShardError>> {
+) -> Result<Response, OrRejection<SyncShardServiceError>> {
     let public_key = PublicKey::decode_base64(&base64_public_key).unwrap();
     Ok(Bcs(state.sync_shard(public_key, signed_request)?).into_response())
 }

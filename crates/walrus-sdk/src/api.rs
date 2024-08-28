@@ -30,6 +30,7 @@ pub enum ServiceResponse<T> {
         /// The error message.
         message: String,
         /// Optionally contains a more detailed server side reason for the error.
+        #[serde(flatten)]
         reason: Option<ServiceError>,
     },
 }

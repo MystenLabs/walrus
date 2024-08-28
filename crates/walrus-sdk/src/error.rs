@@ -61,7 +61,7 @@ impl NodeError {
     /// Returns the reason for the error, if any.
     pub fn service_error(&self) -> Option<ServiceError> {
         match &self.kind {
-            Kind::StatusWithServiceError { service_error, .. } => Some(*service_error),
+            Kind::StatusWithMessage { service_error, .. } => *service_error,
             _ => None,
         }
     }
@@ -74,21 +74,16 @@ pub(crate) enum Kind {
     Bcs(#[from] bcs::Error),
     #[error(transparent)]
     Reqwest(#[from] reqwest::Error),
-    #[error("{inner}: {message}")]
+    #[error("{inner}: {message} ({service_error:?})")]
     StatusWithMessage {
         inner: reqwest::Error,
         message: String,
+        service_error: Option<ServiceError>,
     },
     #[error("node returned an error in a non-error response {code}: {message}")]
     ErrorInNonErrorMessage { code: u16, message: String },
     #[error("invalid content type in response")]
     InvalidContentType,
-    #[error("{message} ({service_error:?})")]
-    StatusWithServiceError {
-        inner: reqwest::Error,
-        message: String,
-        service_error: ServiceError,
-    },
     #[error(transparent)]
     Other(Box<dyn std::error::Error + Send + Sync>),
 }
@@ -121,11 +116,15 @@ pub(crate) enum BuildErrorKind {
     FailedToLoadCerts(#[from] std::io::Error),
 }
 
-/// Defines a more detailed server side reason that can be returned with an error.
+/// Defines a more detailed server side error that can be returned to the client.
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[serde(tag = "reason", content = "metadata", rename_all = "camelCase")]
 pub enum ServiceError {
-    /// The requested epoch is invalid because it is too old.
-    InvalidEpochTooOld(Epoch),
-    /// The requested epoch is invalid because it is too new.
-    InvalidEpochTooNew(Epoch),
+    /// The requested epoch is invalid.
+    InvalidEpoch {
+        /// The epoch client is in.
+        client_epoch: Epoch,
+        /// The epoch server is in.
+        server_epoch: Epoch,
+    },
 }

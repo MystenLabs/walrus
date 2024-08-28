@@ -461,7 +461,7 @@ mod tests {
             RetrieveSymbolError,
             StoreMetadataError,
             StoreSliverError,
-            SyncShardError,
+            SyncShardServiceError,
         },
         test_utils,
     };
@@ -622,7 +622,7 @@ mod tests {
             &self,
             _public_key: PublicKey,
             _signed_request: SignedMessage<SyncShardMsg>,
-        ) -> Result<SyncShardResponse, SyncShardError> {
+        ) -> Result<SyncShardResponse, SyncShardServiceError> {
             Ok(SyncShardResponse::V1(vec![]))
         }
     }

@@ -82,7 +82,7 @@ use errors::{
     ShardNotAssigned,
     StoreMetadataError,
     StoreSliverError,
-    SyncShardError,
+    SyncShardServiceError,
 };
 
 mod storage;
@@ -176,7 +176,7 @@ pub trait ServiceState {
         &self,
         public_key: PublicKey,
         signed_request: SignedSyncShardRequest,
-    ) -> Result<SyncShardResponse, SyncShardError>;
+    ) -> Result<SyncShardResponse, SyncShardServiceError>;
 }
 
 /// Builder to construct a [`StorageNode`].
@@ -712,7 +712,7 @@ impl ServiceState for StorageNode {
         &self,
         public_key: PublicKey,
         signed_request: SignedSyncShardRequest,
-    ) -> Result<SyncShardResponse, SyncShardError> {
+    ) -> Result<SyncShardResponse, SyncShardServiceError> {
         self.inner.sync_shard(public_key, signed_request)
     }
 }
@@ -943,9 +943,9 @@ impl ServiceState for StorageNodeInner {
         &self,
         public_key: PublicKey,
         signed_request: SignedSyncShardRequest,
-    ) -> Result<SyncShardResponse, SyncShardError> {
+    ) -> Result<SyncShardResponse, SyncShardServiceError> {
         if !self.committee_service.is_walrus_storage_node(&public_key) {
-            return Err(SyncShardError::Unauthorized);
+            return Err(SyncShardServiceError::Unauthorized);
         }
 
         let sync_shard_msg = signed_request.verify_signature_and_get_message(&public_key)?;
@@ -955,12 +955,12 @@ impl ServiceState for StorageNodeInner {
 
         // If the epoch of the requester should not be older than the current epoch of the node.
         // In a normal scenario, a storage node will never fetch shards from a future epoch.
-        if request.epoch() < self.current_epoch() {
-            return Err(InvalidEpochError::TooOld(self.current_epoch()).into());
-        }
-
-        if request.epoch() > self.current_epoch() {
-            return Err(InvalidEpochError::TooNew(self.current_epoch()).into());
+        if request.epoch() != self.current_epoch() {
+            return Err(InvalidEpochError {
+                client_epoch: request.epoch(),
+                server_epoch: self.current_epoch(),
+            }
+            .into());
         }
 
         self.storage
@@ -1954,7 +1954,7 @@ mod tests {
         );
         assert!(matches!(
             result,
-            Err(SyncShardError::MessageVerificationError(..))
+            Err(SyncShardServiceError::MessageVerificationError(..))
         ));
 
         Ok(())
@@ -1963,8 +1963,8 @@ mod tests {
     // Tests SyncShardRequest with wrong epoch.
     async_param_test! {
         sync_shard_node_api_invalid_epoch -> TestResult: [
-            too_old: (10, 1, "Requester epoch too old. Server epoch: 10"),
-            too_new: (10, 11, "Requester epoch too new. Server epoch: 10"),
+            too_old: (10, 1, "Invalid epoch. Client epoch: 1. Server epoch: 10"),
+            too_new: (10, 11, "Invalid epoch. Client epoch: 11. Server epoch: 10"),
         ]
     }
     async fn sync_shard_node_api_invalid_epoch(

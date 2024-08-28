@@ -12,7 +12,7 @@ use walrus_core::{
     Epoch,
     ShardIndex,
 };
-use walrus_sdk::error::{NodeError, ServiceError};
+use walrus_sdk::error::NodeError;
 
 use super::storage::ShardStatus;
 
@@ -123,17 +123,14 @@ pub enum BlobStatusError {
 
 /// Error returned when the epoch in a request is invalid.
 #[derive(Debug, thiserror::Error, Serialize, Clone)]
-pub enum InvalidEpochError {
-    /// The requester's epoch is too old.
-    #[error("Requester epoch too old. Server epoch: {0}")]
-    TooOld(Epoch),
-    /// The requester's epoch is too new.
-    #[error("Requester epoch too new. Server epoch: {0}")]
-    TooNew(Epoch),
+#[error("Invalid epoch. Client epoch: {client_epoch}. Server epoch: {server_epoch}")]
+pub struct InvalidEpochError {
+    pub client_epoch: Epoch,
+    pub server_epoch: Epoch,
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum SyncShardError {
+pub enum SyncShardServiceError {
     #[error("The client is not authorized to perform sync shard operation")]
     Unauthorized,
     #[error(transparent)]
@@ -144,26 +141,24 @@ pub enum SyncShardError {
     InvalidEpoch(#[from] InvalidEpochError),
     #[error(transparent)]
     Internal(#[from] InternalError),
+    #[error(transparent)]
+    StorageError(#[from] TypedStoreError),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum SyncShardClientError {
     #[error("The destination node does not have a valid client to talk to the source node")]
     NoSyncClient,
     #[error("Unable to find the owner for shard {0}")]
     NoOwnerForShard(ShardIndex),
-    #[error(transparent)]
-    StorageError(#[from] TypedStoreError),
     #[error("The shard {0} is not in a valid status for syncing: {1}")]
     InvalidShardStatusToSync(ShardIndex, ShardStatus),
-}
-
-impl From<NodeError> for SyncShardError {
-    fn from(error: NodeError) -> Self {
-        match error.service_error() {
-            Some(ServiceError::InvalidEpochTooOld(epoch)) => {
-                Self::InvalidEpoch(InvalidEpochError::TooOld(epoch))
-            }
-            Some(ServiceError::InvalidEpochTooNew(epoch)) => {
-                Self::InvalidEpoch(InvalidEpochError::TooNew(epoch))
-            }
-            _ => Self::Internal(error.into()),
-        }
-    }
+    #[error(transparent)]
+    ShardNotAssigned(#[from] ShardNotAssigned),
+    #[error(transparent)]
+    StorageError(#[from] TypedStoreError),
+    #[error(transparent)]
+    Internal(#[from] InternalError),
+    #[error(transparent)]
+    RequestError(#[from] NodeError),
 }

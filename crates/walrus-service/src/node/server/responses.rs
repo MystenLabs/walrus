@@ -15,7 +15,7 @@ use walrus_sdk::error::ServiceError;
 
 use super::extract::BcsRejection;
 use crate::{
-    common::api::{rest_api_error, RestApiError},
+    common::api::RestApiError,
     node::{
         errors::InvalidEpochError,
         BlobStatusError,
@@ -26,8 +26,9 @@ use crate::{
         RetrieveSymbolError,
         StoreMetadataError,
         StoreSliverError,
-        SyncShardError,
+        SyncShardServiceError,
     },
+    rest_api_error,
 };
 
 rest_api_error! {
@@ -105,20 +106,16 @@ rest_api_error! {
 }
 
 rest_api_error!(
-    SyncShardError: [
+    SyncShardServiceError: [
         (Unauthorized, UNAUTHORIZED, None, Self::Unauthorized.to_string()),
         (MessageVerificationError(_), BAD_REQUEST, None, "Request verification failed"),
         (ShardNotAssigned(_), MISDIRECTED_REQUEST, None,
         "the requested sliver is not stored at a shard assigned to this storage node"),
-        (InvalidEpoch(InvalidEpochError::TooOld(epoch)), BAD_REQUEST,
-        Some(ServiceError::InvalidEpochTooOld(*epoch)), "The requested epoch is invalid"),
-        (InvalidEpoch(InvalidEpochError::TooNew(epoch)), BAD_REQUEST,
-        Some(ServiceError::InvalidEpochTooNew(*epoch)), "The requested epoch is invalid"),
+        (InvalidEpoch(InvalidEpochError{client_epoch, server_epoch}), BAD_REQUEST,
+        Some(ServiceError::InvalidEpoch{client_epoch: *client_epoch, server_epoch: *server_epoch}),
+        "The requested epoch is invalid"),
         (Internal(_), INTERNAL_SERVER_ERROR, None, @canonical),
-        (NoSyncClient, BAD_REQUEST, None, "No client found for syncing the shard"),
-        (NoOwnerForShard(_), BAD_REQUEST, None, "No owner found for the shard"),
         (StorageError(_), INTERNAL_SERVER_ERROR, None, "Storage error"),
-        (InvalidShardStatusToSync(_,_), BAD_REQUEST, None, "Invalid shard status to sync"),
     ]
 );
 
@@ -187,8 +184,8 @@ impl From<InconsistencyProofError> for OrRejection<InconsistencyProofError> {
     }
 }
 
-impl From<SyncShardError> for OrRejection<SyncShardError> {
-    fn from(value: SyncShardError) -> Self {
+impl From<SyncShardServiceError> for OrRejection<SyncShardServiceError> {
+    fn from(value: SyncShardServiceError) -> Self {
         Self::Err(value)
     }
 }
