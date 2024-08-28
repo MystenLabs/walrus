@@ -72,8 +72,9 @@ pub enum SuiClientError {
     NoCompatibleGasCoins(anyhow::Error),
     /// The Walrus system object does not exist.
     #[error(
-        "the specified Walrus system object {0} does not exist; \
-        make sure you have the latest configuration and you are using the correct Sui network"
+        "the specified Walrus system object {0} does not exist or is incompatible with this binary;\
+        \nmake sure you have the latest binary and configuration, and the correct Sui network is \
+        activated in your Sui wallet"
     )]
     WalrusSystemObjectDoesNotExist(ObjectID),
     /// The specified event ID is not associated with a Walrus event.

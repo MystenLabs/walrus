@@ -297,13 +297,22 @@ async fn get_system_package_id(
             SuiObjectDataOptions::default().with_content().with_type(),
         )
         .await
-        .map_err(|_| SuiClientError::WalrusSystemObjectDoesNotExist(system_object_id))?;
+        .map_err(|error| {
+            tracing::debug!(%error, "unable to get the Walrus system object");
+            SuiClientError::WalrusSystemObjectDoesNotExist(system_object_id)
+        })?;
 
-    get_sui_object_from_object_response::<SystemObject>(&response, system_object_id)
-        .map_err(|_| SuiClientError::WalrusSystemObjectDoesNotExist(system_object_id))?;
+    get_sui_object_from_object_response::<SystemObject>(&response, system_object_id).map_err(
+        |error| {
+            tracing::debug!(%error, "error when trying to deserialize the system object");
+            SuiClientError::WalrusSystemObjectDoesNotExist(system_object_id)
+        },
+    )?;
 
-    let object_pkg_id = get_package_id_from_object_response(&response)
-        .map_err(|_| SuiClientError::WalrusSystemObjectDoesNotExist(system_object_id))?;
+    let object_pkg_id = get_package_id_from_object_response(&response).map_err(|error| {
+        tracing::debug!(%error, "unable to get the Walrus package ID");
+        SuiClientError::WalrusSystemObjectDoesNotExist(system_object_id)
+    })?;
     Ok(object_pkg_id)
 }
 
