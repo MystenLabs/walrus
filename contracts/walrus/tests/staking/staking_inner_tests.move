@@ -54,7 +54,7 @@ fun test_staking_active_set() {
     // expect the active set to be modified
     assert!(staking.active_set().total_stake() == 1000000);
     assert!(staking.active_set().active_ids().length() == 3);
-    assert!(staking.active_set().min_stake() == 0);
+    assert!(staking.active_set().cur_min_stake() == 0);
 
     // trigger `advance_epoch` to update the committee
     staking.select_committee();
