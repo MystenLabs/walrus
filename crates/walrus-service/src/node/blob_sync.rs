@@ -41,6 +41,9 @@ use super::{
 };
 use crate::common::utils::FutureHelpers as _;
 
+type SyncTaskJoinHandle = JoinHandle<Result<Option<(usize, EventID)>, anyhow::Error>>;
+
+// Since this struct only contains Arc. It is cheap to clone it.
 #[derive(Clone)]
 pub(crate) struct BlobSyncHandler {
     // INV: For each blob id at most one sync is in progress at a time.
@@ -100,7 +103,7 @@ impl BlobSyncHandler {
     }
 
     #[tracing::instrument(skip_all, fields(otel.kind = "PRODUCER"))]
-    pub async fn start_sync(
+    pub async fn start_sync_from_event(
         &self,
         event: BlobCertified,
         event_index: usize,
@@ -124,36 +127,16 @@ impl BlobSyncHandler {
             );
             spawned_trace.follows_from(Span::current());
 
-            let cancel_token = CancellationToken::new();
-            let synchronizer =
-                BlobSynchronizer::new(event.blob_id, self.node.clone(), cancel_token.clone());
+            let (cancel_token, blob_sync_handle) = self.spawn_sync_task(
+                event.blob_id,
+                Some((event_index, event.event_id)),
+                start,
+                spawned_trace,
+            );
 
-            let handler_clone = self.clone();
-            let semaphore_clone = self.semaphore.clone();
-            let sync_handle = tokio::spawn(async move {
-                let blob_id = synchronizer.blob_id;
-                let result = handler_clone
-                    .clone()
-                    .sync(
-                        synchronizer,
-                        start,
-                        semaphore_clone,
-                        Some((event_index, event.event_id)),
-                    )
-                    .inspect_err(|err| {
-                        let span = Span::current();
-                        span.record("otel.status_code", "ERROR");
-                        span.record("otel.status_message", field::display(err));
-                        span.record("error.type", "_OTHER");
-                    })
-                    .instrument(spawned_trace)
-                    .await;
-                handler_clone.blob_syncs_notify_reads.notify(&blob_id, &());
-                result
-            });
             entry.insert(InProgressSyncHandle {
                 cancel_token,
-                blob_sync_handle: Some(sync_handle),
+                blob_sync_handle: Some(blob_sync_handle),
             });
         } else {
             // A blob sync with a lower sequence number is already in progress. We can safely try to
@@ -186,34 +169,46 @@ impl BlobSyncHandler {
             );
             spawned_trace.follows_from(Span::current());
 
-            let cancel_token = CancellationToken::new();
-            let synchronizer =
-                BlobSynchronizer::new(blob_id, self.node.clone(), cancel_token.clone());
+            let (cancel_token, blob_sync_handle) =
+                self.spawn_sync_task(blob_id, None, start, spawned_trace);
 
-            let handler_clone = self.clone();
-            let semaphore_clone = self.semaphore.clone();
-            let sync_handle = tokio::spawn(async move {
-                let blob_id = synchronizer.blob_id;
-                let result = handler_clone
-                    .clone()
-                    .sync(synchronizer, start, semaphore_clone, None)
-                    .inspect_err(|err| {
-                        let span = Span::current();
-                        span.record("otel.status_code", "ERROR");
-                        span.record("otel.status_message", field::display(err));
-                        span.record("error.type", "_OTHER");
-                    })
-                    .instrument(spawned_trace)
-                    .await;
-                handler_clone.blob_syncs_notify_reads.notify(&blob_id, &());
-                result
-            });
             entry.insert(InProgressSyncHandle {
                 cancel_token,
-                blob_sync_handle: Some(sync_handle),
+                blob_sync_handle: Some(blob_sync_handle),
             });
         }
         task_handle
+    }
+
+    fn spawn_sync_task(
+        &self,
+        blob_id: BlobId,
+        event_info: Option<(usize, EventID)>,
+        start: tokio::time::Instant,
+        spawned_trace: Span,
+    ) -> (CancellationToken, SyncTaskJoinHandle) {
+        let cancel_token = CancellationToken::new();
+        let synchronizer = BlobSynchronizer::new(blob_id, self.node.clone(), cancel_token.clone());
+
+        let handler_clone = self.clone();
+        let semaphore_clone = self.semaphore.clone();
+        let sync_handle = tokio::spawn(async move {
+            let blob_id = synchronizer.blob_id;
+            let result = handler_clone
+                .clone()
+                .sync(synchronizer, start, semaphore_clone, event_info)
+                .inspect_err(|err| {
+                    let span = Span::current();
+                    span.record("otel.status_code", "ERROR");
+                    span.record("otel.status_message", field::display(err));
+                    span.record("error.type", "_OTHER");
+                })
+                .instrument(spawned_trace)
+                .await;
+            handler_clone.blob_syncs_notify_reads.notify(&blob_id, &());
+            result
+        });
+        (cancel_token, sync_handle)
     }
 
     #[tracing::instrument(skip_all, err)]

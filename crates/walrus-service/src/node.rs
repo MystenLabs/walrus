@@ -525,7 +525,7 @@ impl StorageNode {
         // Slivers and (possibly) metadata are not stored, so initiate blob sync.
         // TODO(kwuest): Handle epoch change. (#405)
         self.blob_sync_handler
-            .start_sync(event, event_index, start)
+            .start_sync_from_event(event, event_index, start)
             .await?;
 
         Ok(())
@@ -993,12 +993,10 @@ mod tests {
     use std::{sync::OnceLock, time::Duration};
 
     use fastcrypto::traits::KeyPair;
-    use storage::tests::{
-        populated_storage,
-        WhichSlivers,
-        BLOB_ID,
-        OTHER_SHARD_INDEX,
-        SHARD_INDEX,
+    use reqwest::StatusCode;
+    use storage::{
+        blob_info::BlobCertificationStatus,
+        tests::{populated_storage, WhichSlivers, BLOB_ID, OTHER_SHARD_INDEX, SHARD_INDEX},
     };
     use tokio::sync::{broadcast::Sender, Mutex};
     use walrus_core::{
@@ -1498,6 +1496,69 @@ mod tests {
         }
 
         Ok((cluster, events, details))
+    }
+
+    // Creates a test cluster with custom initial epoch and blobs that are partially stored
+    // in shard 0.
+    // The function is created for testing shard syncing/recovery. So for blobs that are
+    // not stored in shard 0, it also won't receive a certified event.
+    async fn cluster_with_partially_stored_blobs_in_shard_0<'a, F>(
+        assignment: &[&[u16]],
+        blobs: &[&'a [u8]],
+        initial_epoch: Epoch,
+        mut blob_index_store_at_shard_0: F,
+    ) -> TestResult<(TestCluster, Vec<EncodedBlob>)>
+    where
+        F: FnMut(usize) -> bool,
+    {
+        // Node 0 must contain shard 0.
+        assert!(assignment[0].contains(&0));
+
+        // Create event providers for each node.
+        let node_0_events = Sender::new(48);
+        let all_other_node_events = Sender::new(48);
+        let event_providers = vec![node_0_events.clone(); 1]
+            .into_iter()
+            .chain(vec![all_other_node_events.clone(); assignment.len() - 1].into_iter())
+            .collect::<Vec<_>>();
+
+        let cluster = {
+            // Lock to avoid race conditions.
+            let _lock = global_test_lock().lock().await;
+            TestCluster::builder()
+                .with_shard_assignment(assignment)
+                .with_individual_system_event_providers(&event_providers)
+                .with_initial_epoch(initial_epoch)
+                .build()
+                .await?
+        };
+
+        let config = cluster.encoding_config();
+        let mut details = Vec::new();
+        for (i, blob) in blobs.iter().enumerate() {
+            let blob_details = EncodedBlob::new(blob, config.clone());
+            // Note: register and certify the blob are always using epoch 0.
+            node_0_events.send(BlobRegistered::for_testing(*blob_details.blob_id()).into())?;
+            all_other_node_events
+                .send(BlobRegistered::for_testing(*blob_details.blob_id()).into())?;
+
+            if blob_index_store_at_shard_0(i) {
+                store_at_shards(&blob_details, &cluster, |_, _| true).await?;
+                node_0_events.send(BlobCertified::for_testing(*blob_details.blob_id()).into())?;
+            } else {
+                // Don't certify the blob if it's not stored in shard 0.
+                store_at_shards(&blob_details, &cluster, |shard_index, _| {
+                    shard_index != &ShardIndex(0)
+                })
+                .await?;
+            }
+
+            all_other_node_events
+                .send(BlobCertified::for_testing(*blob_details.blob_id()).into())?;
+            details.push(blob_details);
+        }
+
+        Ok((cluster, details))
     }
 
     #[tokio::test]
@@ -2114,32 +2175,58 @@ mod tests {
         Ok((cluster, blob_details, shard_storage_dst.clone()))
     }
 
-    // Checks that all primary and secondary slivers match between two shard storages.
+    // Checks that all primary and secondary slivers match the original encoding of the blobs.
     fn check_all_blobs_are_synced(
         blob_details: &[EncodedBlob],
-        shard_storage_src: &ShardStorage,
         shard_storage_dst: &ShardStorage,
     ) -> anyhow::Result<()> {
         blob_details.iter().try_for_each(|details| {
             let blob_id = *details.blob_id();
-            for sliver_type in [SliverType::Primary, SliverType::Secondary] {
-                let src_sliver = shard_storage_src.get_sliver(&blob_id, sliver_type);
-                let dst_sliver = shard_storage_dst.get_sliver(&blob_id, sliver_type);
-                if src_sliver != dst_sliver {
-                    return Err(anyhow!(
-                        "Sliver mismatch for blob {:?} and sliver type {:?}",
-                        blob_id,
-                        sliver_type
-                    ));
+            let Sliver::Primary(dst_primary) = shard_storage_dst
+                .get_sliver(&blob_id, SliverType::Primary)
+                .unwrap()
+                .unwrap()
+            else {
+                panic!("Must get primary sliver");
+            };
+            let Sliver::Secondary(dst_secondary) = shard_storage_dst
+                .get_sliver(&blob_id, SliverType::Secondary)
+                .unwrap()
+                .unwrap()
+            else {
+                panic!("Must get secondary sliver");
+            };
+
+            assert_eq!(
+                details.assigned_sliver_pair(ShardIndex(0)),
+                &SliverPair {
+                    primary: dst_primary,
+                    secondary: dst_secondary,
                 }
-            }
+            );
             Ok(())
         })
     }
 
-    // Tests the basic `sync_shard` API.
+    async fn wait_for_shard_in_active_state(shard_storage: &ShardStorage) -> TestResult {
+        // Waits for the shard to be synced.
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let status = shard_storage.status().unwrap();
+                if status == ShardStatus::Active {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        })
+        .await?;
+
+        Ok(())
+    }
+
+    // Tests shard transfer only using shard sync functionality.
     #[tokio::test]
-    async fn sync_shard_client_success() -> TestResult {
+    async fn sync_shard_complete_transfer() -> TestResult {
         telemetry_subscribers::init_for_testing();
 
         let (cluster, blob_details, shard_storage_dst) =
@@ -2166,16 +2253,7 @@ mod tests {
             .await?;
 
         // Waits for the shard to be synced.
-        tokio::time::timeout(Duration::from_secs(5), async {
-            loop {
-                let status = shard_storage_dst.status().unwrap();
-                if status == ShardStatus::Active {
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
-        })
-        .await?;
+        wait_for_shard_in_active_state(&shard_storage_dst).await?;
 
         assert_eq!(shard_storage_dst.sliver_count(SliverType::Primary), 23);
         assert_eq!(shard_storage_dst.sliver_count(SliverType::Secondary), 23);
@@ -2183,7 +2261,108 @@ mod tests {
         assert_eq!(blob_details.len(), 23);
 
         // Checks that the shard is completely migrated.
-        check_all_blobs_are_synced(&blob_details, shard_storage_src, &shard_storage_dst)?;
+        check_all_blobs_are_synced(&blob_details, &shard_storage_dst)?;
+
+        Ok(())
+    }
+
+    async fn setup_shard_recovery_test_cluster<F>(
+        blob_index_store_at_shard_0: F,
+    ) -> TestResult<(TestCluster, Vec<EncodedBlob>)>
+    where
+        F: FnMut(usize) -> bool,
+    {
+        let blobs: Vec<[u8; 32]> = (1..24).map(|i| [i; 32]).collect();
+        let blobs: Vec<_> = blobs.iter().map(|b| &b[..]).collect();
+        let (cluster, blob_details) = cluster_with_partially_stored_blobs_in_shard_0(
+            &[&[0], &[1, 2, 3, 4], &[5, 6, 7, 8, 9]],
+            &blobs,
+            1,
+            blob_index_store_at_shard_0,
+        )
+        .await?;
+
+        Ok((cluster, blob_details))
+    }
+
+    // Tests shard transfer completely using shard recovery functionality.
+    #[tokio::test]
+    async fn sync_shard_shard_recovery() -> TestResult {
+        telemetry_subscribers::init_for_testing();
+
+        let (cluster, blob_details) = setup_shard_recovery_test_cluster(|_| false).await?;
+
+        // Make sure that all blobs are not certified in node 0.
+        for blob_detail in blob_details.iter() {
+            let blob_info = cluster.nodes[0]
+                .storage_node
+                .inner
+                .storage
+                .get_blob_info(blob_detail.blob_id());
+            assert_eq!(
+                blob_info.unwrap().unwrap().status(),
+                BlobCertificationStatus::Registered
+            );
+        }
+
+        let node_inner = unsafe {
+            &mut *(Arc::as_ptr(&cluster.nodes[1].storage_node.inner) as *mut StorageNodeInner)
+        };
+        node_inner.storage.create_storage_for_shard(ShardIndex(0))?;
+        let shard_storage_dst = node_inner.storage.shard_storage(ShardIndex(0)).unwrap();
+        shard_storage_dst.update_status_in_test(ShardStatus::None)?;
+
+        cluster.nodes[1]
+            .storage_node
+            ._shard_sync_handler
+            .start_new_shard_sync(ShardIndex(0))
+            .await?;
+        wait_for_shard_in_active_state(shard_storage_dst).await?;
+        check_all_blobs_are_synced(&blob_details, shard_storage_dst)?;
+
+        Ok(())
+    }
+
+    // Tests shard transfer partially using shard recovery functionality and partially using shard
+    // sync.
+    // This test also tests that no missing blobs after sync completion.
+    #[tokio::test]
+    async fn sync_shard_partial_recovery() -> TestResult {
+        telemetry_subscribers::init_for_testing();
+
+        let skip_stored_blob_index: [usize; 12] = [3, 4, 5, 9, 10, 11, 15, 18, 19, 20, 21, 22];
+        let (cluster, blob_details) = setup_shard_recovery_test_cluster(|blob_index| {
+            !skip_stored_blob_index.contains(&blob_index)
+        })
+        .await?;
+
+        // Make sure that blobs in `sync_shard_partial_recovery` are not certified in node 0.
+        for i in skip_stored_blob_index {
+            let blob_info = cluster.nodes[0]
+                .storage_node
+                .inner
+                .storage
+                .get_blob_info(blob_details[i].blob_id());
+            assert_eq!(
+                blob_info.unwrap().unwrap().status(),
+                BlobCertificationStatus::Registered
+            );
+        }
+
+        let node_inner = unsafe {
+            &mut *(Arc::as_ptr(&cluster.nodes[1].storage_node.inner) as *mut StorageNodeInner)
+        };
+        node_inner.storage.create_storage_for_shard(ShardIndex(0))?;
+        let shard_storage_dst = node_inner.storage.shard_storage(ShardIndex(0)).unwrap();
+        shard_storage_dst.update_status_in_test(ShardStatus::None)?;
+
+        cluster.nodes[1]
+            .storage_node
+            ._shard_sync_handler
+            .start_new_shard_sync(ShardIndex(0))
+            .await?;
+        wait_for_shard_in_active_state(shard_storage_dst).await?;
+        check_all_blobs_are_synced(&blob_details, shard_storage_dst)?;
 
         Ok(())
     }
@@ -2293,7 +2472,7 @@ mod tests {
             wait_until_no_sync_tasks(&cluster.nodes[1].storage_node._shard_sync_handler).await?;
 
             // Checks that the shard is completely migrated.
-            check_all_blobs_are_synced(&blob_details, shard_storage_src, &shard_storage_dst)?;
+            check_all_blobs_are_synced(&blob_details, &shard_storage_dst)?;
 
             Ok(())
         }
@@ -2327,6 +2506,97 @@ mod tests {
 
             // Remove failure injection.
             scenario.teardown();
+
+            Ok(())
+        }
+
+        // Tests crash recovery of shard transfer partially using shard recovery functionality
+        // and partially using shard sync.
+        async_param_test! {
+            sync_shard_shard_recovery_restart -> TestResult: [
+                primary1: (1, SliverType::Primary, false),
+                primary5: (5, SliverType::Primary, false),
+                primary10: (10, SliverType::Primary, false),
+                secondary1: (1, SliverType::Secondary, false),
+                secondary5: (5, SliverType::Secondary, false),
+                secondary10: (10, SliverType::Secondary, false),
+                restart_after_recovery: (10, SliverType::Secondary, true),
+            ]
+        }
+        async fn sync_shard_shard_recovery_restart(
+            break_index: u64,
+            sliver_type: SliverType,
+            restart_after_recovery: bool,
+        ) -> TestResult {
+            telemetry_subscribers::init_for_testing();
+
+            // This test requires using failpoints to simulate failures.
+            assert!(fail::has_failpoints());
+
+            let scenario = FailScenario::setup();
+            if restart_after_recovery {
+                fail::cfg("fail_point_after_start_recovery", "return")?;
+            } else {
+                fail::cfg(
+                    "fail_point_fetch_sliver",
+                    format!(
+                        "return({},{})",
+                        sliver_type == SliverType::Primary,
+                        break_index,
+                    )
+                    .as_str(),
+                )?;
+            }
+
+            let skip_stored_blob_index: [usize; 12] = [3, 4, 5, 9, 10, 11, 15, 18, 19, 20, 21, 22];
+            let (cluster, blob_details) = setup_shard_recovery_test_cluster(|blob_index| {
+                !skip_stored_blob_index.contains(&blob_index)
+            })
+            .await?;
+
+            let node_inner = unsafe {
+                &mut *(Arc::as_ptr(&cluster.nodes[1].storage_node.inner) as *mut StorageNodeInner)
+            };
+            node_inner.storage.create_storage_for_shard(ShardIndex(0))?;
+            let shard_storage_dst = node_inner.storage.shard_storage(ShardIndex(0)).unwrap();
+            shard_storage_dst.update_status_in_test(ShardStatus::None)?;
+
+            cluster.nodes[1]
+                .storage_node
+                ._shard_sync_handler
+                .start_new_shard_sync(ShardIndex(0))
+                .await?;
+            // Waits for the shard sync process to stop.
+            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node._shard_sync_handler).await?;
+
+            // Check that shard sync process is not finished.
+            if !restart_after_recovery {
+                let shard_storage_src = cluster.nodes[0]
+                    .storage_node
+                    .inner
+                    .storage
+                    .shard_storage(ShardIndex(0))
+                    .unwrap();
+                assert!(
+                    shard_storage_dst.sliver_count(SliverType::Primary)
+                        < shard_storage_src.sliver_count(SliverType::Primary)
+                        || shard_storage_dst.sliver_count(SliverType::Secondary)
+                            < shard_storage_src.sliver_count(SliverType::Secondary)
+                );
+            }
+
+            // Remove failure injection.
+            scenario.teardown();
+
+            // restart the shard syncing process, to simulate a reboot.
+            cluster.nodes[1]
+                .storage_node
+                ._shard_sync_handler
+                .restart_syncs()
+                .await?;
+
+            wait_for_shard_in_active_state(shard_storage_dst).await?;
+            check_all_blobs_are_synced(&blob_details, shard_storage_dst)?;
 
             Ok(())
         }

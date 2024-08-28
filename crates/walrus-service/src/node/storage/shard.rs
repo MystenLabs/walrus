@@ -480,7 +480,17 @@ impl ShardStorage {
         }
 
         if !self.pending_recover_slivers.is_empty() {
+            tracing::info!(
+                "Shard sync is done. Still has missing blobs. Shard enters recovery mode.",
+            );
             self.shard_status.insert(&(), &ShardStatus::ActiveRecover)?;
+
+            fail::fail_point!("fail_point_after_start_recovery", |_| {
+                Err(SyncShardError::Internal(anyhow!(
+                    "sync shard simulated sync failure after start recovery"
+                )))
+            });
+
             loop {
                 self.recover_missing_blobs(blob_sync_handler.clone())
                     .await?;
@@ -553,7 +563,7 @@ impl ShardStorage {
                 )
                 .await?;
             for blob in fetched_slivers.iter() {
-                tracing::debug!("Synced blob id: {} to before epoch: {}.", blob.0, epoch,);
+                tracing::info!("Synced blob id: {} to before epoch: {}.", blob.0, epoch,);
                 //TODO(#705): verify sliver validity.
                 //  - blob is certified
                 //  - metadata is correct
@@ -626,13 +636,11 @@ impl ShardStorage {
             return Ok(());
         }
 
-        // Caveats: crash right in between syncing primary and secondary slivers.
         let mut batch = match sliver_type {
             SliverType::Primary => self.primary_slivers.batch(),
             SliverType::Secondary => self.secondary_slivers.batch(),
         };
 
-        // TODO: add test
         while let Some((blob_id, _)) = next_blob_info {
             batch.insert_batch(
                 &self.pending_recover_slivers,
@@ -699,6 +707,7 @@ impl ShardStorage {
             futures.push(self.recover_blob(blob_sync_handler.clone(), blob_id));
         }
 
+        // Wait for all to finish.
         futures
             .collect::<Vec<_>>()
             .await
@@ -713,6 +722,11 @@ impl ShardStorage {
         blob_id: BlobId,
     ) -> Result<(), TypedStoreError> {
         let start_time = tokio::time::Instant::now();
+        tracing::info!(
+            "Start recovering missing blob {} in shard {}",
+            blob_id,
+            self.id
+        );
         // Note that `blob_sync_handler` tries to recover ALL missing shards for the given blob
         // id. `start_sync_for_blob_recovery` can be called multiple times, but there will
         // be only one active recovery task for the given blob id.
@@ -728,11 +742,12 @@ impl ShardStorage {
                     (SliverType::Secondary, blob_id),
                 ],
             )?;
-            batch.write()
-        } else {
-            // Later retry will revisit this blob again.
-            Ok(())
+            batch.write()?;
         }
+
+        // If sliver is not recovered, it won't be removed from the `pending_recover_slivers` table.
+        // Later retry will revisit this blob again.
+        Ok(())
     }
 
     #[cfg(test)]
@@ -771,6 +786,13 @@ impl ShardStorage {
         )?;
         db_batch.write()?;
         Ok(next_blob_info)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn all_pending_recover_slivers(
+        &self,
+    ) -> Result<Vec<(SliverType, BlobId)>, TypedStoreError> {
+        self.pending_recover_slivers.keys().collect()
     }
 }
 
@@ -828,6 +850,7 @@ fn pending_recover_slivers_column_family_name(id: ShardIndex) -> String {
 mod tests {
     use std::collections::HashMap;
 
+    use rand::RngCore;
     use typed_store::{Map, TypedStoreError};
     use walrus_core::{
         encoding::{Primary, Secondary},
@@ -1171,30 +1194,36 @@ mod tests {
         Ok(())
     }
 
+    pub fn random_blob_id() -> BlobId {
+        let mut bytes = [0; 32];
+        rand::thread_rng().fill_bytes(&mut bytes);
+        BlobId(bytes)
+    }
+
+    // Tests for `check_missing_blobs` method.
+    // We use 8 randomly generated blob IDs, and for the index = 4 and 7,
+    // we remove the corresponding blob info from the client side.
     async_param_test! {
         test_check_missing_blobs -> TestResult: [
-            test1: (1, 4, &[BlobId([3; 32]), BlobId([4; 32])]),
+            missing_in_between: (0, 2, Some(3)),
+            no_missing: (2, 2, Some(3)),
+            next_certified_1: (2, 3, Some(5)),
+            next_certified_2: (2, 4, Some(5)),
+            no_next_1: (0, 6, None),
+            no_next_2: (0, 7, None),
         ]
     }
     async fn test_check_missing_blobs(
         next_blob_info_index: usize,
         fetched_blob_id_index: usize,
-        _expected_missing_blobs: &[BlobId],
+        expected_next_blob_info_index: Option<usize>,
     ) -> TestResult {
         let storage = empty_storage();
         let blob_info = storage.inner.blob_info.clone();
         let new_epoch = 3;
 
-        let blob_ids = [
-            BlobId([1; 32]), // Not certified.
-            BlobId([2; 32]), // Not exist.
-            BlobId([3; 32]), // Certified within epoch 2
-            BlobId([4; 32]), // Certified after epoch 2
-            BlobId([5; 32]), // Invalid
-            BlobId([6; 32]), // Certified within epoch 2
-        ];
-
-        for blob_id in blob_ids {
+        for _ in 0..8 {
+            let blob_id = random_blob_id();
             blob_info.insert(
                 &blob_id,
                 &BlobInfo::new_for_testing(
@@ -1208,22 +1237,53 @@ mod tests {
             )?;
         }
 
+        let sorted_blob_ids = blob_info.keys().collect::<Result<Vec<_>, _>>()?;
+        blob_info.remove(&sorted_blob_ids[4])?;
+        blob_info.remove(&sorted_blob_ids[7])?;
+
         let shard = storage.as_ref().shard_storage(SHARD_INDEX).unwrap();
-        let mut blob_info_iter = storage
-            .inner
-            .certified_blob_info_iter_before_epoch(new_epoch, Some(blob_ids[2]));
-        shard.check_missing_blobs_in_test(
+        let mut blob_info_iter = storage.inner.certified_blob_info_iter_before_epoch(
+            new_epoch,
+            Some(sorted_blob_ids[next_blob_info_index]),
+        );
+        let next_certified_blob_to_check = shard.check_missing_blobs_in_test(
             &mut blob_info_iter,
             Some((
-                blob_ids[next_blob_info_index],
+                sorted_blob_ids[next_blob_info_index],
                 blob_info
-                    .get(&blob_ids[next_blob_info_index])
+                    .get(&sorted_blob_ids[next_blob_info_index])
                     .unwrap()
                     .unwrap(),
             )),
-            blob_ids[fetched_blob_id_index],
+            sorted_blob_ids[fetched_blob_id_index],
             SliverType::Primary,
         )?;
+
+        assert_eq!(
+            next_certified_blob_to_check.map(|(blob_id, _)| blob_id),
+            expected_next_blob_info_index.map(|i| sorted_blob_ids[i])
+        );
+
+        let missing_blob_ids = shard
+            .all_pending_recover_slivers()?
+            .iter()
+            .map(|(sliver_type, id)| {
+                assert_eq!(sliver_type, &SliverType::Primary);
+                *id
+            })
+            .collect::<Vec<_>>();
+        let mut expected_missing_blobs = Vec::new();
+        for (i, blob_id) in sorted_blob_ids
+            .iter()
+            .enumerate()
+            .take(fetched_blob_id_index)
+            .skip(next_blob_info_index)
+        {
+            if i != 4 && i != 7 {
+                expected_missing_blobs.push(*blob_id);
+            }
+        }
+        assert_eq!(missing_blob_ids, expected_missing_blobs);
 
         Ok(())
     }

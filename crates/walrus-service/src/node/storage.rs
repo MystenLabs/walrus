@@ -1310,6 +1310,51 @@ pub(crate) mod tests {
         Ok(())
     }
 
+    fn registered_blob_info(epoch: Epoch) -> BlobInfo {
+        BlobInfo::new_for_testing(
+            100,
+            BlobCertificationStatus::Registered,
+            event_id_for_testing(),
+            Some(epoch),
+            None,
+            None,
+        )
+    }
+
+    fn certified_blob_info(epoch: Epoch) -> BlobInfo {
+        BlobInfo::new_for_testing(
+            100,
+            BlobCertificationStatus::Certified,
+            event_id_for_testing(),
+            Some(epoch),
+            Some(epoch),
+            None,
+        )
+    }
+
+    fn invalid_blob_info(epoch: Epoch) -> BlobInfo {
+        BlobInfo::new_for_testing(
+            100,
+            BlobCertificationStatus::Invalid,
+            event_id_for_testing(),
+            Some(epoch),
+            Some(epoch),
+            Some(epoch),
+        )
+    }
+
+    fn all_certified_blob_ids(
+        storage: &WithTempDir<Storage>,
+        after_blob: Option<BlobId>,
+        new_epoch: Epoch,
+    ) -> Result<Vec<BlobId>, TypedStoreError> {
+        storage
+            .inner
+            .certified_blob_info_iter_before_epoch(new_epoch, after_blob)
+            .map(|result| result.map(|(id, _info)| id))
+            .collect::<Result<Vec<_>, _>>()
+    }
+
     #[tokio::test]
     async fn test_certified_blob_info_iter_before_epoch() -> TestResult {
         let storage = empty_storage();
@@ -1323,104 +1368,36 @@ pub(crate) mod tests {
             BlobId([4; 32]), // Certified after epoch 2
             BlobId([5; 32]), // Invalid
             BlobId([6; 32]), // Certified within epoch 2
+            BlobId([7; 32]), // Not exist.
         ];
 
-        blob_info.insert(
-            &blob_ids[0],
-            &BlobInfo::new_for_testing(
-                10,
-                BlobCertificationStatus::Registered,
-                event_id_for_testing(),
-                Some(0),
-                None,
-                None,
-            ),
-        )?;
+        let blob_info_map = HashMap::from([
+            (blob_ids[0], registered_blob_info(1)),
+            (blob_ids[2], certified_blob_info(2)),
+            (blob_ids[3], certified_blob_info(3)),
+            (blob_ids[4], invalid_blob_info(2)),
+            (blob_ids[5], certified_blob_info(2)),
+        ]);
 
-        blob_info.insert(
-            &blob_ids[2],
-            &BlobInfo::new_for_testing(
-                10,
-                BlobCertificationStatus::Certified,
-                event_id_for_testing(),
-                Some(0),
-                Some(1),
-                None,
-            ),
-        )?;
+        let mut batch = blob_info.batch();
+        batch.insert_batch(&blob_info, blob_info_map.iter())?;
+        batch.write()?;
 
-        blob_info.insert(
-            &blob_ids[3],
-            &BlobInfo::new_for_testing(
-                10,
-                BlobCertificationStatus::Certified,
-                event_id_for_testing(),
-                Some(0),
-                Some(3),
-                None,
-            ),
-        )?;
-
-        blob_info.insert(
-            &blob_ids[4],
-            &BlobInfo::new_for_testing(
-                10,
-                BlobCertificationStatus::Invalid,
-                event_id_for_testing(),
-                Some(0),
-                Some(1),
-                Some(1),
-            ),
-        )?;
-
-        blob_info.insert(
-            &blob_ids[5],
-            &BlobInfo::new_for_testing(
-                10,
-                BlobCertificationStatus::Certified,
-                event_id_for_testing(),
-                Some(0),
-                Some(2),
-                None,
-            ),
-        )?;
-
-        assert_eq!(
-            &storage
-                .inner
-                .certified_blob_info_iter_before_epoch(new_epoch, None)
-                .next()
-                .transpose()?
-                .map(|(id, _info)| id),
-            &Some(blob_ids[2])
-        );
-        assert_eq!(
-            &storage
-                .inner
-                .certified_blob_info_iter_before_epoch(new_epoch, Some(blob_ids[1]))
-                .next()
-                .transpose()?
-                .map(|(id, _info)| id),
-            &Some(blob_ids[2])
-        );
-        assert_eq!(
-            &storage
-                .inner
-                .certified_blob_info_iter_before_epoch(new_epoch, Some(blob_ids[2]))
-                .next()
-                .transpose()?
-                .map(|(id, _info)| id),
-            &Some(blob_ids[5])
-        );
-        assert_eq!(
-            &storage
-                .inner
-                .certified_blob_info_iter_before_epoch(new_epoch, Some(blob_ids[5]))
-                .next()
-                .transpose()?
-                .map(|(id, _info)| id),
-            &None,
-        );
+        for blob_id in blob_ids.iter().take(2) {
+            assert_eq!(
+                all_certified_blob_ids(&storage, Some(*blob_id), new_epoch)?,
+                vec![blob_ids[2], blob_ids[5]]
+            );
+        }
+        for blob_id in blob_ids.iter().take(5).skip(2) {
+            assert_eq!(
+                all_certified_blob_ids(&storage, Some(*blob_id), new_epoch)?,
+                vec![blob_ids[5]]
+            );
+        }
+        for blob_id in blob_ids.iter().take(6).skip(5) {
+            assert!(all_certified_blob_ids(&storage, Some(*blob_id), new_epoch)?.is_empty());
+        }
 
         Ok(())
     }

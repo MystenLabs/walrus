@@ -715,6 +715,19 @@ impl TestClusterBuilder {
         self
     }
 
+    /// Sets the individual event providers for each storage node.
+    pub fn with_individual_system_event_providers<T>(mut self, event_providers: &[T]) -> Self
+    where
+        T: SystemEventProvider + Clone + 'static,
+    {
+        assert_eq!(event_providers.len(), self.storage_node_configs.len());
+        self.event_providers = event_providers
+            .iter()
+            .map(|provider| Some(Box::new(provider.clone()) as _))
+            .collect();
+        self
+    }
+
     /// Sets the [`CommitteeServiceFactory`] used for each storage node.
     ///
     /// Should be called after the storage nodes have been specified.
