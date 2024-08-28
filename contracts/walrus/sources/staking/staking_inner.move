@@ -97,7 +97,7 @@ public struct StakingInnerV1 has store {
 }
 
 /// Creates a new `StakingInnerV1` object with default values.
-public(package) fun new(n_shards: u16, ctx: &mut TxContext): StakingInnerV1 {
+public(package) fun new(n_shards: u16, clock: &Clock, ctx: &mut TxContext): StakingInnerV1 {
     StakingInnerV1 {
         n_shards,
         pools: object_table::new(ctx),
@@ -107,8 +107,7 @@ public(package) fun new(n_shards: u16, ctx: &mut TxContext): StakingInnerV1 {
         committee: committee::empty(),
         previous_committee: committee::empty(),
         next_epoch_params: option::none(),
-        // TODO: when we create this for the first time, set to the current time.
-        epoch_state: EpochState::EpochChangeDone(0),
+        epoch_state: EpochState::EpochChangeDone(clock.timestamp_ms()),
         leftover_rewards: balance::zero(),
     }
 }
@@ -178,6 +177,9 @@ public(package) fun voting_end(self: &mut StakingInnerV1, clock: &Clock) {
     // TODO: perform the voting for the next epoch params, replace dummy.
     // Set a dummy value.
     self.next_epoch_params.fill(epoch_parameters::new(1_000_000_000_000, 5, 1));
+
+    // Set the new epoch state.
+    self.epoch_state = EpochState::NextParamsSelected(last_epoch_change);
 
     // Emit event that parameters have been selected.
     events::emit_epoch_parameters_selected(self.epoch + 1);
@@ -310,7 +312,7 @@ public(package) fun next_bls_committee(self: &StakingInnerV1): BlsCommittee {
             bls_aggregate::new_bls_committee_member(*pk, shards.length() as u16, id)
         },
     );
-    bls_aggregate::new_bls_committee(self.epoch, members)
+    bls_aggregate::new_bls_committee(self.epoch + 1, members)
 }
 
 /// Check if a node with the given `ID` exists in the staking pools.

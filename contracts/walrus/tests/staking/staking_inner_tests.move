@@ -3,13 +3,14 @@
 
 module walrus::staking_inner_tests;
 
-use sui::{balance, test_utils::destroy};
+use sui::{balance, clock, test_utils::destroy};
 use walrus::{staking_inner, storage_node, test_utils as test};
 
 #[test]
 fun test_registration() {
     let ctx = &mut tx_context::dummy();
-    let mut staking = staking_inner::new(300, ctx);
+    let clock = clock::create_for_testing(ctx);
+    let mut staking = staking_inner::new(300, &clock, ctx);
 
     // register the pool in the `StakingInnerV1`.
     let pool_one = test::pool().name(b"pool_1".to_string()).register(&mut staking, ctx);
@@ -31,12 +32,14 @@ fun test_registration() {
     assert!(!staking.has_pool(pool_two));
 
     destroy(staking);
+    clock.destroy_for_testing();
 }
 
 #[test]
 fun test_staking_active_set() {
     let ctx = &mut tx_context::dummy();
-    let mut staking = staking_inner::new(300, ctx);
+    let clock = clock::create_for_testing(ctx);
+    let mut staking = staking_inner::new(300, &clock, ctx);
 
     // register the pool in the `StakingInnerV1`.
     let pool_one = test::pool().name(b"pool_1".to_string()).register(&mut staking, ctx);
@@ -66,12 +69,14 @@ fun test_staking_active_set() {
     destroy(staking);
     destroy(wal_bob);
     destroy(wal_carl);
+    clock.destroy_for_testing();
 }
 
 #[test]
 fun test_parameter_changes() {
     let ctx = &mut tx_context::dummy();
-    let mut staking = staking_inner::new(300, ctx);
+    let clock = clock::create_for_testing(ctx);
+    let mut staking = staking_inner::new(300, &clock, ctx);
 
     // register the pool in the `StakingInnerV1`.
     let pool_id = test::pool().name(b"pool_1".to_string()).register(&mut staking, ctx);
@@ -93,4 +98,5 @@ fun test_parameter_changes() {
 
     destroy(staking);
     destroy(cap);
+    clock.destroy_for_testing();
 }

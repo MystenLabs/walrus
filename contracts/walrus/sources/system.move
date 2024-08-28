@@ -12,7 +12,7 @@ use walrus::{
     epoch_parameters::EpochParams,
     storage_node::StorageNodeCap,
     storage_resource::Storage,
-    system_state_inner::SystemStateInnerV1
+    system_state_inner::{Self, SystemStateInnerV1}
 };
 
 /// Flag to indicate the version of the system.
@@ -22,6 +22,15 @@ const VERSION: u64 = 0;
 public struct System has key {
     id: UID,
     version: u64,
+}
+
+/// Creates and shares an empty system object.
+/// Must only be called by the initialization function.
+public(package) fun create_empty(ctx: &mut TxContext) {
+    let mut system = System { id: object::new(ctx), version: VERSION };
+    let system_state_inner = system_state_inner::create_empty();
+    dynamic_field::add(&mut system.id, VERSION, system_state_inner);
+    transfer::share_object(system);
 }
 
 /// Marks blob as invalid given an invalid blob certificate.
@@ -170,13 +179,10 @@ fun inner(system: &System): &SystemStateInnerV1 {
 // === Testing ===
 
 #[test_only]
-use walrus::system_state_inner;
-
-#[test_only]
 public(package) fun new_for_testing(): System {
     let ctx = &mut tx_context::dummy();
     let mut system = System { id: object::new(ctx), version: VERSION };
-    let system_state_inner = system_state_inner::new_for_testing(ctx);
+    let system_state_inner = system_state_inner::new_for_testing();
     dynamic_field::add(&mut system.id, VERSION, system_state_inner);
     system
 }

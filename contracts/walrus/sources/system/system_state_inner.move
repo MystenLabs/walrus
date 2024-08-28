@@ -7,10 +7,10 @@ module walrus::system_state_inner;
 use sui::{balance::Balance, coin::Coin, sui::SUI};
 use walrus::{
     blob::{Self, Blob},
-    bls_aggregate::BlsCommittee,
+    bls_aggregate::{Self, BlsCommittee},
     epoch_parameters::EpochParams,
     events::emit_invalid_blob_id,
-    storage_accounting::FutureAccountingRingBuffer,
+    storage_accounting::{Self, FutureAccountingRingBuffer},
     storage_node::StorageNodeCap,
     storage_resource::{Self, Storage}
 };
@@ -45,6 +45,20 @@ public struct SystemStateInnerV1 has store {
     write_price_per_unit_size: u64,
     /// Accounting ring buffer for future epochs.
     future_accounting: FutureAccountingRingBuffer,
+}
+
+/// Creates an empty system state with a capacity of zero and an empty committee.
+public(package) fun create_empty(): SystemStateInnerV1 {
+    let committee = bls_aggregate::new_bls_committee(0, vector[]);
+    let future_accounting = storage_accounting::ring_new(MAX_EPOCHS_AHEAD);
+    SystemStateInnerV1 {
+        committee,
+        total_capacity_size: 0,
+        used_capacity_size: 0,
+        storage_price_per_unit_size: 0,
+        write_price_per_unit_size: 0,
+        future_accounting,
+    }
 }
 
 /// Update epoch to next epoch, and update the committee, price and capacity.
@@ -327,10 +341,10 @@ fun storage_units_from_size(size: u64): u64 {
 // === Testing ===
 
 #[test_only]
-use walrus::{test_utils, storage_accounting};
+use walrus::{test_utils};
 
 #[test_only]
-public(package) fun new_for_testing(ctx: &mut TxContext): SystemStateInnerV1 {
+public(package) fun new_for_testing(): SystemStateInnerV1 {
     let committee = test_utils::new_bls_committee_for_testing(0);
     SystemStateInnerV1 {
         committee,

@@ -36,7 +36,7 @@ public(package) fun new(
     public_key: vector<u8>,
     network_public_key: vector<u8>,
 ): StorageNodeInfo {
-    assert!(network_public_key.length() == 32, EInvalidNetworkPublicKey);
+    assert!(network_public_key.length() == 33, EInvalidNetworkPublicKey);
     StorageNodeInfo {
         node_id,
         name,
@@ -93,7 +93,7 @@ public fun new_for_testing(public_key: vector<u8>, weight: u16): StorageNodeInfo
         name: b"node".to_string(),
         network_address: b"127.0.0.1".to_string(),
         public_key: g1_from_bytes(&public_key),
-        network_public_key: x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677",
+        network_public_key: x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677ab",
         shard_ids,
     }
 }
@@ -102,4 +102,10 @@ public fun new_for_testing(public_key: vector<u8>, weight: u16): StorageNodeInfo
 /// Create a storage node capability for testing.
 public fun new_cap_for_testing(node_id: ID, ctx: &mut TxContext): StorageNodeCap {
     StorageNodeCap { id: object::new(ctx), node_id }
+}
+
+#[test_only]
+public fun destroy_cap_for_testing(cap: StorageNodeCap) {
+    let StorageNodeCap { id, .. } = cap;
+    id.delete();
 }

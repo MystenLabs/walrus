@@ -57,7 +57,7 @@ public struct PoolBuilder has copy, drop {
 ///     .name(b"my node".to_string())
 ///     .network_address(b"0.0.0.0".to_string())
 ///     .public_key(x"a60e75190e62b6a54142d147289a735c4ce11a9d997543da539a3db57def5ed83ba40b74e55065f02b35aa1d504c404b") // editorconfig-checker-disable-line
-///     .network_public_key(x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677")
+///     .network_public_key(x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677ab")
 ///     .commission_rate(1000)
 ///     .storage_price(1000)
 ///     .write_price(1000)
@@ -145,7 +145,7 @@ public fun build(self: PoolBuilder, wctx: &WalrusContext, ctx: &mut TxContext): 
             x"a60e75190e62b6a54142d147289a735c4ce11a9d997543da539a3db57def5ed83ba40b74e55065f02b35aa1d504c404b", // editorconfig-checker-disable-line
         ),
         network_public_key.destroy_with_default(
-            x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677",
+            x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677ab",
         ),
         commission_rate.destroy_with_default(1000),
         storage_price.destroy_with_default(1000),
@@ -177,7 +177,7 @@ public fun register(self: PoolBuilder, inner: &mut StakingInnerV1, ctx: &mut TxC
             x"a60e75190e62b6a54142d147289a735c4ce11a9d997543da539a3db57def5ed83ba40b74e55065f02b35aa1d504c404b", // editorconfig-checker-disable-line
         ),
         network_public_key.destroy_with_default(
-            x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677",
+            x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677ab",
         ),
         commission_rate.destroy_with_default(1000),
         storage_price.destroy_with_default(1000),
