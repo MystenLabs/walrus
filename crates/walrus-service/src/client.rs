@@ -239,8 +239,9 @@ impl<T: ContractClient> Client<T> {
                 status => {
                     // We intentionally don't check for "registered" blobs here: even if the blob is
                     // already registered, we cannot certify it without access to the corresponding
-                    // Sui object.
-                    tracing::debug!(?status, "blob is not certified, creating it");
+                    // Sui object. The check to see if we own the registered-but-not-certified Blob
+                    // object is done in `reserve_and_register_blob`.
+                    tracing::debug!(?status, "blob is not certified");
                 }
             }
         }
@@ -277,17 +278,47 @@ impl<T: ContractClient> Client<T> {
         })
     }
 
-    /// Reserves the space for the blob on chain and registers it.
+    /// Check if the blob is registered; if not, reserves the space for the blob and registers it.
     #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
     pub async fn reserve_and_register_blob(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         epochs_ahead: u64,
     ) -> ClientResult<Blob> {
+        if let Some(blob) = self
+            .is_blob_registered_in_wallet(metadata.blob_id(), epochs_ahead)
+            .await?
+        {
+            tracing::debug!(
+                end_epoch=%blob.storage.end_epoch,
+                "blob is already registered and valid; using the existing registration"
+            );
+            return Ok(blob);
+        }
+        tracing::debug!(
+            "the blob is not already registered or its lifetime is too short; creating new one"
+        );
         self.sui_client
             .reserve_and_register_blob(epochs_ahead, metadata)
             .await
             .map_err(ClientError::from)
+    }
+
+    /// Checks if the blob is registered by the active wallet for a sufficient duration.
+    async fn is_blob_registered_in_wallet(
+        &self,
+        blob_id: &BlobId,
+        epochs_ahead: u64,
+    ) -> ClientResult<Option<Blob>> {
+        Ok(self
+            .sui_client
+            .owned_blobs()
+            .await?
+            .into_iter()
+            .find(|blob| {
+                blob.blob_id == *blob_id
+                    && blob.storage.end_epoch >= self.committee.epoch + epochs_ahead
+            }))
     }
 }
 
