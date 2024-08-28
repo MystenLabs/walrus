@@ -51,7 +51,7 @@ use walrus_service::{
     utils::version,
 };
 use walrus_sui::{
-    client::{ContractClient, ReadClient},
+    client::{ContractClient, ReadClient, SuiContractClient},
     utils::price_for_encoded_length,
 };
 
@@ -271,6 +271,8 @@ enum Commands {
         #[serde_as(as = "DisplayFromStr")]
         blob_id_decimal: BlobIdDecimal,
     },
+    /// List all registered blobs for the current wallet.
+    ListBlobs,
 }
 
 #[derive(Debug, Clone, Args, Deserialize)]
@@ -643,6 +645,12 @@ async fn run_app(app: App) -> Result<()> {
         }
         Commands::ConvertBlobId { blob_id_decimal } => {
             BlobIdConversionOutput::from(blob_id_decimal).print_output(app.json)?;
+        }
+        Commands::ListBlobs => {
+            let contract_client =
+                SuiContractClient::new(wallet?, config?.system_object, app.gas_budget).await?;
+            let blobs = contract_client.owned_blobs().await?;
+            blobs.print_output(app.json)?;
         }
     }
     Ok(())

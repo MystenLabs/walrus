@@ -269,6 +269,10 @@ impl ContractClient for MockContractClient {
     fn read_client(&self) -> &impl ReadClient {
         &self.read_client
     }
+
+    async fn owned_blobs(&self) -> SuiClientResult<Vec<Blob>> {
+        todo!()
+    }
 }
 
 fn system_object_from_committee(committee: Committee) -> SystemObject {

@@ -5,6 +5,7 @@
 
 use std::{
     collections::HashSet,
+    fmt::Display,
     future::Future,
     num::NonZeroU16,
     path::{Path, PathBuf},
@@ -23,8 +24,10 @@ use sui_sdk::{
         Page,
         SuiMoveStruct,
         SuiMoveValue,
+        SuiObjectDataFilter,
         SuiObjectDataOptions,
         SuiObjectResponse,
+        SuiObjectResponseQuery,
         SuiParsedData,
         SuiTransactionBlockResponse,
     },
@@ -41,7 +44,10 @@ use sui_types::{
 };
 use walrus_core::{encoding::encoded_blob_length_for_n_shards, BlobId};
 
-use crate::{client::SuiClientResult, contracts::AssociatedContractStruct};
+use crate::{
+    client::SuiClientResult,
+    contracts::{self, AssociatedContractStruct},
+};
 
 // Keep in sync with the same constant in `contracts/blob_store/system.move`.
 /// The number of bytes per storage unit.
@@ -461,6 +467,64 @@ pub async fn request_sui_from_faucet(
     }
     tracing::debug!("received tokens from faucet");
     Ok(())
+}
+
+/// Get all the owned objects of the specified type for the specified owner.
+///
+/// If some of the returned objects cannot be converted to the expected type, they are ignored.
+pub(crate) async fn get_owned_objects<'a, U>(
+    sui_client: &'a SuiClient,
+    owner: SuiAddress,
+    package_id: ObjectID,
+    type_args: &'a [TypeTag],
+) -> Result<impl Iterator<Item = U> + 'a>
+where
+    U: AssociatedContractStruct,
+    <U as TryFrom<SuiMoveStruct>>::Error: Display,
+{
+    let results =
+        get_owned_object_structs(sui_client, owner, package_id, type_args, U::CONTRACT_STRUCT)
+            .await?;
+
+    Ok(results.filter_map(|move_struct| {
+        move_struct.map_or_else(
+            |err| {
+                tracing::warn!(%err, "failed to convert to local type");
+                None
+            },
+            |move_struct| match U::try_from(move_struct) {
+                Result::Ok(value) => Some(value),
+                Result::Err(err) => {
+                    tracing::warn!(%err, "failed to convert to local type");
+                    None
+                }
+            },
+        )
+    }))
+}
+
+/// Get all the [`SuiMoveStruct`] objects of the specified type for the specified owner.
+async fn get_owned_object_structs<'a>(
+    sui_client: &'a SuiClient,
+    owner: SuiAddress,
+    package_id: ObjectID,
+    type_args: &'a [TypeTag],
+    object_type: contracts::StructTag<'a>,
+) -> Result<impl Iterator<Item = Result<SuiMoveStruct>> + 'a> {
+    let struct_tag = object_type.to_move_struct_tag(package_id, type_args)?;
+    Ok(handle_pagination(move |cursor| {
+        sui_client.read_api().get_owned_objects(
+            owner,
+            Some(SuiObjectResponseQuery {
+                filter: Some(SuiObjectDataFilter::StructType(struct_tag.clone())),
+                options: Some(SuiObjectDataOptions::full_content()),
+            }),
+            cursor,
+            None,
+        )
+    })
+    .await?
+    .map(|resp| get_struct_from_object_response(&resp)))
 }
 
 // Macros

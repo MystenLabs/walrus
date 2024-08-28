@@ -9,6 +9,7 @@ use indoc::printdoc;
 use prettytable::{format, row, Table};
 use serde::Serialize;
 use walrus_sdk::api::BlobStatus;
+use walrus_sui::types::Blob;
 
 use crate::client::{
     cli_utils::{
@@ -289,6 +290,37 @@ impl CliOutput for InfoOutput {
                 format!("{} ({:.2}%)", n_owned, n_owned_percent),
                 string_prefix(&node.public_key),
                 node.network_address,
+            ]);
+        }
+        table.printstd();
+    }
+}
+
+impl CliOutput for Vec<Blob> {
+    fn print_cli_output(&self) {
+        let mut table = Table::new();
+        table.set_format(default_table_format());
+        table.set_titles(row![
+            b->"Blob ID",
+            b->"Unencoded Size",
+            b->"Stored Epoch",
+            b->"Certified Epoch",
+            b->"Object ID",
+            // TODO(giac): too much info? too little? add storage?
+        ]);
+
+        for blob in self {
+            let cert_epoch = if let Some(epoch) = blob.certified_epoch {
+                epoch.to_string()
+            } else {
+                "N/C".to_owned()
+            };
+            table.add_row(row![
+                blob.blob_id,
+                HumanReadableBytes(blob.size),
+                blob.stored_epoch,
+                cert_epoch,
+                blob.id,
             ]);
         }
         table.printstd();

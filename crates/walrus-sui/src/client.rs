@@ -43,6 +43,7 @@ use crate::{
     types::{Blob, StorageResource},
     utils::{
         get_created_sui_object_ids_by_type,
+        get_owned_objects,
         get_sui_object,
         price_for_encoded_length,
         sign_and_send_ptb,
@@ -137,6 +138,9 @@ pub trait ContractClient: Send + Sync {
 
     /// Returns a compatible `ReadClient`.
     fn read_client(&self) -> &impl ReadClient;
+
+    /// Returns the list of [`Blob`] objects owned by the wallet currently in use.
+    fn owned_blobs(&self) -> impl Future<Output = SuiClientResult<Vec<Blob>>> + Send;
 }
 
 /// Client implementation for interacting with the Walrus smart contracts.
@@ -538,6 +542,17 @@ impl ContractClient for SuiContractClient {
 
     fn read_client(&self) -> &impl ReadClient {
         &self.read_client
+    }
+
+    async fn owned_blobs(&self) -> SuiClientResult<Vec<Blob>> {
+        Ok(get_owned_objects::<Blob>(
+            &self.read_client.sui_client,
+            self.wallet_address,
+            self.read_client.system_pkg_id,
+            &[],
+        )
+        .await?
+        .collect())
     }
 }
 
