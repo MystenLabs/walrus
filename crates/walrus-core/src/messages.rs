@@ -19,8 +19,13 @@ pub use storage_confirmation::{Confirmation, SignedStorageConfirmation, StorageC
 mod invalid_blob_id;
 pub use invalid_blob_id::{InvalidBlobIdAttestation, InvalidBlobIdMsg};
 
-mod sync_shard;
-pub use sync_shard::{SignedSyncShardRequest, SyncShardMsg, SyncShardRequest, SyncShardResponse};
+mod sync_shard_messages;
+pub use sync_shard_messages::{
+    SignedSyncShardRequest,
+    SyncShardMsg,
+    SyncShardRequest,
+    SyncShardResponse,
+};
 
 mod certificate;
 pub use certificate::{CertificateError, ConfirmationCertificate, InvalidBlobCertificate};
