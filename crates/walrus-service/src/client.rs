@@ -278,7 +278,7 @@ impl<T: ContractClient> Client<T> {
         })
     }
 
-    /// Check if the blob is registered; if not, reserves the space for the blob and registers it.
+    /// Checks if the blob is registered; if not, reserves the space for the blob and registers it.
     #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
     pub async fn reserve_and_register_blob(
         &self,
