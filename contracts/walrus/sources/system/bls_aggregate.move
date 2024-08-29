@@ -39,13 +39,11 @@ public(package) fun new_bls_committee(
 ): BlsCommittee {
     // Compute the total number of shards
     let mut n_shards = 0;
-    members.do_ref!(
-        |member| {
-            let weight = member.weight;
-            assert!(weight > 0, EIncorrectCommittee);
-            n_shards = n_shards + weight;
-        },
-    );
+    members.do_ref!(|member| {
+        let weight = member.weight;
+        assert!(weight > 0, EIncorrectCommittee);
+        n_shards = n_shards + weight;
+    });
 
     // TODO: if we keep this check, there has to be a test for it
     // TODO: discuss relaxing this restriction to allow for empty committee in
@@ -124,21 +122,19 @@ public(package) fun verify_certificate(
     let mut aggregate_key = bls12381::g1_identity();
     let mut aggregate_weight = 0;
 
-    signers.do_ref!(
-        |member_index| {
-            let member_index = *member_index as u64;
-            assert!(member_index >= min_next_member_index, ETotalMemberOrder);
-            min_next_member_index = member_index + 1;
+    signers.do_ref!(|member_index| {
+        let member_index = *member_index as u64;
+        assert!(member_index >= min_next_member_index, ETotalMemberOrder);
+        min_next_member_index = member_index + 1;
 
-            // Bounds check happens here
-            let member = &self.members[member_index];
-            let key = &member.public_key;
-            let weight = member.weight;
+        // Bounds check happens here
+        let member = &self.members[member_index];
+        let key = &member.public_key;
+        let weight = member.weight;
 
-            aggregate_key = bls12381::g1_add(&aggregate_key, key);
-            aggregate_weight = aggregate_weight + weight;
-        },
-    );
+        aggregate_key = bls12381::g1_add(&aggregate_key, key);
+        aggregate_weight = aggregate_weight + weight;
+    });
 
     // The expression below is the solution to the inequality:
     // n_shards = 3 f + 1

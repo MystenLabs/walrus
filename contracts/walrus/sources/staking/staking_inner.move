@@ -305,13 +305,10 @@ public(package) fun previous_committee(self: &StakingInnerV1): &Committee {
 /// Construct the BLS committee for the next epoch.
 public(package) fun next_bls_committee(self: &StakingInnerV1): BlsCommittee {
     let (ids, shard_assignments) = (*self.next_committee.borrow().inner()).into_keys_values();
-    let members = ids.zip_map!(
-        shard_assignments,
-        |id, shards| {
-            let pk = self.pools.borrow(id).node_info().public_key();
-            bls_aggregate::new_bls_committee_member(*pk, shards.length() as u16, id)
-        },
-    );
+    let members = ids.zip_map!(shard_assignments, |id, shards| {
+        let pk = self.pools.borrow(id).node_info().public_key();
+        bls_aggregate::new_bls_committee_member(*pk, shards.length() as u16, id)
+    });
     bls_aggregate::new_bls_committee(self.epoch + 1, members)
 }
 
@@ -333,16 +330,11 @@ public(package) fun select_committee(self: &mut StakingInnerV1) {
 
     let mut distribution = vec_map::from_keys_values(
         self.active_set.active_ids(),
-        self
-            .active_set
-            .active_ids()
-            .map_ref!(
-                |node_id| {
-                    let value = (self.active_set[node_id] / shard_threshold) as u16;
-                    shards_assigned = shards_assigned + value;
-                    value
-                },
-            ),
+        self.active_set.active_ids().map_ref!(|node_id| {
+            let value = (self.active_set[node_id] / shard_threshold) as u16;
+            shards_assigned = shards_assigned + value;
+            value
+        }),
     );
 
     // Just distribute remaining shards to first node.
@@ -391,16 +383,10 @@ public(package) fun advance_epoch(self: &mut StakingInnerV1, mut rewards: Balanc
 
     let wctx = &self.new_walrus_context();
 
-    self
-        .committee
-        .inner()
-        .keys()
-        .do_ref!(
-            |node| {
-                self.pools[*node].advance_epoch(wctx);
-                self.active_set.update(*node, self.pools[*node].stake_at_epoch(wctx.epoch() + 1));
-            },
-        );
+    self.committee.inner().keys().do_ref!(|node| {
+        self.pools[*node].advance_epoch(wctx);
+        self.active_set.update(*node, self.pools[*node].stake_at_epoch(wctx.epoch() + 1));
+    });
 
     // Distribute the rewards.
 

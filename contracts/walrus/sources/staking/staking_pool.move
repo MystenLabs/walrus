@@ -333,11 +333,9 @@ public(package) fun active_stake(pool: &StakingPool): u64 {
 public(package) fun stake_at_epoch(pool: &StakingPool, epoch: u32): u64 {
     let mut expected = pool.active_stake;
     let pending_stake_epochs = pool.pending_stake.keys();
-    pending_stake_epochs.do!(
-        |e| if (e <= epoch) {
-            expected = expected + pool.pending_stake[&e]
-        },
-    );
+    pending_stake_epochs.do!(|e| if (e <= epoch) {
+        expected = expected + pool.pending_stake[&e]
+    });
 
     expected
 }

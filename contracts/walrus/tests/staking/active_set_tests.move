@@ -69,8 +69,6 @@ fun test_insert() {
 
 #[test]
 fun test_size_1() {
-    use std::unit_test::assert_eq;
-
     let mut set = active_set::new(1, 100);
     assert_eq!(set.cur_min_stake(), 100);
     set.insert(@0x1.to_id(), 1000);
