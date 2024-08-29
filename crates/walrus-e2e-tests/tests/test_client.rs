@@ -225,9 +225,9 @@ fn error_kind_matches(actual: &ClientErrorKind, expected: &ClientErrorKind) -> b
 
 async_param_test! {
     test_store_with_existing_blob_resource -> anyhow::Result<()> : [
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] reuse_resource: (1, 1),
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] reuse_resource_two: (2, 1),
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] no_reuse_resource: (1, 2),
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] reuse_resource: (1, 1, true),
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] reuse_resource_two: (2, 1, true),
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] no_reuse_resource: (1, 2, false),
     ]
 }
 /// Tests that the client reuses existing (uncertified) blob registrations to store blobs.
@@ -235,12 +235,12 @@ async_param_test! {
 /// The `epochs_ahead_registered` are the epochs ahead of the already-existing blob object.
 /// The `epochs_ahead_required` are the epochs ahead that are requested to the client when
 /// registering anew.
-///
-/// If `epochs_ahead_registered < epochs_ahead_required`, the client should be registering a new
-/// blob object.
+/// `should_match` is a boolean that indicates if the storage object used in the final upload should
+/// be the same as the first one registered.
 async fn test_store_with_existing_blob_resource(
     epochs_ahead_registered: u64,
     epochs_ahead_required: u64,
+    should_match: bool,
 ) -> anyhow::Result<()> {
     let _ = tracing_subscriber::fmt::try_init();
 
@@ -273,8 +273,7 @@ async fn test_store_with_existing_blob_resource(
 
     if let BlobStoreResult::NewlyCreated { blob_object, .. } = blob_store {
         // Check if the storage object used is the same.
-        let should_be_same_object = epochs_ahead_registered >= epochs_ahead_required;
-        assert!(should_be_same_object == (blob_object.id == original_blob_object.id));
+        assert!(should_match == (blob_object.id == original_blob_object.id));
     } else {
         panic!("the client should be able to store the blob")
     };
