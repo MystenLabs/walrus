@@ -993,7 +993,6 @@ mod tests {
     use std::{sync::OnceLock, time::Duration};
 
     use fastcrypto::traits::KeyPair;
-    use reqwest::StatusCode;
     use storage::{
         blob_info::BlobCertificationStatus,
         tests::{populated_storage, WhichSlivers, BLOB_ID, OTHER_SHARD_INDEX, SHARD_INDEX},

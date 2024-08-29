@@ -716,6 +716,7 @@ impl TestClusterBuilder {
     }
 
     /// Sets the individual event providers for each storage node.
+    /// Requires: `event_providers.len() == storage_node_configs.len()`.
     pub fn with_individual_system_event_providers<T>(mut self, event_providers: &[T]) -> Self
     where
         T: SystemEventProvider + Clone + 'static,

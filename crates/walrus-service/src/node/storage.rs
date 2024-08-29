@@ -253,7 +253,10 @@ impl<'a> BlobInfoIter<'a> {
 
 impl Debug for BlobInfoIter<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("BlobInfoIter").finish()
+        f.debug_struct("BlobInfoIter")
+            .field("before_epoch", &self.before_epoch)
+            .field("only_certified", &self.only_certified)
+            .finish()
     }
 }
 
@@ -270,7 +273,7 @@ impl Iterator for BlobInfoIter<'_> {
             if blob_info.is_certified()
                 && blob_info
                     .status_changing_epoch(blob_info::BlobCertificationStatus::Certified)
-                    .unwrap()
+                    .expect("We just checked that the blob is certified")
                     < self.before_epoch
             {
                 return item;
@@ -1362,13 +1365,13 @@ pub(crate) mod tests {
         let new_epoch = 3;
 
         let blob_ids = [
-            BlobId([1; 32]), // Not certified.
-            BlobId([2; 32]), // Not exist.
-            BlobId([3; 32]), // Certified within epoch 2
-            BlobId([4; 32]), // Certified after epoch 2
-            BlobId([5; 32]), // Invalid
-            BlobId([6; 32]), // Certified within epoch 2
-            BlobId([7; 32]), // Not exist.
+            BlobId([0; 32]), // Not certified.
+            BlobId([1; 32]), // Not exist.
+            BlobId([2; 32]), // Certified within epoch 2
+            BlobId([3; 32]), // Certified after epoch 2
+            BlobId([4; 32]), // Invalid
+            BlobId([5; 32]), // Certified within epoch 2
+            BlobId([6; 32]), // Not exist.
         ];
 
         let blob_info_map = HashMap::from([
@@ -1382,6 +1385,11 @@ pub(crate) mod tests {
         let mut batch = blob_info.batch();
         batch.insert_batch(&blob_info, blob_info_map.iter())?;
         batch.write()?;
+
+        assert_eq!(
+            all_certified_blob_ids(&storage, None, new_epoch)?,
+            vec![blob_ids[2], blob_ids[5]]
+        );
 
         for blob_id in blob_ids.iter().take(2) {
             assert_eq!(
