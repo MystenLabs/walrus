@@ -957,7 +957,7 @@ impl ServiceState for StorageNodeInner {
         // In a normal scenario, a storage node will never fetch shards from a future epoch.
         if request.epoch() != self.current_epoch() {
             return Err(InvalidEpochError {
-                client_epoch: request.epoch(),
+                request_epoch: request.epoch(),
                 server_epoch: self.current_epoch(),
             }
             .into());

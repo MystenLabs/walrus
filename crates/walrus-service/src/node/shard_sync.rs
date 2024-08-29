@@ -124,15 +124,15 @@ impl ShardSyncHandler {
 
                     if let SyncShardClientError::RequestError(node_error) = err {
                         if let Some(ServiceError::InvalidEpoch {
-                            client_epoch,
+                            request_epoch,
                             server_epoch,
                         }) = node_error.service_error()
                         {
-                            if client_epoch > server_epoch {
+                            if request_epoch > server_epoch {
                                 tracing::info!(
                                     "Source storage node hasn't reached the epoch yet.
                                 Client epoch: {}, Server epoch: {}",
-                                    client_epoch,
+                                    request_epoch,
                                     server_epoch
                                 );
                                 // Retry the sync after backoff.

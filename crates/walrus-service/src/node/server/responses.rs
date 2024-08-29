@@ -111,8 +111,10 @@ rest_api_error!(
         (MessageVerificationError(_), BAD_REQUEST, None, "Request verification failed"),
         (ShardNotAssigned(_), MISDIRECTED_REQUEST, None,
         "the requested sliver is not stored at a shard assigned to this storage node"),
-        (InvalidEpoch(InvalidEpochError{client_epoch, server_epoch}), BAD_REQUEST,
-        Some(ServiceError::InvalidEpoch{client_epoch: *client_epoch, server_epoch: *server_epoch}),
+        (InvalidEpoch(InvalidEpochError{request_epoch, server_epoch}), BAD_REQUEST,
+        Some(ServiceError::InvalidEpoch{
+            request_epoch: *request_epoch,
+            server_epoch: *server_epoch}),
         "The requested epoch is invalid"),
         (Internal(_), INTERNAL_SERVER_ERROR, None, @canonical),
         (StorageError(_), INTERNAL_SERVER_ERROR, None, "Storage error"),

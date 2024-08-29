@@ -123,9 +123,9 @@ pub enum BlobStatusError {
 
 /// Error returned when the epoch in a request is invalid.
 #[derive(Debug, thiserror::Error, Serialize, Clone)]
-#[error("Invalid epoch. Client epoch: {client_epoch}. Server epoch: {server_epoch}")]
+#[error("Invalid epoch. Client epoch: {request_epoch}. Server epoch: {server_epoch}")]
 pub struct InvalidEpochError {
-    pub client_epoch: Epoch,
+    pub request_epoch: Epoch,
     pub server_epoch: Epoch,
 }
 

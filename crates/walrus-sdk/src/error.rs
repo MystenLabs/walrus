@@ -74,7 +74,7 @@ pub(crate) enum Kind {
     Bcs(#[from] bcs::Error),
     #[error(transparent)]
     Reqwest(#[from] reqwest::Error),
-    #[error("{inner}: {message} ({service_error:?})")]
+    #[error("{inner}: {message}")]
     StatusWithMessage {
         inner: reqwest::Error,
         message: String,
@@ -123,7 +123,7 @@ pub enum ServiceError {
     /// The requested epoch is invalid.
     InvalidEpoch {
         /// The epoch client is in.
-        client_epoch: Epoch,
+        request_epoch: Epoch,
         /// The epoch server is in.
         server_epoch: Epoch,
     },
