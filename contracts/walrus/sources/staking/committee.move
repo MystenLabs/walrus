@@ -23,16 +23,11 @@ public(package) fun initialize(assigned_number: VecMap<ID, u16>): Committee {
     let (keys, values) = assigned_number.into_keys_values();
     let cmt = vec_map::from_keys_values(
         keys,
-        values.map!(
-            |v| vector::tabulate!(
-                v as u64,
-                |_| {
-                    let res = shard_idx;
-                    shard_idx = shard_idx + 1;
-                    res
-                },
-            ),
-        ),
+        values.map!(|v| vector::tabulate!(v as u64, |_| {
+            let res = shard_idx;
+            shard_idx = shard_idx + 1;
+            res
+        })),
     );
 
     Committee(cmt)
@@ -53,14 +48,10 @@ public(package) fun transition(cmt: &Committee, mut new_assignments: VecMap<ID, 
         |idx| {
             let (node_id, prev_shards) = cmt.0.get_entry_by_idx(idx);
             let node_id = *node_id;
-            let assigned_len = new_assignments
-                .get_idx_opt(&node_id)
-                .map!(
-                    |idx| {
-                        let (_, value) = new_assignments.remove_entry_by_idx(idx);
-                        value as u64
-                    },
-                );
+            let assigned_len = new_assignments.get_idx_opt(&node_id).map!(|idx| {
+                let (_, value) = new_assignments.remove_entry_by_idx(idx);
+                value as u64
+            });
 
             // if the node is not in the new committee, remove all shards, make
             // them available for reassignment
@@ -109,20 +100,17 @@ public(package) fun transition(cmt: &Committee, mut new_assignments: VecMap<ID, 
     // enough shards to assign, and the nodes that were not part of the old
     // committee.
     let (keys, values) = new_assignments.into_keys_values();
-    keys.zip_do!(
-        values,
-        |key, value| {
-            if (value == 0) return; // ignore nodes with 0 shards
+    keys.zip_do!(values, |key, value| {
+        if (value == 0) return; // ignore nodes with 0 shards
 
-            let mut current_shards = cmt.0.try_get(&key).destroy_or!(vector[]);
-            current_shards
-                .length()
-                .diff(value as u64)
-                .do!(|_| current_shards.push_back(to_move.pop_back()));
+        let mut current_shards = cmt.0.try_get(&key).destroy_or!(vector[]);
+        current_shards
+            .length()
+            .diff(value as u64)
+            .do!(|_| current_shards.push_back(to_move.pop_back()));
 
-            new_cmt.insert(key, current_shards);
-        },
-    );
+        new_cmt.insert(key, current_shards);
+    });
 
     Committee(new_cmt)
 }

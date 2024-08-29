@@ -143,10 +143,7 @@ public(package) fun verify_certificate(
     // The expression below is the solution to the inequality:
     // n_shards = 3 f + 1
     // stake >= 2f + 1
-    assert!(
-        3 * (aggregate_weight as u64) >= 2 * (self.n_shards as u64) + 1,
-        ENotEnoughStake,
-    );
+    assert!(3 * (aggregate_weight as u64) >= 2 * (self.n_shards as u64) + 1, ENotEnoughStake);
 
     // Verify the signature
     let pub_key_bytes = group_ops::bytes(&aggregate_key);

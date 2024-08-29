@@ -93,10 +93,7 @@ public(package) fun certify_blob_message(message: CertifiedMessage): CertifiedBl
 /// implies a certified message, that is already checked.
 public(package) fun invalid_blob_id_message(message: CertifiedMessage): CertifiedInvalidBlobId {
     // Assert type is correct
-    assert!(
-        message.intent_type() == INVALID_BLOB_ID_MSG_TYPE,
-        EInvalidMsgType,
-    );
+    assert!(message.intent_type() == INVALID_BLOB_ID_MSG_TYPE, EInvalidMsgType);
 
     // The InvalidBlobID message has no payload besides the blob_id.
     // The certified blob message contain a blob_id : u256

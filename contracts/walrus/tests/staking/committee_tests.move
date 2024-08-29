@@ -135,7 +135,6 @@ fun ignore_empty_assignments() {
     assert!(cmt.shards(&n3) == cmt2.shards(&n3));
 }
 
-
 // #[test] // requires manual --gas-limit set, ignored for convenience
 #[allow(unused_function)]
 fun large_set_assignments_1() {
@@ -151,8 +150,10 @@ fun large_set_assignments_2() {
     let assignments = vec_map::from_keys_values(nodes, vector::tabulate!(1000, |_| 1));
 
     let cmt = committee::initialize(assignments);
-    cmt.transition(vec_map::from_keys_values(
-        nodes,
-        vector::tabulate!(1000, |i| (i % 3) as u16),
-    ));
+    cmt.transition(
+        vec_map::from_keys_values(
+            nodes,
+            vector::tabulate!(1000, |i| (i % 3) as u16),
+        ),
+    );
 }

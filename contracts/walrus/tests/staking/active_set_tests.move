@@ -12,14 +12,11 @@
 ///   shards and total_staked (#715)
 module walrus::active_set_tests;
 
-use sui::test_utils::assert_eq;
+use std::unit_test::assert_eq;
 use walrus::active_set;
-
 
 #[test]
 fun test_insert() {
-    use std::unit_test::assert_eq;
-
     let mut set = active_set::new(3, 100);
     set.insert(@0x1.to_id(), 200);
     set.insert(@0x2.to_id(), 300);

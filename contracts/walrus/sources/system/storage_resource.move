@@ -51,10 +51,7 @@ public(package) fun extend_end_epoch(self: &mut Storage, extension_epochs: u32) 
 /// `storage` is modified to cover the period from `start_epoch` to `split_epoch`
 /// and a new storage object covering `split_epoch` to `end_epoch` is returned.
 public fun split_by_epoch(storage: &mut Storage, split_epoch: u32, ctx: &mut TxContext): Storage {
-    assert!(
-        split_epoch >= storage.start_epoch && split_epoch <= storage.end_epoch,
-        EInvalidEpoch,
-    );
+    assert!(split_epoch >= storage.start_epoch && split_epoch <= storage.end_epoch, EInvalidEpoch);
     let end_epoch = storage.end_epoch;
     storage.end_epoch = split_epoch;
     Storage {

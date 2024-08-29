@@ -4,7 +4,7 @@
 module walrus::staking_pool_tests;
 
 use sui::test_utils::destroy;
-use walrus::{test_utils::{mint, wctx, pool}};
+use walrus::test_utils::{mint, wctx, pool};
 
 #[test]
 fun test_staked_wal_flow() {

@@ -142,7 +142,7 @@ public fun build(self: PoolBuilder, wctx: &WalrusContext, ctx: &mut TxContext): 
         name.destroy_with_default(b"pool".to_string()),
         network_address.destroy_with_default(b"127.0.0.1".to_string()),
         public_key.destroy_with_default(
-            x"a60e75190e62b6a54142d147289a735c4ce11a9d997543da539a3db57def5ed83ba40b74e55065f02b35aa1d504c404b", // editorconfig-checker-disable-line
+            x"a60e75190e62b6a54142d147289a735c4ce11a9d997543da539a3db57def5ed83ba40b74e55065f02b35aa1d504c404b",
         ),
         network_public_key.destroy_with_default(
             x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677ab",
@@ -174,7 +174,7 @@ public fun register(self: PoolBuilder, inner: &mut StakingInnerV1, ctx: &mut TxC
         name.destroy_with_default(b"pool".to_string()),
         network_address.destroy_with_default(b"127.0.0.1".to_string()),
         public_key.destroy_with_default(
-            x"a60e75190e62b6a54142d147289a735c4ce11a9d997543da539a3db57def5ed83ba40b74e55065f02b35aa1d504c404b", // editorconfig-checker-disable-line
+            x"a60e75190e62b6a54142d147289a735c4ce11a9d997543da539a3db57def5ed83ba40b74e55065f02b35aa1d504c404b",
         ),
         network_public_key.destroy_with_default(
             x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677ab",
@@ -209,7 +209,7 @@ public fun pad_bls_sk(sk: &vector<u8>): vector<u8> {
     if (sk.length() < 32) {
         // Prepend with zeros to get 32 bytes.
         sk.reverse();
-        (32 - sk.length()).do!(|_| sk.push_back(0) );
+        (32 - sk.length()).do!(|_| sk.push_back(0));
         sk.reverse();
     };
     sk
@@ -233,14 +233,14 @@ public fun bls_secret_keys_for_testing(): vector<vector<u8>> {
         x"DEC0DE",
         x"FACE",
         x"F00D",
-    ].map!(|key| pad_bls_sk(&key) )
+    ].map!(|key| pad_bls_sk(&key))
 }
 
 /// Aggregates the given signatures into one signature.
 public fun bls_aggregate_sigs(signatures: &vector<vector<u8>>): vector<u8> {
     let mut aggregate = bls12381::g2_identity();
-    signatures.do_ref!(|sig|
-    aggregate = bls12381::g2_add(&aggregate, &bls12381::g2_from_bytes(sig))
+    signatures.do_ref!(
+        |sig| aggregate = bls12381::g2_add(&aggregate, &bls12381::g2_from_bytes(sig)),
     );
     *aggregate.bytes()
 }
@@ -260,7 +260,8 @@ public fun new_bls_committee_for_testing(epoch: u32): bls_aggregate::BlsCommitte
 #[test]
 fun test_bls_pk() {
     let sk = bls_sk_for_testing();
-    let pub_key_bytes = x"95eacc3adc09c827593f581e8e2de068bf4cf5d0c0eb29e5372f0d23364788ee0f9beb112c8a7e9c2f0c720433705cf0"; // editorconfig-checker-disable-line
+    let pub_key_bytes =
+        x"95eacc3adc09c827593f581e8e2de068bf4cf5d0c0eb29e5372f0d23364788ee0f9beb112c8a7e9c2f0c720433705cf0"; // editorconfig-checker-disable-line
     assert!(bls_min_pk_from_sk(&sk) == pub_key_bytes)
 }
 
