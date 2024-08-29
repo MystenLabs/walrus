@@ -319,7 +319,7 @@ async fn create_read_client(
 #[derive(Debug)]
 pub struct StorageNode {
     inner: Arc<StorageNodeInner>,
-    blob_sync_handler: Arc<BlobSyncHandler>,
+    blob_sync_handler: BlobSyncHandler,
     _shard_sync_handler: ShardSyncHandler,
 }
 
@@ -393,12 +393,12 @@ impl StorageNode {
 
         inner.init_gauges()?;
 
-        let blob_sync_handler = Arc::new(BlobSyncHandler::new(
+        let blob_sync_handler = BlobSyncHandler::new(
             inner.clone(),
             config.blob_recovery.max_concurrent_blob_syncs,
-        ));
+        );
 
-        let shard_sync_handler = ShardSyncHandler::new(inner.clone(), blob_sync_handler.clone());
+        let shard_sync_handler = ShardSyncHandler::new(inner.clone());
         // Upon restart, resume any ongoing blob syncs if there is any.
         shard_sync_handler.restart_syncs().await?;
 
@@ -525,7 +525,7 @@ impl StorageNode {
         // Slivers and (possibly) metadata are not stored, so initiate blob sync.
         // TODO(kwuest): Handle epoch change. (#405)
         self.blob_sync_handler
-            .start_sync_from_event(event, event_index, start)
+            .start_sync(event, event_index, start)
             .await?;
 
         Ok(())

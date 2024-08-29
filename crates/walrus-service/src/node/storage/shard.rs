@@ -18,6 +18,7 @@ use futures::{stream::FuturesUnordered, StreamExt};
 use regex::Regex;
 use rocksdb::{Options, DB};
 use serde::{Deserialize, Serialize};
+use tokio::sync::Semaphore;
 use typed_store::{
     rocks::{
         be_fix_int_ser as to_rocks_db_key,
@@ -40,7 +41,7 @@ use walrus_core::{
 };
 
 use super::{blob_info::BlobInfo, BlobInfoIter, DatabaseConfig};
-use crate::node::{blob_sync::BlobSyncHandler, errors::SyncShardClientError, StorageNodeInner};
+use crate::node::{blob_sync::recover_sliver, errors::SyncShardClientError, StorageNodeInner};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ShardStatus {
@@ -431,7 +432,6 @@ impl ShardStorage {
         &self,
         epoch: Epoch,
         node: Arc<StorageNodeInner>,
-        blob_sync_handler: Arc<BlobSyncHandler>,
     ) -> Result<(), SyncShardClientError> {
         tracing::info!("Syncing shard to before epoch: {}", epoch);
         if self.status()? == ShardStatus::None {
@@ -476,7 +476,7 @@ impl ShardStorage {
             ShardLastSyncStatus::Recovery => {}
         }
 
-        self.recovery_any_missing_slivers(blob_sync_handler).await?;
+        self.recovery_any_missing_slivers(node).await?;
 
         let mut batch = self.shard_status.batch();
         batch.insert_batch(&self.shard_status, [((), ShardStatus::Active)])?;
@@ -706,7 +706,7 @@ impl ShardStorage {
     /// Recovers any missing blobs stored in `pending_recover_slivers` table.
     async fn recovery_any_missing_slivers(
         &self,
-        blob_sync_handler: Arc<BlobSyncHandler>,
+        node: Arc<StorageNodeInner>,
     ) -> Result<(), SyncShardClientError> {
         if self.pending_recover_slivers.is_empty() {
             return Ok(());
@@ -722,8 +722,7 @@ impl ShardStorage {
         });
 
         loop {
-            self.recover_missing_blobs(blob_sync_handler.clone())
-                .await?;
+            self.recover_missing_blobs(node.clone()).await?;
 
             if self.pending_recover_slivers.is_empty() {
                 // TODO: in test, check that we have recovered all the certified blobs.
@@ -740,55 +739,102 @@ impl ShardStorage {
     /// `blob_sync_handler`.
     async fn recover_missing_blobs(
         &self,
-        blob_sync_handler: Arc<BlobSyncHandler>,
+        node: Arc<StorageNodeInner>,
     ) -> Result<(), TypedStoreError> {
-        let futures = FuturesUnordered::new();
+        let semaphore = Semaphore::new(5); // TODO: make this configurable.
+        let mut futures = FuturesUnordered::new();
         for recover_blob in self.pending_recover_slivers.safe_iter() {
-            let ((_, blob_id), _) = recover_blob?;
-            futures.push(self.recover_blob(blob_sync_handler.clone(), blob_id));
+            let ((sliver_type, blob_id), _) = recover_blob?;
+            futures.push(self.recover_blob(blob_id, sliver_type, node.clone(), &semaphore));
         }
 
-        // Wait for all to finish.
-        futures
-            .collect::<Vec<_>>()
-            .await
-            .into_iter()
-            .collect::<Result<(), _>>()
+        while let Some(result) = futures.next().await {
+            if let Err(err) = result {
+                tracing::error!(error = ?err, "Error recovering missing blob sliver.");
+            }
+        }
+
+        Ok(())
     }
 
     /// Recovers the missing blob sliver for the given blob ID.
     async fn recover_blob(
         &self,
-        blob_sync_handler: Arc<BlobSyncHandler>,
         blob_id: BlobId,
+        sliver_type: SliverType,
+        node: Arc<StorageNodeInner>,
+        semaphore: &Semaphore,
     ) -> Result<(), TypedStoreError> {
-        let start_time = tokio::time::Instant::now();
+        let _guard = semaphore.acquire().await;
         tracing::info!(
             "Start recovering missing blob {} in shard {}",
             blob_id,
             self.id
         );
-        // Note that `blob_sync_handler` tries to recover ALL missing shards for the given blob
-        // id. `start_sync_for_blob_recovery` can be called multiple times, but there will
-        // be only one active recovery task for the given blob id.
-        blob_sync_handler
-            .start_sync_for_blob_recovery(blob_id, start_time)
-            .await;
-        if self.is_sliver_pair_stored(&blob_id)? {
-            let mut batch = self.pending_recover_slivers.batch();
-            batch.delete_batch(
-                &self.pending_recover_slivers,
-                [
-                    (SliverType::Primary, blob_id),
-                    (SliverType::Secondary, blob_id),
-                ],
-            )?;
-            batch.write()?;
+
+        let metadata = node.storage.get_metadata(&blob_id)?;
+        if metadata.is_none() {
+            tracing::warn!(
+                "Blob {} is missing in the metadata table. For certified blob, Blob sync task should
+                recover the metadata. Skip recovering it for now.",
+                blob_id
+            );
+            return Ok(());
         }
 
-        // If sliver is not recovered, it won't be removed from the `pending_recover_slivers` table.
-        // Later retry will revisit this blob again.
-        Ok(())
+        let sliver_id = self
+            .id
+            .to_pair_index(node.encoding_config.n_shards(), &blob_id);
+
+        let result = match sliver_type {
+            SliverType::Primary => {
+                recover_sliver::<Primary>(
+                    node.committee_service.as_ref(),
+                    &metadata.unwrap(),
+                    sliver_id,
+                    &node.encoding_config,
+                )
+                .await
+            }
+            SliverType::Secondary => {
+                recover_sliver::<Secondary>(
+                    node.committee_service.as_ref(),
+                    &metadata.unwrap(),
+                    sliver_id,
+                    &node.encoding_config,
+                )
+                .await
+            }
+        };
+
+        match result {
+            Ok(sliver) => self.put_sliver(&blob_id, &sliver)?,
+            Err(inconsistency_proof) => {
+                // TODO: once committee service supports multi-epoch. This needs to use the
+                // committee from the latest epoch.
+                let invalid_blob_certificate = node
+                    .committee_service
+                    .get_invalid_blob_certificate(
+                        &blob_id,
+                        &inconsistency_proof,
+                        node.encoding_config.n_shards(),
+                    )
+                    .await;
+                node.contract_service
+                    .invalidate_blob_id(&invalid_blob_certificate)
+                    .await
+            }
+        }
+
+        let mut batch = self.pending_recover_slivers.batch();
+        batch.delete_batch(
+            &self.pending_recover_slivers,
+            [
+                (SliverType::Primary, blob_id),
+                (SliverType::Secondary, blob_id),
+            ],
+        )?;
+        batch.write()
     }
 
     #[cfg(test)]

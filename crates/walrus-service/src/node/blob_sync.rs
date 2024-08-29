@@ -3,8 +3,6 @@
 
 use std::{
     collections::{hash_map::Entry, HashMap},
-    fmt,
-    fmt::{Debug, Formatter},
     sync::{Arc, Mutex},
 };
 
@@ -14,7 +12,6 @@ use futures::{
     StreamExt,
     TryFutureExt,
 };
-use mysten_common::sync::notify_read::{NotifyRead, Registration};
 use mysten_metrics::{GaugeGuard, GaugeGuardFutureExt};
 use sui_types::event::EventID;
 use tokio::{select, sync::Semaphore, task::JoinHandle};
@@ -41,37 +38,18 @@ use super::{
 };
 use crate::common::utils::FutureHelpers as _;
 
-type SyncTaskJoinHandle = JoinHandle<Result<Option<(usize, EventID)>, anyhow::Error>>;
-
-// Since this struct only contains Arc. It is cheap to clone it.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub(crate) struct BlobSyncHandler {
     // INV: For each blob id at most one sync is in progress at a time.
     blob_syncs_in_progress: Arc<Mutex<HashMap<BlobId, InProgressSyncHandle>>>,
-    blob_syncs_notify_reads: Arc<NotifyRead<BlobId, ()>>,
     node: Arc<StorageNodeInner>,
     semaphore: Arc<Semaphore>,
-}
-
-impl Debug for BlobSyncHandler {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("BlobSyncHandler")
-            .field("blob_syncs_in_progress", &self.blob_syncs_in_progress)
-            .field(
-                "blob_syncs_notify_reads",
-                &self.blob_syncs_notify_reads.num_pending(),
-            )
-            .field("node", &self.node)
-            .field("semaphore", &self.semaphore)
-            .finish()
-    }
 }
 
 impl BlobSyncHandler {
     pub fn new(node: Arc<StorageNodeInner>, max_concurrent_blob_syncs: usize) -> Self {
         Self {
             blob_syncs_in_progress: Arc::default(),
-            blob_syncs_notify_reads: Arc::new(NotifyRead::<BlobId, ()>::new()),
             node,
             semaphore: Arc::new(Semaphore::new(max_concurrent_blob_syncs)),
         }
@@ -103,7 +81,7 @@ impl BlobSyncHandler {
     }
 
     #[tracing::instrument(skip_all, fields(otel.kind = "PRODUCER"))]
-    pub async fn start_sync_from_event(
+    pub async fn start_sync(
         &self,
         event: BlobCertified,
         event_index: usize,
@@ -127,16 +105,24 @@ impl BlobSyncHandler {
             );
             spawned_trace.follows_from(Span::current());
 
-            let (cancel_token, blob_sync_handle) = self.spawn_sync_task(
-                event.blob_id,
-                Some((event_index, event.event_id)),
-                start,
-                spawned_trace,
-            );
+            let cancel_token = CancellationToken::new();
+            let synchronizer =
+                BlobSynchronizer::new(event, event_index, self.node.clone(), cancel_token.clone());
 
+            let sync_handle = tokio::spawn(
+                self.clone()
+                    .sync(synchronizer, start, self.semaphore.clone())
+                    .inspect_err(|err| {
+                        let span = Span::current();
+                        span.record("otel.status_code", "ERROR");
+                        span.record("otel.status_message", field::display(err));
+                        span.record("error.type", "_OTHER");
+                    })
+                    .instrument(spawned_trace),
+            );
             entry.insert(InProgressSyncHandle {
                 cancel_token,
-                blob_sync_handle: Some(blob_sync_handle),
+                blob_sync_handle: Some(sync_handle),
             });
         } else {
             // A blob sync with a lower sequence number is already in progress. We can safely try to
@@ -148,76 +134,12 @@ impl BlobSyncHandler {
         Ok(())
     }
 
-    /// An entry point for blob sync initiated by the shard sync process.
-    #[tracing::instrument(skip_all, fields(otel.kind = "PRODUCER"))]
-    pub fn start_sync_for_blob_recovery(
-        &self,
-        blob_id: BlobId,
-        start: tokio::time::Instant,
-    ) -> Registration<BlobId, ()> {
-        let mut in_progress = self.blob_syncs_in_progress.lock().unwrap();
-        let task_handle = self.blob_syncs_notify_reads.register_one(&blob_id);
-
-        if let Entry::Vacant(entry) = in_progress.entry(blob_id) {
-            let spawned_trace = info_span!(
-                parent: None,
-                "blob_sync",
-                "otel.kind" = "CONSUMER",
-                "otel.status_code" = field::Empty,
-                "otel.status_message" = field::Empty,
-                "error.type" = field::Empty,
-            );
-            spawned_trace.follows_from(Span::current());
-
-            let (cancel_token, blob_sync_handle) =
-                self.spawn_sync_task(blob_id, None, start, spawned_trace);
-
-            entry.insert(InProgressSyncHandle {
-                cancel_token,
-                blob_sync_handle: Some(blob_sync_handle),
-            });
-        }
-        task_handle
-    }
-
-    fn spawn_sync_task(
-        &self,
-        blob_id: BlobId,
-        event_info: Option<(usize, EventID)>,
-        start: tokio::time::Instant,
-        spawned_trace: Span,
-    ) -> (CancellationToken, SyncTaskJoinHandle) {
-        let cancel_token = CancellationToken::new();
-        let synchronizer = BlobSynchronizer::new(blob_id, self.node.clone(), cancel_token.clone());
-
-        let handler_clone = self.clone();
-        let semaphore_clone = self.semaphore.clone();
-        let sync_handle = tokio::spawn(async move {
-            let blob_id = synchronizer.blob_id;
-            let result = handler_clone
-                .clone()
-                .sync(synchronizer, start, semaphore_clone, event_info)
-                .inspect_err(|err| {
-                    let span = Span::current();
-                    span.record("otel.status_code", "ERROR");
-                    span.record("otel.status_message", field::display(err));
-                    span.record("error.type", "_OTHER");
-                })
-                .instrument(spawned_trace)
-                .await;
-            handler_clone.blob_syncs_notify_reads.notify(&blob_id, &());
-            result
-        });
-        (cancel_token, sync_handle)
-    }
-
     #[tracing::instrument(skip_all, err)]
-    async fn sync(
+    pub async fn sync(
         self,
         synchronizer: BlobSynchronizer,
         start: tokio::time::Instant,
         semaphore: Arc<Semaphore>,
-        event_info: Option<(usize, EventID)>,
     ) -> Result<Option<(usize, EventID)>, anyhow::Error> {
         let node = &synchronizer.node;
 
@@ -236,15 +158,13 @@ impl BlobSyncHandler {
             select! {
                 _ = synchronizer.cancel_token.cancelled() => {
                     tracing::info!("cancelled blob sync");
-                    Ok(event_info)
+                    Ok(Some((synchronizer.event_index, synchronizer.event_id)))
                 }
                 sync_result = synchronizer.run() => match sync_result {
                     Ok(()) => {
-                        if let Some((event_index, event_id)) = event_info {
-                            node.mark_event_completed(
-                                event_index, &event_id
-                            )?;
-                        }
+                        node.mark_event_completed(
+                            synchronizer.event_index, &synchronizer.event_id
+                        )?;
                         Ok(None)
                     }
                     // NOTE(jsmith): This changes behaviour from the previous implementation.
@@ -316,18 +236,23 @@ enum RecoverSliverError {
 pub(super) struct BlobSynchronizer {
     blob_id: BlobId,
     node: Arc<StorageNodeInner>,
+    event_index: usize,
+    event_id: EventID,
     cancel_token: CancellationToken,
 }
 
 impl BlobSynchronizer {
     pub fn new(
-        blob_id: BlobId,
+        event: BlobCertified,
+        event_sequence_number: usize,
         node: Arc<StorageNodeInner>,
         cancel_token: CancellationToken,
     ) -> Self {
         Self {
-            blob_id,
+            blob_id: event.blob_id,
             node,
+            event_id: event.event_id,
+            event_index: event_sequence_number,
             cancel_token,
         }
     }
@@ -491,7 +416,7 @@ impl BlobSynchronizer {
     }
 }
 
-async fn recover_sliver<A: EncodingAxis>(
+pub async fn recover_sliver<A: EncodingAxis>(
     committee_service: &dyn CommitteeService,
     metadata: &VerifiedBlobMetadataWithId,
     sliver_id: SliverPairIndex,
