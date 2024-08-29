@@ -140,7 +140,10 @@ pub trait ContractClient: Send + Sync {
     fn read_client(&self) -> &impl ReadClient;
 
     /// Returns the list of [`Blob`] objects owned by the wallet currently in use.
-    fn owned_blobs(&self) -> impl Future<Output = SuiClientResult<Vec<Blob>>> + Send;
+    fn owned_blobs(
+        &self,
+        include_expired: bool,
+    ) -> impl Future<Output = SuiClientResult<Vec<Blob>>> + Send;
 }
 
 /// Client implementation for interacting with the Walrus smart contracts.
@@ -544,7 +547,13 @@ impl ContractClient for SuiContractClient {
         &self.read_client
     }
 
-    async fn owned_blobs(&self) -> SuiClientResult<Vec<Blob>> {
+    async fn owned_blobs(&self, include_expired: bool) -> SuiClientResult<Vec<Blob>> {
+        let current_epoch = if !include_expired {
+            self.read_client.current_committee().await?.epoch
+        } else {
+            0
+        };
+
         Ok(get_owned_objects::<Blob>(
             &self.read_client.sui_client,
             self.wallet_address,
@@ -552,6 +561,7 @@ impl ContractClient for SuiContractClient {
             &[],
         )
         .await?
+        .filter(|blob| include_expired || blob.storage.end_epoch > current_epoch)
         .collect())
     }
 }

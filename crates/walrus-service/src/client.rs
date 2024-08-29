@@ -312,7 +312,7 @@ impl<T: ContractClient> Client<T> {
     ) -> ClientResult<Option<Blob>> {
         Ok(self
             .sui_client
-            .owned_blobs()
+            .owned_blobs(false)
             .await?
             .into_iter()
             .find(|blob| {

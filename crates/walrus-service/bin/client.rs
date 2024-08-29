@@ -272,7 +272,12 @@ enum Commands {
         blob_id_decimal: BlobIdDecimal,
     },
     /// List all registered blobs for the current wallet.
-    ListBlobs,
+    ListBlobs {
+        #[clap(long, action)]
+        #[serde(default)]
+        /// The output list of blobs will include expired blobs.
+        include_expired: bool,
+    },
 }
 
 #[derive(Debug, Clone, Args, Deserialize)]
@@ -646,10 +651,10 @@ async fn run_app(app: App) -> Result<()> {
         Commands::ConvertBlobId { blob_id_decimal } => {
             BlobIdConversionOutput::from(blob_id_decimal).print_output(app.json)?;
         }
-        Commands::ListBlobs => {
+        Commands::ListBlobs { include_expired } => {
             let contract_client =
                 SuiContractClient::new(wallet?, config?.system_object, app.gas_budget).await?;
-            let blobs = contract_client.owned_blobs().await?;
+            let blobs = contract_client.owned_blobs(include_expired).await?;
             blobs.print_output(app.json)?;
         }
     }

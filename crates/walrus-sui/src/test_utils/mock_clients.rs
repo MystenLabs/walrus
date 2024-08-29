@@ -270,7 +270,7 @@ impl ContractClient for MockContractClient {
         &self.read_client
     }
 
-    async fn owned_blobs(&self) -> SuiClientResult<Vec<Blob>> {
+    async fn owned_blobs(&self, include_expired: bool) -> SuiClientResult<Vec<Blob>> {
         let blob = Blob {
             id: ObjectID::random(),
             stored_epoch: self.current_epoch,
@@ -285,7 +285,24 @@ impl ContractClient for MockContractClient {
                 storage_size: 50_000,
             },
         };
-        Ok(vec![blob])
+
+        let mut another_blob = blob.clone();
+        another_blob.id = ObjectID::random();
+
+        if include_expired {
+            let mut expired_blob = blob.clone();
+            expired_blob.id = ObjectID::random();
+            // The blob is expired in the current epoch.
+            expired_blob.storage.end_epoch = self.current_epoch;
+            if self.current_epoch > 0 {
+                // If we can, we set the validity of the blob to the previous epoch, such that it
+                // was valid for one epoch.
+                expired_blob.storage.start_epoch = self.current_epoch - 1;
+                expired_blob.certified_epoch = Some(self.current_epoch - 1);
+            }
+            return Ok(vec![blob, another_blob, expired_blob]);
+        }
+        Ok(vec![blob, another_blob])
     }
 }
 
