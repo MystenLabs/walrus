@@ -99,6 +99,16 @@ fun test_init_and_first_epoch_change(): (staking::Staking, system::System) {
     let committee_members = system.committee().to_vec_map();
     nodes.do_ref!(|node| assert!(committee_members.contains(&node.node_id())));
 
+    // === send epoch sync done messages from all nodes ===
+
+    nodes.do_mut!(|node| {
+        scenario.next_tx(node.sui_address());
+        staking.epoch_sync_done(node.cap_mut(), &clock);
+    });
+
+    // === check if epoch state is changed correctly ==
+    assert!(staking.is_epoch_sync_done());
+
     clock.destroy_for_testing();
     coin.burn_for_testing();
     nodes.destroy!(|node| node.destroy());

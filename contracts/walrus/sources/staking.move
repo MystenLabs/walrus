@@ -136,8 +136,8 @@ public fun shard_transfer_failed(
 }
 
 /// Signals to the contract that the node has received all its shards for the new epoch.
-public fun epoch_sync_done(staking: &mut Staking, cap: &StorageNodeCap) {
-    abort ENotImplemented
+public fun epoch_sync_done(staking: &mut Staking, cap: &mut StorageNodeCap, clock: &Clock) {
+    staking.inner_mut().epoch_sync_done(cap, clock);
 }
 
 // === Public API: Staking ===
@@ -199,6 +199,11 @@ public(package) fun new_for_testing(ctx: &mut TxContext): Staking {
     df::add(&mut staking.id, VERSION, staking_inner::new(1000, &clock, ctx));
     clock.destroy_for_testing();
     staking
+}
+
+#[test_only]
+public(package) fun is_epoch_sync_done(self: &Staking): bool {
+    self.inner().is_epoch_sync_done()
 }
 
 #[test, expected_failure]
@@ -263,7 +268,7 @@ fun test_set_next_commission() {
 fun test_collect_commission() {
     let ctx = &mut tx_context::dummy();
     let clock = clock::create_for_testing(ctx);
-    let cap = storage_node::new_cap_for_testing(new_id(ctx), ctx);
+    let cap = storage_node::new_cap(new_id(ctx), ctx);
     let coin = new_for_testing(ctx).collect_commission(&cap);
     abort 1337
 }
@@ -272,7 +277,7 @@ fun test_collect_commission() {
 fun test_vote_for_price_next_epoch() {
     let ctx = &mut tx_context::dummy();
     let clock = clock::create_for_testing(ctx);
-    let cap = storage_node::new_cap_for_testing(new_id(ctx), ctx);
+    let cap = storage_node::new_cap(new_id(ctx), ctx);
     new_for_testing(ctx).vote_for_price_next_epoch(&cap, 0, 0, 0);
     abort 1337
 }
@@ -289,7 +294,7 @@ fun test_voting_end() {
 fun test_shard_transfer_failed() {
     let ctx = &mut tx_context::dummy();
     let clock = clock::create_for_testing(ctx);
-    let cap = storage_node::new_cap_for_testing(new_id(ctx), ctx);
+    let cap = storage_node::new_cap(new_id(ctx), ctx);
     new_for_testing(ctx).shard_transfer_failed(&cap, new_id(ctx), vector[]);
     abort 1337
 }
@@ -299,7 +304,7 @@ fun test_stake_with_pool() {
     let ctx = &mut tx_context::dummy();
     let clock = clock::create_for_testing(ctx);
     let coin = coin::mint_for_testing<SUI>(100, ctx);
-    let cap = storage_node::new_cap_for_testing(new_id(ctx), ctx);
+    let cap = storage_node::new_cap(new_id(ctx), ctx);
     let staked_wal = new_for_testing(ctx).stake_with_pool(coin, cap.node_id(), ctx);
     abort 1337
 }

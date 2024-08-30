@@ -100,3 +100,79 @@ fun test_parameter_changes() {
     destroy(cap);
     clock.destroy_for_testing();
 }
+
+#[test]
+fun test_epoch_sync_done() {
+    let ctx = &mut tx_context::dummy();
+    let mut clock = clock::create_for_testing(ctx);
+    let mut staking = staking_inner::new(300, &clock, ctx);
+
+    // register the pool in the `StakingInnerV1`.
+    let pool_one = test::pool().name(b"pool_1".to_string()).register(&mut staking, ctx);
+    let pool_two = test::pool().name(b"pool_2".to_string()).register(&mut staking, ctx);
+
+    // now Alice, Bob, and Carl stake in the pools
+    let wal_alice = staking.stake_with_pool(test::mint(300000, ctx), pool_one, ctx);
+    let wal_bob = staking.stake_with_pool(test::mint(700000, ctx), pool_two, ctx);
+
+    // trigger `advance_epoch` to update the committee and set the epoch state to sync
+    staking.select_committee();
+    staking.advance_epoch(balance::create_for_testing(1000));
+
+    clock.increment_for_testing(7 * 24 * 60 * 60 * 1000);
+
+    // send epoch sync done message from pool_one, which does not have a quorum
+    let mut cap1 = storage_node::new_cap(pool_one, ctx);
+    staking.epoch_sync_done(&mut cap1, &clock);
+
+    assert!(!staking.is_epoch_sync_done());
+
+    // send epoch sync done message from pool_two, which creates a quorum
+    let mut cap2 = storage_node::new_cap(pool_two, ctx);
+    staking.epoch_sync_done(&mut cap2, &clock);
+
+    assert!(staking.is_epoch_sync_done());
+
+    destroy(wal_alice);
+    destroy(staking);
+    destroy(wal_bob);
+    cap1.destroy_cap_for_testing();
+    cap2.destroy_cap_for_testing();
+    clock.destroy_for_testing();
+}
+
+#[test, expected_failure(abort_code = staking_inner::EDuplicateSyncDone)]
+fun test_epoch_sync_done_duplicate() {
+    let ctx = &mut tx_context::dummy();
+    let mut clock = clock::create_for_testing(ctx);
+    let mut staking = staking_inner::new(300, &clock, ctx);
+
+    // register the pool in the `StakingInnerV1`.
+    let pool_one = test::pool().name(b"pool_1".to_string()).register(&mut staking, ctx);
+    let pool_two = test::pool().name(b"pool_2".to_string()).register(&mut staking, ctx);
+
+    // now Alice, Bob, and Carl stake in the pools
+    let wal_alice = staking.stake_with_pool(test::mint(300000, ctx), pool_one, ctx);
+    let wal_bob = staking.stake_with_pool(test::mint(700000, ctx), pool_two, ctx);
+
+    // trigger `advance_epoch` to update the committee and set the epoch state to sync
+    staking.select_committee();
+    staking.advance_epoch(balance::create_for_testing(1000));
+
+    clock.increment_for_testing(7 * 24 * 60 * 60 * 1000);
+
+    // send epoch sync done message from pool_one, which does not have a quorum
+    let mut cap = storage_node::new_cap(pool_one, ctx);
+    staking.epoch_sync_done(&mut cap, &clock);
+
+    assert!(!staking.is_epoch_sync_done());
+
+    // try to send duplicate, test fails here
+    staking.epoch_sync_done(&mut cap, &clock);
+
+    destroy(wal_alice);
+    destroy(staking);
+    destroy(wal_bob);
+    cap.destroy_cap_for_testing();
+    clock.destroy_for_testing();
+}

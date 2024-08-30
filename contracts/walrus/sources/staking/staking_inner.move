@@ -55,10 +55,14 @@ const ENotImplemented: vector<u8> = b"Function is not implemented";
 #[error]
 const EWrongEpochState: vector<u8> = b"Current epoch state does not allow this operation";
 
+#[error]
+const EDuplicateSyncDone: vector<u8> = b"Node already attested that sync is done for this epoch";
+
 /// The epoch state.
 public enum EpochState has store, copy, drop {
-    // Epoch change is currently in progress.
-    EpochChangeSync,
+    // Epoch change is currently in progress. Contains the weight of the nodes that
+    // have already attested that they finished the sync.
+    EpochChangeSync(u16),
     // Epoch change has been completed at the contained timestamp.
     EpochChangeDone(u64),
     // The parameters for the next epoch have been selected.
@@ -379,7 +383,7 @@ public(package) fun advance_epoch(self: &mut StakingInnerV1, mut rewards: Balanc
     self.epoch = self.epoch + 1;
     self.previous_committee = self.committee;
     self.committee = self.next_committee.extract(); // overwrites the current committee
-    self.epoch_state = EpochState::EpochChangeSync;
+    self.epoch_state = EpochState::EpochChangeSync(0);
 
     let wctx = &self.new_walrus_context();
 
@@ -411,6 +415,30 @@ public(package) fun advance_epoch(self: &mut StakingInnerV1, mut rewards: Balanc
     events::emit_epoch_change_start(self.epoch);
 }
 
+/// Signals to the contract that the node has received all its shards for the new epoch.
+public(package) fun epoch_sync_done(
+    self: &mut StakingInnerV1,
+    cap: &mut StorageNodeCap,
+    clock: &Clock,
+) {
+    // Make sure the node hasn't attested yet, and set the new epoch as the last sync done epoch.
+    assert!(cap.last_epoch_sync_done() < self.epoch, EDuplicateSyncDone);
+    cap.set_last_epoch_sync_done(self.epoch);
+
+    let node_shards = self.committee.shards(&cap.node_id());
+    match (self.epoch_state) {EpochState::EpochChangeSync(weight) => {
+            let weight = weight + (node_shards.length() as u16);
+            if (is_quorum(weight, self.n_shards)) {
+                self.epoch_state = EpochState::EpochChangeDone(clock.timestamp_ms());
+                events::emit_epoch_change_done(self.epoch);
+            } else {
+                self.epoch_state = EpochState::EpochChangeSync(weight);
+            }
+        }, _ => {}};
+    // Emit the event that the node has received all shards.
+    events::emit_shards_received(self.epoch, *node_shards);
+}
+
 // === Internal ===
 
 fun new_walrus_context(self: &StakingInnerV1): WalrusContext {
@@ -421,7 +449,19 @@ fun new_walrus_context(self: &StakingInnerV1): WalrusContext {
     )
 }
 
+fun is_quorum(weight: u16, n_shards: u16): bool {
+    3 * (weight as u64) >= 2 * (n_shards as u64) + 1
+}
+
 // ==== Tests ===
+
+#[test_only]
+public(package) fun is_epoch_sync_done(self: &StakingInnerV1): bool {
+    match (self.epoch_state) {
+        EpochState::EpochChangeDone(_) => true,
+        _ => false,
+    }
+}
 
 #[test_only]
 public(package) fun active_set(self: &mut StakingInnerV1): &mut ActiveSet {

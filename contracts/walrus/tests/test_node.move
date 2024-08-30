@@ -34,6 +34,11 @@ public fun cap(self: &TestStorageNode): &StorageNodeCap {
     self.storage_node_cap.borrow()
 }
 
+/// Returns a mutable reference to the storage node cap. Aborts if not set.
+public fun cap_mut(self: &mut TestStorageNode): &mut StorageNodeCap {
+    self.storage_node_cap.borrow_mut()
+}
+
 /// Returns the node ID. Aborts if the storage node cap is not set.
 public fun node_id(self: &TestStorageNode): ID {
     self.storage_node_cap.borrow().node_id()
