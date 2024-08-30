@@ -74,6 +74,9 @@ public enum EpochState has store, copy, drop {
 public struct StakingInnerV1 has store {
     /// The number of shards in the system.
     n_shards: u16,
+    /// Special parameter, used only for the first epoch. The timestamp when the
+    /// first epoch can be started.
+    first_epoch_start: u64,
     /// Stored staking pools, each identified by a unique `ID` and contains
     /// the `StakingPool` object. Uses `ObjectTable` to make the pool discovery
     /// easier by avoiding wrapping.
@@ -101,9 +104,15 @@ public struct StakingInnerV1 has store {
 }
 
 /// Creates a new `StakingInnerV1` object with default values.
-public(package) fun new(n_shards: u16, clock: &Clock, ctx: &mut TxContext): StakingInnerV1 {
+public(package) fun new(
+    first_epoch_start: u64,
+    n_shards: u16,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): StakingInnerV1 {
     StakingInnerV1 {
         n_shards,
+        first_epoch_start,
         pools: object_table::new(ctx),
         epoch: 0,
         active_set: active_set::new(n_shards, MIN_STAKE),
@@ -180,7 +189,7 @@ public(package) fun voting_end(self: &mut StakingInnerV1, clock: &Clock) {
 
     // TODO: perform the voting for the next epoch params, replace dummy.
     // Set a dummy value.
-    self.next_epoch_params.fill(epoch_parameters::new(1_000_000_000_000, 5, 1));
+    self.next_epoch_params = option::some(epoch_parameters::new(1_000_000_000_000, 5, 1));
 
     // Set the new epoch state.
     self.epoch_state = EpochState::NextParamsSelected(last_epoch_change);
@@ -369,8 +378,12 @@ public(package) fun initiate_epoch_change(
         EpochState::NextParamsSelected(last_epoch_change) => last_epoch_change,
         _ => abort EWrongEpochState,
     };
+
     let now = clock.timestamp_ms();
-    assert!(now >= last_epoch_change + EPOCH_DURATION, EWrongEpochState);
+
+    if (self.epoch == 0) assert!(now >= self.first_epoch_start, EWrongEpochState)
+    else assert!(now >= last_epoch_change + EPOCH_DURATION, EWrongEpochState);
+
     self.advance_epoch(rewards);
 }
 
@@ -426,8 +439,7 @@ public(package) fun epoch_sync_done(
     cap.set_last_epoch_sync_done(self.epoch);
 
     let node_shards = self.committee.shards(&cap.node_id());
-    match (self.epoch_state) {
-        EpochState::EpochChangeSync(weight) => {
+    match (self.epoch_state) {EpochState::EpochChangeSync(weight) => {
             let weight = weight + (node_shards.length() as u16);
             if (is_quorum(weight, self.n_shards)) {
                 self.epoch_state = EpochState::EpochChangeDone(clock.timestamp_ms());

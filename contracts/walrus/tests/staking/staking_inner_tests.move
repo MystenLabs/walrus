@@ -10,7 +10,7 @@ use walrus::{staking_inner, storage_node, test_utils as test};
 fun test_registration() {
     let ctx = &mut tx_context::dummy();
     let clock = clock::create_for_testing(ctx);
-    let mut staking = staking_inner::new(300, &clock, ctx);
+    let mut staking = staking_inner::new(0, 300, &clock, ctx);
 
     // register the pool in the `StakingInnerV1`.
     let pool_one = test::pool().name(b"pool_1".to_string()).register(&mut staking, ctx);
@@ -39,7 +39,7 @@ fun test_registration() {
 fun test_staking_active_set() {
     let ctx = &mut tx_context::dummy();
     let clock = clock::create_for_testing(ctx);
-    let mut staking = staking_inner::new(300, &clock, ctx);
+    let mut staking = staking_inner::new(0, 300, &clock, ctx);
 
     // register the pool in the `StakingInnerV1`.
     let pool_one = test::pool().name(b"pool_1".to_string()).register(&mut staking, ctx);
@@ -76,7 +76,7 @@ fun test_staking_active_set() {
 fun test_parameter_changes() {
     let ctx = &mut tx_context::dummy();
     let clock = clock::create_for_testing(ctx);
-    let mut staking = staking_inner::new(300, &clock, ctx);
+    let mut staking = staking_inner::new(0, 300, &clock, ctx);
 
     // register the pool in the `StakingInnerV1`.
     let pool_id = test::pool().name(b"pool_1".to_string()).register(&mut staking, ctx);
@@ -105,7 +105,7 @@ fun test_parameter_changes() {
 fun test_epoch_sync_done() {
     let ctx = &mut tx_context::dummy();
     let mut clock = clock::create_for_testing(ctx);
-    let mut staking = staking_inner::new(300, &clock, ctx);
+    let mut staking = staking_inner::new(0, 300, &clock, ctx);
 
     // register the pool in the `StakingInnerV1`.
     let pool_one = test::pool().name(b"pool_1".to_string()).register(&mut staking, ctx);
@@ -145,7 +145,7 @@ fun test_epoch_sync_done() {
 fun test_epoch_sync_done_duplicate() {
     let ctx = &mut tx_context::dummy();
     let mut clock = clock::create_for_testing(ctx);
-    let mut staking = staking_inner::new(300, &clock, ctx);
+    let mut staking = staking_inner::new(0, 300, &clock, ctx);
 
     // register the pool in the `StakingInnerV1`.
     let pool_one = test::pool().name(b"pool_1".to_string()).register(&mut staking, ctx);

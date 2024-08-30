@@ -23,9 +23,15 @@ fun init(ctx: &mut TxContext) {
 /// Function to initialize walrus and share the system and staking objects.
 /// This can only be called once, after which the `InitCap` is destroyed.
 /// TODO: decide what to add as system parameters instead of constants.
-public fun initialize_walrus(cap: InitCap, n_shards: u16, clock: &Clock, ctx: &mut TxContext) {
+public fun initialize_walrus(
+    cap: InitCap,
+    first_epoch_start: u64,
+    n_shards: u16,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
     system::create_empty(ctx);
-    staking::create(n_shards, clock, ctx);
+    staking::create(first_epoch_start, n_shards, clock, ctx);
     cap.destroy();
 }
 
