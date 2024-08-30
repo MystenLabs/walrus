@@ -16,7 +16,7 @@ const N_SHARDS: u16 = 100;
 /// Taken from `walrus::staking`. Must be the same values as there.
 const EPOCH_DURATION: u64 = 7 * 24 * 60 * 60 * 1000;
 const PARAM_SELECTION_DELTA: u64 = 7 * 24 * 60 * 60 * 1000 / 2;
-const FIRST_EPOCH_START: u64 = (7 * 24 * 60 * 60 * 1000 / 2) + 100000000;
+const EPOCH_ZERO_DURATION: u64 = 100000000;
 
 #[test]
 fun test_init_and_first_epoch_change(): (staking::Staking, system::System) {
@@ -34,7 +34,7 @@ fun test_init_and_first_epoch_change(): (staking::Staking, system::System) {
     // === deploy walrus ===
     {
         let cap = scenario.take_from_sender<init::InitCap>();
-        init::initialize_walrus(cap, FIRST_EPOCH_START, N_SHARDS, &clock, scenario.ctx());
+        init::initialize_walrus(cap, EPOCH_ZERO_DURATION, N_SHARDS, &clock, scenario.ctx());
     };
 
     scenario.next_tx(nodes[0].sui_address());
@@ -82,14 +82,14 @@ fun test_init_and_first_epoch_change(): (staking::Staking, system::System) {
 
     // === advance clock and end voting ===
 
-    clock.increment_for_testing(PARAM_SELECTION_DELTA);
+    clock.increment_for_testing(EPOCH_ZERO_DURATION);
     scenario.next_tx(nodes[0].sui_address());
     {
         staking.voting_end(&clock);
     };
 
     // === advance clock and change epoch ===
-    clock.increment_for_testing(FIRST_EPOCH_START);
+    clock.increment_for_testing(EPOCH_ZERO_DURATION);
     scenario.next_tx(nodes[0].sui_address());
     {
         staking.initiate_epoch_change(&mut system, &clock);
@@ -121,7 +121,7 @@ fun test_init_and_first_epoch_change(): (staking::Staking, system::System) {
 
     // === advance clock and change epoch ===
 
-    clock.increment_for_testing(FIRST_EPOCH_START + EPOCH_DURATION - PARAM_SELECTION_DELTA);
+    clock.increment_for_testing(EPOCH_DURATION - PARAM_SELECTION_DELTA);
     scenario.next_tx(nodes[0].sui_address());
     {
         staking.initiate_epoch_change(&mut system, &clock);
@@ -156,7 +156,7 @@ fun test_init_and_first_epoch_change(): (staking::Staking, system::System) {
 
 #[test, expected_failure(abort_code = walrus::staking_inner::EWrongEpochState)]
 fun test_first_epoch_too_soon_fail() {
-        let mut nodes = test_node::test_nodes();
+    let mut nodes = test_node::test_nodes();
     let mut scenario = test_scenario::begin(nodes[0].sui_address());
     let mut clock = clock::create_for_testing(scenario.ctx());
 
@@ -170,7 +170,7 @@ fun test_first_epoch_too_soon_fail() {
     // === deploy walrus ===
     {
         let cap = scenario.take_from_sender<init::InitCap>();
-        init::initialize_walrus(cap, FIRST_EPOCH_START, N_SHARDS, &clock, scenario.ctx());
+        init::initialize_walrus(cap, EPOCH_ZERO_DURATION, N_SHARDS, &clock, scenario.ctx());
     };
 
     scenario.next_tx(nodes[0].sui_address());
@@ -216,18 +216,12 @@ fun test_first_epoch_too_soon_fail() {
         );
     };
 
-    // === advance clock and end voting ===
+    // === advance clock, end voting and initialize epoch change ===
 
-    clock.increment_for_testing(PARAM_SELECTION_DELTA);
+    clock.increment_for_testing(EPOCH_ZERO_DURATION - 1);
     scenario.next_tx(nodes[0].sui_address());
     {
         staking.voting_end(&clock);
-    };
-
-    // === advance clock and change epoch ===
-    clock.increment_for_testing(0); // too soon
-    scenario.next_tx(nodes[0].sui_address());
-    {
         staking.initiate_epoch_change(&mut system, &clock);
     };
 

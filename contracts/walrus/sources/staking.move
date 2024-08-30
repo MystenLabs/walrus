@@ -29,13 +29,13 @@ public struct Staking has key {
 /// Creates and shares a new staking object.
 /// Must only be called by the initialization function.
 public(package) fun create(
-    first_epoch_start: u64,
+    epoch_zero_duration: u64,
     n_shards: u16,
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
     let mut staking = Staking { id: object::new(ctx), version: VERSION };
-    df::add(&mut staking.id, VERSION, staking_inner::new(first_epoch_start, n_shards, clock, ctx));
+    df::add(&mut staking.id, VERSION, staking_inner::new(epoch_zero_duration, n_shards, clock, ctx));
     transfer::share_object(staking)
 }
 

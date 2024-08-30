@@ -25,13 +25,13 @@ fun init(ctx: &mut TxContext) {
 /// TODO: decide what to add as system parameters instead of constants.
 public fun initialize_walrus(
     cap: InitCap,
-    first_epoch_start: u64,
+    epoch_zero_duration: u64,
     n_shards: u16,
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
     system::create_empty(ctx);
-    staking::create(first_epoch_start, n_shards, clock, ctx);
+    staking::create(epoch_zero_duration, n_shards, clock, ctx);
     cap.destroy();
 }
 

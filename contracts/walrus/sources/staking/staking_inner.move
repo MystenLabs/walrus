@@ -105,14 +105,14 @@ public struct StakingInnerV1 has store {
 
 /// Creates a new `StakingInnerV1` object with default values.
 public(package) fun new(
-    first_epoch_start: u64,
+    epoch_zero_duration: u64,
     n_shards: u16,
     clock: &Clock,
     ctx: &mut TxContext,
 ): StakingInnerV1 {
     StakingInnerV1 {
         n_shards,
-        first_epoch_start,
+        first_epoch_start: epoch_zero_duration + clock.timestamp_ms(),
         pools: object_table::new(ctx),
         epoch: 0,
         active_set: active_set::new(n_shards, MIN_STAKE),
@@ -181,8 +181,15 @@ public(package) fun voting_end(self: &mut StakingInnerV1, clock: &Clock) {
         EpochState::EpochChangeDone(last_epoch_change) => last_epoch_change,
         _ => abort EWrongEpochState,
     };
+
     let now = clock.timestamp_ms();
-    assert!(now >= last_epoch_change + PARAM_SELECTION_DELTA, EWrongEpochState);
+
+    // We don't need a delay for the epoch zero.
+    if (self.epoch != 0) {
+        assert!(now >= last_epoch_change + PARAM_SELECTION_DELTA, EWrongEpochState);
+    } else {
+        assert!(now >= self.first_epoch_start, EWrongEpochState);
+    };
 
     // Assign the next epoch committee.
     self.select_committee();
