@@ -28,9 +28,7 @@ public enum PoolState has store, copy, drop {
 }
 
 /// The parameters for the staking pool. Stored for the next epoch.
-public struct PoolParams has store, copy, drop {
-    /// Commission rate for the pool.
-    commission_rate: u64,
+public struct VotingParams has store, copy, drop {
     /// Voting: storage price for the next epoch.
     storage_price: u64,
     /// Voting: write price for the next epoch.
@@ -47,18 +45,18 @@ public struct StakingPool has key, store {
     /// The current state of the pool.
     state: PoolState,
     /// Current epoch's pool parameters.
-    params: PoolParams,
+    voting_params: VotingParams,
     /// The storage node info for the pool.
     node_info: StorageNodeInfo,
-    /// The pool parameters for the next epoch. If `Some`, the pool will be
-    /// updated in the next epoch.
-    params_next_epoch: Option<PoolParams>,
     /// The epoch when the pool is / will be activated.
     /// Serves information purposes only, the checks are performed in the `state`
     /// property.
     activation_epoch: u32,
     /// Currently
     active_stake: u64,
+    /// The commission rate for the pool.
+    /// TODO: allow changing the commission rate in E+2.
+    commission_rate: u64,
     /// The amount of stake that will be added to the `active_stake`. Can hold
     /// up to two keys: E+1 and E+2, due to the differences in the activation
     /// epoch.
@@ -105,8 +103,7 @@ public(package) fun new(
     StakingPool {
         id,
         state,
-        params: PoolParams {
-            commission_rate,
+        voting_params: VotingParams {
             storage_price,
             write_price,
             node_capacity,
@@ -118,7 +115,7 @@ public(package) fun new(
             public_key,
             network_public_key,
         ),
-        params_next_epoch: option::none(),
+        commission_rate,
         activation_epoch,
         pending_stake: vec_map::empty(),
         active_stake: 0,
@@ -228,16 +225,14 @@ public(package) fun add_rewards(pool: &mut StakingPool, rewards: Balance<SUI>) {
 // === Pool parameters ===
 
 /// Sets the next commission rate for the pool.
+/// TODO: implement changing commission rate in E+2, the change should not be
+/// immediate.
 public(package) fun set_next_commission(
     pool: &mut StakingPool,
     commission_rate: u64,
     _wctx: &WalrusContext,
 ) {
-    if (pool.params_next_epoch.is_none()) {
-        pool.params_next_epoch.fill(pool.params);
-    };
-
-    pool.params_next_epoch.do_mut!(|params| params.commission_rate = commission_rate);
+    pool.commission_rate = commission_rate;
 }
 
 /// Sets the next storage price for the pool.
@@ -246,11 +241,7 @@ public(package) fun set_next_storage_price(
     storage_price: u64,
     _wctx: &WalrusContext,
 ) {
-    if (pool.params_next_epoch.is_none()) {
-        pool.params_next_epoch.fill(pool.params);
-    };
-
-    pool.params_next_epoch.do_mut!(|params| params.storage_price = storage_price);
+    pool.voting_params.storage_price = storage_price;
 }
 
 /// Sets the next write price for the pool.
@@ -259,11 +250,7 @@ public(package) fun set_next_write_price(
     write_price: u64,
     _wctx: &WalrusContext,
 ) {
-    if (pool.params_next_epoch.is_none()) {
-        pool.params_next_epoch.fill(pool.params);
-    };
-
-    pool.params_next_epoch.do_mut!(|params| params.write_price = write_price);
+    pool.voting_params.write_price = write_price;
 }
 
 /// Sets the next node capacity for the pool.
@@ -272,11 +259,7 @@ public(package) fun set_next_node_capacity(
     node_capacity: u64,
     _wctx: &WalrusContext,
 ) {
-    if (pool.params_next_epoch.is_none()) {
-        pool.params_next_epoch.fill(pool.params);
-    };
-
-    pool.params_next_epoch.do_mut!(|params| params.node_capacity = node_capacity);
+    pool.voting_params.node_capacity = node_capacity;
 }
 
 /// Destroy the pool if it is empty.
@@ -311,11 +294,6 @@ public(package) fun advance_epoch(pool: &mut StakingPool, wctx: &WalrusContext) 
     };
 
     pool.active_stake = pool.active_stake - pool.pending_withdrawal_amount;
-
-    // Update the pool parameters if the activation epoch is the current epoch.
-    if (pool.params_next_epoch.is_some()) {
-        pool.params = pool.params_next_epoch.extract()
-    }
 }
 
 /// Set the state of the pool to `Active`.
@@ -347,16 +325,16 @@ public(package) fun stake_to_withdraw_amount(pool: &StakingPool): u64 {
 }
 
 /// Returns the commission rate for the pool.
-public(package) fun commission_rate(pool: &StakingPool): u64 { pool.params.commission_rate }
+public(package) fun commission_rate(pool: &StakingPool): u64 { pool.commission_rate }
 
 /// Returns the storage price for the pool.
-public(package) fun storage_price(pool: &StakingPool): u64 { pool.params.storage_price }
+public(package) fun storage_price(pool: &StakingPool): u64 { pool.voting_params.storage_price }
 
 /// Returns the write price for the pool.
-public(package) fun write_price(pool: &StakingPool): u64 { pool.params.write_price }
+public(package) fun write_price(pool: &StakingPool): u64 { pool.voting_params.write_price }
 
 /// Returns the node capacity for the pool.
-public(package) fun node_capacity(pool: &StakingPool): u64 { pool.params.node_capacity }
+public(package) fun node_capacity(pool: &StakingPool): u64 { pool.voting_params.node_capacity }
 
 /// Returns the activation epoch for the pool.
 public(package) fun activation_epoch(pool: &StakingPool): u32 { pool.activation_epoch }

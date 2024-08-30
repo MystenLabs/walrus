@@ -15,10 +15,10 @@ const BLOB_ID_LEN: u64 = 32;
 /// This computation is the same as done by the function of the same name in
 /// `crates/walrus_core/encoding/config.rs` and should be kept in sync.
 public(package) fun encoded_blob_length(unencoded_length: u64, n_shards: u16): u64 {
-    let slivers_size =
-        (
-            source_symbols_primary(n_shards) as u64 + (source_symbols_secondary(n_shards) as u64),
-        ) * (symbol_size(unencoded_length, n_shards) as u64);
+    // prettier-ignore
+    let slivers_size = (
+        source_symbols_primary(n_shards) as u64 + (source_symbols_secondary(n_shards) as u64),
+    ) * (symbol_size(unencoded_length, n_shards) as u64);
 
     (n_shards as u64) * (slivers_size + metadata_size(n_shards))
 }
