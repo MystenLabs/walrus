@@ -47,7 +47,7 @@ pub struct StorageNodeConfig {
     /// Key pair used to authenticate nodes in network communication.
     #[serde_as(as = "PathOrInPlace<Base64>")]
     pub network_key_pair: PathOrInPlace<NetworkKeyPair>,
-    /// Socket address on which to the Prometheus server should export its metrics.
+    /// Socket address on which the Prometheus server should export its metrics.
     #[serde(default = "defaults::metrics_address")]
     pub metrics_address: SocketAddr,
     /// Socket address on which the REST API listens.

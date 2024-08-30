@@ -14,14 +14,17 @@ use std::{
 };
 
 use axum::{
-    extract::{ConnectInfo, MatchedPath},
+    extract::{ConnectInfo, MatchedPath, State},
     http::{
         self,
         header::{self, AsHeaderName},
         Request,
     },
+    middleware,
 };
 use opentelemetry::propagation::Extractor;
+use prometheus::{register_histogram_vec_with_registry, HistogramVec, Registry};
+use tokio::time::Instant;
 use tower_http::trace::{MakeSpan, OnResponse};
 use tracing::{field, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -226,4 +229,47 @@ fn get_header_as_str<B, K: AsHeaderName>(request: &Request<B>, key: K) -> Option
         .headers()
         .get(key)
         .and_then(|value| value.to_str().ok())
+}
+
+/// Middleware that records the elapsed time, HTTP method, and status of requests.
+pub(crate) async fn metrics_middleware(
+    State(metrics): State<HistogramVec>,
+    request: axum::extract::Request,
+    next: middleware::Next,
+) -> axum::response::Response {
+    // Manually record the time in seconds, since we do not yet know the status code which is
+    // required to get the concrete histogram.
+    let start = Instant::now();
+    let method = request.method().clone();
+    let route: String = if let Some(path) = request.extensions().get::<MatchedPath>() {
+        path.as_str().into()
+    } else {
+        // We do not want to return the requested URI, as this would lead to a new histogram
+        // for each rest to an invalid URI. Use a
+        UNMATCHED_ROUTE.into()
+    };
+
+    let response = next.run(request).await;
+
+    let histogram =
+        metrics.with_label_values(&[method.as_str(), &route, response.status().as_str()]);
+    histogram.observe(start.elapsed().as_secs_f64());
+
+    response
+}
+
+/// Registers the HTTP request method, route, status, and durations metrics.
+pub(crate) fn register_http_metrics(registry: &Registry) -> HistogramVec {
+    let opts = prometheus::Opts::new(
+        "request_duration_seconds",
+        "Time (in seconds) spent serving HTTP requests.",
+    )
+    .namespace("http");
+
+    register_histogram_vec_with_registry!(
+        opts.into(),
+        &["method", "route", "status_code"],
+        registry
+    )
+    .expect("metric registration must not fail")
 }

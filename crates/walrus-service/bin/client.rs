@@ -6,7 +6,7 @@
 use std::{
     env,
     io::Write,
-    net::SocketAddr,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     num::NonZeroU16,
     path::PathBuf,
     process::ExitCode,
@@ -15,6 +15,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use clap::{Args, Parser, Subcommand};
+use prometheus::Registry;
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt, EnvFilter, Layer};
@@ -312,6 +313,10 @@ struct DaemonArgs {
     #[clap(short, long, default_value_t = default::bind_address())]
     #[serde(default = "default::bind_address")]
     bind_address: SocketAddr,
+    /// Socket address on which the Prometheus server should export its metrics.
+    #[clap(short, long, default_value_t = default::metrics_address())]
+    #[serde(default = "default::metrics_address")]
+    metrics_address: SocketAddr,
     /// Path to a blocklist file containing a list (in YAML syntax) of blocked blob IDs.
     #[clap(long)]
     #[serde(
@@ -383,6 +388,12 @@ mod default {
 
     pub(crate) fn bind_address() -> SocketAddr {
         "127.0.0.1:31415"
+            .parse()
+            .expect("this is a correct socket address")
+    }
+
+    pub(crate) fn metrics_address() -> SocketAddr {
+        "127.0.0.1:27182"
             .parse()
             .expect("this is a correct socket address")
     }
@@ -465,6 +476,19 @@ fn init_tracing_subscriber() -> Result<()> {
     tracing::debug!(%directive, ?format, "initialized tracing subscriber");
 
     Ok(())
+}
+
+// Starts the Prometheus server and returns the registry.
+fn run_registry_and_telemetry(mut metrics_address: SocketAddr) -> Registry {
+    metrics_address.set_ip(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
+    let registry_service = mysten_metrics::start_prometheus_server(metrics_address);
+    let registry = registry_service.default_registry();
+    let (_telemetry_guards, _tracing_handle) = telemetry_subscribers::TelemetryConfig::new()
+        .with_env()
+        .with_prom_registry(&registry)
+        .with_log_level("debug")
+        .init();
+    registry
 }
 
 async fn run_app(app: App) -> Result<()> {
@@ -569,10 +593,12 @@ async fn run_app(app: App) -> Result<()> {
             let client =
                 get_contract_client(config?, wallet, app.gas_budget, &args.daemon_args.blocklist)
                     .await?;
+            let registry = run_registry_and_telemetry(args.daemon_args.metrics_address);
             ClientDaemon::new_publisher(
                 client,
                 args.daemon_args.bind_address,
                 args.max_body_size(),
+                &registry,
             )
             .run()
             .await?;
@@ -582,6 +608,7 @@ async fn run_app(app: App) -> Result<()> {
             daemon_args:
                 DaemonArgs {
                     bind_address,
+                    metrics_address,
                     blocklist,
                 },
         } => {
@@ -589,18 +616,25 @@ async fn run_app(app: App) -> Result<()> {
             let client =
                 get_read_client(config?, rpc_url, wallet, wallet_path.is_none(), &blocklist)
                     .await?;
-            ClientDaemon::new_aggregator(client, bind_address)
+            let registry = run_registry_and_telemetry(metrics_address);
+            ClientDaemon::new_aggregator(client, bind_address, &registry)
                 .run()
                 .await?;
         }
         Commands::Daemon { args } => {
             args.print_debug_message("attempting to run the Walrus daemon");
+            let registry = run_registry_and_telemetry(args.daemon_args.metrics_address);
             let client =
                 get_contract_client(config?, wallet, app.gas_budget, &args.daemon_args.blocklist)
                     .await?;
-            ClientDaemon::new_daemon(client, args.daemon_args.bind_address, args.max_body_size())
-                .run()
-                .await?;
+            ClientDaemon::new_daemon(
+                client,
+                args.daemon_args.bind_address,
+                args.max_body_size(),
+                &registry,
+            )
+            .run()
+            .await?;
         }
         Commands::Info {
             rpc_arg: RpcArg { rpc_url },

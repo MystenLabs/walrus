@@ -6,7 +6,7 @@
 use std::{net::SocketAddr, ops::Deref, path::PathBuf, sync::Arc, time::Duration};
 
 use axum::{
-    extract::{DefaultBodyLimit, MatchedPath, State},
+    extract::DefaultBodyLimit,
     middleware,
     routing::{get, post, put},
     Router,
@@ -16,9 +16,9 @@ use fastcrypto::{secp256r1::Secp256r1PrivateKey, traits::ToFromBytes};
 use futures::{future::Either, FutureExt};
 use openapi::RestApiDoc;
 use p256::{elliptic_curve::pkcs8::EncodePrivateKey as _, SecretKey};
-use prometheus::{register_histogram_vec_with_registry, HistogramVec, Registry};
+use prometheus::{HistogramVec, Registry};
 use rcgen::{CertificateParams, CertifiedKey, DnType, KeyPair as RcGenKeyPair};
-use tokio::{sync::Mutex, time::Instant};
+use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceBuilder;
 use tower_http::trace::TraceLayer;
@@ -29,7 +29,7 @@ use walrus_core::{encoding::max_sliver_size_for_n_shards, keys::NetworkKeyPair};
 
 use super::config::{defaults, StorageNodeConfig};
 use crate::{
-    common::telemetry::{MakeHttpSpan, UNMATCHED_ROUTE},
+    common::telemetry::{metrics_middleware, register_http_metrics, MakeHttpSpan},
     node::ServiceState,
 };
 
@@ -155,7 +155,7 @@ where
     ) -> Self {
         Self {
             state,
-            metrics: Self::register_http_metrics(registry),
+            metrics: register_http_metrics(registry),
             cancel_token,
             handle: Default::default(),
             config,
@@ -329,47 +329,6 @@ where
             .route(routes::HEALTH_ENDPOINT, get(routes::health_info))
             .route(routes::SYNC_SHARD_ENDPOINT, post(routes::sync_shard))
     }
-
-    fn register_http_metrics(registry: &Registry) -> HistogramVec {
-        let opts = prometheus::Opts::new(
-            "request_duration_seconds",
-            "Time (in seconds) spent serving HTTP requests.",
-        )
-        .namespace("http");
-
-        register_histogram_vec_with_registry!(
-            opts.into(),
-            &["method", "route", "status_code"],
-            registry
-        )
-        .expect("metric registration must not fail")
-    }
-}
-
-async fn metrics_middleware(
-    State(metrics): State<HistogramVec>,
-    request: axum::extract::Request,
-    next: middleware::Next,
-) -> axum::response::Response {
-    // Manually record the time in seconds, since we do not yet know the status code which is
-    // required to get the concrete histogram.
-    let start = Instant::now();
-    let method = request.method().clone();
-    let route: String = if let Some(path) = request.extensions().get::<MatchedPath>() {
-        path.as_str().into()
-    } else {
-        // We do not want to return the requested URI, as this would lead to a new histogram
-        // for each rest to an invalid URI. Use a
-        UNMATCHED_ROUTE.into()
-    };
-
-    let response = next.run(request).await;
-
-    let histogram =
-        metrics.with_label_values(&[method.as_str(), &route, response.status().as_str()]);
-    histogram.observe(start.elapsed().as_secs_f64());
-
-    response
 }
 
 fn create_self_signed_certificate(
