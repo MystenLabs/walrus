@@ -35,16 +35,29 @@ public(package) fun create(
     ctx: &mut TxContext,
 ) {
     let mut staking = Staking { id: object::new(ctx), version: VERSION };
-    df::add(&mut staking.id, VERSION, staking_inner::new(epoch_zero_duration, n_shards, clock, ctx));
+    df::add(
+        &mut staking.id,
+        VERSION,
+        staking_inner::new(epoch_zero_duration, n_shards, clock, ctx),
+    );
     transfer::share_object(staking)
 }
 
 // === Public API: Storage Node ===
 
 /// Creates a staking pool for the candidate, registers the candidate as a storage node.
-public fun register_candidate(staking: &mut Staking, // node info
-    name: String, network_address: String, public_key: vector<u8>, network_public_key: vector<u8>, // voting parameters
-    commission_rate: u64, storage_price: u64, write_price: u64, node_capacity: u64, ctx: &mut TxContext): StorageNodeCap {
+public fun register_candidate(
+    staking: &mut Staking, // node info
+    name: String,
+    network_address: String,
+    public_key: vector<u8>,
+    network_public_key: vector<u8>, // voting parameters
+    commission_rate: u64,
+    storage_price: u64,
+    write_price: u64,
+    node_capacity: u64,
+    ctx: &mut TxContext,
+): StorageNodeCap {
     // use the Pool Object ID as the identifier of the storage node
     let node_id = staking
         .inner_mut()
