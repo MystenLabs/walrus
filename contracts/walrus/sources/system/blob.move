@@ -29,7 +29,7 @@ public struct Blob has key, store {
     registered_epoch: u32,
     blob_id: u256,
     size: u64,
-    erasure_code_type: u8,
+    encoding_type: u8,
     // Stores the epoch first certified.
     certified_epoch: option::Option<u32>,
     storage: Storage,
@@ -51,8 +51,8 @@ public fun size(self: &Blob): u64 {
     self.size
 }
 
-public fun erasure_code_type(self: &Blob): u8 {
-    self.erasure_code_type
+public fun encoding_type(self: &Blob): u8 {
+    self.encoding_type
 }
 
 public fun certified_epoch(self: &Blob): &Option<u32> {
@@ -66,7 +66,7 @@ public fun storage(self: &Blob): &Storage {
 public fun encoded_size(self: &Blob, n_shards: u16): u64 {
     encoding::encoded_blob_length(
         self.size,
-        self.erasure_code_type,
+        self.encoding_type,
         n_shards,
     )
 }
@@ -85,15 +85,15 @@ public(package) fun assert_certified_not_expired(self: &Blob, current_epoch: u32
 }
 
 public struct BlobIdDerivation has drop {
-    erasure_code_type: u8,
+    encoding_type: u8,
     size: u64,
     root_hash: u256,
 }
 
-/// Derives the blob_id for a blob given the root_hash, erasure_code_type and size.
-public(package) fun derive_blob_id(root_hash: u256, erasure_code_type: u8, size: u64): u256 {
+/// Derives the blob_id for a blob given the root_hash, encoding_type and size.
+public(package) fun derive_blob_id(root_hash: u256, encoding_type: u8, size: u64): u256 {
     let blob_id_struct = BlobIdDerivation {
-        erasure_code_type,
+        encoding_type,
         size,
         root_hash,
     };
@@ -113,7 +113,7 @@ public(package) fun new(
     blob_id: u256,
     root_hash: u256,
     size: u64,
-    erasure_code_type: u8,
+    encoding_type: u8,
     deletable: bool,
     // TODO: replace with Walrus context
     registered_epoch: u32,
@@ -129,7 +129,7 @@ public(package) fun new(
     // check that the encoded size is less than the storage size
     let encoded_size = encoding::encoded_blob_length(
         size,
-        erasure_code_type,
+        encoding_type,
         n_shards,
     );
     assert!(encoded_size <= storage.storage_size(), EResourceSize);
@@ -137,7 +137,7 @@ public(package) fun new(
     // Cryptographically verify that the Blob ID authenticates
     // both the size and fe_type.
     assert!(
-        derive_blob_id(root_hash, erasure_code_type, size) == blob_id,
+        derive_blob_id(root_hash, encoding_type, size) == blob_id,
         EInvalidBlobId,
     );
 
@@ -146,7 +146,7 @@ public(package) fun new(
         registered_epoch,
         blob_id,
         size,
-        erasure_code_type,
+        encoding_type,
         storage.end_epoch(),
         deletable,
         id.to_inner(),
@@ -157,7 +157,7 @@ public(package) fun new(
         registered_epoch,
         blob_id,
         size,
-        erasure_code_type,
+        encoding_type,
         certified_epoch: option::none(),
         storage,
         deletable,
