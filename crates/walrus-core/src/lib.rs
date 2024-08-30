@@ -41,7 +41,6 @@ use inconsistency::{
 };
 use merkle::{MerkleAuth, MerkleProof, Node};
 use metadata::BlobMetadata;
-use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -106,13 +105,6 @@ impl BlobId {
         );
         tracing::debug!(%blob_id, "computed blob ID from metadata");
         blob_id
-    }
-
-    /// Returns a random blob ID.
-    pub fn random() -> Self {
-        let mut bytes = [0; Self::LENGTH];
-        rand::thread_rng().fill_bytes(&mut bytes);
-        Self(bytes)
     }
 
     fn new_with_hash_function<T>(

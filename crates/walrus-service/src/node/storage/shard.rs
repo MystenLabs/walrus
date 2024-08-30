@@ -826,15 +826,7 @@ impl ShardStorage {
             }
         }
 
-        let mut batch = self.pending_recover_slivers.batch();
-        batch.delete_batch(
-            &self.pending_recover_slivers,
-            [
-                (SliverType::Primary, blob_id),
-                (SliverType::Secondary, blob_id),
-            ],
-        )?;
-        batch.write()
+        self.pending_recover_slivers.remove(&(sliver_type, blob_id))
     }
 
     #[cfg(test)]
@@ -967,6 +959,7 @@ mod tests {
     use typed_store::{Map, TypedStoreError};
     use walrus_core::{
         encoding::{Primary, Secondary},
+        test_utils::random_blob_id,
         BlobId,
         ShardIndex,
         Sliver,
@@ -1330,7 +1323,7 @@ mod tests {
         let new_epoch = 3;
 
         for _ in 0..8 {
-            let blob_id = BlobId::random();
+            let blob_id = random_blob_id();
             blob_info.insert(
                 &blob_id,
                 &BlobInfo::new_for_testing(

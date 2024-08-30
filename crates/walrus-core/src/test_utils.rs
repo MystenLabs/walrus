@@ -90,9 +90,8 @@ pub fn merkle_proof() -> MerkleProof {
 
 /// Returns a random blob ID for testing.
 pub fn random_blob_id() -> BlobId {
-    let mut rng = StdRng::seed_from_u64(0);
     let mut bytes = [0; BlobId::LENGTH];
-    rng.fill_bytes(&mut bytes);
+    rand::thread_rng().fill_bytes(&mut bytes);
     BlobId(bytes)
 }
 
