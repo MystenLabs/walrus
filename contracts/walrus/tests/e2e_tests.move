@@ -86,12 +86,6 @@ fun test_init_and_first_epoch_change(): (staking::Staking, system::System) {
     scenario.next_tx(nodes[0].sui_address());
     {
         staking.voting_end(&clock);
-    };
-
-    // === advance clock and change epoch ===
-    clock.increment_for_testing(EPOCH_ZERO_DURATION);
-    scenario.next_tx(nodes[0].sui_address());
-    {
         staking.initiate_epoch_change(&mut system, &clock);
     };
 
