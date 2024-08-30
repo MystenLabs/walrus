@@ -426,7 +426,8 @@ public(package) fun epoch_sync_done(
     cap.set_last_epoch_sync_done(self.epoch);
 
     let node_shards = self.committee.shards(&cap.node_id());
-    match (self.epoch_state) {EpochState::EpochChangeSync(weight) => {
+    match (self.epoch_state) {
+        EpochState::EpochChangeSync(weight) => {
             let weight = weight + (node_shards.length() as u16);
             if (is_quorum(weight, self.n_shards)) {
                 self.epoch_state = EpochState::EpochChangeDone(clock.timestamp_ms());
