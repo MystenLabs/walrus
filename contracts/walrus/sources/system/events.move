@@ -40,6 +40,8 @@ public struct BlobDeleted has copy, drop {
     end_epoch: u32,
     // The object ID of the related `Blob` object.
     object_id: ID,
+    // If the blob object was previously certified.
+    was_certified: bool,
 }
 
 /// Signals that a BlobID is invalid.
@@ -113,8 +115,14 @@ public(package) fun emit_invalid_blob_id(epoch: u32, blob_id: u256) {
     event::emit(InvalidBlobID { epoch, blob_id });
 }
 
-public(package) fun emit_blob_deleted(epoch: u32, blob_id: u256, end_epoch: u32, object_id: ID) {
-    event::emit(BlobDeleted { epoch, blob_id, end_epoch, object_id });
+public(package) fun emit_blob_deleted(
+    epoch: u32,
+    blob_id: u256,
+    end_epoch: u32,
+    object_id: ID,
+    was_certified: bool
+) {
+    event::emit(BlobDeleted { epoch, blob_id, end_epoch, object_id, was_certified });
 }
 
 public(package) fun emit_epoch_change_start(epoch: u32) {

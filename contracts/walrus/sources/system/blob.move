@@ -199,13 +199,14 @@ public(package) fun delete(self: Blob, epoch: u32): Storage {
         storage,
         deletable,
         blob_id,
+        certified_epoch,
         ..,
     } = self;
     assert!(deletable, EBlobNotDeletable);
     assert!(storage.end_epoch() > epoch, EResourceBounds);
     let object_id = id.to_inner();
     id.delete();
-    emit_blob_deleted(epoch, blob_id, storage.end_epoch(), object_id);
+    emit_blob_deleted(epoch, blob_id, storage.end_epoch(), object_id, certified_epoch.is_some());
     storage
 }
 
