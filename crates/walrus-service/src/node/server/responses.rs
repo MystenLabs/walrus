@@ -40,10 +40,9 @@ rest_api_error! {
 
 rest_api_error! {
     StoreMetadataError: [
-        (NotRegistered, CONFLICT, None, Self::NotRegistered.to_string()),
+        (NotCurrentlyRegistered, CONFLICT, None, Self::NotCurrentlyRegistered.to_string()),
         (InvalidMetadata(_), BAD_REQUEST, None, "the provided metadata cannot be verified"),
         (InvalidBlob(_), CONFLICT, None, "the blob for the provided metadata is invalid"),
-        (BlobExpired, GONE, None, Self::BlobExpired.to_string()),
         (Internal(_), INTERNAL_SERVER_ERROR, None, @canonical),
     ]
 }

@@ -9,7 +9,7 @@ use std::{
     sync::Arc,
 };
 
-use blob_info::{merge_blob_info, BlobCertificationStatus};
+use blob_info::merge_blob_info;
 use rocksdb::Options;
 use sui_sdk::types::event::EventID;
 use typed_store::{
@@ -60,7 +60,7 @@ pub struct Storage {
 }
 
 /// A iterator over the blob info table.
-pub struct BlobInfoIter<I: ?Sized>
+pub(crate) struct BlobInfoIter<I: ?Sized>
 where
     I: Iterator<Item = Result<(BlobId, BlobInfo), TypedStoreError>> + Send,
 {
@@ -107,12 +107,10 @@ where
         }
 
         while let Some(Ok((_, ref blob_info))) = item {
-            if blob_info.is_certified()
-                && blob_info
-                    .status_changing_epoch(blob_info::BlobCertificationStatus::Certified)
-                    .expect("We just checked that the blob is certified")
-                    < self.before_epoch
-            {
+            if matches!(
+                blob_info.initial_certified_epoch(),
+                Some(initial_certified_epoch) if initial_certified_epoch < self.before_epoch
+            ) {
                 return item;
             }
             item = self.iter.next();
@@ -294,7 +292,7 @@ impl Storage {
         Ok(())
     }
 
-    /// Update the blob info for `blob_id` to `new_state` using the merge operation
+    /// Update the blob info for `blob_id` using the specified merge `operation`.
     fn merge_update_blob_info(
         &self,
         blob_id: &BlobId,
@@ -445,6 +443,7 @@ impl Storage {
     }
 
     /// Returns the shards currently present in the storage.
+    #[cfg(any(test, feature = "test-utils"))]
     pub(crate) fn shards_present(&self) -> Vec<ShardIndex> {
         self.shards.keys().copied().collect()
     }
@@ -465,12 +464,10 @@ impl Storage {
             .blob_info
             .safe_iter_with_bounds(Some(request.starting_blob_id()), None)
             .filter_map(|blob_info| match blob_info {
-                Ok((blob_id, blob_info)) => {
-                    match blob_info.status_changing_epoch(BlobCertificationStatus::Certified) {
-                        Some(epoch) if epoch < current_epoch => Some(Ok(blob_id)),
-                        _ => None,
-                    }
-                }
+                Ok((blob_id, blob_info)) => match blob_info.initial_certified_epoch() {
+                    Some(epoch) if epoch < current_epoch => Some(Ok(blob_id)),
+                    _ => None,
+                },
                 Err(e) => Some(Err(e)),
             })
             .take(request.sliver_count() as usize)
@@ -484,7 +481,13 @@ impl Storage {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use blob_info::{BlobCertificationStatus, BlobInfoV1};
+    use blob_info::{
+        BlobCertificationStatus,
+        BlobInfoV1,
+        BlobInfoV1Inner,
+        BlobStatusChangeInfo,
+        BlobStatusChangeType,
+    };
     use prometheus::Registry;
     use tempfile::TempDir;
     use tokio::runtime::Runtime;
@@ -495,7 +498,7 @@ pub(crate) mod tests {
         SliverType,
     };
     use walrus_sui::{
-        test_utils::{event_id_for_testing, EventForTesting},
+        test_utils::{event_id_for_testing, object_id_for_testing, EventForTesting},
         types::BlobCertified,
     };
     use walrus_test_utils::{async_param_test, Result as TestResult, WithTempDir};
@@ -629,66 +632,79 @@ pub(crate) mod tests {
         let blob_id = BLOB_ID;
 
         let registered_epoch = if skip_register { None } else { Some(1) };
+        let registered_event = event_id_for_testing();
+        println!("registered event: {registered_event:?}");
         if !skip_register {
-            let state0 = BlobInfo::new(
-                blob_id,
-                1,
+            let state0 = BlobInfo::new_for_testing(
                 42,
                 BlobCertificationStatus::Registered,
-                event_id_for_testing(),
+                registered_event,
+                Some(1),
+                None,
+                None,
             );
             storage.merge_update_blob_info(
                 &blob_id,
-                BlobInfoMergeOperand::ChangeStatus {
-                    blob_id,
-                    status_changing_epoch: 1,
-                    end_epoch: 42,
-                    status: BlobCertificationStatus::Registered,
-                    status_event: state0.current_status_event(),
-                },
+                BlobInfoMergeOperand::new_change_status_for_testing(
+                    BlobStatusChangeType::Register,
+                    1,
+                    42,
+                    registered_event,
+                ),
             )?;
             assert_eq!(storage.get_blob_info(&blob_id)?, Some(state0));
         }
 
         let certified_epoch = if skip_certify { None } else { Some(2) };
+        let certified_event = event_id_for_testing();
+        println!("certified event: {certified_event:?}");
         if !skip_certify {
-            let state1 = BlobInfo::new_for_testing(
+            let mut state1 = BlobInfo::new_for_testing(
                 42,
                 BlobCertificationStatus::Certified,
-                event_id_for_testing(),
+                certified_event,
                 registered_epoch,
                 certified_epoch,
                 None,
             );
+            // Set correct registered event.
+            if !skip_register {
+                let BlobInfo::V1(BlobInfoV1::Valid {
+                    permanent_total: Some(BlobInfoV1Inner { ref mut event, .. }),
+                    ..
+                }) = &mut state1
+                else {
+                    panic!()
+                };
+                *event = registered_event;
+            }
+
             storage.merge_update_blob_info(
                 &blob_id,
-                BlobInfoMergeOperand::ChangeStatus {
-                    blob_id,
-                    status_changing_epoch: 2,
-                    end_epoch: 42,
-                    status: BlobCertificationStatus::Certified,
-                    status_event: state1.current_status_event(),
-                },
+                BlobInfoMergeOperand::new_change_status_for_testing(
+                    BlobStatusChangeType::Certify,
+                    2,
+                    42,
+                    certified_event,
+                ),
             )?;
             assert_eq!(storage.get_blob_info(&blob_id)?, Some(state1));
         }
 
+        let event = event_id_for_testing();
         let state2 = BlobInfo::new_for_testing(
             42,
             BlobCertificationStatus::Invalid,
-            event_id_for_testing(),
+            event,
             registered_epoch,
             certified_epoch,
             Some(3),
         );
         storage.merge_update_blob_info(
             &blob_id,
-            BlobInfoMergeOperand::ChangeStatus {
-                blob_id,
-                status_changing_epoch: 3,
-                end_epoch: 42,
-                status: BlobCertificationStatus::Invalid,
-                status_event: state2.current_status_event(),
+            BlobInfoMergeOperand::MarkInvalid {
+                epoch: 3,
+                status_event: event,
             },
         )?;
         assert_eq!(storage.get_blob_info(&blob_id)?, Some(state2));
@@ -701,31 +717,35 @@ pub(crate) mod tests {
         let storage = storage.as_ref();
         let blob_id = BLOB_ID;
 
-        let state0 = BlobInfo::new(
-            blob_id,
-            1,
+        let event = event_id_for_testing();
+        let state0 = BlobInfo::new_for_testing(
             42,
             BlobCertificationStatus::Registered,
-            event_id_for_testing(),
+            event,
+            Some(1),
+            None,
+            None,
         );
 
         storage.merge_update_blob_info(
             &blob_id,
-            BlobInfoMergeOperand::ChangeStatus {
-                blob_id,
-                status_changing_epoch: 1,
-                end_epoch: 42,
-                status: BlobCertificationStatus::Registered,
-                status_event: state0.current_status_event(),
-            },
+            BlobInfoMergeOperand::new_change_status_for_testing(
+                BlobStatusChangeType::Register,
+                1,
+                42,
+                event,
+            ),
         )?;
         assert_eq!(storage.get_blob_info(&blob_id)?, Some(state0.clone()));
 
-        let BlobInfo::V1(v1) = state0;
-        let state1 = BlobInfo::V1(BlobInfoV1 {
-            is_metadata_stored: true,
-            ..v1
-        });
+        let mut state1 = state0.clone();
+        let BlobInfo::V1(BlobInfoV1::Valid {
+            is_metadata_stored, ..
+        }) = &mut state1
+        else {
+            panic!()
+        };
+        *is_metadata_stored = true;
 
         storage.merge_update_blob_info(&blob_id, BlobInfoMergeOperand::MarkMetadataStored(true))?;
         assert_eq!(storage.get_blob_info(&blob_id)?, Some(state1));
@@ -1039,17 +1059,20 @@ pub(crate) mod tests {
             }
         }
 
-        for blob in blob_ids.iter() {
+        for blob_id in blob_ids.iter() {
             storage
                 .as_mut()
                 .merge_update_blob_info(
-                    blob,
+                    blob_id,
                     BlobInfoMergeOperand::ChangeStatus {
-                        blob_id: *blob,
-                        status_changing_epoch: 0,
-                        end_epoch: 2,
-                        status: BlobCertificationStatus::Certified,
-                        status_event: event_id_for_testing(),
+                        change_type: blob_info::BlobStatusChangeType::Certify,
+                        change_info: BlobStatusChangeInfo {
+                            object_id: object_id_for_testing(),
+                            deletable: false,
+                            epoch: 0,
+                            end_epoch: 2,
+                            status_event: event_id_for_testing(),
+                        },
                     },
                 )
                 .expect("Writing blob info should succeed");

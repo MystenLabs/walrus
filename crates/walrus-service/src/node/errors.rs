@@ -64,10 +64,8 @@ pub enum StoreMetadataError {
     InvalidMetadata(#[from] VerificationError),
     #[error("the blob for this metadata is invalid: {0:?}")]
     InvalidBlob(EventID),
-    #[error("the blob for this metadata has already expired")]
-    BlobExpired,
-    #[error("the blob for this metadata has not been registered")]
-    NotRegistered,
+    #[error("the blob for this metadata has not been registered or has already expired")]
+    NotCurrentlyRegistered,
     #[error(transparent)]
     Internal(#[from] InternalError),
 }

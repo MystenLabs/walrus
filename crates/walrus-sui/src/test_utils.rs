@@ -19,7 +19,7 @@ use sui_sdk::{sui_client_config::SuiEnv, wallet_context::WalletContext};
 #[cfg(msim)]
 use sui_simulator::runtime::NodeHandle;
 use sui_types::{
-    base_types::SuiAddress,
+    base_types::{ObjectID, SuiAddress},
     digests::TransactionDigest,
     event::EventID,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
@@ -53,6 +53,11 @@ pub fn event_id_for_testing() -> EventID {
         tx_digest: TransactionDigest::random(),
         event_seq: 0,
     }
+}
+
+/// Returns an arbitrary (fixed) `ObjectID` for testing.
+pub fn object_id_for_testing() -> ObjectID {
+    ObjectID::from_single_byte(42)
 }
 
 /// Returns a certificate on the provided `blob_id` from the default test committee.

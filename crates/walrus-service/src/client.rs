@@ -36,7 +36,7 @@ use walrus_core::{
     Sliver,
 };
 use walrus_sdk::{
-    api::{BlobCertificationStatus, BlobStatus},
+    api::BlobStatus,
     client::{Client as StorageNodeClient, ClientBuilder as StorageNodeClientBuilder},
     error::{ClientBuildError, NodeError},
 };
@@ -206,10 +206,11 @@ impl<T: ContractClient> Client<T> {
                 )
                 .await?
             {
-                BlobStatus::Existent {
+                BlobStatus::Permanent {
                     end_epoch,
-                    status: BlobCertificationStatus::Certified,
+                    is_certified: true,
                     status_event,
+                    ..
                 } => {
                     if end_epoch >= self.committee.epoch + epochs_ahead {
                         tracing::debug!(end_epoch, "blob is already certified");
@@ -225,23 +226,19 @@ impl<T: ContractClient> Client<T> {
                     );
                     }
                 }
-                BlobStatus::Existent {
-                    status: BlobCertificationStatus::Invalid,
-                    status_event,
-                    ..
-                } => {
+                BlobStatus::Invalid { event } => {
                     tracing::debug!("blob is marked as invalid");
-                    return Ok(BlobStoreResult::MarkedInvalid {
-                        blob_id,
-                        event: status_event,
-                    });
+                    return Ok(BlobStoreResult::MarkedInvalid { blob_id, event });
                 }
                 status => {
                     // We intentionally don't check for "registered" blobs here: even if the blob is
                     // already registered, we cannot certify it without access to the corresponding
                     // Sui object. The check to see if we own the registered-but-not-certified Blob
                     // object is done in `reserve_and_register_blob`.
-                    tracing::debug!(?status, "blob is not certified");
+                    tracing::debug!(
+                        ?status,
+                        "no corresponding permanent certified `Blob` object exists"
+                    );
                 }
             }
         }
@@ -687,7 +684,7 @@ impl<T> Client<T> {
         statuses_list.sort_unstable();
         for status in statuses_list.into_iter().rev() {
             if self.committee.is_above_validity(statuses[&status])
-                || verify_blob_status(blob_id, status, read_client)
+                || verify_blob_status_event(blob_id, status, read_client)
                     .await
                     .is_ok()
             {
@@ -855,36 +852,52 @@ impl<T> Client<T> {
     }
 }
 
+/// Verifies the [`BlobStatus`] using the on-chain event.
+///
+/// This only verifies the [`BlobStatus::Invalid`] and [`BlobStatus::Permanent`] variants and does
+/// not check the quoted counts for deletable blobs.
 #[tracing::instrument(skip(sui_read_client), err(level = Level::WARN))]
-async fn verify_blob_status(
+async fn verify_blob_status_event(
     blob_id: &BlobId,
     status: BlobStatus,
     sui_read_client: &impl ReadClient,
 ) -> Result<(), anyhow::Error> {
-    let BlobStatus::Existent {
-        end_epoch,
-        status,
-        status_event,
-    } = status
-    else {
-        return Ok(());
+    let event = match status {
+        BlobStatus::Invalid { event } => event,
+        BlobStatus::Permanent { status_event, .. } => status_event,
+        BlobStatus::Nonexistent | BlobStatus::Deletable { .. } => return Ok(()),
     };
-    tracing::debug!("verifying blob status with on-chain event");
-    let blob_event = sui_read_client.get_blob_event(status_event).await?;
+    tracing::debug!(?event, "verifying blob status with on-chain event");
 
-    let event_blob_id = match (status, blob_event) {
-        (BlobCertificationStatus::Registered, BlobEvent::Registered(event)) => {
+    let blob_event = sui_read_client.get_blob_event(event).await?;
+    anyhow::ensure!(blob_id == &blob_event.blob_id(), "blob ID mismatch");
+
+    match (status, blob_event) {
+        (
+            BlobStatus::Permanent {
+                end_epoch,
+                is_certified: false,
+                ..
+            },
+            BlobEvent::Registered(event),
+        ) => {
             anyhow::ensure!(end_epoch == event.end_epoch, "end epoch mismatch");
             event.blob_id
         }
-        (BlobCertificationStatus::Certified, BlobEvent::Certified(event)) => {
+        (
+            BlobStatus::Permanent {
+                end_epoch,
+                is_certified: true,
+                ..
+            },
+            BlobEvent::Certified(event),
+        ) => {
             anyhow::ensure!(end_epoch == event.end_epoch, "end epoch mismatch");
             event.blob_id
         }
-        (BlobCertificationStatus::Invalid, BlobEvent::InvalidBlobID(event)) => event.blob_id,
+        (BlobStatus::Invalid { .. }, BlobEvent::InvalidBlobID(event)) => event.blob_id,
         (_, _) => Err(anyhow!("blob event does not match status"))?,
     };
-    anyhow::ensure!(blob_id == &event_blob_id, "blob ID mismatch");
 
     Ok(())
 }

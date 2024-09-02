@@ -151,18 +151,42 @@ impl CliOutput for BlobStatusOutput {
         };
         match self.status {
             BlobStatus::Nonexistent => println!("Blob ID {blob_str} is not stored on Walrus."),
-            BlobStatus::Existent {
-                status,
-                end_epoch,
-                status_event,
+            BlobStatus::Deletable {
+                count_deletable_total,
+                count_deletable_certified,
             } => println!(
-                "Status for blob ID {blob_str}: {}\n\
-                    End epoch: {}\n\
-                    Related event: {}",
-                status.to_string().bold(),
-                end_epoch,
-                format_event_id(&status_event),
+                "Blob ID {blob_str} is registered on Walrus but only as deletable Blob objects:\n\
+                    Total number of objects: {count_deletable_total}\n\
+                    Number of certified objects: {count_deletable_certified}"
             ),
+            BlobStatus::Invalid { .. } => println!("Blob ID {blob_str} is invalid."),
+            BlobStatus::Permanent {
+                end_epoch,
+                is_certified,
+                count_deletable_certified,
+                status_event,
+                ..
+            } => {
+                let status = (if is_certified {
+                    "certified"
+                } else {
+                    "registered"
+                })
+                .bold();
+                println!(
+                    "There is a {status} permanent Blob object for  blob ID {blob_str}.\n\
+                        End epoch: {}\n\
+                        Related event: {}",
+                    end_epoch,
+                    format_event_id(&status_event),
+                );
+                if count_deletable_certified > 0 {
+                    println!(
+                        "There are also {count_deletable_certified} certified deletable Blob \
+                            objects for this blob ID."
+                    )
+                }
+            }
         }
     }
 }
