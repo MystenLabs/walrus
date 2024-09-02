@@ -5,7 +5,8 @@
 /// Module: system
 module walrus::system;
 
-use sui::{balance::Balance, coin::Coin, dynamic_field, sui::SUI};
+use sui::{balance::Balance, coin::Coin, dynamic_field};
+use wal::wal::WAL;
 use walrus::{
     blob::Blob,
     bls_aggregate::BlsCommittee,
@@ -53,7 +54,7 @@ public fun reserve_space(
     self: &mut System,
     storage_amount: u64,
     epochs_ahead: u32,
-    payment: &mut Coin<SUI>,
+    payment: &mut Coin<WAL>,
     ctx: &mut TxContext,
 ): Storage {
     self.inner_mut().reserve_space(storage_amount, epochs_ahead, payment, ctx)
@@ -70,7 +71,7 @@ public fun register_blob(
     size: u64,
     encoding_type: u8,
     deletable: bool,
-    write_payment: &mut Coin<SUI>,
+    write_payment: &mut Coin<WAL>,
     ctx: &mut TxContext,
 ): Blob {
     self
@@ -116,7 +117,7 @@ public fun extend_blob(
     self: &mut System,
     blob: &mut Blob,
     epochs_ahead: u32,
-    payment: &mut Coin<SUI>,
+    payment: &mut Coin<WAL>,
 ) {
     self.inner_mut().extend_blob(blob, epochs_ahead, payment);
 }
@@ -158,7 +159,7 @@ public(package) fun advance_epoch(
     self: &mut System,
     new_committee: BlsCommittee,
     new_epoch_params: EpochParams,
-): Balance<SUI> {
+): Balance<WAL> {
     self.inner_mut().advance_epoch(new_committee, new_epoch_params)
 }
 

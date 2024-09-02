@@ -6,7 +6,8 @@
 module walrus::staking;
 
 use std::string::String;
-use sui::{clock::Clock, coin::Coin, dynamic_field as df, sui::SUI};
+use sui::{clock::Clock, coin::Coin, dynamic_field as df};
+use wal::wal::WAL;
 use walrus::{
     staked_wal::StakedWal,
     staking_inner::{Self, StakingInnerV1},
@@ -94,7 +95,7 @@ public fun set_next_commission(staking: &mut Staking, cap: &StorageNodeCap, comm
 }
 
 /// Returns the accumulated commission for the storage node.
-public fun collect_commission(staking: &mut Staking, cap: &StorageNodeCap): Coin<SUI> {
+public fun collect_commission(staking: &mut Staking, cap: &StorageNodeCap): Coin<WAL> {
     staking.inner_mut().collect_commission(cap)
 }
 
@@ -152,7 +153,7 @@ public fun epoch_sync_done(staking: &mut Staking, cap: &mut StorageNodeCap, cloc
 /// Stake `Coin` with the staking pool.
 public fun stake_with_pool(
     staking: &mut Staking,
-    to_stake: Coin<SUI>,
+    to_stake: Coin<WAL>,
     node_id: ID,
     ctx: &mut TxContext,
 ): StakedWal {
@@ -176,7 +177,7 @@ public fun withdraw_stake(
     staking: &mut Staking,
     staked_wal: StakedWal,
     ctx: &mut TxContext,
-): Coin<SUI> {
+): Coin<WAL> {
     staking.inner_mut().withdraw_stake(staked_wal, ctx)
 }
 
@@ -310,7 +311,7 @@ fun test_shard_transfer_failed() {
 fun test_stake_with_pool() {
     let ctx = &mut tx_context::dummy();
     let clock = clock::create_for_testing(ctx);
-    let coin = coin::mint_for_testing<SUI>(100, ctx);
+    let coin = coin::mint_for_testing<WAL>(100, ctx);
     let cap = storage_node::new_cap(new_id(ctx), ctx);
     let staked_wal = new_for_testing(ctx).stake_with_pool(coin, cap.node_id(), ctx);
     abort 1337

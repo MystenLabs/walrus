@@ -3,7 +3,8 @@
 
 module walrus::storage_accounting;
 
-use sui::{balance::{Self, Balance}, sui::SUI};
+use sui::balance::{Self, Balance};
+use wal::wal::WAL;
 
 // Errors
 const EIndexOutOfBounds: u64 = 3;
@@ -13,14 +14,14 @@ const EIndexOutOfBounds: u64 = 3;
 public struct FutureAccounting has store {
     epoch: u32,
     storage_to_reclaim: u64,
-    rewards_to_distribute: Balance<SUI>,
+    rewards_to_distribute: Balance<WAL>,
 }
 
 /// Constructor for FutureAccounting
 public(package) fun new_future_accounting(
     epoch: u32,
     storage_to_reclaim: u64,
-    rewards_to_distribute: Balance<SUI>,
+    rewards_to_distribute: Balance<WAL>,
 ): FutureAccounting {
     FutureAccounting { epoch, storage_to_reclaim, rewards_to_distribute }
 }
@@ -46,7 +47,7 @@ public(package) fun decrease_storage_to_reclaim(accounting: &mut FutureAccountin
 }
 
 /// Accessor for rewards_to_distribute, mutable.
-public(package) fun rewards_balance(accounting: &mut FutureAccounting): &mut Balance<SUI> {
+public(package) fun rewards_balance(accounting: &mut FutureAccounting): &mut Balance<WAL> {
     &mut accounting.rewards_to_distribute
 }
 
@@ -55,7 +56,7 @@ public(package) fun delete_empty_future_accounting(self: FutureAccounting) {
     self.unwrap_balance().destroy_zero()
 }
 
-public(package) fun unwrap_balance(self: FutureAccounting): Balance<SUI> {
+public(package) fun unwrap_balance(self: FutureAccounting): Balance<WAL> {
     let FutureAccounting {
         rewards_to_distribute,
         ..,

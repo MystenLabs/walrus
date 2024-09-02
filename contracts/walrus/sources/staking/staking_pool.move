@@ -5,7 +5,8 @@
 module walrus::staking_pool;
 
 use std::string::String;
-use sui::{balance::{Self, Balance}, coin::Coin, sui::SUI, vec_map::{Self, VecMap}};
+use sui::{balance::{Self, Balance}, coin::Coin, vec_map::{Self, VecMap}};
+use wal::wal::WAL;
 use walrus::{
     staked_wal::{Self, StakedWal},
     storage_node::{Self, StorageNodeInfo},
@@ -72,9 +73,9 @@ public struct StakingPool has key, store {
     /// The amount of stake that will be withdrawn in the next epoch.
     pending_withdrawal_amount: u64,
     /// The amount of stake that will be withdrawn in the next epoch.
-    stake_to_withdraw: Balance<SUI>,
+    stake_to_withdraw: Balance<WAL>,
     /// The rewards that the pool has received.
-    rewards: Balance<SUI>,
+    rewards: Balance<WAL>,
 }
 
 /// Create a new `StakingPool` object.
@@ -135,7 +136,7 @@ public(package) fun set_withdrawing(pool: &mut StakingPool, wctx: &WalrusContext
 /// Stake the given amount of WAL in the pool.
 public(package) fun stake(
     pool: &mut StakingPool,
-    to_stake: Coin<SUI>,
+    to_stake: Coin<WAL>,
     wctx: &WalrusContext,
     ctx: &mut TxContext,
 ): StakedWal {
@@ -205,7 +206,7 @@ public(package) fun withdraw_stake(
     staked_wal: StakedWal,
     wctx: &WalrusContext,
     ctx: &mut TxContext,
-): Coin<SUI> {
+): Coin<WAL> {
     assert!(!pool.is_new());
     assert!(staked_wal.value() > 0);
     assert!(staked_wal.node_id() == pool.id.to_inner());
@@ -217,7 +218,7 @@ public(package) fun withdraw_stake(
     principal.into_coin(ctx)
 }
 
-public(package) fun add_rewards(pool: &mut StakingPool, rewards: Balance<SUI>) {
+public(package) fun add_rewards(pool: &mut StakingPool, rewards: Balance<WAL>) {
     // TODO: do bookkeeping for commission.
     pool.rewards.join(rewards);
 }

@@ -4,7 +4,8 @@
 #[allow(unused_variable, unused_mut_parameter, unused_field)]
 module walrus::system_state_inner;
 
-use sui::{balance::Balance, coin::Coin, sui::SUI};
+use sui::{balance::Balance, coin::Coin};
+use wal::wal::WAL;
 use walrus::{
     blob::{Self, Blob},
     bls_aggregate::{Self, BlsCommittee},
@@ -69,7 +70,7 @@ public(package) fun advance_epoch(
     self: &mut SystemStateInnerV1,
     new_committee: BlsCommittee,
     new_epoch_params: EpochParams,
-): Balance<SUI> {
+): Balance<WAL> {
     // Check new committee is valid, the existence of a committee for the next epoch
     // is proof that the time has come to move epochs.
     let old_epoch = self.epoch();
@@ -99,7 +100,7 @@ public(package) fun reserve_space(
     self: &mut SystemStateInnerV1,
     storage_amount: u64,
     epochs_ahead: u32,
-    payment: &mut Coin<SUI>,
+    payment: &mut Coin<WAL>,
     ctx: &mut TxContext,
 ): Storage {
     // Check the period is within the allowed range.
@@ -107,10 +108,7 @@ public(package) fun reserve_space(
     assert!(epochs_ahead <= MAX_EPOCHS_AHEAD, EInvalidEpochsAhead);
 
     // Check capacity is available.
-    assert!(
-        self.used_capacity_size + storage_amount <= self.total_capacity_size,
-        EStorageExceeded,
-    );
+    assert!(self.used_capacity_size + storage_amount <= self.total_capacity_size, EStorageExceeded);
 
     // Pay rewards for each future epoch into the future accounting.
     self.process_storage_payments(storage_amount, 0, epochs_ahead, payment);
@@ -173,7 +171,7 @@ public(package) fun register_blob(
     size: u64,
     encoding_type: u8,
     deletable: bool,
-    write_payment_coin: &mut Coin<SUI>,
+    write_payment_coin: &mut Coin<WAL>,
     ctx: &mut TxContext,
 ): Blob {
     let blob = blob::new(
@@ -234,7 +232,7 @@ public(package) fun extend_blob(
     self: &mut SystemStateInnerV1,
     blob: &mut Blob,
     epochs_ahead: u32,
-    payment: &mut Coin<SUI>,
+    payment: &mut Coin<WAL>,
 ) {
     // Check that the blob is certified and not expired.
     blob.assert_certified_not_expired(self.epoch());
@@ -274,24 +272,21 @@ fun process_storage_payments(
     storage_size: u64,
     start_offset: u32,
     end_offset: u32,
-    payment: &mut Coin<SUI>,
+    payment: &mut Coin<WAL>,
 ) {
     let storage_units = storage_units_from_size(storage_size);
     let period_payment_due = self.storage_price_per_unit_size * storage_units;
     let coin_balance = payment.balance_mut();
 
-    start_offset.range_do!(
-        end_offset,
-        |i| {
-            let accounts = self.future_accounting.ring_lookup_mut(i);
+    start_offset.range_do!(end_offset, |i| {
+        let accounts = self.future_accounting.ring_lookup_mut(i);
 
-            // Distribute rewards
-            let rewards_balance = accounts.rewards_balance();
-            // Note this will abort if the balance is not enough.
-            let epoch_payment = coin_balance.split(period_payment_due);
-            rewards_balance.join(epoch_payment);
-        },
-    );
+        // Distribute rewards
+        let rewards_balance = accounts.rewards_balance();
+        // Note this will abort if the balance is not enough.
+        let epoch_payment = coin_balance.split(period_payment_due);
+        rewards_balance.join(epoch_payment);
+    });
 }
 
 public(package) fun certify_event_blob(

@@ -23,6 +23,7 @@ use sui::{
     sui::SUI,
     vec_map::{Self, VecMap}
 };
+use wal::wal::WAL;
 use walrus::{
     active_set::{Self, ActiveSet},
     bls_aggregate::{Self, BlsCommittee},
@@ -100,7 +101,7 @@ public struct StakingInnerV1 has store {
     /// The state of the current epoch.
     epoch_state: EpochState,
     /// Rewards left over from the previous epoch that couldn't be distributed due to rounding.
-    leftover_rewards: Balance<SUI>,
+    leftover_rewards: Balance<WAL>,
 }
 
 /// Creates a new `StakingInnerV1` object with default values.
@@ -171,7 +172,7 @@ public(package) fun withdraw_node(self: &mut StakingInnerV1, cap: &mut StorageNo
     self.pools[cap.node_id()].set_withdrawing(wctx);
 }
 
-public(package) fun collect_commission(self: &mut StakingInnerV1, cap: &StorageNodeCap): Coin<SUI> {
+public(package) fun collect_commission(self: &mut StakingInnerV1, cap: &StorageNodeCap): Coin<WAL> {
     abort ENotImplemented
 }
 
@@ -268,7 +269,7 @@ public(package) fun destroy_empty_pool(
 /// Stakes the given amount of `T` with the pool, returning the `StakedWal`.
 public(package) fun stake_with_pool(
     self: &mut StakingInnerV1,
-    to_stake: Coin<SUI>,
+    to_stake: Coin<WAL>,
     node_id: ID,
     ctx: &mut TxContext,
 ): StakedWal {
@@ -302,7 +303,7 @@ public(package) fun withdraw_stake(
     self: &mut StakingInnerV1,
     staked_wal: StakedWal,
     ctx: &mut TxContext,
-): Coin<SUI> {
+): Coin<WAL> {
     let wctx = &self.new_walrus_context();
     self.pools[staked_wal.node_id()].withdraw_stake(staked_wal, wctx, ctx)
 }
@@ -379,7 +380,7 @@ public(package) fun select_committee(self: &mut StakingInnerV1) {
 public(package) fun initiate_epoch_change(
     self: &mut StakingInnerV1,
     clock: &Clock,
-    rewards: Balance<SUI>,
+    rewards: Balance<WAL>,
 ) {
     let last_epoch_change = match (self.epoch_state) {
         EpochState::NextParamsSelected(last_epoch_change) => last_epoch_change,
@@ -397,7 +398,7 @@ public(package) fun initiate_epoch_change(
 /// Sets the next epoch of the system and emits the epoch change start event.
 ///
 /// TODO: `advance_epoch` needs to be either pre or post handled by each staking pool as well.
-public(package) fun advance_epoch(self: &mut StakingInnerV1, mut rewards: Balance<SUI>) {
+public(package) fun advance_epoch(self: &mut StakingInnerV1, mut rewards: Balance<WAL>) {
     assert!(self.next_committee.is_some(), EWrongEpochState);
 
     self.epoch = self.epoch + 1;

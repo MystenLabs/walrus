@@ -9,7 +9,8 @@
 /// is performed via the `withdraw_stake` method in the `staking_pool`.
 module walrus::staked_wal;
 
-use sui::{balance::Balance, sui::SUI};
+use sui::balance::Balance;
+use wal::wal::WAL;
 
 /// The state of the staked WAL.
 public enum StakedWalState has store, copy, drop {
@@ -33,7 +34,7 @@ public struct StakedWal has key, store {
     /// ID of the staking pool.
     node_id: ID,
     /// The staked amount.
-    principal: Balance<SUI>,
+    principal: Balance<WAL>,
     /// The Walrus epoch when the staked WAL was activated.
     activation_epoch: u32,
 }
@@ -41,7 +42,7 @@ public struct StakedWal has key, store {
 /// Protected method to create a new staked WAL.
 public(package) fun mint(
     node_id: ID,
-    principal: Balance<SUI>,
+    principal: Balance<WAL>,
     activation_epoch: u32,
     ctx: &mut TxContext,
 ): StakedWal {
@@ -55,7 +56,7 @@ public(package) fun mint(
 }
 
 /// Burns the staked WAL and returns the `principal`.
-public(package) fun unwrap(sw: StakedWal): Balance<SUI> {
+public(package) fun unwrap(sw: StakedWal): Balance<WAL> {
     let StakedWal { id, principal, .. } = sw;
     id.delete();
     principal
