@@ -13,13 +13,11 @@ use std::{
 
 use anyhow::{anyhow, bail};
 use fastcrypto::traits::ToFromBytes;
-use move_core_types::u256::U256;
-use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
-use serde_with::{serde_as, DisplayFromStr};
-use sui_sdk::rpc_types::{SuiEvent, SuiMoveStruct, SuiMoveValue};
+use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
+use sui_sdk::rpc_types::SuiEvent;
 use sui_types::{base_types::ObjectID, event::EventID};
 use thiserror::Error;
+use tracing::instrument;
 use walrus_core::{
     bft,
     ensure,
@@ -31,15 +29,7 @@ use walrus_core::{
     ShardIndex,
 };
 
-use crate::{
-    contracts::{self, AssociatedContractStruct, AssociatedSuiEvent, StructTag},
-    utils::{
-        blob_id_from_u256,
-        get_dynamic_field,
-        sui_move_convert_numeric_vec,
-        sui_move_convert_struct_vec,
-    },
-};
+use crate::contracts::{self, AssociatedContractStruct, AssociatedSuiEvent, StructTag};
 /// Sui object for storage resources.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -55,37 +45,11 @@ pub struct StorageResource {
     pub storage_size: u64,
 }
 
-impl TryFrom<&SuiMoveStruct> for StorageResource {
-    type Error = anyhow::Error;
-
-    fn try_from(sui_move_struct: &SuiMoveStruct) -> Result<Self, Self::Error> {
-        let id = get_dynamic_objectid_field!(sui_move_struct)?;
-        let start_epoch = get_dynamic_u64_field!(sui_move_struct, "start_epoch")?;
-        let end_epoch = get_dynamic_u64_field!(sui_move_struct, "end_epoch")?;
-        let storage_size = get_dynamic_u64_field!(sui_move_struct, "storage_size")?;
-        Ok(Self {
-            id,
-            start_epoch,
-            end_epoch,
-            storage_size,
-        })
-    }
-}
-
-impl TryFrom<SuiMoveStruct> for StorageResource {
-    type Error = anyhow::Error;
-
-    fn try_from(sui_move_struct: SuiMoveStruct) -> Result<Self, Self::Error> {
-        Self::try_from(&sui_move_struct)
-    }
-}
-
 impl AssociatedContractStruct for StorageResource {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::storage_resource::Storage;
 }
 
 /// Sui object for a blob.
-#[serde_as]
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
@@ -95,7 +59,7 @@ pub struct Blob {
     /// The epoch in which the blob has been registered.
     pub stored_epoch: Epoch,
     /// The blob ID.
-    #[serde_as(as = "DisplayFromStr")]
+    #[serde(serialize_with = "serialize_blob_id")]
     pub blob_id: BlobId,
     /// The (unencoded) size of the blob.
     pub size: u64,
@@ -107,69 +71,12 @@ pub struct Blob {
     pub storage: StorageResource,
 }
 
-impl TryFrom<&SuiMoveStruct> for Blob {
-    type Error = anyhow::Error;
-
-    fn try_from(sui_move_struct: &SuiMoveStruct) -> Result<Self, Self::Error> {
-        let id = get_dynamic_objectid_field!(sui_move_struct)?;
-
-        let stored_epoch = get_dynamic_u64_field!(sui_move_struct, "stored_epoch")?;
-        let blob_id = blob_id_from_u256(
-            get_dynamic_field!(sui_move_struct, "blob_id", SuiMoveValue::String)?
-                .parse::<U256>()?,
-        );
-        let size = get_dynamic_u64_field!(sui_move_struct, "size")?;
-        let erasure_code_type = EncodingType::try_from(u8::try_from(get_dynamic_field!(
-            sui_move_struct,
-            "erasure_code_type",
-            SuiMoveValue::Number
-        )?)?)?;
-        // `SuiMoveValue::Option` seems to be replaced with `SuiMoveValue::String` directly
-        // if it is not `None`.
-        let certified_epoch =
-            get_dynamic_field!(sui_move_struct, "certified_epoch", SuiMoveValue::String)
-                .and_then(|s| Ok(Some(s.parse()?)))
-                .or_else(|_| {
-                    match get_dynamic_field!(
-                        sui_move_struct,
-                        "certified_epoch",
-                        SuiMoveValue::Option
-                    )?
-                    .as_ref()
-                    {
-                        None => Ok(None),
-                        // Below would be the expected behaviour in the not-None-case, so we capture
-                        // this nevertheless
-                        Some(SuiMoveValue::String(s)) => Ok(Some(s.parse()?)),
-                        Some(smv) => Err(anyhow!(
-                            "unexpected type for field `certified_epoch`: {}",
-                            smv
-                        )),
-                    }
-                })?;
-        let storage = StorageResource::try_from(get_dynamic_field!(
-            sui_move_struct,
-            "storage",
-            SuiMoveValue::Struct
-        )?)?;
-        Ok(Self {
-            id,
-            stored_epoch,
-            blob_id,
-            size,
-            erasure_code_type,
-            certified_epoch,
-            storage,
-        })
-    }
-}
-
-impl TryFrom<SuiMoveStruct> for Blob {
-    type Error = anyhow::Error;
-
-    fn try_from(sui_move_struct: SuiMoveStruct) -> Result<Self, Self::Error> {
-        Self::try_from(&sui_move_struct)
-    }
+/// Serialize as string to make sure that the json output uses the base64 encoding.
+fn serialize_blob_id<S>(blob_id: &BlobId, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.collect_str(blob_id)
 }
 
 impl AssociatedContractStruct for Blob {
@@ -229,70 +136,58 @@ pub struct StorageNode {
     /// Name of the storage node.
     pub name: String,
     /// The network address of the storage node.
+    #[serde(deserialize_with = "deserialize_network_address")]
     pub network_address: NetworkAddress,
     /// The public key of the storage node.
+    #[serde(deserialize_with = "deserialize_bls_key")]
     pub public_key: PublicKey,
     /// The network key of the storage node.
+    #[serde(deserialize_with = "deserialize_network_key")]
     pub network_public_key: NetworkPublicKey,
     /// The indices of the shards held by the storage node.
     pub shard_ids: Vec<ShardIndex>,
-}
-
-impl TryFrom<&SuiMoveStruct> for StorageNode {
-    type Error = anyhow::Error;
-
-    fn try_from(sui_move_struct: &SuiMoveStruct) -> Result<Self, Self::Error> {
-        let name = get_dynamic_field!(sui_move_struct, "name", SuiMoveValue::String)?;
-        let network_address =
-            get_dynamic_field!(sui_move_struct, "network_address", SuiMoveValue::String)?
-                .parse()?;
-        let public_key_struct =
-            get_dynamic_field!(sui_move_struct, "public_key", SuiMoveValue::Struct)?;
-        let public_key = PublicKey::from_bytes(&sui_move_convert_numeric_vec(
-            get_dynamic_field!(public_key_struct, "bytes", SuiMoveValue::Vector)?,
-        )?)?;
-        let network_public_key = NetworkPublicKey::from_bytes(&sui_move_convert_numeric_vec(
-            get_dynamic_field!(sui_move_struct, "network_public_key", SuiMoveValue::Vector)?,
-        )?)?;
-        let shard_ids = sui_move_convert_numeric_vec(get_dynamic_field!(
-            sui_move_struct,
-            "shard_ids",
-            SuiMoveValue::Vector
-        )?)?
-        .into_iter()
-        .map(ShardIndex)
-        .collect();
-        Ok(Self {
-            name,
-            network_address,
-            public_key,
-            network_public_key,
-            shard_ids,
-        })
-    }
-}
-
-impl TryFrom<SuiMoveStruct> for StorageNode {
-    type Error = anyhow::Error;
-
-    fn try_from(sui_move_struct: SuiMoveStruct) -> Result<Self, Self::Error> {
-        Self::try_from(&sui_move_struct)
-    }
 }
 
 impl AssociatedContractStruct for StorageNode {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::storage_node::StorageNodeInfo;
 }
 
+#[instrument(err, skip_all)]
+fn deserialize_network_address<'de, D>(deserializer: D) -> Result<NetworkAddress, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let addr_string: String = Deserialize::deserialize(deserializer)?;
+    NetworkAddress::from_str(&addr_string).map_err(D::Error::custom)
+}
+
+#[instrument(err, skip_all)]
+fn deserialize_bls_key<'de, D>(deserializer: D) -> Result<PublicKey, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let key: Vec<u8> = Deserialize::deserialize(deserializer)?;
+    PublicKey::from_bytes(&key).map_err(D::Error::custom)
+}
+
+#[instrument(err, skip_all)]
+fn deserialize_network_key<'de, D>(deserializer: D) -> Result<NetworkPublicKey, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let key: Vec<u8> = Deserialize::deserialize(deserializer)?;
+    NetworkPublicKey::from_bytes(&key).map_err(D::Error::custom)
+}
+
 /// Sui type for storage committee
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Committee {
+    /// The current epoch
+    pub epoch: Epoch,
     /// The members of the committee
     // INV: `!members.is_empty()`
     // INV: `members.iter().all(|m| !m.shard_ids.is_empty())`
     members: Vec<StorageNode>,
-    /// The current epoch
-    pub epoch: Epoch,
     /// The number of shards held by the committee
     n_shards: NonZeroU16,
 }
@@ -415,38 +310,6 @@ impl Committee {
     }
 }
 
-impl TryFrom<&SuiMoveStruct> for Committee {
-    type Error = anyhow::Error;
-
-    fn try_from(sui_move_struct: &SuiMoveStruct) -> Result<Self, Self::Error> {
-        let epoch = get_dynamic_u64_field!(sui_move_struct, "epoch")?;
-        let bls_committee_struct =
-            get_dynamic_field!(sui_move_struct, "bls_committee", SuiMoveValue::Struct)?;
-        let members = sui_move_convert_struct_vec(get_dynamic_field!(
-            bls_committee_struct,
-            "members",
-            SuiMoveValue::Vector
-        )?)?;
-        let committee = Self::new(members, epoch)?;
-        let n_shards: u16 =
-            get_dynamic_field!(bls_committee_struct, "n_shards", SuiMoveValue::Number)?
-                .try_into()?;
-        ensure!(
-            committee.n_shards.get() == n_shards,
-            "struct n_shards does not correspond to actual number of shards"
-        );
-        Ok(committee)
-    }
-}
-
-impl TryFrom<SuiMoveStruct> for Committee {
-    type Error = anyhow::Error;
-
-    fn try_from(sui_move_struct: SuiMoveStruct) -> Result<Self, Self::Error> {
-        Self::try_from(&sui_move_struct)
-    }
-}
-
 impl AssociatedContractStruct for Committee {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::committee::Committee;
 }
@@ -471,7 +334,7 @@ pub enum InvalidCommittee {
 }
 
 /// The status of the epoch
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Deserialize)]
 #[repr(u8)]
 pub enum EpochStatus {
     /// A sufficient number of the new epoch shards have been transferred
@@ -497,13 +360,41 @@ impl TryFrom<u8> for EpochStatus {
     }
 }
 
+/// Holds information about a future epoch, namely how much
+/// storage needs to be reclaimed and the rewards to be distributed.
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+pub struct FutureAccounting {
+    epoch: u64,
+    storage_to_reclaim: u64,
+    rewards_to_distribute: u64,
+}
+
+/// A ring buffer holding future accounts for a continuous range of epochs.
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+pub struct FutureAccountingRingBuffer {
+    current_index: u64,
+    length: u64,
+    ring_buffer: Vec<FutureAccounting>,
+}
+
+impl FutureAccountingRingBuffer {
+    /// Creates an empty accounting ring buffer with length 0.
+    pub fn empty() -> Self {
+        FutureAccountingRingBuffer {
+            current_index: 0,
+            length: 0,
+            ring_buffer: vec![],
+        }
+    }
+}
+
 /// Sui type for system object
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 pub struct SystemObject {
     /// Object id of the Sui object
     pub id: ObjectID,
     /// The current committee of the Walrus instance
-    pub current_committee: Committee,
+    pub current_committee: Option<Committee>,
     /// The status of the epoch
     pub epoch_status: EpochStatus,
     /// Total storage capacity of the Walrus instance
@@ -513,63 +404,26 @@ pub struct SystemObject {
     /// The price per unit of storage per epoch
     pub price_per_unit_size: u64,
     /// The object ID of the table storing past committees
+    #[serde(deserialize_with = "deserialize_table")]
     pub past_committees_object: ObjectID,
-}
-
-impl TryFrom<&SuiMoveStruct> for SystemObject {
-    type Error = anyhow::Error;
-
-    fn try_from(sui_move_struct: &SuiMoveStruct) -> Result<Self, Self::Error> {
-        let id = get_dynamic_objectid_field!(sui_move_struct)?;
-        let current_committee =
-            get_dynamic_field!(sui_move_struct, "current_committee", SuiMoveValue::Struct)?
-                .try_into()?;
-        let epoch_status = u8::try_from(get_dynamic_field!(
-            sui_move_struct,
-            "epoch_status",
-            SuiMoveValue::Number
-        )?)?
-        .try_into()?;
-        let total_capacity_size = get_dynamic_u64_field!(sui_move_struct, "total_capacity_size")?;
-        let used_capacity_size = get_dynamic_u64_field!(sui_move_struct, "used_capacity_size")?;
-        let price_per_unit_size = get_dynamic_u64_field!(sui_move_struct, "price_per_unit_size")?;
-        let past_committees_object = get_dynamic_objectid_field!(get_dynamic_field!(
-            sui_move_struct,
-            "past_committees",
-            SuiMoveValue::Struct
-        )?)?;
-        Ok(Self {
-            id,
-            current_committee,
-            epoch_status,
-            total_capacity_size,
-            used_capacity_size,
-            price_per_unit_size,
-            past_committees_object,
-        })
-    }
-}
-
-impl TryFrom<SuiMoveStruct> for SystemObject {
-    type Error = anyhow::Error;
-
-    fn try_from(sui_move_struct: SuiMoveStruct) -> Result<Self, Self::Error> {
-        Self::try_from(&sui_move_struct)
-    }
+    /// The future accounting ring buffer to keep track of future rewards.
+    pub future_accounting: FutureAccountingRingBuffer,
 }
 
 impl AssociatedContractStruct for SystemObject {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::system::System;
 }
 
-// Events
-
-fn field_map_from_event(sui_event: &SuiEvent) -> anyhow::Result<&Map<String, Value>> {
-    let Value::Object(object) = &sui_event.parsed_json else {
-        return Err(anyhow!("Event is not of type object"));
-    };
-    Ok(object)
+#[instrument(err, skip_all)]
+fn deserialize_table<'de, D>(deserializer: D) -> Result<ObjectID, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let (object_id, _length): (ObjectID, u64) = Deserialize::deserialize(deserializer)?;
+    Ok(object_id)
 }
+
+// Events
 
 fn ensure_event_type(sui_event: &SuiEvent, struct_tag: &StructTag) -> anyhow::Result<()> {
     ensure!(
@@ -582,7 +436,7 @@ fn ensure_event_type(sui_event: &SuiEvent, struct_tag: &StructTag) -> anyhow::Re
 }
 
 /// Sui event that blob has been registered.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct BlobRegistered {
     /// The epoch in which the blob has been registered.
     pub epoch: Epoch,
@@ -598,42 +452,39 @@ pub struct BlobRegistered {
     pub event_id: EventID,
 }
 
+impl AssociatedSuiEvent for BlobRegistered {
+    const EVENT_STRUCT: StructTag<'static> = contracts::blob_events::BlobRegistered;
+}
+
 impl TryFrom<SuiEvent> for BlobRegistered {
     type Error = anyhow::Error;
 
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
-        let object = field_map_from_event(&sui_event)?;
 
-        let epoch = get_u64_field_from_event!(object, "epoch")?;
+        #[derive(Deserialize)]
+        struct Inner {
+            epoch: Epoch,
+            blob_id: BlobId,
+            size: u64,
+            erasure_code_type: EncodingType,
+            end_epoch: Epoch,
+        }
 
-        let blob_id =
-            blob_id_from_u256(get_field_from_event!(object, "blob_id", Value::String)?.parse()?);
-        let size = get_u64_field_from_event!(object, "size")?;
-        let erasure_code_type = EncodingType::try_from(u8::try_from(
-            get_field_from_event!(object, "erasure_code_type", Value::Number)?
-                .as_u64()
-                .ok_or_else(|| anyhow!("value is non-integer"))?,
-        )?)?;
-        let end_epoch = get_u64_field_from_event!(object, "end_epoch")?;
-
+        let inner: Inner = bcs::from_bytes(&sui_event.bcs)?;
         Ok(Self {
-            epoch,
-            blob_id,
-            size,
-            erasure_code_type,
-            end_epoch,
+            epoch: inner.epoch,
+            blob_id: inner.blob_id,
+            size: inner.size,
+            erasure_code_type: inner.erasure_code_type,
+            end_epoch: inner.end_epoch,
             event_id: sui_event.id,
         })
     }
 }
 
-impl AssociatedSuiEvent for BlobRegistered {
-    const EVENT_STRUCT: StructTag<'static> = contracts::blob_events::BlobRegistered;
-}
-
 /// Sui event that blob has been certified.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct BlobCertified {
     /// The epoch in which the blob was certified.
     pub epoch: Epoch,
@@ -645,33 +496,35 @@ pub struct BlobCertified {
     pub event_id: EventID,
 }
 
+impl AssociatedSuiEvent for BlobCertified {
+    const EVENT_STRUCT: StructTag<'static> = contracts::blob_events::BlobCertified;
+}
+
 impl TryFrom<SuiEvent> for BlobCertified {
     type Error = anyhow::Error;
 
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
-        let object = field_map_from_event(&sui_event)?;
 
-        let epoch = get_u64_field_from_event!(object, "epoch")?;
-        let blob_id =
-            blob_id_from_u256(get_field_from_event!(object, "blob_id", Value::String)?.parse()?);
-        let end_epoch = get_u64_field_from_event!(object, "end_epoch")?;
+        #[derive(Deserialize)]
+        struct Inner {
+            epoch: Epoch,
+            blob_id: BlobId,
+            end_epoch: Epoch,
+        }
 
+        let inner: Inner = bcs::from_bytes(&sui_event.bcs)?;
         Ok(Self {
-            epoch,
-            blob_id,
-            end_epoch,
+            epoch: inner.epoch,
+            blob_id: inner.blob_id,
+            end_epoch: inner.end_epoch,
             event_id: sui_event.id,
         })
     }
 }
 
-impl AssociatedSuiEvent for BlobCertified {
-    const EVENT_STRUCT: StructTag<'static> = contracts::blob_events::BlobCertified;
-}
-
 /// Sui event that a blob ID is invalid.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct InvalidBlobId {
     /// The epoch in which the blob was marked as invalid.
     pub epoch: Epoch,
@@ -681,27 +534,29 @@ pub struct InvalidBlobId {
     pub event_id: EventID,
 }
 
+impl AssociatedSuiEvent for InvalidBlobId {
+    const EVENT_STRUCT: StructTag<'static> = contracts::blob_events::InvalidBlobID;
+}
+
 impl TryFrom<SuiEvent> for InvalidBlobId {
     type Error = anyhow::Error;
 
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
-        let object = field_map_from_event(&sui_event)?;
 
-        let epoch = get_u64_field_from_event!(object, "epoch")?;
-        let blob_id =
-            blob_id_from_u256(get_field_from_event!(object, "blob_id", Value::String)?.parse()?);
+        #[derive(Deserialize)]
+        struct Inner {
+            epoch: Epoch,
+            blob_id: BlobId,
+        }
 
+        let inner: Inner = bcs::from_bytes(&sui_event.bcs)?;
         Ok(Self {
-            epoch,
-            blob_id,
+            epoch: inner.epoch,
+            blob_id: inner.blob_id,
             event_id: sui_event.id,
         })
     }
-}
-
-impl AssociatedSuiEvent for InvalidBlobId {
-    const EVENT_STRUCT: StructTag<'static> = contracts::blob_events::InvalidBlobID;
 }
 
 /// Enum to wrap blob events.

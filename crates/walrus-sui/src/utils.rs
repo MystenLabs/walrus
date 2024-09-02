@@ -5,7 +5,6 @@
 
 use std::{
     collections::HashSet,
-    fmt::Display,
     future::Future,
     num::NonZeroU16,
     path::{Path, PathBuf},
@@ -14,7 +13,7 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, Result};
-use move_core_types::{language_storage::StructTag as MoveStructTag, u256::U256};
+use move_core_types::language_storage::StructTag as MoveStructTag;
 use serde::{Deserialize, Serialize};
 use sui_config::{sui_config_dir, Config, SUI_CLIENT_CONFIG, SUI_KEYSTORE_FILENAME};
 use sui_keys::keystore::{AccountKeystore, FileBasedKeystore, Keystore};
@@ -22,13 +21,11 @@ use sui_sdk::{
     rpc_types::{
         ObjectChange,
         Page,
-        SuiMoveStruct,
-        SuiMoveValue,
+        SuiObjectData,
         SuiObjectDataFilter,
         SuiObjectDataOptions,
         SuiObjectResponse,
         SuiObjectResponseQuery,
-        SuiParsedData,
         SuiTransactionBlockResponse,
     },
     sui_client_config::{SuiClientConfig, SuiEnv},
@@ -42,7 +39,7 @@ use sui_types::{
     transaction::{ProgrammableTransaction, TransactionData},
     TypeTag,
 };
-use walrus_core::{encoding::encoded_blob_length_for_n_shards, BlobId};
+use walrus_core::encoding::encoded_blob_length_for_n_shards;
 
 use crate::{
     client::SuiClientResult,
@@ -73,27 +70,6 @@ pub fn price_for_unencoded_length(
 /// Computes the price in MIST given the encoded blob size.
 pub fn price_for_encoded_length(encoded_length: u64, price_per_unit_size: u64, epochs: u64) -> u64 {
     storage_units_from_size(encoded_length) * price_per_unit_size * epochs
-}
-
-pub(crate) fn get_struct_from_object_response(
-    object_response: &SuiObjectResponse,
-) -> Result<SuiMoveStruct> {
-    match object_response {
-        SuiObjectResponse {
-            data: Some(data),
-            error: None,
-        } => match &data.content {
-            Some(SuiParsedData::MoveObject(parsed_object)) => Ok(parsed_object.fields.clone()),
-            _ => Err(anyhow!("Unexpected data in ObjectResponse: {:?}", data)),
-        },
-        SuiObjectResponse {
-            error: Some(error), ..
-        } => Err(anyhow!("Error in ObjectResponse: {:?}", error)),
-        SuiObjectResponse { .. } => Err(anyhow!(
-            "ObjectResponse contains data and error: {:?}",
-            object_response
-        )),
-    }
 }
 
 pub(crate) fn get_package_id_from_object_response(
@@ -168,7 +144,10 @@ where
     get_sui_object_from_object_response(
         &sui_client
             .read_api()
-            .get_object_with_options(object_id, SuiObjectDataOptions::new().with_content())
+            .get_object_with_options(
+                object_id,
+                SuiObjectDataOptions::new().with_bcs().with_type(),
+            )
             .await?,
         object_id,
     )
@@ -181,45 +160,19 @@ pub(crate) fn get_sui_object_from_object_response<U>(
 where
     U: AssociatedContractStruct,
 {
-    let obj_struct = get_struct_from_object_response(object_response)?;
-    U::try_from(obj_struct).map_err(|_e| {
+    U::try_from_object_data(
+        object_response
+            .data
+            .as_ref()
+            .ok_or_else(|| anyhow!("Response does not contain object data"))?,
+    )
+    .map_err(|_e| {
         anyhow!(
             "could not convert object with id {} to expected type",
             object_id
         )
         .into()
     })
-}
-
-/// Attempts to convert a vector of SuiMoveValues to a vector of numeric rust types
-pub(crate) fn sui_move_convert_numeric_vec<T>(sui_move_vec: Vec<SuiMoveValue>) -> Result<Vec<T>>
-where
-    T: TryFrom<u32> + FromStr,
-{
-    sui_move_vec
-        .into_iter()
-        .map(|e| match e {
-            SuiMoveValue::Number(n) => T::try_from(n).map_err(|_| anyhow!("conversion failed")),
-            SuiMoveValue::String(s) => s.parse().map_err(|_| anyhow!("conversion failed")),
-            other => Err(anyhow!("unexpected value in Move vector: {:?}", other)),
-        })
-        .collect()
-}
-
-/// Attempts to convert a vector of SuiMoveValues to a vector of type T
-pub(crate) fn sui_move_convert_struct_vec<T>(sui_move_vec: Vec<SuiMoveValue>) -> Result<Vec<T>>
-where
-    T: AssociatedContractStruct,
-{
-    sui_move_vec
-        .into_iter()
-        .map(|e| match e {
-            SuiMoveValue::Struct(move_struct) => {
-                T::try_from(move_struct).map_err(|_| anyhow!("conversion failed"))
-            }
-            other => Err(anyhow!("unexpected value in Move vector: {:?}", other)),
-        })
-        .collect()
 }
 
 pub(crate) async fn handle_pagination<F, T, C, Fut>(
@@ -251,10 +204,6 @@ where
         iterators.push(page.data.into_iter());
     }
     Ok(iterators.into_iter().flatten())
-}
-
-pub(crate) fn blob_id_from_u256(input: U256) -> BlobId {
-    BlobId(input.to_le_bytes())
 }
 
 // Wallet setup
@@ -480,19 +429,17 @@ pub(crate) async fn get_owned_objects<'a, U>(
 ) -> Result<impl Iterator<Item = U> + 'a>
 where
     U: AssociatedContractStruct,
-    <U as TryFrom<SuiMoveStruct>>::Error: Display,
 {
     let results =
-        get_owned_object_structs(sui_client, owner, package_id, type_args, U::CONTRACT_STRUCT)
-            .await?;
+        get_owned_object_data(sui_client, owner, package_id, type_args, U::CONTRACT_STRUCT).await?;
 
-    Ok(results.filter_map(|move_struct| {
-        move_struct.map_or_else(
+    Ok(results.filter_map(|object_data| {
+        object_data.map_or_else(
             |err| {
                 tracing::warn!(%err, "failed to convert to local type");
                 None
             },
-            |move_struct| match U::try_from(move_struct) {
+            |object_data| match U::try_from_object_data(&object_data) {
                 Result::Ok(value) => Some(value),
                 Result::Err(err) => {
                     tracing::warn!(%err, "failed to convert to local type");
@@ -503,28 +450,31 @@ where
     }))
 }
 
-/// Get all the [`SuiMoveStruct`] objects of the specified type for the specified owner.
-async fn get_owned_object_structs<'a>(
+/// Get all the [`SuiObjectData`] objects of the specified type for the specified owner.
+async fn get_owned_object_data<'a>(
     sui_client: &'a SuiClient,
     owner: SuiAddress,
     package_id: ObjectID,
     type_args: &'a [TypeTag],
     object_type: contracts::StructTag<'a>,
-) -> Result<impl Iterator<Item = Result<SuiMoveStruct>> + 'a> {
+) -> Result<impl Iterator<Item = Result<SuiObjectData>> + 'a> {
     let struct_tag = object_type.to_move_struct_tag(package_id, type_args)?;
     Ok(handle_pagination(move |cursor| {
         sui_client.read_api().get_owned_objects(
             owner,
             Some(SuiObjectResponseQuery {
                 filter: Some(SuiObjectDataFilter::StructType(struct_tag.clone())),
-                options: Some(SuiObjectDataOptions::full_content()),
+                options: Some(SuiObjectDataOptions::full_content().with_bcs()),
             }),
             cursor,
             None,
         )
     })
     .await?
-    .map(|resp| get_struct_from_object_response(&resp)))
+    .map(|resp| {
+        resp.data
+            .ok_or_else(|| anyhow!("response does not contain object data"))
+    }))
 }
 
 // Macros
@@ -534,64 +484,3 @@ macro_rules! call_arg_pure {
         CallArg::Pure(bcs::to_bytes($value).map_err(|e| anyhow!("bcs conversion failed: {e:?}"))?)
     };
 }
-
-macro_rules! match_for_correct_type {
-    ($value:expr, $field_type:path) => {
-        match $value {
-            Some($field_type(x)) => Some(x),
-            _ => None,
-        }
-    };
-    ($value:expr, $field_type:path { $var:ident }) => {
-        match $value {
-            Some($field_type { $var }) => Some($var),
-            _ => None,
-        }
-    };
-}
-
-macro_rules! get_dynamic_field {
-    ($struct:expr, $field_name:expr, $field_type:path $({ $var:ident })*) => {
-        match_for_correct_type!(
-            $struct.field_value($field_name), $field_type $({ $var })*
-        ).ok_or(anyhow!(
-            "SuiMoveStruct does not contain field {} with expected type {}: {:?}",
-            $field_name,
-            stringify!($field_type),
-            $struct,
-        ))
-    };
-}
-
-macro_rules! get_dynamic_objectid_field {
-    ($struct:expr) => {
-        get_dynamic_field!($struct, "id", SuiMoveValue::UID { id })
-    };
-}
-
-macro_rules! get_dynamic_u64_field {
-    ($struct:expr, $field_name:expr) => {
-        get_dynamic_field!($struct, $field_name, SuiMoveValue::String)?.parse()
-    };
-}
-
-macro_rules! get_field_from_event {
-    ($event_object:expr, $field_name:expr, $field_type:path) => {
-        match_for_correct_type!($event_object.get($field_name), $field_type).ok_or(anyhow!(
-            "Event does not contain field {} with expected type {}: {:?}",
-            $field_name,
-            stringify!($field_type),
-            $event_object
-        ))
-    };
-}
-
-macro_rules! get_u64_field_from_event {
-    ($struct: expr, $field_name: expr) => {
-        get_field_from_event!($struct, $field_name, Value::String)?.parse()
-    };
-}
-
-pub(crate) use get_dynamic_field;
-#[allow(unused_imports)]
-pub(crate) use get_field_from_event;

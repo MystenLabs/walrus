@@ -270,7 +270,11 @@ impl ReadClient for SuiReadClient {
     }
 
     async fn current_committee(&self) -> SuiClientResult<Committee> {
-        Ok(self.get_system_object().await?.current_committee)
+        Ok(self
+            .get_system_object()
+            .await?
+            .current_committee
+            .ok_or_else(|| anyhow!("current committee is not set"))?)
     }
 }
 
@@ -294,7 +298,7 @@ async fn get_system_package_id(
         .read_api()
         .get_object_with_options(
             system_object_id,
-            SuiObjectDataOptions::default().with_content().with_type(),
+            SuiObjectDataOptions::default().with_type().with_bcs(),
         )
         .await
         .map_err(|error| {

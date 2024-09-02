@@ -242,7 +242,7 @@ async fn test_get_system() -> anyhow::Result<()> {
         .read_client
         .current_committee()
         .await?;
-    assert_eq!(system.current_committee, committee);
+    assert_eq!(system.current_committee.unwrap(), committee);
     assert_eq!(committee.epoch, 0);
     assert_eq!(committee.n_shards().get(), 10);
     assert_eq!(committee.members().len(), 1);

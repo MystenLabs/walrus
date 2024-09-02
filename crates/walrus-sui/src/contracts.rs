@@ -4,21 +4,47 @@
 //! Walrus contract bindings. Provides an interface for looking up contract function,
 //! modules, and type names.
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use move_core_types::{identifier::Identifier, language_storage::StructTag as MoveStructTag};
+use serde::de::DeserializeOwned;
 use sui_sdk::{
-    rpc_types::{SuiEvent, SuiMoveStruct},
+    rpc_types::{SuiData, SuiEvent, SuiObjectData},
     types::base_types::ObjectID,
 };
 use sui_types::TypeTag;
+use tracing::instrument;
+use walrus_core::ensure;
 
 /// A trait for types that correspond to a contract type.
 ///
-/// Implementors of this trait are convertible from [SuiMoveStruct]s and can
+/// Implementors of this trait are convertible from [SuiObjectData]s and can
 /// identify their associated contract type.
-pub trait AssociatedContractStruct: TryFrom<SuiMoveStruct> {
+pub trait AssociatedContractStruct: DeserializeOwned {
     /// [`StructTag`] corresponding to the Move struct associated type.
     const CONTRACT_STRUCT: StructTag<'static>;
+
+    /// Converts a [`SuiObjectData`] to [`Self`].
+    #[instrument(err, skip_all)]
+    fn try_from_object_data(sui_object_data: &SuiObjectData) -> Result<Self, anyhow::Error> {
+        tracing::debug!(
+            "converting move object to rust struct {:?}",
+            Self::CONTRACT_STRUCT,
+        );
+        let raw = sui_object_data
+            .bcs
+            .as_ref()
+            .ok_or_else(|| anyhow!("object data does not contain bcs"))?;
+        let raw = raw
+            .try_as_move()
+            .ok_or_else(|| anyhow!("object data is a package, not a move object"))?;
+        ensure!(
+            raw.type_.name.as_str() == Self::CONTRACT_STRUCT.name
+                && raw.type_.module.as_str() == Self::CONTRACT_STRUCT.module,
+            "object is not of type {:?}",
+            Self::CONTRACT_STRUCT
+        );
+        raw.deserialize()
+    }
 }
 
 /// A trait for types that correspond to a Sui event.

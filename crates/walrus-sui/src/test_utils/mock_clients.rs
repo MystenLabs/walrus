@@ -34,6 +34,7 @@ use crate::{
         BlobRegistered,
         Committee,
         EpochStatus,
+        FutureAccountingRingBuffer,
         InvalidBlobId,
         StorageResource,
         SystemObject,
@@ -309,12 +310,13 @@ impl ContractClient for MockContractClient {
 fn system_object_from_committee(committee: Committee) -> SystemObject {
     SystemObject {
         id: ObjectID::from_single_byte(42),
-        current_committee: committee,
+        current_committee: Some(committee),
         epoch_status: EpochStatus::Done,
         total_capacity_size: 1_000_000_000_000_000,
         used_capacity_size: 0,
         price_per_unit_size: 10,
         past_committees_object: ObjectID::from_single_byte(37),
+        future_accounting: FutureAccountingRingBuffer::empty(),
     }
 }
 
