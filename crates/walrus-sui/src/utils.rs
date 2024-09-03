@@ -164,7 +164,7 @@ where
         object_response
             .data
             .as_ref()
-            .ok_or_else(|| anyhow!("Response does not contain object data"))?,
+            .ok_or_else(|| anyhow!("response does not contain object data"))?,
     )
     .map_err(|_e| {
         anyhow!(
@@ -464,7 +464,7 @@ async fn get_owned_object_data<'a>(
             owner,
             Some(SuiObjectResponseQuery {
                 filter: Some(SuiObjectDataFilter::StructType(struct_tag.clone())),
-                options: Some(SuiObjectDataOptions::full_content().with_bcs()),
+                options: Some(SuiObjectDataOptions::new().with_bcs().with_type()),
             }),
             cursor,
             None,

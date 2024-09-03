@@ -4,7 +4,9 @@
 //! Walrus contract bindings. Provides an interface for looking up contract function,
 //! modules, and type names.
 
-use anyhow::{anyhow, Context, Result};
+use core::fmt;
+
+use anyhow::{Context, Result};
 use move_core_types::{identifier::Identifier, language_storage::StructTag as MoveStructTag};
 use serde::de::DeserializeOwned;
 use sui_sdk::{
@@ -12,8 +14,31 @@ use sui_sdk::{
     types::base_types::ObjectID,
 };
 use sui_types::TypeTag;
+use thiserror::Error;
 use tracing::instrument;
 use walrus_core::ensure;
+
+/// Error returned when converting a Sui object or event to a rust struct.
+#[derive(Debug, Error)]
+pub enum MoveConversionError {
+    #[error("object data does not contain bcs")]
+    /// Error if the object data we are trying to convert does not contain bcs.
+    NoBcs,
+    #[error("not a move object")]
+    /// Error if the object data is not a move object.
+    NotMoveObject,
+    /// Error resulting if the object or event does not have the expected type.
+    #[error("the move struct {actual} does not match the expected type {expected}")]
+    TypeMismatch {
+        /// Expected type of the struct.
+        expected: String,
+        /// Actual type of the struct.
+        actual: String,
+    },
+    #[error(transparent)]
+    /// Error during BCS deserialization.
+    Bcs(#[from] bcs::Error),
+}
 
 /// A trait for types that correspond to a contract type.
 ///
@@ -25,7 +50,7 @@ pub trait AssociatedContractStruct: DeserializeOwned {
 
     /// Converts a [`SuiObjectData`] to [`Self`].
     #[instrument(err, skip_all)]
-    fn try_from_object_data(sui_object_data: &SuiObjectData) -> Result<Self, anyhow::Error> {
+    fn try_from_object_data(sui_object_data: &SuiObjectData) -> Result<Self, MoveConversionError> {
         tracing::debug!(
             "converting move object to rust struct {:?}",
             Self::CONTRACT_STRUCT,
@@ -33,17 +58,19 @@ pub trait AssociatedContractStruct: DeserializeOwned {
         let raw = sui_object_data
             .bcs
             .as_ref()
-            .ok_or_else(|| anyhow!("object data does not contain bcs"))?;
+            .ok_or(MoveConversionError::NoBcs)?;
         let raw = raw
             .try_as_move()
-            .ok_or_else(|| anyhow!("object data is a package, not a move object"))?;
+            .ok_or(MoveConversionError::NotMoveObject)?;
         ensure!(
             raw.type_.name.as_str() == Self::CONTRACT_STRUCT.name
                 && raw.type_.module.as_str() == Self::CONTRACT_STRUCT.module,
-            "object is not of type {:?}",
-            Self::CONTRACT_STRUCT
+            MoveConversionError::TypeMismatch {
+                expected: Self::CONTRACT_STRUCT.to_string(),
+                actual: format!("{}::{}", raw.type_.module.as_str(), raw.type_.name.as_str()),
+            }
         );
-        raw.deserialize()
+        Ok(bcs::from_bytes(&raw.bcs_bytes)?)
     }
 }
 
@@ -114,6 +141,12 @@ impl<'a> From<&'a MoveStructTag> for StructTag<'a> {
             name: value.name.as_str(),
             module: value.module.as_str(),
         }
+    }
+}
+
+impl<'a> fmt::Display for StructTag<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}::{}", self.module, self.name)
     }
 }
 

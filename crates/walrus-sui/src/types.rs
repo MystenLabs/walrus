@@ -14,6 +14,7 @@ use std::{
 use anyhow::{anyhow, bail};
 use fastcrypto::traits::ToFromBytes;
 use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
+use serde_with::{serde_as, DisplayFromStr};
 use sui_sdk::rpc_types::SuiEvent;
 use sui_types::{base_types::ObjectID, event::EventID};
 use thiserror::Error;
@@ -29,7 +30,13 @@ use walrus_core::{
     ShardIndex,
 };
 
-use crate::contracts::{self, AssociatedContractStruct, AssociatedSuiEvent, StructTag};
+use crate::contracts::{
+    self,
+    AssociatedContractStruct,
+    AssociatedSuiEvent,
+    MoveConversionError,
+    StructTag,
+};
 /// Sui object for storage resources.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -131,12 +138,13 @@ impl From<SocketAddr> for NetworkAddress {
 }
 
 /// Sui type for storage node.
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[serde_as]
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 pub struct StorageNode {
     /// Name of the storage node.
     pub name: String,
     /// The network address of the storage node.
-    #[serde(deserialize_with = "deserialize_network_address")]
+    #[serde_as(as = "DisplayFromStr")]
     pub network_address: NetworkAddress,
     /// The public key of the storage node.
     #[serde(deserialize_with = "deserialize_bls_key")]
@@ -150,15 +158,6 @@ pub struct StorageNode {
 
 impl AssociatedContractStruct for StorageNode {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::storage_node::StorageNodeInfo;
-}
-
-#[instrument(err, skip_all)]
-fn deserialize_network_address<'de, D>(deserializer: D) -> Result<NetworkAddress, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let addr_string: String = Deserialize::deserialize(deserializer)?;
-    NetworkAddress::from_str(&addr_string).map_err(D::Error::custom)
 }
 
 #[instrument(err, skip_all)]
@@ -180,7 +179,7 @@ where
 }
 
 /// Sui type for storage committee
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 pub struct Committee {
     /// The current epoch
     pub epoch: Epoch,
@@ -425,12 +424,21 @@ where
 
 // Events
 
-fn ensure_event_type(sui_event: &SuiEvent, struct_tag: &StructTag) -> anyhow::Result<()> {
+fn ensure_event_type(
+    sui_event: &SuiEvent,
+    struct_tag: &StructTag,
+) -> Result<(), MoveConversionError> {
     ensure!(
         sui_event.type_.name.as_str() == struct_tag.name
             && sui_event.type_.module.as_str() == struct_tag.module,
-        "event is not of type {:?}",
-        struct_tag
+        MoveConversionError::TypeMismatch {
+            expected: struct_tag.to_string(),
+            actual: format!(
+                "{}::{}",
+                sui_event.type_.module.as_str(),
+                sui_event.type_.name.as_str()
+            ),
+        }
     );
     Ok(())
 }
@@ -457,7 +465,7 @@ impl AssociatedSuiEvent for BlobRegistered {
 }
 
 impl TryFrom<SuiEvent> for BlobRegistered {
-    type Error = anyhow::Error;
+    type Error = MoveConversionError;
 
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
@@ -501,7 +509,7 @@ impl AssociatedSuiEvent for BlobCertified {
 }
 
 impl TryFrom<SuiEvent> for BlobCertified {
-    type Error = anyhow::Error;
+    type Error = MoveConversionError;
 
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
@@ -539,7 +547,7 @@ impl AssociatedSuiEvent for InvalidBlobId {
 }
 
 impl TryFrom<SuiEvent> for InvalidBlobId {
-    type Error = anyhow::Error;
+    type Error = MoveConversionError;
 
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
