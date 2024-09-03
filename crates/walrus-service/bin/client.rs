@@ -7,6 +7,7 @@ use std::process::ExitCode;
 
 use anyhow::Result;
 use clap::Parser;
+use serde::Deserialize;
 use walrus_service::{
     client::cli_utils::{
         error,
@@ -19,8 +20,21 @@ use walrus_service::{
     utils::MetricsAndLoggingRuntime,
 };
 
+// NOTE: this wrapper is required to make the `env!` macro work.
+/// The command-line arguments for the Walrus client.
+#[derive(Parser, Debug, Clone, Deserialize)]
+#[command(author, version, about = "Walrus client", long_about = None)]
+#[clap(name = env!("CARGO_BIN_NAME"))]
+#[clap(version = VERSION)]
+#[clap(rename_all = "kebab-case")]
+#[serde(rename_all = "camelCase")]
+pub struct ClientArgs {
+    #[clap(flatten)]
+    inner: App,
+}
+
 fn client() -> Result<()> {
-    let mut app = App::parse();
+    let mut app = ClientArgs::parse().inner;
     app.extract_json_command()?;
 
     let metrics_runtime = if let Some(metrics_address) = app.get_metrics_address() {

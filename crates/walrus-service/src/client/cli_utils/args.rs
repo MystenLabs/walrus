@@ -18,10 +18,6 @@ pub const VERSION: &str = crate::utils::version!();
 
 /// The command-line arguments for the Walrus client.
 #[derive(Parser, Debug, Clone, Deserialize)]
-#[command(author, version, about = "Walrus client", long_about = None)]
-// TODO(giac): how to still have this without being in /bin?
-// #[clap(name = env!("CARGO_BIN_NAME"))]
-#[clap(version = VERSION)]
 #[clap(rename_all = "kebab-case")]
 #[serde(rename_all = "camelCase")]
 pub struct App {
