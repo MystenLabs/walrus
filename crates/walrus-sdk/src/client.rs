@@ -17,6 +17,7 @@ use reqwest::{
     Url,
 };
 use rustls::pki_types::CertificateDer;
+use rustls_native_certs::CertificateResult;
 use serde::{de::DeserializeOwned, Serialize};
 use tracing::{field, Instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -258,10 +259,18 @@ impl ClientBuilder {
         let endpoints = UrlEndpoints(url);
 
         if !self.no_built_in_root_certs {
-            self.roots.extend(
-                rustls_native_certs::load_native_certs()
-                    .map_err(BuildErrorKind::FailedToLoadCerts)?,
-            );
+            let CertificateResult { certs, errors, .. } = rustls_native_certs::load_native_certs();
+            if certs.is_empty() {
+                return Err(BuildErrorKind::FailedToLoadCerts(errors).into());
+            };
+            if !errors.is_empty() {
+                tracing::warn!(
+                    "encountered {} errors when trying to load native certs",
+                    errors.len(),
+                );
+                tracing::debug!(?errors, "errors encountered when loading native certs");
+            }
+            self.roots.extend(certs);
         }
 
         let verifier = if let Some(public_key) = self.server_public_key {

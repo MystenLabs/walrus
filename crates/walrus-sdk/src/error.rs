@@ -112,8 +112,8 @@ pub(crate) enum BuildErrorKind {
     InvalidHostOrPort,
     #[error(transparent)]
     Reqwest(#[from] reqwest::Error),
-    #[error("unable to load trusted certificates from the OS: {0}")]
-    FailedToLoadCerts(#[from] std::io::Error),
+    #[error("unable to load trusted certificates from the OS: {0:?}")]
+    FailedToLoadCerts(Vec<rustls_native_certs::Error>),
 }
 
 /// Defines a more detailed server side error that can be returned to the client.
