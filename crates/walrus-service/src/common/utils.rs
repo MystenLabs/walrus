@@ -6,6 +6,7 @@
 use std::{
     fmt::Debug,
     future::Future,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     num::Saturating,
     path::{Path, PathBuf},
     pin::Pin,
@@ -17,7 +18,7 @@ use std::{
 use anyhow::{Context as _, Result};
 use futures::{future::FusedFuture, FutureExt};
 use pin_project::pin_project;
-use prometheus::HistogramVec;
+use prometheus::{HistogramVec, Registry};
 use rand::{
     distributions::{DistIter, Uniform},
     rngs::StdRng,
@@ -29,7 +30,12 @@ use serde::{
     Deserialize,
     Deserializer,
 };
-use tokio::{sync::Semaphore, time::Instant};
+use telemetry_subscribers::{TelemetryGuards, TracingHandle};
+use tokio::{
+    runtime::{self, Runtime},
+    sync::Semaphore,
+    time::Instant,
+};
 
 /// Defines a constant containing the version consisting of the package version and git revision.
 ///
@@ -414,6 +420,49 @@ fn path_with_resolved_home_dir(path: PathBuf) -> Result<PathBuf> {
         ));
     } else {
         Ok(path)
+    }
+}
+
+/// A runtime for metrics and logging.
+#[allow(missing_debug_implementations)]
+pub struct MetricsAndLoggingRuntime {
+    /// The Prometheus registry.
+    pub registry: Registry,
+    _telemetry_guards: TelemetryGuards,
+    _tracing_handle: TracingHandle,
+    /// The runtime for metrics and logging.
+    // INV: Runtime must be dropped last.
+    pub runtime: Runtime,
+}
+
+impl MetricsAndLoggingRuntime {
+    /// Start metrics and log collection in a new runtime
+    pub fn start(mut metrics_address: SocketAddr) -> anyhow::Result<Self> {
+        let runtime = runtime::Builder::new_multi_thread()
+            .thread_name("metrics-runtime")
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .context("metrics runtime creation failed")?;
+        let _guard = runtime.enter();
+
+        metrics_address.set_ip(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
+        let registry_service = mysten_metrics::start_prometheus_server(metrics_address);
+        let walrus_registry = registry_service.default_registry();
+
+        // Initialize logging subscriber
+        let (telemetry_guards, tracing_handle) = telemetry_subscribers::TelemetryConfig::new()
+            .with_env()
+            .with_prom_registry(&walrus_registry)
+            .with_log_level("debug")
+            .init();
+
+        Ok(Self {
+            runtime,
+            registry: walrus_registry,
+            _telemetry_guards: telemetry_guards,
+            _tracing_handle: tracing_handle,
+        })
     }
 }
 

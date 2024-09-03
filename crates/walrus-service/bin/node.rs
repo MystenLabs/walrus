@@ -6,7 +6,7 @@
 use std::{
     fs,
     io::{self, Write},
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::{IpAddr, Ipv4Addr},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -15,7 +15,6 @@ use anyhow::Context;
 use clap::{Parser, Subcommand};
 use fastcrypto::traits::KeyPair;
 use prometheus::Registry;
-use telemetry_subscribers::{TelemetryGuards, TracingHandle};
 use tokio::{
     runtime::{self, Runtime},
     sync::oneshot,
@@ -29,7 +28,7 @@ use walrus_service::{
         server::{UserServer, UserServerConfig},
         StorageNode,
     },
-    utils::{version, LoadConfig as _},
+    utils::{version, LoadConfig as _, MetricsAndLoggingRuntime},
 };
 
 const VERSION: &str = version!();
@@ -149,44 +148,6 @@ mod commands {
         file.write_all(ProtocolKeyPair::generate().to_base64().as_bytes())?;
 
         Ok(())
-    }
-}
-
-struct MetricsAndLoggingRuntime {
-    registry: Registry,
-    _telemetry_guards: TelemetryGuards,
-    _tracing_handle: TracingHandle,
-    // INV: Runtime must be dropped last.
-    runtime: Runtime,
-}
-
-impl MetricsAndLoggingRuntime {
-    fn start(mut metrics_address: SocketAddr) -> anyhow::Result<Self> {
-        let runtime = runtime::Builder::new_multi_thread()
-            .thread_name("metrics-runtime")
-            .worker_threads(2)
-            .enable_all()
-            .build()
-            .context("metrics runtime creation failed")?;
-        let _guard = runtime.enter();
-
-        metrics_address.set_ip(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
-        let registry_service = mysten_metrics::start_prometheus_server(metrics_address);
-        let walrus_registry = registry_service.default_registry();
-
-        // Initialize logging subscriber
-        let (telemetry_guards, tracing_handle) = telemetry_subscribers::TelemetryConfig::new()
-            .with_env()
-            .with_prom_registry(&walrus_registry)
-            .with_log_level("debug")
-            .init();
-
-        Ok(Self {
-            runtime,
-            registry: walrus_registry,
-            _telemetry_guards: telemetry_guards,
-            _tracing_handle: tracing_handle,
-        })
     }
 }
 
