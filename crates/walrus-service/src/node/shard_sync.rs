@@ -104,7 +104,7 @@ impl ShardSyncHandler {
             let shard_index = shard_storage.id();
 
             let backoff = ExponentialBackoff::new_with_seed(
-                // TODO(#704): make these configurable.
+                // TODO(#705): make these configurable.
                 Duration::from_secs(60),
                 Duration::from_secs(600),
                 None,

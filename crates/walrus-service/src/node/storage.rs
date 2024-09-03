@@ -231,18 +231,20 @@ pub struct Storage {
 }
 
 /// A iterator over the blob info table.
-pub struct BlobInfoIter<'a> {
-    iter: Box<dyn Iterator<Item = Result<(BlobId, BlobInfo), TypedStoreError>> + Send + 'a>,
+pub struct BlobInfoIter<I: ?Sized>
+where
+    I: Iterator<Item = Result<(BlobId, BlobInfo), TypedStoreError>> + Send,
+{
+    iter: Box<I>,
     before_epoch: Epoch,
     only_certified: bool,
 }
 
-impl<'a> BlobInfoIter<'a> {
-    pub fn new(
-        iter: Box<dyn Iterator<Item = Result<(BlobId, BlobInfo), TypedStoreError>> + Send + 'a>,
-        before_epoch: Epoch,
-        only_certified: bool,
-    ) -> Self {
+impl<I: ?Sized> BlobInfoIter<I>
+where
+    I: Iterator<Item = Result<(BlobId, BlobInfo), TypedStoreError>> + Send,
+{
+    pub fn new(iter: Box<I>, before_epoch: Epoch, only_certified: bool) -> Self {
         Self {
             iter,
             before_epoch,
@@ -251,7 +253,10 @@ impl<'a> BlobInfoIter<'a> {
     }
 }
 
-impl Debug for BlobInfoIter<'_> {
+impl<I: ?Sized> Debug for BlobInfoIter<I>
+where
+    I: Iterator<Item = Result<(BlobId, BlobInfo), TypedStoreError>> + Send,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BlobInfoIter")
             .field("before_epoch", &self.before_epoch)
@@ -260,7 +265,10 @@ impl Debug for BlobInfoIter<'_> {
     }
 }
 
-impl Iterator for BlobInfoIter<'_> {
+impl<I: ?Sized> Iterator for BlobInfoIter<I>
+where
+    I: Iterator<Item = Result<(BlobId, BlobInfo), TypedStoreError>> + Send,
+{
     type Item = Result<(BlobId, BlobInfo), TypedStoreError>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -283,6 +291,9 @@ impl Iterator for BlobInfoIter<'_> {
         item
     }
 }
+
+pub type BlobInfoIterator<'a> =
+    BlobInfoIter<dyn Iterator<Item = Result<(BlobId, BlobInfo), TypedStoreError>> + Send + 'a>;
 
 impl Storage {
     const METADATA_COLUMN_FAMILY_NAME: &'static str = "metadata";
@@ -422,7 +433,7 @@ impl Storage {
         &self,
         before_epoch: Epoch,
         last_synced_blob_id: Option<BlobId>,
-    ) -> BlobInfoIter {
+    ) -> BlobInfoIterator {
         BlobInfoIter::new(
             Box::new(match last_synced_blob_id {
                 Some(starting_blob_id) => self

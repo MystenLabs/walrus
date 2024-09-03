@@ -1497,10 +1497,11 @@ mod tests {
         Ok((cluster, events, details))
     }
 
-    // Creates a test cluster with custom initial epoch and blobs that are partially stored
-    // in shard 0.
-    // The function is created for testing shard syncing/recovery. So for blobs that are
-    // not stored in shard 0, it also won't receive a certified event.
+    /// Creates a test cluster with custom initial epoch and blobs that are partially stored
+    /// in shard 0.
+    ///
+    /// The function is created for testing shard syncing/recovery. So for blobs that are
+    /// not stored in shard 0, it also won't receive a certified event.
     async fn cluster_with_partially_stored_blobs_in_shard_0<'a, F>(
         assignment: &[&[u16]],
         blobs: &[&'a [u8]],
