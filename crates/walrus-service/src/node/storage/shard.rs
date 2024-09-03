@@ -771,15 +771,14 @@ impl ShardStorage {
             self.id
         );
 
-        let metadata = node.storage.get_metadata(&blob_id)?;
-        if metadata.is_none() {
+        let Some(metadata) = node.storage.get_metadata(&blob_id)? else {
             tracing::warn!(
                 "blob {} is missing in the metadata table. For certified blob, Blob sync task should
                 recover the metadata. Skip recovering it for now.",
                 blob_id
             );
             return Ok(());
-        }
+        };
 
         let sliver_id = self
             .id
@@ -789,7 +788,7 @@ impl ShardStorage {
             SliverType::Primary => {
                 recover_sliver::<Primary>(
                     node.committee_service.as_ref(),
-                    &metadata.unwrap(),
+                    &metadata,
                     sliver_id,
                     &node.encoding_config,
                 )
@@ -798,7 +797,7 @@ impl ShardStorage {
             SliverType::Secondary => {
                 recover_sliver::<Secondary>(
                     node.committee_service.as_ref(),
-                    &metadata.unwrap(),
+                    &metadata,
                     sliver_id,
                     &node.encoding_config,
                 )
@@ -930,8 +929,12 @@ fn inject_failure(scan_count: u64, sliver_type: SliverType) -> Result<(), anyhow
     fail::fail_point!("fail_point_fetch_sliver", |arg| {
         if let Some(arg) = arg {
             let parts: Vec<&str> = arg.split(',').collect();
-            let trigger_in_primary = parts[0].parse::<bool>().unwrap();
-            let trigger_at = parts[1].parse::<u64>().unwrap();
+            let trigger_in_primary = parts[0]
+                .parse::<bool>()
+                .expect("we assume that our triggers have the correct format");
+            let trigger_at = parts[1]
+                .parse::<u64>()
+                .expect("we assume that our triggers have the correct format");
             tracing::info!(
                 fail_point = "fail_point_fetch_sliver",
                 arg = ?arg,

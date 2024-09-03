@@ -252,17 +252,24 @@ impl StorageNodeBuilder {
         let protocol_key_pair = config
             .protocol_key_pair
             .get()
-            .expect("protocol keypair must already be loaded")
+            .expect("protocol key pair must already be loaded")
             .clone();
+
         let sui_config_and_client =
             if self.event_provider.is_none() || self.committee_service_factory.is_none() {
-                Some(create_read_client(config).await?)
+                let sui_config = config.sui.as_ref().expect(
+                    "either a Sui config or an event provider and committee service \
+                            factory must be specified",
+                );
+                Some((create_read_client(sui_config).await?, sui_config))
             } else {
                 None
             };
 
         let event_provider = self.event_provider.unwrap_or_else(|| {
-            let (read_client, sui_config) = sui_config_and_client.as_ref().unwrap();
+            let (read_client, sui_config) = sui_config_and_client
+                .as_ref()
+                .expect("this is always created if self.event_provider.is_none()");
             Box::new(SuiSystemEventProvider::new(
                 read_client.clone(),
                 sui_config.event_polling_interval,
@@ -272,7 +279,7 @@ impl StorageNodeBuilder {
         let contract_service = match self.contract_service {
             None => Box::new(
                 SuiSystemContractService::from_config(
-                    config.sui.as_ref().expect("sui config to be provided"),
+                    config.sui.as_ref().expect("Sui config must be provided"),
                 )
                 .await?,
             ),
@@ -280,7 +287,8 @@ impl StorageNodeBuilder {
         };
 
         let committee_service_factory = self.committee_service_factory.unwrap_or_else(|| {
-            let (read_client, _) = sui_config_and_client.unwrap();
+            let (read_client, _) = sui_config_and_client
+                .expect("this is always created if self.committee_service_factory.is_none()");
             Box::new(SuiCommitteeServiceFactory::new(
                 read_client,
                 config.blob_recovery.committee_service_config.clone(),
@@ -300,19 +308,14 @@ impl StorageNodeBuilder {
     }
 }
 
-async fn create_read_client(
-    config: &StorageNodeConfig,
-) -> Result<(SuiReadClient, &SuiConfig), anyhow::Error> {
-    let sui_config @ SuiConfig {
+async fn create_read_client(sui_config: &SuiConfig) -> Result<SuiReadClient, anyhow::Error> {
+    let SuiConfig {
         rpc, system_object, ..
-    } = config
-        .sui
-        .as_ref()
-        .expect("either a sui config or event provider must be specified");
+    } = sui_config;
 
     let client = SuiReadClient::new_for_rpc(&rpc, *system_object).await?;
 
-    Ok((client, sui_config))
+    Ok(client)
 }
 
 /// A Walrus storage node, responsible for 1 or more shards on Walrus.
@@ -429,7 +432,7 @@ impl StorageNode {
     }
 
     /// Returns the shards currently owned by the storage node.
-    pub fn shards(&self) -> Vec<ShardIndex> {
+    pub fn shards(&self) -> impl ExactSizeIterator<Item = ShardIndex> + '_ {
         self.inner.storage.shards()
     }
 

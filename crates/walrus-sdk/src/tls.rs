@@ -92,11 +92,11 @@ pub fn create_unsigned_certificate(
     let certificate = X509Certificate {
         tbs_certificate,
         signature_algorithm,
-        signature: BitString::from_bytes(&[]).unwrap(),
+        signature: BitString::from_bytes(&[]).expect("an empty bit string can always be created"),
     };
     let der = certificate
         .to_der()
-        .expect("self signed certificate is der-encodable");
+        .expect("self-signed certificate is DER-encodable");
     CertificateDer::from(der)
 }
 

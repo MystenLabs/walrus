@@ -41,14 +41,14 @@ impl ClientMetrics {
                 "Duration of the benchmark",
                 registry,
             )
-            .unwrap(),
+            .expect("this is a valid metrics registration"),
             submitted: register_counter_vec_with_registry!(
                 "submitted",
                 "Number of submitted transactions",
                 &["workload"],
                 registry,
             )
-            .unwrap(),
+            .expect("this is a valid metrics registration"),
             latency_s: register_histogram_vec_with_registry!(
                 "latency_s",
                 "Total time in seconds to to achieve finality",
@@ -56,27 +56,27 @@ impl ClientMetrics {
                 LATENCY_SEC_BUCKETS.to_vec(),
                 registry,
             )
-            .unwrap(),
+            .expect("this is a valid metrics registration"),
             latency_squared_s: register_counter_vec_with_registry!(
                 "latency_squared_s",
                 "Square of total time in seconds to achieve finality",
                 &["workload"],
                 registry,
             )
-            .unwrap(),
+            .expect("this is a valid metrics registration"),
             errors: register_counter_vec_with_registry!(
                 "errors",
                 "Reports various errors",
                 &["type"],
                 registry,
             )
-            .unwrap(),
+            .expect("this is a valid metrics registration"),
             gas_refill: register_int_counter_with_registry!(
                 "gas_refill",
                 "Number of gas refills",
                 registry,
             )
-            .unwrap(),
+            .expect("this is a valid metrics registration"),
         }
     }
 

@@ -83,7 +83,11 @@ pub(crate) struct ObjectIdSchema(String);
 #[derive(Debug, Serialize, Clone, Copy)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum ApiSuccess<T> {
-    Success { code: u16, data: T },
+    Success {
+        /// INV: This is a valid status code.
+        code: u16,
+        data: T,
+    },
 }
 
 impl<T> ApiSuccess<T> {
@@ -127,7 +131,11 @@ impl<'s, T: ToSchema<'s>> PartialSchema for ApiSuccess<T> {
 impl<T: Serialize> IntoResponse for ApiSuccess<T> {
     fn into_response(self) -> Response {
         let Self::Success { ref code, .. } = self;
-        (StatusCode::from_u16(*code).unwrap(), Json(self)).into_response()
+        (
+            StatusCode::from_u16(*code).expect("this is guaranteed to be a valid status code"),
+            Json(self),
+        )
+            .into_response()
     }
 }
 
@@ -162,6 +170,7 @@ macro_rules! api_success_alias {
 #[serde(rename_all = "camelCase")]
 pub(crate) enum RestApiJsonError<'a> {
     Error {
+        /// INV: This is a valid status code.
         code: u16,
         message: &'a str,
         #[serde(flatten)]
@@ -183,7 +192,11 @@ impl<'a> RestApiJsonError<'a> {
 impl IntoResponse for RestApiJsonError<'_> {
     fn into_response(self) -> Response {
         let Self::Error { ref code, .. } = self;
-        (StatusCode::from_u16(*code).unwrap(), Json(self)).into_response()
+        (
+            StatusCode::from_u16(*code).expect("this is guaranteed to be a valid status code"),
+            Json(self),
+        )
+            .into_response()
     }
 }
 
@@ -319,7 +332,7 @@ where
 /// Convert the path with variables of the form `:id` to the form `{id}`.
 pub(crate) fn rewrite_route(path: &str) -> String {
     regex::Regex::new(r":(?<param>\w+)")
-        .unwrap()
+        .expect("this is a valid regex")
         .replace_all(path, "{$param}")
         .as_ref()
         .into()

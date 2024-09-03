@@ -33,10 +33,12 @@ pub(super) use with_label;
 
 macro_rules! create_metric {
     ($metric_type:ty, $registry:ident, $opts:expr) => {{
-        <$metric_type>::with_opts($opts).unwrap()
+        <$metric_type>::with_opts($opts)
+            .expect("this must be called with valid metrics type and options")
     }};
     ($metric_type:ty, $registry:ident, $opts:expr, $label_names:expr) => {{
-        <$metric_type>::new($opts.into(), $label_names).unwrap()
+        <$metric_type>::new($opts.into(), $label_names)
+            .expect("this must be called with valid metrics type, options, and labels")
     }};
 }
 

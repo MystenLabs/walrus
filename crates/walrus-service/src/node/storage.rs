@@ -394,8 +394,13 @@ impl Storage {
     }
 
     /// Returns the indices of the shards managed by the storage.
-    pub fn shards(&self) -> Vec<ShardIndex> {
-        self.shards.keys().copied().collect()
+    pub fn shards(&self) -> impl ExactSizeIterator<Item = ShardIndex> + '_ {
+        self.shards.keys().copied()
+    }
+
+    /// Returns an iterator over the shard storages managed by the storage.
+    pub fn shard_storages(&self) -> impl ExactSizeIterator<Item = &Arc<ShardStorage>> {
+        self.shards.values()
     }
 
     /// Returns a handle over the storage for a single shard.

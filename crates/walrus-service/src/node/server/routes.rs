@@ -8,14 +8,12 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use fastcrypto::traits::EncodeDecodeBase64;
 use tracing::Level;
 use walrus_core::{
     encoding::{Primary as PrimaryEncoding, Secondary as SecondaryEncoding},
     messages::{InvalidBlobIdAttestation, SignedSyncShardRequest, StorageConfirmation},
     metadata::{BlobMetadata, UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
     InconsistencyProof,
-    PublicKey,
     RecoverySymbol,
     Sliver,
     SliverPairIndex,
@@ -453,9 +451,8 @@ pub async fn health_info<S: SyncServiceState>(
 )]
 pub async fn sync_shard<S: SyncServiceState>(
     State(state): State<Arc<S>>,
-    Authorization(base64_public_key): Authorization,
+    Authorization(public_key): Authorization,
     Bcs(signed_request): Bcs<SignedSyncShardRequest>,
 ) -> Result<Response, OrRejection<SyncShardServiceError>> {
-    let public_key = PublicKey::decode_base64(&base64_public_key).unwrap();
     Ok(Bcs(state.sync_shard(public_key, signed_request)?).into_response())
 }

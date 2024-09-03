@@ -23,7 +23,7 @@ pub fn server_name_from_public_key(public_key: &NetworkPublicKey) -> String {
 
     let mut server_name = String::new();
     for byte in public_key_bytes.iter().take(N_PUBLIC_KEY_BYTES_IN_SUBJECT) {
-        write!(&mut server_name, "{:x}", byte).unwrap();
+        write!(&mut server_name, "{byte:x}").expect("write on a string always succeeds");
     }
     server_name.push_str(".network.walrus.alt");
     server_name

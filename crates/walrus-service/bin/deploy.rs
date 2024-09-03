@@ -60,10 +60,10 @@ struct DeploySystemContractArgs {
     #[arg(long, default_value_t = 500_000_000)]
     gas_budget: u64,
     /// The total number of shards. The shards are distributed evenly among the storage nodes.
-    // Todo: accept non-even shard distributions #377
+    // TODO: accept non-even shard distributions #377
     #[arg(long, default_value_t = 1000)]
     n_shards: u16,
-    /// The list of hostnames or public ip addresses of the storage nodes.
+    /// The list of host names or public IP addresses of the storage nodes.
     #[clap(long, value_name = "ADDR", value_delimiter = ' ', num_args(4..))]
     host_addresses: Vec<String>,
     /// The port on which the REST API of the storage nodes will listen.
@@ -95,7 +95,7 @@ struct GenerateDryRunConfigsArgs {
     /// [default: <WORKING_DIR>/testbed_config.yaml]
     #[clap(long)]
     testbed_config_path: Option<PathBuf>,
-    /// The list of listening ip addresses of the storage nodes.
+    /// The list of listening IP addresses of the storage nodes.
     /// If not set, defaults to the addresses or (resolved) host names set in the testbed config.
     #[clap(long, value_name = "ADDR", value_delimiter = ' ', num_args(..))]
     listening_ips: Option<Vec<IpAddr>>,
@@ -175,7 +175,8 @@ mod commands {
 
         // Deploy the system contract.
         let number_of_shards = NonZeroU16::new(n_shards).context("number of shards must be > 0")?;
-        let committee_size = NonZeroU16::new(host_addresses.len() as u16).unwrap();
+        let committee_size = NonZeroU16::new(host_addresses.len() as u16)
+            .expect("the argument specification ensures that the length is at least 4");
         let shards_information = even_shards_allocation(number_of_shards, committee_size);
 
         let testbed_config = deploy_walrus_contract(DeployTestbedContractParameters {

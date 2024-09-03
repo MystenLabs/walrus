@@ -70,35 +70,78 @@ const SYNC_SHARD_TEMPLATE: &str = "/v1/migrate/sync_shard";
 struct UrlEndpoints(Url);
 
 impl UrlEndpoints {
-    fn blob_resource(&self, blob_id: &BlobId) -> Url {
-        self.0.join(&format!("/v1/blobs/{blob_id}/")).unwrap()
+    /// Constructs a URL for the given `blob_id` and a subpath.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the result is not a valid URL.
+    fn blob_resource(&self, blob_id: &BlobId, subpath: &str) -> Url {
+        self.0
+            .join(&format!("/v1/blobs/{blob_id}/{subpath}"))
+            .expect("this should be a valid URL")
     }
 
     fn metadata(&self, blob_id: &BlobId) -> (Url, &'static str) {
         (
-            self.blob_resource(blob_id).join("metadata").unwrap(),
+            self.blob_resource(blob_id, "metadata"),
             METADATA_URL_TEMPLATE,
         )
     }
 
     fn metadata_status(&self, blob_id: &BlobId) -> (Url, &'static str) {
         (
-            self.blob_resource(blob_id).join("metadata/status").unwrap(),
+            self.blob_resource(blob_id, "metadata/status"),
             METADATA_STATUS_URL_TEMPLATE,
         )
     }
 
     fn confirmation(&self, blob_id: &BlobId) -> (Url, &'static str) {
         (
-            self.blob_resource(blob_id).join("confirmation").unwrap(),
+            self.blob_resource(blob_id, "confirmation"),
             STORAGE_CONFIRMATION_URL_TEMPLATE,
         )
     }
 
     fn blob_status(&self, blob_id: &BlobId) -> (Url, &'static str) {
         (
-            self.blob_resource(blob_id).join("status").unwrap(),
+            self.blob_resource(blob_id, "status"),
             BLOB_STATUS_URL_TEMPLATE,
+        )
+    }
+
+    fn sliver_path<A: EncodingAxis>(
+        &self,
+        blob_id: &BlobId,
+        SliverPairIndex(sliver_pair_index): SliverPairIndex,
+        subpath: Option<&str>,
+    ) -> Url {
+        let sliver_type = SliverType::for_encoding::<A>();
+        let mut blob_subpath = format!("slivers/{sliver_pair_index}/{sliver_type}");
+        if let Some(subpath) = subpath {
+            blob_subpath = blob_subpath + "/" + subpath;
+        }
+        self.blob_resource(blob_id, &blob_subpath)
+    }
+
+    fn sliver<A: EncodingAxis>(
+        &self,
+        blob_id: &BlobId,
+        sliver_pair_index: SliverPairIndex,
+    ) -> (Url, &'static str) {
+        (
+            self.sliver_path::<A>(blob_id, sliver_pair_index, None),
+            SLIVER_URL_TEMPLATE,
+        )
+    }
+
+    fn sliver_status<A: EncodingAxis>(
+        &self,
+        blob_id: &BlobId,
+        sliver_pair_index: SliverPairIndex,
+    ) -> (Url, &'static str) {
+        (
+            self.sliver_path::<A>(blob_id, sliver_pair_index, Some("status")),
+            SLIVER_STATUS_TEMPLATE,
         )
     }
 
@@ -108,55 +151,36 @@ impl UrlEndpoints {
         sliver_pair_at_remote: SliverPairIndex,
         intersecting_pair_index: SliverPairIndex,
     ) -> (Url, &'static str) {
-        let (mut url, _) = self.sliver::<A>(blob_id, sliver_pair_at_remote);
-        url.path_segments_mut()
-            .unwrap()
-            .push(&intersecting_pair_index.0.to_string());
-        (url, RECOVERY_URL_TEMPLATE)
-    }
-
-    fn sliver<A: EncodingAxis>(
-        &self,
-        blob_id: &BlobId,
-        SliverPairIndex(sliver_pair_index): SliverPairIndex,
-    ) -> (Url, &'static str) {
-        let sliver_type = SliverType::for_encoding::<A>();
-        let path = format!("slivers/{sliver_pair_index}/{sliver_type}");
         (
-            self.blob_resource(blob_id).join(&path).unwrap(),
-            SLIVER_URL_TEMPLATE,
-        )
-    }
-
-    fn sliver_status<A: EncodingAxis>(
-        &self,
-        blob_id: &BlobId,
-        SliverPairIndex(sliver_pair_index): SliverPairIndex,
-    ) -> (Url, &'static str) {
-        let sliver_type = SliverType::for_encoding::<A>();
-        let path = format!("slivers/{sliver_pair_index}/{sliver_type}/status");
-        (
-            self.blob_resource(blob_id).join(&path).unwrap(),
-            SLIVER_STATUS_TEMPLATE,
+            self.sliver_path::<A>(
+                blob_id,
+                sliver_pair_at_remote,
+                Some(&intersecting_pair_index.0.to_string()),
+            ),
+            RECOVERY_URL_TEMPLATE,
         )
     }
 
     fn inconsistency_proof<A: EncodingAxis>(&self, blob_id: &BlobId) -> (Url, &'static str) {
         let sliver_type = SliverType::for_encoding::<A>();
-        let path = format!("inconsistent/{sliver_type}");
         (
-            self.blob_resource(blob_id).join(&path).unwrap(),
+            self.blob_resource(blob_id, &format!("inconsistent/{sliver_type}")),
             INCONSISTENCY_PROOF_URL_TEMPLATE,
         )
     }
 
     fn server_health_info(&self) -> (Url, &'static str) {
-        (self.0.join("/v1/health").unwrap(), HEALTH_URL_TEMPLATE)
+        (
+            self.0.join("/v1/health").expect("this is a valid URL"),
+            HEALTH_URL_TEMPLATE,
+        )
     }
 
     fn sync_shard(&self) -> (Url, &'static str) {
         (
-            self.0.join("/v1/migrate/sync_shard").unwrap(),
+            self.0
+                .join("/v1/migrate/sync_shard")
+                .expect("this is a valid URL"),
             SYNC_SHARD_TEMPLATE,
         )
     }
@@ -875,7 +899,7 @@ mod tests {
 
     param_test! {
         test_blob_url_endpoint: [
-            blob: (|e| e.blob_resource(&BLOB_ID), ""),
+            blob: (|e| e.blob_resource(&BLOB_ID, ""), ""),
             metadata: (|e| e.metadata(&BLOB_ID).0, "metadata"),
             confirmation: (|e| e.confirmation(&BLOB_ID).0, "confirmation"),
             sliver: (|e| e.sliver::<Primary>(&BLOB_ID, SliverPairIndex(1)).0, "slivers/1/primary"),
@@ -907,5 +931,13 @@ mod tests {
         let (url, _) = endpoints.server_health_info();
 
         assert_eq!(url.to_string(), "https://node.com/v1/health");
+    }
+
+    #[test]
+    fn test_url_shard_sync_endpoint() {
+        let endpoints = UrlEndpoints(Url::parse("https://node.com").unwrap());
+        let (url, _) = endpoints.sync_shard();
+
+        assert_eq!(url.to_string(), "https://node.com/v1/migrate/sync_shard");
     }
 }

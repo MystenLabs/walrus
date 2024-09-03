@@ -259,7 +259,7 @@ impl CheckpointProcessor {
                             })?;
                     }
                 }
-                let tx_events = tx.events.unwrap();
+                let tx_events = tx.events.unwrap_or_default();
                 for (seq, tx_event) in tx_events
                     .data
                     .into_iter()

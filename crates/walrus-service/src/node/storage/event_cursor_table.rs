@@ -127,5 +127,5 @@ fn update_cursor_and_progress(
         current_val = Some((updated_progress, cursor));
     }
 
-    current_val.map(|value| bcs::to_bytes(&value).unwrap())
+    current_val.map(|value| bcs::to_bytes(&value).expect("this can be BCS-encoded"))
 }

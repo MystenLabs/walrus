@@ -8,8 +8,10 @@ use axum::{
     http::{header, request::Parts, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
 };
+use fastcrypto::traits::EncodeDecodeBase64 as _;
 use reqwest::header::AUTHORIZATION;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use walrus_core::PublicKey;
 use walrus_sdk::error::ServiceError;
 
 use crate::common::api::{RestApiError, RestApiJsonError};
@@ -126,7 +128,7 @@ where
                     StatusCode::INTERNAL_SERVER_ERROR,
                     StatusCode::INTERNAL_SERVER_ERROR
                         .canonical_reason()
-                        .unwrap(),
+                        .expect("this definitely has a canonical reason"),
                     None,
                 )
                 .into_response()
@@ -135,10 +137,10 @@ where
     }
 }
 
-// The following code is used to extract the Authorization header from a request.
-#[derive(Debug, Clone, Default, Deserialize)]
+// The following code is used to extract the public key in the Authorization header from a request.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[must_use]
-pub struct Authorization(pub String);
+pub struct Authorization(pub PublicKey);
 
 #[async_trait]
 impl<S> FromRequestParts<S> for Authorization
@@ -146,18 +148,20 @@ where
     S: Send + Sync,
 {
     type Rejection = (StatusCode, &'static str);
+
     async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, Self::Rejection> {
-        let auth_header = parts.headers.get(AUTHORIZATION);
+        const INVALID_AUTH_ERROR: (StatusCode, &str) =
+            (StatusCode::BAD_REQUEST, "Invalid Authorization header");
 
-        if auth_header.is_none() {
-            return Err((StatusCode::UNAUTHORIZED, "Missing Authorization header"));
-        }
+        let auth_header = parts
+            .headers
+            .get(AUTHORIZATION)
+            .ok_or((StatusCode::UNAUTHORIZED, "Missing Authorization header"))?;
 
-        let key_bytes = auth_header.unwrap().to_str();
-        if key_bytes.is_err() {
-            return Err((StatusCode::BAD_REQUEST, "Invalid Authorization header"));
-        }
+        let key_bytes = auth_header.to_str().map_err(|_| INVALID_AUTH_ERROR)?;
 
-        Ok(Authorization(key_bytes.unwrap().to_string()))
+        Ok(Authorization(
+            PublicKey::decode_base64(key_bytes).map_err(|_| INVALID_AUTH_ERROR)?,
+        ))
     }
 }

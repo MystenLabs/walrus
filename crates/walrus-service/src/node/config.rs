@@ -328,7 +328,9 @@ impl<T: SupportedKeyPair> PathOrInPlace<TaggedKeyPair<T>> {
                 .map_err(|err: KeyPairParseError| anyhow::anyhow!(err.to_string()))?;
             *value = Some(decoded)
         };
-        Ok(self.get().unwrap())
+        Ok(self
+            .get()
+            .expect("we just made sure that the value is some"))
     }
 }
 

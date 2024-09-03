@@ -289,8 +289,7 @@ impl BlobSynchronizer {
         let mut sliver_sync_futures: FuturesUnordered<_> = self
             .storage()
             .shards()
-            .iter()
-            .flat_map(|&shard| {
+            .flat_map(|shard| {
                 [
                     Either::Left(
                         self.recover_sliver::<Primary>(shard, &metadata)

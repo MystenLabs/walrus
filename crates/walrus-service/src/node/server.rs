@@ -82,7 +82,7 @@ impl From<&StorageNodeConfig> for UserServerConfig {
 
             Some(TlsCertificateSource::GenerateSelfSigned {
                 server_name,
-                network_key_pair: config.network_key_pair.get().cloned().unwrap(),
+                network_key_pair: config.network_key_pair().clone(),
             })
         };
 
@@ -288,7 +288,11 @@ where
             }
         };
         // Returns only once bind has been completed
-        let _ = handle.as_ref().unwrap().listening().await;
+        let _ = handle
+            .as_ref()
+            .expect("we only break if the handle is some")
+            .listening()
+            .await;
     }
 
     fn define_routes(&self) -> Router<Arc<S>> {

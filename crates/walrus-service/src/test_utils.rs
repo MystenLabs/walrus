@@ -606,7 +606,7 @@ impl TestCluster {
                 network_address: node.rest_api_address.into(),
                 public_key: node.public_key.clone(),
                 network_public_key: node.network_public_key.clone(),
-                shard_ids: node.storage_node.shards(),
+                shard_ids: node.storage_node.shards().collect(),
             })
             .collect();
         Committee::new(members, 0)
