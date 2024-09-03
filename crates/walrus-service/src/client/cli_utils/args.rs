@@ -10,22 +10,21 @@ use clap::{Args, Parser, Subcommand};
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
 use walrus_core::{encoding::EncodingConfig, BlobId};
-use walrus_service::client::cli_utils::{
-    parse_blob_id,
-    read_blob_from_file,
-    BlobIdDecimal,
-    HumanReadableBytes,
-};
 
-pub(crate) const VERSION: &str = walrus_service::utils::version!();
+use super::{parse_blob_id, read_blob_from_file, BlobIdDecimal, HumanReadableBytes};
 
+/// The version of the Walrus client.
+pub const VERSION: &str = crate::utils::version!();
+
+/// The command-line arguments for the Walrus client.
 #[derive(Parser, Debug, Clone, Deserialize)]
 #[command(author, version, about = "Walrus client", long_about = None)]
-#[clap(name = env!("CARGO_BIN_NAME"))]
+// TODO(giac): how to still have this without being in /bin?
+// #[clap(name = env!("CARGO_BIN_NAME"))]
 #[clap(version = VERSION)]
 #[clap(rename_all = "kebab-case")]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct App {
+pub struct App {
     /// The path to the Walrus configuration file.
     ///
     /// If a path is specified through this option, the CLI attempts to read the specified file and
@@ -38,12 +37,9 @@ pub(crate) struct App {
     /// 2. If the environment variable `XDG_CONFIG_HOME` is set, in `$XDG_CONFIG_HOME/walrus/`.
     /// 3. In `~/.config/walrus/`.
     /// 4. In `~/.walrus/`.
-    // NB: Keep this in sync with `walrus_service::cli_utils`.
+    // NB: Keep this in sync with `crate::cli_utils`.
     #[clap(short, long, verbatim_doc_comment)]
-    #[serde(
-        default,
-        deserialize_with = "walrus_service::utils::resolve_home_dir_option"
-    )]
+    #[serde(default, deserialize_with = "crate::utils::resolve_home_dir_option")]
     pub(crate) config: Option<PathBuf>,
     /// The path to the Sui wallet configuration file.
     ///
@@ -56,12 +52,9 @@ pub(crate) struct App {
     ///
     /// If an invalid path is specified through this option or in the configuration file, an error
     /// is returned.
-    // NB: Keep this in sync with `walrus_service::cli_utils`.
+    // NB: Keep this in sync with `crate::cli_utils`.
     #[clap(short, long, verbatim_doc_comment)]
-    #[serde(
-        default,
-        deserialize_with = "walrus_service::utils::resolve_home_dir_option"
-    )]
+    #[serde(default, deserialize_with = "crate::utils::resolve_home_dir_option")]
     pub(crate) wallet: Option<PathBuf>,
     /// The gas budget for transactions.
     #[clap(short, long, default_value_t = default::gas_budget())]
@@ -77,6 +70,45 @@ pub(crate) struct App {
     pub(crate) command: Commands,
 }
 
+impl App {
+    /// Checks if the command has been supplied in JSON mode, and extracts the underlying command.
+    pub fn extract_json_command(&mut self) -> Result<()> {
+        while let Commands::Json { command_string } = &self.command {
+            tracing::info!("running in JSON mode");
+            let command_string = match command_string {
+                Some(s) => s,
+                None => {
+                    tracing::debug!("reading JSON input from stdin");
+                    &std::io::read_to_string(std::io::stdin())?
+                }
+            };
+            tracing::debug!(
+                command = command_string.replace('\n', ""),
+                "running JSON command"
+            );
+            let new_self = serde_json::from_str(command_string)?;
+            let _ = std::mem::replace(self, new_self);
+            self.json = true;
+        }
+        Ok(())
+    }
+
+    /// Checks if the command is to spawn a daemon.
+    pub fn is_daemon_command(&self) -> bool {
+        self.command.is_daemon_command()
+    }
+
+    /// Gets the metrics address from the commands that support it.
+    pub fn get_metrics_address(&self) -> Option<SocketAddr> {
+        match &self.command {
+            Commands::Publisher { args } => Some(args.daemon_args.metrics_address),
+            Commands::Aggregator { daemon_args, .. } => Some(daemon_args.metrics_address),
+            Commands::Daemon { args } => Some(args.daemon_args.metrics_address),
+            _ => None,
+        }
+    }
+}
+
 #[serde_as]
 #[derive(Subcommand, Debug, Clone, Deserialize)]
 #[clap(rename_all = "kebab-case")]
@@ -86,7 +118,7 @@ pub(crate) enum Commands {
     #[clap(alias("write"))]
     Store {
         /// The file containing the blob to be published to Walrus.
-        #[serde(deserialize_with = "walrus_service::utils::resolve_home_dir")]
+        #[serde(deserialize_with = "crate::utils::resolve_home_dir")]
         file: PathBuf,
         /// The number of epochs ahead for which to store the blob.
         #[clap(short, long, default_value_t = default::epochs())]
@@ -116,10 +148,7 @@ pub(crate) enum Commands {
         ///
         /// If unset, prints the blob to stdout.
         #[clap(short, long)]
-        #[serde(
-            default,
-            deserialize_with = "walrus_service::utils::resolve_home_dir_option"
-        )]
+        #[serde(default, deserialize_with = "crate::utils::resolve_home_dir_option")]
         out: Option<PathBuf>,
         #[clap(flatten)]
         #[serde(flatten)]
@@ -215,7 +244,7 @@ pub(crate) enum Commands {
     /// Encode the specified file to obtain its blob ID.
     BlobId {
         /// The file containing the blob for which to compute the blob ID.
-        #[serde(deserialize_with = "walrus_service::utils::resolve_home_dir")]
+        #[serde(deserialize_with = "crate::utils::resolve_home_dir")]
         file: PathBuf,
         /// The number of shards for which to compute the blob ID.
         ///
@@ -240,6 +269,16 @@ pub(crate) enum Commands {
         /// The output list of blobs will include expired blobs.
         include_expired: bool,
     },
+}
+
+impl Commands {
+    /// Checks if the command is to spawn a daemon.
+    pub fn is_daemon_command(&self) -> bool {
+        matches!(
+            self,
+            Commands::Publisher { .. } | Commands::Aggregator { .. } | Commands::Daemon { .. }
+        )
+    }
 }
 
 #[derive(Debug, Clone, Args, Deserialize)]
@@ -286,7 +325,7 @@ pub(crate) struct RpcArg {
     ///
     /// If unset, the wallet configuration is applied (if set), or the fullnode at
     /// `fullnode.testnet.sui.io:443` is used.
-    // NB: Keep this in sync with `walrus_service::cli_utils`.
+    // NB: Keep this in sync with `crate::cli_utils`.
     #[clap(short, long)]
     #[serde(default)]
     pub(crate) rpc_url: Option<String>,
@@ -305,10 +344,7 @@ pub(crate) struct DaemonArgs {
     pub(crate) metrics_address: SocketAddr,
     /// Path to a blocklist file containing a list (in YAML syntax) of blocked blob IDs.
     #[clap(long)]
-    #[serde(
-        default,
-        deserialize_with = "walrus_service::utils::resolve_home_dir_option"
-    )]
+    #[serde(default, deserialize_with = "crate::utils::resolve_home_dir_option")]
     pub(crate) blocklist: Option<PathBuf>,
 }
 

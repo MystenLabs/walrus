@@ -59,7 +59,7 @@ macro_rules! version {
             }
         };
 
-        /// The version consisting of the package version and Git revision.
+        // The version consisting of the package version and Git revision.
         walrus_core::concat_const_str!(env!("CARGO_PKG_VERSION"), "-", GIT_REVISION)
     }};
 }
