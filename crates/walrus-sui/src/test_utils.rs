@@ -3,7 +3,6 @@
 
 //! Test utilities for `walrus-sui`.
 
-mod mock_clients;
 pub mod system_setup;
 
 #[cfg(not(msim))]
@@ -14,7 +13,6 @@ use fastcrypto::{
     bls12381::min_pk::{BLS12381AggregateSignature, BLS12381PrivateKey},
     traits::{Signer, ToFromBytes},
 };
-pub use mock_clients::{MockContractClient, MockSuiReadClient};
 #[cfg(msim)]
 use sui_config::local_ip_utils;
 use sui_sdk::{sui_client_config::SuiEnv, wallet_context::WalletContext};
