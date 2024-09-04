@@ -164,6 +164,36 @@ impl DatabaseTableOptions {
         if let Some(max_bytes_for_level_base) = self.max_bytes_for_level_base {
             options.set_max_bytes_for_level_base(max_bytes_for_level_base);
         }
+
+        options
+    }
+}
+
+/// RocksDB options applied to the overall database.
+#[serde_with::serde_as]
+#[skip_serializing_none]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct GlobalDatabaseOptions {
+    /// The maximum number of open files
+    pub max_open_files: Option<i32>,
+}
+
+impl Default for GlobalDatabaseOptions {
+    fn default() -> Self {
+        Self {
+            max_open_files: Some(512_000),
+        }
+    }
+}
+
+impl From<&GlobalDatabaseOptions> for Options {
+    fn from(value: &GlobalDatabaseOptions) -> Self {
+        let mut options = Options::default();
+
+        if let Some(max_files) = value.max_open_files {
+            options.set_max_open_files(max_files);
+        }
+
         options
     }
 }
@@ -172,6 +202,7 @@ impl DatabaseTableOptions {
 #[serde_with::serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DatabaseConfig {
+    global: GlobalDatabaseOptions,
     metadata: DatabaseTableOptions,
     blob_info: DatabaseTableOptions,
     event_cursor: DatabaseTableOptions,
@@ -194,6 +225,7 @@ impl DatabaseConfig {
 impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {
+            global: GlobalDatabaseOptions::default(),
             metadata: DatabaseTableOptions::optimized_for_blobs(),
             blob_info: DatabaseTableOptions::default(),
             event_cursor: DatabaseTableOptions::default(),
@@ -227,7 +259,7 @@ impl Storage {
         db_config: DatabaseConfig,
         metrics_config: MetricConf,
     ) -> Result<Self, anyhow::Error> {
-        let mut db_opts = Options::default();
+        let mut db_opts = Options::from(&db_config.global);
         db_opts.create_missing_column_families(true);
         db_opts.create_if_missing(true);
 
