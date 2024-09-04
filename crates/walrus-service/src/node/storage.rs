@@ -314,14 +314,13 @@ impl Storage {
             .iter()
             .copied()
             .flat_map(|id| {
-                ShardStorage::slivers_column_family_options(id, &db_config)
-                    .into_iter()
-                    .map(|(_, (cf_name, options))| (cf_name, options))
-                    .chain([
-                        ShardStorage::shard_status_column_family_options(id, &db_config),
-                        ShardStorage::shard_sync_progress_column_family_options(id, &db_config),
-                        ShardStorage::pending_recover_slivers_column_family_options(id, &db_config),
-                    ])
+                [
+                    ShardStorage::primary_slivers_column_family_options(id, &db_config),
+                    ShardStorage::secondary_slivers_column_family_options(id, &db_config),
+                    ShardStorage::shard_status_column_family_options(id, &db_config),
+                    ShardStorage::shard_sync_progress_column_family_options(id, &db_config),
+                    ShardStorage::pending_recover_slivers_column_family_options(id, &db_config),
+                ]
             })
             .collect::<Vec<_>>();
 
@@ -1166,7 +1165,12 @@ pub(crate) mod tests {
         let test_shard_index = ShardIndex(123);
         let storage = empty_storage();
 
-        let cfs = ShardStorage::slivers_column_family_options(
+        let primary_cfs = ShardStorage::primary_slivers_column_family_options(
+            test_shard_index,
+            &DatabaseConfig::default(),
+        );
+
+        let secondary_cfs = ShardStorage::secondary_slivers_column_family_options(
             test_shard_index,
             &DatabaseConfig::default(),
         );
@@ -1176,7 +1180,7 @@ pub(crate) mod tests {
         storage
             .inner
             .database
-            .create_cf(&cfs[&SliverType::Primary].0, &cfs[&SliverType::Primary].1)
+            .create_cf(&primary_cfs.0, &primary_cfs.1)
             .unwrap();
         assert!(
             !ShardStorage::existing_shards(storage.temp_dir.path(), &Options::default())
@@ -1188,10 +1192,7 @@ pub(crate) mod tests {
         storage
             .inner
             .database
-            .create_cf(
-                &cfs[&SliverType::Secondary].0,
-                &cfs[&SliverType::Secondary].1,
-            )
+            .create_cf(&secondary_cfs.0, &secondary_cfs.1)
             .unwrap();
         assert!(
             ShardStorage::existing_shards(storage.temp_dir.path(), &Options::default())
