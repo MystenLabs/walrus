@@ -3,7 +3,7 @@
 
 //! The arguments to the Walrus client binary.
 
-use std::{env, net::SocketAddr, num::NonZeroU16, path::PathBuf, time::Duration};
+use std::{net::SocketAddr, num::NonZeroU16, path::PathBuf, time::Duration};
 
 use anyhow::{anyhow, Result};
 use clap::{Args, Parser, Subcommand};
@@ -12,9 +12,6 @@ use serde_with::{serde_as, DisplayFromStr};
 use walrus_core::{encoding::EncodingConfig, BlobId};
 
 use super::{parse_blob_id, read_blob_from_file, BlobIdDecimal, HumanReadableBytes};
-
-/// The version of the Walrus client.
-pub const VERSION: &str = crate::utils::version!();
 
 /// The command-line arguments for the Walrus client.
 #[derive(Parser, Debug, Clone, Deserialize)]
@@ -33,10 +30,10 @@ pub struct App {
     /// 2. If the environment variable `XDG_CONFIG_HOME` is set, in `$XDG_CONFIG_HOME/walrus/`.
     /// 3. In `~/.config/walrus/`.
     /// 4. In `~/.walrus/`.
-    // NB: Keep this in sync with `crate::cli_utils`.
+    // NB: Keep this in sync with `crate::cli`.
     #[clap(short, long, verbatim_doc_comment)]
     #[serde(default, deserialize_with = "crate::utils::resolve_home_dir_option")]
-    pub(crate) config: Option<PathBuf>,
+    pub config: Option<PathBuf>,
     /// The path to the Sui wallet configuration file.
     ///
     /// The wallet configuration is taken from the following locations:
@@ -48,22 +45,23 @@ pub struct App {
     ///
     /// If an invalid path is specified through this option or in the configuration file, an error
     /// is returned.
-    // NB: Keep this in sync with `crate::cli_utils`.
+    // NB: Keep this in sync with `crate::cli`.
     #[clap(short, long, verbatim_doc_comment)]
     #[serde(default, deserialize_with = "crate::utils::resolve_home_dir_option")]
-    pub(crate) wallet: Option<PathBuf>,
+    pub wallet: Option<PathBuf>,
     /// The gas budget for transactions.
     #[clap(short, long, default_value_t = default::gas_budget())]
     #[serde(default = "default::gas_budget")]
-    pub(crate) gas_budget: u64,
+    pub gas_budget: u64,
     /// Write output as JSON.
     ///
     /// This is always done in JSON mode.
     #[clap(long, action)]
     #[serde(default)]
-    pub(crate) json: bool,
+    pub json: bool,
+    /// The command to run.
     #[command(subcommand)]
-    pub(crate) command: Commands,
+    pub command: Commands,
 }
 
 impl App {
@@ -88,28 +86,57 @@ impl App {
         }
         Ok(())
     }
-
-    /// Checks if the command is to spawn a daemon.
-    pub fn is_daemon_command(&self) -> bool {
-        self.command.is_daemon_command()
-    }
-
-    /// Gets the metrics address from the commands that support it.
-    pub fn get_metrics_address(&self) -> Option<SocketAddr> {
-        match &self.command {
-            Commands::Publisher { args } => Some(args.daemon_args.metrics_address),
-            Commands::Aggregator { daemon_args, .. } => Some(daemon_args.metrics_address),
-            Commands::Daemon { args } => Some(args.daemon_args.metrics_address),
-            _ => None,
-        }
-    }
 }
 
+/// Top level enum to separate the daemon and CLI commands.
+#[derive(Subcommand, Debug, Clone, Deserialize)]
+#[clap(rename_all = "kebab-case")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum Commands {
+    /// Commands to run the binary in CLI mode.
+    #[clap(flatten)]
+    Cli(CliCommands),
+    /// Commands to run the binary in daemon mode.
+    #[clap(flatten)]
+    Daemon(DaemonCommands),
+    /// Run the client by specifying the arguments in a JSON string; CLI options are ignored.
+    Json {
+        /// The JSON-encoded args for the Walrus CLI; if not present, the args are read from stdin.
+        ///
+        /// The JSON structure follows the CLI arguments, containing global options and a "command"
+        /// object at the root level. The "command" object itself contains the command (e.g.,k
+        /// "store", "read", "publisher", "blobStatus", ...) with an object containing the command
+        /// options.
+        ///
+        /// Note that where CLI options are in "kebab-case", the respective JSON strings are in
+        /// "camelCase".
+        ///
+        /// For example, to read a blob and write it to "some_output_file" using a specific
+        /// configuration file, you can use the following JSON input:
+        ///
+        ///     {
+        ///       "config": "path/to/client_config.yaml",
+        ///       "command": {
+        ///         "read": {
+        ///           "blobId": "4BKcDC0Ih5RJ8R0tFMz3MZVNZV8b2goT6_JiEEwNHQo",
+        ///           "out": "some_output_file"
+        ///         }
+        ///       }
+        ///     }
+        ///
+        /// Important: If the "read" command does not have an "out" file specified, the output JSON
+        /// string will contain the full bytes of the blob, encoded as a Base64 string.
+        #[clap(verbatim_doc_comment)]
+        command_string: Option<String>,
+    },
+}
+
+/// The CLI commands for the Walrus client.
 #[serde_as]
 #[derive(Subcommand, Debug, Clone, Deserialize)]
 #[clap(rename_all = "kebab-case")]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
-pub(crate) enum Commands {
+pub enum CliCommands {
     /// Store a new blob into Walrus.
     #[clap(alias("write"))]
     Store {
@@ -146,6 +173,7 @@ pub(crate) enum Commands {
         #[clap(short, long)]
         #[serde(default, deserialize_with = "crate::utils::resolve_home_dir_option")]
         out: Option<PathBuf>,
+        /// The URL of the Sui RPC node to use.
         #[clap(flatten)]
         #[serde(flatten)]
         rpc_arg: RpcArg,
@@ -161,6 +189,7 @@ pub(crate) enum Commands {
     /// this is posted on chain. During this time period, this command would still return a
     /// "verified" status.
     BlobStatus {
+        /// The filename or the blob ID of the blob to check the status of.
         #[clap(flatten)]
         #[serde(flatten)]
         file_or_blob_id: FileOrBlobId,
@@ -168,37 +197,14 @@ pub(crate) enum Commands {
         #[clap(short, long, value_parser = humantime::parse_duration, default_value = "1s")]
         #[serde(default = "default::status_timeout")]
         timeout: Duration,
+        /// The URL of the Sui RPC node to use.
         #[clap(flatten)]
         #[serde(flatten)]
         rpc_arg: RpcArg,
-    },
-    /// Run a publisher service at the provided network address.
-    ///
-    /// This does not perform any type of access control and is thus not suited for a public
-    /// deployment when real money is involved.
-    Publisher {
-        #[clap(flatten)]
-        #[serde(flatten)]
-        args: PublisherArgs,
-    },
-    /// Run an aggregator service at the provided network address.
-    Aggregator {
-        #[clap(flatten)]
-        #[serde(flatten)]
-        rpc_arg: RpcArg,
-        #[clap(flatten)]
-        #[serde(flatten)]
-        daemon_args: DaemonArgs,
-    },
-    /// Run a client daemon at the provided network address, combining the functionality of an
-    /// aggregator and a publisher.
-    Daemon {
-        #[clap(flatten)]
-        #[serde(flatten)]
-        args: PublisherArgs,
     },
     /// Print information about the Walrus storage system this client is connected to.
     Info {
+        /// The URL of the Sui RPC node to use.
         #[clap(flatten)]
         #[serde(flatten)]
         rpc_arg: RpcArg,
@@ -206,36 +212,6 @@ pub(crate) enum Commands {
         #[clap(long, action)]
         #[serde(default)]
         dev: bool,
-    },
-    /// Run the client by specifying the arguments in a JSON string; CLI options are ignored.
-    Json {
-        /// The JSON-encoded args for the Walrus CLI; if not present, the args are read from stdin.
-        ///
-        /// The JSON structure follows the CLI arguments, containing global options and a "command"
-        /// object at the root level. The "command" object itself contains the command (e.g.,k
-        /// "store", "read", "publisher", "blobStatus", ...) with an object containing the command
-        /// options.
-        ///
-        /// Note that where CLI options are in "kebab-case", the respective JSON strings are in
-        /// "camelCase".
-        ///
-        /// For example, to read a blob and write it to "some_output_file" using a specific
-        /// configuration file, you can use the following JSON input:
-        ///
-        ///     {
-        ///       "config": "path/to/client_config.yaml",
-        ///       "command": {
-        ///         "read": {
-        ///           "blobId": "4BKcDC0Ih5RJ8R0tFMz3MZVNZV8b2goT6_JiEEwNHQo",
-        ///           "out": "some_output_file"
-        ///         }
-        ///       }
-        ///     }
-        ///
-        /// Important: If the "read" command does not have an "out" file specified, the output JSON
-        /// string will contain the full bytes of the blob, encoded as a Base64 string.
-        #[clap(verbatim_doc_comment)]
-        command_string: Option<String>,
     },
     /// Encode the specified file to obtain its blob ID.
     BlobId {
@@ -248,6 +224,7 @@ pub(crate) enum Commands {
         #[clap(short, long)]
         #[serde(default)]
         n_shards: Option<NonZeroU16>,
+        /// The URL of the Sui RPC node to use.
         #[clap(flatten)]
         #[serde(flatten)]
         rpc_arg: RpcArg,
@@ -267,26 +244,64 @@ pub(crate) enum Commands {
     },
 }
 
-impl Commands {
-    /// Checks if the command is to spawn a daemon.
-    pub fn is_daemon_command(&self) -> bool {
-        matches!(
-            self,
-            Commands::Publisher { .. } | Commands::Aggregator { .. } | Commands::Daemon { .. }
-        )
+/// The daemon commands for the Walrus client.
+#[serde_as]
+#[derive(Subcommand, Debug, Clone, Deserialize)]
+#[clap(rename_all = "kebab-case")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum DaemonCommands {
+    /// Run a publisher service at the provided network address.
+    ///
+    /// This does not perform any type of access control and is thus not suited for a public
+    /// deployment when real money is involved.
+    Publisher {
+        #[clap(flatten)]
+        #[serde(flatten)]
+        /// The publisher args.
+        args: PublisherArgs,
+    },
+    /// Run an aggregator service at the provided network address.
+    Aggregator {
+        #[clap(flatten)]
+        #[serde(flatten)]
+        /// The URL of the Sui RPC node to use.
+        rpc_arg: RpcArg,
+        #[clap(flatten)]
+        #[serde(flatten)]
+        /// The daemon args.
+        daemon_args: DaemonArgs,
+    },
+    /// Run a client daemon at the provided network address, combining the functionality of an
+    /// aggregator and a publisher.
+    Daemon {
+        #[clap(flatten)]
+        #[serde(flatten)]
+        /// The publisher args.
+        args: PublisherArgs,
+    },
+}
+
+impl DaemonCommands {
+    /// Gets the metrics address from the commands that support it.
+    pub fn get_metrics_address(&self) -> SocketAddr {
+        match &self {
+            DaemonCommands::Publisher { args } => args.daemon_args.metrics_address,
+            DaemonCommands::Aggregator { daemon_args, .. } => daemon_args.metrics_address,
+            DaemonCommands::Daemon { args } => args.daemon_args.metrics_address,
+        }
     }
 }
 
 #[derive(Debug, Clone, Args, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct PublisherArgs {
+pub struct PublisherArgs {
     #[clap(flatten)]
     #[serde(flatten)]
-    pub(crate) daemon_args: DaemonArgs,
+    pub daemon_args: DaemonArgs,
     /// The maximum body size of PUT requests in KiB.
     #[clap(short, long = "max-body-size", default_value_t = default::max_body_size_kib())]
     #[serde(default = "default::max_body_size_kib")]
-    pub(crate) max_body_size_kib: usize,
+    pub max_body_size_kib: usize,
 }
 
 impl PublisherArgs {
@@ -314,14 +329,15 @@ impl PublisherArgs {
     }
 }
 
+/// The URL of the Sui RPC node to use.
 #[derive(Default, Debug, Clone, Args, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct RpcArg {
+pub struct RpcArg {
     /// The URL of the Sui RPC node to use.
     ///
     /// If unset, the wallet configuration is applied (if set), or the fullnode at
     /// `fullnode.testnet.sui.io:443` is used.
-    // NB: Keep this in sync with `crate::cli_utils`.
+    // NB: Keep this in sync with `crate::cli`.
     #[clap(short, long)]
     #[serde(default)]
     pub(crate) rpc_url: Option<String>,
@@ -329,7 +345,7 @@ pub(crate) struct RpcArg {
 
 #[derive(Debug, Clone, Args, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct DaemonArgs {
+pub struct DaemonArgs {
     /// The address to which to bind the service.
     #[clap(short, long, default_value_t = default::bind_address())]
     #[serde(default = "default::bind_address")]
@@ -348,7 +364,7 @@ pub(crate) struct DaemonArgs {
 #[derive(Debug, Clone, Args, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[group(required = true, multiple = false)]
-pub(crate) struct FileOrBlobId {
+pub struct FileOrBlobId {
     /// The file containing the blob to be checked.
     #[clap(short, long)]
     #[serde(default)]

@@ -9,18 +9,13 @@ use anyhow::Result;
 use clap::Parser;
 use serde::Deserialize;
 use walrus_service::{
-    client::cli_utils::{
-        error,
-        init_tracing_subscriber,
-        run_cli_app,
-        run_daemon_app,
-        App,
-        VERSION,
-    },
+    client::cli::{self, error, init_tracing_subscriber, App, ClientCommandRunner, Commands},
     utils::MetricsAndLoggingRuntime,
 };
 
-// NOTE: this wrapper is required to make the `env!` macro work.
+/// The version of the Walrus client.
+pub const VERSION: &str = walrus_service::utils::version!();
+
 /// The command-line arguments for the Walrus client.
 #[derive(Parser, Debug, Clone, Deserialize)]
 #[command(author, version, about = "Walrus client", long_about = None)]
@@ -37,25 +32,26 @@ fn client() -> Result<()> {
     let mut app = ClientArgs::parse().inner;
     app.extract_json_command()?;
 
-    let metrics_runtime = if let Some(metrics_address) = app.get_metrics_address() {
-        let runtime = MetricsAndLoggingRuntime::start(metrics_address)?;
-        tracing::debug!(%metrics_address, "started metrics and logging on separate runtime");
-        Some(runtime)
-    } else {
-        init_tracing_subscriber()?;
-        None
-    };
-
-    tracing::info!("client version: {}", VERSION);
-    run_app(app, metrics_runtime)
-}
-
-#[tokio::main]
-async fn run_app(app: App, metrics_runtime: Option<MetricsAndLoggingRuntime>) -> Result<()> {
-    match (app.is_daemon_command(), metrics_runtime) {
-        (true, Some(runtime)) => run_daemon_app(app, runtime).await,
-        (false, None) => run_cli_app(app).await,
-        _ => unreachable!("if the command is a daemon command, then metrics_runtime must be Some"),
+    match app.command {
+        Commands::Cli(command) => {
+            init_tracing_subscriber()?;
+            tracing::info!("client version: {}", VERSION);
+            let runner =
+                ClientCommandRunner::new(&app.config, &app.wallet, app.gas_budget, app.json);
+            cli::run_cli_app(runner, command)
+        }
+        Commands::Daemon(command) => {
+            let metrics_address = command.get_metrics_address();
+            let runtime = MetricsAndLoggingRuntime::start(metrics_address)?;
+            // NOTE: We duplicate the client version info and the runner creation to ensure it is
+            // logged, since we start logging separately.
+            tracing::info!("client version: {}", VERSION);
+            tracing::debug!(%metrics_address, "started metrics and logging on separate runtime");
+            let runner =
+                ClientCommandRunner::new(&app.config, &app.wallet, app.gas_budget, app.json);
+            cli::run_daemon_app(runner, command, runtime)
+        }
+        Commands::Json { .. } => unreachable!("we have extracted the json command above"),
     }
 }
 

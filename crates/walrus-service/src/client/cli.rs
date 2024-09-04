@@ -25,8 +25,9 @@ mod args;
 mod cli_output;
 mod runner;
 mod utils;
-pub use args::{App, VERSION};
+pub use args::{App, CliCommands, Commands, DaemonCommands};
 pub use cli_output::CliOutput;
+pub use runner::ClientCommandRunner;
 pub use utils::{init_tracing_subscriber, run_cli_app, run_daemon_app};
 
 /// Default URL of the testnet RPC node.

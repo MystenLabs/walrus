@@ -19,7 +19,7 @@ use walrus_sui::{
 
 use super::args::{DaemonArgs, FileOrBlobId, PublisherArgs};
 use crate::client::{
-    cli_utils::{
+    cli::{
         get_contract_client,
         get_read_client,
         get_sui_read_client_from_rpc_node_or_wallet,
@@ -42,7 +42,9 @@ use crate::client::{
     Config,
 };
 
-pub(crate) struct ClientCommandRunner {
+/// A helper struct to run commands for the Walrus client.
+#[allow(missing_debug_implementations)]
+pub struct ClientCommandRunner {
     /// The wallet path.
     wallet_path: Option<PathBuf>,
     /// The Sui wallet for the client.
@@ -57,7 +59,7 @@ pub(crate) struct ClientCommandRunner {
 
 impl ClientCommandRunner {
     /// Creates a new client runner, loading the configuration and wallet context.
-    pub(crate) fn new(
+    pub fn new(
         config: &Option<PathBuf>,
         wallet: &Option<PathBuf>,
         gas_budget: u64,

@@ -54,7 +54,7 @@ use self::{
     utils::{CompletedReasonWeight, WeightedFutures},
 };
 
-pub mod cli_utils;
+pub mod cli;
 pub mod responses;
 
 mod blocklist;

@@ -35,7 +35,7 @@ use walrus_sui::{
     utils::{price_for_encoded_length, storage_units_from_size, BYTES_PER_UNIT_SIZE},
 };
 
-use super::cli_utils::{BlobIdDecimal, HumanReadableBytes, HumanReadableMist};
+use super::cli::{BlobIdDecimal, HumanReadableBytes, HumanReadableMist};
 
 /// Result when attempting to store a blob.
 #[serde_as]

@@ -12,7 +12,7 @@ use walrus_sdk::api::BlobStatus;
 use walrus_sui::types::Blob;
 
 use crate::client::{
-    cli_utils::{
+    cli::{
         error,
         format_event_id,
         success,

@@ -8,11 +8,8 @@ use std::env;
 use anyhow::{anyhow, Result};
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt, EnvFilter, Layer};
 
-use super::{
-    args::{Commands, RpcArg},
-    App,
-};
-use crate::{client::cli_utils::runner::ClientCommandRunner, utils::MetricsAndLoggingRuntime};
+use super::args::{CliCommands, DaemonCommands, RpcArg};
+use crate::{client::cli::runner::ClientCommandRunner, utils::MetricsAndLoggingRuntime};
 
 /// Initializes the logger and tracing subscriber.
 pub fn init_tracing_subscriber() -> Result<()> {
@@ -46,59 +43,58 @@ pub fn init_tracing_subscriber() -> Result<()> {
 }
 
 /// Runs the binary commands in "cli" mode (i.e., without running a server).
-pub async fn run_cli_app(app: App) -> Result<()> {
-    let runner = ClientCommandRunner::new(&app.config, &app.wallet, app.gas_budget, app.json);
-    match app.command {
-        Commands::Read {
+#[tokio::main]
+pub async fn run_cli_app(runner: ClientCommandRunner, command: CliCommands) -> Result<()> {
+    match command {
+        CliCommands::Read {
             blob_id,
             out,
             rpc_arg: RpcArg { rpc_url },
         } => runner.read(blob_id, out, rpc_url).await,
 
-        Commands::Store {
+        CliCommands::Store {
             file,
             epochs,
             dry_run,
             force,
         } => runner.store(file, epochs, dry_run, force).await,
 
-        Commands::BlobStatus {
+        CliCommands::BlobStatus {
             file_or_blob_id,
             timeout,
             rpc_arg: RpcArg { rpc_url },
         } => runner.blob_status(file_or_blob_id, timeout, rpc_url).await,
 
-        Commands::Info {
+        CliCommands::Info {
             rpc_arg: RpcArg { rpc_url },
             dev,
         } => runner.info(rpc_url, dev).await,
 
-        Commands::Json { .. } => {
-            unreachable!("we unpack JSON commands until we obtain a different command")
-        }
-
-        Commands::BlobId {
+        CliCommands::BlobId {
             file,
             n_shards,
             rpc_arg: RpcArg { rpc_url },
         } => runner.blob_id(file, n_shards, rpc_url).await,
 
-        Commands::ConvertBlobId { blob_id_decimal } => runner.convert_blob_id(blob_id_decimal),
+        CliCommands::ConvertBlobId { blob_id_decimal } => runner.convert_blob_id(blob_id_decimal),
 
-        Commands::ListBlobs { include_expired } => runner.list_blobs(include_expired).await,
-
-        // We panic as this is an implementation mistake, not a user error.
-        _ => panic!("wrong command for CLI mode; use `run_daemon_app` for daemon mode"),
+        CliCommands::ListBlobs { include_expired } => runner.list_blobs(include_expired).await,
     }
 }
 
 /// Runs the binary commands in "daemon" mode (i.e., running a server).
-pub async fn run_daemon_app(app: App, metrics_runtime: MetricsAndLoggingRuntime) -> Result<()> {
-    let runner = ClientCommandRunner::new(&app.config, &app.wallet, app.gas_budget, app.json);
-    match app.command {
-        Commands::Publisher { args } => runner.publisher(&metrics_runtime.registry, args).await,
+#[tokio::main]
+pub async fn run_daemon_app(
+    runner: ClientCommandRunner,
+    command: DaemonCommands,
+    metrics_runtime: MetricsAndLoggingRuntime,
+) -> Result<()> {
+    match command {
+        DaemonCommands::Publisher { args } => {
+            runner.publisher(&metrics_runtime.registry, args).await
+        }
 
-        Commands::Aggregator {
+        DaemonCommands::Aggregator {
             rpc_arg: RpcArg { rpc_url },
             daemon_args,
         } => {
@@ -107,9 +103,6 @@ pub async fn run_daemon_app(app: App, metrics_runtime: MetricsAndLoggingRuntime)
                 .await
         }
 
-        Commands::Daemon { args } => runner.daemon(&metrics_runtime.registry, args).await,
-
-        // We panic as this is an implementation mistake, not a user error.
-        _ => panic!("wrong command for daemon mode; use `run_cli_app` for CLI mode"),
+        DaemonCommands::Daemon { args } => runner.daemon(&metrics_runtime.registry, args).await,
     }
 }
