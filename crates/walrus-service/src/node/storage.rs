@@ -317,9 +317,11 @@ impl Storage {
                 ShardStorage::slivers_column_family_options(id, &db_config)
                     .into_iter()
                     .map(|(_, (cf_name, options))| (cf_name, options))
-                    .chain([ShardStorage::shard_status_column_family_options(
-                        id, &db_config,
-                    )])
+                    .chain([
+                        ShardStorage::shard_status_column_family_options(id, &db_config),
+                        ShardStorage::shard_sync_progress_column_family_options(id, &db_config),
+                        ShardStorage::pending_recover_slivers_column_family_options(id, &db_config),
+                    ])
             })
             .collect::<Vec<_>>();
 
