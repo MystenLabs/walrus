@@ -17,7 +17,11 @@ use walrus_service::{
         ClientCommandRunner,
         Commands,
     },
-    utils::MetricsAndLoggingRuntime,
+    utils::{version, MetricsAndLoggingRuntime},
+};
+use walrus_sui::{
+    client::{ContractClient, ReadClient, SuiContractClient},
+    utils::storage_price_for_encoded_length,
 };
 
 /// The version of the Walrus client.

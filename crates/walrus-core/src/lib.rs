@@ -64,7 +64,7 @@ pub type Certificate = Vec<(PublicKey, Signature)>;
 /// The hash function used for building metadata.
 pub type DefaultHashFunction = Blake2b256;
 /// The epoch number.
-pub type Epoch = u64;
+pub type Epoch = u32;
 
 /// Walrus epoch.
 // Schema definition for the type alias used in OpenAPI schemas.
@@ -72,7 +72,7 @@ pub type Epoch = u64;
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "utoipa", schema(as = Epoch))]
 #[allow(dead_code)]
-pub struct EpochSchema(u64);
+pub struct EpochSchema(u32);
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;

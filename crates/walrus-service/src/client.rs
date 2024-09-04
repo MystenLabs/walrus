@@ -110,7 +110,7 @@ impl Client<()> {
             );
         }
         let storage_price_per_unit_size = sui_read_client
-            .price_per_unit_size()
+            .storage_price_per_unit_size()
             .await
             .map_err(ClientError::other)?;
 

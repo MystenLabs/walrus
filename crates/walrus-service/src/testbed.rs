@@ -26,7 +26,7 @@ use walrus_core::{
     ShardIndex,
 };
 use walrus_sui::{
-    system_setup::{create_system_object, publish_package, SystemParameters},
+    system_setup::{create_system_object, publish_coin_and_system_package, SystemParameters},
     types::{Committee, NetworkAddress, StorageNode as SuiStorageNode},
     utils::{create_wallet, request_sui_from_faucet, SuiNetwork},
 };
@@ -267,8 +267,8 @@ pub async fn deploy_walrus_contract(
     request_sui_from_faucet(admin_wallet.active_address()?, &sui_network, &sui_client).await?;
 
     // Publish package and set up system object
-    let (pkg_id, committee_cap) =
-        publish_package(&mut admin_wallet, contract_path, gas_budget).await?;
+    let (pkg_id, committee_cap, _treasury_cap) =
+        publish_coin_and_system_package(&mut admin_wallet, contract_path, gas_budget).await?;
     let committee = Committee::new(sui_storage_nodes, 0)?;
     let system_params = SystemParameters::new_with_sui(committee, storage_capacity, price_per_unit);
     let system_object = create_system_object(

@@ -6,7 +6,7 @@
 module walrus::staking;
 
 use std::string::String;
-use sui::{clock::Clock, coin::Coin, dynamic_field as df};
+use sui::{clock::Clock, coin::Coin, dynamic_object_field as df};
 use wal::wal::WAL;
 use walrus::{
     staked_wal::StakedWal,

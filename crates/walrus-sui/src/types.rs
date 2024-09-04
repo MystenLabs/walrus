@@ -1,7 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Walrus move type bindings. Replicates the move types in Rust.
+//! Walrus move type bindings. Replicates the move types in Rust and provides some convenient
+//! structs to use with the sdk.
 
 use std::{
     fmt::Display,
@@ -11,84 +12,25 @@ use std::{
     vec,
 };
 
-use anyhow::{anyhow, bail};
-use fastcrypto::traits::ToFromBytes;
-use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
-use serde_with::{serde_as, DisplayFromStr};
-use sui_sdk::rpc_types::SuiEvent;
-use sui_types::{base_types::ObjectID, event::EventID};
+use anyhow::bail;
 use thiserror::Error;
-use tracing::instrument;
-use walrus_core::{
-    bft,
-    ensure,
-    BlobId,
-    EncodingType,
-    Epoch,
-    NetworkPublicKey,
-    PublicKey,
-    ShardIndex,
+
+mod events;
+pub use events::{BlobCertified, BlobEvent, BlobRegistered, InvalidBlobId};
+
+pub mod move_structs;
+pub use move_structs::{
+    Blob,
+    EpochStatus,
+    StakedWal,
+    StakingObject,
+    StorageNode,
+    StorageNodeCap,
+    StorageResource,
+    SystemObject,
 };
-
-use crate::contracts::{
-    self,
-    AssociatedContractStruct,
-    AssociatedSuiEvent,
-    MoveConversionError,
-    StructTag,
-};
-/// Sui object for storage resources.
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
-pub struct StorageResource {
-    /// Object ID of the Sui object.
-    pub id: ObjectID,
-    /// The start epoch of the resource (inclusive).
-    pub start_epoch: Epoch,
-    /// The end epoch of the resource (exclusive).
-    pub end_epoch: Epoch,
-    /// The total amount of reserved storage.
-    pub storage_size: u64,
-}
-
-impl AssociatedContractStruct for StorageResource {
-    const CONTRACT_STRUCT: StructTag<'static> = contracts::storage_resource::Storage;
-}
-
-/// Sui object for a blob.
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
-pub struct Blob {
-    /// Object ID of the Sui object.
-    pub id: ObjectID,
-    /// The epoch in which the blob has been registered.
-    pub stored_epoch: Epoch,
-    /// The blob ID.
-    #[serde(serialize_with = "serialize_blob_id")]
-    pub blob_id: BlobId,
-    /// The (unencoded) size of the blob.
-    pub size: u64,
-    /// The erasure coding type used for the blob.
-    pub erasure_code_type: EncodingType,
-    /// The epoch in which the blob was first certified, `None` if the blob is uncertified.
-    pub certified_epoch: Option<Epoch>,
-    /// The [`StorageResource`] used to store the blob.
-    pub storage: StorageResource,
-}
-
-/// Serialize as string to make sure that the json output uses the base64 encoding.
-fn serialize_blob_id<S>(blob_id: &BlobId, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    serializer.collect_str(blob_id)
-}
-
-impl AssociatedContractStruct for Blob {
-    const CONTRACT_STRUCT: StructTag<'static> = contracts::blob::Blob;
-}
+use serde::{Deserialize, Serialize};
+use walrus_core::{bft, ensure, Epoch, NetworkPublicKey, PublicKey, ShardIndex};
 
 /// Network address consisting of host name or IP and port.
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize, Deserialize)]
@@ -137,57 +79,49 @@ impl From<SocketAddr> for NetworkAddress {
     }
 }
 
-/// Sui type for storage node.
-#[serde_as]
-#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
-pub struct StorageNode {
+/// Node parameters needed to register a node.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct NodeRegistrationParams {
     /// Name of the storage node.
     pub name: String,
     /// The network address of the storage node.
-    #[serde_as(as = "DisplayFromStr")]
     pub network_address: NetworkAddress,
     /// The public key of the storage node.
-    #[serde(deserialize_with = "deserialize_bls_key")]
     pub public_key: PublicKey,
     /// The network key of the storage node.
-    #[serde(deserialize_with = "deserialize_network_key")]
     pub network_public_key: NetworkPublicKey,
-    /// The indices of the shards held by the storage node.
-    pub shard_ids: Vec<ShardIndex>,
+    /// The commission rate of the storage node.
+    pub commission_rate: u64,
+    /// The vote for the storage price per unit.
+    pub storage_price: u64,
+    /// The vote for the write price per unit.
+    pub write_price: u64,
+    /// The capacity of the node that determines the vote for the capacity
+    /// after shards are assigned.
+    pub node_capacity: u64,
 }
 
-impl AssociatedContractStruct for StorageNode {
-    const CONTRACT_STRUCT: StructTag<'static> = contracts::storage_node::StorageNodeInfo;
+/// Error returned when trying to create a committee with no shards.
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum InvalidCommittee {
+    #[error("unexpected total number of shards in committee members")]
+    /// Error resulting if the committee does not contain the specified number of shards,
+    /// except for an empty committee in epoch zero.
+    IncorrectNumberOfShards,
+    /// Error resulting if one of the nodes has no shards.
+    #[error("trying to create a committee with an empty node")]
+    EmptyNode,
 }
 
-#[instrument(err, skip_all)]
-fn deserialize_bls_key<'de, D>(deserializer: D) -> Result<PublicKey, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let key: Vec<u8> = Deserialize::deserialize(deserializer)?;
-    PublicKey::from_bytes(&key).map_err(D::Error::custom)
-}
-
-#[instrument(err, skip_all)]
-fn deserialize_network_key<'de, D>(deserializer: D) -> Result<NetworkPublicKey, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let key: Vec<u8> = Deserialize::deserialize(deserializer)?;
-    NetworkPublicKey::from_bytes(&key).map_err(D::Error::custom)
-}
-
-/// Sui type for storage committee
+/// Convenience type that contains the committee including full storage node information.
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 pub struct Committee {
     /// The current epoch
     pub epoch: Epoch,
     /// The members of the committee
-    // INV: `!members.is_empty()`
     // INV: `members.iter().all(|m| !m.shard_ids.is_empty())`
     members: Vec<StorageNode>,
-    /// The number of shards held by the committee
+    /// The number of shards held by the committee. Is zero in epoch
     n_shards: NonZeroU16,
 }
 
@@ -195,15 +129,22 @@ impl Committee {
     /// Create a new committee for `epoch` consisting of `members`.
     ///
     /// `members` must contain at least one storage node holding at least one shard.
-    pub fn new(members: Vec<StorageNode>, epoch: Epoch) -> Result<Self, InvalidCommittee> {
-        let mut n_shards = 0;
+    pub fn new(
+        members: Vec<StorageNode>,
+        epoch: Epoch,
+        n_shards: NonZeroU16,
+    ) -> Result<Self, InvalidCommittee> {
+        let mut shards_in_committee = 0;
         for node in members.iter() {
             let node_shards = node.shard_ids.len();
             ensure!(node_shards > 0, InvalidCommittee::EmptyNode,);
-            n_shards += node_shards
+            shards_in_committee += node_shards
         }
-        let n_shards = u16::try_from(n_shards).map_err(|_| InvalidCommittee::TooManyShards)?;
-        let n_shards = NonZeroU16::new(n_shards).ok_or(InvalidCommittee::EmptyCommittee)?;
+        ensure!(
+            epoch == 0 && shards_in_committee == 0
+                || n_shards.get() as usize == shards_in_committee,
+            InvalidCommittee::IncorrectNumberOfShards
+        );
         Ok(Self {
             members,
             epoch,
@@ -306,327 +247,5 @@ impl Committee {
         self.members
             .iter()
             .position(|node| node.shard_ids.contains(&shard))
-    }
-}
-
-impl AssociatedContractStruct for Committee {
-    const CONTRACT_STRUCT: StructTag<'static> = contracts::committee::Committee;
-}
-
-/// Error returned for an invalid conversion to an EpochStatus.
-#[derive(Debug, Error, PartialEq, Eq)]
-#[error("the provided value is not a valid EpochStatus")]
-pub struct InvalidEpochStatus;
-
-/// Error returned when trying to create a committee with no shards.
-#[derive(Debug, Error, PartialEq, Eq)]
-pub enum InvalidCommittee {
-    #[error("too many shards for a valid committee")]
-    /// Error resulting if the total number of shards in the committee exceeds u16::MAX.
-    TooManyShards,
-    #[error("trying to create an empty committee")]
-    /// Error resulting if the committee contains no shards.
-    EmptyCommittee,
-    /// Error resulting if one of the nodes has no shards.
-    #[error("trying to create a committee with an empty node")]
-    EmptyNode,
-}
-
-/// The status of the epoch
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Deserialize)]
-#[repr(u8)]
-pub enum EpochStatus {
-    /// A sufficient number of the new epoch shards have been transferred
-    Done = 0,
-    /// The storage nodes are currently transferring shards to the new committee
-    Sync = 1,
-}
-
-impl From<EpochStatus> for u8 {
-    fn from(value: EpochStatus) -> Self {
-        value as u8
-    }
-}
-
-impl TryFrom<u8> for EpochStatus {
-    type Error = InvalidEpochStatus;
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(EpochStatus::Done),
-            1 => Ok(EpochStatus::Sync),
-            _ => Err(InvalidEpochStatus),
-        }
-    }
-}
-
-/// Holds information about a future epoch, namely how much
-/// storage needs to be reclaimed and the rewards to be distributed.
-#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
-pub struct FutureAccounting {
-    epoch: u64,
-    storage_to_reclaim: u64,
-    rewards_to_distribute: u64,
-}
-
-/// A ring buffer holding future accounts for a continuous range of epochs.
-#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
-pub struct FutureAccountingRingBuffer {
-    current_index: u64,
-    length: u64,
-    ring_buffer: Vec<FutureAccounting>,
-}
-
-impl FutureAccountingRingBuffer {
-    /// Creates an empty accounting ring buffer with length 0.
-    pub fn empty() -> Self {
-        FutureAccountingRingBuffer {
-            current_index: 0,
-            length: 0,
-            ring_buffer: vec![],
-        }
-    }
-}
-
-/// Sui type for system object
-#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
-pub struct SystemObject {
-    /// Object id of the Sui object
-    pub id: ObjectID,
-    /// The current committee of the Walrus instance
-    pub current_committee: Option<Committee>,
-    /// The status of the epoch
-    pub epoch_status: EpochStatus,
-    /// Total storage capacity of the Walrus instance
-    pub total_capacity_size: u64,
-    /// Used storage capacity of the Walrus instance
-    pub used_capacity_size: u64,
-    /// The price per unit of storage per epoch
-    pub price_per_unit_size: u64,
-    /// The object ID of the table storing past committees
-    #[serde(deserialize_with = "deserialize_table")]
-    pub past_committees_object: ObjectID,
-    /// The future accounting ring buffer to keep track of future rewards.
-    pub future_accounting: FutureAccountingRingBuffer,
-}
-
-impl AssociatedContractStruct for SystemObject {
-    const CONTRACT_STRUCT: StructTag<'static> = contracts::system::System;
-}
-
-#[instrument(err, skip_all)]
-fn deserialize_table<'de, D>(deserializer: D) -> Result<ObjectID, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let (object_id, _length): (ObjectID, u64) = Deserialize::deserialize(deserializer)?;
-    Ok(object_id)
-}
-
-// Events
-
-fn ensure_event_type(
-    sui_event: &SuiEvent,
-    struct_tag: &StructTag,
-) -> Result<(), MoveConversionError> {
-    ensure!(
-        sui_event.type_.name.as_str() == struct_tag.name
-            && sui_event.type_.module.as_str() == struct_tag.module,
-        MoveConversionError::TypeMismatch {
-            expected: struct_tag.to_string(),
-            actual: format!(
-                "{}::{}",
-                sui_event.type_.module.as_str(),
-                sui_event.type_.name.as_str()
-            ),
-        }
-    );
-    Ok(())
-}
-
-/// Sui event that blob has been registered.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct BlobRegistered {
-    /// The epoch in which the blob has been registered.
-    pub epoch: Epoch,
-    /// The blob ID.
-    pub blob_id: BlobId,
-    /// The (unencoded) size of the blob.
-    pub size: u64,
-    /// The erasure coding type used for the blob.
-    pub erasure_code_type: EncodingType,
-    /// The end epoch of the associated storage resource (exclusive).
-    pub end_epoch: Epoch,
-    /// The ID of the event.
-    pub event_id: EventID,
-}
-
-impl AssociatedSuiEvent for BlobRegistered {
-    const EVENT_STRUCT: StructTag<'static> = contracts::blob_events::BlobRegistered;
-}
-
-impl TryFrom<SuiEvent> for BlobRegistered {
-    type Error = MoveConversionError;
-
-    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
-        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
-
-        #[derive(Deserialize)]
-        struct Inner {
-            epoch: Epoch,
-            blob_id: BlobId,
-            size: u64,
-            erasure_code_type: EncodingType,
-            end_epoch: Epoch,
-        }
-
-        let inner: Inner = bcs::from_bytes(&sui_event.bcs)?;
-        Ok(Self {
-            epoch: inner.epoch,
-            blob_id: inner.blob_id,
-            size: inner.size,
-            erasure_code_type: inner.erasure_code_type,
-            end_epoch: inner.end_epoch,
-            event_id: sui_event.id,
-        })
-    }
-}
-
-/// Sui event that blob has been certified.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct BlobCertified {
-    /// The epoch in which the blob was certified.
-    pub epoch: Epoch,
-    /// The blob ID.
-    pub blob_id: BlobId,
-    /// The end epoch of the associated storage resource (exclusive).
-    pub end_epoch: Epoch,
-    /// The ID of the event.
-    pub event_id: EventID,
-}
-
-impl AssociatedSuiEvent for BlobCertified {
-    const EVENT_STRUCT: StructTag<'static> = contracts::blob_events::BlobCertified;
-}
-
-impl TryFrom<SuiEvent> for BlobCertified {
-    type Error = MoveConversionError;
-
-    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
-        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
-
-        #[derive(Deserialize)]
-        struct Inner {
-            epoch: Epoch,
-            blob_id: BlobId,
-            end_epoch: Epoch,
-        }
-
-        let inner: Inner = bcs::from_bytes(&sui_event.bcs)?;
-        Ok(Self {
-            epoch: inner.epoch,
-            blob_id: inner.blob_id,
-            end_epoch: inner.end_epoch,
-            event_id: sui_event.id,
-        })
-    }
-}
-
-/// Sui event that a blob ID is invalid.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct InvalidBlobId {
-    /// The epoch in which the blob was marked as invalid.
-    pub epoch: Epoch,
-    /// The blob ID.
-    pub blob_id: BlobId,
-    /// The ID of the event.
-    pub event_id: EventID,
-}
-
-impl AssociatedSuiEvent for InvalidBlobId {
-    const EVENT_STRUCT: StructTag<'static> = contracts::blob_events::InvalidBlobID;
-}
-
-impl TryFrom<SuiEvent> for InvalidBlobId {
-    type Error = MoveConversionError;
-
-    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
-        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
-
-        #[derive(Deserialize)]
-        struct Inner {
-            epoch: Epoch,
-            blob_id: BlobId,
-        }
-
-        let inner: Inner = bcs::from_bytes(&sui_event.bcs)?;
-        Ok(Self {
-            epoch: inner.epoch,
-            blob_id: inner.blob_id,
-            event_id: sui_event.id,
-        })
-    }
-}
-
-/// Enum to wrap blob events.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum BlobEvent {
-    /// A registration event.
-    Registered(BlobRegistered),
-    /// A certification event.
-    Certified(BlobCertified),
-    /// An invalid blob ID event.
-    InvalidBlobID(InvalidBlobId),
-}
-
-impl From<BlobRegistered> for BlobEvent {
-    fn from(value: BlobRegistered) -> Self {
-        Self::Registered(value)
-    }
-}
-
-impl From<BlobCertified> for BlobEvent {
-    fn from(value: BlobCertified) -> Self {
-        Self::Certified(value)
-    }
-}
-
-impl From<InvalidBlobId> for BlobEvent {
-    fn from(value: InvalidBlobId) -> Self {
-        Self::InvalidBlobID(value)
-    }
-}
-
-impl BlobEvent {
-    /// Returns the blob ID contained in the wrapped event.
-    pub fn blob_id(&self) -> BlobId {
-        match self {
-            BlobEvent::Registered(event) => event.blob_id,
-            BlobEvent::Certified(event) => event.blob_id,
-            BlobEvent::InvalidBlobID(event) => event.blob_id,
-        }
-    }
-
-    /// Returns the event ID of the wrapped event.
-    pub fn event_id(&self) -> EventID {
-        match self {
-            BlobEvent::Registered(event) => event.event_id,
-            BlobEvent::Certified(event) => event.event_id,
-            BlobEvent::InvalidBlobID(event) => event.event_id,
-        }
-    }
-}
-
-impl TryFrom<SuiEvent> for BlobEvent {
-    type Error = anyhow::Error;
-
-    fn try_from(value: SuiEvent) -> Result<Self, Self::Error> {
-        match (&value.type_).into() {
-            contracts::blob_events::BlobRegistered => Ok(BlobEvent::Registered(value.try_into()?)),
-            contracts::blob_events::BlobCertified => Ok(BlobEvent::Certified(value.try_into()?)),
-            contracts::blob_events::InvalidBlobID => {
-                Ok(BlobEvent::InvalidBlobID(value.try_into()?))
-            }
-            _ => Err(anyhow!("could not convert event: {}", value)),
-        }
     }
 }

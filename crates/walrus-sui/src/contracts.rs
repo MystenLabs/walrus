@@ -191,9 +191,56 @@ pub mod system {
     use super::*;
 
     contract_ident!(struct system::System);
-    contract_ident!(fn system::reserve_space, 2);
-    contract_ident!(fn system::share_new);
+    contract_ident!(fn system::reserve_space, 1);
+    contract_ident!(fn system::register_blob, 1);
+    contract_ident!(fn system::certify_blob);
     contract_ident!(fn system::invalidate_blob_id);
+}
+
+/// Module for tags corresponding to the Move module `system_state_inner`.
+pub mod system_state_inner {
+    use super::*;
+
+    contract_ident!(struct system_state_inner::SystemStateInnerV1);
+}
+
+/// Module for tags corresponding to the Move module `staking_pool`.
+pub mod staking_pool {
+    use super::*;
+
+    contract_ident!(struct staking_pool::StakingPool);
+}
+
+/// Module for tags corresponding to the Move module `staking`.
+pub mod staking {
+    use super::*;
+
+    contract_ident!(struct staking::Staking);
+    contract_ident!(fn staking::register_candidate, 1);
+    contract_ident!(fn staking::stake_with_pool, 1);
+    contract_ident!(fn staking::voting_end);
+    contract_ident!(fn staking::initiate_epoch_change);
+}
+
+/// Module for tags corresponding to the Move module `staking_inner`.
+pub mod staking_inner {
+    use super::*;
+
+    contract_ident!(struct staking_inner::StakingInnerV1);
+}
+
+/// Module for tags corresponding to the Move module `init`.
+pub mod init {
+    use super::*;
+
+    contract_ident!(fn init::initialize_walrus);
+}
+
+/// Module for tags corresponding to the Move module `staked_wal`.
+pub mod staked_wal {
+    use super::*;
+
+    contract_ident!(struct staked_wal::StakedWal);
 }
 
 /// Module for tags corresponding to the Move module `committee`.
@@ -208,6 +255,7 @@ pub mod storage_node {
     use super::*;
 
     contract_ident!(struct storage_node::StorageNodeInfo);
+    contract_ident!(struct storage_node::StorageNodeCap);
     contract_ident!(fn storage_node::create_storage_node_info, 1);
 }
 
@@ -215,16 +263,14 @@ pub mod storage_node {
 pub mod blob {
     use super::*;
 
-    contract_ident!(fn blob::register, 1);
-    contract_ident!(fn blob::certify);
     contract_ident!(struct blob::Blob);
 }
 
 /// Module for tags corresponding to the Move module `blob_events`.
-pub mod blob_events {
+pub mod events {
     use super::*;
 
-    contract_ident!(struct blob_events::BlobCertified);
-    contract_ident!(struct blob_events::BlobRegistered);
-    contract_ident!(struct blob_events::InvalidBlobID);
+    contract_ident!(struct events::BlobCertified);
+    contract_ident!(struct events::BlobRegistered);
+    contract_ident!(struct events::InvalidBlobID);
 }

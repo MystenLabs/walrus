@@ -39,7 +39,8 @@ use sui_types::{
     transaction::{ProgrammableTransaction, TransactionData},
     TypeTag,
 };
-use walrus_core::encoding::encoded_blob_length_for_n_shards;
+use tracing::instrument;
+use walrus_core::{encoding::encoded_blob_length_for_n_shards, Epoch};
 
 use crate::{
     client::SuiClientResult,
@@ -61,15 +62,25 @@ pub fn price_for_unencoded_length(
     unencoded_length: u64,
     n_shards: NonZeroU16,
     price_per_unit_size: u64,
-    epochs: u64,
+    epochs: Epoch,
 ) -> Option<u64> {
-    encoded_blob_length_for_n_shards(n_shards, unencoded_length)
-        .map(|encoded_length| price_for_encoded_length(encoded_length, price_per_unit_size, epochs))
+    encoded_blob_length_for_n_shards(n_shards, unencoded_length).map(|encoded_length| {
+        storage_price_for_encoded_length(encoded_length, price_per_unit_size, epochs)
+    })
 }
 
 /// Computes the price in MIST given the encoded blob size.
-pub fn price_for_encoded_length(encoded_length: u64, price_per_unit_size: u64, epochs: u64) -> u64 {
-    storage_units_from_size(encoded_length) * price_per_unit_size * epochs
+pub fn storage_price_for_encoded_length(
+    encoded_length: u64,
+    price_per_unit_size: u64,
+    epochs: Epoch,
+) -> u64 {
+    storage_units_from_size(encoded_length) * price_per_unit_size * (epochs as u64)
+}
+
+/// Computes the price in MIST given the encoded blob size.
+pub fn write_price_for_encoded_length(encoded_length: u64, price_per_unit_size: u64) -> u64 {
+    storage_units_from_size(encoded_length) * price_per_unit_size
 }
 
 pub(crate) fn get_package_id_from_object_response(
@@ -79,24 +90,6 @@ pub(crate) fn get_package_id_from_object_response(
         bail!("response does not contain a move struct object");
     };
     Ok(move_object_type.address().into())
-}
-
-pub(crate) async fn get_type_parameters(
-    sui: &SuiClient,
-    object_id: ObjectID,
-) -> Result<Vec<TypeTag>> {
-    match sui
-        .read_api()
-        .get_object_with_options(object_id, SuiObjectDataOptions::new().with_type())
-        .await?
-        .into_object()?
-        .object_type()?
-    {
-        ObjectType::Struct(move_obj_type) => Ok(move_obj_type.type_params()),
-        ObjectType::Package => Err(anyhow!(
-            "Object ID points to a package instead of a Move Struct"
-        )),
-    }
 }
 
 /// Gets the objects of the given type that were created in a transaction.
@@ -149,13 +142,11 @@ where
                 SuiObjectDataOptions::new().with_bcs().with_type(),
             )
             .await?,
-        object_id,
     )
 }
 
 pub(crate) fn get_sui_object_from_object_response<U>(
     object_response: &SuiObjectResponse,
-    object_id: ObjectID,
 ) -> SuiClientResult<U>
 where
     U: AssociatedContractStruct,
@@ -168,8 +159,8 @@ where
     )
     .map_err(|_e| {
         anyhow!(
-            "could not convert object with id {} to expected type",
-            object_id
+            "could not convert object to expected type {}",
+            U::CONTRACT_STRUCT
         )
         .into()
     })

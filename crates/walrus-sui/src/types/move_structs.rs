@@ -1,0 +1,440 @@
+// Copyright (c) Mysten Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+//! Walrus move type bindings. Replicates the move types in Rust.
+
+use std::num::NonZeroU16;
+
+use fastcrypto::traits::ToFromBytes;
+use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
+use serde_with::{serde_as, DisplayFromStr};
+use sui_types::base_types::ObjectID;
+use thiserror::Error;
+use tracing::instrument;
+use walrus_core::{BlobId, EncodingType, Epoch, NetworkPublicKey, PublicKey, ShardIndex};
+
+use super::NetworkAddress;
+use crate::contracts::{self, AssociatedContractStruct, StructTag};
+
+/// Sui object for storage resources.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct StorageResource {
+    /// Object ID of the Sui object.
+    pub id: ObjectID,
+    /// The start epoch of the resource (inclusive).
+    pub start_epoch: Epoch,
+    /// The end epoch of the resource (exclusive).
+    pub end_epoch: Epoch,
+    /// The total amount of reserved storage.
+    pub storage_size: u64,
+}
+
+impl AssociatedContractStruct for StorageResource {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::storage_resource::Storage;
+}
+
+/// Sui object for a blob.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct Blob {
+    /// Object ID of the Sui object.
+    pub id: ObjectID,
+    /// The epoch in which the blob has been registered.
+    pub registered_epoch: Epoch,
+    /// The blob ID.
+    #[serde(serialize_with = "serialize_blob_id")]
+    pub blob_id: BlobId,
+    /// The (unencoded) size of the blob.
+    pub size: u64,
+    /// The encoding coding type used for the blob.
+    pub encoding_type: EncodingType,
+    /// The epoch in which the blob was first certified, `None` if the blob is uncertified.
+    pub certified_epoch: Option<Epoch>,
+    /// The [`StorageResource`] used to store the blob.
+    pub storage: StorageResource,
+    /// Marks the blob as deletable.
+    pub deletable: bool,
+}
+
+/// Serialize as string to make sure that the json output uses the base64 encoding.
+fn serialize_blob_id<S>(blob_id: &BlobId, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.collect_str(blob_id)
+}
+
+impl AssociatedContractStruct for Blob {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::blob::Blob;
+}
+
+/// Sui type for storage node.
+#[serde_as]
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+pub struct StorageNode {
+    /// Name of the storage node.
+    pub name: String,
+    /// The node id.
+    pub node_id: ObjectID,
+    /// The network address of the storage node.
+    #[serde_as(as = "DisplayFromStr")]
+    pub network_address: NetworkAddress,
+    /// The public key of the storage node.
+    #[serde(deserialize_with = "deserialize_bls_key")]
+    pub public_key: PublicKey,
+    /// The network key of the storage node.
+    #[serde(deserialize_with = "deserialize_network_key")]
+    pub network_public_key: NetworkPublicKey,
+    /// The indices of the shards held by the storage node.
+    #[serde(default, skip_deserializing)]
+    pub shard_ids: Vec<ShardIndex>,
+}
+
+impl AssociatedContractStruct for StorageNode {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::storage_node::StorageNodeInfo;
+}
+
+#[instrument(err, skip_all)]
+fn deserialize_bls_key<'de, D>(deserializer: D) -> Result<PublicKey, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let key: Vec<u8> = Deserialize::deserialize(deserializer)?;
+    PublicKey::from_bytes(&key).map_err(D::Error::custom)
+}
+
+#[instrument(err, skip_all)]
+fn deserialize_network_key<'de, D>(deserializer: D) -> Result<NetworkPublicKey, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let key: Vec<u8> = Deserialize::deserialize(deserializer)?;
+    NetworkPublicKey::from_bytes(&key).map_err(D::Error::custom)
+}
+
+/// Sui type for the capability that authorizes the holder to perform certain actions.
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+pub struct StorageNodeCap {
+    /// The object ID of the capability.
+    pub id: ObjectID,
+    /// The node ID of the node.
+    pub node_id: ObjectID,
+    /// The latest epoch in which the node sent an "epoch sync done" message to the contract.
+    pub last_epoch_sync_done: Epoch,
+}
+
+impl AssociatedContractStruct for StorageNodeCap {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::storage_node::StorageNodeCap;
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+enum PoolState {
+    // The pool is new and awaits the stake to be added.
+    New,
+    // The pool is active and can accept stakes.
+    Active,
+    // The pool awaits the stake to be withdrawn. The value inside the
+    // variant is the epoch in which the pool will be withdrawn.
+    Withdrawing(u32),
+    // The pool is empty and can be destroyed.
+    Withdrawn,
+}
+
+/// The parameters for the staking pool. Stored for the next epoch.
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+struct VotingParams {
+    /// Voting: storage price for the next epoch.
+    storage_price: u64,
+    /// Voting: write price for the next epoch.
+    write_price: u64,
+    /// Voting: node capacity for the next epoch.
+    node_capacity: u64,
+}
+
+/// Represents a single staking pool.
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+pub(crate) struct StakingPool {
+    id: ObjectID,
+    /// The current state of the pool.
+    state: PoolState,
+    /// Current epoch's pool parameters.
+    voting_params: VotingParams,
+    /// The storage node info for the pool.
+    pub node_info: StorageNode,
+    /// The epoch when the pool is / will be activated.
+    activation_epoch: Epoch,
+    /// Currently active stake.
+    active_stake: u64,
+    /// The commission rate for the pool.
+    commission_rate: u64,
+    /// The amount of stake that will be added to the `active_stake` in the given epoch.
+    pending_stake: Vec<(Epoch, u64)>,
+    /// The amount of stake that will be withdrawn in the next epoch.
+    pending_withdrawal_amount: u64,
+    /// The amount of stake that will be withdrawn in the next epoch.
+    stake_to_withdraw: u64,
+    /// The rewards that the pool has received.
+    rewards: u64,
+}
+
+impl AssociatedContractStruct for StakingPool {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::staking_pool::StakingPool;
+}
+
+/// Error returned for an invalid conversion to an EpochStatus.
+#[derive(Debug, Error, PartialEq, Eq)]
+#[error("the provided value is not a valid EpochStatus")]
+pub struct InvalidEpochStatus;
+
+/// The status of the epoch
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Deserialize)]
+#[repr(u8)]
+pub enum EpochStatus {
+    /// A sufficient number of the new epoch shards have been transferred
+    Done = 0,
+    /// The storage nodes are currently transferring shards to the new committee
+    Sync = 1,
+}
+
+impl From<EpochStatus> for u8 {
+    fn from(value: EpochStatus) -> Self {
+        value as u8
+    }
+}
+
+impl TryFrom<u8> for EpochStatus {
+    type Error = InvalidEpochStatus;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(EpochStatus::Done),
+            1 => Ok(EpochStatus::Sync),
+            _ => Err(InvalidEpochStatus),
+        }
+    }
+}
+
+/// Holds information about a future epoch, namely how much
+/// storage needs to be reclaimed and the rewards to be distributed.
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+pub struct FutureAccounting {
+    epoch: Epoch,
+    storage_to_reclaim: u64,
+    rewards_to_distribute: u64,
+}
+
+/// A ring buffer holding future accounts for a continuous range of epochs.
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+pub struct FutureAccountingRingBuffer {
+    current_index: Epoch,
+    length: Epoch,
+    ring_buffer: Vec<FutureAccounting>,
+}
+
+impl FutureAccountingRingBuffer {
+    /// Creates an empty accounting ring buffer with length 0.
+    pub fn empty() -> Self {
+        FutureAccountingRingBuffer {
+            current_index: 0,
+            length: 0,
+            ring_buffer: vec![],
+        }
+    }
+}
+
+/// Sui type for staking object
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct StakingObject {
+    /// Object id of the Sui object.
+    pub id: ObjectID,
+    /// The version of the system object.
+    pub version: u64,
+    /// The inner system state.
+    pub(crate) inner: StakingInnerV1,
+}
+
+/// Sui type for outer staking object. Used for deserialization.
+#[derive(Debug, Deserialize)]
+pub(crate) struct StakingObjectOuter {
+    pub(crate) id: ObjectID,
+    pub(crate) version: u64,
+}
+
+impl AssociatedContractStruct for StakingObjectOuter {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::staking::Staking;
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+struct ActiveSet {
+    /// The maximum number of storage nodes in the active set.
+    /// Potentially remove this field.
+    max_size: u16,
+    /// The minimum amount of staked WAL needed to enter the active set. This is used to
+    /// determine if a storage node can be added to the active set.
+    threshold_stake: u64,
+    /// The amount of staked WAL for each storage node in the active set.
+    nodes: Vec<(ObjectID, u64)>,
+    /// Stores indexes of the nodes in the active set sorted by stake. This
+    /// allows us to quickly find the index of a node in the sorted list of
+    /// nodes. Uses `u16` to save space, as the active set can only contain up
+    /// to 1000 nodes.
+    idx_sorted: Vec<u16>,
+    /// The total amount of staked WAL in the active set.
+    total_stake: u64,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+pub(crate) struct EpochParams {
+    /// The storage capacity of the system.
+    total_capacity_size: u64,
+    /// The price per unit size of storage.
+    storage_price_per_unit_size: u64,
+    /// The write price per unit size.
+    write_price_per_unit_size: u64,
+}
+
+/// The epoch state.
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+pub(crate) enum EpochState {
+    // Epoch change is currently in progress. Contains the weight of the nodes that
+    // have already attested that they finished the sync.
+    EpochChangeSync(u16),
+    // Epoch change has been completed at the contained timestamp.
+    EpochChangeDone(u64),
+    // The parameters for the next epoch have been selected.
+    // The contained timestamp is the start of the current epoch.
+    NextParamsSelected(u64),
+}
+
+type CommitteeShardAssignment = Vec<(ObjectID, Vec<u16>)>;
+
+/// Sui type for inner staking object
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+pub(crate) struct StakingInnerV1 {
+    // TODO
+    /// The object ID
+    pub(crate) id: ObjectID,
+    /// The number of shards in the system.
+    pub(crate) n_shards: NonZeroU16,
+    /// Special parameter, used only for the first epoch. The timestamp when the
+    /// first epoch can be started.
+    pub(crate) first_epoch_start: u64,
+    /// Object ID of the object table storing the staking pools.
+    #[serde(deserialize_with = "deserialize_table")]
+    pub(crate) pools: ObjectID,
+    /// The current epoch of the Walrus system.
+    pub(crate) epoch: Epoch,
+    /// Stores the active set of storage nodes. Provides automatic sorting and
+    /// tracks the total amount of staked WAL.
+    active_set: ActiveSet,
+    /// The next committee in the system.
+    pub(crate) next_committee: Option<CommitteeShardAssignment>,
+    /// The current committee in the system.
+    pub(crate) committee: CommitteeShardAssignment,
+    /// The previous committee in the system.
+    pub(crate) previous_committee: CommitteeShardAssignment,
+    /// The next epoch parameters.
+    pub(crate) next_epoch_params: Option<EpochParams>,
+    /// The state of the current epoch.
+    pub(crate) epoch_state: EpochState,
+    /// Rewards left over from the previous epoch that couldn't be distributed due to rounding.
+    pub(crate) leftover_rewards: u64,
+}
+
+impl AssociatedContractStruct for StakingInnerV1 {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::staking_inner::StakingInnerV1;
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+pub(crate) struct BlsCommitteeMember {
+    #[serde(deserialize_with = "deserialize_bls_key")]
+    public_key: PublicKey,
+    weight: u16,
+    node_id: ObjectID,
+}
+
+/// Sui type for BlsCommittee.
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+pub(crate) struct BlsCommittee {
+    /// The members of the committee
+    members: Vec<BlsCommitteeMember>,
+    /// The number of shards held by the committee
+    n_shards: u16,
+    /// The current epoch
+    epoch: Epoch,
+}
+
+/// Sui type for system object
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct SystemObject {
+    /// Object id of the Sui object.
+    pub id: ObjectID,
+    /// The version of the system object.
+    pub version: u64,
+    /// The inner system state.
+    pub(crate) inner: SystemStateInnerV1,
+}
+
+/// Sui type for outer system object. Used for deserialization.
+#[derive(Debug, Deserialize)]
+pub(crate) struct SystemObjectOuter {
+    pub(crate) id: ObjectID,
+    pub(crate) version: u64,
+}
+impl AssociatedContractStruct for SystemObjectOuter {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::system::System;
+}
+
+/// Sui type for inner system object.
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+pub(crate) struct SystemStateInnerV1 {
+    /// The object ID of the inner object.
+    pub id: ObjectID,
+    /// The current committee of the Walrus instance.
+    pub committee: BlsCommittee,
+    /// Total storage capacity of the Walrus instance.
+    pub total_capacity_size: u64,
+    /// Used storage capacity of the Walrus instance.
+    pub used_capacity_size: u64,
+    /// The price per unit of storage per epoch.
+    pub storage_price_per_unit_size: u64,
+    /// The write price per unit.
+    pub write_price_per_unit_size: u64,
+    /// The future accounting ring buffer to keep track of future rewards.
+    pub future_accounting: FutureAccountingRingBuffer,
+}
+
+impl AssociatedContractStruct for SystemStateInnerV1 {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::system_state_inner::SystemStateInnerV1;
+}
+
+#[instrument(err, skip_all)]
+fn deserialize_table<'de, D>(deserializer: D) -> Result<ObjectID, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let (object_id, _length): (ObjectID, u64) = Deserialize::deserialize(deserializer)?;
+    Ok(object_id)
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+enum StakedWalState {
+    Staked,
+    Withdrawing(Epoch),
+}
+
+/// Sui type for the StakedWal object.
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+pub struct StakedWal {
+    id: ObjectID,
+    state: StakedWalState,
+    node_id: ObjectID,
+    principal: u64,
+    activation_epoch: Epoch,
+}
+
+impl AssociatedContractStruct for StakedWal {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::staked_wal::StakedWal;
+}

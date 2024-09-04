@@ -335,8 +335,10 @@ impl EventForTesting for BlobRegistered {
             epoch: 0,
             blob_id,
             size: 10000,
-            erasure_code_type: EncodingType::RedStuff,
+            encoding_type: EncodingType::RedStuff,
             end_epoch: 42,
+            deletable: false,
+            object_id: ObjectID::random(),
             event_id: event_id_for_testing(),
         }
     }
@@ -348,6 +350,9 @@ impl EventForTesting for BlobCertified {
             epoch: 0,
             blob_id,
             end_epoch: 42,
+            deletable: false,
+            object_id: ObjectID::random(),
+            is_extension: false,
             event_id: event_id_for_testing(),
         }
     }

@@ -17,7 +17,7 @@ use walrus_sui::{
         system_setup::publish_with_default_system,
         TestClusterHandle,
     },
-    types::{BlobEvent, EpochStatus},
+    types::BlobEvent,
 };
 use walrus_test_utils::WithTempDir;
 
@@ -31,15 +31,31 @@ async fn initialize_contract_and_wallet(
     let sui_cluster = test_utils::using_msim::global_sui_test_cluster().await;
 
     // Get a wallet on the global sui test cluster
-    let mut wallet = new_wallet_on_sui_test_cluster(sui_cluster.clone()).await?;
+    let mut admin_wallet = new_wallet_on_sui_test_cluster(sui_cluster.clone()).await?;
+    let node_wallet = new_wallet_on_sui_test_cluster(sui_cluster.clone()).await?;
 
-    let system_object = publish_with_default_system(&mut wallet.inner).await?;
+    // TODO: make this nicer, s.t. we don't throw away the wallet with the storage node cap. Fix
+    // once the testbed setup is ready.
+    let (system_object, staking_object) = node_wallet
+        .and_then_async(|wallet| publish_with_default_system(&mut admin_wallet.inner, wallet))
+        .await?
+        .inner;
     Ok((
         sui_cluster,
-        wallet
-            .and_then_async(|wallet| SuiContractClient::new(wallet, system_object, GAS_BUDGET))
+        admin_wallet
+            .and_then_async(|wallet| {
+                SuiContractClient::new(wallet, system_object, staking_object, GAS_BUDGET)
+            })
             .await?,
     ))
+}
+
+#[tokio::test]
+#[ignore = "ignore E2E tests by default"]
+async fn test_initialize_contract() -> anyhow::Result<()> {
+    _ = tracing_subscriber::fmt::try_init();
+    initialize_contract_and_wallet().await?;
+    Ok(())
 }
 
 #[tokio::test]
@@ -66,9 +82,10 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
         .as_ref()
         .reserve_space(resource_size, 3)
         .await?;
-    assert_eq!(storage_resource.start_epoch, 0);
-    assert_eq!(storage_resource.end_epoch, 3);
+    assert_eq!(storage_resource.start_epoch, 1);
+    assert_eq!(storage_resource.end_epoch, 4);
     assert_eq!(storage_resource.storage_size, resource_size);
+
     #[rustfmt::skip]
     let root_hash = [
         1, 2, 3, 4, 5, 6, 7, 8,
@@ -86,41 +103,33 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
             root_hash,
             size,
             EncodingType::RedStuff,
+            false,
         )
         .await?;
     assert_eq!(blob_obj.blob_id, blob_id);
     assert_eq!(blob_obj.size, size);
     assert_eq!(blob_obj.certified_epoch, None);
     assert_eq!(blob_obj.storage, storage_resource);
-    assert_eq!(blob_obj.stored_epoch, 0);
+    assert_eq!(blob_obj.registered_epoch, 1);
+    assert_eq!(blob_obj.deletable, false);
 
     // Make sure that we got the expected event
     let BlobEvent::Registered(blob_registered) = events.next().await.unwrap() else {
         bail!("unexpected event type");
     };
     assert_eq!(blob_registered.blob_id, blob_id);
-    assert_eq!(blob_registered.epoch, blob_obj.stored_epoch);
-    assert_eq!(
-        blob_registered.erasure_code_type,
-        blob_obj.erasure_code_type
-    );
+    assert_eq!(blob_registered.epoch, blob_obj.registered_epoch);
+    assert_eq!(blob_registered.encoding_type, blob_obj.encoding_type);
     assert_eq!(blob_registered.end_epoch, storage_resource.end_epoch);
     assert_eq!(blob_registered.size, blob_obj.size);
 
-    let certificate = get_default_blob_certificate(blob_id, 0);
-
-    // Values printed here should match move test `test_blob_certify_single_function`
-    // Note: we keep these commented in case we ever need to recompute them to update tests.
-    //
-    // println!("certificate signature: {:?}", certificate.signature.as_bytes());
-    // let bytes : Vec<u8> = certificate.confirmation.clone().into();
-    // println!("certificate message: {:?}", bytes);
+    let certificate = get_default_blob_certificate(blob_id, 1);
 
     let blob_obj = walrus_client
         .as_ref()
         .certify_blob(blob_obj, &certificate)
         .await?;
-    assert_eq!(blob_obj.certified_epoch, Some(0));
+    assert_eq!(blob_obj.certified_epoch, Some(1));
 
     // Make sure that we got the expected event
     let BlobEvent::Certified(blob_certified) = events.next().await.unwrap() else {
@@ -162,6 +171,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
             root_hash,
             size,
             EncodingType::RedStuff,
+            false,
         )
         .await?;
 
@@ -173,7 +183,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
 
     let _blob_obj = walrus_client
         .as_ref()
-        .certify_blob(blob_obj, &get_default_blob_certificate(blob_id, 0))
+        .certify_blob(blob_obj, &get_default_blob_certificate(blob_id, 1))
         .await?;
 
     // Make sure that we got the expected event
@@ -208,7 +218,7 @@ async fn test_invalidate_blob() -> anyhow::Result<()> {
         1, 2, 3, 4, 5, 6, 7, 8,
     ]);
 
-    let certificate = get_default_invalid_certificate(blob_id, 0);
+    let certificate = get_default_invalid_certificate(blob_id, 1);
 
     walrus_client
         .as_ref()
@@ -220,41 +230,29 @@ async fn test_invalidate_blob() -> anyhow::Result<()> {
         bail!("unexpected event type");
     };
     assert_eq!(invalid_blob_id.blob_id, blob_id);
-    assert_eq!(invalid_blob_id.epoch, 0);
+    assert_eq!(invalid_blob_id.epoch, 1);
     Ok(())
 }
 
 #[tokio::test]
 #[ignore = "ignore integration tests by default"]
-async fn test_get_system() -> anyhow::Result<()> {
+async fn test_get_committee() -> anyhow::Result<()> {
+    _ = tracing_subscriber::fmt::try_init();
     let (_sui_cluster_handle, walrus_client) = initialize_contract_and_wallet().await?;
-    let system = walrus_client
-        .as_ref()
-        .read_client
-        .get_system_object()
-        .await?;
-    assert_eq!(system.epoch_status, EpochStatus::Done);
-    assert_eq!(system.price_per_unit_size, 10);
-    assert_eq!(system.total_capacity_size, GAS_BUDGET);
-    assert_eq!(system.used_capacity_size, 0);
     let committee = walrus_client
         .as_ref()
         .read_client
         .current_committee()
         .await?;
-    assert_eq!(system.current_committee.unwrap(), committee);
-    assert_eq!(committee.epoch, 0);
-    assert_eq!(committee.n_shards().get(), 10);
+    assert_eq!(committee.epoch, 1);
+    assert_eq!(committee.n_shards().get(), 100);
     assert_eq!(committee.members().len(), 1);
     let storage_node = &committee.members()[0];
     assert_eq!(storage_node.name, "Test0");
     assert_eq!(storage_node.network_address.to_string(), "127.0.0.1:8080");
     assert_eq!(
         storage_node.shard_ids,
-        [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-            .into_iter()
-            .map(ShardIndex)
-            .collect::<Vec<_>>()
+        (0..100).map(ShardIndex).collect::<Vec<_>>()
     );
     assert_eq!(
         storage_node.public_key.as_bytes(),

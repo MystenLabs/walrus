@@ -21,6 +21,8 @@ use crate::common::utils::{self, LoadConfig};
 pub struct Config {
     /// The Walrus system object ID.
     pub system_object: ObjectID,
+    /// The Walrus staking object ID.
+    pub staking_object: ObjectID,
     /// Path to the wallet configuration.
     #[serde(default, deserialize_with = "utils::resolve_home_dir_option")]
     pub wallet_config: Option<PathBuf>,

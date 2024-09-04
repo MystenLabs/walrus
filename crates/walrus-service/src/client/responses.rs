@@ -32,7 +32,7 @@ use walrus_sdk::api::BlobStatus;
 use walrus_sui::{
     client::ReadClient,
     types::{Blob, Committee, NetworkAddress, StorageNode},
-    utils::{price_for_encoded_length, storage_units_from_size, BYTES_PER_UNIT_SIZE},
+    utils::{storage_price_for_encoded_length, storage_units_from_size, BYTES_PER_UNIT_SIZE},
 };
 
 use super::cli::{BlobIdDecimal, HumanReadableBytes, HumanReadableMist};
@@ -242,7 +242,7 @@ impl ExampleBlobInfo {
         price_per_unit_size: u64,
     ) -> Option<Self> {
         let encoded_size = encoded_blob_length_for_n_shards(n_shards, unencoded_size)?;
-        let price = price_for_encoded_length(encoded_size, price_per_unit_size, 1);
+        let price = storage_price_for_encoded_length(encoded_size, price_per_unit_size, 1);
         Some(Self {
             unencoded_size,
             encoded_size,
@@ -287,7 +287,7 @@ impl InfoOutput {
         dev: bool,
     ) -> anyhow::Result<Self> {
         let committee = sui_read_client.current_committee().await?;
-        let price_per_unit_size = sui_read_client.price_per_unit_size().await?;
+        let price_per_unit_size = sui_read_client.storage_price_per_unit_size().await?;
 
         let current_epoch = committee.epoch;
         let n_shards = committee.n_shards();

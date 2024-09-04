@@ -5,7 +5,7 @@
 /// Module: system
 module walrus::system;
 
-use sui::{balance::Balance, coin::Coin, dynamic_field};
+use sui::{balance::Balance, coin::Coin, dynamic_object_field};
 use wal::wal::WAL;
 use walrus::{
     blob::Blob,
@@ -29,8 +29,8 @@ public struct System has key {
 /// Must only be called by the initialization function.
 public(package) fun create_empty(ctx: &mut TxContext) {
     let mut system = System { id: object::new(ctx), version: VERSION };
-    let system_state_inner = system_state_inner::create_empty();
-    dynamic_field::add(&mut system.id, VERSION, system_state_inner);
+    let system_state_inner = system_state_inner::create_empty(ctx);
+    dynamic_object_field::add(&mut system.id, VERSION, system_state_inner);
     transfer::share_object(system);
 }
 
@@ -94,10 +94,10 @@ public fun certify_blob(
     self: &System,
     blob: &mut Blob,
     signature: vector<u8>,
-    members: vector<u16>,
+    signers: vector<u16>,
     message: vector<u8>,
 ) {
-    self.inner().certify_blob(blob, signature, members, message);
+    self.inner().certify_blob(blob, signature, signers, message);
 }
 
 /// Deletes a deletable blob and returns the contained storage resource.
@@ -168,13 +168,13 @@ public(package) fun advance_epoch(
 /// Get a mutable reference to `SystemStateInner` from the `System`.
 fun inner_mut(system: &mut System): &mut SystemStateInnerV1 {
     assert!(system.version == VERSION);
-    dynamic_field::borrow_mut(&mut system.id, VERSION)
+    dynamic_object_field::borrow_mut(&mut system.id, VERSION)
 }
 
 /// Get an immutable reference to `SystemStateInner` from the `System`.
 fun inner(system: &System): &SystemStateInnerV1 {
     assert!(system.version == VERSION);
-    dynamic_field::borrow(&system.id, VERSION)
+    dynamic_object_field::borrow(&system.id, VERSION)
 }
 
 // === Testing ===
@@ -184,6 +184,6 @@ public(package) fun new_for_testing(): System {
     let ctx = &mut tx_context::dummy();
     let mut system = System { id: object::new(ctx), version: VERSION };
     let system_state_inner = system_state_inner::new_for_testing();
-    dynamic_field::add(&mut system.id, VERSION, system_state_inner);
+    dynamic_object_field::add(&mut system.id, VERSION, system_state_inner);
     system
 }

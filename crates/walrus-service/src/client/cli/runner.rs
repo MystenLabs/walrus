@@ -203,9 +203,10 @@ impl ClientCommandRunner {
             let price_per_unit_size = client
                 .sui_client()
                 .read_client()
-                .price_per_unit_size()
+                .storage_price_per_unit_size()
                 .await?;
-            let storage_cost = price_for_encoded_length(encoded_size, price_per_unit_size, epochs);
+            let storage_cost =
+                storage_price_for_encoded_length(encoded_size, price_per_unit_size, epochs);
             DryRunOutput {
                 blob_id: *metadata.blob_id(),
                 unencoded_size,
@@ -296,9 +297,14 @@ impl ClientCommandRunner {
     }
 
     pub(crate) async fn list_blobs(self, include_expired: bool) -> Result<()> {
-        let contract_client =
-            SuiContractClient::new(self.wallet?, self.config?.system_object, self.gas_budget)
-                .await?;
+        let config = self.config?;
+        let contract_client = SuiContractClient::new(
+            self.wallet?,
+            config.system_object,
+            config.staking_object,
+            self.gas_budget,
+        )
+        .await?;
         let blobs = contract_client.owned_blobs(include_expired).await?;
         blobs.print_output(self.json)
     }

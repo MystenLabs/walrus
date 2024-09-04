@@ -27,6 +27,8 @@ use sui_types::{
     event::EventID,
     transaction::{Argument, Command, ProgrammableTransaction},
     Identifier,
+    SUI_CLOCK_OBJECT_ID,
+    SUI_CLOCK_OBJECT_SHARED_VERSION,
 };
 use tokio::sync::Mutex;
 use walrus_core::{
@@ -36,22 +38,30 @@ use walrus_core::{
     metadata::BlobMetadataWithId,
     BlobId,
     EncodingType,
+    Epoch,
 };
 
 use crate::{
     contracts::{self, FunctionTag},
-    types::{Blob, StorageResource},
+    types::{Blob, NodeRegistrationParams, StakedWal, StorageNodeCap, StorageResource},
     utils::{
         get_created_sui_object_ids_by_type,
         get_owned_objects,
         get_sui_object,
-        price_for_encoded_length,
         sign_and_send_ptb,
+        storage_price_for_encoded_length,
+        write_price_for_encoded_length,
     },
 };
 
 mod read_client;
 pub use read_client::{ReadClient, SuiReadClient};
+
+const CLOCK_CALL_ARG: CallArg = CallArg::Object(sui_types::transaction::ObjectArg::SharedObject {
+    id: SUI_CLOCK_OBJECT_ID,
+    initial_shared_version: SUI_CLOCK_OBJECT_SHARED_VERSION,
+    mutable: false,
+});
 
 #[derive(Debug, thiserror::Error)]
 /// Error returned by the [`SuiContractClient`] and the [`SuiReadClient`].
@@ -93,7 +103,7 @@ pub trait ContractClient: Send + Sync {
     fn reserve_space(
         &self,
         encoded_size: u64,
-        epochs_ahead: u64,
+        epochs_ahead: Epoch,
     ) -> impl Future<Output = SuiClientResult<StorageResource>> + Send;
 
     /// Registers a blob with the specified [`BlobId`] using the provided [`StorageResource`],
@@ -107,7 +117,8 @@ pub trait ContractClient: Send + Sync {
         blob_id: BlobId,
         root_digest: [u8; DIGEST_LEN],
         blob_size: u64,
-        erasure_code_type: EncodingType,
+        encoding_type: EncodingType,
+        deletable: bool,
     ) -> impl Future<Output = SuiClientResult<Blob>> + Send;
 
     /// Purchases blob storage for the next `epochs_ahead` Walrus epochs and uses the resulting
@@ -117,7 +128,7 @@ pub trait ContractClient: Send + Sync {
     /// [`register_blob`][Self::register_blob] functions in one atomic transaction.
     fn reserve_and_register_blob<const V: bool>(
         &self,
-        epochs_ahead: u64,
+        epochs_ahead: Epoch,
         blob_metadata: &BlobMetadataWithId<V>,
     ) -> impl Future<Output = SuiClientResult<Blob>> + Send;
 
@@ -144,6 +155,31 @@ pub trait ContractClient: Send + Sync {
         &self,
         include_expired: bool,
     ) -> impl Future<Output = SuiClientResult<Vec<Blob>>> + Send;
+
+    /// Registers a candidate node.
+    fn register_candidate(
+        &self,
+        node_parameters: NodeRegistrationParams,
+    ) -> impl Future<Output = SuiClientResult<StorageNodeCap>> + Send;
+
+    /// Stakes the given amount with the pool of node with `node_id`.
+    fn stake_with_pool(
+        &self,
+        amount_to_stake: u64,
+        node_id: ObjectID,
+    ) -> impl Future<Output = SuiClientResult<StakedWal>> + Send;
+
+    /// Call to end voting and finalize the next epoch parameters.
+    ///
+    /// Can be called once the voting period is over.
+    fn voting_end(&self) -> impl Future<Output = SuiClientResult<()>> + Send;
+
+    /// Call to initialize the epoch change.
+    ///
+    /// Can be called once the epoch duration is over.
+    fn initiate_epoch_change(&self) -> impl Future<Output = SuiClientResult<()>> + Send;
+
+    //fn epoch_change_done(&self, ...) -> impl Future<Output = SuiClientResult<()>> + Send;
 }
 
 /// Client implementation for interacting with the Walrus smart contracts.
@@ -160,9 +196,11 @@ impl SuiContractClient {
     pub async fn new(
         wallet: WalletContext,
         system_object: ObjectID,
+        staking_object: ObjectID,
         gas_budget: u64,
     ) -> SuiClientResult<Self> {
-        let read_client = SuiReadClient::new(wallet.get_client().await?, system_object).await?;
+        let read_client =
+            SuiReadClient::new(wallet.get_client().await?, system_object, staking_object).await?;
         Self::new_with_read_client(wallet, gas_budget, read_client)
     }
 
@@ -272,15 +310,22 @@ impl SuiContractClient {
         self.wallet_address
     }
 
-    async fn price_for_encoded_length(
+    async fn storage_price_for_encoded_length(
         &self,
         encoded_size: u64,
-        epochs_ahead: u64,
+        epochs_ahead: Epoch,
     ) -> SuiClientResult<u64> {
-        Ok(price_for_encoded_length(
+        Ok(storage_price_for_encoded_length(
             encoded_size,
-            self.read_client.price_per_unit_size().await?,
+            self.read_client.storage_price_per_unit_size().await?,
             epochs_ahead,
+        ))
+    }
+
+    async fn write_price_for_encoded_length(&self, encoded_size: u64) -> SuiClientResult<u64> {
+        Ok(write_price_for_encoded_length(
+            encoded_size,
+            self.read_client.write_price_per_unit_size().await?,
         ))
     }
 
@@ -291,10 +336,11 @@ impl SuiContractClient {
     /// Returns a [`SuiClientError::NoCompatiblePaymentCoin`] if no payment coin with sufficient
     /// balance can be found or created (by merging coins).
     async fn get_payment_coin(&self, price: u64) -> SuiClientResult<Coin> {
+        tracing::debug!(coin_type=?self.read_client.coin_type());
         self.read_client
             .get_coin_with_balance(
                 self.wallet_address,
-                Some(self.read_client.coin_type.to_canonical_string(true)),
+                Some(self.read_client.coin_type()),
                 price,
                 Default::default(),
             )
@@ -302,39 +348,25 @@ impl SuiContractClient {
             .map_err(|_| SuiClientError::NoCompatiblePaymentCoin)
     }
 
-    /// Adds an appropriate `reserve_space` transaction to the `pt_builder` depending on the used
-    /// coin type and returns the result index and the minimum balance of compatible gas coins.
-    ///
-    /// If the payment coin type is SUI, the storage resource is paid for with a coin split off from
-    /// the gas coin and adds the necessary transaction to the PTB). Otherwise, a separate coin with
-    /// sufficient balance is used.
+    /// Adds a call to `reserve_space` to the `pt_builder` and returns the result index.
     async fn add_reserve_transaction(
         &self,
         pt_builder: &mut ProgrammableTransactionBuilder,
         encoded_size: u64,
-        epochs_ahead: u64,
-    ) -> SuiClientResult<(u16, u64)> {
-        let price = self
-            .price_for_encoded_length(encoded_size, epochs_ahead)
-            .await?;
+        epochs_ahead: Epoch,
+        payment_coin: Option<Argument>,
+    ) -> SuiClientResult<u16> {
         let system_object_arg = self.read_client.call_arg_from_system_obj(true).await?;
 
-        let payment_coin_arg = if self.read_client.uses_sui_coin() {
-            let price_argument = pt_builder.input(call_arg_pure!(&price))?;
-            let Argument::Result(split_result_index) =
-                pt_builder.command(Command::SplitCoins(Argument::GasCoin, vec![price_argument]))
-            else {
-                unreachable!("this always returns an `Argument::Result`")
-            };
-            Argument::NestedResult(split_result_index, 0)
-        } else {
-            pt_builder.input(self.get_payment_coin(price).await?.object_ref().into())?
+        let payment_coin_arg = match payment_coin {
+            Some(arg) => arg,
+            None => {
+                let price = self
+                    .storage_price_for_encoded_length(encoded_size, epochs_ahead)
+                    .await?;
+                pt_builder.input(self.get_payment_coin(price).await?.object_ref().into())?
+            }
         };
-
-        let mut gas_coin_balance = self.gas_budget;
-        if self.read_client.uses_sui_coin() {
-            gas_coin_balance += price;
-        }
 
         let reserve_arguments = vec![
             pt_builder.input(system_object_arg.clone())?,
@@ -344,26 +376,11 @@ impl SuiContractClient {
         ];
         let reserve_result_index = self.add_move_call_to_ptb(
             pt_builder,
-            contracts::system::reserve_space
-                .with_type_params(&[self.read_client.coin_type.clone()]),
+            contracts::system::reserve_space,
             reserve_arguments,
         )?;
 
-        let returned_coin = Argument::NestedResult(reserve_result_index, 1);
-
-        if self.read_client.uses_sui_coin() {
-            // Join the return coin back into the gas coin. This ensures that there are no
-            // zero-balance coins left in the user's wallet.
-            pt_builder.command(Command::MergeCoins(Argument::GasCoin, vec![returned_coin]));
-        } else {
-            // Transfer back payment coin.
-            pt_builder.transfer_arg(
-                self.wallet_address,
-                Argument::NestedResult(reserve_result_index, 1),
-            );
-        }
-
-        Ok((reserve_result_index, gas_coin_balance))
+        Ok(reserve_result_index)
     }
 }
 
@@ -371,13 +388,13 @@ impl ContractClient for SuiContractClient {
     async fn reserve_space(
         &self,
         encoded_size: u64,
-        epochs_ahead: u64,
+        epochs_ahead: Epoch,
     ) -> SuiClientResult<StorageResource> {
         tracing::debug!(encoded_size, "starting to reserve storage for blob");
         let mut pt_builder = ProgrammableTransactionBuilder::new();
 
-        let (reserve_result_index, min_gas_coin_balance) = self
-            .add_reserve_transaction(&mut pt_builder, encoded_size, epochs_ahead)
+        let reserve_result_index = self
+            .add_reserve_transaction(&mut pt_builder, encoded_size, epochs_ahead, None)
             .await?;
         // Transfer the created storage resource.
         pt_builder.transfer_arg(
@@ -385,9 +402,7 @@ impl ContractClient for SuiContractClient {
             Argument::NestedResult(reserve_result_index, 0),
         );
 
-        let res = self
-            .sign_and_send_ptb(pt_builder.finish(), Some(min_gas_coin_balance))
-            .await?;
+        let res = self.sign_and_send_ptb(pt_builder.finish(), None).await?;
         let storage_id = get_created_sui_object_ids_by_type(
             &res,
             &contracts::storage_resource::Storage
@@ -408,18 +423,24 @@ impl ContractClient for SuiContractClient {
         blob_id: BlobId,
         root_digest: [u8; DIGEST_LEN],
         blob_size: u64,
-        erasure_code_type: EncodingType,
+        encoding_type: EncodingType,
+        deletable: bool,
     ) -> SuiClientResult<Blob> {
+        let price = self
+            .write_price_for_encoded_length(storage.storage_size)
+            .await?;
         let res = self
             .move_call_and_transfer(
-                contracts::blob::register.with_type_params(&[self.read_client.coin_type.clone()]),
+                contracts::system::register_blob,
                 vec![
                     self.read_client.call_arg_from_system_obj(true).await?,
                     self.read_client.get_object_ref(storage.id).await?.into(),
                     call_arg_pure!(&blob_id),
                     call_arg_pure!(&root_digest),
                     blob_size.into(),
-                    u8::from(erasure_code_type).into(),
+                    u8::from(encoding_type).into(),
+                    deletable.into(),
+                    self.get_payment_coin(price).await?.object_ref().into(),
                 ],
             )
             .await?;
@@ -438,7 +459,7 @@ impl ContractClient for SuiContractClient {
 
     async fn reserve_and_register_blob<const V: bool>(
         &self,
-        epochs_ahead: u64,
+        epochs_ahead: Epoch,
         blob_metadata: &BlobMetadataWithId<V>,
     ) -> SuiClientResult<Blob> {
         let encoded_size = blob_metadata
@@ -448,8 +469,20 @@ impl ContractClient for SuiContractClient {
         tracing::debug!(encoded_size, "starting to reserve and register blob");
         let mut pt_builder = ProgrammableTransactionBuilder::new();
 
-        let (reserve_result_index, min_gas_coin_balance) = self
-            .add_reserve_transaction(&mut pt_builder, encoded_size, epochs_ahead)
+        let price = self
+            .storage_price_for_encoded_length(encoded_size, epochs_ahead)
+            .await?
+            + self.write_price_for_encoded_length(encoded_size).await?;
+        let payment_coin =
+            pt_builder.input(self.get_payment_coin(price).await?.object_ref().into())?;
+
+        let reserve_result_index = self
+            .add_reserve_transaction(
+                &mut pt_builder,
+                encoded_size,
+                epochs_ahead,
+                Some(payment_coin),
+            )
             .await?;
 
         let register_arguments = vec![
@@ -462,22 +495,21 @@ impl ContractClient for SuiContractClient {
                 .bytes()))?,
             pt_builder.input(blob_metadata.metadata().unencoded_length.into())?,
             pt_builder.input(u8::from(blob_metadata.metadata().encoding_type).into())?,
+            // TODO: add arguments.
         ];
         let register_result_index = self.add_move_call_to_ptb(
             &mut pt_builder,
-            contracts::blob::register.with_type_params(&[self.read_client.coin_type.clone()]),
+            contracts::system::register_blob,
             register_arguments,
         )?;
-        for i in 0..contracts::blob::register.n_object_outputs {
+        for i in 0..contracts::system::register_blob.n_object_outputs {
             pt_builder.transfer_arg(
                 self.wallet_address,
                 Argument::NestedResult(register_result_index, i),
             );
         }
 
-        let res = self
-            .sign_and_send_ptb(pt_builder.finish(), Some(min_gas_coin_balance))
-            .await?;
+        let res = self.sign_and_send_ptb(pt_builder.finish(), None).await?;
         let blob_obj_id = get_created_sui_object_ids_by_type(
             &res,
             &contracts::blob::Blob.to_move_struct_tag(self.read_client.system_pkg_id, &[])?,
@@ -502,7 +534,7 @@ impl ContractClient for SuiContractClient {
         signers.sort_unstable();
         let res = self
             .move_call_and_transfer(
-                contracts::blob::certify.with_type_params(&[self.read_client.coin_type.clone()]),
+                contracts::system::certify_blob,
                 vec![
                     self.read_client.call_arg_from_system_obj(true).await?,
                     self.read_client.get_object_ref(blob.id).await?.into(),
@@ -530,13 +562,127 @@ impl ContractClient for SuiContractClient {
         let mut signers = certificate.signers.clone();
         signers.sort_unstable();
         self.move_call_and_transfer(
-            contracts::system::invalidate_blob_id
-                .with_type_params(&[self.read_client.coin_type.clone()]),
+            contracts::system::invalidate_blob_id,
             vec![
                 self.read_client.call_arg_from_system_obj(true).await?,
                 call_arg_pure!(certificate.signature.as_bytes()),
                 call_arg_pure!(&signers),
                 (&certificate.serialized_message).into(),
+            ],
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn register_candidate(
+        &self,
+        node_parameters: NodeRegistrationParams,
+    ) -> SuiClientResult<StorageNodeCap> {
+        let res = self
+            .move_call_and_transfer(
+                contracts::staking::register_candidate,
+                vec![
+                    self.read_client.call_arg_from_staking_obj(true).await?,
+                    call_arg_pure!(&node_parameters.name),
+                    call_arg_pure!(&node_parameters.network_address.to_string()),
+                    call_arg_pure!(node_parameters.public_key.as_bytes()),
+                    call_arg_pure!(node_parameters.network_public_key.as_bytes()),
+                    node_parameters.commission_rate.into(),
+                    node_parameters.storage_price.into(),
+                    node_parameters.write_price.into(),
+                    node_parameters.node_capacity.into(),
+                ],
+            )
+            .await?;
+        let cap_id = get_created_sui_object_ids_by_type(
+            &res,
+            &contracts::storage_node::StorageNodeCap
+                .to_move_struct_tag(self.read_client.system_pkg_id, &[])?,
+        )?;
+        ensure!(
+            cap_id.len() == 1,
+            "unexpected number of StorageNodeCap created: {}",
+            cap_id.len()
+        );
+
+        get_sui_object(&self.read_client.sui_client, cap_id[0]).await
+    }
+
+    async fn stake_with_pool(
+        &self,
+        amount_to_stake: u64,
+        node_id: ObjectID,
+    ) -> SuiClientResult<StakedWal> {
+        let mut pt_builder = ProgrammableTransactionBuilder::new();
+
+        let staking_object_arg = self.read_client.call_arg_from_staking_obj(true).await?;
+
+        let input_coin_arg = pt_builder.input(
+            self.get_payment_coin(amount_to_stake)
+                .await?
+                .object_ref()
+                .into(),
+        )?;
+
+        // TODO: split coin, does this work?
+        let amount_to_stake_arg = pt_builder.pure(amount_to_stake)?;
+        let stake_coin_arg = pt_builder.command(Command::SplitCoins(
+            input_coin_arg,
+            vec![amount_to_stake_arg],
+        ));
+
+        let stake_arguments = vec![
+            pt_builder.input(staking_object_arg.clone())?,
+            stake_coin_arg,
+            pt_builder.pure(node_id)?,
+        ];
+        let stake_result_index = self.add_move_call_to_ptb(
+            &mut pt_builder,
+            contracts::staking::stake_with_pool,
+            stake_arguments,
+        )?;
+
+        // Transfer the created StakedWal object.
+        pt_builder.transfer_arg(
+            self.wallet_address,
+            Argument::NestedResult(stake_result_index, 0),
+        );
+
+        let res = self.sign_and_send_ptb(pt_builder.finish(), None).await?;
+
+        let staked_wal = get_created_sui_object_ids_by_type(
+            &res,
+            &contracts::staked_wal::StakedWal
+                .to_move_struct_tag(self.read_client.system_pkg_id, &[])?,
+        )?;
+        ensure!(
+            staked_wal.len() == 1,
+            "unexpected number of StakedWal objects created: {}",
+            staked_wal.len()
+        );
+
+        get_sui_object(&self.read_client.sui_client, staked_wal[0]).await
+    }
+
+    async fn voting_end(&self) -> SuiClientResult<()> {
+        self.move_call_and_transfer(
+            contracts::staking::voting_end,
+            vec![
+                self.read_client.call_arg_from_staking_obj(true).await?,
+                CLOCK_CALL_ARG,
+            ],
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn initiate_epoch_change(&self) -> SuiClientResult<()> {
+        self.move_call_and_transfer(
+            contracts::staking::initiate_epoch_change,
+            vec![
+                self.read_client.call_arg_from_staking_obj(true).await?,
+                self.read_client.call_arg_from_system_obj(true).await?,
+                CLOCK_CALL_ARG,
             ],
         )
         .await?;

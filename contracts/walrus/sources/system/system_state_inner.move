@@ -34,7 +34,8 @@ const EInvalidAccountingEpoch: u64 = 5;
 
 /// The inner object that is not present in signatures and can be versioned.
 #[allow(unused_field)]
-public struct SystemStateInnerV1 has store {
+public struct SystemStateInnerV1 has key, store {
+    id: UID,
     /// The current committee, with the current epoch.
     committee: BlsCommittee,
     // Some accounting
@@ -49,10 +50,12 @@ public struct SystemStateInnerV1 has store {
 }
 
 /// Creates an empty system state with a capacity of zero and an empty committee.
-public(package) fun create_empty(): SystemStateInnerV1 {
+public(package) fun create_empty(ctx: &mut TxContext): SystemStateInnerV1 {
     let committee = bls_aggregate::new_bls_committee(0, vector[]);
     let future_accounting = storage_accounting::ring_new(MAX_EPOCHS_AHEAD);
+    let id = object::new(ctx);
     SystemStateInnerV1 {
+        id,
         committee,
         total_capacity_size: 0,
         used_capacity_size: 0,
@@ -197,14 +200,14 @@ public(package) fun certify_blob(
     self: &SystemStateInnerV1,
     blob: &mut Blob,
     signature: vector<u8>,
-    members: vector<u16>,
+    signers: vector<u16>,
     message: vector<u8>,
 ) {
     let certified_msg = self
         .committee()
         .verify_quorum_in_epoch(
             signature,
-            members,
+            signers,
             message,
         );
     let certified_blob_msg = certified_msg.certify_blob_message();
@@ -341,7 +344,10 @@ use walrus::{test_utils};
 #[test_only]
 public(package) fun new_for_testing(): SystemStateInnerV1 {
     let committee = test_utils::new_bls_committee_for_testing(0);
+    let ctx = &mut tx_context::dummy();
+    let id = object::new(ctx);
     SystemStateInnerV1 {
+        id,
         committee,
         total_capacity_size: 1_000_000_000,
         used_capacity_size: 0,

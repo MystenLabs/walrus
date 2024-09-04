@@ -990,12 +990,13 @@ pub mod test_cluster {
 
         // Publish package and set up system object
         let gas_budget = 500_000_000;
-        let (system_pkg, committee_cap) = system_setup::publish_package(
-            &mut wallet.inner,
-            test_utils::system_setup::contract_path_for_testing("blob_store")?,
-            gas_budget,
-        )
-        .await?;
+        let (system_pkg, committee_cap, _treasury_cap) =
+            system_setup::publish_coin_and_system_package(
+                &mut wallet.inner,
+                test_utils::system_setup::contract_path_for_testing("blob_store")?,
+                gas_budget,
+            )
+            .await?;
         let committee = Committee::new(members, 0)?;
         let system_params = SystemParameters::new_with_sui(committee, 1_000_000_000_000, 10);
         let system_object = system_setup::create_system_object(
