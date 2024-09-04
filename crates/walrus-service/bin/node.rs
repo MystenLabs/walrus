@@ -101,6 +101,16 @@ mod commands {
         }
 
         let metrics_runtime = MetricsAndLoggingRuntime::start(config.metrics_address)?;
+        let registry_clone = metrics_runtime.registry.clone();
+        metrics_runtime.runtime.spawn(async move {
+            registry_clone
+                .register(mysten_metrics::uptime_metric(
+                    "walrus_node",
+                    VERSION,
+                    "walrus",
+                ))
+                .unwrap();
+        });
 
         tracing::info!("Walrus Node version: {VERSION}");
         tracing::info!(
@@ -147,7 +157,7 @@ struct MetricsAndLoggingRuntime {
     _telemetry_guards: TelemetryGuards,
     _tracing_handle: TracingHandle,
     // INV: Runtime must be dropped last.
-    _runtime: Runtime,
+    runtime: Runtime,
 }
 
 impl MetricsAndLoggingRuntime {
@@ -172,7 +182,7 @@ impl MetricsAndLoggingRuntime {
             .init();
 
         Ok(Self {
-            _runtime: runtime,
+            runtime,
             registry: walrus_registry,
             _telemetry_guards: telemetry_guards,
             _tracing_handle: tracing_handle,
