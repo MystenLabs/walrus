@@ -28,7 +28,7 @@ mod utils;
 pub use args::{App, CliCommands, Commands, DaemonCommands};
 pub use cli_output::CliOutput;
 pub use runner::ClientCommandRunner;
-pub use utils::{init_tracing_subscriber, run_cli_app, run_daemon_app};
+pub use utils::{init_scoped_tracing_subscriber, init_tracing_subscriber};
 
 /// Default URL of the testnet RPC node.
 pub const TESTNET_RPC: &str = "https://fullnode.testnet.sui.io:443";

@@ -17,29 +17,32 @@ use walrus_sui::{
     utils::price_for_encoded_length,
 };
 
-use super::args::{DaemonArgs, FileOrBlobId, PublisherArgs};
-use crate::client::{
-    cli::{
-        get_contract_client,
-        get_read_client,
-        get_sui_read_client_from_rpc_node_or_wallet,
-        load_configuration,
-        load_wallet_context,
-        read_blob_from_file,
-        BlobIdDecimal,
-        CliOutput,
+use super::args::{CliCommands, DaemonArgs, DaemonCommands, FileOrBlobId, PublisherArgs, RpcArg};
+use crate::{
+    client::{
+        cli::{
+            get_contract_client,
+            get_read_client,
+            get_sui_read_client_from_rpc_node_or_wallet,
+            load_configuration,
+            load_wallet_context,
+            read_blob_from_file,
+            BlobIdDecimal,
+            CliOutput,
+        },
+        responses::{
+            BlobIdConversionOutput,
+            BlobIdOutput,
+            BlobStatusOutput,
+            DryRunOutput,
+            InfoOutput,
+            ReadOutput,
+        },
+        Client,
+        ClientDaemon,
+        Config,
     },
-    responses::{
-        BlobIdConversionOutput,
-        BlobIdOutput,
-        BlobStatusOutput,
-        DryRunOutput,
-        InfoOutput,
-        ReadOutput,
-    },
-    Client,
-    ClientDaemon,
-    Config,
+    utils::MetricsAndLoggingRuntime,
 };
 
 /// A helper struct to run commands for the Walrus client.
@@ -78,6 +81,74 @@ impl ClientCommandRunner {
             config,
             gas_budget,
             json,
+        }
+    }
+
+    /// Runs the binary commands in "cli" mode (i.e., without running a server).
+    ///
+    /// Consumes `self`.
+    #[tokio::main]
+    pub async fn run_cli_app(self, command: CliCommands) -> Result<()> {
+        match command {
+            CliCommands::Read {
+                blob_id,
+                out,
+                rpc_arg: RpcArg { rpc_url },
+            } => self.read(blob_id, out, rpc_url).await,
+
+            CliCommands::Store {
+                file,
+                epochs,
+                dry_run,
+                force,
+            } => self.store(file, epochs, dry_run, force).await,
+
+            CliCommands::BlobStatus {
+                file_or_blob_id,
+                timeout,
+                rpc_arg: RpcArg { rpc_url },
+            } => self.blob_status(file_or_blob_id, timeout, rpc_url).await,
+
+            CliCommands::Info {
+                rpc_arg: RpcArg { rpc_url },
+                dev,
+            } => self.info(rpc_url, dev).await,
+
+            CliCommands::BlobId {
+                file,
+                n_shards,
+                rpc_arg: RpcArg { rpc_url },
+            } => self.blob_id(file, n_shards, rpc_url).await,
+
+            CliCommands::ConvertBlobId { blob_id_decimal } => self.convert_blob_id(blob_id_decimal),
+
+            CliCommands::ListBlobs { include_expired } => self.list_blobs(include_expired).await,
+        }
+    }
+
+    /// Runs the binary commands in "daemon" mode (i.e., running a server).
+    ///
+    /// Consumes `self`.
+    #[tokio::main]
+    pub async fn run_daemon_app(
+        self,
+        command: DaemonCommands,
+        metrics_runtime: MetricsAndLoggingRuntime,
+    ) -> Result<()> {
+        match command {
+            DaemonCommands::Publisher { args } => {
+                self.publisher(&metrics_runtime.registry, args).await
+            }
+
+            DaemonCommands::Aggregator {
+                rpc_arg: RpcArg { rpc_url },
+                daemon_args,
+            } => {
+                self.aggregator(&metrics_runtime.registry, rpc_url, daemon_args)
+                    .await
+            }
+
+            DaemonCommands::Daemon { args } => self.daemon(&metrics_runtime.registry, args).await,
         }
     }
 

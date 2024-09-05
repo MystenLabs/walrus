@@ -93,12 +93,6 @@ impl App {
 #[clap(rename_all = "kebab-case")]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Commands {
-    /// Commands to run the binary in CLI mode.
-    #[clap(flatten)]
-    Cli(CliCommands),
-    /// Commands to run the binary in daemon mode.
-    #[clap(flatten)]
-    Daemon(DaemonCommands),
     /// Run the client by specifying the arguments in a JSON string; CLI options are ignored.
     Json {
         /// The JSON-encoded args for the Walrus CLI; if not present, the args are read from stdin.
@@ -129,6 +123,14 @@ pub enum Commands {
         #[clap(verbatim_doc_comment)]
         command_string: Option<String>,
     },
+    /// Commands to run the binary in CLI mode.
+    #[clap(flatten)]
+    #[serde(untagged)]
+    Cli(CliCommands),
+    /// Commands to run the binary in daemon mode.
+    #[clap(flatten)]
+    #[serde(untagged)]
+    Daemon(DaemonCommands),
 }
 
 /// The CLI commands for the Walrus client.

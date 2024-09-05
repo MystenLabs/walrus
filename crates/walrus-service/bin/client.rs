@@ -9,7 +9,14 @@ use anyhow::Result;
 use clap::Parser;
 use serde::Deserialize;
 use walrus_service::{
-    client::cli::{self, error, init_tracing_subscriber, App, ClientCommandRunner, Commands},
+    client::cli::{
+        error,
+        init_scoped_tracing_subscriber,
+        init_tracing_subscriber,
+        App,
+        ClientCommandRunner,
+        Commands,
+    },
     utils::MetricsAndLoggingRuntime,
 };
 
@@ -29,27 +36,26 @@ pub struct ClientArgs {
 }
 
 fn client() -> Result<()> {
+    let subscriber_guard = init_scoped_tracing_subscriber()?;
     let mut app = ClientArgs::parse().inner;
     app.extract_json_command()?;
+
+    tracing::info!("client version: {}", VERSION);
+    let runner = ClientCommandRunner::new(&app.config, &app.wallet, app.gas_budget, app.json);
+
+    // Drop the temporary tracing subscriber, as the global ones are about to be initialized.
+    drop(subscriber_guard);
 
     match app.command {
         Commands::Cli(command) => {
             init_tracing_subscriber()?;
-            tracing::info!("client version: {}", VERSION);
-            let runner =
-                ClientCommandRunner::new(&app.config, &app.wallet, app.gas_budget, app.json);
-            cli::run_cli_app(runner, command)
+            runner.run_cli_app(command)
         }
         Commands::Daemon(command) => {
             let metrics_address = command.get_metrics_address();
             let runtime = MetricsAndLoggingRuntime::start(metrics_address)?;
-            // NOTE: We duplicate the client version info and the runner creation to ensure it is
-            // logged, since we start logging separately.
-            tracing::info!("client version: {}", VERSION);
             tracing::debug!(%metrics_address, "started metrics and logging on separate runtime");
-            let runner =
-                ClientCommandRunner::new(&app.config, &app.wallet, app.gas_budget, app.json);
-            cli::run_daemon_app(runner, command, runtime)
+            runner.run_daemon_app(command, runtime)
         }
         Commands::Json { .. } => unreachable!("we have extracted the json command above"),
     }
