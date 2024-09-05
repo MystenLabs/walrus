@@ -4,6 +4,7 @@
 //! Client for interacting with the StorageNode API.
 
 use fastcrypto::traits::{EncodeDecodeBase64, KeyPair};
+use futures::TryFutureExt;
 use opentelemetry::propagation::Injector;
 use reqwest::{
     header::{HeaderMap, HeaderName, HeaderValue},
@@ -593,8 +594,12 @@ impl Client {
         request: Request,
         url_template: &'static str,
     ) -> Result<T, NodeError> {
-        let (response, span) = self.send_request(request, url_template).await?;
-        response.bcs().instrument(span).await
+        async {
+            let (response, span) = self.send_request(request, url_template).await?;
+            response.bcs().instrument(span).await
+        }
+        .inspect_err(trace_error)
+        .await
     }
 
     async fn send_and_parse_service_response<T: DeserializeOwned>(
@@ -602,8 +607,12 @@ impl Client {
         request: Request,
         url_template: &'static str,
     ) -> Result<T, NodeError> {
-        let (response, span) = self.send_request(request, url_template).await?;
-        response.service_response().instrument(span).await
+        async {
+            let (response, span) = self.send_request(request, url_template).await?;
+            response.service_response().instrument(span).await
+        }
+        .inspect_err(trace_error)
+        .await
     }
 
     fn create_request_with_payload<T: Serialize>(
@@ -649,6 +658,10 @@ impl<'a> Injector for HeaderInjector<'a> {
             }
         }
     }
+}
+
+fn trace_error(error: &NodeError) {
+    tracing::trace!(error_details = ?error);
 }
 
 #[cfg(test)]
