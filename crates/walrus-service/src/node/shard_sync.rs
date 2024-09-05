@@ -6,11 +6,12 @@ use std::{
     sync::Arc,
 };
 
-use tokio::{sync::Mutex, time::Duration};
+use tokio::sync::Mutex;
 use walrus_core::ShardIndex;
 use walrus_sdk::error::ServiceError;
 
 use super::{
+    config::ShardSyncConfig,
     errors::SyncShardClientError,
     storage::{ShardStatus, ShardStorage},
     StorageNodeInner,
@@ -25,13 +26,15 @@ use crate::{
 pub struct ShardSyncHandler {
     node: Arc<StorageNodeInner>,
     shard_sync_in_progress: Arc<Mutex<HashMap<ShardIndex, tokio::task::JoinHandle<()>>>>,
+    config: ShardSyncConfig,
 }
 
 impl ShardSyncHandler {
-    pub fn new(node: Arc<StorageNodeInner>) -> Self {
+    pub fn new(node: Arc<StorageNodeInner>, config: ShardSyncConfig) -> Self {
         Self {
             node,
             shard_sync_in_progress: Arc::new(Mutex::new(HashMap::new())),
+            config,
         }
     }
 
@@ -102,16 +105,19 @@ impl ShardSyncHandler {
             let shard_index = shard_storage.id();
 
             let backoff = ExponentialBackoff::new_with_seed(
-                // TODO(#705): make these configurable.
-                Duration::from_secs(60),
-                Duration::from_secs(600),
+                shard_sync_handler_clone.config.shard_sync_retry_min_backoff,
+                shard_sync_handler_clone.config.shard_sync_retry_max_backoff,
                 None,
                 shard_index.0 as u64, // Seed the backoff with the shard index.
             );
 
             utils::retry(backoff, || async {
                 let sync_result = shard_storage
-                    .start_sync_shard_before_epoch(current_epoch, node_clone.clone())
+                    .start_sync_shard_before_epoch(
+                        current_epoch,
+                        node_clone.clone(),
+                        &shard_sync_handler_clone.config,
+                    )
                     .await;
 
                 if let Err(err) = sync_result {
@@ -194,7 +200,10 @@ mod tests {
                 .update_status_in_test(ShardStatus::ActiveSync)
                 .expect("Failed to update shard status");
         }
-        let shard_sync_handler = ShardSyncHandler::new(cluster.nodes[0].storage_node.inner.clone());
+        let shard_sync_handler = ShardSyncHandler::new(
+            cluster.nodes[0].storage_node.inner.clone(),
+            ShardSyncConfig::default(),
+        );
         shard_sync_handler
             .restart_syncs()
             .await
@@ -215,7 +224,10 @@ mod tests {
     #[tokio::test(start_paused = false)]
     async fn test_start_new_shard_sync() {
         let cluster = create_test_cluster(&[&[0]]).await;
-        let shard_sync_handler = ShardSyncHandler::new(cluster.nodes[0].storage_node.inner.clone());
+        let shard_sync_handler = ShardSyncHandler::new(
+            cluster.nodes[0].storage_node.inner.clone(),
+            ShardSyncConfig::default(),
+        );
 
         assert!(matches!(
             shard_sync_handler.start_new_shard_sync(ShardIndex(0)).await,

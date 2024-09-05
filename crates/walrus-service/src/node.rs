@@ -401,7 +401,8 @@ impl StorageNode {
             config.blob_recovery.max_concurrent_blob_syncs,
         );
 
-        let shard_sync_handler = ShardSyncHandler::new(inner.clone());
+        let shard_sync_handler =
+            ShardSyncHandler::new(inner.clone(), config.shard_sync_config.clone());
         // Upon restart, resume any ongoing blob syncs if there is any.
         shard_sync_handler.restart_syncs().await?;
 

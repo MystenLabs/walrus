@@ -70,6 +70,9 @@ pub struct StorageNodeConfig {
     /// Configuration for TLS of the rest API.
     #[serde(default)]
     pub tls: TlsConfig,
+    /// Configuration for shard synchronization.
+    #[serde(default)]
+    pub shard_sync_config: ShardSyncConfig,
 }
 
 impl StorageNodeConfig {
@@ -170,6 +173,36 @@ impl Default for CommitteeServiceConfig {
             sliver_request_timeout: Duration::from_secs(300),
             invalidity_sync_timeout: Duration::from_secs(300),
             max_concurrent_metadata_requests: 1,
+        }
+    }
+}
+
+/// Configuration for Walrus storage node shard synchronization.
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ShardSyncConfig {
+    /// The number of slivers to fetch in a single sync shard request.
+    pub sliver_count_per_sync_request: usize,
+    /// The minimum backoff time for shard sync retries.
+    #[serde_as(as = "DurationSeconds<u64>")]
+    #[serde(rename = "shard_sync_retry_min_backoff_secs")]
+    pub shard_sync_retry_min_backoff: Duration,
+    /// The maximum backoff time for shard sync retries.
+    #[serde_as(as = "DurationSeconds<u64>")]
+    #[serde(rename = "shard_sync_retry_max_backoff_secs")]
+    pub shard_sync_retry_max_backoff: Duration,
+    /// The maximum number of concurrent blob recoveries during shard recovery.
+    pub max_concurrent_blob_recovery_during_shard_recovery: usize,
+}
+
+impl Default for ShardSyncConfig {
+    fn default() -> Self {
+        Self {
+            sliver_count_per_sync_request: 10,
+            shard_sync_retry_min_backoff: Duration::from_secs(60),
+            shard_sync_retry_max_backoff: Duration::from_secs(600),
+            max_concurrent_blob_recovery_during_shard_recovery: 5,
         }
     }
 }

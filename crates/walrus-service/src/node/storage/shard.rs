@@ -41,7 +41,12 @@ use walrus_core::{
 };
 
 use super::{blob_info::BlobInfo, BlobInfoIterator, DatabaseConfig};
-use crate::node::{blob_sync::recover_sliver, errors::SyncShardClientError, StorageNodeInner};
+use crate::node::{
+    blob_sync::recover_sliver,
+    config::ShardSyncConfig,
+    errors::SyncShardClientError,
+    StorageNodeInner,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ShardStatus {
@@ -413,6 +418,7 @@ impl ShardStorage {
         &self,
         epoch: Epoch,
         node: Arc<StorageNodeInner>,
+        config: &ShardSyncConfig,
     ) -> Result<(), SyncShardClientError> {
         tracing::info!("Syncing shard to before epoch: {}", epoch);
         if self.status()? == ShardStatus::None {
@@ -433,6 +439,7 @@ impl ShardStorage {
                     node.clone(),
                     SliverType::Primary,
                     last_synced_blob_id,
+                    config,
                 )
                 .await?;
                 self.sync_shard_before_epoch_internal(
@@ -440,6 +447,7 @@ impl ShardStorage {
                     node.clone(),
                     SliverType::Secondary,
                     None,
+                    config,
                 )
                 .await?;
             }
@@ -451,13 +459,14 @@ impl ShardStorage {
                     node.clone(),
                     SliverType::Secondary,
                     last_synced_blob_id,
+                    config,
                 )
                 .await?;
             }
             ShardLastSyncStatus::Recovery => {}
         }
 
-        self.recovery_any_missing_slivers(node).await?;
+        self.recovery_any_missing_slivers(node, config).await?;
 
         let mut batch = self.shard_status.batch();
         batch.insert_batch(&self.shard_status, [((), ShardStatus::Active)])?;
@@ -517,6 +526,7 @@ impl ShardStorage {
         node: Arc<StorageNodeInner>,
         sliver_type: SliverType,
         mut last_synced_blob_id: Option<BlobId>,
+        config: &ShardSyncConfig,
     ) -> Result<(), SyncShardClientError> {
         // Helper to track the number of scanned blobs to test recovery. Not used in production.
         #[cfg(feature = "failure_injection")]
@@ -544,7 +554,7 @@ impl ShardStorage {
                     self.id(),
                     next_starting_blob_id,
                     sliver_type,
-                    10, // TODO(#705): make this configurable.
+                    config.sliver_count_per_sync_request as u64,
                     epoch,
                     &node.protocol_key_pair,
                 )
@@ -688,6 +698,7 @@ impl ShardStorage {
     async fn recovery_any_missing_slivers(
         &self,
         node: Arc<StorageNodeInner>,
+        config: &ShardSyncConfig,
     ) -> Result<(), SyncShardClientError> {
         if self.pending_recover_slivers.is_empty() {
             return Ok(());
@@ -703,7 +714,7 @@ impl ShardStorage {
         });
 
         loop {
-            self.recover_missing_blobs(node.clone()).await?;
+            self.recover_missing_blobs(node.clone(), config).await?;
 
             if self.pending_recover_slivers.is_empty() {
                 // TODO: in test, check that we have recovered all the certified blobs.
@@ -720,8 +731,9 @@ impl ShardStorage {
     async fn recover_missing_blobs(
         &self,
         node: Arc<StorageNodeInner>,
+        config: &ShardSyncConfig,
     ) -> Result<(), TypedStoreError> {
-        let semaphore = Semaphore::new(5); // TODO(#705): make this configurable.
+        let semaphore = Semaphore::new(config.max_concurrent_blob_recovery_during_shard_recovery);
         let mut futures = FuturesUnordered::new();
         for recover_blob in self.pending_recover_slivers.safe_iter() {
             let ((sliver_type, blob_id), _) = recover_blob?;

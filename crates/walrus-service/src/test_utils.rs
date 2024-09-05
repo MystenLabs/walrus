@@ -1077,6 +1077,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             blob_recovery: Default::default(),
             tls: Default::default(),
             rest_graceful_shutdown_period_secs: Some(Some(0)),
+            shard_sync_config: Default::default(),
         },
         temp_dir,
     }
