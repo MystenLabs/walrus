@@ -201,6 +201,7 @@ impl From<&GlobalDatabaseOptions> for Options {
 /// Database configuration for Walrus storage nodes.
 #[serde_with::serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
 pub struct DatabaseConfig {
     global: GlobalDatabaseOptions,
     metadata: DatabaseTableOptions,

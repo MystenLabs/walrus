@@ -402,4 +402,38 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn deserialize_partial_config() -> TestResult {
+        // editorconfig-checker-disable
+        let yaml = "\
+storage_path: /opt/walrus/db
+db_config:
+  metadata:
+    target_file_size_base: 4194304
+  blob_info:
+    enable_blob_files: false
+  event_cursor:
+    enable_blob_files: false
+  shard:
+    blob_garbage_collection_force_threshold: 0.5
+  shard_status:
+    blob_garbage_collection_age_cutoff: 0.0
+protocol_key_pair: BBlm7tRefoPuaKoVoxVtnUBBDCfy+BGPREM8B6oSkOEj
+network_key_pair: AFzrKKEebJ56OhX4QHH9NQshlGKEQuwdD3HlE5d3n0jm
+metrics_address: 173.199.90.181:9184
+rest_api_address: 173.199.90.181:9185
+sui:
+  rpc: https://fullnode.testnet.sui.io:443
+  system_object: 0x6c957cf363ec968582f24e3e1a638c968cec1fa228999c560ec7925994906315
+  event_polling_interval_millis: 400
+  wallet_config: /opt/walrus/config/dryrun-node-1-sui.yaml
+  gas_budget: 500000000
+blob_recovery:
+  invalidity_sync_timeout_secs: 300
+  ";
+        // editorconfig-checker-enable
+        let _: StorageNodeConfig = serde_yaml::from_str(yaml)?;
+        Ok(())
+    }
 }
