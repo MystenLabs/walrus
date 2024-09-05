@@ -89,7 +89,7 @@ impl App {
 }
 
 /// Top level enum to separate the daemon and CLI commands.
-#[derive(Subcommand, Debug, Clone, Deserialize)]
+#[derive(Subcommand, Debug, Clone, Deserialize, PartialEq, Eq)]
 #[clap(rename_all = "kebab-case")]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Commands {
@@ -135,7 +135,7 @@ pub enum Commands {
 
 /// The CLI commands for the Walrus client.
 #[serde_as]
-#[derive(Subcommand, Debug, Clone, Deserialize)]
+#[derive(Subcommand, Debug, Clone, Deserialize, PartialEq, Eq)]
 #[clap(rename_all = "kebab-case")]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum CliCommands {
@@ -248,7 +248,7 @@ pub enum CliCommands {
 
 /// The daemon commands for the Walrus client.
 #[serde_as]
-#[derive(Subcommand, Debug, Clone, Deserialize)]
+#[derive(Subcommand, Debug, Clone, Deserialize, PartialEq, Eq)]
 #[clap(rename_all = "kebab-case")]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum DaemonCommands {
@@ -294,7 +294,7 @@ impl DaemonCommands {
     }
 }
 
-#[derive(Debug, Clone, Args, Deserialize)]
+#[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct PublisherArgs {
     #[clap(flatten)]
@@ -332,7 +332,7 @@ impl PublisherArgs {
 }
 
 /// The URL of the Sui RPC node to use.
-#[derive(Default, Debug, Clone, Args, Deserialize)]
+#[derive(Default, Debug, Clone, Args, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct RpcArg {
     /// The URL of the Sui RPC node to use.
@@ -345,7 +345,7 @@ pub struct RpcArg {
     pub(crate) rpc_url: Option<String>,
 }
 
-#[derive(Debug, Clone, Args, Deserialize)]
+#[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct DaemonArgs {
     /// The address to which to bind the service.
@@ -363,7 +363,7 @@ pub struct DaemonArgs {
 }
 
 #[serde_as]
-#[derive(Debug, Clone, Args, Deserialize)]
+#[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 #[group(required = true, multiple = false)]
 pub struct FileOrBlobId {
@@ -432,5 +432,86 @@ mod default {
         "127.0.0.1:27182"
             .parse()
             .expect("this is a correct socket address")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use std::str::FromStr;
+
+    use walrus_test_utils::{param_test, Result as TestResult};
+
+    use super::*;
+
+    const STORE_STR: &str = r#"{"store": {"file": "README.md"}}"#;
+    const READ_STR: &str = r#"{"read": {"blobId": "4BKcDC0Ih5RJ8R0tFMz3MZVNZV8b2goT6_JiEEwNHQo"}}"#;
+    const DAEMON_STR: &str = r#"{"daemon": {"bindAddress": "127.0.0.1:12345"}}"#;
+
+    // Creates the fixture for the JSON command string.
+    fn make_cmd_str(command: &str) -> String {
+        format!(
+            r#"{{
+                "config": "path/to/client_config.yaml",
+                "command": {}
+            }}"#,
+            command
+        )
+    }
+
+    // Fixture for the store command.
+    fn store_command() -> Commands {
+        Commands::Cli(CliCommands::Store {
+            file: PathBuf::from("README.md"),
+            epochs: 1,
+            dry_run: false,
+            force: false,
+        })
+    }
+
+    // Fixture for the read command.
+    fn read_command() -> Commands {
+        Commands::Cli(CliCommands::Read {
+            blob_id: BlobId::from_str("4BKcDC0Ih5RJ8R0tFMz3MZVNZV8b2goT6_JiEEwNHQo").unwrap(),
+            out: None,
+            rpc_arg: RpcArg { rpc_url: None },
+        })
+    }
+
+    // Fixture for the daemon command.
+    fn daemon_command() -> Commands {
+        Commands::Daemon(DaemonCommands::Daemon {
+            args: PublisherArgs {
+                daemon_args: DaemonArgs {
+                    bind_address: SocketAddr::from_str("127.0.0.1:12345").unwrap(),
+                    metrics_address: default::metrics_address(),
+                    blocklist: None,
+                },
+                max_body_size_kib: default::max_body_size_kib(),
+            },
+        })
+    }
+
+    param_test! {
+        test_json_string_extraction -> TestResult: [
+            store: (&make_cmd_str(STORE_STR), store_command()),
+            read: (&make_cmd_str(READ_STR), read_command()),
+            daemon: (&make_cmd_str(DAEMON_STR), daemon_command())
+        ]
+    }
+    /// Test that the command string in JSON mode is extracted correctly.
+    fn test_json_string_extraction(json: &str, command: Commands) -> TestResult {
+        let mut app = App {
+            config: None,
+            wallet: None,
+            gas_budget: 100,
+            json: false,
+            command: Commands::Json {
+                command_string: Some(json.to_string()),
+            },
+        };
+        app.extract_json_command()?;
+        assert_eq!(app.command, command);
+        Ok(())
     }
 }
