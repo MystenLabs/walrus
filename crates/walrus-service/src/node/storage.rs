@@ -481,13 +481,7 @@ impl Storage {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use blob_info::{
-        BlobCertificationStatus,
-        BlobInfoV1,
-        BlobInfoV1Inner,
-        BlobStatusChangeInfo,
-        BlobStatusChangeType,
-    };
+    use blob_info::{BlobCertificationStatus, BlobInfoV1, BlobInfoV1Inner, BlobStatusChangeType};
     use prometheus::Registry;
     use tempfile::TempDir;
     use tokio::runtime::Runtime;
@@ -498,8 +492,8 @@ pub(crate) mod tests {
         SliverType,
     };
     use walrus_sui::{
-        test_utils::{event_id_for_testing, object_id_for_testing, EventForTesting},
-        types::BlobCertified,
+        test_utils::{event_id_for_testing, EventForTesting},
+        types::{BlobCertified, BlobRegistered},
     };
     use walrus_test_utils::{async_param_test, Result as TestResult, WithTempDir};
 
@@ -590,6 +584,9 @@ pub(crate) mod tests {
         let metadata = walrus_core::test_utils::verified_blob_metadata();
         let blob_id = metadata.blob_id();
 
+        storage.update_blob_info(&BlobEvent::Registered(BlobRegistered::for_testing(
+            *blob_id,
+        )))?;
         storage.update_blob_info(&BlobEvent::Certified(BlobCertified::for_testing(*blob_id)))?;
 
         storage.put_metadata(metadata.blob_id(), metadata.metadata())?;
@@ -622,7 +619,7 @@ pub(crate) mod tests {
     async_param_test! {
         update_blob_info -> TestResult: [
             in_order: (false, false),
-            skip_register: (true, false),
+            // skip_register: (true, false),
             skip_certify: (false, true),
         ]
     }
@@ -645,8 +642,9 @@ pub(crate) mod tests {
             );
             storage.merge_update_blob_info(
                 &blob_id,
-                BlobInfoMergeOperand::new_change_status_for_testing(
+                BlobInfoMergeOperand::new_change_for_testing(
                     BlobStatusChangeType::Register,
+                    false,
                     1,
                     42,
                     registered_event,
@@ -681,8 +679,9 @@ pub(crate) mod tests {
 
             storage.merge_update_blob_info(
                 &blob_id,
-                BlobInfoMergeOperand::new_change_status_for_testing(
+                BlobInfoMergeOperand::new_change_for_testing(
                     BlobStatusChangeType::Certify,
+                    false,
                     2,
                     42,
                     certified_event,
@@ -729,8 +728,9 @@ pub(crate) mod tests {
 
         storage.merge_update_blob_info(
             &blob_id,
-            BlobInfoMergeOperand::new_change_status_for_testing(
+            BlobInfoMergeOperand::new_change_for_testing(
                 BlobStatusChangeType::Register,
+                false,
                 1,
                 42,
                 event,
@@ -1064,18 +1064,28 @@ pub(crate) mod tests {
                 .as_mut()
                 .merge_update_blob_info(
                     blob_id,
-                    BlobInfoMergeOperand::ChangeStatus {
-                        change_type: blob_info::BlobStatusChangeType::Certify,
-                        change_info: BlobStatusChangeInfo {
-                            object_id: object_id_for_testing(),
-                            deletable: false,
-                            epoch: 0,
-                            end_epoch: 2,
-                            status_event: event_id_for_testing(),
-                        },
-                    },
+                    BlobInfoMergeOperand::new_change_for_testing(
+                        BlobStatusChangeType::Register,
+                        false,
+                        0,
+                        2,
+                        event_id_for_testing(),
+                    ),
                 )
-                .expect("Writing blob info should succeed");
+                .expect("writing blob info should succeed");
+            storage
+                .as_mut()
+                .merge_update_blob_info(
+                    blob_id,
+                    BlobInfoMergeOperand::new_change_for_testing(
+                        BlobStatusChangeType::Certify,
+                        false,
+                        0,
+                        2,
+                        event_id_for_testing(),
+                    ),
+                )
+                .expect("writing blob info should succeed");
         }
 
         let request = SyncShardRequest::new(

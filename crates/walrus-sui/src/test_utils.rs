@@ -55,6 +55,14 @@ pub fn event_id_for_testing() -> EventID {
     }
 }
 
+/// Returns an arbitrary (fixed) `EventID` for testing.
+pub fn fixed_event_id_for_testing() -> EventID {
+    EventID {
+        tx_digest: TransactionDigest::new([42; 32]),
+        event_seq: 314,
+    }
+}
+
 /// Returns an arbitrary (fixed) `ObjectID` for testing.
 pub fn object_id_for_testing() -> ObjectID {
     ObjectID::from_single_byte(42)

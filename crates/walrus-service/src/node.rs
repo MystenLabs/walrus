@@ -1769,7 +1769,7 @@ mod tests {
         events.send(blob2_registered_event.clone().into())?;
 
         // The node should not be able to advance past the following event.
-        events.send(BlobCertified::for_testing(BLOB_ID).into())?;
+        events.send(BlobCertified::for_testing(*blob2_details.blob_id()).into())?;
 
         // Register and store the second blob
         let blob3_details = EncodedBlob::new(&blob3, config.clone());
