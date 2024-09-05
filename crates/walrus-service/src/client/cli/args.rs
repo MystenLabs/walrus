@@ -104,7 +104,7 @@ pub enum Commands {
         /// The JSON-encoded args for the Walrus CLI; if not present, the args are read from stdin.
         ///
         /// The JSON structure follows the CLI arguments, containing global options and a "command"
-        /// object at the root level. The "command" object itself contains the command (e.g.,k
+        /// object at the root level. The "command" object itself contains the command (e.g.,
         /// "store", "read", "publisher", "blobStatus", ...) with an object containing the command
         /// options.
         ///
