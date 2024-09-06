@@ -8,7 +8,7 @@ use colored::Colorize;
 use indoc::printdoc;
 use prettytable::{format, row, Table};
 use serde::Serialize;
-use walrus_sdk::api::BlobStatus;
+use walrus_sdk::api::{BlobStatus, DeletableStatus};
 use walrus_sui::types::Blob;
 
 use crate::client::{
@@ -151,20 +151,24 @@ impl CliOutput for BlobStatusOutput {
         };
         match self.status {
             BlobStatus::Nonexistent => println!("Blob ID {blob_str} is not stored on Walrus."),
-            BlobStatus::Deletable {
+            BlobStatus::Deletable(DeletableStatus {
                 count_deletable_total,
                 count_deletable_certified,
-            } => println!(
+            }) => println!(
                 "Blob ID {blob_str} is registered on Walrus but only as deletable Blob objects:\n\
-                    Total number of objects: {count_deletable_total}\n\
-                    Number of certified objects: {count_deletable_certified}"
+                    Total number of certified objects: {count_deletable_certified} (of \
+                    {count_deletable_total} registered)"
             ),
             BlobStatus::Invalid { .. } => println!("Blob ID {blob_str} is invalid."),
             BlobStatus::Permanent {
                 end_epoch,
                 is_certified,
-                count_deletable_certified,
                 status_event,
+                deletable_status:
+                    DeletableStatus {
+                        count_deletable_certified,
+                        ..
+                    },
                 ..
             } => {
                 let status = (if is_certified {
@@ -174,7 +178,7 @@ impl CliOutput for BlobStatusOutput {
                 })
                 .bold();
                 println!(
-                    "There is a {status} permanent Blob object for  blob ID {blob_str}.\n\
+                    "There is a {status} permanent Blob object for blob ID {blob_str}.\n\
                         End epoch: {}\n\
                         Related event: {}",
                     end_epoch,

@@ -481,7 +481,12 @@ impl Storage {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use blob_info::{BlobCertificationStatus, BlobInfoV1, BlobInfoV1Inner, BlobStatusChangeType};
+    use blob_info::{
+        BlobCertificationStatus,
+        BlobInfoV1,
+        BlobStatusChangeType,
+        PermanentBlobInfoV1,
+    };
     use prometheus::Registry;
     use tempfile::TempDir;
     use tokio::runtime::Runtime;
@@ -668,7 +673,7 @@ pub(crate) mod tests {
             // Set correct registered event.
             if !skip_register {
                 let BlobInfo::V1(BlobInfoV1::Valid {
-                    permanent_total: Some(BlobInfoV1Inner { ref mut event, .. }),
+                    permanent_total: Some(PermanentBlobInfoV1 { ref mut event, .. }),
                     ..
                 }) = &mut state1
                 else {

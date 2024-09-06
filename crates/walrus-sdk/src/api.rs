@@ -64,19 +64,37 @@ pub enum BlobStatus {
         object_id: ObjectID,
         /// The ID of the last Sui event related to the `Blob` object.
         status_event: EventID,
-        /// Total number of active deletable blobs for the given blob ID.
-        count_deletable_total: u32,
-        /// Number of certified deletable blobs for the given blob ID.
-        count_deletable_certified: u32,
+        /// Counts of deletable `Blob` objects.
+        deletable_status: DeletableStatus,
     },
     /// The blob exists within Walrus; but there is no related permanent object, so it may be
     /// deleted at any time.
-    Deletable {
-        /// Total number of active deletable blobs for the given blob ID.
-        count_deletable_total: u32,
-        /// Number of certified deletable blobs for the given blob ID.
-        count_deletable_certified: u32,
-    },
+    Deletable(DeletableStatus),
+}
+
+/// Contains counts of all and certified deletable `Blob` objects.
+#[derive(
+    Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy, Default, Hash, utoipa::ToSchema,
+)]
+pub struct DeletableStatus {
+    /// Total number of active deletable `Blob` objects for the given blob ID.
+    pub count_deletable_total: u32,
+    /// Number of certified deletable `Blob` objects for the given blob ID.
+    pub count_deletable_certified: u32,
+}
+
+impl PartialOrd for DeletableStatus {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for DeletableStatus {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // Tuples are compared using lexicographic ordering.
+        (self.count_deletable_certified, self.count_deletable_total)
+            .cmp(&(other.count_deletable_certified, other.count_deletable_total))
+    }
 }
 
 impl PartialOrd for BlobStatus {
@@ -102,19 +120,8 @@ impl Ord for BlobStatus {
             (Permanent { .. }, Deletable { .. }) => Ordering::Greater,
             (Deletable { .. }, Permanent { .. }) => Ordering::Less,
             // For Deletable, first compare certified blobs, then all.
-            (
-                Deletable {
-                    count_deletable_total,
-                    count_deletable_certified,
-                },
-                Deletable {
-                    count_deletable_total: count_deletable_total_other,
-                    count_deletable_certified: count_deletable_certified_other,
-                },
-            ) => {
-                // Tuples are compared using lexicographic ordering.
-                (count_deletable_certified, count_deletable_total)
-                    .cmp(&(count_deletable_certified_other, count_deletable_total_other))
+            (Deletable(deletable_status), Deletable(deletable_status_other)) => {
+                deletable_status.cmp(deletable_status_other)
             }
             // For Permanent, compare status, end epochs, and count of deletable blobs, in this
             // order.
@@ -122,31 +129,22 @@ impl Ord for BlobStatus {
                 Permanent {
                     end_epoch,
                     is_certified,
-                    count_deletable_total,
-                    count_deletable_certified,
+                    deletable_status,
                     ..
                 },
                 Permanent {
                     end_epoch: end_epoch_other,
                     is_certified: is_certified_other,
-                    count_deletable_total: count_deletable_total_other,
-                    count_deletable_certified: count_deletable_certified_other,
+                    deletable_status: deletable_status_other,
                     ..
                 },
             ) => {
                 // Tuples are compared using lexicographic ordering.
-                (
-                    is_certified,
-                    end_epoch,
-                    count_deletable_certified,
-                    count_deletable_total,
-                )
-                    .cmp(&(
-                        is_certified_other,
-                        end_epoch_other,
-                        count_deletable_certified_other,
-                        count_deletable_total_other,
-                    ))
+                (is_certified, end_epoch, deletable_status).cmp(&(
+                    is_certified_other,
+                    end_epoch_other,
+                    deletable_status_other,
+                ))
             }
         }
     }

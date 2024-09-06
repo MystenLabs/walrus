@@ -912,6 +912,8 @@ fn inject_failure(scan_count: u64, sliver_type: SliverType) -> Result<(), anyhow
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use walrus_core::test_utils::random_blob_id;
     use walrus_sui::test_utils::event_id_for_testing;
     use walrus_test_utils::{async_param_test, param_test, Result as TestResult, WithTempDir};

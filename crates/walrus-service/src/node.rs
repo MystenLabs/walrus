@@ -56,7 +56,7 @@ use self::{
     contract_service::{SuiSystemContractService, SystemContractService},
     errors::IndexOutOfRange,
     metrics::{NodeMetricSet, TelemetryLabel as _, STATUS_PENDING, STATUS_PERSISTED},
-    storage::{blob_info::BlobInfoApi, EventProgress, ShardStorage},
+    storage::{blob_info::BlobInfoApi as _, EventProgress, ShardStorage},
 };
 
 pub mod committee;

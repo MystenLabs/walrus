@@ -11,17 +11,17 @@ use serde::{Deserialize, Serialize};
 use sui_types::{base_types::ObjectID, event::EventID};
 use tracing::Level;
 use walrus_core::Epoch;
-use walrus_sdk::api::BlobStatus;
+use walrus_sdk::api::{BlobStatus, DeletableStatus};
 use walrus_sui::types::{BlobCertified, BlobEvent, BlobRegistered, InvalidBlobId};
 
-pub(crate) trait Mergeable: Sized {
+pub(super) trait Mergeable: Sized {
     type MergeOperand;
 
     /// Updates the existing blob info with the provided merge operand and returns the result.
     ///
     /// Returns the preexisting value if the merge fails. An error is logged in this case.
     #[must_use]
-    fn merge_preexisting(self, operand: Self::MergeOperand) -> Self;
+    fn merge_with(self, operand: Self::MergeOperand) -> Self;
 
     /// Creates a new object of `Self` applying the merge operand without preexisting value.
     ///
@@ -36,7 +36,7 @@ pub(crate) trait Mergeable: Sized {
     #[must_use]
     fn merge(existing_val: Option<Self>, operand: Self::MergeOperand) -> Option<Self> {
         match existing_val {
-            Some(existing_val) => Some(Self::merge_preexisting(existing_val, operand)),
+            Some(existing_val) => Some(existing_val.merge_with(operand)),
             None => Self::merge_new(operand),
         }
     }
@@ -63,24 +63,10 @@ pub(crate) trait BlobInfoApi {
 
     /// Converts the blob information to a `BlobStatus` object.
     fn to_blob_status(&self) -> BlobStatus;
-
-    // Question(mlegner): Do we actually need these functions? Currently, they are unused.
-    /// Returns true iff there is a corresponding certified permanent blob object.
-    #[allow(dead_code)]
-    fn is_certified_permanent(&self) -> bool;
-    /// Returns true iff there is a corresponding registered or certified permanent blob object.
-    #[allow(dead_code)]
-    fn is_registered_permanent(&self) -> bool;
-    /// Returns true iff there is any corresponding certified blob object.
-    #[allow(dead_code)]
-    fn is_certified(&self) -> bool;
-    /// Returns true iff there is any corresponding registered or certified blob object.
-    #[allow(dead_code)]
-    fn is_registered(&self) -> bool;
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
-pub(crate) enum BlobInfoMergeOperand {
+pub(super) enum BlobInfoMergeOperand {
     MarkMetadataStored(bool),
     MarkInvalid {
         epoch: Epoch,
@@ -93,7 +79,7 @@ pub(crate) enum BlobInfoMergeOperand {
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
-pub struct BlobStatusChangeInfo {
+pub(super) struct BlobStatusChangeInfo {
     pub(super) object_id: ObjectID,
     pub(super) deletable: bool,
     pub(super) epoch: Epoch,
@@ -102,7 +88,7 @@ pub struct BlobStatusChangeInfo {
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy)]
-pub(crate) enum BlobStatusChangeType {
+pub(super) enum BlobStatusChangeType {
     Register,
     Certify,
     Extend,
@@ -110,7 +96,7 @@ pub(crate) enum BlobStatusChangeType {
 }
 
 impl BlobInfoMergeOperand {
-    pub(crate) fn to_bytes(&self) -> Vec<u8> {
+    pub fn to_bytes(&self) -> Vec<u8> {
         bcs::to_bytes(self).expect("blob info merge operand can always be BCS encoded")
     }
 
@@ -215,14 +201,14 @@ pub(crate) enum BlobInfoV1 {
         is_metadata_stored: bool,
         count_deletable_total: u32,
         count_deletable_certified: u32,
-        permanent_total: Option<BlobInfoV1Inner>,
-        permanent_certified: Option<BlobInfoV1Inner>,
+        permanent_total: Option<PermanentBlobInfoV1>,
+        permanent_certified: Option<PermanentBlobInfoV1>,
         initial_certified_epoch: Option<Epoch>,
     },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct BlobInfoV1Inner {
+pub(crate) struct PermanentBlobInfoV1 {
     /// The total number of `Blob` objects for that blob ID with the given status.
     pub count: NonZeroU32,
     /// The latest expiration epoch among these objects.
@@ -238,7 +224,56 @@ pub struct BlobInfoV1Inner {
     pub event: EventID,
 }
 
-impl BlobInfoV1Inner {
+impl PermanentBlobInfoV1 {
+    /// Updates `self` with the change info.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the change info has `deletable == true`.
+    fn update(&mut self, change_info: &BlobStatusChangeInfo) {
+        assert!(!change_info.deletable);
+
+        self.count = self.count.saturating_add(1);
+        if change_info.end_epoch > self.end_epoch {
+            *self = PermanentBlobInfoV1 {
+                count: self.count,
+                end_epoch: change_info.end_epoch,
+                object_id: change_info.object_id,
+                status_changing_epoch: change_info.epoch,
+                event: change_info.status_event,
+            };
+        }
+    }
+
+    /// Updates `existing_info` with the change info or creates a new `Self` if the input is `None`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the change info has `deletable == true`.
+    fn update_optional(existing_info: &mut Option<Self>, change_info: &BlobStatusChangeInfo) {
+        let BlobStatusChangeInfo {
+            object_id: new_object_id,
+            epoch: new_epoch,
+            end_epoch: new_end_epoch,
+            status_event: new_status_event,
+            deletable,
+        } = change_info;
+        assert!(!deletable);
+
+        match existing_info {
+            None => {
+                *existing_info = Some(PermanentBlobInfoV1 {
+                    count: NonZeroU32::new(1).unwrap(),
+                    end_epoch: *new_end_epoch,
+                    object_id: *new_object_id,
+                    status_changing_epoch: *new_epoch,
+                    event: *new_status_event,
+                })
+            }
+            Some(permanent_blob_info) => permanent_blob_info.update(change_info),
+        }
+    }
+
     #[cfg(test)]
     fn new_for_testing(count: u32, end_epoch: Epoch, status_changing_epoch: Epoch) -> Self {
         use walrus_sui::test_utils::{fixed_event_id_for_testing, object_id_for_testing};
@@ -266,48 +301,6 @@ impl BlobInfoApi for BlobInfoV1 {
 
     fn is_invalid(&self) -> bool {
         matches!(self, Self::Invalid { .. })
-    }
-
-    fn is_certified_permanent(&self) -> bool {
-        matches!(
-            self,
-            Self::Valid {
-                permanent_certified: Some(_),
-                ..
-            }
-        )
-    }
-
-    fn is_registered_permanent(&self) -> bool {
-        matches!(
-            self,
-            Self::Valid {
-                permanent_total: Some(_),
-                ..
-            }
-        )
-    }
-
-    fn is_certified(&self) -> bool {
-        let is_certified = self.is_certified_permanent()
-            || matches!(
-                self,
-                Self::Valid {
-                    count_deletable_certified, ..
-                } if *count_deletable_certified > 0
-            );
-        debug_assert_eq!(is_certified, self.initial_certified_epoch().is_some());
-        is_certified
-    }
-
-    fn is_registered(&self) -> bool {
-        self.is_registered_permanent()
-            || matches!(
-                self,
-                Self::Valid {
-                    count_deletable_total, ..
-                } if *count_deletable_total > 0
-            )
     }
 
     fn initial_certified_epoch(&self) -> Option<Epoch> {
@@ -340,41 +333,26 @@ impl BlobInfoApi for BlobInfoV1 {
                 permanent_certified,
                 ..
             } => {
-                if let Some(BlobInfoV1Inner {
+                let deletable_status = DeletableStatus {
+                    count_deletable_total: *count_deletable_total,
+                    count_deletable_certified: *count_deletable_certified,
+                };
+                if let Some(PermanentBlobInfoV1 {
                     end_epoch,
                     object_id,
                     event,
                     ..
-                }) = permanent_certified
+                }) = permanent_certified.as_ref().or(permanent_total.as_ref())
                 {
                     BlobStatus::Permanent {
                         end_epoch: *end_epoch,
-                        is_certified: true,
+                        is_certified: permanent_certified.is_some(),
                         object_id: *object_id,
                         status_event: *event,
-                        count_deletable_total: *count_deletable_total,
-                        count_deletable_certified: *count_deletable_certified,
-                    }
-                } else if let Some(BlobInfoV1Inner {
-                    end_epoch,
-                    object_id,
-                    event,
-                    ..
-                }) = permanent_total
-                {
-                    BlobStatus::Permanent {
-                        end_epoch: *end_epoch,
-                        is_certified: false,
-                        object_id: *object_id,
-                        status_event: *event,
-                        count_deletable_total: *count_deletable_total,
-                        count_deletable_certified: *count_deletable_certified,
+                        deletable_status,
                     }
                 } else {
-                    BlobStatus::Deletable {
-                        count_deletable_total: *count_deletable_total,
-                        count_deletable_certified: *count_deletable_certified,
-                    }
+                    BlobStatus::Deletable(deletable_status)
                 }
             }
         }
@@ -426,17 +404,13 @@ impl BlobInfoV1 {
                     Self::register_permanent(permanent_total, &change_info);
                 }
                 BlobStatusChangeType::Certify => {
-                    let Some(permanent_total) = permanent_total else {
-                        tracing::error!("attempt to certify a permanent blob when none is tracked");
+                    if !Self::certify_permanent(permanent_total, permanent_certified, &change_info)
+                    {
+                        // Return early to prevent updating the `initial_certified_epoch` below.
                         return self;
-                    };
-                    Self::certify_permanent(permanent_total, permanent_certified, &change_info);
+                    }
                 }
                 BlobStatusChangeType::Extend => {
-                    let Some(permanent_certified) = permanent_certified else {
-                        tracing::error!("attempt to extend a permanent blob when none is tracked");
-                        return self;
-                    };
                     Self::extend_permanent(permanent_certified, &change_info);
                 }
                 BlobStatusChangeType::Delete { was_certified } => {
@@ -463,12 +437,10 @@ impl BlobInfoV1 {
         current_initial_certified_epoch: &mut Option<Epoch>,
         new_certified_epoch: Epoch,
     ) {
-        match current_initial_certified_epoch {
-            None => *current_initial_certified_epoch = Some(new_certified_epoch),
-            Some(current_certified_epoch) if *current_certified_epoch > new_certified_epoch => {
-                *current_initial_certified_epoch = Some(new_certified_epoch)
-            }
-            _ => (),
+        if current_initial_certified_epoch
+            .map_or(true, |existing_epoch| existing_epoch > new_certified_epoch)
+        {
+            *current_initial_certified_epoch = Some(new_certified_epoch);
         }
     }
 
@@ -486,32 +458,39 @@ impl BlobInfoV1 {
 
     /// Decrements a counter on blob deletion.
     ///
-    /// Logs an error if the counter is 0.
-    // Question(mlegner): Do we actually have to handle the cases where those counts are already 0?
-    // This should not happen if the system works properly, but one never knows...
+    /// If the counter is 0, an error is logged in release builds and the function panics in dev
+    /// builds.
     fn decrement_deletable_counter_on_deletion(counter: &mut u32) {
+        debug_assert!(*counter > 0);
         *counter = counter.checked_sub(1).unwrap_or_else(|| {
             tracing::error!("attempt to delete blob when count was already 0");
             0
         });
     }
 
-    /// Processes a register status change on the [`Option<BlobInfoV1Inner>`] object representing
-    /// all  permanent blobs.
+    /// Processes a register status change on the [`Option<PermanentBlobInfoV1>`] object
+    /// representing all permanent blobs.
     fn register_permanent(
-        permanent_total: &mut Option<BlobInfoV1Inner>,
+        permanent_total: &mut Option<PermanentBlobInfoV1>,
         change_info: &BlobStatusChangeInfo,
     ) {
-        Self::update_optional_blob_info_inner(permanent_total, change_info)
+        PermanentBlobInfoV1::update_optional(permanent_total, change_info)
     }
 
-    /// Processes a certify status change on the [`BlobInfoV1Inner`] objects representing all and
-    /// the certified permanent blobs.
+    /// Processes a certify status change on the [`PermanentBlobInfoV1`] objects representing all
+    /// and the certified permanent blobs.
+    ///
+    /// Returns whether the update was successful.
     fn certify_permanent(
-        permanent_total: &BlobInfoV1Inner,
-        permanent_certified: &mut Option<BlobInfoV1Inner>,
+        permanent_total: &Option<PermanentBlobInfoV1>,
+        permanent_certified: &mut Option<PermanentBlobInfoV1>,
         change_info: &BlobStatusChangeInfo,
-    ) {
+    ) -> bool {
+        let Some(permanent_total) = permanent_total else {
+            tracing::error!("attempt to certify a permanent blob when none is tracked");
+            return false;
+        };
+
         let registered_end_epoch = permanent_total.end_epoch;
         let certified_end_epoch = change_info.end_epoch;
         if certified_end_epoch > registered_end_epoch {
@@ -520,7 +499,7 @@ impl BlobInfoV1 {
                 certified_end_epoch,
                 "attempt to certify a permanent blob with later end epoch than any registered blob",
             );
-            return;
+            return false;
         }
         if permanent_total.count.get()
             <= permanent_certified
@@ -529,72 +508,33 @@ impl BlobInfoV1 {
                 .unwrap_or_default()
         {
             tracing::error!("attempt to certify a permanent blob before corresponding register");
-            return;
+            return false;
         }
-        Self::update_optional_blob_info_inner(permanent_certified, change_info);
+        PermanentBlobInfoV1::update_optional(permanent_certified, change_info);
+        true
     }
 
-    /// Processes an extend status change on the [`BlobInfoV1Inner`] object representing the
+    /// Processes an extend status change on the [`PermanentBlobInfoV1`] object representing the
     /// certified permanent blobs.
     fn extend_permanent(
-        permanent_certified: &mut BlobInfoV1Inner,
+        permanent_certified: &mut Option<PermanentBlobInfoV1>,
         change_info: &BlobStatusChangeInfo,
     ) {
-        Self::update_blob_info_inner(permanent_certified, change_info);
+        let Some(permanent_certified) = permanent_certified else {
+            tracing::error!("attempt to extend a permanent blob when none is tracked");
+            return;
+        };
+
+        permanent_certified.update(change_info);
     }
 
-    fn update_optional_blob_info_inner(
-        blob_info_inner: &mut Option<BlobInfoV1Inner>,
-        change_info: &BlobStatusChangeInfo,
-    ) {
-        let BlobStatusChangeInfo {
-            object_id: new_object_id,
-            epoch: new_epoch,
-            end_epoch: new_end_epoch,
-            status_event: new_status_event,
-            deletable,
-        } = change_info;
-        debug_assert!(!deletable);
-
-        match blob_info_inner {
-            None => {
-                *blob_info_inner = Some(BlobInfoV1Inner {
-                    count: NonZeroU32::new(1).unwrap(),
-                    end_epoch: *new_end_epoch,
-                    object_id: *new_object_id,
-                    status_changing_epoch: *new_epoch,
-                    event: *new_status_event,
-                })
-            }
-            Some(blob_info_inner) => Self::update_blob_info_inner(blob_info_inner, change_info),
-        }
-    }
-
-    fn update_blob_info_inner(
-        blob_info_inner: &mut BlobInfoV1Inner,
-        change_info: &BlobStatusChangeInfo,
-    ) {
-        debug_assert!(!change_info.deletable);
-
-        blob_info_inner.count = blob_info_inner.count.saturating_add(1);
-        if change_info.end_epoch > blob_info_inner.end_epoch {
-            *blob_info_inner = BlobInfoV1Inner {
-                count: blob_info_inner.count,
-                end_epoch: change_info.end_epoch,
-                object_id: change_info.object_id,
-                status_changing_epoch: change_info.epoch,
-                event: change_info.status_event,
-            };
-        }
-    }
-
-    /// Processes a delete status change on the [`BlobInfoV1Inner`] objects representing all and
+    /// Processes a delete status change on the [`PermanentBlobInfoV1`] objects representing all and
     /// the certified permanent blobs.
     ///
     /// This is called when blobs expire at the end of an epoch.
     fn delete_permanent(
-        permanent_total: &mut Option<BlobInfoV1Inner>,
-        permanent_certified: &mut Option<BlobInfoV1Inner>,
+        permanent_total: &mut Option<PermanentBlobInfoV1>,
+        permanent_certified: &mut Option<PermanentBlobInfoV1>,
         was_certified: bool,
     ) {
         Self::decrement_blob_info_inner(permanent_total);
@@ -603,10 +543,10 @@ impl BlobInfoV1 {
         }
     }
 
-    fn decrement_blob_info_inner(blob_info_inner: &mut Option<BlobInfoV1Inner>) {
+    fn decrement_blob_info_inner(blob_info_inner: &mut Option<PermanentBlobInfoV1>) {
         match blob_info_inner {
             None => tracing::error!("attempt to delete a permanent blob when none is tracked"),
-            Some(BlobInfoV1Inner { count, .. }) => {
+            Some(PermanentBlobInfoV1 { count, .. }) => {
                 if count.get() == 1 {
                     *blob_info_inner = None;
                 } else {
@@ -621,7 +561,7 @@ impl BlobInfoV1 {
 impl Mergeable for BlobInfoV1 {
     type MergeOperand = BlobInfoMergeOperand;
 
-    fn merge_preexisting(mut self, operand: Self::MergeOperand) -> Self {
+    fn merge_with(mut self, operand: Self::MergeOperand) -> Self {
         match &mut self {
             // If the blob is already marked as invalid, do not update the status.
             Self::Invalid { .. } => (),
@@ -676,7 +616,7 @@ impl Mergeable for BlobInfoV1 {
         } else {
             (
                 0,
-                Some(BlobInfoV1Inner {
+                Some(PermanentBlobInfoV1 {
                     count: NonZeroU32::new(1).unwrap(),
                     end_epoch,
                     object_id,
@@ -705,7 +645,7 @@ impl Mergeable for BlobInfoV1 {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Copy)]
 #[repr(u8)]
 #[cfg(test)]
-pub(crate) enum BlobCertificationStatus {
+pub(super) enum BlobCertificationStatus {
     Registered,
     Certified,
     Invalid,
@@ -742,13 +682,13 @@ pub(crate) enum BlobInfo {
 }
 
 impl BlobInfo {
-    pub(crate) fn to_bytes(&self) -> Vec<u8> {
+    pub fn to_bytes(&self) -> Vec<u8> {
         bcs::to_bytes(self).expect("blob info can always be BCS encoded")
     }
 
     /// Creates a new (permanent) blob for testing purposes.
     #[cfg(test)]
-    pub fn new_for_testing(
+    pub(super) fn new_for_testing(
         end_epoch: Epoch,
         status: BlobCertificationStatus,
         current_status_event: EventID,
@@ -763,7 +703,7 @@ impl BlobInfo {
             },
 
             BlobCertificationStatus::Registered | BlobCertificationStatus::Certified => {
-                let permanent_total = BlobInfoV1Inner {
+                let permanent_total = PermanentBlobInfoV1 {
                     count: NonZeroU32::new(1).unwrap(),
                     end_epoch,
                     object_id: walrus_sui::test_utils::object_id_for_testing(),
@@ -772,7 +712,7 @@ impl BlobInfo {
                     event: current_status_event,
                 };
                 let permanent_certified = matches!(status, BlobCertificationStatus::Certified)
-                    .then(|| BlobInfoV1Inner {
+                    .then(|| PermanentBlobInfoV1 {
                         status_changing_epoch: certified_epoch.unwrap(),
                         ..permanent_total
                     });
@@ -799,9 +739,9 @@ impl From<BlobInfo> for BlobStatus {
 impl Mergeable for BlobInfo {
     type MergeOperand = BlobInfoMergeOperand;
 
-    fn merge_preexisting(self, operand: Self::MergeOperand) -> Self {
+    fn merge_with(self, operand: Self::MergeOperand) -> Self {
         match self {
-            Self::V1(value) => Self::V1(value.merge_preexisting(operand)),
+            Self::V1(value) => Self::V1(value.merge_with(operand)),
         }
     }
 
@@ -954,7 +894,7 @@ mod tests {
                 permanent_total, ..
             } = &mut self.0
             {
-                *permanent_total = Some(BlobInfoV1Inner::new_for_testing(
+                *permanent_total = Some(PermanentBlobInfoV1::new_for_testing(
                     count,
                     end_epoch,
                     status_changing_epoch,
@@ -974,7 +914,7 @@ mod tests {
                 ..
             } = &mut self.0
             {
-                *permanent_certified = Some(BlobInfoV1Inner::new_for_testing(
+                *permanent_certified = Some(PermanentBlobInfoV1::new_for_testing(
                     count,
                     end_epoch,
                     status_changing_epoch,
@@ -1091,7 +1031,7 @@ mod tests {
             epoch: 42,
             event: event_id_for_testing(),
         };
-        assert_eq!(blob_info, blob_info.clone().merge_preexisting(operand));
+        assert_eq!(blob_info, blob_info.clone().merge_with(operand));
     }
 
     param_test! {
@@ -1117,8 +1057,8 @@ mod tests {
     ) {
         let preexisting_info_clone = preexisting_info.clone().get();
         check_invariants(&preexisting_info_clone);
-        let updated_info = preexisting_info_clone
-            .merge_preexisting(BlobInfoMergeOperand::MarkMetadataStored(true));
+        let updated_info =
+            preexisting_info_clone.merge_with(BlobInfoMergeOperand::MarkMetadataStored(true));
         assert_eq!(preexisting_info.with_metadata_stored().get(), updated_info);
     }
 
@@ -1143,11 +1083,10 @@ mod tests {
         let preexisting_info_clone = preexisting_info.clone().get();
         check_invariants(&preexisting_info_clone);
         let event = event_id_for_testing();
-        let updated_info =
-            preexisting_info_clone.merge_preexisting(BlobInfoMergeOperand::MarkInvalid {
-                epoch: 2,
-                status_event: event,
-            });
+        let updated_info = preexisting_info_clone.merge_with(BlobInfoMergeOperand::MarkInvalid {
+            epoch: 2,
+            status_event: event,
+        });
         assert_eq!(BlobInfoV1::Invalid { epoch: 2, event }, updated_info);
     }
 
@@ -1221,7 +1160,7 @@ mod tests {
         let preexisting_info = preexisting_info.get();
         let expected_info = expected_info.get();
         check_invariants(&preexisting_info);
-        let updated_info = BlobInfoV1::merge_preexisting(preexisting_info, operand);
+        let updated_info = BlobInfoV1::merge_with(preexisting_info, operand);
         check_invariants(&updated_info);
         assert_eq!(updated_info, expected_info);
     }
@@ -1253,7 +1192,7 @@ mod tests {
         operand: BlobInfoMergeOperand,
     ) {
         check_invariants(&preexisting_info);
-        let blob_info = BlobInfoV1::merge_preexisting(preexisting_info.clone(), operand);
+        let blob_info = BlobInfoV1::merge_with(preexisting_info.clone(), operand);
         assert_eq!(preexisting_info, blob_info);
     }
 }
