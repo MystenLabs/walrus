@@ -8,7 +8,7 @@ use std::num::NonZeroU32;
 use enum_dispatch::enum_dispatch;
 use rocksdb::MergeOperands;
 use serde::{Deserialize, Serialize};
-use sui_types::{base_types::ObjectID, event::EventID};
+use sui_types::event::EventID;
 use tracing::Level;
 use walrus_core::Epoch;
 use walrus_sdk::api::{BlobStatus, DeletableStatus};
@@ -80,7 +80,6 @@ pub(super) enum BlobInfoMergeOperand {
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
 pub(super) struct BlobStatusChangeInfo {
-    pub(super) object_id: ObjectID,
     pub(super) deletable: bool,
     pub(super) epoch: Epoch,
     pub(super) end_epoch: Epoch,
@@ -111,7 +110,6 @@ impl BlobInfoMergeOperand {
         Self::ChangeStatus {
             change_type,
             change_info: BlobStatusChangeInfo {
-                object_id: walrus_sui::test_utils::object_id_for_testing(),
                 deletable,
                 epoch,
                 end_epoch,
@@ -131,8 +129,7 @@ impl From<&BlobRegistered> for BlobInfoMergeOperand {
         } = value;
         Self::ChangeStatus {
             change_info: BlobStatusChangeInfo {
-                object_id: ObjectID::ZERO, // TODO(mlegner): update with new event structs (#762).
-                deletable: false,          // TODO(mlegner): update with new event structs (#762).
+                deletable: false, // TODO(mlegner): update with new event structs (#762).
                 epoch: *epoch,
                 end_epoch: *end_epoch,
                 status_event: *event_id,
@@ -152,8 +149,7 @@ impl From<&BlobCertified> for BlobInfoMergeOperand {
         } = value;
         Self::ChangeStatus {
             change_info: BlobStatusChangeInfo {
-                object_id: ObjectID::ZERO, // TODO(mlegner): update with new event structs (#762).
-                deletable: false,          // TODO(mlegner): update with new event structs (#762).
+                deletable: false, // TODO(mlegner): update with new event structs (#762).
                 epoch: *epoch,
                 end_epoch: *end_epoch,
                 status_event: *event_id,
@@ -228,16 +224,12 @@ impl ValidBlobInfoV1 {
             count_deletable_certified: *count_deletable_certified,
         };
         if let Some(PermanentBlobInfoV1 {
-            end_epoch,
-            object_id,
-            event,
-            ..
+            end_epoch, event, ..
         }) = permanent_certified.as_ref().or(permanent_total.as_ref())
         {
             BlobStatus::Permanent {
                 end_epoch: *end_epoch,
                 is_certified: permanent_certified.is_some(),
-                object_id: *object_id,
                 status_event: *event,
                 deletable_status,
             }
@@ -465,14 +457,7 @@ pub(crate) struct PermanentBlobInfoV1 {
     pub count: NonZeroU32,
     /// The latest expiration epoch among these objects.
     pub end_epoch: u64,
-    /// The ID of the object with the latest expiration epoch.
-    ///
-    /// If there are multiple, this contains the object with the highest status ('certified' >
-    /// 'registered') and the earliest `status_changing_epoch`.
-    pub object_id: ObjectID,
-    /// The epoch in which that object attained its current status.
-    pub status_changing_epoch: Epoch,
-    /// The ID of the latest blob event of that object.
+    /// The ID of the first blob event that led to the status with the given `end_epoch`.
     pub event: EventID,
 }
 
@@ -490,8 +475,6 @@ impl PermanentBlobInfoV1 {
             *self = PermanentBlobInfoV1 {
                 count: self.count,
                 end_epoch: change_info.end_epoch,
-                object_id: change_info.object_id,
-                status_changing_epoch: change_info.epoch,
                 event: change_info.status_event,
             };
         }
@@ -504,8 +487,7 @@ impl PermanentBlobInfoV1 {
     /// Panics if the change info has `deletable == true`.
     fn update_optional(existing_info: &mut Option<Self>, change_info: &BlobStatusChangeInfo) {
         let BlobStatusChangeInfo {
-            object_id: new_object_id,
-            epoch: new_epoch,
+            epoch: _,
             end_epoch: new_end_epoch,
             status_event: new_status_event,
             deletable,
@@ -517,8 +499,6 @@ impl PermanentBlobInfoV1 {
                 *existing_info = Some(PermanentBlobInfoV1 {
                     count: NonZeroU32::new(1).unwrap(),
                     end_epoch: *new_end_epoch,
-                    object_id: *new_object_id,
-                    status_changing_epoch: *new_epoch,
                     event: *new_status_event,
                 })
             }
@@ -527,14 +507,12 @@ impl PermanentBlobInfoV1 {
     }
 
     #[cfg(test)]
-    fn new_for_testing(count: u32, status_changing_epoch: Epoch, end_epoch: Epoch) -> Self {
-        use walrus_sui::test_utils::{fixed_event_id_for_testing, object_id_for_testing};
+    fn new_for_testing(count: u32, end_epoch: Epoch) -> Self {
+        use walrus_sui::test_utils::fixed_event_id_for_testing;
 
         Self {
             count: NonZeroU32::new(count).unwrap(),
             end_epoch,
-            status_changing_epoch,
-            object_id: object_id_for_testing(),
             event: fixed_event_id_for_testing(),
         }
     }
@@ -626,9 +604,8 @@ impl Mergeable for BlobInfoV1 {
             change_type: BlobStatusChangeType::Register,
             change_info:
                 BlobStatusChangeInfo {
-                    object_id,
                     deletable,
-                    epoch,
+                    epoch: _,
                     end_epoch,
                     status_event,
                 },
@@ -649,8 +626,6 @@ impl Mergeable for BlobInfoV1 {
                 Some(PermanentBlobInfoV1 {
                     count: NonZeroU32::new(1).unwrap(),
                     end_epoch,
-                    object_id,
-                    status_changing_epoch: epoch,
                     event: status_event,
                 }),
             )
@@ -720,7 +695,7 @@ impl BlobInfo {
         end_epoch: Epoch,
         status: BlobCertificationStatus,
         current_status_event: EventID,
-        registered_epoch: Option<Epoch>,
+        _registered_epoch: Option<Epoch>,
         certified_epoch: Option<Epoch>,
         invalidated_epoch: Option<Epoch>,
     ) -> Self {
@@ -734,16 +709,10 @@ impl BlobInfo {
                 let permanent_total = PermanentBlobInfoV1 {
                     count: NonZeroU32::new(1).unwrap(),
                     end_epoch,
-                    object_id: walrus_sui::test_utils::object_id_for_testing(),
-                    status_changing_epoch: registered_epoch
-                        .unwrap_or_else(|| certified_epoch.unwrap()),
                     event: current_status_event,
                 };
                 let permanent_certified = matches!(status, BlobCertificationStatus::Certified)
-                    .then(|| PermanentBlobInfoV1 {
-                        status_changing_epoch: certified_epoch.unwrap(),
-                        ..permanent_total
-                    });
+                    .then(|| permanent_total.clone());
                 ValidBlobInfoV1 {
                     permanent_total: Some(permanent_total),
                     permanent_certified,
@@ -939,12 +908,12 @@ mod tests {
                 ..Default::default()
             }),
             permanent: (ValidBlobInfoV1{
-                permanent_total: Some(PermanentBlobInfoV1::new_for_testing(2, 1, 3)),
+                permanent_total: Some(PermanentBlobInfoV1::new_for_testing(2, 3)),
                 ..Default::default()
             }),
             permanent_certified: (ValidBlobInfoV1{
-                permanent_total: Some(PermanentBlobInfoV1::new_for_testing(2, 0, 3)),
-                permanent_certified: Some(PermanentBlobInfoV1::new_for_testing(1, 1, 2)),
+                permanent_total: Some(PermanentBlobInfoV1::new_for_testing(2, 3)),
+                permanent_certified: Some(PermanentBlobInfoV1::new_for_testing(1,  2)),
                 initial_certified_epoch: Some(1),
                 ..Default::default()
             }),
@@ -977,12 +946,12 @@ mod tests {
                 ..Default::default()
             }),
             permanent: (ValidBlobInfoV1{
-                permanent_total: Some(PermanentBlobInfoV1::new_for_testing(2, 1, 3)),
+                permanent_total: Some(PermanentBlobInfoV1::new_for_testing(2,  3)),
                 ..Default::default()
             }),
             permanent_certified: (ValidBlobInfoV1{
-                permanent_total: Some(PermanentBlobInfoV1::new_for_testing(2, 0, 3)),
-                permanent_certified: Some(PermanentBlobInfoV1::new_for_testing(1, 1, 2)),
+                permanent_total: Some(PermanentBlobInfoV1::new_for_testing(2, 3)),
+                permanent_certified: Some(PermanentBlobInfoV1::new_for_testing(1, 2)),
                 initial_certified_epoch: Some(1),
                 ..Default::default()
             }),
@@ -1081,7 +1050,7 @@ mod tests {
                     BlobStatusChangeType::Register, false, 1, 2, fixed_event_id_for_testing()
                 ),
                 ValidBlobInfoV1{
-                    permanent_total: Some(PermanentBlobInfoV1::new_for_testing(1, 1, 2)),
+                    permanent_total: Some(PermanentBlobInfoV1::new_for_testing(1, 2)),
                     ..Default::default()
                 },
             ),

@@ -6,7 +6,7 @@
 use std::cmp::Ordering;
 
 use serde::{Deserialize, Serialize};
-use sui_types::{base_types::ObjectID, event::EventID};
+use sui_types::event::EventID;
 use tokio::time::Duration;
 use walrus_core::{Epoch, PublicKey};
 
@@ -59,10 +59,7 @@ pub enum BlobStatus {
         end_epoch: Epoch,
         /// Whether the blob is certified (true) or only registered (false).
         is_certified: bool,
-        /// The Sui object ID of a permanent `Blob` object with the above certification status and
-        /// `end_epoch`.
-        object_id: ObjectID,
-        /// The ID of the last Sui event related to the `Blob` object.
+        /// The ID of the Sui event that caused the status with the given `end_epoch`.
         status_event: EventID,
         /// Counts of deletable `Blob` objects.
         deletable_status: DeletableStatus,

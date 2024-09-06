@@ -404,7 +404,7 @@ mod tests {
         api::{BlobStatus, DeletableStatus, ServiceHealthInfo, StoredOnNodeStatus},
         client::{Client, ClientBuilder},
     };
-    use walrus_sui::test_utils::{event_id_for_testing, object_id_for_testing};
+    use walrus_sui::test_utils::event_id_for_testing;
     use walrus_test_utils::{async_param_test, Result as TestResult, WithTempDir};
 
     use super::*;
@@ -526,7 +526,6 @@ mod tests {
                     end_epoch: 3,
                     status_event: event_id_for_testing(),
                     is_certified: true,
-                    object_id: object_id_for_testing(),
                     deletable_status: DeletableStatus {
                         count_deletable_total: 0,
                         count_deletable_certified: 0,
