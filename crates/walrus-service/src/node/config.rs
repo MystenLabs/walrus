@@ -183,7 +183,7 @@ impl Default for CommitteeServiceConfig {
 #[serde(default)]
 pub struct ShardSyncConfig {
     /// The number of slivers to fetch in a single sync shard request.
-    pub sliver_count_per_sync_request: usize,
+    pub sliver_count_per_sync_request: u64,
     /// The minimum backoff time for shard sync retries.
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(rename = "shard_sync_retry_min_backoff_secs")]

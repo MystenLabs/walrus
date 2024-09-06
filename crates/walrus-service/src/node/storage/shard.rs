@@ -554,7 +554,7 @@ impl ShardStorage {
                     self.id(),
                     next_starting_blob_id,
                     sliver_type,
-                    config.sliver_count_per_sync_request as u64,
+                    config.sliver_count_per_sync_request,
                     epoch,
                     &node.protocol_key_pair,
                 )
