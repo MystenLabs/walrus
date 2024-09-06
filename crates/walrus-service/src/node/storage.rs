@@ -486,6 +486,7 @@ pub(crate) mod tests {
         BlobInfoV1,
         BlobStatusChangeType,
         PermanentBlobInfoV1,
+        ValidBlobInfoV1,
     };
     use prometheus::Registry;
     use tempfile::TempDir;
@@ -623,40 +624,37 @@ pub(crate) mod tests {
 
     async_param_test! {
         update_blob_info -> TestResult: [
-            in_order: (false, false),
-            // skip_register: (true, false),
-            skip_certify: (false, true),
+            in_order: (false),
+            skip_certify: (true),
         ]
     }
-    async fn update_blob_info(skip_register: bool, skip_certify: bool) -> TestResult {
+    async fn update_blob_info(skip_certify: bool) -> TestResult {
         let storage = empty_storage();
         let storage = storage.as_ref();
         let blob_id = BLOB_ID;
 
-        let registered_epoch = if skip_register { None } else { Some(1) };
+        let registered_epoch = Some(1);
         let registered_event = event_id_for_testing();
         println!("registered event: {registered_event:?}");
-        if !skip_register {
-            let state0 = BlobInfo::new_for_testing(
+        let state0 = BlobInfo::new_for_testing(
+            42,
+            BlobCertificationStatus::Registered,
+            registered_event,
+            Some(1),
+            None,
+            None,
+        );
+        storage.merge_update_blob_info(
+            &blob_id,
+            BlobInfoMergeOperand::new_change_for_testing(
+                BlobStatusChangeType::Register,
+                false,
+                1,
                 42,
-                BlobCertificationStatus::Registered,
                 registered_event,
-                Some(1),
-                None,
-                None,
-            );
-            storage.merge_update_blob_info(
-                &blob_id,
-                BlobInfoMergeOperand::new_change_for_testing(
-                    BlobStatusChangeType::Register,
-                    false,
-                    1,
-                    42,
-                    registered_event,
-                ),
-            )?;
-            assert_eq!(storage.get_blob_info(&blob_id)?, Some(state0));
-        }
+            ),
+        )?;
+        assert_eq!(storage.get_blob_info(&blob_id)?, Some(state0));
 
         let certified_epoch = if skip_certify { None } else { Some(2) };
         let certified_event = event_id_for_testing();
@@ -670,17 +668,16 @@ pub(crate) mod tests {
                 certified_epoch,
                 None,
             );
+
             // Set correct registered event.
-            if !skip_register {
-                let BlobInfo::V1(BlobInfoV1::Valid {
-                    permanent_total: Some(PermanentBlobInfoV1 { ref mut event, .. }),
-                    ..
-                }) = &mut state1
-                else {
-                    panic!()
-                };
-                *event = registered_event;
-            }
+            let BlobInfo::V1(BlobInfoV1::Valid(ValidBlobInfoV1 {
+                permanent_total: Some(PermanentBlobInfoV1 { ref mut event, .. }),
+                ..
+            })) = &mut state1
+            else {
+                panic!()
+            };
+            *event = registered_event;
 
             storage.merge_update_blob_info(
                 &blob_id,
@@ -744,9 +741,9 @@ pub(crate) mod tests {
         assert_eq!(storage.get_blob_info(&blob_id)?, Some(state0.clone()));
 
         let mut state1 = state0.clone();
-        let BlobInfo::V1(BlobInfoV1::Valid {
+        let BlobInfo::V1(BlobInfoV1::Valid(ValidBlobInfoV1 {
             is_metadata_stored, ..
-        }) = &mut state1
+        })) = &mut state1
         else {
             panic!()
         };
