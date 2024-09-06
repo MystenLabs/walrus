@@ -3,7 +3,7 @@
 
 //! Utilities to publish the walrus contracts and deploy a system object for testing.
 
-use std::{collections::BTreeSet, fmt::Debug, path::PathBuf, str::FromStr};
+use std::{collections::BTreeSet, path::PathBuf, str::FromStr};
 
 use anyhow::{anyhow, bail, Result};
 use sui_move_build::BuildConfig;
@@ -17,7 +17,6 @@ use sui_sdk::{
         TypeTag,
     },
     wallet_context::WalletContext,
-    SUI_COIN_TYPE,
 };
 use sui_types::{
     transaction::ObjectArg,
@@ -30,7 +29,6 @@ use walrus_core::ensure;
 
 use crate::{
     contracts::{self, StructTag},
-    types::Committee,
     utils::get_created_sui_object_ids_by_type,
 };
 
@@ -45,31 +43,6 @@ const TREASURY_CAP_TAG: StructTag<'_> = StructTag {
     name: "TreasuryCap",
     module: "coin",
 };
-
-/// Parameters for test system deployment.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SystemParameters {
-    /// The committee to use for creating the system object.
-    pub committee: Committee,
-    /// The storage capacity of the system.
-    pub capacity: u64,
-    /// The price per unit of storage and time to use in the system.
-    pub price: u64,
-    /// The coin type of the system.
-    pub coin_type: TypeTag,
-}
-
-impl SystemParameters {
-    /// Constructor for [`SystemParameters`] with SUI as coin type.
-    pub fn new_with_sui(committee: Committee, capacity: u64, price: u64) -> Self {
-        Self {
-            committee,
-            capacity,
-            price,
-            coin_type: TypeTag::from_str(SUI_COIN_TYPE).expect("conversion should always succeed"),
-        }
-    }
-}
 
 fn get_pkg_id_from_tx_response(tx_response: &SuiTransactionBlockResponse) -> Result<ObjectID> {
     tx_response

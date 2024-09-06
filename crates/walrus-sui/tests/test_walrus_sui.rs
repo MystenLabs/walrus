@@ -111,7 +111,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
     assert_eq!(blob_obj.certified_epoch, None);
     assert_eq!(blob_obj.storage, storage_resource);
     assert_eq!(blob_obj.registered_epoch, 1);
-    assert_eq!(blob_obj.deletable, false);
+    assert!(!blob_obj.deletable);
 
     // Make sure that we got the expected event
     let BlobEvent::Registered(blob_registered) = events.next().await.unwrap() else {

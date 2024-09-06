@@ -120,7 +120,13 @@ pub async fn get_contract_client(
     gas_budget: u64,
     blocklist_path: &Option<PathBuf>,
 ) -> Result<Client<SuiContractClient>> {
-    let sui_client = SuiContractClient::new(wallet?, config.system_object, gas_budget).await?;
+    let sui_client = SuiContractClient::new(
+        wallet?,
+        config.system_object,
+        config.staking_object,
+        gas_budget,
+    )
+    .await?;
     let client = Client::new(config, sui_client).await?;
 
     if blocklist_path.is_some() {
@@ -179,7 +185,7 @@ pub async fn get_sui_read_client_from_rpc_node_or_wallet(
         },
     }?;
 
-    Ok(SuiReadClient::new(sui_client, config.system_object).await?)
+    Ok(SuiReadClient::new(sui_client, config.system_object, config.staking_object).await?)
 }
 
 /// Returns the string `Success:` colored in green for terminal output.

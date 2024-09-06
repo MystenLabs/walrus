@@ -83,7 +83,7 @@ mod tests {
                 IntentAppId::STORAGE.0
             ]
         );
-        assert_eq!(encoded[3..11], EPOCH.to_le_bytes());
-        assert_eq!(encoded[11..], blob_id.0);
+        assert_eq!(encoded[3..7], EPOCH.to_le_bytes());
+        assert_eq!(encoded[7..], blob_id.0);
     }
 }

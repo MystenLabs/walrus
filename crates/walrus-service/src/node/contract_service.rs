@@ -66,8 +66,13 @@ impl SuiSystemContractService<SuiContractClient> {
     /// Creates a new provider with a [`SuiContractClient`] constructed from the config.
     pub async fn from_config(config: &SuiConfig) -> Result<Self, anyhow::Error> {
         let wallet = WalletContext::new(&config.wallet_config, None, None)?;
-        let contract_client =
-            SuiContractClient::new(wallet, config.system_object, config.gas_budget).await?;
+        let contract_client = SuiContractClient::new(
+            wallet,
+            config.system_object,
+            config.staking_object,
+            config.gas_budget,
+        )
+        .await?;
         Ok(Self::new(contract_client))
     }
 }

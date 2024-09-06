@@ -144,34 +144,17 @@ impl ProtocolCommands for TargetProtocol {
     {
         // Create an admin wallet locally to setup the Walrus smart contract.
         let ips = instances.map(|x| x.main_ip).collect::<Vec<_>>();
-        let shards = match &parameters.node_parameters.shards_allocation {
-            ShardsAllocation::Even(n) => testbed::even_shards_allocation(
-                *n,
-                NonZeroU16::new(parameters.nodes as u16).unwrap(),
-            ),
-            ShardsAllocation::Manual(shards) => {
-                if parameters.nodes
-                    != parameters
-                        .node_parameters
-                        .shards_allocation
-                        .number_of_shards()
-                {
-                    panic!("The number of nodes should match the shard of allocation.")
-                }
-                shards.clone()
-            }
-        };
 
         let testbed_config = testbed::deploy_walrus_contract(DeployTestbedContractParameters {
             working_dir: parameters.settings.working_dir.as_path(),
             sui_network: parameters.node_parameters.sui_network.clone(),
             contract_path: parameters.node_parameters.contract_path.clone(),
             gas_budget: walrus_sui::test_utils::DEFAULT_GAS_BUDGET,
-            shards_information: shards,
             host_addresses: ips.iter().map(|ip| ip.to_string()).collect(),
             rest_api_port: parameters.node_parameters.rest_api_port,
             storage_capacity: 1_000_000_000_000,
-            price_per_unit: 1,
+            storage_price: 1,
+            write_price: 0,
             deterministic_keys: true,
         })
         .await

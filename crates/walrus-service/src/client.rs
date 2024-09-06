@@ -32,6 +32,7 @@ use walrus_core::{
     messages::{Confirmation, ConfirmationCertificate, SignedStorageConfirmation},
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
+    Epoch,
     NetworkPublicKey,
     Sliver,
 };
@@ -173,7 +174,7 @@ impl<T: ContractClient> Client<T> {
     pub async fn reserve_and_store_blob(
         &self,
         blob: &[u8],
-        epochs_ahead: u64,
+        epochs_ahead: Epoch,
         force: bool,
     ) -> ClientResult<BlobStoreResult> {
         let (pairs, metadata) = self
@@ -280,7 +281,7 @@ impl<T: ContractClient> Client<T> {
     pub async fn reserve_and_register_blob(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
-        epochs_ahead: u64,
+        epochs_ahead: Epoch,
     ) -> ClientResult<Blob> {
         if let Some(blob) = self
             .is_blob_registered_in_wallet(metadata.blob_id(), epochs_ahead)
@@ -305,7 +306,7 @@ impl<T: ContractClient> Client<T> {
     async fn is_blob_registered_in_wallet(
         &self,
         blob_id: &BlobId,
-        epochs_ahead: u64,
+        epochs_ahead: Epoch,
     ) -> ClientResult<Option<Blob>> {
         Ok(self
             .sui_client

@@ -23,7 +23,7 @@ use reqwest::header::{
 use serde::Deserialize;
 use tracing::Level;
 use utoipa::IntoParams;
-use walrus_core::encoding::Primary;
+use walrus_core::{encoding::Primary, Epoch};
 use walrus_sui::client::ContractClient;
 
 use crate::{
@@ -166,11 +166,11 @@ pub(super) async fn store_blob_options() -> impl IntoResponse {
 #[derive(Debug, Deserialize, IntoParams)]
 pub(super) struct PublisherQuery {
     #[serde(default = "default_epochs")]
-    epochs: u64,
+    epochs: Epoch,
     #[serde(default)]
     force: bool,
 }
 
-pub(super) fn default_epochs() -> u64 {
+pub(super) fn default_epochs() -> Epoch {
     1
 }

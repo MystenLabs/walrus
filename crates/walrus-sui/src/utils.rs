@@ -39,7 +39,6 @@ use sui_types::{
     transaction::{ProgrammableTransaction, TransactionData},
     TypeTag,
 };
-use tracing::instrument;
 use walrus_core::{encoding::encoded_blob_length_for_n_shards, Epoch};
 
 use crate::{

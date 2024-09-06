@@ -185,7 +185,7 @@ pub struct BlobStatusOutput {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InfoOutput {
-    pub(crate) current_epoch: u64,
+    pub(crate) current_epoch: Epoch,
     pub(crate) n_shards: NonZeroU16,
     pub(crate) n_nodes: usize,
     pub(crate) storage_unit_size: u64,
@@ -264,6 +264,7 @@ impl From<StorageNode> for StorageNodeInfo {
     fn from(value: StorageNode) -> Self {
         let StorageNode {
             name,
+            node_id: _,
             network_address,
             public_key,
             network_public_key,

@@ -72,8 +72,12 @@ impl LoadGenerator {
                 "cannot connect to Sui RPC node at {}",
                 &network.env().rpc
             ))?;
-        let sui_read_client =
-            SuiReadClient::new(sui_client.clone(), client_config.system_object).await?;
+        let sui_read_client = SuiReadClient::new(
+            sui_client.clone(),
+            client_config.system_object,
+            client_config.staking_object,
+        )
+        .await?;
         for read_client in try_join_all(
             (0..n_clients)
                 .map(|_| Client::new_read_client(client_config.clone(), &sui_read_client)),

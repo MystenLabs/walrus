@@ -159,7 +159,7 @@ pub trait ContractClient: Send + Sync {
     /// Registers a candidate node.
     fn register_candidate(
         &self,
-        node_parameters: NodeRegistrationParams,
+        node_parameters: &NodeRegistrationParams,
     ) -> impl Future<Output = SuiClientResult<StorageNodeCap>> + Send;
 
     /// Stakes the given amount with the pool of node with `node_id`.
@@ -495,7 +495,8 @@ impl ContractClient for SuiContractClient {
                 .bytes()))?,
             pt_builder.input(blob_metadata.metadata().unencoded_length.into())?,
             pt_builder.input(u8::from(blob_metadata.metadata().encoding_type).into())?,
-            // TODO: add arguments.
+            pt_builder.input(false.into())?, // TODO: take as function argument
+            payment_coin,
         ];
         let register_result_index = self.add_move_call_to_ptb(
             &mut pt_builder,
@@ -576,7 +577,7 @@ impl ContractClient for SuiContractClient {
 
     async fn register_candidate(
         &self,
-        node_parameters: NodeRegistrationParams,
+        node_parameters: &NodeRegistrationParams,
     ) -> SuiClientResult<StorageNodeCap> {
         let res = self
             .move_call_and_transfer(

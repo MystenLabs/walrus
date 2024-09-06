@@ -18,7 +18,7 @@ use std::{
 use async_trait::async_trait;
 use futures::StreamExt;
 use prometheus::Registry;
-use sui_types::event::EventID;
+use sui_types::{base_types::ObjectID, event::EventID};
 use tempfile::TempDir;
 use tokio::time::Duration;
 use tokio_stream::{wrappers::BroadcastStream, Stream};
@@ -46,8 +46,8 @@ use walrus_sdk::client::Client;
 use walrus_sui::types::{
     BlobEvent,
     Committee,
-    InvalidCommittee,
     NetworkAddress,
+    NodeRegistrationParams,
     StorageNode as SuiStorageNode,
 };
 use walrus_test_utils::WithTempDir;
@@ -424,8 +424,10 @@ pub struct StubCommitteeServiceFactory<T> {
 
 impl<T> StubCommitteeServiceFactory<T> {
     fn from_members(members: Vec<SuiStorageNode>, initial_epoch: Option<Epoch>) -> Self {
+        let n_shards =
+            NonZeroU16::new(members.iter().map(|node| node.shard_ids.len() as u16).sum()).unwrap();
         Self {
-            committee: Committee::new(members, initial_epoch.unwrap_or(0))
+            committee: Committee::new(members, initial_epoch.unwrap_or(1), n_shards)
                 .expect("valid members to be provided for tests"),
             _service_type: PhantomData,
         }
@@ -592,24 +594,6 @@ impl TestCluster {
     /// Returns a new builder to create the [`TestCluster`].
     pub fn builder() -> TestClusterBuilder {
         TestClusterBuilder::default()
-    }
-
-    /// Returns the encoding config used by the nodes.
-    /// Returns the [`Committee`] configuration for the current cluster.
-    pub fn committee(&self) -> Result<Committee, InvalidCommittee> {
-        let members = self
-            .nodes
-            .iter()
-            .enumerate()
-            .map(|(i, node)| SuiStorageNode {
-                name: format!("node-{i}"),
-                network_address: node.rest_api_address.into(),
-                public_key: node.public_key.clone(),
-                network_public_key: node.network_public_key.clone(),
-                shard_ids: node.storage_node.shards().collect(),
-            })
-            .collect();
-        Committee::new(members, 0)
     }
 
     /// Returns an encoding config valid for use with the storage nodes.
@@ -837,6 +821,7 @@ impl StorageNodeTestConfig {
     /// Creates a `SuiStorageNode` from `self`.
     pub fn to_storage_node_info(&self, name: &str) -> SuiStorageNode {
         SuiStorageNode {
+            node_id: ObjectID::random(),
             name: name.into(),
             network_address: NetworkAddress {
                 host: self.rest_api_address.ip().to_string(),
@@ -845,6 +830,23 @@ impl StorageNodeTestConfig {
             public_key: self.key_pair.public().clone(),
             network_public_key: self.network_key_pair.public().clone(),
             shard_ids: self.shards.clone(),
+        }
+    }
+
+    /// Creates `NodeRegistrationParams` from `self`.
+    pub fn to_node_registration_params(&self, name: &str) -> NodeRegistrationParams {
+        NodeRegistrationParams {
+            name: name.into(),
+            network_address: NetworkAddress {
+                host: self.rest_api_address.ip().to_string(),
+                port: self.rest_api_address.port(),
+            },
+            public_key: self.key_pair.public().clone(),
+            network_public_key: self.network_key_pair.public().clone(),
+            commission_rate: 0,
+            storage_price: 5,
+            write_price: 1,
+            node_capacity: 1_000_000_000,
         }
     }
 }
@@ -919,12 +921,15 @@ where
 /// Returns a test-committee with members with the specified number of shards each.
 #[cfg(test)]
 pub(crate) fn test_committee(weights: &[u16]) -> Committee {
+    use sui_types::base_types::ObjectID;
+
     let n_shards: u16 = weights.iter().sum();
     let mut shards = 0..n_shards;
 
     let members = weights
         .iter()
         .map(|&node_shard_count| SuiStorageNode {
+            node_id: ObjectID::random(),
             shard_ids: (&mut shards)
                 .take(node_shard_count.into())
                 .map(ShardIndex)
@@ -939,7 +944,7 @@ pub(crate) fn test_committee(weights: &[u16]) -> Committee {
         })
         .collect();
 
-    Committee::new(members, 0).unwrap()
+    Committee::new(members, 1, NonZeroU16::new(n_shards).unwrap()).unwrap()
 }
 
 /// A module for creating a Walrus test cluster.
@@ -950,8 +955,12 @@ pub mod test_cluster {
     use tokio::sync::Mutex;
     use walrus_sui::{
         client::{SuiContractClient, SuiReadClient},
-        system_setup::{self, SystemParameters},
-        test_utils::{self, TestClusterHandle},
+        test_utils::{
+            self,
+            system_setup::{create_and_init_system, end_epoch_zero, register_committee_and_stake},
+            TestClusterHandle,
+            DEFAULT_GAS_BUDGET,
+        },
     };
 
     use super::*;
@@ -985,39 +994,74 @@ pub mod test_cluster {
             .storage_node_test_configs()
             .iter()
             .enumerate()
-            .map(|(i, info)| info.to_storage_node_info(&format!("node-{i}")))
-            .collect();
+            .map(|(i, info)| info.to_node_registration_params(&format!("node-{i}")))
+            .collect::<Vec<_>>();
 
-        // Publish package and set up system object
-        let gas_budget = 500_000_000;
-        let (system_pkg, committee_cap, _treasury_cap) =
-            system_setup::publish_coin_and_system_package(
-                &mut wallet.inner,
-                test_utils::system_setup::contract_path_for_testing("blob_store")?,
-                gas_budget,
-            )
-            .await?;
-        let committee = Committee::new(members, 0)?;
-        let system_params = SystemParameters::new_with_sui(committee, 1_000_000_000_000, 10);
-        let system_object = system_setup::create_system_object(
+        let node_weights = cluster_builder
+            .storage_node_test_configs()
+            .iter()
+            .map(|info| info.shards.len())
+            .collect::<Vec<_>>();
+        let n_shards = node_weights.iter().sum::<usize>() as u16;
+
+        let system_ctx = create_and_init_system(&mut wallet.inner, n_shards, 0).await?;
+
+        let mut contract_clients = vec![];
+        for _ in members.iter() {
+            let client = test_utils::new_wallet_on_sui_test_cluster(sui_cluster.clone())
+                .await?
+                .and_then_async(|wallet| {
+                    SuiContractClient::new(
+                        wallet,
+                        system_ctx.system_obj_id,
+                        system_ctx.staking_obj_id,
+                        DEFAULT_GAS_BUDGET,
+                    )
+                })
+                .await?;
+            contract_clients.push(client);
+        }
+        let contract_clients_refs = contract_clients
+            .iter()
+            .map(|client| &client.inner)
+            .collect::<Vec<_>>();
+
+        let amounts_to_stake = node_weights
+            .iter()
+            .map(|&weight| 1_000_000 * weight as u64)
+            .collect::<Vec<_>>();
+        register_committee_and_stake(
             &mut wallet.inner,
-            system_pkg,
-            committee_cap,
-            &system_params,
-            gas_budget,
+            &system_ctx,
+            &members,
+            &contract_clients_refs,
+            &amounts_to_stake,
         )
         .await?;
 
+        end_epoch_zero(contract_clients_refs[1]).await?;
+
         // Build the walrus cluster
-        let sui_read_client =
-            SuiReadClient::new(wallet.as_ref().get_client().await?, system_object).await?;
+        let sui_read_client = SuiReadClient::new(
+            wallet.as_ref().get_client().await?,
+            system_ctx.system_obj_id,
+            system_ctx.staking_obj_id,
+        )
+        .await?;
 
         // Create a contract service for the storage nodes using a wallet in a temp dir
         // The sui test cluster handler can be dropped since we already have one
+        // TODO: change cluster builder to take a list of `SuiSystemContractService`s and provide
+        // the contract clients used for staking to make sure that each node has the corresponding
+        // `StorageNodeCap`.
         let sui_contract_service = test_utils::new_wallet_on_sui_test_cluster(sui_cluster.clone())
             .await?
             .and_then(|wallet| {
-                SuiContractClient::new_with_read_client(wallet, gas_budget, sui_read_client.clone())
+                SuiContractClient::new_with_read_client(
+                    wallet,
+                    DEFAULT_GAS_BUDGET,
+                    sui_read_client.clone(),
+                )
             })?
             .map(SuiSystemContractService::new);
 
@@ -1039,14 +1083,13 @@ pub mod test_cluster {
             cluster_builder.build().await?
         };
 
-        // Create the client with a separate wallet
-        let sui_contract_client = test_utils::new_wallet_on_sui_test_cluster(sui_cluster.clone())
-            .await?
-            .and_then(|wallet| {
-                SuiContractClient::new_with_read_client(wallet, gas_budget, sui_read_client)
-            })?;
+        // Create the client with the admin wallet to ensure that we have some WAL.
+        let sui_contract_client = wallet.and_then(|wallet| {
+            SuiContractClient::new_with_read_client(wallet, DEFAULT_GAS_BUDGET, sui_read_client)
+        })?;
         let config = Config {
-            system_object,
+            system_object: system_ctx.system_obj_id,
+            staking_object: system_ctx.staking_obj_id,
             wallet_config: None,
             communication_config: ClientCommunicationConfig::default_for_test(),
         };

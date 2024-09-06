@@ -77,7 +77,10 @@ struct DeploySystemContractArgs {
     // the doc comment here if it changes.
     /// The price to set per unit of storage (1 KiB) and epoch.
     #[arg(long, default_value_t = 50)]
-    price_per_unit: u64,
+    storage_price: u64,
+    /// The price to set for writing one unit of storage (1 KiB).
+    #[arg(long, default_value_t = 50)]
+    write_price: u64,
     /// The storage capacity in bytes to deploy the system with.
     #[arg(long, default_value_t = 1_000_000_000_000)]
     storage_capacity: u64,
@@ -139,7 +142,6 @@ mod commands {
             create_client_config,
             create_storage_node_configs,
             deploy_walrus_contract,
-            even_shards_allocation,
             DeployTestbedContractParameters,
             TestbedConfig,
         },
@@ -155,11 +157,12 @@ mod commands {
             sui_network,
             contract_path,
             gas_budget,
-            n_shards,
+            n_shards: _,
             host_addresses,
             rest_api_port,
             testbed_config_path,
-            price_per_unit,
+            storage_price,
+            write_price,
             storage_capacity,
             deterministic_keys,
         }: DeploySystemContractArgs,
@@ -174,21 +177,16 @@ mod commands {
             .context("canonicalizing the working directory path failed")?;
 
         // Deploy the system contract.
-        let number_of_shards = NonZeroU16::new(n_shards).context("number of shards must be > 0")?;
-        let committee_size = NonZeroU16::new(host_addresses.len() as u16)
-            .expect("the argument specification ensures that the length is at least 4");
-        let shards_information = even_shards_allocation(number_of_shards, committee_size);
-
         let testbed_config = deploy_walrus_contract(DeployTestbedContractParameters {
             working_dir: &working_dir,
             sui_network,
             contract_path,
             gas_budget,
-            shards_information,
             host_addresses,
             rest_api_port,
             storage_capacity,
-            price_per_unit,
+            storage_price,
+            write_price,
             deterministic_keys,
         })
         .await
@@ -234,6 +232,7 @@ mod commands {
 
         let client_config = create_client_config(
             testbed_config.system_object,
+            testbed_config.staking_object,
             working_dir.as_path(),
             testbed_config.sui_network.clone(),
             set_config_dir.as_deref(),

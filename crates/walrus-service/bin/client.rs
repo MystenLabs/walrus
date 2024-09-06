@@ -8,6 +8,14 @@ use std::process::ExitCode;
 use anyhow::Result;
 use clap::Parser;
 use serde::Deserialize;
+use serde_with::{serde_as, DisplayFromStr};
+use telemetry_subscribers::{TelemetryGuards, TracingHandle};
+use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt, EnvFilter, Layer};
+use walrus_core::{
+    encoding::{encoded_blob_length_for_n_shards, EncodingConfig, Primary},
+    BlobId,
+    Epoch,
+};
 use walrus_service::{
     client::cli::{
         error,
