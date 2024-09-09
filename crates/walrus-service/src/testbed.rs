@@ -26,6 +26,7 @@ use walrus_core::{
     ShardIndex,
 };
 use walrus_sui::{
+    test_utils::system_setup::create_and_init_system,
     types::{NetworkAddress, NodeRegistrationParams},
     utils::{create_wallet, request_sui_from_faucet, SuiNetwork},
 };
@@ -183,6 +184,8 @@ pub struct DeployTestbedContractParameters<'a> {
     pub write_price: u64,
     /// Flag to generate keys deterministically.
     pub deterministic_keys: bool,
+    /// The total number of shards.
+    pub n_shards: u16,
 }
 
 // Todo: Refactor configs #377
@@ -199,6 +202,7 @@ pub async fn deploy_walrus_contract(
         storage_price,
         write_price,
         deterministic_keys,
+        n_shards,
     }: DeployTestbedContractParameters<'_>,
 ) -> anyhow::Result<TestbedConfig> {
     // Check whether the testbed collocates the storage nodes on the same machine
@@ -262,9 +266,17 @@ pub async fn deploy_walrus_contract(
     let sui_client = admin_wallet.get_client().await?;
     request_sui_from_faucet(admin_wallet.active_address()?, &sui_network, &sui_client).await?;
 
-    // TODO: Publish package and set up system object
+    let system_ctx = create_and_init_system(&mut admin_wallet, n_shards, 0).await?;
 
-    todo!()
+    // TODO: Contract is published, and system&staking objects are created. However, the system
+    // currently is not moving forward due to that storage nodes are not registered.
+
+    Ok(TestbedConfig {
+        sui_network,
+        nodes: node_configs,
+        system_object: system_ctx.system_obj_id,
+        staking_object: system_ctx.staking_obj_id,
+    })
 }
 
 /// Create client configurations for the testbed.

@@ -166,7 +166,7 @@ async fn test_inconsistency(failed_shards: &[usize]) -> anyhow::Result<()> {
     // Register blob.
     let blob_sui_object = client
         .as_ref()
-        .reserve_and_register_blob(&metadata, 1)
+        .reserve_and_register_blob(&metadata, 1, false)
         .await?;
 
     // Wait to ensure that the storage nodes received the registration event.
@@ -260,7 +260,7 @@ async fn test_store_with_existing_blob_resource(
     // Register a new blob.
     let original_blob_object = client
         .as_ref()
-        .reserve_and_register_blob(&metadata, epochs_ahead_registered)
+        .reserve_and_register_blob(&metadata, epochs_ahead_registered, false)
         .await?;
 
     // Wait to ensure that the storage nodes received the registration event.

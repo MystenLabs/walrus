@@ -130,6 +130,7 @@ pub trait ContractClient: Send + Sync {
         &self,
         epochs_ahead: Epoch,
         blob_metadata: &BlobMetadataWithId<V>,
+        deletable: bool,
     ) -> impl Future<Output = SuiClientResult<Blob>> + Send;
 
     /// Certifies the specified blob on Sui, given a certificate that confirms its storage and
@@ -461,6 +462,7 @@ impl ContractClient for SuiContractClient {
         &self,
         epochs_ahead: Epoch,
         blob_metadata: &BlobMetadataWithId<V>,
+        deletable: bool,
     ) -> SuiClientResult<Blob> {
         let encoded_size = blob_metadata
             .metadata()
@@ -495,7 +497,7 @@ impl ContractClient for SuiContractClient {
                 .bytes()))?,
             pt_builder.input(blob_metadata.metadata().unencoded_length.into())?,
             pt_builder.input(u8::from(blob_metadata.metadata().encoding_type).into())?,
-            pt_builder.input(false.into())?, // TODO: take as function argument
+            pt_builder.input(deletable.into())?, // TODO: take as function argument
             payment_coin,
         ];
         let register_result_index = self.add_move_call_to_ptb(

@@ -121,7 +121,7 @@ pub struct Committee {
     /// The members of the committee
     // INV: `members.iter().all(|m| !m.shard_ids.is_empty())`
     members: Vec<StorageNode>,
-    /// The number of shards held by the committee. Is zero in epoch
+    /// The number of shards held by the committee. Is zero in epoch 0.
     n_shards: NonZeroU16,
 }
 

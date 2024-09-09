@@ -156,6 +156,10 @@ impl ProtocolCommands for TargetProtocol {
             storage_price: 1,
             write_price: 0,
             deterministic_keys: true,
+            n_shards: parameters
+                .node_parameters
+                .shards_allocation
+                .number_of_shards() as u16,
         })
         .await
         .expect("Failed to create Walrus contract");

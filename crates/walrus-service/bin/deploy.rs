@@ -157,7 +157,7 @@ mod commands {
             sui_network,
             contract_path,
             gas_budget,
-            n_shards: _,
+            n_shards,
             host_addresses,
             rest_api_port,
             testbed_config_path,
@@ -188,6 +188,7 @@ mod commands {
             storage_price,
             write_price,
             deterministic_keys,
+            n_shards,
         })
         .await
         .context("Failed to deploy system contract")?;

@@ -518,6 +518,7 @@ rest_api_address: 173.199.90.181:9185
 sui:
   rpc: https://fullnode.testnet.sui.io:443
   system_object: 0x6c957cf363ec968582f24e3e1a638c968cec1fa228999c560ec7925994906315
+  staking_object: 0x2be0418db0dc7b07fe4c32bf80e250b8993cef130ce8c51ad8f12aa91def42df
   event_polling_interval_millis: 400
   wallet_config: /opt/walrus/config/dryrun-node-1-sui.yaml
   gas_budget: 500000000

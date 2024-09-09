@@ -9,7 +9,7 @@ use anyhow::{anyhow, Result};
 use clap::{Args, Parser, Subcommand};
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
-use walrus_core::{encoding::EncodingConfig, BlobId};
+use walrus_core::{encoding::EncodingConfig, BlobId, Epoch};
 
 use super::{parse_blob_id, read_blob_from_file, BlobIdDecimal, HumanReadableBytes};
 
@@ -148,7 +148,7 @@ pub enum CliCommands {
         /// The number of epochs ahead for which to store the blob.
         #[clap(short, long, default_value_t = default::epochs())]
         #[serde(default = "default::epochs")]
-        epochs: u64,
+        epochs: Epoch,
         /// Perform a dry-run of the store without performing any actions on chain.
         ///
         /// This assumes `--force`; i.e., it does not check the current status of the blob.
@@ -406,11 +406,13 @@ impl FileOrBlobId {
 mod default {
     use std::{net::SocketAddr, time::Duration};
 
+    use walrus_core::Epoch;
+
     pub(crate) fn gas_budget() -> u64 {
         500_000_000
     }
 
-    pub(crate) fn epochs() -> u64 {
+    pub(crate) fn epochs() -> Epoch {
         1
     }
 

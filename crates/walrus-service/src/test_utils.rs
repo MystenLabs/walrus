@@ -1039,7 +1039,7 @@ pub mod test_cluster {
         )
         .await?;
 
-        end_epoch_zero(contract_clients_refs[1]).await?;
+        end_epoch_zero(contract_clients_refs.first().unwrap()).await?;
 
         // Build the walrus cluster
         let sui_read_client = SuiReadClient::new(
@@ -1051,9 +1051,9 @@ pub mod test_cluster {
 
         // Create a contract service for the storage nodes using a wallet in a temp dir
         // The sui test cluster handler can be dropped since we already have one
-        // TODO: change cluster builder to take a list of `SuiSystemContractService`s and provide
-        // the contract clients used for staking to make sure that each node has the corresponding
-        // `StorageNodeCap`.
+        // TODO(#786): change cluster builder to take a list of `SuiSystemContractService`s and
+        // provide the contract clients used for staking to make sure that each node has the
+        // corresponding `StorageNodeCap`.
         let sui_contract_service = test_utils::new_wallet_on_sui_test_cluster(sui_cluster.clone())
             .await?
             .and_then(|wallet| {

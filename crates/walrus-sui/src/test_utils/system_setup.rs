@@ -198,7 +198,7 @@ pub async fn end_epoch_zero(contract_client: &SuiContractClient) -> Result<()> {
     // call epoch change
     contract_client.initiate_epoch_change().await?;
 
-    // TODO: call epoch change done from each node
+    // TODO(#784): call epoch change done from each node
     Ok(())
 }
 

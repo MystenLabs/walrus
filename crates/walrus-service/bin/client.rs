@@ -8,14 +8,6 @@ use std::process::ExitCode;
 use anyhow::Result;
 use clap::Parser;
 use serde::Deserialize;
-use serde_with::{serde_as, DisplayFromStr};
-use telemetry_subscribers::{TelemetryGuards, TracingHandle};
-use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt, EnvFilter, Layer};
-use walrus_core::{
-    encoding::{encoded_blob_length_for_n_shards, EncodingConfig, Primary},
-    BlobId,
-    Epoch,
-};
 use walrus_service::{
     client::cli::{
         error,
@@ -25,11 +17,7 @@ use walrus_service::{
         ClientCommandRunner,
         Commands,
     },
-    utils::{version, MetricsAndLoggingRuntime},
-};
-use walrus_sui::{
-    client::{ContractClient, ReadClient, SuiContractClient},
-    utils::storage_price_for_encoded_length,
+    utils::MetricsAndLoggingRuntime,
 };
 
 /// The version of the Walrus client.

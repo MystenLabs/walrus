@@ -456,7 +456,7 @@ pub(crate) struct PermanentBlobInfoV1 {
     /// The total number of `Blob` objects for that blob ID with the given status.
     pub count: NonZeroU32,
     /// The latest expiration epoch among these objects.
-    pub end_epoch: u64,
+    pub end_epoch: Epoch,
     /// The ID of the first blob event that led to the status with the given `end_epoch`.
     pub event: EventID,
 }

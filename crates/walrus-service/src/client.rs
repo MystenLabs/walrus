@@ -246,7 +246,7 @@ impl<T: ContractClient> Client<T> {
 
         // Reserve space for the blob.
         let blob_sui_object = self
-            .reserve_and_register_blob(&metadata, epochs_ahead)
+            .reserve_and_register_blob(&metadata, epochs_ahead, false)
             .await?;
 
         // We need to wait to be sure that the storage nodes received the registration event.
@@ -282,6 +282,7 @@ impl<T: ContractClient> Client<T> {
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         epochs_ahead: Epoch,
+        deletable: bool,
     ) -> ClientResult<Blob> {
         if let Some(blob) = self
             .is_blob_registered_in_wallet(metadata.blob_id(), epochs_ahead)
@@ -297,7 +298,7 @@ impl<T: ContractClient> Client<T> {
             "the blob is not already registered or its lifetime is too short; creating new one"
         );
         self.sui_client
-            .reserve_and_register_blob(epochs_ahead, metadata)
+            .reserve_and_register_blob(epochs_ahead, metadata, deletable)
             .await
             .map_err(ClientError::from)
     }
