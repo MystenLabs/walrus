@@ -294,7 +294,7 @@ impl SuiNetwork {
 }
 
 /// Sign and send a [`ProgrammableTransaction`].
-pub(crate) async fn sign_and_send_ptb(
+pub async fn sign_and_send_ptb(
     sender: SuiAddress,
     wallet: &WalletContext,
     programmable_transaction: ProgrammableTransaction,

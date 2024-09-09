@@ -201,7 +201,8 @@ pub async fn wallet_for_testing_from_faucet(
     Ok(wallet)
 }
 
-fn temp_dir_wallet(env: SuiEnv) -> anyhow::Result<WithTempDir<WalletContext>> {
+/// Creates a wallet for testing in a temporary directory.
+pub fn temp_dir_wallet(env: SuiEnv) -> anyhow::Result<WithTempDir<WalletContext>> {
     let temp_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
     let wallet = create_wallet(&temp_dir.path().join("wallet_config.yaml"), env, None)?;
 
