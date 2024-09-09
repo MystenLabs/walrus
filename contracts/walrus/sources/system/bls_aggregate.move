@@ -69,13 +69,18 @@ public(package) fun new_bls_committee_member(
 // === Accessors for BlsCommittee ===
 
 /// Get the epoch of the committee.
-public fun epoch(self: &BlsCommittee): u32 {
+public(package) fun epoch(self: &BlsCommittee): u32 {
     self.epoch
 }
 
 /// Returns the number of shards held by the committee.
 public(package) fun n_shards(self: &BlsCommittee): u16 {
     self.n_shards
+}
+
+/// Checks if the committee contains a given node.
+public(package) fun contains(self: &BlsCommittee, node_id: &ID): bool {
+    self.members.find_index!(|member| member.node_id == *node_id).is_some()
 }
 
 /// Returns the members of the committee with their weights.

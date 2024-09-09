@@ -124,9 +124,9 @@ fun insert_impl(set: &mut ActiveSet, node_id: ID, staked_amount: u64) {
     set.nodes.insert(node_id, staked_amount);
     let map_idx = set.nodes.size() as u16 - 1;
     let insert_idx = set.idx_sorted.find_index!(|idx| {
-            let (_node_id, stake) = set.nodes.get_entry_by_idx(*idx as u64);
-            staked_amount > *stake
-        }).destroy_or!(set.idx_sorted.length());
+        let (_node_id, stake) = set.nodes.get_entry_by_idx(*idx as u64);
+        staked_amount > *stake
+    }).destroy_or!(set.idx_sorted.length());
     set.idx_sorted.insert(insert_idx as u16, map_idx as u64);
 }
 
