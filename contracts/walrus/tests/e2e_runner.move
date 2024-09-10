@@ -1,3 +1,6 @@
+// Copyright (c) Mysten Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 module walrus::e2e_runner;
 
 use sui::{clock::{Self, Clock}, test_scenario::{Self, Scenario}, test_utils};

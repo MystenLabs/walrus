@@ -57,16 +57,16 @@ fun test_init_and_first_epoch_change() {
 
     // === advance clock and end voting ===
 
-    runner.clock().increment_for_testing(EPOCH_ZERO_DURATION);
-    runner.tx!(admin, |staking, system, _| {
-        staking.voting_end(runner.clock());
-        staking.initiate_epoch_change(system, runner.clock());
+runner.clock().increment_for_testing(EPOCH_ZERO_DURATION);
+runner.tx!(admin, |staking, system, _| {
+    staking.voting_end(runner.clock());
+    staking.initiate_epoch_change(system, runner.clock());
 
-        assert!(system.epoch() == 1);
-        assert!(system.committee().n_shards() == N_SHARDS);
+    assert!(system.epoch() == 1);
+    assert!(system.committee().n_shards() == N_SHARDS);
 
-        nodes.do_ref!(|node| assert!(system.committee().contains(&node.node_id())));
-    });
+    nodes.do_ref!(|node| assert!(system.committee().contains(&node.node_id())));
+});
 
     // === send epoch sync done messages from all nodes ===
 
