@@ -56,6 +56,7 @@ fun test_init_and_first_epoch_change() {
     });
 
     // === advance clock and end voting ===
+    // === check if epoch state is changed correctly ==
 
     runner.clock().increment_for_testing(EPOCH_ZERO_DURATION);
     runner.tx!(admin, |staking, system, _| {
@@ -76,8 +77,8 @@ fun test_init_and_first_epoch_change() {
         });
     });
 
-    // === check if epoch state is changed correctly ==
     // === perform another epoch change ===
+    // === check if epoch state is changed correctly ==
 
     runner.clock().increment_for_testing(PARAM_SELECTION_DELTA);
     runner.tx!(admin, |staking, _, _| {

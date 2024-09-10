@@ -105,23 +105,6 @@ public macro fun tx(
     test_scenario::return_shared(system);
 }
 
-/// Take any shared resource and call the function `f` with it and the `TxContext` as arguments.
-public macro fun shared_tx<$T>(
-    $runner: &mut TestRunner,
-    $sender: address,
-    $f: |&mut $T, &mut TxContext|,
-) {
-    let runner = $runner;
-    let scenario = runner.scenario();
-    scenario.next_tx($sender);
-    let mut staking = scenario.take_shared<$T>();
-    let ctx = scenario.ctx();
-
-    $f(&mut staking, ctx);
-
-    test_scenario::return_shared(staking);
-}
-
 /// Destroy the test runner and all resources.
 public fun destroy(self: TestRunner) {
     test_utils::destroy(self)
