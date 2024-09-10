@@ -108,15 +108,15 @@ pub enum Commands {
         /// For example, to read a blob and write it to "some_output_file" using a specific
         /// configuration file, you can use the following JSON input:
         ///
-        ///     {
-        ///       "config": "path/to/client_config.yaml",
-        ///       "command": {
-        ///         "read": {
-        ///           "blobId": "4BKcDC0Ih5RJ8R0tFMz3MZVNZV8b2goT6_JiEEwNHQo",
-        ///           "out": "some_output_file"
-        ///         }
-        ///       }
+        /// {
+        ///   "config": "path/to/client_config.yaml",
+        ///   "command": {
+        ///     "read": {
+        ///       "blobId": "4BKcDC0Ih5RJ8R0tFMz3MZVNZV8b2goT6_JiEEwNHQo",
+        ///       "out": "some_output_file"
         ///     }
+        ///   }
+        /// }
         ///
         /// Important: If the "read" command does not have an "out" file specified, the output JSON
         /// string will contain the full bytes of the blob, encoded as a Base64 string.
