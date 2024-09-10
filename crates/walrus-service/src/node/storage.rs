@@ -9,12 +9,9 @@ use std::{
     sync::Arc,
 };
 
-use blob_info::BlobCertificationStatus;
-use rocksdb::{DBCompressionType, MergeOperands, Options};
-use serde::{Deserialize, Serialize};
-use serde_with::skip_serializing_none;
+use blob_info::merge_blob_info;
+use rocksdb::Options;
 use sui_sdk::types::event::EventID;
-use tracing::Level;
 use typed_store::{
     rocks::{self, DBBatch, DBMap, MetricConf, ReadWriteOptions, RocksDB},
     Map,
@@ -30,12 +27,15 @@ use walrus_core::{
 use walrus_sui::types::BlobEvent;
 
 use self::{
-    blob_info::{BlobInfo, BlobInfoApi, BlobInfoMergeOperand, Mergeable as _},
+    blob_info::{BlobInfo, BlobInfoApi, BlobInfoMergeOperand},
     event_cursor_table::EventCursorTable,
 };
 use super::errors::{ShardNotAssigned, SyncShardServiceError};
 
 pub(crate) mod blob_info;
+
+mod database_config;
+pub use database_config::DatabaseConfig;
 
 mod event_cursor_table;
 pub(super) use event_cursor_table::EventProgress;
@@ -44,210 +44,6 @@ mod event_sequencer;
 
 mod shard;
 pub(crate) use shard::{ShardStatus, ShardStorage};
-
-/// Options for configuring a column family.
-#[serde_with::serde_as]
-#[skip_serializing_none]
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct DatabaseTableOptions {
-    // Set it to true to enable key-value separation.
-    enable_blob_files: Option<bool>,
-    // Values at or above this threshold will be written
-    // to blob files during flush or compaction
-    min_blob_size: Option<u64>,
-    // The size limit for blob files.
-    blob_file_size: Option<u64>,
-    // The compression type to use for blob files.
-    // All blobs in the same file are compressed using the same algorithm.
-    blob_compression_type: Option<String>,
-    // Set this to true to make BlobDB actively relocate valid blobs from the oldest
-    // blob files as they are encountered during compaction
-    enable_blob_garbage_collection: Option<bool>,
-    // The cutoff that the GC logic uses to determine which blob files should be considered “old.”
-    blob_garbage_collection_age_cutoff: Option<f64>,
-    // If the ratio of garbage in the oldest blob files exceeds this threshold, targeted compactions
-    // are scheduled in order to force garbage collecting the blob files in question, assuming they
-    // are all eligible based on the value of blob_garbage_collection_age_cutoff above. This can
-    // help reduce space amplification in the case of skewed workloads where the affected files
-    // would not otherwise be picked up for compaction.
-    blob_garbage_collection_force_threshold: Option<f64>,
-    // When set, BlobDB will prefetch data from blob files in chunks of the configured size during
-    // compaction
-    blob_compaction_read_ahead_size: Option<u64>,
-    // Size of the write buffer in bytes
-    write_buffer_size: Option<usize>,
-    // The target file size for level-1 files in bytes
-    target_file_size_base: Option<u64>,
-    // The maximum total data size for level 1 in bytes
-    max_bytes_for_level_base: Option<u64>,
-}
-
-impl Default for DatabaseTableOptions {
-    fn default() -> Self {
-        Self {
-            enable_blob_files: Some(false),
-            min_blob_size: Some(0),
-            blob_file_size: Some(0),
-            blob_compression_type: Some("none".to_string()),
-            enable_blob_garbage_collection: Some(false),
-            blob_garbage_collection_age_cutoff: Some(0.0),
-            blob_garbage_collection_force_threshold: Some(0.0),
-            blob_compaction_read_ahead_size: Some(0),
-            write_buffer_size: Some(64 << 20),
-            target_file_size_base: Some(64 << 20),
-            max_bytes_for_level_base: Some(512 << 20),
-        }
-    }
-}
-
-impl DatabaseTableOptions {
-    fn optimized_for_blobs() -> Self {
-        Self {
-            enable_blob_files: Some(true),
-            min_blob_size: Some(1 << 20),
-            blob_file_size: Some(1 << 28),
-            blob_compression_type: Some("zstd".to_string()),
-            enable_blob_garbage_collection: Some(true),
-            blob_garbage_collection_age_cutoff: Some(0.5),
-            blob_garbage_collection_force_threshold: Some(0.5),
-            blob_compaction_read_ahead_size: Some(10 << 20),
-            write_buffer_size: Some(256 << 20),
-            target_file_size_base: Some(4 << 20),
-            max_bytes_for_level_base: Some(32 << 20),
-        }
-    }
-
-    pub fn to_options(&self) -> Options {
-        let mut options = Options::default();
-        if let Some(enable_blob_files) = self.enable_blob_files {
-            options.set_enable_blob_files(enable_blob_files);
-        }
-        if let Some(min_blob_size) = self.min_blob_size {
-            options.set_min_blob_size(min_blob_size);
-        }
-        if let Some(blob_file_size) = self.blob_file_size {
-            options.set_blob_file_size(blob_file_size);
-        }
-        if let Some(blob_compression_type) = &self.blob_compression_type {
-            let compression_type = match blob_compression_type.as_str() {
-                "none" => DBCompressionType::None,
-                "snappy" => DBCompressionType::Snappy,
-                "zlib" => DBCompressionType::Zlib,
-                "lz4" => DBCompressionType::Lz4,
-                "lz4hc" => DBCompressionType::Lz4hc,
-                "zstd" => DBCompressionType::Zstd,
-                _ => DBCompressionType::None,
-            };
-            options.set_blob_compression_type(compression_type);
-        }
-        if let Some(enable_blob_garbage_collection) = self.enable_blob_garbage_collection {
-            options.set_enable_blob_gc(enable_blob_garbage_collection);
-        }
-        if let Some(blob_garbage_collection_age_cutoff) = self.blob_garbage_collection_age_cutoff {
-            options.set_blob_gc_age_cutoff(blob_garbage_collection_age_cutoff);
-        }
-        if let Some(blob_garbage_collection_force_threshold) =
-            self.blob_garbage_collection_force_threshold
-        {
-            options.set_blob_gc_force_threshold(blob_garbage_collection_force_threshold);
-        }
-        if let Some(blob_compaction_read_ahead_size) = self.blob_compaction_read_ahead_size {
-            options.set_blob_compaction_readahead_size(blob_compaction_read_ahead_size);
-        }
-        if let Some(write_buffer_size) = self.write_buffer_size {
-            options.set_write_buffer_size(write_buffer_size);
-        }
-        if let Some(target_file_size_base) = self.target_file_size_base {
-            options.set_target_file_size_base(target_file_size_base);
-        }
-        if let Some(max_bytes_for_level_base) = self.max_bytes_for_level_base {
-            options.set_max_bytes_for_level_base(max_bytes_for_level_base);
-        }
-
-        options
-    }
-}
-
-/// RocksDB options applied to the overall database.
-#[serde_with::serde_as]
-#[skip_serializing_none]
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct GlobalDatabaseOptions {
-    /// The maximum number of open files
-    pub max_open_files: Option<i32>,
-}
-
-impl Default for GlobalDatabaseOptions {
-    fn default() -> Self {
-        Self {
-            max_open_files: Some(512_000),
-        }
-    }
-}
-
-impl From<&GlobalDatabaseOptions> for Options {
-    fn from(value: &GlobalDatabaseOptions) -> Self {
-        let mut options = Options::default();
-
-        if let Some(max_files) = value.max_open_files {
-            options.set_max_open_files(max_files);
-        }
-
-        options
-    }
-}
-
-/// Database configuration for Walrus storage nodes.
-#[serde_with::serde_as]
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(default)]
-pub struct DatabaseConfig {
-    global: GlobalDatabaseOptions,
-    metadata: DatabaseTableOptions,
-    blob_info: DatabaseTableOptions,
-    event_cursor: DatabaseTableOptions,
-    shard: DatabaseTableOptions,
-    shard_status: DatabaseTableOptions,
-    shard_sync_progress: DatabaseTableOptions,
-    pending_recover_slivers: DatabaseTableOptions,
-}
-
-impl DatabaseConfig {
-    /// Returns the shard configuration.
-    pub fn shard(&self) -> &DatabaseTableOptions {
-        &self.shard
-    }
-
-    /// Returns the shard status database option.
-    pub fn shard_status(&self) -> &DatabaseTableOptions {
-        &self.shard_status
-    }
-
-    /// Returns the shard sync progress database option.
-    pub fn shard_sync_progress(&self) -> &DatabaseTableOptions {
-        &self.shard_sync_progress
-    }
-
-    /// Returns the pending recover slivers database option.
-    pub fn pending_recover_slivers(&self) -> &DatabaseTableOptions {
-        &self.pending_recover_slivers
-    }
-}
-
-impl Default for DatabaseConfig {
-    fn default() -> Self {
-        Self {
-            global: GlobalDatabaseOptions::default(),
-            metadata: DatabaseTableOptions::optimized_for_blobs(),
-            blob_info: DatabaseTableOptions::default(),
-            event_cursor: DatabaseTableOptions::default(),
-            shard: DatabaseTableOptions::optimized_for_blobs(),
-            shard_status: DatabaseTableOptions::default(),
-            shard_sync_progress: DatabaseTableOptions::default(),
-            pending_recover_slivers: DatabaseTableOptions::default(),
-        }
-    }
-}
 
 /// Storage backing a [`StorageNode`][crate::node::StorageNode].
 ///
@@ -264,7 +60,7 @@ pub struct Storage {
 }
 
 /// A iterator over the blob info table.
-pub struct BlobInfoIter<I: ?Sized>
+pub(crate) struct BlobInfoIter<I: ?Sized>
 where
     I: Iterator<Item = Result<(BlobId, BlobInfo), TypedStoreError>> + Send,
 {
@@ -311,12 +107,10 @@ where
         }
 
         while let Some(Ok((_, ref blob_info))) = item {
-            if blob_info.is_certified()
-                && blob_info
-                    .status_changing_epoch(blob_info::BlobCertificationStatus::Certified)
-                    .expect("We just checked that the blob is certified")
-                    < self.before_epoch
-            {
+            if matches!(
+                blob_info.initial_certified_epoch(),
+                Some(initial_certified_epoch) if initial_certified_epoch < self.before_epoch
+            ) {
                 return item;
             }
             item = self.iter.next();
@@ -498,7 +292,7 @@ impl Storage {
         Ok(())
     }
 
-    /// Update the blob info for `blob_id` to `new_state` using the merge operation
+    /// Update the blob info for `blob_id` using the specified merge `operation`.
     fn merge_update_blob_info(
         &self,
         blob_id: &BlobId,
@@ -649,6 +443,7 @@ impl Storage {
     }
 
     /// Returns the shards currently present in the storage.
+    #[cfg(any(test, feature = "test-utils"))]
     pub(crate) fn shards_present(&self) -> Vec<ShardIndex> {
         self.shards.keys().copied().collect()
     }
@@ -669,12 +464,10 @@ impl Storage {
             .blob_info
             .safe_iter_with_bounds(Some(request.starting_blob_id()), None)
             .filter_map(|blob_info| match blob_info {
-                Ok((blob_id, blob_info)) => {
-                    match blob_info.status_changing_epoch(BlobCertificationStatus::Certified) {
-                        Some(epoch) if epoch < current_epoch => Some(Ok(blob_id)),
-                        _ => None,
-                    }
-                }
+                Ok((blob_id, blob_info)) => match blob_info.initial_certified_epoch() {
+                    Some(epoch) if epoch < current_epoch => Some(Ok(blob_id)),
+                    _ => None,
+                },
                 Err(e) => Some(Err(e)),
             })
             .take(request.sliver_count() as usize)
@@ -686,66 +479,15 @@ impl Storage {
     }
 }
 
-#[tracing::instrument(level = Level::DEBUG, skip(operands))]
-fn merge_blob_info(
-    key: &[u8],
-    existing_val: Option<&[u8]>,
-    operands: &MergeOperands,
-) -> Option<Vec<u8>> {
-    let mut current_val: Option<BlobInfo> = existing_val.and_then(deserialize_from_db);
-
-    for operand_bytes in operands {
-        let Some(operand) = deserialize_from_db::<BlobInfoMergeOperand>(operand_bytes) else {
-            continue;
-        };
-        tracing::debug!("updating {current_val:?} with {operand:?}");
-
-        current_val = if let Some(info) = current_val {
-            Some(info.merge(operand))
-        } else {
-            match operand {
-                BlobInfoMergeOperand::ChangeStatus {
-                    blob_id,
-                    status_changing_epoch,
-                    end_epoch,
-                    status,
-                    status_event,
-                } => Some(BlobInfo::new(
-                    blob_id,
-                    status_changing_epoch,
-                    end_epoch,
-                    status,
-                    status_event,
-                )),
-                BlobInfoMergeOperand::MarkMetadataStored(_) => {
-                    let blob_id = bcs::from_bytes::<BlobId>(key);
-                    tracing::error!(
-                        ?blob_id,
-                        "attempted to mutate the info for an untracked blob"
-                    );
-                    None
-                }
-            }
-        }
-    }
-
-    current_val.as_ref().map(BlobInfo::to_bytes)
-}
-
-fn deserialize_from_db<'de, T>(val: &'de [u8]) -> Option<T>
-where
-    T: Deserialize<'de>,
-{
-    bcs::from_bytes(val)
-        .inspect_err(|error| {
-            tracing::error!(?error, data=?val, "failed to deserialize value stored in database")
-        })
-        .ok()
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
-    use blob_info::{BlobCertificationStatus, BlobInfoV1};
+    use blob_info::{
+        BlobCertificationStatus,
+        BlobInfoV1,
+        BlobStatusChangeType,
+        PermanentBlobInfoV1,
+        ValidBlobInfoV1,
+    };
     use prometheus::Registry;
     use tempfile::TempDir;
     use tokio::runtime::Runtime;
@@ -757,7 +499,7 @@ pub(crate) mod tests {
     };
     use walrus_sui::{
         test_utils::{event_id_for_testing, EventForTesting},
-        types::BlobCertified,
+        types::{BlobCertified, BlobRegistered},
     };
     use walrus_test_utils::{async_param_test, Result as TestResult, WithTempDir};
 
@@ -848,6 +590,9 @@ pub(crate) mod tests {
         let metadata = walrus_core::test_utils::verified_blob_metadata();
         let blob_id = metadata.blob_id();
 
+        storage.update_blob_info(&BlobEvent::Registered(BlobRegistered::for_testing(
+            *blob_id,
+        )))?;
         storage.update_blob_info(&BlobEvent::Certified(BlobCertified::for_testing(*blob_id)))?;
 
         storage.put_metadata(metadata.blob_id(), metadata.metadata())?;
@@ -879,77 +624,88 @@ pub(crate) mod tests {
 
     async_param_test! {
         update_blob_info -> TestResult: [
-            in_order: (false, false),
-            skip_register: (true, false),
-            skip_certify: (false, true),
+            in_order: (false),
+            skip_certify: (true),
         ]
     }
-    async fn update_blob_info(skip_register: bool, skip_certify: bool) -> TestResult {
+    async fn update_blob_info(skip_certify: bool) -> TestResult {
         let storage = empty_storage();
         let storage = storage.as_ref();
         let blob_id = BLOB_ID;
 
-        let registered_epoch = if skip_register { None } else { Some(1) };
-        if !skip_register {
-            let state0 = BlobInfo::new(
-                blob_id,
+        let registered_epoch = Some(1);
+        let registered_event = event_id_for_testing();
+        println!("registered event: {registered_event:?}");
+        let state0 = BlobInfo::new_for_testing(
+            42,
+            BlobCertificationStatus::Registered,
+            registered_event,
+            Some(1),
+            None,
+            None,
+        );
+        storage.merge_update_blob_info(
+            &blob_id,
+            BlobInfoMergeOperand::new_change_for_testing(
+                BlobStatusChangeType::Register,
+                false,
                 1,
                 42,
-                BlobCertificationStatus::Registered,
-                event_id_for_testing(),
-            );
-            storage.merge_update_blob_info(
-                &blob_id,
-                BlobInfoMergeOperand::ChangeStatus {
-                    blob_id,
-                    status_changing_epoch: 1,
-                    end_epoch: 42,
-                    status: BlobCertificationStatus::Registered,
-                    status_event: state0.current_status_event(),
-                },
-            )?;
-            assert_eq!(storage.get_blob_info(&blob_id)?, Some(state0));
-        }
+                registered_event,
+            ),
+        )?;
+        assert_eq!(storage.get_blob_info(&blob_id)?, Some(state0));
 
         let certified_epoch = if skip_certify { None } else { Some(2) };
+        let certified_event = event_id_for_testing();
+        println!("certified event: {certified_event:?}");
         if !skip_certify {
-            let state1 = BlobInfo::new_for_testing(
+            let mut state1 = BlobInfo::new_for_testing(
                 42,
                 BlobCertificationStatus::Certified,
-                event_id_for_testing(),
+                certified_event,
                 registered_epoch,
                 certified_epoch,
                 None,
             );
+
+            // Set correct registered event.
+            let BlobInfo::V1(BlobInfoV1::Valid(ValidBlobInfoV1 {
+                permanent_total: Some(PermanentBlobInfoV1 { ref mut event, .. }),
+                ..
+            })) = &mut state1
+            else {
+                panic!()
+            };
+            *event = registered_event;
+
             storage.merge_update_blob_info(
                 &blob_id,
-                BlobInfoMergeOperand::ChangeStatus {
-                    blob_id,
-                    status_changing_epoch: 2,
-                    end_epoch: 42,
-                    status: BlobCertificationStatus::Certified,
-                    status_event: state1.current_status_event(),
-                },
+                BlobInfoMergeOperand::new_change_for_testing(
+                    BlobStatusChangeType::Certify,
+                    false,
+                    2,
+                    42,
+                    certified_event,
+                ),
             )?;
             assert_eq!(storage.get_blob_info(&blob_id)?, Some(state1));
         }
 
+        let event = event_id_for_testing();
         let state2 = BlobInfo::new_for_testing(
             42,
             BlobCertificationStatus::Invalid,
-            event_id_for_testing(),
+            event,
             registered_epoch,
             certified_epoch,
             Some(3),
         );
         storage.merge_update_blob_info(
             &blob_id,
-            BlobInfoMergeOperand::ChangeStatus {
-                blob_id,
-                status_changing_epoch: 3,
-                end_epoch: 42,
-                status: BlobCertificationStatus::Invalid,
-                status_event: state2.current_status_event(),
+            BlobInfoMergeOperand::MarkInvalid {
+                epoch: 3,
+                status_event: event,
             },
         )?;
         assert_eq!(storage.get_blob_info(&blob_id)?, Some(state2));
@@ -962,31 +718,36 @@ pub(crate) mod tests {
         let storage = storage.as_ref();
         let blob_id = BLOB_ID;
 
-        let state0 = BlobInfo::new(
-            blob_id,
-            1,
+        let event = event_id_for_testing();
+        let state0 = BlobInfo::new_for_testing(
             42,
             BlobCertificationStatus::Registered,
-            event_id_for_testing(),
+            event,
+            Some(1),
+            None,
+            None,
         );
 
         storage.merge_update_blob_info(
             &blob_id,
-            BlobInfoMergeOperand::ChangeStatus {
-                blob_id,
-                status_changing_epoch: 1,
-                end_epoch: 42,
-                status: BlobCertificationStatus::Registered,
-                status_event: state0.current_status_event(),
-            },
+            BlobInfoMergeOperand::new_change_for_testing(
+                BlobStatusChangeType::Register,
+                false,
+                1,
+                42,
+                event,
+            ),
         )?;
         assert_eq!(storage.get_blob_info(&blob_id)?, Some(state0.clone()));
 
-        let BlobInfo::V1(v1) = state0;
-        let state1 = BlobInfo::V1(BlobInfoV1 {
-            is_metadata_stored: true,
-            ..v1
-        });
+        let mut state1 = state0.clone();
+        let BlobInfo::V1(BlobInfoV1::Valid(ValidBlobInfoV1 {
+            is_metadata_stored, ..
+        })) = &mut state1
+        else {
+            panic!()
+        };
+        *is_metadata_stored = true;
 
         storage.merge_update_blob_info(&blob_id, BlobInfoMergeOperand::MarkMetadataStored(true))?;
         assert_eq!(storage.get_blob_info(&blob_id)?, Some(state1));
@@ -1300,20 +1061,33 @@ pub(crate) mod tests {
             }
         }
 
-        for blob in blob_ids.iter() {
+        for blob_id in blob_ids.iter() {
             storage
                 .as_mut()
                 .merge_update_blob_info(
-                    blob,
-                    BlobInfoMergeOperand::ChangeStatus {
-                        blob_id: *blob,
-                        status_changing_epoch: 0,
-                        end_epoch: 2,
-                        status: BlobCertificationStatus::Certified,
-                        status_event: event_id_for_testing(),
-                    },
+                    blob_id,
+                    BlobInfoMergeOperand::new_change_for_testing(
+                        BlobStatusChangeType::Register,
+                        false,
+                        0,
+                        2,
+                        event_id_for_testing(),
+                    ),
                 )
-                .expect("Writing blob info should succeed");
+                .expect("writing blob info should succeed");
+            storage
+                .as_mut()
+                .merge_update_blob_info(
+                    blob_id,
+                    BlobInfoMergeOperand::new_change_for_testing(
+                        BlobStatusChangeType::Certify,
+                        false,
+                        0,
+                        2,
+                        event_id_for_testing(),
+                    ),
+                )
+                .expect("writing blob info should succeed");
         }
 
         let request = SyncShardRequest::new(

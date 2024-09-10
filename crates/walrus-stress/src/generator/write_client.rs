@@ -4,19 +4,20 @@
 use std::time::{Duration, Instant};
 
 use rand::{rngs::StdRng, thread_rng, SeedableRng};
-use sui_sdk::types::base_types::SuiAddress;
+use sui_sdk::{types::base_types::SuiAddress, wallet_context::WalletContext};
 use tracing::instrument;
 use walrus_core::{merkle::Node, metadata::VerifiedBlobMetadataWithId, BlobId, SliverPairIndex};
 use walrus_service::client::{Client, ClientError, Config};
 use walrus_sui::{
     client::{ContractClient, ReadClient, SuiContractClient, SuiReadClient},
-    test_utils::wallet_for_testing_from_faucet,
+    test_utils::temp_dir_wallet,
     types::Blob,
     utils::SuiNetwork,
 };
 use walrus_test_utils::WithTempDir;
 
 use super::blob::BlobData;
+use crate::refill::{GasRefill, Refiller};
 
 #[derive(Debug)]
 pub(crate) struct WriteClient {
@@ -26,12 +27,13 @@ pub(crate) struct WriteClient {
 
 impl WriteClient {
     #[instrument(err, skip_all)]
-    pub async fn new(
+    pub async fn new<G: GasRefill + 'static>(
         config: &Config,
         network: &SuiNetwork,
         gas_budget: u64,
         min_size_log2: u8,
         max_size_log2: u8,
+        refiller: Refiller<G>,
     ) -> anyhow::Result<Self> {
         let blob = BlobData::random(
             StdRng::from_rng(thread_rng()).expect("rng should be seedable from thread_rng"),
@@ -39,7 +41,7 @@ impl WriteClient {
             max_size_log2,
         )
         .await;
-        let client = new_client(config, network, gas_budget).await?;
+        let client = new_client(config, network, gas_budget, refiller).await?;
         Ok(Self { client, blob })
     }
 
@@ -151,13 +153,14 @@ impl WriteClient {
     }
 }
 
-async fn new_client(
+async fn new_client<G: GasRefill + 'static>(
     config: &Config,
     network: &SuiNetwork,
     gas_budget: u64,
+    refiller: Refiller<G>,
 ) -> anyhow::Result<WithTempDir<Client<SuiContractClient>>> {
     // Create the client with a separate wallet
-    let wallet = wallet_for_testing_from_faucet(network).await?;
+    let wallet = wallet_for_testing_from_refill(network, refiller).await?;
     let sui_read_client =
         SuiReadClient::new(wallet.as_ref().get_client().await?, config.system_object).await?;
     let sui_contract_client = wallet.and_then(|wallet| {
@@ -168,4 +171,15 @@ async fn new_client(
         .and_then_async(|contract_client| Client::new(config.clone(), contract_client))
         .await?;
     Ok(client)
+}
+
+pub async fn wallet_for_testing_from_refill<G: GasRefill + 'static>(
+    network: &SuiNetwork,
+    refiller: Refiller<G>,
+) -> anyhow::Result<WithTempDir<WalletContext>> {
+    let mut wallet = temp_dir_wallet(network.env())?;
+    let address = wallet.as_mut().active_address()?;
+    refiller.send_gas_request(address).await?;
+    refiller.send_gas_request(address).await?;
+    Ok(wallet)
 }

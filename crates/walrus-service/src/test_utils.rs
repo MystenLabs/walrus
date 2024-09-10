@@ -943,6 +943,7 @@ pub(crate) fn test_committee(weights: &[u16]) -> Committee {
 }
 
 /// A module for creating a Walrus test cluster.
+#[cfg(all(feature = "client", feature = "node"))]
 pub mod test_cluster {
     use std::sync::OnceLock;
 

@@ -35,51 +35,10 @@ pub enum ServiceResponse<T> {
     },
 }
 
-/// The certification status of the blob as determined by on-chain events.
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Copy, Hash, utoipa::ToSchema)]
-#[repr(u8)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum BlobCertificationStatus {
-    /// The blob has been registered.
-    Registered,
-    /// The blob has been certified.
-    Certified,
-    /// The blob has been shown to be invalid.
-    Invalid,
-}
-
-impl std::fmt::Display for BlobCertificationStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Registered => write!(f, "registered"),
-            Self::Certified => write!(f, "certified"),
-            Self::Invalid => write!(f, "invalid"),
-        }
-    }
-}
-
-impl PartialOrd for BlobCertificationStatus {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for BlobCertificationStatus {
-    fn cmp(&self, other: &Self) -> Ordering {
-        match (self, other) {
-            (x, y) if x == y => Ordering::Equal,
-            (Self::Registered, _) => Ordering::Less,
-            (Self::Certified, Self::Registered) => Ordering::Greater,
-            (Self::Certified, _) => Ordering::Less,
-            (Self::Invalid, _) => Ordering::Greater,
-        }
-    }
-}
-
 /// Contains the certification status of a blob.
 ///
-/// If the blob exists, it also contains its end epoch and the ID of the Sui event
-/// from which the status resulted.
+/// If the a permanent blob exists, it also contains its end epoch and the ID of the Sui event
+/// from which the latest status (registered or certified) resulted.
 #[derive(
     Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy, Default, Hash, utoipa::ToSchema,
 )]
@@ -88,17 +47,51 @@ pub enum BlobStatus {
     /// The blob does not exist (anymore) within Walrus.
     #[default]
     Nonexistent,
-    /// The blob exists within Walrus.
-    Existent {
-        /// The epoch at which the blob expires (non-inclusive).
+    /// The blob ID has been marked as invalid.
+    Invalid {
+        /// The ID of the Sui event in which the blob was marked as invalid.
+        event: EventID,
+    },
+    /// The blob exists within Walrus in a permanent state.
+    Permanent {
+        /// The latest epoch at which the blob expires (non-inclusive).
         #[schema(value_type = u64)]
         end_epoch: Epoch,
-        /// The certification status of the blob.
-        #[schema(inline)]
-        status: BlobCertificationStatus,
-        /// The ID of the Sui event in which the status was changed to the current status.
+        /// Whether the blob is certified (true) or only registered (false).
+        is_certified: bool,
+        /// The ID of the Sui event that caused the status with the given `end_epoch`.
         status_event: EventID,
+        /// Counts of deletable `Blob` objects.
+        deletable_status: DeletableStatus,
     },
+    /// The blob exists within Walrus; but there is no related permanent object, so it may be
+    /// deleted at any time.
+    Deletable(DeletableStatus),
+}
+
+/// Contains counts of all and certified deletable `Blob` objects.
+#[derive(
+    Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy, Default, Hash, utoipa::ToSchema,
+)]
+pub struct DeletableStatus {
+    /// Total number of active deletable `Blob` objects for the given blob ID.
+    pub count_deletable_total: u32,
+    /// Number of certified deletable `Blob` objects for the given blob ID.
+    pub count_deletable_certified: u32,
+}
+
+impl PartialOrd for DeletableStatus {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for DeletableStatus {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // Tuples are compared using lexicographic ordering.
+        (self.count_deletable_certified, self.count_deletable_total)
+            .cmp(&(other.count_deletable_certified, other.count_deletable_total))
+    }
 }
 
 impl PartialOrd for BlobStatus {
@@ -109,27 +102,46 @@ impl PartialOrd for BlobStatus {
 
 impl Ord for BlobStatus {
     fn cmp(&self, other: &Self) -> Ordering {
+        use BlobStatus::*;
+
         match (self, other) {
+            (s, o) if s == o => Ordering::Equal,
             // Nonexistent is the "smallest" status.
-            (Self::Nonexistent, Self::Nonexistent) => Ordering::Equal,
-            (Self::Nonexistent, _) => Ordering::Less,
-            (_, Self::Nonexistent) => Ordering::Greater,
-            // Compare existent statuses and end epochs if the status is equal.
+            (Nonexistent, _) => Ordering::Less,
+            (_, Nonexistent) => Ordering::Greater,
+            // Invalid is the "largest" status.
+            (Invalid { .. }, Invalid { .. }) => Ordering::Equal,
+            (Invalid { .. }, _) => Ordering::Greater,
+            (_, Invalid { .. }) => Ordering::Less,
+            // Permanent is "larger" than Deletable.
+            (Permanent { .. }, Deletable { .. }) => Ordering::Greater,
+            (Deletable { .. }, Permanent { .. }) => Ordering::Less,
+            // For Deletable, first compare certified blobs, then all.
+            (Deletable(deletable_status), Deletable(deletable_status_other)) => {
+                deletable_status.cmp(deletable_status_other)
+            }
+            // For Permanent, compare status, end epochs, and count of deletable blobs, in this
+            // order.
             (
-                Self::Existent {
-                    status, end_epoch, ..
+                Permanent {
+                    end_epoch,
+                    is_certified,
+                    deletable_status,
+                    ..
                 },
-                Self::Existent {
-                    status: status_other,
+                Permanent {
                     end_epoch: end_epoch_other,
+                    is_certified: is_certified_other,
+                    deletable_status: deletable_status_other,
                     ..
                 },
             ) => {
-                if status == status_other {
-                    end_epoch.cmp(end_epoch_other)
-                } else {
-                    status.cmp(status_other)
-                }
+                // Tuples are compared using lexicographic ordering.
+                (is_certified, end_epoch, deletable_status).cmp(&(
+                    is_certified_other,
+                    end_epoch_other,
+                    deletable_status_other,
+                ))
             }
         }
     }

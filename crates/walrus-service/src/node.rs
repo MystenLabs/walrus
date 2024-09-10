@@ -56,7 +56,7 @@ use self::{
     contract_service::{SuiSystemContractService, SystemContractService},
     errors::IndexOutOfRange,
     metrics::{NodeMetricSet, TelemetryLabel as _, STATUS_PENDING, STATUS_PERSISTED},
-    storage::{blob_info::BlobInfoApi, EventProgress, ShardStorage},
+    storage::{blob_info::BlobInfoApi as _, EventProgress, ShardStorage},
 };
 
 pub mod committee;
@@ -742,17 +742,11 @@ impl ServiceState for StorageNodeInner {
             .get_blob_info(metadata.blob_id())
             .context("could not retrieve blob info")?
         else {
-            return Err(StoreMetadataError::NotRegistered);
+            return Err(StoreMetadataError::NotCurrentlyRegistered);
         };
 
-        if blob_info.is_invalid() {
-            return Err(StoreMetadataError::InvalidBlob(
-                blob_info.current_status_event(),
-            ));
-        }
-
-        if blob_info.is_expired(self.current_epoch()) {
-            return Err(StoreMetadataError::BlobExpired);
+        if let Some(event) = blob_info.invalidation_event() {
+            return Err(StoreMetadataError::InvalidBlob(event));
         }
 
         if blob_info.is_metadata_stored() {
@@ -994,31 +988,25 @@ where
 
 #[cfg(test)]
 mod tests {
+
     use std::{sync::OnceLock, time::Duration};
 
-    use fastcrypto::traits::KeyPair;
     use storage::{
-        blob_info::BlobCertificationStatus,
         tests::{populated_storage, WhichSlivers, BLOB_ID, OTHER_SHARD_INDEX, SHARD_INDEX},
+        ShardStatus,
     };
     use tokio::sync::{broadcast::Sender, Mutex};
     use walrus_core::{
-        encoding::{self, EncodingAxis, Primary, Secondary, SliverPair},
+        encoding::{Primary, Secondary, SliverData, SliverPair},
         messages::{SyncShardMsg, SyncShardRequest},
         test_utils::generate_config_metadata_and_valid_recovery_symbols,
     };
-    use walrus_sdk::{api::BlobCertificationStatus as SdkBlobCertificationStatus, client::Client};
-    use walrus_sui::{
-        test_utils::EventForTesting,
-        types::{BlobCertified, BlobEvent, BlobRegistered},
-    };
+    use walrus_sdk::client::Client;
+    use walrus_sui::{test_utils::EventForTesting, types::BlobRegistered};
     use walrus_test_utils::{async_param_test, Result as TestResult, WithTempDir};
 
     use super::*;
-    use crate::{
-        node::storage::ShardStatus,
-        test_utils::{StorageNodeHandle, TestCluster},
-    };
+    use crate::test_utils::{StorageNodeHandle, TestCluster};
 
     const TIMEOUT: Duration = Duration::from_secs(1);
     const OTHER_BLOB_ID: BlobId = BlobId([247; 32]);
@@ -1162,16 +1150,17 @@ mod tests {
         // Wait to make sure the event is received.
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        let BlobStatus::Existent {
-            status,
+        let BlobStatus::Permanent {
             end_epoch,
             status_event,
+            is_certified,
+            ..
         } = node.as_ref().blob_status(&BLOB_ID)?
         else {
             panic!("got nonexistent blob status")
         };
 
-        assert_eq!(status, SdkBlobCertificationStatus::Registered);
+        assert!(!is_certified);
         assert_eq!(status_event, blob_event.event_id);
         assert_eq!(end_epoch, blob_event.end_epoch);
 
@@ -1781,7 +1770,7 @@ mod tests {
         events.send(blob2_registered_event.clone().into())?;
 
         // The node should not be able to advance past the following event.
-        events.send(BlobCertified::for_testing(BLOB_ID).into())?;
+        events.send(BlobCertified::for_testing(*blob2_details.blob_id()).into())?;
 
         // Register and store the second blob
         let blob3_details = EncodedBlob::new(&blob3, config.clone());
@@ -1839,7 +1828,7 @@ mod tests {
         node_client: &Client,
         shard: ShardIndex,
         timeout: Duration,
-    ) -> encoding::SliverData<A> {
+    ) -> SliverData<A> {
         retry_until_success_or_timeout(timeout, || {
             let pair_to_sync = blob.assigned_sliver_pair(shard);
             node_client.get_sliver::<A>(blob.blob_id(), pair_to_sync.index())
@@ -2303,10 +2292,13 @@ mod tests {
                 .inner
                 .storage
                 .get_blob_info(blob_detail.blob_id());
-            assert_eq!(
-                blob_info.unwrap().unwrap().status(),
-                BlobCertificationStatus::Registered
-            );
+            assert!(matches!(
+                blob_info.unwrap().unwrap().to_blob_status(),
+                BlobStatus::Permanent {
+                    is_certified: false,
+                    ..
+                }
+            ));
         }
 
         let node_inner = unsafe {
@@ -2347,10 +2339,13 @@ mod tests {
                 .inner
                 .storage
                 .get_blob_info(blob_details[i].blob_id());
-            assert_eq!(
-                blob_info.unwrap().unwrap().status(),
-                BlobCertificationStatus::Registered
-            );
+            assert!(matches!(
+                blob_info.unwrap().unwrap().to_blob_status(),
+                BlobStatus::Permanent {
+                    is_certified: false,
+                    ..
+                }
+            ));
         }
 
         let node_inner = unsafe {

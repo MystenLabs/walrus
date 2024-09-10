@@ -213,6 +213,7 @@ impl SuccessOrFailure for bool {
 /// Helper functions applied to futures.
 pub(crate) trait FutureHelpers: Future {
     /// Limits the number of simultaneously executing futures.
+    #[cfg(feature = "client")]
     async fn batch_limit(self, permits: Arc<Semaphore>) -> Self::Output
     where
         Self: Future,

@@ -13,6 +13,7 @@ use std::{
 
 use anyhow::Context;
 use clap::Parser;
+use refill::{FaucetOrWallet, Refiller};
 use walrus_service::{client::Config, utils::LoadConfig};
 use walrus_sui::utils::SuiNetwork;
 
@@ -20,6 +21,7 @@ use crate::{generator::LoadGenerator, metrics::ClientMetrics};
 
 mod generator;
 mod metrics;
+mod refill;
 
 #[derive(Parser, Debug, Clone)]
 #[clap(rename_all = "kebab-case")]
@@ -64,6 +66,12 @@ struct Args {
     /// The fraction of writes that write inconsistent blobs.
     #[clap(long, default_value_t = 0.0)]
     inconsistent_blob_rate: f64,
+    /// The path to the Sui Wallet to be used for funding the gas.
+    ///
+    /// If specified, the funds to run the stress client will be taken from this wallet. Otherwise,
+    /// the stress client will try to use the faucet.
+    #[clap(long)]
+    wallet_path: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -83,6 +91,11 @@ async fn main() -> anyhow::Result<()> {
 
     // Start the write transaction generator.
     let gas_refill_period = Duration::from_millis(args.gas_refill_period_millis.get());
+
+    let refiller = Refiller::new(FaucetOrWallet::new(
+        args.sui_network.clone(),
+        args.wallet_path.clone(),
+    )?);
     let mut load_generator = LoadGenerator::new(
         n_clients,
         args.min_size_log2,
@@ -91,6 +104,7 @@ async fn main() -> anyhow::Result<()> {
         args.sui_network,
         gas_refill_period,
         metrics,
+        refiller,
     )
     .await?;
 

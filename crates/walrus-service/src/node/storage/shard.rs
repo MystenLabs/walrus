@@ -926,23 +926,17 @@ fn inject_failure(scan_count: u64, sliver_type: SliverType) -> Result<(), anyhow
 mod tests {
     use std::collections::HashMap;
 
-    use typed_store::{Map, TypedStoreError};
-    use walrus_core::{
-        encoding::{Primary, Secondary},
-        test_utils::random_blob_id,
-        BlobId,
-        ShardIndex,
-        Sliver,
-        SliverType,
-    };
+    use walrus_core::test_utils::random_blob_id;
     use walrus_sui::test_utils::event_id_for_testing;
     use walrus_test_utils::{async_param_test, param_test, Result as TestResult, WithTempDir};
 
-    use super::id_from_column_family_name;
+    use super::*;
     use crate::{
-        node::storage::{
-            blob_info::{BlobCertificationStatus, BlobInfo},
-            tests::{empty_storage, get_sliver, BLOB_ID, OTHER_SHARD_INDEX, SHARD_INDEX},
+        node::{
+            storage::{
+                blob_info::BlobCertificationStatus,
+                tests::{empty_storage, get_sliver, BLOB_ID, OTHER_SHARD_INDEX, SHARD_INDEX},
+            },
             Storage,
         },
         test_utils::empty_storage_with_shards,
@@ -1161,7 +1155,7 @@ mod tests {
         .cloned()
         .collect::<HashMap<BlobId, HashMap<SliverType, Sliver>>>();
 
-        // Pupulates the shard with the generated data.
+        // Populates the shard with the generated data.
         for blob_data in data.iter() {
             for (_sliver_type, sliver) in blob_data.1.iter() {
                 shard.put_sliver(blob_data.0, sliver)?;

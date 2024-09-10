@@ -8,7 +8,7 @@ use colored::Colorize;
 use indoc::printdoc;
 use prettytable::{format, row, Table};
 use serde::Serialize;
-use walrus_sdk::api::BlobStatus;
+use walrus_sdk::api::{BlobStatus, DeletableStatus};
 use walrus_sui::types::Blob;
 
 use crate::client::{
@@ -151,18 +151,46 @@ impl CliOutput for BlobStatusOutput {
         };
         match self.status {
             BlobStatus::Nonexistent => println!("Blob ID {blob_str} is not stored on Walrus."),
-            BlobStatus::Existent {
-                status,
-                end_epoch,
-                status_event,
-            } => println!(
-                "Status for blob ID {blob_str}: {}\n\
-                    End epoch: {}\n\
-                    Related event: {}",
-                status.to_string().bold(),
-                end_epoch,
-                format_event_id(&status_event),
+            BlobStatus::Deletable(DeletableStatus {
+                count_deletable_total,
+                count_deletable_certified,
+            }) => println!(
+                "Blob ID {blob_str} is registered on Walrus but only as deletable Blob objects:\n\
+                    Total number of certified objects: {count_deletable_certified} (of \
+                    {count_deletable_total} registered)"
             ),
+            BlobStatus::Invalid { .. } => println!("Blob ID {blob_str} is invalid."),
+            BlobStatus::Permanent {
+                end_epoch,
+                is_certified,
+                status_event,
+                deletable_status:
+                    DeletableStatus {
+                        count_deletable_certified,
+                        ..
+                    },
+                ..
+            } => {
+                let status = (if is_certified {
+                    "certified"
+                } else {
+                    "registered"
+                })
+                .bold();
+                println!(
+                    "There is a {status} permanent Blob object for blob ID {blob_str}.\n\
+                        End epoch: {}\n\
+                        Related event: {}",
+                    end_epoch,
+                    format_event_id(&status_event),
+                );
+                if count_deletable_certified > 0 {
+                    println!(
+                        "There are also {count_deletable_certified} certified deletable Blob \
+                            objects for this blob ID."
+                    )
+                }
+            }
         }
     }
 }

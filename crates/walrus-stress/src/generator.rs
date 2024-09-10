@@ -9,12 +9,9 @@ use std::{
 };
 
 use anyhow::Context;
-use futures::{
-    future::{self, try_join_all},
-    StreamExt,
-};
+use futures::future::try_join_all;
 use rand::{thread_rng, Rng};
-use sui_sdk::{types::base_types::SuiAddress, SuiClient, SuiClientBuilder};
+use sui_sdk::SuiClientBuilder;
 use tokio::{
     sync::mpsc::{self, error::TryRecvError, Receiver, Sender},
     task::JoinHandle,
@@ -22,20 +19,9 @@ use tokio::{
 };
 use walrus_core::{encoding::Primary, BlobId};
 use walrus_service::client::{Client, ClientError, Config};
-use walrus_sui::{
-    client::SuiReadClient,
-    utils::{send_faucet_request, SuiNetwork},
-};
-
-use crate::{metrics, metrics::ClientMetrics};
+use walrus_sui::{client::SuiReadClient, utils::SuiNetwork};
 
 const DEFAULT_GAS_BUDGET: u64 = 100_000_000;
-
-// If a node has less than `MIN_NUM_COINS` without at least `MIN_COIN_VALUE`,
-// we need to request additional coins from the faucet.
-const MIN_COIN_VALUE: u64 = 500_000_000;
-// We need at least a payment coin and a gas coin.
-const MIN_NUM_COINS: usize = 2;
 
 /// Minimum burst duration.
 const MIN_BURST_DURATION: Duration = Duration::from_millis(100);
@@ -46,6 +32,11 @@ mod blob;
 
 mod write_client;
 use write_client::WriteClient;
+
+use crate::{
+    metrics::{self, ClientMetrics},
+    refill::{GasRefill, Refiller},
+};
 
 /// A load generator for Walrus writes.
 #[derive(Debug)]
@@ -59,7 +50,8 @@ pub struct LoadGenerator {
 }
 
 impl LoadGenerator {
-    pub async fn new(
+    #[allow(clippy::too_many_arguments)]
+    pub async fn new<G: GasRefill + 'static>(
         n_clients: usize,
         min_size_log2: u8,
         max_size_log2: u8,
@@ -67,6 +59,7 @@ impl LoadGenerator {
         network: SuiNetwork,
         gas_refill_period: Duration,
         metrics: Arc<ClientMetrics>,
+        refiller: Refiller<G>,
     ) -> anyhow::Result<Self> {
         tracing::info!("Initializing clients...");
 
@@ -102,6 +95,7 @@ impl LoadGenerator {
                     DEFAULT_GAS_BUDGET,
                     min_size_log2,
                     max_size_log2,
+                    refiller.clone(),
                 )
                 .await?,
             )
@@ -118,12 +112,12 @@ impl LoadGenerator {
         tracing::info!("Finished initializing clients and blobs.");
 
         tracing::info!("Spawning gas refill task...");
-        let gas_refill_handle = refill_gas(
+
+        let gas_refill_handle = refiller.refill_gas(
             addresses,
-            network,
             gas_refill_period,
             metrics.clone(),
-            sui_client,
+            sui_client.clone(),
         );
 
         Ok(Self {
@@ -351,45 +345,4 @@ fn burst_load(load: u64) -> (u64, Interval) {
     let mut interval = tokio::time::interval(burst_duration);
     interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
     (load_per_burst, interval)
-}
-
-pub fn refill_gas(
-    addresses: Vec<SuiAddress>,
-    network: SuiNetwork,
-    period: Duration,
-    metrics: Arc<ClientMetrics>,
-    sui_client: SuiClient,
-) -> JoinHandle<anyhow::Result<()>> {
-    let mut interval = tokio::time::interval(period);
-    interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
-
-    tokio::spawn(async move {
-        loop {
-            interval.tick().await;
-            let sui_client = &sui_client;
-            let metrics = &metrics;
-            let network_ref = &network;
-            let _ = try_join_all(addresses.iter().cloned().map(|address| async move {
-                if sui_client
-                    .coin_read_api()
-                    .get_coins_stream(address, None)
-                    .filter(|coin| future::ready(coin.balance >= MIN_COIN_VALUE))
-                    .take(MIN_NUM_COINS)
-                    .collect::<Vec<_>>()
-                    .await
-                    .len()
-                    < MIN_NUM_COINS
-                {
-                    let result = send_faucet_request(address, network_ref).await;
-                    tracing::debug!("Clients gas coins refilled");
-                    metrics.observe_gas_refill();
-                    result
-                } else {
-                    Ok(())
-                }
-            }))
-            .await
-            .inspect_err(|e| tracing::error!("error while refilling gas: {e}"));
-        }
-    })
 }

@@ -401,12 +401,7 @@ mod tests {
         SliverType,
     };
     use walrus_sdk::{
-        api::{
-            BlobCertificationStatus as SdkBlobCertificationStatus,
-            BlobStatus,
-            ServiceHealthInfo,
-            StoredOnNodeStatus,
-        },
+        api::{BlobStatus, DeletableStatus, ServiceHealthInfo, StoredOnNodeStatus},
         client::{Client, ClientBuilder},
     };
     use walrus_sui::test_utils::event_id_for_testing;
@@ -527,10 +522,14 @@ mod tests {
         /// starting with 1, and otherwise an error.
         fn blob_status(&self, blob_id: &BlobId) -> Result<BlobStatus, BlobStatusError> {
             if blob_id.0[0] == 0 {
-                Ok(BlobStatus::Existent {
+                Ok(BlobStatus::Permanent {
                     end_epoch: 3,
-                    status: SdkBlobCertificationStatus::Certified,
                     status_event: event_id_for_testing(),
+                    is_certified: true,
+                    deletable_status: DeletableStatus {
+                        count_deletable_total: 0,
+                        count_deletable_certified: 0,
+                    },
                 })
             } else if blob_id.0[0] == 1 {
                 Ok(BlobStatus::Nonexistent)
