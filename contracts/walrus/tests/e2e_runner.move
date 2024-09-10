@@ -54,7 +54,7 @@ public fun epoch_zero_duration(mut self: InitBuilder, duration: u64): InitBuilde
 
 /// Change the regular (non-zero) epoch duration.
 public fun epoch_duration(mut self: InitBuilder, duration: u64): InitBuilder {
-    self.epoch_zero_duration = option::some(duration);
+    self.epoch_duration = option::some(duration);
     self
 }
 
