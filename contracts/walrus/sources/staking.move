@@ -29,8 +29,11 @@ public struct Staking has key {
 
 /// Creates and shares a new staking object.
 /// Must only be called by the initialization function.
+///
+/// TODO: consider removing `epoch_duration` parameter when the testing is over.
 public(package) fun create(
     epoch_zero_duration: u64,
+    epoch_duration: u64,
     n_shards: u16,
     clock: &Clock,
     ctx: &mut TxContext,
@@ -39,7 +42,13 @@ public(package) fun create(
     df::add(
         &mut staking.id,
         VERSION,
-        staking_inner::new(epoch_zero_duration, n_shards, clock, ctx),
+        staking_inner::new(
+            epoch_zero_duration,
+            epoch_duration,
+            n_shards,
+            clock,
+            ctx,
+        ),
     );
     transfer::share_object(staking)
 }
@@ -204,7 +213,7 @@ use sui::{clock, coin};
 public(package) fun new_for_testing(ctx: &mut TxContext): Staking {
     let clock = clock::create_for_testing(ctx);
     let mut staking = Staking { id: object::new(ctx), version: VERSION };
-    df::add(&mut staking.id, VERSION, staking_inner::new(0, 1000, &clock, ctx));
+    df::add(&mut staking.id, VERSION, staking_inner::new(0, 10, 1000, &clock, ctx));
     clock.destroy_for_testing();
     staking
 }

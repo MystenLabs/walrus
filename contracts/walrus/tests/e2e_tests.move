@@ -23,6 +23,7 @@ fun test_init_and_first_epoch_change() {
     let mut nodes = test_node::test_nodes();
     let mut runner = e2e_runner::prepare(admin)
         .epoch_zero_duration(EPOCH_ZERO_DURATION)
+        .epoch_duration(EPOCH_DURATION)
         .n_shards(N_SHARDS)
         .build();
 
@@ -123,6 +124,7 @@ fun test_first_epoch_too_soon_fail() {
     let admin = @0xA11CE;
     let mut runner = e2e_runner::prepare(admin)
         .epoch_zero_duration(EPOCH_ZERO_DURATION)
+        .epoch_duration(EPOCH_DURATION)
         .n_shards(N_SHARDS)
         .build();
 

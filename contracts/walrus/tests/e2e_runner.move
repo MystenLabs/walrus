@@ -19,6 +19,7 @@ public struct TestRunner {
 /// They will be used by the e2e runner admin during the initialization.
 public struct InitBuilder {
     epoch_zero_duration: Option<u64>,
+    epoch_duration: Option<u64>,
     n_shards: Option<u16>,
     admin: address,
 }
@@ -39,6 +40,7 @@ public struct InitBuilder {
 public fun prepare(admin: address): InitBuilder {
     InitBuilder {
         epoch_zero_duration: option::none(),
+        epoch_duration: option::none(),
         n_shards: option::none(),
         admin,
     }
@@ -46,6 +48,12 @@ public fun prepare(admin: address): InitBuilder {
 
 /// Change the epoch zero duration.
 public fun epoch_zero_duration(mut self: InitBuilder, duration: u64): InitBuilder {
+    self.epoch_zero_duration = option::some(duration);
+    self
+}
+
+/// Change the regular (non-zero) epoch duration.
+public fun epoch_duration(mut self: InitBuilder, duration: u64): InitBuilder {
     self.epoch_zero_duration = option::some(duration);
     self
 }
@@ -58,8 +66,9 @@ public fun n_shards(mut self: InitBuilder, n: u16): InitBuilder {
 
 /// Build the test runner with the given parameters.
 public fun build(self: InitBuilder): TestRunner {
-    let InitBuilder { admin, epoch_zero_duration, n_shards } = self;
+    let InitBuilder { admin, epoch_duration, epoch_zero_duration, n_shards } = self;
     let epoch_zero_duration = epoch_zero_duration.destroy_or!(100000000);
+    let epoch_duration = epoch_duration.destroy_or!(7 * 24 * 60 * 60 * 1000 / 2);
     let n_shards = n_shards.destroy_or!(100);
 
     let mut scenario = test_scenario::begin(admin);
@@ -71,7 +80,7 @@ public fun build(self: InitBuilder): TestRunner {
     scenario.next_tx(admin);
     let cap = scenario.take_from_sender<init::InitCap>();
     let ctx = scenario.ctx();
-    init::initialize_walrus(cap, epoch_zero_duration, n_shards, &clock, ctx);
+    init::initialize_walrus(cap, epoch_zero_duration, epoch_duration, n_shards, &clock, ctx);
 
     TestRunner { scenario, clock, admin }
 }

@@ -26,12 +26,13 @@ fun init(ctx: &mut TxContext) {
 public fun initialize_walrus(
     cap: InitCap,
     epoch_zero_duration: u64,
+    epoch_duration: u64,
     n_shards: u16,
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
     system::create_empty(ctx);
-    staking::create(epoch_zero_duration, n_shards, clock, ctx);
+    staking::create(epoch_zero_duration, epoch_duration, n_shards, clock, ctx);
     cap.destroy();
 }
 

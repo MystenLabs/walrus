@@ -41,13 +41,15 @@ const MIN_STAKE: u64 = 0;
 
 // TODO: decide epoch duration. Consider making it a system parameter.
 
-/// The duration of an epoch in ms.
-/// Currently one week.
-const EPOCH_DURATION: u64 = 7 * 24 * 60 * 60 * 1000;
+// The duration of an epoch in ms.
+// Currently one week.
+// TODO: currently replaced by the epoch duration.
+// const EPOCH_DURATION: u64 = 7 * 24 * 60 * 60 * 1000;
 
-/// The delta between the epoch change finishing and selecting the next epoch parameters in ms.
-/// Currently half of an epoch.
-const PARAM_SELECTION_DELTA: u64 = 7 * 24 * 60 * 60 * 1000 / 2;
+// The delta between the epoch change finishing and selecting the next epoch parameters in ms.
+// Currently half of an epoch.
+// TODO: currently replaced by the epoch duration / 2.
+// const PARAM_SELECTION_DELTA: u64 = 7 * 24 * 60 * 60 * 1000 / 2;
 
 // TODO: remove this once the module is implemented.
 #[error]
@@ -75,6 +77,8 @@ public enum EpochState has store, copy, drop {
 public struct StakingInnerV1 has store {
     /// The number of shards in the system.
     n_shards: u16,
+    /// The duration of an epoch in ms. Does not affect the first (zero) epoch.
+    epoch_duration: u64,
     /// Special parameter, used only for the first epoch. The timestamp when the
     /// first epoch can be started.
     first_epoch_start: u64,
@@ -107,12 +111,14 @@ public struct StakingInnerV1 has store {
 /// Creates a new `StakingInnerV1` object with default values.
 public(package) fun new(
     epoch_zero_duration: u64,
+    epoch_duration: u64,
     n_shards: u16,
     clock: &Clock,
     ctx: &mut TxContext,
 ): StakingInnerV1 {
     StakingInnerV1 {
         n_shards,
+        epoch_duration,
         first_epoch_start: epoch_zero_duration + clock.timestamp_ms(),
         pools: object_table::new(ctx),
         epoch: 0,
@@ -184,10 +190,11 @@ public(package) fun voting_end(self: &mut StakingInnerV1, clock: &Clock) {
     };
 
     let now = clock.timestamp_ms();
+    let param_selection_delta = self.epoch_duration / 2;
 
     // We don't need a delay for the epoch zero.
     if (self.epoch != 0) {
-        assert!(now >= last_epoch_change + PARAM_SELECTION_DELTA, EWrongEpochState);
+        assert!(now >= last_epoch_change + param_selection_delta, EWrongEpochState);
     } else {
         assert!(now >= self.first_epoch_start, EWrongEpochState);
     };
@@ -390,7 +397,7 @@ public(package) fun initiate_epoch_change(
     let now = clock.timestamp_ms();
 
     if (self.epoch == 0) assert!(now >= self.first_epoch_start, EWrongEpochState)
-    else assert!(now >= last_epoch_change + EPOCH_DURATION, EWrongEpochState);
+    else assert!(now >= last_epoch_change + self.epoch_duration, EWrongEpochState);
 
     self.advance_epoch(rewards);
 }
