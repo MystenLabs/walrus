@@ -39,7 +39,7 @@ use sui_types::{
     transaction::{ProgrammableTransaction, TransactionData},
     TypeTag,
 };
-use walrus_core::{encoding::encoded_blob_length_for_n_shards, Epoch};
+use walrus_core::{encoding::encoded_blob_length_for_n_shards, EpochCount};
 
 use crate::{
     client::SuiClientResult,
@@ -61,7 +61,7 @@ pub fn price_for_unencoded_length(
     unencoded_length: u64,
     n_shards: NonZeroU16,
     price_per_unit_size: u64,
-    epochs: Epoch,
+    epochs: EpochCount,
 ) -> Option<u64> {
     encoded_blob_length_for_n_shards(n_shards, unencoded_length).map(|encoded_length| {
         storage_price_for_encoded_length(encoded_length, price_per_unit_size, epochs)
@@ -72,7 +72,7 @@ pub fn price_for_unencoded_length(
 pub fn storage_price_for_encoded_length(
     encoded_length: u64,
     price_per_unit_size: u64,
-    epochs: Epoch,
+    epochs: EpochCount,
 ) -> u64 {
     storage_units_from_size(encoded_length) * price_per_unit_size * (epochs as u64)
 }

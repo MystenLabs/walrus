@@ -25,7 +25,7 @@ use walrus_core::keys::NetworkKeyPair;
 
 use super::DEFAULT_GAS_BUDGET;
 use crate::{
-    client::{ContractClient, SuiContractClient},
+    client::{ContractClient, ReadClient, SuiContractClient},
     system_setup::{create_system_and_staking_objects, publish_coin_and_system_package},
     types::{NetworkAddress, NodeRegistrationParams},
 };
@@ -52,7 +52,6 @@ pub async fn publish_with_default_system(
 ) -> Result<(ObjectID, ObjectID)> {
     // Default system config, compatible with current tests
 
-    // TODO: move to publish_and_initialize_system function, only temp here
     let system_context = create_and_init_system(admin_wallet, 100, 0).await?;
 
     // Set up node params.
@@ -195,8 +194,18 @@ pub async fn end_epoch_zero(contract_client: &SuiContractClient) -> Result<()> {
     // call vote end
     contract_client.voting_end().await?;
 
+    tracing::info!(
+        "Epoch state after voting end: {:?}",
+        contract_client.read_client().current_committee().await?
+    );
+
     // call epoch change
     contract_client.initiate_epoch_change().await?;
+
+    tracing::info!(
+        "Epoch state after initiating epoch change: {:?}",
+        contract_client.read_client().current_committee().await?
+    );
 
     // TODO(#784): call epoch change done from each node
     Ok(())

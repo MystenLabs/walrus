@@ -65,7 +65,7 @@ pub(crate) async fn publish_package(
     let sender = wallet.active_address()?;
     let sui = wallet.get_client().await?;
 
-    let build_config = BuildConfig::new_for_testing();
+    let build_config = BuildConfig::default();
     let compiled_package = build_config
         .build(&package_path)
         .expect("Building package failed");

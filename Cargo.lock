@@ -12307,6 +12307,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bcs",
+ "chrono",
  "fastcrypto 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "move-core-types",
  "rand 0.8.5",

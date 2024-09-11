@@ -9,7 +9,7 @@ use walrus_core::{
     merkle::Node,
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
-    Epoch,
+    EpochCount,
     SliverPairIndex,
 };
 use walrus_service::{
@@ -239,8 +239,8 @@ async_param_test! {
 /// `should_match` is a boolean that indicates if the storage object used in the final upload should
 /// be the same as the first one registered.
 async fn test_store_with_existing_blob_resource(
-    epochs_ahead_registered: Epoch,
-    epochs_ahead_required: Epoch,
+    epochs_ahead_registered: EpochCount,
+    epochs_ahead_required: EpochCount,
     should_match: bool,
 ) -> anyhow::Result<()> {
     let _ = tracing_subscriber::fmt::try_init();

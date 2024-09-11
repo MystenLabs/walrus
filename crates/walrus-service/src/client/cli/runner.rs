@@ -11,7 +11,7 @@ use sui_sdk::wallet_context::WalletContext;
 use walrus_core::{
     encoding::{encoded_blob_length_for_n_shards, EncodingConfig, Primary},
     BlobId,
-    Epoch,
+    EpochCount,
 };
 use walrus_sui::{
     client::{ContractClient, ReadClient, SuiContractClient},
@@ -184,7 +184,7 @@ impl ClientCommandRunner {
     pub(crate) async fn store(
         self,
         file: PathBuf,
-        epochs: Epoch,
+        epochs: EpochCount,
         force: bool,
         dry_run: bool,
     ) -> Result<()> {

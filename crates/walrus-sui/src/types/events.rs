@@ -61,26 +61,17 @@ impl TryFrom<SuiEvent> for BlobRegistered {
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
-        #[derive(Deserialize)]
-        struct Inner {
-            epoch: Epoch,
-            blob_id: BlobId,
-            size: u64,
-            erasure_code_type: EncodingType,
-            end_epoch: Epoch,
-            deletable: bool,
-            object_id: ObjectID,
-        }
+        let (epoch, blob_id, size, encoding_type, end_epoch, deletable, object_id) =
+            bcs::from_bytes(&sui_event.bcs)?;
 
-        let inner: Inner = bcs::from_bytes(&sui_event.bcs)?;
         Ok(Self {
-            epoch: inner.epoch,
-            blob_id: inner.blob_id,
-            size: inner.size,
-            encoding_type: inner.erasure_code_type,
-            end_epoch: inner.end_epoch,
-            deletable: inner.deletable,
-            object_id: inner.object_id,
+            epoch,
+            blob_id,
+            size,
+            encoding_type,
+            end_epoch,
+            deletable,
+            object_id,
             event_id: sui_event.id,
         })
     }
@@ -115,24 +106,15 @@ impl TryFrom<SuiEvent> for BlobCertified {
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
-        #[derive(Deserialize)]
-        struct Inner {
-            epoch: Epoch,
-            blob_id: BlobId,
-            end_epoch: Epoch,
-            deletable: bool,
-            object_id: ObjectID,
-            is_extension: bool,
-        }
-
-        let inner: Inner = bcs::from_bytes(&sui_event.bcs)?;
+        let (epoch, blob_id, end_epoch, deletable, object_id, is_extension) =
+            bcs::from_bytes(&sui_event.bcs)?;
         Ok(Self {
-            epoch: inner.epoch,
-            blob_id: inner.blob_id,
-            end_epoch: inner.end_epoch,
-            deletable: inner.deletable,
-            object_id: inner.object_id,
-            is_extension: inner.is_extension,
+            epoch,
+            blob_id,
+            end_epoch,
+            deletable,
+            object_id,
+            is_extension,
             event_id: sui_event.id,
         })
     }
@@ -159,16 +141,10 @@ impl TryFrom<SuiEvent> for InvalidBlobId {
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
-        #[derive(Deserialize)]
-        struct Inner {
-            epoch: Epoch,
-            blob_id: BlobId,
-        }
-
-        let inner: Inner = bcs::from_bytes(&sui_event.bcs)?;
+        let (epoch, blob_id) = bcs::from_bytes(&sui_event.bcs)?;
         Ok(Self {
-            epoch: inner.epoch,
-            blob_id: inner.blob_id,
+            epoch,
+            blob_id,
             event_id: sui_event.id,
         })
     }

@@ -34,8 +34,8 @@ async fn initialize_contract_and_wallet(
     let mut admin_wallet = new_wallet_on_sui_test_cluster(sui_cluster.clone()).await?;
     let node_wallet = new_wallet_on_sui_test_cluster(sui_cluster.clone()).await?;
 
-    // TODO: make this nicer, s.t. we don't throw away the wallet with the storage node cap. Fix
-    // once the testbed setup is ready.
+    // TODO(#793): make this nicer, s.t. we don't throw away the wallet with the storage node cap.
+    // Fix once the testbed setup is ready.
     let (system_object, staking_object) = node_wallet
         .and_then_async(|wallet| publish_with_default_system(&mut admin_wallet.inner, wallet))
         .await?

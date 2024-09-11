@@ -32,7 +32,11 @@ use walrus_core::ensure;
 use super::{SuiClientError, SuiClientResult};
 use crate::{
     types::{
-        move_structs::{StakingObjectOuter, StakingPool, SystemObjectOuter},
+        move_structs::{
+            StakingObjectForDeserialization,
+            StakingPool,
+            SystemObjectForDeserialization,
+        },
         BlobEvent,
         Committee,
         StakingObject,
@@ -255,7 +259,7 @@ impl SuiReadClient {
     }
 
     async fn get_system_object(&self) -> SuiClientResult<SystemObject> {
-        let SystemObjectOuter { id, version } =
+        let SystemObjectForDeserialization { id, version } =
             get_sui_object(&self.sui_client, self.system_object_id).await?;
         let Some(dynamic_field_info) = self
             .sui_client
@@ -274,7 +278,7 @@ impl SuiReadClient {
     }
 
     async fn get_staking_object(&self) -> SuiClientResult<StakingObject> {
-        let StakingObjectOuter { id, version } =
+        let StakingObjectForDeserialization { id, version } =
             get_sui_object(&self.sui_client, self.staking_object_id).await?;
         let Some(dynamic_field_info) = self
             .sui_client
@@ -410,10 +414,12 @@ async fn get_system_package_id(
             SuiClientError::WalrusSystemObjectDoesNotExist(system_object_id)
         })?;
 
-    get_sui_object_from_object_response::<SystemObjectOuter>(&response).map_err(|error| {
-        tracing::debug!(%error, "error when trying to deserialize the system object");
-        SuiClientError::WalrusSystemObjectDoesNotExist(system_object_id)
-    })?;
+    get_sui_object_from_object_response::<SystemObjectForDeserialization>(&response).map_err(
+        |error| {
+            tracing::debug!(%error, "error when trying to deserialize the system object");
+            SuiClientError::WalrusSystemObjectDoesNotExist(system_object_id)
+        },
+    )?;
 
     let object_pkg_id = get_package_id_from_object_response(&response).map_err(|error| {
         tracing::debug!(%error, "unable to get the Walrus package ID");

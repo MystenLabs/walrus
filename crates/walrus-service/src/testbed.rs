@@ -268,8 +268,8 @@ pub async fn deploy_walrus_contract(
 
     let system_ctx = create_and_init_system(&mut admin_wallet, n_shards, 0).await?;
 
-    // TODO: Contract is published, and system&staking objects are created. However, the system
-    // currently is not moving forward due to that storage nodes are not registered.
+    // TODO(#794): Contract is published, and system&staking objects are created. However, the
+    // system currently is not moving forward due to that storage nodes are not registered.
 
     Ok(TestbedConfig {
         sui_network,

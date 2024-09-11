@@ -38,7 +38,7 @@ use walrus_core::{
     metadata::BlobMetadataWithId,
     BlobId,
     EncodingType,
-    Epoch,
+    EpochCount,
 };
 
 use crate::{
@@ -103,7 +103,7 @@ pub trait ContractClient: Send + Sync {
     fn reserve_space(
         &self,
         encoded_size: u64,
-        epochs_ahead: Epoch,
+        epochs_ahead: EpochCount,
     ) -> impl Future<Output = SuiClientResult<StorageResource>> + Send;
 
     /// Registers a blob with the specified [`BlobId`] using the provided [`StorageResource`],
@@ -128,7 +128,7 @@ pub trait ContractClient: Send + Sync {
     /// [`register_blob`][Self::register_blob] functions in one atomic transaction.
     fn reserve_and_register_blob<const V: bool>(
         &self,
-        epochs_ahead: Epoch,
+        epochs_ahead: EpochCount,
         blob_metadata: &BlobMetadataWithId<V>,
         deletable: bool,
     ) -> impl Future<Output = SuiClientResult<Blob>> + Send;
@@ -314,7 +314,7 @@ impl SuiContractClient {
     async fn storage_price_for_encoded_length(
         &self,
         encoded_size: u64,
-        epochs_ahead: Epoch,
+        epochs_ahead: EpochCount,
     ) -> SuiClientResult<u64> {
         Ok(storage_price_for_encoded_length(
             encoded_size,
@@ -354,7 +354,7 @@ impl SuiContractClient {
         &self,
         pt_builder: &mut ProgrammableTransactionBuilder,
         encoded_size: u64,
-        epochs_ahead: Epoch,
+        epochs_ahead: EpochCount,
         payment_coin: Option<Argument>,
     ) -> SuiClientResult<u16> {
         let system_object_arg = self.read_client.call_arg_from_system_obj(true).await?;
@@ -389,7 +389,7 @@ impl ContractClient for SuiContractClient {
     async fn reserve_space(
         &self,
         encoded_size: u64,
-        epochs_ahead: Epoch,
+        epochs_ahead: EpochCount,
     ) -> SuiClientResult<StorageResource> {
         tracing::debug!(encoded_size, "starting to reserve storage for blob");
         let mut pt_builder = ProgrammableTransactionBuilder::new();
@@ -460,7 +460,7 @@ impl ContractClient for SuiContractClient {
 
     async fn reserve_and_register_blob<const V: bool>(
         &self,
-        epochs_ahead: Epoch,
+        epochs_ahead: EpochCount,
         blob_metadata: &BlobMetadataWithId<V>,
         deletable: bool,
     ) -> SuiClientResult<Blob> {

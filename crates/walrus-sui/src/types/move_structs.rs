@@ -45,6 +45,7 @@ pub struct Blob {
     /// The epoch in which the blob has been registered.
     pub registered_epoch: Epoch,
     /// The blob ID.
+    // TODO(#795): Consider serialize as human readable string.
     #[serde(serialize_with = "serialize_blob_id")]
     pub blob_id: BlobId,
     /// The (unencoded) size of the blob.
@@ -83,10 +84,10 @@ pub struct StorageNode {
     #[serde_as(as = "DisplayFromStr")]
     pub network_address: NetworkAddress,
     /// The public key of the storage node.
-    #[serde(deserialize_with = "deserialize_bls_key")]
+    #[serde(deserialize_with = "deserialize_public_key")]
     pub public_key: PublicKey,
     /// The network key of the storage node.
-    #[serde(deserialize_with = "deserialize_network_key")]
+    #[serde(deserialize_with = "deserialize_public_key")]
     pub network_public_key: NetworkPublicKey,
     /// The indices of the shards held by the storage node.
     #[serde(default, skip_deserializing)]
@@ -98,21 +99,13 @@ impl AssociatedContractStruct for StorageNode {
 }
 
 #[instrument(err, skip_all)]
-fn deserialize_bls_key<'de, D>(deserializer: D) -> Result<PublicKey, D::Error>
+fn deserialize_public_key<'de, D, K>(deserializer: D) -> Result<K, D::Error>
 where
     D: Deserializer<'de>,
+    K: ToFromBytes,
 {
     let key: Vec<u8> = Deserialize::deserialize(deserializer)?;
-    PublicKey::from_bytes(&key).map_err(D::Error::custom)
-}
-
-#[instrument(err, skip_all)]
-fn deserialize_network_key<'de, D>(deserializer: D) -> Result<NetworkPublicKey, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let key: Vec<u8> = Deserialize::deserialize(deserializer)?;
-    NetworkPublicKey::from_bytes(&key).map_err(D::Error::custom)
+    K::from_bytes(&key).map_err(D::Error::custom)
 }
 
 /// Sui type for the capability that authorizes the holder to perform certain actions.
@@ -228,8 +221,8 @@ pub struct FutureAccounting {
 /// A ring buffer holding future accounts for a continuous range of epochs.
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 pub struct FutureAccountingRingBuffer {
-    current_index: Epoch,
-    length: Epoch,
+    current_index: u32,
+    length: u32,
     ring_buffer: Vec<FutureAccounting>,
 }
 
@@ -257,12 +250,12 @@ pub struct StakingObject {
 
 /// Sui type for outer staking object. Used for deserialization.
 #[derive(Debug, Deserialize)]
-pub(crate) struct StakingObjectOuter {
+pub(crate) struct StakingObjectForDeserialization {
     pub(crate) id: ObjectID,
     pub(crate) version: u64,
 }
 
-impl AssociatedContractStruct for StakingObjectOuter {
+impl AssociatedContractStruct for StakingObjectForDeserialization {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::staking::Staking;
 }
 
@@ -305,7 +298,8 @@ pub(crate) enum EpochState {
     EpochChangeDone(u64),
     // The parameters for the next epoch have been selected.
     // The contained timestamp is the start of the current epoch.
-    NextParamsSelected(u64),
+    #[serde(deserialize_with = "chrono::serde::ts_milliseconds::deserialize")]
+    NextParamsSelected(chrono::DateTime<chrono::Utc>),
 }
 
 type CommitteeShardAssignment = Vec<(ObjectID, Vec<u16>)>;
@@ -313,7 +307,6 @@ type CommitteeShardAssignment = Vec<(ObjectID, Vec<u16>)>;
 /// Sui type for inner staking object
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 pub(crate) struct StakingInnerV1 {
-    // TODO
     /// The object ID
     pub(crate) id: ObjectID,
     /// The number of shards in the system.
@@ -349,7 +342,7 @@ impl AssociatedContractStruct for StakingInnerV1 {
 
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 pub(crate) struct BlsCommitteeMember {
-    #[serde(deserialize_with = "deserialize_bls_key")]
+    #[serde(deserialize_with = "deserialize_public_key")]
     public_key: PublicKey,
     weight: u16,
     node_id: ObjectID,
@@ -379,11 +372,11 @@ pub struct SystemObject {
 
 /// Sui type for outer system object. Used for deserialization.
 #[derive(Debug, Deserialize)]
-pub(crate) struct SystemObjectOuter {
+pub(crate) struct SystemObjectForDeserialization {
     pub(crate) id: ObjectID,
     pub(crate) version: u64,
 }
-impl AssociatedContractStruct for SystemObjectOuter {
+impl AssociatedContractStruct for SystemObjectForDeserialization {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::system::System;
 }
 

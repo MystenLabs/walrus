@@ -104,9 +104,9 @@ pub struct NodeRegistrationParams {
 /// Error returned when trying to create a committee with no shards.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum InvalidCommittee {
-    #[error("unexpected total number of shards in committee members")]
     /// Error resulting if the committee does not contain the specified number of shards,
     /// except for an empty committee in epoch zero.
+    #[error("unexpected total number of shards in committee members")]
     IncorrectNumberOfShards,
     /// Error resulting if one of the nodes has no shards.
     #[error("trying to create a committee with an empty node")]
@@ -127,8 +127,6 @@ pub struct Committee {
 
 impl Committee {
     /// Create a new committee for `epoch` consisting of `members`.
-    ///
-    /// `members` must contain at least one storage node holding at least one shard.
     pub fn new(
         members: Vec<StorageNode>,
         epoch: Epoch,

@@ -65,6 +65,8 @@ pub type Certificate = Vec<(PublicKey, Signature)>;
 pub type DefaultHashFunction = Blake2b256;
 /// The epoch number.
 pub type Epoch = u32;
+/// The number of epochs.
+pub type EpochCount = u32;
 
 /// Walrus epoch.
 // Schema definition for the type alias used in OpenAPI schemas.
