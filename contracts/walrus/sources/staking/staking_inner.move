@@ -14,7 +14,10 @@
 #[allow(unused_variable, unused_use, unused_mut_parameter)]
 module walrus::staking_inner;
 
-use std::string::String;
+use std::{
+    fixed_point32::FixedPoint32,
+    string::String,
+};
 use sui::{
     balance::{Self, Balance},
     clock::Clock,
@@ -350,33 +353,78 @@ public(package) fun select_committee(self: &mut StakingInnerV1) {
     assert!(self.next_committee.is_none());
 
     let shard_threshold = self.active_set.total_stake() / (self.n_shards as u64);
-    let mut shards_assigned: u16 = 0;
 
-    let mut distribution = vec_map::from_keys_values(
-        self.active_set.active_ids(),
-        self.active_set.active_ids().map_ref!(|node_id| {
-            let value = (self.active_set[node_id] / shard_threshold) as u16;
-            shards_assigned = shards_assigned + value;
-            value
-        }),
-    );
-
-    // Just distribute remaining shards to first node.
-    // TODO: change to correct apportionment algorithm.
-    if (shards_assigned < self.n_shards) {
-        let (_first_node, shards) = distribution.get_entry_by_idx_mut(0);
-        *shards = *shards + (self.n_shards - shards_assigned);
-    };
+    let active_ids = self.active_set.active_ids();
+    let values = self.dhondt();
+    let distribution = vec_map::from_keys_values(active_ids, values);
 
     // if we're dealing with the first epoch, we need to assign the shards to the
     // nodes in a sequential manner. Assuming there's at least 1 node in the set.
-    let committee = if (self.committee.size() == 0) {
-        committee::initialize(distribution)
-    } else {
-        self.committee.transition(distribution)
-    };
+    let committee =
+        if (self.committee.size() == 0) committee::initialize(distribution)
+        else self.committee.transition(distribution);
 
     self.next_committee = option::some(committee);
+}
+
+fun dhondt(self: &StakingInnerV1): vector<u16> {
+    use std::fixed_point32::{
+        divide_u64 as fp_divide_u64,
+        create_from_rational as rational,
+        create_from_raw_value as raw,
+        get_raw_value as into_raw,
+    };
+
+    let total_stake = self.active_set.total_stake();
+    let count_nodes = self.active_set.size();
+    let n_shards = self.n_shards as u64;
+    let active_ids = self.active_set.active_ids();
+    let stake = active_ids.map_ref!(|node_id| self.active_set[node_id]);
+
+    // initial price guess following Pukelsheim
+    // total_stake / ((n_shards + count_nodes) / 2)
+    let mut price = rational(2 * total_stake, n_shards + (count_nodes as u64));
+
+    loop {
+        let shards = stake.map_ref!(|s| fp_divide_u64(*s, price));
+        let n_shards_distributed = shards.fold!(0, |acc, x| acc + x);
+
+        // if all shards are distributed, we are done
+        if (n_shards_distributed == n_shards) break shards.map!(|s| s as u16);
+
+        price = if (n_shards_distributed < n_shards) {
+            // decrease the price such that one node gets an additional shard
+            // TODO: deal with equal values
+            stake
+                .zip_map_ref!(&shards, |s, m| rational(*s, *m as u64 + 1))
+                .fold!(raw(0), |acc, x| acc.max(x))
+        } else {
+            // increase the price such that one node loses one shard
+            // TODO: deal with equal values
+            let max = stake
+                .zip_map_ref!(&shards, |s, m| rational(*s, *m as u64))
+                .fold!(raw(0), |acc, x| acc.min(x));
+            raw(max.into_raw() + rational(1, 10000000000).into_raw())
+        }
+    }
+}
+
+use fun fp_max as FixedPoint32.max;
+fun fp_max(a: FixedPoint32, b: FixedPoint32): FixedPoint32 {
+    use std::fixed_point32::{
+        create_from_raw_value as raw,
+        get_raw_value as into_raw,
+    };
+    if (a.into_raw() > b.into_raw()) a else b
+}
+
+use fun fp_min as FixedPoint32.min;
+fun fp_min(a: FixedPoint32, b: FixedPoint32): FixedPoint32 {
+    use std::fixed_point32::{
+        create_from_raw_value as raw,
+        get_raw_value as into_raw,
+    };
+    if (a.into_raw() < b.into_raw()) a else b
 }
 
 /// Initiates the epoch change if the current time allows.
