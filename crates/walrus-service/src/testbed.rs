@@ -401,7 +401,8 @@ pub async fn create_storage_node_configs(
         let sui = Some(SuiConfig {
             rpc: rpc.clone(),
             system_object: testbed_config.system_object,
-            staking_object: testbed_config.system_object,
+            staking_object: testbed_config.staking_object,
+            storage_node_capability_object: None,
             event_polling_interval: defaults::polling_interval(),
             wallet_config: wallet_path,
             gas_budget: defaults::gas_budget(),

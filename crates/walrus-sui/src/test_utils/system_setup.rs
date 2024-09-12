@@ -75,10 +75,11 @@ pub async fn publish_with_default_system(
     };
 
     // Initialize client
-    let contract_client = SuiContractClient::new(
+    let mut contract_client = SuiContractClient::new(
         node_wallet,
         system_context.system_obj_id,
         system_context.staking_obj_id,
+        None,
         DEFAULT_GAS_BUDGET,
     )
     .await?;
@@ -87,7 +88,7 @@ pub async fn publish_with_default_system(
         admin_wallet,
         &system_context,
         &[storage_node_params],
-        &[&contract_client],
+        &mut [&mut contract_client],
         &[1_000_000_000],
     )
     .await?;
@@ -150,9 +151,9 @@ pub async fn register_committee_and_stake(
     admin_wallet: &mut WalletContext,
     system_context: &SystemContext,
     node_params: &[NodeRegistrationParams],
-    contract_clients: &[&SuiContractClient],
+    contract_clients: &mut [&mut SuiContractClient],
     amounts_to_stake: &[u64],
-) -> Result<()> {
+) -> Result<Vec<ObjectID>> {
     let receiver_addrs: Vec<_> = contract_clients
         .iter()
         .map(|client| client.address())
@@ -172,6 +173,7 @@ pub async fn register_committee_and_stake(
 
     // Initialize client
 
+    let mut capability_objects = Vec::new();
     for ((storage_node_params, contract_client), amount_to_stake) in node_params
         .iter()
         .zip(contract_clients)
@@ -181,12 +183,16 @@ pub async fn register_committee_and_stake(
             .register_candidate(storage_node_params)
             .await?;
 
+        capability_objects.push(node_cap.id);
+
+        contract_client.read_client.storage_node_cap_id = Some(node_cap.id);
+
         // stake with storage nodes
         let _staked_wal = contract_client
             .stake_with_pool(*amount_to_stake, node_cap.node_id)
             .await?;
     }
-    Ok(())
+    Ok(capability_objects)
 }
 
 /// Calls `voting_end`, immediately followed by `initiate_epoch_change`

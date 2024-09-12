@@ -6,6 +6,7 @@
 use std::{future::Future, num::NonZeroU16, path::PathBuf, sync::Arc};
 
 use anyhow::{anyhow, bail, Context};
+use arc_swap::ArcSwap;
 use fastcrypto::traits::KeyPair;
 use futures::{StreamExt, TryFutureExt};
 use futures_util::stream;
@@ -47,7 +48,7 @@ use walrus_event::event_processor::EventProcessor;
 use walrus_sdk::api::{BlobStatus, ServiceHealthInfo, StoredOnNodeStatus};
 use walrus_sui::{
     client::SuiReadClient,
-    types::{BlobCertified, BlobEvent, InvalidBlobId},
+    types::{BlobCertified, BlobEvent, EpochChangeEvent, EpochChangeStart, InvalidBlobId},
 };
 
 use self::{
@@ -356,8 +357,8 @@ pub struct StorageNodeInner {
     encoding_config: Arc<EncodingConfig>,
     event_manager: Box<dyn EventManager>,
     contract_service: Arc<dyn SystemContractService>,
-    committee_service: Arc<dyn CommitteeService>,
-    _committee_service_factory: Box<dyn CommitteeServiceFactory>,
+    committee_service: Arc<ArcSwap<Box<dyn CommitteeService>>>,
+    committee_service_factory: Box<dyn CommitteeServiceFactory>,
     start_time: Instant,
     db_root_dir_path: PathBuf,
     metrics: NodeMetricSet,
@@ -380,7 +381,7 @@ impl StorageNode {
             .context("unable to construct a committee service for the storage node")?;
 
         let db_config = config.db_config.clone().unwrap_or_default();
-        let mut storage = if let Some(storage) = pre_created_storage {
+        let storage = if let Some(storage) = pre_created_storage {
             storage
         } else {
             Storage::open(
@@ -392,26 +393,14 @@ impl StorageNode {
 
         let encoding_config = Arc::new(EncodingConfig::new(committee_service.get_shard_count()));
 
-        let committee = committee_service.committee();
-        let managed_shards = committee.shards_for_node_public_key(key_pair.as_ref().public());
-        if managed_shards.is_empty() {
-            tracing::info!(epoch = committee.epoch, "node does not manage any shards");
-        }
-
-        for shard in managed_shards {
-            storage
-                .create_storage_for_shard(*shard)
-                .with_context(|| format!("unable to initialize storage for shard {}", shard))?;
-        }
-
         let inner = Arc::new(StorageNodeInner {
             protocol_key_pair: key_pair,
             storage,
             event_manager,
             encoding_config,
             contract_service: contract_service.into(),
-            committee_service: committee_service.into(),
-            _committee_service_factory: committee_service_factory,
+            committee_service: Arc::new(ArcSwap::new(Arc::new(committee_service))),
+            committee_service_factory,
             metrics: NodeMetricSet::new(registry),
             start_time,
             db_root_dir_path: config.storage_path.clone(),
@@ -456,7 +445,7 @@ impl StorageNode {
     }
 
     /// Returns the shards currently owned by the storage node.
-    pub fn shards(&self) -> impl ExactSizeIterator<Item = ShardIndex> + '_ {
+    pub fn shards(&self) -> Vec<ShardIndex> {
         self.inner.storage.shards()
     }
 
@@ -498,7 +487,7 @@ impl StorageNode {
                     .event_process_duration_seconds
                     .with_label_values(&[stream_element.element.label()])
                     .start_timer();
-                if let Some(blob_event) = stream_element.element.event() {
+                if let Some(blob_event) = stream_element.element.blob_event() {
                     storage.update_blob_info(blob_event)?;
                 }
                 match stream_element.element {
@@ -510,9 +499,31 @@ impl StorageNode {
                         self.process_blob_invalid_event(element_index, event)
                             .await?;
                     }
-                    EventStreamElement::BlobEvent(event @ BlobEvent::Registered(_)) => {
+                    EventStreamElement::BlobEvent(BlobEvent::Registered(event)) => {
                         self.inner
-                            .mark_event_completed(element_index, &event.event_id())?;
+                            .mark_event_completed(element_index, &event.event_id)?;
+                    }
+                    EventStreamElement::EpochChangeEvent(
+                        EpochChangeEvent::EpochParametersSelected(event),
+                    ) => {
+                        tracing::info!("EpochParametersSelected event received: {:?}", event,);
+                        self.inner
+                            .mark_event_completed(element_index, &event.event_id)?;
+                    }
+                    EventStreamElement::EpochChangeEvent(EpochChangeEvent::EpochChangeStart(
+                        event,
+                    )) => {
+                        tracing::info!("EpochChangeStart event received: {:?}", event);
+                        self.process_epoch_change_start_event(event.clone()).await?;
+                        self.inner
+                            .mark_event_completed(element_index, &event.event_id)?;
+                    }
+                    EventStreamElement::EpochChangeEvent(EpochChangeEvent::EpochChangeDone(
+                        event,
+                    )) => {
+                        tracing::info!("EpochChangeDone event received: {:?}", event);
+                        self.inner
+                            .mark_event_completed(element_index, &event.event_id)?;
                     }
                     EventStreamElement::CheckpointBoundary => {
                         self.inner.mark_element_at_index(element_index)?;
@@ -614,11 +625,57 @@ impl StorageNode {
             .mark_event_completed(event_index, &event.event_id)?;
         Ok(())
     }
+
+    async fn process_epoch_change_start_event(
+        &self,
+        event: EpochChangeStart,
+    ) -> anyhow::Result<()> {
+        let committee_service = self
+            .inner
+            .committee_service_factory
+            .new_for_epoch(Some(self.inner.protocol_key_pair.as_ref().public()))
+            .await
+            .context("unable to construct a committee service for the storage node")?;
+
+        if event.epoch != committee_service.get_epoch() {
+            tracing::warn!(
+                "EpochChangeStart event epoch {:?} does not match the current epoch {:?}",
+                event.epoch,
+                committee_service.get_epoch()
+            );
+        }
+
+        let committee = committee_service.committee();
+        let shards_in_new_epoch = committee.shards_for_node_public_key(self.inner.public_key());
+        let previous_committee = committee_service.previous_committee();
+        for shard in shards_in_new_epoch {
+            let last_epoch_shard_owner = previous_committee.member_public_key_for_shard(shard);
+            if last_epoch_shard_owner.is_none() {
+                // The shard did not exist in the previous epoch.
+                self.inner
+                    .storage
+                    .create_storage_for_shard(*shard)
+                    .with_context(|| format!("unable to initialize storage for shard {}", shard))?;
+            } else if last_epoch_shard_owner != Some(self.inner.public_key()) {
+                // The shard was not owned by this node in the previous epoch.
+                // Initiate move shard!
+                todo!();
+            }
+        }
+
+        self.inner
+            .committee_service
+            .store(Arc::new(committee_service));
+
+        self.inner.contract_service.epoch_sync_done().await;
+
+        Ok(())
+    }
 }
 
 impl StorageNodeInner {
     fn current_epoch(&self) -> Epoch {
-        self.committee_service.get_epoch()
+        self.committee_service.load_full().get_epoch()
     }
 
     fn check_index(&self, index: SliverPairIndex) -> Result<(), IndexOutOfRange> {
@@ -636,7 +693,7 @@ impl StorageNodeInner {
         &self,
         sliver_pair_index: SliverPairIndex,
         blob_id: &BlobId,
-    ) -> Result<&Arc<ShardStorage>, ShardNotAssigned> {
+    ) -> Result<Arc<ShardStorage>, ShardNotAssigned> {
         let shard_index =
             sliver_pair_index.to_shard_index(self.encoding_config.n_shards(), blob_id);
         self.storage
@@ -1005,7 +1062,11 @@ impl ServiceState for StorageNodeInner {
         public_key: PublicKey,
         signed_request: SignedSyncShardRequest,
     ) -> Result<SyncShardResponse, SyncShardServiceError> {
-        if !self.committee_service.is_walrus_storage_node(&public_key) {
+        if !self
+            .committee_service
+            .load_full()
+            .is_walrus_storage_node(&public_key)
+        {
             return Err(SyncShardServiceError::Unauthorized);
         }
 
@@ -1016,16 +1077,17 @@ impl ServiceState for StorageNodeInner {
 
         // If the epoch of the requester should not be older than the current epoch of the node.
         // In a normal scenario, a storage node will never fetch shards from a future epoch.
-        if request.epoch() != self.current_epoch() {
+        let current_epoch = self.current_epoch();
+        if request.epoch() != current_epoch {
             return Err(InvalidEpochError {
                 request_epoch: request.epoch(),
-                server_epoch: self.current_epoch(),
+                server_epoch: current_epoch,
             }
             .into());
         }
 
         self.storage
-            .handle_sync_shard_request(request, self.current_epoch())
+            .handle_sync_shard_request(request, current_epoch)
     }
 }
 
@@ -1163,14 +1225,22 @@ mod tests {
             .with_node_started(true)
             .build()
             .await?;
-        let n_shards = node.as_ref().inner.committee_service.get_shard_count();
+        let n_shards = node
+            .as_ref()
+            .inner
+            .committee_service
+            .load_full()
+            .get_shard_count();
         let sliver_pair_index = shard_for_node.to_pair_index(n_shards, &BLOB_ID);
 
         let result =
             node.as_ref()
                 .retrieve_sliver(&BLOB_ID, sliver_pair_index, SliverType::Primary);
 
-        assert!(matches!(result, Err(RetrieveSliverError::Unavailable)));
+        assert!(matches!(
+            result,
+            Err(RetrieveSliverError::ShardNotAssigned(_))
+        ));
 
         Ok(())
     }
@@ -2099,6 +2169,7 @@ mod tests {
             .storage_node
             .inner
             .committee_service
+            .load_full()
             .committee();
 
         // Requests a shard from epoch 0.
@@ -2377,8 +2448,8 @@ mod tests {
             ._shard_sync_handler
             .start_new_shard_sync(ShardIndex(0))
             .await?;
-        wait_for_shard_in_active_state(shard_storage_dst).await?;
-        check_all_blobs_are_synced(&blob_details, shard_storage_dst)?;
+        wait_for_shard_in_active_state(shard_storage_dst.as_ref()).await?;
+        check_all_blobs_are_synced(&blob_details, shard_storage_dst.as_ref())?;
 
         Ok(())
     }
@@ -2424,8 +2495,8 @@ mod tests {
             ._shard_sync_handler
             .start_new_shard_sync(ShardIndex(0))
             .await?;
-        wait_for_shard_in_active_state(shard_storage_dst).await?;
-        check_all_blobs_are_synced(&blob_details, shard_storage_dst)?;
+        wait_for_shard_in_active_state(shard_storage_dst.as_ref()).await?;
+        check_all_blobs_are_synced(&blob_details, shard_storage_dst.as_ref())?;
 
         Ok(())
     }
@@ -2658,8 +2729,8 @@ mod tests {
                 .restart_syncs()
                 .await?;
 
-            wait_for_shard_in_active_state(shard_storage_dst).await?;
-            check_all_blobs_are_synced(&blob_details, shard_storage_dst)?;
+            wait_for_shard_in_active_state(&shard_storage_dst).await?;
+            check_all_blobs_are_synced(&blob_details, &shard_storage_dst)?;
 
             Ok(())
         }

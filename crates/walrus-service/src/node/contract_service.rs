@@ -27,6 +27,9 @@ const MAX_BACKOFF: Duration = Duration::from_secs(3600);
 pub trait SystemContractService: std::fmt::Debug + Sync + Send {
     /// Submits a certificate that a blob is invalid to the contract.
     async fn invalidate_blob_id(&self, certificate: &InvalidBlobCertificate);
+
+    /// Submits a notification to the contract that this storage node epoch sync is done.
+    async fn epoch_sync_done(&self);
 }
 
 /// A [`SystemContractService`] that uses a [`ContractClient`] for chain interactions.
@@ -70,6 +73,7 @@ impl SuiSystemContractService<SuiContractClient> {
             wallet,
             config.system_object,
             config.staking_object,
+            config.storage_node_capability_object,
             config.gas_budget,
         )
         .await?;
@@ -94,6 +98,30 @@ where
                 .lock()
                 .await
                 .invalidate_blob_id(certificate)
+                .await
+                .inspect_err(|error| {
+                    tracing::error!(
+                        ?error,
+                        "submitting invalidity certificate to contract failed"
+                    )
+                })
+                .ok()
+        })
+        .await;
+    }
+
+    async fn epoch_sync_done(&self) {
+        let backoff = ExponentialBackoff::new_with_seed(
+            MIN_BACKOFF,
+            MAX_BACKOFF,
+            None,
+            self.rng.lock().unwrap().gen(),
+        );
+        utils::retry(backoff, || async {
+            self.contract_client
+                .lock()
+                .await
+                .epoch_sync_done()
                 .await
                 .inspect_err(|error| {
                     tracing::error!(

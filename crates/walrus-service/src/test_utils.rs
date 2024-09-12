@@ -47,6 +47,7 @@ use walrus_sdk::client::Client;
 use walrus_sui::types::{
     BlobEvent,
     Committee,
+    ContractEvent,
     NetworkAddress,
     NodeRegistrationParams,
     StorageNode as SuiStorageNode,
@@ -492,6 +493,7 @@ impl CommitteeServiceFactory for StubCommitteeServiceFactory<NodeCommitteeServic
     ) -> Result<Box<dyn CommitteeService>, anyhow::Error> {
         Ok(Box::new(NodeCommitteeService::new(
             self.committee.clone(),
+            self.committee.clone(),
             local_identity,
             Default::default(),
         )?))
@@ -565,6 +567,10 @@ impl CommitteeService for StubCommitteeService {
         &self.0
     }
 
+    fn previous_committee(&self) -> &Committee {
+        &self.0
+    }
+
     fn is_walrus_storage_node(&self, public_key: &PublicKey) -> bool {
         self.0
             .members()
@@ -582,6 +588,7 @@ pub struct StubContractService {}
 #[async_trait]
 impl SystemContractService for StubContractService {
     async fn invalidate_blob_id(&self, _certificate: &InvalidBlobCertificate) {}
+    async fn epoch_sync_done(&self) {}
 }
 
 /// Returns a socket address that is not currently in use on the system.
@@ -607,11 +614,12 @@ impl SystemEventProvider for Vec<BlobEvent> {
     ) -> Result<Box<dyn Stream<Item = IndexedStreamElement> + Send + Sync + 'life0>, anyhow::Error>
     {
         Ok(Box::new(
-            tokio_stream::iter(
-                self.clone()
-                    .into_iter()
-                    .map(|c| IndexedStreamElement::new(c, EventSequenceNumber::new(0, 0))),
-            )
+            tokio_stream::iter(self.clone().into_iter().map(|c| {
+                IndexedStreamElement::new(
+                    ContractEvent::BlobEvent(c),
+                    EventSequenceNumber::new(0, 0),
+                )
+            }))
             .chain(tokio_stream::pending()),
         ))
     }
@@ -627,7 +635,7 @@ impl SystemEventProvider for tokio::sync::broadcast::Sender<BlobEvent> {
         Ok(Box::new(BroadcastStream::new(self.subscribe()).map(
             |value| {
                 IndexedStreamElement::new(
-                    value.expect("should not return errors in test"),
+                    ContractEvent::BlobEvent(value.expect("should not return errors in test")),
                     EventSequenceNumber::new(0, 0),
                 )
             },
@@ -783,14 +791,14 @@ impl TestClusterBuilder {
     /// Sets the [`SystemContractService`] used for each storage node.
     ///
     /// Should be called after the storage nodes have been specified.
-    pub fn with_system_contract_services<T>(mut self, contract_service: T) -> Self
+    pub fn with_system_contract_services<T>(mut self, contract_services: &[T]) -> Self
     where
         T: SystemContractService + Clone + 'static,
     {
-        self.contract_services = self
-            .storage_node_configs
+        assert_eq!(contract_services.len(), self.storage_node_configs.len());
+        self.contract_services = contract_services
             .iter()
-            .map(|_| Some(Box::new(contract_service.clone()) as _))
+            .map(|service| Some(Box::new(service.clone()) as _))
             .collect();
         self
     }
@@ -968,6 +976,10 @@ where
     async fn invalidate_blob_id(&self, certificate: &InvalidBlobCertificate) {
         self.as_ref().inner.invalidate_blob_id(certificate).await
     }
+
+    async fn epoch_sync_done(&self) {
+        self.as_ref().inner.epoch_sync_done().await
+    }
 }
 
 /// Returns a test-committee with members with the specified number of shards each.
@@ -1067,15 +1079,16 @@ pub mod test_cluster {
                         wallet,
                         system_ctx.system_obj_id,
                         system_ctx.staking_obj_id,
+                        None,
                         DEFAULT_GAS_BUDGET,
                     )
                 })
                 .await?;
             contract_clients.push(client);
         }
-        let contract_clients_refs = contract_clients
-            .iter()
-            .map(|client| &client.inner)
+        let mut contract_clients_refs = contract_clients
+            .iter_mut()
+            .map(|client| &mut client.inner)
             .collect::<Vec<_>>();
 
         let amounts_to_stake = node_weights
@@ -1086,18 +1099,25 @@ pub mod test_cluster {
             &mut wallet.inner,
             &system_ctx,
             &members,
-            &contract_clients_refs,
+            &mut contract_clients_refs,
             &amounts_to_stake,
         )
         .await?;
 
         end_epoch_zero(contract_clients_refs.first().unwrap()).await?;
 
+        let node_contract_services = contract_clients
+            .into_iter()
+            .map(|client| client.inner)
+            .map(SuiSystemContractService::new)
+            .collect::<Vec<_>>();
+
         // Build the walrus cluster
         let sui_read_client = SuiReadClient::new(
             wallet.as_ref().get_client().await?,
             system_ctx.system_obj_id,
             system_ctx.staking_obj_id,
+            None,
         )
         .await?;
 
@@ -1106,16 +1126,6 @@ pub mod test_cluster {
         // TODO(#786): change cluster builder to take a list of `SuiSystemContractService`s and
         // provide the contract clients used for staking to make sure that each node has the
         // corresponding `StorageNodeCap`.
-        let sui_contract_service = test_utils::new_wallet_on_sui_test_cluster(sui_cluster.clone())
-            .await?
-            .and_then(|wallet| {
-                SuiContractClient::new_with_read_client(
-                    wallet,
-                    DEFAULT_GAS_BUDGET,
-                    sui_read_client.clone(),
-                )
-            })?
-            .map(SuiSystemContractService::new);
 
         // Set up the cluster
         let cluster_builder = cluster_builder
@@ -1127,7 +1137,7 @@ pub mod test_cluster {
                 sui_read_client.clone(),
                 Duration::from_millis(100),
             ))
-            .with_system_contract_services(Arc::new(sui_contract_service));
+            .with_system_contract_services(&node_contract_services);
 
         let cluster = {
             // Lock to avoid race conditions.
@@ -1185,7 +1195,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
 pub fn empty_storage_with_shards(shards: &[ShardIndex]) -> WithTempDir<Storage> {
     let temp_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
     let db_config = DatabaseConfig::default();
-    let mut storage = Storage::open(temp_dir.path(), db_config, MetricConf::default())
+    let storage = Storage::open(temp_dir.path(), db_config, MetricConf::default())
         .expect("storage creation must succeed");
 
     for shard in shards {

@@ -7,6 +7,7 @@ use std::{
     collections::BTreeSet,
     fmt::{self, Debug},
     future::Future,
+    num::NonZeroU16,
     time::Duration,
 };
 
@@ -33,12 +34,14 @@ use super::{SuiClientError, SuiClientResult};
 use crate::{
     types::{
         move_structs::{
+            CommitteeShardAssignment,
             StakingObjectForDeserialization,
             StakingPool,
             SystemObjectForDeserialization,
         },
         BlobEvent,
         Committee,
+        ContractEvent,
         StakingObject,
         StorageNode,
         SystemObject,
@@ -69,11 +72,11 @@ pub trait ReadClient: Send + Sync {
     /// after the event with the provided [`EventID`]. Otherwise the event stream contains all
     /// events available from the connected full node. Since the full node may prune old
     /// events, the stream is not guaranteed to contain historic events.
-    fn blob_events(
+    fn event_stream(
         &self,
         polling_interval: Duration,
         cursor: Option<EventID>,
-    ) -> impl Future<Output = SuiClientResult<impl Stream<Item = BlobEvent> + Send>> + Send;
+    ) -> impl Future<Output = SuiClientResult<impl Stream<Item = ContractEvent> + Send>> + Send;
 
     /// Returns the blob event with the given Event ID.
     fn get_blob_event(
@@ -83,6 +86,17 @@ pub trait ReadClient: Send + Sync {
 
     /// Returns the current committee.
     fn current_committee(&self) -> impl Future<Output = SuiClientResult<Committee>> + Send;
+
+    /// Returns the current and previous committee.
+    fn current_and_previous_committee(
+        &self,
+    ) -> impl Future<Output = SuiClientResult<(Committee, Committee)>> + Send;
+
+    /// Returns the storage nodes and the number of shards in the committee.
+    fn get_committee_shard_assignment(
+        &self,
+        shard_assignment: &CommitteeShardAssignment,
+    ) -> impl Future<Output = SuiClientResult<(Vec<StorageNode>, u16)>> + Send;
 }
 
 /// Client implementation for interacting with the Walrus smart contracts.
@@ -92,6 +106,7 @@ pub struct SuiReadClient {
     pub(crate) sui_client: SuiClient,
     pub(crate) system_object_id: ObjectID,
     pub(crate) staking_object_id: ObjectID,
+    pub(crate) storage_node_cap_id: Option<ObjectID>,
     sys_obj_initial_version: OnceCell<SequenceNumber>,
     staking_obj_initial_version: OnceCell<SequenceNumber>,
 }
@@ -105,6 +120,7 @@ impl SuiReadClient {
         sui_client: SuiClient,
         system_object_id: ObjectID,
         staking_object_id: ObjectID,
+        storage_node_cap_id: Option<ObjectID>,
     ) -> SuiClientResult<Self> {
         let system_pkg_id = get_system_package_id(&sui_client, system_object_id).await?;
         Ok(Self {
@@ -112,6 +128,7 @@ impl SuiReadClient {
             sui_client,
             system_object_id,
             staking_object_id,
+            storage_node_cap_id,
             sys_obj_initial_version: OnceCell::new(),
             staking_obj_initial_version: OnceCell::new(),
         })
@@ -125,7 +142,7 @@ impl SuiReadClient {
         staking_object: ObjectID,
     ) -> SuiClientResult<Self> {
         let client = SuiClientBuilder::default().build(rpc_address).await?;
-        Self::new(client, system_object, staking_object).await
+        Self::new(client, system_object, staking_object, None).await
     }
 
     pub(crate) async fn call_arg_from_system_obj(&self, mutable: bool) -> SuiClientResult<CallArg> {
@@ -320,12 +337,12 @@ impl ReadClient for SuiReadClient {
             .write_price_per_unit_size)
     }
 
-    async fn blob_events(
+    async fn event_stream(
         &self,
         polling_interval: Duration,
         cursor: Option<EventID>,
-    ) -> SuiClientResult<impl Stream<Item = BlobEvent>> {
-        let (tx_event, rx_event) = mpsc::channel::<BlobEvent>(EVENT_CHANNEL_CAPACITY);
+    ) -> SuiClientResult<impl Stream<Item = ContractEvent>> {
+        let (tx_event, rx_event) = mpsc::channel::<ContractEvent>(EVENT_CHANNEL_CAPACITY);
 
         let event_api = self.sui_client.event_api().clone();
 
@@ -352,7 +369,44 @@ impl ReadClient for SuiReadClient {
 
     async fn current_committee(&self) -> SuiClientResult<Committee> {
         let staking_object = self.get_staking_object().await?;
-        let shard_assignment = staking_object.inner.committee;
+        Committee::new(
+            self.get_committee_shard_assignment(&staking_object.inner.committee)
+                .await?
+                .0,
+            staking_object.inner.epoch,
+            staking_object.inner.n_shards,
+        )
+        .map_err(|err| SuiClientError::Internal(err.into()))
+    }
+
+    async fn current_and_previous_committee(&self) -> SuiClientResult<(Committee, Committee)> {
+        let staking_object = self.get_staking_object().await?;
+        let current_committee = Committee::new(
+            self.get_committee_shard_assignment(&staking_object.inner.committee)
+                .await?
+                .0,
+            staking_object.inner.epoch,
+            staking_object.inner.n_shards,
+        )
+        .map_err(|err| SuiClientError::Internal(err.into()))?;
+
+        let (previous_committee_member, previous_n_shard) = self
+            .get_committee_shard_assignment(&staking_object.inner.previous_committee)
+            .await?;
+        let previous_committee = Committee::new(
+            previous_committee_member,
+            staking_object.inner.epoch - 1,
+            NonZeroU16::new(previous_n_shard).unwrap_or(NonZeroU16::new(1).unwrap()),
+        )
+        .map_err(|err| SuiClientError::Internal(err.into()))?;
+
+        Ok((current_committee, previous_committee))
+    }
+
+    async fn get_committee_shard_assignment(
+        &self,
+        shard_assignment: &CommitteeShardAssignment,
+    ) -> SuiClientResult<(Vec<StorageNode>, u16)> {
         let mut node_object_responses = vec![];
         for obj_id_batch in shard_assignment.chunks(MULTI_GET_OBJ_LIMIT) {
             node_object_responses.extend(
@@ -383,12 +437,10 @@ impl ReadClient for SuiReadClient {
                 Ok::<StorageNode, anyhow::Error>(storage_node)
             })
             .collect::<Result<Vec<_>>>()?;
-        Committee::new(
-            nodes,
-            staking_object.inner.epoch,
-            staking_object.inner.n_shards,
-        )
-        .map_err(|err| SuiClientError::Internal(err.into()))
+
+        let n_shards = nodes.iter().map(|node| node.shard_ids.len() as u16).sum();
+
+        Ok((nodes, n_shards))
     }
 }
 

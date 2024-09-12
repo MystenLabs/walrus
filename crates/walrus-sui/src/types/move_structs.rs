@@ -302,7 +302,8 @@ pub(crate) enum EpochState {
     NextParamsSelected(chrono::DateTime<chrono::Utc>),
 }
 
-type CommitteeShardAssignment = Vec<(ObjectID, Vec<u16>)>;
+/// The committee shard assignment.
+pub type CommitteeShardAssignment = Vec<(ObjectID, Vec<u16>)>;
 
 /// Sui type for inner staking object
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]

@@ -22,7 +22,7 @@ use walrus_service::{
 };
 use walrus_sui::{
     client::{ContractClient, ReadClient},
-    types::BlobEvent,
+    types::{BlobEvent, ContractEvent},
 };
 use walrus_test_utils::async_param_test;
 
@@ -194,13 +194,13 @@ async fn test_inconsistency(failed_shards: &[usize]) -> anyhow::Result<()> {
         .as_mut()
         .sui_client()
         .read_client()
-        .blob_events(Duration::from_millis(50), None)
+        .event_stream(Duration::from_millis(50), None)
         .await?;
     let mut events = std::pin::pin!(events);
     tokio::time::timeout(Duration::from_secs(30), async {
         while let Some(event) = events.next().await {
             tracing::debug!("Event: {:?}", event);
-            if let BlobEvent::InvalidBlobID(_) = event {
+            if let ContractEvent::BlobEvent(BlobEvent::InvalidBlobID(_)) = event {
                 return;
             }
         }

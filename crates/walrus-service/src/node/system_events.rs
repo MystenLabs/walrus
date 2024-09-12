@@ -82,7 +82,7 @@ impl SystemEventProvider for SuiSystemEventProvider {
         tracing::info!(?cursor, "resuming from event");
         let events = self
             .read_client
-            .blob_events(self.polling_interval, cursor.event_id)
+            .event_stream(self.polling_interval, cursor.event_id)
             .await?;
         let event_stream =
             events.map(|event| IndexedStreamElement::new(event, EventSequenceNumber::new(0, 0)));

@@ -31,7 +31,7 @@ use typed_store::{
     rocks::{errors::typed_store_err_from_rocks_err, DBMap, MetricConf, ReadWriteOptions},
     Map,
 };
-use walrus_sui::types::BlobEvent;
+use walrus_sui::types::ContractEvent;
 
 use crate::{EventProcessorConfig, EventSequenceNumber, IndexedStreamElement};
 
@@ -232,13 +232,13 @@ impl EventProcessor {
                         None,
                         move_datatype_layout,
                     )?;
-                    let blob_event: BlobEvent = sui_event.try_into()?;
+                    let contract_event: ContractEvent = sui_event.try_into()?;
                     let event_sequence_number = EventSequenceNumber::new(
                         *checkpoint.checkpoint_summary.sequence_number(),
                         counter,
                     );
                     let walrus_event =
-                        IndexedStreamElement::new(blob_event, event_sequence_number.clone());
+                        IndexedStreamElement::new(contract_event, event_sequence_number.clone());
                     write_batch
                         .insert_batch(
                             &self.event_store,
@@ -408,7 +408,10 @@ mod tests {
 
     use tokio::sync::Mutex;
     use walrus_core::BlobId;
-    use walrus_sui::{test_utils::EventForTesting, types::BlobCertified};
+    use walrus_sui::{
+        test_utils::EventForTesting,
+        types::{BlobCertified, BlobEvent},
+    };
 
     use super::*;
 
@@ -502,7 +505,9 @@ mod tests {
         counter: u64,
     ) -> IndexedStreamElement {
         IndexedStreamElement::new(
-            BlobCertified::for_testing(BlobId([7; 32])).into(),
+            ContractEvent::BlobEvent(BlobEvent::Certified(BlobCertified::for_testing(BlobId(
+                [7; 32],
+            )))),
             EventSequenceNumber::new(checkpoint_sequence_number, counter),
         )
     }

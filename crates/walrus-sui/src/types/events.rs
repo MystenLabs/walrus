@@ -211,3 +211,143 @@ impl TryFrom<SuiEvent> for BlobEvent {
         }
     }
 }
+
+/// Sui event that epoch parameters have been selected.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EpochParametersSelected {
+    /// The next epoch.
+    pub next_epoch: Epoch,
+    /// The ID of the event.
+    pub event_id: EventID,
+}
+
+impl AssociatedSuiEvent for EpochParametersSelected {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::EpochParametersSelected;
+}
+
+impl TryFrom<SuiEvent> for EpochParametersSelected {
+    type Error = MoveConversionError;
+
+    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
+        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+
+        let next_epoch = bcs::from_bytes(&sui_event.bcs)?;
+        Ok(Self {
+            next_epoch,
+            event_id: sui_event.id,
+        })
+    }
+}
+
+/// Sui event that epoch change has started.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EpochChangeStart {
+    /// The new epoch.
+    pub epoch: Epoch,
+    /// The ID of the event.
+    pub event_id: EventID,
+}
+
+impl AssociatedSuiEvent for EpochChangeStart {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::EpochChangeStart;
+}
+
+impl TryFrom<SuiEvent> for EpochChangeStart {
+    type Error = MoveConversionError;
+
+    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
+        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+
+        let epoch = bcs::from_bytes(&sui_event.bcs)?;
+        Ok(Self {
+            epoch,
+            event_id: sui_event.id,
+        })
+    }
+}
+
+/// Sui event that epoch change has completed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EpochChangeDone {
+    /// The new epoch.
+    pub epoch: Epoch,
+    /// The ID of the event.
+    pub event_id: EventID,
+}
+
+impl AssociatedSuiEvent for EpochChangeDone {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::EpochChangeDone;
+}
+
+impl TryFrom<SuiEvent> for EpochChangeDone {
+    type Error = MoveConversionError;
+
+    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
+        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+
+        let epoch = bcs::from_bytes(&sui_event.bcs)?;
+        Ok(Self {
+            epoch,
+            event_id: sui_event.id,
+        })
+    }
+}
+
+/// Enum to wrap epoch change events.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EpochChangeEvent {
+    /// Epoch parameters selected event.
+    EpochParametersSelected(EpochParametersSelected),
+    /// Epoch change start event.
+    EpochChangeStart(EpochChangeStart),
+    /// Epoch change done event.
+    EpochChangeDone(EpochChangeDone),
+}
+
+impl EpochChangeEvent {
+    /// Returns the event ID of the wrapped event.
+    pub fn event_id(&self) -> EventID {
+        match self {
+            EpochChangeEvent::EpochParametersSelected(event) => event.event_id,
+            EpochChangeEvent::EpochChangeStart(event) => event.event_id,
+            EpochChangeEvent::EpochChangeDone(event) => event.event_id,
+        }
+    }
+}
+
+/// Enum to wrap contract events used in event streaming.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ContractEvent {
+    /// Blob event.
+    BlobEvent(BlobEvent),
+    /// Epoch change event.
+    EpochChangeEvent(EpochChangeEvent),
+}
+
+impl TryFrom<SuiEvent> for ContractEvent {
+    type Error = anyhow::Error;
+
+    fn try_from(value: SuiEvent) -> Result<Self, Self::Error> {
+        match (&value.type_).into() {
+            contracts::events::BlobRegistered => Ok(ContractEvent::BlobEvent(
+                BlobEvent::Registered(value.try_into()?),
+            )),
+            contracts::events::BlobCertified => Ok(ContractEvent::BlobEvent(BlobEvent::Certified(
+                value.try_into()?,
+            ))),
+            contracts::events::InvalidBlobID => Ok(ContractEvent::BlobEvent(
+                BlobEvent::InvalidBlobID(value.try_into()?),
+            )),
+            contracts::events::EpochParametersSelected => Ok(ContractEvent::EpochChangeEvent(
+                EpochChangeEvent::EpochParametersSelected(value.try_into()?),
+            )),
+            contracts::events::EpochChangeStart => Ok(ContractEvent::EpochChangeEvent(
+                EpochChangeEvent::EpochChangeStart(value.try_into()?),
+            )),
+            contracts::events::EpochChangeDone => Ok(ContractEvent::EpochChangeEvent(
+                EpochChangeEvent::EpochChangeDone(value.try_into()?),
+            )),
+            _ => Err(anyhow!("could not convert event: {}", value)),
+        }
+    }
+}

@@ -220,6 +220,7 @@ pub mod staking {
     contract_ident!(fn staking::stake_with_pool, 1);
     contract_ident!(fn staking::voting_end);
     contract_ident!(fn staking::initiate_epoch_change);
+    contract_ident!(fn staking::epoch_sync_done);
 }
 
 /// Module for tags corresponding to the Move module `staking_inner`.
@@ -273,4 +274,7 @@ pub mod events {
     contract_ident!(struct events::BlobCertified);
     contract_ident!(struct events::BlobRegistered);
     contract_ident!(struct events::InvalidBlobID);
+    contract_ident!(struct events::EpochParametersSelected);
+    contract_ident!(struct events::EpochChangeStart);
+    contract_ident!(struct events::EpochChangeDone);
 }

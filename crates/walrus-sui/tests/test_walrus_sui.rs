@@ -9,15 +9,15 @@ use tokio_stream::StreamExt;
 use walrus_core::{encoding::EncodingConfig, merkle::Node, BlobId, EncodingType, ShardIndex};
 use walrus_sui::{
     client::{ContractClient, ReadClient, SuiContractClient},
-    test_utils,
     test_utils::{
+        self,
         get_default_blob_certificate,
         get_default_invalid_certificate,
         new_wallet_on_sui_test_cluster,
         system_setup::publish_with_default_system,
         TestClusterHandle,
     },
-    types::BlobEvent,
+    types::{BlobEvent, ContractEvent},
 };
 use walrus_test_utils::WithTempDir;
 
@@ -44,7 +44,7 @@ async fn initialize_contract_and_wallet(
         sui_cluster,
         admin_wallet
             .and_then_async(|wallet| {
-                SuiContractClient::new(wallet, system_object, staking_object, GAS_BUDGET)
+                SuiContractClient::new(wallet, system_object, staking_object, None, GAS_BUDGET)
             })
             .await?,
     ))
@@ -73,7 +73,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
     let mut events = walrus_client
         .as_ref()
         .read_client
-        .blob_events(polling_duration, None)
+        .event_stream(polling_duration, None)
         .await?;
 
     let size = 10_000;
@@ -114,7 +114,9 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
     assert!(!blob_obj.deletable);
 
     // Make sure that we got the expected event
-    let BlobEvent::Registered(blob_registered) = events.next().await.unwrap() else {
+    let ContractEvent::BlobEvent(BlobEvent::Registered(blob_registered)) =
+        events.next().await.unwrap()
+    else {
         bail!("unexpected event type");
     };
     assert_eq!(blob_registered.blob_id, blob_id);
@@ -132,7 +134,9 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
     assert_eq!(blob_obj.certified_epoch, Some(1));
 
     // Make sure that we got the expected event
-    let BlobEvent::Certified(blob_certified) = events.next().await.unwrap() else {
+    let ContractEvent::BlobEvent(BlobEvent::Certified(blob_certified)) =
+        events.next().await.unwrap()
+    else {
         bail!("unexpected event type");
     };
     assert_eq!(blob_certified.blob_id, blob_id);
@@ -145,7 +149,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
     let mut events = walrus_client
         .as_ref()
         .read_client
-        .blob_events(polling_duration, Some(blob_certified.event_id))
+        .event_stream(polling_duration, Some(blob_certified.event_id))
         .await?;
 
     // Now register and certify a blob with a different blob id again to check that
@@ -176,7 +180,9 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
         .await?;
 
     // Make sure that we got the expected event
-    let BlobEvent::Registered(blob_registered) = events.next().await.unwrap() else {
+    let ContractEvent::BlobEvent(BlobEvent::Registered(blob_registered)) =
+        events.next().await.unwrap()
+    else {
         bail!("unexpected event type");
     };
     assert_eq!(blob_registered.blob_id, blob_id);
@@ -187,7 +193,9 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
         .await?;
 
     // Make sure that we got the expected event
-    let BlobEvent::Certified(blob_certified) = events.next().await.unwrap() else {
+    let ContractEvent::BlobEvent(BlobEvent::Certified(blob_certified)) =
+        events.next().await.unwrap()
+    else {
         bail!("unexpected event type");
     };
     assert_eq!(blob_certified.blob_id, blob_id);
@@ -207,7 +215,7 @@ async fn test_invalidate_blob() -> anyhow::Result<()> {
     let mut events = walrus_client
         .as_ref()
         .read_client
-        .blob_events(polling_duration, None)
+        .event_stream(polling_duration, None)
         .await?;
 
     #[rustfmt::skip]
@@ -226,7 +234,9 @@ async fn test_invalidate_blob() -> anyhow::Result<()> {
         .await?;
 
     // Make sure that we got the expected event
-    let BlobEvent::InvalidBlobID(invalid_blob_id) = events.next().await.unwrap() else {
+    let ContractEvent::BlobEvent(BlobEvent::InvalidBlobID(invalid_blob_id)) =
+        events.next().await.unwrap()
+    else {
         bail!("unexpected event type");
     };
     assert_eq!(invalid_blob_id.blob_id, blob_id);

@@ -11,7 +11,7 @@ use prometheus::{
     Registry,
 };
 use walrus_event::EventStreamElement;
-use walrus_sui::types::{BlobCertified, BlobEvent};
+use walrus_sui::types::{BlobCertified, BlobEvent, EpochChangeEvent};
 
 pub(crate) const STATUS_FAILURE: &str = "failure";
 pub(crate) const STATUS_SUCCESS: &str = "success";
@@ -128,10 +128,21 @@ impl TelemetryLabel for BlobEvent {
     }
 }
 
+impl TelemetryLabel for EpochChangeEvent {
+    fn label(&self) -> &'static str {
+        match self {
+            EpochChangeEvent::EpochParametersSelected(_) => "epoch-parameters-selected",
+            EpochChangeEvent::EpochChangeStart(_) => "epoch-change-start",
+            EpochChangeEvent::EpochChangeDone(_) => "epoch-change-done",
+        }
+    }
+}
+
 impl TelemetryLabel for EventStreamElement {
     fn label(&self) -> &'static str {
         match self {
             EventStreamElement::BlobEvent(event) => event.label(),
+            EventStreamElement::EpochChangeEvent(event) => event.label(),
             EventStreamElement::CheckpointBoundary => "end-of-checkpoint",
         }
     }

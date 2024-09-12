@@ -10,6 +10,7 @@ license = "Apache-2.0"
 
 [workspace.dependencies]
 anyhow = "1.0.86"
+arc-swap = "1.7"
 async-trait = "0.1.81"
 axum = { version = "0.7.5", default-features = false }
 axum-server = { version = "0.7.1", default-features = false }
@@ -20,6 +21,7 @@ chrono = "0.4"
 clap = { version = "4.5.13", features = ["derive"] }
 colored = "2.1.0"
 criterion = "0.5.1"
+dashmap = "5.5.3"
 enum_dispatch = "0.3"
 fail = "0.5"
 fastcrypto = "0.1.8"

@@ -16,7 +16,17 @@ use anyhow::bail;
 use thiserror::Error;
 
 mod events;
-pub use events::{BlobCertified, BlobEvent, BlobRegistered, InvalidBlobId};
+pub use events::{
+    BlobCertified,
+    BlobEvent,
+    BlobRegistered,
+    ContractEvent,
+    EpochChangeDone,
+    EpochChangeEvent,
+    EpochChangeStart,
+    EpochParametersSelected,
+    InvalidBlobId,
+};
 
 pub mod move_structs;
 pub use move_structs::{
@@ -185,15 +195,6 @@ impl Committee {
         num > usize::from(bft::max_n_faulty(self.n_shards))
     }
 
-    /// Return the shards handed by the specified storage node,
-    /// based on its index in the committee list.
-    pub fn shards_for_node(&self, node_id: usize) -> Vec<ShardIndex> {
-        self.members
-            .get(node_id)
-            .map(|node| node.shard_ids.clone())
-            .unwrap_or_default()
-    }
-
     /// Return the shards handed by the specified storage node, based on its public key.
     /// If empty, the node is not in the committee.
     pub fn shards_for_node_public_key(&self, public_key: &PublicKey) -> &[ShardIndex] {
@@ -245,5 +246,13 @@ impl Committee {
         self.members
             .iter()
             .position(|node| node.shard_ids.contains(&shard))
+    }
+
+    /// Returns the public key of the member that holds the specified shard.
+    pub fn member_public_key_for_shard(&self, shard: &ShardIndex) -> Option<&PublicKey> {
+        self.members
+            .iter()
+            .find(|node| node.shard_ids.contains(shard))
+            .map(|node| &node.public_key)
     }
 }

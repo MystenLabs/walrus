@@ -124,6 +124,7 @@ pub async fn get_contract_client(
         wallet?,
         config.system_object,
         config.staking_object,
+        None,
         gas_budget,
     )
     .await?;
@@ -185,7 +186,13 @@ pub async fn get_sui_read_client_from_rpc_node_or_wallet(
         },
     }?;
 
-    Ok(SuiReadClient::new(sui_client, config.system_object, config.staking_object).await?)
+    Ok(SuiReadClient::new(
+        sui_client,
+        config.system_object,
+        config.staking_object,
+        None,
+    )
+    .await?)
 }
 
 /// Returns the string `Success:` colored in green for terminal output.

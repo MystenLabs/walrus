@@ -303,6 +303,7 @@ impl ClientCommandRunner {
             self.wallet?,
             config.system_object,
             config.staking_object,
+            None,
             self.gas_budget,
         )
         .await?;

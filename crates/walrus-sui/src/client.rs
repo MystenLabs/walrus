@@ -91,6 +91,9 @@ pub enum SuiClientError {
     /// The specified event ID is not associated with a Walrus event.
     #[error("no corresponding blob event found for {0:?}")]
     NoCorrespondingBlobEvent(EventID),
+    /// Storage capability object is missing when interacting with the contract.
+    #[error("No storage capability object set")]
+    StorageNodeCapabilityObjectNotSet,
 }
 
 /// Result alias for functions returning a `SuiClientError`.
@@ -180,6 +183,9 @@ pub trait ContractClient: Send + Sync {
     /// Can be called once the epoch duration is over.
     fn initiate_epoch_change(&self) -> impl Future<Output = SuiClientResult<()>> + Send;
 
+    /// Call to notify the contract that this node is done syncing the epoch.
+    fn epoch_sync_done(&self) -> impl Future<Output = SuiClientResult<()>> + Send;
+
     //fn epoch_change_done(&self, ...) -> impl Future<Output = SuiClientResult<()>> + Send;
 }
 
@@ -198,10 +204,16 @@ impl SuiContractClient {
         wallet: WalletContext,
         system_object: ObjectID,
         staking_object: ObjectID,
+        storage_node_capability_object: Option<ObjectID>,
         gas_budget: u64,
     ) -> SuiClientResult<Self> {
-        let read_client =
-            SuiReadClient::new(wallet.get_client().await?, system_object, staking_object).await?;
+        let read_client = SuiReadClient::new(
+            wallet.get_client().await?,
+            system_object,
+            staking_object,
+            storage_node_capability_object,
+        )
+        .await?;
         Self::new_with_read_client(wallet, gas_budget, read_client)
     }
 
@@ -685,6 +697,37 @@ impl ContractClient for SuiContractClient {
             vec![
                 self.read_client.call_arg_from_staking_obj(true).await?,
                 self.read_client.call_arg_from_system_obj(true).await?,
+                CLOCK_CALL_ARG,
+            ],
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn epoch_sync_done(&self) -> SuiClientResult<()> {
+        tracing::info!(
+            "calling epoch_sync_done {:?}",
+            self.read_client.storage_node_cap_id
+        );
+        if self.read_client.storage_node_cap_id.is_none() {
+            return Err(SuiClientError::StorageNodeCapabilityObjectNotSet);
+        }
+
+        let cap_obj_ref = self
+            .wallet
+            .lock()
+            .await
+            .get_object_ref(
+                self.read_client
+                    .storage_node_cap_id
+                    .expect("We just checked it is not none"),
+            )
+            .await?;
+        self.move_call_and_transfer(
+            contracts::staking::epoch_sync_done,
+            vec![
+                self.read_client.call_arg_from_staking_obj(true).await?,
+                cap_obj_ref.into(),
                 CLOCK_CALL_ARG,
             ],
         )
