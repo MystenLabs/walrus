@@ -200,7 +200,7 @@ public(package) fun voting_end(self: &mut StakingInnerV1, clock: &Clock) {
 
     // TODO: perform the voting for the next epoch params, replace dummy.
     // Set a dummy value.
-    self.next_epoch_params = option::some(epoch_parameters::new(1_000_000_000_000, 5, 1));
+    self.next_epoch_params = option::some(calculate_votes(self));
 
     // Set the new epoch state.
     self.epoch_state = EpochState::NextParamsSelected(last_epoch_change);
@@ -210,6 +210,63 @@ public(package) fun voting_end(self: &mut StakingInnerV1, clock: &Clock) {
 }
 
 // === Voting ===
+
+/// Calculates the votes for the next epoch parameters. The function sorts the
+/// write and storage prices and picks the value that satisfies 2/3 of the weight.
+public(package) fun calculate_votes(self: &StakingInnerV1): EpochParams {
+    assert!(self.next_committee.is_some());
+
+    let size = self.next_committee.borrow().size();
+    let inner = self.next_committee.borrow().inner();
+    let mut write_prices = vector[];
+    let mut storage_prices = vector[];
+    let mut node_capacities = vector[];
+
+    size.do!(|i| {
+        let (node_id, shards) = inner.get_entry_by_idx(i);
+        let pool = &self.pools[*node_id];
+        shards.length().do!(|_| {
+            write_prices.push_back(pool.write_price());
+            storage_prices.push_back(pool.storage_price());
+            node_capacities.push_back(pool.node_capacity());
+        });
+    });
+
+    // sort both in ascending order.
+    sort_by!(&mut write_prices, |a, b| *a < *b);
+    sort_by!(&mut storage_prices, |a, b| *a < *b);
+
+    // write prices are sorted in ascending order, so we need to pick the value
+    // that satisfies 2/3 of the lowest values.
+    let write_price = write_prices[write_prices.length() * 2 / 3];
+
+    // storage prices are sorted in descending order, so we need to pick the value
+    // that satisfies 2/3 of the highest values.
+    let storage_price = storage_prices[storage_prices.length() * 2 / 3];
+    let total_capacity = node_capacities.fold!(0, |a, v| { a + v });
+
+    epoch_parameters::new(total_capacity, storage_price, write_price)
+}
+
+/// Sort the vector `v` in place using the comparison function `f`. The function `f` should
+/// return `true` if the first argument should come before the second argument.
+///
+/// For small vectors, insertion sort is used. For larger vectors, merge sort is used.
+/// TODO: remove this once we have a solution in the standard library.
+public macro fun sort_by<$T>($v: &mut vector<$T>, $f: |&$T, &$T| -> bool) {
+    let v = $v;
+    let len = v.length();
+    if (len < 2) return;
+
+    // insertion sort
+    len.do!(|i| {
+        let mut j = i;
+        while (j > 0 && $f(&v[j], &v[j - 1])) {
+            v.swap(j, j - 1);
+            j = j - 1;
+        }
+    });
+}
 
 /// Sets the next commission rate for the pool.
 public(package) fun set_next_commission(
