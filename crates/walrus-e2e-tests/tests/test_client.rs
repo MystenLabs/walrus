@@ -166,7 +166,7 @@ async fn test_inconsistency(failed_shards: &[usize]) -> anyhow::Result<()> {
     // Register blob.
     let blob_sui_object = client
         .as_ref()
-        .reserve_and_register_blob(&metadata, 1, false)
+        .get_blob_registration(&metadata, 1, false)
         .await?;
 
     // Wait to ensure that the storage nodes received the registration event.
@@ -236,7 +236,7 @@ async_param_test! {
 /// The `epochs_ahead_registered` are the epochs ahead of the already-existing blob object.
 /// The `epochs_ahead_required` are the epochs ahead that are requested to the client when
 /// registering anew.
-/// `should_match` is a boolean that indicates if the storage object used in the final upload should
+/// `should_match` is a boolean that indicates if the blob object used in the final upload should
 /// be the same as the first one registered.
 async fn test_store_with_existing_blob_resource(
     epochs_ahead_registered: EpochCount,
@@ -260,7 +260,7 @@ async fn test_store_with_existing_blob_resource(
     // Register a new blob.
     let original_blob_object = client
         .as_ref()
-        .reserve_and_register_blob(&metadata, epochs_ahead_registered, false)
+        .get_blob_registration(&metadata, epochs_ahead_registered, false)
         .await?;
 
     // Wait to ensure that the storage nodes received the registration event.
@@ -275,6 +275,71 @@ async fn test_store_with_existing_blob_resource(
     if let BlobStoreResult::NewlyCreated { blob_object, .. } = blob_store {
         // Check if the storage object used is the same.
         assert!(should_match == (blob_object.id == original_blob_object.id));
+    } else {
+        panic!("the client should be able to store the blob")
+    };
+
+    Ok(())
+}
+
+async_param_test! {
+    test_store_with_existing_storage_resource-> anyhow::Result<()> : [
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] reuse_storage: (1, 1, true),
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] reuse_storage_two: (2, 1, true),
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] no_reuse_storage: (1, 2, false),
+    ]
+}
+/// Tests that the client reuses existing storage resources to store blobs.
+///
+/// The `epochs_ahead_registered` are the epochs ahead of the already-existing storage resource.
+/// The `epochs_ahead_required` are the epochs ahead that are requested to the client when
+/// registering anew.
+/// `should_match` is a boolean that indicates if the storage object used in the final upload should
+/// be the same as the first one registered.
+async fn test_store_with_existing_storage_resource(
+    epochs_ahead_registered: EpochCount,
+    epochs_ahead_required: EpochCount,
+    should_match: bool,
+) -> anyhow::Result<()> {
+    let _ = tracing_subscriber::fmt::try_init();
+
+    let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
+
+    let blob = walrus_test_utils::random_data(31415);
+    let (_, metadata) = client
+        .as_ref()
+        .encoding_config()
+        .get_blob_encoder(&blob)?
+        .encode_with_metadata();
+    let metadata = metadata.metadata().to_owned();
+    let blob_id = BlobId::from_sliver_pair_metadata(&metadata);
+    let metadata = VerifiedBlobMetadataWithId::new_verified_unchecked(blob_id, metadata);
+
+    // Register a new storage resource.
+    let encoded_size = metadata
+        .metadata()
+        .encoded_size()
+        .expect("we just encoded this blob");
+
+    let original_storage_resource = client
+        .as_ref()
+        .sui_client()
+        .reserve_space(encoded_size, epochs_ahead_registered)
+        .await?;
+
+    // Wait to ensure that the storage nodes received the registration event.
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    // Now ask the client to store again.
+
+    let blob_store = client
+        .inner
+        .reserve_and_store_blob(&blob, epochs_ahead_required, false)
+        .await?;
+
+    if let BlobStoreResult::NewlyCreated { blob_object, .. } = blob_store {
+        // Check if the storage object used is the same.
+        assert!(should_match == (blob_object.storage.id == original_storage_resource.id));
     } else {
         panic!("the client should be able to store the blob")
     };

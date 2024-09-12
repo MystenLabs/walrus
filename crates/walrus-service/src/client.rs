@@ -244,9 +244,9 @@ impl<T: ContractClient> Client<T> {
             }
         }
 
-        // Reserve space for the blob.
+        // Get an appropriate registered blob object.
         let blob_sui_object = self
-            .reserve_and_register_blob(&metadata, epochs_ahead, false)
+            .get_blob_registration(&metadata, epochs_ahead, false)
             .await?;
 
         // We need to wait to be sure that the storage nodes received the registration event.
@@ -276,31 +276,68 @@ impl<T: ContractClient> Client<T> {
         })
     }
 
-    /// Checks if the blob is registered; if not, reserves the space for the blob and registers it.
+    /// Returns a [`Blob`] registration object for the specified metadata and number of epochs.
+    ///
+    /// Tries to reuse existing blob registrations or storage resources if possible.
+    /// Specifically:
+    /// - First, it checks if the blob is registered and returns the corresponding [`Blob`];
+    /// - otherwise, it checks if there is an appropriate storage resource (with sufficient space
+    ///   and for a sufficient duration) that can be used to register the blob; or
+    /// - if the above fails, it purchases a new storage resource and registers the blob.
     #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
-    pub async fn reserve_and_register_blob(
+    pub async fn get_blob_registration(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         epochs_ahead: EpochCount,
         deletable: bool,
     ) -> ClientResult<Blob> {
-        if let Some(blob) = self
-            .is_blob_registered_in_wallet(metadata.blob_id(), epochs_ahead)
+        let blob = if let Some(blob) = self
+            .is_blob_registered_in_wallet(metadata.blob_id(), epochs_ahead, deletable)
             .await?
         {
             tracing::debug!(
                 end_epoch=%blob.storage.end_epoch,
                 "blob is already registered and valid; using the existing registration"
             );
-            return Ok(blob);
-        }
-        tracing::debug!(
-            "the blob is not already registered or its lifetime is too short; creating new one"
-        );
-        self.sui_client
-            .reserve_and_register_blob(epochs_ahead, metadata, deletable)
-            .await
-            .map_err(ClientError::from)
+            blob
+        } else if let Some(storage_resource) = self
+            .sui_client
+            .owned_storage_for_size_and_epoch(
+                metadata.metadata().encoded_size().ok_or_else(|| {
+                    ClientError::other(ClientErrorKind::Other(
+                        anyhow!(
+                            "the provided metadata is invalid: could not compute the encoded size"
+                        )
+                        .into(),
+                    ))
+                })?,
+                epochs_ahead + self.committee.epoch,
+            )
+            .await?
+        {
+            tracing::debug!(
+                storage_object=%storage_resource.id,
+                "using an existing storage resource to register the blob"
+            );
+            self.sui_client
+                .register_blob(
+                    &storage_resource,
+                    *metadata.blob_id(),
+                    metadata.metadata().compute_root_hash().bytes(),
+                    metadata.metadata().unencoded_length,
+                    metadata.metadata().encoding_type,
+                    deletable,
+                )
+                .await?
+        } else {
+            tracing::debug!(
+                "the blob is not already registered or its lifetime is too short; creating new one"
+            );
+            self.sui_client
+                .reserve_and_register_blob(epochs_ahead, metadata, deletable)
+                .await?
+        };
+        Ok(blob)
     }
 
     /// Checks if the blob is registered by the active wallet for a sufficient duration.
@@ -308,6 +345,7 @@ impl<T: ContractClient> Client<T> {
         &self,
         blob_id: &BlobId,
         epochs_ahead: EpochCount,
+        deletable: bool,
     ) -> ClientResult<Option<Blob>> {
         Ok(self
             .sui_client
@@ -317,6 +355,7 @@ impl<T: ContractClient> Client<T> {
             .find(|blob| {
                 blob.blob_id == *blob_id
                     && blob.storage.end_epoch >= self.committee.epoch + epochs_ahead
+                    && blob.deletable == deletable
             }))
     }
 }
