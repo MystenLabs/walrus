@@ -12,6 +12,7 @@ use std::{
 use async_trait::async_trait;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use sui_sdk::wallet_context::WalletContext;
+use sui_types::base_types::ObjectID;
 use tokio::sync::Mutex as TokioMutex;
 use walrus_core::messages::InvalidBlobCertificate;
 use walrus_sui::client::{ContractClient, SuiContractClient};
@@ -29,7 +30,7 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
     async fn invalidate_blob_id(&self, certificate: &InvalidBlobCertificate);
 
     /// Submits a notification to the contract that this storage node epoch sync is done.
-    async fn epoch_sync_done(&self);
+    async fn epoch_sync_done(&self, node_id: ObjectID);
 }
 
 /// A [`SystemContractService`] that uses a [`ContractClient`] for chain interactions.
@@ -73,7 +74,6 @@ impl SuiSystemContractService<SuiContractClient> {
             wallet,
             config.system_object,
             config.staking_object,
-            config.storage_node_capability_object,
             config.gas_budget,
         )
         .await?;
@@ -110,7 +110,7 @@ where
         .await;
     }
 
-    async fn epoch_sync_done(&self) {
+    async fn epoch_sync_done(&self, node_id: ObjectID) {
         let backoff = ExponentialBackoff::new_with_seed(
             MIN_BACKOFF,
             MAX_BACKOFF,
@@ -121,12 +121,12 @@ where
             self.contract_client
                 .lock()
                 .await
-                .epoch_sync_done()
+                .epoch_sync_done(node_id)
                 .await
                 .inspect_err(|error| {
                     tracing::error!(
                         ?error,
-                        "submitting invalidity certificate to contract failed"
+                        "sending epoch sync done notification to contract failed"
                     )
                 })
                 .ok()

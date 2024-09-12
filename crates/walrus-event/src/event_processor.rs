@@ -408,10 +408,7 @@ mod tests {
 
     use tokio::sync::Mutex;
     use walrus_core::BlobId;
-    use walrus_sui::{
-        test_utils::EventForTesting,
-        types::{BlobCertified, BlobEvent},
-    };
+    use walrus_sui::{test_utils::EventForTesting, types::BlobCertified};
 
     use super::*;
 
@@ -505,9 +502,7 @@ mod tests {
         counter: u64,
     ) -> IndexedStreamElement {
         IndexedStreamElement::new(
-            ContractEvent::BlobEvent(BlobEvent::Certified(BlobCertified::for_testing(BlobId(
-                [7; 32],
-            )))),
+            BlobCertified::for_testing(BlobId([7; 32])).into(),
             EventSequenceNumber::new(checkpoint_sequence_number, counter),
         )
     }

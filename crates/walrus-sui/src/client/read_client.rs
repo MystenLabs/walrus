@@ -7,7 +7,6 @@ use std::{
     collections::BTreeSet,
     fmt::{self, Debug},
     future::Future,
-    num::NonZeroU16,
     time::Duration,
 };
 
@@ -39,7 +38,6 @@ use crate::{
             StakingPool,
             SystemObjectForDeserialization,
         },
-        BlobEvent,
         Committee,
         ContractEvent,
         StakingObject,
@@ -78,11 +76,11 @@ pub trait ReadClient: Send + Sync {
         cursor: Option<EventID>,
     ) -> impl Future<Output = SuiClientResult<impl Stream<Item = ContractEvent> + Send>> + Send;
 
-    /// Returns the blob event with the given Event ID.
-    fn get_blob_event(
+    /// Returns the contract event with the given Event ID.
+    fn get_contract_event(
         &self,
         event_id: EventID,
-    ) -> impl Future<Output = SuiClientResult<BlobEvent>> + Send;
+    ) -> impl Future<Output = SuiClientResult<ContractEvent>> + Send;
 
     /// Returns the current committee.
     fn current_committee(&self) -> impl Future<Output = SuiClientResult<Committee>> + Send;
@@ -91,12 +89,6 @@ pub trait ReadClient: Send + Sync {
     fn current_and_previous_committee(
         &self,
     ) -> impl Future<Output = SuiClientResult<(Committee, Committee)>> + Send;
-
-    /// Returns the storage nodes and the number of shards in the committee.
-    fn get_committee_shard_assignment(
-        &self,
-        shard_assignment: &CommitteeShardAssignment,
-    ) -> impl Future<Output = SuiClientResult<(Vec<StorageNode>, u16)>> + Send;
 }
 
 /// Client implementation for interacting with the Walrus smart contracts.
@@ -106,7 +98,6 @@ pub struct SuiReadClient {
     pub(crate) sui_client: SuiClient,
     pub(crate) system_object_id: ObjectID,
     pub(crate) staking_object_id: ObjectID,
-    pub(crate) storage_node_cap_id: Option<ObjectID>,
     sys_obj_initial_version: OnceCell<SequenceNumber>,
     staking_obj_initial_version: OnceCell<SequenceNumber>,
 }
@@ -120,7 +111,6 @@ impl SuiReadClient {
         sui_client: SuiClient,
         system_object_id: ObjectID,
         staking_object_id: ObjectID,
-        storage_node_cap_id: Option<ObjectID>,
     ) -> SuiClientResult<Self> {
         let system_pkg_id = get_system_package_id(&sui_client, system_object_id).await?;
         Ok(Self {
@@ -128,7 +118,6 @@ impl SuiReadClient {
             sui_client,
             system_object_id,
             staking_object_id,
-            storage_node_cap_id,
             sys_obj_initial_version: OnceCell::new(),
             staking_obj_initial_version: OnceCell::new(),
         })
@@ -142,7 +131,7 @@ impl SuiReadClient {
         staking_object: ObjectID,
     ) -> SuiClientResult<Self> {
         let client = SuiClientBuilder::default().build(rpc_address).await?;
-        Self::new(client, system_object, staking_object, None).await
+        Self::new(client, system_object, staking_object).await
     }
 
     pub(crate) async fn call_arg_from_system_obj(&self, mutable: bool) -> SuiClientResult<CallArg> {
@@ -317,6 +306,45 @@ impl SuiReadClient {
         let inner = get_sui_object(&self.sui_client, dynamic_field_info.object_id).await?;
         Ok(StakingObject { id, version, inner })
     }
+
+    /// Returns the storage nodes and the number of shards in the committee.
+    async fn get_committee_shard_assignment(
+        &self,
+        shard_assignment: &CommitteeShardAssignment,
+    ) -> SuiClientResult<Vec<StorageNode>> {
+        let mut node_object_responses = vec![];
+        for obj_id_batch in shard_assignment.chunks(MULTI_GET_OBJ_LIMIT) {
+            node_object_responses.extend(
+                self.sui_client
+                    .read_api()
+                    .multi_get_object_with_options(
+                        obj_id_batch
+                            .iter()
+                            .map(|(obj_id, _shards)| *obj_id)
+                            .collect(),
+                        SuiObjectDataOptions::new().with_type().with_bcs(),
+                    )
+                    .await?,
+            );
+        }
+
+        let nodes = shard_assignment
+            .iter()
+            .zip(node_object_responses)
+            .map(|((obj_id, shards), obj_response)| {
+                let mut storage_node =
+                    get_sui_object_from_object_response::<StakingPool>(&obj_response)?.node_info;
+                storage_node.shard_ids = shards.iter().map(|index| index.into()).collect();
+                ensure!(
+                    *obj_id == storage_node.node_id,
+                    anyhow!("the object id of the staking pool does not match the node id")
+                );
+                Ok::<StorageNode, anyhow::Error>(storage_node)
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(nodes)
+    }
 }
 
 impl ReadClient for SuiReadClient {
@@ -356,7 +384,7 @@ impl ReadClient for SuiReadClient {
         Ok(ReceiverStream::new(rx_event))
     }
 
-    async fn get_blob_event(&self, event_id: EventID) -> SuiClientResult<BlobEvent> {
+    async fn get_contract_event(&self, event_id: EventID) -> SuiClientResult<ContractEvent> {
         self.sui_client
             .event_api()
             .get_events(event_id.tx_digest)
@@ -371,8 +399,7 @@ impl ReadClient for SuiReadClient {
         let staking_object = self.get_staking_object().await?;
         Committee::new(
             self.get_committee_shard_assignment(&staking_object.inner.committee)
-                .await?
-                .0,
+                .await?,
             staking_object.inner.epoch,
             staking_object.inner.n_shards,
         )
@@ -383,64 +410,23 @@ impl ReadClient for SuiReadClient {
         let staking_object = self.get_staking_object().await?;
         let current_committee = Committee::new(
             self.get_committee_shard_assignment(&staking_object.inner.committee)
-                .await?
-                .0,
+                .await?,
             staking_object.inner.epoch,
             staking_object.inner.n_shards,
         )
         .map_err(|err| SuiClientError::Internal(err.into()))?;
 
-        let (previous_committee_member, previous_n_shard) = self
+        let previous_committee_member = self
             .get_committee_shard_assignment(&staking_object.inner.previous_committee)
             .await?;
         let previous_committee = Committee::new(
             previous_committee_member,
             staking_object.inner.epoch - 1,
-            NonZeroU16::new(previous_n_shard).unwrap_or(NonZeroU16::new(1).unwrap()),
+            staking_object.inner.n_shards,
         )
         .map_err(|err| SuiClientError::Internal(err.into()))?;
 
         Ok((current_committee, previous_committee))
-    }
-
-    async fn get_committee_shard_assignment(
-        &self,
-        shard_assignment: &CommitteeShardAssignment,
-    ) -> SuiClientResult<(Vec<StorageNode>, u16)> {
-        let mut node_object_responses = vec![];
-        for obj_id_batch in shard_assignment.chunks(MULTI_GET_OBJ_LIMIT) {
-            node_object_responses.extend(
-                self.sui_client
-                    .read_api()
-                    .multi_get_object_with_options(
-                        obj_id_batch
-                            .iter()
-                            .map(|(obj_id, _shards)| *obj_id)
-                            .collect(),
-                        SuiObjectDataOptions::new().with_type().with_bcs(),
-                    )
-                    .await?,
-            );
-        }
-
-        let nodes = shard_assignment
-            .iter()
-            .zip(node_object_responses)
-            .map(|((obj_id, shards), obj_response)| {
-                let mut storage_node =
-                    get_sui_object_from_object_response::<StakingPool>(&obj_response)?.node_info;
-                storage_node.shard_ids = shards.iter().map(|index| index.into()).collect();
-                ensure!(
-                    *obj_id == storage_node.node_id,
-                    anyhow!("the object id of the staking pool does not match the node id")
-                );
-                Ok::<StorageNode, anyhow::Error>(storage_node)
-            })
-            .collect::<Result<Vec<_>>>()?;
-
-        let n_shards = nodes.iter().map(|node| node.shard_ids.len() as u16).sum();
-
-        Ok((nodes, n_shards))
     }
 }
 

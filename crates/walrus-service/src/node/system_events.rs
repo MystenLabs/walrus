@@ -53,8 +53,8 @@ impl SuiSystemEventProvider {
 /// A provider of system events to a storage node.
 #[async_trait]
 pub trait SystemEventProvider: std::fmt::Debug + Sync + Send {
-    /// Return a new stream over [`walrus_sui::types::BlobEvent`]s starting from those specified by
-    /// `from`.
+    /// Return a new stream over [`walrus_event::IndexedStreamElement`]s starting from those
+    /// specified by `from`.
     async fn events(
         &self,
         cursor: EventStreamCursor,

@@ -24,7 +24,7 @@ use walrus_core::{
     Epoch,
     ShardIndex,
 };
-use walrus_sui::types::BlobEvent;
+use walrus_sui::types::ContractEvent;
 
 use self::{
     blob_info::{BlobInfo, BlobInfoApi, BlobInfoMergeOperand},
@@ -293,8 +293,19 @@ impl Storage {
 
     /// Update the blob info for a blob based on the `BlobEvent`
     #[tracing::instrument(skip_all)]
-    pub fn update_blob_info(&self, event: &BlobEvent) -> Result<(), TypedStoreError> {
-        self.merge_update_blob_info(&event.blob_id(), event.into())?;
+    pub fn update_blob_info(&self, event: &ContractEvent) -> Result<(), TypedStoreError> {
+        assert!(matches!(
+            event,
+            ContractEvent::BlobRegistered(_)
+                | ContractEvent::BlobCertified(_)
+                | ContractEvent::InvalidBlobID(_)
+        ));
+        self.merge_update_blob_info(
+            &event
+                .blob_id()
+                .expect("We should only receive blob event in this function"),
+            event.into(),
+        )?;
         Ok(())
     }
 
@@ -581,7 +592,9 @@ pub(crate) mod tests {
             metadata.metadata().clone(),
         );
 
-        storage.update_blob_info(&BlobEvent::Certified(BlobCertified::for_testing(*blob_id)))?;
+        storage.update_blob_info(&ContractEvent::BlobCertified(BlobCertified::for_testing(
+            *blob_id,
+        )))?;
 
         storage.put_metadata(metadata.blob_id(), metadata.metadata())?;
         let retrieved = storage.get_metadata(blob_id)?;
@@ -598,10 +611,12 @@ pub(crate) mod tests {
         let metadata = walrus_core::test_utils::verified_blob_metadata();
         let blob_id = metadata.blob_id();
 
-        storage.update_blob_info(&BlobEvent::Registered(BlobRegistered::for_testing(
+        storage.update_blob_info(&ContractEvent::BlobRegistered(BlobRegistered::for_testing(
             *blob_id,
         )))?;
-        storage.update_blob_info(&BlobEvent::Certified(BlobCertified::for_testing(*blob_id)))?;
+        storage.update_blob_info(&ContractEvent::BlobCertified(BlobCertified::for_testing(
+            *blob_id,
+        )))?;
 
         storage.put_metadata(metadata.blob_id(), metadata.metadata())?;
 

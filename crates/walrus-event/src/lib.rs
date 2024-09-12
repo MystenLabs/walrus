@@ -11,7 +11,7 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
 use sui_types::{event::EventID, messages_checkpoint::CheckpointSequenceNumber};
 use walrus_core::BlobId;
-use walrus_sui::types::{BlobEvent, ContractEvent, EpochChangeEvent};
+use walrus_sui::types::ContractEvent;
 
 pub mod event_processor;
 
@@ -64,33 +64,37 @@ impl EventSequenceNumber {
 /// markers
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EventStreamElement {
-    BlobEvent(BlobEvent),
-    EpochChangeEvent(EpochChangeEvent),
+    ContractEvent(ContractEvent),
     CheckpointBoundary,
 }
 
 impl EventStreamElement {
     pub fn event_id(&self) -> Option<EventID> {
         match self {
-            EventStreamElement::BlobEvent(event) => Some(event.event_id()),
-            EventStreamElement::EpochChangeEvent(event) => Some(event.event_id()),
+            EventStreamElement::ContractEvent(event) => Some(event.event_id()),
             EventStreamElement::CheckpointBoundary => None,
         }
     }
 
     pub fn blob_id(&self) -> Option<BlobId> {
         match self {
-            EventStreamElement::BlobEvent(event) => Some(event.blob_id()),
-            EventStreamElement::EpochChangeEvent(_) => None,
+            EventStreamElement::ContractEvent(event) => event.blob_id(),
             EventStreamElement::CheckpointBoundary => None,
         }
     }
 
-    pub fn blob_event(&self) -> Option<&BlobEvent> {
+    pub fn blob_event(&self) -> Option<&ContractEvent> {
         match self {
-            EventStreamElement::BlobEvent(event) => Some(event),
-            EventStreamElement::EpochChangeEvent(_) => None,
-            EventStreamElement::CheckpointBoundary => None,
+            EventStreamElement::ContractEvent(event @ ContractEvent::BlobRegistered(_)) => {
+                Some(event)
+            }
+            EventStreamElement::ContractEvent(event @ ContractEvent::BlobCertified(_)) => {
+                Some(event)
+            }
+            EventStreamElement::ContractEvent(event @ ContractEvent::InvalidBlobID(_)) => {
+                Some(event)
+            }
+            _ => None,
         }
     }
 }
@@ -107,15 +111,9 @@ pub struct IndexedStreamElement {
 impl IndexedStreamElement {
     #[allow(dead_code)]
     pub fn new(contract_event: ContractEvent, event_sequence_number: EventSequenceNumber) -> Self {
-        match contract_event {
-            ContractEvent::BlobEvent(blob_event) => Self {
-                element: EventStreamElement::BlobEvent(blob_event),
-                global_sequence_number: event_sequence_number,
-            },
-            ContractEvent::EpochChangeEvent(epoch_event) => Self {
-                element: EventStreamElement::EpochChangeEvent(epoch_event),
-                global_sequence_number: event_sequence_number,
-            },
+        Self {
+            element: EventStreamElement::ContractEvent(contract_event),
+            global_sequence_number: event_sequence_number,
         }
     }
 

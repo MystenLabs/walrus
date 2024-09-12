@@ -11,7 +11,7 @@ use prometheus::{
     Registry,
 };
 use walrus_event::EventStreamElement;
-use walrus_sui::types::{BlobCertified, BlobEvent, EpochChangeEvent};
+use walrus_sui::types::{BlobCertified, ContractEvent};
 
 pub(crate) const STATUS_FAILURE: &str = "failure";
 pub(crate) const STATUS_SUCCESS: &str = "success";
@@ -118,22 +118,15 @@ pub(crate) trait TelemetryLabel {
     fn label(&self) -> &'static str;
 }
 
-impl TelemetryLabel for BlobEvent {
+impl TelemetryLabel for ContractEvent {
     fn label(&self) -> &'static str {
         match self {
-            BlobEvent::Registered(_) => "registered",
-            BlobEvent::Certified(event) => event.label(),
-            BlobEvent::InvalidBlobID(_) => "invalid-blob",
-        }
-    }
-}
-
-impl TelemetryLabel for EpochChangeEvent {
-    fn label(&self) -> &'static str {
-        match self {
-            EpochChangeEvent::EpochParametersSelected(_) => "epoch-parameters-selected",
-            EpochChangeEvent::EpochChangeStart(_) => "epoch-change-start",
-            EpochChangeEvent::EpochChangeDone(_) => "epoch-change-done",
+            ContractEvent::BlobRegistered(_) => "registered",
+            ContractEvent::BlobCertified(event) => event.label(),
+            ContractEvent::InvalidBlobID(_) => "invalid-blob",
+            ContractEvent::EpochParametersSelected(_) => "epoch-parameters-selected",
+            ContractEvent::EpochChangeStart(_) => "epoch-change-start",
+            ContractEvent::EpochChangeDone(_) => "epoch-change-done",
         }
     }
 }
@@ -141,8 +134,7 @@ impl TelemetryLabel for EpochChangeEvent {
 impl TelemetryLabel for EventStreamElement {
     fn label(&self) -> &'static str {
         match self {
-            EventStreamElement::BlobEvent(event) => event.label(),
-            EventStreamElement::EpochChangeEvent(event) => event.label(),
+            EventStreamElement::ContractEvent(event) => event.label(),
             EventStreamElement::CheckpointBoundary => "end-of-checkpoint",
         }
     }

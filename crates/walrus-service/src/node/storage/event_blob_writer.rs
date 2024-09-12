@@ -384,7 +384,10 @@ mod tests {
 
     use walrus_core::{BlobId, ShardIndex};
     use walrus_event::{EventStreamElement, IndexedStreamElement};
-    use walrus_sui::{test_utils::EventForTesting, types::BlobCertified};
+    use walrus_sui::{
+        test_utils::EventForTesting,
+        types::{BlobCertified, ContractEvent},
+    };
 
     use crate::{
         node::storage::event_blob_writer::{EventBlobWriter, EventSequenceNumber},
@@ -412,9 +415,9 @@ mod tests {
         for i in 0..100 {
             let event = IndexedStreamElement {
                 global_sequence_number: EventSequenceNumber::new(i as u64, 0),
-                element: EventStreamElement::BlobEvent(
-                    BlobCertified::for_testing(BlobId([7; 32])).into(),
-                ),
+                element: EventStreamElement::ContractEvent(ContractEvent::BlobCertified(
+                    BlobCertified::for_testing(BlobId([7; 32])),
+                )),
             };
             blob_writer.write(event, counter).await?;
             counter += 1;

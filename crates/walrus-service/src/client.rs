@@ -43,7 +43,7 @@ use walrus_sdk::{
 };
 use walrus_sui::{
     client::{ContractClient, ReadClient},
-    types::{Blob, BlobEvent, Committee, NetworkAddress, StorageNode},
+    types::{Blob, Committee, ContractEvent, NetworkAddress, StorageNode},
     utils::price_for_unencoded_length,
 };
 
@@ -871,8 +871,8 @@ async fn verify_blob_status_event(
     };
     tracing::debug!(?event, "verifying blob status with on-chain event");
 
-    let blob_event = sui_read_client.get_blob_event(event).await?;
-    anyhow::ensure!(blob_id == &blob_event.blob_id(), "blob ID mismatch");
+    let blob_event = sui_read_client.get_contract_event(event).await?;
+    anyhow::ensure!(Some(*blob_id) == blob_event.blob_id(), "blob ID mismatch");
 
     match (status, blob_event) {
         (
@@ -881,7 +881,7 @@ async fn verify_blob_status_event(
                 is_certified: false,
                 ..
             },
-            BlobEvent::Registered(event),
+            ContractEvent::BlobRegistered(event),
         ) => {
             anyhow::ensure!(end_epoch == event.end_epoch, "end epoch mismatch");
             event.blob_id
@@ -892,12 +892,12 @@ async fn verify_blob_status_event(
                 is_certified: true,
                 ..
             },
-            BlobEvent::Certified(event),
+            ContractEvent::BlobCertified(event),
         ) => {
             anyhow::ensure!(end_epoch == event.end_epoch, "end epoch mismatch");
             event.blob_id
         }
-        (BlobStatus::Invalid { .. }, BlobEvent::InvalidBlobID(event)) => event.blob_id,
+        (BlobStatus::Invalid { .. }, ContractEvent::InvalidBlobID(event)) => event.blob_id,
         (_, _) => Err(anyhow!("blob event does not match status"))?,
     };
 

@@ -45,7 +45,6 @@ use walrus_core::{
 use walrus_event::{EventSequenceNumber, EventStreamCursor, IndexedStreamElement};
 use walrus_sdk::client::Client;
 use walrus_sui::types::{
-    BlobEvent,
     Committee,
     ContractEvent,
     NetworkAddress,
@@ -403,7 +402,7 @@ impl StorageNodeHandleBuilder {
 impl Default for StorageNodeHandleBuilder {
     fn default() -> Self {
         Self {
-            event_provider: Box::<Vec<BlobEvent>>::default(),
+            event_provider: Box::<Vec<ContractEvent>>::default(),
             committee_service_factory: None,
             storage: Default::default(),
             run_rest_api: Default::default(),
@@ -460,6 +459,7 @@ fn committee_partner(node_config: &StorageNodeTestConfig) -> Option<StorageNodeT
 #[derive(Debug, Clone)]
 pub struct StubCommitteeServiceFactory<T> {
     committee: Committee,
+    previous_committee: Committee,
     _service_type: PhantomData<T>,
 }
 
@@ -467,9 +467,16 @@ impl<T> StubCommitteeServiceFactory<T> {
     fn from_members(members: Vec<SuiStorageNode>, initial_epoch: Option<Epoch>) -> Self {
         let n_shards =
             NonZeroU16::new(members.iter().map(|node| node.shard_ids.len() as u16).sum()).unwrap();
+        let epoch = initial_epoch.unwrap_or(1);
         Self {
-            committee: Committee::new(members, initial_epoch.unwrap_or(1), n_shards)
+            committee: Committee::new(members.clone(), epoch, n_shards)
                 .expect("valid members to be provided for tests"),
+            previous_committee: Committee::new(
+                if epoch == 1 { vec![] } else { members },
+                epoch - 1,
+                n_shards,
+            )
+            .expect("valid members to be provided for tests"),
             _service_type: PhantomData,
         }
     }
@@ -481,7 +488,10 @@ impl CommitteeServiceFactory for StubCommitteeServiceFactory<StubCommitteeServic
         &self,
         _: Option<&PublicKey>,
     ) -> Result<Box<dyn CommitteeService>, anyhow::Error> {
-        Ok(Box::new(StubCommitteeService(self.committee.clone())))
+        Ok(Box::new(StubCommitteeService(
+            self.committee.clone(),
+            self.previous_committee.clone(),
+        )))
     }
 }
 
@@ -504,12 +514,12 @@ impl CommitteeServiceFactory for StubCommitteeServiceFactory<NodeCommitteeServic
 ///
 /// Does not perform any network operations.
 #[derive(Debug)]
-pub struct StubCommitteeService(pub Committee);
+pub struct StubCommitteeService(pub Committee, pub Committee);
 
 #[async_trait]
 impl CommitteeService for StubCommitteeService {
     fn get_epoch(&self) -> Epoch {
-        0
+        1
     }
 
     fn get_shard_count(&self) -> NonZeroU16 {
@@ -568,7 +578,7 @@ impl CommitteeService for StubCommitteeService {
     }
 
     fn previous_committee(&self) -> &Committee {
-        &self.0
+        &self.1
     }
 
     fn is_walrus_storage_node(&self, public_key: &PublicKey) -> bool {
@@ -588,7 +598,7 @@ pub struct StubContractService {}
 #[async_trait]
 impl SystemContractService for StubContractService {
     async fn invalidate_blob_id(&self, _certificate: &InvalidBlobCertificate) {}
-    async fn epoch_sync_done(&self) {}
+    async fn epoch_sync_done(&self, _node_id: ObjectID) {}
 }
 
 /// Returns a socket address that is not currently in use on the system.
@@ -607,26 +617,25 @@ fn try_unused_socket_address() -> anyhow::Result<SocketAddr> {
 }
 
 #[async_trait::async_trait]
-impl SystemEventProvider for Vec<BlobEvent> {
+impl SystemEventProvider for Vec<ContractEvent> {
     async fn events(
         &self,
         _cursor: EventStreamCursor,
     ) -> Result<Box<dyn Stream<Item = IndexedStreamElement> + Send + Sync + 'life0>, anyhow::Error>
     {
         Ok(Box::new(
-            tokio_stream::iter(self.clone().into_iter().map(|c| {
-                IndexedStreamElement::new(
-                    ContractEvent::BlobEvent(c),
-                    EventSequenceNumber::new(0, 0),
-                )
-            }))
+            tokio_stream::iter(
+                self.clone()
+                    .into_iter()
+                    .map(|c| IndexedStreamElement::new(c, EventSequenceNumber::new(0, 0))),
+            )
             .chain(tokio_stream::pending()),
         ))
     }
 }
 
 #[async_trait::async_trait]
-impl SystemEventProvider for tokio::sync::broadcast::Sender<BlobEvent> {
+impl SystemEventProvider for tokio::sync::broadcast::Sender<ContractEvent> {
     async fn events(
         &self,
         _cursor: EventStreamCursor,
@@ -635,7 +644,7 @@ impl SystemEventProvider for tokio::sync::broadcast::Sender<BlobEvent> {
         Ok(Box::new(BroadcastStream::new(self.subscribe()).map(
             |value| {
                 IndexedStreamElement::new(
-                    ContractEvent::BlobEvent(value.expect("should not return errors in test")),
+                    value.expect("should not return errors in test"),
                     EventSequenceNumber::new(0, 0),
                 )
             },
@@ -977,8 +986,8 @@ where
         self.as_ref().inner.invalidate_blob_id(certificate).await
     }
 
-    async fn epoch_sync_done(&self) {
-        self.as_ref().inner.epoch_sync_done().await
+    async fn epoch_sync_done(&self, node_id: ObjectID) {
+        self.as_ref().inner.epoch_sync_done(node_id).await
     }
 }
 
@@ -1079,16 +1088,15 @@ pub mod test_cluster {
                         wallet,
                         system_ctx.system_obj_id,
                         system_ctx.staking_obj_id,
-                        None,
                         DEFAULT_GAS_BUDGET,
                     )
                 })
                 .await?;
             contract_clients.push(client);
         }
-        let mut contract_clients_refs = contract_clients
+        let contract_clients_refs = contract_clients
             .iter_mut()
-            .map(|client| &mut client.inner)
+            .map(|client| &client.inner)
             .collect::<Vec<_>>();
 
         let amounts_to_stake = node_weights
@@ -1099,7 +1107,7 @@ pub mod test_cluster {
             &mut wallet.inner,
             &system_ctx,
             &members,
-            &mut contract_clients_refs,
+            &contract_clients_refs,
             &amounts_to_stake,
         )
         .await?;
@@ -1117,15 +1125,11 @@ pub mod test_cluster {
             wallet.as_ref().get_client().await?,
             system_ctx.system_obj_id,
             system_ctx.staking_obj_id,
-            None,
         )
         .await?;
 
         // Create a contract service for the storage nodes using a wallet in a temp dir
         // The sui test cluster handler can be dropped since we already have one
-        // TODO(#786): change cluster builder to take a list of `SuiSystemContractService`s and
-        // provide the contract clients used for staking to make sure that each node has the
-        // corresponding `StorageNodeCap`.
 
         // Set up the cluster
         let cluster_builder = cluster_builder

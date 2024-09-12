@@ -6,8 +6,6 @@
 use std::{iter, path::PathBuf, str::FromStr};
 
 use anyhow::{anyhow, Result};
-use fastcrypto::{bls12381::min_pk::BLS12381PublicKey, traits::ToFromBytes};
-use rand::{rngs::StdRng, SeedableRng as _};
 use sui_sdk::{
     rpc_types::{SuiExecutionStatus, SuiObjectDataOptions, SuiTransactionBlockEffectsAPI},
     types::base_types::ObjectID,
@@ -21,13 +19,12 @@ use sui_types::{
     TypeTag,
     SUI_FRAMEWORK_PACKAGE_ID,
 };
-use walrus_core::keys::NetworkKeyPair;
 
 use super::DEFAULT_GAS_BUDGET;
 use crate::{
     client::{ContractClient, ReadClient, SuiContractClient},
     system_setup::{create_system_and_staking_objects, publish_coin_and_system_package},
-    types::{NetworkAddress, NodeRegistrationParams},
+    types::{NodeRegistrationParams, StorageNodeCap},
 };
 
 /// Provides the default contract path for testing for the package with name `package`.
@@ -39,64 +36,6 @@ pub fn contract_path_for_testing(package: &str) -> anyhow::Result<PathBuf> {
         .unwrap()
         .join("contracts")
         .join(package))
-}
-
-/// Publishes the package with a default system object.
-///
-/// The system object has the default e2e test setup (compatible with the current tests), and
-/// returns the IDs of the system and staking objects. The default test setup currently uses a
-/// single storage node with sk = 117.
-pub async fn publish_with_default_system(
-    admin_wallet: &mut WalletContext,
-    node_wallet: WalletContext,
-) -> Result<(ObjectID, ObjectID)> {
-    // Default system config, compatible with current tests
-
-    let system_context = create_and_init_system(admin_wallet, 100, 0).await?;
-
-    // Set up node params.
-    // Pk corresponding to secret key scalar(117)
-    let network_key_pair = NetworkKeyPair::generate_with_rng(&mut StdRng::seed_from_u64(0));
-    let pubkey_bytes = [
-        149, 234, 204, 58, 220, 9, 200, 39, 89, 63, 88, 30, 142, 45, 224, 104, 191, 76, 245, 208,
-        192, 235, 41, 229, 55, 47, 13, 35, 54, 71, 136, 238, 15, 155, 235, 17, 44, 138, 126, 156,
-        47, 12, 114, 4, 51, 112, 92, 240,
-    ];
-
-    let storage_node_params = NodeRegistrationParams {
-        name: "Test0".to_owned(),
-        network_address: NetworkAddress::from_str("127.0.0.1:8080")?,
-        public_key: BLS12381PublicKey::from_bytes(&pubkey_bytes)?,
-        network_public_key: network_key_pair.public().clone(),
-        commission_rate: 0,
-        storage_price: 5,
-        write_price: 1,
-        node_capacity: 1_000_000_000_000,
-    };
-
-    // Initialize client
-    let mut contract_client = SuiContractClient::new(
-        node_wallet,
-        system_context.system_obj_id,
-        system_context.staking_obj_id,
-        None,
-        DEFAULT_GAS_BUDGET,
-    )
-    .await?;
-
-    register_committee_and_stake(
-        admin_wallet,
-        &system_context,
-        &[storage_node_params],
-        &mut [&mut contract_client],
-        &[1_000_000_000],
-    )
-    .await?;
-
-    // call vote end
-    end_epoch_zero(&contract_client).await?;
-
-    Ok((system_context.system_obj_id, system_context.staking_obj_id))
 }
 
 /// Helper struct to pass around all needed object IDs when setting up the system.
@@ -151,9 +90,9 @@ pub async fn register_committee_and_stake(
     admin_wallet: &mut WalletContext,
     system_context: &SystemContext,
     node_params: &[NodeRegistrationParams],
-    contract_clients: &mut [&mut SuiContractClient],
+    contract_clients: &[&SuiContractClient],
     amounts_to_stake: &[u64],
-) -> Result<Vec<ObjectID>> {
+) -> Result<Vec<StorageNodeCap>> {
     let receiver_addrs: Vec<_> = contract_clients
         .iter()
         .map(|client| client.address())
@@ -172,8 +111,8 @@ pub async fn register_committee_and_stake(
     .await?;
 
     // Initialize client
+    let mut storage_node_cap = Vec::new();
 
-    let mut capability_objects = Vec::new();
     for ((storage_node_params, contract_client), amount_to_stake) in node_params
         .iter()
         .zip(contract_clients)
@@ -183,16 +122,14 @@ pub async fn register_committee_and_stake(
             .register_candidate(storage_node_params)
             .await?;
 
-        capability_objects.push(node_cap.id);
-
-        contract_client.read_client.storage_node_cap_id = Some(node_cap.id);
+        storage_node_cap.push(node_cap.clone());
 
         // stake with storage nodes
         let _staked_wal = contract_client
             .stake_with_pool(*amount_to_stake, node_cap.node_id)
             .await?;
     }
-    Ok(capability_objects)
+    Ok(storage_node_cap)
 }
 
 /// Calls `voting_end`, immediately followed by `initiate_epoch_change`

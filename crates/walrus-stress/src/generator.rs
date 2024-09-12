@@ -76,7 +76,6 @@ impl LoadGenerator {
             sui_client.clone(),
             client_config.system_object,
             client_config.staking_object,
-            None,
         )
         .await?;
         for read_client in try_join_all(

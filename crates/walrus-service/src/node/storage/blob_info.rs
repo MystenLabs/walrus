@@ -12,7 +12,7 @@ use sui_types::event::EventID;
 use tracing::Level;
 use walrus_core::Epoch;
 use walrus_sdk::api::{BlobStatus, DeletableStatus};
-use walrus_sui::types::{BlobCertified, BlobEvent, BlobRegistered, InvalidBlobId};
+use walrus_sui::types::{BlobCertified, BlobRegistered, ContractEvent, InvalidBlobId};
 
 pub(super) trait Mergeable: Sized {
     type MergeOperand;
@@ -67,6 +67,7 @@ pub(crate) trait BlobInfoApi {
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
 pub(super) enum BlobInfoMergeOperand {
+    None,
     MarkMetadataStored(bool),
     MarkInvalid {
         epoch: Epoch,
@@ -171,12 +172,13 @@ impl From<&InvalidBlobId> for BlobInfoMergeOperand {
     }
 }
 
-impl From<&BlobEvent> for BlobInfoMergeOperand {
-    fn from(value: &BlobEvent) -> Self {
+impl From<&ContractEvent> for BlobInfoMergeOperand {
+    fn from(value: &ContractEvent) -> Self {
         match value {
-            BlobEvent::Registered(event) => event.into(),
-            BlobEvent::Certified(event) => event.into(),
-            BlobEvent::InvalidBlobID(event) => event.into(),
+            ContractEvent::BlobRegistered(event) => event.into(),
+            ContractEvent::BlobCertified(event) => event.into(),
+            ContractEvent::InvalidBlobID(event) => event.into(),
+            _ => BlobInfoMergeOperand::None,
         }
     }
 }
@@ -595,6 +597,7 @@ impl Mergeable for BlobInfoV1 {
                     change_info,
                 },
             ) => valid_blob_info.update_status(change_type, change_info),
+            (Self::Valid(_), BlobInfoMergeOperand::None) => (),
         }
         self
     }

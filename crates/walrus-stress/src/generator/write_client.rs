@@ -165,7 +165,6 @@ async fn new_client<G: GasRefill + 'static>(
         wallet.as_ref().get_client().await?,
         config.system_object,
         config.staking_object,
-        None,
     )
     .await?;
     let sui_contract_client = wallet.and_then(|wallet| {

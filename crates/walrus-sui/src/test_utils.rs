@@ -332,7 +332,7 @@ pub trait EventForTesting {
 impl EventForTesting for BlobRegistered {
     fn for_testing(blob_id: BlobId) -> Self {
         Self {
-            epoch: 0,
+            epoch: 1,
             blob_id,
             size: 10000,
             encoding_type: EncodingType::RedStuff,
@@ -347,7 +347,7 @@ impl EventForTesting for BlobRegistered {
 impl EventForTesting for BlobCertified {
     fn for_testing(blob_id: BlobId) -> Self {
         Self {
-            epoch: 0,
+            epoch: 1,
             blob_id,
             end_epoch: 42,
             deletable: false,
@@ -361,7 +361,7 @@ impl EventForTesting for BlobCertified {
 impl EventForTesting for InvalidBlobId {
     fn for_testing(blob_id: BlobId) -> Self {
         Self {
-            epoch: 0,
+            epoch: 1,
             blob_id,
             event_id: event_id_for_testing(),
         }

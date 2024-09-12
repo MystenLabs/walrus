@@ -221,8 +221,6 @@ pub struct SuiConfig {
     pub system_object: ObjectID,
     /// Object ID of walrus staking object.
     pub staking_object: ObjectID,
-    /// Object ID of walrus storage node capability object.
-    pub storage_node_capability_object: Option<ObjectID>,
     /// Interval with which events are polled, in milliseconds.
     #[serde_as(as = "serde_with::DurationMilliSeconds")]
     #[serde(
