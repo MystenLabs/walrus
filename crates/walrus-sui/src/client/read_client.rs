@@ -171,6 +171,17 @@ impl SuiReadClient {
             )
         })
         .await
+        // NOTE: This is a hack to filter out the Coin that is locked on testnet.
+        // Not to be used after this issue is solved.
+        .map(|iter| {
+            iter.filter(|coin| {
+                coin.coin_object_id
+                    != ObjectID::from_str(
+                        "0x00870e0e381500d55838a520961bb8c75afa0a442921a6d7f56bb14ad5850eff",
+                    )
+                    .expect("this is a valid ID")
+            })
+        })
     }
 
     /// Returns a vector of coins of provided `coin_type` whose total balance is at least `balance`.
