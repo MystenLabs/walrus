@@ -369,10 +369,10 @@ public(package) fun select_committee(self: &mut StakingInnerV1) {
 
 fun dhondt(self: &StakingInnerV1): vector<u16> {
     use std::fixed_point32::{
-        divide_u64 as fp_divide_u64,
-        create_from_rational as rational,
-        create_from_raw_value as raw,
-        get_raw_value as into_raw,
+        divide_u64 as u64_div,
+        create_from_rational as from_rational,
+        create_from_raw_value as from_raw,
+        get_raw_value as to_raw,
     };
 
     let total_stake = self.active_set.total_stake();
@@ -383,10 +383,10 @@ fun dhondt(self: &StakingInnerV1): vector<u16> {
 
     // initial price guess following Pukelsheim
     // total_stake / ((n_shards + count_nodes) / 2)
-    let mut price = rational(2 * total_stake, n_shards + (count_nodes as u64));
+    let mut price = from_rational(2 * total_stake, n_shards + (count_nodes as u64));
 
     loop {
-        let shards = stake.map_ref!(|s| fp_divide_u64(*s, price));
+        let shards = stake.map_ref!(|s| u64_div(*s, price));
         let n_shards_distributed = shards.fold!(0, |acc, x| acc + x);
 
         // if all shards are distributed, we are done
@@ -396,15 +396,15 @@ fun dhondt(self: &StakingInnerV1): vector<u16> {
             // decrease the price such that one node gets an additional shard
             // TODO: deal with equal values
             stake
-                .zip_map_ref!(&shards, |s, m| rational(*s, *m as u64 + 1))
-                .fold!(raw(0), |acc, x| acc.max(x))
+                .zip_map_ref!(&shards, |s, m| from_rational(*s, *m as u64 + 1))
+                .fold!(from_raw(0), |acc, x| acc.max(x))
         } else {
             // increase the price such that one node loses one shard
             // TODO: deal with equal values
             let max = stake
-                .zip_map_ref!(&shards, |s, m| rational(*s, *m as u64))
-                .fold!(raw(0), |acc, x| acc.min(x));
-            raw(max.into_raw() + rational(1, 10000000000).into_raw())
+                .zip_map_ref!(&shards, |s, m| from_rational(*s, *m as u64))
+                .fold!(from_raw(0), |acc, x| acc.min(x));
+            from_raw(max.to_raw() + from_rational(1, 10000000000).to_raw())
         }
     }
 }
