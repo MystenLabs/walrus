@@ -404,17 +404,6 @@ impl SuiContractClient {
 
         Ok(reserve_result_index)
     }
-
-    /// Computes the epoch for which to filter a list of objects.
-    ///
-    /// If `include_expired` is `true`, returns `0` to include all objects.
-    async fn epoch_for_filter(&self, include_expired: bool) -> Result<Epoch> {
-        Ok(if !include_expired {
-            self.read_client.current_committee().await?.epoch
-        } else {
-            0
-        })
-    }
 }
 
 impl ContractClient for SuiContractClient {
@@ -462,13 +451,12 @@ impl ContractClient for SuiContractClient {
         let price = self
             .write_price_for_encoded_length(storage.storage_size)
             .await?;
-        let asdf = self.read_client.get_object_ref(storage.id).await?.into();
         let res = self
             .move_call_and_transfer(
                 contracts::system::register_blob,
                 vec![
                     self.read_client.call_arg_from_system_obj(true).await?,
-                    asdf,
+                    self.read_client.get_object_ref(storage.id).await?.into(),
                     call_arg_pure!(&blob_id),
                     call_arg_pure!(&root_digest),
                     blob_size.into(),
@@ -730,8 +718,7 @@ impl ContractClient for SuiContractClient {
     }
 
     async fn owned_blobs(&self, include_expired: bool) -> SuiClientResult<Vec<Blob>> {
-        let epoch_limit = self.epoch_for_filter(include_expired).await?;
-
+        let current_epoch = self.read_client.current_committee().await?.epoch;
         Ok(get_owned_objects::<Blob>(
             &self.read_client.sui_client,
             self.wallet_address,
@@ -739,13 +726,12 @@ impl ContractClient for SuiContractClient {
             &[],
         )
         .await?
-        .filter(|blob| include_expired || blob.storage.end_epoch > epoch_limit)
+        .filter(|blob| include_expired || blob.storage.end_epoch > current_epoch)
         .collect())
     }
 
     async fn owned_storage(&self, include_expired: bool) -> SuiClientResult<Vec<StorageResource>> {
-        let epoch_limit = self.epoch_for_filter(include_expired).await?;
-
+        let current_epoch = self.read_client.current_committee().await?.epoch;
         Ok(get_owned_objects::<StorageResource>(
             &self.read_client.sui_client,
             self.wallet_address,
@@ -753,7 +739,7 @@ impl ContractClient for SuiContractClient {
             &[],
         )
         .await?
-        .filter(|storage| include_expired || storage.end_epoch > epoch_limit)
+        .filter(|storage| include_expired || storage.end_epoch > current_epoch)
         .collect())
     }
 
@@ -762,26 +748,17 @@ impl ContractClient for SuiContractClient {
         storage_size: u64,
         end_epoch: Epoch,
     ) -> SuiClientResult<Option<StorageResource>> {
-        let mut owned_storage = self
+        Ok(self
             .owned_storage(false)
             .await?
             .into_iter()
             .filter(|storage| {
                 storage.storage_size >= storage_size && storage.end_epoch >= end_epoch
             })
-            .collect::<Vec<_>>();
-        owned_storage.sort_unstable_by(|a, b| {
-            // Sort in descending order, so we can `pop` the best fit as the last element.
-            let size_cmp = b.storage_size.cmp(&a.storage_size);
-            // Break ties by comparing the end epoch, and take the one that is the closest to
-            // `end_epoch`. NOTE: we are already sure that these values are above the minimum.
-            if size_cmp == std::cmp::Ordering::Equal {
-                b.end_epoch.cmp(&a.end_epoch)
-            } else {
-                size_cmp
-            }
-        });
-        Ok(owned_storage.pop())
+            // Pick the smallest storage size. Break ties by comparing the end epoch, and take the
+            // one that is the closest to `end_epoch`. NOTE: we are already sure that these values
+            // are above the minimum.
+            .min_by_key(|a| (a.storage_size, a.end_epoch)))
     }
 }
 
