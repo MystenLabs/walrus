@@ -57,7 +57,8 @@ impl WriteClient {
         let blob_id = self
             .client
             .as_ref()
-            .reserve_and_store_blob(blob, 1, true)
+            // TODO(giac): add also some deletable blobs in the mix (#800).
+            .reserve_and_store_blob(blob, 1, true, false)
             .await?
             .blob_id()
             .to_owned();

@@ -119,12 +119,16 @@ pub(super) async fn get_blob<T: Send + Sync>(
 )]
 pub(super) async fn put_blob<T: ContractClient>(
     State(client): State<Arc<Client<T>>>,
-    Query(PublisherQuery { epochs, force }): Query<PublisherQuery>,
+    Query(PublisherQuery {
+        epochs,
+        force,
+        deletable,
+    }): Query<PublisherQuery>,
     blob: Bytes,
 ) -> Response {
     tracing::debug!("starting to store received blob");
     let mut response = match client
-        .reserve_and_store_blob(&blob[..], epochs, force)
+        .reserve_and_store_blob(&blob[..], epochs, force, deletable)
         .await
     {
         Ok(result) => {
@@ -169,6 +173,8 @@ pub(super) struct PublisherQuery {
     epochs: EpochCount,
     #[serde(default)]
     force: bool,
+    #[serde(default)]
+    deletable: bool,
 }
 
 pub(super) fn default_epochs() -> EpochCount {

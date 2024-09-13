@@ -1,13 +1,14 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::io::stdout;
+use std::{io::stdout, path::PathBuf};
 
 use anyhow::Result;
 use colored::Colorize;
 use indoc::printdoc;
 use prettytable::{format, row, Table};
 use serde::Serialize;
+use walrus_core::BlobId;
 use walrus_sdk::api::{BlobStatus, DeletableStatus};
 use walrus_sui::types::Blob;
 
@@ -24,6 +25,7 @@ use crate::client::{
         BlobIdConversionOutput,
         BlobIdOutput,
         BlobStatusOutput,
+        DeleteOutput,
         DryRunOutput,
         ExampleBlobInfo,
         InfoDevOutput,
@@ -71,15 +73,17 @@ impl CliOutput for BlobStoreResult {
                 blob_object,
                 encoded_size,
                 cost,
+                deletable,
             } => {
                 println!(
-                    "{} Blob stored successfully.\n\
+                    "{} {} blob stored successfully.\n\
                     Blob ID: {}\n\
                     Unencoded size: {}\n\
                     Encoded size (including metadata): {}\n\
                     Sui object ID: {}\n\
                     Cost (excluding gas): {}",
                     success(),
+                    if *deletable { "Deletable" } else { "Permanent" },
                     blob_object.blob_id,
                     HumanReadableBytes(blob_object.size),
                     HumanReadableBytes(*encoded_size),
@@ -144,11 +148,7 @@ impl CliOutput for DryRunOutput {
 
 impl CliOutput for BlobStatusOutput {
     fn print_cli_output(&self) {
-        let blob_str = if let Some(file) = self.file.clone() {
-            format!("{} (file: {})", self.blob_id, file.display())
-        } else {
-            format!("{}", self.blob_id)
-        };
+        let blob_str = blob_and_file_str(&self.blob_id, self.file.clone());
         match self.status {
             BlobStatus::Nonexistent => println!("Blob ID {blob_str} is not stored on Walrus."),
             BlobStatus::Deletable(DeletableStatus {
@@ -332,6 +332,7 @@ impl CliOutput for Vec<Blob> {
             b->"Blob ID",
             bc->"Unencoded size",
             bc->"Certified?",
+            bc->"Deletable?",
             bc->"Exp. epoch",
             b->"Object ID",
         ]);
@@ -341,11 +342,37 @@ impl CliOutput for Vec<Blob> {
                 blob.blob_id,
                 c->HumanReadableBytes(blob.size),
                 c->blob.certified_epoch.is_some(),
+                c->blob.deletable,
                 c->blob.storage.end_epoch,
                 blob.id,
             ]);
         }
         table.printstd();
+    }
+}
+
+impl CliOutput for DeleteOutput {
+    fn print_cli_output(&self) {
+        let blob_str = if let Some(blob_id) = self.blob_id {
+            blob_and_file_str(&blob_id, self.file.clone())
+        } else if let Some(object_id) = self.object_id {
+            format!("(object ID: {})", object_id)
+        } else {
+            unreachable!("either file, blob ID or object ID must be provided")
+        };
+
+        if self.deleted_blobs.is_empty() {
+            println!(
+                "{} No objects were deleted for the given blob {blob_str}.",
+                success()
+            );
+        } else {
+            println!(
+                "{} The following objects were deleted for the given blob {blob_str}:",
+                success()
+            );
+            self.deleted_blobs.print_cli_output();
+        }
     }
 }
 
@@ -362,4 +389,12 @@ fn default_table_format() -> format::TableFormat {
         )
         .padding(1, 1)
         .build()
+}
+
+fn blob_and_file_str(blob_id: &BlobId, file: Option<PathBuf>) -> String {
+    if let Some(file) = file {
+        format!("{} (file: {})", blob_id, file.display())
+    } else {
+        format!("{}", blob_id)
+    }
 }

@@ -27,7 +27,7 @@ async fn simtest_walrus_basic_determinism() {
         ..
     } = client
         .as_ref()
-        .reserve_and_store_blob(&blob, 1, true)
+        .reserve_and_store_blob(&blob, 1, true, false)
         .await
         .unwrap()
     else {

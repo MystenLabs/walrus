@@ -9,8 +9,8 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use serde_with::{base64::Base64, serde_as, DisplayFromStr};
-use sui_types::event::EventID;
+use serde_with::{base64::Base64, serde_as, DisplayFromStr, NoneAsEmptyString};
+use sui_types::{base_types::ObjectID, event::EventID};
 use utoipa::ToSchema;
 use walrus_core::{
     bft,
@@ -63,6 +63,8 @@ pub enum BlobStoreResult {
         encoded_size: u64,
         /// The storage cost, excluding gas.
         cost: u64,
+        /// Whether the blob is deletable.
+        deletable: bool,
     },
     /// The blob is known to Walrus but was marked as invalid.
     ///
@@ -95,7 +97,7 @@ impl BlobStoreResult {
 #[serde_as]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ReadOutput {
+pub(crate) struct ReadOutput {
     #[serde(skip_serializing_if = "std::option::Option::is_none")]
     pub(crate) out: Option<PathBuf>,
     #[serde_as(as = "DisplayFromStr")]
@@ -119,7 +121,7 @@ impl ReadOutput {
 #[serde_as]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct BlobIdOutput {
+pub(crate) struct BlobIdOutput {
     #[serde_as(as = "DisplayFromStr")]
     pub(crate) blob_id: BlobId,
     pub(crate) file: PathBuf,
@@ -141,7 +143,7 @@ impl BlobIdOutput {
 #[serde_as]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct BlobIdConversionOutput(#[serde_as(as = "DisplayFromStr")] pub BlobId);
+pub(crate) struct BlobIdConversionOutput(#[serde_as(as = "DisplayFromStr")] pub BlobId);
 
 impl From<BlobIdDecimal> for BlobIdConversionOutput {
     fn from(value: BlobIdDecimal) -> Self {
@@ -153,7 +155,7 @@ impl From<BlobIdDecimal> for BlobIdConversionOutput {
 #[serde_as]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DryRunOutput {
+pub(crate) struct DryRunOutput {
     /// The blob ID.
     #[serde_as(as = "DisplayFromStr")]
     pub blob_id: BlobId,
@@ -169,7 +171,7 @@ pub struct DryRunOutput {
 #[serde_as]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct BlobStatusOutput {
+pub(crate) struct BlobStatusOutput {
     /// The blob ID.
     #[serde_as(as = "DisplayFromStr")]
     pub blob_id: BlobId,
@@ -184,7 +186,7 @@ pub struct BlobStatusOutput {
 #[serde_as]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct InfoOutput {
+pub(crate) struct InfoOutput {
     pub(crate) current_epoch: Epoch,
     pub(crate) n_shards: NonZeroU16,
     pub(crate) n_nodes: usize,
@@ -360,5 +362,35 @@ impl InfoOutput {
             example_blobs,
             dev_info,
         })
+    }
+}
+
+#[serde_as]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DeleteOutput {
+    #[serde(skip_serializing_if = "std::option::Option::is_none")]
+    #[serde_as(as = "NoneAsEmptyString")]
+    pub(crate) blob_id: Option<BlobId>,
+    #[serde(skip_serializing_if = "std::option::Option::is_none")]
+    pub(crate) file: Option<PathBuf>,
+    #[serde(skip_serializing_if = "std::option::Option::is_none")]
+    pub(crate) object_id: Option<ObjectID>,
+    pub(crate) deleted_blobs: Vec<Blob>,
+}
+
+impl DeleteOutput {
+    pub(crate) fn new(
+        blob_id: Option<BlobId>,
+        file: Option<PathBuf>,
+        object_id: Option<ObjectID>,
+        deleted_blobs: Vec<Blob>,
+    ) -> Self {
+        Self {
+            blob_id,
+            file,
+            object_id,
+            deleted_blobs,
+        }
     }
 }

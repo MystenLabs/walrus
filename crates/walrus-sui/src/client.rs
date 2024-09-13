@@ -202,6 +202,12 @@ pub trait ContractClient: Send + Sync {
     fn initiate_epoch_change(&self) -> impl Future<Output = SuiClientResult<()>> + Send;
 
     //fn epoch_change_done(&self, ...) -> impl Future<Output = SuiClientResult<()>> + Send;
+
+    /// Deletes the owned blob with the specified Sui object ID, returning the storage resource.
+    fn delete_blob(
+        &self,
+        blob_object_id: ObjectID,
+    ) -> impl Future<Output = SuiClientResult<()>> + Send;
 }
 
 /// Client implementation for interacting with the Walrus smart contracts.
@@ -759,6 +765,21 @@ impl ContractClient for SuiContractClient {
             // one that is the closest to `end_epoch`. NOTE: we are already sure that these values
             // are above the minimum.
             .min_by_key(|a| (a.storage_size, a.end_epoch)))
+    }
+
+    async fn delete_blob(&self, blob_object_id: ObjectID) -> SuiClientResult<()> {
+        self.move_call_and_transfer(
+            contracts::system::delete_blob,
+            vec![
+                self.read_client.call_arg_from_system_obj(true).await?,
+                self.read_client
+                    .get_object_ref(blob_object_id)
+                    .await?
+                    .into(),
+            ],
+        )
+        .await?;
+        Ok(())
     }
 }
 

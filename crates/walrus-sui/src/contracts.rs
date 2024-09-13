@@ -195,6 +195,7 @@ pub mod system {
     contract_ident!(fn system::register_blob, 1);
     contract_ident!(fn system::certify_blob);
     contract_ident!(fn system::invalidate_blob_id);
+    contract_ident!(fn system::delete_blob, 1);
 }
 
 /// Module for tags corresponding to the Move module `system_state_inner`.

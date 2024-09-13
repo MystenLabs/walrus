@@ -18,7 +18,15 @@ use walrus_sui::{
     utils::storage_price_for_encoded_length,
 };
 
-use super::args::{CliCommands, DaemonArgs, DaemonCommands, FileOrBlobId, PublisherArgs, RpcArg};
+use super::args::{
+    CliCommands,
+    DaemonArgs,
+    DaemonCommands,
+    FileOrBlobId,
+    FileOrBlobIdOrObjectId,
+    PublisherArgs,
+    RpcArg,
+};
 use crate::{
     client::{
         cli::{
@@ -28,6 +36,7 @@ use crate::{
             load_configuration,
             load_wallet_context,
             read_blob_from_file,
+            success,
             BlobIdDecimal,
             CliOutput,
         },
@@ -35,6 +44,7 @@ use crate::{
             BlobIdConversionOutput,
             BlobIdOutput,
             BlobStatusOutput,
+            DeleteOutput,
             DryRunOutput,
             InfoOutput,
             ReadOutput,
@@ -102,7 +112,8 @@ impl ClientCommandRunner {
                 epochs,
                 dry_run,
                 force,
-            } => self.store(file, epochs, dry_run, force).await,
+                deletable,
+            } => self.store(file, epochs, dry_run, force, deletable).await,
 
             CliCommands::BlobStatus {
                 file_or_blob_id,
@@ -124,6 +135,8 @@ impl ClientCommandRunner {
             CliCommands::ConvertBlobId { blob_id_decimal } => self.convert_blob_id(blob_id_decimal),
 
             CliCommands::ListBlobs { include_expired } => self.list_blobs(include_expired).await,
+
+            CliCommands::Delete { target } => self.delete(target).await,
         }
     }
 
@@ -187,6 +200,7 @@ impl ClientCommandRunner {
         epochs: EpochCount,
         force: bool,
         dry_run: bool,
+        deletable: bool,
     ) -> Result<()> {
         let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
 
@@ -218,7 +232,7 @@ impl ClientCommandRunner {
         } else {
             tracing::info!("Storing file {} as blob on Walrus", file.display());
             let result = client
-                .reserve_and_store_blob(&read_blob_from_file(&file)?, epochs, force)
+                .reserve_and_store_blob(&read_blob_from_file(&file)?, epochs, force, deletable)
                 .await?;
             result.print_output(self.json)
         }
@@ -374,4 +388,64 @@ impl ClientCommandRunner {
     pub(crate) fn convert_blob_id(self, blob_id_decimal: BlobIdDecimal) -> Result<()> {
         BlobIdConversionOutput::from(blob_id_decimal).print_output(self.json)
     }
+
+    pub(crate) async fn delete(self, target: FileOrBlobIdOrObjectId) -> Result<()> {
+        // Check that the target is valid.
+        target.exactly_one_is_some()?;
+
+        let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
+        let file = target.file.clone();
+        let object_id = target.object_id;
+
+        let (blob_id, deleted) =
+            if let Some(blob_id) = target.get_or_compute_blob_id(client.encoding_config())? {
+                let to_delete = client
+                    .deletable_blobs_by_id(&blob_id)
+                    .await?
+                    .collect::<Vec<_>>();
+
+                if !self.json {
+                    println!(
+                        "The following blobs with blob ID {} are deletable:",
+                        blob_id
+                    );
+                    to_delete.print_output(self.json)?;
+                    if !ask_for_confirmation()? {
+                        println!("{} Aborting. No blobs were deleted.", success());
+                        return Ok(());
+                    }
+                    println!("Deleting blobs...");
+                }
+
+                for blob in to_delete.iter() {
+                    client.delete_owned_blob_by_object(blob.id).await?;
+                }
+
+                (Some(blob_id), to_delete)
+            } else if let Some(object_id) = object_id {
+                if let Some(to_delete) = client
+                    .sui_client()
+                    .owned_blobs(false)
+                    .await?
+                    .into_iter()
+                    .find(|blob| blob.id == object_id)
+                {
+                    client.delete_owned_blob_by_object(object_id).await?;
+                    (Some(to_delete.blob_id), vec![to_delete])
+                } else {
+                    (None, vec![])
+                }
+            } else {
+                unreachable!("we checked that either file, blob ID or object ID are be provided");
+            };
+
+        DeleteOutput::new(blob_id, file, object_id, deleted).print_output(self.json)
+    }
+}
+
+pub fn ask_for_confirmation() -> Result<bool> {
+    println!("Do you want to proceed? [y/N]");
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input)?;
+    Ok(input.trim().to_lowercase().starts_with('y'))
 }

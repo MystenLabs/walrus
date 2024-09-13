@@ -9,6 +9,7 @@ use anyhow::{anyhow, Result};
 use clap::{Args, Parser, Subcommand};
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
+use sui_types::base_types::ObjectID;
 use walrus_core::{encoding::EncodingConfig, BlobId, EpochCount};
 
 use super::{parse_blob_id, read_blob_from_file, BlobIdDecimal, HumanReadableBytes};
@@ -162,6 +163,12 @@ pub enum CliCommands {
         #[clap(long, action)]
         #[serde(default)]
         force: bool,
+        /// Mark the blob as deletable.
+        ///
+        /// Deletable blobs can be removed from Walrus before their expiration time.
+        #[clap(long, action)]
+        #[serde(default)]
+        deletable: bool,
     },
     /// Read a blob from Walrus, given the blob ID.
     Read {
@@ -243,6 +250,15 @@ pub enum CliCommands {
         #[serde(default)]
         /// The output list of blobs will include expired blobs.
         include_expired: bool,
+    },
+    /// Delete a blob from Walrus.
+    ///
+    /// This command is only available for blobs that are deletable.
+    Delete {
+        /// The filename, or the blob ID, or the object ID of the blob to delete.
+        #[clap(flatten)]
+        #[serde(flatten)]
+        target: FileOrBlobIdOrObjectId,
     },
 }
 
@@ -403,6 +419,77 @@ impl FileOrBlobId {
     }
 }
 
+#[serde_as]
+#[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+#[group(required = true, multiple = false)]
+pub struct FileOrBlobIdOrObjectId {
+    /// The file containing the blob to be deleted.
+    ///
+    /// This is equivalent to calling `blob-id` on the file, and then deleting with `--blob-id`.
+    #[clap(short, long)]
+    #[serde(default)]
+    pub(crate) file: Option<PathBuf>,
+    /// The blob ID to be deleted.
+    ///
+    /// This command deletes _all_ owned blob objects matching the provided blob ID.
+    #[clap(short, long, allow_hyphen_values = true, value_parser = parse_blob_id)]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[serde(default)]
+    pub(crate) blob_id: Option<BlobId>,
+    /// The object ID of the blob object to be deleted.
+    ///
+    /// This command deletes only the blob object with the given object ID.
+    #[clap(short, long, allow_hyphen_values = true, value_parser = parse_blob_id)]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[serde(default)]
+    pub(crate) object_id: Option<ObjectID>,
+}
+
+impl FileOrBlobIdOrObjectId {
+    pub(crate) fn get_or_compute_blob_id(
+        &self,
+        encoding_config: &EncodingConfig,
+    ) -> Result<Option<BlobId>> {
+        match self {
+            FileOrBlobIdOrObjectId {
+                blob_id: Some(blob_id),
+                ..
+            } => Ok(Some(*blob_id)),
+            FileOrBlobIdOrObjectId {
+                file: Some(file), ..
+            } => {
+                tracing::debug!(
+                    file = %file.display(),
+                    "checking status of blob read from the filesystem"
+                );
+                Ok(Some(
+                    *encoding_config
+                        .get_blob_encoder(&read_blob_from_file(file)?)?
+                        .compute_metadata()
+                        .blob_id(),
+                ))
+            }
+            // This case is required for JSON mode where we don't have the clap checking.
+            _ => Ok(None),
+        }
+    }
+
+    // Checks that the file, blob ID, and object ID are mutually exclusive.
+    pub(crate) fn exactly_one_is_some(&self) -> Result<()> {
+        match (
+            self.file.is_some(),
+            self.blob_id.is_some(),
+            self.object_id.is_some(),
+        ) {
+            (true, false, false) | (false, true, false) | (false, false, true) => Ok(()),
+            _ => Err(anyhow!(
+                "exactly one of `file`, `blob-id`, or `object-id` must be specified"
+            )),
+        }
+    }
+}
+
 mod default {
     use std::{net::SocketAddr, time::Duration};
 
@@ -468,6 +555,7 @@ mod tests {
             epochs: 1,
             dry_run: false,
             force: false,
+            deletable: false,
         })
     }
 

@@ -110,7 +110,7 @@ async fn run_store_and_read_with_crash_failures(
         ..
     } = client
         .as_ref()
-        .reserve_and_store_blob(&blob, 1, true)
+        .reserve_and_store_blob(&blob, 1, true, false)
         .await?
     else {
         panic!("expect newly stored blob")
@@ -269,7 +269,7 @@ async fn test_store_with_existing_blob_resource(
     // Now ask the client to store again.
     let blob_store = client
         .inner
-        .reserve_and_store_blob(&blob, epochs_ahead_required, false)
+        .reserve_and_store_blob(&blob, epochs_ahead_required, false, false)
         .await?;
 
     if let BlobStoreResult::NewlyCreated { blob_object, .. } = blob_store {
@@ -334,7 +334,7 @@ async fn test_store_with_existing_storage_resource(
 
     let blob_store = client
         .inner
-        .reserve_and_store_blob(&blob, epochs_ahead_required, false)
+        .reserve_and_store_blob(&blob, epochs_ahead_required, false, false)
         .await?;
 
     if let BlobStoreResult::NewlyCreated { blob_object, .. } = blob_store {
@@ -343,6 +343,55 @@ async fn test_store_with_existing_storage_resource(
     } else {
         panic!("the client should be able to store the blob")
     };
+
+    Ok(())
+}
+
+async_param_test! {
+    test_delete_blob -> anyhow::Result<()> : [
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] no_delete: (0),
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] one_delete: (1),
+        #[ignore = "ignore E2E tests by default"] #[tokio::test] multi_delete: (2),
+    ]
+}
+/// Tests blob deletion.
+async fn test_delete_blob(blobs_to_create: u32) -> anyhow::Result<()> {
+    let _ = tracing_subscriber::fmt::try_init();
+    let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
+    let blob = walrus_test_utils::random_data(31415);
+    let (_, metadata) = client
+        .as_ref()
+        .encoding_config()
+        .get_blob_encoder(&blob)?
+        .encode_with_metadata();
+    let blob_id = BlobId::from_sliver_pair_metadata(metadata.metadata());
+
+    // Store the blob multiple times, using separate end times to obtain multiple blob objects with
+    // the same blob ID.
+    for idx in 1..blobs_to_create + 1 {
+        client
+            .as_ref()
+            .reserve_and_store_blob(&blob, idx, true, true)
+            .await?;
+    }
+
+    // Add a blob that is not deletable.
+    client
+        .as_ref()
+        .reserve_and_store_blob(&blob, 1, true, false)
+        .await?;
+
+    // Check that we have the correct number of blobs
+    let blobs = client.as_ref().sui_client().owned_blobs(false).await?;
+    assert_eq!(blobs.len(), blobs_to_create as usize + 1);
+
+    // Delete the blobs
+    let deleted = client.as_ref().delete_owned_blob(&blob_id).await?;
+    assert_eq!(deleted, blobs_to_create as usize);
+
+    // Only one blob should remain: The non-deletable one.
+    let blobs = client.as_ref().sui_client().owned_blobs(false).await?;
+    assert_eq!(blobs.len(), 1);
 
     Ok(())
 }

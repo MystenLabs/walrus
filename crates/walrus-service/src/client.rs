@@ -14,6 +14,7 @@ use fastcrypto::{bls12381::min_pk::BLS12381AggregateSignature, traits::Aggregate
 use futures::Future;
 use rand::{seq::SliceRandom, thread_rng};
 use reqwest::Client as ReqwestClient;
+use sui_types::base_types::ObjectID;
 use tokio::{
     sync::Semaphore,
     time::{sleep, Duration},
@@ -176,6 +177,7 @@ impl<T: ContractClient> Client<T> {
         blob: &[u8],
         epochs_ahead: EpochCount,
         force: bool,
+        deletable: bool,
     ) -> ClientResult<BlobStoreResult> {
         let (pairs, metadata) = self
             .encoding_config
@@ -246,7 +248,7 @@ impl<T: ContractClient> Client<T> {
 
         // Get an appropriate registered blob object.
         let blob_sui_object = self
-            .get_blob_registration(&metadata, epochs_ahead, false)
+            .get_blob_registration(&metadata, epochs_ahead, deletable)
             .await?;
 
         // We need to wait to be sure that the storage nodes received the registration event.
@@ -273,6 +275,7 @@ impl<T: ContractClient> Client<T> {
             blob_object: blob,
             encoded_size,
             cost,
+            deletable,
         })
     }
 
@@ -357,6 +360,40 @@ impl<T: ContractClient> Client<T> {
                     && blob.storage.end_epoch >= self.committee.epoch + epochs_ahead
                     && blob.deletable == deletable
             }))
+    }
+
+    // Blob deletion
+
+    /// Returns an iterator over the list of lobs that can be deleted, based on the Blob ID.
+    pub async fn deletable_blobs_by_id<'a>(
+        &self,
+        blob_id: &'a BlobId,
+    ) -> ClientResult<impl Iterator<Item = Blob> + 'a> {
+        Ok(self
+            .sui_client
+            .owned_blobs(false)
+            .await?
+            .into_iter()
+            // TODO(giac): do we have to filter non-registered blobs as well? Leaning towards not.
+            .filter(|blob| blob.blob_id == *blob_id && blob.deletable))
+    }
+
+    #[tracing::instrument(skip_all, fields(blob_id))]
+    /// Deletes all owned blobs that match the provided Blob ID.
+    pub async fn delete_owned_blob(&self, blob_id: &BlobId) -> ClientResult<usize> {
+        let mut deleted = 0;
+        for blob in self.deletable_blobs_by_id(blob_id).await? {
+            self.delete_owned_blob_by_object(blob.id).await?;
+            deleted += 1;
+        }
+        Ok(deleted)
+    }
+
+    /// Deletes the owned _deletable_ blob on Walrus, specified by Sui Object ID.
+    pub async fn delete_owned_blob_by_object(&self, blob_object_id: ObjectID) -> ClientResult<()> {
+        tracing::debug!(%blob_object_id, "deleting blob object");
+        self.sui_client.delete_blob(blob_object_id).await?;
+        Ok(())
     }
 }
 
