@@ -19,12 +19,7 @@ use anyhow::{Context as _, Result};
 use futures::{future::FusedFuture, FutureExt};
 use pin_project::pin_project;
 use prometheus::{HistogramVec, Registry};
-use rand::{
-    distributions::{DistIter, Uniform},
-    rngs::StdRng,
-    Rng,
-    SeedableRng,
-};
+use rand::{rngs::StdRng, Rng, SeedableRng};
 use serde::{
     de::{DeserializeOwned, Error},
     Deserialize,
@@ -87,6 +82,51 @@ pub(crate) trait BackoffStrategy {
     fn next_delay(&mut self) -> Option<Duration>;
 }
 
+#[derive(Debug)]
+pub(crate) struct ExponentialBackoffState {
+    min_backoff: Duration,
+    max_backoff: Duration,
+    sequence_index: u32,
+    max_retries: Option<u32>,
+}
+
+impl ExponentialBackoffState {
+    /// Creates new state with the provided minimum and maximum bounds.
+    ///
+    /// If `max_retries` is `None`, this backoff strategy will keep retrying indefinitely.
+    pub fn new(min_backoff: Duration, max_backoff: Duration, max_retries: Option<u32>) -> Self {
+        Self {
+            min_backoff,
+            max_backoff,
+            sequence_index: 0,
+            max_retries,
+        }
+    }
+
+    pub fn next_delay<R: Rng + ?Sized>(&mut self, rng: &mut R) -> Option<Duration> {
+        if let Some(max_retries) = self.max_retries {
+            if self.sequence_index >= max_retries {
+                return None;
+            }
+        }
+
+        let next_delay_value = self
+            .min_backoff
+            .saturating_mul(Saturating(2u32).pow(self.sequence_index).0)
+            .saturating_add(Self::random_offset(rng))
+            .min(self.max_backoff);
+
+        self.sequence_index = self.sequence_index.saturating_add(1);
+
+        Some(next_delay_value)
+    }
+
+    fn random_offset<R: Rng + ?Sized>(rng: &mut R) -> Duration {
+        let millis = rng.gen_range(0..=ExponentialBackoff::MAX_RAND_OFFSET_MS);
+        Duration::from_millis(millis)
+    }
+}
+
 /// An iterator over exponential wait durations.
 ///
 /// Returns the wait duration for an exponential backoff with a multiplicative factor of 2, and
@@ -96,11 +136,8 @@ pub(crate) trait BackoffStrategy {
 /// sequence `min(max_backoff, 2^i * min_backoff + rand_i)`.
 #[derive(Debug)]
 pub(crate) struct ExponentialBackoff<R> {
-    min_backoff: Duration,
-    max_backoff: Duration,
-    sequence_index: u32,
-    max_retries: Option<u32>,
-    rand_offsets: DistIter<Uniform<u64>, R, u64>,
+    state: ExponentialBackoffState,
+    rng: R,
 }
 
 impl ExponentialBackoff<StdRng> {
@@ -137,44 +174,14 @@ impl<R: Rng> ExponentialBackoff<R> {
         max_retries: Option<u32>,
         rng: R,
     ) -> Self {
-        let uniform = Uniform::new_inclusive(0, ExponentialBackoff::MAX_RAND_OFFSET_MS);
-        let rand_offsets = rng.sample_iter(uniform);
-
         Self {
-            min_backoff,
-            max_backoff,
-            sequence_index: 0,
-            max_retries,
-            rand_offsets,
+            state: ExponentialBackoffState::new(min_backoff, max_backoff, max_retries),
+            rng,
         }
     }
 
-    fn random_offset(&mut self) -> Duration {
-        let millis = self
-            .rand_offsets
-            .next()
-            .expect("infinite sequence of random values");
-        Duration::from_millis(millis)
-    }
-}
-
-impl<R: Rng> BackoffStrategy for ExponentialBackoff<R> {
     fn next_delay(&mut self) -> Option<Duration> {
-        if let Some(max_retries) = self.max_retries {
-            if self.sequence_index >= max_retries {
-                return None;
-            }
-        }
-
-        let next_delay_value = self
-            .min_backoff
-            .saturating_mul(Saturating(2u32).pow(self.sequence_index).0)
-            .saturating_add(self.random_offset())
-            .min(self.max_backoff);
-
-        self.sequence_index = self.sequence_index.saturating_add(1);
-
-        Some(next_delay_value)
+        self.state.next_delay(&mut self.rng)
     }
 }
 
@@ -183,6 +190,15 @@ impl<R: Rng> Iterator for ExponentialBackoff<R> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.next_delay()
+    }
+}
+
+impl<I> BackoffStrategy for I
+where
+    I: Iterator<Item = Duration>,
+{
+    fn next_delay(&mut self) -> Option<Duration> {
+        self.next()
     }
 }
 
