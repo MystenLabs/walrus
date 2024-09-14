@@ -137,6 +137,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 mod commands {
+    use testbed::ADMIN_CONFIG_PREFIX;
     use walrus_service::{
         testbed::{
             create_client_config,
@@ -147,6 +148,7 @@ mod commands {
         },
         utils::LoadConfig as _,
     };
+    use walrus_sui::utils::load_wallet;
 
     use super::*;
 
@@ -231,12 +233,17 @@ mod commands {
             tokio::time::sleep(cooldown.into()).await;
         }
 
+        let mut admin_wallet = load_wallet(Some(
+            working_dir.join(&format!("{ADMIN_CONFIG_PREFIX}.yaml")),
+        ))
+        .expect("Should be able to load admin wallet");
+
         let client_config = create_client_config(
-            testbed_config.system_object,
-            testbed_config.staking_object,
+            &testbed_config.system_ctx,
             working_dir.as_path(),
             testbed_config.sui_network.clone(),
             set_config_dir.as_deref(),
+            &mut admin_wallet,
         )
         .await?;
 
@@ -256,6 +263,7 @@ mod commands {
             set_config_dir.as_deref(),
             set_db_path.as_deref(),
             faucet_cooldown.map(|duration| duration.into()),
+            &mut admin_wallet,
         )
         .await?;
         for (i, storage_node_config) in storage_node_configs.into_iter().enumerate() {

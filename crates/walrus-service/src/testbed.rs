@@ -14,19 +14,28 @@ use std::{
 };
 
 use anyhow::{anyhow, ensure, Context};
-use fastcrypto::traits::KeyPair;
+use futures::future::join_all;
 use rand::{rngs::StdRng, SeedableRng};
 use serde::{Deserialize, Serialize};
 use serde_with::base64::Base64;
 use sui_sdk::wallet_context::WalletContext;
-use sui_types::base_types::ObjectID;
 use tracing::instrument;
 use walrus_core::{
     keys::{NetworkKeyPair, ProtocolKeyPair},
     ShardIndex,
 };
 use walrus_sui::{
-    test_utils::system_setup::create_and_init_system,
+    client::SuiContractClient,
+    test_utils::{
+        system_setup::{
+            create_and_init_system,
+            end_epoch_zero,
+            mint_wal_to_addresses,
+            register_committee_and_stake,
+            SystemContext,
+        },
+        DEFAULT_GAS_BUDGET,
+    },
     types::{NetworkAddress, NodeRegistrationParams},
     utils::{create_wallet, request_sui_from_faucet, SuiNetwork},
 };
@@ -38,10 +47,15 @@ use crate::{
     test_utils,
 };
 
+/// The config file name for the admin wallet.
+pub const ADMIN_CONFIG_PREFIX: &str = "sui_admin";
+
 /// Node-specific testbed configuration.
 #[serde_with::serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TestbedNodeConfig {
+    /// Name of the storage node.
+    pub name: String,
     /// The REST API address of the node.
     pub network_address: NetworkAddress,
     /// The key of the node.
@@ -50,6 +64,30 @@ pub struct TestbedNodeConfig {
     /// The network key of the node.
     #[serde_as(as = "Base64")]
     pub network_keypair: NetworkKeyPair,
+    /// The commission rate of the storage node.
+    pub commission_rate: u64,
+    /// The vote for the storage price per unit.
+    pub storage_price: u64,
+    /// The vote for the write price per unit.
+    pub write_price: u64,
+    /// The capacity of the node that determines the vote for the capacity
+    /// after shards are assigned.
+    pub node_capacity: u64,
+}
+
+impl From<TestbedNodeConfig> for NodeRegistrationParams {
+    fn from(config: TestbedNodeConfig) -> Self {
+        NodeRegistrationParams {
+            name: config.name,
+            network_address: config.network_address,
+            public_key: config.keypair.public().clone(),
+            network_public_key: config.network_keypair.public().clone(),
+            commission_rate: config.commission_rate,
+            storage_price: config.storage_price,
+            write_price: config.write_price,
+            node_capacity: config.node_capacity,
+        }
+    }
 }
 
 /// Configuration for a Walrus testbed.
@@ -60,10 +98,8 @@ pub struct TestbedConfig {
     pub sui_network: SuiNetwork,
     /// The list of ip addresses of the storage nodes.
     pub nodes: Vec<TestbedNodeConfig>,
-    /// Object ID of walrus system object.
-    pub system_object: ObjectID,
-    /// Object ID of walrus staking object.
-    pub staking_object: ObjectID,
+    /// The objects used in the system contract.
+    pub system_ctx: SystemContext,
 }
 
 impl LoadConfig for TestbedConfig {}
@@ -219,15 +255,12 @@ pub async fn deploy_walrus_contract(
     };
 
     let mut node_configs = Vec::new();
-    let mut sui_storage_nodes = Vec::new();
 
     for (i, ((keypair, network_keypair), host)) in
         keypairs.into_iter().zip(hosts.iter().cloned()).enumerate()
     {
         let node_index = i as u16;
         let name = node_config_name_prefix(node_index, NonZeroU16::new(committee_size).unwrap());
-        let public_key = keypair.as_ref().public().clone();
-        let network_public_key = network_keypair.public().clone();
         let network_address = if collocated {
             public_rest_api_address(host, rest_api_port, Some(node_index), Some(committee_size))
         } else {
@@ -235,16 +268,10 @@ pub async fn deploy_walrus_contract(
         };
 
         node_configs.push(TestbedNodeConfig {
+            name,
             network_address: network_address.clone(),
             keypair,
             network_keypair,
-        });
-
-        sui_storage_nodes.push(NodeRegistrationParams {
-            name,
-            network_address,
-            network_public_key,
-            public_key,
             commission_rate: 0,
             storage_price,
             write_price,
@@ -257,9 +284,9 @@ pub async fn deploy_walrus_contract(
 
     // Create wallet for publishing contracts on sui and setting up system object
     let mut admin_wallet = create_wallet(
-        &working_dir.join("sui_admin.yaml"),
+        &working_dir.join(&format!("{ADMIN_CONFIG_PREFIX}.yaml")),
         sui_network.env(),
-        Some("sui_admin.keystore"),
+        Some(&format!("{ADMIN_CONFIG_PREFIX}.keystore")),
     )?;
 
     // Get coins from faucet for the wallets.
@@ -268,25 +295,22 @@ pub async fn deploy_walrus_contract(
 
     // TODO(#814): make epoch duration in test configurable. Currently hardcoded to 1 hour.
     let system_ctx = create_and_init_system(&mut admin_wallet, n_shards, 0, 3600000).await?;
-
-    // TODO(#794): Contract is published, and system&staking objects are created. However, the
-    // system currently is not moving forward due to that storage nodes are not registered.
+    println!("Contract context: {:?}", system_ctx);
 
     Ok(TestbedConfig {
         sui_network,
         nodes: node_configs,
-        system_object: system_ctx.system_obj_id,
-        staking_object: system_ctx.staking_obj_id,
+        system_ctx,
     })
 }
 
 /// Create client configurations for the testbed.
 pub async fn create_client_config(
-    system_object: ObjectID,
-    staking_object: ObjectID,
+    system_ctx: &SystemContext,
     working_dir: &Path,
     sui_network: SuiNetwork,
     set_config_dir: Option<&Path>,
+    admin_wallet: &mut WalletContext,
 ) -> anyhow::Result<client::Config> {
     // Create the working directory if it does not exist
     fs::create_dir_all(working_dir).expect("Failed to create working directory");
@@ -298,6 +322,8 @@ pub async fn create_client_config(
         sui_network.env(),
         Some("sui_client.keystore"),
     )?;
+
+    let client_address = client_wallet.active_address()?;
 
     // Get coins from faucet for the wallets.
     let sui_client = client_wallet.get_client().await?;
@@ -315,10 +341,20 @@ pub async fn create_client_config(
         client_wallet_path
     };
 
+    // Mint WAL to the client address.
+    mint_wal_to_addresses(
+        admin_wallet,
+        system_ctx.package_id,
+        system_ctx.treasury_cap,
+        &[client_address],
+        1_000_000,
+    )
+    .await?;
+
     // Create the client config.
     let client_config = client::Config {
-        system_object,
-        staking_object,
+        system_object: system_ctx.system_obj_id,
+        staking_object: system_ctx.staking_obj_id,
         wallet_config: Some(wallet_path),
         communication_config: ClientCommunicationConfig::default(),
     };
@@ -327,7 +363,8 @@ pub async fn create_client_config(
 }
 
 /// Create storage node configurations for the testbed.
-#[instrument(err)]
+#[instrument(err, skip(faucet_cooldown, admin_wallet))]
+#[allow(clippy::too_many_arguments)]
 pub async fn create_storage_node_configs(
     working_dir: &Path,
     testbed_config: TestbedConfig,
@@ -336,6 +373,7 @@ pub async fn create_storage_node_configs(
     set_config_dir: Option<&Path>,
     set_db_path: Option<&Path>,
     faucet_cooldown: Option<Duration>,
+    admin_wallet: &mut WalletContext,
 ) -> anyhow::Result<Vec<StorageNodeConfig>> {
     let nodes = testbed_config.nodes;
     // Check whether the testbed collocates the storage nodes on the same machine
@@ -378,6 +416,13 @@ pub async fn create_storage_node_configs(
         faucet_cooldown,
     )
     .await?;
+
+    let node_params = nodes
+        .clone()
+        .into_iter()
+        .map(NodeRegistrationParams::from)
+        .collect::<Vec<_>>();
+
     let rpc = wallets[0].config.get_active_env()?.rpc.clone();
     let mut storage_node_configs = Vec::new();
     for (i, (node, rest_api_address)) in nodes.into_iter().zip(rest_api_addrs).enumerate() {
@@ -401,8 +446,8 @@ pub async fn create_storage_node_configs(
 
         let sui = Some(SuiConfig {
             rpc: rpc.clone(),
-            system_object: testbed_config.system_object,
-            staking_object: testbed_config.staking_object,
+            system_object: testbed_config.system_ctx.system_obj_id,
+            staking_object: testbed_config.system_ctx.staking_obj_id,
             event_polling_interval: defaults::polling_interval(),
             wallet_config: wallet_path,
             gas_budget: defaults::gas_budget(),
@@ -423,6 +468,36 @@ pub async fn create_storage_node_configs(
             ..test_utils::storage_node_config().inner
         });
     }
+
+    let contract_clients = join_all(wallets.into_iter().map(|wallet| async {
+        SuiContractClient::new(
+            wallet,
+            testbed_config.system_ctx.system_obj_id,
+            testbed_config.system_ctx.staking_obj_id,
+            DEFAULT_GAS_BUDGET,
+        )
+        .await
+        .expect("should not fail")
+    }))
+    .await;
+    assert_eq!(node_params.len(), contract_clients.len());
+
+    let amounts_to_stake = node_params
+        .iter()
+        .map(|_| 1_000_000_000)
+        .collect::<Vec<_>>();
+
+    register_committee_and_stake(
+        admin_wallet,
+        &testbed_config.system_ctx,
+        &node_params,
+        &contract_clients.iter().collect::<Vec<_>>(),
+        &amounts_to_stake,
+    )
+    .await?;
+
+    end_epoch_zero(contract_clients.first().unwrap()).await?;
+
     Ok(storage_node_configs)
 }
 

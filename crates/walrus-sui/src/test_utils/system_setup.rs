@@ -8,6 +8,7 @@ use std::{iter, path::PathBuf, str::FromStr};
 use anyhow::{anyhow, Result};
 use fastcrypto::{bls12381::min_pk::BLS12381PublicKey, traits::ToFromBytes};
 use rand::{rngs::StdRng, SeedableRng as _};
+use serde::{Deserialize, Serialize};
 use sui_sdk::{
     rpc_types::{SuiExecutionStatus, SuiObjectDataOptions, SuiTransactionBlockEffectsAPI},
     types::base_types::ObjectID,
@@ -100,7 +101,7 @@ pub async fn publish_with_default_system(
 }
 
 /// Helper struct to pass around all needed object IDs when setting up the system.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SystemContext {
     /// The package ID.
     pub package_id: ObjectID,
@@ -214,7 +215,8 @@ pub async fn end_epoch_zero(contract_client: &SuiContractClient) -> Result<()> {
     Ok(())
 }
 
-async fn mint_wal_to_addresses(
+/// Mints WAL to the provided addresses.
+pub async fn mint_wal_to_addresses(
     admin_wallet: &mut WalletContext,
     pkg_id: ObjectID,
     treasury_cap: ObjectID,
