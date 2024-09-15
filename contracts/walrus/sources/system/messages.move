@@ -149,6 +149,12 @@ public(package) fun certify_blob_message(message: CertifiedMessage): CertifiedBl
     CertifiedBlobMessage { epoch, blob_id }
 }
 
+/// Constructs the certified blob message, note this is only
+/// used for event blobs
+public(package) fun certified_event_blob_message(epoch: u32, blob_id: u256): CertifiedBlobMessage {
+    CertifiedBlobMessage { epoch, blob_id }
+}
+
 /// Construct the certified invalid Blob ID message, note that constructing
 /// implies a certified message, that is already checked.
 public(package) fun invalid_blob_id_message(message: CertifiedMessage): CertifiedInvalidBlobId {

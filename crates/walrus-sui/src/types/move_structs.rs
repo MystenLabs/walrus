@@ -7,7 +7,7 @@ use std::{fmt::Display, num::NonZeroU16};
 
 use fastcrypto::traits::ToFromBytes;
 use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
-use sui_types::base_types::ObjectID;
+use sui_types::{base_types::ObjectID, messages_checkpoint::CheckpointSequenceNumber};
 use tracing::instrument;
 use walrus_core::{BlobId, EncodingType, Epoch, NetworkPublicKey, PublicKey, ShardIndex};
 
@@ -70,6 +70,15 @@ impl AssociatedContractStruct for Blob {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::blob::Blob;
 }
 
+/// Event blob attestation.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct EventBlobAttestation {
+    /// Last Sui checkpoint sequence number of the event blob.
+    pub checkpoint_sequence_num: CheckpointSequenceNumber,
+    /// Walrus epoch in which blob is attested.
+    pub epoch: Epoch,
+}
+
 /// Sui type for storage node.
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 pub struct StorageNode {
@@ -113,6 +122,8 @@ pub struct StorageNodeCap {
     pub node_id: ObjectID,
     /// The latest epoch in which the node sent an "epoch sync done" message to the contract.
     pub last_epoch_sync_done: Epoch,
+    /// The last event blob attestation from the storage node.
+    pub last_event_blob_attestation: Option<EventBlobAttestation>,
 }
 
 impl AssociatedContractStruct for StorageNodeCap {
@@ -214,6 +225,28 @@ impl FutureAccountingRingBuffer {
             ring_buffer: vec![],
         }
     }
+}
+
+/// Event blob.
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+pub struct EventBlob {
+    /// The blob ID.
+    // TODO(#795): Consider serialize as human readable string.
+    #[serde(serialize_with = "serialize_blob_id")]
+    pub blob_id: BlobId,
+    /// Sui checkpoint sequence number of the last event.
+    pub ending_checkpoint_sequence_number: u64,
+}
+
+/// State holding the certification of event blobs.
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+pub struct EventBlobCertificationState {
+    /// The object ID of the inner object.
+    pub id: ObjectID,
+    /// Latest certified blob
+    pub latest_certified_blob: Option<EventBlob>,
+    /// Total weight of the blobs undergoing certification.
+    pub aggregate_weight_per_blob: Vec<(BlobId, u16)>,
 }
 
 /// Sui type for staking object
@@ -389,6 +422,8 @@ pub(crate) struct SystemStateInnerV1 {
     pub write_price_per_unit_size: u64,
     /// The future accounting ring buffer to keep track of future rewards.
     pub future_accounting: FutureAccountingRingBuffer,
+    /// Event blob certification state.
+    pub event_blob_certification_state: EventBlobCertificationState,
 }
 
 impl AssociatedContractStruct for SystemStateInnerV1 {

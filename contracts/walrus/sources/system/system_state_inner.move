@@ -4,17 +4,19 @@
 #[allow(unused_variable, unused_mut_parameter, unused_field)]
 module walrus::system_state_inner;
 
-use sui::{balance::Balance, coin::Coin};
+use sui::balance::Balance;
+use sui::coin::Coin;
 use wal::wal::WAL;
-use walrus::{
-    blob::{Self, Blob},
-    bls_aggregate::{Self, BlsCommittee},
-    epoch_parameters::EpochParams,
-    events::emit_invalid_blob_id,
-    storage_accounting::{Self, FutureAccountingRingBuffer},
-    storage_node::StorageNodeCap,
-    storage_resource::{Self, Storage}
-};
+use walrus::blob::{Self, Blob};
+use walrus::bls_aggregate::{Self, BlsCommittee};
+use walrus::encoding::encoded_blob_length;
+use walrus::epoch_parameters::EpochParams;
+use walrus::event_blob::{Self, EventBlobCertificationState, new_attestation};
+use walrus::events::emit_invalid_blob_id;
+use walrus::messages;
+use walrus::storage_accounting::{Self, FutureAccountingRingBuffer};
+use walrus::storage_node::StorageNodeCap;
+use walrus::storage_resource::{Self, Storage};
 
 /// The maximum number of periods ahead we allow for storage reservations.
 /// TODO: the number here is a placeholder, and assumes an epoch is a week,
@@ -25,12 +27,14 @@ const MAX_EPOCHS_AHEAD: u32 = 104;
 const BYTES_PER_UNIT_SIZE: u64 = 1_024;
 
 // Errors
-const ENotImplemented: u64 = 0;
 const EStorageExceeded: u64 = 1;
 const EInvalidEpochsAhead: u64 = 2;
 const EInvalidIdEpoch: u64 = 3;
 const EIncorrectCommittee: u64 = 4;
 const EInvalidAccountingEpoch: u64 = 5;
+const EIncorrectAttestation: u64 = 6;
+const ERepeatedAttestation: u64 = 7;
+const ENotCommitteeMember: u64 = 8;
 
 /// The inner object that is not present in signatures and can be versioned.
 #[allow(unused_field)]
@@ -47,12 +51,18 @@ public struct SystemStateInnerV1 has key, store {
     write_price_per_unit_size: u64,
     /// Accounting ring buffer for future epochs.
     future_accounting: FutureAccountingRingBuffer,
+    /// event blob certification state
+    event_blob_certification_state: EventBlobCertificationState,
 }
 
-/// Creates an empty system state with a capacity of zero and an empty committee.
+/// Creates an empty system state with a capacity of zero and an empty
+/// committee.
 public(package) fun create_empty(ctx: &mut TxContext): SystemStateInnerV1 {
     let committee = bls_aggregate::new_bls_committee(0, vector[]);
     let future_accounting = storage_accounting::ring_new(MAX_EPOCHS_AHEAD);
+    let event_blob_certification_state = event_blob::create_with_empty_state(
+        ctx,
+    );
     let id = object::new(ctx);
     SystemStateInnerV1 {
         id,
@@ -62,19 +72,22 @@ public(package) fun create_empty(ctx: &mut TxContext): SystemStateInnerV1 {
         storage_price_per_unit_size: 0,
         write_price_per_unit_size: 0,
         future_accounting,
+        event_blob_certification_state,
     }
 }
 
 /// Update epoch to next epoch, and update the committee, price and capacity.
 ///
-/// Called by the epoch change function that connects `Staking` and `System`. Returns
+/// Called by the epoch change function that connects `Staking` and `System`.
+/// Returns
 /// the balance of the rewards from the previous epoch.
 public(package) fun advance_epoch(
     self: &mut SystemStateInnerV1,
     new_committee: BlsCommittee,
     new_epoch_params: EpochParams,
 ): Balance<WAL> {
-    // Check new committee is valid, the existence of a committee for the next epoch
+    // Check new committee is valid, the existence of a committee for the next
+    // epoch
     // is proof that the time has come to move epochs.
     let old_epoch = self.epoch();
     let new_epoch = old_epoch + 1;
@@ -92,9 +105,11 @@ public(package) fun advance_epoch(
     // Make sure that we have the correct epoch
     assert!(accounts_old_epoch.epoch() == old_epoch, EInvalidAccountingEpoch);
 
+    // Stop tracking all event blobs
+    self.event_blob_certification_state.reset();
+
     // Update storage based on the accounts data.
     self.used_capacity_size = self.used_capacity_size - accounts_old_epoch.storage_to_reclaim();
-
     accounts_old_epoch.unwrap_balance()
 }
 
@@ -116,6 +131,22 @@ public(package) fun reserve_space(
     // Pay rewards for each future epoch into the future accounting.
     self.process_storage_payments(storage_amount, 0, epochs_ahead, payment);
 
+    self.reserve_space_without_payment(storage_amount, epochs_ahead, ctx)
+}
+
+/// Allow buying a storage reservation for a given period of epochs without
+/// payment.
+/// Only to be used for event blobs.
+fun reserve_space_without_payment(
+    self: &mut SystemStateInnerV1,
+    storage_amount: u64,
+    epochs_ahead: u32,
+    ctx: &mut TxContext,
+): Storage {
+    // Check the period is within the allowed range.
+    assert!(epochs_ahead > 0, EInvalidEpochsAhead);
+    assert!(epochs_ahead <= MAX_EPOCHS_AHEAD, EInvalidEpochsAhead);
+
     // Update the storage accounting.
     self.used_capacity_size = self.used_capacity_size + storage_amount;
 
@@ -133,7 +164,8 @@ public(package) fun reserve_space(
     )
 }
 
-/// Processes invalid blob id message. Checks the certificate in the current committee and ensures
+/// Processes invalid blob id message. Checks the certificate in the current
+/// committee and ensures
 /// that the epoch is correct before emitting an event.
 public(package) fun invalidate_blob_id(
     self: &SystemStateInnerV1,
@@ -164,7 +196,8 @@ public(package) fun invalidate_blob_id(
 }
 
 /// Registers a new blob in the system.
-/// `size` is the size of the unencoded blob. The reserved space in `storage` must be at
+/// `size` is the size of the unencoded blob. The reserved space in `storage`
+/// must be at
 /// least the size of the encoded blob.
 public(package) fun register_blob(
     self: &mut SystemStateInnerV1,
@@ -194,7 +227,8 @@ public(package) fun register_blob(
     blob
 }
 
-/// Certify that a blob will be available in the storage system until the end epoch of the
+/// Certify that a blob will be available in the storage system until the end
+/// epoch of the
 /// storage associated with it.
 public(package) fun certify_blob(
     self: &SystemStateInnerV1,
@@ -230,7 +264,8 @@ public(package) fun extend_blob_with_resource(
     blob.extend_with_resource(extension, self.epoch());
 }
 
-/// Extend the period of validity of a blob by extending its contained storage resource.
+/// Extend the period of validity of a blob by extending its contained storage
+/// resource.
 public(package) fun extend_blob(
     self: &mut SystemStateInnerV1,
     blob: &mut Blob,
@@ -249,7 +284,12 @@ public(package) fun extend_blob(
 
     // Pay rewards for each future epoch into the future accounting.
     let storage_size = blob.storage().storage_size();
-    self.process_storage_payments(storage_size, start_offset, end_offset, payment);
+    self.process_storage_payments(
+        storage_size,
+        start_offset,
+        end_offset,
+        payment,
+    );
 
     // Account the space to reclaim in the future.
 
@@ -294,11 +334,100 @@ fun process_storage_payments(
 
 public(package) fun certify_event_blob(
     self: &mut SystemStateInnerV1,
-    cap: &StorageNodeCap,
+    cap: &mut StorageNodeCap,
     blob_id: u256,
+    root_hash: u256,
     size: u64,
+    encoding_type: u8,
+    ending_checkpoint_sequence_num: u64,
+    epoch: u32,
+    ctx: &mut TxContext,
 ) {
-    abort ENotImplemented
+    assert!(self.committee().contains(&cap.node_id()), ENotCommitteeMember);
+    assert!(epoch == self.epoch(), EInvalidIdEpoch);
+
+    let cap_attestion = cap.last_event_blob_attestation();
+    if (cap_attestion.is_some()) {
+        let attestation = cap_attestion.destroy_some();
+        assert!(
+            attestation.last_attested_event_blob_epoch() < self.epoch() ||
+                ending_checkpoint_sequence_num >
+                    attestation.last_attested_event_blob_checkpoint_seq_num(),
+            ERepeatedAttestation,
+        );
+        let latest_certified_checkpoint_seq_num = self
+            .event_blob_certification_state
+            .get_latest_certified_checkpoint_sequence_number();
+        if (latest_certified_checkpoint_seq_num.is_some()) {
+            let certified_checkpoint_seq_num = latest_certified_checkpoint_seq_num.destroy_some();
+            assert!(
+                attestation.last_attested_event_blob_epoch() < self.epoch() ||
+                    attestation.last_attested_event_blob_checkpoint_seq_num()
+                        <= certified_checkpoint_seq_num,
+                EIncorrectAttestation,
+            );
+        } else {
+            assert!(
+                attestation.last_attested_event_blob_epoch() < self.epoch(),
+                EIncorrectAttestation,
+            );
+        }
+    };
+
+    let attestation = new_attestation(ending_checkpoint_sequence_num, epoch);
+    cap.set_last_event_blob_attestation(attestation);
+
+    let blob_certified = self
+        .event_blob_certification_state
+        .is_blob_already_certified(
+            ending_checkpoint_sequence_num,
+        );
+    if (blob_certified) {
+        return
+    };
+
+    self.event_blob_certification_state.start_tracking_blob(blob_id);
+    let weight = self.committee().get_member_weight(&cap.node_id());
+    let agg_weight = self.event_blob_certification_state.update_aggregate_weight(blob_id, weight);
+    let certified = self.committee().verify_quorum(agg_weight);
+    if (!certified) {
+        return
+    };
+
+    let num_shards = self.n_shards();
+    let storage = self.reserve_space_without_payment(
+        encoded_blob_length(
+            size,
+            encoding_type,
+            num_shards,
+        ),
+        MAX_EPOCHS_AHEAD,
+        ctx,
+    );
+    let mut blob = blob::new(
+        storage,
+        blob_id,
+        root_hash,
+        size,
+        encoding_type,
+        false,
+        self.epoch(),
+        self.n_shards(),
+        ctx,
+    );
+    let certified_blob_msg = messages::certified_event_blob_message(
+        self.epoch(),
+        blob_id,
+    );
+    blob.certify_with_certified_msg(self.epoch(), certified_blob_msg);
+    self
+        .event_blob_certification_state
+        .update_latest_certified_event_blob(
+            ending_checkpoint_sequence_num,
+            blob_id,
+        );
+    self.event_blob_certification_state.stop_tracking_blob(blob_id);
+    blob.burn();
 }
 
 // === Accessors ===
@@ -321,6 +450,11 @@ public(package) fun used_capacity_size(self: &SystemStateInnerV1): u64 {
 /// An accessor for the current committee.
 public(package) fun committee(self: &SystemStateInnerV1): &BlsCommittee {
     &self.committee
+}
+
+#[test_only]
+public(package) fun committee_mut(self: &mut SystemStateInnerV1): &mut BlsCommittee {
+    &mut self.committee
 }
 
 public(package) fun n_shards(self: &SystemStateInnerV1): u16 {
@@ -354,5 +488,37 @@ public(package) fun new_for_testing(): SystemStateInnerV1 {
         storage_price_per_unit_size: 5,
         write_price_per_unit_size: 1,
         future_accounting: storage_accounting::ring_new(MAX_EPOCHS_AHEAD),
+        event_blob_certification_state: event_blob::create_with_empty_state(
+            ctx,
+        ),
     }
+}
+
+#[test_only]
+public(package) fun new_for_testing_with_multiple_members(ctx: &mut TxContext): SystemStateInnerV1 {
+    let committee = test_utils::new_bls_committee_with_multiple_members_for_testing(
+        0,
+        ctx,
+    );
+
+    let id = object::new(ctx);
+    SystemStateInnerV1 {
+        id,
+        committee,
+        total_capacity_size: 1_000_000_000,
+        used_capacity_size: 0,
+        storage_price_per_unit_size: 5,
+        write_price_per_unit_size: 1,
+        future_accounting: storage_accounting::ring_new(MAX_EPOCHS_AHEAD),
+        event_blob_certification_state: event_blob::create_with_empty_state(
+            ctx,
+        ),
+    }
+}
+
+#[test_only]
+public(package) fun get_event_blob_certification_state(
+    system: &SystemStateInnerV1,
+): &EventBlobCertificationState {
+    &system.event_blob_certification_state
 }

@@ -45,8 +45,25 @@ public fun invalidate_blob_id(
 }
 
 /// Certifies a blob containing Walrus events.
-public fun certify_event_blob(system: &mut System, cap: &StorageNodeCap, blob_id: u256, size: u64) {
-    system.inner_mut().certify_event_blob(cap, blob_id, size)
+public fun certify_event_blob(
+    system: &mut System,
+    cap: &mut StorageNodeCap,
+    blob_id: u256,
+    root_hash: u256,
+    size: u64,
+    encoding_type: u8,
+    ending_checkpoint_sequence_num: u64,
+    epoch: u32,
+    ctx: &mut TxContext) {
+    system.inner_mut().certify_event_blob(
+        cap,
+        blob_id,
+        root_hash,
+        size,
+        encoding_type,
+        ending_checkpoint_sequence_num,
+        epoch,
+        ctx)
 }
 
 /// Allows buying a storage reservation for a given period of epochs.
@@ -151,6 +168,11 @@ public(package) fun committee(self: &System): &BlsCommittee {
     self.inner().committee()
 }
 
+#[test_only]
+public(package) fun committee_mut(self: &mut System): &mut BlsCommittee {
+    self.inner_mut().committee_mut()
+}
+
 /// Update epoch to next epoch, and update the committee, price and capacity.
 ///
 /// Called by the epoch change function that connects `Staking` and `System`. Returns
@@ -172,7 +194,7 @@ fun inner_mut(system: &mut System): &mut SystemStateInnerV1 {
 }
 
 /// Get an immutable reference to `SystemStateInner` from the `System`.
-fun inner(system: &System): &SystemStateInnerV1 {
+public(package) fun inner(system: &System): &SystemStateInnerV1 {
     assert!(system.version == VERSION);
     dynamic_object_field::borrow(&system.id, VERSION)
 }
@@ -184,6 +206,14 @@ public(package) fun new_for_testing(): System {
     let ctx = &mut tx_context::dummy();
     let mut system = System { id: object::new(ctx), version: VERSION };
     let system_state_inner = system_state_inner::new_for_testing();
+    dynamic_object_field::add(&mut system.id, VERSION, system_state_inner);
+    system
+}
+
+#[test_only]
+public(package) fun new_for_testing_with_multiple_members(ctx: &mut TxContext): System {
+    let mut system = System { id: object::new(ctx), version: VERSION };
+    let system_state_inner = system_state_inner::new_for_testing_with_multiple_members(ctx);
     dynamic_object_field::add(&mut system.id, VERSION, system_state_inner);
     system
 }

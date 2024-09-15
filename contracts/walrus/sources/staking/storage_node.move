@@ -5,7 +5,9 @@
 module walrus::storage_node;
 
 use std::string::String;
-use sui::{bls12381::{G1, g1_from_bytes}, group_ops::Element};
+use sui::bls12381::{G1, g1_from_bytes};
+use sui::group_ops::Element;
+use walrus::event_blob::EventBlobAttestation;
 
 // Error codes
 const EInvalidNetworkPublicKey: u64 = 1;
@@ -25,6 +27,7 @@ public struct StorageNodeCap has key, store {
     id: UID,
     node_id: ID,
     last_epoch_sync_done: u32,
+    last_event_blob_attestation: Option<EventBlobAttestation>,
 }
 
 /// A public constructor for the StorageNodeInfo.
@@ -51,11 +54,14 @@ public(package) fun new_cap(node_id: ID, ctx: &mut TxContext): StorageNodeCap {
         id: object::new(ctx),
         node_id,
         last_epoch_sync_done: 0,
+        last_event_blob_attestation: option::none(),
     }
 }
 
 /// Return the public key of the storage node.
-public(package) fun public_key(self: &StorageNodeInfo): &Element<G1> { &self.public_key }
+public(package) fun public_key(self: &StorageNodeInfo): &Element<G1> {
+    &self.public_key
+}
 
 /// Return the node ID of the storage node.
 public fun id(cap: &StorageNodeInfo): ID { cap.node_id }
@@ -63,12 +69,30 @@ public fun id(cap: &StorageNodeInfo): ID { cap.node_id }
 /// Return the pool ID of the storage node.
 public fun node_id(cap: &StorageNodeCap): ID { cap.node_id }
 
-/// Return the last epoch in which the storage node attested that it has finished syncing.
-public fun last_epoch_sync_done(cap: &StorageNodeCap): u32 { cap.last_epoch_sync_done }
+/// Return the last epoch in which the storage node attested that it has
+/// finished syncing.
+public fun last_epoch_sync_done(cap: &StorageNodeCap): u32 {
+    cap.last_epoch_sync_done
+}
 
-/// Set the last epoch in which the storage node attested that it has finished syncing.
+/// Set the last epoch in which the storage node attested that it has finished
+/// syncing.
 public(package) fun set_last_epoch_sync_done(self: &mut StorageNodeCap, epoch: u32) {
     self.last_epoch_sync_done = epoch;
+}
+
+/// Return the latest event blob attestion.
+public fun last_event_blob_attestation(cap: &mut StorageNodeCap): Option<EventBlobAttestation> {
+    cap.last_event_blob_attestation
+}
+
+/// Set the last epoch in which the storage node attested that it has finished
+/// syncing.
+public(package) fun set_last_event_blob_attestation(
+    self: &mut StorageNodeCap,
+    attestation: EventBlobAttestation,
+) {
+    self.last_event_blob_attestation = option::some(attestation);
 }
 
 #[test_only]

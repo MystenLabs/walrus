@@ -3,11 +3,9 @@
 
 module walrus::bls_aggregate;
 
-use sui::{
-    bls12381::{Self, bls12381_min_pk_verify, G1},
-    group_ops::{Self, Element},
-    vec_map::{Self, VecMap}
-};
+use sui::bls12381::{Self, bls12381_min_pk_verify, G1};
+use sui::group_ops::{Self, Element};
+use sui::vec_map::{Self, VecMap};
 use walrus::messages::{Self, CertifiedMessage};
 
 // Error codes
@@ -66,6 +64,13 @@ public(package) fun new_bls_committee_member(
     }
 }
 
+// === Accessors for BlsCommitteeMember ===
+
+/// Get the node id of the committee member.
+public(package) fun node_id(self: &BlsCommitteeMember): sui::object::ID {
+    self.node_id
+}
+
 // === Accessors for BlsCommittee ===
 
 /// Get the epoch of the committee.
@@ -78,23 +83,46 @@ public(package) fun n_shards(self: &BlsCommittee): u16 {
     self.n_shards
 }
 
+/// Returns the member at given index
+public(package) fun get_idx(self: &BlsCommittee, idx: u64): &BlsCommitteeMember {
+    self.members.borrow(idx)
+}
+
 /// Checks if the committee contains a given node.
 public(package) fun contains(self: &BlsCommittee, node_id: &ID): bool {
-    self.members.find_index!(|member| member.node_id == *node_id).is_some()
+    self.find_index(node_id).is_some()
+}
+
+/// Returns the member weight if it is part of the committee or 0 otherwise
+public(package) fun get_member_weight(self: &BlsCommittee, node_id: &ID): u16 {
+    self.find_index(node_id).and!(|idx| {
+        let member = &self.members[idx];
+        option::some(member.weight)
+    }).get_with_default(0)
+}
+
+/// Finds the index of the member by node_id
+public(package) fun find_index(self: &BlsCommittee, node_id: &ID): std::option::Option<u64> {
+    self.members.find_index!(|member| &member.node_id == node_id)
 }
 
 /// Returns the members of the committee with their weights.
 public(package) fun to_vec_map(self: &BlsCommittee): VecMap<ID, u16> {
     let mut result = vec_map::empty();
-    self.members.do_ref!(|member| result.insert(member.node_id, member.weight));
+    self.members.do_ref!(|member| {
+        result.insert(member.node_id, member.weight)
+    });
     result
 }
 
 /// Verifies that a message is signed by a quorum of the members of a committee.
 ///
-/// The signers are listed as indices into the `members` vector of the committee in increasing
-/// order and with no repetitions. The total weight of the signers (i.e. total number of shards)
-/// is returned, but if a quorum is not reached the function aborts with an error.
+/// The signers are listed as indices into the `members` vector of the committee
+/// in increasing
+/// order and with no repetitions. The total weight of the signers (i.e. total
+/// number of shards)
+/// is returned, but if a quorum is not reached the function aborts with an
+/// error.
 public(package) fun verify_quorum_in_epoch(
     self: &BlsCommittee,
     signature: vector<u8>,
@@ -110,9 +138,17 @@ public(package) fun verify_quorum_in_epoch(
     messages::new_certified_message(message, self.epoch, stake_support)
 }
 
-/// Verify an aggregate BLS signature is a certificate in the epoch, and return the type of
-/// certificate and the bytes certified. The `signers` vector is an increasing list of indexes
-/// into the `members` vector of the committee. If there is a certificate, the function
+/// Returns true if the weight is more than the aggregate weight of quorum members of a committee.
+public(package) fun verify_quorum(self: &BlsCommittee, weight: u16): bool {
+    3 * (weight as u64) >= 2 * (self.n_shards as u64) + 1
+}
+
+/// Verify an aggregate BLS signature is a certificate in the epoch, and return
+/// the type of
+/// certificate and the bytes certified. The `signers` vector is an increasing
+/// list of indexes
+/// into the `members` vector of the committee. If there is a certificate, the
+/// function
 /// returns the total stake. Otherwise, it aborts.
 public(package) fun verify_certificate(
     self: &BlsCommittee,
@@ -122,7 +158,8 @@ public(package) fun verify_certificate(
 ): u16 {
     // Use the signers flags to construct the key and the weights.
 
-    // Lower bound for the next `member_index` to ensure they are monotonically increasing
+    // Lower bound for the next `member_index` to ensure they are monotonically
+    // increasing
     let mut min_next_member_index = 0;
     let mut aggregate_key = bls12381::g1_identity();
     let mut aggregate_weight = 0;
@@ -144,7 +181,7 @@ public(package) fun verify_certificate(
     // The expression below is the solution to the inequality:
     // n_shards = 3 f + 1
     // stake >= 2f + 1
-    assert!(3 * (aggregate_weight as u64) >= 2 * (self.n_shards as u64) + 1, ENotEnoughStake);
+    assert!(verify_quorum(self, aggregate_weight), ENotEnoughStake);
 
     // Verify the signature
     let pub_key_bytes = group_ops::bytes(&aggregate_key);
