@@ -5,6 +5,7 @@
 
 use std::{
     net::SocketAddr,
+    num::NonZeroUsize,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -157,7 +158,7 @@ pub struct CommitteeServiceConfig {
     #[serde(rename = "metadata_request_timeout_secs")]
     pub metadata_request_timeout: Duration,
     /// The number of concurrent metadata requests
-    pub max_concurrent_metadata_requests: usize,
+    pub max_concurrent_metadata_requests: NonZeroUsize,
     /// The timeout when requesting slivers from a storage node.
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(rename = "sliver_request_timeout_secs")]
@@ -176,7 +177,7 @@ impl Default for CommitteeServiceConfig {
             metadata_request_timeout: Duration::from_secs(5),
             sliver_request_timeout: Duration::from_secs(300),
             invalidity_sync_timeout: Duration::from_secs(300),
-            max_concurrent_metadata_requests: 1,
+            max_concurrent_metadata_requests: NonZeroUsize::new(1).unwrap(),
         }
     }
 }

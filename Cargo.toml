@@ -73,7 +73,7 @@ thiserror = "1.0.63"
 tokio = "=1.36.0"
 tokio-stream = "0.1.16"
 tokio-util = "0.7.12"
-tower = "0.5.1"
+tower = "0.5"
 tower-http = { version = "0.5.2", features = ["trace"] }
 tracing = "0.1.40"
 tracing-opentelemetry = { version = "0.24", default-features = false }

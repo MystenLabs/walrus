@@ -213,6 +213,15 @@ macro_rules! simtest_param_test {
         async_param_test!(
             $func_name -> $return_ty: [ $( #[sim_test] $case_name: ( $($args),+ ) ),* ]
         );
+    };
+    (#[tokio::test(start_paused = true)] $func_name:ident -> $return_ty:ty: [
+        $( $case_name:ident: ( $($args:expr),+ ) ),+$(,)?
+    ]) => {
+        async_param_test!(
+            $func_name -> $return_ty: [
+                $( #[tokio::test(start_paused = true)] $case_name: ( $($args),+ ) ),*
+            ]
+        );
     }
 }
 

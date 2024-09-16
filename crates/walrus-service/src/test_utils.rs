@@ -9,7 +9,6 @@
 
 use std::{
     borrow::Borrow,
-    marker::PhantomData,
     net::{SocketAddr, TcpStream},
     num::NonZeroU16,
     sync::Arc,
@@ -26,8 +25,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 use typed_store::rocks::MetricConf;
 use walrus_core::{
-    encoding::{EncodingConfig, Primary, PrimarySliver, Secondary, SecondarySliver},
-    inconsistency::InconsistencyProof,
+    encoding::EncodingConfig,
     keys::{NetworkKeyPair, ProtocolKeyPair},
     merkle::MerkleProof,
     messages::InvalidBlobCertificate,
@@ -54,7 +52,13 @@ use walrus_sui::types::{
 use walrus_test_utils::WithTempDir;
 
 use crate::node::{
-    committee::{CommitteeService, CommitteeServiceFactory, NodeCommitteeService},
+    committee::{
+        self,
+        ActiveCommittees,
+        CommitteeLookupService,
+        CommitteeService,
+        NodeCommitteeService,
+    },
     config::StorageNodeConfig,
     contract_service::SystemContractService,
     errors::SyncShardClientError,
@@ -188,7 +192,7 @@ impl AsRef<StorageNode> for StorageNodeHandle {
 pub struct StorageNodeHandleBuilder {
     storage: Option<WithTempDir<Storage>>,
     event_provider: Box<dyn SystemEventProvider>,
-    committee_service_factory: Option<Box<dyn CommitteeServiceFactory>>,
+    committee_service: Option<Box<dyn CommitteeService>>,
     contract_service: Option<Box<dyn SystemContractService>>,
     run_rest_api: bool,
     run_node: bool,
@@ -204,9 +208,8 @@ impl StorageNodeHandleBuilder {
 
     /// Sets the storage associated with the node.
     ///
-    /// If a committee service factory is *not* provided with
-    /// [`Self::with_committee_service_factory`], then the storage also dictates the shard
-    /// assignment to this storage node in the created committee.
+    /// If a committee service is *not* provided with [`Self::with_committee_service`], then the
+    /// storage also dictates the shard assignment to this storage node in the created committee.
     pub fn with_storage(mut self, storage: WithTempDir<Storage>) -> Self {
         self.storage = Some(storage);
         self
@@ -229,16 +232,13 @@ impl StorageNodeHandleBuilder {
         self
     }
 
-    /// Sets the [`CommitteeServiceFactory`] used with the node.
+    /// Sets the [`CommitteeService`] used with the node.
     ///
-    /// If not provided, defaults to [`StubCommitteeServiceFactory`] created with a valid committee
+    /// If not provided, defaults to [`StubCommitteeService`] created with a valid committee
     /// constructed over at most 1 other node. Note that if the node has no shards assigned to it
     /// (as inferred from the storage), it will not be in the committee.
-    pub fn with_committee_service_factory(
-        mut self,
-        factory: Box<dyn CommitteeServiceFactory>,
-    ) -> Self {
-        self.committee_service_factory = Some(factory);
+    pub fn with_committee_service(mut self, service: Box<dyn CommitteeService>) -> Self {
+        self.committee_service = Some(service);
         self
     }
 
@@ -307,7 +307,7 @@ impl StorageNodeHandleBuilder {
         let public_key = node_info.key_pair.public().clone();
         let network_public_key = node_info.network_key_pair.public().clone();
 
-        let committee_service_factory = self.committee_service_factory.unwrap_or_else(|| {
+        let committee_service = self.committee_service.unwrap_or_else(|| {
             // Create a list of the committee members, that contains one or two nodes.
             let committee_members = [
                 is_in_committee.then(|| node_info.to_storage_node_info("node-under-test")),
@@ -315,13 +315,15 @@ impl StorageNodeHandleBuilder {
             ];
             debug_assert!(committee_members[0].is_some() || committee_members[1].is_some());
 
-            Box::new(
-                StubCommitteeServiceFactory::<StubCommitteeService>::from_members(
-                    // Remove the possible None in the members list
-                    committee_members.into_iter().flatten().collect(),
-                    None,
-                ),
-            )
+            let committee = committee_from_members(
+                // Remove the possible None in the members list
+                committee_members.into_iter().flatten().collect(),
+                None,
+            );
+            Box::new(StubCommitteeService {
+                encoding: EncodingConfig::new(committee.n_shards()).into(),
+                committee: committee.into(),
+            })
         });
 
         let contract_service = self
@@ -343,7 +345,7 @@ impl StorageNodeHandleBuilder {
             .with_system_event_manager(Box::new(DefaultSystemEventManager::new(
                 self.event_provider,
             )))
-            .with_committee_service_factory(committee_service_factory)
+            .with_committee_service(committee_service)
             .with_system_contract_service(contract_service)
             .build(&config, metrics_registry.clone())
             .await?;
@@ -403,7 +405,7 @@ impl Default for StorageNodeHandleBuilder {
     fn default() -> Self {
         Self {
             event_provider: Box::<Vec<ContractEvent>>::default(),
-            committee_service_factory: None,
+            committee_service: None,
             storage: Default::default(),
             run_rest_api: Default::default(),
             run_node: Default::default(),
@@ -426,7 +428,7 @@ async fn wait_for_node_ready(client: &Client) -> anyhow::Result<()> {
     .await?
 }
 
-/// Returns with a a test config for a storage node that would make a valid committee when paired
+/// Returns with a test config for a storage node that would make a valid committee when paired
 /// with the provided node, if necessary.
 ///
 /// The number of shards in the system inferred from the shards assigned in the provided config.
@@ -454,47 +456,32 @@ fn committee_partner(node_config: &StorageNodeTestConfig) -> Option<StorageNodeT
     }
 }
 
-/// A [`CommitteeServiceFactory`] implementation that constructs committee service
-/// instances using the supplied committee.
-#[derive(Debug, Clone)]
-pub struct StubCommitteeServiceFactory<T> {
+/// A stub `CommitteeLookupService`.
+///
+/// Does not perform any network operations.
+#[derive(Debug)]
+pub struct StubLookupService {
     committee: Committee,
-    _service_type: PhantomData<T>,
-}
-
-impl<T> StubCommitteeServiceFactory<T> {
-    fn from_members(members: Vec<SuiStorageNode>, initial_epoch: Option<Epoch>) -> Self {
-        let n_shards =
-            NonZeroU16::new(members.iter().map(|node| node.shard_ids.len() as u16).sum()).unwrap();
-        Self {
-            committee: Committee::new(members, initial_epoch.unwrap_or(1), n_shards)
-                .expect("valid members to be provided for tests"),
-            _service_type: PhantomData,
-        }
-    }
 }
 
 #[async_trait]
-impl CommitteeServiceFactory for StubCommitteeServiceFactory<StubCommitteeService> {
-    async fn new_for_epoch(
-        &self,
-        _: Option<&PublicKey>,
-    ) -> Result<Box<dyn CommitteeService>, anyhow::Error> {
-        Ok(Box::new(StubCommitteeService(self.committee.clone())))
-    }
-}
+impl CommitteeLookupService for StubLookupService {
+    async fn get_active_committees(&self) -> Result<ActiveCommittees, anyhow::Error> {
+        let prior_committee = if self.committee.epoch != 0 {
+            let committee = Committee::new(
+                self.committee.members().to_vec(),
+                self.committee.epoch - 1,
+                self.committee.n_shards(),
+            )?;
+            Some(committee)
+        } else {
+            None
+        };
 
-#[async_trait]
-impl CommitteeServiceFactory for StubCommitteeServiceFactory<NodeCommitteeService> {
-    async fn new_for_epoch(
-        &self,
-        local_identity: Option<&PublicKey>,
-    ) -> Result<Box<dyn CommitteeService>, anyhow::Error> {
-        Ok(Box::new(NodeCommitteeService::new(
+        Ok(ActiveCommittees::new(
             self.committee.clone(),
-            local_identity,
-            Default::default(),
-        )?))
+            prior_committee,
+        ))
     }
 }
 
@@ -502,7 +489,12 @@ impl CommitteeServiceFactory for StubCommitteeServiceFactory<NodeCommitteeServic
 ///
 /// Does not perform any network operations.
 #[derive(Debug)]
-pub struct StubCommitteeService(pub Committee);
+pub struct StubCommitteeService {
+    /// The current committee.
+    pub committee: Arc<Committee>,
+    /// The system's encoding config.
+    pub encoding: Arc<EncodingConfig>,
+}
 
 #[async_trait]
 impl CommitteeService for StubCommitteeService {
@@ -511,40 +503,35 @@ impl CommitteeService for StubCommitteeService {
     }
 
     fn get_shard_count(&self) -> NonZeroU16 {
-        self.0.n_shards()
+        self.committee.n_shards()
+    }
+
+    fn encoding_config(&self) -> &Arc<EncodingConfig> {
+        &self.encoding
     }
 
     async fn get_and_verify_metadata(
         &self,
-        _blob_id: &BlobId,
-        _encoding_config: &EncodingConfig,
+        _blob_id: BlobId,
+        _certified_epoch: Epoch,
     ) -> VerifiedBlobMetadataWithId {
         std::future::pending().await
     }
 
-    async fn recover_primary_sliver(
+    async fn recover_sliver(
         &self,
         _metadata: &VerifiedBlobMetadataWithId,
         _sliver_id: SliverPairIndex,
-        _encoding_config: &EncodingConfig,
-    ) -> Result<PrimarySliver, InconsistencyProof<Primary, MerkleProof>> {
-        std::future::pending().await
-    }
-
-    async fn recover_secondary_sliver(
-        &self,
-        _metadata: &VerifiedBlobMetadataWithId,
-        _sliver_id: SliverPairIndex,
-        _encoding_config: &EncodingConfig,
-    ) -> Result<SecondarySliver, InconsistencyProof<Secondary, MerkleProof>> {
+        _sliver_type: SliverType,
+        _certified_epoch: Epoch,
+    ) -> Result<Sliver, InconsistencyProofEnum<MerkleProof>> {
         std::future::pending().await
     }
 
     async fn get_invalid_blob_certificate(
         &self,
-        _blob_id: &BlobId,
+        _blob_id: BlobId,
         _inconsistency_proof: &InconsistencyProofEnum,
-        _n_shards: NonZeroU16,
     ) -> InvalidBlobCertificate {
         std::future::pending().await
     }
@@ -561,12 +548,12 @@ impl CommitteeService for StubCommitteeService {
         std::future::pending().await
     }
 
-    fn committee(&self) -> &Committee {
-        &self.0
+    fn committee(&self) -> Arc<Committee> {
+        self.committee.clone()
     }
 
     fn is_walrus_storage_node(&self, public_key: &PublicKey) -> bool {
-        self.0
+        self.committee
             .members()
             .iter()
             .any(|node| node.public_key == *public_key)
@@ -689,7 +676,7 @@ pub struct TestClusterBuilder {
     storage_node_configs: Vec<StorageNodeTestConfig>,
     // INV: Reset if shard_assignment is changed.
     event_providers: Vec<Option<Box<dyn SystemEventProvider>>>,
-    committee_factories: Vec<Option<Box<dyn CommitteeServiceFactory>>>,
+    committee_services: Vec<Option<Box<dyn CommitteeService>>>,
     contract_services: Vec<Option<Box<dyn SystemContractService>>>,
     initial_epoch: Option<Epoch>,
 }
@@ -709,7 +696,7 @@ impl TestClusterBuilder {
     /// assigned to each storage.
     ///
     /// Resets any prior calls to [`Self::with_test_configs`],
-    /// [`Self::with_system_event_providers`], and [`Self::with_committee_service_factories`].
+    /// [`Self::with_system_event_providers`], and [`Self::with_committee_services`].
     pub fn with_shard_assignment<S, I>(mut self, assignment: &[S]) -> Self
     where
         S: Borrow<[I]>,
@@ -718,7 +705,7 @@ impl TestClusterBuilder {
         let configs = storage_node_test_configs_from_shard_assignment(assignment);
 
         self.event_providers = configs.iter().map(|_| None).collect();
-        self.committee_factories = configs.iter().map(|_| None).collect();
+        self.committee_services = configs.iter().map(|_| None).collect();
         self.storage_node_configs = configs;
         self
     }
@@ -726,11 +713,11 @@ impl TestClusterBuilder {
     /// Sets the configurations for each storage node based on `configs`.
     ///
     /// Resets any prior calls to [`Self::with_shard_assignment`],
-    /// [`Self::with_system_event_providers`], [`Self::with_committee_service_factories`],
+    /// [`Self::with_system_event_providers`], [`Self::with_committee_services`],
     /// and [`Self::with_system_contract_services`].
     pub fn with_test_configs(mut self, configs: Vec<StorageNodeTestConfig>) -> Self {
         self.event_providers = configs.iter().map(|_| None).collect();
-        self.committee_factories = configs.iter().map(|_| None).collect();
+        self.committee_services = configs.iter().map(|_| None).collect();
         self.contract_services = configs.iter().map(|_| None).collect();
         self.storage_node_configs = configs;
         self
@@ -765,18 +752,20 @@ impl TestClusterBuilder {
         self
     }
 
-    /// Sets the [`CommitteeServiceFactory`] used for each storage node.
+    /// Sets the [`CommitteeService`] used for each storage node.
     ///
     /// Should be called after the storage nodes have been specified.
-    pub fn with_committee_service_factories<T>(mut self, factory: T) -> Self
+    pub async fn with_committee_services<F, Fut, T>(mut self, make_service: F) -> Self
     where
-        T: CommitteeServiceFactory + Clone + 'static,
+        F: Fn() -> Fut,
+        Fut: std::future::Future<Output = T>,
+        T: CommitteeService + 'static,
     {
-        self.committee_factories = self
-            .storage_node_configs
-            .iter()
-            .map(|_| Some(Box::new(factory.clone()) as _))
-            .collect();
+        self.committee_services.clear();
+        for _ in self.storage_node_configs.iter() {
+            self.committee_services
+                .push(Some(Box::new(make_service().await) as _));
+        }
         self
     }
 
@@ -811,14 +800,16 @@ impl TestClusterBuilder {
             .enumerate()
             .map(|(i, info)| info.to_storage_node_info(&format!("node-{i}")))
             .collect();
+        let committee = committee_from_members(committee_members.clone(), self.initial_epoch);
 
-        for (((config, event_provider), factory), contract_service) in self
+        for (((config, event_provider), service), contract_service) in self
             .storage_node_configs
             .into_iter()
             .zip(self.event_providers.into_iter())
-            .zip(self.committee_factories.into_iter())
+            .zip(self.committee_services.into_iter())
             .zip(self.contract_services.into_iter())
         {
+            let local_identity = Some(config.key_pair.public().clone());
             let mut builder = StorageNodeHandle::builder()
                 .with_storage(empty_storage_with_shards(&config.shards))
                 .with_test_config(config)
@@ -829,16 +820,20 @@ impl TestClusterBuilder {
                 builder = builder.with_boxed_system_event_provider(provider);
             }
 
-            if let Some(factory) = factory {
-                builder = builder.with_committee_service_factory(factory);
+            builder = if let Some(service) = service {
+                builder.with_committee_service(service)
             } else {
-                builder = builder.with_committee_service_factory(Box::new(
-                    StubCommitteeServiceFactory::<NodeCommitteeService>::from_members(
-                        committee_members.clone(),
-                        self.initial_epoch,
-                    ),
-                ));
-            }
+                let service = NodeCommitteeService::new(
+                    StubLookupService {
+                        committee: committee.clone(),
+                    },
+                    committee::default_node_service_factory,
+                    local_identity,
+                    Default::default(),
+                )
+                .await?;
+                builder.with_committee_service(Box::new(service))
+            };
 
             if let Some(service) = contract_service {
                 builder = builder.with_system_contract_service(service);
@@ -949,7 +944,7 @@ impl Default for TestClusterBuilder {
         ];
         Self {
             event_providers: shard_assignment.iter().map(|_| None).collect(),
-            committee_factories: shard_assignment.iter().map(|_| None).collect(),
+            committee_services: shard_assignment.iter().map(|_| None).collect(),
             contract_services: shard_assignment.iter().map(|_| None).collect(),
             storage_node_configs: shard_assignment
                 .into_iter()
@@ -972,7 +967,14 @@ where
 
 /// Returns a test-committee with members with the specified number of shards each.
 #[cfg(test)]
+#[allow(unused)]
 pub(crate) fn test_committee(weights: &[u16]) -> Committee {
+    test_committee_with_epoch(weights, 0)
+}
+
+#[cfg(test)]
+#[allow(unused)]
+pub(crate) fn test_committee_with_epoch(weights: &[u16], epoch: Epoch) -> Committee {
     use sui_types::base_types::ObjectID;
 
     let n_shards: u16 = weights.iter().sum();
@@ -996,7 +998,7 @@ pub(crate) fn test_committee(weights: &[u16]) -> Committee {
         })
         .collect();
 
-    Committee::new(members, 1, NonZeroU16::new(n_shards).unwrap()).unwrap()
+    Committee::new(members, epoch, NonZeroU16::new(n_shards).unwrap()).unwrap()
 }
 
 /// A module for creating a Walrus test cluster.
@@ -1019,7 +1021,7 @@ pub mod test_cluster {
     use crate::{
         client::{self, ClientCommunicationConfig, Config},
         node::{
-            committee::SuiCommitteeServiceFactory,
+            committee::{self},
             contract_service::SuiSystemContractService,
             system_events::SuiSystemEventProvider,
         },
@@ -1120,10 +1122,17 @@ pub mod test_cluster {
 
         // Set up the cluster
         let cluster_builder = cluster_builder
-            .with_committee_service_factories(SuiCommitteeServiceFactory::new(
-                sui_read_client.clone(),
-                Default::default(),
-            ))
+            .with_committee_services(|| async {
+                NodeCommitteeService::new(
+                    sui_read_client.clone(),
+                    committee::default_node_service_factory,
+                    None,
+                    Default::default(),
+                )
+                .await
+                .expect("service construction must succeed in tests")
+            })
+            .await
             .with_system_event_providers(SuiSystemEventProvider::new(
                 sui_read_client.clone(),
                 Duration::from_millis(100),
@@ -1199,6 +1208,13 @@ pub fn empty_storage_with_shards(shards: &[ShardIndex]) -> WithTempDir<Storage> 
         inner: storage,
         temp_dir,
     }
+}
+
+fn committee_from_members(members: Vec<SuiStorageNode>, initial_epoch: Option<Epoch>) -> Committee {
+    let n_shards =
+        NonZeroU16::new(members.iter().map(|node| node.shard_ids.len() as u16).sum()).unwrap();
+    Committee::new(members, initial_epoch.unwrap_or(1), n_shards)
+        .expect("valid members to be provided for tests")
 }
 
 #[cfg(test)]

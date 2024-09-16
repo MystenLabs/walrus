@@ -541,6 +541,34 @@ impl<U: MerkleAuth> RecoverySymbol<U> {
     }
 }
 
+/// Error returned when trying to extract the wrong variant (primary or secondary) of
+/// [`RecoverySymbol`] from it.
+#[derive(Debug, Error, PartialEq, Eq, Clone)]
+#[error("cannot convert the `RecoverySymbol` to the variant requested")]
+pub struct WrongRecoverySymbolVariantError;
+
+impl<U: MerkleAuth> TryFrom<RecoverySymbol<U>> for PrimaryRecoverySymbol<U> {
+    type Error = WrongRecoverySymbolVariantError;
+
+    fn try_from(value: RecoverySymbol<U>) -> Result<Self, Self::Error> {
+        match value {
+            RecoverySymbol::Primary(primary) => Ok(primary),
+            RecoverySymbol::Secondary(_) => Err(WrongRecoverySymbolVariantError),
+        }
+    }
+}
+
+impl<U: MerkleAuth> TryFrom<RecoverySymbol<U>> for SecondaryRecoverySymbol<U> {
+    type Error = WrongRecoverySymbolVariantError;
+
+    fn try_from(value: RecoverySymbol<U>) -> Result<Self, Self::Error> {
+        match value {
+            RecoverySymbol::Primary(_) => Err(WrongRecoverySymbolVariantError),
+            RecoverySymbol::Secondary(secondary) => Ok(secondary),
+        }
+    }
+}
+
 /// Error returned for an invalid conversion to an encoding type.
 #[derive(Debug, Error, PartialEq, Eq)]
 #[error("the provided value is not a valid EncodingType")]
@@ -580,7 +608,7 @@ impl TryFrom<u8> for EncodingType {
 /// Can be either a [`PrimaryInconsistencyProof`] or a [`SecondaryInconsistencyProof`],
 /// proving that either a [`PrimarySliver`] or a [`SecondarySliver`] cannot be recovered
 /// from their respective recovery symbols.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum InconsistencyProof<T: MerkleAuth = MerkleProof> {
     /// Inconsistency proof for an encoding on the primary axis.
     Primary(PrimaryInconsistencyProof<T>),
@@ -601,6 +629,48 @@ impl<T: MerkleAuth> InconsistencyProof<T> {
         match self {
             InconsistencyProof::Primary(proof) => proof.verify(metadata, encoding_config),
             InconsistencyProof::Secondary(proof) => proof.verify(metadata, encoding_config),
+        }
+    }
+}
+
+impl<T: MerkleAuth> From<PrimaryInconsistencyProof<T>> for InconsistencyProof<T> {
+    fn from(value: PrimaryInconsistencyProof<T>) -> Self {
+        Self::Primary(value)
+    }
+}
+
+impl<T: MerkleAuth> From<SecondaryInconsistencyProof<T>> for InconsistencyProof<T> {
+    fn from(value: SecondaryInconsistencyProof<T>) -> Self {
+        Self::Secondary(value)
+    }
+}
+
+/// Error returned when trying to extract the wrong variant (primary or secondary) of
+/// [`InconsistencyProof`] from it.
+#[derive(Debug, Error, PartialEq, Eq, Clone)]
+#[error("cannot convert the `InconsistencyProof` to the variant requested")]
+pub struct WrongProofVariantError;
+
+impl<T: MerkleAuth> TryFrom<InconsistencyProof<T>> for PrimaryInconsistencyProof<T> {
+    type Error = WrongProofVariantError;
+
+    fn try_from(value: InconsistencyProof<T>) -> Result<Self, Self::Error> {
+        if let InconsistencyProof::Primary(primary) = value {
+            Ok(primary)
+        } else {
+            Err(WrongProofVariantError)
+        }
+    }
+}
+
+impl<T: MerkleAuth> TryFrom<InconsistencyProof<T>> for SecondaryInconsistencyProof<T> {
+    type Error = WrongProofVariantError;
+
+    fn try_from(value: InconsistencyProof<T>) -> Result<Self, Self::Error> {
+        if let InconsistencyProof::Secondary(secondary) = value {
+            Ok(secondary)
+        } else {
+            Err(WrongProofVariantError)
         }
     }
 }

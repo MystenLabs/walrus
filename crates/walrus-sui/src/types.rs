@@ -247,4 +247,18 @@ impl Committee {
             .iter()
             .position(|node| node.shard_ids.contains(&shard))
     }
+
+    /// Returns true if the committee contains a member with the specified public key.
+    pub fn contains(&self, public_key: &PublicKey) -> bool {
+        self.members
+            .iter()
+            .any(|node| node.public_key == *public_key)
+    }
+
+    /// Returns the node with the specified public key, if any.
+    pub fn find(&self, public_key: &PublicKey) -> Option<&StorageNode> {
+        self.members
+            .iter()
+            .find(|node| node.public_key == *public_key)
+    }
 }

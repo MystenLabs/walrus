@@ -16,7 +16,7 @@ use std::{
 };
 
 use anyhow::{Context as _, Result};
-use futures::{future::FusedFuture, FutureExt};
+use futures::future::FusedFuture;
 use pin_project::pin_project;
 use prometheus::{HistogramVec, Registry};
 use rand::{rngs::StdRng, Rng, SeedableRng};
@@ -101,6 +101,12 @@ impl ExponentialBackoffState {
             sequence_index: 0,
             max_retries,
         }
+    }
+
+    /// Creates a new `ExponentialBackoffTracker` that yields an infinite sequence of backoffs
+    /// between the min and max specified.
+    pub fn new_infinite(min_backoff: Duration, max_backoff: Duration) -> Self {
+        Self::new(min_backoff, max_backoff, None)
     }
 
     pub fn next_delay<R: Rng + ?Sized>(&mut self, rng: &mut R) -> Option<Duration> {
@@ -240,40 +246,6 @@ pub(crate) trait FutureHelpers: Future {
             .await
             .expect("semaphore never closed");
         self.await
-    }
-
-    /// Limits the number of simultaneously executing futures and the number of successful results.
-    async fn limit(self, permits: Arc<Semaphore>) -> Self::Output
-    where
-        <Self as Future>::Output: SuccessOrFailure,
-        Self: Sized,
-    {
-        let permit = permits
-            .acquire_owned()
-            .await
-            .expect("semaphore never closed");
-
-        self.inspect(|result| {
-            if result.is_success() {
-                permit.forget()
-            }
-        })
-        .await
-    }
-
-    /// Applies a timeout to the future.
-    async fn timeout_after<T>(self, duration: Duration) -> <Self as Future>::Output
-    where
-        Self: Sized,
-        Self: Future<Output = Option<T>>,
-    {
-        match tokio::time::timeout(duration, self).await {
-            Ok(output) => output,
-            Err(_) => {
-                tracing::debug!("request timed out");
-                None
-            }
-        }
     }
 
     /// Reports metrics for the future.

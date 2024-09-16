@@ -47,7 +47,8 @@ impl NodeError {
         self.http_status_code() == Some(StatusCode::MISDIRECTED_REQUEST)
     }
 
-    pub(crate) fn other<E>(err: E) -> Self
+    /// Wrap a standard error as a Node error.
+    pub fn other<E>(err: E) -> Self
     where
         E: std::error::Error + Send + Sync + 'static,
     {

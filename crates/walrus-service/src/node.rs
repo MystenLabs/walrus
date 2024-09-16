@@ -52,7 +52,7 @@ use walrus_sui::{
 
 use self::{
     blob_sync::BlobSyncHandler,
-    committee::{CommitteeService, CommitteeServiceFactory, SuiCommitteeServiceFactory},
+    committee::{CommitteeService, NodeCommitteeService},
     config::{StorageNodeConfig, SuiConfig},
     contract_service::{SuiSystemContractService, SystemContractService},
     errors::IndexOutOfRange,
@@ -191,7 +191,7 @@ pub trait ServiceState {
 pub struct StorageNodeBuilder {
     storage: Option<Storage>,
     event_manager: Option<Box<dyn EventManager>>,
-    committee_service_factory: Option<Box<dyn CommitteeServiceFactory>>,
+    committee_service: Option<Box<dyn CommitteeService>>,
     contract_service: Option<Box<dyn SystemContractService>>,
 }
 
@@ -222,12 +222,9 @@ impl StorageNodeBuilder {
         self
     }
 
-    /// Sets the [`CommitteeServiceFactory`] used with the node.
-    pub fn with_committee_service_factory(
-        mut self,
-        factory: Box<dyn CommitteeServiceFactory>,
-    ) -> Self {
-        self.committee_service_factory = Some(factory);
+    /// Sets the [`CommitteeService`] used with the node.
+    pub fn with_committee_service(mut self, service: Box<dyn CommitteeService>) -> Self {
+        self.committee_service = Some(service);
         self
     }
 
@@ -240,10 +237,10 @@ impl StorageNodeBuilder {
     /// # Panics
     ///
     /// Panics if `config.sui` is `None` and no [`EventManager`], no
-    /// [`CommitteeServiceFactory`], or no [`SystemContractService`] was configured with
+    /// [`CommitteeService`], or no [`SystemContractService`] was configured with
     /// their respective functions
     /// ([`with_system_event_manager()`][Self::with_system_event_manager],
-    /// [`with_committee_service_factory()`][Self::with_committee_service_factory],
+    /// [`with_committee_service()`][Self::with_committee_service],
     /// [`with_system_contract_service()`][Self::with_system_contract_service]); or if the
     /// `config.protocol_key_pair` has not yet been loaded into memory.
     pub async fn build(
@@ -260,7 +257,7 @@ impl StorageNodeBuilder {
             .clone();
 
         let sui_config_and_client =
-            if self.event_manager.is_none() || self.committee_service_factory.is_none() {
+            if self.event_manager.is_none() || self.committee_service.is_none() {
                 let sui_config = config.sui.as_ref().expect(
                     "either a Sui config or an event provider and committee service \
                             factory must be specified",
@@ -304,20 +301,26 @@ impl StorageNodeBuilder {
             Some(service) => service,
         };
 
-        let committee_service_factory = self.committee_service_factory.unwrap_or_else(|| {
+        let committee_service = if let Some(committee_service) = self.committee_service {
+            committee_service
+        } else {
             let (read_client, _) = sui_config_and_client
                 .expect("this is always created if self.committee_service_factory.is_none()");
-            Box::new(SuiCommitteeServiceFactory::new(
+            let service = NodeCommitteeService::new(
                 read_client,
+                self::committee::default_node_service_factory,
+                None,
                 config.blob_recovery.committee_service_config.clone(),
-            ))
-        });
+            )
+            .await?;
+            Box::new(service)
+        };
 
         StorageNode::new(
             config,
             protocol_key_pair,
             event_manager,
-            committee_service_factory,
+            committee_service,
             contract_service,
             &metrics_registry,
             self.storage,
@@ -357,7 +360,6 @@ pub struct StorageNodeInner {
     event_manager: Box<dyn EventManager>,
     contract_service: Arc<dyn SystemContractService>,
     committee_service: Arc<dyn CommitteeService>,
-    _committee_service_factory: Box<dyn CommitteeServiceFactory>,
     start_time: Instant,
     db_root_dir_path: PathBuf,
     metrics: NodeMetricSet,
@@ -368,16 +370,12 @@ impl StorageNode {
         config: &StorageNodeConfig,
         key_pair: ProtocolKeyPair,
         event_manager: Box<dyn EventManager>,
-        committee_service_factory: Box<dyn CommitteeServiceFactory>,
+        committee_service: Box<dyn CommitteeService>,
         contract_service: Box<dyn SystemContractService>,
         registry: &Registry,
         pre_created_storage: Option<Storage>, // For testing purposes. TODO(#703): remove.
     ) -> Result<Self, anyhow::Error> {
         let start_time = Instant::now();
-        let committee_service = committee_service_factory
-            .new_for_epoch(Some(key_pair.as_ref().public()))
-            .await
-            .context("unable to construct a committee service for the storage node")?;
 
         let db_config = config.db_config.clone().unwrap_or_default();
         let mut storage = if let Some(storage) = pre_created_storage {
@@ -390,7 +388,7 @@ impl StorageNode {
             )?
         };
 
-        let encoding_config = Arc::new(EncodingConfig::new(committee_service.get_shard_count()));
+        let encoding_config = committee_service.encoding_config().clone();
 
         let committee = committee_service.committee();
         let managed_shards = committee.shards_for_node_public_key(key_pair.as_ref().public());
@@ -411,7 +409,6 @@ impl StorageNode {
             encoding_config,
             contract_service: contract_service.into(),
             committee_service: committee_service.into(),
-            _committee_service_factory: committee_service_factory,
             metrics: NodeMetricSet::new(registry),
             start_time,
             db_root_dir_path: config.storage_path.clone(),
@@ -1788,6 +1785,7 @@ mod tests {
                     shard.into(),
                     TIMEOUT,
                 )
+                .instrument(tracing::info_span!("test-inners"))
                 .await;
 
                 assert_eq!(synced, *expected,);

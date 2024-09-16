@@ -124,6 +124,11 @@ impl ActiveCommittees {
         self.prior_committee.as_ref()
     }
 
+    /// Returns the upcoming committee if known.
+    pub fn upcoming_committee(&self) -> Option<&Arc<Committee>> {
+        self.upcoming_committee.as_ref()
+    }
+
     /// Returns the committee serving reads for a blob certified in the specified epoch.
     ///
     /// Returns None if the epoch is larger than [`epoch()`][Self::epoch].

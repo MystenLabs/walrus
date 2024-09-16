@@ -97,7 +97,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tokio-stream = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true }
-tower.workspace = true
+tower = { workspace = true, features = ["util"] }
 tower-http.workspace = true
 tracing.workspace = true
 tracing-opentelemetry.workspace = true

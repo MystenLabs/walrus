@@ -22,10 +22,9 @@ use walrus_core::{
     encoding::{EncodingAxis, EncodingConfig, Primary, Secondary},
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
+    Epoch,
     InconsistencyProof,
     ShardIndex,
-    Sliver,
-    SliverPairIndex,
 };
 use walrus_sui::types::BlobCertified;
 
@@ -238,6 +237,7 @@ pub(super) struct BlobSynchronizer {
     node: Arc<StorageNodeInner>,
     event_index: usize,
     event_id: EventID,
+    certified_epoch: Epoch,
     cancel_token: CancellationToken,
 }
 
@@ -253,6 +253,7 @@ impl BlobSynchronizer {
             node,
             event_id: event.event_id,
             event_index: event_sequence_number,
+            certified_epoch: event.epoch,
             cancel_token,
         }
     }
@@ -337,7 +338,7 @@ impl BlobSynchronizer {
         let metadata = self
             .node
             .committee_service
-            .get_and_verify_metadata(&self.blob_id, &self.node.encoding_config)
+            .get_and_verify_metadata(self.blob_id, self.certified_epoch)
             .await;
 
         self.storage().put_verified_metadata(&metadata)?;
@@ -374,13 +375,10 @@ impl BlobSynchronizer {
             }
             tracing::debug!("syncing sliver");
 
-            let sliver_or_proof = recover_sliver::<A>(
-                self.committee_service(),
-                metadata,
-                sliver_id,
-                self.encoding_config(),
-            )
-            .await;
+            let sliver_or_proof = self
+                .committee_service()
+                .recover_sliver(metadata, sliver_id, A::sliver_type(), self.certified_epoch)
+                .await;
 
             match sliver_or_proof {
                 Ok(sliver) => {
@@ -403,36 +401,11 @@ impl BlobSynchronizer {
     async fn sync_inconsistency_proof(&self, inconsistency_proof: &InconsistencyProof) {
         let invalid_blob_certificate = self
             .committee_service()
-            .get_invalid_blob_certificate(
-                &self.blob_id,
-                inconsistency_proof,
-                self.encoding_config().n_shards(),
-            )
+            .get_invalid_blob_certificate(self.blob_id, inconsistency_proof)
             .await;
         self.contract_service()
             .invalidate_blob_id(&invalid_blob_certificate)
             .await
-    }
-}
-
-pub async fn recover_sliver<A: EncodingAxis>(
-    committee_service: &dyn CommitteeService,
-    metadata: &VerifiedBlobMetadataWithId,
-    sliver_id: SliverPairIndex,
-    encoding_config: &EncodingConfig,
-) -> Result<Sliver, InconsistencyProof> {
-    if A::IS_PRIMARY {
-        committee_service
-            .recover_primary_sliver(metadata, sliver_id, encoding_config)
-            .await
-            .map(Sliver::Primary)
-            .map_err(InconsistencyProof::Primary)
-    } else {
-        committee_service
-            .recover_secondary_sliver(metadata, sliver_id, encoding_config)
-            .await
-            .map(Sliver::Secondary)
-            .map_err(InconsistencyProof::Secondary)
     }
 }
 

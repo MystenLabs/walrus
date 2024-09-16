@@ -43,12 +43,7 @@ use walrus_core::{
 };
 
 use super::{blob_info::BlobInfo, BlobInfoIterator, DatabaseConfig};
-use crate::node::{
-    blob_sync::recover_sliver,
-    config::ShardSyncConfig,
-    errors::SyncShardClientError,
-    StorageNodeInner,
-};
+use crate::node::{config::ShardSyncConfig, errors::SyncShardClientError, StorageNodeInner};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ShardStatus {
@@ -475,7 +470,8 @@ impl ShardStorage {
             ShardLastSyncStatus::Recovery => {}
         }
 
-        self.recovery_any_missing_slivers(node, config).await?;
+        self.recovery_any_missing_slivers(node, config, epoch)
+            .await?;
 
         let mut batch = self.shard_status.batch();
         batch.insert_batch(&self.shard_status, [((), ShardStatus::Active)])?;
@@ -708,6 +704,7 @@ impl ShardStorage {
         &self,
         node: Arc<StorageNodeInner>,
         config: &ShardSyncConfig,
+        epoch: Epoch,
     ) -> Result<(), SyncShardClientError> {
         if self.pending_recover_slivers.is_empty() {
             return Ok(());
@@ -728,7 +725,8 @@ impl ShardStorage {
         }
 
         loop {
-            self.recover_missing_blobs(node.clone(), config).await?;
+            self.recover_missing_blobs(node.clone(), config, epoch)
+                .await?;
 
             if self.pending_recover_slivers.is_empty() {
                 // TODO: in test, check that we have recovered all the certified blobs.
@@ -746,12 +744,13 @@ impl ShardStorage {
         &self,
         node: Arc<StorageNodeInner>,
         config: &ShardSyncConfig,
+        epoch: Epoch,
     ) -> Result<(), TypedStoreError> {
         let semaphore = Semaphore::new(config.max_concurrent_blob_recovery_during_shard_recovery);
         let mut futures = FuturesUnordered::new();
         for recover_blob in self.pending_recover_slivers.safe_iter() {
             let ((sliver_type, blob_id), _) = recover_blob?;
-            futures.push(self.recover_blob(blob_id, sliver_type, node.clone(), &semaphore));
+            futures.push(self.recover_blob(blob_id, sliver_type, node.clone(), &semaphore, epoch));
         }
 
         while let Some(result) = futures.next().await {
@@ -770,6 +769,7 @@ impl ShardStorage {
         sliver_type: SliverType,
         node: Arc<StorageNodeInner>,
         semaphore: &Semaphore,
+        epoch: Epoch,
     ) -> Result<(), TypedStoreError> {
         let _guard = semaphore.acquire().await;
         tracing::info!(
@@ -791,26 +791,10 @@ impl ShardStorage {
             .id
             .to_pair_index(node.encoding_config.n_shards(), &blob_id);
 
-        let result = match sliver_type {
-            SliverType::Primary => {
-                recover_sliver::<Primary>(
-                    node.committee_service.as_ref(),
-                    &metadata,
-                    sliver_id,
-                    &node.encoding_config,
-                )
-                .await
-            }
-            SliverType::Secondary => {
-                recover_sliver::<Secondary>(
-                    node.committee_service.as_ref(),
-                    &metadata,
-                    sliver_id,
-                    &node.encoding_config,
-                )
-                .await
-            }
-        };
+        let result = node
+            .committee_service
+            .recover_sliver(&metadata, sliver_id, sliver_type, epoch)
+            .await;
 
         match result {
             Ok(sliver) => self.put_sliver(&blob_id, &sliver)?,
@@ -819,11 +803,7 @@ impl ShardStorage {
                 // committee from the latest epoch.
                 let invalid_blob_certificate = node
                     .committee_service
-                    .get_invalid_blob_certificate(
-                        &blob_id,
-                        &inconsistency_proof,
-                        node.encoding_config.n_shards(),
-                    )
+                    .get_invalid_blob_certificate(blob_id, &inconsistency_proof)
                     .await;
                 node.contract_service
                     .invalidate_blob_id(&invalid_blob_certificate)
