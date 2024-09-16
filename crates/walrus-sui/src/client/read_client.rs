@@ -37,6 +37,7 @@ use crate::{
             StakingPool,
             SystemObjectForDeserialization,
         },
+        BlobEvent,
         Committee,
         ContractEvent,
         StakingObject,
@@ -75,11 +76,11 @@ pub trait ReadClient: Send + Sync {
         cursor: Option<EventID>,
     ) -> impl Future<Output = SuiClientResult<impl Stream<Item = ContractEvent> + Send>> + Send;
 
-    /// Returns the contract event with the given Event ID.
-    fn get_contract_event(
+    /// Returns the blob event with the given Event ID.
+    fn get_blob_event(
         &self,
         event_id: EventID,
-    ) -> impl Future<Output = SuiClientResult<ContractEvent>> + Send;
+    ) -> impl Future<Output = SuiClientResult<BlobEvent>> + Send;
 
     /// Returns the current committee.
     fn current_committee(&self) -> impl Future<Output = SuiClientResult<Committee>> + Send;
@@ -339,7 +340,7 @@ impl ReadClient for SuiReadClient {
         Ok(ReceiverStream::new(rx_event))
     }
 
-    async fn get_contract_event(&self, event_id: EventID) -> SuiClientResult<ContractEvent> {
+    async fn get_blob_event(&self, event_id: EventID) -> SuiClientResult<BlobEvent> {
         self.sui_client
             .event_api()
             .get_events(event_id.tx_digest)

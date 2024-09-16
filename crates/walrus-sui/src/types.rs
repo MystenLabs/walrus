@@ -18,9 +18,11 @@ use thiserror::Error;
 mod events;
 pub use events::{
     BlobCertified,
+    BlobEvent,
     BlobRegistered,
     ContractEvent,
     EpochChangeDone,
+    EpochChangeEvent,
     EpochChangeStart,
     EpochParametersSelected,
     InvalidBlobId,

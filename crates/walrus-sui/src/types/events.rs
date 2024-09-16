@@ -150,6 +150,86 @@ impl TryFrom<SuiEvent> for InvalidBlobId {
     }
 }
 
+/// Enum to wrap blob events.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BlobEvent {
+    /// A registration event.
+    Registered(BlobRegistered),
+    /// A certification event.
+    Certified(BlobCertified),
+    /// An invalid blob ID event.
+    InvalidBlobID(InvalidBlobId),
+}
+
+impl From<BlobRegistered> for BlobEvent {
+    fn from(value: BlobRegistered) -> Self {
+        Self::Registered(value)
+    }
+}
+
+impl From<BlobCertified> for BlobEvent {
+    fn from(value: BlobCertified) -> Self {
+        Self::Certified(value)
+    }
+}
+
+impl From<InvalidBlobId> for BlobEvent {
+    fn from(value: InvalidBlobId) -> Self {
+        Self::InvalidBlobID(value)
+    }
+}
+
+impl From<BlobRegistered> for ContractEvent {
+    fn from(value: BlobRegistered) -> Self {
+        Self::BlobEvent(value.into())
+    }
+}
+
+impl From<BlobCertified> for ContractEvent {
+    fn from(value: BlobCertified) -> Self {
+        Self::BlobEvent(value.into())
+    }
+}
+
+impl From<InvalidBlobId> for ContractEvent {
+    fn from(value: InvalidBlobId) -> Self {
+        Self::BlobEvent(value.into())
+    }
+}
+
+impl BlobEvent {
+    /// Returns the blob ID contained in the wrapped event.
+    pub fn blob_id(&self) -> BlobId {
+        match self {
+            BlobEvent::Registered(event) => event.blob_id,
+            BlobEvent::Certified(event) => event.blob_id,
+            BlobEvent::InvalidBlobID(event) => event.blob_id,
+        }
+    }
+
+    /// Returns the event ID of the wrapped event.
+    pub fn event_id(&self) -> EventID {
+        match self {
+            BlobEvent::Registered(event) => event.event_id,
+            BlobEvent::Certified(event) => event.event_id,
+            BlobEvent::InvalidBlobID(event) => event.event_id,
+        }
+    }
+}
+
+impl TryFrom<SuiEvent> for BlobEvent {
+    type Error = anyhow::Error;
+
+    fn try_from(value: SuiEvent) -> Result<Self, Self::Error> {
+        match (&value.type_).into() {
+            contracts::events::BlobRegistered => Ok(BlobEvent::Registered(value.try_into()?)),
+            contracts::events::BlobCertified => Ok(BlobEvent::Certified(value.try_into()?)),
+            contracts::events::InvalidBlobID => Ok(BlobEvent::InvalidBlobID(value.try_into()?)),
+            _ => Err(anyhow!("could not convert event: {}", value)),
+        }
+    }
+}
+
 /// Sui event that epoch parameters have been selected.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EpochParametersSelected {
@@ -231,15 +311,9 @@ impl TryFrom<SuiEvent> for EpochChangeDone {
     }
 }
 
-/// Enum to wrap events emitted from the contract.
+/// Enum to wrap epoch change events.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ContractEvent {
-    /// A registration event.
-    BlobRegistered(BlobRegistered),
-    /// A certification event.
-    BlobCertified(BlobCertified),
-    /// An invalid blob ID event.
-    InvalidBlobID(InvalidBlobId),
+pub enum EpochChangeEvent {
     /// Epoch parameters selected event.
     EpochParametersSelected(EpochParametersSelected),
     /// Epoch change start event.
@@ -248,46 +322,40 @@ pub enum ContractEvent {
     EpochChangeDone(EpochChangeDone),
 }
 
-impl From<BlobRegistered> for ContractEvent {
-    fn from(value: BlobRegistered) -> Self {
-        Self::BlobRegistered(value)
-    }
-}
-
-impl From<BlobCertified> for ContractEvent {
-    fn from(value: BlobCertified) -> Self {
-        Self::BlobCertified(value)
-    }
-}
-
-impl From<InvalidBlobId> for ContractEvent {
-    fn from(value: InvalidBlobId) -> Self {
-        Self::InvalidBlobID(value)
-    }
-}
-
-impl ContractEvent {
-    /// Returns the blob ID contained in the wrapped event.
-    pub fn blob_id(&self) -> Option<BlobId> {
-        match self {
-            ContractEvent::BlobRegistered(event) => Some(event.blob_id),
-            ContractEvent::BlobCertified(event) => Some(event.blob_id),
-            ContractEvent::InvalidBlobID(event) => Some(event.blob_id),
-            ContractEvent::EpochParametersSelected(_) => None,
-            ContractEvent::EpochChangeStart(_) => None,
-            ContractEvent::EpochChangeDone(_) => None,
-        }
-    }
-
+impl EpochChangeEvent {
     /// Returns the event ID of the wrapped event.
     pub fn event_id(&self) -> EventID {
         match self {
-            ContractEvent::BlobRegistered(event) => event.event_id,
-            ContractEvent::BlobCertified(event) => event.event_id,
-            ContractEvent::InvalidBlobID(event) => event.event_id,
-            ContractEvent::EpochParametersSelected(event) => event.event_id,
-            ContractEvent::EpochChangeStart(event) => event.event_id,
-            ContractEvent::EpochChangeDone(event) => event.event_id,
+            EpochChangeEvent::EpochParametersSelected(event) => event.event_id,
+            EpochChangeEvent::EpochChangeStart(event) => event.event_id,
+            EpochChangeEvent::EpochChangeDone(event) => event.event_id,
+        }
+    }
+}
+
+/// Enum to wrap contract events used in event streaming.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ContractEvent {
+    /// Blob event.
+    BlobEvent(BlobEvent),
+    /// Epoch change event.
+    EpochChangeEvent(EpochChangeEvent),
+}
+
+impl ContractEvent {
+    /// Returns the event ID of the wrapped event.
+    pub fn event_id(&self) -> EventID {
+        match self {
+            ContractEvent::BlobEvent(event) => event.event_id(),
+            ContractEvent::EpochChangeEvent(event) => event.event_id(),
+        }
+    }
+
+    /// Returns the blob ID of the wrapped event.
+    pub fn blob_id(&self) -> Option<BlobId> {
+        match self {
+            ContractEvent::BlobEvent(event) => Some(event.blob_id()),
+            ContractEvent::EpochChangeEvent(_) => None,
         }
     }
 }
@@ -297,20 +365,24 @@ impl TryFrom<SuiEvent> for ContractEvent {
 
     fn try_from(value: SuiEvent) -> Result<Self, Self::Error> {
         match (&value.type_).into() {
-            contracts::events::BlobRegistered => {
-                Ok(ContractEvent::BlobRegistered(value.try_into()?))
-            }
-            contracts::events::BlobCertified => Ok(ContractEvent::BlobCertified(value.try_into()?)),
-            contracts::events::InvalidBlobID => Ok(ContractEvent::InvalidBlobID(value.try_into()?)),
-            contracts::events::EpochParametersSelected => {
-                Ok(ContractEvent::EpochParametersSelected(value.try_into()?))
-            }
-            contracts::events::EpochChangeStart => {
-                Ok(ContractEvent::EpochChangeStart(value.try_into()?))
-            }
-            contracts::events::EpochChangeDone => {
-                Ok(ContractEvent::EpochChangeDone(value.try_into()?))
-            }
+            contracts::events::BlobRegistered => Ok(ContractEvent::BlobEvent(
+                BlobEvent::Registered(value.try_into()?),
+            )),
+            contracts::events::BlobCertified => Ok(ContractEvent::BlobEvent(BlobEvent::Certified(
+                value.try_into()?,
+            ))),
+            contracts::events::InvalidBlobID => Ok(ContractEvent::BlobEvent(
+                BlobEvent::InvalidBlobID(value.try_into()?),
+            )),
+            contracts::events::EpochParametersSelected => Ok(ContractEvent::EpochChangeEvent(
+                EpochChangeEvent::EpochParametersSelected(value.try_into()?),
+            )),
+            contracts::events::EpochChangeStart => Ok(ContractEvent::EpochChangeEvent(
+                EpochChangeEvent::EpochChangeStart(value.try_into()?),
+            )),
+            contracts::events::EpochChangeDone => Ok(ContractEvent::EpochChangeEvent(
+                EpochChangeEvent::EpochChangeDone(value.try_into()?),
+            )),
             _ => Err(anyhow!("could not convert event: {}", value)),
         }
     }

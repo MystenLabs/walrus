@@ -11,7 +11,7 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
 use sui_types::{event::EventID, messages_checkpoint::CheckpointSequenceNumber};
 use walrus_core::BlobId;
-use walrus_sui::types::ContractEvent;
+use walrus_sui::types::{BlobEvent, ContractEvent};
 
 pub mod event_processor;
 
@@ -83,17 +83,9 @@ impl EventStreamElement {
         }
     }
 
-    pub fn blob_event(&self) -> Option<&ContractEvent> {
+    pub fn blob_event(&self) -> Option<&BlobEvent> {
         match self {
-            EventStreamElement::ContractEvent(event @ ContractEvent::BlobRegistered(_)) => {
-                Some(event)
-            }
-            EventStreamElement::ContractEvent(event @ ContractEvent::BlobCertified(_)) => {
-                Some(event)
-            }
-            EventStreamElement::ContractEvent(event @ ContractEvent::InvalidBlobID(_)) => {
-                Some(event)
-            }
+            EventStreamElement::ContractEvent(ContractEvent::BlobEvent(event)) => Some(event),
             _ => None,
         }
     }

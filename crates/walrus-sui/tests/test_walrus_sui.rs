@@ -17,7 +17,7 @@ use walrus_sui::{
         system_setup::publish_with_default_system,
         TestClusterHandle,
     },
-    types::ContractEvent,
+    types::{BlobEvent, ContractEvent, EpochChangeEvent},
 };
 use walrus_test_utils::WithTempDir;
 
@@ -114,13 +114,19 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
     assert!(!blob_obj.deletable);
 
     // Make sure that we got the expected event
-    let ContractEvent::EpochParametersSelected(_) = events.next().await.unwrap() else {
+    let ContractEvent::EpochChangeEvent(EpochChangeEvent::EpochParametersSelected(_)) =
+        events.next().await.unwrap()
+    else {
         bail!("unexpected event type. expecting EpochParametersSelected");
     };
-    let ContractEvent::EpochChangeStart(_) = events.next().await.unwrap() else {
+    let ContractEvent::EpochChangeEvent(EpochChangeEvent::EpochChangeStart(_)) =
+        events.next().await.unwrap()
+    else {
         bail!("unexpected event type. expecting EpochChangeStart");
     };
-    let ContractEvent::BlobRegistered(blob_registered) = events.next().await.unwrap() else {
+    let ContractEvent::BlobEvent(BlobEvent::Registered(blob_registered)) =
+        events.next().await.unwrap()
+    else {
         bail!("unexpected event type. expecting BlobRegistered");
     };
     assert_eq!(blob_registered.blob_id, blob_id);
@@ -138,7 +144,9 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
     assert_eq!(blob_obj.certified_epoch, Some(1));
 
     // Make sure that we got the expected event
-    let ContractEvent::BlobCertified(blob_certified) = events.next().await.unwrap() else {
+    let ContractEvent::BlobEvent(BlobEvent::Certified(blob_certified)) =
+        events.next().await.unwrap()
+    else {
         bail!("unexpected event type. expecting BlobCertified");
     };
     assert_eq!(blob_certified.blob_id, blob_id);
@@ -182,7 +190,9 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
         .await?;
 
     // Make sure that we got the expected event
-    let ContractEvent::BlobRegistered(blob_registered) = events.next().await.unwrap() else {
+    let ContractEvent::BlobEvent(BlobEvent::Registered(blob_registered)) =
+        events.next().await.unwrap()
+    else {
         bail!("unexpected event type. expecting BlobRegistered");
     };
     assert_eq!(blob_registered.blob_id, blob_id);
@@ -193,7 +203,9 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
         .await?;
 
     // Make sure that we got the expected event
-    let ContractEvent::BlobCertified(blob_certified) = events.next().await.unwrap() else {
+    let ContractEvent::BlobEvent(BlobEvent::Certified(blob_certified)) =
+        events.next().await.unwrap()
+    else {
         bail!("unexpected event type. expecting BlobCertified");
     };
     assert_eq!(blob_certified.blob_id, blob_id);
@@ -232,13 +244,19 @@ async fn test_invalidate_blob() -> anyhow::Result<()> {
         .await?;
 
     // Make sure that we got the expected event
-    let ContractEvent::EpochParametersSelected(_) = events.next().await.unwrap() else {
+    let ContractEvent::EpochChangeEvent(EpochChangeEvent::EpochParametersSelected(_)) =
+        events.next().await.unwrap()
+    else {
         bail!("unexpected event type. expecting EpochParametersSelected");
     };
-    let ContractEvent::EpochChangeStart(_) = events.next().await.unwrap() else {
+    let ContractEvent::EpochChangeEvent(EpochChangeEvent::EpochChangeStart(_)) =
+        events.next().await.unwrap()
+    else {
         bail!("unexpected event type. expecting EpochChangeStart");
     };
-    let ContractEvent::InvalidBlobID(invalid_blob_id) = events.next().await.unwrap() else {
+    let ContractEvent::BlobEvent(BlobEvent::InvalidBlobID(invalid_blob_id)) =
+        events.next().await.unwrap()
+    else {
         bail!("unexpected event type. expecting InvalidBlobID");
     };
     assert_eq!(invalid_blob_id.blob_id, blob_id);
