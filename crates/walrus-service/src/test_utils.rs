@@ -459,7 +459,6 @@ fn committee_partner(node_config: &StorageNodeTestConfig) -> Option<StorageNodeT
 #[derive(Debug, Clone)]
 pub struct StubCommitteeServiceFactory<T> {
     committee: Committee,
-    previous_committee: Committee,
     _service_type: PhantomData<T>,
 }
 
@@ -467,16 +466,9 @@ impl<T> StubCommitteeServiceFactory<T> {
     fn from_members(members: Vec<SuiStorageNode>, initial_epoch: Option<Epoch>) -> Self {
         let n_shards =
             NonZeroU16::new(members.iter().map(|node| node.shard_ids.len() as u16).sum()).unwrap();
-        let epoch = initial_epoch.unwrap_or(1);
         Self {
-            committee: Committee::new(members.clone(), epoch, n_shards)
+            committee: Committee::new(members, initial_epoch.unwrap_or(1), n_shards)
                 .expect("valid members to be provided for tests"),
-            previous_committee: Committee::new(
-                if epoch == 1 { vec![] } else { members },
-                epoch - 1,
-                n_shards,
-            )
-            .expect("valid members to be provided for tests"),
             _service_type: PhantomData,
         }
     }
@@ -488,10 +480,7 @@ impl CommitteeServiceFactory for StubCommitteeServiceFactory<StubCommitteeServic
         &self,
         _: Option<&PublicKey>,
     ) -> Result<Box<dyn CommitteeService>, anyhow::Error> {
-        Ok(Box::new(StubCommitteeService(
-            self.committee.clone(),
-            self.previous_committee.clone(),
-        )))
+        Ok(Box::new(StubCommitteeService(self.committee.clone())))
     }
 }
 
@@ -503,7 +492,6 @@ impl CommitteeServiceFactory for StubCommitteeServiceFactory<NodeCommitteeServic
     ) -> Result<Box<dyn CommitteeService>, anyhow::Error> {
         Ok(Box::new(NodeCommitteeService::new(
             self.committee.clone(),
-            self.committee.clone(),
             local_identity,
             Default::default(),
         )?))
@@ -514,7 +502,7 @@ impl CommitteeServiceFactory for StubCommitteeServiceFactory<NodeCommitteeServic
 ///
 /// Does not perform any network operations.
 #[derive(Debug)]
-pub struct StubCommitteeService(pub Committee, pub Committee);
+pub struct StubCommitteeService(pub Committee);
 
 #[async_trait]
 impl CommitteeService for StubCommitteeService {
@@ -577,10 +565,6 @@ impl CommitteeService for StubCommitteeService {
         &self.0
     }
 
-    fn previous_committee(&self) -> &Committee {
-        &self.1
-    }
-
     fn is_walrus_storage_node(&self, public_key: &PublicKey) -> bool {
         self.0
             .members()
@@ -598,7 +582,6 @@ pub struct StubContractService {}
 #[async_trait]
 impl SystemContractService for StubContractService {
     async fn invalidate_blob_id(&self, _certificate: &InvalidBlobCertificate) {}
-    async fn epoch_sync_done(&self, _node_id: ObjectID) {}
 }
 
 /// Returns a socket address that is not currently in use on the system.
@@ -800,14 +783,14 @@ impl TestClusterBuilder {
     /// Sets the [`SystemContractService`] used for each storage node.
     ///
     /// Should be called after the storage nodes have been specified.
-    pub fn with_system_contract_services<T>(mut self, contract_services: &[T]) -> Self
+    pub fn with_system_contract_services<T>(mut self, contract_service: T) -> Self
     where
         T: SystemContractService + Clone + 'static,
     {
-        assert_eq!(contract_services.len(), self.storage_node_configs.len());
-        self.contract_services = contract_services
+        self.contract_services = self
+            .storage_node_configs
             .iter()
-            .map(|service| Some(Box::new(service.clone()) as _))
+            .map(|_| Some(Box::new(contract_service.clone()) as _))
             .collect();
         self
     }
@@ -985,10 +968,6 @@ where
     async fn invalidate_blob_id(&self, certificate: &InvalidBlobCertificate) {
         self.as_ref().inner.invalidate_blob_id(certificate).await
     }
-
-    async fn epoch_sync_done(&self, node_id: ObjectID) {
-        self.as_ref().inner.epoch_sync_done(node_id).await
-    }
 }
 
 /// Returns a test-committee with members with the specified number of shards each.
@@ -1095,7 +1074,7 @@ pub mod test_cluster {
             contract_clients.push(client);
         }
         let contract_clients_refs = contract_clients
-            .iter_mut()
+            .iter()
             .map(|client| &client.inner)
             .collect::<Vec<_>>();
 
@@ -1114,12 +1093,6 @@ pub mod test_cluster {
 
         end_epoch_zero(contract_clients_refs.first().unwrap()).await?;
 
-        let node_contract_services = contract_clients
-            .into_iter()
-            .map(|client| client.inner)
-            .map(SuiSystemContractService::new)
-            .collect::<Vec<_>>();
-
         // Build the walrus cluster
         let sui_read_client = SuiReadClient::new(
             wallet.as_ref().get_client().await?,
@@ -1130,6 +1103,19 @@ pub mod test_cluster {
 
         // Create a contract service for the storage nodes using a wallet in a temp dir
         // The sui test cluster handler can be dropped since we already have one
+        // TODO(#786): change cluster builder to take a list of `SuiSystemContractService`s and
+        // provide the contract clients used for staking to make sure that each node has the
+        // corresponding `StorageNodeCap`.
+        let sui_contract_service = test_utils::new_wallet_on_sui_test_cluster(sui_cluster.clone())
+            .await?
+            .and_then(|wallet| {
+                SuiContractClient::new_with_read_client(
+                    wallet,
+                    DEFAULT_GAS_BUDGET,
+                    sui_read_client.clone(),
+                )
+            })?
+            .map(SuiSystemContractService::new);
 
         // Set up the cluster
         let cluster_builder = cluster_builder
@@ -1141,7 +1127,7 @@ pub mod test_cluster {
                 sui_read_client.clone(),
                 Duration::from_millis(100),
             ))
-            .with_system_contract_services(&node_contract_services);
+            .with_system_contract_services(Arc::new(sui_contract_service));
 
         let cluster = {
             // Lock to avoid race conditions.
@@ -1199,7 +1185,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
 pub fn empty_storage_with_shards(shards: &[ShardIndex]) -> WithTempDir<Storage> {
     let temp_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
     let db_config = DatabaseConfig::default();
-    let storage = Storage::open(temp_dir.path(), db_config, MetricConf::default())
+    let mut storage = Storage::open(temp_dir.path(), db_config, MetricConf::default())
         .expect("storage creation must succeed");
 
     for shard in shards {

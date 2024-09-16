@@ -550,7 +550,6 @@ impl ShardStorage {
 
             let fetched_slivers = node
                 .committee_service
-                .load_full()
                 .sync_shard_before_epoch(
                     self.id(),
                     next_starting_blob_id,
@@ -781,7 +780,7 @@ impl ShardStorage {
         let result = match sliver_type {
             SliverType::Primary => {
                 recover_sliver::<Primary>(
-                    node.committee_service.load_full(),
+                    node.committee_service.as_ref(),
                     &metadata,
                     sliver_id,
                     &node.encoding_config,
@@ -790,7 +789,7 @@ impl ShardStorage {
             }
             SliverType::Secondary => {
                 recover_sliver::<Secondary>(
-                    node.committee_service.load_full(),
+                    node.committee_service.as_ref(),
                     &metadata,
                     sliver_id,
                     &node.encoding_config,
@@ -806,7 +805,6 @@ impl ShardStorage {
                 // committee from the latest epoch.
                 let invalid_blob_certificate = node
                     .committee_service
-                    .load_full()
                     .get_invalid_blob_certificate(
                         &blob_id,
                         &inconsistency_proof,

@@ -265,8 +265,8 @@ impl BlobSynchronizer {
         &self.node.encoding_config
     }
 
-    fn committee_service(&self) -> Arc<Box<dyn CommitteeService>> {
-        self.node.committee_service.load_full()
+    fn committee_service(&self) -> &dyn CommitteeService {
+        self.node.committee_service.as_ref()
     }
 
     fn contract_service(&self) -> &dyn SystemContractService {
@@ -289,7 +289,6 @@ impl BlobSynchronizer {
         let mut sliver_sync_futures: FuturesUnordered<_> = self
             .storage()
             .shards()
-            .into_iter()
             .flat_map(|shard| {
                 [
                     Either::Left(
@@ -338,7 +337,6 @@ impl BlobSynchronizer {
         let metadata = self
             .node
             .committee_service
-            .load_full()
             .get_and_verify_metadata(&self.blob_id, &self.node.encoding_config)
             .await;
 
@@ -418,7 +416,7 @@ impl BlobSynchronizer {
 }
 
 pub async fn recover_sliver<A: EncodingAxis>(
-    committee_service: Arc<Box<dyn CommitteeService>>,
+    committee_service: &dyn CommitteeService,
     metadata: &VerifiedBlobMetadataWithId,
     sliver_id: SliverPairIndex,
     encoding_config: &EncodingConfig,

@@ -105,9 +105,6 @@ pub trait CommitteeService: std::fmt::Debug + Send + Sync {
     /// Returns the committee used by the service.
     fn committee(&self) -> &Committee;
 
-    /// Returns the previous committee used by the service.
-    fn previous_committee(&self) -> &Committee;
-
     /// Get and verify metadata.
     async fn get_and_verify_metadata(
         &self,
@@ -221,24 +218,13 @@ where
         &self,
         local_identity: Option<&PublicKey>,
     ) -> Result<Box<dyn CommitteeService>, anyhow::Error> {
-        let (current_committee, previous_committee) = self
+        let committee = self
             .read_client
-            .current_and_previous_committee()
+            .current_committee()
             .await
             .context("unable to create a committee service for the current epoch")?;
 
-        tracing::info!(
-            "creating committee in epoch {:?} from epoch {:?}",
-            current_committee.epoch,
-            previous_committee.epoch
-        );
-
-        let service = NodeCommitteeService::new(
-            current_committee,
-            previous_committee,
-            local_identity,
-            self.config.clone(),
-        )?;
+        let service = NodeCommitteeService::new(committee, local_identity, self.config.clone())?;
 
         Ok(Box::new(service))
     }
@@ -254,17 +240,11 @@ impl NodeCommitteeService {
     /// Creates a new `NodeCommitteeService`.
     pub fn new(
         committee: Committee,
-        previous_committee: Committee,
         local_identity: Option<&PublicKey>,
         config: CommitteeServiceConfig,
     ) -> Result<Self, anyhow::Error> {
         Ok(Self {
-            inner: NodeCommitteeServiceInner::new(
-                committee,
-                previous_committee,
-                local_identity,
-                config,
-            )?,
+            inner: NodeCommitteeServiceInner::new(committee, local_identity, config)?,
         })
     }
 }
@@ -277,13 +257,11 @@ struct NodeCommitteeServiceInner<T> {
     local_identity: Option<PublicKey>,
     config: CommitteeServiceConfig,
     rng: Arc<Mutex<StdRng>>,
-    previous_committee: Committee,
 }
 
 impl NodeCommitteeServiceInner<StorageNodeClient> {
     fn new_with_seed(
         committee: Committee,
-        previous_committee: Committee,
         local_identity: Option<&PublicKey>,
         config: CommitteeServiceConfig,
         seed: u64,
@@ -319,23 +297,15 @@ impl NodeCommitteeServiceInner<StorageNodeClient> {
             local_identity: local_identity.cloned(),
             config,
             rng: Arc::new(Mutex::new(StdRng::seed_from_u64(seed))),
-            previous_committee,
         })
     }
 
     fn new(
         committee: Committee,
-        previous_committee: Committee,
         local_identity: Option<&PublicKey>,
         config: CommitteeServiceConfig,
     ) -> Result<Self, anyhow::Error> {
-        Self::new_with_seed(
-            committee,
-            previous_committee,
-            local_identity,
-            config,
-            rand::thread_rng().gen(),
-        )
+        Self::new_with_seed(committee, local_identity, config, rand::thread_rng().gen())
     }
 }
 
@@ -703,10 +673,6 @@ impl CommitteeService for NodeCommitteeService {
         &self.inner.committee
     }
 
-    fn previous_committee(&self) -> &Committee {
-        &self.inner.previous_committee
-    }
-
     fn is_walrus_storage_node(&self, public_key: &PublicKey) -> bool {
         self.inner
             .committee
@@ -851,12 +817,11 @@ mod tests {
             node_clients.shuffle(&mut SmallRng::seed_from_u64(41));
 
             let inner = NodeCommitteeServiceInner {
-                committee: committee.clone(),
+                committee,
                 node_clients: node_clients.into_iter().map(Option::Some).collect(),
                 rng: Arc::new(Mutex::new(StdRng::seed_from_u64(32))),
                 local_identity: None,
                 config: Default::default(),
-                previous_committee: committee,
             };
 
             let _ = tokio::time::timeout(
@@ -908,12 +873,11 @@ mod tests {
             node_clients.shuffle(&mut SmallRng::seed_from_u64(44));
 
             let inner = NodeCommitteeServiceInner {
-                committee: committee.clone(),
+                committee,
                 node_clients: node_clients.into_iter().map(Option::Some).collect(),
                 rng: Arc::new(Mutex::new(StdRng::seed_from_u64(33))),
                 local_identity: None,
                 config: Default::default(),
-                previous_committee: committee,
             };
 
             let _ = tokio::time::timeout(

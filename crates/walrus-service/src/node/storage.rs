@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
+    collections::{hash_map::Entry, HashMap},
     fmt::Debug,
     ops::Bound::{Excluded, Unbounded},
     path::Path,
@@ -9,7 +10,6 @@ use std::{
 };
 
 use blob_info::merge_blob_info;
-use dashmap::{mapref::entry::Entry, DashMap};
 use rocksdb::Options;
 use sui_sdk::types::event::EventID;
 use typed_store::{
@@ -58,7 +58,7 @@ pub struct Storage {
     metadata: DBMap<BlobId, BlobMetadata>,
     blob_info: DBMap<BlobId, BlobInfo>,
     event_cursor: EventCursorTable,
-    shards: DashMap<ShardIndex, Arc<ShardStorage>>,
+    shards: HashMap<ShardIndex, Arc<ShardStorage>>,
     config: DatabaseConfig,
 }
 
@@ -207,11 +207,11 @@ impl Storage {
 
     /// Returns the storage for the specified shard, creating it if it does not exist.
     pub(crate) fn create_storage_for_shard(
-        &self,
+        &mut self,
         shard: ShardIndex,
-    ) -> Result<Arc<ShardStorage>, TypedStoreError> {
+    ) -> Result<&ShardStorage, TypedStoreError> {
         match self.shards.entry(shard) {
-            Entry::Occupied(entry) => Ok(entry.get().clone()),
+            Entry::Occupied(entry) => Ok(entry.into_mut()),
             Entry::Vacant(entry) => {
                 let shard_storage = Arc::new(ShardStorage::create_or_reopen(
                     shard,
@@ -219,27 +219,24 @@ impl Storage {
                     &self.config,
                     Some(ShardStatus::Active),
                 )?);
-                Ok(entry.insert(shard_storage).clone())
+                Ok(entry.insert(shard_storage))
             }
         }
     }
 
     /// Returns the indices of the shards managed by the storage.
-    pub fn shards(&self) -> Vec<ShardIndex> {
-        self.shards.iter().map(|entry| *entry.key()).collect()
+    pub fn shards(&self) -> impl ExactSizeIterator<Item = ShardIndex> + '_ {
+        self.shards.keys().copied()
     }
 
     /// Returns an iterator over the shard storages managed by the storage.
-    pub fn shard_storages(&self) -> Vec<Arc<ShardStorage>> {
-        self.shards
-            .iter()
-            .map(|entry| entry.value().clone())
-            .collect()
+    pub fn shard_storages(&self) -> impl ExactSizeIterator<Item = &Arc<ShardStorage>> {
+        self.shards.values()
     }
 
     /// Returns a handle over the storage for a single shard.
-    pub fn shard_storage(&self, shard: ShardIndex) -> Option<Arc<ShardStorage>> {
-        self.shards.get(&shard).map(|entry| entry.value().clone())
+    pub fn shard_storage(&self, shard: ShardIndex) -> Option<&Arc<ShardStorage>> {
+        self.shards.get(&shard)
     }
 
     /// Store the verified metadata.
@@ -398,7 +395,7 @@ impl Storage {
 
     /// Deletes the slivers on all shards for the provided [`BlobId`].
     fn delete_slivers(&self, batch: &mut DBBatch, blob_id: &BlobId) -> Result<(), TypedStoreError> {
-        for shard in self.shards.iter() {
+        for shard in self.shards.values() {
             shard.delete_sliver_pair(batch, blob_id)?;
         }
         Ok(())
@@ -408,7 +405,7 @@ impl Storage {
     /// all of the storage's shards.
     #[tracing::instrument(skip_all)]
     pub fn is_stored_at_all_shards(&self, blob_id: &BlobId) -> Result<bool, TypedStoreError> {
-        for shard in self.shards.iter() {
+        for shard in self.shards.values() {
             if !shard.status()?.is_owned_by_node() {
                 continue;
             }
@@ -437,7 +434,7 @@ impl Storage {
     ) -> Result<Vec<ShardIndex>, TypedStoreError> {
         let mut shards_with_sliver_pairs = Vec::with_capacity(self.shards.len());
 
-        for shard in self.shards.iter() {
+        for shard in self.shards.values() {
             if shard.is_sliver_pair_stored(blob_id)? {
                 shards_with_sliver_pairs.push(shard.id());
             }
@@ -462,7 +459,7 @@ impl Storage {
     /// Returns the shards currently present in the storage.
     #[cfg(any(test, feature = "test-utils"))]
     pub(crate) fn shards_present(&self) -> Vec<ShardIndex> {
-        self.shards.iter().map(|entry| *entry.key()).collect()
+        self.shards.keys().copied().collect()
     }
 
     /// Handles a sync shard request. The validity of the request should be checked before calling
@@ -498,8 +495,6 @@ impl Storage {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::collections::HashMap;
-
     use blob_info::{
         BlobCertificationStatus,
         BlobInfoV1,

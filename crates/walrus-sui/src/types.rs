@@ -13,7 +13,6 @@ use std::{
 };
 
 use anyhow::bail;
-use sui_types::base_types::ObjectID;
 use thiserror::Error;
 
 mod events;
@@ -203,13 +202,6 @@ impl Committee {
             .unwrap_or_default()
     }
 
-    /// Return the node ID for the specified public key.
-    pub fn node_id_for_public_key(&self, public_key: &PublicKey) -> Option<ObjectID> {
-        self.members
-            .iter()
-            .find_map(|node| (node.public_key == *public_key).then_some(node.node_id))
-    }
-
     /// Return the total number of shards in the committee.
     pub fn n_shards(&self) -> NonZeroU16 {
         self.n_shards
@@ -252,13 +244,5 @@ impl Committee {
         self.members
             .iter()
             .position(|node| node.shard_ids.contains(&shard))
-    }
-
-    /// Returns the public key of the member that holds the specified shard.
-    pub fn member_public_key_for_shard(&self, shard: &ShardIndex) -> Option<&PublicKey> {
-        self.members
-            .iter()
-            .find(|node| node.shard_ids.contains(shard))
-            .map(|node| &node.public_key)
     }
 }

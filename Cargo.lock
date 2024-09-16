@@ -12208,7 +12208,6 @@ name = "walrus-service"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "arc-swap",
  "async-trait",
  "axum 0.7.5",
  "axum-server 0.7.1",
@@ -12216,7 +12215,6 @@ dependencies = [
  "byteorder",
  "clap",
  "colored",
- "dashmap",
  "enum_dispatch",
  "fail 0.5.1",
  "fastcrypto 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)",
