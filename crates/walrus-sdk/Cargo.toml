@@ -1,10 +1,10 @@
 [package]
 name = "walrus-sdk"
 publish = false
-authors = { workspace = true }
-version = { workspace = true }
-edition = { workspace = true }
-license = { workspace = true }
+authors.workspace = true
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 
 [dependencies]
 bcs.workspace = true
@@ -15,7 +15,7 @@ p256.workspace = true
 rand.workspace = true
 reqwest.workspace = true
 rustls.workspace = true
-rustls-native-certs = "0.8.0"
+rustls-native-certs.workspace = true
 serde.workspace = true
 sui-types.workspace = true
 thiserror.workspace = true
@@ -24,11 +24,11 @@ tracing.workspace = true
 tracing-opentelemetry.workspace = true
 utoipa.workspace = true
 walrus-core.workspace = true
-x509-cert = "0.2.5"
+x509-cert.workspace = true
 
 [dev-dependencies]
 axum.workspace = true
-axum-server = { workspace = true }
+axum-server.workspace = true
 rcgen.workspace = true
 walrus-core = { workspace = true, features = ["test-utils"] }
 walrus-test-utils.workspace = true

@@ -49,6 +49,7 @@ regex = "1"
 reqwest = { version = "0.12.5", default-features = false, features = [ "http2", "json", "rustls-tls", ] }
 rocksdb = "0.21.0"
 rustls = { version = "0.23.13", default-features = false, features = ["ring", "tls12", "logging"] }
+rustls-native-certs = "0.8.0"
 serde = { version = "1.0.210", features = ["derive"] }
 serde_json = "1.0.128"
 serde_test = "1.0.177"
@@ -73,6 +74,7 @@ thiserror = "1.0.63"
 tokio = "=1.36.0"
 tokio-stream = "0.1.16"
 tokio-util = "0.7.12"
+tower = "0.5.1"
 tower-http = { version = "0.5.2", features = ["trace"] }
 tracing = "0.1.40"
 tracing-opentelemetry = { version = "0.24", default-features = false }
@@ -87,6 +89,7 @@ walrus-sdk = { path = "crates/walrus-sdk" }
 walrus-service = { path = "crates/walrus-service" }
 walrus-sui = { path = "crates/walrus-sui" }
 walrus-test-utils = { path = "crates/walrus-test-utils" }
+x509-cert = "0.2.5"
 
 [workspace.lints.rust]
 missing_docs = "warn"
