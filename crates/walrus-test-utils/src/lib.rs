@@ -166,6 +166,43 @@ macro_rules! async_param_test {
     }
 }
 
+/// Macro for creating parametrized *simtest* tests.
+#[macro_export]
+macro_rules! simtest_param_test {
+    ($func_name:ident -> $return_ty:ty: [
+        $( $(#[$outer:meta])+ $case_name:ident: ( $($args:expr),+ ) ),+$(,)?
+    ]) => {
+        mod $func_name {
+            use super::*;
+
+            $(
+                $(#[$outer])+
+                async fn $case_name() -> $return_ty {
+                    $func_name($($args),+).await
+                }
+            )*
+        }
+    };
+    ($func_name:ident: [
+        $( $(#[$outer:meta])+ $case_name:ident: ( $($args:expr),+ ) ),+$(,)?
+    ]) => {
+        simtest_param_test!( $func_name -> (): [ $( $(#[$outer])+ $case_name: ($($args),+) ),* ] );
+    };
+
+    ($func_name:ident: [
+        $( $case_name:ident: ( $($args:expr),+ ) ),+$(,)?
+    ]) => {
+        simtest_param_test!( $func_name -> (): [ $( #[sim_test] $case_name: ($($args),+) ),* ] );
+    };
+    ($func_name:ident -> $return_ty:ty: [
+        $( $case_name:ident: ( $($args:expr),+ ) ),+$(,)?
+    ]) => {
+        simtest_param_test!(
+            $func_name -> $return_ty: [ $( #[sim_test] $case_name: ( $($args),+ ) ),* ]
+        );
+    }
+}
+
 /// A wrapper for a type along with a temporary directory on which it depends.
 #[derive(Debug)]
 pub struct WithTempDir<T> {

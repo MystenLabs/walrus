@@ -47,7 +47,6 @@ test-utils = [
     "walrus-core/test-utils",
     "dep:walrus-test-utils"
 ]
-failure_injection = ["fail/failpoints"]
 
 [dependencies]
 anyhow.workspace = true
@@ -61,7 +60,6 @@ byteorder.workspace = true
 clap.workspace = true
 colored = { workspace = true, optional = true }
 enum_dispatch = { workspace = true, optional = true }
-fail.workspace = true
 fastcrypto.workspace = true
 futures.workspace = true
 futures-util.workspace = true
@@ -89,6 +87,8 @@ serde.workspace = true
 serde_json.workspace = true
 serde_with.workspace = true
 serde_yaml.workspace = true
+sui-macros.workspace = true
+sui-protocol-config.workspace = true
 sui-sdk.workspace = true
 sui-types.workspace = true
 telemetry-subscribers.workspace = true

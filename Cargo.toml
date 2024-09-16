@@ -21,7 +21,6 @@ clap = { version = "4.5.17", features = ["derive"] }
 colored = "2.1.0"
 criterion = "0.5.1"
 enum_dispatch = "0.3"
-fail = "0.5"
 fastcrypto = "0.1.8"
 futures = { version = "0.3.30", default-features = false, features = ["async-await", "std"] }
 futures-timer = "=3.0.2" # required for MSIM

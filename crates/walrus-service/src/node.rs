@@ -2445,12 +2445,15 @@ mod tests {
         Ok(())
     }
 
-    // TODO(#726): We want to migrate the following tests to use Sui failpoint instead of
-    // the public fail crate, since simtest anyway requires Sui failpoint. Also, these tests
-    // should be moved under walrus-simtest.
-    #[cfg(feature = "failure_injection")]
+    #[cfg(msim)]
     mod failure_injection_tests {
-        use fail::FailScenario;
+        use sui_macros::{
+            clear_fail_point,
+            register_fail_point_arg,
+            register_fail_point_if,
+            sim_test,
+        };
+        use walrus_test_utils::simtest_param_test;
 
         use super::*;
 
@@ -2472,8 +2475,8 @@ mod tests {
         // Note that currently, each sync batch contains 10 blobs. So testing various interesting
         // places to break the sync process.
         // TODO(#705): make shard sync parameters configurable.
-        async_param_test! {
-            sync_shard_start_from_progress -> TestResult: [
+        simtest_param_test! {
+            sync_shard_start_from_progress: [
                 primary1: (1, SliverType::Primary),
                 primary5: (5, SliverType::Primary),
                 primary10: (10, SliverType::Primary),
@@ -2488,28 +2491,17 @@ mod tests {
                 secondary23: (23, SliverType::Secondary),
             ]
         }
-        async fn sync_shard_start_from_progress(
-            break_index: u64,
-            sliver_type: SliverType,
-        ) -> TestResult {
+        async fn sync_shard_start_from_progress(break_index: u64, sliver_type: SliverType) {
             telemetry_subscribers::init_for_testing();
 
-            // This test requires using failpoints to simulate failures.
-            assert!(fail::has_failpoints());
+            let (cluster, blob_details, shard_storage_dst) = setup_cluster_for_shard_sync_tests()
+                .await
+                .expect("Failed to setup cluster");
 
-            let (cluster, blob_details, shard_storage_dst) =
-                setup_cluster_for_shard_sync_tests().await?;
-
-            let scenario = FailScenario::setup();
-            fail::cfg(
+            register_fail_point_arg(
                 "fail_point_fetch_sliver",
-                format!(
-                    "return({},{})",
-                    sliver_type == SliverType::Primary,
-                    break_index,
-                )
-                .as_str(),
-            )?;
+                move || -> Option<(SliverType, u64)> { Some((sliver_type, break_index)) },
+            );
 
             // Starts the shard syncing process in the new shard, which will fail at the specified
             // break index.
@@ -2517,10 +2509,13 @@ mod tests {
                 .storage_node
                 ._shard_sync_handler
                 .start_new_shard_sync(ShardIndex(0))
-                .await?;
+                .await
+                .expect("Failed to start shard sync");
 
             // Waits for the shard sync process to stop.
-            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node._shard_sync_handler).await?;
+            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node._shard_sync_handler)
+                .await
+                .expect("Failed to wait for shard sync");
 
             // Check that shard sync process is not finished.
             let shard_storage_src = cluster.nodes[0]
@@ -2536,40 +2531,38 @@ mod tests {
                         < shard_storage_src.sliver_count(SliverType::Secondary)
             );
 
-            // Remove failure injection.
-            scenario.teardown();
+            clear_fail_point("fail_point_fetch_sliver");
 
             // restart the shard syncing process, to simulate a reboot.
             cluster.nodes[1]
                 .storage_node
                 ._shard_sync_handler
                 .restart_syncs()
-                .await?;
+                .await
+                .expect("Failed to restart shard sync");
 
             // Waits for the shard to be synced.
-            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node._shard_sync_handler).await?;
+            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node._shard_sync_handler)
+                .await
+                .expect("Failed to wait for shard sync");
 
             // Checks that the shard is completely migrated.
-            check_all_blobs_are_synced(&blob_details, &shard_storage_dst)?;
-
-            Ok(())
+            check_all_blobs_are_synced(&blob_details, &shard_storage_dst)
+                .expect("Failed to check all blobs are synced");
         }
 
         // Tests that there is a discrepancy between the source and destination shards in terms
         // of certified blobs. If the source doesn't return any blobs, the destination should
         // finish the sync process.
-        #[tokio::test]
-        async fn sync_shard_src_return_empty() -> TestResult {
+        #[sim_test]
+        async fn sync_shard_src_return_empty() {
             telemetry_subscribers::init_for_testing();
 
-            // This test requires using failpoints to simulate failures.
-            assert!(fail::has_failpoints());
+            let (cluster, _blob_details, _shard_storage_dst) = setup_cluster_for_shard_sync_tests()
+                .await
+                .expect("Failed to setup cluster");
 
-            let (cluster, _blob_details, _shard_storage_dst) =
-                setup_cluster_for_shard_sync_tests().await?;
-
-            let scenario = FailScenario::setup();
-            fail::cfg("fail_point_sync_shard_return_empty", "return")?;
+            register_fail_point_if("fail_point_sync_shard_return_empty", || true);
 
             // Starts the shard syncing process in the new shard, which will fail at the specified
             // break index.
@@ -2577,21 +2570,19 @@ mod tests {
                 .storage_node
                 ._shard_sync_handler
                 .start_new_shard_sync(ShardIndex(0))
-                .await?;
+                .await
+                .expect("Failed to start shard sync");
 
             // Waits for the shard sync process to stop.
-            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node._shard_sync_handler).await?;
-
-            // Remove failure injection.
-            scenario.teardown();
-
-            Ok(())
+            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node._shard_sync_handler)
+                .await
+                .expect("Failed to wait for shard sync");
         }
 
         // Tests crash recovery of shard transfer partially using shard recovery functionality
         // and partially using shard sync.
-        async_param_test! {
-            sync_shard_shard_recovery_restart -> TestResult: [
+        simtest_param_test! {
+            sync_shard_shard_recovery_restart: [
                 primary1: (1, SliverType::Primary, false),
                 primary5: (5, SliverType::Primary, false),
                 primary10: (10, SliverType::Primary, false),
@@ -2605,47 +2596,48 @@ mod tests {
             break_index: u64,
             sliver_type: SliverType,
             restart_after_recovery: bool,
-        ) -> TestResult {
+        ) {
             telemetry_subscribers::init_for_testing();
 
-            // This test requires using failpoints to simulate failures.
-            assert!(fail::has_failpoints());
-
-            let scenario = FailScenario::setup();
-            if restart_after_recovery {
-                fail::cfg("fail_point_after_start_recovery", "return")?;
-            } else {
-                fail::cfg(
+            register_fail_point_if("fail_point_after_start_recovery", move || {
+                restart_after_recovery
+            });
+            if !restart_after_recovery {
+                register_fail_point_arg(
                     "fail_point_fetch_sliver",
-                    format!(
-                        "return({},{})",
-                        sliver_type == SliverType::Primary,
-                        break_index,
-                    )
-                    .as_str(),
-                )?;
+                    move || -> Option<(SliverType, u64)> { Some((sliver_type, break_index)) },
+                );
             }
 
             let skip_stored_blob_index: [usize; 12] = [3, 4, 5, 9, 10, 11, 15, 18, 19, 20, 21, 22];
             let (cluster, blob_details) = setup_shard_recovery_test_cluster(|blob_index| {
                 !skip_stored_blob_index.contains(&blob_index)
             })
-            .await?;
+            .await
+            .expect("Failed to setup cluster");
 
             let node_inner = unsafe {
                 &mut *(Arc::as_ptr(&cluster.nodes[1].storage_node.inner) as *mut StorageNodeInner)
             };
-            node_inner.storage.create_storage_for_shard(ShardIndex(0))?;
+            node_inner
+                .storage
+                .create_storage_for_shard(ShardIndex(0))
+                .expect("Failed to create storage");
             let shard_storage_dst = node_inner.storage.shard_storage(ShardIndex(0)).unwrap();
-            shard_storage_dst.update_status_in_test(ShardStatus::None)?;
+            shard_storage_dst
+                .update_status_in_test(ShardStatus::None)
+                .expect("Failed to update status");
 
             cluster.nodes[1]
                 .storage_node
                 ._shard_sync_handler
                 .start_new_shard_sync(ShardIndex(0))
-                .await?;
+                .await
+                .expect("Failed to start shard sync");
             // Waits for the shard sync process to stop.
-            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node._shard_sync_handler).await?;
+            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node._shard_sync_handler)
+                .await
+                .expect("Failed to wait for shard sync");
 
             // Check that shard sync process is not finished.
             if !restart_after_recovery {
@@ -2663,20 +2655,24 @@ mod tests {
                 );
             }
 
-            // Remove failure injection.
-            scenario.teardown();
+            clear_fail_point("fail_point_after_start_recovery");
+            if !restart_after_recovery {
+                clear_fail_point("fail_point_fetch_sliver");
+            }
 
             // restart the shard syncing process, to simulate a reboot.
             cluster.nodes[1]
                 .storage_node
                 ._shard_sync_handler
                 .restart_syncs()
-                .await?;
+                .await
+                .expect("Failed to restart shard sync");
 
-            wait_for_shard_in_active_state(shard_storage_dst).await?;
-            check_all_blobs_are_synced(&blob_details, shard_storage_dst)?;
-
-            Ok(())
+            wait_for_shard_in_active_state(shard_storage_dst)
+                .await
+                .expect("Failed to wait for shard");
+            check_all_blobs_are_synced(&blob_details, shard_storage_dst)
+                .expect("Failed to check all blobs are synced");
         }
     }
 }

@@ -11,13 +11,15 @@ use std::{
     time::Duration,
 };
 
-#[cfg(feature = "failure_injection")]
+#[cfg(msim)]
 use anyhow::anyhow;
 use fastcrypto::traits::KeyPair;
 use futures::{stream::FuturesUnordered, StreamExt};
 use regex::Regex;
 use rocksdb::{Options, DB};
 use serde::{Deserialize, Serialize};
+#[cfg(msim)]
+use sui_macros::{fail_point_arg, fail_point_if};
 use tokio::sync::Semaphore;
 use typed_store::{
     rocks::{
@@ -376,7 +378,14 @@ impl ShardStorage {
         sliver_type: SliverType,
         slivers_to_fetch: &[BlobId],
     ) -> Result<Vec<(BlobId, Sliver)>, TypedStoreError> {
-        fail::fail_point!("fail_point_sync_shard_return_empty", |_| { Ok(Vec::new()) });
+        #[cfg(msim)]
+        {
+            let mut return_empty = false;
+            fail_point_if!("fail_point_sync_shard_return_empty", || return_empty = true);
+            if return_empty {
+                return Ok(Vec::new());
+            }
+        }
 
         Ok(match sliver_type {
             SliverType::Primary => self
@@ -529,7 +538,7 @@ impl ShardStorage {
         config: &ShardSyncConfig,
     ) -> Result<(), SyncShardClientError> {
         // Helper to track the number of scanned blobs to test recovery. Not used in production.
-        #[cfg(feature = "failure_injection")]
+        #[cfg(msim)]
         let mut scan_count: u64 = 0;
 
         let mut blob_info_iter = node
@@ -569,7 +578,7 @@ impl ShardStorage {
                 &mut batch,
             )?;
 
-            #[cfg(feature = "failure_injection")]
+            #[cfg(msim)]
             {
                 scan_count += fetched_slivers.len() as u64;
                 inject_failure(scan_count, sliver_type)?;
@@ -707,11 +716,16 @@ impl ShardStorage {
         tracing::info!("shard sync is done. Still has missing blobs. Shard enters recovery mode.",);
         self.shard_status.insert(&(), &ShardStatus::ActiveRecover)?;
 
-        fail::fail_point!("fail_point_after_start_recovery", |_| {
-            Err(SyncShardClientError::Internal(anyhow!(
-                "sync shard simulated sync failure after start recovery"
-            )))
-        });
+        #[cfg(msim)]
+        {
+            let mut inject_error = false;
+            fail_point_if!("fail_point_after_start_recovery", || inject_error = true);
+            if inject_error {
+                return Err(SyncShardClientError::Internal(anyhow!(
+                    "sync shard simulated sync failure after start recovery"
+                )));
+            }
+        }
 
         loop {
             self.recover_missing_blobs(node.clone(), config).await?;
@@ -891,35 +905,27 @@ fn base_column_family_name(id: ShardIndex) -> String {
     format!("shard-{}", id.0)
 }
 
-#[cfg(feature = "failure_injection")]
+#[cfg(msim)]
 fn inject_failure(scan_count: u64, sliver_type: SliverType) -> Result<(), anyhow::Error> {
     // Inject a failure point to simulate a sync failure.
-    fail::fail_point!("fail_point_fetch_sliver", |arg| {
-        if let Some(arg) = arg {
-            let parts: Vec<&str> = arg.split(',').collect();
-            let trigger_in_primary = parts[0]
-                .parse::<bool>()
-                .expect("we assume that our triggers have the correct format");
-            let trigger_at = parts[1]
-                .parse::<u64>()
-                .expect("we assume that our triggers have the correct format");
-            tracing::info!(
-                fail_point = "fail_point_fetch_sliver",
-                arg = ?arg,
-                if_trigger_in_primary = ?trigger_in_primary,
-                trigger_index = ?trigger_at,
-                blob_count = ?scan_count
-            );
-            if ((trigger_in_primary && sliver_type == SliverType::Primary)
-                || (!trigger_in_primary && sliver_type == SliverType::Secondary))
-                && trigger_at <= scan_count
-            {
-                return Err(anyhow!("fetch_sliver simulated sync failure"));
-            }
+
+    use sui_macros::fail_point_arg;
+    let mut injected_status = Ok(());
+    fail_point_arg!("fail_point_fetch_sliver", |(
+        trigger_sliver_type,
+        trigger_at,
+    ): (SliverType, u64)| {
+        tracing::info!(
+            fail_point = "fail_point_fetch_sliver",
+            trigger_sliver_type = ?trigger_sliver_type,
+            trigger_index = ?trigger_at,
+            blob_count = ?scan_count
+        );
+        if trigger_sliver_type == sliver_type && trigger_at <= scan_count {
+            injected_status = Err(anyhow!("fetch_sliver simulated sync failure"));
         }
-        Ok(())
     });
-    Ok(())
+    injected_status
 }
 
 #[cfg(test)]
