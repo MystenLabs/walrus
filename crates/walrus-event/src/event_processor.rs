@@ -392,7 +392,7 @@ impl PackageStore for EventProcessor {
             self.walrus_package_store.get(&()).map_err(|store_error| {
                 PackageResolverError::Store {
                     store: "RocksDB",
-                    source: Arc::new(store_error),
+                    error: store_error.to_string(),
                 }
             })?
         else {
