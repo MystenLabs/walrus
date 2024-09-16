@@ -1056,7 +1056,8 @@ pub mod test_cluster {
             .collect::<Vec<_>>();
         let n_shards = node_weights.iter().sum::<usize>() as u16;
 
-        let system_ctx = create_and_init_system(&mut wallet.inner, n_shards, 0).await?;
+        // TODO(#814): make epoch duration in test configurable. Currently hardcoded to 1 hour.
+        let system_ctx = create_and_init_system(&mut wallet.inner, n_shards, 0, 3600000).await?;
 
         let mut contract_clients = vec![];
         for _ in members.iter() {

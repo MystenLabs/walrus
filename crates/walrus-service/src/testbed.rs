@@ -266,7 +266,8 @@ pub async fn deploy_walrus_contract(
     let sui_client = admin_wallet.get_client().await?;
     request_sui_from_faucet(admin_wallet.active_address()?, &sui_network, &sui_client).await?;
 
-    let system_ctx = create_and_init_system(&mut admin_wallet, n_shards, 0).await?;
+    // TODO(#814): make epoch duration in test configurable. Currently hardcoded to 1 hour.
+    let system_ctx = create_and_init_system(&mut admin_wallet, n_shards, 0, 3600000).await?;
 
     // TODO(#794): Contract is published, and system&staking objects are created. However, the
     // system currently is not moving forward due to that storage nodes are not registered.

@@ -146,6 +146,7 @@ pub async fn create_system_and_staking_objects(
     init_cap: ObjectID,
     n_shards: u16,
     epoch_zero_duration_ms: u64,
+    epoch_duration_ms: u64,
     gas_budget: u64,
 ) -> Result<(ObjectID, ObjectID)> {
     let mut pt_builder = ProgrammableTransactionBuilder::new();
@@ -155,6 +156,7 @@ pub async fn create_system_and_staking_objects(
 
     let init_cap_arg = pt_builder.input(init_cap_ref.into())?;
     let epoch_zero_duration_arg = pt_builder.pure(epoch_zero_duration_ms)?;
+    let epoch_duration_arg = pt_builder.pure(epoch_duration_ms)?;
     let n_shards_arg = pt_builder.pure(n_shards)?;
     let clock_arg = pt_builder.obj(ObjectArg::SharedObject {
         id: SUI_CLOCK_OBJECT_ID,
@@ -171,6 +173,7 @@ pub async fn create_system_and_staking_objects(
         vec![
             init_cap_arg,
             epoch_zero_duration_arg,
+            epoch_duration_arg,
             n_shards_arg,
             clock_arg,
         ],

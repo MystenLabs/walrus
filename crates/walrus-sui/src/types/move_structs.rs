@@ -311,6 +311,8 @@ pub(crate) struct StakingInnerV1 {
     pub(crate) id: ObjectID,
     /// The number of shards in the system.
     pub(crate) n_shards: NonZeroU16,
+    /// The duration of an epoch in ms. Does not affect the first (zero) epoch.
+    pub(crate) epoch_duration: u64,
     /// Special parameter, used only for the first epoch. The timestamp when the
     /// first epoch can be started.
     pub(crate) first_epoch_start: u64,

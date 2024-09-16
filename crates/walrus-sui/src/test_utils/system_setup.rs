@@ -52,7 +52,8 @@ pub async fn publish_with_default_system(
 ) -> Result<(ObjectID, ObjectID)> {
     // Default system config, compatible with current tests
 
-    let system_context = create_and_init_system(admin_wallet, 100, 0).await?;
+    // TODO(#814): make epoch duration in test configurable. Currently hardcoded to 1 hour.
+    let system_context = create_and_init_system(admin_wallet, 100, 0, 3600000).await?;
 
     // Set up node params.
     // Pk corresponding to secret key scalar(117)
@@ -118,6 +119,7 @@ pub async fn create_and_init_system(
     admin_wallet: &mut WalletContext,
     n_shards: u16,
     epoch_zero_duration_ms: u64,
+    epoch_duration_ms: u64,
 ) -> Result<SystemContext> {
     let (package_id, cap_id, treasury_cap) = publish_coin_and_system_package(
         admin_wallet,
@@ -132,6 +134,7 @@ pub async fn create_and_init_system(
         cap_id,
         n_shards,
         epoch_zero_duration_ms,
+        epoch_duration_ms,
         DEFAULT_GAS_BUDGET,
     )
     .await?;
