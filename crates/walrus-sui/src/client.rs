@@ -553,7 +553,7 @@ impl ContractClient for SuiContractClient {
         certificate: &ConfirmationCertificate,
     ) -> SuiClientResult<Blob> {
         // Sort the list of signers, since the move contract requires them to be in
-        // ascending order (see `blob_store::bls_aggregate::verify_certificate`)
+        // ascending order (see `walrus::system::bls_aggregate::verify_certificate`)
         let mut signers = certificate.signers.clone();
         signers.sort_unstable();
         let res = self
@@ -582,7 +582,7 @@ impl ContractClient for SuiContractClient {
         certificate: &InvalidBlobCertificate,
     ) -> SuiClientResult<()> {
         // Sort the list of signers, since the move contract requires them to be in
-        // ascending order (see `blob_store::bls_aggregate::verify_certificate`)
+        // ascending order (see `walrus::system::bls_aggregate::verify_certificate`)
         let mut signers = certificate.signers.clone();
         signers.sort_unstable();
         self.move_call_and_transfer(

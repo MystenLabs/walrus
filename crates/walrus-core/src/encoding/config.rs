@@ -447,7 +447,7 @@ fn source_symbols_per_blob_for_n_shards(n_shards: NonZeroU16) -> NonZeroU32 {
 /// size cannot be computed.
 ///
 /// This computation is the same as done by the function of the same name in
-/// `contracts/blob_store/redstuff.move` and should be kept in sync.
+/// `contracts/walrus/sources/system/redstuff.move` and should be kept in sync.
 #[inline]
 pub fn encoded_blob_length_for_n_shards(
     n_shards: NonZeroU16,
@@ -463,7 +463,7 @@ pub fn encoded_blob_length_for_n_shards(
 /// metadata and the blob ID. Returns `None` if the blob size cannot be computed.
 ///
 /// This computation is the same as done by the function of the same name in
-/// `contracts/blob_store/redstuff.move` and should be kept in sync.
+/// `contracts/walrus/sources/system/redstuff.move` and should be kept in sync.
 pub fn encoded_slivers_length_for_n_shards(
     n_shards: NonZeroU16,
     unencoded_length: u64,
@@ -528,7 +528,7 @@ mod tests {
         ]
     }
     /// These tests replicate the tests for `encoded_blob_length` in
-    /// `contracts/blob_store/redstuff.move` and should be kept in sync.
+    /// `contracts/walrus/sources/system/redstuff.move` and should be kept in sync.
     fn test_encoded_size(blob_size: usize, n_shards: u16, expected_encoded_size: u64) {
         assert_eq!(
             EncodingConfig::new(NonZeroU16::new(n_shards).unwrap())

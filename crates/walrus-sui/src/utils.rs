@@ -46,7 +46,7 @@ use crate::{
     contracts::{self, AssociatedContractStruct},
 };
 
-// Keep in sync with the same constant in `contracts/blob_store/system.move`.
+// Keep in sync with the same constant in `contracts/walrus/sources/system.move`.
 /// The number of bytes per storage unit.
 pub const BYTES_PER_UNIT_SIZE: u64 = 1024;
 

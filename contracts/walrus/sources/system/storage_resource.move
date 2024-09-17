@@ -30,8 +30,8 @@ public fun storage_size(self: &Storage): u64 {
 }
 
 /// Constructor for [Storage] objects.
-/// Necessary to allow `blob_store::system` to create storage objects.
-/// Cannot be called outside of the current module and [blob_store::system].
+/// Necessary to allow `walrus::system` to create storage objects.
+/// Cannot be called outside of the current module and [walrus::system].
 public(package) fun create_storage(
     start_epoch: u32,
     end_epoch: u32,

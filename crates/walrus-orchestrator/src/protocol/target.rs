@@ -94,7 +94,7 @@ mod default_node_parameters {
     }
 
     pub fn default_contract_path() -> PathBuf {
-        PathBuf::from("./contracts/blob_store")
+        PathBuf::from("./contracts/walrus")
     }
 }
 

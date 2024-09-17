@@ -54,7 +54,7 @@ struct DeploySystemContractArgs {
     #[clap(long, default_value = "testnet")]
     sui_network: SuiNetwork,
     /// The directory in which the contracts are located.
-    #[clap(long, default_value = "./contracts/blob_store")]
+    #[clap(long, default_value = "./contracts/walrus")]
     contract_path: PathBuf,
     /// Gas budget for sui transactions to publish the contracts and set up the system.
     #[arg(long, default_value_t = 500_000_000)]

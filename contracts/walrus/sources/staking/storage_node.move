@@ -1,7 +1,6 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-/// Copies `blob_store::storage_node` with only addition of `StorageNodeCap` struct.
 #[allow(unused_field, unused_function, unused_variable, unused_use)]
 module walrus::storage_node;
 

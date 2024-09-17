@@ -14,12 +14,14 @@ NORMAL='\033[0m'
 # 1) Run tests and record coverage
 error=0
 for dir in contracts/*/; do
-    echo -e "\nTesting $dir..."
-    cd $dir
-    sui move build
-    sui move test --coverage
-    [ $? -ne 0 ] && error=1
-    cd ../..
+    if [ -f "$dir/Move.toml" ]; then
+      echo -e "\nTesting $dir..."
+      cd $dir
+      sui move build
+      sui move test --coverage
+      [ $? -ne 0 ] && error=1
+      cd ../..
+    fi
 done
 
 if [ $error -ne 0 ]; then
@@ -31,23 +33,24 @@ fi
 # 2) Check coverage and print summaries
 error=0
 for dir in contracts/*; do
-
-    cd $dir
-    coverage_summary=$(sui move coverage summary)
-    echo -e "\n${BOLD}Coverage summary for $dir:${NORMAL}\n$coverage_summary"
-    coverage_percentage=$(echo "$coverage_summary" | awk '/Move Coverage:/ {print $5}')
-    if [[ ${coverage_percentage%.*} -lt $MIN_COVERAGE ]]; then
-        echo -e ${RED}ERROR${NORMAL}: \
-            Contract $dir has a coverage of ${RED}$coverage_percentage%${NORMAL}, \
-            which is below the minimal acceptable coverage of $MIN_COVERAGE%.
-        echo '       Run "sui move coverage source --module $module"' to find uncovered lines.
-        error=2
-    else
-        echo -e ${GREEN}SUCCESS${NORMAL}: \
-            Contract $dir has a coverage of ${GREEN}$coverage_percentage%${NORMAL}, \
-            which is above the minimal acceptable coverage of $MIN_COVERAGE%.
+    if [ -f "$dir/Move.toml" ]; then
+      cd $dir
+      coverage_summary=$(sui move coverage summary)
+      echo -e "\n${BOLD}Coverage summary for $dir:${NORMAL}\n$coverage_summary"
+      coverage_percentage=$(echo "$coverage_summary" | awk '/Move Coverage:/ {print $5}')
+      if [[ ${coverage_percentage%.*} -lt $MIN_COVERAGE ]]; then
+          echo -e ${RED}ERROR${NORMAL}: \
+              Contract $dir has a coverage of ${RED}$coverage_percentage%${NORMAL}, \
+              which is below the minimal acceptable coverage of $MIN_COVERAGE%.
+          echo '       Run "sui move coverage source --module $module"' to find uncovered lines.
+          error=2
+      else
+          echo -e ${GREEN}SUCCESS${NORMAL}: \
+              Contract $dir has a coverage of ${GREEN}$coverage_percentage%${NORMAL}, \
+              which is above the minimal acceptable coverage of $MIN_COVERAGE%.
+      fi
+      cd ../..
     fi
-    cd ../..
 done
 
 if [ $error -ne 0 ]; then
