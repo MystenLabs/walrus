@@ -432,6 +432,7 @@ impl CommitteeService for NodeCommitteeService {
         blob_id: BlobId,
         inconsistency_proof: &InconsistencyProofEnum,
     ) -> InvalidBlobCertificate {
+        tracing::trace!("creating future to get invalid blob certificate");
         GetInvalidBlobCertificate::new(blob_id, inconsistency_proof, &self.inner)
             .run()
             .await

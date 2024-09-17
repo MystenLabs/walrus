@@ -133,13 +133,17 @@ impl_response_conversion!(Vec<(BlobId, Sliver)>, Response::ShardSlivers);
 
 /// Marker trait for types implementing the [`tower::Service`] signature expected of services
 /// used for communication with the committee.
-pub(crate) trait NodeService:
-    for<'a> Service<Request<'a>, Response = Response, Error = NodeError> + Clone
+pub(crate) trait NodeService
+where
+    Self: Send + Clone,
+    Self: for<'a> Service<Request<'a>, Response = Response, Error = NodeError, Future: Send>,
 {
 }
 
-impl<T> NodeService for T where
-    for<'a> T: Service<Request<'a>, Response = Response, Error = NodeError> + Clone
+impl<T> NodeService for T
+where
+    T: Send + Clone,
+    T: for<'a> Service<Request<'a>, Response = Response, Error = NodeError, Future: Send>,
 {
 }
 

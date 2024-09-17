@@ -2,20 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-    cmp::{self},
+    cmp,
     collections::{hash_map::IntoValues, HashMap},
     future::Future,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-        Mutex as SyncMutex,
-        Weak,
-    },
+    pin::Pin,
+    sync::{Arc, Mutex as SyncMutex, Weak},
+    task::{ready, Context, Poll},
     vec::IntoIter,
 };
 
 use ::futures::{stream, FutureExt as _, StreamExt as _};
-use futures::{stream::FuturesUnordered, TryFutureExt as _};
+use futures::{future::BoxFuture, stream::FuturesUnordered, Stream as _, TryFutureExt as _};
 use rand::{rngs::StdRng, seq::SliceRandom as _};
 use tokio::{
     sync::watch,
@@ -399,6 +396,7 @@ where
             .fuse()
     }
 
+    #[tracing::instrument(skip_all)]
     fn decode_sliver(
         &mut self,
         collected_symbols: HashMap<ShardIndex, RecoverySymbol<MerkleProof>>,
@@ -423,6 +421,7 @@ where
         SliverData<A>: Into<Sliver>,
         InconsistencyProof<A, MerkleProof>: Into<InconsistencyProofEnum>,
     {
+        tracing::debug!("beginning to decode recovered sliver");
         let result = SliverData::<A>::recover_sliver_or_generate_inconsistency_proof(
             recovery_symbols,
             self.sliver_id
@@ -430,13 +429,17 @@ where
             self.metadata.as_ref(),
             &self.shared.encoding_config,
         );
+        tracing::debug!("completing decoding, parsing result");
 
         match result {
             Ok(SliverOrInconsistencyProof::Sliver(sliver)) => {
                 tracing::debug!("successfully recovered sliver");
                 Some(Ok(sliver.into()))
             }
-            Ok(SliverOrInconsistencyProof::InconsistencyProof(proof)) => Some(Err(proof.into())),
+            Ok(SliverOrInconsistencyProof::InconsistencyProof(proof)) => {
+                tracing::debug!("resulted in an inconsistency proof");
+                Some(Err(proof.into()))
+            }
             Err(SliverRecoveryOrVerificationError::RecoveryError(err)) => match err {
                 encoding::SliverRecoveryError::BlobSizeTooLarge(_) => {
                     panic!("blob size from verified metadata should not be too large")
@@ -515,121 +518,50 @@ where
         &mut self,
         committee: Arc<Committee>,
     ) -> InvalidBlobCertificate {
-        let mut required_weight = bft::min_n_correct(committee.n_shards()).get();
-
-        let mut collected_signatures: Vec<(usize, InvalidBlobIdAttestation)> = vec![];
-        // Use a vector of AtomicBool to track whether the signature has been collected for a node.
-        // This allows us to both check and update this in a loop. Other non-lock based solutions
-        // trigger false-positive issues with the borrow checker.
-        let mut is_collected: Vec<AtomicBool> = vec![];
-        is_collected.resize_with(committee.n_members(), Default::default);
-
+        tracing::debug!(
+            walrus.epoch = committee.epoch,
+            "requesting certificate from the epoch's committee"
+        );
+        let mut collected_signatures = HashMap::new();
         let mut backoff = ExponentialBackoffState::new_infinite(
             self.shared.config.retry_interval_min,
             self.shared.config.retry_interval_max,
         );
+        let mut node_order: Vec<_> = (0..committee.n_members()).collect();
 
         // Sort the nodes by their weight in the committee. This has the benefit of requiring the
         // least number of signatures for the certificate.
-        let mut node_order: Vec<_> = (0..committee.n_members()).collect();
         node_order.sort_unstable_by_key(|&index| {
             cmp::Reverse(committee.members()[index].shard_ids.len())
         });
 
         loop {
-            let mut requests = node_order
-                .iter()
-                .filter_map(|&index| {
-                    let committee_epoch = committee.epoch;
-                    let node_info = &committee.members()[index];
-
-                    // Ordering::Relaxed is sufficient since this code is single threaded.
-                    if is_collected[index].load(Ordering::Relaxed) {
-                        tracing::trace!("signature already collected, skipping");
-                        return None;
-                    }
-
-                    let Some(client) = self.shared.get_node_service_by_id(&node_info.public_key)
-                    else {
-                        tracing::trace!(
-                            "unable to get the client, either creation failed or epoch is changing"
-                        );
-                        return None;
-                    };
-
-                    let node_weight = u16::try_from(node_info.shard_ids.len())
-                        .expect("shard weight fits within u16");
-
-                    let request = client
-                        .oneshot(Request::SubmitProofForInvalidBlobAttestation {
-                            blob_id: self.blob_id,
-                            proof: self.inconsistency_proof,
-                            epoch: committee_epoch,
-                            public_key: node_info.public_key.clone(),
-                        })
-                        .map_ok(Response::into_value);
-                    let request =
-                        time::timeout(self.shared.config.invalidity_sync_timeout, request)
-                            .map(log_and_discard_timeout_or_error)
-                            .map(move |output| (index, output, node_weight))
-                            .instrument(tracing::info_span!(
-                                "get_invalid_blob_certificate node",
-                                walrus.node.public_key = %node_info.public_key
-                            ));
-                    Some((request, node_weight))
-                })
-                .fuse();
-
-            let mut pending_requests = FuturesUnordered::default();
-            let mut pending_weight: u16 = 0;
-
-            'refill_pending_requests: loop {
-                // Fill the pending requests with requests until there is more weight pending than
-                // we require for a valid certificate.
-                while pending_weight < required_weight {
-                    let Some((request, weight)) = requests.next() else {
-                        tracing::trace!("no more requests to dispatch");
-                        break;
-                    };
-                    pending_requests.push(request);
-                    pending_weight += weight;
+            match PendingInvalidBlobAttestations::new(
+                self.blob_id,
+                self.inconsistency_proof,
+                node_order.iter(),
+                collected_signatures,
+                committee.clone(),
+                self.shared,
+            )
+            .await
+            {
+                Ok(fully_collected) => {
+                    return Self::create_certificate(fully_collected);
                 }
-
-                while let Some((index, maybe_signature, weight)) = pending_requests.next().await {
-                    pending_weight -= weight;
-
-                    // Successful responses reduce the amount of weight required. Unsuccessful
-                    // results require refilling the pending requests.
-                    if let Some(signature) = maybe_signature {
-                        required_weight = required_weight.saturating_sub(weight);
-                        collected_signatures.push((index, signature));
-                        is_collected[index].store(true, Ordering::Relaxed);
-                    } else {
-                        continue 'refill_pending_requests;
-                    }
+                Err(partialy_collected) => {
+                    collected_signatures = partialy_collected;
+                    wait_before_next_attempts(&mut backoff, &self.shared.rng).await;
                 }
-
-                // Reaching here means we have exhausted the pending requests, which only occurs
-                // if we've achieved the required weight or consumed all of the requests (some of
-                // which may have failed). In either case, we can leave this inner loop.
-                debug_assert!(
-                    pending_requests.is_empty()
-                        && (required_weight == 0 || requests.next().is_none())
-                );
-                break;
-            }
-
-            if required_weight == 0 {
-                return Self::create_certificate(collected_signatures);
-            } else {
-                wait_before_next_attempts(&mut backoff, &self.shared.rng).await;
             }
         }
     }
 
+    #[tracing::instrument(skip_all)]
     fn create_certificate(
-        collected_signatures: Vec<(usize, InvalidBlobIdAttestation)>,
+        collected_signatures: HashMap<usize, InvalidBlobIdAttestation>,
     ) -> InvalidBlobCertificate {
+        tracing::warn!("extracting signers and messages");
         let (signer_indices, signed_messages): (Vec<_>, Vec<_>) = collected_signatures
             .into_iter()
             .map(|(index, message)| {
@@ -638,11 +570,18 @@ where
             })
             .unzip();
 
+        tracing::warn!(
+            symbol_count = signed_messages.len(),
+            "creating invalid blob certificate"
+        );
         match InvalidBlobCertificate::from_signed_messages_and_indices(
             signed_messages,
             signer_indices,
         ) {
-            Ok(certificate) => certificate,
+            Ok(certificate) => {
+                tracing::warn!("successfully created invalid blob certificate");
+                certificate
+            }
             Err(CertificateError::SignatureAggregation(err)) => {
                 panic!("attestations must be verified beforehand: {:?}", err)
             }
@@ -650,6 +589,177 @@ where
                 panic!("messages must be verified against the same epoch and blob id")
             }
         }
+    }
+}
+
+type StoredFuture<'a> = BoxFuture<'a, (usize, u16, Option<InvalidBlobIdAttestation>)>;
+
+#[pin_project::pin_project]
+struct PendingInvalidBlobAttestations<'fut, 'iter, T> {
+    /// The ID of the invalid blob.
+    blob_id: BlobId,
+    /// Proof of the blob's inconsistency.
+    inconsistency_proof: &'fut InconsistencyProofEnum,
+    /// The current committee from which attestations are requested.
+    committee: Arc<Committee>,
+    /// Shared state across futures.
+    shared: &'fut NodeCommitteeServiceInner<T>,
+
+    /// The remaining nodes over which to iterate.
+    nodes: std::slice::Iter<'iter, usize>,
+    /// The weight required before completion.
+    required_weight: u16,
+    /// The weight currently pending in requests.
+    pending_weight: u16,
+    /// Collected attestations.
+    // INV!: Only None once the future has completed.
+    collected_signatures: Option<HashMap<usize, InvalidBlobIdAttestation>>,
+
+    #[pin]
+    pending_requests: FuturesUnordered<StoredFuture<'fut>>,
+}
+
+impl<'fut, 'iter, T> std::future::Future for PendingInvalidBlobAttestations<'fut, 'iter, T>
+where
+    T: NodeService + 'fut,
+{
+    type Output =
+        Result<HashMap<usize, InvalidBlobIdAttestation>, HashMap<usize, InvalidBlobIdAttestation>>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        loop {
+            let mut this = self.as_mut().project();
+            assert!(
+                this.collected_signatures.is_some(),
+                "future must not be polled after completion"
+            );
+
+            let Some((index, weight, maybe_attestation)) =
+                ready!(this.pending_requests.as_mut().poll_next(cx))
+            else {
+                // The pending requests stream ended. Since we fill it on creation and after each
+                // failure, either (i) the user has polled a completed future, or (ii) the node
+                // iterator has finished. Case (i) is handled above, so this must be case (ii).
+                // This implies, however, that we could not reach our target.
+                debug_assert_eq!(this.nodes.len(), 0);
+                debug_assert!(*this.required_weight > 0);
+                let progress = this
+                    .collected_signatures
+                    .take()
+                    .expect("is Some until future complete");
+                return Poll::Ready(Err(progress));
+            };
+
+            // Decrement the amount of weight pending.
+            *this.pending_weight -= weight;
+
+            if let Some(attestation) = maybe_attestation {
+                // The request yielded an attestation from the storage node. We can store it and
+                // reduce the amount of weight required until completion.
+                this.collected_signatures
+                    .as_mut()
+                    .expect("is Some until future complete")
+                    .insert(index, attestation);
+                *this.required_weight = this.required_weight.saturating_sub(weight);
+
+                if *this.required_weight == 0 {
+                    let collected_signatures = this
+                        .collected_signatures
+                        .take()
+                        .expect("not yet complete and so non-None");
+                    return Poll::Ready(Ok(collected_signatures));
+                }
+            } else {
+                // The request failed, we need to replenish weight such that we remain on-track to
+                // collecting sufficient weight. We then continue to loop since any added futures
+                // may already be ready, or none may have been added and we're done.
+                self.as_mut().get_mut().refill_pending_requests();
+            }
+        }
+    }
+}
+
+impl<'fut, 'iter, T> PendingInvalidBlobAttestations<'fut, 'iter, T>
+where
+    T: NodeService + 'fut,
+{
+    /// The remaining nodes over which to iterate.
+    fn new(
+        blob_id: BlobId,
+        inconsistency_proof: &'fut InconsistencyProofEnum,
+        nodes: std::slice::Iter<'iter, usize>,
+        collected_signatures: HashMap<usize, InvalidBlobIdAttestation>,
+        committee: Arc<Committee>,
+        shared: &'fut NodeCommitteeServiceInner<T>,
+    ) -> Self {
+        let mut this = Self {
+            blob_id,
+            inconsistency_proof,
+            shared,
+            nodes,
+            required_weight: bft::min_n_correct(committee.n_shards()).get(),
+            committee,
+            pending_weight: 0,
+            pending_requests: Default::default(),
+            collected_signatures: Some(collected_signatures),
+        };
+        this.refill_pending_requests();
+        this
+    }
+
+    fn refill_pending_requests(&mut self) {
+        while self.pending_weight < self.required_weight {
+            let Some((weight, request)) = self.next_request() else {
+                tracing::trace!("no more requests to dispatch");
+                break;
+            };
+            self.pending_requests.push(request);
+            self.pending_weight += weight;
+        }
+    }
+
+    fn next_request(&mut self) -> Option<(u16, StoredFuture<'fut>)> {
+        for &index in self.nodes.by_ref() {
+            let committee_epoch = self.committee.epoch;
+            let node_info = &self.committee.members()[index];
+            let collected_signatures = self
+                .collected_signatures
+                .as_ref()
+                .expect("cannot be called after future completes");
+
+            if collected_signatures.contains_key(&index) {
+                tracing::trace!("attestation already collected for node, skipping");
+                continue;
+            }
+
+            let Some(client) = self.shared.get_node_service_by_id(&node_info.public_key) else {
+                tracing::trace!(
+                    "unable to get the client, either creation failed or epoch is changing"
+                );
+                continue;
+            };
+
+            let weight =
+                u16::try_from(node_info.shard_ids.len()).expect("shard weight fits within u16");
+            let request = client
+                .oneshot(Request::SubmitProofForInvalidBlobAttestation {
+                    blob_id: self.blob_id,
+                    proof: self.inconsistency_proof,
+                    epoch: committee_epoch,
+                    public_key: node_info.public_key.clone(),
+                })
+                .map_ok(Response::into_value);
+
+            let request = time::timeout(self.shared.config.invalidity_sync_timeout, request)
+                .map(move |output| (index, weight, log_and_discard_timeout_or_error(output)))
+                .instrument(tracing::info_span!(
+                    "get_invalid_blob_certificate node",
+                    walrus.node.public_key = %node_info.public_key
+                ));
+
+            return Some((weight, request.boxed()));
+        }
+        None
     }
 }
 
@@ -770,7 +880,10 @@ async fn wait_for_write_committee_change<F>(
 
 fn log_and_discard_timeout_or_error<T>(result: Result<Result<T, NodeError>, Elapsed>) -> Option<T> {
     match result {
-        Ok(Ok(value)) => return Some(value),
+        Ok(Ok(value)) => {
+            tracing::trace!("future completed successfully");
+            return Some(value);
+        }
         Ok(Err(error)) => tracing::debug!(%error),
         Err(error) => tracing::debug!(%error),
     }

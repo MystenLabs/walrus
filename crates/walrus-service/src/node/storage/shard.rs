@@ -799,6 +799,7 @@ impl ShardStorage {
         match result {
             Ok(sliver) => self.put_sliver(&blob_id, &sliver)?,
             Err(inconsistency_proof) => {
+                tracing::debug!("received an inconsistency proof when recovering sliver");
                 // TODO(#704): once committee service supports multi-epoch. This needs to use the
                 // committee from the latest epoch.
                 let invalid_blob_certificate = node
