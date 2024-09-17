@@ -9,7 +9,7 @@ use rand::{rngs::StdRng, seq::SliceRandom, RngCore, SeedableRng};
 use tempfile::TempDir;
 
 /// A result type useful in tests, that wraps any error implementation.
-pub type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
+pub type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 /// Macro for creating parametrized *synchronous* tests.
 ///
