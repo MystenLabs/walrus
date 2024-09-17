@@ -117,7 +117,7 @@ jobs:
   test:
     name: Test Rust code
     needs: diff
-    if: ${{ needs.diff.outputs.isRust == 'true' }}
+    if: ${{ needs.diff.outputs.isRust == 'true' || needs.diff.outputs.isMove == 'true' }}
     runs-on: ubuntu-ghcloud
     steps:
       - uses: taiki-e/install-action@v2.42.37
