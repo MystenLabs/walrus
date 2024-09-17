@@ -549,8 +549,8 @@ where
                 Ok(fully_collected) => {
                     return Self::create_certificate(fully_collected);
                 }
-                Err(partialy_collected) => {
-                    collected_signatures = partialy_collected;
+                Err(partially_collected) => {
+                    collected_signatures = partially_collected;
                     wait_before_next_attempts(&mut backoff, &self.shared.rng).await;
                 }
             }
