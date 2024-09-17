@@ -295,7 +295,10 @@ pub async fn deploy_walrus_contract(
 
     // TODO(#814): make epoch duration in test configurable. Currently hardcoded to 1 hour.
     let system_ctx = create_and_init_system(&mut admin_wallet, n_shards, 0, 3600000).await?;
-    println!("Contract context: {:?}", system_ctx);
+    println!(
+        "Walrus contract created:\npackage id: {:?}\nsystem object: {:?}\nstaking object: {:?}",
+        system_ctx.package_id, system_ctx.system_obj_id, system_ctx.staking_obj_id
+    );
 
     Ok(TestbedConfig {
         sui_network,
@@ -496,7 +499,12 @@ pub async fn create_storage_node_configs(
     )
     .await?;
 
-    end_epoch_zero(contract_clients.first().unwrap()).await?;
+    end_epoch_zero(
+        contract_clients
+            .first()
+            .expect("there should be at least one storage node"),
+    )
+    .await?;
 
     Ok(storage_node_configs)
 }
