@@ -62,6 +62,13 @@ const EWrongEpochState: vector<u8> = b"Current epoch state does not allow this o
 #[error]
 const EDuplicateSyncDone: vector<u8> = b"Node already attested that sync is done for this epoch";
 
+#[error]
+const ENoStake: vector<u8> = b"Total stake is zero for apportionment";
+
+#[error]
+const EMismatchedNodes: vector<u8> = b"Number of nodes and stake values do not match";
+
+
 /// The epoch state.
 public enum EpochState has store, copy, drop {
     // Epoch change is currently in progress. Contains the weight of the nodes that
@@ -390,12 +397,15 @@ fun dhondt(
 
     let n_nodes = n_nodes as u64;
     let n_shards = n_shards as u64;
+    assert!(total_stake > 0, ENoStake);
+    assert!(n_nodes == stake.length(), EMismatchedNodes);
 
     // initial price guess following Pukelsheim
     // total_stake / (n_shards + (count_nodes / 2)
     let mut price = from_rational(total_stake, n_shards + (n_nodes / 2));
     let mut needs_one_more = option::none<u64>();
     let mut needs_one_less = option::none<u64>();
+    if (n_nodes == 0) return (price, vector[]);
     loop {
         let mut shards = stake.map_ref!(|s| u64_div(*s, price));
         needs_one_more.do!(|i| *&mut shards[i] = shards[i] + 1);
@@ -411,7 +421,7 @@ fun dhondt(
             let mut i = 0;
             let mut with_max = vector[];
             let mut max = from_raw(0);
-            let new_prices = stake.zip_map_ref!(&shards, |s, m| from_rational(*s, *m as u64 + 1));
+            let new_prices = stake.zip_map_ref!(&shards, |s, m| from_rational(*s, *m + 1));
             new_prices.do!(|p| {
                 if (p.to_raw() > max.to_raw()) {
                     max = p;
@@ -421,7 +431,7 @@ fun dhondt(
                 };
                 i = i + 1;
             });
-            if (with_max.length() == 1) {
+            if (with_max.length() > 1) {
                 // if there is more than one node with the same price, we need to manually adjust
                 // just one of them. And no need to adjust the price.
                 // TODO choose the node in a more meaningful way
@@ -435,7 +445,11 @@ fun dhondt(
             let mut with_min = vector[];
             // TODO use std::u64::max_value!()
             let mut min = from_raw(0xFFFF_FFFF_FFFF_FFFF);
-            let new_prices = stake.zip_map_ref!(&shards, |s, m| from_rational(*s, *m as u64));
+            let new_prices = stake.zip_map_ref!(&shards, |s, m| {
+                let m = *m;
+                if (m == 0) from_raw(0xFFFF_FFFF_FFFF_FFFF - 1)
+                else from_rational(*s, m)
+            });
             new_prices.do!(|p| {
                 if (p.to_raw() < min.to_raw()) {
                     min = p;
@@ -445,7 +459,7 @@ fun dhondt(
                 };
                 i = i + 1;
             });
-            if (with_min.length() == 1) {
+            if (with_min.length() > 1) {
                 // if there is more than one node with the same price, we need to manually adjust
                 // just one of them.  And no need to adjust the price.
                 // TODO choose the node in a more meaningful way
@@ -596,4 +610,14 @@ public(package) fun borrow(self: &StakingInnerV1, node_id: ID): &StakingPool {
 /// Get mutable reference to the pool with the given `ID`.
 public(package) fun borrow_mut(self: &mut StakingInnerV1, node_id: ID): &mut StakingPool {
     &mut self.pools[node_id]
+}
+
+#[test_only]
+public(package) fun pub_dhondt(
+    total_stake: u64,
+    n_nodes: u16,
+    n_shards: u16,
+    stake: vector<u64>,
+): (FixedPoint32, vector<u16>) {
+    dhondt(total_stake, n_nodes, n_shards, stake)
 }
