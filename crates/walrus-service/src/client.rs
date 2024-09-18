@@ -364,7 +364,7 @@ impl<T: ContractClient> Client<T> {
 
     // Blob deletion
 
-    /// Returns an iterator over the list of lobs that can be deleted, based on the Blob ID.
+    /// Returns an iterator over the list of blobs that can be deleted, based on the blob ID.
     pub async fn deletable_blobs_by_id<'a>(
         &self,
         blob_id: &'a BlobId,

@@ -9,7 +9,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use serde_with::{base64::Base64, serde_as, DisplayFromStr, NoneAsEmptyString};
+use serde_with::{base64::Base64, serde_as, DisplayFromStr};
 use sui_types::{base_types::ObjectID, event::EventID};
 use utoipa::ToSchema;
 use walrus_core::{
