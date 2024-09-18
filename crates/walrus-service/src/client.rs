@@ -374,7 +374,6 @@ impl<T: ContractClient> Client<T> {
             .owned_blobs(false)
             .await?
             .into_iter()
-            // TODO(giac): do we have to filter non-registered blobs as well? Leaning towards not.
             .filter(|blob| blob.blob_id == *blob_id && blob.deletable))
     }
 
