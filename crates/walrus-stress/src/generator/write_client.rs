@@ -7,9 +7,9 @@ use rand::{rngs::StdRng, thread_rng, SeedableRng};
 use sui_sdk::{types::base_types::SuiAddress, wallet_context::WalletContext};
 use tracing::instrument;
 use walrus_core::{merkle::Node, metadata::VerifiedBlobMetadataWithId, BlobId, SliverPairIndex};
-use walrus_service::client::{Client, ClientError, Config};
+use walrus_service::client::{Client, ClientError, Config, StoreOperationMode};
 use walrus_sui::{
-    client::{ContractClient, ReadClient, SuiContractClient, SuiReadClient},
+    client::{BlobPersistence, ContractClient, ReadClient, SuiContractClient, SuiReadClient},
     test_utils::temp_dir_wallet,
     types::Blob,
     utils::SuiNetwork,
@@ -58,7 +58,12 @@ impl WriteClient {
             .client
             .as_ref()
             // TODO(giac): add also some deletable blobs in the mix (#800).
-            .reserve_and_store_blob(blob, 1, true, false)
+            .reserve_and_store_blob(
+                blob,
+                1,
+                StoreOperationMode::Force,
+                BlobPersistence::Permanent,
+            )
             .await?
             .blob_id()
             .to_owned();
@@ -128,11 +133,12 @@ impl WriteClient {
         );
 
         // Register blob.
-        let blob_sui_object = self
-            .client
-            .as_ref()
-            .get_blob_registration(&metadata, epochs, false)
-            .await?;
+        let get_blob_registration = self.client.as_ref().get_blob_registration(
+            &metadata,
+            epochs,
+            BlobPersistence::Permanent,
+        );
+        let blob_sui_object = get_blob_registration.await?;
 
         // Wait to ensure that the storage nodes received the registration event.
         tokio::time::sleep(Duration::from_secs(1)).await;

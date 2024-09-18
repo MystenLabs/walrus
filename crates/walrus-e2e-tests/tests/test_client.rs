@@ -17,11 +17,12 @@ use walrus_service::{
         responses::BlobStoreResult,
         ClientError,
         ClientErrorKind::{self, NoMetadataReceived, NotEnoughConfirmations, NotEnoughSlivers},
+        StoreOperationMode,
     },
     test_utils::test_cluster,
 };
 use walrus_sui::{
-    client::{ContractClient, ReadClient},
+    client::{BlobPersistence, ContractClient, ReadClient},
     types::{BlobEvent, ContractEvent},
 };
 use walrus_test_utils::async_param_test;
@@ -110,7 +111,12 @@ async fn run_store_and_read_with_crash_failures(
         ..
     } = client
         .as_ref()
-        .reserve_and_store_blob(&blob, 1, true, false)
+        .reserve_and_store_blob(
+            &blob,
+            1,
+            StoreOperationMode::Force,
+            BlobPersistence::Permanent,
+        )
         .await?
     else {
         panic!("expect newly stored blob")
@@ -166,7 +172,7 @@ async fn test_inconsistency(failed_shards: &[usize]) -> anyhow::Result<()> {
     // Register blob.
     let blob_sui_object = client
         .as_ref()
-        .get_blob_registration(&metadata, 1, false)
+        .get_blob_registration(&metadata, 1, BlobPersistence::Permanent)
         .await?;
 
     // Wait to ensure that the storage nodes received the registration event.
@@ -260,7 +266,11 @@ async fn test_store_with_existing_blob_resource(
     // Register a new blob.
     let original_blob_object = client
         .as_ref()
-        .get_blob_registration(&metadata, epochs_ahead_registered, false)
+        .get_blob_registration(
+            &metadata,
+            epochs_ahead_registered,
+            BlobPersistence::Permanent,
+        )
         .await?;
 
     // Wait to ensure that the storage nodes received the registration event.
@@ -269,7 +279,12 @@ async fn test_store_with_existing_blob_resource(
     // Now ask the client to store again.
     let blob_store = client
         .inner
-        .reserve_and_store_blob(&blob, epochs_ahead_required, false, false)
+        .reserve_and_store_blob(
+            &blob,
+            epochs_ahead_required,
+            StoreOperationMode::CheckStatus,
+            BlobPersistence::Permanent,
+        )
         .await?;
 
     if let BlobStoreResult::NewlyCreated { blob_object, .. } = blob_store {
@@ -334,7 +349,12 @@ async fn test_store_with_existing_storage_resource(
 
     let blob_store = client
         .inner
-        .reserve_and_store_blob(&blob, epochs_ahead_required, false, false)
+        .reserve_and_store_blob(
+            &blob,
+            epochs_ahead_required,
+            StoreOperationMode::CheckStatus,
+            BlobPersistence::Permanent,
+        )
         .await?;
 
     if let BlobStoreResult::NewlyCreated { blob_object, .. } = blob_store {
@@ -371,14 +391,24 @@ async fn test_delete_blob(blobs_to_create: u32) -> anyhow::Result<()> {
     for idx in 1..blobs_to_create + 1 {
         client
             .as_ref()
-            .reserve_and_store_blob(&blob, idx, true, true)
+            .reserve_and_store_blob(
+                &blob,
+                idx,
+                StoreOperationMode::Force,
+                BlobPersistence::Deletable,
+            )
             .await?;
     }
 
     // Add a blob that is not deletable.
     client
         .as_ref()
-        .reserve_and_store_blob(&blob, 1, true, false)
+        .reserve_and_store_blob(
+            &blob,
+            1,
+            StoreOperationMode::Force,
+            BlobPersistence::Permanent,
+        )
         .await?;
 
     // Check that we have the correct number of blobs

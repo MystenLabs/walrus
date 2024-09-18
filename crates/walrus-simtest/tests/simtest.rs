@@ -4,7 +4,11 @@
 use sui_macros::sim_test;
 use sui_protocol_config::ProtocolConfig;
 use walrus_core::encoding::{Primary, Secondary};
-use walrus_service::{client::responses::BlobStoreResult, test_utils::test_cluster};
+use walrus_service::{
+    client::{responses::BlobStoreResult, StoreOperationMode},
+    test_utils::test_cluster,
+};
+use walrus_sui::client::BlobPersistence;
 
 // Tests that we can create a Walrus cluster with a Sui cluster and running basic
 // operations deterministically.
@@ -27,7 +31,12 @@ async fn simtest_walrus_basic_determinism() {
         ..
     } = client
         .as_ref()
-        .reserve_and_store_blob(&blob, 1, true, false)
+        .reserve_and_store_blob(
+            &blob,
+            1,
+            StoreOperationMode::Force,
+            BlobPersistence::Permanent,
+        )
         .await
         .unwrap()
     else {

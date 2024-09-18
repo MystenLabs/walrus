@@ -43,7 +43,7 @@ use walrus_sdk::{
     error::{ClientBuildError, NodeError},
 };
 use walrus_sui::{
-    client::{ContractClient, ReadClient},
+    client::{BlobPersistence, ContractClient, ReadClient},
     types::{Blob, BlobEvent, Committee, NetworkAddress, StorageNode},
     utils::price_for_unencoded_length,
 };
@@ -77,6 +77,31 @@ mod utils;
 pub use utils::string_prefix;
 
 type ClientResult<T> = Result<T, ClientError>;
+
+/// Represents how the store operation should be carried out by the client.
+#[derive(Debug, Clone, Copy)]
+pub enum StoreOperationMode {
+    /// Store the blob without checking the status.
+    Force,
+    /// Check the status of the blob before storing it.
+    CheckStatus,
+}
+
+impl StoreOperationMode {
+    /// Returns `true` if the operation is [`Self::Force`].
+    pub fn is_force(&self) -> bool {
+        matches!(self, StoreOperationMode::Force)
+    }
+
+    /// Returns [`Self`] based on the value of a `force` flag.
+    pub fn from_force(force: bool) -> Self {
+        if force {
+            Self::Force
+        } else {
+            Self::CheckStatus
+        }
+    }
+}
 
 /// A client to communicate with Walrus shards and storage nodes.
 #[derive(Debug, Clone)]
@@ -176,8 +201,8 @@ impl<T: ContractClient> Client<T> {
         &self,
         blob: &[u8],
         epochs_ahead: EpochCount,
-        force: bool,
-        deletable: bool,
+        operation_mode: StoreOperationMode,
+        persistence: BlobPersistence,
     ) -> ClientResult<BlobStoreResult> {
         let (pairs, metadata) = self
             .encoding_config
@@ -197,7 +222,7 @@ impl<T: ContractClient> Client<T> {
         );
 
         // Return early if the blob is already certified or marked as invalid.
-        if !force {
+        if !operation_mode.is_force() {
             // Use short timeout as this is only an optimization.
             const STATUS_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -248,7 +273,7 @@ impl<T: ContractClient> Client<T> {
 
         // Get an appropriate registered blob object.
         let blob_sui_object = self
-            .get_blob_registration(&metadata, epochs_ahead, deletable)
+            .get_blob_registration(&metadata, epochs_ahead, persistence)
             .await?;
 
         // We need to wait to be sure that the storage nodes received the registration event.
@@ -275,7 +300,7 @@ impl<T: ContractClient> Client<T> {
             blob_object: blob,
             encoded_size,
             cost,
-            deletable,
+            deletable: persistence.is_deletable(),
         })
     }
 
@@ -292,10 +317,10 @@ impl<T: ContractClient> Client<T> {
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         epochs_ahead: EpochCount,
-        deletable: bool,
+        persistence: BlobPersistence,
     ) -> ClientResult<Blob> {
         let blob = if let Some(blob) = self
-            .is_blob_registered_in_wallet(metadata.blob_id(), epochs_ahead, deletable)
+            .is_blob_registered_in_wallet(metadata.blob_id(), epochs_ahead, persistence)
             .await?
         {
             tracing::debug!(
@@ -329,7 +354,7 @@ impl<T: ContractClient> Client<T> {
                     metadata.metadata().compute_root_hash().bytes(),
                     metadata.metadata().unencoded_length,
                     metadata.metadata().encoding_type,
-                    deletable,
+                    persistence,
                 )
                 .await?
         } else {
@@ -337,7 +362,7 @@ impl<T: ContractClient> Client<T> {
                 "the blob is not already registered or its lifetime is too short; creating new one"
             );
             self.sui_client
-                .reserve_and_register_blob(epochs_ahead, metadata, deletable)
+                .reserve_and_register_blob(epochs_ahead, metadata, persistence)
                 .await?
         };
         Ok(blob)
@@ -348,7 +373,7 @@ impl<T: ContractClient> Client<T> {
         &self,
         blob_id: &BlobId,
         epochs_ahead: EpochCount,
-        deletable: bool,
+        persistence: BlobPersistence,
     ) -> ClientResult<Option<Blob>> {
         Ok(self
             .sui_client
@@ -358,7 +383,7 @@ impl<T: ContractClient> Client<T> {
             .find(|blob| {
                 blob.blob_id == *blob_id
                     && blob.storage.end_epoch >= self.committee.epoch + epochs_ahead
-                    && blob.deletable == deletable
+                    && blob.deletable == persistence.is_deletable()
             }))
     }
 

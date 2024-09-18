@@ -14,7 +14,7 @@ use walrus_core::{
     EpochCount,
 };
 use walrus_sui::{
-    client::{ContractClient, ReadClient, SuiContractClient},
+    client::{BlobPersistence, ContractClient, ReadClient, SuiContractClient},
     utils::storage_price_for_encoded_length,
 };
 
@@ -52,6 +52,7 @@ use crate::{
         Client,
         ClientDaemon,
         Config,
+        StoreOperationMode,
     },
     utils::MetricsAndLoggingRuntime,
 };
@@ -113,7 +114,16 @@ impl ClientCommandRunner {
                 dry_run,
                 force,
                 deletable,
-            } => self.store(file, epochs, dry_run, force, deletable).await,
+            } => {
+                self.store(
+                    file,
+                    epochs,
+                    dry_run,
+                    StoreOperationMode::from_force(force),
+                    BlobPersistence::from_deletable(deletable),
+                )
+                .await
+            }
 
             CliCommands::BlobStatus {
                 file_or_blob_id,
@@ -198,9 +208,9 @@ impl ClientCommandRunner {
         self,
         file: PathBuf,
         epochs: EpochCount,
-        force: bool,
         dry_run: bool,
-        deletable: bool,
+        operation_mode: StoreOperationMode,
+        persistence: BlobPersistence,
     ) -> Result<()> {
         let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
 
@@ -232,7 +242,12 @@ impl ClientCommandRunner {
         } else {
             tracing::info!("Storing file {} as blob on Walrus", file.display());
             let result = client
-                .reserve_and_store_blob(&read_blob_from_file(&file)?, epochs, force, deletable)
+                .reserve_and_store_blob(
+                    &read_blob_from_file(&file)?,
+                    epochs,
+                    operation_mode,
+                    persistence,
+                )
                 .await?;
             result.print_output(self.json)
         }

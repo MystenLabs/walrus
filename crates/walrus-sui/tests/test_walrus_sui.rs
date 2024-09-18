@@ -8,7 +8,7 @@ use fastcrypto::traits::ToFromBytes;
 use tokio_stream::StreamExt;
 use walrus_core::{encoding::EncodingConfig, merkle::Node, BlobId, EncodingType, ShardIndex};
 use walrus_sui::{
-    client::{ContractClient, ReadClient, SuiContractClient},
+    client::{BlobPersistence, ContractClient, ReadClient, SuiContractClient},
     test_utils::{
         self,
         get_default_blob_certificate,
@@ -103,7 +103,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
             root_hash,
             size,
             EncodingType::RedStuff,
-            false,
+            BlobPersistence::Permanent,
         )
         .await?;
     assert_eq!(blob_obj.blob_id, blob_id);
@@ -185,7 +185,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
             root_hash,
             size,
             EncodingType::RedStuff,
-            false,
+            BlobPersistence::Permanent,
         )
         .await?;
 

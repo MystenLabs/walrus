@@ -94,6 +94,34 @@ pub enum SuiClientError {
     NoCorrespondingBlobEvent(EventID),
 }
 
+/// Represents the persistence state of a blob on Walrus.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlobPersistence {
+    /// The blob cannot be deleted.
+    Permanent,
+    /// The blob is deletable.
+    Deletable,
+}
+
+impl BlobPersistence {
+    /// Returns `true` if the blob is deletable.
+    pub fn is_deletable(&self) -> bool {
+        matches!(self, Self::Deletable)
+    }
+
+    /// Constructs [`Self`] based on the value of a `deletable` flag.
+    ///
+    /// If `deletable` is true, returns [`Self::Deletable`], force otherwise returns
+    /// [`Self::Permanent`].
+    pub fn from_deletable(deletable: bool) -> Self {
+        if deletable {
+            Self::Deletable
+        } else {
+            Self::Permanent
+        }
+    }
+}
+
 /// Result alias for functions returning a `SuiClientError`.
 pub type SuiClientResult<T> = Result<T, SuiClientError>;
 
@@ -119,7 +147,7 @@ pub trait ContractClient: Send + Sync {
         root_digest: [u8; DIGEST_LEN],
         blob_size: u64,
         encoding_type: EncodingType,
-        deletable: bool,
+        persistence: BlobPersistence,
     ) -> impl Future<Output = SuiClientResult<Blob>> + Send;
 
     /// Purchases blob storage for the next `epochs_ahead` Walrus epochs and uses the resulting
@@ -131,7 +159,7 @@ pub trait ContractClient: Send + Sync {
         &self,
         epochs_ahead: EpochCount,
         blob_metadata: &BlobMetadataWithId<V>,
-        deletable: bool,
+        persistence: BlobPersistence,
     ) -> impl Future<Output = SuiClientResult<Blob>> + Send;
 
     /// Certifies the specified blob on Sui, given a certificate that confirms its storage and
@@ -149,7 +177,7 @@ pub trait ContractClient: Send + Sync {
         certificate: &InvalidBlobCertificate,
     ) -> impl Future<Output = SuiClientResult<()>> + Send;
 
-    /// Returns a compatible `ReadClient`.
+    /// Returns a compatible [`ReadClient`].
     fn read_client(&self) -> &impl ReadClient;
 
     /// Returns the list of [`Blob`] objects owned by the wallet currently in use.
@@ -452,7 +480,7 @@ impl ContractClient for SuiContractClient {
         root_digest: [u8; DIGEST_LEN],
         blob_size: u64,
         encoding_type: EncodingType,
-        deletable: bool,
+        persistence: BlobPersistence,
     ) -> SuiClientResult<Blob> {
         let price = self
             .write_price_for_encoded_length(storage.storage_size)
@@ -467,7 +495,7 @@ impl ContractClient for SuiContractClient {
                     call_arg_pure!(&root_digest),
                     blob_size.into(),
                     u8::from(encoding_type).into(),
-                    deletable.into(),
+                    persistence.is_deletable().into(),
                     self.get_payment_coin(price).await?.object_ref().into(),
                 ],
             )
@@ -489,7 +517,7 @@ impl ContractClient for SuiContractClient {
         &self,
         epochs_ahead: EpochCount,
         blob_metadata: &BlobMetadataWithId<V>,
-        deletable: bool,
+        persistence: BlobPersistence,
     ) -> SuiClientResult<Blob> {
         let encoded_size = blob_metadata
             .metadata()
@@ -524,7 +552,7 @@ impl ContractClient for SuiContractClient {
                 .bytes()))?,
             pt_builder.input(blob_metadata.metadata().unencoded_length.into())?,
             pt_builder.input(u8::from(blob_metadata.metadata().encoding_type).into())?,
-            pt_builder.input(deletable.into())?, // TODO: take as function argument
+            pt_builder.input(persistence.is_deletable().into())?,
             payment_coin,
         ];
         let register_result_index = self.add_move_call_to_ptb(

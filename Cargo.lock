@@ -12077,6 +12077,7 @@ dependencies = [
  "tracing",
  "walrus-core",
  "walrus-service",
+ "walrus-sui",
  "walrus-test-utils",
 ]
 

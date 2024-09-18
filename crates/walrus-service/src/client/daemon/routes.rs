@@ -24,10 +24,10 @@ use serde::Deserialize;
 use tracing::Level;
 use utoipa::IntoParams;
 use walrus_core::{encoding::Primary, EpochCount};
-use walrus_sui::client::ContractClient;
+use walrus_sui::client::{BlobPersistence, ContractClient};
 
 use crate::{
-    client::{BlobStoreResult, Client, ClientErrorKind},
+    client::{BlobStoreResult, Client, ClientErrorKind, StoreOperationMode},
     common::api::{self, BlobIdString},
 };
 
@@ -128,7 +128,12 @@ pub(super) async fn put_blob<T: ContractClient>(
 ) -> Response {
     tracing::debug!("starting to store received blob");
     let mut response = match client
-        .reserve_and_store_blob(&blob[..], epochs, force, deletable)
+        .reserve_and_store_blob(
+            &blob[..],
+            epochs,
+            StoreOperationMode::from_force(force),
+            BlobPersistence::from_deletable(deletable),
+        )
         .await
     {
         Ok(result) => {
