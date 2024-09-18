@@ -355,7 +355,7 @@ public(package) fun select_committee(self: &mut StakingInnerV1) {
     let shard_threshold = self.active_set.total_stake() / (self.n_shards as u64);
 
     let active_ids = self.active_set.active_ids();
-    let values = self.dhondt();
+    let values = self.apportionment();
     let distribution = vec_map::from_keys_values(active_ids, values);
 
     // if we're dealing with the first epoch, we need to assign the shards to the
@@ -367,7 +367,20 @@ public(package) fun select_committee(self: &mut StakingInnerV1) {
     self.next_committee = option::some(committee);
 }
 
-fun dhondt(self: &StakingInnerV1): vector<u16> {
+fun apportionment(self: &StakingInnerV1): vector<u16> {
+    let active_ids = self.active_set.active_ids();
+    let stake = active_ids.map_ref!(|node_id| self.active_set[node_id]);
+    let (_price, shards) =
+        dhondt(self.active_set.total_stake(), self.active_set.size(), self.n_shards, stake);
+    shards
+}
+
+fun dhondt(
+    total_stake: u64,
+    n_nodes: u16,
+    n_shards: u16,
+    stake: vector<u64>,
+): (FixedPoint32, vector<u16>) {
     use std::fixed_point32::{
         divide_u64 as u64_div,
         create_from_rational as from_rational,
@@ -375,56 +388,87 @@ fun dhondt(self: &StakingInnerV1): vector<u16> {
         get_raw_value as to_raw,
     };
 
-    let total_stake = self.active_set.total_stake();
-    let count_nodes = self.active_set.size();
-    let n_shards = self.n_shards as u64;
-    let active_ids = self.active_set.active_ids();
-    let stake = active_ids.map_ref!(|node_id| self.active_set[node_id]);
+    let n_nodes = n_nodes as u64;
+    let n_shards = n_shards as u64;
 
     // initial price guess following Pukelsheim
-    // total_stake / ((n_shards + count_nodes) / 2)
-    let mut price = from_rational(2 * total_stake, n_shards + (count_nodes as u64));
-
+    // total_stake / (n_shards + (count_nodes / 2)
+    let mut price = from_rational(total_stake, n_shards + (n_nodes / 2));
+    let mut needs_one_more = option::none<u64>();
+    let mut needs_one_less = option::none<u64>();
     loop {
-        let shards = stake.map_ref!(|s| u64_div(*s, price));
+        let mut shards = stake.map_ref!(|s| u64_div(*s, price));
+        needs_one_more.do!(|i| *&mut shards[i] = shards[i] + 1);
+        needs_one_less.do!(|i| *&mut shards[i] = shards[i] - 1);
         let n_shards_distributed = shards.fold!(0, |acc, x| acc + x);
 
         // if all shards are distributed, we are done
-        if (n_shards_distributed == n_shards) break shards.map!(|s| s as u16);
+        if (n_shards_distributed == n_shards) break (price, shards.map!(|s| s as u16));
 
-        price = if (n_shards_distributed < n_shards) {
-            // decrease the price such that one node gets an additional shard
-            // TODO: deal with equal values
-            stake
-                .zip_map_ref!(&shards, |s, m| from_rational(*s, *m as u64 + 1))
-                .fold!(from_raw(0), |acc, x| acc.max(x))
+        needs_one_more = option::none();
+        needs_one_less = option::none();
+        if (n_shards_distributed < n_shards) {
+            let mut i = 0;
+            let mut with_max = vector[];
+            let mut max = from_raw(0);
+            let new_prices = stake.zip_map_ref!(&shards, |s, m| from_rational(*s, *m as u64 + 1));
+            new_prices.do!(|p| {
+                if (p.to_raw() > max.to_raw()) {
+                    max = p;
+                    with_max = vector[i];
+                } else if (p == max) {
+                    with_max.push_back(i);
+                };
+                i = i + 1;
+            });
+            if (with_max.length() == 1) {
+                // if there is more than one node with the same price, we need to manually adjust
+                // just one of them. And no need to adjust the price.
+                // TODO choose the node in a more meaningful way
+                needs_one_more = option::some(with_max[0]);
+            } else {
+                // decrease the price such that one node gets an additional shard
+                price = max
+            }
         } else {
-            // increase the price such that one node loses one shard
-            // TODO: deal with equal values
-            let max = stake
-                .zip_map_ref!(&shards, |s, m| from_rational(*s, *m as u64))
-                .fold!(from_raw(0), |acc, x| acc.min(x));
-            from_raw(max.to_raw() + from_rational(1, 10000000000).to_raw())
+            let mut i = 0;
+            let mut with_min = vector[];
+            // TODO use std::u64::max_value!()
+            let mut min = from_raw(0xFFFF_FFFF_FFFF_FFFF);
+            let new_prices = stake.zip_map_ref!(&shards, |s, m| from_rational(*s, *m as u64));
+            new_prices.do!(|p| {
+                if (p.to_raw() < min.to_raw()) {
+                    min = p;
+                    with_min = vector[i];
+                } else if (p == min) {
+                    with_min.push_back(i);
+                };
+                i = i + 1;
+            });
+            if (with_min.length() == 1) {
+                // if there is more than one node with the same price, we need to manually adjust
+                // just one of them.  And no need to adjust the price.
+                // TODO choose the node in a more meaningful way
+                needs_one_less = option::some(with_min[0]);
+            } else {
+                // increase the price such that one node loses one shard
+                // min + (1 / 4000000000)
+                price = min.add(from_raw(1))
+            }
         }
     }
 }
 
-use fun fp_max as FixedPoint32.max;
-fun fp_max(a: FixedPoint32, b: FixedPoint32): FixedPoint32 {
+use fun fp_add as FixedPoint32.add;
+fun fp_add(a: FixedPoint32, b: FixedPoint32): FixedPoint32 {
     use std::fixed_point32::{
-        create_from_raw_value as raw,
-        get_raw_value as into_raw,
+        create_from_raw_value as from_raw,
+        get_raw_value as to_raw,
     };
-    if (a.into_raw() > b.into_raw()) a else b
-}
-
-use fun fp_min as FixedPoint32.min;
-fun fp_min(a: FixedPoint32, b: FixedPoint32): FixedPoint32 {
-    use std::fixed_point32::{
-        create_from_raw_value as raw,
-        get_raw_value as into_raw,
-    };
-    if (a.into_raw() < b.into_raw()) a else b
+    let sum = (a.to_raw() as u128) + (b.to_raw() as u128);
+    // TODO use std::u64::max_value!()
+    assert!(sum <= 0xFFFF_FFFF_FFFF_FFFF);
+    from_raw(sum as u64)
 }
 
 /// Initiates the epoch change if the current time allows.
