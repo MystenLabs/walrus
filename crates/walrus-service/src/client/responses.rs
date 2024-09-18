@@ -370,27 +370,12 @@ impl InfoOutput {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DeleteOutput {
     #[serde(skip_serializing_if = "std::option::Option::is_none")]
-    #[serde_as(as = "NoneAsEmptyString")]
+    #[serde_as(as = "Option<DisplayFromStr>")]
     pub(crate) blob_id: Option<BlobId>,
     #[serde(skip_serializing_if = "std::option::Option::is_none")]
     pub(crate) file: Option<PathBuf>,
     #[serde(skip_serializing_if = "std::option::Option::is_none")]
+    #[serde_as(as = "Option<DisplayFromStr>")]
     pub(crate) object_id: Option<ObjectID>,
     pub(crate) deleted_blobs: Vec<Blob>,
-}
-
-impl DeleteOutput {
-    pub(crate) fn new(
-        blob_id: Option<BlobId>,
-        file: Option<PathBuf>,
-        object_id: Option<ObjectID>,
-        deleted_blobs: Vec<Blob>,
-    ) -> Self {
-        Self {
-            blob_id,
-            file,
-            object_id,
-            deleted_blobs,
-        }
-    }
 }

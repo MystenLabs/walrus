@@ -440,7 +440,7 @@ pub struct FileOrBlobIdOrObjectId {
     /// The object ID of the blob object to be deleted.
     ///
     /// This command deletes only the blob object with the given object ID.
-    #[clap(short, long, allow_hyphen_values = true, value_parser = parse_blob_id)]
+    #[clap(short, long)]
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[serde(default)]
     pub(crate) object_id: Option<ObjectID>,
@@ -470,7 +470,8 @@ impl FileOrBlobIdOrObjectId {
                         .blob_id(),
                 ))
             }
-            // This case is required for JSON mode where we don't have the clap checking.
+            // This case is required for JSON mode where we don't have the clap checking, or when
+            // an object ID is provided directly.
             _ => Ok(None),
         }
     }

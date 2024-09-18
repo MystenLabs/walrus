@@ -379,7 +379,7 @@ impl<T: ContractClient> Client<T> {
     }
 
     #[tracing::instrument(skip_all, fields(blob_id))]
-    /// Deletes all owned blobs that match the provided Blob ID.
+    /// Deletes all owned blobs that match the blob ID, and returns the number of deleted objects.
     pub async fn delete_owned_blob(&self, blob_id: &BlobId) -> ClientResult<usize> {
         let mut deleted = 0;
         for blob in self.deletable_blobs_by_id(blob_id).await? {

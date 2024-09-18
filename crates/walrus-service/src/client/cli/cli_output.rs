@@ -148,7 +148,7 @@ impl CliOutput for DryRunOutput {
 
 impl CliOutput for BlobStatusOutput {
     fn print_cli_output(&self) {
-        let blob_str = blob_and_file_str(&self.blob_id, self.file.clone());
+        let blob_str = blob_and_file_str(&self.blob_id, &self.file);
         match self.status {
             BlobStatus::Nonexistent => println!("Blob ID {blob_str} is not stored on Walrus."),
             BlobStatus::Deletable(DeletableStatus {
@@ -354,7 +354,7 @@ impl CliOutput for Vec<Blob> {
 impl CliOutput for DeleteOutput {
     fn print_cli_output(&self) {
         let blob_str = if let Some(blob_id) = self.blob_id {
-            blob_and_file_str(&blob_id, self.file.clone())
+            blob_and_file_str(&blob_id, &self.file)
         } else if let Some(object_id) = self.object_id {
             format!("(object ID: {})", object_id)
         } else {
@@ -391,7 +391,7 @@ fn default_table_format() -> format::TableFormat {
         .build()
 }
 
-fn blob_and_file_str(blob_id: &BlobId, file: Option<PathBuf>) -> String {
+fn blob_and_file_str(blob_id: &BlobId, file: &Option<PathBuf>) -> String {
     if let Some(file) = file {
         format!("{} (file: {})", blob_id, file.display())
     } else {

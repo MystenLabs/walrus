@@ -397,7 +397,7 @@ impl ClientCommandRunner {
         let file = target.file.clone();
         let object_id = target.object_id;
 
-        let (blob_id, deleted) =
+        let (blob_id, deleted_blobs) =
             if let Some(blob_id) = target.get_or_compute_blob_id(client.encoding_config())? {
                 let to_delete = client
                     .deletable_blobs_by_id(&blob_id)
@@ -439,7 +439,13 @@ impl ClientCommandRunner {
                 unreachable!("we checked that either file, blob ID or object ID are be provided");
             };
 
-        DeleteOutput::new(blob_id, file, object_id, deleted).print_output(self.json)
+        DeleteOutput {
+            blob_id,
+            file,
+            object_id,
+            deleted_blobs,
+        }
+        .print_output(self.json)
     }
 }
 
