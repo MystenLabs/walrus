@@ -49,17 +49,17 @@ use super::DefaultRecoverySymbol;
 
 /// Requests used with a [`NodeService`].
 #[derive(Debug, Clone)]
-pub(crate) enum Request<'a> {
+pub(crate) enum Request {
     GetVerifiedMetadata(BlobId),
     GetVerifiedRecoverySymbol {
         sliver_type: SliverType,
-        metadata: &'a VerifiedBlobMetadataWithId,
+        metadata: Arc<VerifiedBlobMetadataWithId>,
         sliver_pair_at_remote: SliverPairIndex,
         intersecting_pair_index: SliverPairIndex,
     },
     SubmitProofForInvalidBlobAttestation {
         blob_id: BlobId,
-        proof: &'a InconsistencyProofEnum,
+        proof: InconsistencyProofEnum,
         epoch: Epoch,
         public_key: PublicKey,
     },
@@ -69,7 +69,7 @@ pub(crate) enum Request<'a> {
         sliver_count: u64,
         sliver_type: SliverType,
         shard_owner_epoch: Epoch,
-        key_pair: &'a ProtocolKeyPair,
+        key_pair: ProtocolKeyPair,
     },
 }
 
@@ -131,19 +131,28 @@ impl_response_conversion!(DefaultRecoverySymbol, Response::VerifiedRecoverySymbo
 impl_response_conversion!(InvalidBlobIdAttestation, Response::InvalidBlobAttestation);
 impl_response_conversion!(Vec<(BlobId, Sliver)>, Response::ShardSlivers);
 
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum NodeServiceError {
+    #[error(transparent)]
+    Node(#[from] NodeError),
+    #[allow(unused)]
+    #[error(transparent)]
+    Other(Box<dyn std::error::Error + Send + Sync>),
+}
+
 /// Marker trait for types implementing the [`tower::Service`] signature expected of services
 /// used for communication with the committee.
 pub(crate) trait NodeService
 where
     Self: Send + Clone,
-    Self: for<'a> Service<Request<'a>, Response = Response, Error = NodeError, Future: Send>,
+    Self: Service<Request, Response = Response, Error = NodeServiceError, Future: Send>,
 {
 }
 
 impl<T> NodeService for T
 where
     T: Send + Clone,
-    T: for<'a> Service<Request<'a>, Response = Response, Error = NodeError, Future: Send>,
+    T: Service<Request, Response = Response, Error = NodeServiceError, Future: Send>,
 {
 }
 
@@ -154,24 +163,24 @@ pub(crate) struct RemoteStorageNode {
     encoding_config: Arc<EncodingConfig>,
 }
 
-impl<'a> Service<Request<'a>> for RemoteStorageNode {
-    type Error = NodeError;
+impl Service<Request> for RemoteStorageNode {
+    type Error = NodeServiceError;
     type Response = Response;
-    type Future = BoxFuture<'a, Result<Self::Response, Self::Error>>;
+    type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
     fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, req: Request<'a>) -> Self::Future {
+    fn call(&mut self, req: Request) -> Self::Future {
         let client = self.client.clone();
         let encoding_config = self.encoding_config.clone();
         async move {
-            match req {
+            let response = match req {
                 Request::GetVerifiedMetadata(blob_id) => client
                     .get_and_verify_metadata(&blob_id, &encoding_config)
                     .await
-                    .map(Response::VerifiedMetadata),
+                    .map(Response::VerifiedMetadata)?,
 
                 Request::GetVerifiedRecoverySymbol {
                     sliver_type,
@@ -182,7 +191,7 @@ impl<'a> Service<Request<'a>> for RemoteStorageNode {
                     let symbol = if sliver_type == SliverType::Primary {
                         client
                             .get_and_verify_recovery_symbol::<Primary>(
-                                metadata,
+                                &metadata,
                                 &encoding_config,
                                 sliver_pair_at_remote,
                                 intersecting_pair_index,
@@ -192,7 +201,7 @@ impl<'a> Service<Request<'a>> for RemoteStorageNode {
                     } else {
                         client
                             .get_and_verify_recovery_symbol::<Secondary>(
-                                metadata,
+                                &metadata,
                                 &encoding_config,
                                 sliver_pair_at_remote,
                                 intersecting_pair_index,
@@ -200,7 +209,7 @@ impl<'a> Service<Request<'a>> for RemoteStorageNode {
                             .await
                             .map(DefaultRecoverySymbol::Secondary)
                     };
-                    symbol.map(Response::VerifiedRecoverySymbol)
+                    symbol.map(Response::VerifiedRecoverySymbol)?
                 }
 
                 Request::SubmitProofForInvalidBlobAttestation {
@@ -211,12 +220,12 @@ impl<'a> Service<Request<'a>> for RemoteStorageNode {
                 } => client
                     .submit_inconsistency_proof_and_verify_attestation(
                         &blob_id,
-                        proof,
+                        &proof,
                         epoch,
                         &public_key,
                     )
                     .await
-                    .map(Response::from),
+                    .map(Response::from)?,
 
                 Request::SyncShardAsOfEpoch {
                     shard,
@@ -233,7 +242,7 @@ impl<'a> Service<Request<'a>> for RemoteStorageNode {
                                 starting_blob_id,
                                 sliver_count,
                                 shard_owner_epoch,
-                                key_pair,
+                                &key_pair,
                             )
                             .await
                     } else {
@@ -243,13 +252,14 @@ impl<'a> Service<Request<'a>> for RemoteStorageNode {
                                 starting_blob_id,
                                 sliver_count,
                                 shard_owner_epoch,
-                                key_pair,
+                                &key_pair,
                             )
                             .await
                     };
-                    result.map(|value| Response::ShardSlivers(value.into()))
+                    result.map(|value| Response::ShardSlivers(value.into()))?
                 }
-            }
+            };
+            Ok(response)
         }
         .boxed()
     }

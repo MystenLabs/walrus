@@ -308,8 +308,7 @@ impl StorageNodeBuilder {
                 .expect("this is always created if self.committee_service_factory.is_none()");
             let service = NodeCommitteeService::new(
                 read_client,
-                self::committee::default_node_service_factory,
-                None,
+                protocol_key_pair.public().clone(),
                 config.blob_recovery.committee_service_config.clone(),
             )
             .await?;

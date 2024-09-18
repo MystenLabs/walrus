@@ -52,13 +52,7 @@ use walrus_sui::types::{
 use walrus_test_utils::WithTempDir;
 
 use crate::node::{
-    committee::{
-        self,
-        ActiveCommittees,
-        CommitteeLookupService,
-        CommitteeService,
-        NodeCommitteeService,
-    },
+    committee::{ActiveCommittees, CommitteeLookupService, CommitteeService, NodeCommitteeService},
     config::StorageNodeConfig,
     contract_service::SystemContractService,
     errors::SyncShardClientError,
@@ -809,7 +803,7 @@ impl TestClusterBuilder {
             .zip(self.committee_services.into_iter())
             .zip(self.contract_services.into_iter())
         {
-            let local_identity = Some(config.key_pair.public().clone());
+            let local_identity = config.key_pair.public().clone();
             let mut builder = StorageNodeHandle::builder()
                 .with_storage(empty_storage_with_shards(&config.shards))
                 .with_test_config(config)
@@ -827,7 +821,6 @@ impl TestClusterBuilder {
                     StubLookupService {
                         committee: committee.clone(),
                     },
-                    committee::default_node_service_factory,
                     local_identity,
                     Default::default(),
                 )
@@ -1020,11 +1013,7 @@ pub mod test_cluster {
     use super::*;
     use crate::{
         client::{self, ClientCommunicationConfig, Config},
-        node::{
-            committee::{self},
-            contract_service::SuiSystemContractService,
-            system_events::SuiSystemEventProvider,
-        },
+        node::{contract_service::SuiSystemContractService, system_events::SuiSystemEventProvider},
     };
 
     /// Performs the default setup for the test cluster.
@@ -1123,14 +1112,10 @@ pub mod test_cluster {
         // Set up the cluster
         let cluster_builder = cluster_builder
             .with_committee_services(|| async {
-                NodeCommitteeService::new(
-                    sui_read_client.clone(),
-                    committee::default_node_service_factory,
-                    None,
-                    Default::default(),
-                )
-                .await
-                .expect("service construction must succeed in tests")
+                NodeCommitteeService::builder()
+                    .build(sui_read_client.clone())
+                    .await
+                    .expect("service construction must succeed in tests")
             })
             .await
             .with_system_event_providers(SuiSystemEventProvider::new(

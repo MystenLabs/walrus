@@ -15,8 +15,8 @@ pub(crate) enum BeginCommitteeChangeError {
     ChangeInProgress,
     /// Error returned if the expected next committee has an epoch that is not 1 greater than the
     /// current epoch.
-    #[error("the epoch of the new committee is invalid")]
-    InvalidEpoch,
+    #[error("the epoch of the new committee is invalid: {actual} (expected {expected})")]
+    InvalidEpoch { expected: Epoch, actual: Epoch },
     /// Error returned when the previously set upcoming committee does not match the expected next
     /// committee.
     #[error("the previously set next committee does not match the expected committee")]
@@ -28,8 +28,8 @@ pub(crate) enum BeginCommitteeChangeError {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum EndCommitteeChangeError {
     /// The current committee change that is in progress was not for the specified epoch.
-    #[error("the epoch provided does not match the new epoch")]
-    InvalidEpoch,
+    #[error("the epoch provided does not match the new epoch: {actual} (expected {expected})")]
+    InvalidEpoch { expected: Epoch, actual: Epoch },
     /// Error returned when attempting to end a transition, when none is ongoing.
     #[error("the committee is not currently transitioning")]
     NotTransitioning,
@@ -44,8 +44,8 @@ pub(crate) enum InvalidNextCommittee {
     AlreadySet,
     /// Error returned when the epoch of the new committee is not 1 greater than that of the
     /// current committee.
-    #[error("the epoch of the new committee is invalid")]
-    InvalidEpoch,
+    #[error("the epoch of the new committee is invalid: {actual} (expected {expected})")]
+    InvalidEpoch { expected: Epoch, actual: Epoch },
 }
 
 /// The current, prior, and next committees in the system.
@@ -92,6 +92,24 @@ impl ActiveCommittees {
             prior_committee: prior_committee.map(Arc::new),
             upcoming_committee: None,
             is_transitioning: false,
+        };
+        this.check_invariants();
+        this
+    }
+
+    /// Construct a new set of `ActiveCommittees`, which are transitioning to the current epoch.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the prior committee's epoch does not precede that of the current committees, or if
+    /// they have a different number of shards.
+    #[cfg(test)]
+    pub fn new_transitioning(current_committee: Committee, prior_committee: Committee) -> Self {
+        let this = Self {
+            current_committee: Arc::new(current_committee),
+            prior_committee: Some(Arc::new(prior_committee)),
+            upcoming_committee: None,
+            is_transitioning: true,
         };
         this.check_invariants();
         this
@@ -179,8 +197,11 @@ impl ActiveCommittees {
             InvalidNextCommittee::AlreadySet
         );
         ensure!(
-            committee.epoch + 1 == self.current_committee.epoch,
-            InvalidNextCommittee::InvalidEpoch
+            committee.epoch == self.current_committee.epoch + 1,
+            InvalidNextCommittee::InvalidEpoch {
+                expected: self.current_committee.epoch + 1,
+                actual: committee.epoch,
+            }
         );
 
         self.upcoming_committee = Some(Arc::new(committee));
@@ -217,16 +238,19 @@ impl ActiveCommittees {
         // Set the upcoming committee if it's not already set.
         match self.set_committee_for_next_epoch(expected_committee) {
             Ok(()) | Err(InvalidNextCommittee::AlreadySet) => (),
-            Err(InvalidNextCommittee::InvalidEpoch) => {
-                return Err(BeginCommitteeChangeError::InvalidEpoch)
+            Err(InvalidNextCommittee::InvalidEpoch { expected, actual }) => {
+                return Err(BeginCommitteeChangeError::InvalidEpoch { expected, actual })
             }
         }
-        let upcoming_committee = self.upcoming_committee.take().expect("set above");
 
+        let upcoming_committee = self.upcoming_committee.take().expect("set above");
         let prior_committee = mem::replace(&mut self.current_committee, upcoming_committee);
         self.prior_committee = Some(prior_committee);
+        self.is_transitioning = true;
 
         self.check_invariants();
+
+        debug_assert!(self.is_transitioning);
         Ok(())
     }
 
@@ -246,7 +270,10 @@ impl ActiveCommittees {
         );
         ensure!(
             self.epoch() == expected_epoch,
-            EndCommitteeChangeError::InvalidEpoch
+            EndCommitteeChangeError::InvalidEpoch {
+                expected: expected_epoch,
+                actual: self.epoch()
+            }
         );
 
         self.is_transitioning = false;

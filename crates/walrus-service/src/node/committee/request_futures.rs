@@ -45,12 +45,11 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
-use walrus_sdk::error::NodeError;
 use walrus_sui::types::Committee;
 
 use super::{
     committee_service::NodeCommitteeServiceInner,
-    node_service::{NodeService, Request, Response},
+    node_service::{NodeService, NodeServiceError, Request, Response},
 };
 use crate::{node::committee::active_committees::ActiveCommittees, utils::ExponentialBackoffState};
 
@@ -379,7 +378,8 @@ where
                 let request = client
                     .oneshot(Request::GetVerifiedRecoverySymbol {
                         sliver_type: self.sliver_type,
-                        metadata: self.metadata,
+                        // TODO(jsmith): Accept an arc from the caller.
+                        metadata: Arc::new(self.metadata.clone()),
                         sliver_pair_at_remote,
                         intersecting_pair_index: sliver_id,
                     })
@@ -744,7 +744,8 @@ where
             let request = client
                 .oneshot(Request::SubmitProofForInvalidBlobAttestation {
                     blob_id: self.blob_id,
-                    proof: self.inconsistency_proof,
+                    // TODO(jsmith): Accept the proof directly from the caller.
+                    proof: self.inconsistency_proof.clone(),
                     epoch: committee_epoch,
                     public_key: node_info.public_key.clone(),
                 })
@@ -878,7 +879,9 @@ async fn wait_for_write_committee_change<F>(
     }
 }
 
-fn log_and_discard_timeout_or_error<T>(result: Result<Result<T, NodeError>, Elapsed>) -> Option<T> {
+fn log_and_discard_timeout_or_error<T>(
+    result: Result<Result<T, NodeServiceError>, Elapsed>,
+) -> Option<T> {
     match result {
         Ok(Ok(value)) => {
             tracing::trace!("future completed successfully");

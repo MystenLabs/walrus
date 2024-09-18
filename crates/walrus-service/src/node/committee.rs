@@ -165,6 +165,3 @@ where
         (self)(info, encoding_config).await
     }
 }
-
-#[cfg(test)]
-mod tests;

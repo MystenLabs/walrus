@@ -8,7 +8,7 @@ use std::{
     collections::HashMap,
     fmt::Debug,
     num::NonZeroU16,
-    sync::{Arc, Mutex as SyncMutex, RwLock as SyncRwLock},
+    sync::{Arc, Mutex as SyncMutex},
 };
 
 use futures::TryFutureExt;
@@ -34,7 +34,7 @@ use walrus_sui::types::Committee;
 
 use super::{
     active_committees::{ActiveCommittees, BeginCommitteeChangeError, EndCommitteeChangeError},
-    node_service::{NodeService, RemoteStorageNode, Request, Response},
+    node_service::{NodeService, NodeServiceError, RemoteStorageNode, Request, Response},
     request_futures::{GetAndVerifyMetadata, GetInvalidBlobCertificate, RecoverSliver},
     CommitteeLookupService,
     CommitteeService,
@@ -42,7 +42,7 @@ use super::{
 };
 use crate::node::{config::CommitteeServiceConfig, errors::SyncShardClientError};
 
-/// Errors returned by [`NodeCommitteeService::begin_committee_transition`].
+/// Errors returned by [`NodeCommitteeService::begin_committee_change`].
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum CommitteeTransitionError {
     /// The tracked committees and those returned by the [`CommitteeLookupService`] are out-of-sync.
@@ -57,51 +57,120 @@ pub(crate) enum CommitteeTransitionError {
     AllServicesFailed(anyhow::Error),
 }
 
+pub(crate) struct NodeCommitteeServiceBuilder<T> {
+    service_factory: Box<dyn NodeServiceFactory<Service = T>>,
+    local_identity: Option<PublicKey>,
+    rng: StdRng,
+    config: CommitteeServiceConfig,
+}
+
+impl Default for NodeCommitteeServiceBuilder<RemoteStorageNode> {
+    fn default() -> Self {
+        Self {
+            service_factory: Box::new(super::default_node_service_factory),
+            local_identity: None,
+            rng: StdRng::seed_from_u64(rand::thread_rng().gen()),
+            config: CommitteeServiceConfig::default(),
+        }
+    }
+}
+
+impl<T> NodeCommitteeServiceBuilder<T>
+where
+    T: NodeService,
+{
+    #[cfg(test)]
+    pub fn node_service_factory<F>(
+        self,
+        service_factory: F,
+    ) -> NodeCommitteeServiceBuilder<F::Service>
+    where
+        F: NodeServiceFactory + 'static,
+    {
+        NodeCommitteeServiceBuilder {
+            local_identity: self.local_identity,
+            rng: self.rng,
+            config: self.config,
+            service_factory: Box::new(service_factory),
+        }
+    }
+
+    pub fn local_identity(mut self, id: PublicKey) -> Self {
+        self.local_identity = Some(id);
+        self
+    }
+
+    pub fn config(mut self, config: CommitteeServiceConfig) -> Self {
+        self.config = config;
+        self
+    }
+
+    #[cfg(test)]
+    pub fn randomness(mut self, rng: StdRng) -> Self {
+        self.rng = rng;
+        self
+    }
+
+    pub async fn build<S>(self, lookup_service: S) -> Result<NodeCommitteeService<T>, anyhow::Error>
+    where
+        S: CommitteeLookupService + std::fmt::Debug + 'static,
+    {
+        // TODO(jsmith): Allow setting the local service factory.
+        let active_committees = lookup_service.get_active_committees().await?;
+        let encoding_config = Arc::new(EncodingConfig::new(
+            active_committees.current_committee().n_shards(),
+        ));
+
+        let inner = NodeCommitteeServiceInner::new(
+            active_committees,
+            self.service_factory,
+            self.config,
+            encoding_config,
+            self.local_identity,
+            self.rng,
+        )
+        .await?;
+
+        Ok(NodeCommitteeService {
+            inner,
+            committee_lookup: Box::new(lookup_service),
+        })
+    }
+}
+
 /// Default committee service used for communicating between nodes.
 ///
 /// Requests the current committee state using a [`CommitteeLookupService`].
-#[derive(Debug)]
 pub(crate) struct NodeCommitteeService<T = RemoteStorageNode> {
     inner: NodeCommitteeServiceInner<T>,
     committee_lookup: Box<dyn super::CommitteeLookupService>,
+}
+
+impl NodeCommitteeService<RemoteStorageNode> {
+    pub fn builder() -> NodeCommitteeServiceBuilder<RemoteStorageNode> {
+        Default::default()
+    }
+
+    pub async fn new<S>(
+        lookup_service: S,
+        local_identity: PublicKey,
+        config: CommitteeServiceConfig,
+    ) -> Result<Self, anyhow::Error>
+    where
+        S: CommitteeLookupService + std::fmt::Debug + 'static,
+    {
+        Self::builder()
+            .local_identity(local_identity)
+            .config(config)
+            .build(lookup_service)
+            .await
+    }
 }
 
 impl<T> NodeCommitteeService<T>
 where
     T: NodeService,
 {
-    pub async fn new<S, F>(
-        lookup_service: S,
-        service_factory: F,
-        local_identity: Option<PublicKey>,
-        config: CommitteeServiceConfig,
-    ) -> Result<Self, anyhow::Error>
-    where
-        S: CommitteeLookupService + std::fmt::Debug + 'static,
-        F: NodeServiceFactory<Service = T> + 'static,
-    {
-        // TODO(jsmith): Allow setting the local service factory.
-        let rng = StdRng::seed_from_u64(rand::thread_rng().gen());
-        let active_committees = lookup_service.get_active_committees().await?;
-        let encoding_config = Arc::new(EncodingConfig::new(
-            active_committees.current_committee().n_shards(),
-        ));
-        let inner = NodeCommitteeServiceInner::new(
-            active_committees,
-            Box::new(service_factory),
-            config,
-            encoding_config,
-            local_identity,
-            rng,
-        )
-        .await?;
-
-        Ok(Self {
-            inner,
-            committee_lookup: Box::new(lookup_service),
-        })
-    }
-
     async fn sync_shard_as_of_epoch(
         &self,
         shard: ShardIndex,
@@ -144,9 +213,13 @@ where
                 sliver_count,
                 sliver_type,
                 shard_owner_epoch,
-                key_pair,
+                key_pair: key_pair.clone(),
             })
             .map_ok(Response::into_value)
+            .map_err(|error| match error {
+                NodeServiceError::Node(error) => SyncShardClientError::RequestError(error),
+                NodeServiceError::Other(other) => anyhow::anyhow!(other).into(),
+            })
             .await?;
 
         Ok(slivers)
@@ -192,7 +265,7 @@ where
         let mut services = self
             .inner
             .services
-            .write()
+            .lock()
             .expect("thread did not panic with mutex");
         self.inner.active_committees.send_replace(active_committees);
         services.extend(new_services);
@@ -234,7 +307,7 @@ where
         let mut services = self
             .inner
             .services
-            .write()
+            .lock()
             .expect("thread did not panic with mutex");
 
         let mut result = Ok(());
@@ -257,7 +330,7 @@ where
     /// returned. Otherwise, false is returned. It is therefore safe to call this method, even if
     /// a transition is not taking place.
     #[allow(unused)]
-    pub fn end_committee_transition(&self, epoch: Epoch) -> Result<(), EndCommitteeChangeError> {
+    pub fn end_committee_change(&self, epoch: Epoch) -> Result<(), EndCommitteeChangeError> {
         self.end_committee_transition_to(epoch)
     }
 
@@ -266,7 +339,7 @@ where
         let mut services = self
             .inner
             .services
-            .write()
+            .lock()
             .expect("thread did not panic with mutex");
 
         let mut maybe_result: Option<Result<_, EndCommitteeChangeError>> = None;
@@ -305,7 +378,7 @@ pub(super) struct NodeCommitteeServiceInner<T> {
     /// The set of active committees, which can be observed for changes.
     pub active_committees: watch::Sender<ActiveCommittees>,
     /// Services for members of the active read and write committees.
-    pub services: SyncRwLock<HashMap<PublicKey, T>>,
+    pub services: SyncMutex<HashMap<PublicKey, T>>,
     /// Timeouts and other configuration for requests.
     pub config: CommitteeServiceConfig,
     /// System wide encoding parameters
@@ -343,7 +416,7 @@ where
 
         let this = Self {
             active_committees: watch::Sender::new(active_committees),
-            services: SyncRwLock::new(services),
+            services: SyncMutex::new(services),
             service_factory: TokioMutex::new(service_factory),
             local_identity,
             config,
@@ -363,7 +436,7 @@ where
 
     pub(super) fn get_node_service_by_id(&self, id: &PublicKey) -> Option<T> {
         self.services
-            .read()
+            .lock()
             .expect("thread did not panic with mutex")
             .get(id)
             .cloned()
@@ -375,7 +448,10 @@ where
 }
 
 #[async_trait::async_trait]
-impl CommitteeService for NodeCommitteeService {
+impl<T> CommitteeService for NodeCommitteeService<T>
+where
+    T: NodeService,
+{
     fn get_epoch(&self) -> Epoch {
         self.inner.active_committees.borrow().epoch()
     }
@@ -474,17 +550,25 @@ impl CommitteeService for NodeCommitteeService {
     }
 }
 
-impl<T: Debug> std::fmt::Debug for NodeCommitteeServiceInner<T> {
+impl<T> std::fmt::Debug for NodeCommitteeServiceInner<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("NodeCommitteeServiceInner")
             .field("active_committees", &self.active_committees)
-            .field("services", &self.services)
             .field("config", &self.config)
             .field("local_identity", &self.local_identity)
             .field(
                 "encoding_config.n_shards",
                 &self.encoding_config.n_shards().get(),
             )
+            .finish_non_exhaustive()
+    }
+}
+
+impl<T> std::fmt::Debug for NodeCommitteeService<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NodeCommitteeService")
+            .field("inner", &self.inner)
+            .field("committee_lookup", &self.committee_lookup)
             .finish_non_exhaustive()
     }
 }
@@ -542,3 +626,7 @@ async fn add_members_from_committee<T: NodeService>(
     );
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "test_committee_service.rs"]
+mod tests;
