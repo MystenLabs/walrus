@@ -1,0 +1,17 @@
+[package]
+name = "walrus-proc-macros"
+publish = false
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+quote.workspace = true
+syn.workspace = true
+
+[lib]
+proc-macro = true
+
+[lints]
+workspace = true

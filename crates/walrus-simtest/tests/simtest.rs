@@ -4,6 +4,7 @@
 use sui_macros::sim_test;
 use sui_protocol_config::ProtocolConfig;
 use walrus_core::encoding::{Primary, Secondary};
+use walrus_proc_macros::walrus_simtest;
 use walrus_service::{
     client::{responses::BlobStoreResult, StoreWhen},
     test_utils::test_cluster,
@@ -12,9 +13,9 @@ use walrus_sui::client::BlobPersistence;
 
 // Tests that we can create a Walrus cluster with a Sui cluster and running basic
 // operations deterministically.
-#[sim_test(check_determinism)]
+#[walrus_simtest(check_determinism)]
 #[ignore = "ignore simtests by default"]
-async fn simtest_walrus_basic_determinism() {
+async fn walrus_basic_determinism() {
     let _guard = ProtocolConfig::apply_overrides_for_testing(|_, mut config| {
         // TODO: remove once Sui simtest can work with these features.
         config.set_enable_jwk_consensus_updates_for_testing(false);

@@ -205,13 +205,15 @@ macro_rules! simtest_param_test {
     ($func_name:ident: [
         $( $case_name:ident: ( $($args:expr),+ ) ),+$(,)?
     ]) => {
-        async_param_test!( $func_name -> (): [ $( #[sim_test] $case_name: ($($args),+) ),* ] );
+        async_param_test!(
+            $func_name -> (): [ $( #[walrus_simtest] $case_name: ($($args),+) ),* ]
+        );
     };
     ($func_name:ident -> $return_ty:ty: [
         $( $case_name:ident: ( $($args:expr),+ ) ),+$(,)?
     ]) => {
         async_param_test!(
-            $func_name -> $return_ty: [ $( #[sim_test] $case_name: ( $($args),+ ) ),* ]
+            $func_name -> $return_ty: [ $( #[walrus_simtest] $case_name: ( $($args),+ ) ),* ]
         );
     }
 }

@@ -87,7 +87,8 @@ if ! cargo nextest --help > /dev/null 2>&1; then
   exit 1
 fi
 
-CARGO_COMMAND=(nextest run --cargo-profile simulator)
+# Adding `simtest` after `run` since all walrus simtest is prefixed with `simtest`.
+CARGO_COMMAND=(nextest run simtest --cargo-profile simulator)
 if [ "$1" = "build" ]; then
   shift
   CARGO_COMMAND=(build --profile simulator)

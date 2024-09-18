@@ -159,7 +159,7 @@ jobs:
           tool: cargo-nextest
       - uses: actions/checkout@v4
       - run: ./scripts/simtest/install.sh
-      - run: cargo simtest --run-ignored all simtest
+      - run: cargo simtest --run-ignored all
 
   test-move:
     name: Test Move code

@@ -2453,6 +2453,7 @@ mod tests {
             register_fail_point_if,
             sim_test,
         };
+        use walrus_proc_macros::walrus_simtest;
         use walrus_test_utils::simtest_param_test;
 
         use super::*;
@@ -2476,7 +2477,7 @@ mod tests {
         // places to break the sync process.
         // TODO(#705): make shard sync parameters configurable.
         simtest_param_test! {
-            simtest_sync_shard_start_from_progress -> TestResult: [
+            sync_shard_start_from_progress -> TestResult: [
                 primary1: (1, SliverType::Primary),
                 primary5: (5, SliverType::Primary),
                 primary10: (10, SliverType::Primary),
@@ -2491,7 +2492,7 @@ mod tests {
                 secondary23: (23, SliverType::Secondary),
             ]
         }
-        async fn simtest_sync_shard_start_from_progress(
+        async fn sync_shard_start_from_progress(
             break_index: u64,
             sliver_type: SliverType,
         ) -> TestResult {
@@ -2551,8 +2552,8 @@ mod tests {
         // Tests that there is a discrepancy between the source and destination shards in terms
         // of certified blobs. If the source doesn't return any blobs, the destination should
         // finish the sync process.
-        #[sim_test]
-        async fn simtest_sync_shard_src_return_empty() -> TestResult {
+        #[walrus_simtest]
+        async fn sync_shard_src_return_empty() -> TestResult {
             telemetry_subscribers::init_for_testing();
 
             let (cluster, _blob_details, _shard_storage_dst) =
@@ -2577,7 +2578,7 @@ mod tests {
         // Tests crash recovery of shard transfer partially using shard recovery functionality
         // and partially using shard sync.
         simtest_param_test! {
-            simtest_sync_shard_shard_recovery_restart -> TestResult: [
+            sync_shard_shard_recovery_restart -> TestResult: [
                 primary1: (1, SliverType::Primary, false),
                 primary5: (5, SliverType::Primary, false),
                 primary10: (10, SliverType::Primary, false),
@@ -2587,7 +2588,7 @@ mod tests {
                 restart_after_recovery: (10, SliverType::Secondary, true),
             ]
         }
-        async fn simtest_sync_shard_shard_recovery_restart(
+        async fn sync_shard_shard_recovery_restart(
             break_index: u64,
             sliver_type: SliverType,
             restart_after_recovery: bool,

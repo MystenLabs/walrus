@@ -41,6 +41,7 @@ p256 = "0.13.2"
 pin-project = "1.1.5"
 prettytable = "0.10.0"
 prometheus = "0.13.4"
+quote = "1.0"
 rand = "0.8.5"
 raptorq = "2.0.0"
 rcgen = "0.13.1"
@@ -66,6 +67,7 @@ sui-sdk = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.33.1" }
 sui-simulator = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.33.1" }
 sui-storage = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.33.1" }
 sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.33.1" }
+syn = "2.0"
 telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.33.1" }
 tempfile = "3.11.0"
 test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.33.1" }
@@ -84,6 +86,7 @@ utoipa = { version = "4.2.3" }
 utoipa-redoc = { version = "4.0.0", features = ["axum"] }
 walrus-core = { path = "crates/walrus-core" }
 walrus-event = { path = "crates/walrus-event" }
+walrus-proc-macros = { path = "crates/walrus-proc-macros" }
 walrus-sdk = { path = "crates/walrus-sdk" }
 walrus-service = { path = "crates/walrus-service" }
 walrus-sui = { path = "crates/walrus-sui" }
