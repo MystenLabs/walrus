@@ -28,7 +28,7 @@ pub use certificate::{CertificateError, ConfirmationCertificate, InvalidBlobCert
 use crate::{ensure, wrapped_uint, Epoch, PublicKey};
 
 /// Message format for messages sent to the System Contracts.
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProtocolMessage<T> {
     intent: Intent,
     /// The epoch in which this message is generated.
@@ -50,7 +50,7 @@ impl<T> ProtocolMessage<T> {
 
 /// A signed message from a storage node.
 #[serde_with::serde_as]
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct SignedMessage<T> {
@@ -191,7 +191,7 @@ wrapped_uint! {
 }
 
 /// Message intent prepended to signed messages.
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Intent {
     /// The intent of the signed message.
     pub r#type: IntentType,

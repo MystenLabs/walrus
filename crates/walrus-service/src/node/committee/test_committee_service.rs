@@ -2,20 +2,30 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
+    borrow::Borrow,
     collections::HashMap,
     num::NonZero,
     sync::{Arc, Mutex},
     time::Duration,
 };
 
-use rand::{rngs::StdRng, seq::IteratorRandom as _, SeedableRng as _};
+use rand::{
+    rngs::StdRng,
+    seq::{IteratorRandom as _, SliceRandom},
+    SeedableRng,
+};
 use tokio::time;
 use tower::{util::BoxCloneService, ServiceExt as _};
 use walrus_core::{
+    bft,
     encoding::{self, EncodingConfig, Primary, PrimaryRecoverySymbol},
+    inconsistency::PrimaryInconsistencyProof,
+    keys::ProtocolKeyPair,
     merkle::MerkleProof,
+    messages::InvalidBlobIdMsg,
     metadata::VerifiedBlobMetadataWithId,
     Epoch,
+    InconsistencyProof,
     PublicKey,
     RecoverySymbol,
     SliverIndex,
@@ -28,6 +38,7 @@ use walrus_test_utils::{async_param_test, Result as TestResult};
 
 use crate::{
     node::{
+        self,
         committee::{
             active_committees::BeginCommitteeChangeError,
             committee_service::{CommitteeTransitionError, NodeCommitteeService},
@@ -536,9 +547,141 @@ async fn recovers_slivers_across_epoch_change() -> TestResult {
     committee_handle.finish_transition();
     committee_service.end_committee_change(new_epoch)?;
 
-    let _sliver = time::timeout(Duration::from_secs(1000), &mut pending_request)
+    let _sliver = time::timeout(Duration::from_secs(60), &mut pending_request)
         .await
         .expect("request must succeed since new committee has remaining recovery symbols");
+
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn restarts_inconsistency_proof_collection_across_epoch_change() -> TestResult {
+    let mut rng = StdRng::seed_from_u64(20);
+    let blob_id = walrus_core::test_utils::blob_id_from_u64(99);
+    let inconsistency_proof = InconsistencyProof::Primary(
+        PrimaryInconsistencyProof::<MerkleProof>::new(SliverIndex(0), vec![]),
+    );
+
+    let new_epoch: Epoch = 8;
+    let (committees, next_committee) = valid_committees(new_epoch - 1, ShardAssignment::OneEach);
+    let initial_committee = committees.current_committee();
+    debug_assert!(!has_members_in_common(initial_committee, &next_committee));
+
+    let weight_required = bft::min_n_correct(committees.current_committee().n_shards());
+    let nodes_required = weight_required.get() as usize; // Since we use 1 shard per node.
+
+    let mut service_map = ServiceFactoryMap::default();
+
+    for committee in [initial_committee.borrow(), &next_committee] {
+        for node in committee
+            .members()
+            .choose_multiple(&mut rng, nodes_required - 1)
+        {
+            let message = InvalidBlobIdMsg::new(committee.epoch, blob_id);
+            // Use an arbitrary key pair since we skip verification in these tests.
+            let arbitrary_key_pair = ProtocolKeyPair::generate_with_rng(&mut rng);
+            let attestation = node::sign_message(message, arbitrary_key_pair).await?;
+
+            service_map.insert_ready(node.public_key.clone(), move |_request| {
+                Ok(Response::InvalidBlobAttestation(attestation.clone()))
+            });
+        }
+    }
+
+    let (committee_lookup, committee_handle) = lookup_service_pair(committees);
+
+    let committee_service = NodeCommitteeService::builder()
+        .node_service_factory(service_map)
+        .randomness(rng)
+        .config(CommitteeServiceConfig {
+            // Reduce timeout duration to play nicely with the timeouts used in the test
+            invalidity_sync_timeout: Duration::from_secs(10),
+            ..Default::default()
+        })
+        .build(committee_lookup)
+        .await?;
+
+    let mut pending_request =
+        committee_service.get_invalid_blob_certificate(blob_id, &inconsistency_proof);
+    let mut pending_request = std::pin::pin!(pending_request);
+
+    assert_timeout!(
+        &mut pending_request,
+        "must timeout since insufficient services in the current committee respond"
+    );
+
+    committee_handle.begin_transition_to(next_committee);
+    committee_service.begin_committee_change().await?;
+
+    assert_timeout!(
+        &mut pending_request,
+        "must timeout since insufficient services in the current committee respond"
+    );
+
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn collects_inconsistency_proof_despite_epoch_change() -> TestResult {
+    let mut rng = StdRng::seed_from_u64(20);
+    let blob_id = walrus_core::test_utils::blob_id_from_u64(99);
+    let inconsistency_proof = InconsistencyProof::Primary(
+        PrimaryInconsistencyProof::<MerkleProof>::new(SliverIndex(0), vec![]),
+    );
+
+    let new_epoch: Epoch = 8;
+    let (committees, next_committee) = valid_committees(new_epoch - 1, ShardAssignment::OneEach);
+    let initial_committee = committees.current_committee();
+    debug_assert!(!has_members_in_common(initial_committee, &next_committee));
+
+    let weight_required = bft::min_n_correct(committees.current_committee().n_shards());
+    let nodes_required = weight_required.get() as usize; // Since we use 1 shard per node.
+
+    let mut service_map = ServiceFactoryMap::default();
+    for (committee, n_responders) in [
+        (initial_committee.borrow(), nodes_required - 1),
+        (&next_committee, nodes_required),
+    ] {
+        for node in committee.members().choose_multiple(&mut rng, n_responders) {
+            let message = InvalidBlobIdMsg::new(committee.epoch, blob_id);
+            // Use an arbitrary key pair since we skip verification in these tests.
+            let arbitrary_key_pair = ProtocolKeyPair::generate_with_rng(&mut rng);
+            let attestation = node::sign_message(message, arbitrary_key_pair).await?;
+
+            service_map.insert_ready(node.public_key.clone(), move |_request| {
+                Ok(Response::InvalidBlobAttestation(attestation.clone()))
+            });
+        }
+    }
+
+    let (committee_lookup, committee_handle) = lookup_service_pair(committees);
+
+    let committee_service = NodeCommitteeService::builder()
+        .node_service_factory(service_map)
+        .randomness(rng)
+        .config(CommitteeServiceConfig {
+            // Reduce timeout duration to play nicely with the timeouts used in the test
+            invalidity_sync_timeout: Duration::from_secs(10),
+            ..Default::default()
+        })
+        .build(committee_lookup)
+        .await?;
+
+    let mut pending_request =
+        committee_service.get_invalid_blob_certificate(blob_id, &inconsistency_proof);
+    let mut pending_request = std::pin::pin!(pending_request);
+
+    assert_timeout!(
+        &mut pending_request,
+        "must timeout since insufficient services in the current committee respond"
+    );
+
+    committee_handle.begin_transition_to(next_committee);
+    committee_service.begin_committee_change().await?;
+
+    let _ = time::timeout(Duration::from_secs(60), &mut pending_request)
+        .await
+        .expect("request must succeed since new committee has sufficient responses");
 
     Ok(())
 }

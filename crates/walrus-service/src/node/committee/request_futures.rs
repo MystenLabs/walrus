@@ -764,6 +764,7 @@ where
                     walrus.node.public_key = %node_info.public_key
                 ));
 
+            tracing::trace!("created attestation request for node");
             return Some((weight, request.boxed()));
         }
         None

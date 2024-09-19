@@ -7,7 +7,7 @@ use super::{Intent, InvalidIntent, MessageVerificationError, ProtocolMessage, Si
 use crate::{messages::IntentType, BlobId, Epoch, PublicKey};
 
 /// A message stating that a Blob Id is invalid.
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 #[serde(try_from = "ProtocolMessage<BlobId>")]
 pub struct InvalidBlobIdMsg(pub(crate) ProtocolMessage<BlobId>);
 
