@@ -382,6 +382,10 @@ fun apportionment(self: &StakingInnerV1): vector<u16> {
     shards
 }
 
+// Implementation of the D'Hondt method (aka Jefferson method) for apportionment.
+// TODO: currently because of Fixedpoint32, there is a "low" limit on the `total_stake`.
+// Assuming 1000 shards (and ignoring the number of nodes), the limit for the total stake is
+// 4,000,000,000,000 (4e12).
 fun dhondt(
     total_stake: u64,
     n_nodes: u16,
