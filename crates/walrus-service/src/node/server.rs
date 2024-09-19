@@ -327,7 +327,7 @@ where
             .route(routes::RECOVERY_ENDPOINT, get(routes::get_recovery_symbol))
             .route(
                 routes::INCONSISTENCY_PROOF_ENDPOINT,
-                put(routes::inconsistency_proof),
+                post(routes::inconsistency_proof),
             )
             .route(routes::BLOB_STATUS_ENDPOINT, get(routes::get_blob_status))
             .route(routes::HEALTH_ENDPOINT, get(routes::health_info))

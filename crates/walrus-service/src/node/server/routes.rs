@@ -361,12 +361,11 @@ pub async fn get_recovery_symbol<S: SyncServiceState>(
 ///
 /// Accepts an inconsistency proof from other storage nodes, verifies it, and returns an attestation
 /// that the specified blob is inconsistent.
-// TODO(jsmith): This endpoint should be a POST endpoint, not a PUT endpoint (#461).
 #[tracing::instrument(skip_all, err(level = Level::DEBUG), fields(
     walrus.blob_id = %blob_id.0, walrus.sliver.r#type = %sliver_type
 ))]
 #[utoipa::path(
-    put,
+    post,
     path = api::rewrite_route(INCONSISTENCY_PROOF_ENDPOINT),
     params(("blob_id" = BlobIdString,), ("sliver_type" = SliverType,)),
     request_body(content = [u8], description = "BCS-encoded inconsistency proof"),

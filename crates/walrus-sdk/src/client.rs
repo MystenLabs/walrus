@@ -664,7 +664,7 @@ impl Client {
         inconsistency_proof: &InconsistencyProof<A, MerkleProof>,
     ) -> Result<InvalidBlobIdAttestation, NodeError> {
         let (url, template) = self.endpoints.inconsistency_proof::<A>(blob_id);
-        let request = self.create_request_with_payload(Method::PUT, url, &inconsistency_proof)?;
+        let request = self.create_request_with_payload(Method::POST, url, &inconsistency_proof)?;
 
         self.send_and_parse_service_response(request, template)
             .await
