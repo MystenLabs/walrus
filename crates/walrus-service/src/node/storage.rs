@@ -357,10 +357,17 @@ impl Storage {
 
     /// Deletes the provided [`BlobId`] from the storage.
     #[tracing::instrument(skip_all)]
-    pub fn delete_blob(&self, blob_id: &BlobId) -> Result<(), TypedStoreError> {
+    pub fn delete_blob(
+        &self,
+        blob_id: &BlobId,
+        delete_blob_info: bool,
+    ) -> Result<(), TypedStoreError> {
         let mut batch = self.metadata.batch();
-        self.delete_metadata(&mut batch, blob_id)?;
+        self.delete_metadata(&mut batch, blob_id, !delete_blob_info)?;
         self.delete_slivers(&mut batch, blob_id)?;
+        if delete_blob_info {
+            batch.delete_batch(&self.blob_info, [blob_id])?;
+        }
         batch.write()?;
         Ok(())
     }
@@ -370,15 +377,18 @@ impl Storage {
         &self,
         batch: &mut DBBatch,
         blob_id: &BlobId,
+        update_blob_info: bool,
     ) -> Result<(), TypedStoreError> {
-        batch.delete_batch(&self.metadata, std::iter::once(blob_id))?;
-        batch.partial_merge_batch(
-            &self.blob_info,
-            [(
-                blob_id,
-                BlobInfoMergeOperand::MarkMetadataStored(false).to_bytes(),
-            )],
-        )?;
+        batch.delete_batch(&self.metadata, [blob_id])?;
+        if update_blob_info {
+            batch.partial_merge_batch(
+                &self.blob_info,
+                [(
+                    blob_id,
+                    BlobInfoMergeOperand::MarkMetadataStored(false).to_bytes(),
+                )],
+            )?;
+        }
         Ok(())
     }
 
@@ -602,7 +612,7 @@ pub(crate) mod tests {
         assert!(storage.get_metadata(blob_id)?.is_some());
 
         let mut batch = storage.metadata.batch();
-        storage.delete_metadata(&mut batch, blob_id)?;
+        storage.delete_metadata(&mut batch, blob_id, true)?;
         batch.write()?;
 
         assert!(!storage.has_metadata(blob_id)?);
@@ -617,7 +627,7 @@ pub(crate) mod tests {
 
         let mut batch = storage.metadata.batch();
         storage
-            .delete_metadata(&mut batch, &BLOB_ID)
+            .delete_metadata(&mut batch, &BLOB_ID, true)
             .expect("delete on empty metadata should not error");
         batch.write()?;
         Ok(())

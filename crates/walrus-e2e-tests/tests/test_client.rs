@@ -12,6 +12,7 @@ use walrus_core::{
     EpochCount,
     SliverPairIndex,
 };
+use walrus_sdk::api::BlobStatus;
 use walrus_service::{
     client::{
         responses::BlobStoreResult,
@@ -25,7 +26,7 @@ use walrus_sui::{
     client::{BlobPersistence, ContractClient, ReadClient},
     types::{BlobEvent, ContractEvent},
 };
-use walrus_test_utils::async_param_test;
+use walrus_test_utils::{async_param_test, Result as TestResult};
 
 async_param_test! {
     #[ignore = "ignore E2E tests by default"] #[tokio::test]
@@ -91,7 +92,7 @@ async fn run_store_and_read_with_crash_failures(
     failed_shards_write: &[usize],
     failed_shards_read: &[usize],
     data_length: usize,
-) -> anyhow::Result<()> {
+) -> TestResult {
     let _ = tracing_subscriber::fmt::try_init();
 
     let (_sui_cluster_handle, mut cluster, client) = test_cluster::default_setup().await?;
@@ -132,14 +133,14 @@ async fn run_store_and_read_with_crash_failures(
 
 async_param_test! {
     #[ignore = "ignore E2E tests by default"] #[tokio::test]
-    test_inconsistency -> anyhow::Result<()> : [
+    test_inconsistency -> TestResult : [
         no_failures: (&[]),
         one_failure: (&[0]),
         f_failures: (&[4]),
     ]
 }
 /// Stores a blob that is inconsistent in shard 1
-async fn test_inconsistency(failed_shards: &[usize]) -> anyhow::Result<()> {
+async fn test_inconsistency(failed_shards: &[usize]) -> TestResult {
     let _ = tracing_subscriber::fmt::try_init();
 
     let (_sui_cluster_handle, mut cluster, mut client) = test_cluster::default_setup().await?;
@@ -205,8 +206,8 @@ async fn test_inconsistency(failed_shards: &[usize]) -> anyhow::Result<()> {
         }
         panic!("should be infinite stream")
     })
-    .await
-    .map_err(anyhow::Error::new)
+    .await?;
+    Ok(())
 }
 
 fn error_kind_matches(actual: &ClientErrorKind, expected: &ClientErrorKind) -> bool {
@@ -225,7 +226,7 @@ fn error_kind_matches(actual: &ClientErrorKind, expected: &ClientErrorKind) -> b
 
 async_param_test! {
     #[ignore = "ignore E2E tests by default"] #[tokio::test]
-    test_store_with_existing_blob_resource -> anyhow::Result<()> : [
+    test_store_with_existing_blob_resource -> TestResult : [
         reuse_resource: (1, 1, true),
         reuse_resource_two: (2, 1, true),
         no_reuse_resource: (1, 2, false),
@@ -242,7 +243,7 @@ async fn test_store_with_existing_blob_resource(
     epochs_ahead_registered: EpochCount,
     epochs_ahead_required: EpochCount,
     should_match: bool,
-) -> anyhow::Result<()> {
+) -> TestResult {
     let _ = tracing_subscriber::fmt::try_init();
 
     let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
@@ -293,7 +294,7 @@ async fn test_store_with_existing_blob_resource(
 
 async_param_test! {
     #[ignore = "ignore E2E tests by default"] #[tokio::test]
-    test_store_with_existing_storage_resource-> anyhow::Result<()> : [
+    test_store_with_existing_storage_resource -> TestResult : [
         reuse_storage: (1, 1, true),
         reuse_storage_two: (2, 1, true),
         no_reuse_storage: (1, 2, false),
@@ -310,7 +311,7 @@ async fn test_store_with_existing_storage_resource(
     epochs_ahead_registered: EpochCount,
     epochs_ahead_required: EpochCount,
     should_match: bool,
-) -> anyhow::Result<()> {
+) -> TestResult {
     let _ = tracing_subscriber::fmt::try_init();
 
     let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
@@ -364,23 +365,17 @@ async fn test_store_with_existing_storage_resource(
 
 async_param_test! {
     #[ignore = "ignore E2E tests by default"] #[tokio::test]
-    test_delete_blob -> anyhow::Result<()> : [
+    test_delete_blob -> TestResult : [
         no_delete: (0),
         one_delete: (1),
         multi_delete: (2),
     ]
 }
-/// Tests blob deletion.
-async fn test_delete_blob(blobs_to_create: u32) -> anyhow::Result<()> {
+/// Tests blob object deletion.
+async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
     let _ = tracing_subscriber::fmt::try_init();
     let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
-    let blob = walrus_test_utils::random_data(31415);
-    let (_, metadata) = client
-        .as_ref()
-        .encoding_config()
-        .get_blob_encoder(&blob)?
-        .encode_with_metadata();
-    let blob_id = BlobId::from_sliver_pair_metadata(metadata.metadata());
+    let blob = walrus_test_utils::random_data(314);
 
     // Store the blob multiple times, using separate end times to obtain multiple blob objects with
     // the same blob ID.
@@ -392,22 +387,62 @@ async fn test_delete_blob(blobs_to_create: u32) -> anyhow::Result<()> {
     }
 
     // Add a blob that is not deletable.
-    client
+    let result = client
         .as_ref()
         .reserve_and_store_blob(&blob, 1, StoreWhen::Always, BlobPersistence::Permanent)
         .await?;
+    let blob_id = result.blob_id();
 
     // Check that we have the correct number of blobs
     let blobs = client.as_ref().sui_client().owned_blobs(false).await?;
     assert_eq!(blobs.len(), blobs_to_create as usize + 1);
 
     // Delete the blobs
-    let deleted = client.as_ref().delete_owned_blob(&blob_id).await?;
+    let deleted = client.as_ref().delete_owned_blob(blob_id).await?;
     assert_eq!(deleted, blobs_to_create as usize);
 
     // Only one blob should remain: The non-deletable one.
     let blobs = client.as_ref().sui_client().owned_blobs(false).await?;
     assert_eq!(blobs.len(), 1);
+
+    // TODO(mlegner): Check correct handling on nodes.
+
+    Ok(())
+}
+
+#[ignore = "ignore E2E tests by default"]
+#[tokio::test]
+async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
+    let _ = tracing_subscriber::fmt::try_init();
+    let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
+    let client = client.as_ref();
+    let blob = walrus_test_utils::random_data(314);
+
+    let store_result = client
+        .reserve_and_store_blob(&blob, 1, StoreWhen::Always, BlobPersistence::Deletable)
+        .await?;
+    let blob_id = store_result.blob_id();
+    assert!(matches!(store_result, BlobStoreResult::NewlyCreated { .. }));
+
+    assert_eq!(client.read_blob::<Primary>(blob_id).await?, blob);
+
+    client.delete_owned_blob(blob_id).await?;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let status_result = client
+        .get_verified_blob_status(
+            blob_id,
+            client.sui_client().read_client(),
+            Duration::from_secs(1),
+        )
+        .await?;
+    assert!(matches!(status_result, BlobStatus::Nonexistent));
+
+    let read_result = client.read_blob::<Primary>(blob_id).await;
+    assert!(matches!(
+        read_result.unwrap_err().kind(),
+        ClientErrorKind::BlobIdDoesNotExist,
+    ));
 
     Ok(())
 }

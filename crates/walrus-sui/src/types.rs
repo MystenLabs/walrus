@@ -18,6 +18,7 @@ use thiserror::Error;
 mod events;
 pub use events::{
     BlobCertified,
+    BlobDeleted,
     BlobEvent,
     BlobRegistered,
     ContractEvent,

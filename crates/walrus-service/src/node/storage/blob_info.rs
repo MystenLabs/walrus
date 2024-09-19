@@ -12,7 +12,7 @@ use sui_types::event::EventID;
 use tracing::Level;
 use walrus_core::Epoch;
 use walrus_sdk::api::{BlobStatus, DeletableStatus};
-use walrus_sui::types::{BlobCertified, BlobEvent, BlobRegistered, InvalidBlobId};
+use walrus_sui::types::{BlobCertified, BlobDeleted, BlobEvent, BlobRegistered, InvalidBlobId};
 
 pub(super) trait Mergeable: Sized {
     type MergeOperand;
@@ -51,6 +51,11 @@ pub(crate) trait BlobInfoApi {
     fn is_metadata_stored(&self) -> bool;
     /// Returns true iff the blob is invalid.
     fn is_invalid(&self) -> bool;
+    /// Returns true iff there exists at least one non-expired deletable or permanent `Blob` object.
+    fn is_registered(&self) -> bool;
+    /// Returns true iff there exists at least one non-expired and certified deletable or permanent
+    /// `Blob` object.
+    fn is_certified(&self) -> bool;
 
     /// Returns the epoch at which this blob was first certified.
     ///
@@ -125,11 +130,15 @@ impl From<&BlobRegistered> for BlobInfoMergeOperand {
             epoch,
             end_epoch,
             event_id,
-            ..
+            deletable,
+            blob_id: _,
+            size: _,
+            encoding_type: _,
+            object_id: _,
         } = value;
         Self::ChangeStatus {
             change_info: BlobStatusChangeInfo {
-                deletable: false, // TODO(mlegner): update with new event structs (#762).
+                deletable: *deletable,
                 epoch: *epoch,
                 end_epoch: *end_epoch,
                 status_event: *event_id,
@@ -145,16 +154,49 @@ impl From<&BlobCertified> for BlobInfoMergeOperand {
             epoch,
             end_epoch,
             event_id,
-            ..
+            deletable,
+            is_extension,
+            blob_id: _,
+            object_id: _,
+        } = value;
+        let change_info = BlobStatusChangeInfo {
+            deletable: *deletable,
+            epoch: *epoch,
+            end_epoch: *end_epoch,
+            status_event: *event_id,
+        };
+        let change_type = if *is_extension {
+            BlobStatusChangeType::Extend
+        } else {
+            BlobStatusChangeType::Certify
+        };
+        Self::ChangeStatus {
+            change_type,
+            change_info,
+        }
+    }
+}
+
+impl From<&BlobDeleted> for BlobInfoMergeOperand {
+    fn from(value: &BlobDeleted) -> Self {
+        let BlobDeleted {
+            epoch,
+            end_epoch,
+            was_certified,
+            event_id,
+            blob_id: _,
+            object_id: _,
         } = value;
         Self::ChangeStatus {
+            change_type: BlobStatusChangeType::Delete {
+                was_certified: *was_certified,
+            },
             change_info: BlobStatusChangeInfo {
-                deletable: false, // TODO(mlegner): update with new event structs (#762).
+                deletable: true,
                 epoch: *epoch,
                 end_epoch: *end_epoch,
                 status_event: *event_id,
             },
-            change_type: BlobStatusChangeType::Certify,
         }
     }
 }
@@ -162,7 +204,9 @@ impl From<&BlobCertified> for BlobInfoMergeOperand {
 impl From<&InvalidBlobId> for BlobInfoMergeOperand {
     fn from(value: &InvalidBlobId) -> Self {
         let InvalidBlobId {
-            epoch, event_id, ..
+            epoch,
+            event_id,
+            blob_id: _,
         } = value;
         Self::MarkInvalid {
             epoch: *epoch,
@@ -176,6 +220,7 @@ impl From<&BlobEvent> for BlobInfoMergeOperand {
         match value {
             BlobEvent::Registered(event) => event.into(),
             BlobEvent::Certified(event) => event.into(),
+            BlobEvent::Deleted(event) => event.into(),
             BlobEvent::InvalidBlobID(event) => event.into(),
         }
     }
@@ -531,6 +576,28 @@ impl BlobInfoApi for BlobInfoV1 {
 
     fn is_invalid(&self) -> bool {
         matches!(self, Self::Invalid { .. })
+    }
+
+    fn is_registered(&self) -> bool {
+        matches!(
+            self,
+            Self::Valid(ValidBlobInfoV1 {
+                count_deletable_total,
+                permanent_total: Some(_),
+                ..
+            }) if *count_deletable_total > 0
+        )
+    }
+
+    fn is_certified(&self) -> bool {
+        matches!(
+            self,
+            Self::Valid(ValidBlobInfoV1 {
+                count_deletable_certified,
+                permanent_certified: Some(_),
+                ..
+            }) if *count_deletable_certified > 0
+        )
     }
 
     fn initial_certified_epoch(&self) -> Option<Epoch> {

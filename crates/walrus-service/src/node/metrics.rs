@@ -123,6 +123,7 @@ impl TelemetryLabel for BlobEvent {
         match self {
             BlobEvent::Registered(_) => "registered",
             BlobEvent::Certified(event) => event.label(),
+            BlobEvent::Deleted(_) => "deleted",
             BlobEvent::InvalidBlobID(_) => "invalid-blob",
         }
     }

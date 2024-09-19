@@ -120,6 +120,46 @@ impl TryFrom<SuiEvent> for BlobCertified {
     }
 }
 
+/// Sui event that blob has been deleted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlobDeleted {
+    /// The epoch in which the blob was deleted.
+    pub epoch: Epoch,
+    /// The blob ID.
+    pub blob_id: BlobId,
+    /// The end epoch of the associated storage resource (exclusive).
+    pub end_epoch: Epoch,
+    /// The object id of the related `Blob` object
+    pub object_id: ObjectID,
+    /// If the blob object was previously certified.
+    pub was_certified: bool,
+    /// The ID of the event.
+    pub event_id: EventID,
+}
+
+impl AssociatedSuiEvent for BlobDeleted {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::BlobDeleted;
+}
+
+impl TryFrom<SuiEvent> for BlobDeleted {
+    type Error = MoveConversionError;
+
+    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
+        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+
+        let (epoch, blob_id, end_epoch, object_id, was_certified) =
+            bcs::from_bytes(&sui_event.bcs)?;
+        Ok(Self {
+            epoch,
+            blob_id,
+            end_epoch,
+            object_id,
+            was_certified,
+            event_id: sui_event.id,
+        })
+    }
+}
+
 /// Sui event that a blob ID is invalid.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InvalidBlobId {
@@ -157,6 +197,8 @@ pub enum BlobEvent {
     Registered(BlobRegistered),
     /// A certification event.
     Certified(BlobCertified),
+    /// A deletion event.
+    Deleted(BlobDeleted),
     /// An invalid blob ID event.
     InvalidBlobID(InvalidBlobId),
 }
@@ -173,9 +215,21 @@ impl From<BlobCertified> for BlobEvent {
     }
 }
 
+impl From<BlobDeleted> for BlobEvent {
+    fn from(value: BlobDeleted) -> Self {
+        Self::Deleted(value)
+    }
+}
+
 impl From<InvalidBlobId> for BlobEvent {
     fn from(value: InvalidBlobId) -> Self {
         Self::InvalidBlobID(value)
+    }
+}
+
+impl From<BlobEvent> for ContractEvent {
+    fn from(value: BlobEvent) -> Self {
+        Self::BlobEvent(value)
     }
 }
 
@@ -187,6 +241,12 @@ impl From<BlobRegistered> for ContractEvent {
 
 impl From<BlobCertified> for ContractEvent {
     fn from(value: BlobCertified) -> Self {
+        Self::BlobEvent(value.into())
+    }
+}
+
+impl From<BlobDeleted> for ContractEvent {
+    fn from(value: BlobDeleted) -> Self {
         Self::BlobEvent(value.into())
     }
 }
@@ -203,6 +263,7 @@ impl BlobEvent {
         match self {
             BlobEvent::Registered(event) => event.blob_id,
             BlobEvent::Certified(event) => event.blob_id,
+            BlobEvent::Deleted(event) => event.blob_id,
             BlobEvent::InvalidBlobID(event) => event.blob_id,
         }
     }
@@ -212,6 +273,7 @@ impl BlobEvent {
         match self {
             BlobEvent::Registered(event) => event.event_id,
             BlobEvent::Certified(event) => event.event_id,
+            BlobEvent::Deleted(event) => event.event_id,
             BlobEvent::InvalidBlobID(event) => event.event_id,
         }
     }
@@ -369,6 +431,9 @@ impl TryFrom<SuiEvent> for ContractEvent {
                 BlobEvent::Registered(value.try_into()?),
             )),
             contracts::events::BlobCertified => Ok(ContractEvent::BlobEvent(BlobEvent::Certified(
+                value.try_into()?,
+            ))),
+            contracts::events::BlobDeleted => Ok(ContractEvent::BlobEvent(BlobEvent::Deleted(
                 value.try_into()?,
             ))),
             contracts::events::InvalidBlobID => Ok(ContractEvent::BlobEvent(

@@ -11898,6 +11898,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "walrus-core",
+ "walrus-sdk",
  "walrus-service",
  "walrus-sui",
  "walrus-test-utils",

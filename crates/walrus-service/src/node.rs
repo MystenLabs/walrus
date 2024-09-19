@@ -47,7 +47,14 @@ use walrus_event::event_processor::EventProcessor;
 use walrus_sdk::api::{BlobStatus, ServiceHealthInfo, StoredOnNodeStatus};
 use walrus_sui::{
     client::SuiReadClient,
-    types::{BlobCertified, BlobEvent, ContractEvent, EpochChangeEvent, InvalidBlobId},
+    types::{
+        BlobCertified,
+        BlobDeleted,
+        BlobEvent,
+        ContractEvent,
+        EpochChangeEvent,
+        InvalidBlobId,
+    },
 };
 
 use self::{
@@ -499,9 +506,21 @@ impl StorageNode {
                 }
                 match stream_element.element {
                     EventStreamElement::ContractEvent(ContractEvent::BlobEvent(
+                        BlobEvent::Registered(event),
+                    )) => {
+                        self.inner
+                            .mark_event_completed(element_index, &event.event_id)?;
+                    }
+                    EventStreamElement::ContractEvent(ContractEvent::BlobEvent(
                         BlobEvent::Certified(event),
                     )) => {
                         self.process_blob_certified_event(element_index, event)
+                            .await?;
+                    }
+                    EventStreamElement::ContractEvent(ContractEvent::BlobEvent(
+                        BlobEvent::Deleted(event),
+                    )) => {
+                        self.process_blob_deleted_event(element_index, event)
                             .await?;
                     }
                     EventStreamElement::ContractEvent(ContractEvent::BlobEvent(
@@ -509,12 +528,6 @@ impl StorageNode {
                     )) => {
                         self.process_blob_invalid_event(element_index, event)
                             .await?;
-                    }
-                    EventStreamElement::ContractEvent(ContractEvent::BlobEvent(
-                        BlobEvent::Registered(event),
-                    )) => {
-                        self.inner
-                            .mark_event_completed(element_index, &event.event_id)?;
                     }
                     EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
                         EpochChangeEvent::EpochParametersSelected(event),
@@ -615,26 +628,61 @@ impl StorageNode {
     }
 
     #[tracing::instrument(skip_all)]
+    async fn process_blob_deleted_event(
+        &self,
+        event_index: usize,
+        event: BlobDeleted,
+    ) -> anyhow::Result<()> {
+        let blob_id = event.blob_id;
+
+        if let Some(blob_info) = self.inner.storage.get_blob_info(&blob_id)? {
+            if !blob_info.is_certified() {
+                self.cancel_sync_and_mark_certified_event_completed(&blob_id)
+                    .await?;
+            }
+            if !blob_info.is_registered() {
+                self.inner.storage.delete_blob(&event.blob_id, true)?;
+            }
+        }
+
+        self.inner
+            .mark_event_completed(event_index, &event.event_id)?;
+
+        Ok(())
+    }
+
+    #[tracing::instrument(skip_all)]
     async fn process_blob_invalid_event(
         &self,
         event_index: usize,
         event: InvalidBlobId,
     ) -> anyhow::Result<()> {
+        self.cancel_sync_and_mark_certified_event_completed(&event.blob_id)
+            .await?;
+        self.inner.storage.delete_blob(&event.blob_id, false)?;
+        self.inner
+            .mark_event_completed(event_index, &event.event_id)?;
+        Ok(())
+    }
+
+    /// Cancels any existing blob syncs for the provided `blob_id` and marks the corresponding
+    /// events as completed.
+    ///
+    /// To avoid race conditions, this function must not be run concurrently with any logic for
+    /// processing events from the stream, so a cancelled event cannot be restarted.
+    async fn cancel_sync_and_mark_certified_event_completed(
+        &self,
+        blob_id: &BlobId,
+    ) -> anyhow::Result<()> {
         if let Some((cancelled_event_index, cancelled_event_id)) =
-            self.blob_sync_handler.cancel_sync(&event.blob_id).await?
+            self.blob_sync_handler.cancel_sync(blob_id).await?
         {
             // Advance the event cursor with the event of the cancelled sync. Since the blob is
             // invalid the associated blob certified event is completed without a sync.
             //
-            // Race condition is avoided here by the fact that process_blob_invalid_event is not
-            // run concurrently with any logic for processing events from the stream, so a
-            // cancelled event cannot be restarted.
             self.inner
                 .mark_event_completed(cancelled_event_index, &cancelled_event_id)?;
         }
-        self.inner.storage.delete_blob(&event.blob_id)?;
-        self.inner
-            .mark_event_completed(event_index, &event.event_id)?;
         Ok(())
     }
 }
@@ -1196,8 +1244,13 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn deletes_blob_data_on_invalid_blob_event() -> TestResult {
+    async_param_test! {
+        deletes_blob_data_on_event -> TestResult: [
+            invalid_blob_event: (InvalidBlobId::for_testing(BLOB_ID).into()),
+            blob_deleted_event: (BlobDeleted::for_testing(BLOB_ID).into()),
+        ]
+    }
+    async fn deletes_blob_data_on_event(event: BlobEvent) -> TestResult {
         let events = Sender::new(48);
         let node = StorageNodeHandle::builder()
             .with_storage(populated_storage(&[
@@ -1211,8 +1264,24 @@ mod tests {
         let storage = &node.as_ref().inner.storage;
 
         tokio::time::sleep(Duration::from_millis(50)).await;
+
+        events.send(
+            BlobRegistered {
+                deletable: true,
+                ..BlobRegistered::for_testing(BLOB_ID)
+            }
+            .into(),
+        )?;
+        events.send(
+            BlobCertified {
+                deletable: true,
+                ..BlobCertified::for_testing(BLOB_ID)
+            }
+            .into(),
+        )?;
         assert!(storage.is_stored_at_all_shards(&BLOB_ID)?);
-        events.send(InvalidBlobId::for_testing(BLOB_ID).into())?;
+
+        events.send(event.into())?;
 
         tokio::time::sleep(Duration::from_millis(100)).await;
         assert!(!storage.is_stored_at_all_shards(&BLOB_ID)?);

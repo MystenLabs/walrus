@@ -39,7 +39,7 @@ use walrus_core::{
 use walrus_test_utils::WithTempDir;
 
 use crate::{
-    types::{BlobCertified, BlobRegistered, InvalidBlobId},
+    types::{BlobCertified, BlobDeleted, BlobRegistered, InvalidBlobId},
     utils::{create_wallet, request_sui_from_faucet, sign_and_send_ptb, SuiNetwork},
 };
 
@@ -353,6 +353,19 @@ impl EventForTesting for BlobCertified {
             deletable: false,
             object_id: ObjectID::random(),
             is_extension: false,
+            event_id: event_id_for_testing(),
+        }
+    }
+}
+
+impl EventForTesting for BlobDeleted {
+    fn for_testing(blob_id: BlobId) -> Self {
+        Self {
+            epoch: 1,
+            blob_id,
+            end_epoch: 42,
+            object_id: ObjectID::random(),
+            was_certified: true,
             event_id: event_id_for_testing(),
         }
     }
