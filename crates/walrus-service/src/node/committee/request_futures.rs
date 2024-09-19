@@ -296,6 +296,11 @@ where
         let total_symbols_required = self.total_symbols_required(additional_symbols);
         let n_symbols_still_required = total_symbols_required - collected_symbols.len();
         debug_assert_ne!(n_symbols_still_required, 0);
+        tracing::debug!(
+            total_required = total_symbols_required,
+            count_missing = n_symbols_still_required,
+            "collecting recovery symbols"
+        );
 
         let mut shard_order = {
             let mut rng_guard = self.shared.rng.lock().expect("mutex not poisoned");
@@ -390,6 +395,7 @@ where
                         walrus.node.public_key = %node_public_key,
                         walrus.shard_index = %shard_index
                     ));
+                tracing::trace!(walrus.shard_index = %shard_index, "created a request for shard");
                 Some(request)
             })
             // Ensure that the resulting iterator will always return None when complete.

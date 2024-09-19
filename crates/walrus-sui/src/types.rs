@@ -261,4 +261,10 @@ impl Committee {
             .iter()
             .find(|node| node.public_key == *public_key)
     }
+
+    /// Returns the node response for the specified shard.
+    pub fn find_by_shard<S: Into<ShardIndex>>(&self, shard: S) -> Option<&StorageNode> {
+        self.member_index_for_shard(shard.into())
+            .map(|index| &self.members[index])
+    }
 }
