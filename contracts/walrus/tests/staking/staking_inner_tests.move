@@ -184,7 +184,7 @@ fun dhondt_case(
     expected: vector<u16>,
 ) {
     use walrus::staking_inner::pub_dhondt as dhondt;
-    let (_price, allocation) = dhondt(stake.sum!(), stake.length() as u16, shards, stake);
+    let (_price, allocation) = dhondt(shards, stake);
     assert_eq!(allocation, expected);
     assert_eq!(allocation.sum!(), shards);
 }
@@ -194,7 +194,7 @@ fun test_dhondt_basic() {
     // even
     let stake = vector[25000, 25000, 25000, 25000];
     dhondt_case(4, stake, vector[1, 1, 1, 1]);
-    dhondt_case(777, stake, vector[195, 194, 194, 194]);
+    dhondt_case(778, stake, vector[195, 195, 194, 194]);
     dhondt_case(1000, stake, vector[250, 250, 250, 250]);
     // uneven
     let stake = vector[50000, 30000, 15000, 5000];
@@ -203,7 +203,7 @@ fun test_dhondt_basic() {
     dhondt_case(1000, stake, vector[500, 300, 150, 50]);
     // uneven+even
     let stake = vector[50000, 50000, 30000, 15000, 15000, 5000];
-    dhondt_case(4, stake, vector[1, 2, 1, 0, 0, 0]);
+    dhondt_case(4, stake, vector[2, 1, 1, 0, 0, 0]);
     dhondt_case(777, stake, vector[236, 236, 142, 70, 70, 23]);
     dhondt_case(1000, stake, vector[303, 303, 182, 91, 91, 30]);
 }
@@ -223,19 +223,22 @@ fun test_dhondt_edge_case() {
     // large stake
     let stake = vector[1_000_000_000_000, 900_000_000_000, 100_000_000_000];
     dhondt_case(500, stake, vector[250, 225, 25]);
+    // small uneven stake
+    let stake =  vector[200, 200, 200, 100];
+    dhondt_case(7, stake, vector[2, 2, 2, 1]);
+    let stake =  vector[200, 200, 200, 100, 100, 100];
+    dhondt_case(9, stake, vector[2, 2, 2, 1, 1, 1]);
+    // tie with many solutions
+    let stake = vector[780_000, 650_000, 520_000, 390_000, 260_000];
+    dhondt_case(18, stake, vector[6, 5, 4, 2, 1]);
 }
+
+
 
 #[test, expected_failure(abort_code = walrus::staking_inner::ENoStake)]
 fun test_dhondt_no_stake() {
     let stake = vector[0, 0, 0];
     dhondt_case(0, stake, vector[0, 0, 0]);
-}
-
-#[test, expected_failure(abort_code = walrus::staking_inner::EMismatchedNodes)]
-fun test_dhondt_mismatched_nodes() {
-    use walrus::staking_inner::pub_dhondt as dhondt;
-    let stake = vector[1, 1, 1];
-    dhondt(stake.sum!(), 2, 1, stake);
 }
 
 use fun sum as vector.sum;

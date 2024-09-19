@@ -65,10 +65,6 @@ const EDuplicateSyncDone: vector<u8> = b"Node already attested that sync is done
 #[error]
 const ENoStake: vector<u8> = b"Total stake is zero for apportionment";
 
-#[error]
-const EMismatchedNodes: vector<u8> = b"Number of nodes and stake values do not match";
-
-
 /// The epoch state.
 public enum EpochState has store, copy, drop {
     // Epoch change is currently in progress. Contains the weight of the nodes that
@@ -377,8 +373,14 @@ public(package) fun select_committee(self: &mut StakingInnerV1) {
 fun apportionment(self: &StakingInnerV1): vector<u16> {
     let active_ids = self.active_set.active_ids();
     let stake = active_ids.map_ref!(|node_id| self.active_set[node_id]);
-    let (_price, shards) =
-        dhondt(self.active_set.total_stake(), self.active_set.size(), self.n_shards, stake);
+    // TODO better ranking
+    let ranking = {
+        // TODO use std::vector::tabulate
+        let mut v = vector[];
+        stake.length().do!(|i| v.push_back(i));
+        v
+    };
+    let (_price, shards) = dhondt(ranking, self.n_shards, stake);
     shards
 }
 
@@ -387,8 +389,9 @@ fun apportionment(self: &StakingInnerV1): vector<u16> {
 // Assuming 1000 shards (and ignoring the number of nodes), the limit for the total stake is
 // 4,000,000,000,000 (4e12).
 fun dhondt(
-    total_stake: u64,
-    n_nodes: u16,
+    // a ranking of the nodes by index in the `stake` vector. The lower the index, the higher the
+    // rank.
+    ranking: vector<u64>,
     n_shards: u16,
     stake: vector<u64>,
 ): (FixedPoint32, vector<u16>) {
@@ -399,17 +402,16 @@ fun dhondt(
         get_raw_value as to_raw,
     };
 
-    let n_nodes = n_nodes as u64;
+    let total_stake = stake.fold!(0, |acc, x| acc + x);
+    let n_nodes = stake.length();
     let n_shards = n_shards as u64;
     assert!(total_stake > 0, ENoStake);
-    assert!(n_nodes == stake.length(), EMismatchedNodes);
 
     // initial price guess following Pukelsheim
-    // total_stake / (n_shards + (count_nodes / 2)
     let mut price = from_rational(total_stake, n_shards + (n_nodes / 2));
-    let mut needs_one_more = option::none<u64>();
-    let mut needs_one_less = option::none<u64>();
     if (n_nodes == 0) return (price, vector[]);
+    let mut needs_one_more = vector<u64>[];
+    let mut needs_one_less = vector<u64>[];
     loop {
         let mut shards = stake.map_ref!(|s| u64_div(*s, price));
         needs_one_more.do!(|i| *&mut shards[i] = shards[i] + 1);
@@ -419,13 +421,13 @@ fun dhondt(
         // if all shards are distributed, we are done
         if (n_shards_distributed == n_shards) break (price, shards.map!(|s| s as u16));
 
-        needs_one_more = option::none();
-        needs_one_less = option::none();
+        needs_one_more = vector[];
+        needs_one_less = vector[];
         if (n_shards_distributed < n_shards) {
-            let mut i = 0;
             let mut with_max = vector[];
             let mut max = from_raw(0);
             let new_prices = stake.zip_map_ref!(&shards, |s, m| from_rational(*s, *m + 1));
+            let mut i = 0;
             new_prices.do!(|p| {
                 if (p.to_raw() > max.to_raw()) {
                     max = p;
@@ -435,39 +437,71 @@ fun dhondt(
                 };
                 i = i + 1;
             });
-            if (with_max.length() > 1) {
+            let n_max = with_max.length();
+            let adjusted_distribution = n_shards_distributed + n_max;
+            if (n_max > 1 && adjusted_distribution > n_shards) {
                 // if there is more than one node with the same price, we need to manually adjust
                 // just one of them. And no need to adjust the price.
-                // TODO choose the node in a more meaningful way
-                needs_one_more = option::some(with_max[0]);
+                let to_give = n_shards - n_shards_distributed;
+                // slightly optimized
+                // ranking.filter!(|i| with_max.contains(i)).take!(to_give)
+                needs_one_more = 'needs_one_more: {
+                    let mut v = vector[];
+                    let n = ranking.length();
+                    n.do!(|i| {
+                        let idx = &ranking[i];
+                        if (with_max.contains(idx)) {
+                            v.push_back(*idx);
+                            if (v.length() == to_give) return 'needs_one_more v;
+                        }
+                    });
+                    v
+                };
             } else {
                 // decrease the price such that one node gets an additional shard
                 price = max
             }
         } else {
-            let mut i = 0;
             let mut with_min = vector[];
             // TODO use std::u64::max_value!()
             let mut min = from_raw(0xFFFF_FFFF_FFFF_FFFF);
             let new_prices = stake.zip_map_ref!(&shards, |s, m| {
                 let m = *m;
-                if (m == 0) from_raw(0xFFFF_FFFF_FFFF_FFFF - 1)
-                else from_rational(*s, m)
+                if (m == 0) option::none()
+                else option::some(from_rational(*s, m))
             });
-            new_prices.do!(|p| {
-                if (p.to_raw() < min.to_raw()) {
-                    min = p;
-                    with_min = vector[i];
-                } else if (p == min) {
-                    with_min.push_back(i);
-                };
+            let mut i = 0;
+            new_prices.do!(|p_opt| {
+                p_opt.do!(|p| {
+                    if (p.to_raw() < min.to_raw()) {
+                        min = p;
+                        with_min = vector[i];
+                    } else if (p == min) {
+                        with_min.push_back(i);
+                    }
+                });
                 i = i + 1;
             });
-            if (with_min.length() > 1) {
+            let n_min = with_min.length();
+            let adjusted_distribution = n_shards_distributed.max(n_min) - n_min;
+            if (n_min > 1 && adjusted_distribution < n_shards) {
                 // if there is more than one node with the same price, we need to manually adjust
                 // just one of them.  And no need to adjust the price.
-                // TODO choose the node in a more meaningful way
-                needs_one_less = option::some(with_min[0]);
+                let to_take = n_shards_distributed - n_shards;
+                // slightly optimized
+                // ranking.reverse().filter!(|i| with_min.contains(i)).take!(to_take)
+                needs_one_less = 'needs_one_less: {
+                    let mut v = vector[];
+                    let n = ranking.length();
+                    n.do!(|i| {
+                        let idx = &ranking[n - 1 - i];
+                        if (with_min.contains(idx)) {
+                            v.push_back(*idx);
+                            if (v.length() == to_take) return 'needs_one_less v;
+                        }
+                    });
+                    v
+                };
             } else {
                 // increase the price such that one node loses one shard
                 // min + (1 / 4000000000)
@@ -618,10 +652,15 @@ public(package) fun borrow_mut(self: &mut StakingInnerV1, node_id: ID): &mut Sta
 
 #[test_only]
 public(package) fun pub_dhondt(
-    total_stake: u64,
-    n_nodes: u16,
     n_shards: u16,
     stake: vector<u64>,
 ): (FixedPoint32, vector<u16>) {
-    dhondt(total_stake, n_nodes, n_shards, stake)
+    // TODO better ranking
+    let ranking = {
+        // TODO use std::vector::tabulate
+        let mut v = vector[];
+        stake.length().do!(|i| v.push_back(i));
+        v
+    };
+    dhondt(ranking, n_shards, stake)
 }
