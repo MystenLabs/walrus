@@ -30,6 +30,9 @@ use sui_storage::verify_checkpoint_with_committee;
 use sui_types::{
     base_types::ObjectID,
     committee::Committee,
+    effects::TransactionEffectsAPI,
+    full_checkpoint_content::CheckpointData,
+    message_envelope::Message,
     messages_checkpoint::{TrustedCheckpoint, VerifiedCheckpoint},
     object::Object,
     SYSTEM_PACKAGE_ADDRESSES,
@@ -227,6 +230,64 @@ impl EventProcessor {
         }
     }
 
+    pub fn verify_checkpoint(
+        &self,
+        checkpoint: &CheckpointData,
+        prev_checkpoint: TrustedCheckpoint,
+    ) -> Result<VerifiedCheckpoint> {
+        let Some(committee) = self.committee_store.get(&())? else {
+            bail!("No committee found in the committee store");
+        };
+
+        let verified_checkpoint = verify_checkpoint_with_committee(
+            Arc::new(committee.clone()),
+            &VerifiedCheckpoint::new_from_verified(prev_checkpoint.into_inner()),
+            checkpoint.checkpoint_summary.clone(),
+        )
+        .map_err(|checkpoint| {
+            anyhow!(
+                "Failed to verify sui checkpoint: {}",
+                checkpoint.sequence_number
+            )
+        })?;
+
+        // Verify that checkpoint summary matches the content
+        if verified_checkpoint.content_digest != *checkpoint.checkpoint_contents.digest() {
+            bail!("Checkpoint summary does not match the content");
+        }
+
+        // Verify that the checkpoint contents match the transactions
+        for (digests, transaction) in checkpoint
+            .checkpoint_contents
+            .iter()
+            .zip(checkpoint.transactions.iter())
+        {
+            if *transaction.transaction.digest() != digests.transaction {
+                bail!("Transaction digest does not match");
+            }
+
+            if transaction.effects.digest() != digests.effects {
+                bail!("Effects digest does not match");
+            }
+
+            if transaction.effects.events_digest().is_some() != transaction.events.is_some() {
+                bail!("Events digest and events are inconsistent");
+            }
+
+            if let Some((events_digest, events)) = transaction
+                .effects
+                .events_digest()
+                .zip(transaction.events.as_ref())
+            {
+                if *events_digest != events.digest() {
+                    bail!("Events digest does not match");
+                }
+            }
+        }
+
+        Ok(verified_checkpoint)
+    }
+
     /// Tails the full node for new checkpoints and processes them. This method will run until the
     /// cancellation token is cancelled. If the checkpoint processor falls behind the full node, it
     /// will read events from the event blobs so it can catch up.
@@ -265,20 +326,8 @@ impl EventProcessor {
                 .latest_downloaded_checkpoint
                 .set(next_checkpoint as i64);
             self.metrics.total_downloaded_checkpoints.inc();
-            let Some(committee) = self.committee_store.get(&())? else {
-                bail!("No committee found in the committee store");
-            };
-            let verified_checkpoint = verify_checkpoint_with_committee(
-                Arc::new(committee.clone()),
-                &VerifiedCheckpoint::new_from_verified(prev_checkpoint.into_inner()),
-                checkpoint.checkpoint_summary.clone(),
-            )
-            .map_err(|checkpoint| {
-                anyhow!(
-                    "Failed to verify sui checkpoint: {}",
-                    checkpoint.sequence_number
-                )
-            })?;
+
+            let verified_checkpoint = self.verify_checkpoint(&checkpoint, prev_checkpoint)?;
             let mut write_batch = self.event_store.batch();
             let mut counter = 0;
             for tx in checkpoint.transactions.into_iter() {
