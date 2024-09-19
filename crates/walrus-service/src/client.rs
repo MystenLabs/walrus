@@ -80,25 +80,25 @@ type ClientResult<T> = Result<T, ClientError>;
 
 /// Represents how the store operation should be carried out by the client.
 #[derive(Debug, Clone, Copy)]
-pub enum StoreOperationMode {
-    /// Store the blob without checking the status.
-    Force,
-    /// Check the status of the blob before storing it.
-    CheckStatus,
+pub enum StoreWhen {
+    /// Store the blob always, without checking the status.
+    Always,
+    /// Check the status of the blob before storing it, and store it only if it is not already.
+    NotStored,
 }
 
-impl StoreOperationMode {
-    /// Returns `true` if the operation is [`Self::Force`].
-    pub fn is_force(&self) -> bool {
-        matches!(self, StoreOperationMode::Force)
+impl StoreWhen {
+    /// Returns `true` if the operation is [`Self::Always`].
+    pub fn is_store_always(&self) -> bool {
+        matches!(self, StoreWhen::Always)
     }
 
     /// Returns [`Self`] based on the value of a `force` flag.
-    pub fn from_force(force: bool) -> Self {
+    pub fn always(force: bool) -> Self {
         if force {
-            Self::Force
+            Self::Always
         } else {
-            Self::CheckStatus
+            Self::NotStored
         }
     }
 }
@@ -201,7 +201,7 @@ impl<T: ContractClient> Client<T> {
         &self,
         blob: &[u8],
         epochs_ahead: EpochCount,
-        operation_mode: StoreOperationMode,
+        store_when: StoreWhen,
         persistence: BlobPersistence,
     ) -> ClientResult<BlobStoreResult> {
         let (pairs, metadata) = self
@@ -222,7 +222,7 @@ impl<T: ContractClient> Client<T> {
         );
 
         // Return early if the blob is already certified or marked as invalid.
-        if !operation_mode.is_force() {
+        if !store_when.is_store_always() {
             // Use short timeout as this is only an optimization.
             const STATUS_TIMEOUT: Duration = Duration::from_secs(5);
 

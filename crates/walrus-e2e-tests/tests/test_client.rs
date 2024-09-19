@@ -17,7 +17,7 @@ use walrus_service::{
         responses::BlobStoreResult,
         ClientError,
         ClientErrorKind::{self, NoMetadataReceived, NotEnoughConfirmations, NotEnoughSlivers},
-        StoreOperationMode,
+        StoreWhen,
     },
     test_utils::test_cluster,
 };
@@ -111,12 +111,7 @@ async fn run_store_and_read_with_crash_failures(
         ..
     } = client
         .as_ref()
-        .reserve_and_store_blob(
-            &blob,
-            1,
-            StoreOperationMode::Force,
-            BlobPersistence::Permanent,
-        )
+        .reserve_and_store_blob(&blob, 1, StoreWhen::Always, BlobPersistence::Permanent)
         .await?
     else {
         panic!("expect newly stored blob")
@@ -282,7 +277,7 @@ async fn test_store_with_existing_blob_resource(
         .reserve_and_store_blob(
             &blob,
             epochs_ahead_required,
-            StoreOperationMode::CheckStatus,
+            StoreWhen::NotStored,
             BlobPersistence::Permanent,
         )
         .await?;
@@ -352,7 +347,7 @@ async fn test_store_with_existing_storage_resource(
         .reserve_and_store_blob(
             &blob,
             epochs_ahead_required,
-            StoreOperationMode::CheckStatus,
+            StoreWhen::NotStored,
             BlobPersistence::Permanent,
         )
         .await?;
@@ -391,24 +386,14 @@ async fn test_delete_blob(blobs_to_create: u32) -> anyhow::Result<()> {
     for idx in 1..blobs_to_create + 1 {
         client
             .as_ref()
-            .reserve_and_store_blob(
-                &blob,
-                idx,
-                StoreOperationMode::Force,
-                BlobPersistence::Deletable,
-            )
+            .reserve_and_store_blob(&blob, idx, StoreWhen::Always, BlobPersistence::Deletable)
             .await?;
     }
 
     // Add a blob that is not deletable.
     client
         .as_ref()
-        .reserve_and_store_blob(
-            &blob,
-            1,
-            StoreOperationMode::Force,
-            BlobPersistence::Permanent,
-        )
+        .reserve_and_store_blob(&blob, 1, StoreWhen::Always, BlobPersistence::Permanent)
         .await?;
 
     // Check that we have the correct number of blobs

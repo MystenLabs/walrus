@@ -27,7 +27,7 @@ use walrus_core::{encoding::Primary, EpochCount};
 use walrus_sui::client::{BlobPersistence, ContractClient};
 
 use crate::{
-    client::{BlobStoreResult, Client, ClientErrorKind, StoreOperationMode},
+    client::{BlobStoreResult, Client, ClientErrorKind, StoreWhen},
     common::api::{self, BlobIdString},
 };
 
@@ -131,7 +131,7 @@ pub(super) async fn put_blob<T: ContractClient>(
         .reserve_and_store_blob(
             &blob[..],
             epochs,
-            StoreOperationMode::from_force(force),
+            StoreWhen::always(force),
             BlobPersistence::from_deletable(deletable),
         )
         .await

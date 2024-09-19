@@ -52,7 +52,7 @@ use crate::{
         Client,
         ClientDaemon,
         Config,
-        StoreOperationMode,
+        StoreWhen,
     },
     utils::MetricsAndLoggingRuntime,
 };
@@ -119,7 +119,7 @@ impl ClientCommandRunner {
                     file,
                     epochs,
                     dry_run,
-                    StoreOperationMode::from_force(force),
+                    StoreWhen::always(force),
                     BlobPersistence::from_deletable(deletable),
                 )
                 .await
@@ -209,7 +209,7 @@ impl ClientCommandRunner {
         file: PathBuf,
         epochs: EpochCount,
         dry_run: bool,
-        operation_mode: StoreOperationMode,
+        store_when: StoreWhen,
         persistence: BlobPersistence,
     ) -> Result<()> {
         let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
@@ -245,7 +245,7 @@ impl ClientCommandRunner {
                 .reserve_and_store_blob(
                     &read_blob_from_file(&file)?,
                     epochs,
-                    operation_mode,
+                    store_when,
                     persistence,
                 )
                 .await?;

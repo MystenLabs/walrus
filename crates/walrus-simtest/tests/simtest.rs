@@ -5,7 +5,7 @@ use sui_macros::sim_test;
 use sui_protocol_config::ProtocolConfig;
 use walrus_core::encoding::{Primary, Secondary};
 use walrus_service::{
-    client::{responses::BlobStoreResult, StoreOperationMode},
+    client::{responses::BlobStoreResult, StoreWhen},
     test_utils::test_cluster,
 };
 use walrus_sui::client::BlobPersistence;
@@ -31,12 +31,7 @@ async fn simtest_walrus_basic_determinism() {
         ..
     } = client
         .as_ref()
-        .reserve_and_store_blob(
-            &blob,
-            1,
-            StoreOperationMode::Force,
-            BlobPersistence::Permanent,
-        )
+        .reserve_and_store_blob(&blob, 1, StoreWhen::Always, BlobPersistence::Permanent)
         .await
         .unwrap()
     else {

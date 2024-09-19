@@ -7,7 +7,7 @@ use rand::{rngs::StdRng, thread_rng, SeedableRng};
 use sui_sdk::{types::base_types::SuiAddress, wallet_context::WalletContext};
 use tracing::instrument;
 use walrus_core::{merkle::Node, metadata::VerifiedBlobMetadataWithId, BlobId, SliverPairIndex};
-use walrus_service::client::{Client, ClientError, Config, StoreOperationMode};
+use walrus_service::client::{Client, ClientError, Config, StoreWhen};
 use walrus_sui::{
     client::{BlobPersistence, ContractClient, ReadClient, SuiContractClient, SuiReadClient},
     test_utils::temp_dir_wallet,
@@ -58,12 +58,7 @@ impl WriteClient {
             .client
             .as_ref()
             // TODO(giac): add also some deletable blobs in the mix (#800).
-            .reserve_and_store_blob(
-                blob,
-                1,
-                StoreOperationMode::Force,
-                BlobPersistence::Permanent,
-            )
+            .reserve_and_store_blob(blob, 1, StoreWhen::Always, BlobPersistence::Permanent)
             .await?
             .blob_id()
             .to_owned();
