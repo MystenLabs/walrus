@@ -146,6 +146,9 @@ impl EventProcessor {
                     let mut write_batch = self.event_store.batch();
                     write_batch.schedule_delete_range(&self.event_store, &0, &commit_index)?;
                     write_batch.write()?;
+                    // This will prune the event store by deleting all the sst files relevant to the
+                    // events before the commit index
+                    self.event_store.delete_file_in_range(&0, &commit_index)?;
                 }
                 _ = cancel_token.cancelled() => {
                     return Ok(());
