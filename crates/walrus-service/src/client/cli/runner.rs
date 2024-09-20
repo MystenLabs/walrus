@@ -420,10 +420,11 @@ impl ClientCommandRunner {
                     .collect::<Vec<_>>();
 
                 if !self.json {
-                    println!(
-                        "The following blobs with blob ID {} are deletable:",
-                        blob_id
-                    );
+                    if to_delete.is_empty() {
+                        println!("No owned deletable blobs found for blob ID {blob_id}.");
+                        return Ok(());
+                    }
+                    println!("The following blobs with blob ID {blob_id} are deletable:");
                     to_delete.print_output(self.json)?;
                     if !ask_for_confirmation()? {
                         println!("{} Aborting. No blobs were deleted.", success());
