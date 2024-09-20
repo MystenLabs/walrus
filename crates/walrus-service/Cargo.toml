@@ -107,7 +107,6 @@ utoipa = { workspace = true, features = ["axum_extras"] }
 utoipa-redoc.workspace = true
 walrus-core = { workspace = true, features = ["utoipa"] }
 walrus-event.workspace = true
-walrus-proc-macros.workspace = true
 walrus-sdk.workspace = true
 walrus-sui = { workspace = true, features = ["utoipa"] }
 walrus-test-utils = { workspace = true, optional = true }
@@ -116,6 +115,7 @@ walrus-test-utils = { workspace = true, optional = true }
 mockall.workspace = true
 tempfile.workspace = true
 walrus-core = { workspace = true, features = ["test-utils"] }
+walrus-proc-macros.workspace = true
 walrus-test-utils.workspace = true
 
 [lints]

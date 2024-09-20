@@ -27,7 +27,7 @@ pub fn walrus_simtest(args: TokenStream, item: TokenStream) -> TokenStream {
 
     input.sig.ident = new_fn_name;
     let output = quote! {
-        #[sim_test(#(#args)*)]
+        #[sui_macros::sim_test(#(#args)*)]
         #input
     };
 

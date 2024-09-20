@@ -11963,6 +11963,7 @@ name = "walrus-proc-macros"
 version = "0.1.0"
 dependencies = [
  "quote 1.0.36",
+ "sui-macros",
  "syn 2.0.75",
 ]
 

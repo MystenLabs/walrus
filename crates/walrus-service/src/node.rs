@@ -2447,12 +2447,7 @@ mod tests {
 
     #[cfg(msim)]
     mod failure_injection_tests {
-        use sui_macros::{
-            clear_fail_point,
-            register_fail_point_arg,
-            register_fail_point_if,
-            sim_test,
-        };
+        use sui_macros::{clear_fail_point, register_fail_point_arg, register_fail_point_if};
         use walrus_proc_macros::walrus_simtest;
         use walrus_test_utils::simtest_param_test;
 

@@ -97,10 +97,8 @@ You can conveniently deploy and interact with a local Walrus testbed as describe
 ### Simtests
 
 We use simulation testing to ensure that the Walrus system keeps working under various failure
-scenarios. The specific tests are in the `walrus-simtest` crate, but the necessary plumbing is
-spread throughout the other crates, in particular `walrus-service`.
-
-Please make sure to call simtests `simtest_*` as we apply `simtest` as a test filter.
+scenarios. The tests are in the `walrus-simtest` and `walrus-service` crates, with most of the necessary plumbing
+primarily in `walrus-service`.
 
 To run simulation tests, first install the `cargo simtest` tool:
 

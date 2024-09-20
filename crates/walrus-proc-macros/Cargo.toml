@@ -8,6 +8,7 @@ version.workspace = true
 
 [dependencies]
 quote.workspace = true
+sui-macros.workspace = true
 syn.workspace = true
 
 [lib]

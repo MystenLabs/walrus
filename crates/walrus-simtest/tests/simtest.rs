@@ -1,7 +1,6 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use sui_macros::sim_test;
 use sui_protocol_config::ProtocolConfig;
 use walrus_core::encoding::{Primary, Secondary};
 use walrus_proc_macros::walrus_simtest;
