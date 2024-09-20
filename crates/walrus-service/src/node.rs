@@ -465,7 +465,7 @@ impl StorageNode {
         let mut event_blob_writer =
             EventBlobWriter::new(&self.inner.db_root_dir_path, self.inner.clone())?;
         let from_event_id = storage.get_event_cursor()?.map(|(_, cursor)| cursor);
-        let from_element_index = self.get_last_committed_event_index(&event_blob_writer)?;
+        let from_element_index = storage.get_sequentially_processed_event_count()?;
         let event_cursor = EventStreamCursor::new(from_event_id, from_element_index);
         let event_stream = Box::into_pin(self.inner.event_manager.events(event_cursor).await?);
         let next_index: usize = from_element_index.try_into().expect("64-bit architecture");
