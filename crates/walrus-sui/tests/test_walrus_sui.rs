@@ -137,11 +137,10 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
 
     let certificate = get_default_blob_certificate(blob_id, 1);
 
-    let blob_obj = walrus_client
+    walrus_client
         .as_ref()
         .certify_blob(blob_obj, &certificate)
         .await?;
-    assert_eq!(blob_obj.certified_epoch, Some(1));
 
     // Make sure that we got the expected event
     let ContractEvent::BlobEvent(BlobEvent::Certified(blob_certified)) =
@@ -150,7 +149,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
         bail!("unexpected event type. expecting BlobCertified");
     };
     assert_eq!(blob_certified.blob_id, blob_id);
-    assert_eq!(Some(blob_registered.epoch), blob_obj.certified_epoch);
+    assert_eq!(Some(blob_registered.epoch), Some(1));
     assert_eq!(blob_certified.end_epoch, storage_resource.end_epoch);
 
     // Drop event stream
@@ -197,7 +196,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
     };
     assert_eq!(blob_registered.blob_id, blob_id);
 
-    let _blob_obj = walrus_client
+    walrus_client
         .as_ref()
         .certify_blob(blob_obj, &get_default_blob_certificate(blob_id, 1))
         .await?;

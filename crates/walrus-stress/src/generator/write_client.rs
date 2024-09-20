@@ -11,7 +11,6 @@ use walrus_service::client::{Client, ClientError, Config, StoreWhen};
 use walrus_sui::{
     client::{BlobPersistence, ContractClient, ReadClient, SuiContractClient, SuiReadClient},
     test_utils::temp_dir_wallet,
-    types::Blob,
     utils::SuiNetwork,
 };
 use walrus_test_utils::WithTempDir;
@@ -74,10 +73,7 @@ impl WriteClient {
         self.blob.refresh();
         let blob = self.blob.random_size_slice();
         let now = Instant::now();
-        let blob_id = self
-            .reserve_and_store_inconsistent_blob(blob)
-            .await?
-            .blob_id;
+        let blob_id = self.reserve_and_store_inconsistent_blob(blob).await?;
         let elapsed = now.elapsed();
         Ok((blob_id, elapsed))
     }
@@ -87,7 +83,10 @@ impl WriteClient {
     /// If there are enough storage nodes to achieve a quorum even without two nodes, the blob
     /// will be inconsistent in two slivers, s.t. each of them is held by a different storage
     /// node, if the shards are distributed equally and assigned sequentially.
-    async fn reserve_and_store_inconsistent_blob(&self, blob: &[u8]) -> Result<Blob, ClientError> {
+    async fn reserve_and_store_inconsistent_blob(
+        &self,
+        blob: &[u8],
+    ) -> Result<BlobId, ClientError> {
         let epochs = 1;
         // Encode the blob with false metadata for one shard.
         let (pairs, metadata) = self
@@ -142,16 +141,15 @@ impl WriteClient {
         let certificate = self
             .client
             .as_ref()
-            .store_metadata_and_pairs(&metadata, &pairs)
+            .send_blob_data_and_get_certificate(&metadata, &pairs)
             .await?;
 
-        let blob = self
-            .client
+        self.client
             .as_ref()
             .sui_client()
             .certify_blob(blob_sui_object, &certificate)
             .await?;
-        Ok(blob)
+        Ok(blob_id)
     }
 }
 

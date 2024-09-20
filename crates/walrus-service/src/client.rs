@@ -15,10 +15,7 @@ use futures::Future;
 use rand::{seq::SliceRandom, thread_rng};
 use reqwest::Client as ReqwestClient;
 use sui_types::base_types::ObjectID;
-use tokio::{
-    sync::Semaphore,
-    time::{sleep, Duration},
-};
+use tokio::{sync::Semaphore, time::Duration};
 use tracing::{Instrument, Level};
 use walrus_core::{
     encoding::{
@@ -45,7 +42,7 @@ use walrus_sdk::{
 use walrus_sui::{
     client::{BlobPersistence, ContractClient, ReadClient},
     types::{Blob, BlobEvent, Committee, NetworkAddress, StorageNode},
-    utils::price_for_unencoded_length,
+    utils::storage_price_for_encoded_length,
 };
 
 use self::{
@@ -272,30 +269,31 @@ impl<T: ContractClient> Client<T> {
         }
 
         // Get an appropriate registered blob object.
-        let blob_sui_object = self
+        let mut blob = self
             .get_blob_registration(&metadata, epochs_ahead, persistence)
             .await?;
 
-        // We need to wait to be sure that the storage nodes received the registration event.
-        sleep(Duration::from_secs(1)).await;
-
-        let certificate = self.store_metadata_and_pairs(&metadata, &pairs).await?;
-        let blob = self
-            .sui_client
-            .certify_blob(blob_sui_object, &certificate)
+        // We do not need to wait explicitly as we anyway retry all requests to storage nodes.
+        let certificate = self
+            .send_blob_data_and_get_certificate(&metadata, &pairs)
+            .await?;
+        self.sui_client
+            .certify_blob(blob.clone(), &certificate)
             .await
             .map_err(|e| ClientError::from(ClientErrorKind::CertificationFailed(e)))?;
+
+        // TODO(mlegner): Make sure this works if the epoch changes. (#753)
+        blob.certified_epoch = Some(self.committee.epoch);
 
         let encoded_size =
             encoded_blob_length_for_n_shards(self.encoding_config.n_shards(), blob.size)
                 .expect("must be valid as the store succeeded");
-        let cost = price_for_unencoded_length(
-            blob.size,
-            self.encoding_config.n_shards(),
+        // TODO(mlegner): Fix prices. (#820)
+        let cost = storage_price_for_encoded_length(
+            encoded_size,
             self.storage_price_per_unit_size,
             epochs_ahead,
-        )
-        .expect("must be valid as the store succeeded");
+        );
         Ok(BlobStoreResult::NewlyCreated {
             blob_object: blob,
             encoded_size,
@@ -435,7 +433,7 @@ impl<T> Client<T> {
     ///
     /// Assumes the blob ID has already been registered, with an appropriate blob size.
     #[tracing::instrument(skip_all)]
-    pub async fn store_metadata_and_pairs(
+    pub async fn send_blob_data_and_get_certificate(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         pairs: &[SliverPair],

@@ -164,11 +164,13 @@ pub trait ContractClient: Send + Sync {
 
     /// Certifies the specified blob on Sui, given a certificate that confirms its storage and
     /// returns the certified blob.
+    // NB: This intentionally takes an owned `Blob` object even though it is not required, as the
+    // corresponding object on Sui will be changed in the process.
     fn certify_blob(
         &self,
         blob: Blob,
         certificate: &ConfirmationCertificate,
-    ) -> impl Future<Output = SuiClientResult<Blob>> + Send;
+    ) -> impl Future<Output = SuiClientResult<()>> + Send;
 
     /// Invalidates the specified blob id on Sui, given a certificate that confirms that it is
     /// invalid.
@@ -585,7 +587,7 @@ impl ContractClient for SuiContractClient {
         &self,
         blob: Blob,
         certificate: &ConfirmationCertificate,
-    ) -> SuiClientResult<Blob> {
+    ) -> SuiClientResult<()> {
         // Sort the list of signers, since the move contract requires them to be in
         // ascending order (see `walrus::system::bls_aggregate::verify_certificate`)
         let mut signers = certificate.signers.clone();
@@ -602,13 +604,11 @@ impl ContractClient for SuiContractClient {
                 ],
             )
             .await?;
-        let blob: Blob = get_sui_object(&self.read_client.sui_client, blob.id).await?;
-        ensure!(
-            blob.certified_epoch.is_some(),
-            "could not certify blob: {:?}",
-            res.errors
-        );
-        Ok(blob)
+        if res.errors.is_empty() {
+            Ok(())
+        } else {
+            Err(anyhow!("could not certify blob: {:?}", res.errors).into())
+        }
     }
 
     async fn invalidate_blob_id(

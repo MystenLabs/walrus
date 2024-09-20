@@ -174,7 +174,7 @@ async fn test_inconsistency(failed_shards: &[usize]) -> anyhow::Result<()> {
     // Certify blob.
     let certificate = client
         .as_ref()
-        .store_metadata_and_pairs(&metadata, &pairs)
+        .send_blob_data_and_get_certificate(&metadata, &pairs)
         .await?;
 
     // Stop the nodes in the failure set.
