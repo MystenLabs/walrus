@@ -124,46 +124,77 @@ macro_rules! param_test {
 ///
 /// This macro behaves similarly to the [`param_test`] macro, however it must be used with an
 /// `async` function. For convenience, the macro expands the test cases with the `#[tokio::test]`
-/// attribute. If specifying any additional attributes to any test case, it is necessary to
-/// re-specify the `#[tokio::test]` macro for *every* test case.
+/// attribute.
 ///
-/// In contrast to [`param_test`], this does not currently support type parameters.
+/// In contrast to [`param_test`], this does not currently support type parameters, but it does
+/// support adding parameters to all cases in addition to individual cases. For example, the
+/// following applies `#[tokio::test(start_paused = true)]` to all the test cases, but `#[ignore]`
+/// to only the `positive` test case.
+///
+/// ```ignored
+/// # use std::error::Error;
+/// # #[cfg(test)]
+/// # use walrus_test_utils::async_param_test;
+/// #
+/// async_param_test! {
+///     #[tokio::test(start_paused = true)]
+///     test_parses -> Result<(), Box<dyn Error>>: [
+///         #[ignore] positive: ("21", 21),
+///         negative: ("-17", -17),
+///     ]
+/// }
+/// async fn test_parses(to_parse: &str, expected: i32) -> Result<(), Box<dyn Error>> {
+///     tokio::time::resume(); // Panics if not paused.
+///     assert!(expected < 0, "positive test case must be ignored");
+///     assert_eq!(expected, to_parse.parse::<i32>()?);
+///     Ok(())
+/// }
+/// ```
 ///
 /// See [`param_test`] for more information and examples.
 #[macro_export]
 macro_rules! async_param_test {
-    ($func_name:ident -> $return_ty:ty: [
-        $( $(#[$outer:meta])+ $case_name:ident: ( $($args:expr),+ ) ),+$(,)?
+    // Macro uses 'internal rules' to avoid any difficulty with imports. Additionally, we use
+    // 'TT Bundling' to pass parameters through multiple calls as a single unit.
+    //
+    // See https://danielkeep.github.io/tlborm/book/README.html for more information.
+    (@expand_return_type ()) => { () };
+    (@expand_return_type ($return_type:ty)) => { $return_type };
+    (@merge_attributes (), (), $body:tt) => {
+        async_param_test!(@expand_test_case (#[tokio::test]), $body);
+    };
+    (@merge_attributes (), ($(#[$case:meta])+), $body:tt) => {
+        async_param_test!(@expand_test_case ($(#[$case])+), $body);
+    };
+    (@merge_attributes ($(#[$outer:meta])+), ($(#[$case:meta])*), $body:tt) => {
+        async_param_test!(@expand_test_case ($(#[$outer])+ $(#[$case])*), $body);
+    };
+    (@expand_test_case ($(#[$outer:meta])*), ($($body:tt)+)) => { $(#[$outer])* $($body)+ };
+    (@group_inputs $shared_meta:tt, $func_name:ident, $return_group:tt, [
+        $($(#[$case_meta:meta])* $case_name:ident: ($($args:expr),+)),+$(,)?
     ]) => {
         mod $func_name {
             use super::*;
 
             $(
-                $(#[$outer])+
-                async fn $case_name() -> $return_ty {
-                    $func_name($($args),+).await
+                async_param_test!{
+                    @merge_attributes $shared_meta, ($(#[$case_meta])*),
+                    (
+                        async fn $case_name() -> async_param_test!(
+                            @expand_return_type $return_group
+                        ) {
+                            $func_name($($args),+).await
+                        }
+                    )
                 }
             )*
         }
     };
-    ($func_name:ident: [
-        $( $(#[$outer:meta])+ $case_name:ident: ( $($args:expr),+ ) ),+$(,)?
-    ]) => {
-        async_param_test!( $func_name -> (): [ $( $(#[$outer])+ $case_name: ($($args),+) ),* ] );
-    };
-
-    ($func_name:ident: [
-        $( $case_name:ident: ( $($args:expr),+ ) ),+$(,)?
-    ]) => {
-        async_param_test!( $func_name -> (): [ $( #[tokio::test] $case_name: ($($args),+) ),* ] );
-    };
-    ($func_name:ident -> $return_ty:ty: [
-        $( $case_name:ident: ( $($args:expr),+ ) ),+$(,)?
-    ]) => {
+    ($(#[$outer:meta])* $func_name:ident $(-> $return_ty:ty)?: $cases:tt) => {
         async_param_test!(
-            $func_name -> $return_ty: [ $( #[tokio::test] $case_name: ( $($args),+ ) ),* ]
+            @group_inputs ($(#[$outer])*), $func_name, ($($return_ty)?), $cases
         );
-    }
+    };
 }
 
 /// Macro for creating parametrized *simtest* tests.
@@ -349,14 +380,86 @@ mod tests {
     }
 
     async_param_test! {
-        async_test_with_return -> Result<(), Box<dyn Error>>: [
-            case1: ("5", 5),
-            case2: ("7", 7)
+        async_sum_no_return: [
+            case1: (2, 3, 5),
+            case2: (7, 4, 11)
         ]
     }
-    async fn async_test_with_return(to_parse: &str, parsed: usize) -> Result<(), Box<dyn Error>> {
-        let result: usize = to_parse.parse()?;
-        assert_eq!(parsed, result);
+    async fn async_sum_no_return(lhs: usize, rhs: usize, total: usize) {
+        assert_eq!(lhs + rhs, total);
+    }
+
+    async_param_test! {
+        async_sum_return -> Result<(), Box<dyn Error>>: [
+            case1: (2, 3, 5),
+            case2: (7, 4, 11)
+        ]
+    }
+    async fn async_sum_return(lhs: usize, rhs: usize, total: usize) -> Result<(), Box<dyn Error>> {
+        assert_eq!(lhs + rhs, total);
+        Ok(())
+    }
+
+    async_param_test! {
+        #[tokio::test(start_paused = true)]
+        async_sum_no_return_with_shared_meta: [
+            case1: (2, 3, 5),
+            case2: (7, 4, 11)
+        ]
+    }
+    async fn async_sum_no_return_with_shared_meta(lhs: usize, rhs: usize, total: usize) {
+        tokio::time::resume(); // Panics if not paused.
+        assert_eq!(lhs + rhs, total);
+    }
+
+    async_param_test! {
+        #[tokio::test(start_paused = true)]
+        async_sum_return_with_shared_meta -> Result<(), Box<dyn Error>>: [
+            case1: (2, 3, 5),
+            case2: (7, 4, 11)
+        ]
+    }
+    async fn async_sum_return_with_shared_meta(
+        lhs: usize,
+        rhs: usize,
+        total: usize,
+    ) -> Result<(), Box<dyn Error>> {
+        tokio::time::resume(); // Panics if not paused.
+        assert_eq!(lhs + rhs, total);
+        Ok(())
+    }
+
+    async_param_test! {
+        async_sum_return_with_individual_meta -> Result<(), Box<dyn Error>>: [
+            #[tokio::test] #[ignore = "testing that attribute is applied"] case1: (2, 3, 5),
+            case2: (7, 4, 11)
+        ]
+    }
+    async fn async_sum_return_with_individual_meta(
+        lhs: usize,
+        rhs: usize,
+        total: usize,
+    ) -> Result<(), Box<dyn Error>> {
+        assert_eq!(lhs + rhs, total);
+        assert_ne!(total, 5);
+        Ok(())
+    }
+
+    async_param_test! {
+        #[tokio::test(start_paused = true)]
+        async_sum_return_with_individual_and_shared_meta -> Result<(), Box<dyn Error>>: [
+            #[ignore = "testing that attribute is applied"] case1: (2, 3, 5),
+            case2: (7, 4, 11)
+        ]
+    }
+    async fn async_sum_return_with_individual_and_shared_meta(
+        lhs: usize,
+        rhs: usize,
+        total: usize,
+    ) -> Result<(), Box<dyn Error>> {
+        tokio::time::resume(); // Panics if not paused.
+        assert_eq!(lhs + rhs, total);
+        assert_ne!(total, 5);
         Ok(())
     }
 }

@@ -28,9 +28,10 @@ use walrus_sui::{
 use walrus_test_utils::async_param_test;
 
 async_param_test! {
+    #[ignore = "ignore E2E tests by default"] #[tokio::test]
     test_store_and_read_blob_without_failures : [
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] empty: (0),
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] one_byte: (1),
+        empty: (0),
+        one_byte: (1),
     ]
 }
 async fn test_store_and_read_blob_without_failures(blob_size: usize) {
@@ -41,20 +42,16 @@ async fn test_store_and_read_blob_without_failures(blob_size: usize) {
 }
 
 async_param_test! {
+    #[ignore = "ignore E2E tests by default"] #[tokio::test]
     test_store_and_read_blob_with_crash_failures : [
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] no_failures: (&[], &[], &[]),
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] one_failure: (&[0], &[], &[]),
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] f_failures: (&[4], &[], &[]),
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] f_plus_one_failures:
-            (&[0, 4], &[], &[NotEnoughConfirmations(8, 9)]),
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] all_shard_failures:
-            (&[0, 1, 2, 3, 4], &[], &[NotEnoughConfirmations(0, 9)]),
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] f_plus_one_read_failures:
-            (&[], &[0, 4], &[]),
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] two_f_plus_one_read_failures:
-            (&[], &[1, 2, 4], &[NoMetadataReceived, NotEnoughSlivers]),
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] read_and_write_overlap_failures:
-            (&[4], &[2, 3], &[NoMetadataReceived, NotEnoughSlivers]),
+        no_failures: (&[], &[], &[]),
+        one_failure: (&[0], &[], &[]),
+        f_failures: (&[4], &[], &[]),
+        f_plus_one_failures: (&[0, 4], &[], &[NotEnoughConfirmations(8, 9)]),
+        all_shard_failures: (&[0, 1, 2, 3, 4], &[], &[NotEnoughConfirmations(0, 9)]),
+        f_plus_one_read_failures: (&[], &[0, 4], &[]),
+        two_f_plus_one_read_failures: (&[], &[1, 2, 4], &[NoMetadataReceived, NotEnoughSlivers]),
+        read_and_write_overlap_failures: (&[4], &[2, 3], &[NoMetadataReceived, NotEnoughSlivers]),
     ]
 }
 async fn test_store_and_read_blob_with_crash_failures(
@@ -134,10 +131,11 @@ async fn run_store_and_read_with_crash_failures(
 }
 
 async_param_test! {
+    #[ignore = "ignore E2E tests by default"] #[tokio::test]
     test_inconsistency -> anyhow::Result<()> : [
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] no_failures: (&[]),
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] one_failure: (&[0]),
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] f_failures: (&[4]),
+        no_failures: (&[]),
+        one_failure: (&[0]),
+        f_failures: (&[4]),
     ]
 }
 /// Stores a blob that is inconsistent in shard 1
@@ -226,10 +224,11 @@ fn error_kind_matches(actual: &ClientErrorKind, expected: &ClientErrorKind) -> b
 }
 
 async_param_test! {
+    #[ignore = "ignore E2E tests by default"] #[tokio::test]
     test_store_with_existing_blob_resource -> anyhow::Result<()> : [
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] reuse_resource: (1, 1, true),
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] reuse_resource_two: (2, 1, true),
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] no_reuse_resource: (1, 2, false),
+        reuse_resource: (1, 1, true),
+        reuse_resource_two: (2, 1, true),
+        no_reuse_resource: (1, 2, false),
     ]
 }
 /// Tests that the client reuses existing (uncertified) blob registrations to store blobs.
@@ -293,10 +292,11 @@ async fn test_store_with_existing_blob_resource(
 }
 
 async_param_test! {
+    #[ignore = "ignore E2E tests by default"] #[tokio::test]
     test_store_with_existing_storage_resource-> anyhow::Result<()> : [
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] reuse_storage: (1, 1, true),
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] reuse_storage_two: (2, 1, true),
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] no_reuse_storage: (1, 2, false),
+        reuse_storage: (1, 1, true),
+        reuse_storage_two: (2, 1, true),
+        no_reuse_storage: (1, 2, false),
     ]
 }
 /// Tests that the client reuses existing storage resources to store blobs.
@@ -363,10 +363,11 @@ async fn test_store_with_existing_storage_resource(
 }
 
 async_param_test! {
+    #[ignore = "ignore E2E tests by default"] #[tokio::test]
     test_delete_blob -> anyhow::Result<()> : [
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] no_delete: (0),
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] one_delete: (1),
-        #[ignore = "ignore E2E tests by default"] #[tokio::test] multi_delete: (2),
+        no_delete: (0),
+        one_delete: (1),
+        multi_delete: (2),
     ]
 }
 /// Tests blob deletion.

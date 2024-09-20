@@ -14,4 +14,4 @@ tempfile.workspace = true
 workspace = true
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros"] }
+tokio = { workspace = true, features = ["macros", "rt", "time", "test-util"] }
