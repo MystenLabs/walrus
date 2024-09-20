@@ -492,7 +492,8 @@ fun dhondt(
                 // there is no need to adjust the price.
                 let to_take = n_shards_distributed - n_shards;
                 // slightly optimized
-                // needs_one_less = ranking.reverse().filter!(|i| with_min.contains(i)).take!(to_take)
+                // needs_one_less =
+                //     ranking.reverse().filter!(|i| with_min.contains(i)).take!(to_take)
                 'update_needs_one_less: {
                     let mut v = vector[];
                     let n = ranking.length();
