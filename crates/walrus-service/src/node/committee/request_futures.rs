@@ -206,8 +206,8 @@ where
 
     pub async fn run(mut self) -> Result<Sliver, InconsistencyProofEnum> {
         // Since recovery currently consumes the symbols, rather than copy the symbols in every
-        // case to handle the rare cases when we fail to recovery the sliver with the default number
-        // of symbols, we instead retry the entire process with an increased symbol count.
+        // case to handle the rare cases when we fail to *decode* the sliver despite collecting the
+        // required number of symbols, we instead retry the entire process with an increased amount.
         let mut additional_symbols = 0;
         loop {
             if let Some(result) = self
@@ -618,7 +618,7 @@ struct PendingInvalidBlobAttestations<'fut, 'iter, T> {
     /// The weight currently pending in requests.
     pending_weight: u16,
     /// Collected attestations.
-    // INV!: Only None once the future has completed.
+    // INV: Only None once the future has completed.
     collected_signatures: Option<HashMap<usize, InvalidBlobIdAttestation>>,
 
     #[pin]

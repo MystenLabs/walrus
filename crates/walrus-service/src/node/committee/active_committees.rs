@@ -60,14 +60,14 @@ pub(crate) struct ActiveCommittees {
     ///
     /// When `is_transitioning` is true, this committee continues to serve reads. It is only `None`
     /// when the current epoch is zero.
-    // INV!: current_committee.epoch == prior_committee.epoch + 1
-    // INV!: current_committee.epoch == 0 || prior_committee.is_some()
+    // INV: current_committee.epoch == prior_committee.epoch + 1
+    // INV: current_committee.epoch == 0 || prior_committee.is_some()
     prior_committee: Option<Arc<Committee>>,
 
     /// The committee that will become active in the next epoch.
     ///
     /// This committee is `None` until known.
-    // INV!: upcoming_committee.epoch == current_committee.epoch + 1
+    // INV: upcoming_committee.epoch == current_committee.epoch + 1
     upcoming_committee: Option<Arc<Committee>>,
 
     /// When true, a committee transition is underway.
