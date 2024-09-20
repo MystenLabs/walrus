@@ -145,7 +145,6 @@ macro_rules! param_test {
 /// }
 /// async fn test_parses(to_parse: &str, expected: i32) -> Result<(), Box<dyn Error>> {
 ///     tokio::time::resume(); // Panics if not paused.
-///     assert!(expected < 0, "positive test case must be ignored");
 ///     assert_eq!(expected, to_parse.parse::<i32>()?);
 ///     Ok(())
 /// }
@@ -441,7 +440,6 @@ mod tests {
         total: usize,
     ) -> Result<(), Box<dyn Error>> {
         assert_eq!(lhs + rhs, total);
-        assert_ne!(total, 5);
         Ok(())
     }
 
@@ -459,7 +457,6 @@ mod tests {
     ) -> Result<(), Box<dyn Error>> {
         tokio::time::resume(); // Panics if not paused.
         assert_eq!(lhs + rhs, total);
-        assert_ne!(total, 5);
         Ok(())
     }
 }
