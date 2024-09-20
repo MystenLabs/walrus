@@ -198,7 +198,7 @@ macro_rules! async_param_test {
 
 /// Macro for creating parametrized *simtest* tests.
 ///
-/// Note that this macro reuses [`async_param_test`] macro, but use `#[sim_test]` instead of
+/// Note that this macro reuses [`async_param_test`] macro, but use `#[walrus_simtest]` instead of
 /// `#[tokio::test]` attribute to each test case.
 #[macro_export]
 macro_rules! simtest_param_test {
@@ -409,6 +409,7 @@ mod tests {
         ]
     }
     async fn async_sum_no_return_with_shared_meta(lhs: usize, rhs: usize, total: usize) {
+        #[cfg(not(msim))]
         tokio::time::resume(); // Panics if not paused.
         assert_eq!(lhs + rhs, total);
     }
@@ -425,6 +426,7 @@ mod tests {
         rhs: usize,
         total: usize,
     ) -> Result<(), Box<dyn Error>> {
+        #[cfg(not(msim))]
         tokio::time::resume(); // Panics if not paused.
         assert_eq!(lhs + rhs, total);
         Ok(())
@@ -457,6 +459,7 @@ mod tests {
         rhs: usize,
         total: usize,
     ) -> Result<(), Box<dyn Error>> {
+        #[cfg(not(msim))]
         tokio::time::resume(); // Panics if not paused.
         assert_eq!(lhs + rhs, total);
         Ok(())
