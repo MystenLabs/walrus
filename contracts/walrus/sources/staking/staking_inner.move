@@ -389,8 +389,9 @@ fun apportionment(self: &StakingInnerV1): vector<u16> {
 // Assuming 1000 shards (and ignoring the number of nodes), the limit for the total stake is
 // 4,000,000,000,000 (4e12).
 fun dhondt(
-    // a ranking of the nodes by index in the `stake` vector. The lower the index, the higher the
-    // rank.
+    // A ranking of the nodes by index in the `stake` vector. The lower the index, the higher the
+    // rank. So the first index in this vector is the node that has the highest precedence for
+    // additional shards.
     ranking: vector<u64>,
     n_shards: u16,
     stake: vector<u64>,
@@ -440,23 +441,24 @@ fun dhondt(
             let n_max = with_max.length();
             let adjusted_distribution = n_shards_distributed + n_max;
             if (n_max > 1 && adjusted_distribution > n_shards) {
-                // if there is more than one node with the same price, we need to manually adjust
-                // just one of them. And no need to adjust the price.
+                // If there is more than one node with the same max price, we need to manually
+                // adjust enough of them so that `n_shards_distributed == n_shards`. In which case,
+                // there is no need to adjust the price.
                 let to_give = n_shards - n_shards_distributed;
                 // slightly optimized
-                // ranking.filter!(|i| with_max.contains(i)).take!(to_give)
-                needs_one_more = 'needs_one_more: {
-                    let mut v = vector[];
+                // needs_one_more = ranking.filter!(|i| with_max.contains(i)).take!(to_give)
+                'update_needs_one_more: {
                     let n = ranking.length();
+                    // iterate over the ranking, giving shards from the nodes with the highest
+                    // rank first
                     n.do!(|i| {
                         let idx = &ranking[i];
                         if (with_max.contains(idx)) {
-                            v.push_back(*idx);
-                            if (v.length() == to_give) return 'needs_one_more v;
+                            needs_one_more.push_back(*idx);
+                            if (needs_one_more.length() == to_give) return 'update_needs_one_more;
                         }
-                    });
-                    v
-                };
+                    })
+                }
             } else {
                 // decrease the price such that one node gets an additional shard
                 price = max
@@ -485,23 +487,25 @@ fun dhondt(
             let n_min = with_min.length();
             let adjusted_distribution = n_shards_distributed.max(n_min) - n_min;
             if (n_min > 1 && adjusted_distribution < n_shards) {
-                // if there is more than one node with the same price, we need to manually adjust
-                // just one of them.  And no need to adjust the price.
+                // If there is more than one node with the same min price, we need to manually
+                // adjust enough of them so that `n_shards_distributed == n_shards`. In which case,
+                // there is no need to adjust the price.
                 let to_take = n_shards_distributed - n_shards;
                 // slightly optimized
-                // ranking.reverse().filter!(|i| with_min.contains(i)).take!(to_take)
-                needs_one_less = 'needs_one_less: {
+                // needs_one_less = ranking.reverse().filter!(|i| with_min.contains(i)).take!(to_take)
+                'update_needs_one_less: {
                     let mut v = vector[];
                     let n = ranking.length();
+                    // reverse iterate over the ranking, taking shards from the nodes with the
+                    // lowest rank first
                     n.do!(|i| {
                         let idx = &ranking[n - 1 - i];
                         if (with_min.contains(idx)) {
                             v.push_back(*idx);
-                            if (v.length() == to_take) return 'needs_one_less v;
+                            if (v.length() == to_take) return 'update_needs_one_less;
                         }
-                    });
-                    v
-                };
+                    })
+                }
             } else {
                 // increase the price such that one node loses one shard
                 // min + (1 / 4000000000)

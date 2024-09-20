@@ -209,6 +209,22 @@ fun test_dhondt_basic() {
 }
 
 #[test]
+fun test_dhondt_ties() {
+    // even
+    let stake = vector[25000, 25000, 25000, 25000];
+    dhondt_case(7, stake, vector[2, 2, 2, 1]);
+    dhondt_case(6, stake, vector[2, 2, 1, 1]);
+    // small uneven stake
+    let stake = vector[200, 200, 200, 100];
+    dhondt_case(7, stake, vector[2, 2, 2, 1]);
+    let stake = vector[200, 200, 200, 100, 100, 100];
+    dhondt_case(9, stake, vector[2, 2, 2, 1, 1, 1]);
+    // tie with many solutions
+    let stake = vector[780_000, 650_000, 520_000, 390_000, 260_000];
+    dhondt_case(18, stake, vector[6, 5, 4, 2, 1]);
+}
+
+#[test]
 fun test_dhondt_edge_case() {
     // no shards
     let stake = vector[100, 90, 80];
@@ -223,17 +239,7 @@ fun test_dhondt_edge_case() {
     // large stake
     let stake = vector[1_000_000_000_000, 900_000_000_000, 100_000_000_000];
     dhondt_case(500, stake, vector[250, 225, 25]);
-    // small uneven stake
-    let stake =  vector[200, 200, 200, 100];
-    dhondt_case(7, stake, vector[2, 2, 2, 1]);
-    let stake =  vector[200, 200, 200, 100, 100, 100];
-    dhondt_case(9, stake, vector[2, 2, 2, 1, 1, 1]);
-    // tie with many solutions
-    let stake = vector[780_000, 650_000, 520_000, 390_000, 260_000];
-    dhondt_case(18, stake, vector[6, 5, 4, 2, 1]);
 }
-
-
 
 #[test, expected_failure(abort_code = walrus::staking_inner::ENoStake)]
 fun test_dhondt_no_stake() {
