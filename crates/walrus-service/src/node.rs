@@ -88,7 +88,7 @@ use errors::{
 
 mod storage;
 pub use storage::{DatabaseConfig, Storage};
-use walrus_event::{EventStreamCursor, EventStreamElement};
+use walrus_event::{EventStreamCursor, EventStreamElement, IndexedStreamElement};
 
 use crate::node::{
     storage::event_blob_writer::EventBlobWriter,
@@ -465,9 +465,10 @@ impl StorageNode {
         let mut event_blob_writer =
             EventBlobWriter::new(&self.inner.db_root_dir_path, self.inner.clone())?;
         let from_event_id = storage.get_event_cursor()?.map(|(_, cursor)| cursor);
-        let from_element_index = self.get_last_committed_event_index(&event_blob_writer)?;
+        let from_element_index = self.next_event_index(&event_blob_writer)?;
         let event_cursor = EventStreamCursor::new(from_event_id, from_element_index);
         let event_stream = Box::into_pin(self.inner.event_manager.events(event_cursor).await?);
+
         let next_index: usize = from_element_index.try_into().expect("64-bit architecture");
         let index_stream = stream::iter(next_index..);
         let mut indexed_element_stream = index_stream.zip(event_stream);
@@ -492,60 +493,8 @@ impl StorageNode {
             );
             let cloned_stream_element = stream_element.clone();
             async move {
-                let _timer_guard = &self
-                    .inner
-                    .metrics
-                    .event_process_duration_seconds
-                    .with_label_values(&[stream_element.element.label()])
-                    .start_timer();
-                if let Some(blob_event) = stream_element.element.blob_event() {
-                    storage.update_blob_info(blob_event)?;
-                }
-                match stream_element.element {
-                    EventStreamElement::ContractEvent(ContractEvent::BlobEvent(
-                        BlobEvent::Certified(event),
-                    )) => {
-                        self.process_blob_certified_event(element_index, event)
-                            .await?;
-                    }
-                    EventStreamElement::ContractEvent(ContractEvent::BlobEvent(
-                        BlobEvent::InvalidBlobID(event),
-                    )) => {
-                        self.process_blob_invalid_event(element_index, event)
-                            .await?;
-                    }
-                    EventStreamElement::ContractEvent(ContractEvent::BlobEvent(
-                        BlobEvent::Registered(event),
-                    )) => {
-                        self.inner
-                            .mark_event_completed(element_index, &event.event_id)?;
-                    }
-                    EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
-                        EpochChangeEvent::EpochParametersSelected(event),
-                    )) => {
-                        tracing::info!("EpochParametersSelected event received: {:?}", event,);
-                        self.inner
-                            .mark_event_completed(element_index, &event.event_id)?;
-                    }
-                    EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
-                        EpochChangeEvent::EpochChangeStart(event),
-                    )) => {
-                        tracing::info!("EpochChangeStart event received: {:?}", event);
-                        self.inner
-                            .mark_event_completed(element_index, &event.event_id)?;
-                    }
-                    EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
-                        EpochChangeEvent::EpochChangeDone(event),
-                    )) => {
-                        tracing::info!("EpochChangeDone event received: {:?}", event);
-                        self.inner
-                            .mark_event_completed(element_index, &event.event_id)?;
-                    }
-                    EventStreamElement::CheckpointBoundary => {
-                        self.inner.mark_element_at_index(element_index)?;
-                    }
-                }
-                Ok::<(), anyhow::Error>(())
+                self.process_stream_element(storage, element_index, cloned_stream_element)
+                    .await
             }
             .inspect_err(|err| {
                 let span = tracing::Span::current();
@@ -554,14 +503,13 @@ impl StorageNode {
             })
             .instrument(span)
             .await?;
-            event_blob_writer
-                .write(cloned_stream_element, element_index as u64)
+            self.store_event_in_blob(&mut event_blob_writer, element_index, stream_element)
                 .await?;
             self.inner
                 .event_manager
                 .drop_events_before(EventStreamCursor::new(
                     None,
-                    self.get_last_committed_event_index(&event_blob_writer)?,
+                    self.next_event_index(&event_blob_writer)?,
                 ))
                 .await?;
         }
@@ -569,19 +517,108 @@ impl StorageNode {
         bail!("event stream for blob events stopped")
     }
 
-    #[tracing::instrument(skip_all)]
-    fn get_last_committed_event_index(
+    async fn process_stream_element(
         &self,
-        event_blob_writer: &EventBlobWriter,
-    ) -> anyhow::Result<u64> {
+        storage: &Storage,
+        element_index: usize,
+        stream_element: IndexedStreamElement,
+    ) -> Result<(), anyhow::Error> {
+        let next_sequencer_index: usize = self
+            .inner
+            .storage
+            .get_sequentially_processed_event_count()?
+            .try_into()
+            .expect("64-bit architecture");
+        if element_index < next_sequencer_index {
+            // It is possible to receive committed events upon restart
+            // if event blob writer is behind event sequencer
+            return Ok(());
+        }
+        let _timer_guard = &self
+            .inner
+            .metrics
+            .event_process_duration_seconds
+            .with_label_values(&[stream_element.element.label()])
+            .start_timer();
+        if let Some(blob_event) = stream_element.element.blob_event() {
+            storage.update_blob_info(blob_event)?;
+        }
+        match stream_element.element {
+            EventStreamElement::ContractEvent(ContractEvent::BlobEvent(BlobEvent::Certified(
+                event,
+            ))) => {
+                self.process_blob_certified_event(element_index, event)
+                    .await?;
+            }
+            EventStreamElement::ContractEvent(ContractEvent::BlobEvent(
+                BlobEvent::InvalidBlobID(event),
+            )) => {
+                self.process_blob_invalid_event(element_index, event)
+                    .await?;
+            }
+            EventStreamElement::ContractEvent(ContractEvent::BlobEvent(BlobEvent::Registered(
+                event,
+            ))) => {
+                self.inner
+                    .mark_event_completed(element_index, &event.event_id)?;
+            }
+            EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
+                EpochChangeEvent::EpochParametersSelected(event),
+            )) => {
+                tracing::info!("EpochParametersSelected event received: {:?}", event,);
+                self.inner
+                    .mark_event_completed(element_index, &event.event_id)?;
+            }
+            EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
+                EpochChangeEvent::EpochChangeStart(event),
+            )) => {
+                tracing::info!("EpochChangeStart event received: {:?}", event);
+                self.inner
+                    .mark_event_completed(element_index, &event.event_id)?;
+            }
+            EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
+                EpochChangeEvent::EpochChangeDone(event),
+            )) => {
+                tracing::info!("EpochChangeDone event received: {:?}", event);
+                self.inner
+                    .mark_event_completed(element_index, &event.event_id)?;
+            }
+            EventStreamElement::CheckpointBoundary => {
+                self.inner.mark_element_at_index(element_index)?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn store_event_in_blob(
+        &self,
+        event_blob_writer: &mut EventBlobWriter,
+        element_index: usize,
+        stream_element: IndexedStreamElement,
+    ) -> Result<(), anyhow::Error> {
+        if event_blob_writer
+            .latest_committed_event_index()
+            .map_or(false, |i| i >= element_index as u64)
+        {
+            // It is possible to receive committed events upon restart
+            return Ok(());
+        }
+        event_blob_writer
+            .write(stream_element, element_index as u64)
+            .await?;
+        Ok(())
+    }
+
+    #[tracing::instrument(skip_all)]
+    fn next_event_index(&self, event_blob_writer: &EventBlobWriter) -> anyhow::Result<u64> {
         let storage = &self.inner.storage;
-        let last_committed_sequencer_index: Option<u64> =
-            storage.get_event_cursor()?.map(|(index, _)| index);
-        let last_committed_event_blob_writer_index: Option<u64> =
-            event_blob_writer.latest_committed_event_index();
+        let next_sequencer_index: Option<u64> = storage.get_event_cursor()?.map(|(index, _)| index);
+        let next_event_blob_writer_index: Option<u64> = event_blob_writer
+            .latest_committed_event_index()
+            .map(|i| i + 1);
         // if both are some, return minimum of the two otherwise return 0
-        Ok(last_committed_sequencer_index
-            .zip(last_committed_event_blob_writer_index)
+        Ok(next_sequencer_index
+            .zip(next_event_blob_writer_index)
             .map(|(sequencer_index, blob_writer_index)| {
                 u64::min(sequencer_index, blob_writer_index)
             })

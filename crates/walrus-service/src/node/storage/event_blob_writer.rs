@@ -78,10 +78,9 @@ pub struct EventBlobWriter {
 
 impl EventBlobWriter {
     pub fn new(root_dir_path: &Path, node: Arc<StorageNodeInner>) -> Result<Self> {
-        if root_dir_path.exists() {
-            fs::remove_dir_all(root_dir_path)?;
+        if !root_dir_path.exists() {
+            fs::create_dir_all(root_dir_path)?;
         }
-        fs::create_dir_all(root_dir_path)?;
         let mut db_opts = Options::default();
         let metric_conf = MetricConf::default();
         db_opts.create_missing_column_families(true);
@@ -290,6 +289,23 @@ impl EventBlobWriter {
         let blob_id = self.store_slivers(&file_content).await?;
         // TODO: Once slivers are stored locally, invoke the new sui contract endpoint to certify
         // the event blob. (#683)
+        self.update_blob_writer(blob_id)
+    }
+
+    #[cfg(test)]
+    async fn cut(&mut self) -> Result<()> {
+        self.finalize()?;
+        let mut file = self.wbuf.get_ref();
+        file.seek(SeekFrom::Start(0))?;
+        let mut file_content = Vec::new();
+        file.read_to_end(&mut file_content)?;
+        let mut tmp_file = File::create("/tmp/event_blob")?;
+        tmp_file.write_all(&file_content)?;
+        tmp_file.flush()?;
+        self.update_blob_writer(BlobId([7; 32]))
+    }
+
+    fn update_blob_writer(&mut self, blob_id: BlobId) -> Result<()> {
         let event_blob_metadata = EventBlobMetadata {
             blob_id,
             start: self.start.as_ref().cloned().unwrap_or_default(),
@@ -303,31 +319,18 @@ impl EventBlobWriter {
         Ok(())
     }
 
-    #[cfg(test)]
-    async fn cut(&mut self) -> Result<()> {
-        self.finalize()?;
-        let mut file = self.wbuf.get_ref();
-        file.seek(SeekFrom::Start(0))?;
-        let mut file_content = Vec::new();
-        file.read_to_end(&mut file_content)?;
-        let mut tmp_file = File::create("/tmp/event_blob")?;
-        tmp_file.write_all(&file_content)?;
-        tmp_file.flush()?;
-        Ok(())
-    }
-
     /// Write an event to the current blob. If the event is an end of epoch event or the current
     /// blob reaches the maximum number of processed sui checkpoints, the current blob is committed
     /// and a new blob is started.
     pub async fn write(&mut self, element: IndexedStreamElement, element_index: u64) -> Result<()> {
         if self
-            .latest_committed_event_index()
-            .map_or(false, |i| i >= element_index)
+            .latest_event_index
+            .or(self.latest_committed_event_index)
+            .map_or(false, |i| element_index <= i)
         {
-            // It is possible to receive committed events upon restart
-            return Ok(());
+            // This ensures we do not write the same event twice.
+            panic!("index repeated in blob writer: ({element_index})");
         }
-
         self.update_sequence_range(&element, element_index);
         self.write_event_to_buffer(&element)?;
         let cut_new_blob = element.is_end_of_epoch_event()
