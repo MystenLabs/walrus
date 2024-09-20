@@ -471,13 +471,13 @@ where
         })
 }
 
-/// Returns the minimum number of symbols required for recovery.
+/// Returns the minimum number of symbols required to recover a sliver of [`EncodingAxis`] T.
 pub fn min_symbols_for_recovery<T: EncodingAxis>(n_shards: NonZeroU16) -> u16 {
     let max_n_faulty = crate::bft::max_n_faulty(n_shards);
     if T::IS_PRIMARY {
-        2 * max_n_faulty + 1
+        n_shards.get() - max_n_faulty
     } else {
-        max_n_faulty + 1
+        n_shards.get() - 2 * max_n_faulty
     }
 }
 

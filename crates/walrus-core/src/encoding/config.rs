@@ -374,8 +374,8 @@ pub fn decoding_safety_limit(n_shards: NonZeroU16) -> u16 {
 /// Computes the number of primary and secondary source symbols starting from the number of shards.
 ///
 /// The computation is as follows:
-/// - `source_symbols_primary = n_shards - f - decoding_safety_limit(n_shards)`
-/// - `source_symbols_secondary = n_shards - 2f - decoding_safety_limit(n_shards)`
+/// - `source_symbols_primary = n_shards - 2f - decoding_safety_limit(n_shards)`
+/// - `source_symbols_secondary = n_shards - f - decoding_safety_limit(n_shards)`
 #[inline]
 pub fn source_symbols_for_n_shards(n_shards: NonZeroU16) -> (NonZeroU16, NonZeroU16) {
     let safety_limit = decoding_safety_limit(n_shards);
