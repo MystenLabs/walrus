@@ -46,13 +46,13 @@ use super::errors::SyncShardClientError;
 pub(crate) type DefaultRecoverySymbol = walrus_core::RecoverySymbol<MerkleProof>;
 
 /// Service used to query the current, prior, and upcoming committees.
-#[async_trait::async_trait]
+#[async_trait]
 pub(crate) trait CommitteeLookupService: Send + Sync + std::fmt::Debug {
     /// Returns the active committees, which are possibly already transitioning.
     async fn get_active_committees(&self) -> Result<ActiveCommittees, anyhow::Error>;
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl<T: ReadClient + std::fmt::Debug> CommitteeLookupService for T {
     async fn get_active_committees(&self) -> Result<ActiveCommittees, anyhow::Error> {
         let committee = self
@@ -137,7 +137,7 @@ pub trait CommitteeService: std::fmt::Debug + Send + Sync {
 }
 
 /// Interface for creating new [`NodeService`]s, such as during epoch change.
-#[async_trait::async_trait]
+#[async_trait]
 pub(crate) trait NodeServiceFactory: Send {
     type Service: NodeService;
 
@@ -148,7 +148,7 @@ pub(crate) trait NodeServiceFactory: Send {
     ) -> Result<Self::Service, ClientBuildError>;
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl<F, S, Fut> NodeServiceFactory for F
 where
     F: for<'a> FnMut(&'a StorageNode, &'a Arc<EncodingConfig>) -> Fut + Send,

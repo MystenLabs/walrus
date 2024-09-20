@@ -598,7 +598,14 @@ where
     }
 }
 
-type StoredFuture<'a> = BoxFuture<'a, (usize, u16, Option<InvalidBlobIdAttestation>)>;
+type RequestWeight = u16;
+type NodeIndexInCommittee = usize;
+type AttestationWithWeight = (
+    NodeIndexInCommittee,
+    RequestWeight,
+    Option<InvalidBlobIdAttestation>,
+);
+type StoredFuture<'a> = BoxFuture<'a, AttestationWithWeight>;
 
 #[pin_project::pin_project]
 struct PendingInvalidBlobAttestations<'fut, 'iter, T> {
@@ -724,7 +731,7 @@ where
         }
     }
 
-    fn next_request(&mut self) -> Option<(u16, StoredFuture<'fut>)> {
+    fn next_request(&mut self) -> Option<(RequestWeight, StoredFuture<'fut>)> {
         for &index in self.nodes.by_ref() {
             let committee_epoch = self.committee.epoch;
             let node_info = &self.committee.members()[index];
