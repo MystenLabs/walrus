@@ -20,6 +20,7 @@ use sui::{
     clock::Clock,
     coin::Coin,
     object_table::{Self, ObjectTable},
+    priority_queue::{Self, PriorityQueue},
     sui::SUI,
     vec_map::{Self, VecMap}
 };
@@ -218,34 +219,36 @@ public(package) fun calculate_votes(self: &StakingInnerV1): EpochParams {
 
     let size = self.next_committee.borrow().size();
     let inner = self.next_committee.borrow().inner();
-    let mut write_prices = vector[];
-    let mut storage_prices = vector[];
-    let mut node_capacities = vector[];
+    let mut write_prices = priority_queue::new(vector[]);
+    let mut storage_prices = priority_queue::new(vector[]);
+    let mut node_capacities = priority_queue::new(vector[]);
 
     size.do!(|i| {
         let (node_id, shards) = inner.get_entry_by_idx(i);
         let pool = &self.pools[*node_id];
-        shards.length().do!(|_| {
-            write_prices.push_back(pool.write_price());
-            storage_prices.push_back(pool.storage_price());
-            node_capacities.push_back(pool.node_capacity());
-        });
+        let weight = shards.length();
+        write_prices.insert(weight, pool.write_price());
+        storage_prices.insert(weight, pool.storage_price());
+        node_capacities.insert(weight, pool.node_capacity());
     });
 
-    // sort both in ascending order.
-    sort_by!(&mut write_prices, |a, b| *a < *b);
-    sort_by!(&mut storage_prices, |a, b| *a < *b);
+    // 2/3 of the nodes in the committee.
+    let threshold = (self.n_shards * 2 / 3) as u64;
 
-    // write prices are sorted in ascending order, so we need to pick the value
-    // that satisfies 2/3 of the lowest values.
-    let write_price = write_prices[write_prices.length() * 2 / 3];
+    epoch_parameters::new(
+        max_threshold(&mut write_prices, threshold),
+        max_threshold(&mut storage_prices, threshold),
+        max_threshold(&mut node_capacities, threshold),
+    )
+}
 
-    // storage prices are sorted in descending order, so we need to pick the value
-    // that satisfies 2/3 of the highest values.
-    let storage_price = storage_prices[storage_prices.length() * 2 / 3];
-    let total_capacity = node_capacities.fold!(0, |a, v| { a + v });
-
-    epoch_parameters::new(total_capacity, storage_price, write_price)
+fun max_threshold(pq: &mut PriorityQueue<u64>, threshold: u64): u64 {
+    let mut sum_weight = 0;
+    loop {
+        let (weight, value) = pq.pop_max();
+        sum_weight = sum_weight + weight;
+        if (sum_weight >= threshold) return value
+    }
 }
 
 /// Sort the vector `v` in place using the comparison function `f`. The function `f` should
@@ -318,11 +321,7 @@ public(package) fun set_withdrawing(self: &mut StakingInnerV1, node_id: ID) {
 }
 
 /// Destroys the pool if it is empty, after the last stake has been withdrawn.
-public(package) fun destroy_empty_pool(
-    self: &mut StakingInnerV1,
-    node_id: ID,
-    _ctx: &mut TxContext,
-) {
+public(package) fun destroy_empty_pool(self: &mut StakingInnerV1, node_id: ID, _: &mut TxContext) {
     self.pools.remove(node_id).destroy_empty()
 }
 
@@ -507,7 +506,8 @@ public(package) fun epoch_sync_done(
     cap.set_last_epoch_sync_done(self.epoch);
 
     let node_shards = self.committee.shards(&cap.node_id());
-    match (self.epoch_state) {EpochState::EpochChangeSync(weight) => {
+    match (self.epoch_state) {
+        EpochState::EpochChangeSync(weight) => {
             let weight = weight + (node_shards.length() as u16);
             if (is_quorum(weight, self.n_shards)) {
                 self.epoch_state = EpochState::EpochChangeDone(clock.timestamp_ms());
@@ -515,7 +515,9 @@ public(package) fun epoch_sync_done(
             } else {
                 self.epoch_state = EpochState::EpochChangeSync(weight);
             }
-        }, _ => {}};
+        },
+        _ => {},
+    };
     // Emit the event that the node has received all shards.
     events::emit_shards_received(self.epoch, *node_shards);
 }

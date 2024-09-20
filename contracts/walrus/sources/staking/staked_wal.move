@@ -18,7 +18,7 @@ public enum StakedWalState has store, copy, drop {
     Staked,
     // The staked WAL is in the process of withdrawing. The value inside the
     // variant is the epoch when the staked WAL can be withdrawn.
-    Withdrawing(u32),
+    Withdrawing { withdraw_epoch: u32 },
 }
 
 /// Represents a staked WAL, does not store the `Balance` inside, but uses
@@ -64,7 +64,7 @@ public(package) fun unwrap(sw: StakedWal): Balance<WAL> {
 
 /// Sets the staked WAL state to `Withdrawing`
 public(package) fun set_withdrawing(sw: &mut StakedWal, withdraw_epoch: u32) {
-    sw.state = StakedWalState::Withdrawing(withdraw_epoch);
+    sw.state = StakedWalState::Withdrawing { withdraw_epoch };
 }
 
 // === Accessors ===
@@ -85,7 +85,7 @@ public fun is_staked(sw: &StakedWal): bool { sw.state == StakedWalState::Staked 
 /// Checks whether the staked WAL is in the `Withdrawing` state.
 public fun is_withdrawing(sw: &StakedWal): bool {
     match (sw.state) {
-        StakedWalState::Withdrawing(_) => true,
+        StakedWalState::Withdrawing { .. } => true,
         _ => false,
     }
 }
