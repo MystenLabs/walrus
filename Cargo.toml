@@ -11,13 +11,13 @@ license = "Apache-2.0"
 [workspace.dependencies]
 anyhow = "1.0.89"
 async-trait = "0.1.82"
-axum = { version = "0.7.5", default-features = false }
+axum = { version = "0.7.6", default-features = false }
 axum-server = { version = "0.7.1", default-features = false }
 base64 = "0.22.1"
 bcs = "0.1.6"
 byteorder = "1.5.0"
 chrono = "0.4"
-clap = { version = "4.5.17", features = ["derive"] }
+clap = { version = "4.5.18", features = ["derive"] }
 colored = "2.1.0"
 criterion = "0.5.1"
 enum_dispatch = "0.3"
@@ -71,7 +71,7 @@ syn = "2.0"
 telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.33.1" }
 tempfile = "3.11.0"
 test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.33.1" }
-thiserror = "1.0.63"
+thiserror = "1.0.64"
 tokio = "=1.36.0"
 tokio-stream = "0.1.16"
 tokio-util = "0.7.12"
