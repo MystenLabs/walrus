@@ -7,10 +7,13 @@
 //!
 //! For creating a cluster of test storage nodes, see [`TestClusterBuilder`].
 
+#[cfg(msim)]
+use std::net::IpAddr;
 use std::{
     borrow::Borrow,
     net::{SocketAddr, TcpStream},
     num::NonZeroU16,
+    path::PathBuf,
     sync::Arc,
 };
 
@@ -19,7 +22,7 @@ use futures::StreamExt;
 use prometheus::Registry;
 use sui_types::base_types::ObjectID;
 use tempfile::TempDir;
-use tokio::time::Duration;
+use tokio::{sync::Mutex, time::Duration};
 use tokio_stream::{wrappers::BroadcastStream, Stream};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
@@ -42,12 +45,21 @@ use walrus_core::{
 };
 use walrus_event::{EventSequenceNumber, EventStreamCursor, IndexedStreamElement};
 use walrus_sdk::client::Client;
-use walrus_sui::types::{
-    Committee,
-    ContractEvent,
-    NetworkAddress,
-    NodeRegistrationParams,
-    StorageNode as SuiStorageNode,
+#[cfg(msim)]
+use walrus_sui::{
+    client::{SuiContractClient, SuiReadClient},
+    contracts::system,
+    test_utils::{self, TestClusterHandle, DEFAULT_GAS_BUDGET},
+};
+use walrus_sui::{
+    test_utils::system_setup::SystemContext,
+    types::{
+        Committee,
+        ContractEvent,
+        NetworkAddress,
+        NodeRegistrationParams,
+        StorageNode as SuiStorageNode,
+    },
 };
 use walrus_test_utils::WithTempDir;
 
@@ -61,6 +73,11 @@ use crate::node::{
     DatabaseConfig,
     Storage,
     StorageNode,
+};
+#[cfg(msim)]
+use crate::node::{
+    contract_service::SuiSystemContractService,
+    system_events::SuiSystemEventProvider,
 };
 
 /// A system event manager that provides events from a stream. It does not support dropping events.
@@ -99,6 +116,27 @@ impl EventRetentionManager for DefaultSystemEventManager {
 #[async_trait]
 impl EventManager for DefaultSystemEventManager {}
 
+/// A test configuration for a storage node.
+pub trait StorageNodeHandleTrait {
+    /// Cancels the node's event loop and REST API.
+    fn cancel(&self);
+    /// Returns the client that can be used to communicate with the node.
+    fn client(&self) -> &Client;
+    /// Builds a new storage node handle.
+    fn build(
+        builder: StorageNodeHandleBuilder,
+        sui_cluster: Option<Arc<Mutex<PathBuf>>>,
+        system_context: Option<SystemContext>,
+        storage_dir: TempDir,
+    ) -> impl std::future::Future<Output = anyhow::Result<Self>> + Send
+    where
+        Self: Sized;
+    /// Returns the storage node.
+    fn storage_node(&self) -> &Arc<StorageNode>;
+    /// Returns the node's protocol public key.
+    fn public_key(&self) -> &PublicKey;
+}
+
 /// A storage node and associated data for testing.
 #[derive(Debug)]
 pub struct StorageNodeHandle {
@@ -122,6 +160,33 @@ pub struct StorageNodeHandle {
     pub client: Client,
 }
 
+impl StorageNodeHandleTrait for StorageNodeHandle {
+    fn cancel(&self) {
+        self.cancel.cancel();
+    }
+
+    fn client(&self) -> &Client {
+        &self.client
+    }
+
+    fn storage_node(&self) -> &Arc<StorageNode> {
+        &self.storage_node
+    }
+
+    fn public_key(&self) -> &PublicKey {
+        &self.public_key
+    }
+
+    async fn build(
+        builder: StorageNodeHandleBuilder,
+        _sui_cluster: Option<Arc<Mutex<PathBuf>>>,
+        _system_context: Option<SystemContext>,
+        _storage_dir: TempDir,
+    ) -> anyhow::Result<Self> {
+        builder.build().await
+    }
+}
+
 impl StorageNodeHandle {
     /// Creates a new builder.
     pub fn builder() -> StorageNodeHandleBuilder {
@@ -132,6 +197,71 @@ impl StorageNodeHandle {
 impl AsRef<StorageNode> for StorageNodeHandle {
     fn as_ref(&self) -> &StorageNode {
         &self.storage_node
+    }
+}
+
+/// A test configuration for a storage node.
+#[derive(Debug)]
+pub struct SimStorageNodeHandle {
+    /// The temporary directory containing the node's storage.
+    pub storage_directory: TempDir,
+    /// The node's protocol public key.
+    pub public_key: PublicKey,
+    /// The node's protocol public key.
+    pub network_public_key: NetworkPublicKey,
+    /// The address of the REST API.
+    pub rest_api_address: SocketAddr,
+    /// The address of the metric service.
+    pub metrics_address: SocketAddr,
+    /// Cancel
+    pub cancel_token: CancellationToken,
+    /// The wrapped storage node.
+    #[cfg(msim)]
+    pub node_id: sui_simulator::task::NodeId,
+}
+
+impl StorageNodeHandleTrait for SimStorageNodeHandle {
+    fn cancel(&self) {
+        unimplemented!("Sim storage can't be cancelled.")
+    }
+
+    fn client(&self) -> &Client {
+        unimplemented!("Sim storage doesn't have client.")
+    }
+
+    fn storage_node(&self) -> &Arc<StorageNode> {
+        unimplemented!("Sim storage doesn't have storage node.")
+    }
+
+    fn public_key(&self) -> &PublicKey {
+        &self.public_key
+    }
+
+    async fn build(
+        builder: StorageNodeHandleBuilder,
+        sui_cluster: Option<Arc<Mutex<PathBuf>>>,
+        system_context: Option<SystemContext>,
+        storage_dir: TempDir,
+    ) -> anyhow::Result<Self>
+    where
+        Self: Sized,
+    {
+        builder
+            .start_node(
+                sui_cluster.expect("SUI cluster handle must be provided"),
+                system_context.expect("System context must be provided"),
+                storage_dir,
+            )
+            .await
+    }
+}
+
+impl Drop for SimStorageNodeHandle {
+    fn drop(&mut self) {
+        #[cfg(msim)]
+        println!("ZZZZZ SuiNode shutting down {:?}", self.node_id);
+
+        self.cancel_token.cancel();
     }
 }
 
@@ -393,6 +523,195 @@ impl StorageNodeHandleBuilder {
             client,
         })
     }
+
+    /// Starts a storage node with the provided configuration.
+    pub async fn start_node(
+        self,
+        sui_cluster: Arc<Mutex<PathBuf>>,
+        system_context: SystemContext,
+        storage_dir: TempDir,
+    ) -> anyhow::Result<SimStorageNodeHandle> {
+        let node_info = self
+            .test_config
+            .expect("test config must be provided to spawn a storage node");
+
+        let storage_node_config = StorageNodeConfig {
+            storage_path: storage_dir.path().to_path_buf(),
+            protocol_key_pair: node_info.key_pair.into(),
+            network_key_pair: node_info.network_key_pair.into(),
+            rest_api_address: node_info.rest_api_address,
+            ..storage_node_config().inner
+        };
+
+        let cancel_token = CancellationToken::new();
+
+        #[cfg(msim)]
+        let handle = Self::spawn_node(
+            sui_cluster,
+            system_context,
+            storage_node_config.clone(),
+            cancel_token.clone(),
+        )
+        .await;
+
+        Ok(SimStorageNodeHandle {
+            storage_directory: storage_dir,
+            public_key: storage_node_config
+                .protocol_key_pair
+                .get()
+                .unwrap()
+                .public()
+                .clone(),
+            network_public_key: storage_node_config
+                .network_key_pair
+                .get()
+                .unwrap()
+                .public()
+                .clone(),
+            rest_api_address: storage_node_config.rest_api_address,
+            metrics_address: storage_node_config.metrics_address,
+            cancel_token,
+            #[cfg(msim)]
+            node_id: handle.id(),
+        })
+    }
+
+    #[cfg(msim)]
+    async fn spawn_node(
+        sui_cluster: Arc<Mutex<PathBuf>>,
+        system_context: SystemContext,
+        config: StorageNodeConfig,
+        cancel_token: CancellationToken,
+    ) -> sui_simulator::runtime::NodeHandle {
+        let (startup_sender, mut startup_receiver) = tokio::sync::watch::channel(false);
+        let ip = match config.rest_api_address {
+            SocketAddr::V4(v4) => IpAddr::V4(*v4.ip()),
+            _ => panic!("unsupported protocol"),
+        };
+        let startup_sender = Arc::new(startup_sender);
+        let handle = sui_simulator::runtime::Handle::current();
+        let builder = handle.create_node();
+        let node_handle = builder
+            .ip(ip)
+            .name(&format!(
+                "{:?}",
+                config.protocol_key_pair.get().unwrap().public()
+            ))
+            .init(move || {
+                tracing::info!("Restart node");
+                let sui_cluster = sui_cluster.clone();
+                let system_context = system_context.clone();
+                let config = config.clone();
+                let cancel_token = cancel_token.clone();
+
+                let startup_sender = startup_sender.clone();
+
+                async move {
+                    let (rest_api_handle, node_handle) = Self::build_and_run_node(
+                        sui_cluster,
+                        system_context,
+                        config,
+                        cancel_token.clone(),
+                    )
+                    .await
+                    .expect("Should start node successfully");
+                    startup_sender.send(true).ok();
+
+                    tokio::select! {
+                        _ = rest_api_handle => {
+                            tracing::info!("Rest API stopped");
+                        }
+                        _ = node_handle => {
+                            tracing::info!("Node stopped");
+                        }
+                        _ = cancel_token.cancelled() => {
+                            tracing::info!("Node stopped by cancellation");
+                        }
+                    }
+
+                    tracing::info!("Node stopped");
+                }
+            })
+            .build();
+
+        startup_receiver
+            .changed()
+            .await
+            .expect("Waiting for node to start failed");
+
+        node_handle
+    }
+
+    #[cfg(msim)]
+    async fn build_and_run_node(
+        sui_cluster: Arc<Mutex<PathBuf>>,
+        system_context: SystemContext,
+        config: StorageNodeConfig,
+        cancel_token: CancellationToken,
+    ) -> anyhow::Result<(
+        tokio::task::JoinHandle<Result<(), std::io::Error>>,
+        tokio::task::JoinHandle<Result<(), anyhow::Error>>,
+    )> {
+        let wallet =
+            test_utils::new_wallet_on_sui_test_cluster_from_path(sui_cluster.clone()).await?;
+
+        let sui_read_client = SuiReadClient::new(
+            wallet.as_ref().get_client().await?,
+            system_context.system_obj_id,
+            system_context.staking_obj_id,
+        )
+        .await?;
+
+        let sui_contract_service =
+            SuiSystemContractService::new(SuiContractClient::new_with_read_client(
+                wallet.inner,
+                DEFAULT_GAS_BUDGET,
+                sui_read_client.clone(),
+            )?);
+
+        let committee_service = NodeCommitteeService::builder()
+            .build(sui_read_client.clone())
+            .await
+            .expect("service construction must succeed in tests");
+
+        let event_provider =
+            SuiSystemEventProvider::new(sui_read_client.clone(), Duration::from_millis(100));
+
+        let storage: Result<Storage, anyhow::Error> = Storage::open(
+            &config.storage_path,
+            DatabaseConfig::default(),
+            MetricConf::default(),
+        );
+
+        let metrics_registry = Registry::default();
+        let node = StorageNode::builder()
+            .with_storage(storage?)
+            .with_system_event_manager(Box::new(event_provider))
+            .with_committee_service(Box::new(committee_service))
+            .with_system_contract_service(Box::new(sui_contract_service))
+            .build(&config, metrics_registry.clone())
+            .await?;
+        let node = Arc::new(node);
+
+        let rest_api = Arc::new(UserServer::new(
+            node.clone(),
+            cancel_token.clone(),
+            UserServerConfig::from(&config),
+            &metrics_registry,
+        ));
+
+        let rest_api_handle =
+            tokio::task::spawn(async move { rest_api.run().await }.instrument(
+                tracing::info_span!("cluster-node", address = %config.rest_api_address),
+            ));
+
+        let node_handle =
+            tokio::task::spawn(async move { node.run(cancel_token).await }.instrument(
+                tracing::info_span!("cluster-node", address = %config.rest_api_address),
+            ));
+
+        Ok((rest_api_handle, node_handle))
+    }
 }
 
 impl Default for StorageNodeHandleBuilder {
@@ -570,6 +889,7 @@ pub fn unused_socket_address() -> SocketAddr {
     try_unused_socket_address().expect("unused socket address to be available")
 }
 
+#[cfg(not(msim))]
 fn try_unused_socket_address() -> anyhow::Result<SocketAddr> {
     let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     let address = listener.local_addr()?;
@@ -578,6 +898,15 @@ fn try_unused_socket_address() -> anyhow::Result<SocketAddr> {
     let _client_stream = TcpStream::connect(address)?;
     let _server_stream = listener.accept()?;
     Ok(address)
+}
+
+#[cfg(msim)]
+fn try_unused_socket_address() -> anyhow::Result<SocketAddr> {
+    use std::str::FromStr;
+
+    Ok(SocketAddr::from_str(
+        (sui_config::local_ip_utils::get_new_ip() + ":1314").as_str(),
+    )?)
 }
 
 #[async_trait::async_trait]
@@ -618,12 +947,14 @@ impl SystemEventProvider for tokio::sync::broadcast::Sender<ContractEvent> {
 
 /// A cluster of [`StorageNodeHandle`]s corresponding to several running storage nodes.
 #[derive(Debug)]
-pub struct TestCluster {
+pub struct TestCluster<H: StorageNodeHandleTrait> {
     /// The running storage nodes.
-    pub nodes: Vec<StorageNodeHandle>,
+    pub nodes: Vec<H>,
+    /// The number of shards in the system.
+    pub n_shards: usize,
 }
 
-impl TestCluster {
+impl<H: StorageNodeHandleTrait> TestCluster<H> {
     /// Returns a new builder to create the [`TestCluster`].
     pub fn builder() -> TestClusterBuilder {
         TestClusterBuilder::default()
@@ -631,12 +962,7 @@ impl TestCluster {
 
     /// Returns an encoding config valid for use with the storage nodes.
     pub fn encoding_config(&self) -> EncodingConfig {
-        let n_shards = self
-            .nodes
-            .iter()
-            .map(|node| node.storage_node.shards().len())
-            .sum::<usize>();
-        let n_shards: u16 = n_shards.try_into().expect("valid number of shards");
+        let n_shards: u16 = self.n_shards.try_into().expect("valid number of shards");
 
         EncodingConfig::new(NonZeroU16::new(n_shards).expect("more than 1 shard"))
     }
@@ -647,12 +973,12 @@ impl TestCluster {
             idx < self.nodes.len(),
             "the index of the node to be dropped must be within the node vector"
         );
-        self.nodes[idx].cancel.cancel();
+        self.nodes[idx].cancel();
     }
 
     /// Returns the client for the node at the specified index.
     pub fn client(&self, index: usize) -> &Client {
-        &self.nodes[index].client
+        &self.nodes[index].client()
     }
 }
 
@@ -673,6 +999,8 @@ pub struct TestClusterBuilder {
     committee_services: Vec<Option<Box<dyn CommitteeService>>>,
     contract_services: Vec<Option<Box<dyn SystemContractService>>>,
     initial_epoch: Option<Epoch>,
+    system_context: Option<SystemContext>,
+    sui_cluster_handle: Option<Arc<Mutex<PathBuf>>>,
 }
 
 impl TestClusterBuilder {
@@ -784,8 +1112,20 @@ impl TestClusterBuilder {
         self
     }
 
+    /// Sets the system context for the cluster.
+    pub fn with_system_context(mut self, system_context: SystemContext) -> Self {
+        self.system_context = Some(system_context);
+        self
+    }
+
+    /// Sets the SUI cluster handle for the cluster.
+    pub fn with_sui_cluster_handle(mut self, sui_cluster_handle: Arc<Mutex<PathBuf>>) -> Self {
+        self.sui_cluster_handle = Some(sui_cluster_handle);
+        self
+    }
+
     /// Creates the configured `TestCluster`.
-    pub async fn build(self) -> anyhow::Result<TestCluster> {
+    pub async fn build<H: StorageNodeHandleTrait>(self) -> anyhow::Result<TestCluster<H>> {
         let mut nodes = vec![];
 
         let committee_members: Vec<_> = self
@@ -796,6 +1136,12 @@ impl TestClusterBuilder {
             .collect();
         let committee = committee_from_members(committee_members.clone(), self.initial_epoch);
 
+        let n_shards = self
+            .storage_node_configs
+            .iter()
+            .map(|config| config.shards.len())
+            .sum::<usize>();
+
         for (((config, event_provider), service), contract_service) in self
             .storage_node_configs
             .into_iter()
@@ -805,6 +1151,7 @@ impl TestClusterBuilder {
         {
             let local_identity = config.key_pair.public().clone();
             let mut builder = StorageNodeHandle::builder()
+                // TODO: don't set storage in simtest
                 .with_storage(empty_storage_with_shards(&config.shards))
                 .with_test_config(config)
                 .with_rest_api_started(true)
@@ -832,15 +1179,23 @@ impl TestClusterBuilder {
                 builder = builder.with_system_contract_service(service);
             }
 
-            nodes.push(builder.build().await?);
+            nodes.push(
+                H::build(
+                    builder,
+                    self.sui_cluster_handle.clone(),
+                    self.system_context.clone(),
+                    tempfile::tempdir().expect("temporary directory creation must succeed"),
+                )
+                .await?,
+            );
         }
 
-        Ok(TestCluster { nodes })
+        Ok(TestCluster { nodes, n_shards })
     }
 }
 
 /// Configuration for a test cluster storage node.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StorageNodeTestConfig {
     key_pair: ProtocolKeyPair,
     network_key_pair: NetworkKeyPair,
@@ -944,6 +1299,8 @@ impl Default for TestClusterBuilder {
                 .map(StorageNodeTestConfig::new)
                 .collect(),
             initial_epoch: None,
+            system_context: None,
+            sui_cluster_handle: None,
         }
     }
 }
@@ -1017,9 +1374,9 @@ pub mod test_cluster {
     };
 
     /// Performs the default setup for the test cluster.
-    pub async fn default_setup() -> anyhow::Result<(
+    pub async fn default_setup<H: StorageNodeHandleTrait>() -> anyhow::Result<(
         Arc<TestClusterHandle>,
-        TestCluster,
+        TestCluster<H>,
         WithTempDir<client::Client<SuiContractClient>>,
     )> {
         #[cfg(not(msim))]
@@ -1030,7 +1387,7 @@ pub mod test_cluster {
         // Get a wallet on the global sui test cluster
         let mut wallet = test_utils::new_wallet_on_sui_test_cluster(sui_cluster.clone()).await?;
 
-        let cluster_builder = TestCluster::builder();
+        let cluster_builder = TestCluster::<H>::builder();
 
         // Get the default committee from the test cluster builder
         let members = cluster_builder
@@ -1123,6 +1480,11 @@ pub mod test_cluster {
                 Duration::from_millis(100),
             ))
             .with_system_contract_services(Arc::new(sui_contract_service));
+
+        #[cfg(msim)]
+        let cluster_builder = cluster_builder
+            .with_system_context(system_ctx.clone())
+            .with_sui_cluster_handle(sui_cluster.wallet_path());
 
         let cluster = {
             // Lock to avoid race conditions.

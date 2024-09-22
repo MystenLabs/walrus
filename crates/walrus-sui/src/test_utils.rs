@@ -5,9 +5,15 @@
 
 pub mod system_setup;
 
+use core::fmt;
 #[cfg(not(msim))]
 use std::sync::mpsc;
-use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
+use std::{
+    collections::BTreeSet,
+    fmt::{Debug, Formatter},
+    path::PathBuf,
+    sync::Arc,
+};
 
 use fastcrypto::{
     bls12381::min_pk::{BLS12381AggregateSignature, BLS12381PrivateKey},
@@ -87,13 +93,18 @@ pub fn get_default_invalid_certificate(blob_id: BlobId, epoch: Epoch) -> Invalid
 }
 
 /// Handle for the global Sui test cluster.
-#[allow(missing_debug_implementations)]
 pub struct TestClusterHandle {
-    wallet_path: Mutex<PathBuf>,
+    wallet_path: Arc<Mutex<PathBuf>>,
     _cluster: TestCluster,
 
     #[cfg(msim)]
     _node_handle: NodeHandle,
+}
+
+impl Debug for TestClusterHandle {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TestClusterHandle").finish()
+    }
 }
 
 impl TestClusterHandle {
@@ -110,7 +121,7 @@ impl TestClusterHandle {
         });
         let (cluster, wallet_path) = rx.recv().expect("should receive test_cluster");
         Self {
-            wallet_path: Mutex::new(wallet_path),
+            wallet_path: Arc::new(Mutex::new(wallet_path)),
             _cluster: cluster,
         }
     }
@@ -138,10 +149,15 @@ impl TestClusterHandle {
             panic!("Unexpected end of channel");
         };
         Self {
-            wallet_path: Mutex::new(wallet_path),
+            wallet_path: Arc::new(Mutex::new(wallet_path)),
             _cluster: cluster,
             _node_handle: node_handle,
         }
+    }
+
+    /// Returns the path to the wallet config file.
+    pub fn wallet_path(&self) -> Arc<Mutex<PathBuf>> {
+        self.wallet_path.clone()
     }
 }
 
@@ -247,6 +263,20 @@ pub async fn new_wallet_on_sui_test_cluster(
     sui_cluster: Arc<TestClusterHandle>,
 ) -> anyhow::Result<WithTempDir<WalletContext>> {
     let path_guard = sui_cluster.wallet_path.lock().await;
+    // Load the cluster's wallet from file instead of using the wallet stored in the cluster.
+    // This prevents tasks from being spawned in the current runtime that are expected by
+    // the wallet to continue running.
+    let mut cluster_wallet = WalletContext::new(&path_guard, None, None)?;
+    let wallet = wallet_for_testing(&mut cluster_wallet).await?;
+    drop(path_guard);
+    Ok(wallet)
+}
+
+/// Returns a wallet on the global Sui test cluster as well as a handle to the cluster.
+pub async fn new_wallet_on_sui_test_cluster_from_path(
+    wallet_path: Arc<Mutex<PathBuf>>,
+) -> anyhow::Result<WithTempDir<WalletContext>> {
+    let path_guard = wallet_path.lock().await;
     // Load the cluster's wallet from file instead of using the wallet stored in the cluster.
     // This prevents tasks from being spawned in the current runtime that are expected by
     // the wallet to continue running.

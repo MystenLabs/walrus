@@ -19,7 +19,7 @@ use walrus_service::{
         ClientErrorKind::{self, NoMetadataReceived, NotEnoughConfirmations, NotEnoughSlivers},
         StoreWhen,
     },
-    test_utils::test_cluster,
+    test_utils::{test_cluster, StorageNodeHandle},
 };
 use walrus_sui::{
     client::{BlobPersistence, ContractClient, ReadClient},
@@ -94,7 +94,8 @@ async fn run_store_and_read_with_crash_failures(
 ) -> anyhow::Result<()> {
     let _ = tracing_subscriber::fmt::try_init();
 
-    let (_sui_cluster_handle, mut cluster, client) = test_cluster::default_setup().await?;
+    let (_sui_cluster_handle, mut cluster, client) =
+        test_cluster::default_setup::<StorageNodeHandle>().await?;
 
     // Stop the nodes in the write failure set.
     failed_shards_write
@@ -142,7 +143,8 @@ async_param_test! {
 async fn test_inconsistency(failed_shards: &[usize]) -> anyhow::Result<()> {
     let _ = tracing_subscriber::fmt::try_init();
 
-    let (_sui_cluster_handle, mut cluster, mut client) = test_cluster::default_setup().await?;
+    let (_sui_cluster_handle, mut cluster, mut client) =
+        test_cluster::default_setup::<StorageNodeHandle>().await?;
 
     // Store a blob and get confirmations from each node.
     let blob = walrus_test_utils::random_data(31415);
@@ -245,7 +247,8 @@ async fn test_store_with_existing_blob_resource(
 ) -> anyhow::Result<()> {
     let _ = tracing_subscriber::fmt::try_init();
 
-    let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
+    let (_sui_cluster_handle, _cluster, client) =
+        test_cluster::default_setup::<StorageNodeHandle>().await?;
 
     let blob = walrus_test_utils::random_data(31415);
     let (_, metadata) = client
@@ -313,7 +316,8 @@ async fn test_store_with_existing_storage_resource(
 ) -> anyhow::Result<()> {
     let _ = tracing_subscriber::fmt::try_init();
 
-    let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
+    let (_sui_cluster_handle, _cluster, client) =
+        test_cluster::default_setup::<StorageNodeHandle>().await?;
 
     let blob = walrus_test_utils::random_data(31415);
     let (_, metadata) = client
@@ -373,7 +377,8 @@ async_param_test! {
 /// Tests blob deletion.
 async fn test_delete_blob(blobs_to_create: u32) -> anyhow::Result<()> {
     let _ = tracing_subscriber::fmt::try_init();
-    let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
+    let (_sui_cluster_handle, _cluster, client) =
+        test_cluster::default_setup::<StorageNodeHandle>().await?;
     let blob = walrus_test_utils::random_data(31415);
     let (_, metadata) = client
         .as_ref()
