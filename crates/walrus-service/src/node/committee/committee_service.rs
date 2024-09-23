@@ -33,14 +33,21 @@ use walrus_core::{
 use walrus_sui::types::Committee;
 
 use super::{
-    active_committees::{ActiveCommittees, BeginCommitteeChangeError, EndCommitteeChangeError},
     node_service::{NodeService, NodeServiceError, RemoteStorageNode, Request, Response},
     request_futures::{GetAndVerifyMetadata, GetInvalidBlobCertificate, RecoverSliver},
     CommitteeLookupService,
     CommitteeService,
     NodeServiceFactory,
 };
-use crate::node::{config::CommitteeServiceConfig, errors::SyncShardClientError};
+use crate::{
+    common::active_committees::{
+        ActiveCommittees,
+        BeginCommitteeChangeError,
+        CommitteeTransitions,
+        EndCommitteeChangeError,
+    },
+    node::{config::CommitteeServiceConfig, errors::SyncShardClientError},
+};
 
 /// Errors returned by [`NodeCommitteeService::begin_committee_change`].
 #[derive(Debug, thiserror::Error)]

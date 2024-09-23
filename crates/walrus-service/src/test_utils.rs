@@ -51,16 +51,19 @@ use walrus_sui::types::{
 };
 use walrus_test_utils::WithTempDir;
 
-use crate::node::{
-    committee::{ActiveCommittees, CommitteeLookupService, CommitteeService, NodeCommitteeService},
-    config::StorageNodeConfig,
-    contract_service::SystemContractService,
-    errors::SyncShardClientError,
-    server::{UserServer, UserServerConfig},
-    system_events::{EventManager, EventRetentionManager, SystemEventProvider},
-    DatabaseConfig,
-    Storage,
-    StorageNode,
+use crate::{
+    common::active_committees::ActiveCommittees,
+    node::{
+        committee::{CommitteeLookupService, CommitteeService, NodeCommitteeService},
+        config::StorageNodeConfig,
+        contract_service::SystemContractService,
+        errors::SyncShardClientError,
+        server::{UserServer, UserServerConfig},
+        system_events::{EventManager, EventRetentionManager, SystemEventProvider},
+        DatabaseConfig,
+        Storage,
+        StorageNode,
+    },
 };
 
 /// A system event manager that provides events from a stream. It does not support dropping events.

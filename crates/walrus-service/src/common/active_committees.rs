@@ -4,7 +4,7 @@
 use std::{cmp::Ordering, mem, sync::Arc};
 
 use walrus_core::{ensure, Epoch};
-use walrus_sui::types::Committee;
+use walrus_sui::{client::ReadClient, types::Committee};
 
 /// Errors returned when starting a committee change with
 /// [`ActiveCommittees::begin_committee_change`].
@@ -46,6 +46,45 @@ pub(crate) enum InvalidNextCommittee {
     /// current committee.
     #[error("the epoch of the new committee is invalid: {actual} (expected {expected})")]
     InvalidEpoch { expected: Epoch, actual: Epoch },
+}
+
+/// Helper trait to separate the committee transition logic from the active committee state.
+pub(crate) trait CommitteeTransitions {
+    /// Sets the committee for the next epoch if it has not already been set.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the committees have a different number of shards.
+    fn set_committee_for_next_epoch(
+        &mut self,
+        committee: Committee,
+    ) -> Result<(), InvalidNextCommittee>;
+
+    /// Begins the transition of committees that occurs during epoch change.
+    ///
+    /// If the upcoming committee has not been set, then the expected committee defines the upcoming
+    /// committee. Otherwise, the previously set upcoming committee is compared with the expected
+    /// committee. If they are the same, then the change can be initiated, otherwise an error is
+    /// returned.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the expected_committee has a different number of shards.
+    fn begin_committee_change(
+        &mut self,
+        expected_committee: Committee,
+    ) -> Result<(), BeginCommitteeChangeError>;
+
+    /// Completes the transition of a committee from the old epoch to the new.
+    ///
+    /// The expected epoch must match with the epoch of the newest committee, that is, the new,
+    /// current epoch. If not, then an error is returned and the committee change is not completed.
+    ///
+    /// On completion, returns a reference to the outgoing committee: the new prior committee.
+    fn end_committee_change(
+        &mut self,
+        expected_epoch: Epoch,
+    ) -> Result<&Arc<Committee>, EndCommitteeChangeError>;
 }
 
 /// The current, prior, and next committees in the system.
@@ -113,6 +152,50 @@ impl ActiveCommittees {
         };
         this.check_invariants();
         this
+    }
+
+    /// Construct a new set of `ActiveCommittees`, allowing to set all fields.
+    ///
+    /// The prior committee is required for all current_committees beyond epoch 0.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the prior committee is None when the current_committee has an epoch greater than
+    /// zero, if the prior committee's epoch does not precede that of the current committees, or if
+    /// they have a different number of shards.
+    #[allow(dead_code)]
+    // TODO(giac): remove allow in follow up PR.
+    pub fn new_with_upcoming(
+        current_committee: Committee,
+        prior_committee: Option<Committee>,
+        upcoming_committee: Option<Committee>,
+        is_transitioning: bool,
+    ) -> Self {
+        let this = Self {
+            current_committee: Arc::new(current_committee),
+            prior_committee: prior_committee.map(Arc::new),
+            upcoming_committee: upcoming_committee.map(Arc::new),
+            is_transitioning,
+        };
+        this.check_invariants();
+        this
+    }
+
+    /// Construct a new set of `ActiveCommittees`, fetching the status from Sui.
+    #[allow(dead_code)]
+    // TODO(giac): remove allow in follow up PR.
+    pub async fn from_sui(read_client: &impl ReadClient) -> Result<Self, anyhow::Error> {
+        let current_committee = read_client.current_committee().await?;
+        let prior_committee = read_client.previous_committee().await?;
+        let upcoming_committee = read_client.next_committee().await?;
+        let epoch_state = read_client.epoch_state().await?;
+
+        Ok(Self::new_with_upcoming(
+            current_committee,
+            Some(prior_committee),
+            upcoming_committee,
+            epoch_state.is_transitioning(),
+        ))
     }
 
     /// The current epoch.
@@ -183,12 +266,42 @@ impl ActiveCommittees {
         None
     }
 
-    /// Sets the committee for the next epoch if it has not already been set.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the committees have a different number of shards.
-    pub fn set_committee_for_next_epoch(
+    fn check_invariants(&self) {
+        assert!(
+            self.current_committee.epoch == 0 || self.prior_committee.is_some(),
+            "prior committee must be set for non-genesis epochs"
+        );
+
+        if let Some(ref prior_committee) = self.prior_committee {
+            assert_eq!(
+                self.current_committee.epoch,
+                prior_committee.epoch + 1,
+                "the current committee's epoch must be one more than the prior's"
+            );
+            assert_eq!(
+                self.current_committee.n_shards(),
+                prior_committee.n_shards(),
+                "the current committee and prior committees must have the same number of shards"
+            );
+        }
+
+        if let Some(ref upcoming_committee) = self.upcoming_committee {
+            assert_eq!(
+                self.current_committee.epoch + 1,
+                upcoming_committee.epoch,
+                "the upcoming committee's epoch must be one more than the current's"
+            );
+            assert_eq!(
+                self.current_committee.n_shards(),
+                upcoming_committee.n_shards(),
+                "the current committee and prior committees must have the same number of shards"
+            );
+        }
+    }
+}
+
+impl CommitteeTransitions for ActiveCommittees {
+    fn set_committee_for_next_epoch(
         &mut self,
         committee: Committee,
     ) -> Result<(), InvalidNextCommittee> {
@@ -209,17 +322,7 @@ impl ActiveCommittees {
         Ok(())
     }
 
-    /// Begins the transition of committees that occurs during epoch change.
-    ///
-    /// If the upcoming committee has not been set, then the expected committee defines the upcoming
-    /// committee. Otherwise, the previously set upcoming committee is compared with the expected
-    /// committee. If they are the same, then the change can be initiated, otherwise an error is
-    /// returned.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the expected_committee has a different number of shards.
-    pub fn begin_committee_change(
+    fn begin_committee_change(
         &mut self,
         expected_committee: Committee,
     ) -> Result<(), BeginCommitteeChangeError> {
@@ -254,13 +357,7 @@ impl ActiveCommittees {
         Ok(())
     }
 
-    /// Completes the transition of a committee from the old epoch to the new.
-    ///
-    /// The expected epoch must match with the epoch of the newest committee, that is, the new,
-    /// current epoch. If not, then an error is returned and the committee change is not completed.
-    ///
-    /// On completion, returns a reference to the outgoing committee: the new prior committee.
-    pub fn end_committee_change(
+    fn end_committee_change(
         &mut self,
         expected_epoch: Epoch,
     ) -> Result<&Arc<Committee>, EndCommitteeChangeError> {
@@ -284,38 +381,5 @@ impl ActiveCommittees {
 
         self.check_invariants();
         Ok(prior_committee)
-    }
-
-    fn check_invariants(&self) {
-        assert!(
-            self.current_committee.epoch == 0 || self.prior_committee.is_some(),
-            "prior committee must be set for non-genesis epochs"
-        );
-
-        if let Some(ref prior_committee) = self.prior_committee {
-            assert_eq!(
-                self.current_committee.epoch,
-                prior_committee.epoch + 1,
-                "the current committee's epoch must be one more than the prior's"
-            );
-            assert_eq!(
-                self.current_committee.n_shards(),
-                prior_committee.n_shards(),
-                "the current committee and prior committees must have the same number of shards"
-            );
-        }
-
-        if let Some(ref upcoming_committee) = self.upcoming_committee {
-            assert_eq!(
-                self.current_committee.epoch + 1,
-                upcoming_committee.epoch,
-                "the upcoming committee's epoch must be one more than the current's"
-            );
-            assert_eq!(
-                self.current_committee.n_shards(),
-                upcoming_committee.n_shards(),
-                "the current committee and prior committees must have the same number of shards"
-            );
-        }
     }
 }

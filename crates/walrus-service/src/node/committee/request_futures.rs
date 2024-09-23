@@ -51,7 +51,7 @@ use super::{
     committee_service::NodeCommitteeServiceInner,
     node_service::{NodeService, NodeServiceError, Request, Response},
 };
-use crate::{node::committee::active_committees::ActiveCommittees, utils::ExponentialBackoffState};
+use crate::{common::active_committees::ActiveCommittees, utils::ExponentialBackoffState};
 
 pub(super) struct GetAndVerifyMetadata<'a, T> {
     blob_id: BlobId,

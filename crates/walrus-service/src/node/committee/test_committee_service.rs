@@ -37,13 +37,12 @@ use walrus_sui::types::{Committee, StorageNode as SuiStorageNode};
 use walrus_test_utils::{async_param_test, Result as TestResult};
 
 use crate::{
+    common::active_committees::{ActiveCommittees, BeginCommitteeChangeError},
     node::{
         self,
         committee::{
-            active_committees::BeginCommitteeChangeError,
             committee_service::{CommitteeTransitionError, NodeCommitteeService},
             node_service::{NodeServiceError, Request, Response},
-            ActiveCommittees,
             CommitteeLookupService,
             CommitteeService,
             NodeServiceFactory,

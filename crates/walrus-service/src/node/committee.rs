@@ -29,14 +29,13 @@ use walrus_sui::{
 };
 
 use self::node_service::NodeService;
+use crate::common::active_committees::ActiveCommittees;
 
-mod active_committees;
 mod committee_service;
 mod node_service;
 mod request_futures;
 
 pub(crate) use self::{
-    active_committees::ActiveCommittees,
     committee_service::NodeCommitteeService,
     node_service::default_node_service_factory,
 };
