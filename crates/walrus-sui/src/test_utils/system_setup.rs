@@ -54,7 +54,7 @@ pub async fn publish_with_default_system(
     // Default system config, compatible with current tests
 
     // TODO(#814): make epoch duration in test configurable. Currently hardcoded to 1 hour.
-    let system_context = create_and_init_system(admin_wallet, 100, 0, 3600000).await?;
+    let system_context = create_and_init_system_for_test(admin_wallet, 100, 0, 3600000).await?;
 
     // Set up node params.
     // Pk corresponding to secret key scalar(117)
@@ -113,21 +113,39 @@ pub struct SystemContext {
     pub treasury_cap: ObjectID,
 }
 
-/// Publishes the contracts and initializes the system.
+/// Publishes the test contracts and initializes the system.
 ///
 /// Returns the package id and the object IDs of the system object and the staking object.
-pub async fn create_and_init_system(
+pub async fn create_and_init_system_for_test(
     admin_wallet: &mut WalletContext,
     n_shards: u16,
     epoch_zero_duration_ms: u64,
     epoch_duration_ms: u64,
 ) -> Result<SystemContext> {
-    let (package_id, cap_id, treasury_cap) = publish_coin_and_system_package(
-        admin_wallet,
+    create_and_init_system(
         contract_path_for_testing("walrus")?,
+        admin_wallet,
+        n_shards,
+        epoch_zero_duration_ms,
+        epoch_duration_ms,
         DEFAULT_GAS_BUDGET,
     )
-    .await?;
+    .await
+}
+
+/// Publishes the contracts specified in `contract_path` and initializes the system.
+///
+/// Returns the package id and the object IDs of the system object and the staking object.
+pub async fn create_and_init_system(
+    contract_path: PathBuf,
+    admin_wallet: &mut WalletContext,
+    n_shards: u16,
+    epoch_zero_duration_ms: u64,
+    epoch_duration_ms: u64,
+    gas_budget: u64,
+) -> Result<SystemContext> {
+    let (package_id, cap_id, treasury_cap) =
+        publish_coin_and_system_package(admin_wallet, contract_path, gas_budget).await?;
 
     let (system_obj_id, staking_obj_id) = create_system_and_staking_objects(
         admin_wallet,
@@ -136,7 +154,7 @@ pub async fn create_and_init_system(
         n_shards,
         epoch_zero_duration_ms,
         epoch_duration_ms,
-        DEFAULT_GAS_BUDGET,
+        gas_budget,
     )
     .await?;
     Ok(SystemContext {

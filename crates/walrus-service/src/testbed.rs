@@ -230,8 +230,8 @@ pub async fn deploy_walrus_contract(
     DeployTestbedContractParameters {
         working_dir,
         sui_network,
-        contract_path: _,
-        gas_budget: _,
+        contract_path,
+        gas_budget,
         host_addresses: hosts,
         rest_api_port,
         storage_capacity,
@@ -294,7 +294,15 @@ pub async fn deploy_walrus_contract(
     request_sui_from_faucet(admin_wallet.active_address()?, &sui_network, &sui_client).await?;
 
     // TODO(#814): make epoch duration in test configurable. Currently hardcoded to 1 hour.
-    let system_ctx = create_and_init_system(&mut admin_wallet, n_shards, 0, 3600000).await?;
+    let system_ctx = create_and_init_system(
+        contract_path,
+        &mut admin_wallet,
+        n_shards,
+        0,
+        3600000,
+        gas_budget,
+    )
+    .await?;
     println!(
         "Walrus contract created:\npackage id: {:?}\nsystem object: {:?}\nstaking object: {:?}",
         system_ctx.package_id, system_ctx.system_obj_id, system_ctx.staking_obj_id

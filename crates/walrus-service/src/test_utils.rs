@@ -1004,7 +1004,11 @@ pub mod test_cluster {
         client::{SuiContractClient, SuiReadClient},
         test_utils::{
             self,
-            system_setup::{create_and_init_system, end_epoch_zero, register_committee_and_stake},
+            system_setup::{
+                create_and_init_system_for_test,
+                end_epoch_zero,
+                register_committee_and_stake,
+            },
             TestClusterHandle,
             DEFAULT_GAS_BUDGET,
         },
@@ -1048,7 +1052,8 @@ pub mod test_cluster {
         let n_shards = node_weights.iter().sum::<usize>() as u16;
 
         // TODO(#814): make epoch duration in test configurable. Currently hardcoded to 1 hour.
-        let system_ctx = create_and_init_system(&mut wallet.inner, n_shards, 0, 3600000).await?;
+        let system_ctx =
+            create_and_init_system_for_test(&mut wallet.inner, n_shards, 0, 3600000).await?;
 
         let mut contract_clients = vec![];
         for _ in members.iter() {
