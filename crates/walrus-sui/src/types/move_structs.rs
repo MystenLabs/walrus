@@ -177,38 +177,6 @@ impl AssociatedContractStruct for StakingPool {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::staking_pool::StakingPool;
 }
 
-/// Error returned for an invalid conversion to an EpochStatus.
-#[derive(Debug, Error, PartialEq, Eq)]
-#[error("the provided value is not a valid EpochStatus")]
-pub struct InvalidEpochStatus;
-
-/// The status of the epoch
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Deserialize)]
-#[repr(u8)]
-pub enum EpochStatus {
-    /// A sufficient number of the new epoch shards have been transferred
-    Done = 0,
-    /// The storage nodes are currently transferring shards to the new committee
-    Sync = 1,
-}
-
-impl From<EpochStatus> for u8 {
-    fn from(value: EpochStatus) -> Self {
-        value as u8
-    }
-}
-
-impl TryFrom<u8> for EpochStatus {
-    type Error = InvalidEpochStatus;
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(EpochStatus::Done),
-            1 => Ok(EpochStatus::Sync),
-            _ => Err(InvalidEpochStatus),
-        }
-    }
-}
-
 /// Holds information about a future epoch, namely how much
 /// storage needs to be reclaimed and the rewards to be distributed.
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]

@@ -31,7 +31,6 @@ pub use events::{
 pub mod move_structs;
 pub use move_structs::{
     Blob,
-    EpochStatus,
     StakedWal,
     StakingObject,
     StorageNode,
