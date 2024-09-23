@@ -11,7 +11,6 @@
 // - advance_epoch - initiates the epoch change
 // - initiate epoch change - bumped in `advance_epoch`
 // - get "epoch_sync_done" event
-#[allow(unused_variable, unused_use, unused_mut_parameter)]
 module walrus::staking_inner;
 
 use std::{
@@ -23,8 +22,7 @@ use sui::{
     clock::Clock,
     coin::Coin,
     object_table::{Self, ObjectTable},
-    sui::SUI,
-    vec_map::{Self, VecMap}
+    vec_map,
 };
 use wal::wal::WAL;
 use walrus::{
@@ -33,9 +31,9 @@ use walrus::{
     committee::{Self, Committee},
     epoch_parameters::{Self, EpochParams},
     events,
-    staked_wal::{Self, StakedWal},
+    staked_wal::StakedWal,
     staking_pool::{Self, StakingPool},
-    storage_node::{Self, StorageNodeCap, StorageNodeInfo},
+    storage_node::{StorageNodeCap },
     walrus_context::{Self, WalrusContext}
 };
 
@@ -176,12 +174,13 @@ public(package) fun create_pool(
 }
 
 /// Blocks staking for the pool, marks it as "withdrawing".
+#[allow(unused_mut_parameter)]
 public(package) fun withdraw_node(self: &mut StakingInnerV1, cap: &mut StorageNodeCap) {
     let wctx = &self.new_walrus_context();
     self.pools[cap.node_id()].set_withdrawing(wctx);
 }
 
-public(package) fun collect_commission(self: &mut StakingInnerV1, cap: &StorageNodeCap): Coin<WAL> {
+public(package) fun collect_commission(_: &mut StakingInnerV1, _: &StorageNodeCap): Coin<WAL> {
     abort ENotImplemented
 }
 
@@ -354,8 +353,6 @@ public(package) fun has_pool(self: &StakingInnerV1, node_id: ID): bool {
 /// TODO: current solution is temporary, we need to have a proper algorithm for shard assignment.
 public(package) fun select_committee(self: &mut StakingInnerV1) {
     assert!(self.next_committee.is_none());
-
-    let shard_threshold = self.active_set.total_stake() / (self.n_shards as u64);
 
     let active_ids = self.active_set.active_ids();
     let values = self.apportionment();
