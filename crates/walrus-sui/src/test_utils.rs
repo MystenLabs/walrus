@@ -95,10 +95,10 @@ pub fn get_default_invalid_certificate(blob_id: BlobId, epoch: Epoch) -> Invalid
 /// Handle for the global Sui test cluster.
 pub struct TestClusterHandle {
     wallet_path: Arc<Mutex<PathBuf>>,
-    _cluster: TestCluster,
+    cluster: TestCluster,
 
     #[cfg(msim)]
-    _node_handle: NodeHandle,
+    node_handle: NodeHandle,
 }
 
 impl Debug for TestClusterHandle {
@@ -122,7 +122,7 @@ impl TestClusterHandle {
         let (cluster, wallet_path) = rx.recv().expect("should receive test_cluster");
         Self {
             wallet_path: Arc::new(Mutex::new(wallet_path)),
-            _cluster: cluster,
+            cluster,
         }
     }
 
@@ -150,14 +150,25 @@ impl TestClusterHandle {
         };
         Self {
             wallet_path: Arc::new(Mutex::new(wallet_path)),
-            _cluster: cluster,
-            _node_handle: node_handle,
+            cluster,
+            node_handle,
         }
     }
 
     /// Returns the path to the wallet config file.
     pub fn wallet_path(&self) -> Arc<Mutex<PathBuf>> {
         self.wallet_path.clone()
+    }
+
+    /// Returns the Sui test cluster.
+    pub fn sui_cluster(&self) -> &TestCluster {
+        &self.cluster
+    }
+
+    /// Returns the node handle for the Sui test cluster.
+    #[cfg(msim)]
+    pub fn sim_node_handle(&self) -> &NodeHandle {
+        &self.node_handle
     }
 }
 

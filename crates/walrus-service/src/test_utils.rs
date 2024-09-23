@@ -124,7 +124,7 @@ pub trait StorageNodeHandleTrait {
     /// Builds a new storage node handle.
     fn build(
         builder: StorageNodeHandleBuilder,
-        sui_cluster: Option<Arc<Mutex<PathBuf>>>,
+        sui_cluster_wallet_path: Option<Arc<Mutex<PathBuf>>>,
         system_context: Option<SystemContext>,
         storage_dir: TempDir,
     ) -> impl std::future::Future<Output = anyhow::Result<Self>> + Send
@@ -180,7 +180,7 @@ impl StorageNodeHandleTrait for StorageNodeHandle {
 
     async fn build(
         builder: StorageNodeHandleBuilder,
-        _sui_cluster: Option<Arc<Mutex<PathBuf>>>,
+        _sui_cluster_wallet_path: Option<Arc<Mutex<PathBuf>>>,
         _system_context: Option<SystemContext>,
         _storage_dir: TempDir,
     ) -> anyhow::Result<Self> {
@@ -244,7 +244,7 @@ impl StorageNodeHandleTrait for SimStorageNodeHandle {
 
     async fn build(
         builder: StorageNodeHandleBuilder,
-        sui_cluster: Option<Arc<Mutex<PathBuf>>>,
+        sui_cluster_wallet_path: Option<Arc<Mutex<PathBuf>>>,
         system_context: Option<SystemContext>,
         storage_dir: TempDir,
     ) -> anyhow::Result<Self>
@@ -253,7 +253,7 @@ impl StorageNodeHandleTrait for SimStorageNodeHandle {
     {
         builder
             .start_node(
-                sui_cluster.expect("SUI cluster handle must be provided"),
+                sui_cluster_wallet_path.expect("SUI cluster wallet path must be provided"),
                 system_context.expect("System context must be provided"),
                 storage_dir,
             )
@@ -534,7 +534,7 @@ impl StorageNodeHandleBuilder {
     #[allow(unused_variables)]
     pub async fn start_node(
         self,
-        sui_cluster: Arc<Mutex<PathBuf>>,
+        sui_cluster_wallet_path: Arc<Mutex<PathBuf>>,
         system_context: SystemContext,
         storage_dir: TempDir,
     ) -> anyhow::Result<SimStorageNodeHandle> {
@@ -554,7 +554,7 @@ impl StorageNodeHandleBuilder {
 
         #[cfg(msim)]
         let handle = Self::spawn_node(
-            sui_cluster,
+            sui_cluster_wallet_path,
             system_context,
             storage_node_config.clone(),
             cancel_token.clone(),
@@ -585,7 +585,7 @@ impl StorageNodeHandleBuilder {
 
     #[cfg(msim)]
     async fn spawn_node(
-        sui_cluster: Arc<Mutex<PathBuf>>,
+        sui_cluster_wallet_path: Arc<Mutex<PathBuf>>,
         system_context: SystemContext,
         config: StorageNodeConfig,
         cancel_token: CancellationToken,
@@ -606,7 +606,7 @@ impl StorageNodeHandleBuilder {
             ))
             .init(move || {
                 tracing::info!("Restart node");
-                let sui_cluster = sui_cluster.clone();
+                let wallet_path = sui_cluster_wallet_path.clone();
                 let system_context = system_context.clone();
                 let config = config.clone();
                 let cancel_token = cancel_token.clone();
@@ -615,7 +615,7 @@ impl StorageNodeHandleBuilder {
 
                 async move {
                     let (rest_api_handle, node_handle) = Self::build_and_run_node(
-                        sui_cluster,
+                        wallet_path,
                         system_context,
                         config,
                         cancel_token.clone(),
@@ -651,7 +651,7 @@ impl StorageNodeHandleBuilder {
 
     #[cfg(msim)]
     async fn build_and_run_node(
-        sui_cluster: Arc<Mutex<PathBuf>>,
+        sui_cluster_wallet_path: Arc<Mutex<PathBuf>>,
         system_context: SystemContext,
         config: StorageNodeConfig,
         cancel_token: CancellationToken,
@@ -660,7 +660,8 @@ impl StorageNodeHandleBuilder {
         tokio::task::JoinHandle<Result<(), anyhow::Error>>,
     )> {
         let wallet =
-            test_utils::new_wallet_on_sui_test_cluster_from_path(sui_cluster.clone()).await?;
+            test_utils::new_wallet_on_sui_test_cluster_from_path(sui_cluster_wallet_path.clone())
+                .await?;
 
         let sui_read_client = SuiReadClient::new(
             wallet.as_ref().get_client().await?,

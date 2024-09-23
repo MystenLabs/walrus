@@ -6,7 +6,9 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+anyhow.workspace = true
 prometheus.workspace = true
+rand.workspace = true
 sui-json-rpc-types = { workspace = true, features = ["test-utils"] }
 sui-macros.workspace = true
 sui-protocol-config.workspace = true
