@@ -9,7 +9,6 @@ use fastcrypto::traits::ToFromBytes;
 use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::{serde_as, DisplayFromStr};
 use sui_types::base_types::ObjectID;
-use thiserror::Error;
 use tracing::instrument;
 use walrus_core::{BlobId, EncodingType, Epoch, NetworkPublicKey, PublicKey, ShardIndex};
 
@@ -258,16 +257,25 @@ pub(crate) struct EpochParams {
 
 /// The epoch state.
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
-pub(crate) enum EpochState {
-    // Epoch change is currently in progress. Contains the weight of the nodes that
-    // have already attested that they finished the sync.
+pub enum EpochState {
+    /// The epoch change is currently in progress.
+    ///
+    /// Contains the weight of the nodes that have already attested that they finished the sync.
     EpochChangeSync(u16),
-    // Epoch change has been completed at the contained timestamp.
+    /// The epoch change has been completed at the contained timestamp.
     EpochChangeDone(u64),
-    // The parameters for the next epoch have been selected.
-    // The contained timestamp is the start of the current epoch.
+    /// The parameters for the next epoch have been selected.
+    ///
+    /// The contained timestamp is the start of the current epoch.
     #[serde(deserialize_with = "chrono::serde::ts_milliseconds::deserialize")]
     NextParamsSelected(chrono::DateTime<chrono::Utc>),
+}
+
+impl EpochState {
+    /// Returns `true` if an epoch change is in progress.
+    pub fn is_transitioning(&self) -> bool {
+        matches!(self, Self::EpochChangeSync(_))
+    }
 }
 
 /// The committee shard assignment.
