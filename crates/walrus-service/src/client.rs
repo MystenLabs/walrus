@@ -52,6 +52,7 @@ use self::{
     responses::BlobStoreResult,
     utils::{CompletedReasonWeight, WeightedFutures},
 };
+use crate::common::active_committees::ActiveCommittees;
 
 pub mod cli;
 pub mod responses;
@@ -105,8 +106,7 @@ impl StoreWhen {
 pub struct Client<T> {
     config: Config,
     sui_client: T,
-    // INV: committee.n_shards > 0
-    committee: Committee,
+    committees: ActiveCommittees,
     storage_price_per_unit_size: u64,
     communication_limits: CommunicationLimits,
     encoding_config: EncodingConfig,
@@ -122,29 +122,22 @@ impl Client<()> {
     ) -> ClientResult<Self> {
         tracing::debug!(?config, "running client");
 
-        // Get the committee, and check that there is at least one shard per node.
-        let committee = sui_read_client
-            .current_committee()
+        let committees = ActiveCommittees::from_sui(sui_read_client)
             .await
             .map_err(ClientError::other)?;
-        for node in committee.members() {
-            ensure!(
-                !node.shard_ids.is_empty(),
-                ClientErrorKind::InvalidConfig.into(),
-            );
-        }
+
         let storage_price_per_unit_size = sui_read_client
             .storage_price_per_unit_size()
             .await
             .map_err(ClientError::other)?;
 
-        let encoding_config = EncodingConfig::new(committee.n_shards());
+        let encoding_config = EncodingConfig::new(committees.n_shards());
         let communication_limits =
             CommunicationLimits::new(&config.communication_config, encoding_config.n_shards());
 
         Ok(Self {
             sui_client: (),
-            committee,
+            committees,
             storage_price_per_unit_size,
             encoding_config,
             communication_limits,
@@ -161,7 +154,7 @@ impl Client<()> {
         let Self {
             config,
             sui_client: _,
-            committee,
+            committees,
             storage_price_per_unit_size,
             encoding_config,
             communication_limits,
@@ -171,7 +164,7 @@ impl Client<()> {
         Client::<T> {
             config,
             sui_client,
-            committee,
+            committees,
             storage_price_per_unit_size,
             encoding_config,
             communication_limits,
@@ -237,7 +230,7 @@ impl<T: ContractClient> Client<T> {
                     status_event,
                     ..
                 } => {
-                    if end_epoch >= self.committee.epoch + epochs_ahead {
+                    if end_epoch >= self.committees.current_committee().epoch + epochs_ahead {
                         tracing::debug!(end_epoch, "blob is already certified");
                         return Ok(BlobStoreResult::AlreadyCertified {
                             blob_id,
@@ -283,7 +276,7 @@ impl<T: ContractClient> Client<T> {
             .map_err(|e| ClientError::from(ClientErrorKind::CertificationFailed(e)))?;
 
         // TODO(mlegner): Make sure this works if the epoch changes. (#753)
-        blob.certified_epoch = Some(self.committee.epoch);
+        blob.certified_epoch = Some(self.committees.current_committee().epoch);
 
         let encoded_size =
             encoded_blob_length_for_n_shards(self.encoding_config.n_shards(), blob.size)
@@ -337,7 +330,7 @@ impl<T: ContractClient> Client<T> {
                         .into(),
                     ))
                 })?,
-                epochs_ahead + self.committee.epoch,
+                epochs_ahead + self.committees.current_committee().epoch,
             )
             .await?
         {
@@ -380,7 +373,8 @@ impl<T: ContractClient> Client<T> {
             .into_iter()
             .find(|blob| {
                 blob.blob_id == *blob_id
-                    && blob.storage.end_epoch >= self.committee.epoch + epochs_ahead
+                    && blob.storage.end_epoch
+                        >= self.committees.current_committee().epoch + epochs_ahead
                     && blob.deletable == persistence.is_deletable()
             }))
     }
@@ -466,8 +460,12 @@ impl<T> Client<T> {
         // connections is limited through a semaphore depending on the [`max_data_in_flight`][]
         if let CompletedReasonWeight::FuturesConsumed(weight) = requests
             .execute_weight(
-                &|weight| self.committee.is_at_least_min_n_correct(weight),
-                self.committee.n_shards().get().into(),
+                &|weight| {
+                    self.committees
+                        .current_committee()
+                        .is_at_least_min_n_correct(weight)
+                },
+                self.committees.n_shards().get().into(),
             )
             .await
         {
@@ -488,7 +486,7 @@ impl<T> Client<T> {
         let completed_reason = requests
             .execute_time(
                 start.elapsed() / 10 + Duration::from_millis(100),
-                self.committee.n_shards().get().into(),
+                self.committees.n_shards().get().into(),
             )
             .await;
         tracing::debug!(
@@ -528,7 +526,9 @@ impl<T> Client<T> {
             }
         }
         ensure!(
-            self.committee.is_at_least_min_n_correct(aggregate_weight),
+            self.committees
+                .current_committee()
+                .is_at_least_min_n_correct(aggregate_weight),
             self.not_enough_confirmations_error(aggregate_weight)
         );
 
@@ -536,15 +536,22 @@ impl<T> Client<T> {
             BLS12381AggregateSignature::aggregate(&valid_signatures).map_err(ClientError::other)?;
         let cert = ConfirmationCertificate::new(
             signers,
-            bcs::to_bytes(&Confirmation::new(self.committee.epoch, *blob_id))
-                .expect("serialization should always succeed"),
+            bcs::to_bytes(&Confirmation::new(
+                self.committees.current_committee().epoch,
+                *blob_id,
+            ))
+            .expect("serialization should always succeed"),
             aggregate,
         );
         Ok(cert)
     }
 
     fn not_enough_confirmations_error(&self, weight: usize) -> ClientError {
-        ClientErrorKind::NotEnoughConfirmations(weight, self.committee.min_n_correct()).into()
+        ClientErrorKind::NotEnoughConfirmations(
+            weight,
+            self.committees.current_committee().min_n_correct(),
+        )
+        .into()
     }
 
     /// Reconstructs the blob by reading slivers from Walrus shards.
@@ -618,7 +625,7 @@ impl<T> Client<T> {
             })
             .collect::<Vec<_>>();
 
-        if self.committee.is_quorum(n_not_found) {
+        if self.committees.current_committee().is_quorum(n_not_found) {
             return Err(ClientErrorKind::BlobIdDoesNotExist.into());
         }
 
@@ -674,7 +681,7 @@ impl<T> Client<T> {
                     tracing::warn!(%node, %error, "retrieving sliver failed");
                     if error.is_status_not_found() && {
                         n_not_found += 1;
-                        self.committee.is_quorum(n_not_found)
+                        self.committees.current_committee().is_quorum(n_not_found)
                     } {
                         return Err(ClientErrorKind::BlobIdDoesNotExist.into());
                     }
@@ -743,7 +750,7 @@ impl<T> Client<T> {
                 Err(error) => {
                     if error.is_status_not_found() && {
                         n_not_found += weight;
-                        self.committee.is_quorum(n_not_found)
+                        self.committees.current_committee().is_quorum(n_not_found)
                     } {
                         return Err(ClientErrorKind::BlobIdDoesNotExist.into());
                     }
@@ -769,7 +776,7 @@ impl<T> Client<T> {
         let mut requests = WeightedFutures::new(futures);
         requests
             .execute_until(
-                &|weight| self.committee.is_quorum(weight),
+                &|weight| self.committees.current_committee().is_quorum(weight),
                 timeout,
                 self.communication_limits.max_concurrent_status_reads,
             )
@@ -783,7 +790,10 @@ impl<T> Client<T> {
         // of `Ord` and `PartialOrd` for `BlobStatus`.
         statuses_list.sort_unstable();
         for status in statuses_list.into_iter().rev() {
-            if self.committee.is_above_validity(statuses[&status])
+            if self
+                .committees
+                .current_committee()
+                .is_above_validity(statuses[&status])
                 || verify_blob_status_event(blob_id, status, read_client)
                     .await
                     .is_ok()
@@ -811,7 +821,7 @@ impl<T> Client<T> {
         &'a self,
         constructor: impl Fn(usize) -> Result<Option<NodeCommunication<'a, W>>, ClientBuildError>,
     ) -> ClientResult<Vec<NodeCommunication<'a, W>>> {
-        let mut comms: Vec<_> = (0..self.committee.n_members())
+        let mut comms: Vec<_> = (0..self.committees.current_committee().n_members())
             .map(|i| (i, constructor(i)))
             .collect();
 
@@ -847,7 +857,7 @@ impl<T> Client<T> {
         self.node_communications(|index| {
             self.communication_factory.create_write_communication(
                 index,
-                &self.committee,
+                self.committees.current_committee(),
                 &self.encoding_config,
                 sliver_write_limit.clone(),
             )
@@ -859,7 +869,7 @@ impl<T> Client<T> {
         self.node_communications(|index| {
             self.communication_factory.create_read_communication(
                 index,
-                &self.committee,
+                self.committees.current_committee(),
                 &self.encoding_config,
             )
         })
@@ -878,7 +888,8 @@ impl<T> Client<T> {
         &self,
         threshold_fn: impl Fn(usize) -> bool,
     ) -> ClientResult<Vec<NodeCommunication>> {
-        let mut random_indices: Vec<_> = (0..self.committee.members().len()).collect();
+        let mut random_indices: Vec<_> =
+            (0..self.committees.current_committee().members().len()).collect();
         random_indices.shuffle(&mut thread_rng());
         let mut random_indices = random_indices.into_iter();
         let mut weight = 0;
@@ -894,13 +905,15 @@ impl<T> Client<T> {
                 )
                 .into());
             };
-            weight += self.committee.members()[index].shard_ids.len();
+            weight += self.committees.current_committee().members()[index]
+                .shard_ids
+                .len();
 
             // Since we are attempting this in a loop, we will retry until we have a threshold of
             // successfully constructed clients (no error and with shards).
             if let Ok(Some(comm)) = self.communication_factory.create_read_communication(
                 index,
-                &self.committee,
+                self.committees.current_committee(),
                 &self.encoding_config,
             ) {
                 comms.push(comm);
@@ -910,8 +923,10 @@ impl<T> Client<T> {
 
     /// Returns a vector of [`NodeCommunication`] objects, the weight of which is at least a quorum.
     fn node_communications_quorum(&self) -> Vec<NodeCommunication> {
-        self.node_communications_threshold(|weight| self.committee.is_quorum(weight))
-            .expect("the threshold is below the total number of shards")
+        self.node_communications_threshold(|weight| {
+            self.committees.current_committee().is_quorum(weight)
+        })
+        .expect("the threshold is below the total number of shards")
     }
 
     /// Maps the sliver pairs to the node that holds their shard.
@@ -920,7 +935,8 @@ impl<T> Client<T> {
         blob_id: &'a BlobId,
         pairs: &'a [SliverPair],
     ) -> HashMap<usize, impl Iterator<Item = &SliverPair>> {
-        self.committee
+        self.committees
+            .current_committee()
             .members()
             .iter()
             .map(|node| {
@@ -928,7 +944,7 @@ impl<T> Client<T> {
                     node.shard_ids.contains(
                         &pair
                             .index()
-                            .to_shard_index(self.committee.n_shards(), blob_id),
+                            .to_shard_index(self.committees.n_shards(), blob_id),
                     )
                 })
             })

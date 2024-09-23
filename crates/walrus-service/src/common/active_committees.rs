@@ -1,10 +1,13 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{cmp::Ordering, mem, sync::Arc};
+use std::{cmp::Ordering, mem, num::NonZeroU16, sync::Arc};
 
 use walrus_core::{ensure, Epoch};
-use walrus_sui::{client::ReadClient, types::Committee};
+use walrus_sui::{
+    client::{ReadClient, SuiClientError},
+    types::Committee,
+};
 
 /// Errors returned when starting a committee change with
 /// [`ActiveCommittees::begin_committee_change`].
@@ -88,6 +91,7 @@ pub(crate) trait CommitteeTransitions {
 }
 
 /// The current, prior, and next committees in the system.
+// INV: current_committee.n_shards() == prior_committee.n_shards() == upcoming_committee.n_shards()
 #[derive(Debug, Clone)]
 pub(crate) struct ActiveCommittees {
     /// The currently reigning committee.
@@ -163,8 +167,6 @@ impl ActiveCommittees {
     /// Panics if the prior committee is None when the current_committee has an epoch greater than
     /// zero, if the prior committee's epoch does not precede that of the current committees, or if
     /// they have a different number of shards.
-    #[allow(dead_code)]
-    // TODO(giac): remove allow in follow up PR.
     pub fn new_with_upcoming(
         current_committee: Committee,
         prior_committee: Option<Committee>,
@@ -182,9 +184,8 @@ impl ActiveCommittees {
     }
 
     /// Construct a new set of `ActiveCommittees`, fetching the status from Sui.
-    #[allow(dead_code)]
-    // TODO(giac): remove allow in follow up PR.
-    pub async fn from_sui(read_client: &impl ReadClient) -> Result<Self, anyhow::Error> {
+    #[tracing::instrument(skip_all)]
+    pub async fn from_sui(read_client: &impl ReadClient) -> Result<Self, SuiClientError> {
         let current_committee = read_client.current_committee().await?;
         let prior_committee = read_client.previous_committee().await?;
         let upcoming_committee = read_client.next_committee().await?;
@@ -264,6 +265,13 @@ impl ActiveCommittees {
             return self.prior_committee.as_ref();
         }
         None
+    }
+
+    /// Returns the number of shards in the committee.
+    ///
+    /// Given the invariants enforced by this struct, `n_shards` is the same for all committees.
+    pub fn n_shards(&self) -> NonZeroU16 {
+        self.current_committee.n_shards()
     }
 
     fn check_invariants(&self) {
