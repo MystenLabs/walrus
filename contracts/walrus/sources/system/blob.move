@@ -106,8 +106,8 @@ public(package) fun derive_blob_id(root_hash: u256, encoding_type: u8, size: u64
 }
 
 /// Creates a new blob in `registered_epoch`.
-/// `size` is the size of the unencoded blob. The reserved space in `storage` must be at
-/// least the size of the encoded blob.
+/// `size` is the size of the unencoded blob. The reserved space in `storage` must be
+/// exactly the size of the encoded blob.
 public(package) fun new(
     storage: Storage,
     blob_id: u256,
@@ -132,7 +132,7 @@ public(package) fun new(
         encoding_type,
         n_shards,
     );
-    assert!(encoded_size <= storage.storage_size(), EResourceSize);
+    assert!(encoded_size == storage.storage_size(), EResourceSize);
 
     // Cryptographically verify that the Blob ID authenticates
     // both the size and fe_type.

@@ -164,8 +164,8 @@ public(package) fun invalidate_blob_id(
 }
 
 /// Registers a new blob in the system.
-/// `size` is the size of the unencoded blob. The reserved space in `storage` must be at
-/// least the size of the encoded blob.
+/// `size` is the size of the unencoded blob. The reserved space in `storage` must be
+/// exactly the size of the encoded blob.
 public(package) fun register_blob(
     self: &mut SystemStateInnerV1,
     storage: Storage,

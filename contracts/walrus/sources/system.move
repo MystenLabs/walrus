@@ -61,8 +61,8 @@ public fun reserve_space(
 }
 
 /// Registers a new blob in the system.
-/// `size` is the size of the unencoded blob. The reserved space in `storage` must be at
-/// least the size of the encoded blob.
+/// `size` is the size of the unencoded blob. The reserved space in `storage` must be
+/// exactly the size of the encoded blob.
 public fun register_blob(
     self: &mut System,
     storage: Storage,
