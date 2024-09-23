@@ -6,7 +6,7 @@ use std::{cmp::Ordering, mem, num::NonZeroU16, sync::Arc};
 use walrus_core::{ensure, Epoch};
 use walrus_sui::{
     client::{ReadClient, SuiClientError},
-    types::Committee,
+    types::{move_structs::EpochState, Committee},
 };
 
 /// Errors returned when starting a committee change with
@@ -186,10 +186,15 @@ impl ActiveCommittees {
     /// Construct a new set of `ActiveCommittees`, fetching the status from Sui.
     #[tracing::instrument(skip_all)]
     pub async fn from_sui(read_client: &impl ReadClient) -> Result<Self, SuiClientError> {
+        let epoch_state = read_client.epoch_state().await?;
         let current_committee = read_client.current_committee().await?;
         let prior_committee = read_client.previous_committee().await?;
-        let upcoming_committee = read_client.next_committee().await?;
-        let epoch_state = read_client.epoch_state().await?;
+        let upcoming_committee = if let EpochState::NextParamsSelected(_) = epoch_state {
+            // This is the only case where the upcoming committee is known.
+            read_client.next_committee().await?
+        } else {
+            None
+        };
 
         Ok(Self::new_with_upcoming(
             current_committee,
