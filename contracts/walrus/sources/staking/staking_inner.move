@@ -408,108 +408,95 @@ fun dhondt(
     // initial price guess following Pukelsheim
     let mut price = from_rational(total_stake, n_shards + (n_nodes / 2));
     if (n_nodes == 0) return (price, vector[]);
-    let mut needs_one_more = vector<u64>[];
-    let mut needs_one_less = vector<u64>[];
-    loop {
-        let mut shards = stake.map_ref!(|s| u64_div(*s, price));
-        needs_one_more.do!(|i| *&mut shards[i] = shards[i] + 1);
-        needs_one_less.do!(|i| *&mut shards[i] = shards[i] - 1);
-        let n_shards_distributed = shards.fold!(0, |acc, x| acc + x);
-
-        // if all shards are distributed, we are done
-        if (n_shards_distributed == n_shards) break (price, shards.map!(|s| s as u16));
-
-        needs_one_more = vector[];
-        needs_one_less = vector[];
-        if (n_shards_distributed < n_shards) {
-            let mut with_max = vector[];
-            let mut max = from_raw(0);
-            let new_prices = stake.zip_map_ref!(&shards, |s, m| from_rational(*s, *m + 1));
-            let mut i = 0;
-            new_prices.do!(|p| {
-                if (p.to_raw() > max.to_raw()) {
-                    max = p;
-                    with_max = vector[i];
-                } else if (p == max) {
-                    with_max.push_back(i);
-                };
-                i = i + 1;
-            });
-            let n_max = with_max.length();
-            let adjusted_distribution = n_shards_distributed + n_max;
-            if (n_max > 1 && adjusted_distribution > n_shards) {
-                // If there is more than one node with the same max price, we need to manually
-                // adjust enough of them so that `n_shards_distributed == n_shards`. In which case,
-                // there is no need to adjust the price.
-                let to_give = n_shards - n_shards_distributed;
-                // slightly optimized
-                // needs_one_more = ranking.filter!(|i| with_max.contains(i)).take!(to_give)
-                'update_needs_one_more: {
-                    let n = ranking.length();
-                    // iterate over the ranking, giving shards from the nodes with the highest
-                    // rank first
-                    n.do!(|i| {
-                        let idx = &ranking[i];
-                        if (with_max.contains(idx)) {
-                            needs_one_more.push_back(*idx);
-                            if (needs_one_more.length() == to_give) return 'update_needs_one_more;
-                        }
-                    })
-                }
-            } else {
-                // decrease the price such that one node gets an additional shard
-                price = max
-            }
-        } else {
-            let mut with_min = vector[];
-            // TODO use std::u64::max_value!()
-            let mut min = from_raw(0xFFFF_FFFF_FFFF_FFFF);
-            let new_prices = stake.zip_map_ref!(&shards, |s, m| {
-                let m = *m;
-                if (m == 0) option::none()
-                else option::some(from_rational(*s, m))
-            });
-            let mut i = 0;
-            new_prices.do!(|p_opt| {
-                p_opt.do!(|p| {
-                    if (p.to_raw() < min.to_raw()) {
-                        min = p;
-                        with_min = vector[i];
-                    } else if (p == min) {
-                        with_min.push_back(i);
-                    }
+    let mut shards = stake.map_ref!(|s| u64_div(*s, price));
+    let mut n_shards_distributed = shards.fold!(0, |acc, x| acc + x);
+    // loop until all shards are distributed
+    while (n_shards_distributed != n_shards) {
+        n_shards_distributed = if (n_shards_distributed < n_shards) {
+                // We decrease the price slightly such that some nodes get an additional shard.
+                price = from_raw(0);
+                let mut at_threshold = vector[];
+                let mut i = 0;
+                stake.zip_do_ref!(&shards, |s, m| {
+                    let threshold_price = from_rational(*s, *m + 1);
+                    if (threshold_price.to_raw() > price.to_raw()) {
+                        price = threshold_price;
+                        at_threshold = vector[i];
+                    } else if (threshold_price == price) {
+                        at_threshold.push_back(i);
+                    };
+                    i = i + 1;
                 });
-                i = i + 1;
-            });
-            let n_min = with_min.length();
-            let adjusted_distribution = n_shards_distributed.max(n_min) - n_min;
-            if (n_min > 1 && adjusted_distribution < n_shards) {
-                // If there is more than one node with the same min price, we need to manually
-                // adjust enough of them so that `n_shards_distributed == n_shards`. In which case,
-                // there is no need to adjust the price.
-                let to_take = n_shards_distributed - n_shards;
-                // slightly optimized
-                // needs_one_less =
-                //     ranking.reverse().filter!(|i| with_min.contains(i)).take!(to_take)
-                'update_needs_one_less: {
-                    let n = ranking.length();
-                    // reverse iterate over the ranking, taking shards from the nodes with the
-                    // lowest rank first
-                    n.do!(|i| {
-                        let idx = &ranking[n - 1 - i];
-                        if (with_min.contains(idx)) {
-                            needs_one_less.push_back(*idx);
-                            if (needs_one_less.length() == to_take) return 'update_needs_one_less;
+
+                let adjusted_distribution = n_shards_distributed + at_threshold.length();
+                if (adjusted_distribution <= n_shards) {
+                    // We give one additional shard to all nodes with the same threshold price.
+                    at_threshold.do!(|n| *&mut shards[n] = shards[n] + 1);
+                    adjusted_distribution
+                } else {
+                    // If there are more nodes with the same threshold price than additional shards
+                    // to distribute, we only give an additional shard to a subset according to
+                    // their rank so that `n_shards_distributed == n_shards`.
+                    let mut to_give = n_shards - n_shards_distributed;
+                    // Iterate over the ranking, giving shards from the nodes with the highest
+                    // rank first.
+                    ranking.length().do!(|i| {
+                        if (to_give == 0) return;
+                        let idx = &ranking[i];
+                        if (at_threshold.contains(idx)) {
+                            *&mut shards[*idx] = shards[*idx] + 1;
+                            to_give = to_give - 1;
                         }
-                    })
+                    });
+                    n_shards
                 }
             } else {
-                // increase the price such that one node loses one shard
-                // min + (1 / 4000000000)
-                price = min.add(from_raw(1))
+                // We increase the price slightly such that some nodes get one fewer shard.
+                price = from_raw(0xFFFF_FFFF_FFFF_FFFF); // TODO: use std::u64::max_value!()
+                let mut at_threshold = vector[];
+                let mut i = 0;
+                stake.zip_do_ref!(&shards, |s, m| {
+                    let m = *m;
+                    if (m != 0) {
+                        let threshold_price = from_rational(*s, m);
+                        if (threshold_price.to_raw() < price.to_raw()) {
+                            price = threshold_price;
+                            at_threshold = vector[i];
+                        } else if (threshold_price == price) {
+                            at_threshold.push_back(i);
+                        }
+                    };
+                    i = i + 1;
+                });
+                // `at_threshold.length() <= n_shards_distributed` due to the check `m != 0` above.
+                let adjusted_distribution = n_shards_distributed - at_threshold.length();
+                if (adjusted_distribution >= n_shards) {
+                    // We increase the price slightly above the threshold such that all nodes at
+                    // the threshold lose one shard.
+                    // price += 1 / 4000000000
+                    price = price.add(from_raw(1));
+                    at_threshold.do!(|n| *&mut shards[n] = shards[n] - 1);
+                    adjusted_distribution
+                } else {
+                    // If there are more nodes with the same threshold price than shards to take
+                    // away, we only remove a shard from a subset according to their rank so that
+                    // `n_shards_distributed == n_shards`. In this case, the price remains at the
+                    // threshold.
+                    let mut to_take = n_shards_distributed - n_shards;
+                    let n = ranking.length();
+                    n.do!(|i| {
+                        if (to_take == 0) return;
+                        let idx = &ranking[n - 1 - i];
+                        if (at_threshold.contains(idx)) {
+                            *&mut shards[*idx] = shards[*idx] - 1;
+                            to_take = to_take - 1;
+                        }
+                    });
+                    n_shards
+                }
             }
-        }
-    }
+    };
+    (price, shards.map!(|s| s as u16))
 }
 
 use fun fp_add as FixedPoint32.add;
