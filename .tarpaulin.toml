@@ -1,17 +1,28 @@
 [default]
 skip-clean = true
-run-types = ["Bins", "Doctests", "Examples", "Lib", "Tests"]
+run-types = ["Doctests", "Lib", "Tests"]
 out = ["Html", "Xml"]
+packages = [
+  "walrus-core",
+  "walrus-event",
+  "walrus-sdk",
+  "walrus-service",
+  "walrus-sui",
+]
 # Use separate target directory to avoid interference with other builds.
 target-dir = "target/tarpaulin"
-# Increase timeout for longer-running tests to 3 minutes.
-timeout = "3min"
+# Increase timeout for longer-running tests to 5 minutes.
+timeout = "5min"
 # Don't include test and benchmark code in the coverage result.
 exclude-files = [
   "crates/**/benches/**/*",
   "crates/**/tests/**/*",
   "crates/**/test_utils/**/*",
+  "crates/walrus-e2e-tests/**/*",
   "crates/walrus-orchestrator/**/*",
+  "crates/walrus-proc-macros/**/*",
+  "crates/walrus-simtest/**/*",
+  "crates/walrus-stress/**/*",
   "crates/walrus-test-utils/**/*",
 ]
 # Include all tests, even longer integration tests.
