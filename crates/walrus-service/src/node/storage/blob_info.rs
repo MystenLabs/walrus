@@ -583,9 +583,9 @@ impl BlobInfoApi for BlobInfoV1 {
             self,
             Self::Valid(ValidBlobInfoV1 {
                 count_deletable_total,
-                permanent_total: Some(_),
+                permanent_total,
                 ..
-            }) if *count_deletable_total > 0
+            }) if *count_deletable_total > 0 || permanent_total.is_some()
         )
     }
 
@@ -594,9 +594,9 @@ impl BlobInfoApi for BlobInfoV1 {
             self,
             Self::Valid(ValidBlobInfoV1 {
                 count_deletable_certified,
-                permanent_certified: Some(_),
+                permanent_certified,
                 ..
-            }) if *count_deletable_certified > 0
+            }) if *count_deletable_certified > 0 || permanent_certified.is_some()
         )
     }
 

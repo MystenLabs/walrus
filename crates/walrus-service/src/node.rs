@@ -474,6 +474,9 @@ impl StorageNode {
         let next_index: usize = from_element_index.try_into().expect("64-bit architecture");
         let index_stream = stream::iter(next_index..);
         let mut indexed_element_stream = index_stream.zip(event_stream);
+        // Important: Events must be handled consecutively and in order to prevent (intermittent)
+        // invariant violations and interference between different events. See, for example,
+        // `Self::cancel_sync_and_mark_certified_event_completed`.
         while let Some((element_index, stream_element)) = indexed_element_stream.next().await {
             let span = tracing::info_span!(
                 parent: None,
@@ -640,9 +643,14 @@ impl StorageNode {
                 self.cancel_sync_and_mark_certified_event_completed(&blob_id)
                     .await?;
             }
+            // Note that this function is called *after* the blob info has already been updated with
+            // the event. So it can happen that the only registered blob was deleted and the blob is
+            // now no longer registered.
             if !blob_info.is_registered() {
                 self.inner.storage.delete_blob(&event.blob_id, true)?;
             }
+        } else {
+            tracing::warn!(%blob_id, "handling `BlobDeleted` event for untracked blob");
         }
 
         self.inner
@@ -668,8 +676,9 @@ impl StorageNode {
     /// Cancels any existing blob syncs for the provided `blob_id` and marks the corresponding
     /// events as completed.
     ///
-    /// To avoid race conditions, this function must not be run concurrently with any logic for
-    /// processing events from the stream, so a cancelled event cannot be restarted.
+    /// To avoid interference with later events (e.g., cancelling a sync initiated by a later event
+    /// or immediately restarting the sync that is cancelled here), this function should be called
+    /// before any later events are being handled.
     async fn cancel_sync_and_mark_certified_event_completed(
         &self,
         blob_id: &BlobId,
@@ -679,7 +688,6 @@ impl StorageNode {
         {
             // Advance the event cursor with the event of the cancelled sync. Since the blob is
             // invalid the associated blob certified event is completed without a sync.
-            //
             self.inner
                 .mark_event_completed(cancelled_event_index, &cancelled_event_id)?;
         }
@@ -1246,11 +1254,16 @@ mod tests {
 
     async_param_test! {
         deletes_blob_data_on_event -> TestResult: [
-            invalid_blob_event: (InvalidBlobId::for_testing(BLOB_ID).into()),
-            blob_deleted_event: (BlobDeleted::for_testing(BLOB_ID).into()),
+            invalid_blob_event_registered: (InvalidBlobId::for_testing(BLOB_ID).into(), false),
+            blob_deleted_event_registered: (
+                BlobDeleted{was_certified: false, ..BlobDeleted::for_testing(BLOB_ID)}.into(),
+                false
+            ),
+            invalid_blob_event_certified: (InvalidBlobId::for_testing(BLOB_ID).into(), true),
+            blob_deleted_event_certified: (BlobDeleted::for_testing(BLOB_ID).into(), true),
         ]
     }
-    async fn deletes_blob_data_on_event(event: BlobEvent) -> TestResult {
+    async fn deletes_blob_data_on_event(event: BlobEvent, is_certified: bool) -> TestResult {
         let events = Sender::new(48);
         let node = StorageNodeHandle::builder()
             .with_storage(populated_storage(&[
@@ -1265,6 +1278,7 @@ mod tests {
 
         tokio::time::sleep(Duration::from_millis(50)).await;
 
+        assert!(storage.is_stored_at_all_shards(&BLOB_ID)?);
         events.send(
             BlobRegistered {
                 deletable: true,
@@ -1272,14 +1286,15 @@ mod tests {
             }
             .into(),
         )?;
-        events.send(
-            BlobCertified {
-                deletable: true,
-                ..BlobCertified::for_testing(BLOB_ID)
-            }
-            .into(),
-        )?;
-        assert!(storage.is_stored_at_all_shards(&BLOB_ID)?);
+        if is_certified {
+            events.send(
+                BlobCertified {
+                    deletable: true,
+                    ..BlobCertified::for_testing(BLOB_ID)
+                }
+                .into(),
+            )?;
+        }
 
         events.send(event.into())?;
 
