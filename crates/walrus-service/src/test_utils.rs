@@ -48,8 +48,7 @@ use walrus_sdk::client::Client;
 #[cfg(msim)]
 use walrus_sui::{
     client::{SuiContractClient, SuiReadClient},
-    contracts::system,
-    test_utils::{self, TestClusterHandle, DEFAULT_GAS_BUDGET},
+    test_utils::{self, DEFAULT_GAS_BUDGET},
 };
 use walrus_sui::{
     test_utils::system_setup::SystemContext,
@@ -135,6 +134,8 @@ pub trait StorageNodeHandleTrait {
     fn storage_node(&self) -> &Arc<StorageNode>;
     /// Returns the node's protocol public key.
     fn public_key(&self) -> &PublicKey;
+    /// Returns whether the storage node should use a distinct IP address.
+    fn use_distinct_ip() -> bool;
 }
 
 /// A storage node and associated data for testing.
@@ -184,6 +185,10 @@ impl StorageNodeHandleTrait for StorageNodeHandle {
         _storage_dir: TempDir,
     ) -> anyhow::Result<Self> {
         builder.build().await
+    }
+
+    fn use_distinct_ip() -> bool {
+        false
     }
 }
 
@@ -254,13 +259,14 @@ impl StorageNodeHandleTrait for SimStorageNodeHandle {
             )
             .await
     }
+
+    fn use_distinct_ip() -> bool {
+        true
+    }
 }
 
 impl Drop for SimStorageNodeHandle {
     fn drop(&mut self) {
-        #[cfg(msim)]
-        println!("ZZZZZ SuiNode shutting down {:?}", self.node_id);
-
         self.cancel_token.cancel();
     }
 }
@@ -396,7 +402,7 @@ impl StorageNodeHandleBuilder {
     ///
     /// Resets any prior calls to [`Self::with_test_config`].
     pub fn with_shard_assignment(mut self, shards: &[ShardIndex]) -> Self {
-        self.test_config = Some(StorageNodeTestConfig::new(shards.into()));
+        self.test_config = Some(StorageNodeTestConfig::new(shards.into(), false));
         self
     }
 
@@ -424,7 +430,7 @@ impl StorageNodeHandleBuilder {
 
         let node_info = self
             .test_config
-            .unwrap_or_else(|| StorageNodeTestConfig::new(storage.shards_present()));
+            .unwrap_or_else(|| StorageNodeTestConfig::new(storage.shards_present(), false));
         // To be in the committee, the node must have at least one shard assigned to it.
         let is_in_committee = !node_info.shards.is_empty();
 
@@ -525,6 +531,7 @@ impl StorageNodeHandleBuilder {
     }
 
     /// Starts a storage node with the provided configuration.
+    #[allow(unused_variables)]
     pub async fn start_node(
         self,
         sui_cluster: Arc<Mutex<PathBuf>>,
@@ -733,7 +740,7 @@ impl Default for StorageNodeHandleBuilder {
 async fn wait_for_node_ready(client: &Client) -> anyhow::Result<()> {
     tokio::time::timeout(Duration::from_secs(10), async {
         while let Err(err) = client.get_server_health_info().await {
-            tracing::trace!(%err, "node is not ready yet, retrying...");
+            tracing::debug!(%err, "node is not ready yet, retrying...");
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
         Ok(())
@@ -763,7 +770,7 @@ fn committee_partner(node_config: &StorageNodeTestConfig) -> Option<StorageNodeT
         .collect();
 
     if !other_shards.is_empty() {
-        Some(StorageNodeTestConfig::new(other_shards))
+        Some(StorageNodeTestConfig::new(other_shards, false))
     } else {
         None
     }
@@ -885,11 +892,15 @@ impl SystemContractService for StubContractService {
 }
 
 /// Returns a socket address that is not currently in use on the system.
-pub fn unused_socket_address() -> SocketAddr {
-    try_unused_socket_address().expect("unused socket address to be available")
+pub fn unused_socket_address(distinct_ip: bool) -> SocketAddr {
+    if distinct_ip {
+        try_unused_socket_address_with_distinct_ip()
+            .expect("unused socket address with distinct ip to be available")
+    } else {
+        try_unused_socket_address().expect("unused socket address to be available")
+    }
 }
 
-#[cfg(not(msim))]
 fn try_unused_socket_address() -> anyhow::Result<SocketAddr> {
     let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     let address = listener.local_addr()?;
@@ -900,8 +911,7 @@ fn try_unused_socket_address() -> anyhow::Result<SocketAddr> {
     Ok(address)
 }
 
-#[cfg(msim)]
-fn try_unused_socket_address() -> anyhow::Result<SocketAddr> {
+fn try_unused_socket_address_with_distinct_ip() -> anyhow::Result<SocketAddr> {
     use std::str::FromStr;
 
     Ok(SocketAddr::from_str(
@@ -957,7 +967,7 @@ pub struct TestCluster<H: StorageNodeHandleTrait> {
 impl<H: StorageNodeHandleTrait> TestCluster<H> {
     /// Returns a new builder to create the [`TestCluster`].
     pub fn builder() -> TestClusterBuilder {
-        TestClusterBuilder::default()
+        TestClusterBuilder::new(H::use_distinct_ip())
     }
 
     /// Returns an encoding config valid for use with the storage nodes.
@@ -978,7 +988,7 @@ impl<H: StorageNodeHandleTrait> TestCluster<H> {
 
     /// Returns the client for the node at the specified index.
     pub fn client(&self, index: usize) -> &Client {
-        &self.nodes[index].client()
+        self.nodes[index].client()
     }
 }
 
@@ -1001,12 +1011,32 @@ pub struct TestClusterBuilder {
     initial_epoch: Option<Epoch>,
     system_context: Option<SystemContext>,
     sui_cluster_handle: Option<Arc<Mutex<PathBuf>>>,
+    use_distinct_ip: bool,
 }
 
 impl TestClusterBuilder {
     /// Returns a new default builder.
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(distinct_ip: bool) -> Self {
+        let shard_assignment = vec![
+            vec![ShardIndex(0)],
+            vec![ShardIndex(1), ShardIndex(2)],
+            ShardIndex::range(3..6).collect(),
+            ShardIndex::range(6..9).collect(),
+            ShardIndex::range(9..13).collect(),
+        ];
+        Self {
+            event_providers: shard_assignment.iter().map(|_| None).collect(),
+            committee_services: shard_assignment.iter().map(|_| None).collect(),
+            contract_services: shard_assignment.iter().map(|_| None).collect(),
+            storage_node_configs: shard_assignment
+                .into_iter()
+                .map(|shards| StorageNodeTestConfig::new(shards, distinct_ip))
+                .collect(),
+            initial_epoch: None,
+            system_context: None,
+            sui_cluster_handle: None,
+            use_distinct_ip: distinct_ip,
+        }
     }
 
     /// Returns a reference to the storage node test configs of the builder.
@@ -1024,7 +1054,8 @@ impl TestClusterBuilder {
         S: Borrow<[I]>,
         for<'a> &'a I: Into<ShardIndex>,
     {
-        let configs = storage_node_test_configs_from_shard_assignment(assignment);
+        let configs =
+            storage_node_test_configs_from_shard_assignment(assignment, self.use_distinct_ip);
 
         self.event_providers = configs.iter().map(|_| None).collect();
         self.committee_services = configs.iter().map(|_| None).collect();
@@ -1204,11 +1235,11 @@ pub struct StorageNodeTestConfig {
 }
 
 impl StorageNodeTestConfig {
-    fn new(shards: Vec<ShardIndex>) -> Self {
+    fn new(shards: Vec<ShardIndex>, distinct_ip: bool) -> Self {
         Self {
             key_pair: ProtocolKeyPair::generate(),
             network_key_pair: NetworkKeyPair::generate(),
-            rest_api_address: unused_socket_address(),
+            rest_api_address: unused_socket_address(distinct_ip),
             shards,
         }
     }
@@ -1246,7 +1277,10 @@ impl StorageNodeTestConfig {
     }
 }
 
-fn test_config_from_node_shard_assignment<I>(shards: &[I]) -> StorageNodeTestConfig
+fn test_config_from_node_shard_assignment<I>(
+    shards: &[I],
+    distinct_ip: bool,
+) -> StorageNodeTestConfig
 where
     for<'a> &'a I: Into<ShardIndex>,
 {
@@ -1255,12 +1289,13 @@ where
         !shards.is_empty(),
         "shard assignments to nodes must be non-empty"
     );
-    StorageNodeTestConfig::new(shards)
+    StorageNodeTestConfig::new(shards, distinct_ip)
 }
 
 /// Returns storage node test configs for the given `shard_assignment`.
 pub fn storage_node_test_configs_from_shard_assignment<S, I>(
     shard_assignment: &[S],
+    distinct_ip: bool,
 ) -> Vec<StorageNodeTestConfig>
 where
     S: Borrow<[I]>,
@@ -1269,7 +1304,7 @@ where
     let storage_node_configs: Vec<_> = shard_assignment
         .iter()
         .map(|node_shard_assignment| {
-            test_config_from_node_shard_assignment(node_shard_assignment.borrow())
+            test_config_from_node_shard_assignment(node_shard_assignment.borrow(), distinct_ip)
         })
         .collect();
 
@@ -1279,30 +1314,6 @@ where
     );
 
     storage_node_configs
-}
-
-impl Default for TestClusterBuilder {
-    fn default() -> Self {
-        let shard_assignment = vec![
-            vec![ShardIndex(0)],
-            vec![ShardIndex(1), ShardIndex(2)],
-            ShardIndex::range(3..6).collect(),
-            ShardIndex::range(6..9).collect(),
-            ShardIndex::range(9..13).collect(),
-        ];
-        Self {
-            event_providers: shard_assignment.iter().map(|_| None).collect(),
-            committee_services: shard_assignment.iter().map(|_| None).collect(),
-            contract_services: shard_assignment.iter().map(|_| None).collect(),
-            storage_node_configs: shard_assignment
-                .into_iter()
-                .map(StorageNodeTestConfig::new)
-                .collect(),
-            initial_epoch: None,
-            system_context: None,
-            sui_cluster_handle: None,
-        }
-    }
 }
 
 #[async_trait]
@@ -1523,8 +1534,8 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
         inner: StorageNodeConfig {
             protocol_key_pair: walrus_core::test_utils::protocol_key_pair().into(),
             network_key_pair: walrus_core::test_utils::network_key_pair().into(),
-            rest_api_address: unused_socket_address(),
-            metrics_address: unused_socket_address(),
+            rest_api_address: unused_socket_address(false),
+            metrics_address: unused_socket_address(false),
             storage_path: temp_dir.path().to_path_buf(),
             db_config: None,
             sui: None,
@@ -1576,7 +1587,7 @@ mod test {
         let n = 1000;
         assert_eq!(
             (0..n)
-                .map(|_| unused_socket_address())
+                .map(|_| unused_socket_address(false))
                 .collect::<HashSet<_>>()
                 .len(),
             n

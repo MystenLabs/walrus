@@ -1583,12 +1583,12 @@ mod tests {
     ///
     /// The function is created for testing shard syncing/recovery. So for blobs that are
     /// not stored in shard 0, it also won't receive a certified event.
-    async fn cluster_with_partially_stored_blobs_in_shard_0<'a, F>(
+    async fn cluster_with_partially_stored_blobs_in_shard_0<'a, F, H: StorageNodeHandleTrait>(
         assignment: &[&[u16]],
         blobs: &[&'a [u8]],
         initial_epoch: Epoch,
         mut blob_index_store_at_shard_0: F,
-    ) -> TestResult<(TestCluster<StorageNodeHandle>, Vec<EncodedBlob>)>
+    ) -> TestResult<(TestCluster<H>, Vec<EncodedBlob>)>
     where
         F: FnMut(usize) -> bool,
     {
@@ -1606,7 +1606,7 @@ mod tests {
         let cluster = {
             // Lock to avoid race conditions.
             let _lock = global_test_lock().lock().await;
-            TestCluster::<StorageNodeHandle>::builder()
+            TestCluster::<H>::builder()
                 .with_shard_assignment(assignment)
                 .with_individual_system_event_providers(&event_providers)
                 .with_initial_epoch(initial_epoch)
@@ -1889,7 +1889,7 @@ mod tests {
         // The cursor should not have moved beyond that of blob2 registration, since blob2 is yet
         // to be synced.
         let latest_cursor = cluster.nodes[0]
-            .storage_node
+            .storage_node()
             .inner
             .storage
             .get_event_cursor()?
@@ -1958,7 +1958,7 @@ mod tests {
             cluster_with_partially_stored_blob(&[&[0]], BLOB, |_, _| true).await?;
 
         let is_newly_stored = cluster.nodes[0]
-            .storage_node
+            .storage_node()
             .store_metadata(blob.metadata.into_unverified())?;
 
         assert!(!is_newly_stored);
@@ -1972,7 +1972,7 @@ mod tests {
             cluster_with_partially_stored_blob(&[&[0]], BLOB, |_, _| true).await?;
 
         let assigned_sliver_pair = blob.assigned_sliver_pair(ShardIndex(0));
-        let is_newly_stored = cluster.nodes[0].storage_node.store_sliver(
+        let is_newly_stored = cluster.nodes[0].storage_node().store_sliver(
             blob.blob_id(),
             assigned_sliver_pair.index(),
             &Sliver::Primary(assigned_sliver_pair.primary.clone()),
@@ -2011,7 +2011,7 @@ mod tests {
             response[0].1,
             Sliver::Primary(
                 cluster.nodes[0]
-                    .storage_node
+                    .storage_node()
                     .inner
                     .storage
                     .shard_storage(ShardIndex(0))
@@ -2086,7 +2086,7 @@ mod tests {
             .protocol_key_pair
             .sign_message(&sync_shard_msg);
 
-        let result = cluster.nodes[0].storage_node.sync_shard(
+        let result = cluster.nodes[0].storage_node().sync_shard(
             cluster.nodes[1]
                 .as_ref()
                 .inner
@@ -2150,7 +2150,7 @@ mod tests {
             cluster_with_partially_stored_blob(&[&[0]], BLOB, |_, _| true).await?;
 
         cluster.nodes[0]
-            .storage_node
+            .storage_node()
             .inner
             .storage
             .shard_storage(ShardIndex(0))
@@ -2159,7 +2159,7 @@ mod tests {
             .expect("Lock shard failed.");
 
         let sliver = cluster.nodes[0]
-            .storage_node
+            .storage_node()
             .retrieve_sliver(blob.blob_id(), SliverPairIndex(0), SliverType::Primary)
             .expect("Sliver retrieval failed.");
 
@@ -2187,7 +2187,7 @@ mod tests {
 
         let assigned_sliver_pair = blob.assigned_sliver_pair(ShardIndex(0));
         assert!(matches!(
-            cluster.nodes[0].storage_node.store_sliver(
+            cluster.nodes[0].storage_node().store_sliver(
                 blob.blob_id(),
                 assigned_sliver_pair.index(),
                 &Sliver::Primary(assigned_sliver_pair.primary.clone()),
@@ -2206,14 +2206,14 @@ mod tests {
 
         assert!(matches!(
             cluster.nodes[0]
-                .storage_node
+                .storage_node()
                 .compute_storage_confirmation(blob.blob_id())
                 .await,
             Err(ComputeStorageConfirmationError::NotFullyStored)
         ));
 
         cluster.nodes[0]
-            .storage_node
+            .storage_node()
             .inner
             .storage
             .shard_storage(ShardIndex(0))
@@ -2222,7 +2222,7 @@ mod tests {
             .expect("Lock shard failed.");
 
         assert!(cluster.nodes[0]
-            .storage_node
+            .storage_node()
             .compute_storage_confirmation(blob.blob_id())
             .await
             .is_ok());
@@ -2246,7 +2246,7 @@ mod tests {
 
         // Makes storage inner mutable so that we can manually add another shard to node 1.
         let node_inner = unsafe {
-            &mut *(Arc::as_ptr(&cluster.nodes[1].storage_node.inner) as *mut StorageNodeInner)
+            &mut *(Arc::as_ptr(&cluster.nodes[1].storage_node().inner) as *mut StorageNodeInner)
         };
         node_inner.storage.create_storage_for_shard(ShardIndex(0))?;
         let shard_storage_dst = node_inner.storage.shard_storage(ShardIndex(0)).unwrap();
@@ -2313,7 +2313,7 @@ mod tests {
             setup_cluster_for_shard_sync_tests().await?;
 
         let shard_storage_src = cluster.nodes[0]
-            .storage_node
+            .storage_node()
             .inner
             .storage
             .shard_storage(ShardIndex(0))
@@ -2327,7 +2327,7 @@ mod tests {
 
         // Starts the shard syncing process.
         cluster.nodes[1]
-            .storage_node
+            .storage_node()
             ._shard_sync_handler
             .start_new_shard_sync(ShardIndex(0))
             .await?;
@@ -2346,9 +2346,9 @@ mod tests {
         Ok(())
     }
 
-    async fn setup_shard_recovery_test_cluster<F>(
+    async fn setup_shard_recovery_test_cluster<F, H: StorageNodeHandleTrait>(
         blob_index_store_at_shard_0: F,
-    ) -> TestResult<(TestCluster<StorageNodeHandle>, Vec<EncodedBlob>)>
+    ) -> TestResult<(TestCluster<H>, Vec<EncodedBlob>)>
     where
         F: FnMut(usize) -> bool,
     {
@@ -2370,12 +2370,13 @@ mod tests {
     async fn sync_shard_shard_recovery() -> TestResult {
         telemetry_subscribers::init_for_testing();
 
-        let (cluster, blob_details) = setup_shard_recovery_test_cluster(|_| false).await?;
+        let (cluster, blob_details) =
+            setup_shard_recovery_test_cluster::<_, StorageNodeHandle>(|_| false).await?;
 
         // Make sure that all blobs are not certified in node 0.
         for blob_detail in blob_details.iter() {
             let blob_info = cluster.nodes[0]
-                .storage_node
+                .storage_node()
                 .inner
                 .storage
                 .get_blob_info(blob_detail.blob_id());
@@ -2389,14 +2390,14 @@ mod tests {
         }
 
         let node_inner = unsafe {
-            &mut *(Arc::as_ptr(&cluster.nodes[1].storage_node.inner) as *mut StorageNodeInner)
+            &mut *(Arc::as_ptr(&cluster.nodes[1].storage_node().inner) as *mut StorageNodeInner)
         };
         node_inner.storage.create_storage_for_shard(ShardIndex(0))?;
         let shard_storage_dst = node_inner.storage.shard_storage(ShardIndex(0)).unwrap();
         shard_storage_dst.update_status_in_test(ShardStatus::None)?;
 
         cluster.nodes[1]
-            .storage_node
+            .storage_node()
             ._shard_sync_handler
             .start_new_shard_sync(ShardIndex(0))
             .await?;
@@ -2414,15 +2415,16 @@ mod tests {
         telemetry_subscribers::init_for_testing();
 
         let skip_stored_blob_index: [usize; 12] = [3, 4, 5, 9, 10, 11, 15, 18, 19, 20, 21, 22];
-        let (cluster, blob_details) = setup_shard_recovery_test_cluster(|blob_index| {
-            !skip_stored_blob_index.contains(&blob_index)
-        })
-        .await?;
+        let (cluster, blob_details) =
+            setup_shard_recovery_test_cluster::<_, StorageNodeHandle>(|blob_index| {
+                !skip_stored_blob_index.contains(&blob_index)
+            })
+            .await?;
 
         // Make sure that blobs in `sync_shard_partial_recovery` are not certified in node 0.
         for i in skip_stored_blob_index {
             let blob_info = cluster.nodes[0]
-                .storage_node
+                .storage_node()
                 .inner
                 .storage
                 .get_blob_info(blob_details[i].blob_id());
@@ -2436,14 +2438,14 @@ mod tests {
         }
 
         let node_inner = unsafe {
-            &mut *(Arc::as_ptr(&cluster.nodes[1].storage_node.inner) as *mut StorageNodeInner)
+            &mut *(Arc::as_ptr(&cluster.nodes[1].storage_node().inner) as *mut StorageNodeInner)
         };
         node_inner.storage.create_storage_for_shard(ShardIndex(0))?;
         let shard_storage_dst = node_inner.storage.shard_storage(ShardIndex(0)).unwrap();
         shard_storage_dst.update_status_in_test(ShardStatus::None)?;
 
         cluster.nodes[1]
-            .storage_node
+            .storage_node()
             ._shard_sync_handler
             .start_new_shard_sync(ShardIndex(0))
             .await?;
@@ -2512,17 +2514,17 @@ mod tests {
             // Starts the shard syncing process in the new shard, which will fail at the specified
             // break index.
             cluster.nodes[1]
-                .storage_node
+                .storage_node()
                 ._shard_sync_handler
                 .start_new_shard_sync(ShardIndex(0))
                 .await?;
 
             // Waits for the shard sync process to stop.
-            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node._shard_sync_handler).await?;
+            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node()._shard_sync_handler).await?;
 
             // Check that shard sync process is not finished.
             let shard_storage_src = cluster.nodes[0]
-                .storage_node
+                .storage_node()
                 .inner
                 .storage
                 .shard_storage(ShardIndex(0))
@@ -2538,13 +2540,13 @@ mod tests {
 
             // restart the shard syncing process, to simulate a reboot.
             cluster.nodes[1]
-                .storage_node
+                .storage_node()
                 ._shard_sync_handler
                 .restart_syncs()
                 .await?;
 
             // Waits for the shard to be synced.
-            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node._shard_sync_handler).await?;
+            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node()._shard_sync_handler).await?;
 
             // Checks that the shard is completely migrated.
             check_all_blobs_are_synced(&blob_details, &shard_storage_dst)?;
@@ -2567,13 +2569,13 @@ mod tests {
             // Starts the shard syncing process in the new shard, which will fail at the specified
             // break index.
             cluster.nodes[1]
-                .storage_node
+                .storage_node()
                 ._shard_sync_handler
                 .start_new_shard_sync(ShardIndex(0))
                 .await?;
 
             // Waits for the shard sync process to stop.
-            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node._shard_sync_handler).await?;
+            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node()._shard_sync_handler).await?;
 
             Ok(())
         }
@@ -2609,30 +2611,31 @@ mod tests {
             }
 
             let skip_stored_blob_index: [usize; 12] = [3, 4, 5, 9, 10, 11, 15, 18, 19, 20, 21, 22];
-            let (cluster, blob_details) = setup_shard_recovery_test_cluster(|blob_index| {
-                !skip_stored_blob_index.contains(&blob_index)
-            })
-            .await?;
+            let (cluster, blob_details) =
+                setup_shard_recovery_test_cluster::<_, StorageNodeHandle>(|blob_index| {
+                    !skip_stored_blob_index.contains(&blob_index)
+                })
+                .await?;
 
             let node_inner = unsafe {
-                &mut *(Arc::as_ptr(&cluster.nodes[1].storage_node.inner) as *mut StorageNodeInner)
+                &mut *(Arc::as_ptr(&cluster.nodes[1].storage_node().inner) as *mut StorageNodeInner)
             };
             node_inner.storage.create_storage_for_shard(ShardIndex(0))?;
             let shard_storage_dst = node_inner.storage.shard_storage(ShardIndex(0)).unwrap();
             shard_storage_dst.update_status_in_test(ShardStatus::None)?;
 
             cluster.nodes[1]
-                .storage_node
+                .storage_node()
                 ._shard_sync_handler
                 .start_new_shard_sync(ShardIndex(0))
                 .await?;
             // Waits for the shard sync process to stop.
-            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node._shard_sync_handler).await?;
+            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node()._shard_sync_handler).await?;
 
             // Check that shard sync process is not finished.
             if !restart_after_recovery {
                 let shard_storage_src = cluster.nodes[0]
-                    .storage_node
+                    .storage_node()
                     .inner
                     .storage
                     .shard_storage(ShardIndex(0))
@@ -2652,7 +2655,7 @@ mod tests {
 
             // restart the shard syncing process, to simulate a reboot.
             cluster.nodes[1]
-                .storage_node
+                .storage_node()
                 ._shard_sync_handler
                 .restart_syncs()
                 .await?;
