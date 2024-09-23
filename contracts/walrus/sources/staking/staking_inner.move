@@ -495,15 +495,14 @@ fun dhondt(
                 // needs_one_less =
                 //     ranking.reverse().filter!(|i| with_min.contains(i)).take!(to_take)
                 'update_needs_one_less: {
-                    let mut v = vector[];
                     let n = ranking.length();
                     // reverse iterate over the ranking, taking shards from the nodes with the
                     // lowest rank first
                     n.do!(|i| {
                         let idx = &ranking[n - 1 - i];
                         if (with_min.contains(idx)) {
-                            v.push_back(*idx);
-                            if (v.length() == to_take) return 'update_needs_one_less;
+                            needs_one_less.push_back(*idx);
+                            if (needs_one_less.length() == to_take) return 'update_needs_one_less;
                         }
                     })
                 }
