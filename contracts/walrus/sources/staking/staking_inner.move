@@ -294,7 +294,7 @@ public(package) fun stake_with_pool(
 
     // active set only tracks the stake for the next epoch, pool already knows
     // whether the stake was applied to E+1 or E+2.
-    self.active_set.insert(node_id, pool.stake_at_epoch(wctx.epoch() + 1));
+    self.active_set.insert_or_update(node_id, pool.stake_at_epoch(wctx.epoch() + 1));
 
     staked_wal
 }
