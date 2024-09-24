@@ -254,14 +254,14 @@ where
         )
         .await?;
 
-        // If we are transitioning, then the prior committee is still serving reads, so create
+        // If we are transitioning, then the previous committee is still serving reads, so create
         // services for its members.
         if active_committees.is_change_in_progress() {
-            if let Some(prior_committee) = active_committees.prior_committee() {
+            if let Some(previous_committee) = active_committees.previous_committee() {
                 add_members_from_committee(
                     &mut new_services,
                     &mut service_factory,
-                    prior_committee,
+                    previous_committee,
                     &self.inner.encoding_config,
                 )
                 .await?;
@@ -546,11 +546,11 @@ where
 
         active_committees.current_committee().contains(public_key)
             || active_committees
-                .prior_committee()
+                .previous_committee()
                 .map(|committee| committee.contains(public_key))
                 .unwrap_or(false)
             || active_committees
-                .upcoming_committee()
+                .next_committee()
                 .map(|committee| committee.contains(public_key))
                 .unwrap_or(false)
     }

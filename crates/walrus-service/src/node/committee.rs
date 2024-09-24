@@ -44,7 +44,7 @@ use super::errors::SyncShardClientError;
 /// Alias to the default type used for recovery symbols.
 pub(crate) type DefaultRecoverySymbol = walrus_core::RecoverySymbol<MerkleProof>;
 
-/// Service used to query the current, prior, and upcoming committees.
+/// Service used to query the current, previous, and next committees.
 #[async_trait]
 pub(crate) trait CommitteeLookupService: Send + Sync + std::fmt::Debug {
     /// Returns the active committees, which are possibly already transitioning.
@@ -63,14 +63,17 @@ impl<T: ReadClient + std::fmt::Debug> CommitteeLookupService for T {
             Ok(ActiveCommittees::new(committee, None))
         } else {
             // TODO(jsmith): Use new contract calls
-            tracing::warn!("using invalid prior committee for testing");
-            let fake_prior_committee = Committee::new(
+            tracing::warn!("using invalid previous committee for testing");
+            let fake_previous_committee = Committee::new(
                 committee.members().to_vec(),
                 committee.epoch - 1,
                 committee.n_shards(),
             )
             .unwrap();
-            Ok(ActiveCommittees::new(committee, Some(fake_prior_committee)))
+            Ok(ActiveCommittees::new(
+                committee,
+                Some(fake_previous_committee),
+            ))
         }
     }
 }

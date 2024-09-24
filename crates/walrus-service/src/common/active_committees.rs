@@ -17,7 +17,7 @@ pub(crate) enum BeginCommitteeChangeError {
     /// current epoch.
     #[error("the epoch of the new committee is invalid: {actual} (expected {expected})")]
     InvalidEpoch { expected: Epoch, actual: Epoch },
-    /// Error returned when the previously set upcoming committee does not match the expected next
+    /// Error returned when the previously set next committee does not match the expected next
     /// committee.
     #[error("the previously set next committee does not match the expected committee")]
     CommitteeMismatch,
@@ -35,7 +35,7 @@ pub(crate) enum EndCommitteeChangeError {
     NotTransitioning,
 }
 
-/// Errors returned when setting the upcoming committee with
+/// Errors returned when setting the next committee with
 /// [`ActiveCommittees::set_committee_for_next_epoch`].
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum InvalidNextCommittee {
@@ -48,8 +48,8 @@ pub(crate) enum InvalidNextCommittee {
     InvalidEpoch { expected: Epoch, actual: Epoch },
 }
 
-/// The current, prior, and next committees in the system.
-// INV: current_committee.n_shards() == prior_committee.n_shards() == upcoming_committee.n_shards()
+/// The current, previous, and next committees in the system.
+// INV: current_committee.n_shards() == previous_committee.n_shards() == next_committee.n_shards()
 #[derive(Debug, Clone)]
 pub(crate) struct ActiveCommittees {
     /// The currently reigning committee.
@@ -57,41 +57,41 @@ pub(crate) struct ActiveCommittees {
     /// The epoch of the system corresponds to this committee.
     current_committee: Arc<Committee>,
 
-    /// The prior committee.
+    /// The previous committee.
     ///
     /// When `is_transitioning` is true, this committee continues to serve reads. It is only `None`
     /// when the current epoch is zero.
-    // INV: current_committee.epoch == prior_committee.epoch + 1
-    // INV: current_committee.epoch == 0 || prior_committee.is_some()
-    prior_committee: Option<Arc<Committee>>,
+    // INV: current_committee.epoch == previous_committee.epoch + 1
+    // INV: current_committee.epoch == 0 || previous_committee.is_some()
+    previous_committee: Option<Arc<Committee>>,
 
     /// The committee that will become active in the next epoch.
     ///
     /// This committee is `None` until known.
-    // INV: upcoming_committee.epoch == current_committee.epoch + 1
-    upcoming_committee: Option<Arc<Committee>>,
+    // INV: next_committee.epoch == current_committee.epoch + 1
+    next_committee: Option<Arc<Committee>>,
 
     /// When true, a committee transition is underway.
     ///
-    /// In this case, both the current and prior committee are serving general reads for blobs.
+    /// In this case, both the current and previous committee are serving general reads for blobs.
     is_transitioning: bool,
 }
 
 impl ActiveCommittees {
     /// Construct a new set of `ActiveCommittees`.
     ///
-    /// The prior committee is required for all current_committees beyond epoch 0.
+    /// The previous committee is required for all current_committees beyond epoch 0.
     ///
     /// # Panics
     ///
-    /// Panics if the prior committee is None when the current_committee has an epoch greater than
-    /// zero, if the prior committee's epoch does not precede that of the current committees, or if
-    /// they have a different number of shards.
-    pub fn new(current_committee: Committee, prior_committee: Option<Committee>) -> Self {
+    /// Panics if the previous committee is None when the current_committee has an epoch greater
+    /// than zero, if the previous committee's epoch does not precede that of the current
+    /// committees, or if they have a different number of shards.
+    pub fn new(current_committee: Committee, previous_committee: Option<Committee>) -> Self {
         let this = Self {
             current_committee: Arc::new(current_committee),
-            prior_committee: prior_committee.map(Arc::new),
-            upcoming_committee: None,
+            previous_committee: previous_committee.map(Arc::new),
+            next_committee: None,
             is_transitioning: false,
         };
         this.check_invariants();
@@ -102,14 +102,14 @@ impl ActiveCommittees {
     ///
     /// # Panics
     ///
-    /// Panics if the prior committee's epoch does not precede that of the current committees, or if
-    /// they have a different number of shards.
+    /// Panics if the previous committee's epoch does not precede that of the current committees, or
+    /// if they have a different number of shards.
     #[cfg(test)]
-    pub fn new_transitioning(current_committee: Committee, prior_committee: Committee) -> Self {
+    pub fn new_transitioning(current_committee: Committee, previous_committee: Committee) -> Self {
         let this = Self {
             current_committee: Arc::new(current_committee),
-            prior_committee: Some(Arc::new(prior_committee)),
-            upcoming_committee: None,
+            previous_committee: Some(Arc::new(previous_committee)),
+            next_committee: None,
             is_transitioning: true,
         };
         this.check_invariants();
@@ -118,23 +118,23 @@ impl ActiveCommittees {
 
     /// Construct a new set of `ActiveCommittees`, allowing to set all fields.
     ///
-    /// The prior committee is required for all current_committees beyond epoch 0.
+    /// The previous committee is required for all current_committees beyond epoch 0.
     ///
     /// # Panics
     ///
-    /// Panics if the prior committee is None when the current_committee has an epoch greater than
-    /// zero, if the prior committee's epoch does not precede that of the current committees, or if
-    /// they have a different number of shards.
-    pub fn new_with_upcoming(
+    /// Panics if the previous committee is None when the current_committee has an epoch greater
+    /// than zero, if the previous committee's epoch does not precede that of the current
+    /// committees, or if they have a different number of shards.
+    pub fn new_with_next(
         current_committee: Committee,
-        prior_committee: Option<Committee>,
-        upcoming_committee: Option<Committee>,
+        previous_committee: Option<Committee>,
+        next_committee: Option<Committee>,
         is_transitioning: bool,
     ) -> Self {
         let this = Self {
             current_committee: Arc::new(current_committee),
-            prior_committee: prior_committee.map(Arc::new),
-            upcoming_committee: upcoming_committee.map(Arc::new),
+            previous_committee: previous_committee.map(Arc::new),
+            next_committee: next_committee.map(Arc::new),
             is_transitioning,
         };
         this.check_invariants();
@@ -146,12 +146,12 @@ impl ActiveCommittees {
     ///
     /// # Panics
     ///
-    /// Panics if the prior committee is None when the current_committee has an epoch greater than
-    /// zero, if the prior committee's epoch does not precede that of the current committees, or if
-    /// they have a different number of shards.
+    /// Panics if the previous committee is None when the current_committee has an epoch greater
+    /// than zero, if the previous committee's epoch does not precede that of the current
+    /// committees, or if they have a different number of shards.
     #[tracing::instrument(skip_all)]
     pub fn from_committees_and_state(committees_and_state: CommitteesAndState) -> Self {
-        Self::new_with_upcoming(
+        Self::new_with_next(
             committees_and_state.current,
             Some(committees_and_state.previous),
             committees_and_state.next,
@@ -181,14 +181,14 @@ impl ActiveCommittees {
         self.current_committee()
     }
 
-    /// Returns the prior committee if not in epoch 0.
-    pub fn prior_committee(&self) -> Option<&Arc<Committee>> {
-        self.prior_committee.as_ref()
+    /// Returns the previous committee if not in epoch 0.
+    pub fn previous_committee(&self) -> Option<&Arc<Committee>> {
+        self.previous_committee.as_ref()
     }
 
-    /// Returns the upcoming committee if known.
-    pub fn upcoming_committee(&self) -> Option<&Arc<Committee>> {
-        self.upcoming_committee.as_ref()
+    /// Returns the next committee if known.
+    pub fn next_committee(&self) -> Option<&Arc<Committee>> {
+        self.next_committee.as_ref()
     }
 
     /// Returns the committee serving reads for a blob certified in the specified epoch.
@@ -201,7 +201,7 @@ impl ActiveCommittees {
 
         match certified_epoch.cmp(&self.current_committee.epoch) {
             Ordering::Less => {
-                Some(self.prior_committee.as_ref().expect(
+                Some(self.previous_committee.as_ref().expect(
                     "the committee exists as the current committee does not have epoch zero",
                 ))
             }
@@ -212,17 +212,17 @@ impl ActiveCommittees {
 
     /// Returns the committee for the specified epoch.
     ///
-    /// If the epoch is not the current, prior, or known next epoch, then None is returned.
+    /// If the epoch is not the current, previous, or known next epoch, then None is returned.
     pub fn committee_for_epoch(&self, epoch: Epoch) -> Option<&Arc<Committee>> {
         if epoch == self.epoch() {
             return Some(&self.current_committee);
         }
         if epoch == self.epoch() + 1 {
-            return self.upcoming_committee.as_ref();
+            return self.next_committee.as_ref();
         }
         // if epoch == self.epoch() - 1
         if epoch + 1 == self.epoch() {
-            return self.prior_committee.as_ref();
+            return self.previous_committee.as_ref();
         }
         None
     }
@@ -236,33 +236,33 @@ impl ActiveCommittees {
 
     fn check_invariants(&self) {
         assert!(
-            self.current_committee.epoch == 0 || self.prior_committee.is_some(),
-            "prior committee must be set for non-genesis epochs"
+            self.current_committee.epoch == 0 || self.previous_committee.is_some(),
+            "previous committee must be set for non-genesis epochs"
         );
 
-        if let Some(ref prior_committee) = self.prior_committee {
+        if let Some(ref previous_committee) = self.previous_committee {
             assert_eq!(
                 self.current_committee.epoch,
-                prior_committee.epoch + 1,
-                "the current committee's epoch must be one more than the prior's"
+                previous_committee.epoch + 1,
+                "the current committee's epoch must be one more than the previous's"
             );
             assert_eq!(
                 self.current_committee.n_shards(),
-                prior_committee.n_shards(),
-                "the current committee and prior committees must have the same number of shards"
+                previous_committee.n_shards(),
+                "the current committee and previous committees must have the same number of shards"
             );
         }
 
-        if let Some(ref upcoming_committee) = self.upcoming_committee {
+        if let Some(ref next_committee) = self.next_committee {
             assert_eq!(
                 self.current_committee.epoch + 1,
-                upcoming_committee.epoch,
-                "the upcoming committee's epoch must be one more than the current's"
+                next_committee.epoch,
+                "the next committee's epoch must be one more than the current's"
             );
             assert_eq!(
                 self.current_committee.n_shards(),
-                upcoming_committee.n_shards(),
-                "the current committee and prior committees must have the same number of shards"
+                next_committee.n_shards(),
+                "the current committee and previous committees must have the same number of shards"
             );
         }
     }
@@ -277,7 +277,7 @@ impl ActiveCommittees {
         committee: Committee,
     ) -> Result<(), InvalidNextCommittee> {
         ensure!(
-            self.upcoming_committee.is_none(),
+            self.next_committee.is_none(),
             InvalidNextCommittee::AlreadySet
         );
         ensure!(
@@ -288,15 +288,15 @@ impl ActiveCommittees {
             }
         );
 
-        self.upcoming_committee = Some(Arc::new(committee));
+        self.next_committee = Some(Arc::new(committee));
         self.check_invariants();
         Ok(())
     }
 
     /// Begins the transition of committees that occurs during epoch change.
     ///
-    /// If the upcoming committee has not been set, then the expected committee defines the upcoming
-    /// committee. Otherwise, the previously set upcoming committee is compared with the expected
+    /// If the next committee has not been set, then the expected committee defines the next
+    /// committee. Otherwise, the previously set next committee is compared with the expected
     /// committee. If they are the same, then the change can be initiated, otherwise an error is
     /// returned.
     ///
@@ -312,14 +312,14 @@ impl ActiveCommittees {
             BeginCommitteeChangeError::ChangeInProgress
         );
 
-        if let Some(ref upcoming_committee) = self.upcoming_committee {
+        if let Some(ref next_committee) = self.next_committee {
             ensure!(
-                **upcoming_committee == expected_committee,
+                **next_committee == expected_committee,
                 BeginCommitteeChangeError::CommitteeMismatch
             );
         }
 
-        // Set the upcoming committee if it's not already set.
+        // Set the next committee if it's not already set.
         match self.set_committee_for_next_epoch(expected_committee) {
             Ok(()) | Err(InvalidNextCommittee::AlreadySet) => (),
             Err(InvalidNextCommittee::InvalidEpoch { expected, actual }) => {
@@ -327,9 +327,9 @@ impl ActiveCommittees {
             }
         }
 
-        let upcoming_committee = self.upcoming_committee.take().expect("set above");
-        let prior_committee = mem::replace(&mut self.current_committee, upcoming_committee);
-        self.prior_committee = Some(prior_committee);
+        let next_committee = self.next_committee.take().expect("set above");
+        let previous_committee = mem::replace(&mut self.current_committee, next_committee);
+        self.previous_committee = Some(previous_committee);
         self.is_transitioning = true;
 
         self.check_invariants();
@@ -343,7 +343,7 @@ impl ActiveCommittees {
     /// The expected epoch must match with the epoch of the newest committee, that is, the new,
     /// current epoch. If not, then an error is returned and the committee change is not completed.
     ///
-    /// On completion, returns a reference to the outgoing committee: the new prior committee.
+    /// On completion, returns a reference to the outgoing committee: the new previous committee.
     pub fn end_committee_change(
         &mut self,
         expected_epoch: Epoch,
@@ -361,12 +361,12 @@ impl ActiveCommittees {
         );
 
         self.is_transitioning = false;
-        let prior_committee = self
-            .prior_committee
+        let previous_committee = self
+            .previous_committee
             .as_ref()
-            .expect("there is always a prior committee after a transition");
+            .expect("there is always a previous committee after a transition");
 
         self.check_invariants();
-        Ok(prior_committee)
+        Ok(previous_committee)
     }
 }

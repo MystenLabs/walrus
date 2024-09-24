@@ -110,7 +110,7 @@ pub trait ReadClient: Send + Sync {
     /// Returns the committee that will become active in the next epoch.
     ///
     /// This committee is `None` until known.
-    // INV: upcoming_committee.epoch == current_committee.epoch + 1
+    // INV: next_committee.epoch == current_committee.epoch + 1
     fn next_committee(&self) -> impl Future<Output = SuiClientResult<Option<Committee>>> + Send;
 
     /// Returns the current epoch state.

@@ -464,7 +464,7 @@ pub struct StubLookupService {
 #[async_trait]
 impl CommitteeLookupService for StubLookupService {
     async fn get_active_committees(&self) -> Result<ActiveCommittees, anyhow::Error> {
-        let prior_committee = if self.committee.epoch != 0 {
+        let previous_committee = if self.committee.epoch != 0 {
             let committee = Committee::new(
                 self.committee.members().to_vec(),
                 self.committee.epoch - 1,
@@ -477,7 +477,7 @@ impl CommitteeLookupService for StubLookupService {
 
         Ok(ActiveCommittees::new(
             self.committee.clone(),
-            prior_committee,
+            previous_committee,
         ))
     }
 }

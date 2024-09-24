@@ -855,12 +855,12 @@ async fn wait_for_read_committee_change<F>(
             .read_committee(epoch_certified)
             .expect("exists since new committees handle all lower epochs");
 
-        let Some(prior_committee) = current_committee.upgrade() else {
-            tracing::debug!("the prior committee has been dropped and so is no longer valid");
+        let Some(previous_committee) = current_committee.upgrade() else {
+            tracing::debug!("the previous committee has been dropped and so is no longer valid");
             return;
         };
 
-        if !are_committees_equivalent(new_read_committee, &prior_committee) {
+        if !are_committees_equivalent(new_read_committee, &previous_committee) {
             tracing::debug!(
                 walrus.epoch = epoch_certified,
                 "the read committee has changed for the request"

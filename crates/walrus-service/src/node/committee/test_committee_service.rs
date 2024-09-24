@@ -153,9 +153,9 @@ impl TestLookupServiceHandle {
     fn finish_transition(&self) {
         let mut current = self.0.lock().unwrap();
         let new_committee = current.current_committee();
-        let prior_committee = (**current.prior_committee().unwrap()).clone();
+        let previous_committee = (**current.previous_committee().unwrap()).clone();
         let new_active_committee =
-            ActiveCommittees::new((**new_committee).clone(), Some(prior_committee));
+            ActiveCommittees::new((**new_committee).clone(), Some(previous_committee));
         *current = new_active_committee;
     }
 }
@@ -185,7 +185,7 @@ enum ShardAssignment {
     Varied,
 }
 
-/// Returns an [`ActiveCommittees`] consisting of a current and prior committee, and a valid
+/// Returns an [`ActiveCommittees`] consisting of a current and previous committee, and a valid
 /// committee that can serve as the next committee.
 ///
 /// The number of shards in the committees is 10.
@@ -201,12 +201,12 @@ fn valid_committees(
 
     let initial_committee = test_utils::test_committee_with_epoch(assignments[0], current_epoch);
     let next_committee = test_utils::test_committee_with_epoch(assignments[1], current_epoch + 1);
-    let prior_committee = current_epoch
+    let previous_committee = current_epoch
         .checked_sub(1)
         .map(|epoch| test_utils::test_committee_with_epoch(assignments[2], epoch));
 
     (
-        ActiveCommittees::new(initial_committee, prior_committee),
+        ActiveCommittees::new(initial_committee, previous_committee),
         next_committee,
     )
 }
@@ -332,7 +332,7 @@ async fn rejects_non_incremental_epochs(initial_epoch: Epoch, jumped_epoch: Epoc
     let err = committee_service
         .begin_committee_change()
         .await
-        .expect_err("must fail as the upcoming committee is not incremental");
+        .expect_err("must fail as the next committee is not incremental");
 
     assert!(matches!(
         err,
