@@ -15,7 +15,7 @@ use shard_sync::ShardSyncHandler;
 use sui_types::{digests::TransactionDigest, event::EventID};
 use tokio::{select, time::Instant};
 use tokio_util::sync::CancellationToken;
-use tracing::{field, Instrument};
+use tracing::{field, info, Instrument};
 use typed_store::{rocks::MetricConf, DBMetrics, TypedStoreError};
 use walrus_core::{
     encoding::{EncodingAxis, EncodingConfig, RecoverySymbolError},
@@ -492,6 +492,7 @@ impl StorageNode {
                 "error.type" = field::Empty,
             );
             let cloned_stream_element = stream_element.clone();
+            info!("processing event: {}", element_index);
             async move {
                 self.process_stream_element(storage, element_index, cloned_stream_element)
                     .await
@@ -534,6 +535,7 @@ impl StorageNode {
             // if event blob writer is behind event sequencer
             return Ok(());
         }
+        info!("stream processing event: {:?}", stream_element);
         let _timer_guard = &self
             .inner
             .metrics
@@ -1117,7 +1119,7 @@ where
 mod tests {
 
     use std::{sync::OnceLock, time::Duration};
-
+    use clap::builder::TypedValueParser;
     use storage::{
         tests::{populated_storage, WhichSlivers, BLOB_ID, OTHER_SHARD_INDEX, SHARD_INDEX},
         ShardStatus,
@@ -1220,7 +1222,7 @@ mod tests {
     async fn services_slivers_for_shards_managed_according_to_committee() -> TestResult {
         let shard_for_node = ShardIndex(0);
         let node = StorageNodeHandle::builder()
-            .with_system_event_provider(vec![BlobRegistered::for_testing(BLOB_ID).into()])
+            .with_system_event_manager(vec![BlobRegistered::for_testing(BLOB_ID).into()])
             .with_shard_assignment(&[shard_for_node])
             .with_node_started(true)
             .build()
@@ -1245,7 +1247,7 @@ mod tests {
                 (SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
                 (OTHER_SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
             ])?)
-            .with_system_event_provider(events.clone())
+            .with_system_event_manager(events.clone())
             .with_node_started(true)
             .build()
             .await?;
@@ -1264,7 +1266,7 @@ mod tests {
     async fn returns_correct_blob_status() -> TestResult {
         let blob_event = BlobRegistered::for_testing(BLOB_ID);
         let node = StorageNodeHandle::builder()
-            .with_system_event_provider(vec![blob_event.clone().into()])
+            .with_system_event_manager(vec![blob_event.clone().into()])
             .with_shard_assignment(&[ShardIndex(0)])
             .with_node_started(true)
             .build()
@@ -1346,7 +1348,7 @@ mod tests {
     #[tokio::test]
     async fn errs_for_empty_blob_status() -> TestResult {
         let node = StorageNodeHandle::builder()
-            .with_system_event_provider(vec![])
+            .with_system_event_manager(vec![])
             .with_shard_assignment(&[ShardIndex(0)])
             .with_node_started(true)
             .build()
@@ -1369,7 +1371,7 @@ mod tests {
 
         // create a storage node with a registered event for the blob id
         let node = StorageNodeHandle::builder()
-            .with_system_event_provider(vec![BlobRegistered::for_testing(blob_id).into()])
+            .with_system_event_manager(vec![BlobRegistered::for_testing(blob_id).into()])
             .with_shard_assignment(&shards)
             .with_node_started(true)
             .build()
@@ -1564,7 +1566,7 @@ mod tests {
             let _lock = global_test_lock().lock().await;
             TestCluster::builder()
                 .with_shard_assignment(assignment)
-                .with_system_event_providers(events.clone())
+                .with_system_event_manager(events.clone())
                 .build()
                 .await?
         };
@@ -1591,7 +1593,7 @@ mod tests {
             let _lock = global_test_lock().lock().await;
             TestCluster::builder()
                 .with_shard_assignment(assignment)
-                .with_system_event_providers(events.clone())
+                .with_system_event_manager(events.clone())
                 .with_initial_epoch(initial_epoch)
                 .build()
                 .await?
@@ -1629,19 +1631,19 @@ mod tests {
         assert!(assignment[0].contains(&0));
 
         // Create event providers for each node.
-        let node_0_events = Sender::new(48);
-        let all_other_node_events = Sender::new(48);
-        let event_providers = vec![node_0_events.clone(); 1]
+        let node_0_events = Sender::<ContractEvent>::new(48);
+        let all_other_node_events = Sender::<ContractEvent>::new(48);
+        let event_managers: Vec<Box<dyn EventManager>> = vec![node_0_events.clone(); 1]
             .into_iter()
             .chain(vec![all_other_node_events.clone(); assignment.len() - 1].into_iter())
+            .map(|s| Box::new(s) as Box<dyn EventManager>)
             .collect::<Vec<_>>();
-
         let cluster = {
             // Lock to avoid race conditions.
             let _lock = global_test_lock().lock().await;
             TestCluster::builder()
                 .with_shard_assignment(assignment)
-                .with_individual_system_event_providers(&event_providers)
+                .with_system_event_managers(event_managers)
                 .with_initial_epoch(initial_epoch)
                 .build()
                 .await?

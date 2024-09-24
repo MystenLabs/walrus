@@ -1,8 +1,12 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::future;
 use sui_macros::sim_test;
 use sui_protocol_config::ProtocolConfig;
+use tokio::runtime::Handle;
+use futures::future::try_join_all;
+use tracing::info;
 use walrus_core::encoding::{Primary, Secondary};
 use walrus_service::{
     client::{responses::BlobStoreResult, StoreWhen},
@@ -22,7 +26,7 @@ async fn simtest_walrus_basic_determinism() {
         config
     });
 
-    let (_sui_cluster, _walrus_cluster, client) = test_cluster::default_setup().await.unwrap();
+    let (_sui_cluster, mut walrus_cluster, client) = test_cluster::default_setup().await.unwrap();
 
     // Write a random blob.
     let blob = walrus_test_utils::random_data(31415);
@@ -55,4 +59,17 @@ async fn simtest_walrus_basic_determinism() {
         .await
         .expect("should be able to read blob we just stored");
     assert_eq!(read_blob, blob);
+
+    for idx in 0..walrus_cluster.nodes.len() {
+        info!("cancelling node: {}", idx);
+        walrus_cluster.cancel_node(idx);
+        info!("waiting for node: {}", idx);
+        //Handle::current().block_on(walrus_cluster.handles.get_mut(idx).unwrap()).unwrap().expect("TODO: panic message");
+        info!("node is cancelled: {}", idx);
+    }
+
+    try_join_all(walrus_cluster.handles)
+        .await.unwrap()
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>().unwrap();
 }

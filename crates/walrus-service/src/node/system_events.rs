@@ -11,6 +11,8 @@ use futures::StreamExt;
 use futures_util::stream;
 use tokio::time::MissedTickBehavior;
 use tokio_stream::Stream;
+use tokio_util::sync::CancellationToken;
+use tracing::info;
 use walrus_event::{
     event_processor::EventProcessor,
     EventSequenceNumber,
@@ -65,12 +67,18 @@ pub trait SystemEventProvider: std::fmt::Debug + Sync + Send {
 #[async_trait]
 pub trait EventRetentionManager: std::fmt::Debug + Sync + Send {
     /// Remove events before the specified cursor.
-    async fn drop_events_before(&self, cursor: EventStreamCursor) -> Result<(), anyhow::Error>;
+    async fn drop_events_before(&self, cursor: EventStreamCursor) -> Result<(), anyhow::Error> {
+        Ok(())
+    }
 }
 
 /// A manager for system events. This is used to start the event manager.
 #[async_trait]
-pub trait EventManager: SystemEventProvider + EventRetentionManager {}
+pub trait EventManager: SystemEventProvider + EventRetentionManager {
+    async fn start(&self, cancellation_token: CancellationToken) -> anyhow::Result<(), anyhow::Error> {
+        Ok(())
+    }
+}
 
 #[async_trait]
 impl SystemEventProvider for SuiSystemEventProvider {
@@ -92,7 +100,7 @@ impl SystemEventProvider for SuiSystemEventProvider {
 
 #[async_trait]
 impl EventRetentionManager for SuiSystemEventProvider {
-    async fn drop_events_before(&self, _cursor: EventStreamCursor) -> Result<(), anyhow::Error> {
+    async fn drop_events_before(&self, _cursor: EventStreamCursor) -> Result<(), Error> {
         Ok(())
     }
 }
@@ -122,6 +130,7 @@ impl SystemEventProvider for EventProcessor {
                     .ok()?;
                 // Update the index such that the next future continues the sequence.
                 let n_events = u64::try_from(events.len()).expect("number of events is within u64");
+                info!("Num events: {}", n_events > 0);
                 Some((stream::iter(events), (interval, element_index + n_events)))
             },
         )
@@ -135,14 +144,18 @@ impl EventRetentionManager for EventProcessor {
     async fn drop_events_before(
         &self,
         cursor: EventStreamCursor,
-    ) -> anyhow::Result<(), anyhow::Error> {
+    ) -> anyhow::Result<(), Error> {
         *self.event_store_commit_index.lock().await = cursor.element_index;
         Ok(())
     }
 }
 
 #[async_trait]
-impl EventManager for EventProcessor {}
+impl EventManager for EventProcessor {
+    async fn start(&self, cancellation_token: CancellationToken) -> anyhow::Result<(), Error> {
+        self.start(cancellation_token).await
+    }
+}
 
 #[async_trait]
 impl SystemEventProvider for Arc<EventProcessor> {
@@ -162,4 +175,8 @@ impl EventRetentionManager for Arc<EventProcessor> {
 }
 
 #[async_trait]
-impl EventManager for Arc<EventProcessor> {}
+impl EventManager for Arc<EventProcessor> {
+    async fn start(&self, cancellation_token: CancellationToken) -> anyhow::Result<(), Error> {
+        self.as_ref().start(cancellation_token).await
+    }
+}

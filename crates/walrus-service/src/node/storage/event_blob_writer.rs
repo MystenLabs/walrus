@@ -400,7 +400,7 @@ mod tests {
             .expect("Failed to open temporary directory")
             .into_path();
         let node = StorageNodeHandle::builder()
-            .with_system_event_provider(vec![])
+            .with_system_event_manager(vec![])
             .with_shard_assignment(&[ShardIndex(0)])
             .with_node_started(true)
             .build()

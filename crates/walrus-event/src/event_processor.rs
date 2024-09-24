@@ -5,7 +5,10 @@ use std::{fmt::Debug, path::Path, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
+use move_core_types::account_address::AccountAddress;
 use move_core_types::annotated_value::{MoveDatatypeLayout, MoveTypeLayout};
+use move_core_types::identifier::Identifier;
+use reqwest::StatusCode;
 use rocksdb::Options;
 use sui_config::genesis::Genesis;
 use sui_package_resolver::{error::Error as PackageResolverError, Package, PackageStore, Resolver};
@@ -26,6 +29,7 @@ use tokio::{
     time::{sleep, Instant},
 };
 use tokio_util::sync::CancellationToken;
+use tracing::{error, info};
 use typed_store::{
     rocks,
     rocks::{errors::typed_store_err_from_rocks_err, DBMap, MetricConf, ReadWriteOptions},
@@ -68,7 +72,7 @@ pub struct EventProcessor {
     /// Store which only stores the latest checkpoint.
     pub checkpoint_store: DBMap<(), TrustedCheckpoint>,
     /// Store which only stores the latest Walrus package.
-    pub walrus_package_store: DBMap<(), Object>,
+    pub walrus_package_store: DBMap<ObjectID, Object>,
     /// Store which only stores the latest Sui committee.
     pub committee_store: DBMap<(), Committee>,
     /// Store which only stores all event stream elements.
@@ -100,14 +104,19 @@ impl EventProcessor {
     }
 
     pub async fn start(&self, cancellation_token: CancellationToken) -> Result<(), anyhow::Error> {
-        let (pruning_task, tailing_task) = join!(
-            self.start_pruning_events(cancellation_token.clone()),
-            self.start_tailing_checkpoints(cancellation_token.clone())
-        );
-        match (pruning_task, tailing_task) {
-            (Ok(_), Ok(_)) => Ok(()),
-            (Err(e), _) | (_, Err(e)) => Err(e),
-        }
+        info!("starting start...");
+        self.start_tailing_checkpoints(cancellation_token.clone()).await?;
+        info!("stopping checkpoint trailer");
+        Ok(())
+        // let (pruning_task, tailing_task) = join!(
+        //     self.start_pruning_events(cancellation_token.clone()),
+        //     self.start_tailing_checkpoints(cancellation_token.clone())
+        // );
+        // error!("done start");
+        // match (pruning_task, tailing_task) {
+        //     (Ok(_), Ok(_)) => Ok(()),
+        //     (Err(e), _) | (_, Err(e)) => Err(e),
+        // }
     }
 
     /// Gets the full checkpoint with the given sequence number. This method will retry until the
@@ -115,20 +124,17 @@ impl EventProcessor {
     async fn get_full_checkpoint(
         &self,
         sequence_number: CheckpointSequenceNumber,
-    ) -> Result<CheckpointData> {
-        let start_time = Instant::now();
-
-        loop {
-            match self.client.get_full_checkpoint(sequence_number).await {
-                Ok(checkpoint) => return Ok(checkpoint),
-                Err(inner) => {
-                    let elapsed = start_time.elapsed();
-                    if elapsed >= MAX_TIMEOUT {
-                        return Err(inner.into());
-                    }
-                    let delay = RETRY_DELAY.min(MAX_TIMEOUT - elapsed);
-                    sleep(delay).await;
+    ) -> Result<Option<CheckpointData>> {
+        match self.client.get_full_checkpoint(sequence_number).await {
+            Ok(checkpoint) => Ok(Some(checkpoint)),
+            Err(inner) => {
+                if (inner.status().is_some() && inner.status().unwrap() == StatusCode::NOT_FOUND)
+                    || inner.to_string().contains("Not found")
+                {
+                    return Ok(None);
                 }
+                error!("Failed to get full checkpoint: {}", inner);
+                Err(anyhow!("Failed to get full checkpoint: {}", inner))
             }
         }
     }
@@ -168,10 +174,14 @@ impl EventProcessor {
             .next()
             .map(|(k, _)| k + 1)
             .unwrap_or(0);
+        info!("Starting checkpoint processor");
         while !cancel_token.is_cancelled() {
+            info!("Processing next checkpoint");
             let Some(prev_checkpoint) = self.checkpoint_store.get(&())? else {
-                bail!("No checkpoint found in the checkpoint store");
+                panic!("No checkpoint found in the checkpoint store");
             };
+            info!("Processing next checkpoint: {}", prev_checkpoint.inner().sequence_number());
+
             let next_checkpoint = prev_checkpoint.inner().sequence_number().saturating_add(1);
             let Ok(checkpoint) = self.get_full_checkpoint(next_checkpoint).await else {
                 // TODO:
@@ -181,11 +191,25 @@ impl EventProcessor {
                 //    approach so we can continue processing events from full node
                 // 3. Reset the walrus package store with the latest walrus package object from
                 //    fullnode
-                bail!("Failed to get checkpoint {}", next_checkpoint);
+                panic!("Failed to get checkpoint {}", next_checkpoint);
             };
+
+            let Some(checkpoint) = checkpoint else {
+                info!("No checkpoint found: {}", next_checkpoint);
+                continue;
+            };
+
+            info!("Found new checkpoint: {}", checkpoint.checkpoint_summary.sequence_number);
+            let committee = self.committee_store.get(&());
+            if committee.is_err() {
+                error!("Committee Er2: {}", committee.err().unwrap());
+            }
+
             let Some(committee) = self.committee_store.get(&())? else {
+                info!("no committee found");
                 bail!("No committee found in the committee store");
             };
+            info!("Found committee: {}", committee);
             let verified_checkpoint = verify_checkpoint_with_committee(
                 Arc::new(committee.clone()),
                 &VerifiedCheckpoint::new_from_verified(prev_checkpoint.into_inner()),
@@ -199,29 +223,47 @@ impl EventProcessor {
             })?;
             let resolver = Resolver::new(self.clone());
             let mut write_batch = self.event_store.batch();
-            let mut counter = 0;
-            for tx in checkpoint.transactions.into_iter() {
-                for object in tx.output_objects.into_iter() {
-                    if object.id() == self.system_pkg_id {
+            for tx in checkpoint.transactions.iter() {
+                for object in tx.output_objects.iter() {
+                    if object.is_package() {
                         write_batch
-                            .insert_batch(&self.walrus_package_store, std::iter::once(((), object)))
+                            .insert_batch(&self.walrus_package_store, std::iter::once((object.id(), object.clone())))
                             .map_err(|e| {
                                 anyhow!("Failed to insert object into walrus package store: {}", e)
                             })?;
                     }
                 }
+            }
+            write_batch.write()?;
+            let mut counter = 0;
+            let mut write_batch = self.event_store.batch();
+            for tx in checkpoint.transactions.into_iter() {
+                let module = Identifier::new("events")?;
+                info!("system package id: {:?}", self.system_pkg_id);
                 let tx_events = tx.events.unwrap_or_default();
                 for (seq, tx_event) in tx_events
                     .data
                     .into_iter()
-                    .filter(|event| event.package_id == self.system_pkg_id)
                     .enumerate()
                 {
-                    let move_type_layout = resolver
+                    info!("XXevent: {:?}, {:?}", tx_event.type_, tx_event.package_id);
+                    if tx_event.package_id != self.system_pkg_id {
+                        continue;
+                    }
+                    info!("YYevent: {:?}, {:?}", tx_event.type_, tx_event.package_id);
+                    info!("got type layout: {:?}", tx_event);
+                    let move_type_layout = match resolver
                         .type_layout(move_core_types::language_storage::TypeTag::Struct(
                             Box::new(tx_event.type_.clone()),
                         ))
-                        .await?;
+                        .await {
+                        Ok(layout) => Ok(layout),
+                        Err(e) => {
+                            error!("Error: {:?}", e);
+                            Err(e)
+                        }
+                    }?;
+
                     let move_datatype_layout = match move_type_layout {
                         MoveTypeLayout::Struct(s) => Some(MoveDatatypeLayout::Struct(s)),
                         MoveTypeLayout::Enum(e) => Some(MoveDatatypeLayout::Enum(e)),
@@ -235,7 +277,10 @@ impl EventProcessor {
                         None,
                         move_datatype_layout,
                     )?;
+                    info!("PPevent: {:?}, counter = {}",sui_event, counter);
                     let contract_event: ContractEvent = sui_event.try_into()?;
+                    info!("ZZevent: {:?}, counter = {}",contract_event, counter);
+
                     let event_sequence_number = EventSequenceNumber::new(
                         *checkpoint.checkpoint_summary.sequence_number(),
                         counter,
@@ -284,7 +329,17 @@ impl EventProcessor {
                 )
                 .map_err(|e| anyhow!("Failed to insert checkpoint into checkpoint store: {}", e))?;
             write_batch.write()?;
+            info!("Next checkpoint processed: {}, index = {}", checkpoint.checkpoint_summary.sequence_number, next_event_index);
         }
+        info!("Stopping checkpoint processor");
+        Ok(())
+    }
+
+    pub(crate) fn update(&self, package: &Object) -> Result<()> {
+        let mut batch = self.walrus_package_store.batch();
+        batch
+            .insert_batch(&self.walrus_package_store, std::iter::once((package.id(), package)))?;
+        batch.write()?;
         Ok(())
     }
 
@@ -349,7 +404,7 @@ impl EventProcessor {
         )?;
         let committee_store = DBMap::reopen(
             &database,
-            Some(CHECKPOINT_STORE),
+            Some(COMMITTEE_STORE),
             &ReadWriteOptions::default(),
             false,
         )?;
@@ -360,15 +415,30 @@ impl EventProcessor {
             false,
         )?;
         if checkpoint_store.is_empty() {
+            info!("No checkpoint found in the checkpoint store");
             // This is a fresh start as there is no prev disk state
-            committee_store.schedule_delete_all()?;
-            event_store.schedule_delete_all()?;
-            walrus_package_store.schedule_delete_all()?;
+            //committee_store.schedule_delete_all()?;
+            //event_store.schedule_delete_all()?;
+            //walrus_package_store.schedule_delete_all()?;
             let genesis = Genesis::load(&config.sui_genesis_path)?;
             let genesis_committee = genesis.committee()?;
             let checkpoint = genesis.checkpoint();
             committee_store.insert(&(), &genesis_committee)?;
+            let c = committee_store.get(&())?;
+            info!("found committee: {}", c.unwrap().epoch);
             checkpoint_store.insert(&(), checkpoint.serializable_ref())?;
+            let mut write_batch = event_store.batch();
+            for object in genesis.objects().iter() {
+                if object.is_package() {
+                    info!("Inserting object into walrus package store: {:?}", object);
+                    write_batch
+                        .insert_batch(&walrus_package_store, std::iter::once((object.id(), object)))
+                        .map_err(|e| {
+                            anyhow!("Failed to insert object into walrus package store: {}", e)
+                        })?;
+                }
+            }
+            write_batch.write()?;
         }
         let event_processor = EventProcessor {
             client,
@@ -383,16 +453,23 @@ impl EventProcessor {
         };
         Ok(event_processor)
     }
+
+    pub fn get(&self, id: AccountAddress) -> anyhow::Result<Object> {
+        let object = self
+            .walrus_package_store
+            .get(&ObjectID::from(id))?.ok_or(anyhow!("Package not found"))?;
+        Ok(object)
+    }
 }
 
 #[async_trait]
 impl PackageStore for EventProcessor {
     async fn fetch(
         &self,
-        id: move_core_types::account_address::AccountAddress,
+        id: AccountAddress,
     ) -> sui_package_resolver::Result<Arc<Package>> {
         let Some(walrus_system_pkg) =
-            self.walrus_package_store.get(&()).map_err(|store_error| {
+            self.walrus_package_store.get(&ObjectID::from(id)).map_err(|store_error| {
                 PackageResolverError::Store {
                     store: "RocksDB",
                     error: store_error.to_string(),
@@ -477,7 +554,7 @@ mod tests {
         )?;
         let committee_store = DBMap::reopen(
             &database,
-            Some(CHECKPOINT_STORE),
+            Some(COMMITTEE_STORE),
             &ReadWriteOptions::default(),
             false,
         )?;

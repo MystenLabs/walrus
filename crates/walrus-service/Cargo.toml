@@ -43,6 +43,7 @@ node = [
 test-utils = [
     "client",
     "node",
+    "dep:downcast",
     "dep:tempfile",
     "walrus-core/test-utils",
     "dep:walrus-test-utils"
@@ -59,6 +60,7 @@ bcs.workspace = true
 byteorder.workspace = true
 clap.workspace = true
 colored = { workspace = true, optional = true }
+downcast = { workspace = true, optional = true }
 enum_dispatch = { workspace = true, optional = true }
 fastcrypto.workspace = true
 futures.workspace = true

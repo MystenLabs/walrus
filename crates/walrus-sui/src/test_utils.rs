@@ -90,7 +90,7 @@ pub fn get_default_invalid_certificate(blob_id: BlobId, epoch: Epoch) -> Invalid
 #[allow(missing_debug_implementations)]
 pub struct TestClusterHandle {
     wallet_path: Mutex<PathBuf>,
-    _cluster: TestCluster,
+    cluster: TestCluster,
 
     #[cfg(msim)]
     _node_handle: NodeHandle,
@@ -111,8 +111,12 @@ impl TestClusterHandle {
         let (cluster, wallet_path) = rx.recv().expect("should receive test_cluster");
         Self {
             wallet_path: Mutex::new(wallet_path),
-            _cluster: cluster,
+            cluster,
         }
+    }
+
+    pub fn cluster(&self) -> &TestCluster {
+        &self.cluster
     }
 
     // Creates a test Sui cluster using deterministic MSIM runtime.
@@ -139,7 +143,7 @@ impl TestClusterHandle {
         };
         Self {
             wallet_path: Mutex::new(wallet_path),
-            _cluster: cluster,
+            cluster,
             _node_handle: node_handle,
         }
     }
@@ -260,6 +264,7 @@ pub async fn new_wallet_on_sui_test_cluster(
 pub async fn sui_test_cluster() -> TestCluster {
     TestClusterBuilder::new()
         .with_num_validators(2)
+        .disable_fullnode_pruning()
         .build()
         .await
 }

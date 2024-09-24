@@ -14,12 +14,14 @@ use std::{
     num::NonZeroU16,
     sync::Arc,
 };
-
+use anyhow::Error;
 use async_trait::async_trait;
 use futures::StreamExt;
+use downcast::{Any as AsAny};
 use prometheus::Registry;
 use sui_types::base_types::ObjectID;
 use tempfile::TempDir;
+use tokio::task::JoinHandle;
 use tokio::time::Duration;
 use tokio_stream::{wrappers::BroadcastStream, Stream};
 use tokio_util::sync::CancellationToken;
@@ -43,6 +45,7 @@ use walrus_core::{
     SliverType,
 };
 use walrus_event::{EventSequenceNumber, EventStreamCursor, IndexedStreamElement};
+use walrus_event::event_processor::EventProcessor;
 use walrus_sdk::client::Client;
 use walrus_sui::types::{
     Committee,
@@ -64,6 +67,7 @@ use crate::node::{
     Storage,
     StorageNode,
 };
+use crate::node::system_events::SuiSystemEventProvider;
 
 /// A system event manager that provides events from a stream. It does not support dropping events.
 #[derive(Debug)]
@@ -187,12 +191,13 @@ impl AsRef<StorageNode> for StorageNodeHandle {
 #[derive(Debug)]
 pub struct StorageNodeHandleBuilder {
     storage: Option<WithTempDir<Storage>>,
-    event_provider: Box<dyn SystemEventProvider>,
+    event_manager: Box<dyn EventManager>,
     committee_service_factory: Option<Box<dyn CommitteeServiceFactory>>,
     contract_service: Option<Box<dyn SystemContractService>>,
     run_rest_api: bool,
     run_node: bool,
     test_config: Option<StorageNodeTestConfig>,
+    cancellation_token: Option<CancellationToken>,
 }
 
 impl StorageNodeHandleBuilder {
@@ -213,19 +218,24 @@ impl StorageNodeHandleBuilder {
     }
 
     /// Sets the service providing events to the storage node.
-    pub fn with_system_event_provider<T>(self, event_provider: T) -> Self
+    pub fn with_system_event_manager<T>(self, event_manager: T) -> Self
     where
-        T: SystemEventProvider + Into<Box<T>> + 'static,
+        T: EventManager + Into<Box<T>> + 'static,
     {
-        self.with_boxed_system_event_provider(event_provider.into())
+        self.with_boxed_system_event_manager(event_manager.into())
     }
 
     /// Sets the service providing events to the storage node.
-    pub fn with_boxed_system_event_provider(
+    pub fn with_boxed_system_event_manager(
         mut self,
-        event_provider: Box<dyn SystemEventProvider>,
+        event_manager: Box<dyn EventManager>,
     ) -> Self {
-        self.event_provider = event_provider;
+        self.event_manager = event_manager;
+        self
+    }
+
+    pub fn with_cancellation_token(mut self, cancellation_token: CancellationToken) -> Self {
+        self.cancellation_token = Some(cancellation_token);
         self
     }
 
@@ -337,19 +347,18 @@ impl StorageNodeHandleBuilder {
             ..storage_node_config().inner
         };
 
+        let cancel_token = self.cancellation_token.unwrap_or_else(|| CancellationToken::new());
+
         let metrics_registry = Registry::default();
         let node = StorageNode::builder()
             .with_storage(storage)
-            .with_system_event_manager(Box::new(DefaultSystemEventManager::new(
-                self.event_provider,
-            )))
+            .with_system_event_manager(self.event_manager)
             .with_committee_service_factory(committee_service_factory)
             .with_system_contract_service(contract_service)
             .build(&config, metrics_registry.clone())
             .await?;
         let node = Arc::new(node);
 
-        let cancel_token = CancellationToken::new();
         let rest_api = Arc::new(UserServer::new(
             node.clone(),
             cancel_token.clone(),
@@ -360,7 +369,8 @@ impl StorageNodeHandleBuilder {
         if self.run_rest_api {
             let rest_api_clone = rest_api.clone();
 
-            tokio::task::spawn(async move { rest_api_clone.run().await }.instrument(
+            tokio::task::spawn(async move {
+                rest_api_clone.run().await }.instrument(
                 tracing::info_span!("cluster-node", address = %config.rest_api_address),
             ));
         }
@@ -402,13 +412,14 @@ impl StorageNodeHandleBuilder {
 impl Default for StorageNodeHandleBuilder {
     fn default() -> Self {
         Self {
-            event_provider: Box::<Vec<ContractEvent>>::default(),
+            event_manager: Box::<Vec<ContractEvent>>::default(),
             committee_service_factory: None,
             storage: Default::default(),
             run_rest_api: Default::default(),
             run_node: Default::default(),
             contract_service: None,
             test_config: None,
+            cancellation_token: None,
         }
     }
 }
@@ -617,6 +628,12 @@ impl SystemEventProvider for Vec<ContractEvent> {
     }
 }
 
+#[async_trait]
+impl EventRetentionManager for Vec<ContractEvent> {}
+
+#[async_trait]
+impl EventManager for Vec<ContractEvent> {}
+
 #[async_trait::async_trait]
 impl SystemEventProvider for tokio::sync::broadcast::Sender<ContractEvent> {
     async fn events(
@@ -635,11 +652,18 @@ impl SystemEventProvider for tokio::sync::broadcast::Sender<ContractEvent> {
     }
 }
 
+#[async_trait]
+impl EventRetentionManager for tokio::sync::broadcast::Sender<ContractEvent> {}
+
+#[async_trait]
+impl EventManager for tokio::sync::broadcast::Sender<ContractEvent> {}
+
 /// A cluster of [`StorageNodeHandle`]s corresponding to several running storage nodes.
 #[derive(Debug)]
 pub struct TestCluster {
     /// The running storage nodes.
     pub nodes: Vec<StorageNodeHandle>,
+    pub handles: Vec<JoinHandle<anyhow::Result<()>>>
 }
 
 impl TestCluster {
@@ -688,10 +712,11 @@ impl TestCluster {
 pub struct TestClusterBuilder {
     storage_node_configs: Vec<StorageNodeTestConfig>,
     // INV: Reset if shard_assignment is changed.
-    event_providers: Vec<Option<Box<dyn SystemEventProvider>>>,
+    event_managers: Vec<Option<Box<dyn EventManager>>>,
     committee_factories: Vec<Option<Box<dyn CommitteeServiceFactory>>>,
     contract_services: Vec<Option<Box<dyn SystemContractService>>>,
     initial_epoch: Option<Epoch>,
+    cancellation_tokens: Vec<Option<CancellationToken>>
 }
 
 impl TestClusterBuilder {
@@ -717,7 +742,7 @@ impl TestClusterBuilder {
     {
         let configs = storage_node_test_configs_from_shard_assignment(assignment);
 
-        self.event_providers = configs.iter().map(|_| None).collect();
+        self.event_managers = configs.iter().map(|_| None).collect();
         self.committee_factories = configs.iter().map(|_| None).collect();
         self.storage_node_configs = configs;
         self
@@ -729,38 +754,44 @@ impl TestClusterBuilder {
     /// [`Self::with_system_event_providers`], [`Self::with_committee_service_factories`],
     /// and [`Self::with_system_contract_services`].
     pub fn with_test_configs(mut self, configs: Vec<StorageNodeTestConfig>) -> Self {
-        self.event_providers = configs.iter().map(|_| None).collect();
+        self.event_managers = configs.iter().map(|_| None).collect();
         self.committee_factories = configs.iter().map(|_| None).collect();
         self.contract_services = configs.iter().map(|_| None).collect();
         self.storage_node_configs = configs;
         self
     }
 
-    /// Clones an event provider to be used with each storage node.
-    ///
-    /// Should be called after the storage nodes have been specified.
-    pub fn with_system_event_providers<T>(mut self, event_provider: T) -> Self
+    /// Sets the individual event providers for each storage node.
+    /// Requires: `event_managers.len() == storage_node_configs.len()`.
+    pub fn with_system_event_manager<T>(mut self, event_managers: T) -> Self
     where
-        T: SystemEventProvider + Clone + 'static,
+        T: EventManager + Clone + 'static
     {
-        self.event_providers = self
+        self.event_managers = self
             .storage_node_configs
             .iter()
-            .map(|_| Some(Box::new(event_provider.clone()) as _))
+            .map(|manager| Some(Box::new(event_managers.clone()) as _))
             .collect();
         self
     }
 
     /// Sets the individual event providers for each storage node.
-    /// Requires: `event_providers.len() == storage_node_configs.len()`.
-    pub fn with_individual_system_event_providers<T>(mut self, event_providers: &[T]) -> Self
-    where
-        T: SystemEventProvider + Clone + 'static,
+    /// Requires: `event_managers.len() == storage_node_configs.len()`.
+    pub fn with_system_event_managers(mut self, event_managers: Vec<Box<dyn EventManager>>) -> Self
     {
-        assert_eq!(event_providers.len(), self.storage_node_configs.len());
-        self.event_providers = event_providers
-            .iter()
-            .map(|provider| Some(Box::new(provider.clone()) as _))
+        assert_eq!(event_managers.len(), self.storage_node_configs.len());
+        self.event_managers = event_managers
+            .into_iter()
+            .map(|manager| Some(manager))
+            .collect();
+        self
+    }
+
+    pub fn with_cancellation_tokens(mut self, cancellation_tokens: Vec<CancellationToken>) -> Self {
+        assert_eq!(cancellation_tokens.len(), self.storage_node_configs.len());
+        self.cancellation_tokens = cancellation_tokens
+            .into_iter()
+            .map(|token| Some(token))
             .collect();
         self
     }
@@ -812,12 +843,13 @@ impl TestClusterBuilder {
             .map(|(i, info)| info.to_storage_node_info(&format!("node-{i}")))
             .collect();
 
-        for (((config, event_provider), factory), contract_service) in self
+        for ((((config, event_manager), factory), contract_service), cancellation_token) in self
             .storage_node_configs
             .into_iter()
-            .zip(self.event_providers.into_iter())
+            .zip(self.event_managers.into_iter())
             .zip(self.committee_factories.into_iter())
             .zip(self.contract_services.into_iter())
+            .zip(self.cancellation_tokens.into_iter())
         {
             let mut builder = StorageNodeHandle::builder()
                 .with_storage(empty_storage_with_shards(&config.shards))
@@ -825,8 +857,12 @@ impl TestClusterBuilder {
                 .with_rest_api_started(true)
                 .with_node_started(true);
 
-            if let Some(provider) = event_provider {
-                builder = builder.with_boxed_system_event_provider(provider);
+            if let Some(manager) = event_manager {
+                builder = builder.with_boxed_system_event_manager(manager);
+            }
+
+            if let Some(cancel_token) = cancellation_token {
+                builder = builder.with_cancellation_token(cancel_token);
             }
 
             if let Some(factory) = factory {
@@ -847,7 +883,7 @@ impl TestClusterBuilder {
             nodes.push(builder.build().await?);
         }
 
-        Ok(TestCluster { nodes })
+        Ok(TestCluster { nodes, handles: vec![] })
     }
 }
 
@@ -948,9 +984,10 @@ impl Default for TestClusterBuilder {
             ShardIndex::range(9..13).collect(),
         ];
         Self {
-            event_providers: shard_assignment.iter().map(|_| None).collect(),
+            event_managers: shard_assignment.iter().map(|_| None).collect(),
             committee_factories: shard_assignment.iter().map(|_| None).collect(),
             contract_services: shard_assignment.iter().map(|_| None).collect(),
+            cancellation_tokens: shard_assignment.iter().map(|_| None).collect(),
             storage_node_configs: shard_assignment
                 .into_iter()
                 .map(StorageNodeTestConfig::new)
@@ -1002,9 +1039,11 @@ pub(crate) fn test_committee(weights: &[u16]) -> Committee {
 /// A module for creating a Walrus test cluster.
 #[cfg(all(feature = "client", feature = "node"))]
 pub mod test_cluster {
+    use std::path::{Path, PathBuf};
     use std::sync::OnceLock;
-
     use tokio::sync::Mutex;
+    use tracing::info;
+    use walrus_event::event_processor::EventProcessor;
     use walrus_sui::{
         client::{SuiContractClient, SuiReadClient},
         test_utils::{
@@ -1036,6 +1075,20 @@ pub mod test_cluster {
         #[cfg(msim)]
         let sui_cluster = test_utils::using_msim::global_sui_test_cluster().await;
 
+        // Save genesis in a temp file
+        let genesis = sui_cluster.cluster().get_genesis();
+        genesis.save("/tmp/genesis.json")?;
+
+        // fullnode rest url
+        let rest_url = sui_cluster.cluster().fullnode_handle.rpc_url.clone();
+
+        // event processor config
+        let event_processor_config = walrus_event::EventProcessorConfig {
+            rest_url,
+            sui_genesis_path: PathBuf::from("/tmp/genesis.json".to_string()),
+            pruning_interval: 3600
+        };
+
         // Get a wallet on the global sui test cluster
         let mut wallet = test_utils::new_wallet_on_sui_test_cluster(sui_cluster.clone()).await?;
 
@@ -1054,6 +1107,7 @@ pub mod test_cluster {
             .iter()
             .map(|info| info.shards.len())
             .collect::<Vec<_>>();
+
         let n_shards = node_weights.iter().sum::<usize>() as u16;
 
         // TODO(#814): make epoch duration in test configurable. Currently hardcoded to 1 hour.
@@ -1117,6 +1171,30 @@ pub mod test_cluster {
                 )
             })?
             .map(SuiSystemContractService::new);
+        // cancel toke
+        let mut cancel_tokens = vec![];
+
+        // event processor
+        let mut event_managers: Vec<Box<dyn EventManager>> = vec![];
+        let mut event_processors = vec![];
+        let mut cloned_cancel_tokens = vec![];
+
+        for _ in cluster_builder
+            .storage_node_test_configs()
+            .iter() {
+            let event_processor = EventProcessor::new(
+                    &event_processor_config,
+                    sui_read_client.get_system_package_id(),
+                    Duration::from_millis(100),
+                    tempfile::tempdir().expect("temporary directory creation must succeed").path()
+            ).await?;
+            info!("created event processor");
+            let cancel_token = CancellationToken::new();
+            event_processors.push(event_processor.clone());
+            event_managers.push(Box::new(event_processor));
+            cloned_cancel_tokens.push(cancel_token.clone());
+            cancel_tokens.push(cancel_token);
+        }
 
         // Set up the cluster
         let cluster_builder = cluster_builder
@@ -1124,17 +1202,25 @@ pub mod test_cluster {
                 sui_read_client.clone(),
                 Default::default(),
             ))
-            .with_system_event_providers(SuiSystemEventProvider::new(
-                sui_read_client.clone(),
-                Duration::from_millis(100),
-            ))
+            .with_system_event_managers(event_managers)
+            .with_cancellation_tokens(cancel_tokens)
             .with_system_contract_services(Arc::new(sui_contract_service));
 
-        let cluster = {
+        let mut cluster = {
             // Lock to avoid race conditions.
             let _lock = global_test_lock().lock().await;
             cluster_builder.build().await?
         };
+
+        let mut handles = vec![];
+        for (event_processor, cancel_token) in event_processors.into_iter().zip(cloned_cancel_tokens.into_iter()) {
+            handles.push(tokio::task::spawn(async move {
+                event_processor.start(cancel_token).await
+            }.instrument(
+                tracing::info_span!("cluster-node", address = %event_processor_config.rest_url),
+            )));
+        }
+        cluster.handles = handles;
 
         // Create the client with the admin wallet to ensure that we have some WAL.
         let sui_contract_client = wallet.and_then(|wallet| {

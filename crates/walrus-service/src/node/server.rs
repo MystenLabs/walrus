@@ -22,7 +22,7 @@ use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceBuilder;
 use tower_http::trace::TraceLayer;
-use tracing::Instrument;
+use tracing::{info, Instrument};
 use utoipa::OpenApi as _;
 use utoipa_redoc::{Redoc, Servable as _};
 use walrus_core::{encoding::max_sliver_size_for_n_shards, keys::NetworkKeyPair};
@@ -168,6 +168,8 @@ where
             let handle = self.handle.lock().await;
             assert!(handle.is_none(), "run can only be called once");
         }
+
+        info!("starting server on {}", self.config.bind_address);
 
         let request_layers = ServiceBuilder::new()
             .layer(middleware::from_fn_with_state(

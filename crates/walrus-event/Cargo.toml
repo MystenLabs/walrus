@@ -32,7 +32,7 @@ url.workspace = true
 walrus-core.workspace = true
 walrus-sdk.workspace = true
 walrus-sui.workspace = true
-
+tracing.workspace = true
 [features]
 default = ["test-utils"]
 test-utils = ["dep:tempfile"]
