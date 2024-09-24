@@ -51,7 +51,7 @@ use super::{
     committee_service::NodeCommitteeServiceInner,
     node_service::{NodeService, NodeServiceError, Request, Response},
 };
-use crate::{common::active_committees::ActiveCommittees, utils::ExponentialBackoffState};
+use crate::{common::active_committees::CommitteeTracker, utils::ExponentialBackoffState};
 
 pub(super) struct GetAndVerifyMetadata<'a, T> {
     blob_id: BlobId,
@@ -85,8 +85,9 @@ where
 
         loop {
             let (n_members, weak_committee) = {
-                let active_committees = committee_listener.borrow_and_update();
-                let committee = active_committees
+                let committee_tracker = committee_listener.borrow_and_update();
+                let committee = committee_tracker
+                    .committees()
                     .read_committee(self.epoch_certified)
                     .expect("epoch must not be in the future");
 
@@ -230,9 +231,10 @@ where
 
         loop {
             let weak_committee = {
-                let active_committees = committee_listener.borrow_and_update();
+                let committee_tracker = committee_listener.borrow_and_update();
                 Arc::downgrade(
-                    active_committees
+                    committee_tracker
+                        .committees()
                         .read_committee(self.epoch_certified)
                         .expect("epoch must not be in the future"),
                 )
@@ -499,6 +501,7 @@ where
         loop {
             let committee = committee_listener
                 .borrow_and_update()
+                .committees()
                 .write_committee()
                 .clone();
 
@@ -840,7 +843,7 @@ async fn wait_before_next_attempts(backoff: &mut ExponentialBackoffState, rng: &
 
 async fn wait_for_read_committee_change<F>(
     epoch_certified: Epoch,
-    listener: &mut watch::Receiver<ActiveCommittees>,
+    listener: &mut watch::Receiver<CommitteeTracker>,
     current_committee: &Weak<Committee>,
     are_committees_equivalent: F,
 ) where
@@ -850,8 +853,9 @@ async fn wait_for_read_committee_change<F>(
         listener.changed().await.expect("sender outlives futures");
         tracing::debug!("the active committees have changed during the request");
 
-        let active_committees = listener.borrow_and_update();
-        let new_read_committee = active_committees
+        let committee_tracker = listener.borrow_and_update();
+        let new_read_committee = committee_tracker
+            .committees()
             .read_committee(epoch_certified)
             .expect("exists since new committees handle all lower epochs");
 
@@ -872,7 +876,7 @@ async fn wait_for_read_committee_change<F>(
 }
 
 async fn wait_for_write_committee_change<F>(
-    listener: &mut watch::Receiver<ActiveCommittees>,
+    listener: &mut watch::Receiver<CommitteeTracker>,
     current_committee: &Arc<Committee>,
     are_committees_equivalent: F,
 ) where
@@ -882,8 +886,8 @@ async fn wait_for_write_committee_change<F>(
         listener.changed().await.expect("sender outlives futures");
         tracing::debug!("the active committees have changed during the request");
 
-        let active_committees = listener.borrow_and_update();
-        let new_write_committee = active_committees.write_committee();
+        let committee_tracker = listener.borrow_and_update();
+        let new_write_committee = committee_tracker.committees().write_committee();
 
         if !are_committees_equivalent(new_write_committee, current_committee) {
             tracing::debug!("the write committee has changed for the request");

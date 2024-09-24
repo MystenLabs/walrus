@@ -41,8 +41,8 @@ use super::{
 };
 use crate::{
     common::active_committees::{
-        ActiveCommittees,
         BeginCommitteeChangeError,
+        CommitteeTracker,
         EndCommitteeChangeError,
     },
     node::{config::CommitteeServiceConfig, errors::SyncShardClientError},
@@ -122,13 +122,17 @@ where
         S: CommitteeLookupService + std::fmt::Debug + 'static,
     {
         // TODO(jsmith): Allow setting the local service factory.
-        let active_committees = lookup_service.get_active_committees().await?;
+        let committee_tracker =
+            CommitteeTracker::new(lookup_service.get_active_committees().await?);
         let encoding_config = Arc::new(EncodingConfig::new(
-            active_committees.current_committee().n_shards(),
+            committee_tracker
+                .committees()
+                .current_committee()
+                .n_shards(),
         ));
 
         let inner = NodeCommitteeServiceInner::new(
-            active_committees,
+            committee_tracker,
             self.service_factory,
             self.config,
             encoding_config,
@@ -188,8 +192,9 @@ where
     ) -> Result<Vec<(BlobId, Sliver)>, SyncShardClientError> {
         let committee = self
             .inner
-            .active_committees
+            .committee_tracker
             .borrow()
+            .committees()
             .committee_for_epoch(shard_owner_epoch)
             .ok_or(SyncShardClientError::NoSyncClient)?
             .clone();
@@ -234,7 +239,7 @@ where
     /// Reset the committees to the latest retrieved via the configured lookup service.
     #[allow(unused)]
     pub async fn reset_committees(&self) -> Result<(), anyhow::Error> {
-        let latest = self.committee_lookup.get_active_committees().await?;
+        let latest = CommitteeTracker::new(self.committee_lookup.get_active_committees().await?);
         self.reset_committees_to(latest).await;
         Ok(())
     }
@@ -242,22 +247,22 @@ where
     #[allow(unused)]
     async fn reset_committees_to(
         &self,
-        active_committees: ActiveCommittees,
+        committee_tracker: CommitteeTracker,
     ) -> Result<(), anyhow::Error> {
         let mut service_factory = self.inner.service_factory.lock().await;
 
         // Create services for the current committee.
         let mut new_services = create_services_from_committee(
             &mut service_factory,
-            active_committees.current_committee(),
+            committee_tracker.committees().current_committee(),
             &self.inner.encoding_config,
         )
         .await?;
 
         // If we are transitioning, then the previous committee is still serving reads, so create
         // services for its members.
-        if active_committees.is_change_in_progress() {
-            if let Some(previous_committee) = active_committees.previous_committee() {
+        if committee_tracker.is_change_in_progress() {
+            if let Some(previous_committee) = committee_tracker.committees().previous_committee() {
                 add_members_from_committee(
                     &mut new_services,
                     &mut service_factory,
@@ -273,7 +278,7 @@ where
             .services
             .lock()
             .expect("thread did not panic with mutex");
-        self.inner.active_committees.send_replace(active_committees);
+        self.inner.committee_tracker.send_replace(committee_tracker);
         services.extend(new_services);
 
         Ok(())
@@ -318,9 +323,9 @@ where
 
         let mut result = Ok(());
         self.inner
-            .active_committees
-            .send_if_modified(|active_committees| {
-                result = active_committees.begin_committee_change(next_committee);
+            .committee_tracker
+            .send_if_modified(|committee_tracker| {
+                result = committee_tracker.begin_committee_change(next_committee);
                 result.is_ok()
             });
 
@@ -350,10 +355,10 @@ where
 
         let mut maybe_result: Option<Result<_, EndCommitteeChangeError>> = None;
         self.inner
-            .active_committees
-            .send_if_modified(|active_committees| {
-                let current = active_committees.current_committee().clone();
-                let result = active_committees
+            .committee_tracker
+            .send_if_modified(|committee_tracker| {
+                let current = committee_tracker.committees().current_committee().clone();
+                let result = committee_tracker
                     .end_committee_change(epoch)
                     .map(|outgoing| (outgoing.clone(), current));
                 maybe_result = Some(result);
@@ -382,7 +387,7 @@ where
 
 pub(super) struct NodeCommitteeServiceInner<T> {
     /// The set of active committees, which can be observed for changes.
-    pub active_committees: watch::Sender<ActiveCommittees>,
+    pub committee_tracker: watch::Sender<CommitteeTracker>,
     /// Services for members of the active read and write committees.
     pub services: SyncMutex<HashMap<PublicKey, T>>,
     /// Timeouts and other configuration for requests.
@@ -402,7 +407,7 @@ where
     T: NodeService,
 {
     pub async fn new(
-        active_committees: ActiveCommittees,
+        committee_tracker: CommitteeTracker,
         mut service_factory: Box<dyn NodeServiceFactory<Service = T>>,
         config: CommitteeServiceConfig,
         encoding_config: Arc<EncodingConfig>,
@@ -410,8 +415,8 @@ where
         rng: StdRng,
     ) -> Result<Self, anyhow::Error> {
         // TODO(jsmith): Accept committees with change in progress
-        assert!(!active_committees.is_change_in_progress());
-        let initial_committee = active_committees.current_committee();
+        assert!(!committee_tracker.is_change_in_progress());
+        let initial_committee = committee_tracker.committees().current_committee();
 
         let services = create_services_from_committee(
             &mut service_factory,
@@ -421,7 +426,7 @@ where
         .await?;
 
         let this = Self {
-            active_committees: watch::Sender::new(active_committees),
+            committee_tracker: watch::Sender::new(committee_tracker),
             services: SyncMutex::new(services),
             service_factory: TokioMutex::new(service_factory),
             local_identity,
@@ -448,8 +453,8 @@ where
             .cloned()
     }
 
-    pub(super) fn subscribe_to_committee_changes(&self) -> watch::Receiver<ActiveCommittees> {
-        self.active_committees.subscribe()
+    pub(super) fn subscribe_to_committee_changes(&self) -> watch::Receiver<CommitteeTracker> {
+        self.committee_tracker.subscribe()
     }
 }
 
@@ -459,7 +464,7 @@ where
     T: NodeService,
 {
     fn get_epoch(&self) -> Epoch {
-        self.inner.active_committees.borrow().epoch()
+        self.inner.committee_tracker.borrow().committees().epoch()
     }
 
     fn get_shard_count(&self) -> NonZeroU16 {
@@ -472,8 +477,9 @@ where
 
     fn committee(&self) -> Arc<Committee> {
         self.inner
-            .active_committees
+            .committee_tracker
             .borrow()
+            .committees()
             .current_committee()
             .clone()
     }
@@ -542,14 +548,19 @@ where
     }
 
     fn is_walrus_storage_node(&self, public_key: &PublicKey) -> bool {
-        let active_committees = self.inner.active_committees.borrow();
+        let committee_tracker = self.inner.committee_tracker.borrow();
 
-        active_committees.current_committee().contains(public_key)
-            || active_committees
+        committee_tracker
+            .committees()
+            .current_committee()
+            .contains(public_key)
+            || committee_tracker
+                .committees()
                 .previous_committee()
                 .map(|committee| committee.contains(public_key))
                 .unwrap_or(false)
-            || active_committees
+            || committee_tracker
+                .committees()
                 .next_committee()
                 .map(|committee| committee.contains(public_key))
                 .unwrap_or(false)
@@ -559,7 +570,7 @@ where
 impl<T> std::fmt::Debug for NodeCommitteeServiceInner<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("NodeCommitteeServiceInner")
-            .field("active_committees", &self.active_committees)
+            .field("committee_tracker", &self.committee_tracker)
             .field("config", &self.config)
             .field("local_identity", &self.local_identity)
             .field(

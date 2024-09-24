@@ -266,6 +266,27 @@ impl ActiveCommittees {
             );
         }
     }
+}
+
+/// Track committee changes on top [`ActiveCommittees`].
+#[derive(Debug)]
+pub struct CommitteeTracker(ActiveCommittees);
+
+impl CommitteeTracker {
+    /// Constructs a new instance of [`CommitteeTracker`].
+    pub fn new(active_committees: ActiveCommittees) -> Self {
+        Self(active_committees)
+    }
+
+    /// Returns the inner [`ActiveCommittees`] instance.
+    pub fn committees(&self) -> &ActiveCommittees {
+        &self.0
+    }
+
+    /// Returns true if a committee change is in progress, false otherwise.
+    pub fn is_change_in_progress(&self) -> bool {
+        self.0.is_change_in_progress()
+    }
 
     /// Sets the committee for the next epoch if it has not already been set.
     ///
@@ -277,19 +298,19 @@ impl ActiveCommittees {
         committee: Committee,
     ) -> Result<(), InvalidNextCommittee> {
         ensure!(
-            self.next_committee.is_none(),
+            self.0.next_committee.is_none(),
             InvalidNextCommittee::AlreadySet
         );
         ensure!(
-            committee.epoch == self.current_committee.epoch + 1,
+            committee.epoch == self.0.current_committee.epoch + 1,
             InvalidNextCommittee::InvalidEpoch {
-                expected: self.current_committee.epoch + 1,
+                expected: self.0.current_committee.epoch + 1,
                 actual: committee.epoch,
             }
         );
 
-        self.next_committee = Some(Arc::new(committee));
-        self.check_invariants();
+        self.0.next_committee = Some(Arc::new(committee));
+        self.0.check_invariants();
         Ok(())
     }
 
@@ -308,11 +329,11 @@ impl ActiveCommittees {
         expected_committee: Committee,
     ) -> Result<(), BeginCommitteeChangeError> {
         ensure!(
-            !self.is_transitioning,
+            !self.0.is_transitioning,
             BeginCommitteeChangeError::ChangeInProgress
         );
 
-        if let Some(ref next_committee) = self.next_committee {
+        if let Some(ref next_committee) = self.0.next_committee {
             ensure!(
                 **next_committee == expected_committee,
                 BeginCommitteeChangeError::CommitteeMismatch
@@ -327,14 +348,14 @@ impl ActiveCommittees {
             }
         }
 
-        let next_committee = self.next_committee.take().expect("set above");
-        let previous_committee = mem::replace(&mut self.current_committee, next_committee);
-        self.previous_committee = Some(previous_committee);
-        self.is_transitioning = true;
+        let next_committee = self.0.next_committee.take().expect("set above");
+        let previous_committee = mem::replace(&mut self.0.current_committee, next_committee);
+        self.0.previous_committee = Some(previous_committee);
+        self.0.is_transitioning = true;
 
-        self.check_invariants();
+        self.0.check_invariants();
 
-        debug_assert!(self.is_transitioning);
+        debug_assert!(self.0.is_transitioning);
         Ok(())
     }
 
@@ -349,24 +370,25 @@ impl ActiveCommittees {
         expected_epoch: Epoch,
     ) -> Result<&Arc<Committee>, EndCommitteeChangeError> {
         ensure!(
-            self.is_transitioning,
+            self.0.is_transitioning,
             EndCommitteeChangeError::NotTransitioning
         );
         ensure!(
-            self.epoch() == expected_epoch,
+            self.0.epoch() == expected_epoch,
             EndCommitteeChangeError::InvalidEpoch {
                 expected: expected_epoch,
-                actual: self.epoch()
+                actual: self.0.epoch()
             }
         );
 
-        self.is_transitioning = false;
+        self.0.is_transitioning = false;
         let previous_committee = self
+            .0
             .previous_committee
             .as_ref()
             .expect("there is always a previous committee after a transition");
 
-        self.check_invariants();
+        self.0.check_invariants();
         Ok(previous_committee)
     }
 }
