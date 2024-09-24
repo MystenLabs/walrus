@@ -66,7 +66,8 @@ pub struct CommitteesAndState {
     /// The current committee.
     pub current: Committee,
     /// The previous committee.
-    pub previous: Committee,
+    // TODO(giac): change to option
+    pub previous: Option<Committee>,
     /// The next committee.
     pub next: Option<Committee>,
     /// The epoch state for the current epoch.
@@ -496,13 +497,19 @@ impl ReadClient for SuiReadClient {
         let current = self
             .shard_assignment_to_committee(epoch, n_shards, &staking_object.inner.committee)
             .await?;
-        let previous = self
-            .shard_assignment_to_committee(
-                epoch - 1,
-                n_shards,
-                &staking_object.inner.previous_committee,
+        let previous = if epoch == 0 {
+            // There is no previous epoch.
+            None
+        } else {
+            Some(
+                self.shard_assignment_to_committee(
+                    epoch - 1,
+                    n_shards,
+                    &staking_object.inner.previous_committee,
+                )
+                .await?,
             )
-            .await?;
+        };
         let epoch_state = staking_object.inner.epoch_state;
         let next = if let Some(next_committee_assignment) = staking_object.inner.next_committee {
             Some(

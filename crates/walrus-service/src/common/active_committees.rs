@@ -153,7 +153,7 @@ impl ActiveCommittees {
     pub fn from_committees_and_state(committees_and_state: CommitteesAndState) -> Self {
         Self::new_with_next(
             committees_and_state.current,
-            Some(committees_and_state.previous),
+            committees_and_state.previous,
             committees_and_state.next,
             committees_and_state.epoch_state.is_transitioning(),
         )
@@ -200,11 +200,7 @@ impl ActiveCommittees {
         }
 
         match certified_epoch.cmp(&self.current_committee.epoch) {
-            Ordering::Less => {
-                Some(self.previous_committee.as_ref().expect(
-                    "the committee exists as the current committee does not have epoch zero",
-                ))
-            }
+            Ordering::Less => self.previous_committee.as_ref(),
             Ordering::Equal => Some(&self.current_committee),
             Ordering::Greater => None,
         }
@@ -390,5 +386,11 @@ impl CommitteeTracker {
 
         self.0.check_invariants();
         Ok(previous_committee)
+    }
+}
+
+impl From<ActiveCommittees> for CommitteeTracker {
+    fn from(active_committees: ActiveCommittees) -> Self {
+        Self::new(active_committees)
     }
 }

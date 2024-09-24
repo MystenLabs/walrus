@@ -122,8 +122,8 @@ where
         S: CommitteeLookupService + std::fmt::Debug + 'static,
     {
         // TODO(jsmith): Allow setting the local service factory.
-        let committee_tracker =
-            CommitteeTracker::new(lookup_service.get_active_committees().await?);
+        let committee_tracker: CommitteeTracker =
+            lookup_service.get_active_committees().await?.into();
         let encoding_config = Arc::new(EncodingConfig::new(
             committee_tracker
                 .committees()
@@ -239,7 +239,7 @@ where
     /// Reset the committees to the latest retrieved via the configured lookup service.
     #[allow(unused)]
     pub async fn reset_committees(&self) -> Result<(), anyhow::Error> {
-        let latest = CommitteeTracker::new(self.committee_lookup.get_active_committees().await?);
+        let latest = self.committee_lookup.get_active_committees().await?.into();
         self.reset_committees_to(latest).await;
         Ok(())
     }
