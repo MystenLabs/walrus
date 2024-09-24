@@ -50,9 +50,13 @@ fun test_staking_active_set() {
     let pool_three = test::pool().name(b"pool_3".to_string()).register(&mut staking, ctx);
 
     // now Alice, Bob, and Carl stake in the pools
-    let wal_alice = staking.stake_with_pool(test::mint(100000, ctx), pool_one, ctx);
+    let mut wal_alice = staking.stake_with_pool(test::mint(100000, ctx), pool_one, ctx);
+    let wal_alice_2 = staking.stake_with_pool(test::mint(100000, ctx), pool_one, ctx);
+
+    wal_alice.join(wal_alice_2);
+
     let wal_bob = staking.stake_with_pool(test::mint(200000, ctx), pool_two, ctx);
-    let wal_carl = staking.stake_with_pool(test::mint(700000, ctx), pool_three, ctx);
+    let wal_carl = staking.stake_with_pool(test::mint(600000, ctx), pool_three, ctx);
 
     // expect the active set to be modified
     assert!(staking.active_set().total_stake() == 1000000);
