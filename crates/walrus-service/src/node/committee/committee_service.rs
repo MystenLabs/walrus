@@ -43,7 +43,6 @@ use crate::{
     common::active_committees::{
         ActiveCommittees,
         BeginCommitteeChangeError,
-        CommitteeTransitions,
         EndCommitteeChangeError,
     },
     node::{config::CommitteeServiceConfig, errors::SyncShardClientError},

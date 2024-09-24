@@ -122,9 +122,12 @@ impl Client<()> {
     ) -> ClientResult<Self> {
         tracing::debug!(?config, "running client");
 
-        let committees = ActiveCommittees::from_sui(sui_read_client)
-            .await
-            .map_err(ClientError::other)?;
+        let committees = ActiveCommittees::from_committees_and_state(
+            sui_read_client
+                .get_committees_and_state()
+                .await
+                .map_err(ClientError::other)?,
+        );
 
         let storage_price_per_unit_size = sui_read_client
             .storage_price_per_unit_size()

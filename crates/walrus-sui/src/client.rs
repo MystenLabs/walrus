@@ -56,7 +56,7 @@ use crate::{
 };
 
 mod read_client;
-pub use read_client::{ReadClient, SuiReadClient};
+pub use read_client::{CommitteesAndState, ReadClient, SuiReadClient};
 
 const CLOCK_CALL_ARG: CallArg = CallArg::Object(sui_types::transaction::ObjectArg::SharedObject {
     id: SUI_CLOCK_OBJECT_ID,

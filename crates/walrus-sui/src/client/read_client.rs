@@ -58,11 +58,18 @@ const EVENT_MODULE: &str = "events";
 const MULTI_GET_OBJ_LIMIT: usize = 50;
 
 /// The current, previous, and next committee, and the current epoch state.
+///
+/// This struct is only used to pass the information on committees and state. No invariants are
+/// checked here, but possibly enforced by the crators and consumers of the struct.
 #[derive(Debug)]
 pub struct CommitteesAndState {
+    /// The current committee.
     pub current: Committee,
+    /// The previous committee.
     pub previous: Committee,
+    /// The next committee.
     pub next: Option<Committee>,
+    /// The epoch state for the current epoch.
     pub epoch_state: EpochState,
 }
 

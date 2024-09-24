@@ -4,10 +4,7 @@
 use std::{cmp::Ordering, mem, num::NonZeroU16, sync::Arc};
 
 use walrus_core::{ensure, Epoch};
-use walrus_sui::{
-    client::{ReadClient, SuiClientError},
-    types::{move_structs::EpochState, Committee},
-};
+use walrus_sui::{client::CommitteesAndState, types::Committee};
 
 /// Errors returned when starting a committee change with
 /// [`ActiveCommittees::begin_committee_change`].
@@ -49,45 +46,6 @@ pub(crate) enum InvalidNextCommittee {
     /// current committee.
     #[error("the epoch of the new committee is invalid: {actual} (expected {expected})")]
     InvalidEpoch { expected: Epoch, actual: Epoch },
-}
-
-/// Helper trait to separate the committee transition logic from the active committee state.
-pub(crate) trait CommitteeTransitions {
-    /// Sets the committee for the next epoch if it has not already been set.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the committees have a different number of shards.
-    fn set_committee_for_next_epoch(
-        &mut self,
-        committee: Committee,
-    ) -> Result<(), InvalidNextCommittee>;
-
-    /// Begins the transition of committees that occurs during epoch change.
-    ///
-    /// If the upcoming committee has not been set, then the expected committee defines the upcoming
-    /// committee. Otherwise, the previously set upcoming committee is compared with the expected
-    /// committee. If they are the same, then the change can be initiated, otherwise an error is
-    /// returned.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the expected_committee has a different number of shards.
-    fn begin_committee_change(
-        &mut self,
-        expected_committee: Committee,
-    ) -> Result<(), BeginCommitteeChangeError>;
-
-    /// Completes the transition of a committee from the old epoch to the new.
-    ///
-    /// The expected epoch must match with the epoch of the newest committee, that is, the new,
-    /// current epoch. If not, then an error is returned and the committee change is not completed.
-    ///
-    /// On completion, returns a reference to the outgoing committee: the new prior committee.
-    fn end_committee_change(
-        &mut self,
-        expected_epoch: Epoch,
-    ) -> Result<&Arc<Committee>, EndCommitteeChangeError>;
 }
 
 /// The current, prior, and next committees in the system.
@@ -183,25 +141,22 @@ impl ActiveCommittees {
         this
     }
 
-    /// Construct a new set of `ActiveCommittees`, fetching the status from Sui.
+    /// Construct a new set of `ActiveCommittees` from the [`CommitteesAndState`] returned by the
+    /// [`ReadClient`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the prior committee is None when the current_committee has an epoch greater than
+    /// zero, if the prior committee's epoch does not precede that of the current committees, or if
+    /// they have a different number of shards.
     #[tracing::instrument(skip_all)]
-    pub async fn from_sui(read_client: &impl ReadClient) -> Result<Self, SuiClientError> {
-        let epoch_state = read_client.epoch_state().await?;
-        let current_committee = read_client.current_committee().await?;
-        let prior_committee = read_client.previous_committee().await?;
-        let upcoming_committee = if let EpochState::NextParamsSelected(_) = epoch_state {
-            // This is the only case where the upcoming committee is known.
-            read_client.next_committee().await?
-        } else {
-            None
-        };
-
-        Ok(Self::new_with_upcoming(
-            current_committee,
-            Some(prior_committee),
-            upcoming_committee,
-            epoch_state.is_transitioning(),
-        ))
+    pub fn from_committees_and_state(committees_and_state: CommitteesAndState) -> Self {
+        Self::new_with_upcoming(
+            committees_and_state.current,
+            Some(committees_and_state.previous),
+            committees_and_state.next,
+            committees_and_state.epoch_state.is_transitioning(),
+        )
     }
 
     /// The current epoch.
@@ -311,10 +266,13 @@ impl ActiveCommittees {
             );
         }
     }
-}
 
-impl CommitteeTransitions for ActiveCommittees {
-    fn set_committee_for_next_epoch(
+    /// Sets the committee for the next epoch if it has not already been set.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the committees have a different number of shards.
+    pub(crate) fn set_committee_for_next_epoch(
         &mut self,
         committee: Committee,
     ) -> Result<(), InvalidNextCommittee> {
@@ -335,7 +293,17 @@ impl CommitteeTransitions for ActiveCommittees {
         Ok(())
     }
 
-    fn begin_committee_change(
+    /// Begins the transition of committees that occurs during epoch change.
+    ///
+    /// If the upcoming committee has not been set, then the expected committee defines the upcoming
+    /// committee. Otherwise, the previously set upcoming committee is compared with the expected
+    /// committee. If they are the same, then the change can be initiated, otherwise an error is
+    /// returned.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the expected_committee has a different number of shards.
+    pub fn begin_committee_change(
         &mut self,
         expected_committee: Committee,
     ) -> Result<(), BeginCommitteeChangeError> {
@@ -370,7 +338,13 @@ impl CommitteeTransitions for ActiveCommittees {
         Ok(())
     }
 
-    fn end_committee_change(
+    /// Completes the transition of a committee from the old epoch to the new.
+    ///
+    /// The expected epoch must match with the epoch of the newest committee, that is, the new,
+    /// current epoch. If not, then an error is returned and the committee change is not completed.
+    ///
+    /// On completion, returns a reference to the outgoing committee: the new prior committee.
+    pub fn end_committee_change(
         &mut self,
         expected_epoch: Epoch,
     ) -> Result<&Arc<Committee>, EndCommitteeChangeError> {
