@@ -3,7 +3,7 @@
 
 //! Walrus storage node.
 
-use std::{future::Future, num::NonZeroU16, path::PathBuf, sync::Arc};
+use std::{future::Future, num::NonZeroU16, sync::Arc};
 
 use anyhow::{anyhow, bail, Context};
 use fastcrypto::traits::KeyPair;
@@ -90,10 +90,7 @@ mod storage;
 pub use storage::{DatabaseConfig, Storage};
 use walrus_event::{EventStreamCursor, EventStreamElement};
 
-use crate::node::{
-    storage::event_blob_writer::EventBlobWriter,
-    system_events::{EventManager, SuiSystemEventProvider},
-};
+use crate::node::system_events::{EventManager, SuiSystemEventProvider};
 
 /// Trait for all functionality offered by a storage node.
 pub trait ServiceState {
@@ -360,7 +357,6 @@ pub struct StorageNodeInner {
     contract_service: Arc<dyn SystemContractService>,
     committee_service: Arc<dyn CommitteeService>,
     start_time: Instant,
-    db_root_dir_path: PathBuf,
     metrics: NodeMetricSet,
 }
 
@@ -410,7 +406,6 @@ impl StorageNode {
             committee_service: committee_service.into(),
             metrics: NodeMetricSet::new(registry),
             start_time,
-            db_root_dir_path: config.storage_path.clone(),
         });
 
         inner.init_gauges()?;
@@ -458,10 +453,8 @@ impl StorageNode {
 
     async fn process_events(&self) -> anyhow::Result<()> {
         let storage = &self.inner.storage;
-        let mut event_blob_writer =
-            EventBlobWriter::new(&self.inner.db_root_dir_path, self.inner.clone())?;
         let from_event_id = storage.get_event_cursor()?.map(|(_, cursor)| cursor);
-        let from_element_index = self.get_last_committed_event_index(&event_blob_writer)?;
+        let from_element_index = self.get_last_committed_event_index()?;
         let event_cursor = EventStreamCursor::new(from_event_id, from_element_index);
         let event_stream = Box::into_pin(self.inner.event_manager.events(event_cursor).await?);
         let next_index: usize = from_element_index.try_into().expect("64-bit architecture");
@@ -486,7 +479,6 @@ impl StorageNode {
                 "walrus.blob_id" = ?stream_element.element.blob_id(),
                 "error.type" = field::Empty,
             );
-            let cloned_stream_element = stream_element.clone();
             async move {
                 let _timer_guard = &self
                     .inner
@@ -550,38 +542,16 @@ impl StorageNode {
             })
             .instrument(span)
             .await?;
-            event_blob_writer
-                .write(cloned_stream_element, element_index as u64)
-                .await?;
-            self.inner
-                .event_manager
-                .drop_events_before(EventStreamCursor::new(
-                    None,
-                    self.get_last_committed_event_index(&event_blob_writer)?,
-                ))
-                .await?;
         }
 
         bail!("event stream for blob events stopped")
     }
 
     #[tracing::instrument(skip_all)]
-    fn get_last_committed_event_index(
-        &self,
-        event_blob_writer: &EventBlobWriter,
-    ) -> anyhow::Result<u64> {
+    fn get_last_committed_event_index(&self) -> anyhow::Result<u64> {
         let storage = &self.inner.storage;
-        let last_committed_sequencer_index: Option<u64> =
-            storage.get_event_cursor()?.map(|(index, _)| index);
-        let last_committed_event_blob_writer_index: Option<u64> =
-            event_blob_writer.latest_committed_event_index();
-        // if both are some, return minimum of the two otherwise return 0
-        Ok(last_committed_sequencer_index
-            .zip(last_committed_event_blob_writer_index)
-            .map(|(sequencer_index, blob_writer_index)| {
-                u64::min(sequencer_index, blob_writer_index)
-            })
-            .unwrap_or(0))
+        let index: Option<u64> = storage.get_event_cursor()?.map(|(index, _)| index);
+        Ok(index.unwrap_or(0))
     }
 
     #[tracing::instrument(skip_all)]
