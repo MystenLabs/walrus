@@ -150,7 +150,8 @@ jobs:
 
   simtests:
     name: Run all simtests
-    if: contains(github.event.pull_request.labels.*.name, 'run_simtests')
+    needs: diff
+    if: ${{ needs.diff.outputs.isRust == 'true' || needs.diff.outputs.isMove == 'true' }}
     runs-on: ubuntu-ghcloud
     continue-on-error: true
     steps:
