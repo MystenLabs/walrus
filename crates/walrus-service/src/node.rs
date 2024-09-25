@@ -371,7 +371,7 @@ pub struct StorageNodeInner {
     committee_service: Arc<dyn CommitteeService>,
     start_time: Instant,
     metrics: NodeMetricSet,
-    node_id: ObjectID,
+    node_object_id: ObjectID,
 }
 
 impl StorageNode {
@@ -413,7 +413,7 @@ impl StorageNode {
             committee_service: committee_service.into(),
             metrics: NodeMetricSet::new(registry),
             start_time,
-            node_id,
+            node_object_id: node_id,
         });
 
         inner.init_gauges()?;
@@ -450,7 +450,9 @@ impl StorageNode {
         self.start_processing_events(cancel_token).await
     }
 
-    /// Run the walrus-node logic until cancelled using the provided cancellation token.
+    /// Run the walrus-node logic until cancelled using the provided cancellation token. Skip
+    /// the start-up check for lagging.
+    #[cfg(any(test, feature = "test-utils"))]
     pub async fn run_skip_start_up_check(
         &self,
         cancel_token: CancellationToken,
@@ -725,19 +727,15 @@ impl StorageNode {
         Ok(())
     }
 
-    #[tracing::instrument(skip_all)]
-    async fn process_epoch_change_start_event(
-        &self,
-        event: &EpochChangeStart,
-    ) -> anyhow::Result<()> {
+    async fn begin_committee_change(&self, epoch: Epoch) -> Result<(), BeginCommitteeChangeError> {
         match self
             .inner
             .committee_service
-            .begin_committee_change(event.epoch)
+            .begin_committee_change(epoch)
             .await
         {
             Ok(()) => tracing::debug!(
-                walrus.epoch = event.epoch,
+                walrus.epoch = epoch,
                 "successfully started a transition to a new epoch"
             ),
             Err(
@@ -749,16 +747,26 @@ impl StorageNode {
                 // transitioning, our shards have also already been configured for the more
                 // recent committee and there is actual nothing to do.
                 tracing::debug!(
-                    walrus.epoch = event.epoch,
+                    walrus.epoch = epoch,
                     "skipping epoch change start event for an older epoch"
                 );
                 return Ok(());
             }
             Err(error) => {
                 tracing::error!(?error, "failed to initiate a transition to the new epoch");
-                return Err(error.into());
+                return Err(error);
             }
         }
+
+        Ok(())
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn process_epoch_change_start_event(
+        &self,
+        event: &EpochChangeStart,
+    ) -> anyhow::Result<()> {
+        self.begin_committee_change(event.epoch).await?;
 
         let public_key = self.inner.public_key();
         let storage = &self.inner.storage;
@@ -786,7 +794,7 @@ impl StorageNode {
             // No shard to sync, signaling the contract that epoch sync is done.
             self.inner
                 .contract_service
-                .epoch_sync_done(self.inner.node_id)
+                .epoch_sync_done(self.inner.node_object_id)
                 .await;
         } else {
             self.inner
