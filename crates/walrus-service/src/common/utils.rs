@@ -4,6 +4,7 @@
 //! Utility functions for the Walrus service.
 
 use std::{
+    collections::HashSet,
     fmt::Debug,
     future::Future,
     net::{IpAddr, Ipv4Addr, SocketAddr},
@@ -59,6 +60,9 @@ macro_rules! version {
     }};
 }
 pub use version;
+use walrus_core::{PublicKey, ShardIndex};
+
+use super::active_committees::ActiveCommittees;
 
 /// Trait for loading configuration from a YAML file.
 pub trait LoadConfig: DeserializeOwned {
@@ -455,8 +459,48 @@ impl MetricsAndLoggingRuntime {
     }
 }
 
+/// The difference between shard allocations in different epochs.
+#[derive(Debug, Clone, Eq, PartialEq, Default)]
+pub(crate) struct ShardDiff {
+    /// Shards lost from the assignment.
+    pub lost: Vec<ShardIndex>,
+    /// Shards gained in the assignment.
+    pub gained: Vec<ShardIndex>,
+    /// Shards which are common to both assignments.
+    pub unchanged: Vec<ShardIndex>,
+}
+
+impl ShardDiff {
+    /// Returns a new `ShardDiff` when moving from the allocation in
+    /// `committees.previous_committee()` to `committees.current_committee()` for the node
+    /// identified by the provided public key.
+    #[allow(unused)]
+    pub fn diff_previous(committees: &ActiveCommittees, id: &PublicKey) -> ShardDiff {
+        let from: &[ShardIndex] = committees
+            .previous_committee()
+            .map_or(&[], |committee| committee.shards_for_node_public_key(id));
+        let to = committees
+            .current_committee()
+            .shards_for_node_public_key(id);
+        Self::diff(from, to)
+    }
+
+    /// Returns a new `ShardDiff` when moving from the allocation in `from` to `to`.
+    pub fn diff(from: &[ShardIndex], to: &[ShardIndex]) -> ShardDiff {
+        let from: HashSet<ShardIndex> = from.iter().copied().collect();
+        let to: HashSet<ShardIndex> = to.iter().copied().collect();
+
+        ShardDiff {
+            unchanged: from.intersection(&to).copied().collect(),
+            lost: from.difference(&to).copied().collect(),
+            gained: to.difference(&from).copied().collect(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     mod exponential_backoff {
