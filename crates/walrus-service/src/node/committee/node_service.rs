@@ -68,7 +68,7 @@ pub(crate) enum Request {
         starting_blob_id: BlobId,
         sliver_count: u64,
         sliver_type: SliverType,
-        shard_owner_epoch: Epoch,
+        current_epoch: Epoch,
         key_pair: ProtocolKeyPair,
     },
 }
@@ -232,7 +232,7 @@ impl Service<Request> for RemoteStorageNode {
                     starting_blob_id,
                     sliver_count,
                     sliver_type,
-                    shard_owner_epoch,
+                    current_epoch,
                     key_pair,
                 } => {
                     let result = if sliver_type == SliverType::Primary {
@@ -241,7 +241,7 @@ impl Service<Request> for RemoteStorageNode {
                                 shard,
                                 starting_blob_id,
                                 sliver_count,
-                                shard_owner_epoch,
+                                current_epoch,
                                 &key_pair,
                             )
                             .await
@@ -251,7 +251,7 @@ impl Service<Request> for RemoteStorageNode {
                                 shard,
                                 starting_blob_id,
                                 sliver_count,
-                                shard_owner_epoch,
+                                current_epoch,
                                 &key_pair,
                             )
                             .await

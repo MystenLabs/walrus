@@ -589,6 +589,7 @@ pub struct StubContractService {}
 #[async_trait]
 impl SystemContractService for StubContractService {
     async fn invalidate_blob_id(&self, _certificate: &InvalidBlobCertificate) {}
+    async fn epoch_sync_done(&self, _node_id: ObjectID) {}
 }
 
 /// Returns a socket address that is not currently in use on the system.
@@ -982,6 +983,10 @@ where
     async fn invalidate_blob_id(&self, certificate: &InvalidBlobCertificate) {
         self.as_ref().inner.invalidate_blob_id(certificate).await
     }
+
+    async fn epoch_sync_done(&self, node_id: ObjectID) {
+        self.as_ref().inner.epoch_sync_done(node_id).await
+    }
 }
 
 /// Returns a test-committee with members with the specified number of shards each.
@@ -1211,12 +1216,13 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
 pub fn empty_storage_with_shards(shards: &[ShardIndex]) -> WithTempDir<Storage> {
     let temp_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
     let db_config = DatabaseConfig::default();
-    let mut storage = Storage::open(temp_dir.path(), db_config, MetricConf::default())
+    let storage = Storage::open(temp_dir.path(), db_config, MetricConf::default())
         .expect("storage creation must succeed");
 
     for shard in shards {
+        // TODO: call create_storage_for_shards once use the list of shards.
         storage
-            .create_storage_for_shard(*shard)
+            .create_storage_for_shards(&[*shard])
             .expect("shard should be successfully created");
     }
 

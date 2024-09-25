@@ -176,7 +176,7 @@ where
         starting_blob_id: BlobId,
         sliver_count: u64,
         sliver_type: SliverType,
-        shard_owner_epoch: Epoch,
+        current_epoch: Epoch,
         key_pair: &ProtocolKeyPair,
     ) -> Result<Vec<(BlobId, Sliver)>, SyncShardClientError> {
         let committee = self
@@ -184,7 +184,7 @@ where
             .committee_tracker
             .borrow()
             .committees()
-            .committee_for_epoch(shard_owner_epoch)
+            .committee_for_epoch(current_epoch - 1)
             .ok_or(SyncShardClientError::NoSyncClient)?
             .clone();
 
@@ -212,7 +212,7 @@ where
                 starting_blob_id,
                 sliver_count,
                 sliver_type,
-                shard_owner_epoch,
+                current_epoch,
                 key_pair: key_pair.clone(),
             })
             .map_ok(Response::into_value)

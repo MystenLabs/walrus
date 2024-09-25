@@ -31,8 +31,9 @@ pub struct SyncShardRequestV1 {
     /// Note that only blobs certified at the moment of epoch change are synced.
     sliver_count: u64,
 
-    /// The epoch up until which blobs were certified. In the context of
-    /// an epoch change, this is the previous epoch.
+    /// The epoch up until which blobs were certified, e.g. sync all certified blobs whose
+    /// certification epoch < `epoch`. In the context of an epoch change, this is the epoch
+    /// that the storage node is transitioning to.
     epoch: Epoch,
 }
 

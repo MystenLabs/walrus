@@ -92,6 +92,9 @@ pub enum SuiClientError {
     /// The specified event ID is not associated with a Walrus event.
     #[error("no corresponding blob event found for {0:?}")]
     NoCorrespondingBlobEvent(EventID),
+    /// Storage capability object is missing when interacting with the contract.
+    #[error("No storage capability object set")]
+    StorageNodeCapabilityObjectNotSet,
 }
 
 /// Represents the persistence state of a blob on Walrus.
@@ -231,7 +234,11 @@ pub trait ContractClient: Send + Sync {
     /// Can be called once the epoch duration is over.
     fn initiate_epoch_change(&self) -> impl Future<Output = SuiClientResult<()>> + Send;
 
-    //fn epoch_change_done(&self, ...) -> impl Future<Output = SuiClientResult<()>> + Send;
+    /// Call to notify the contract that this node is done syncing the epoch.
+    fn epoch_sync_done(
+        &self,
+        node_id: ObjectID,
+    ) -> impl Future<Output = SuiClientResult<()>> + Send;
 
     /// Deletes the owned blob with the specified Sui object ID, returning the storage resource.
     fn delete_blob(
@@ -740,6 +747,41 @@ impl ContractClient for SuiContractClient {
             vec![
                 self.read_client.call_arg_from_staking_obj(true).await?,
                 self.read_client.call_arg_from_system_obj(true).await?,
+                CLOCK_CALL_ARG,
+            ],
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn epoch_sync_done(&self, node_id: ObjectID) -> SuiClientResult<()> {
+        let node_capability_object_id = get_owned_objects::<StorageNodeCap>(
+            &self.read_client.sui_client,
+            self.wallet_address,
+            self.read_client.system_pkg_id,
+            &[],
+        )
+        .await?
+        .collect::<Vec<_>>()
+        .iter()
+        .find_map(|cap| (cap.node_id == node_id).then_some(cap.id));
+
+        tracing::info!("calling epoch_sync_done {:?}", node_capability_object_id);
+        if node_capability_object_id.is_none() {
+            return Err(SuiClientError::StorageNodeCapabilityObjectNotSet);
+        }
+
+        let cap_obj_ref = self
+            .wallet
+            .lock()
+            .await
+            .get_object_ref(node_capability_object_id.expect("We just checked it is not none"))
+            .await?;
+        self.move_call_and_transfer(
+            contracts::staking::epoch_sync_done,
+            vec![
+                self.read_client.call_arg_from_staking_obj(true).await?,
+                cap_obj_ref.into(),
                 CLOCK_CALL_ARG,
             ],
         )

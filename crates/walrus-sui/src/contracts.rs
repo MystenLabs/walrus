@@ -221,6 +221,7 @@ pub mod staking {
     contract_ident!(fn staking::stake_with_pool, 1);
     contract_ident!(fn staking::voting_end);
     contract_ident!(fn staking::initiate_epoch_change);
+    contract_ident!(fn staking::epoch_sync_done);
 }
 
 /// Module for tags corresponding to the Move module `staking_inner`.

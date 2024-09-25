@@ -290,6 +290,7 @@ impl BlobSynchronizer {
         let mut sliver_sync_futures: FuturesUnordered<_> = self
             .storage()
             .shards()
+            .into_iter()
             .flat_map(|shard| {
                 [
                     Either::Left(

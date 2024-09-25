@@ -6,7 +6,7 @@ use std::{
     fmt::Debug,
     ops::Bound::{Excluded, Unbounded},
     path::Path,
-    sync::Arc,
+    sync::{Arc, RwLock},
 };
 
 use blob_info::merge_blob_info;
@@ -58,7 +58,7 @@ pub struct Storage {
     metadata: DBMap<BlobId, BlobMetadata>,
     blob_info: DBMap<BlobId, BlobInfo>,
     event_cursor: EventCursorTable,
-    shards: HashMap<ShardIndex, Arc<ShardStorage>>,
+    shards: Arc<RwLock<HashMap<ShardIndex, Arc<ShardStorage>>>>,
     config: DatabaseConfig,
 }
 
@@ -187,13 +187,15 @@ impl Storage {
             &ReadWriteOptions::default(),
             false,
         )?;
-        let shards = existing_shards_ids
-            .into_iter()
-            .map(|id| {
-                ShardStorage::create_or_reopen(id, &database, &db_config, None)
-                    .map(|shard| (id, Arc::new(shard)))
-            })
-            .collect::<Result<_, _>>()?;
+        let shards = Arc::new(RwLock::new(
+            existing_shards_ids
+                .into_iter()
+                .map(|id| {
+                    ShardStorage::create_or_reopen(id, &database, &db_config, None)
+                        .map(|shard| (id, Arc::new(shard)))
+                })
+                .collect::<Result<_, _>>()?,
+        ));
 
         Ok(Self {
             database,
@@ -206,37 +208,56 @@ impl Storage {
     }
 
     /// Returns the storage for the specified shard, creating it if it does not exist.
-    pub(crate) fn create_storage_for_shard(
-        &mut self,
-        shard: ShardIndex,
-    ) -> Result<&ShardStorage, TypedStoreError> {
-        match self.shards.entry(shard) {
-            Entry::Occupied(entry) => Ok(entry.into_mut()),
-            Entry::Vacant(entry) => {
-                let shard_storage = Arc::new(ShardStorage::create_or_reopen(
-                    shard,
-                    &self.database,
-                    &self.config,
-                    Some(ShardStatus::Active),
-                )?);
-                Ok(entry.insert(shard_storage))
+    pub(crate) fn create_storage_for_shards(
+        &self,
+        new_shards: &[ShardIndex],
+    ) -> Result<(), TypedStoreError> {
+        let mut locked_map = self.shards.write().unwrap();
+        for shard in new_shards {
+            match locked_map.entry(*shard) {
+                Entry::Vacant(entry) => {
+                    let shard_storage = Arc::new(ShardStorage::create_or_reopen(
+                        *shard,
+                        &self.database,
+                        &self.config,
+                        // TODO: for move-in shard, the initial state should be ActiveSync.
+                        Some(ShardStatus::Active),
+                    )?);
+                    entry.insert(shard_storage);
+                }
+                Entry::Occupied(_) => (),
             }
         }
+        Ok(())
     }
 
     /// Returns the indices of the shards managed by the storage.
-    pub fn shards(&self) -> impl ExactSizeIterator<Item = ShardIndex> + '_ {
-        self.shards.keys().copied()
+    pub fn shards(&self) -> Vec<ShardIndex> {
+        self.shards
+            .read()
+            .expect("Should acquire the lock successfully")
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>()
     }
 
     /// Returns an iterator over the shard storages managed by the storage.
-    pub fn shard_storages(&self) -> impl ExactSizeIterator<Item = &Arc<ShardStorage>> {
-        self.shards.values()
+    pub fn shard_storages(&self) -> Vec<Arc<ShardStorage>> {
+        self.shards
+            .read()
+            .expect("Should acquire the lock successfully")
+            .values()
+            .cloned()
+            .collect::<Vec<_>>()
     }
 
     /// Returns a handle over the storage for a single shard.
-    pub fn shard_storage(&self, shard: ShardIndex) -> Option<&Arc<ShardStorage>> {
-        self.shards.get(&shard)
+    pub fn shard_storage(&self, shard: ShardIndex) -> Option<Arc<ShardStorage>> {
+        self.shards
+            .read()
+            .expect("Should acquire the lock successfully")
+            .get(&shard)
+            .cloned()
     }
 
     /// Store the verified metadata.
@@ -394,7 +415,7 @@ impl Storage {
 
     /// Deletes the slivers on all shards for the provided [`BlobId`].
     fn delete_slivers(&self, batch: &mut DBBatch, blob_id: &BlobId) -> Result<(), TypedStoreError> {
-        for shard in self.shards.values() {
+        for shard in self.shard_storages() {
             shard.delete_sliver_pair(batch, blob_id)?;
         }
         Ok(())
@@ -404,7 +425,7 @@ impl Storage {
     /// all of the storage's shards.
     #[tracing::instrument(skip_all)]
     pub fn is_stored_at_all_shards(&self, blob_id: &BlobId) -> Result<bool, TypedStoreError> {
-        for shard in self.shards.values() {
+        for shard in self.shard_storages() {
             if !shard.status()?.is_owned_by_node() {
                 continue;
             }
@@ -414,7 +435,7 @@ impl Storage {
             }
         }
 
-        Ok(!self.shards.is_empty())
+        Ok(true)
     }
 
     /// Returns true if the provided blob-id is invalid.
@@ -431,9 +452,13 @@ impl Storage {
         &self,
         blob_id: &BlobId,
     ) -> Result<Vec<ShardIndex>, TypedStoreError> {
-        let mut shards_with_sliver_pairs = Vec::with_capacity(self.shards.len());
+        let shard_map = self
+            .shards
+            .read()
+            .expect("should acquire the lock successfully");
+        let mut shards_with_sliver_pairs = Vec::with_capacity(shard_map.len());
 
-        for shard in self.shards.values() {
+        for shard in shard_map.values() {
             if shard.is_sliver_pair_stored(blob_id)? {
                 shards_with_sliver_pairs.push(shard.id());
             }
@@ -458,7 +483,12 @@ impl Storage {
     /// Returns the shards currently present in the storage.
     #[cfg(any(test, feature = "test-utils"))]
     pub(crate) fn shards_present(&self) -> Vec<ShardIndex> {
-        self.shards.keys().copied().collect()
+        self.shards
+            .read()
+            .expect("should acquire the lock successfully")
+            .keys()
+            .copied()
+            .collect()
     }
 
     /// Handles a sync shard request. The validity of the request should be checked before calling
@@ -557,7 +587,8 @@ pub(crate) mod tests {
 
         let mut seed = 10u8;
         for (shard, sliver_list) in spec {
-            storage.as_mut().create_storage_for_shard(*shard)?;
+            // TODO: call create storage once with the list of storages.
+            storage.as_mut().create_storage_for_shards(&[*shard])?;
             let shard_storage = storage.as_ref().shard_storage(*shard).unwrap();
 
             for (blob_id, which) in sliver_list.iter() {
@@ -1052,7 +1083,11 @@ pub(crate) mod tests {
         let mut data: HashMap<ShardIndex, HashMap<BlobId, HashMap<SliverType, Sliver>>> =
             HashMap::new();
         for shard in [ShardIndex(3), ShardIndex(5)] {
-            storage.as_mut().create_storage_for_shard(shard).unwrap();
+            // TODO: call create storage once with the list of storages.
+            storage
+                .as_mut()
+                .create_storage_for_shards(&[shard])
+                .unwrap();
             let shard_storage = storage.as_ref().shard_storage(shard).unwrap();
             data.insert(shard, HashMap::new());
             for blob in blob_ids.iter() {

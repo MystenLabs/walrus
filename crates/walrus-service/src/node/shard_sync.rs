@@ -38,7 +38,6 @@ impl ShardSyncHandler {
         }
     }
 
-    #[allow(dead_code)]
     /// Starts syncing a new shard. This method is used when a new shard is assigned to the node.
     pub async fn start_new_shard_sync(
         &self,
@@ -53,6 +52,10 @@ impl ShardSyncHandler {
                         shard_status,
                     ));
                 }
+
+                // Update shard's status so that after this function returns, we can always restart
+                // the sync upon node restart.
+                shard_storage.set_start_sync_status()?;
                 self.start_shard_sync_impl(shard_storage.clone()).await;
                 Ok(())
             }
@@ -159,11 +162,21 @@ impl ShardSyncHandler {
             .await;
 
             // Remove the task from the shard_sync_in_progress map upon completion.
-            shard_sync_handler_clone
-                .shard_sync_in_progress
-                .lock()
-                .await
-                .remove(&shard_index);
+            let epoch_sync_done;
+            {
+                let mut shard_sync_map =
+                    shard_sync_handler_clone.shard_sync_in_progress.lock().await;
+                shard_sync_map.remove(&shard_index);
+                epoch_sync_done = shard_sync_map.is_empty();
+            }
+
+            if epoch_sync_done {
+                shard_sync_handler_clone
+                    .node
+                    .contract_service
+                    .epoch_sync_done(shard_sync_handler_clone.node.node_id)
+                    .await;
+            }
         });
         entry.insert(shard_sync_task);
     }
