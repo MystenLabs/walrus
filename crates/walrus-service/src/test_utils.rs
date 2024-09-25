@@ -19,7 +19,7 @@ use futures::StreamExt;
 use prometheus::Registry;
 use sui_types::base_types::ObjectID;
 use tempfile::TempDir;
-use tokio::time::Duration;
+use tokio::{task::JoinHandle, time::Duration};
 use tokio_stream::{wrappers::BroadcastStream, Stream};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
@@ -200,6 +200,7 @@ pub struct StorageNodeHandleBuilder {
     run_rest_api: bool,
     run_node: bool,
     test_config: Option<StorageNodeTestConfig>,
+    cancellation_token: Option<CancellationToken>,
 }
 
 impl StorageNodeHandleBuilder {
@@ -232,6 +233,12 @@ impl StorageNodeHandleBuilder {
         event_provider: Box<dyn SystemEventProvider>,
     ) -> Self {
         self.event_provider = event_provider;
+        self
+    }
+
+    /// Sets the cancellation token for the node.
+    pub fn with_cancellation_token(mut self, cancellation_token: CancellationToken) -> Self {
+        self.cancellation_token = Some(cancellation_token);
         self
     }
 
@@ -354,7 +361,7 @@ impl StorageNodeHandleBuilder {
             .await?;
         let node = Arc::new(node);
 
-        let cancel_token = CancellationToken::new();
+        let cancel_token = self.cancellation_token.unwrap_or_default();
         let rest_api = Arc::new(UserServer::new(
             node.clone(),
             cancel_token.clone(),
@@ -414,6 +421,7 @@ impl Default for StorageNodeHandleBuilder {
             run_node: Default::default(),
             contract_service: None,
             test_config: None,
+            cancellation_token: None,
         }
     }
 }
@@ -647,6 +655,8 @@ impl SystemEventProvider for tokio::sync::broadcast::Sender<ContractEvent> {
 pub struct TestCluster {
     /// The running storage nodes.
     pub nodes: Vec<StorageNodeHandle>,
+    /// Background task handles
+    pub handles: Vec<JoinHandle<anyhow::Result<()>>>,
 }
 
 impl TestCluster {
@@ -698,6 +708,8 @@ pub struct TestClusterBuilder {
     event_providers: Vec<Option<Box<dyn SystemEventProvider>>>,
     committee_services: Vec<Option<Box<dyn CommitteeService>>>,
     contract_services: Vec<Option<Box<dyn SystemContractService>>>,
+    cancellation_tokens: Vec<Option<CancellationToken>>,
+    event_handles: Vec<Option<JoinHandle<anyhow::Result<()>>>>,
     initial_epoch: Option<Epoch>,
 }
 
@@ -772,6 +784,23 @@ impl TestClusterBuilder {
         self
     }
 
+    /// Sets the cancellation tokens for each storage node.
+    pub fn with_cancellation_tokens(mut self, cancellation_tokens: Vec<CancellationToken>) -> Self {
+        assert_eq!(cancellation_tokens.len(), self.storage_node_configs.len());
+        self.cancellation_tokens = cancellation_tokens.into_iter().map(Some).collect();
+        self
+    }
+
+    /// Sets the event task handles for each storage node.
+    pub fn with_event_task_handles(
+        mut self,
+        event_handles: Vec<JoinHandle<anyhow::Result<()>>>,
+    ) -> Self {
+        assert_eq!(event_handles.len(), self.storage_node_configs.len());
+        self.event_handles = event_handles.into_iter().map(Some).collect();
+        self
+    }
+
     /// Sets the [`CommitteeService`] used for each storage node.
     ///
     /// Should be called after the storage nodes have been specified.
@@ -822,12 +851,13 @@ impl TestClusterBuilder {
             .collect();
         let committee = committee_from_members(committee_members.clone(), self.initial_epoch);
 
-        for (((config, event_provider), service), contract_service) in self
+        for ((((config, event_provider), service), contract_service), cancel_token) in self
             .storage_node_configs
             .into_iter()
             .zip(self.event_providers.into_iter())
             .zip(self.committee_services.into_iter())
             .zip(self.contract_services.into_iter())
+            .zip(self.cancellation_tokens.into_iter())
         {
             let local_identity = config.key_pair.public().clone();
             let mut builder = StorageNodeHandle::builder()
@@ -838,6 +868,10 @@ impl TestClusterBuilder {
 
             if let Some(provider) = event_provider {
                 builder = builder.with_boxed_system_event_provider(provider);
+            }
+
+            if let Some(cancel_token) = cancel_token {
+                builder = builder.with_cancellation_token(cancel_token);
             }
 
             builder = if let Some(service) = service {
@@ -861,7 +895,10 @@ impl TestClusterBuilder {
             nodes.push(builder.build().await?);
         }
 
-        Ok(TestCluster { nodes })
+        Ok(TestCluster {
+            nodes,
+            handles: self.event_handles.into_iter().flatten().collect(),
+        })
     }
 }
 
@@ -965,6 +1002,8 @@ impl Default for TestClusterBuilder {
             event_providers: shard_assignment.iter().map(|_| None).collect(),
             committee_services: shard_assignment.iter().map(|_| None).collect(),
             contract_services: shard_assignment.iter().map(|_| None).collect(),
+            cancellation_tokens: shard_assignment.iter().map(|_| None).collect(),
+            event_handles: shard_assignment.iter().map(|_| None).collect(),
             storage_node_configs: shard_assignment
                 .into_iter()
                 .map(StorageNodeTestConfig::new)
@@ -1026,6 +1065,7 @@ pub mod test_cluster {
     use std::sync::OnceLock;
 
     use tokio::sync::Mutex;
+    use walrus_event::event_processor::EventProcessor;
     use walrus_sui::{
         client::{SuiContractClient, SuiReadClient},
         test_utils::{
@@ -1043,7 +1083,7 @@ pub mod test_cluster {
     use super::*;
     use crate::{
         client::{self, ClientCommunicationConfig, Config},
-        node::{contract_service::SuiSystemContractService, system_events::SuiSystemEventProvider},
+        node::contract_service::SuiSystemContractService,
     };
 
     /// Performs the default setup for the test cluster.
@@ -1056,6 +1096,22 @@ pub mod test_cluster {
         let sui_cluster = test_utils::using_tokio::global_sui_test_cluster();
         #[cfg(msim)]
         let sui_cluster = test_utils::using_msim::global_sui_test_cluster().await;
+
+        // Save genesis in a temp file
+        let genesis_dir = tempfile::tempdir()?;
+        let genesis = sui_cluster.cluster().get_genesis();
+        let genesis_file_path = genesis_dir.into_path().join("genesis.json");
+        genesis.save(&genesis_file_path)?;
+
+        // FullNode rest url
+        let rest_url = sui_cluster.cluster().fullnode_handle.rpc_url.clone();
+
+        // event processor config
+        let event_processor_config = walrus_event::EventProcessorConfig {
+            rest_url,
+            sui_genesis_path: genesis_file_path,
+            pruning_interval: 3600,
+        };
 
         // Get a wallet on the global sui test cluster
         let mut wallet = test_utils::new_wallet_on_sui_test_cluster(sui_cluster.clone()).await?;
@@ -1140,6 +1196,30 @@ pub mod test_cluster {
             })?
             .map(SuiSystemContractService::new);
 
+        // Set up event processors
+        let mut event_processors = vec![];
+        let mut cancel_tokens = vec![];
+        let mut task_handles = vec![];
+        for _ in cluster_builder.storage_node_test_configs().iter() {
+            let event_processor = EventProcessor::new(
+                &event_processor_config,
+                sui_read_client.get_system_package_id(),
+                Duration::from_millis(100),
+                tempfile::tempdir()
+                    .expect("temporary directory creation must succeed")
+                    .path(),
+            )
+            .await?;
+            let cancel_token = CancellationToken::new();
+            let cloned_cancel_token = cancel_token.clone();
+            let cloned_event_processor = event_processor.clone();
+            task_handles.push(tokio::task::spawn(async move {
+                cloned_event_processor.start(cloned_cancel_token).await
+            }));
+            event_processors.push(event_processor);
+            cancel_tokens.push(cancel_token);
+        }
+
         // Set up the cluster
         let cluster_builder = cluster_builder
             .with_committee_services(|| async {
@@ -1149,10 +1229,9 @@ pub mod test_cluster {
                     .expect("service construction must succeed in tests")
             })
             .await
-            .with_system_event_providers(SuiSystemEventProvider::new(
-                sui_read_client.clone(),
-                Duration::from_millis(100),
-            ))
+            .with_individual_system_event_providers(&event_processors)
+            .with_cancellation_tokens(cancel_tokens)
+            .with_event_task_handles(task_handles)
             .with_system_contract_services(Arc::new(sui_contract_service));
 
         let cluster = {

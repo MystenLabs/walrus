@@ -27,6 +27,7 @@ sui-types = { workspace = true, features = ["test-utils"] }
 tempfile = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tokio-util.workspace = true
+tracing.workspace = true
 typed-store.workspace = true
 url.workspace = true
 walrus-core.workspace = true
