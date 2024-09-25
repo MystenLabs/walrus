@@ -447,6 +447,19 @@ impl StorageNode {
             "storage node is lagging by more than 1 epoch, recovery not yet supported"
         );
 
+        self.start_processing_events(cancel_token).await
+    }
+
+    /// Run the walrus-node logic until cancelled using the provided cancellation token.
+    pub async fn run_skip_start_up_check(
+        &self,
+        cancel_token: CancellationToken,
+    ) -> anyhow::Result<()> {
+        self.start_processing_events(cancel_token).await
+    }
+
+    /// Starts processing events until the provided cancellation token is cancelled.
+    async fn start_processing_events(&self, cancel_token: CancellationToken) -> anyhow::Result<()> {
         select! {
             result = self.process_events() => match result {
                 Ok(()) => unreachable!("process_events should never return successfully"),
@@ -776,8 +789,14 @@ impl StorageNode {
                 .epoch_sync_done(self.inner.node_id)
                 .await;
         } else {
-            for shard in shard_diff.gained.iter() {
-                self.shard_sync_handler.start_new_shard_sync(*shard).await?;
+            self.inner
+                .storage
+                .create_storage_for_shards(&shard_diff.gained)?;
+
+            if event.epoch > 0 {
+                for shard in shard_diff.gained.iter() {
+                    self.shard_sync_handler.start_new_shard_sync(*shard).await?;
+                }
             }
         }
 
@@ -821,7 +840,7 @@ impl StorageNode {
             }
         }
 
-        todo!()
+        Ok(())
     }
 }
 
@@ -1917,6 +1936,7 @@ mod tests {
     async fn recovers_sliver_from_other_nodes_on_certified_blob_event(
         sliver_type: SliverType,
     ) -> TestResult {
+        telemetry_subscribers::init_for_testing();
         let shards: &[&[u16]] = &[&[1], &[0, 2, 3, 4, 5, 6]];
         let test_shard = ShardIndex(1);
 

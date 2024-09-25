@@ -189,8 +189,9 @@ impl ActiveCommittees {
     }
 
     fn check_invariants(&self) {
+        // Both epoch 0 and epoch 1 do not have previous committee.
         assert!(
-            self.current_committee.epoch == 0 || self.previous_committee.is_some(),
+            self.current_committee.epoch <= 1 || self.previous_committee.is_some(),
             "previous committee must be set for non-genesis epochs"
         );
 

@@ -199,6 +199,7 @@ pub struct StorageNodeHandleBuilder {
     contract_service: Option<Box<dyn SystemContractService>>,
     run_rest_api: bool,
     run_node: bool,
+    skip_start_up_check: bool,
     test_config: Option<StorageNodeTestConfig>,
 }
 
@@ -265,6 +266,12 @@ impl StorageNodeHandleBuilder {
     /// Enable or disable the REST API being started on build.
     pub fn with_rest_api_started(mut self, run_rest_api: bool) -> Self {
         self.run_rest_api = run_rest_api;
+        self
+    }
+
+    /// Enable or disable the start up check being skipped on build.
+    pub fn with_skip_start_up_check(mut self, skip_start_up_check: bool) -> Self {
+        self.skip_start_up_check = skip_start_up_check;
         self
     }
 
@@ -373,10 +380,20 @@ impl StorageNodeHandleBuilder {
         if self.run_node {
             let node = node.clone();
             let cancel_token = cancel_token.clone();
+            let skip_start_up_check = self.skip_start_up_check;
 
-            tokio::task::spawn(async move { node.run(cancel_token).await }.instrument(
-                tracing::info_span!("cluster-node", address = %config.rest_api_address),
-            ));
+            tokio::task::spawn(
+                async move {
+                    if skip_start_up_check {
+                        node.run_skip_start_up_check(cancel_token).await
+                    } else {
+                        node.run(cancel_token).await
+                    }
+                }
+                .instrument(
+                    tracing::info_span!("cluster-node", address = %config.rest_api_address),
+                ),
+            );
         }
 
         let client = Client::builder()
@@ -387,7 +404,7 @@ impl StorageNodeHandleBuilder {
             .build_for_remote_ip(config.rest_api_address)?;
 
         if self.run_rest_api {
-            wait_for_node_ready(&client).await?;
+            wait_for_rest_api_ready(&client).await?;
         }
 
         Ok(StorageNodeHandle {
@@ -412,6 +429,7 @@ impl Default for StorageNodeHandleBuilder {
             storage: Default::default(),
             run_rest_api: Default::default(),
             run_node: Default::default(),
+            skip_start_up_check: true,
             contract_service: None,
             test_config: None,
         }
@@ -420,7 +438,7 @@ impl Default for StorageNodeHandleBuilder {
 
 /// Waits until the node is ready by querying the node's health info endpoint using the node
 /// client.
-async fn wait_for_node_ready(client: &Client) -> anyhow::Result<()> {
+async fn wait_for_rest_api_ready(client: &Client) -> anyhow::Result<()> {
     tokio::time::timeout(Duration::from_secs(10), async {
         while let Err(err) = client.get_server_health_info().await {
             tracing::trace!(%err, "node is not ready yet, retrying...");
