@@ -75,6 +75,10 @@ public(package) fun storage_mut(self: &mut Blob): &mut Storage {
     &mut self.storage
 }
 
+public fun end_epoch(self: &Blob): u32 {
+    self.storage.end_epoch()
+}
+
 /// Aborts if the blob is not certified or already expired.
 public(package) fun assert_certified_not_expired(self: &Blob, current_epoch: u32) {
     // Assert this is a certified blob
@@ -136,10 +140,7 @@ public(package) fun new(
 
     // Cryptographically verify that the Blob ID authenticates
     // both the size and fe_type.
-    assert!(
-        derive_blob_id(root_hash, encoding_type, size) == blob_id,
-        EInvalidBlobId,
-    );
+    assert!(derive_blob_id(root_hash, encoding_type, size) == blob_id, EInvalidBlobId);
 
     // Emit register event
     emit_blob_registered(
@@ -209,6 +210,10 @@ public(package) fun delete(self: Blob, epoch: u32): Storage {
     emit_blob_deleted(epoch, blob_id, storage.end_epoch(), object_id, certified_epoch.is_some());
     storage
 }
+
+/// Allows calling `.share()` on a `Blob` to wrap it into a shared `SharedBlob` whose lifetime can
+/// be extended by anyone.
+public use fun walrus::shared_blob::new as Blob.share;
 
 /// Allow the owner of a blob object to destroy it.
 public fun burn(blob: Blob) {
