@@ -256,23 +256,23 @@ impl ClientBuilder {
 
     /// Convenience function to build the client where the server is identified by a [`SocketAddr`].
     ///
-    /// Equivalent `self.build(&remote.ip().to_string(), remote.port())`
+    /// Equivalent `self.build(&remote.to_string())`
     pub fn build_for_remote_ip(self, remote: SocketAddr) -> Result<Client, ClientBuildError> {
-        self.build(&remote.ip().to_string(), remote.port())
+        self.build(&remote.to_string())
     }
 
     /// Consume the `ClientBuilder` and return a configured [`Client`].
     ///
-    /// This method fails if a valid URL cannot be created with the provided host and port, the
+    /// This method fails if a valid URL cannot be created with the provided address, the
     /// Rustls TLS backend cannot be initialized, or the resolver cannot load the system
     /// configuration.
-    pub fn build(mut self, host: &str, port: u16) -> Result<Client, ClientBuildError> {
+    pub fn build(mut self, address: &str) -> Result<Client, ClientBuildError> {
         #[cfg(msim)]
         {
             self = self.no_proxy();
         }
 
-        let url = Url::parse(&format!("https://{host}:{port}"))
+        let url = Url::parse(&format!("https://{address}"))
             .map_err(|_| BuildErrorKind::InvalidHostOrPort)?;
         // We extract the host from the URL, since the provided host string may have details like a
         // username or password.
@@ -344,13 +344,12 @@ impl Client {
     /// identity and public key.
 
     pub fn for_storage_node(
-        host: &str,
-        port: u16,
+        address: &str,
         public_key: &NetworkPublicKey,
     ) -> Result<Client, ClientBuildError> {
         Self::builder()
             .authenticate_with_public_key(public_key.clone())
-            .build(host, port)
+            .build(address)
     }
 
     /// Converts this to the inner client.

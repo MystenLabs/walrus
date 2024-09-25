@@ -278,8 +278,7 @@ pub(crate) fn default_node_service_factory<'a>(
     encoding_config: &'a Arc<EncodingConfig>,
 ) -> impl Future<Output = Result<RemoteStorageNode, ClientBuildError>> + 'static {
     let result = walrus_sdk::client::Client::for_storage_node(
-        &member.network_address.host,
-        member.network_address.port,
+        &member.network_address.0,
         &member.network_public_key,
     )
     .map(|client| RemoteStorageNode {

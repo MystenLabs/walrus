@@ -959,10 +959,7 @@ impl StorageNodeTestConfig {
         SuiStorageNode {
             node_id: ObjectID::random(),
             name: name.into(),
-            network_address: NetworkAddress {
-                host: self.rest_api_address.ip().to_string(),
-                port: self.rest_api_address.port(),
-            },
+            network_address: NetworkAddress(self.rest_api_address.to_string()),
             public_key: self.key_pair.public().clone(),
             network_public_key: self.network_key_pair.public().clone(),
             shard_ids: self.shards.clone(),
@@ -973,10 +970,7 @@ impl StorageNodeTestConfig {
     pub fn to_node_registration_params(&self, name: &str) -> NodeRegistrationParams {
         NodeRegistrationParams {
             name: name.into(),
-            network_address: NetworkAddress {
-                host: self.rest_api_address.ip().to_string(),
-                port: self.rest_api_address.port(),
-            },
+            network_address: NetworkAddress(self.rest_api_address.to_string()),
             public_key: self.key_pair.public().clone(),
             network_public_key: self.network_key_pair.public().clone(),
             commission_rate: 0,
@@ -1083,10 +1077,7 @@ pub(crate) fn test_committee_with_epoch(weights: &[u16], epoch: Epoch) -> Commit
             public_key: ProtocolKeyPair::generate().public().clone(),
             network_public_key: NetworkKeyPair::generate().public().clone(),
             name: String::new(),
-            network_address: NetworkAddress {
-                host: String::new(),
-                port: 0,
-            },
+            network_address: NetworkAddress("host:0".to_owned()),
         })
         .collect();
 

@@ -67,7 +67,7 @@ pub async fn publish_with_default_system(
 
     let storage_node_params = NodeRegistrationParams {
         name: "Test0".to_owned(),
-        network_address: NetworkAddress::from_str("127.0.0.1:8080")?,
+        network_address: NetworkAddress("127.0.0.1:8080".to_owned()),
         public_key: BLS12381PublicKey::from_bytes(&pubkey_bytes)?,
         network_public_key: network_key_pair.public().clone(),
         commission_rate: 0,

@@ -6,13 +6,10 @@
 
 use std::{
     fmt::Display,
-    net::{SocketAddr, ToSocketAddrs},
-    num::NonZeroU16,
-    str::FromStr,
-    vec,
+    net::SocketAddr,
+    num::{NonZeroU16, ParseIntError},
 };
 
-use anyhow::bail;
 use sui_types::base_types::ObjectID;
 use thiserror::Error;
 
@@ -48,47 +45,39 @@ pub const GENESIS_EPOCH: Epoch = 0;
 
 /// Network address consisting of host name or IP and port.
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize, Deserialize)]
-pub struct NetworkAddress {
-    /// Host name or IP address.
-    pub host: String,
-    /// Port.
-    pub port: u16,
-}
-
-impl FromStr for NetworkAddress {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let Some((host, port)) = s.split_once(':') else {
-            bail!("invalid network address")
-        };
-        let port = port.parse()?;
-        Ok(Self {
-            host: host.to_owned(),
-            port,
-        })
-    }
-}
-
-impl ToSocketAddrs for NetworkAddress {
-    type Iter = vec::IntoIter<SocketAddr>;
-
-    fn to_socket_addrs(&self) -> std::io::Result<Self::Iter> {
-        (self.host.as_str(), self.port).to_socket_addrs()
-    }
-}
+pub struct NetworkAddress(pub String);
 
 impl Display for NetworkAddress {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:{}", self.host, self.port)
+        self.0.fmt(f)
     }
 }
 
 impl From<SocketAddr> for NetworkAddress {
     fn from(value: SocketAddr) -> Self {
-        Self {
-            host: value.ip().to_string(),
-            port: value.port(),
+        Self(value.to_string())
+    }
+}
+
+impl NetworkAddress {
+    /// Tries to get the port from the address, assuming the format `host:port`. Returns an
+    /// error if a port is present but cannot be parsed. If no port is present, returns `Ok(None)`.
+    pub fn try_get_port(&self) -> Result<Option<u16>, ParseIntError> {
+        if let Some((_, port)) = self.0.split_once(':') {
+            let port = port.parse()?;
+            Ok(Some(port))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Returns the host from the network address, assuming the format `host:port` or `host`
+    /// if no `:` is present in the string. Does not perform any validation.
+    pub fn get_host(&self) -> &str {
+        if let Some((host, _)) = self.0.split_once(':') {
+            host
+        } else {
+            self.0.as_str()
         }
     }
 }

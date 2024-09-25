@@ -1091,7 +1091,7 @@ impl NodeCommunicationFactory {
                 let reqwest_builder = self.config.reqwest_config.apply(ReqwestClient::builder());
                 let client = StorageNodeClientBuilder::from_reqwest(reqwest_builder)
                     .authenticate_with_public_key(node.network_public_key.clone())
-                    .build(&node.network_address.host, node.network_address.port)?;
+                    .build(&node.network_address.0)?;
                 Ok(vacant.insert(client).clone())
             }
         }

@@ -43,7 +43,12 @@ use walrus_sui::{
 use crate::{
     client::{self, ClientCommunicationConfig},
     common::utils::LoadConfig,
-    node::config::{defaults, StorageNodeConfig, SuiConfig, TlsConfig},
+    node::config::{
+        defaults::{self, REST_API_PORT},
+        StorageNodeConfig,
+        SuiConfig,
+        TlsConfig,
+    },
 };
 
 /// The config file name for the admin wallet.
@@ -160,10 +165,11 @@ pub fn public_rest_api_address(
     node_index: Option<u16>,
     committee_size: Option<u16>,
 ) -> NetworkAddress {
-    NetworkAddress {
+    NetworkAddress(format!(
+        "{}:{}",
         host,
-        port: rest_api_port(port, node_index, committee_size),
-    }
+        rest_api_port(port, node_index, committee_size)
+    ))
 }
 
 fn rest_api_port(port: u16, node_index: Option<u16>, committee_size: Option<u16>) -> u16 {
@@ -399,7 +405,7 @@ pub async fn create_storage_node_configs(
     // (that is, local testbed).
     let host_set = nodes
         .iter()
-        .map(|node| &node.network_address.host)
+        .map(|node| node.network_address.get_host())
         .collect::<HashSet<_>>();
     let collocated = host_set.len() != nodes.len();
 
@@ -412,13 +418,22 @@ pub async fn create_storage_node_configs(
         listening_ips
             .into_iter()
             .zip(nodes.iter())
-            .map(|(addr, node)| SocketAddr::new(addr, node.network_address.port))
-            .collect()
+            .map(|(addr, node)| {
+                node.network_address
+                    .try_get_port()
+                    .map(|port| SocketAddr::new(addr, port.unwrap_or(REST_API_PORT)))
+            })
+            .collect::<Result<Vec<_>, _>>()?
     } else {
         nodes
             .iter()
             .map(|node| {
-                node.network_address
+                (
+                    node.network_address.get_host(),
+                    node.network_address
+                        .try_get_port()?
+                        .unwrap_or(REST_API_PORT),
+                )
                     .to_socket_addrs()?
                     .next()
                     .ok_or_else(|| anyhow!("could not get socket addr from node address"))
@@ -479,7 +494,7 @@ pub async fn create_storage_node_configs(
         let tls = TlsConfig {
             disable_tls: false,
             pem_files: None,
-            server_name: Some(node.network_address.host),
+            server_name: Some(node.network_address.get_host().to_owned()),
         };
 
         storage_node_configs.push(StorageNodeConfig {

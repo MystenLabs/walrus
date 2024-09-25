@@ -628,7 +628,7 @@ mod tests {
 
         default_client_builder()
             .authenticate_with_public_key(network_public_key)
-            .build(&network_address.ip().to_string(), network_address.port())
+            .build(&network_address.to_string())
             .expect("must be able to construct client in tests")
     }
 
@@ -1105,7 +1105,7 @@ mod tests {
             let client = default_client_builder()
                 .add_root_certificate(issuer_cert.der())
                 .authenticate_with_public_key(network_key_pair.public().clone())
-                .build(&rest_api_address.ip().to_string(), rest_api_address.port())
+                .build(&rest_api_address.to_string())
                 .expect("must be able to construct client in tests");
 
             try_tls_request(client).await?;
@@ -1131,7 +1131,7 @@ mod tests {
             let client = default_client_builder()
                 .add_root_certificate(issuer_cert.der())
                 .authenticate_with_public_key(other_network_public_key)
-                .build(&rest_api_address.ip().to_string(), rest_api_address.port())
+                .build(&rest_api_address.to_string())
                 .expect("must be able to construct client in tests");
 
             let err = try_tls_request(client)

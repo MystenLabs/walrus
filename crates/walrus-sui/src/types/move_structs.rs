@@ -7,7 +7,6 @@ use std::num::NonZeroU16;
 
 use fastcrypto::traits::ToFromBytes;
 use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
-use serde_with::{serde_as, DisplayFromStr};
 use sui_types::base_types::ObjectID;
 use tracing::instrument;
 use walrus_core::{BlobId, EncodingType, Epoch, NetworkPublicKey, PublicKey, ShardIndex};
@@ -72,7 +71,6 @@ impl AssociatedContractStruct for Blob {
 }
 
 /// Sui type for storage node.
-#[serde_as]
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 pub struct StorageNode {
     /// Name of the storage node.
@@ -80,7 +78,6 @@ pub struct StorageNode {
     /// The node id.
     pub node_id: ObjectID,
     /// The network address of the storage node.
-    #[serde_as(as = "DisplayFromStr")]
     pub network_address: NetworkAddress,
     /// The public key of the storage node.
     #[serde(deserialize_with = "deserialize_public_key")]
