@@ -96,7 +96,7 @@ fun test_parameter_changes() {
 
     // manually trigger advance epoch to apply the changes
     // TODO: this should be triggered via a system api
-    staking[pool_id].advance_epoch(&test::wctx(1, false));
+    staking[pool_id].advance_epoch(test::mint(0, ctx).into_balance(), &test::wctx(1, false));
 
     assert!(staking[pool_id].storage_price() == 100000000);
     assert!(staking[pool_id].write_price() == 100000000);

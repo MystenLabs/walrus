@@ -13,16 +13,13 @@
 // - get "epoch_sync_done" event
 module walrus::staking_inner;
 
-use std::{
-    fixed_point32::FixedPoint32,
-    string::String,
-};
+use std::{fixed_point32::FixedPoint32, string::String};
 use sui::{
     balance::{Self, Balance},
     clock::Clock,
     coin::Coin,
     object_table::{Self, ObjectTable},
-    vec_map,
+    vec_map
 };
 use wal::wal::WAL;
 use walrus::{
@@ -33,7 +30,7 @@ use walrus::{
     events,
     staked_wal::StakedWal,
     staking_pool::{Self, StakingPool},
-    storage_node::{StorageNodeCap },
+    storage_node::StorageNodeCap,
     walrus_context::{Self, WalrusContext}
 };
 
@@ -367,9 +364,8 @@ public(package) fun select_committee(self: &mut StakingInnerV1) {
 
     // if we're dealing with the first epoch, we need to assign the shards to the
     // nodes in a sequential manner. Assuming there's at least 1 node in the set.
-    let committee =
-        if (self.committee.size() == 0) committee::initialize(distribution)
-        else self.committee.transition(distribution);
+    let committee = if (self.committee.size() == 0) committee::initialize(distribution)
+    else self.committee.transition(distribution);
 
     self.next_committee = option::some(committee);
 }
@@ -507,11 +503,9 @@ fun dhondt(
 }
 
 use fun fp_add as FixedPoint32.add;
+
 fun fp_add(a: FixedPoint32, b: FixedPoint32): FixedPoint32 {
-    use std::fixed_point32::{
-        create_from_raw_value as from_raw,
-        get_raw_value as to_raw,
-    };
+    use std::fixed_point32::{create_from_raw_value as from_raw, get_raw_value as to_raw};
     let sum = (a.to_raw() as u128) + (b.to_raw() as u128);
     // TODO use std::u64::max_value!()
     assert!(sum <= 0xFFFF_FFFF_FFFF_FFFF);
@@ -550,11 +544,6 @@ public(package) fun advance_epoch(self: &mut StakingInnerV1, mut rewards: Balanc
 
     let wctx = &self.new_walrus_context();
 
-    self.committee.inner().keys().do_ref!(|node| {
-        self.pools[*node].advance_epoch(wctx);
-        self.active_set.update(*node, self.pools[*node].stake_at_epoch(wctx.epoch() + 1));
-    });
-
     // Distribute the rewards.
 
     // Add any leftover rewards to the rewards to distribute.
@@ -564,12 +553,10 @@ public(package) fun advance_epoch(self: &mut StakingInnerV1, mut rewards: Balanc
     let (node_ids, shard_assignments) = (*self.previous_committee.inner()).into_keys_values();
     // TODO: check if we can combine this with the iteration over the current committee above
     // to reduce the accesses to dynamic fields.
-    node_ids.zip_do!(
-        shard_assignments,
-        |node_id, shards| self
-            .pools[node_id]
-            .add_rewards(rewards.split(rewards_per_shard * shards.length())),
-    );
+    node_ids.zip_do!(shard_assignments, |node_id, shards| {
+        self.pools[node_id].advance_epoch(rewards.split(rewards_per_shard * shards.length()), wctx);
+        self.active_set.update(node_id, self.pools[node_id].stake_at_epoch(wctx.epoch() + 1));
+    });
 
     // Save any leftover rewards due to rounding.
     self.leftover_rewards.join(rewards);
@@ -589,7 +576,8 @@ public(package) fun epoch_sync_done(
     cap.set_last_epoch_sync_done(self.epoch);
 
     let node_shards = self.committee.shards(&cap.node_id());
-    match (self.epoch_state) {EpochState::EpochChangeSync(weight) => {
+    match (self.epoch_state) {
+        EpochState::EpochChangeSync(weight) => {
             let weight = weight + (node_shards.length() as u16);
             if (is_quorum(weight, self.n_shards)) {
                 self.epoch_state = EpochState::EpochChangeDone(clock.timestamp_ms());
@@ -597,7 +585,9 @@ public(package) fun epoch_sync_done(
             } else {
                 self.epoch_state = EpochState::EpochChangeSync(weight);
             }
-        }, _ => {}};
+        },
+        _ => {},
+    };
     // Emit the event that the node has received all shards.
     events::emit_shards_received(self.epoch, *node_shards);
 }
@@ -646,10 +636,7 @@ public(package) fun borrow_mut(self: &mut StakingInnerV1, node_id: ID): &mut Sta
 }
 
 #[test_only]
-public(package) fun pub_dhondt(
-    n_shards: u16,
-    stake: vector<u64>,
-): (FixedPoint32, vector<u16>) {
+public(package) fun pub_dhondt(n_shards: u16, stake: vector<u64>): (FixedPoint32, vector<u16>) {
     // TODO better ranking
     let ranking = {
         // TODO use std::vector::tabulate

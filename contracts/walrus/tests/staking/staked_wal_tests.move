@@ -36,7 +36,7 @@ fun test_staked_wal_flow() {
     zero.destroy_zero();
 
     // test that the staked WAL can be burned
-    let principal = staked_wal.unwrap();
+    let principal = staked_wal.into_balance();
     assert!(principal.value() == 100);
 
     destroy(principal);

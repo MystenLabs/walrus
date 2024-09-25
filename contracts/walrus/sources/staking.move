@@ -130,11 +130,12 @@ public fun voting_end(staking: &mut Staking, clock: &Clock) {
 /// Emits: `EpochChangeStart` event.
 public fun initiate_epoch_change(staking: &mut Staking, system: &mut System, clock: &Clock) {
     let staking_inner = staking.inner_mut();
-    let balance = system.advance_epoch(
+    let rewards = system.advance_epoch(
         staking_inner.next_bls_committee(),
         staking_inner.next_epoch_params(),
     );
-    staking_inner.initiate_epoch_change(clock, balance);
+
+    staking_inner.initiate_epoch_change(clock, rewards);
 }
 
 /// Checks if the node should either have received the specified shards from the specified node

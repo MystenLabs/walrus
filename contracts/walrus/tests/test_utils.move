@@ -34,6 +34,44 @@ public fun mint_balance(amount: u64): Balance<WAL> {
     balance::create_for_testing(amount)
 }
 
+// === Context Runner ===
+
+public struct ContextRunner has drop {
+    epoch: u32,
+    ctx: TxContext,
+    committee_selected: bool,
+}
+
+/// Creates a new context runner with default values.
+public fun context_runner(): ContextRunner {
+    ContextRunner {
+        epoch: 0,
+        ctx: tx_context::dummy(),
+        committee_selected: false,
+    }
+}
+
+public fun epoch(self: &ContextRunner): u32 { self.epoch }
+public fun is_committee_selected(self: &ContextRunner): bool { self.committee_selected }
+
+/// Returns the current context and the transaction context.
+public fun current(self: &mut ContextRunner): (WalrusContext, &mut TxContext) {
+    (wctx(self.epoch, self.committee_selected), &mut self.ctx)
+}
+
+/// Selects committee
+public fun select_committee(self: &mut ContextRunner): (WalrusContext, &mut TxContext) {
+    self.committee_selected = true;
+    (wctx(self.epoch, self.committee_selected), &mut self.ctx)
+}
+
+/// Advances the epoch by one.
+public fun next_epoch(self: &mut ContextRunner): (WalrusContext, &mut TxContext) {
+    self.committee_selected = false;
+    self.epoch = self.epoch + 1;
+    (wctx(self.epoch, self.committee_selected), &mut self.ctx)
+}
+
 // === Pool Builder ===
 
 /// Struct to support building a staking pool in tests with variable parameters.
