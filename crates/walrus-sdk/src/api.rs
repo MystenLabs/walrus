@@ -3,7 +3,7 @@
 
 //! API types.
 
-use std::cmp::Ordering;
+use std::cmp::{Ordering, Reverse};
 
 use serde::{Deserialize, Serialize};
 use sui_types::event::EventID;
@@ -62,31 +62,40 @@ pub enum BlobStatus {
         /// The ID of the Sui event that caused the status with the given `end_epoch`.
         status_event: EventID,
         /// Counts of deletable `Blob` objects.
-        deletable_status: DeletableStatus,
+        deletable_status: DeletableCounts,
+        /// If the blob is certified, contains the epoch where it was initially certified.
+        // INV: certified_epoch.is_some() == is_certified
+        initial_certified_epoch: Option<Epoch>,
     },
     /// The blob exists within Walrus; but there is no related permanent object, so it may be
     /// deleted at any time.
-    Deletable(DeletableStatus),
+    Deletable {
+        /// If the blob is certified, contains the epoch where it was initially certified.
+        // INV: certified_epoch.is_some() == count_deletable_certified > 0
+        initial_certified_epoch: Option<Epoch>,
+        /// Counts of deletable `Blob` objects.
+        deletable_status: DeletableCounts,
+    },
 }
 
 /// Contains counts of all and certified deletable `Blob` objects.
 #[derive(
     Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy, Default, Hash, utoipa::ToSchema,
 )]
-pub struct DeletableStatus {
+pub struct DeletableCounts {
     /// Total number of active deletable `Blob` objects for the given blob ID.
     pub count_deletable_total: u32,
     /// Number of certified deletable `Blob` objects for the given blob ID.
     pub count_deletable_certified: u32,
 }
 
-impl PartialOrd for DeletableStatus {
+impl PartialOrd for DeletableCounts {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for DeletableStatus {
+impl Ord for DeletableCounts {
     fn cmp(&self, other: &Self) -> Ordering {
         // Tuples are compared using lexicographic ordering.
         (self.count_deletable_certified, self.count_deletable_total)
@@ -116,32 +125,52 @@ impl Ord for BlobStatus {
             // Permanent is "larger" than Deletable.
             (Permanent { .. }, Deletable { .. }) => Ordering::Greater,
             (Deletable { .. }, Permanent { .. }) => Ordering::Less,
-            // For Deletable, first compare certified blobs, then all.
-            (Deletable(deletable_status), Deletable(deletable_status_other)) => {
-                deletable_status.cmp(deletable_status_other)
-            }
-            // For Permanent, compare status, end epochs, and count of deletable blobs, in this
-            // order.
+            // For Deletable, first compare certified blobs, then all, then finally compare the
+            // initial certification epoch, preferring smaller values.
+            (
+                Deletable {
+                    initial_certified_epoch,
+                    deletable_status,
+                },
+                Deletable {
+                    initial_certified_epoch: initial_certified_epoch_other,
+                    deletable_status: deletable_status_other,
+                },
+            ) => (deletable_status, Reverse(initial_certified_epoch)).cmp(&(
+                deletable_status_other,
+                Reverse(initial_certified_epoch_other),
+            )),
+            // For Permanent, compare status, end epochs, count of deletable blobs, and initial
+            // certification epoch (preferring smaller values), in this order.
             (
                 Permanent {
                     end_epoch,
                     is_certified,
                     deletable_status,
+                    initial_certified_epoch,
                     ..
                 },
                 Permanent {
                     end_epoch: end_epoch_other,
                     is_certified: is_certified_other,
                     deletable_status: deletable_status_other,
+                    initial_certified_epoch: initial_certified_epoch_other,
                     ..
                 },
             ) => {
                 // Tuples are compared using lexicographic ordering.
-                (is_certified, end_epoch, deletable_status).cmp(&(
-                    is_certified_other,
-                    end_epoch_other,
-                    deletable_status_other,
-                ))
+                (
+                    is_certified,
+                    end_epoch,
+                    deletable_status,
+                    Reverse(initial_certified_epoch),
+                )
+                    .cmp(&(
+                        is_certified_other,
+                        end_epoch_other,
+                        deletable_status_other,
+                        Reverse(initial_certified_epoch_other),
+                    ))
             }
         }
     }

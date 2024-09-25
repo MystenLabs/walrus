@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use sui_types::event::EventID;
 use tracing::Level;
 use walrus_core::Epoch;
-use walrus_sdk::api::{BlobStatus, DeletableStatus};
+use walrus_sdk::api::{BlobStatus, DeletableCounts};
 use walrus_sui::types::{BlobCertified, BlobDeleted, BlobEvent, BlobRegistered, InvalidBlobId};
 
 pub(super) trait Mergeable: Sized {
@@ -261,13 +261,15 @@ impl ValidBlobInfoV1 {
             count_deletable_certified,
             permanent_total,
             permanent_certified,
+            initial_certified_epoch,
             ..
         } = self;
 
-        let deletable_status = DeletableStatus {
+        let deletable_status = DeletableCounts {
             count_deletable_total: *count_deletable_total,
             count_deletable_certified: *count_deletable_certified,
         };
+        let initial_certified_epoch = *initial_certified_epoch;
         if let Some(PermanentBlobInfoV1 {
             end_epoch, event, ..
         }) = permanent_certified.as_ref().or(permanent_total.as_ref())
@@ -277,9 +279,13 @@ impl ValidBlobInfoV1 {
                 is_certified: permanent_certified.is_some(),
                 status_event: *event,
                 deletable_status,
+                initial_certified_epoch,
             }
         } else {
-            BlobStatus::Deletable(deletable_status)
+            BlobStatus::Deletable {
+                initial_certified_epoch,
+                deletable_status,
+            }
         }
     }
 

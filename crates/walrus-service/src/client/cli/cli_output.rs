@@ -9,7 +9,7 @@ use indoc::printdoc;
 use prettytable::{format, row, Table};
 use serde::Serialize;
 use walrus_core::BlobId;
-use walrus_sdk::api::{BlobStatus, DeletableStatus};
+use walrus_sdk::api::{BlobStatus, DeletableCounts};
 use walrus_sui::types::Blob;
 
 use crate::client::{
@@ -151,25 +151,36 @@ impl CliOutput for BlobStatusOutput {
         let blob_str = blob_and_file_str(&self.blob_id, &self.file);
         match self.status {
             BlobStatus::Nonexistent => println!("Blob ID {blob_str} is not stored on Walrus."),
-            BlobStatus::Deletable(DeletableStatus {
-                count_deletable_total,
-                count_deletable_certified,
-            }) => println!(
+            BlobStatus::Deletable {
+                initial_certified_epoch,
+                deletable_status:
+                    DeletableCounts {
+                        count_deletable_total,
+                        count_deletable_certified,
+                    },
+            } => {
+                let initial_certified_str = if let Some(epoch) = initial_certified_epoch {
+                    format!(", initially certified in epoch {}", epoch)
+                } else {
+                    "".to_string()
+                };
+                println!(
                 "Blob ID {blob_str} is registered on Walrus but only as deletable Blob objects:\n\
                     Total number of certified objects: {count_deletable_certified} (of \
-                    {count_deletable_total} registered)"
-            ),
+                    {count_deletable_total} registered{initial_certified_str})"
+            )
+            }
             BlobStatus::Invalid { .. } => println!("Blob ID {blob_str} is invalid."),
             BlobStatus::Permanent {
                 end_epoch,
                 is_certified,
                 status_event,
+                initial_certified_epoch,
                 deletable_status:
-                    DeletableStatus {
+                    DeletableCounts {
                         count_deletable_certified,
                         ..
                     },
-                ..
             } => {
                 let status = (if is_certified {
                     "certified"
@@ -177,12 +188,17 @@ impl CliOutput for BlobStatusOutput {
                     "registered"
                 })
                 .bold();
+                let initial_certified_str = if let Some(epoch) = initial_certified_epoch {
+                    format!("Initially certified in epoch: {}", epoch,)
+                } else {
+                    "".to_string()
+                };
                 println!(
                     "There is a {status} permanent Blob object for blob ID {blob_str}.\n\
-                        End epoch: {}\n\
-                        Related event: {}",
-                    end_epoch,
-                    format_event_id(&status_event),
+                        End epoch: {end_epoch}\n\
+                        Related event: {}\n\
+                        {initial_certified_str}",
+                    format_event_id(&status_event)
                 );
                 if count_deletable_certified > 0 {
                     println!(

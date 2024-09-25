@@ -401,7 +401,7 @@ mod tests {
         SliverType,
     };
     use walrus_sdk::{
-        api::{BlobStatus, DeletableStatus, ServiceHealthInfo, StoredOnNodeStatus},
+        api::{BlobStatus, DeletableCounts, ServiceHealthInfo, StoredOnNodeStatus},
         client::{Client, ClientBuilder},
     };
     use walrus_sui::test_utils::event_id_for_testing;
@@ -526,7 +526,8 @@ mod tests {
                     end_epoch: 3,
                     status_event: event_id_for_testing(),
                     is_certified: true,
-                    deletable_status: DeletableStatus {
+                    initial_certified_epoch: Some(1),
+                    deletable_status: DeletableCounts {
                         count_deletable_total: 0,
                         count_deletable_certified: 0,
                     },
