@@ -277,6 +277,16 @@ impl BlobEvent {
             BlobEvent::InvalidBlobID(event) => event.event_id,
         }
     }
+
+    /// The epoch in which the event was generated.
+    pub fn event_epoch(&self) -> Epoch {
+        match self {
+            BlobEvent::Registered(event) => event.epoch,
+            BlobEvent::Certified(event) => event.epoch,
+            BlobEvent::Deleted(event) => event.epoch,
+            BlobEvent::InvalidBlobID(event) => event.epoch,
+        }
+    }
 }
 
 impl TryFrom<SuiEvent> for BlobEvent {
@@ -393,6 +403,15 @@ impl EpochChangeEvent {
             EpochChangeEvent::EpochChangeDone(event) => event.event_id,
         }
     }
+
+    /// The epoch corresponding to the contract change event.
+    pub fn event_epoch(&self) -> Epoch {
+        match self {
+            EpochChangeEvent::EpochParametersSelected(event) => event.next_epoch - 1,
+            EpochChangeEvent::EpochChangeStart(event) => event.epoch,
+            EpochChangeEvent::EpochChangeDone(event) => event.epoch,
+        }
+    }
 }
 
 /// Enum to wrap contract events used in event streaming.
@@ -418,6 +437,14 @@ impl ContractEvent {
         match self {
             ContractEvent::BlobEvent(event) => Some(event.blob_id()),
             ContractEvent::EpochChangeEvent(_) => None,
+        }
+    }
+
+    /// Returns the epoch in which the event was issued.
+    pub fn event_epoch(&self) -> Epoch {
+        match self {
+            ContractEvent::BlobEvent(event) => event.event_epoch(),
+            ContractEvent::EpochChangeEvent(event) => event.event_epoch(),
         }
     }
 }
