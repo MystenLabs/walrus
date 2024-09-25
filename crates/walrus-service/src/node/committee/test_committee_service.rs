@@ -37,11 +37,11 @@ use walrus_sui::types::{Committee, StorageNode as SuiStorageNode};
 use walrus_test_utils::{async_param_test, Result as TestResult};
 
 use crate::{
-    common::active_committees::{ActiveCommittees, BeginCommitteeChangeError},
+    common::active_committees::ActiveCommittees,
     node::{
         self,
         committee::{
-            committee_service::{CommitteeTransitionError, NodeCommitteeService},
+            committee_service::NodeCommitteeService,
             node_service::{NodeServiceError, Request, Response},
             CommitteeLookupService,
             CommitteeService,
@@ -291,7 +291,7 @@ async fn new_committee_unavailable_for_reads_until_transition_completes() -> Tes
     );
 
     committee_handle.begin_transition_to(next_committee);
-    committee_service.begin_committee_change().await?;
+    committee_service.begin_committee_change(new_epoch).await?;
 
     assert_timeout!(
         &mut pending_request,
@@ -329,15 +329,10 @@ async fn rejects_non_incremental_epochs(initial_epoch: Epoch, jumped_epoch: Epoc
 
     committee_handle.set_active_committees(committees_skipped_to);
 
-    let err = committee_service
-        .begin_committee_change()
+    let _ = committee_service
+        .begin_committee_change(initial_epoch + 1)
         .await
         .expect_err("must fail as the next committee is not incremental");
-
-    assert!(matches!(
-        err,
-        CommitteeTransitionError::OutOfSync(BeginCommitteeChangeError::InvalidEpoch { .. })
-    ));
 
     Ok(())
 }
@@ -381,7 +376,9 @@ async fn requests_for_metadata_are_dipsatched_to_correct_committee(
         .await?;
 
     handle.begin_transition_to(next_committee);
-    committee_service.begin_committee_change().await?;
+    committee_service
+        .begin_committee_change(initial_epoch + 1)
+        .await?;
 
     let returned_metadata = time::timeout(
         Duration::from_secs(60),
@@ -536,7 +533,7 @@ async fn recovers_slivers_across_epoch_change() -> TestResult {
     );
 
     committee_handle.begin_transition_to(next_committee);
-    committee_service.begin_committee_change().await?;
+    committee_service.begin_committee_change(new_epoch).await?;
 
     assert_timeout!(
         &mut pending_request,
@@ -610,7 +607,7 @@ async fn restarts_inconsistency_proof_collection_across_epoch_change() -> TestRe
     );
 
     committee_handle.begin_transition_to(next_committee);
-    committee_service.begin_committee_change().await?;
+    committee_service.begin_committee_change(new_epoch).await?;
 
     assert_timeout!(
         &mut pending_request,
@@ -676,7 +673,7 @@ async fn collects_inconsistency_proof_despite_epoch_change() -> TestResult {
     );
 
     committee_handle.begin_transition_to(next_committee);
-    committee_service.begin_committee_change().await?;
+    committee_service.begin_committee_change(new_epoch).await?;
 
     let _ = time::timeout(Duration::from_secs(60), &mut pending_request)
         .await

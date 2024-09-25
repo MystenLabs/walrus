@@ -6,7 +6,6 @@
 
 use std::{
     collections::HashMap,
-    fmt::Debug,
     num::NonZeroU16,
     sync::{Arc, Mutex as SyncMutex},
 };
@@ -17,6 +16,7 @@ use tokio::sync::{watch, Mutex as TokioMutex};
 use tower::ServiceExt as _;
 use walrus_core::{
     encoding::EncodingConfig,
+    ensure,
     keys::ProtocolKeyPair,
     merkle::MerkleProof,
     messages::InvalidBlobCertificate,
@@ -35,33 +35,22 @@ use walrus_sui::types::Committee;
 use super::{
     node_service::{NodeService, NodeServiceError, RemoteStorageNode, Request, Response},
     request_futures::{GetAndVerifyMetadata, GetInvalidBlobCertificate, RecoverSliver},
+    BeginCommitteeChangeError,
     CommitteeLookupService,
     CommitteeService,
+    EndCommitteeChangeError,
     NodeServiceFactory,
 };
 use crate::{
     common::active_committees::{
-        BeginCommitteeChangeError,
+        ActiveCommittees,
+        ChangeNotInProgress,
         CommitteeTracker,
-        EndCommitteeChangeError,
+        NextCommitteeAlreadySet,
+        StartChangeError,
     },
     node::{config::CommitteeServiceConfig, errors::SyncShardClientError},
 };
-
-/// Errors returned by [`NodeCommitteeService::begin_committee_change`].
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum CommitteeTransitionError {
-    /// The tracked committees and those returned by the [`CommitteeLookupService`] are out-of-sync.
-    /// It is necessary to reset the tracked committee.
-    #[error(transparent)]
-    OutOfSync(#[from] BeginCommitteeChangeError),
-    /// Failed to lookup the committees using the [`CommitteeLookupService`].
-    #[error(transparent)]
-    LookupError(anyhow::Error),
-    /// Failed to create any service
-    #[error(transparent)]
-    AllServicesFailed(anyhow::Error),
-}
 
 pub(crate) struct NodeCommitteeServiceBuilder<T> {
     service_factory: Box<dyn NodeServiceFactory<Service = T>>,
@@ -236,84 +225,22 @@ where
         Ok(slivers)
     }
 
-    /// Reset the committees to the latest retrieved via the configured lookup service.
-    #[allow(unused)]
-    pub async fn reset_committees(&self) -> Result<(), anyhow::Error> {
-        let latest = self.committee_lookup.get_active_committees().await?.into();
-        self.reset_committees_to(latest).await;
-        Ok(())
-    }
-
-    #[allow(unused)]
-    async fn reset_committees_to(
-        &self,
-        committee_tracker: CommitteeTracker,
-    ) -> Result<(), anyhow::Error> {
-        let mut service_factory = self.inner.service_factory.lock().await;
-
-        // Create services for the current committee.
-        let mut new_services = create_services_from_committee(
-            &mut service_factory,
-            committee_tracker.committees().current_committee(),
-            &self.inner.encoding_config,
-        )
-        .await?;
-
-        // If we are transitioning, then the previous committee is still serving reads, so create
-        // services for its members.
-        if committee_tracker.is_change_in_progress() {
-            if let Some(previous_committee) = committee_tracker.committees().previous_committee() {
-                add_members_from_committee(
-                    &mut new_services,
-                    &mut service_factory,
-                    previous_committee,
-                    &self.inner.encoding_config,
-                )
-                .await?;
-            }
-        }
-
-        let mut services = self
-            .inner
-            .services
-            .lock()
-            .expect("thread did not panic with mutex");
-        self.inner.committee_tracker.send_replace(committee_tracker);
-        services.extend(new_services);
-
-        Ok(())
-    }
-
-    /// Begin the committee transition as part of the epoch change.
-    #[allow(unused)]
-    pub async fn begin_committee_change(&self) -> Result<(), CommitteeTransitionError> {
-        let latest = self
-            .committee_lookup
-            .get_active_committees()
-            .await
-            .map_err(CommitteeTransitionError::LookupError)?;
-        let current_committee: Committee = (**latest.current_committee()).clone();
-
-        self.begin_committee_change_to(current_committee).await
-    }
-
-    #[allow(unused)]
     async fn begin_committee_change_to(
         &self,
         next_committee: Committee,
-    ) -> Result<(), CommitteeTransitionError> {
+    ) -> Result<(), BeginCommitteeChangeError> {
         let mut service_factory = self.inner.service_factory.lock().await;
 
         // Begin by creating the needed services, placing them into a temporary map.
         // This allows us to keep the critical section where we modify the active committee and
         // service set that is being used, small.
-        let mut new_services = create_services_from_committee(
+        let new_services = create_services_from_committee(
             &mut service_factory,
             &next_committee,
             &self.inner.encoding_config,
         )
         .await
-        .map_err(CommitteeTransitionError::AllServicesFailed)?;
+        .map_err(BeginCommitteeChangeError::AllServicesFailed)?;
 
         let mut services = self
             .inner
@@ -321,56 +248,82 @@ where
             .lock()
             .expect("thread did not panic with mutex");
 
-        let mut result = Ok(());
-        self.inner
-            .committee_tracker
-            .send_if_modified(|committee_tracker| {
-                result = committee_tracker.begin_committee_change(next_committee);
-                result.is_ok()
+        let mut modify_result = Ok(());
+        let modify_tracker = |tracker: &mut CommitteeTracker| {
+            // Guaranteed by the caller.
+            debug_assert_eq!(tracker.next_epoch(), next_committee.epoch);
+            if let Err(NextCommitteeAlreadySet(next_committee)) =
+                tracker.set_committee_for_next_epoch(next_committee)
+            {
+                let stored_next_committee = tracker
+                    .committees()
+                    .next_committee()
+                    .expect("committee is already set");
+                assert_eq!(
+                    next_committee, **stored_next_committee,
+                    "committee for the next epoch cannot change after being fetched"
+                );
+            }
+
+            modify_result = tracker.start_change().map_err(|error| match error {
+                StartChangeError::UnknownNextCommittee => unreachable!("committee set above"),
+                StartChangeError::ChangeInProgress => {
+                    BeginCommitteeChangeError::ChangeAlreadyInProgress
+                }
             });
 
-        if result.is_ok() {
+            modify_result.is_ok()
+        };
+
+        self.inner
+            .committee_tracker
+            .send_if_modified(modify_tracker);
+
+        if let Err(error) = modify_result {
+            Err(error)
+        } else {
             services.extend(new_services);
+            Ok(())
         }
-        result.map_err(CommitteeTransitionError::from)
     }
 
-    /// Ends the current transition of the committee.
-    ///
-    /// If a transition was in progress with the specified epoch, then it is ended and true is
-    /// returned. Otherwise, false is returned. It is therefore safe to call this method, even if
-    /// a transition is not taking place.
-    #[allow(unused)]
-    pub fn end_committee_change(&self, epoch: Epoch) -> Result<(), EndCommitteeChangeError> {
-        self.end_committee_transition_to(epoch)
-    }
+    fn end_committee_change_to(&self, epoch: Epoch) -> Result<(), EndCommitteeChangeError> {
+        let current_epoch = self.get_epoch();
 
-    #[allow(unused)]
-    fn end_committee_transition_to(&self, epoch: Epoch) -> Result<(), EndCommitteeChangeError> {
+        ensure!(
+            epoch <= current_epoch,
+            EndCommitteeChangeError::ProvidedEpochIsInTheFuture {
+                provided: epoch,
+                expected: current_epoch,
+            }
+        );
+        ensure!(
+            epoch >= current_epoch,
+            EndCommitteeChangeError::ProvidedEpochIsInThePast {
+                provided: epoch,
+                expected: current_epoch,
+            }
+        );
+        debug_assert_eq!(epoch, current_epoch);
+
         let mut services = self
             .inner
             .services
             .lock()
             .expect("thread did not panic with mutex");
 
-        let mut maybe_result: Option<Result<_, EndCommitteeChangeError>> = None;
-        self.inner
-            .committee_tracker
-            .send_if_modified(|committee_tracker| {
-                let current = committee_tracker.committees().current_committee().clone();
-                let result = committee_tracker
-                    .end_committee_change(epoch)
-                    .map(|outgoing| (outgoing.clone(), current));
-                maybe_result = Some(result);
-
-                maybe_result
-                    .as_ref()
-                    .map(|result| result.is_ok())
-                    .expect("option value set above")
-            });
+        let mut maybe_committees = None;
+        self.inner.committee_tracker.send_if_modified(|tracker| {
+            let current = tracker.committees().current_committee().clone();
+            maybe_committees = match tracker.end_change() {
+                Ok(outgoing) => Some((outgoing.clone(), current)),
+                Err(ChangeNotInProgress) => None,
+            };
+            maybe_committees.is_some()
+        });
 
         let (outgoing_committee, current_committee) =
-            maybe_result.expect("option set in closure")?;
+            maybe_committees.ok_or(EndCommitteeChangeError::EpochChangeAlreadyDone)?;
 
         // We already added services for the new committee members, which may have overlapped with
         // the old. Only remove those services corresponding to members in the old committee that
@@ -484,6 +437,10 @@ where
             .clone()
     }
 
+    fn active_committees(&self) -> ActiveCommittees {
+        self.inner.committee_tracker.borrow().committees().clone()
+    }
+
     #[tracing::instrument(name = "get_and_verify_metadata committee", skip_all)]
     async fn get_and_verify_metadata(
         &self,
@@ -564,6 +521,50 @@ where
                 .next_committee()
                 .map(|committee| committee.contains(public_key))
                 .unwrap_or(false)
+    }
+
+    async fn begin_committee_change(
+        &self,
+        new_epoch: Epoch,
+    ) -> Result<(), BeginCommitteeChangeError> {
+        let expected_next_epoch = self.inner.committee_tracker.borrow().next_epoch();
+
+        ensure!(
+            new_epoch <= expected_next_epoch,
+            BeginCommitteeChangeError::EpochIsNotSequential {
+                expected: expected_next_epoch,
+                actual: new_epoch,
+            }
+        );
+        ensure!(
+            new_epoch >= expected_next_epoch,
+            BeginCommitteeChangeError::EpochIsNotGreater {
+                expected: expected_next_epoch,
+                actual: new_epoch,
+            }
+        );
+        debug_assert_eq!(new_epoch, expected_next_epoch);
+
+        let latest = self
+            .committee_lookup
+            .get_active_committees()
+            .await
+            .map_err(BeginCommitteeChangeError::LookupError)?;
+        let current_committee: Committee = (**latest.current_committee()).clone();
+
+        ensure!(
+            current_committee.epoch == expected_next_epoch,
+            BeginCommitteeChangeError::LatestCommitteeEpochDiffers {
+                latest_committee: current_committee,
+                expected_epoch: expected_next_epoch
+            },
+        );
+
+        self.begin_committee_change_to(current_committee).await
+    }
+
+    fn end_committee_change(&self, epoch: Epoch) -> Result<(), EndCommitteeChangeError> {
+        self.end_committee_change_to(epoch)
     }
 }
 

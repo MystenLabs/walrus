@@ -6,52 +6,10 @@ use std::{cmp::Ordering, mem, num::NonZeroU16, sync::Arc};
 use walrus_core::{ensure, Epoch};
 use walrus_sui::{client::CommitteesAndState, types::Committee};
 
-/// Errors returned when starting a committee change with
-/// [`ActiveCommittees::begin_committee_change`].
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub(crate) enum BeginCommitteeChangeError {
-    /// Error returned when attempting to start a committee change while one is already in progress.
-    #[error("the committees are already changing")]
-    ChangeInProgress,
-    /// Error returned if the expected next committee has an epoch that is not 1 greater than the
-    /// current epoch.
-    #[error("the epoch of the new committee is invalid: {actual} (expected {expected})")]
-    InvalidEpoch { expected: Epoch, actual: Epoch },
-    /// Error returned when the previously set next committee does not match the expected next
-    /// committee.
-    #[error("the previously set next committee does not match the expected committee")]
-    CommitteeMismatch,
-}
-
-/// Errors returned when completing a committee change with
-/// [`ActiveCommittees::end_committee_change`].
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub(crate) enum EndCommitteeChangeError {
-    /// The current committee change that is in progress was not for the specified epoch.
-    #[error("the epoch provided does not match the new epoch: {actual} (expected {expected})")]
-    InvalidEpoch { expected: Epoch, actual: Epoch },
-    /// Error returned when attempting to end a transition, when none is ongoing.
-    #[error("the committee is not currently transitioning")]
-    NotTransitioning,
-}
-
-/// Errors returned when setting the next committee with
-/// [`ActiveCommittees::set_committee_for_next_epoch`].
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub(crate) enum InvalidNextCommittee {
-    /// Error returned when the next committee has already been set.
-    #[error("the next committee has already been set")]
-    AlreadySet,
-    /// Error returned when the epoch of the new committee is not 1 greater than that of the
-    /// current committee.
-    #[error("the epoch of the new committee is invalid: {actual} (expected {expected})")]
-    InvalidEpoch { expected: Epoch, actual: Epoch },
-}
-
 /// The current, previous, and next committees in the system.
 // INV: current_committee.n_shards() == previous_committee.n_shards() == next_committee.n_shards()
 #[derive(Debug, Clone)]
-pub(crate) struct ActiveCommittees {
+pub struct ActiveCommittees {
     /// The currently reigning committee.
     ///
     /// The epoch of the system corresponds to this committee.
@@ -264,9 +222,28 @@ impl ActiveCommittees {
     }
 }
 
+/// Errors returned when setting the next committee.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("the next committee has already been set")]
+pub(crate) struct NextCommitteeAlreadySet(pub Committee);
+
+/// Errors returned when starting a committee change.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub(crate) enum StartChangeError {
+    #[error("the next committee is unknown")]
+    UnknownNextCommittee,
+    /// Error returned when attempting to start a committee change while one is already in progress.
+    #[error("the committees are already changing")]
+    ChangeInProgress,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("cannot end a committee change as it is not in progress")]
+pub(crate) struct ChangeNotInProgress;
+
 /// Track committee changes on top [`ActiveCommittees`].
 #[derive(Debug)]
-pub struct CommitteeTracker(ActiveCommittees);
+pub(crate) struct CommitteeTracker(ActiveCommittees);
 
 impl CommitteeTracker {
     /// Constructs a new instance of [`CommitteeTracker`].
@@ -284,25 +261,31 @@ impl CommitteeTracker {
         self.0.is_change_in_progress()
     }
 
+    /// The next epoch to which this committee would be transitioning.
+    pub fn next_epoch(&self) -> Epoch {
+        self.0.epoch() + 1
+    }
+
     /// Sets the committee for the next epoch if it has not already been set.
+    ///
+    /// Returns an error if the next committee is already set.
     ///
     /// # Panics
     ///
-    /// Panics if the committees have a different number of shards.
-    pub(crate) fn set_committee_for_next_epoch(
+    /// Panics if the committees have a different number of shards, or if the epoch of the provided
+    /// committee does not match [`Self::next_epoch()`].
+    pub fn set_committee_for_next_epoch(
         &mut self,
         committee: Committee,
-    ) -> Result<(), InvalidNextCommittee> {
-        ensure!(
-            self.0.next_committee.is_none(),
-            InvalidNextCommittee::AlreadySet
+    ) -> Result<(), NextCommitteeAlreadySet> {
+        assert_eq!(
+            committee.epoch,
+            self.next_epoch(),
+            "committee's epoch must match the next epoch"
         );
         ensure!(
-            committee.epoch == self.0.current_committee.epoch + 1,
-            InvalidNextCommittee::InvalidEpoch {
-                expected: self.0.current_committee.epoch + 1,
-                actual: committee.epoch,
-            }
+            self.0.next_committee.is_none(),
+            NextCommitteeAlreadySet(committee)
         );
 
         self.0.next_committee = Some(Arc::new(committee));
@@ -310,45 +293,20 @@ impl CommitteeTracker {
         Ok(())
     }
 
-    /// Begins the transition of committees that occurs during epoch change.
+    /// Begins tracking the transition to `next_committee`.
     ///
-    /// If the next committee has not been set, then the expected committee defines the next
-    /// committee. Otherwise, the previously set next committee is compared with the expected
-    /// committee. If they are the same, then the change can be initiated, otherwise an error is
-    /// returned.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the expected_committee has a different number of shards.
-    pub fn begin_committee_change(
-        &mut self,
-        expected_committee: Committee,
-    ) -> Result<(), BeginCommitteeChangeError> {
+    /// The next committee should already be set, and a change should not already be in progress.
+    pub fn start_change(&mut self) -> Result<(), StartChangeError> {
         ensure!(
-            !self.0.is_transitioning,
-            BeginCommitteeChangeError::ChangeInProgress
+            self.0.next_committee.is_some(),
+            StartChangeError::UnknownNextCommittee,
         );
-
-        if let Some(ref next_committee) = self.0.next_committee {
-            ensure!(
-                **next_committee == expected_committee,
-                BeginCommitteeChangeError::CommitteeMismatch
-            );
-        }
-
-        // Set the next committee if it's not already set.
-        match self.set_committee_for_next_epoch(expected_committee) {
-            Ok(()) | Err(InvalidNextCommittee::AlreadySet) => (),
-            Err(InvalidNextCommittee::InvalidEpoch { expected, actual }) => {
-                return Err(BeginCommitteeChangeError::InvalidEpoch { expected, actual })
-            }
-        }
+        ensure!(!self.0.is_transitioning, StartChangeError::ChangeInProgress);
 
         let next_committee = self.0.next_committee.take().expect("set above");
         let previous_committee = mem::replace(&mut self.0.current_committee, next_committee);
         self.0.previous_committee = Some(previous_committee);
         self.0.is_transitioning = true;
-
         self.0.check_invariants();
 
         debug_assert!(self.0.is_transitioning);
@@ -357,25 +315,11 @@ impl CommitteeTracker {
 
     /// Completes the transition of a committee from the old epoch to the new.
     ///
-    /// The expected epoch must match with the epoch of the newest committee, that is, the new,
-    /// current epoch. If not, then an error is returned and the committee change is not completed.
+    /// Returns an error if the change is not currently in progress.
     ///
     /// On completion, returns a reference to the outgoing committee: the new previous committee.
-    pub fn end_committee_change(
-        &mut self,
-        expected_epoch: Epoch,
-    ) -> Result<&Arc<Committee>, EndCommitteeChangeError> {
-        ensure!(
-            self.0.is_transitioning,
-            EndCommitteeChangeError::NotTransitioning
-        );
-        ensure!(
-            self.0.epoch() == expected_epoch,
-            EndCommitteeChangeError::InvalidEpoch {
-                expected: expected_epoch,
-                actual: self.0.epoch()
-            }
-        );
+    pub fn end_change(&mut self) -> Result<&Arc<Committee>, ChangeNotInProgress> {
+        ensure!(self.0.is_transitioning, ChangeNotInProgress);
 
         self.0.is_transitioning = false;
         let previous_committee = self
@@ -385,6 +329,7 @@ impl CommitteeTracker {
             .expect("there is always a previous committee after a transition");
 
         self.0.check_invariants();
+        debug_assert!(!self.0.is_transitioning);
         Ok(previous_committee)
     }
 }

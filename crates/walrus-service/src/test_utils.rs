@@ -54,7 +54,13 @@ use walrus_test_utils::WithTempDir;
 use crate::{
     common::active_committees::ActiveCommittees,
     node::{
-        committee::{CommitteeLookupService, CommitteeService, NodeCommitteeService},
+        committee::{
+            BeginCommitteeChangeError,
+            CommitteeLookupService,
+            CommitteeService,
+            EndCommitteeChangeError,
+            NodeCommitteeService,
+        },
         config::StorageNodeConfig,
         contract_service::SystemContractService,
         errors::SyncShardClientError,
@@ -549,11 +555,28 @@ impl CommitteeService for StubCommitteeService {
         self.committee.clone()
     }
 
+    fn active_committees(&self) -> ActiveCommittees {
+        ActiveCommittees::new(self.committee.as_ref().clone(), None)
+    }
+
     fn is_walrus_storage_node(&self, public_key: &PublicKey) -> bool {
         self.committee
             .members()
             .iter()
             .any(|node| node.public_key == *public_key)
+    }
+
+    async fn begin_committee_change(
+        &self,
+        _new_epoch: Epoch,
+    ) -> Result<(), BeginCommitteeChangeError> {
+        // Return immediately in test since begin committee change is a required step in starting
+        // new storage node.
+        Ok(())
+    }
+
+    fn end_committee_change(&self, _epoch: Epoch) -> Result<(), EndCommitteeChangeError> {
+        Ok(())
     }
 }
 

@@ -78,6 +78,80 @@ impl<T: ReadClient + std::fmt::Debug> CommitteeLookupService for T {
     }
 }
 
+/// Errors returned by [`CommitteeService::begin_committee_change`].
+#[derive(Debug, thiserror::Error)]
+pub enum BeginCommitteeChangeError {
+    /// Error returned when the caller requests to begin a committee change to an epoch that is in
+    /// the past.
+    ///
+    /// The caller is lagging in its expectation as to what is the current epoch.
+    #[error("the provided epoch is less than the expected epoch: {actual} ({expected})")]
+    EpochIsNotGreater {
+        /// The expected epoch based on the state of the committee service.
+        expected: Epoch,
+        /// The epoch provided by the caller.
+        actual: Epoch,
+    },
+    /// The provided epoch is not 1 greater than the current epoch.
+    ///
+    /// This indicates that the caller has failed to update the epoch when it should have.
+    #[error("the provided epoch skips the next epoch: {actual} ({expected})")]
+    EpochIsNotSequential {
+        /// The expected epoch based on the state of the committee service.
+        expected: Epoch,
+        /// The epoch provided by the caller.
+        actual: Epoch,
+    },
+    /// The requested epoch matches the expected epoch, however, we are already transitioning to
+    /// that epoch so no change is necessary.
+    #[error("the committees are already changing to the specified epoch")]
+    ChangeAlreadyInProgress,
+    /// The caller's expected epoch matches that stored in the committee service, however, the
+    /// latest fetched committee has a different epoch.
+    #[error("the epoch of the latest committee differs from the next expected epoch")]
+    LatestCommitteeEpochDiffers {
+        /// The latest committee retrieved.
+        latest_committee: Committee,
+        /// The expected epoch based on the state of the committee service.
+        expected_epoch: Epoch,
+    },
+    /// Failed to lookup the committees.
+    #[error(transparent)]
+    LookupError(anyhow::Error),
+    /// Failed to create any service
+    #[error(transparent)]
+    AllServicesFailed(anyhow::Error),
+}
+
+/// Errors returned when completing a committee change.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum EndCommitteeChangeError {
+    /// The epoch provided by the caller is in the past relative to the committee service.
+    #[error(
+        "the provided epoch is in the past relative to the current epoch: {provided} < {expected}"
+    )]
+    ProvidedEpochIsInThePast {
+        /// The epoch provided by the caller.
+        provided: Epoch,
+        /// The epoch expected based on the internal state of the committee service.
+        expected: Epoch,
+    },
+    /// The epoch provided by the caller is in the future relative to the committee service.
+    #[error(
+        "the provided epoch is in the future relative to the current epoch: {provided} < {expected}"
+    )]
+    ProvidedEpochIsInTheFuture {
+        /// The epoch provided by the caller.
+        provided: Epoch,
+        /// The epoch expected based on the internal state of the committee service.
+        expected: Epoch,
+    },
+    /// The new epoch matches that expected by the caller, but the change has already completed and
+    /// the committee is no longer transitioning.
+    #[error("the committee is not currently transitioning")]
+    EpochChangeAlreadyDone,
+}
+
 /// A `CommitteeService` provides information on the current committee, as well as interactions
 /// with committee members.
 ///
@@ -93,8 +167,26 @@ pub trait CommitteeService: std::fmt::Debug + Send + Sync {
     /// Returns the current committee used by the service.
     fn committee(&self) -> Arc<Committee>;
 
+    /// Returns the active committees.
+    fn active_committees(&self) -> ActiveCommittees;
+
     /// Returns the encoding config associated with the shards in the committee size.
     fn encoding_config(&self) -> &Arc<EncodingConfig>;
+
+    /// Begin the committee transition to the specified epoch.
+    ///
+    /// This fetches the committees and and ensures that the change is exactly one epoch forward,
+    /// and that it matches the new epoch.
+    async fn begin_committee_change(
+        &self,
+        new_epoch: Epoch,
+    ) -> Result<(), BeginCommitteeChangeError>;
+
+    /// Ends the current transition of the committee.
+    ///
+    /// If a transition was in progress with the specified epoch, then it is ended.
+    /// Otherwise, an error is returned.
+    fn end_committee_change(&self, epoch: Epoch) -> Result<(), EndCommitteeChangeError>;
 
     /// Get and verify metadata.
     async fn get_and_verify_metadata(
