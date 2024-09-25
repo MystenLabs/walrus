@@ -4,7 +4,7 @@
 //! Client to call Walrus move functions from rust.
 
 use core::{fmt, str::FromStr};
-use std::future::Future;
+use std::{future::Future, time::Duration};
 
 use anyhow::{anyhow, Context, Result};
 use fastcrypto::traits::ToFromBytes;
@@ -31,6 +31,7 @@ use sui_types::{
     SUI_CLOCK_OBJECT_SHARED_VERSION,
 };
 use tokio::sync::Mutex;
+use tokio_stream::Stream;
 use walrus_core::{
     ensure,
     merkle::DIGEST_LEN,
@@ -44,7 +45,17 @@ use walrus_core::{
 
 use crate::{
     contracts::{self, FunctionTag},
-    types::{Blob, NodeRegistrationParams, StakedWal, StorageNodeCap, StorageResource},
+    types::{
+        move_structs::EpochState,
+        Blob,
+        BlobEvent,
+        Committee,
+        ContractEvent,
+        NodeRegistrationParams,
+        StakedWal,
+        StorageNodeCap,
+        StorageResource,
+    },
     utils::{
         get_created_sui_object_ids_by_type,
         get_owned_objects,
@@ -132,7 +143,7 @@ impl BlobPersistence {
 pub type SuiClientResult<T> = Result<T, SuiClientError>;
 
 /// Trait for interactions with the walrus contracts.
-pub trait ContractClient: Send + Sync {
+pub trait ContractClient: ReadClient + Send + Sync {
     /// Purchases blob storage for the next `epochs_ahead` Walrus epochs and an encoded
     /// size of `encoded_size` and returns the created storage resource.
     fn reserve_space(
@@ -450,6 +461,50 @@ impl SuiContractClient {
         )?;
 
         Ok(reserve_result_index)
+    }
+}
+
+impl ReadClient for SuiContractClient {
+    async fn storage_price_per_unit_size(&self) -> SuiClientResult<u64> {
+        self.read_client.storage_price_per_unit_size().await
+    }
+
+    async fn write_price_per_unit_size(&self) -> SuiClientResult<u64> {
+        self.read_client.write_price_per_unit_size().await
+    }
+
+    async fn event_stream(
+        &self,
+        polling_interval: Duration,
+        cursor: Option<EventID>,
+    ) -> SuiClientResult<impl Stream<Item = ContractEvent>> {
+        self.read_client
+            .event_stream(polling_interval, cursor)
+            .await
+    }
+
+    async fn get_blob_event(&self, event_id: EventID) -> SuiClientResult<BlobEvent> {
+        self.read_client.get_blob_event(event_id).await
+    }
+
+    async fn current_committee(&self) -> SuiClientResult<Committee> {
+        self.read_client.current_committee().await
+    }
+
+    async fn previous_committee(&self) -> SuiClientResult<Committee> {
+        self.read_client.previous_committee().await
+    }
+
+    async fn next_committee(&self) -> SuiClientResult<Option<Committee>> {
+        self.read_client.next_committee().await
+    }
+
+    async fn epoch_state(&self) -> SuiClientResult<EpochState> {
+        self.read_client.epoch_state().await
+    }
+
+    async fn get_committees_and_state(&self) -> SuiClientResult<CommitteesAndState> {
+        self.read_client.get_committees_and_state().await
     }
 }
 

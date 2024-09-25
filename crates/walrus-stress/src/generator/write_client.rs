@@ -172,7 +172,9 @@ async fn new_client<G: GasRefill + 'static>(
     })?;
 
     let client = sui_contract_client
-        .and_then_async(|contract_client| Client::new(config.clone(), contract_client))
+        .and_then_async(|contract_client| {
+            Client::new_contract_client(config.clone(), contract_client)
+        })
         .await?;
     Ok(client)
 }

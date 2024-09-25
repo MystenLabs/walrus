@@ -24,7 +24,7 @@ use serde::Deserialize;
 use tracing::Level;
 use utoipa::IntoParams;
 use walrus_core::{encoding::Primary, EpochCount};
-use walrus_sui::client::{BlobPersistence, ContractClient};
+use walrus_sui::client::{BlobPersistence, ContractClient, ReadClient};
 
 use crate::{
     client::{BlobStoreResult, Client, ClientErrorKind, StoreWhen},
@@ -50,7 +50,7 @@ pub const BLOB_PUT_ENDPOINT: &str = "/v1/store";
         // TODO(mlegner): Improve error responses. (#178, #462)
     ),
 )]
-pub(super) async fn get_blob<T: Send + Sync>(
+pub(super) async fn get_blob<T: ReadClient + Send + Sync>(
     request_headers: HeaderMap,
     State(client): State<Arc<Client<T>>>,
     Path(BlobIdString(blob_id)): Path<BlobIdString>,

@@ -43,8 +43,8 @@ use crate::{
 pub struct LoadGenerator {
     write_client_pool: Receiver<WriteClient>,
     write_client_pool_tx: Sender<WriteClient>,
-    read_client_pool: Receiver<Client<()>>,
-    read_client_pool_tx: Sender<Client<()>>,
+    read_client_pool: Receiver<Client<SuiReadClient>>,
+    read_client_pool_tx: Sender<Client<SuiReadClient>>,
     metrics: Arc<ClientMetrics>,
     _gas_refill_handle: JoinHandle<anyhow::Result<()>>,
 }
@@ -80,7 +80,7 @@ impl LoadGenerator {
         .await?;
         for read_client in try_join_all(
             (0..n_clients)
-                .map(|_| Client::new_read_client(client_config.clone(), &sui_read_client)),
+                .map(|_| Client::new_read_client(client_config.clone(), sui_read_client.clone())),
         )
         .await?
         {

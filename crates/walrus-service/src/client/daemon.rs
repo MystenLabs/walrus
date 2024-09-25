@@ -18,7 +18,7 @@ use tower::ServiceBuilder;
 use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_redoc::{Redoc, Servable};
-use walrus_sui::client::ContractClient;
+use walrus_sui::client::{ContractClient, ReadClient};
 
 use super::Client;
 use crate::common::telemetry::{metrics_middleware, register_http_metrics, MakeHttpSpan};
@@ -38,7 +38,7 @@ pub struct ClientDaemon<T> {
     router: Router<Arc<Client<T>>>,
 }
 
-impl<T: Send + Sync + 'static> ClientDaemon<T> {
+impl<T: ReadClient + Send + Sync + 'static> ClientDaemon<T> {
     /// Constructs a new [`ClientDaemon`] with aggregator functionality.
     pub fn new_aggregator(
         client: Client<T>,

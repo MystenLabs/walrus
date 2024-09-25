@@ -96,7 +96,7 @@ pub async fn get_read_client(
     wallet: Result<WalletContext>,
     allow_fallback_to_default: bool,
     blocklist_path: &Option<PathBuf>,
-) -> Result<Client<()>> {
+) -> Result<Client<SuiReadClient>> {
     let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
         &config,
         rpc_url,
@@ -104,7 +104,7 @@ pub async fn get_read_client(
         allow_fallback_to_default,
     )
     .await?;
-    let client = Client::new_read_client(config, &sui_read_client).await?;
+    let client = Client::new_read_client(config, sui_read_client).await?;
 
     if blocklist_path.is_some() {
         Ok(client.with_blocklist(Blocklist::new(blocklist_path)?))
@@ -127,7 +127,7 @@ pub async fn get_contract_client(
         gas_budget,
     )
     .await?;
-    let client = Client::new(config, sui_client).await?;
+    let client = Client::new_contract_client(config, sui_client).await?;
 
     if blocklist_path.is_some() {
         Ok(client.with_blocklist(Blocklist::new(blocklist_path)?))

@@ -77,6 +77,23 @@ pub enum BlobStatus {
     },
 }
 
+impl BlobStatus {
+    /// Returns the certification epoch for the blob, or `None` if the blob is not certified.
+    pub fn initial_certified_epoch(&self) -> Option<Epoch> {
+        match self {
+            BlobStatus::Permanent {
+                initial_certified_epoch,
+                ..
+            }
+            | BlobStatus::Deletable {
+                initial_certified_epoch,
+                ..
+            } => *initial_certified_epoch,
+            _ => None,
+        }
+    }
+}
+
 /// Contains counts of all and certified deletable `Blob` objects.
 #[derive(
     Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy, Default, Hash, utoipa::ToSchema,

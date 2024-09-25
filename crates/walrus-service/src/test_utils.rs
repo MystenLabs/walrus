@@ -1230,7 +1230,9 @@ pub mod test_cluster {
         };
 
         let client = sui_contract_client
-            .and_then_async(|contract_client| client::Client::new(config, contract_client))
+            .and_then_async(|contract_client| {
+                client::Client::new_contract_client(config, contract_client)
+            })
             .await?;
         Ok((sui_cluster, cluster, client))
     }

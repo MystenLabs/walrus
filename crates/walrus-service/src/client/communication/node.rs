@@ -26,12 +26,14 @@ use walrus_sdk::{
 };
 use walrus_sui::types::StorageNode;
 
-use super::{
-    config::RequestRateConfig,
-    error::{SliverStoreError, StoreError},
-    utils::{string_prefix, WeightedResult},
+use crate::{
+    client::{
+        config::RequestRateConfig,
+        error::{SliverStoreError, StoreError},
+        utils::{string_prefix, WeightedResult},
+    },
+    common::utils::{self, ExponentialBackoff, FutureHelpers},
 };
-use crate::common::utils::{self, ExponentialBackoff, FutureHelpers};
 
 /// Below this threshold, the `NodeCommunication` client will not check if the sliver is present on
 /// the node, but directly try to store it.
@@ -75,6 +77,7 @@ impl<T, E> WeightedResult for NodeResult<T, E> {
 
 pub(crate) struct NodeCommunication<'a, W = ()> {
     pub node_index: NodeIndex,
+    // TODO! call this committee epoch
     pub epoch: Epoch,
     pub node: &'a StorageNode,
     pub encoding_config: &'a EncodingConfig,

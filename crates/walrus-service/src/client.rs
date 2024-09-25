@@ -3,17 +3,12 @@
 
 //! Client for the Walrus service.
 
-use std::{
-    collections::{hash_map::Entry, HashMap},
-    sync::{Arc, Mutex},
-    time::Instant,
-};
+use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use anyhow::anyhow;
+use communication::NodeCommunicationFactory;
 use fastcrypto::{bls12381::min_pk::BLS12381AggregateSignature, traits::AggregateAuthenticator};
 use futures::Future;
-use rand::{seq::SliceRandom, thread_rng};
-use reqwest::Client as ReqwestClient;
 use sui_types::base_types::ObjectID;
 use tokio::{sync::Semaphore, time::Duration};
 use tracing::{Instrument, Level};
@@ -30,37 +25,35 @@ use walrus_core::{
     messages::{Confirmation, ConfirmationCertificate, SignedStorageConfirmation},
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
+    Epoch,
     EpochCount,
-    NetworkPublicKey,
     Sliver,
 };
-use walrus_sdk::{
-    api::BlobStatus,
-    client::{Client as StorageNodeClient, ClientBuilder as StorageNodeClientBuilder},
-    error::{ClientBuildError, NodeError},
-};
+use walrus_sdk::{api::BlobStatus, error::NodeError};
 use walrus_sui::{
     client::{BlobPersistence, ContractClient, ReadClient},
-    types::{Blob, BlobEvent, Committee, NetworkAddress, StorageNode},
+    types::{Blob, BlobEvent},
     utils::storage_price_for_encoded_length,
 };
 
 use self::{
-    communication::{NodeCommunication, NodeReadCommunication, NodeResult, NodeWriteCommunication},
+    communication::NodeResult,
     config::CommunicationLimits,
     error::StoreError,
     responses::BlobStoreResult,
     utils::{CompletedReasonWeight, WeightedFutures},
 };
-use crate::common::active_committees::ActiveCommittees;
+use crate::{
+    common::active_committees::ActiveCommittees,
+    utils::{BackoffStrategy, ExponentialBackoff},
+};
 
 pub mod cli;
+mod communication;
 pub mod responses;
 
 mod blocklist;
 pub use blocklist::Blocklist;
-
-mod communication;
 
 mod config;
 pub use config::{default_configuration_paths, ClientCommunicationConfig, Config};
@@ -109,17 +102,16 @@ pub struct Client<T> {
     committees: ActiveCommittees,
     storage_price_per_unit_size: u64,
     communication_limits: CommunicationLimits,
-    encoding_config: EncodingConfig,
+    // The `Arc` is used to share the encoding config with the `communication_factory` without
+    // introducing lifetimes.
+    encoding_config: Arc<EncodingConfig>,
     blocklist: Option<Blocklist>,
     communication_factory: NodeCommunicationFactory,
 }
 
 impl Client<()> {
-    /// Creates a new read client starting from a config file.
-    pub async fn new_read_client(
-        config: Config,
-        sui_read_client: &impl ReadClient,
-    ) -> ClientResult<Self> {
+    /// Creates a new Walrus client without a Sui client.
+    pub async fn new(config: Config, sui_read_client: &impl ReadClient) -> ClientResult<Self> {
         tracing::debug!(?config, "running client");
 
         let committees = ActiveCommittees::from_committees_and_state(
@@ -138,22 +130,26 @@ impl Client<()> {
         let communication_limits =
             CommunicationLimits::new(&config.communication_config, encoding_config.n_shards());
 
+        let encoding_config = Arc::new(encoding_config);
+
         Ok(Self {
             sui_client: (),
-            committees,
+            committees: committees.clone(),
             storage_price_per_unit_size,
-            encoding_config,
+            encoding_config: encoding_config.clone(),
             communication_limits,
             blocklist: None,
             communication_factory: NodeCommunicationFactory::new(
                 config.communication_config.clone(),
+                committees,
+                encoding_config,
             ),
             config,
         })
     }
 
     /// Converts `self` to a [`Client::<T>`] by adding the `sui_client`.
-    pub async fn with_client<T: ContractClient>(self, sui_client: T) -> Client<T> {
+    pub async fn with_client<C>(self, sui_client: C) -> Client<C> {
         let Self {
             config,
             sui_client: _,
@@ -164,7 +160,7 @@ impl Client<()> {
             blocklist,
             communication_factory: node_client_factory,
         } = self;
-        Client::<T> {
+        Client::<C> {
             config,
             sui_client,
             committees,
@@ -177,10 +173,40 @@ impl Client<()> {
     }
 }
 
+impl<T: ReadClient> Client<T> {
+    /// Creates a new read client starting from a config file.
+    pub async fn new_read_client(config: Config, sui_read_client: T) -> ClientResult<Self> {
+        Ok(Client::new(config, &sui_read_client)
+            .await?
+            .with_client(sui_read_client)
+            .await)
+    }
+
+    /// Reconstructs the blob by reading slivers from Walrus shards.
+    #[tracing::instrument(level = Level::ERROR, skip_all, fields (blob_id = %blob_id))]
+    pub async fn read_blob<U>(&self, blob_id: &BlobId) -> ClientResult<Vec<u8>>
+    where
+        U: EncodingAxis,
+        SliverData<U>: TryFrom<Sliver>,
+    {
+        tracing::debug!("starting to read blob");
+        self.check_blob_id(blob_id)?;
+
+        let certified_epoch = self
+            .retry_get_blob_status(blob_id, &self.sui_client)
+            .await?
+            .initial_certified_epoch()
+            .ok_or_else(|| ClientError::from(ClientErrorKind::BlobIdDoesNotExist))?;
+        let metadata = self.retrieve_metadata(certified_epoch, blob_id).await?;
+        self.request_slivers_and_decode::<U>(certified_epoch, &metadata)
+            .await
+    }
+}
+
 impl<T: ContractClient> Client<T> {
     /// Creates a new client starting from a config file.
-    pub async fn new(config: Config, sui_client: T) -> ClientResult<Self> {
-        Ok(Client::new_read_client(config, sui_client.read_client())
+    pub async fn new_contract_client(config: Config, sui_client: T) -> ClientResult<Self> {
+        Ok(Client::new(config, sui_client.read_client())
             .await?
             .with_client(sui_client)
             .await)
@@ -233,7 +259,7 @@ impl<T: ContractClient> Client<T> {
                     status_event,
                     ..
                 } => {
-                    if end_epoch >= self.committees.current_committee().epoch + epochs_ahead {
+                    if end_epoch >= self.committees.write_committee().epoch + epochs_ahead {
                         tracing::debug!(end_epoch, "blob is already certified");
                         return Ok(BlobStoreResult::AlreadyCertified {
                             blob_id,
@@ -279,7 +305,7 @@ impl<T: ContractClient> Client<T> {
             .map_err(|e| ClientError::from(ClientErrorKind::CertificationFailed(e)))?;
 
         // TODO(mlegner): Make sure this works if the epoch changes. (#753)
-        blob.certified_epoch = Some(self.committees.current_committee().epoch);
+        blob.certified_epoch = Some(self.committees.write_committee().epoch);
 
         let encoded_size =
             encoded_blob_length_for_n_shards(self.encoding_config.n_shards(), blob.size)
@@ -333,7 +359,7 @@ impl<T: ContractClient> Client<T> {
                         .into(),
                     ))
                 })?,
-                epochs_ahead + self.committees.current_committee().epoch,
+                epochs_ahead + self.committees.write_committee().epoch,
             )
             .await?
         {
@@ -363,6 +389,10 @@ impl<T: ContractClient> Client<T> {
     }
 
     /// Checks if the blob is registered by the active wallet for a sufficient duration.
+    ///
+    /// To compute if the blob is registered for a sufficient duration, it uses the epoch of the
+    /// current `write_committee`. This is because registration needs to be valid compared to a new
+    /// registration that would be made now to write a new blob.
     async fn is_blob_registered_in_wallet(
         &self,
         blob_id: &BlobId,
@@ -377,7 +407,7 @@ impl<T: ContractClient> Client<T> {
             .find(|blob| {
                 blob.blob_id == *blob_id
                     && blob.storage.end_epoch
-                        >= self.committees.current_committee().epoch + epochs_ahead
+                        >= self.committees.write_committee().epoch + epochs_ahead
                     && blob.deletable == persistence.is_deletable()
             }))
     }
@@ -447,7 +477,9 @@ impl<T> Client<T> {
             communication_limits = sliver_write_limit,
             "establishing node communications"
         );
-        let comms = self.node_write_communications(Arc::new(Semaphore::new(sliver_write_limit)))?;
+        let comms = self
+            .communication_factory
+            .node_write_communications(Arc::new(Semaphore::new(sliver_write_limit)))?;
 
         let mut requests = WeightedFutures::new(comms.iter().map(|n| {
             n.store_metadata_and_pairs(
@@ -465,7 +497,7 @@ impl<T> Client<T> {
             .execute_weight(
                 &|weight| {
                     self.committees
-                        .current_committee()
+                        .write_committee()
                         .is_at_least_min_n_correct(weight)
                 },
                 self.committees.n_shards().get().into(),
@@ -530,7 +562,7 @@ impl<T> Client<T> {
         }
         ensure!(
             self.committees
-                .current_committee()
+                .write_committee()
                 .is_at_least_min_n_correct(aggregate_weight),
             self.not_enough_confirmations_error(aggregate_weight)
         );
@@ -540,7 +572,7 @@ impl<T> Client<T> {
         let cert = ConfirmationCertificate::new(
             signers,
             bcs::to_bytes(&Confirmation::new(
-                self.committees.current_committee().epoch,
+                self.committees.write_committee().epoch,
                 *blob_id,
             ))
             .expect("serialization should always succeed"),
@@ -552,22 +584,9 @@ impl<T> Client<T> {
     fn not_enough_confirmations_error(&self, weight: usize) -> ClientError {
         ClientErrorKind::NotEnoughConfirmations(
             weight,
-            self.committees.current_committee().min_n_correct(),
+            self.committees.write_committee().min_n_correct(),
         )
         .into()
-    }
-
-    /// Reconstructs the blob by reading slivers from Walrus shards.
-    #[tracing::instrument(level = Level::ERROR, skip_all, fields (blob_id = %blob_id))]
-    pub async fn read_blob<U>(&self, blob_id: &BlobId) -> ClientResult<Vec<u8>>
-    where
-        U: EncodingAxis,
-        SliverData<U>: TryFrom<Sliver>,
-    {
-        tracing::debug!("starting to read blob");
-        self.check_blob_id(blob_id)?;
-        let metadata = self.retrieve_metadata(blob_id).await?;
-        self.request_slivers_and_decode::<U>(&metadata).await
     }
 
     /// Requests the slivers and decodes them into a blob.
@@ -577,13 +596,16 @@ impl<T> Client<T> {
     #[tracing::instrument(level = Level::ERROR, skip_all)]
     async fn request_slivers_and_decode<U>(
         &self,
+        certified_epoch: Epoch,
         metadata: &VerifiedBlobMetadataWithId,
     ) -> ClientResult<Vec<u8>>
     where
         U: EncodingAxis,
         SliverData<U>: TryFrom<Sliver>,
     {
-        let comms = self.node_read_communications()?;
+        let comms = self
+            .communication_factory
+            .node_read_communications(certified_epoch)?;
         // Create requests to get all slivers from all nodes.
         let futures = comms.iter().flat_map(|n| {
             // NOTE: the cloned here is needed because otherwise the compiler complains about the
@@ -628,7 +650,7 @@ impl<T> Client<T> {
             })
             .collect::<Vec<_>>();
 
-        if self.committees.current_committee().is_quorum(n_not_found) {
+        if self.committees.is_quorum(n_not_found) {
             return Err(ClientErrorKind::BlobIdDoesNotExist.into());
         }
 
@@ -684,7 +706,7 @@ impl<T> Client<T> {
                     tracing::warn!(%node, %error, "retrieving sliver failed");
                     if error.is_status_not_found() && {
                         n_not_found += 1;
-                        self.committees.current_committee().is_quorum(n_not_found)
+                        self.committees.is_quorum(n_not_found)
                     } {
                         return Err(ClientErrorKind::BlobIdDoesNotExist.into());
                     }
@@ -726,9 +748,12 @@ impl<T> Client<T> {
     /// pretend the certification exists.
     pub async fn retrieve_metadata(
         &self,
+        certified_epoch: Epoch,
         blob_id: &BlobId,
     ) -> ClientResult<VerifiedBlobMetadataWithId> {
-        let comms = self.node_communications_quorum();
+        let comms = self
+            .communication_factory
+            .node_read_communications_quorum(certified_epoch);
         let futures = comms.iter().map(|n| {
             n.retrieve_verified_metadata(blob_id)
                 .instrument(n.span.clone())
@@ -753,8 +778,11 @@ impl<T> Client<T> {
                 Err(error) => {
                     if error.is_status_not_found() && {
                         n_not_found += weight;
-                        self.committees.current_committee().is_quorum(n_not_found)
+                        self.committees.is_quorum(n_not_found)
                     } {
+                        // TODO(giac): now that we check that the blob is certified before starting
+                        // to read, this error should not technically happen unless (1) the client
+                        // was disconnected while reading, or (2) the bft threshold was exceeded.
                         return Err(ClientErrorKind::BlobIdDoesNotExist.into());
                     }
                 }
@@ -763,28 +791,87 @@ impl<T> Client<T> {
         Err(ClientErrorKind::NoMetadataReceived.into())
     }
 
+    /// Retries to get the verified blob status, with backoff, until it succeeds or the maximum
+    /// number of retries is reached.
+    pub async fn retry_get_blob_status<U: ReadClient>(
+        &self,
+        blob_id: &BlobId,
+        read_client: &U,
+    ) -> ClientResult<BlobStatus> {
+        // The backoff is both the interval between retries and the maximum duration of the retry.
+        let config = &self.config.communication_config.request_rate_config;
+        let mut backoff = ExponentialBackoff::new_with_seed(
+            config.min_backoff,
+            config.max_backoff,
+            config.max_retries,
+            u64::from_le_bytes(
+                blob_id.0[..8]
+                    .try_into()
+                    .expect("can always convert 8 bytes into u64"),
+            ),
+        );
+        while let Some(delay) = backoff.next_delay() {
+            let maybe_status = self
+                .get_verified_blob_status(blob_id, read_client, delay)
+                .await;
+
+            // Return only if we know that the blob does not exist, or if we have a valid status.
+            if let Err(client_error) = maybe_status {
+                if matches!(client_error.kind(), &ClientErrorKind::BlobIdDoesNotExist) {
+                    return Err(client_error);
+                }
+            } else {
+                // The status is Ok.
+                return maybe_status;
+            }
+
+            // TODO(giac): next PR fixes that we wait even if we are out of retries.
+            tracing::debug!(?delay, "fetching blob status failed; retrying");
+            tokio::time::sleep(delay).await;
+        }
+        todo!()
+    }
+
     /// Gets the blob status from multiple nodes and returns the latest status that can be verified.
     ///
-    /// The nodes are selected such that at least one correct node is contacted.
+    /// The nodes are selected such that at least one correct node is contacted. This function reads
+    /// from the latest committee, because, during epoch change, it is the committee that will have
+    /// the most up-to-date information on the old and newly certified blobs.
+    #[tracing::instrument(level = Level::ERROR, skip_all, fields(blob_id = %blob_id))]
     pub async fn get_verified_blob_status<U: ReadClient>(
         &self,
         blob_id: &BlobId,
         read_client: &U,
         timeout: Duration,
     ) -> ClientResult<BlobStatus> {
-        let comms = self.node_read_communications()?;
+        tracing::debug!(?timeout, "trying to get blob status");
+        let comms = self
+            .communication_factory
+            .node_read_communications(self.committees.write_committee().epoch)?;
+
         let futures = comms
             .iter()
             .map(|n| n.get_blob_status(blob_id).instrument(n.span.clone()));
         let mut requests = WeightedFutures::new(futures);
         requests
             .execute_until(
-                &|weight| self.committees.current_committee().is_quorum(weight),
+                &|weight| self.committees.is_quorum(weight),
                 timeout,
                 self.communication_limits.max_concurrent_status_reads,
             )
             .await;
 
+        // If 2f+1 nodes return a 404 status, we know the blob does not exist.
+        let n_not_found = requests
+            .inner_err()
+            .iter()
+            .filter(|err| err.is_status_not_found())
+            .count();
+        if self.committees.is_quorum(n_not_found) {
+            return Err(ClientErrorKind::BlobIdDoesNotExist.into());
+        }
+
+        // Check the received statuses.
         let statuses = requests.take_unique_results_with_aggregate_weight();
         tracing::debug!(?statuses, "received blob statuses from storage nodes");
         let mut statuses_list: Vec<_> = statuses.keys().copied().collect();
@@ -795,7 +882,7 @@ impl<T> Client<T> {
         for status in statuses_list.into_iter().rev() {
             if self
                 .committees
-                .current_committee()
+                .write_committee()
                 .is_above_validity(statuses[&status])
                 || verify_blob_status_event(blob_id, status, read_client)
                     .await
@@ -820,124 +907,13 @@ impl<T> Client<T> {
         Ok(())
     }
 
-    fn node_communications<'a, W>(
-        &'a self,
-        constructor: impl Fn(usize) -> Result<Option<NodeCommunication<'a, W>>, ClientBuildError>,
-    ) -> ClientResult<Vec<NodeCommunication<'a, W>>> {
-        let mut comms: Vec<_> = (0..self.committees.current_committee().n_members())
-            .map(|i| (i, constructor(i)))
-            .collect();
-
-        if comms.iter().all(|(_, result)| result.is_err()) {
-            let Some((_, Err(sample_error))) = comms.pop() else {
-                unreachable!("`all()` guarantees at least 1 result and all results are errors");
-            };
-            return Err(ClientErrorKind::AllConnectionsFailed(sample_error).into());
-        }
-
-        let mut comms: Vec<_> = comms
-            .into_iter()
-            .filter_map(|(index, result)| match result {
-                Ok(maybe_communication) => maybe_communication,
-                Err(err) => {
-                    tracing::warn!(
-                        node=index, %err, "unable to establish any connection to a storage node"
-                    );
-                    None
-                }
-            })
-            .collect();
-        comms.shuffle(&mut thread_rng());
-
-        Ok(comms)
-    }
-
-    /// Returns a vector of [`NodeWriteCommunication`] objects representing nodes in random order.
-    fn node_write_communications(
-        &self,
-        sliver_write_limit: Arc<Semaphore>,
-    ) -> ClientResult<Vec<NodeWriteCommunication>> {
-        self.node_communications(|index| {
-            self.communication_factory.create_write_communication(
-                index,
-                self.committees.current_committee(),
-                &self.encoding_config,
-                sliver_write_limit.clone(),
-            )
-        })
-    }
-
-    /// Returns a vector of [`NodeReadCommunication`] objects representing nodes in random order.
-    fn node_read_communications(&self) -> ClientResult<Vec<NodeReadCommunication>> {
-        self.node_communications(|index| {
-            self.communication_factory.create_read_communication(
-                index,
-                self.committees.current_committee(),
-                &self.encoding_config,
-            )
-        })
-    }
-
-    /// Returns a vector of [`NodeCommunication`] objects the total weight of which fulfills the
-    /// threshold function.
-    ///
-    /// The set and order of nodes included in the communication is randomized.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`ClientError`] with [`ClientErrorKind::Other`] if the threshold function is not
-    /// fulfilled after considering all storage nodes.
-    fn node_communications_threshold(
-        &self,
-        threshold_fn: impl Fn(usize) -> bool,
-    ) -> ClientResult<Vec<NodeCommunication>> {
-        let mut random_indices: Vec<_> =
-            (0..self.committees.current_committee().members().len()).collect();
-        random_indices.shuffle(&mut thread_rng());
-        let mut random_indices = random_indices.into_iter();
-        let mut weight = 0;
-        let mut comms = vec![];
-
-        loop {
-            if threshold_fn(weight) {
-                break Ok(comms);
-            }
-            let Some(index) = random_indices.next() else {
-                break Err(ClientErrorKind::Other(
-                    anyhow!("unable to create sufficient NodeCommunications").into(),
-                )
-                .into());
-            };
-            weight += self.committees.current_committee().members()[index]
-                .shard_ids
-                .len();
-
-            // Since we are attempting this in a loop, we will retry until we have a threshold of
-            // successfully constructed clients (no error and with shards).
-            if let Ok(Some(comm)) = self.communication_factory.create_read_communication(
-                index,
-                self.committees.current_committee(),
-                &self.encoding_config,
-            ) {
-                comms.push(comm);
-            }
-        }
-    }
-
-    /// Returns a vector of [`NodeCommunication`] objects, the weight of which is at least a quorum.
-    fn node_communications_quorum(&self) -> Vec<NodeCommunication> {
-        self.node_communications_threshold(|weight| {
-            self.committees.current_committee().is_quorum(weight)
-        })
-        .expect("the threshold is below the total number of shards")
-    }
-
     /// Maps the sliver pairs to the node that holds their shard.
     fn pairs_per_node<'a>(
         &'a self,
         blob_id: &'a BlobId,
         pairs: &'a [SliverPair],
     ) -> HashMap<usize, impl Iterator<Item = &SliverPair>> {
+        // TODO!
         self.committees
             .current_committee()
             .members()
@@ -1019,81 +995,4 @@ async fn verify_blob_status_event(
     };
 
     Ok(())
-}
-
-#[derive(Clone, Debug)]
-struct NodeCommunicationFactory {
-    config: ClientCommunicationConfig,
-    client_cache: Arc<Mutex<HashMap<(NetworkAddress, NetworkPublicKey), StorageNodeClient>>>,
-}
-
-impl NodeCommunicationFactory {
-    fn new(config: ClientCommunicationConfig) -> Self {
-        Self {
-            config,
-            client_cache: Default::default(),
-        }
-    }
-
-    /// Builds a [`NodeReadCommunication`] object for the identified storage node within the
-    /// committee.
-    ///
-    /// Returns `None` if the node has no shards.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the index is out of range of the committee members.
-    fn create_read_communication<'a>(
-        &self,
-        index: usize,
-        committee: &'a Committee,
-        encoding_config: &'a EncodingConfig,
-    ) -> Result<Option<NodeReadCommunication<'a>>, ClientBuildError> {
-        let node = &committee.members()[index];
-        let client = self.create_client(node)?;
-
-        Ok(NodeReadCommunication::new(
-            index,
-            committee.epoch,
-            client,
-            node,
-            encoding_config,
-            self.config.request_rate_config.clone(),
-        ))
-    }
-
-    /// Builds a [`NodeWriteCommunication`] object for the given storage node.
-    ///
-    /// Returns `None` if the node has no shards.
-    fn create_write_communication<'a>(
-        &self,
-        index: usize,
-        committee: &'a Committee,
-        encoding_config: &'a EncodingConfig,
-        sliver_write_limit: Arc<Semaphore>,
-    ) -> Result<Option<NodeWriteCommunication<'a>>, ClientBuildError> {
-        let maybe_node_communication = self
-            .create_read_communication(index, committee, encoding_config)?
-            .map(|nc| nc.with_write_limits(sliver_write_limit));
-        Ok(maybe_node_communication)
-    }
-
-    fn create_client(&self, node: &StorageNode) -> Result<StorageNodeClient, ClientBuildError> {
-        let node_client_id = (
-            node.network_address.clone(),
-            node.network_public_key.clone(),
-        );
-        let mut cache = self.client_cache.lock().unwrap();
-
-        match cache.entry(node_client_id) {
-            Entry::Occupied(occupied) => Ok(occupied.get().clone()),
-            Entry::Vacant(vacant) => {
-                let reqwest_builder = self.config.reqwest_config.apply(ReqwestClient::builder());
-                let client = StorageNodeClientBuilder::from_reqwest(reqwest_builder)
-                    .authenticate_with_public_key(node.network_public_key.clone())
-                    .build(&node.network_address.0)?;
-                Ok(vacant.insert(client).clone())
-            }
-        }
-    }
 }

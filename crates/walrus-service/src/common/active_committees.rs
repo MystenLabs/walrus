@@ -1,10 +1,13 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{cmp::Ordering, mem, num::NonZeroU16, sync::Arc};
+use std::{cmp::Ordering, collections::HashSet, mem, num::NonZeroU16, sync::Arc};
 
 use walrus_core::{ensure, Epoch};
-use walrus_sui::{client::CommitteesAndState, types::Committee};
+use walrus_sui::{
+    client::CommitteesAndState,
+    types::{Committee, StorageNode},
+};
 
 /// The current, previous, and next committees in the system.
 // INV: current_committee.n_shards() == previous_committee.n_shards() == next_committee.n_shards()
@@ -176,6 +179,8 @@ impl ActiveCommittees {
         None
     }
 
+    // Functions that rely on the fact that `n_shards` is the same for all committees.
+
     /// Returns the number of shards in the committee.
     ///
     /// Given the invariants enforced by this struct, `n_shards` is the same for all committees.
@@ -217,6 +222,70 @@ impl ActiveCommittees {
     fn check_invariants(&self) {
         self.try_check_invariants()
             .expect("ActiveCommittee's invariants must be upheld");
+    }
+
+    /// Checks if the number is larger or equal to the minimum number of correct shards.
+    ///
+    /// Given the invariants enforced by this struct, the result of this function is the same for
+    /// all members of the committee.
+    ///
+    /// See [`min_n_correct`][Self::min_n_correct] for further details.
+    #[inline]
+    #[allow(dead_code)]
+    pub fn is_at_least_min_n_correct(&self, num: usize) -> bool {
+        self.current_committee.is_at_least_min_n_correct(num)
+    }
+
+    /// Returns the minimum number of correct shards.
+    ///
+    /// Given the invariants enforced by this struct, the result of this function is the same for
+    /// all members of the committee.
+    ///
+    /// This is (`n_shards - f`), where `f` is the maximum number of faulty shards, given
+    /// `n_shards`. See [walrus_core::bft] for further details.
+    #[inline]
+    #[allow(dead_code)]
+    pub fn min_n_correct(&self) -> usize {
+        self.current_committee.min_n_correct()
+    }
+
+    /// Checks if the number is large enough to reach a quorum (`2f + 1`).
+    ///
+    /// Given the invariants enforced by this struct, the result of this function is the same for
+    /// all members of the committee.
+    ///
+    /// `f` is the maximum number of faulty shards, given `n_shards`. See [walrus_core::bft] for
+    /// further details.
+    #[inline]
+    pub fn is_quorum(&self, num: usize) -> bool {
+        self.current_committee.is_quorum(num)
+    }
+
+    /// Checks if the number is larger or equal to the validity threshold
+    ///
+    ///
+    /// Given the invariants enforced by this struct, the result of this function is the same for
+    /// all members of the committee.
+    ///
+    /// The validity threshold is `f + 1`, where `f` is the maximum number of faulty shards. See
+    /// [walrus_core::bft] for further details.
+    #[inline]
+    #[allow(dead_code)]
+    pub fn is_above_validity(&self, num: usize) -> bool {
+        self.current_committee.is_above_validity(num)
+    }
+
+    /// Returns the union of the members in previous, current, and next, committees.
+    #[allow(clippy::mutable_key_type)]
+    pub fn all_members(&self) -> HashSet<&StorageNode> {
+        let mut members = HashSet::from_iter(self.current_committee.members().iter());
+        if let Some(previous) = self.previous_committee() {
+            members.extend(previous.members().iter());
+        }
+        if let Some(next) = self.next_committee() {
+            members.extend(next.members().iter());
+        }
+        members
     }
 }
 

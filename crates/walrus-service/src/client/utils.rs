@@ -225,6 +225,14 @@ where
             .filter_map(WeightedResult::inner_ok)
             .collect()
     }
+
+    /// Returns references to all the errors in the struct.
+    pub fn inner_err(&self) -> Vec<&T::Error> {
+        self.results
+            .iter()
+            .filter_map(|result| result.inner_result().as_ref().err())
+            .collect()
+    }
 }
 
 impl<I, Fut, T> WeightedFutures<I, Fut, T>

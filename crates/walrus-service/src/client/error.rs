@@ -92,7 +92,12 @@ pub enum ClientErrorKind {
     /// The client could not retrieve enough slivers to reconstruct the blob.
     #[error("could not retrieve enough slivers to reconstruct the blob")]
     NotEnoughSlivers,
-    /// The client received enough "not found" messages to confirm that the blob ID does not exist.
+    /// The blob ID is not certified on Walrus.
+    ///
+    /// This is deduced because either:
+    ///   - the client received enough "not found" messages to confirm that the blob ID does not
+    ///     exist; or
+    ///   - the client could not obtain the certification epoch of the blob by reading the events.
     #[error("the blob ID does not exist")]
     BlobIdDoesNotExist,
     /// The client could not retrieve the metadata from the storage nodes.
