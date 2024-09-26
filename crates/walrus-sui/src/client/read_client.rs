@@ -66,7 +66,6 @@ pub struct CommitteesAndState {
     /// The current committee.
     pub current: Committee,
     /// The previous committee.
-    // TODO(giac): change to option
     pub previous: Option<Committee>,
     /// The next committee.
     pub next: Option<Committee>,

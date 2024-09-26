@@ -43,6 +43,9 @@ pub use move_structs::{
 use serde::{Deserialize, Serialize};
 use walrus_core::{bft, ensure, Epoch, NetworkPublicKey, PublicKey, ShardIndex};
 
+/// The zero-th Epoch is special in that it's the genesis epoch.
+pub const GENESIS_EPOCH: Epoch = 0;
+
 /// Network address consisting of host name or IP and port.
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize, Deserialize)]
 pub struct NetworkAddress {
