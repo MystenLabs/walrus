@@ -64,7 +64,6 @@ pub enum BlobStatus {
         /// Counts of deletable `Blob` objects.
         deletable_counts: DeletableCounts,
         /// If the blob is certified, contains the epoch where it was initially certified.
-        // INV: certified_epoch.is_some() == is_certified
         initial_certified_epoch: Option<Epoch>,
     },
     /// The blob exists within Walrus; but there is no related permanent object, so it may be
