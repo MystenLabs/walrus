@@ -11,11 +11,11 @@ use std::{
     borrow::Borrow,
     net::{SocketAddr, TcpStream},
     num::NonZeroU16,
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
 use async_trait::async_trait;
-use futures::StreamExt;
+use futures::{stream::FuturesUnordered, StreamExt};
 use prometheus::Registry;
 use sui_types::base_types::ObjectID;
 use tempfile::TempDir;
@@ -48,6 +48,7 @@ use walrus_sui::types::{
     NetworkAddress,
     NodeRegistrationParams,
     StorageNode as SuiStorageNode,
+    GENESIS_EPOCH,
 };
 use walrus_test_utils::WithTempDir;
 
@@ -459,32 +460,85 @@ fn committee_partner(node_config: &StorageNodeTestConfig) -> Option<StorageNodeT
     }
 }
 
+fn create_previous_committee(committee: &Committee) -> Option<Committee> {
+    if committee.epoch == GENESIS_EPOCH {
+        None
+    } else {
+        let members = if committee.epoch - 1 == GENESIS_EPOCH {
+            vec![]
+        } else {
+            committee.members().to_vec()
+        };
+
+        Some(
+            Committee::new(members, committee.epoch - 1, committee.n_shards())
+                .expect("all fields are valid"),
+        )
+    }
+}
+
 /// A stub `CommitteeLookupService`.
 ///
 /// Does not perform any network operations.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StubLookupService {
-    committee: Committee,
+    committees: Arc<Mutex<ActiveCommittees>>,
+}
+
+impl StubLookupService {
+    /// Create a new `StubLookupService` with the specified committee.
+    ///
+    /// The previous committee is set to the same committee but with an epoch of 1 less. If the
+    /// provided committee is at epoch 0 or 1, then the prior committee is non-existent or the empty
+    /// committee respectively.
+    pub fn new(committee: Committee) -> Self {
+        let previous = create_previous_committee(&committee);
+        Self {
+            committees: Arc::new(Mutex::new(ActiveCommittees::new(committee, previous))),
+        }
+    }
+
+    /// Returns a handle that can be used to modify the ActiveCommittees returned by the
+    /// lookup service.
+    pub fn handle(&self) -> StubLookupServiceHandle {
+        StubLookupServiceHandle {
+            committees: self.committees.clone(),
+        }
+    }
+}
+
+/// A handle to a [`StubLookupService`] which can be used to modify the value of the services.
+#[derive(Debug, Clone)]
+pub struct StubLookupServiceHandle {
+    committees: Arc<Mutex<ActiveCommittees>>,
+}
+
+impl StubLookupServiceHandle {
+    /// Returns the current epoch.
+    pub fn epoch(&self) -> Epoch {
+        self.committees.lock().unwrap().epoch()
+    }
+
+    /// Advances the epoch to the next epoch, skipping the transitioning phase.
+    pub fn advance_epoch(&self) -> Epoch {
+        let mut committees = self.committees.lock().unwrap();
+        let current = (**committees.current_committee()).clone();
+        let next_epoch = current.epoch + 1;
+        let next = if let Some(next_committee) = committees.next_committee() {
+            (**next_committee).clone()
+        } else {
+            Committee::new(current.members().to_vec(), next_epoch, current.n_shards())
+                .expect("static committee is valid")
+        };
+        *committees = ActiveCommittees::new(next, Some(current));
+        next_epoch
+    }
 }
 
 #[async_trait]
 impl CommitteeLookupService for StubLookupService {
     async fn get_active_committees(&self) -> Result<ActiveCommittees, anyhow::Error> {
-        let previous_committee = if self.committee.epoch != 0 {
-            let committee = Committee::new(
-                self.committee.members().to_vec(),
-                self.committee.epoch - 1,
-                self.committee.n_shards(),
-            )?;
-            Some(committee)
-        } else {
-            None
-        };
-
-        Ok(ActiveCommittees::new(
-            self.committee.clone(),
-            previous_committee,
-        ))
+        Ok(self.committees.lock().unwrap().clone())
     }
 }
 
@@ -556,7 +610,10 @@ impl CommitteeService for StubCommitteeService {
     }
 
     fn active_committees(&self) -> ActiveCommittees {
-        ActiveCommittees::new(self.committee.as_ref().clone(), None)
+        ActiveCommittees::new(
+            self.committee.as_ref().clone(),
+            create_previous_committee(&self.committee),
+        )
     }
 
     fn is_walrus_storage_node(&self, public_key: &PublicKey) -> bool {
@@ -648,6 +705,8 @@ impl SystemEventProvider for tokio::sync::broadcast::Sender<ContractEvent> {
 pub struct TestCluster {
     /// The running storage nodes.
     pub nodes: Vec<StorageNodeHandle>,
+    /// A handle to the stub lookup service, is used.
+    pub lookup_service_handle: Option<StubLookupServiceHandle>,
 }
 
 impl TestCluster {
@@ -681,6 +740,16 @@ impl TestCluster {
     pub fn client(&self, index: usize) -> &Client {
         &self.nodes[index].client
     }
+
+    /// Wait for all nodes to arrive at at least the specified epoch.
+    pub async fn wait_for_nodes_to_reach_epoch(&self, epoch: Epoch) {
+        let waits: FuturesUnordered<_> = self
+            .nodes
+            .iter()
+            .map(|handle| handle.storage_node.wait_for_epoch(epoch))
+            .collect();
+        waits.for_each(|_| std::future::ready(())).await;
+    }
 }
 
 /// Builds a new [`TestCluster`] with custom configuration values.
@@ -699,7 +768,6 @@ pub struct TestClusterBuilder {
     event_providers: Vec<Option<Box<dyn SystemEventProvider>>>,
     committee_services: Vec<Option<Box<dyn CommitteeService>>>,
     contract_services: Vec<Option<Box<dyn SystemContractService>>>,
-    initial_epoch: Option<Epoch>,
 }
 
 impl TestClusterBuilder {
@@ -805,12 +873,6 @@ impl TestClusterBuilder {
         self
     }
 
-    /// Sets the initial epoch for the cluster.
-    pub fn with_initial_epoch(mut self, epoch: Epoch) -> Self {
-        self.initial_epoch = Some(epoch);
-        self
-    }
-
     /// Creates the configured `TestCluster`.
     pub async fn build(self) -> anyhow::Result<TestCluster> {
         let mut nodes = vec![];
@@ -821,7 +883,12 @@ impl TestClusterBuilder {
             .enumerate()
             .map(|(i, info)| info.to_storage_node_info(&format!("node-{i}")))
             .collect();
-        let committee = committee_from_members(committee_members.clone(), self.initial_epoch);
+        let committee = committee_from_members(committee_members.clone(), Some(1));
+
+        // Create the stub lookup service and handles that may be used if none is provided.
+        let lookup_service = StubLookupService::new(committee.clone());
+        let lookup_service_handle = lookup_service.handle();
+        let mut store_lookup_service = false;
 
         for (((config, event_provider), service), contract_service) in self
             .storage_node_configs
@@ -844,10 +911,9 @@ impl TestClusterBuilder {
             builder = if let Some(service) = service {
                 builder.with_committee_service(service)
             } else {
+                store_lookup_service = true;
                 let service = NodeCommitteeService::new(
-                    StubLookupService {
-                        committee: committee.clone(),
-                    },
+                    lookup_service.clone(),
                     local_identity,
                     Default::default(),
                 )
@@ -862,7 +928,10 @@ impl TestClusterBuilder {
             nodes.push(builder.build().await?);
         }
 
-        Ok(TestCluster { nodes })
+        Ok(TestCluster {
+            nodes,
+            lookup_service_handle: store_lookup_service.then_some(lookup_service_handle),
+        })
     }
 }
 
@@ -970,7 +1039,6 @@ impl Default for TestClusterBuilder {
                 .into_iter()
                 .map(StorageNodeTestConfig::new)
                 .collect(),
-            initial_epoch: None,
         }
     }
 }

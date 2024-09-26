@@ -14,7 +14,7 @@ use prometheus::Registry;
 use serde::Serialize;
 use shard_sync::ShardSyncHandler;
 use sui_types::{base_types::ObjectID, digests::TransactionDigest, event::EventID};
-use tokio::{select, time::Instant};
+use tokio::{select, sync::watch, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{field, Instrument};
 use typed_store::{rocks::MetricConf, DBMetrics, TypedStoreError};
@@ -57,6 +57,7 @@ use walrus_sui::{
         EpochChangeEvent,
         EpochChangeStart,
         InvalidBlobId,
+        GENESIS_EPOCH,
     },
 };
 
@@ -361,7 +362,6 @@ pub struct StorageNode {
 
 /// The internal state of a Walrus storage node.
 #[derive(Debug)]
-
 pub struct StorageNodeInner {
     protocol_key_pair: ProtocolKeyPair,
     storage: Storage,
@@ -372,6 +372,7 @@ pub struct StorageNodeInner {
     start_time: Instant,
     metrics: NodeMetricSet,
     node_object_id: ObjectID,
+    current_epoch: watch::Sender<Epoch>,
 }
 
 impl StorageNode {
@@ -410,6 +411,7 @@ impl StorageNode {
             event_manager,
             encoding_config,
             contract_service: contract_service.into(),
+            current_epoch: watch::Sender::new(committee_service.get_epoch()),
             committee_service: committee_service.into(),
             metrics: NodeMetricSet::new(registry),
             start_time,
@@ -493,6 +495,7 @@ impl StorageNode {
         let from_element_index = self.get_last_committed_event_index()?;
         let next_index: usize = from_element_index.try_into().expect("64-bit architecture");
         let index_stream = stream::iter(next_index..);
+        let mut maybe_epoch_at_start = Some(self.inner.committee_service.get_epoch());
 
         let mut indexed_element_stream = index_stream.zip(event_stream);
         // Important: Events must be handled consecutively and in order to prevent (intermittent)
@@ -723,8 +726,7 @@ impl StorageNode {
         &self,
         event: &EpochChangeStart,
     ) -> anyhow::Result<()> {
-        let skip_epoch_change = self.begin_committee_change(event.epoch).await?;
-        if skip_epoch_change {
+        if !self.begin_committee_change(event.epoch).await? {
             return Ok(());
         }
 
@@ -733,20 +735,21 @@ impl StorageNode {
         let committees = self.inner.committee_service.active_committees();
         let shard_diff = ShardDiff::diff_previous(&committees, public_key);
 
-        for shard_storage in shard_diff
-            .lost
-            .iter()
-            .filter_map(|shard| storage.shard_storage(*shard))
-        {
+        for shard_id in &shard_diff.lost {
+            let Some(shard_storage) = storage.shard_storage(*shard_id) else {
+                tracing::debug!("skipping lost shard during epoch change as it is not stored");
+                continue;
+            };
             // TODO: remove shard at the next EpochChangeStart event.
             //       eventually, we can remove the shard upon receiving ShardsReceived events.
+            tracing::debug!(walrus.shard_index = %shard_id, "locking shard for epoch change");
             shard_storage
                 .lock_shard_for_epoch_change()
                 .context("failed to lock shard")?;
         }
 
         if shard_diff.gained.is_empty() {
-            // No shards to sync, signal the contract that epoch sync is done.
+            tracing::debug!("no shards gained, so signalling that epoch sync is done");
             self.inner
                 .contract_service
                 .epoch_sync_done(self.inner.node_object_id)
@@ -756,11 +759,9 @@ impl StorageNode {
                 .storage
                 .create_storage_for_shards(&shard_diff.gained)?;
 
-            if event.epoch > 1 {
-                for shard in &shard_diff.gained {
-                    self.shard_sync_handler.start_new_shard_sync(*shard).await?;
-                }
-            } else {
+            if event.epoch == GENESIS_EPOCH {
+                // TODO(jsmith): Create the shard in sync mode and have it immediately progress to
+                // being completed. i.e., merge the two cases.
                 for shard in &shard_diff.gained {
                     self.inner
                         .storage
@@ -772,6 +773,10 @@ impl StorageNode {
                     .contract_service
                     .epoch_sync_done(self.inner.node_object_id)
                     .await;
+            } else {
+                for shard in &shard_diff.gained {
+                    self.shard_sync_handler.start_new_shard_sync(*shard).await?;
+                }
             }
         }
 
@@ -1841,13 +1846,14 @@ mod tests {
             TestCluster::builder()
                 .with_shard_assignment(assignment)
                 .with_system_event_providers(events.clone())
-                .with_initial_epoch(initial_epoch)
                 .build()
                 .await?
         };
 
         let config = cluster.encoding_config();
         let mut details = Vec::new();
+
+        // Add the blobs at epoch 1, the epoch at which the cluster starts.
         for blob in blobs {
             let blob_details = EncodedBlob::new(blob, config.clone());
             // Note: register and certify the blob are always using epoch 0.
@@ -1857,7 +1863,39 @@ mod tests {
             details.push(blob_details);
         }
 
+        advance_cluster_to_epoch(&cluster, &[&events], initial_epoch).await?;
+
         Ok((cluster, events, details))
+    }
+
+    async fn advance_cluster_to_epoch(
+        cluster: &TestCluster,
+        events: &[&Sender<ContractEvent>],
+        epoch: Epoch,
+    ) -> TestResult {
+        let lookup_service_handle = cluster.lookup_service_handle.clone().unwrap();
+
+        for epoch in lookup_service_handle.epoch() + 1..epoch + 1 {
+            let new_epoch = lookup_service_handle.advance_epoch();
+            assert_eq!(new_epoch, epoch);
+            for event_queue in events {
+                event_queue.send(ContractEvent::EpochChangeEvent(
+                    EpochChangeEvent::EpochChangeStart(EpochChangeStart {
+                        epoch,
+                        event_id: walrus_sui::test_utils::event_id_for_testing(),
+                    }),
+                ))?;
+                event_queue.send(ContractEvent::EpochChangeEvent(
+                    EpochChangeEvent::EpochChangeDone(EpochChangeDone {
+                        epoch,
+                        event_id: walrus_sui::test_utils::event_id_for_testing(),
+                    }),
+                ))?;
+            }
+            cluster.wait_for_nodes_to_reach_epoch(epoch).await;
+        }
+
+        Ok(())
     }
 
     /// Creates a test cluster with custom initial epoch and blobs that are partially stored
@@ -1891,7 +1929,6 @@ mod tests {
             TestCluster::builder()
                 .with_shard_assignment(assignment)
                 .with_individual_system_event_providers(&event_providers)
-                .with_initial_epoch(initial_epoch)
                 .build()
                 .await?
         };
@@ -1900,7 +1937,6 @@ mod tests {
         let mut details = Vec::new();
         for (i, blob) in blobs.iter().enumerate() {
             let blob_details = EncodedBlob::new(blob, config.clone());
-            // Note: register and certify the blob are always using epoch 0.
             node_0_events.send(BlobRegistered::for_testing(*blob_details.blob_id()).into())?;
             all_other_node_events
                 .send(BlobRegistered::for_testing(*blob_details.blob_id()).into())?;
@@ -1920,6 +1956,13 @@ mod tests {
                 .send(BlobCertified::for_testing(*blob_details.blob_id()).into())?;
             details.push(blob_details);
         }
+
+        advance_cluster_to_epoch(
+            &cluster,
+            &[&node_0_events, &all_other_node_events],
+            initial_epoch,
+        )
+        .await?;
 
         Ok((cluster, details))
     }
@@ -2389,8 +2432,8 @@ mod tests {
     // Tests SyncShardRequest with wrong epoch.
     async_param_test! {
         sync_shard_node_api_invalid_epoch -> TestResult: [
-            too_old: (10, 1, "Invalid epoch. Client epoch: 1. Server epoch: 10"),
-            too_new: (10, 11, "Invalid epoch. Client epoch: 11. Server epoch: 10"),
+            too_old: (3, 1, "Invalid epoch. Client epoch: 1. Server epoch: 3"),
+            too_new: (3, 4, "Invalid epoch. Client epoch: 4. Server epoch: 3"),
         ]
     }
     async fn sync_shard_node_api_invalid_epoch(
@@ -2398,7 +2441,7 @@ mod tests {
         requester_epoch: Epoch,
         error_message: &str,
     ) -> TestResult {
-        // Creates a cluster with initial epoch set to 10.
+        // Creates a cluster with initial epoch set to 3.
         let (cluster, _, blob_detail) =
             cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &[BLOB], cluster_epoch)
                 .await?;
@@ -2694,8 +2737,6 @@ mod tests {
     // This test also tests that no missing blobs after sync completion.
     #[tokio::test]
     async fn sync_shard_partial_recovery() -> TestResult {
-        telemetry_subscribers::init_for_testing();
-
         let skip_stored_blob_index: [usize; 12] = [3, 4, 5, 9, 10, 11, 15, 18, 19, 20, 21, 22];
         let (cluster, blob_details) = setup_shard_recovery_test_cluster(|blob_index| {
             !skip_stored_blob_index.contains(&blob_index)

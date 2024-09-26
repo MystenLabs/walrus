@@ -367,13 +367,17 @@ where
         local_identity: Option<PublicKey>,
         rng: StdRng,
     ) -> Result<Self, anyhow::Error> {
-        // TODO(jsmith): Accept committees with change in progress
-        assert!(!committee_tracker.is_change_in_progress());
-        let initial_committee = committee_tracker.committees().current_committee();
-
-        let services = create_services_from_committee(
+        let committees = committee_tracker.committees();
+        let mut services = create_services_from_committee(
             &mut service_factory,
-            initial_committee,
+            committees.current_committee(),
+            &encoding_config,
+        )
+        .await?;
+        add_members_from_committee(
+            &mut services,
+            &mut service_factory,
+            committees.current_committee(),
             &encoding_config,
         )
         .await?;
