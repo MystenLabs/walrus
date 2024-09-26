@@ -357,7 +357,7 @@ pub async fn create_client_config(
         system_ctx.package_id,
         system_ctx.treasury_cap,
         &[client_address],
-        1_000_000,
+        1_000_000_000_000_000, // 1 million WAL
     )
     .await?;
 
