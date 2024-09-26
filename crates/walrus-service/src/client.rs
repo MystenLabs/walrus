@@ -49,11 +49,12 @@ use crate::{
 };
 
 pub mod cli;
-mod communication;
 pub mod responses;
 
 mod blocklist;
 pub use blocklist::Blocklist;
+
+mod communication;
 
 mod config;
 pub use config::{default_configuration_paths, ClientCommunicationConfig, Config};
@@ -99,7 +100,7 @@ impl StoreWhen {
 pub struct Client<T> {
     config: Config,
     sui_client: T,
-    committees: ActiveCommittees,
+    committees: Arc<ActiveCommittees>,
     storage_price_per_unit_size: u64,
     communication_limits: CommunicationLimits,
     // The `Arc` is used to share the encoding config with the `communication_factory` without
@@ -114,12 +115,12 @@ impl Client<()> {
     pub async fn new(config: Config, sui_read_client: &impl ReadClient) -> ClientResult<Self> {
         tracing::debug!(?config, "running client");
 
-        let committees = ActiveCommittees::from_committees_and_state(
+        let committees = Arc::new(ActiveCommittees::from_committees_and_state(
             sui_read_client
                 .get_committees_and_state()
                 .await
                 .map_err(ClientError::other)?,
-        );
+        ));
 
         let storage_price_per_unit_size = sui_read_client
             .storage_price_per_unit_size()
@@ -908,15 +909,14 @@ impl<T> Client<T> {
         Ok(())
     }
 
-    /// Maps the sliver pairs to the node that holds their shard.
+    /// Maps the sliver pairs to the node in the write committee that holds their shard.
     fn pairs_per_node<'a>(
         &'a self,
         blob_id: &'a BlobId,
         pairs: &'a [SliverPair],
     ) -> HashMap<usize, impl Iterator<Item = &SliverPair>> {
-        // TODO!
         self.committees
-            .current_committee()
+            .write_committee()
             .members()
             .iter()
             .map(|node| {

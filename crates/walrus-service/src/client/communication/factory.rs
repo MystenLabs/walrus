@@ -4,7 +4,7 @@
 //! Create the vectors of node communications objects.
 
 use std::{
-    collections::{hash_map::Entry, HashMap, HashSet},
+    collections::{hash_map::Entry, HashMap},
     sync::{Arc, Mutex},
 };
 
@@ -28,7 +28,7 @@ use crate::{
 #[derive(Clone, Debug)]
 pub(crate) struct NodeCommunicationFactory {
     config: ClientCommunicationConfig,
-    committees: ActiveCommittees,
+    committees: Arc<ActiveCommittees>,
     encoding_config: Arc<EncodingConfig>,
     client_cache: Arc<Mutex<HashMap<(NetworkAddress, NetworkPublicKey), StorageNodeClient>>>,
 }
@@ -37,7 +37,7 @@ pub(crate) struct NodeCommunicationFactory {
 impl NodeCommunicationFactory {
     pub(crate) fn new(
         config: ClientCommunicationConfig,
-        committees: ActiveCommittees,
+        committees: Arc<ActiveCommittees>,
         encoding_config: Arc<EncodingConfig>,
     ) -> Self {
         Self {
@@ -184,12 +184,7 @@ impl NodeCommunicationFactory {
         cache: &mut HashMap<(NetworkAddress, NetworkPublicKey), StorageNodeClient>,
     ) {
         #[allow(clippy::mutable_key_type)]
-        let active_members = self
-            .committees
-            .all_members()
-            .iter()
-            .map(|node| (&node.network_address, &node.network_public_key))
-            .collect::<HashSet<_>>();
+        let active_members = self.committees.unique_node_address_and_key();
         cache.retain(|(addr, key), _| active_members.contains(&(addr, key)));
     }
 
@@ -211,13 +206,13 @@ impl NodeCommunicationFactory {
         certified_epoch: Epoch,
         threshold_fn: impl Fn(usize) -> bool,
     ) -> ClientResult<Vec<NodeReadCommunication>> {
-        let mut random_indices: Vec<_> = (0..self
+        let read_members = self
             .committees
             .read_committee(certified_epoch)
             .expect("the certified epoch must be less than the current known committee epoch")
-            .members()
-            .len())
-            .collect();
+            .members();
+
+        let mut random_indices: Vec<_> = (0..read_members.len()).collect();
         random_indices.shuffle(&mut thread_rng());
         let mut random_indices = random_indices.into_iter();
         let mut weight = 0;
@@ -233,10 +228,7 @@ impl NodeCommunicationFactory {
                 )
                 .into());
             };
-            // TODO!
-            weight += self.committees.current_committee().members()[index]
-                .shard_ids
-                .len();
+            weight += read_members[index].shard_ids.len();
 
             // Since we are attempting this in a loop, we will retry until we have a threshold of
             // successfully constructed clients (no error and with shards).
