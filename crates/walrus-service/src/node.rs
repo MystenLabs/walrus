@@ -398,7 +398,7 @@ impl StorageNode {
             )?
         };
 
-        // TODO(jsmith): This should be fetched from the wallet.
+        // TODO(jsmith): This should be fetched from the wallet (#862).
         let active_committee = committee_service.active_committees();
         let Some(node_id) = node_id_for_public_key(&active_committee, key_pair.as_ref().public())
         else {
