@@ -793,6 +793,9 @@ impl StorageNode {
     }
 
     /// Initiates a committee transition to a new epoch.
+    ///
+    /// Returns `true` if epoch change event has started or was sufficiently recent such
+    /// that it should be handled.
     #[tracing::instrument(skip_all)]
     async fn begin_committee_change(
         &self,
@@ -804,11 +807,23 @@ impl StorageNode {
             .begin_committee_change(epoch)
             .await
         {
-            Ok(()) => tracing::debug!(
-                walrus.epoch = epoch,
-                "successfully started a transition to a new epoch"
-            ),
-            Err(BeginCommitteeChangeError::ChangeAlreadyInProgress) => {
+            Ok(()) => {
+                tracing::debug!(
+                    walrus.epoch = epoch,
+                    "successfully started a transition to a new epoch"
+                );
+                self.inner.current_epoch.send_replace(epoch);
+                Ok(true)
+            }
+            Err(BeginCommitteeChangeError::EpochIsTheSameAsCurrent) => {
+                tracing::debug!(
+                    walrus.epoch = epoch,
+                    "epoch change event was for the epoch we are currently in, not skipping"
+                );
+                Ok(true)
+            }
+            Err(BeginCommitteeChangeError::ChangeAlreadyInProgress)
+            | Err(BeginCommitteeChangeError::EpochIsLess { .. }) => {
                 // We are likely processing a backlog of events. Since the committee service has a
                 // more recent committee or has already had the current committee marked as
                 // transitioning, our shards have also already been configured for the more
@@ -817,22 +832,13 @@ impl StorageNode {
                     walrus.epoch = epoch,
                     "skipping epoch change start event for an older epoch"
                 );
-                return Ok(true);
-            }
-            Err(BeginCommitteeChangeError::EpochIsNotGreater { .. }) => {
-                tracing::debug!(
-                    walrus.epoch = epoch,
-                    "skipping epoch change start event for an older epoch"
-                );
-                return Ok(false);
+                Ok(false)
             }
             Err(error) => {
                 tracing::error!(?error, "failed to initiate a transition to the new epoch");
-                return Err(error);
+                Err(error)
             }
         }
-
-        Ok(false)
     }
 
     #[tracing::instrument(skip_all)]

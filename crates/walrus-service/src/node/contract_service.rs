@@ -114,7 +114,7 @@ where
         let backoff = ExponentialBackoff::new_with_seed(
             MIN_BACKOFF,
             MAX_BACKOFF,
-            Some(1), // TODO: hack!
+            None,
             self.rng.lock().unwrap().gen(),
         );
         utils::retry(backoff, || async {

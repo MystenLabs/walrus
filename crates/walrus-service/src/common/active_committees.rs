@@ -269,11 +269,6 @@ impl CommitteeTracker {
         &self.0
     }
 
-    /// Returns true if a committee change is in progress, false otherwise.
-    pub fn is_change_in_progress(&self) -> bool {
-        self.0.is_change_in_progress()
-    }
-
     /// The next epoch to which this committee would be transitioning.
     pub fn next_epoch(&self) -> Epoch {
         self.0.epoch() + 1

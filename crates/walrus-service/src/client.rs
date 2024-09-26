@@ -269,9 +269,6 @@ impl<T: ContractClient> Client<T> {
             .get_blob_registration(&metadata, epochs_ahead, persistence)
             .await?;
 
-        // TODO: hack!
-        tokio::time::sleep(Duration::from_secs(10)).await;
-
         // We do not need to wait explicitly as we anyway retry all requests to storage nodes.
         let certificate = self
             .send_blob_data_and_get_certificate(&metadata, &pairs)

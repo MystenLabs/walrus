@@ -529,20 +529,19 @@ where
     ) -> Result<(), BeginCommitteeChangeError> {
         let expected_next_epoch = self.inner.committee_tracker.borrow().next_epoch();
 
-        ensure!(
-            new_epoch <= expected_next_epoch,
-            BeginCommitteeChangeError::EpochIsNotSequential {
+        if new_epoch > expected_next_epoch {
+            return Err(BeginCommitteeChangeError::EpochIsNotSequential {
                 expected: expected_next_epoch,
                 actual: new_epoch,
-            }
-        );
-        ensure!(
-            new_epoch >= expected_next_epoch,
-            BeginCommitteeChangeError::EpochIsNotGreater {
+            });
+        } else if new_epoch == expected_next_epoch - 1 {
+            return Err(BeginCommitteeChangeError::EpochIsTheSameAsCurrent);
+        } else if new_epoch < expected_next_epoch - 1 {
+            return Err(BeginCommitteeChangeError::EpochIsLess {
                 expected: expected_next_epoch,
                 actual: new_epoch,
-            }
-        );
+            });
+        }
         debug_assert_eq!(new_epoch, expected_next_epoch);
 
         let latest = self
