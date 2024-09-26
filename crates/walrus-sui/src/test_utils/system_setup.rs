@@ -218,7 +218,7 @@ pub async fn end_epoch_zero(contract_client: &SuiContractClient) -> Result<()> {
 
     tracing::info!(
         "Epoch state after voting end: {:?}",
-        contract_client.read_client().current_committee().await?
+        contract_client.current_committee().await?
     );
 
     // call epoch change
@@ -226,7 +226,7 @@ pub async fn end_epoch_zero(contract_client: &SuiContractClient) -> Result<()> {
 
     tracing::info!(
         "Epoch state after initiating epoch change: {:?}",
-        contract_client.read_client().current_committee().await?
+        contract_client.current_committee().await?
     );
 
     // TODO(#784): call epoch change done from each node

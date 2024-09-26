@@ -193,7 +193,6 @@ async fn test_inconsistency(failed_shards: &[usize]) -> TestResult {
     let events = client
         .as_mut()
         .sui_client()
-        .read_client()
         .event_stream(Duration::from_millis(50), None)
         .await?;
     let mut events = std::pin::pin!(events);

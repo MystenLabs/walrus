@@ -225,11 +225,7 @@ impl ClientCommandRunner {
             let encoded_size =
                 encoded_blob_length_for_n_shards(encoding_config.n_shards(), unencoded_size)
                     .expect("must be valid as the encoding succeeded");
-            let price_per_unit_size = client
-                .sui_client()
-                .read_client()
-                .storage_price_per_unit_size()
-                .await?;
+            let price_per_unit_size = client.sui_client().storage_price_per_unit_size().await?;
             let storage_cost =
                 storage_price_for_encoded_length(encoded_size, price_per_unit_size, epochs);
             DryRunOutput {
