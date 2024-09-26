@@ -527,7 +527,7 @@ mod tests {
                     status_event: event_id_for_testing(),
                     is_certified: true,
                     initial_certified_epoch: Some(1),
-                    deletable_status: DeletableCounts {
+                    deletable_counts: DeletableCounts {
                         count_deletable_total: 0,
                         count_deletable_certified: 0,
                     },

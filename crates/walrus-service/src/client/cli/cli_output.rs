@@ -153,7 +153,7 @@ impl CliOutput for BlobStatusOutput {
             BlobStatus::Nonexistent => println!("Blob ID {blob_str} is not stored on Walrus."),
             BlobStatus::Deletable {
                 initial_certified_epoch,
-                deletable_status:
+                deletable_counts:
                     DeletableCounts {
                         count_deletable_total,
                         count_deletable_certified,
@@ -176,7 +176,7 @@ impl CliOutput for BlobStatusOutput {
                 is_certified,
                 status_event,
                 initial_certified_epoch,
-                deletable_status:
+                deletable_counts:
                     DeletableCounts {
                         count_deletable_certified,
                         ..
@@ -189,14 +189,14 @@ impl CliOutput for BlobStatusOutput {
                 })
                 .bold();
                 let initial_certified_str = if let Some(epoch) = initial_certified_epoch {
-                    format!("Initially certified in epoch: {}", epoch,)
+                    format!("\nInitially certified in epoch: {}", epoch,)
                 } else {
                     "".to_string()
                 };
                 println!(
                     "There is a {status} permanent Blob object for blob ID {blob_str}.\n\
                         End epoch: {end_epoch}\n\
-                        Related event: {}\n\
+                        Related event: {}\
                         {initial_certified_str}",
                     format_event_id(&status_event)
                 );

@@ -265,7 +265,7 @@ impl ValidBlobInfoV1 {
             ..
         } = self;
 
-        let deletable_status = DeletableCounts {
+        let deletable_counts = DeletableCounts {
             count_deletable_total: *count_deletable_total,
             count_deletable_certified: *count_deletable_certified,
         };
@@ -278,13 +278,13 @@ impl ValidBlobInfoV1 {
                 end_epoch: *end_epoch,
                 is_certified: permanent_certified.is_some(),
                 status_event: *event,
-                deletable_status,
+                deletable_counts,
                 initial_certified_epoch,
             }
         } else {
             BlobStatus::Deletable {
                 initial_certified_epoch,
-                deletable_status,
+                deletable_counts,
             }
         }
     }

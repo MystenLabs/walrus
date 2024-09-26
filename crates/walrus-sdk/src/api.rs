@@ -62,7 +62,7 @@ pub enum BlobStatus {
         /// The ID of the Sui event that caused the status with the given `end_epoch`.
         status_event: EventID,
         /// Counts of deletable `Blob` objects.
-        deletable_status: DeletableCounts,
+        deletable_counts: DeletableCounts,
         /// If the blob is certified, contains the epoch where it was initially certified.
         // INV: certified_epoch.is_some() == is_certified
         initial_certified_epoch: Option<Epoch>,
@@ -74,7 +74,7 @@ pub enum BlobStatus {
         // INV: certified_epoch.is_some() == count_deletable_certified > 0
         initial_certified_epoch: Option<Epoch>,
         /// Counts of deletable `Blob` objects.
-        deletable_status: DeletableCounts,
+        deletable_counts: DeletableCounts,
     },
 }
 
@@ -130,14 +130,14 @@ impl Ord for BlobStatus {
             (
                 Deletable {
                     initial_certified_epoch,
-                    deletable_status,
+                    deletable_counts,
                 },
                 Deletable {
                     initial_certified_epoch: initial_certified_epoch_other,
-                    deletable_status: deletable_status_other,
+                    deletable_counts: deletable_counts_other,
                 },
-            ) => (deletable_status, Reverse(initial_certified_epoch)).cmp(&(
-                deletable_status_other,
+            ) => (deletable_counts, Reverse(initial_certified_epoch)).cmp(&(
+                deletable_counts_other,
                 Reverse(initial_certified_epoch_other),
             )),
             // For Permanent, compare status, end epochs, count of deletable blobs, and initial
@@ -146,14 +146,14 @@ impl Ord for BlobStatus {
                 Permanent {
                     end_epoch,
                     is_certified,
-                    deletable_status,
+                    deletable_counts,
                     initial_certified_epoch,
                     ..
                 },
                 Permanent {
                     end_epoch: end_epoch_other,
                     is_certified: is_certified_other,
-                    deletable_status: deletable_status_other,
+                    deletable_counts: deletable_counts_other,
                     initial_certified_epoch: initial_certified_epoch_other,
                     ..
                 },
@@ -162,13 +162,13 @@ impl Ord for BlobStatus {
                 (
                     is_certified,
                     end_epoch,
-                    deletable_status,
+                    deletable_counts,
                     Reverse(initial_certified_epoch),
                 )
                     .cmp(&(
                         is_certified_other,
                         end_epoch_other,
-                        deletable_status_other,
+                        deletable_counts_other,
                         Reverse(initial_certified_epoch_other),
                     ))
             }
