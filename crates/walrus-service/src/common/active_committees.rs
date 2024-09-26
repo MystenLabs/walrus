@@ -279,12 +279,10 @@ impl ActiveCommittees {
     #[allow(clippy::mutable_key_type)]
     pub fn all_members(&self) -> HashSet<&StorageNode> {
         let mut members = HashSet::from_iter(self.current_committee.members().iter());
-        if let Some(previous) = self.previous_committee() {
-            members.extend(previous.members().iter());
-        }
-        if let Some(next) = self.next_committee() {
-            members.extend(next.members().iter());
-        }
+        self.previous_committee()
+            .map(|c| members.extend(c.members().iter()));
+        self.next_committee()
+            .map(|c| members.extend(c.members().iter()));
         members
     }
 }
