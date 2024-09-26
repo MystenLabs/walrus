@@ -291,7 +291,7 @@ public(package) fun stake_with_pool(
 
     // active set only tracks the stake for the next epoch, pool already knows
     // whether the stake was applied to E+1 or E+2.
-    self.active_set.insert_or_update(node_id, pool.stake_at_epoch(wctx.epoch() + 1));
+    self.active_set.insert_or_update(node_id, pool.wal_balance_at_epoch(wctx.epoch() + 1));
 
     staked_wal
 }
@@ -555,7 +555,7 @@ public(package) fun advance_epoch(self: &mut StakingInnerV1, mut rewards: Balanc
     // to reduce the accesses to dynamic fields.
     node_ids.zip_do!(shard_assignments, |node_id, shards| {
         self.pools[node_id].advance_epoch(rewards.split(rewards_per_shard * shards.length()), wctx);
-        self.active_set.update(node_id, self.pools[node_id].stake_at_epoch(wctx.epoch() + 1));
+        self.active_set.update(node_id, self.pools[node_id].wal_balance_at_epoch(wctx.epoch() + 1));
     });
 
     // Save any leftover rewards due to rounding.

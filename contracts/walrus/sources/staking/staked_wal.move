@@ -25,13 +25,13 @@ const EInvalidAmount: vector<u8> = b"Amount is higher than the staked WAL value"
 
 /// The state of the staked WAL. It can be either `Staked` or `Withdrawing`.
 /// The `Withdrawing` state contains the epoch when the staked WAL can be
-/// 
+///
 public enum StakedWalState has store, copy, drop {
     // Default state of the staked WAL - it is staked in the staking pool.
     Staked,
     // The staked WAL is in the process of withdrawing. The value inside the
     // variant is the epoch when the staked WAL can be withdrawn.
-    Withdrawing { withdraw_epoch: u32 },
+    Withdrawing { withdraw_epoch: u32, withdraw_amount: u64 },
 }
 
 /// Represents a staked WAL, does not store the `Balance` inside, but uses
@@ -76,8 +76,8 @@ public(package) fun into_balance(sw: StakedWal): Balance<WAL> {
 }
 
 /// Sets the staked WAL state to `Withdrawing`
-public(package) fun set_withdrawing(sw: &mut StakedWal, withdraw_epoch: u32) {
-    sw.state = StakedWalState::Withdrawing { withdraw_epoch };
+public(package) fun set_withdrawing(sw: &mut StakedWal, withdraw_epoch: u32, withdraw_amount: u64) {
+    sw.state = StakedWalState::Withdrawing { withdraw_epoch, withdraw_amount };
 }
 
 // === Accessors ===
@@ -107,7 +107,16 @@ public fun is_withdrawing(sw: &StakedWal): bool {
 /// Aborts otherwise.
 public fun withdraw_epoch(sw: &StakedWal): u32 {
     match (sw.state) {
-        StakedWalState::Withdrawing { withdraw_epoch } => withdraw_epoch,
+        StakedWalState::Withdrawing { withdraw_epoch, .. } => withdraw_epoch,
+        _ => abort ENotWithdrawing,
+    }
+}
+
+/// Returns the `withdraw_amount` of the staked WAL if it is in the `Withdrawing`.
+/// Aborts otherwise.
+public fun withdraw_amount(sw: &StakedWal): u64 {
+    match (sw.state) {
+        StakedWalState::Withdrawing { withdraw_amount, .. } => withdraw_amount,
         _ => abort ENotWithdrawing,
     }
 }
@@ -155,5 +164,12 @@ public fun destroy_zero(sw: StakedWal) {
     assert!(sw.principal.value() == 0);
     let StakedWal { id, principal, .. } = sw;
     principal.destroy_zero();
+    id.delete();
+}
+
+#[test_only]
+public fun destroy_for_testing(sw: StakedWal) {
+    let StakedWal { id, principal, .. } = sw;
+    principal.destroy_for_testing();
     id.delete();
 }
