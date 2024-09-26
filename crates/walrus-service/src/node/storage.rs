@@ -220,8 +220,7 @@ impl Storage {
                         *shard,
                         &self.database,
                         &self.config,
-                        // TODO: for move-in shard, the initial state should be ActiveSync.
-                        Some(ShardStatus::Active),
+                        Some(ShardStatus::None),
                     )?);
                     entry.insert(shard_storage);
                 }
@@ -992,7 +991,7 @@ pub(crate) mod tests {
                     .expect("shard should exist")
                     .status()
                     .expect("status should be present"),
-                ShardStatus::Active
+                ShardStatus::None
             );
 
             Result::<(), anyhow::Error>::Ok(())

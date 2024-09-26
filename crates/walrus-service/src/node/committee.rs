@@ -54,27 +54,23 @@ pub(crate) trait CommitteeLookupService: Send + Sync + std::fmt::Debug {
 #[async_trait]
 impl<T: ReadClient + std::fmt::Debug> CommitteeLookupService for T {
     async fn get_active_committees(&self) -> Result<ActiveCommittees, anyhow::Error> {
+        // TODO: combine following into a single RPC call.
         let committee = self
             .current_committee()
             .await
             .context("unable to get the current committee")?;
 
-        if committee.epoch == 0 {
-            Ok(ActiveCommittees::new(committee, None))
+        let previous_committee = if committee.epoch == 0 {
+            None
         } else {
-            // TODO(jsmith): Use new contract calls
-            tracing::warn!("using invalid previous committee for testing");
-            let fake_previous_committee = Committee::new(
-                committee.members().to_vec(),
-                committee.epoch - 1,
-                committee.n_shards(),
+            Some(
+                self.previous_committee()
+                    .await
+                    .context("unable to get the previous committee")?,
             )
-            .unwrap();
-            Ok(ActiveCommittees::new(
-                committee,
-                Some(fake_previous_committee),
-            ))
-        }
+        };
+
+        Ok(ActiveCommittees::new(committee, previous_committee))
     }
 }
 

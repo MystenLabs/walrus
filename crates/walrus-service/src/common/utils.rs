@@ -474,7 +474,6 @@ impl ShardDiff {
     /// Returns a new `ShardDiff` when moving from the allocation in
     /// `committees.previous_committee()` to `committees.current_committee()` for the node
     /// identified by the provided public key.
-    #[allow(unused)]
     pub fn diff_previous(committees: &ActiveCommittees, id: &PublicKey) -> ShardDiff {
         let from: &[ShardIndex] = committees
             .previous_committee()

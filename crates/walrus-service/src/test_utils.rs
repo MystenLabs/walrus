@@ -811,14 +811,14 @@ impl TestClusterBuilder {
     /// Sets the [`SystemContractService`] used for each storage node.
     ///
     /// Should be called after the storage nodes have been specified.
-    pub fn with_system_contract_services<T>(mut self, contract_service: T) -> Self
+    pub fn with_system_contract_services<T>(mut self, contract_services: &[T]) -> Self
     where
         T: SystemContractService + Clone + 'static,
     {
-        self.contract_services = self
-            .storage_node_configs
+        assert_eq!(contract_services.len(), self.storage_node_configs.len());
+        self.contract_services = contract_services
             .iter()
-            .map(|_| Some(Box::new(contract_service.clone()) as _))
+            .map(|service| Some(Box::new(service.clone()) as _))
             .collect();
         self
     }
@@ -1139,6 +1139,12 @@ pub mod test_cluster {
 
         end_epoch_zero(contract_clients_refs.first().unwrap()).await?;
 
+        let node_contract_services = contract_clients
+            .into_iter()
+            .map(|client| client.inner)
+            .map(SuiSystemContractService::new)
+            .collect::<Vec<_>>();
+
         // Build the walrus cluster
         let sui_read_client = SuiReadClient::new(
             wallet.as_ref().get_client().await?,
@@ -1149,19 +1155,6 @@ pub mod test_cluster {
 
         // Create a contract service for the storage nodes using a wallet in a temp dir
         // The sui test cluster handler can be dropped since we already have one
-        // TODO(#786): change cluster builder to take a list of `SuiSystemContractService`s and
-        // provide the contract clients used for staking to make sure that each node has the
-        // corresponding `StorageNodeCap`.
-        let sui_contract_service = test_utils::new_wallet_on_sui_test_cluster(sui_cluster.clone())
-            .await?
-            .and_then(|wallet| {
-                SuiContractClient::new_with_read_client(
-                    wallet,
-                    DEFAULT_GAS_BUDGET,
-                    sui_read_client.clone(),
-                )
-            })?
-            .map(SuiSystemContractService::new);
 
         // Set up the cluster
         let cluster_builder = cluster_builder
@@ -1176,7 +1169,7 @@ pub mod test_cluster {
                 sui_read_client.clone(),
                 Duration::from_millis(100),
             ))
-            .with_system_contract_services(Arc::new(sui_contract_service));
+            .with_system_contract_services(&node_contract_services);
 
         let cluster = {
             // Lock to avoid race conditions.

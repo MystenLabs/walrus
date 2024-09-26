@@ -506,6 +506,7 @@ impl StorageNode {
         Ok(epoch + 2 <= current_epoch)
     }
 
+    /// Continues the event stream from the last committed event.
     async fn continue_event_stream(
         &self,
     ) -> anyhow::Result<Pin<Box<dyn Stream<Item = IndexedStreamElement> + Send + Sync + '_>>> {
@@ -564,31 +565,35 @@ impl StorageNode {
                     EventStreamElement::ContractEvent(ContractEvent::BlobEvent(
                         BlobEvent::Registered(event),
                     )) => {
+                        tracing::debug!("BlobRegistered event received: {:?}", event);
                         self.inner
                             .mark_event_completed(element_index, &event.event_id)?;
                     }
                     EventStreamElement::ContractEvent(ContractEvent::BlobEvent(
                         BlobEvent::Certified(event),
                     )) => {
+                        tracing::debug!("BlobCertified event received: {:?}", event);
                         self.process_blob_certified_event(element_index, event)
                             .await?;
                     }
                     EventStreamElement::ContractEvent(ContractEvent::BlobEvent(
                         BlobEvent::Deleted(event),
                     )) => {
+                        tracing::debug!("BlobDeleted event received: {:?}", event);
                         self.process_blob_deleted_event(element_index, event)
                             .await?;
                     }
                     EventStreamElement::ContractEvent(ContractEvent::BlobEvent(
                         BlobEvent::InvalidBlobID(event),
                     )) => {
+                        tracing::debug!("BlobInvalid event received: {:?}", event);
                         self.process_blob_invalid_event(element_index, event)
                             .await?;
                     }
                     EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
                         EpochChangeEvent::EpochParametersSelected(event),
                     )) => {
-                        tracing::info!("EpochParametersSelected event received: {:?}", event,);
+                        tracing::info!("EpochParametersSelected event received: {:?}", event);
                         self.inner
                             .mark_event_completed(element_index, &event.event_id)?;
                     }
@@ -727,56 +732,20 @@ impl StorageNode {
         Ok(())
     }
 
-    async fn begin_committee_change(&self, epoch: Epoch) -> Result<(), BeginCommitteeChangeError> {
-        match self
-            .inner
-            .committee_service
-            .begin_committee_change(epoch)
-            .await
-        {
-            Ok(()) => tracing::debug!(
-                walrus.epoch = epoch,
-                "successfully started a transition to a new epoch"
-            ),
-            Err(
-                BeginCommitteeChangeError::EpochIsNotGreater { .. }
-                | BeginCommitteeChangeError::ChangeAlreadyInProgress,
-            ) => {
-                // We are likely processing a backlog of events. Since the committee service has a
-                // more recent committee or has already had the current committee marked as
-                // transitioning, our shards have also already been configured for the more
-                // recent committee and there is actual nothing to do.
-                tracing::debug!(
-                    walrus.epoch = epoch,
-                    "skipping epoch change start event for an older epoch"
-                );
-                return Ok(());
-            }
-            Err(error) => {
-                tracing::error!(?error, "failed to initiate a transition to the new epoch");
-                return Err(error);
-            }
-        }
-
-        Ok(())
-    }
-
     #[tracing::instrument(skip_all)]
     async fn process_epoch_change_start_event(
         &self,
         event: &EpochChangeStart,
     ) -> anyhow::Result<()> {
-        self.begin_committee_change(event.epoch).await?;
+        let skip_epoch_change = self.begin_committee_change(event.epoch).await?;
+        if skip_epoch_change {
+            return Ok(());
+        }
 
         let public_key = self.inner.public_key();
         let storage = &self.inner.storage;
         let committees = self.inner.committee_service.active_committees();
         let shard_diff = ShardDiff::diff_previous(&committees, public_key);
-
-        let owned_shards = committees
-            .current_committee()
-            .shards_for_node_public_key(public_key);
-        storage.create_storage_for_shards(owned_shards)?;
 
         for shard_storage in shard_diff
             .lost
@@ -791,7 +760,7 @@ impl StorageNode {
         }
 
         if shard_diff.gained.is_empty() {
-            // No shard to sync, signaling the contract that epoch sync is done.
+            // No shards to sync, signal the contract that epoch sync is done.
             self.inner
                 .contract_service
                 .epoch_sync_done(self.inner.node_object_id)
@@ -801,14 +770,69 @@ impl StorageNode {
                 .storage
                 .create_storage_for_shards(&shard_diff.gained)?;
 
-            if event.epoch > 0 {
-                for shard in shard_diff.gained.iter() {
+            if event.epoch > 1 {
+                for shard in &shard_diff.gained {
                     self.shard_sync_handler.start_new_shard_sync(*shard).await?;
                 }
+            } else {
+                for shard in &shard_diff.gained {
+                    self.inner
+                        .storage
+                        .shard_storage(*shard)
+                        .expect("we just created it")
+                        .set_active_status()?;
+                }
+                self.inner
+                    .contract_service
+                    .epoch_sync_done(self.inner.node_object_id)
+                    .await;
             }
         }
 
         Ok(())
+    }
+
+    /// Initiates a committee transition to a new epoch.
+    #[tracing::instrument(skip_all)]
+    async fn begin_committee_change(
+        &self,
+        epoch: Epoch,
+    ) -> Result<bool, BeginCommitteeChangeError> {
+        match self
+            .inner
+            .committee_service
+            .begin_committee_change(epoch)
+            .await
+        {
+            Ok(()) => tracing::debug!(
+                walrus.epoch = epoch,
+                "successfully started a transition to a new epoch"
+            ),
+            Err(BeginCommitteeChangeError::ChangeAlreadyInProgress) => {
+                // We are likely processing a backlog of events. Since the committee service has a
+                // more recent committee or has already had the current committee marked as
+                // transitioning, our shards have also already been configured for the more
+                // recent committee and there is actual nothing to do.
+                tracing::debug!(
+                    walrus.epoch = epoch,
+                    "skipping epoch change start event for an older epoch"
+                );
+                return Ok(true);
+            }
+            Err(BeginCommitteeChangeError::EpochIsNotGreater { .. }) => {
+                tracing::debug!(
+                    walrus.epoch = epoch,
+                    "skipping epoch change start event for an older epoch"
+                );
+                return Ok(false);
+            }
+            Err(error) => {
+                tracing::error!(?error, "failed to initiate a transition to the new epoch");
+                return Err(error);
+            }
+        }
+
+        Ok(false)
     }
 
     #[tracing::instrument(skip_all)]
@@ -1944,7 +1968,6 @@ mod tests {
     async fn recovers_sliver_from_other_nodes_on_certified_blob_event(
         sliver_type: SliverType,
     ) -> TestResult {
-        telemetry_subscribers::init_for_testing();
         let shards: &[&[u16]] = &[&[1], &[0, 2, 3, 4, 5, 6]];
         let test_shard = ShardIndex(1);
 

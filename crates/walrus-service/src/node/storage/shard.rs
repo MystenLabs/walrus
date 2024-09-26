@@ -367,6 +367,10 @@ impl ShardStorage {
             .map(|s| s.unwrap_or(ShardStatus::None))
     }
 
+    pub(crate) fn set_active_status(&self) -> Result<(), TypedStoreError> {
+        self.shard_status.insert(&(), &ShardStatus::Active)
+    }
+
     pub(crate) fn set_start_sync_status(&self) -> Result<(), TypedStoreError> {
         self.shard_status.insert(&(), &ShardStatus::ActiveSync)
     }

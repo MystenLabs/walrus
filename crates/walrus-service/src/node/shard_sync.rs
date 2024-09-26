@@ -242,6 +242,15 @@ mod tests {
             ShardSyncConfig::default(),
         );
 
+        cluster.nodes[0]
+            .storage_node
+            .inner
+            .storage
+            .shard_storage(ShardIndex(0))
+            .expect("Failed to get shard storage")
+            .set_active_status()
+            .expect("Failed to update shard status");
+
         assert!(matches!(
             shard_sync_handler.start_new_shard_sync(ShardIndex(0)).await,
             Err(SyncShardClientError::InvalidShardStatusToSync(..))
