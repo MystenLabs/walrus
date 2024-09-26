@@ -5,19 +5,28 @@ use std::{fmt::Debug, path::Path, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
-use move_core_types::annotated_value::{MoveDatatypeLayout, MoveTypeLayout};
+use move_core_types::{
+    account_address::AccountAddress,
+    annotated_value::{MoveDatatypeLayout, MoveTypeLayout},
+};
 use rocksdb::Options;
 use sui_config::genesis::Genesis;
-use sui_package_resolver::{error::Error as PackageResolverError, Package, PackageStore, Resolver};
+use sui_package_resolver::{
+    error::Error as PackageResolverError,
+    Package,
+    PackageStore,
+    PackageStoreWithLruCache,
+    Resolver,
+};
 use sui_rest_api::Client;
 use sui_sdk::rpc_types::SuiEvent;
 use sui_storage::verify_checkpoint_with_committee;
 use sui_types::{
     base_types::ObjectID,
     committee::Committee,
-    full_checkpoint_content::CheckpointData,
-    messages_checkpoint::{CheckpointSequenceNumber, TrustedCheckpoint, VerifiedCheckpoint},
+    messages_checkpoint::{TrustedCheckpoint, VerifiedCheckpoint},
     object::Object,
+    SYSTEM_PACKAGE_ADDRESSES,
 };
 use tokio::{
     join,
@@ -26,10 +35,12 @@ use tokio::{
     time::{sleep, Instant},
 };
 use tokio_util::sync::CancellationToken;
+use tracing::error;
 use typed_store::{
     rocks,
     rocks::{errors::typed_store_err_from_rocks_err, DBMap, MetricConf, ReadWriteOptions},
     Map,
+    TypedStoreError,
 };
 use walrus_sui::types::ContractEvent;
 
@@ -47,11 +58,26 @@ const COMMITTEE_STORE: &str = "committee_store";
 /// The name of the event store.
 #[allow(dead_code)]
 const EVENT_STORE: &str = "event_store";
-/// The maximum time to wait for a response from the full node.
+/// The maximum time without successfully reading a checkpoint
+/// before stopping event processor
 const MAX_TIMEOUT: Duration = Duration::from_secs(60);
-/// The delay between retries when polling the full node.
-const RETRY_DELAY: Duration = Duration::from_secs(5);
-/// The capacity of the event channel.
+/// The delay between retries when polling the full node on failure
+/// to read a checkpoint.
+const RETRY_DELAY: Duration = Duration::from_millis(250);
+
+pub(crate) type PackageCache = PackageStoreWithLruCache<LocalDBPackageStore>;
+
+/// Store which keeps package objects in a local rocksdb store. It is expected that this store is
+/// kept updated with latest version of package objects while iterating over checkpoints. If the
+// local db is missing (or gets deleted), packages are fetched from a full node and local store is
+// updated
+#[derive(Clone)]
+pub struct LocalDBPackageStore {
+    /// The table which stores the package objects.
+    package_store_table: DBMap<ObjectID, Object>,
+    /// The full node REST client.
+    fallback_client: Client,
+}
 
 #[derive(Clone)]
 pub struct EventProcessor {
@@ -68,11 +94,13 @@ pub struct EventProcessor {
     /// Store which only stores the latest checkpoint.
     pub checkpoint_store: DBMap<(), TrustedCheckpoint>,
     /// Store which only stores the latest Walrus package.
-    pub walrus_package_store: DBMap<(), Object>,
+    pub walrus_package_store: DBMap<ObjectID, Object>,
     /// Store which only stores the latest Sui committee.
     pub committee_store: DBMap<(), Committee>,
     /// Store which only stores all event stream elements.
     pub event_store: DBMap<u64, IndexedStreamElement>,
+    /// Package resolver
+    pub package_resolver: Arc<Resolver<PackageCache>>,
 }
 
 impl Debug for EventProcessor {
@@ -110,27 +138,22 @@ impl EventProcessor {
         }
     }
 
-    /// Gets the full checkpoint with the given sequence number. This method will retry until the
-    /// full checkpoint is available or the timeout is reached.
-    async fn get_full_checkpoint(
-        &self,
-        sequence_number: CheckpointSequenceNumber,
-    ) -> Result<CheckpointData> {
-        let start_time = Instant::now();
-
-        loop {
-            match self.client.get_full_checkpoint(sequence_number).await {
-                Ok(checkpoint) => return Ok(checkpoint),
-                Err(inner) => {
-                    let elapsed = start_time.elapsed();
-                    if elapsed >= MAX_TIMEOUT {
-                        return Err(inner.into());
-                    }
-                    let delay = RETRY_DELAY.min(MAX_TIMEOUT - elapsed);
-                    sleep(delay).await;
-                }
+    fn update_package_store(&self, objects: &[Object]) -> Result<(), TypedStoreError> {
+        let mut write_batch = self.walrus_package_store.batch();
+        for object in objects.iter() {
+            // Update the package store with the given object.We want to track not just the
+            // walrus package but all its transitive dependencies as well. While it is possible
+            // to get the transitive dependencies for a package, it is more efficient to just
+            // track all packages as we are not expecting a large number of packages.
+            if object.is_package() {
+                write_batch.insert_batch(
+                    &self.walrus_package_store,
+                    std::iter::once((object.id(), object)),
+                )?;
             }
         }
+        write_batch.write()?;
+        Ok(())
     }
 
     /// Starts a periodic pruning process for events in the event store. This method will run until
@@ -168,21 +191,29 @@ impl EventProcessor {
             .next()
             .map(|(k, _)| k + 1)
             .unwrap_or(0);
+        let mut start = Instant::now();
         while !cancel_token.is_cancelled() {
             let Some(prev_checkpoint) = self.checkpoint_store.get(&())? else {
                 bail!("No checkpoint found in the checkpoint store");
             };
             let next_checkpoint = prev_checkpoint.inner().sequence_number().saturating_add(1);
-            let Ok(checkpoint) = self.get_full_checkpoint(next_checkpoint).await else {
-                // TODO:
-                // 1. Read walrus events from event blobs as we've fallen behind the first unpruned
-                //    checkpoint on the fullnode or the fullnode doesn't have the new checkpoint yet
-                // 2. Reset the committee and previous checkpoint using a light client based
-                //    approach so we can continue processing events from full node
-                // 3. Reset the walrus package store with the latest walrus package object from
-                //    fullnode
-                bail!("Failed to get checkpoint {}", next_checkpoint);
+            let result = self.client.get_full_checkpoint(next_checkpoint).await;
+            let Ok(checkpoint) = result else {
+                sleep(RETRY_DELAY).await;
+                if start.elapsed() > MAX_TIMEOUT {
+                    bail!(
+                        "Failed to read checkpoint from full node: {}",
+                        result.err().unwrap()
+                    );
+                } else {
+                    error!(
+                        "Failed to read checkpoint from full node: {}",
+                        result.err().unwrap()
+                    );
+                    continue;
+                }
             };
+            start = Instant::now();
             let Some(committee) = self.committee_store.get(&())? else {
                 bail!("No committee found in the committee store");
             };
@@ -197,19 +228,11 @@ impl EventProcessor {
                     checkpoint.sequence_number
                 )
             })?;
-            let resolver = Resolver::new(self.clone());
             let mut write_batch = self.event_store.batch();
             let mut counter = 0;
             for tx in checkpoint.transactions.into_iter() {
-                for object in tx.output_objects.into_iter() {
-                    if object.id() == self.system_pkg_id {
-                        write_batch
-                            .insert_batch(&self.walrus_package_store, std::iter::once(((), object)))
-                            .map_err(|e| {
-                                anyhow!("Failed to insert object into walrus package store: {}", e)
-                            })?;
-                    }
-                }
+                self.update_package_store(&tx.output_objects)
+                    .map_err(|e| anyhow!("Failed to update walrus package store: {}", e))?;
                 let tx_events = tx.events.unwrap_or_default();
                 for (seq, tx_event) in tx_events
                     .data
@@ -217,7 +240,8 @@ impl EventProcessor {
                     .filter(|event| event.package_id == self.system_pkg_id)
                     .enumerate()
                 {
-                    let move_type_layout = resolver
+                    let move_type_layout = self
+                        .package_resolver
                         .type_layout(move_core_types::language_storage::TypeTag::Struct(
                             Box::new(tx_event.type_.clone()),
                         ))
@@ -276,6 +300,9 @@ impl EventProcessor {
                     .map_err(|e| {
                         anyhow!("Failed to insert committee into committee store: {}", e)
                     })?;
+                self.package_resolver
+                    .package_store()
+                    .evict(SYSTEM_PACKAGE_ADDRESSES.iter().copied());
             }
             write_batch
                 .insert_batch(
@@ -349,7 +376,7 @@ impl EventProcessor {
         )?;
         let committee_store = DBMap::reopen(
             &database,
-            Some(CHECKPOINT_STORE),
+            Some(COMMITTEE_STORE),
             &ReadWriteOptions::default(),
             false,
         )?;
@@ -359,17 +386,9 @@ impl EventProcessor {
             &ReadWriteOptions::default().set_ignore_range_deletions(true),
             false,
         )?;
-        if checkpoint_store.is_empty() {
-            // This is a fresh start as there is no prev disk state
-            committee_store.schedule_delete_all()?;
-            event_store.schedule_delete_all()?;
-            walrus_package_store.schedule_delete_all()?;
-            let genesis = Genesis::load(&config.sui_genesis_path)?;
-            let genesis_committee = genesis.committee()?;
-            let checkpoint = genesis.checkpoint();
-            committee_store.insert(&(), &genesis_committee)?;
-            checkpoint_store.insert(&(), checkpoint.serializable_ref())?;
-        }
+
+        let package_store = LocalDBPackageStore::new(walrus_package_store.clone(), client.clone());
+
         let event_processor = EventProcessor {
             client,
             walrus_package_store,
@@ -380,28 +399,83 @@ impl EventProcessor {
             event_polling_interval,
             event_store_commit_index: Arc::new(Mutex::new(0)),
             pruning_duration: Duration::from_secs(config.pruning_interval),
+            package_resolver: Arc::new(Resolver::new(PackageCache::new(package_store))),
         };
+
+        if event_processor.checkpoint_store.is_empty() {
+            // This is a fresh start as there is no prev disk state
+            event_processor.committee_store.schedule_delete_all()?;
+            event_processor.event_store.schedule_delete_all()?;
+            event_processor.walrus_package_store.schedule_delete_all()?;
+            let genesis = Genesis::load(&config.sui_genesis_path)?;
+            let genesis_committee = genesis.committee()?;
+            let checkpoint = genesis.checkpoint();
+            event_processor
+                .committee_store
+                .insert(&(), &genesis_committee)?;
+            event_processor
+                .checkpoint_store
+                .insert(&(), checkpoint.serializable_ref())?;
+            event_processor
+                .update_package_store(genesis.objects())
+                .map_err(|e| anyhow!("Failed to update walrus package store: {}", e))?;
+        }
+
         Ok(event_processor)
     }
 }
 
-#[async_trait]
-impl PackageStore for EventProcessor {
-    async fn fetch(
-        &self,
-        id: move_core_types::account_address::AccountAddress,
-    ) -> sui_package_resolver::Result<Arc<Package>> {
-        let Some(walrus_system_pkg) =
-            self.walrus_package_store.get(&()).map_err(|store_error| {
-                PackageResolverError::Store {
+impl LocalDBPackageStore {
+    pub fn new(package_store_table: DBMap<ObjectID, Object>, client: Client) -> Self {
+        Self {
+            package_store_table,
+            fallback_client: client,
+        }
+    }
+
+    pub fn update(&self, object: &Object) -> Result<()> {
+        if object.is_package() {
+            let mut write_batch = self.package_store_table.batch();
+            write_batch.insert_batch(
+                &self.package_store_table,
+                std::iter::once((object.id(), object)),
+            )?;
+            write_batch.write()?;
+        }
+        Ok(())
+    }
+
+    pub async fn get(&self, id: AccountAddress) -> Result<Object, PackageResolverError> {
+        let object = if let Some(object) = self
+            .package_store_table
+            .get(&ObjectID::from(id))
+            .map_err(|store_error| PackageResolverError::Store {
+                store: "RocksDB",
+                error: store_error.to_string(),
+            })? {
+            object
+        } else {
+            let object = self
+                .fallback_client
+                .get_object(ObjectID::from(id))
+                .await
+                .map_err(|_| PackageResolverError::PackageNotFound(id))?;
+            self.update(&object)
+                .map_err(|store_error| PackageResolverError::Store {
                     store: "RocksDB",
                     error: store_error.to_string(),
-                }
-            })?
-        else {
-            return Err(PackageResolverError::PackageNotFound(id));
+                })?;
+            object
         };
-        Ok(Arc::new(Package::read_from_object(&walrus_system_pkg)?))
+        Ok(object)
+    }
+}
+
+#[async_trait]
+impl PackageStore for LocalDBPackageStore {
+    async fn fetch(&self, id: AccountAddress) -> sui_package_resolver::Result<Arc<Package>> {
+        let object = self.get(id).await?;
+        Ok(Arc::new(Package::read_from_object(&object)?))
     }
 }
 
@@ -409,6 +483,7 @@ impl PackageStore for EventProcessor {
 mod tests {
     use std::sync::OnceLock;
 
+    use sui_types::messages_checkpoint::CheckpointSequenceNumber;
     use tokio::sync::Mutex;
     use walrus_core::BlobId;
     use walrus_sui::{test_utils::EventForTesting, types::BlobCertified};
@@ -477,7 +552,7 @@ mod tests {
         )?;
         let committee_store = DBMap::reopen(
             &database,
-            Some(CHECKPOINT_STORE),
+            Some(COMMITTEE_STORE),
             &ReadWriteOptions::default(),
             false,
         )?;
@@ -487,8 +562,10 @@ mod tests {
             &ReadWriteOptions::default(),
             false,
         )?;
+        let client = Client::new("http://localhost:8080");
+        let package_store = LocalDBPackageStore::new(walrus_package_store.clone(), client.clone());
         Ok(EventProcessor {
-            client: Client::new("http://localhost:8080"),
+            client,
             walrus_package_store,
             checkpoint_store,
             committee_store,
@@ -497,6 +574,7 @@ mod tests {
             event_store_commit_index: Arc::new(Mutex::new(0)),
             pruning_duration: Duration::from_secs(10),
             event_polling_interval: Duration::from_secs(1),
+            package_resolver: Arc::new(Resolver::new(PackageCache::new(package_store))),
         })
     }
 
