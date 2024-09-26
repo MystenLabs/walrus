@@ -77,8 +77,7 @@ impl<T, E> WeightedResult for NodeResult<T, E> {
 
 pub(crate) struct NodeCommunication<'a, W = ()> {
     pub node_index: NodeIndex,
-    // TODO! call this committee epoch
-    pub epoch: Epoch,
+    pub committee_epoch: Epoch,
     pub node: &'a StorageNode,
     pub encoding_config: &'a EncodingConfig,
     pub span: Span,
@@ -97,7 +96,7 @@ impl<'a> NodeReadCommunication<'a> {
     /// Returns `None` if the `node` has no shards.
     pub fn new(
         node_index: NodeIndex,
-        epoch: Epoch,
+        committee_epoch: Epoch,
         client: StorageNodeClient,
         node: &'a StorageNode,
         encoding_config: &'a EncodingConfig,
@@ -115,14 +114,14 @@ impl<'a> NodeReadCommunication<'a> {
         );
         Some(Self {
             node_index,
-            epoch,
+            committee_epoch,
             node,
             encoding_config,
             span: tracing::span!(
                 Level::ERROR,
                 "node",
                 index = node_index,
-                epoch,
+                committee_epoch,
                 pk_prefix = string_prefix(&node.public_key)
             ),
             client,
@@ -139,7 +138,7 @@ impl<'a> NodeReadCommunication<'a> {
         let node_write_limit = Arc::new(Semaphore::new(self.config.max_node_connections));
         let Self {
             node_index,
-            epoch,
+            committee_epoch,
             node,
             encoding_config,
             span,
@@ -149,7 +148,7 @@ impl<'a> NodeReadCommunication<'a> {
         } = self;
         NodeWriteCommunication {
             node_index,
-            epoch,
+            committee_epoch,
             node,
             encoding_config,
             span,
@@ -180,7 +179,7 @@ impl<'a, W> NodeCommunication<'a, W> {
     }
 
     fn to_node_result<T, E>(&self, weight: usize, result: Result<T, E>) -> NodeResult<T, E> {
-        NodeResult(self.epoch, weight, self.node_index, result)
+        NodeResult(self.committee_epoch, weight, self.node_index, result)
     }
 
     fn to_node_result_with_n_shards<T, E>(&self, result: Result<T, E>) -> NodeResult<T, E> {
@@ -265,7 +264,11 @@ impl<'a> NodeWriteCommunication<'a> {
             tracing::debug!(n_stored_slivers, "finished storing slivers on node");
 
             self.client
-                .get_and_verify_confirmation(metadata.blob_id(), self.epoch, self.public_key())
+                .get_and_verify_confirmation(
+                    metadata.blob_id(),
+                    self.committee_epoch,
+                    self.public_key(),
+                )
                 .await
                 .map_err(StoreError::Confirmation)
         }
