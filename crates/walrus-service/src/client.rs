@@ -183,7 +183,7 @@ impl<T: ReadClient> Client<T> {
     }
 
     /// Reconstructs the blob by reading slivers from Walrus shards.
-    #[tracing::instrument(level = Level::ERROR, skip_all, fields (blob_id = %blob_id))]
+    #[tracing::instrument(level = Level::ERROR, skip_all, fields(%blob_id))]
     pub async fn read_blob<U>(&self, blob_id: &BlobId) -> ClientResult<Vec<u8>>
     where
         U: EncodingAxis,
@@ -793,6 +793,7 @@ impl<T> Client<T> {
 
     /// Retries to get the verified blob status, with backoff, until it succeeds or the maximum
     /// number of retries is reached.
+    #[tracing::instrument(skip_all, fields(%blob_id), err(level = Level::WARN))]
     pub async fn retry_get_blob_status<U: ReadClient>(
         &self,
         blob_id: &BlobId,
@@ -837,7 +838,7 @@ impl<T> Client<T> {
     /// The nodes are selected such that at least one correct node is contacted. This function reads
     /// from the latest committee, because, during epoch change, it is the committee that will have
     /// the most up-to-date information on the old and newly certified blobs.
-    #[tracing::instrument(level = Level::ERROR, skip_all, fields(blob_id = %blob_id))]
+    #[tracing::instrument(skip_all, fields(%blob_id), err(level = Level::WARN))]
     pub async fn get_verified_blob_status<U: ReadClient>(
         &self,
         blob_id: &BlobId,
