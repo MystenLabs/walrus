@@ -459,7 +459,7 @@ impl<P: ProtocolCommands + ProtocolMetrics> Orchestrator<P> {
 
                     let results_directory = &self.settings.results_dir;
                     let commit = &self.settings.repository.commit;
-                    let path: PathBuf = results_directory.join(&format!("results-{commit}"));
+                    let path: PathBuf = results_directory.join(format!("results-{commit}"));
                     fs::create_dir_all(&path).expect("Failed to create log directory");
                     aggregator.save(path);
 

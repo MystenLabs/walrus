@@ -139,7 +139,7 @@ impl<T: SupportedKeyPair> AsRef<T> for TaggedKeyPair<T> {
 /// Error returned when trying to parse a [`ProtocolKeyPair`] from a string.
 #[derive(Debug, thiserror::Error)]
 #[error(transparent)]
-pub struct KeyPairParseError(Box<dyn std::error::Error + Send + Sync>);
+pub struct KeyPairParseError(Box<dyn core::error::Error + Send + Sync>);
 
 impl<T: SupportedKeyPair> FromStr for TaggedKeyPair<T> {
     type Err = KeyPairParseError;

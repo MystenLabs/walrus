@@ -284,7 +284,7 @@ pub async fn deploy_walrus_contract(
 
     // Create wallet for publishing contracts on sui and setting up system object
     let mut admin_wallet = create_wallet(
-        &working_dir.join(&format!("{ADMIN_CONFIG_PREFIX}.yaml")),
+        &working_dir.join(format!("{ADMIN_CONFIG_PREFIX}.yaml")),
         sui_network.env(),
         Some(&format!("{ADMIN_CONFIG_PREFIX}.keystore")),
     )?;

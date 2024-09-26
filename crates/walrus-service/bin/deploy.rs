@@ -234,7 +234,7 @@ mod commands {
         }
 
         let mut admin_wallet = load_wallet(Some(
-            working_dir.join(&format!("{ADMIN_CONFIG_PREFIX}.yaml")),
+            working_dir.join(format!("{ADMIN_CONFIG_PREFIX}.yaml")),
         ))
         .expect("Should be able to load admin wallet");
 
