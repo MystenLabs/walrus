@@ -818,13 +818,16 @@ impl<T> Client<T> {
                 .await;
 
             // Return only if we know that the blob does not exist, or if we have a valid status.
-            if let Err(client_error) = maybe_status {
-                if matches!(client_error.kind(), &ClientErrorKind::BlobIdDoesNotExist) {
-                    return Err(client_error);
+            match maybe_status {
+                Ok(_) => {
+                    return maybe_status;
                 }
-            } else {
-                // The status is Ok.
-                return maybe_status;
+                Err(client_error)
+                    if matches!(client_error.kind(), &ClientErrorKind::BlobIdDoesNotExist) =>
+                {
+                    return Err(client_error)
+                }
+                Err(_) => (),
             }
 
             // TODO(giac): next PR fixes that we wait even if we are out of retries.
