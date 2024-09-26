@@ -43,8 +43,7 @@ use walrus_sui::{
 use crate::{
     client::{self, ClientCommunicationConfig},
     common::utils::LoadConfig,
-    node::config::{defaults, StorageNodeConfig, SuiConfig},
-    test_utils,
+    node::config::{defaults, StorageNodeConfig, SuiConfig, TlsConfig},
 };
 
 /// The config file name for the admin wallet.
@@ -374,7 +373,7 @@ pub async fn create_client_config(
 }
 
 /// Create storage node configurations for the testbed.
-#[instrument(err, skip(faucet_cooldown, admin_wallet))]
+#[instrument(err, skip_all)]
 #[allow(clippy::too_many_arguments)]
 pub async fn create_storage_node_configs(
     working_dir: &Path,
@@ -386,6 +385,15 @@ pub async fn create_storage_node_configs(
     faucet_cooldown: Option<Duration>,
     admin_wallet: &mut WalletContext,
 ) -> anyhow::Result<Vec<StorageNodeConfig>> {
+    tracing::debug!(
+        ?working_dir,
+        ?listening_ips,
+        ?metrics_port,
+        ?set_config_dir,
+        ?set_db_path,
+        ?faucet_cooldown,
+        "starting to create storage-node configs"
+    );
     let nodes = testbed_config.nodes;
     // Check whether the testbed collocates the storage nodes on the same machine
     // (that is, local testbed).
@@ -468,6 +476,11 @@ pub async fn create_storage_node_configs(
             .map(|path| path.to_path_buf())
             .or(set_config_dir.map(|path| path.join(&name)))
             .unwrap_or_else(|| working_dir.join(&name));
+        let tls = TlsConfig {
+            disable_tls: false,
+            pem_files: None,
+            server_name: Some(node.network_address.host),
+        };
 
         storage_node_configs.push(StorageNodeConfig {
             storage_path,
@@ -476,7 +489,12 @@ pub async fn create_storage_node_configs(
             metrics_address,
             rest_api_address,
             sui,
-            ..test_utils::storage_node_config().inner
+            db_config: None,
+            rest_graceful_shutdown_period_secs: None,
+            blob_recovery: Default::default(),
+            tls,
+            shard_sync_config: Default::default(),
+            event_processor_config: None,
         });
     }
 
@@ -563,14 +581,7 @@ async fn create_storage_node_wallets(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    if faucet_cooldown.is_some() {
-        for wallet in storage_node_wallets.iter_mut() {
-            // Print out each address on stdout to make sure that they are available from CI output
-            println!("{}", wallet.active_address()?);
-        }
-        // Try to flush output
-        let _ = std::io::stdout().flush();
-    }
+    print_wallet_addresses(&mut storage_node_wallets)?;
 
     let sui_client = storage_node_wallets[0].get_client().await?;
     // Get coins from faucet for the wallets.
@@ -585,4 +596,14 @@ async fn create_storage_node_wallets(
         request_sui_from_faucet(wallet.active_address()?, &sui_network, &sui_client).await?;
     }
     Ok(storage_node_wallets)
+}
+
+fn print_wallet_addresses(wallets: &mut [WalletContext]) -> anyhow::Result<()> {
+    println!("Wallet addresses:");
+    for wallet in wallets.iter_mut() {
+        println!("{}", wallet.active_address()?);
+    }
+    // Try to flush output
+    let _ = std::io::stdout().flush();
+    Ok(())
 }
