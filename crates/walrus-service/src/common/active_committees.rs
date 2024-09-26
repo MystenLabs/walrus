@@ -109,12 +109,7 @@ impl ActiveCommittees {
     /// committees, or if they have a different number of shards.
     #[tracing::instrument(skip_all)]
     pub fn from_committees_and_state(committees_and_state: CommitteesAndState) -> Self {
-        Self::new_with_next(
-            committees_and_state.current,
-            committees_and_state.previous,
-            committees_and_state.next,
-            committees_and_state.epoch_state.is_transitioning(),
-        )
+        Self::try_from(committees_and_state).expect("ActiveCommittees invariants must be upheld")
     }
 
     /// The current epoch.
@@ -188,38 +183,55 @@ impl ActiveCommittees {
         self.current_committee.n_shards()
     }
 
-    fn check_invariants(&self) {
-        // Both epoch 0 and epoch 1 do not have previous committee.
-        assert!(
-            self.current_committee.epoch <= 1 || self.previous_committee.is_some(),
+    fn try_check_invariants(&self) -> Result<(), anyhow::Error> {
+        ensure!(
+            self.current_committee.epoch == 0 || self.previous_committee.is_some(),
             "previous committee must be set for non-genesis epochs"
         );
 
         if let Some(ref previous_committee) = self.previous_committee {
-            assert_eq!(
-                self.current_committee.epoch,
-                previous_committee.epoch + 1,
+            ensure!(
+                self.current_committee.epoch == previous_committee.epoch + 1,
                 "the current committee's epoch must be one more than the previous's"
             );
-            assert_eq!(
-                self.current_committee.n_shards(),
-                previous_committee.n_shards(),
+            ensure!(
+                self.current_committee.n_shards() == previous_committee.n_shards(),
                 "the current committee and previous committees must have the same number of shards"
             );
         }
 
         if let Some(ref next_committee) = self.next_committee {
-            assert_eq!(
-                self.current_committee.epoch + 1,
-                next_committee.epoch,
+            ensure!(
+                self.current_committee.epoch + 1 == next_committee.epoch,
                 "the next committee's epoch must be one more than the current's"
             );
-            assert_eq!(
-                self.current_committee.n_shards(),
-                next_committee.n_shards(),
+            ensure!(
+                self.current_committee.n_shards() == next_committee.n_shards(),
                 "the current committee and previous committees must have the same number of shards"
             );
         }
+
+        Ok(())
+    }
+
+    fn check_invariants(&self) {
+        self.try_check_invariants()
+            .expect("ActiveCommittee's invariants must be upheld");
+    }
+}
+
+impl TryFrom<CommitteesAndState> for ActiveCommittees {
+    type Error = anyhow::Error;
+
+    fn try_from(committees_and_state: CommitteesAndState) -> Result<Self, Self::Error> {
+        let this = Self {
+            current_committee: Arc::new(committees_and_state.current),
+            previous_committee: committees_and_state.previous.map(Arc::new),
+            next_committee: committees_and_state.next.map(Arc::new),
+            is_transitioning: committees_and_state.epoch_state.is_transitioning(),
+        };
+        this.try_check_invariants()?;
+        Ok(this)
     }
 }
 

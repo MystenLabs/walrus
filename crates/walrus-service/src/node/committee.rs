@@ -5,7 +5,6 @@
 
 use std::{future::Future, num::NonZeroU16, sync::Arc};
 
-use anyhow::Context;
 use async_trait::async_trait;
 use walrus_core::{
     encoding::EncodingConfig,
@@ -54,23 +53,8 @@ pub(crate) trait CommitteeLookupService: Send + Sync + std::fmt::Debug {
 #[async_trait]
 impl<T: ReadClient + std::fmt::Debug> CommitteeLookupService for T {
     async fn get_active_committees(&self) -> Result<ActiveCommittees, anyhow::Error> {
-        // TODO: combine following into a single RPC call.
-        let committee = self
-            .current_committee()
-            .await
-            .context("unable to get the current committee")?;
-
-        let previous_committee = if committee.epoch == 0 {
-            None
-        } else {
-            Some(
-                self.previous_committee()
-                    .await
-                    .context("unable to get the previous committee")?,
-            )
-        };
-
-        Ok(ActiveCommittees::new(committee, previous_committee))
+        let committees_and_state = self.get_committees_and_state().await?;
+        ActiveCommittees::try_from(committees_and_state)
     }
 }
 
@@ -82,12 +66,15 @@ pub enum BeginCommitteeChangeError {
     ///
     /// The caller is lagging in its expectation as to what is the current epoch.
     #[error("the provided epoch is less than the expected epoch: {actual} ({expected})")]
-    EpochIsNotGreater {
-        /// The expected epoch based on the state of the committee service.
+    EpochIsLess {
+        /// The expected next epoch based on the state of the committee service.
         expected: Epoch,
         /// The epoch provided by the caller.
         actual: Epoch,
     },
+    /// Error returned when the caller requests to begin a committee change to the current epoch.
+    #[error("the provided epoch is the same as the current epoch")]
+    EpochIsTheSameAsCurrent,
     /// The provided epoch is not 1 greater than the current epoch.
     ///
     /// This indicates that the caller has failed to update the epoch when it should have.
