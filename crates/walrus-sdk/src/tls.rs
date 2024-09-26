@@ -26,8 +26,10 @@ use x509_cert::{
     certificate::{Certificate as X509Certificate, TbsCertificateInner},
     der::{
         asn1::{BitString, GeneralizedTime, Ia5String},
+        pem::LineEnding,
         Decode,
         Encode,
+        EncodePem as _,
     },
     ext::{
         pkix::{name::GeneralName, SubjectAltName},
@@ -94,6 +96,12 @@ pub fn create_unsigned_certificate(
         signature_algorithm,
         signature: BitString::from_bytes(&[]).expect("an empty bit string can always be created"),
     };
+    tracing::trace!(
+        certificate = certificate
+            .to_pem(LineEnding::default())
+            .expect("generate certificate has valid pem"),
+        "generated certificate"
+    );
     let der = certificate
         .to_der()
         .expect("self-signed certificate is DER-encodable");
@@ -163,6 +171,11 @@ impl TlsCertificateVerifier {
         let mut trust_root = RootCertStore::empty();
 
         let public_key = if let Some((public_key, subject_name)) = name_and_key {
+            tracing::debug!(
+                walrus.node.public_key = %public_key,
+                subject_name = subject_name,
+                "requiring public key for connections"
+            );
             let subject_name =
                 parse_subject_alt_name(subject_name).or(Err(VerifierBuildError::InvalidSubject))?;
             let certificate = create_unsigned_certificate(&public_key, subject_name);
