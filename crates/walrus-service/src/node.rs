@@ -442,26 +442,6 @@ impl StorageNode {
 
     /// Run the walrus-node logic until cancelled using the provided cancellation token.
     pub async fn run(&self, cancel_token: CancellationToken) -> anyhow::Result<()> {
-        ensure!(
-            !self.is_severely_lagging().await?,
-            "storage node is lagging by more than 1 epoch, recovery not yet supported"
-        );
-
-        self.start_processing_events(cancel_token).await
-    }
-
-    /// Run the walrus-node logic until cancelled using the provided cancellation token. Skip
-    /// the start-up check for lagging.
-    #[cfg(any(test, feature = "test-utils"))]
-    pub async fn run_skip_start_up_check(
-        &self,
-        cancel_token: CancellationToken,
-    ) -> anyhow::Result<()> {
-        self.start_processing_events(cancel_token).await
-    }
-
-    /// Starts processing events until the provided cancellation token is cancelled.
-    async fn start_processing_events(&self, cancel_token: CancellationToken) -> anyhow::Result<()> {
         select! {
             result = self.process_events() => match result {
                 Ok(()) => unreachable!("process_events should never return successfully"),
@@ -479,31 +459,17 @@ impl StorageNode {
         self.inner.storage.shards()
     }
 
-    /// Returns true if the storage node has severely lagged before restart.
+    /// Wait for the storage node to be in at least the provided epoch.
     ///
-    /// This check only works before starting to process events, and is meant as an initial check
-    /// before handling catch-up for a lagging node.
-    async fn is_severely_lagging(&self) -> anyhow::Result<bool> {
-        let current_epoch = self.inner.committee_service.get_epoch();
-        let mut event_stream = self.continue_event_stream().await?;
-
-        let mut next_event_epoch = None;
-        while let Some(element) = event_stream.next().await {
-            match element.element {
-                EventStreamElement::ContractEvent(event) => {
-                    next_event_epoch = Some(event.event_epoch());
-                    break;
-                }
-                EventStreamElement::CheckpointBoundary => continue,
-            }
-        }
-
-        let Some(epoch) = next_event_epoch else {
-            bail!("event stream terminated");
-        };
-
-        // epoch <= current_epoch - 2
-        Ok(epoch + 2 <= current_epoch)
+    /// Returns the epoch to which the storage node arrived, which may be later than the requested
+    /// epoch.
+    pub async fn wait_for_epoch(&self, epoch: Epoch) -> Epoch {
+        let mut receiver = self.inner.current_epoch.subscribe();
+        let epoch_ref = receiver
+            .wait_for(|current_epoch| *current_epoch >= epoch)
+            .await
+            .expect("current_epoch channel cannot be dropped while holding a ref to self");
+        *epoch_ref
     }
 
     /// Continues the event stream from the last committed event.
@@ -551,6 +517,26 @@ impl StorageNode {
                 "walrus.blob_id" = ?stream_element.element.blob_id(),
                 "error.type" = field::Empty,
             );
+
+            if let Some(epoch_at_start) = maybe_epoch_at_start {
+                if let EventStreamElement::ContractEvent(ref event) = stream_element.element {
+                    tracing::debug!("checking the first contract event if we're severaly lagging");
+                    // Clear the starting epoch, so that we never make this check again.
+                    maybe_epoch_at_start = None;
+
+                    // if event.event_epoch() < starting_epoch - 1
+                    if event.event_epoch() + 1 < epoch_at_start {
+                        let error = anyhow!(
+                            "the current epoch ({}) is too far ahead of the event epoch: {}",
+                            epoch_at_start,
+                            event.event_epoch(),
+                        );
+                        tracing::error!(%error);
+                        return Err(error);
+                    }
+                }
+            }
+
             async move {
                 let _timer_guard = &self
                     .inner

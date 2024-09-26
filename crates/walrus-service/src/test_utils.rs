@@ -199,7 +199,6 @@ pub struct StorageNodeHandleBuilder {
     contract_service: Option<Box<dyn SystemContractService>>,
     run_rest_api: bool,
     run_node: bool,
-    skip_start_up_check: bool,
     test_config: Option<StorageNodeTestConfig>,
 }
 
@@ -266,12 +265,6 @@ impl StorageNodeHandleBuilder {
     /// Enable or disable the REST API being started on build.
     pub fn with_rest_api_started(mut self, run_rest_api: bool) -> Self {
         self.run_rest_api = run_rest_api;
-        self
-    }
-
-    /// Enable or disable the start up check being skipped on build.
-    pub fn with_skip_start_up_check(mut self, skip_start_up_check: bool) -> Self {
-        self.skip_start_up_check = skip_start_up_check;
         self
     }
 
@@ -380,20 +373,10 @@ impl StorageNodeHandleBuilder {
         if self.run_node {
             let node = node.clone();
             let cancel_token = cancel_token.clone();
-            let skip_start_up_check = self.skip_start_up_check;
 
-            tokio::task::spawn(
-                async move {
-                    if skip_start_up_check {
-                        node.run_skip_start_up_check(cancel_token).await
-                    } else {
-                        node.run(cancel_token).await
-                    }
-                }
-                .instrument(
-                    tracing::info_span!("cluster-node", address = %config.rest_api_address),
-                ),
-            );
+            tokio::task::spawn(async move { node.run(cancel_token).await }.instrument(
+                tracing::info_span!("cluster-node", address = %config.rest_api_address),
+            ));
         }
 
         let client = Client::builder()
@@ -429,7 +412,6 @@ impl Default for StorageNodeHandleBuilder {
             storage: Default::default(),
             run_rest_api: Default::default(),
             run_node: Default::default(),
-            skip_start_up_check: true,
             contract_service: None,
             test_config: None,
         }
