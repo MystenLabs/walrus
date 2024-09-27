@@ -248,7 +248,7 @@ mod tests {
             .storage
             .shard_storage(ShardIndex(0))
             .expect("Failed to get shard storage")
-            .set_active_status()
+            .update_status_in_test(ShardStatus::Active)
             .expect("Failed to update shard status");
 
         assert!(matches!(

@@ -759,24 +759,10 @@ impl StorageNode {
                 .storage
                 .create_storage_for_shards(&shard_diff.gained)?;
 
-            if event.epoch == GENESIS_EPOCH {
-                // TODO(jsmith): Create the shard in sync mode and have it immediately progress to
-                // being completed. i.e., merge the two cases.
-                for shard in &shard_diff.gained {
-                    self.inner
-                        .storage
-                        .shard_storage(*shard)
-                        .expect("we just created it")
-                        .set_active_status()?;
-                }
-                self.inner
-                    .contract_service
-                    .epoch_sync_done(self.inner.node_object_id)
-                    .await;
-            } else {
-                for shard in &shard_diff.gained {
-                    self.shard_sync_handler.start_new_shard_sync(*shard).await?;
-                }
+            // There shouldn't be an epoch change event for the genesis epoch.
+            assert!(event.epoch != GENESIS_EPOCH);
+            for shard in &shard_diff.gained {
+                self.shard_sync_handler.start_new_shard_sync(*shard).await?;
             }
         }
 

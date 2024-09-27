@@ -367,10 +367,6 @@ impl ShardStorage {
             .map(|s| s.unwrap_or(ShardStatus::None))
     }
 
-    pub(crate) fn set_active_status(&self) -> Result<(), TypedStoreError> {
-        self.shard_status.insert(&(), &ShardStatus::Active)
-    }
-
     pub(crate) fn set_start_sync_status(&self) -> Result<(), TypedStoreError> {
         self.shard_status.insert(&(), &ShardStatus::ActiveSync)
     }
@@ -550,6 +546,10 @@ impl ShardStorage {
             .certified_blob_info_iter_before_epoch(epoch, last_synced_blob_id);
 
         let mut next_blob_info = blob_info_iter.next().transpose()?;
+        // For transitioning from GENESIS epoch to epoch 1, since GENESIS epoch does not have
+        // any committees and should not receive any user blobs, there shouldn't be any certified
+        // blobs. In case, the shard sync should finish immediately and transition to Active state.
+        assert!(epoch != 0 && (epoch > 1 || next_blob_info.is_none()));
         while let Some((next_starting_blob_id, _)) = next_blob_info {
             tracing::debug!(
                 "syncing shard to before epoch: {}. Starting blob id: {}",
