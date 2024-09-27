@@ -759,30 +759,26 @@ impl ContractClient for SuiContractClient {
     }
 
     async fn epoch_sync_done(&self, node_id: ObjectID, epoch: Epoch) -> SuiClientResult<()> {
-        let node_capability_object_id = get_owned_objects::<StorageNodeCap>(
+        let node_capability = get_owned_objects::<StorageNodeCap>(
             &self.read_client.sui_client,
             self.wallet_address,
             self.read_client.system_pkg_id,
             &[],
         )
         .await?
-        .collect::<Vec<_>>()
-        .iter()
-        .find_map(|cap| (cap.node_id == node_id).then_some(cap.id))
+        .find(|cap| cap.node_id == node_id)
         .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?;
 
-        let node_capability: StorageNodeCap =
-            get_sui_object(&self.read_client.sui_client, node_capability_object_id).await?;
         if node_capability.last_epoch_sync_done >= epoch {
             return Err(SuiClientError::LatestAttestedIsMoreRecent);
         }
 
-        tracing::debug!("calling epoch_sync_done {:?}", node_capability_object_id);
+        tracing::debug!("calling epoch_sync_done {:?}", node_capability.node_id);
         let cap_obj_ref = self
             .wallet
             .lock()
             .await
-            .get_object_ref(node_capability_object_id)
+            .get_object_ref(node_capability.node_id)
             .await?;
 
         self.move_call_and_transfer(
