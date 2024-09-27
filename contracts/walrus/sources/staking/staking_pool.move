@@ -201,7 +201,7 @@ public(package) fun stake(
 /// immediately
 /// TODO: Only if the pool is already withdrawn.
 /// TODO: consider the case of early withdrawal if stake hasn't been activated
-/// and commitee not selected.
+/// and committee not selected.
 public(package) fun request_withdraw_stake(
     pool: &mut StakingPool,
     staked_wal: &mut StakedWal,
