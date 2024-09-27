@@ -49,3 +49,31 @@ public(package) fun unwrap(self: PendingValues): VecMap<u32, u64> {
 
 /// Check if the `PendingValues` is empty.
 public(package) fun is_empty(self: &PendingValues): bool { self.0.is_empty() }
+
+#[test]
+fun test_pending_values() {
+    use std::unit_test::assert_eq;
+
+    let mut pending = empty();
+    assert!(pending.is_empty());
+
+    pending.insert_or_add(0, 10);
+    pending.insert_or_add(0, 10);
+    pending.insert_or_add(1, 20);
+
+    // test reads
+    assert_eq!(pending.value_at(0), 20);
+    assert_eq!(pending.value_at(1), 40);
+
+    // test flushing, and reads after flushing
+    assert_eq!(pending.flush(0), 20);
+    assert_eq!(pending.value_at(0), 0);
+
+    // flush the rest of the values and check if the map is empty
+    assert_eq!(pending.value_at(1), 20);
+    assert_eq!(pending.flush(1), 20);
+    assert!(pending.is_empty());
+
+    // unwrap the pending values
+    let _ = pending.unwrap();
+}

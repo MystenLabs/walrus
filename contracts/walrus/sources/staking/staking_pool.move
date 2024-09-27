@@ -179,9 +179,6 @@ public(package) fun stake(
         .exchange_rate_at_epoch(current_epoch)
         .get_token_amount(staked_amount);
 
-    // std::debug::print(&b"(Stake) Pool token amount, staked amount, ".to_string());
-    // std::debug::print(&vector[pool_token_amount, staked_amount]);
-
     let staked_wal = staked_wal::mint(
         pool.id.to_inner(),
         to_stake.into_balance(),
@@ -249,7 +246,6 @@ public(package) fun withdraw_stake(
     assert!(staked_wal.activation_epoch() <= wctx.epoch());
     assert!(staked_wal.is_withdrawing());
 
-    let _withdraw_epoch = staked_wal.withdraw_epoch();
     let token_amount = staked_wal.value();
     let principal = staked_wal.into_balance();
 
@@ -260,26 +256,11 @@ public(package) fun withdraw_stake(
 
     // TODO: current epoch or withdraw epoch?
     let latest_exchange_rate = pool.exchange_rate_at_epoch(wctx.epoch());
-
-    // std::debug::print(&b"(Withdraw) Recent exchange rate".to_string());
-    // std::debug::print(
-    //     &vector[
-    //         token_amount,
-    //         principal.value(),
-    //         pool.pool_token_at_epoch(wctx.epoch()),
-    //         pool.wal_balance_at_epoch(wctx.epoch()),
-    //     ],
-    // );
-    // std::debug::print(&latest_exchange_rate);
-
     let principal_amount = principal.value();
     let total_amount = latest_exchange_rate.get_wal_amount(token_amount);
     let rewards_amount = if (total_amount >= principal_amount) {
         total_amount - principal_amount
     } else 0;
-
-    // std::debug::print(&b"(Withdraw) Total amount, rewards amount".to_string());
-    // std::debug::print(&vector[total_amount, rewards_amount]);
 
     // withdraw rewards. due to rounding errors, there's a chance that the
     // rewards amount is higher than the rewards pool, in this case, we
@@ -377,9 +358,6 @@ public(package) fun advance_epoch(
     let wal_amount = pool.wal_balance;
     let exchange_rate = pool_exchange_rate::new(wal_amount, pool.pool_token_balance);
     let pool_token_amount = exchange_rate.get_token_amount(wal_amount);
-
-    // std::debug::print(&b"(Advance Epoch) Pool token amount, wal_amount".to_string());
-    // std::debug::print(&vector[pool_token_amount, wal_amount]);
 
     pool.exchange_rates.add(current_epoch, pool_exchange_rate::new(wal_amount, pool_token_amount));
 }
