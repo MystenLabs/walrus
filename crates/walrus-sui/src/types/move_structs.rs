@@ -155,16 +155,24 @@ pub(crate) struct StakingPool {
     pub node_info: StorageNode,
     /// The epoch when the pool is / will be activated.
     activation_epoch: Epoch,
+    /// Epoch when the pool was last updated.
+    last_update_epoch: Epoch,
     /// Currently active stake.
     active_stake: u64,
+    /// Pool token balance.
+    token_balance: u64,
+    /// Pending additions to the pool token balance indexed by epoch.
+    pending_pool_token: Vec<(Epoch, u64)>,
+    /// Pending withdrawals from the pool token balance indexed by epoch.
+    pending_withdrawal_token: Vec<(Epoch, u64)>,
     /// The commission rate for the pool.
     commission_rate: u64,
+    /// Exchange rates table ID.
+    exchange_rates: ObjectID,
     /// The amount of stake that will be added to the `active_stake` in the given epoch.
     pending_stake: Vec<(Epoch, u64)>,
     /// The amount of stake that will be withdrawn in the next epoch.
-    pending_withdrawal_amount: u64,
-    /// The amount of stake that will be withdrawn in the next epoch.
-    stake_to_withdraw: u64,
+    pending_withdrawal_amount: Vec<(Epoch, u64)>,
     /// The rewards that the pool has received.
     rewards: u64,
 }
