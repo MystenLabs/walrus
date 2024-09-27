@@ -778,7 +778,7 @@ impl ContractClient for SuiContractClient {
             .wallet
             .lock()
             .await
-            .get_object_ref(node_capability.node_id)
+            .get_object_ref(node_capability.id)
             .await?;
 
         self.move_call_and_transfer(
