@@ -2,10 +2,11 @@
 
 [move]
 version = 2
-manifest_digest = "4226F614A05E3CE94525C02BF3870869C88C021F4056B95496A6C76EB2E6888F"
-deps_digest = "F8BBB0CCB2491CA29A3DF03D6F92277A4F3574266507ACD77214D37ECA3F3082"
+manifest_digest = "AE0E299A78DFFF61F9FF82ACB764E2A29C1F7809478720C5E8E84A9CFB4E5DFD"
+deps_digest = "3C4103934B1E040BB6B23F1D610B4EF9F2F1166A50A104EADCF77467C004C600"
 dependencies = [
   { name = "Sui" },
+  { name = "WAL" },
 ]
 
 [[move.package]]
@@ -18,6 +19,14 @@ source = { git = "https://github.com/MystenLabs/sui.git", rev = "testnet-v1.33.1
 
 dependencies = [
   { name = "MoveStdlib" },
+]
+
+[[move.package]]
+name = "WAL"
+source = { local = "../wal" }
+
+dependencies = [
+  { name = "Sui" },
 ]
 
 [move.toolchain-version]
