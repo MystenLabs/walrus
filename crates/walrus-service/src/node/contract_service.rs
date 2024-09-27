@@ -14,8 +14,8 @@ use rand::{rngs::StdRng, Rng, SeedableRng};
 use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
 use tokio::sync::Mutex as TokioMutex;
-use walrus_core::messages::InvalidBlobCertificate;
-use walrus_sui::client::{ContractClient, SuiContractClient};
+use walrus_core::{messages::InvalidBlobCertificate, Epoch};
+use walrus_sui::client::{ContractClient, SuiClientError, SuiContractClient};
 
 use super::config::SuiConfig;
 use crate::common::utils::{self, ExponentialBackoff};
@@ -30,7 +30,7 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
     async fn invalidate_blob_id(&self, certificate: &InvalidBlobCertificate);
 
     /// Submits a notification to the contract that this storage node epoch sync is done.
-    async fn epoch_sync_done(&self, node_id: ObjectID);
+    async fn epoch_sync_done(&self, node_id: ObjectID, epoch: Epoch);
 }
 
 /// A [`SystemContractService`] that uses a [`ContractClient`] for chain interactions.
@@ -110,23 +110,32 @@ where
         .await;
     }
 
-    async fn epoch_sync_done(&self, node_id: ObjectID) {
+    async fn epoch_sync_done(&self, node_id: ObjectID, epoch: Epoch) {
         let backoff = ExponentialBackoff::new_with_seed(
             MIN_BACKOFF,
             MAX_BACKOFF,
             None,
             self.rng.lock().unwrap().gen(),
         );
+
         utils::retry(backoff, || async {
-            self.contract_client
+            match self
+                .contract_client
                 .lock()
                 .await
-                .epoch_sync_done(node_id)
+                .epoch_sync_done(node_id, epoch)
                 .await
-                .inspect_err(|error| {
-                    tracing::error!(?error, "submitting epoch sync done to contract failed")
-                })
-                .ok()
+            {
+                Ok(()) => Some(()),
+                Err(SuiClientError::LatestAttestedIsMoreRecent) => {
+                    tracing::debug!(walrus.epoch = epoch, "repeatedly submitted epoch_sync_done");
+                    Some(())
+                }
+                Err(error) => {
+                    tracing::warn!(?error, "submitting epoch sync done to contract failed");
+                    None
+                }
+            }
         })
         .await;
     }

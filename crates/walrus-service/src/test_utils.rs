@@ -646,7 +646,7 @@ pub struct StubContractService {}
 #[async_trait]
 impl SystemContractService for StubContractService {
     async fn invalidate_blob_id(&self, _certificate: &InvalidBlobCertificate) {}
-    async fn epoch_sync_done(&self, _node_id: ObjectID) {}
+    async fn epoch_sync_done(&self, _node_id: ObjectID, _epoch: Epoch) {}
 }
 
 /// Returns a socket address that is not currently in use on the system.
@@ -1052,8 +1052,8 @@ where
         self.as_ref().inner.invalidate_blob_id(certificate).await
     }
 
-    async fn epoch_sync_done(&self, node_id: ObjectID) {
-        self.as_ref().inner.epoch_sync_done(node_id).await
+    async fn epoch_sync_done(&self, node_id: ObjectID, epoch: Epoch) {
+        self.as_ref().inner.epoch_sync_done(node_id, epoch).await
     }
 }
 

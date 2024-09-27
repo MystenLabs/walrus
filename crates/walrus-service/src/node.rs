@@ -752,7 +752,7 @@ impl StorageNode {
             tracing::debug!("no shards gained, so signalling that epoch sync is done");
             self.inner
                 .contract_service
-                .epoch_sync_done(self.inner.node_object_id)
+                .epoch_sync_done(self.inner.node_object_id, event.epoch)
                 .await;
         } else {
             self.inner

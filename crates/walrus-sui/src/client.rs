@@ -95,6 +95,9 @@ pub enum SuiClientError {
     /// Storage capability object is missing when interacting with the contract.
     #[error("No storage capability object set")]
     StorageNodeCapabilityObjectNotSet,
+    /// An attestation has already been performed for that or a more recent epoch.
+    #[error("the storage node has already attested to that or a later epoch being synced")]
+    LatestAttestedIsMoreRecent,
 }
 
 /// Represents the persistence state of a blob on Walrus.
@@ -234,10 +237,11 @@ pub trait ContractClient: Send + Sync {
     /// Can be called once the epoch duration is over.
     fn initiate_epoch_change(&self) -> impl Future<Output = SuiClientResult<()>> + Send;
 
-    /// Call to notify the contract that this node is done syncing the epoch.
+    /// Call to notify the contract that this node is done syncing the specified epoch.
     fn epoch_sync_done(
         &self,
         node_id: ObjectID,
+        epoch: Epoch,
     ) -> impl Future<Output = SuiClientResult<()>> + Send;
 
     /// Deletes the owned blob with the specified Sui object ID, returning the storage resource.
@@ -754,7 +758,7 @@ impl ContractClient for SuiContractClient {
         Ok(())
     }
 
-    async fn epoch_sync_done(&self, node_id: ObjectID) -> SuiClientResult<()> {
+    async fn epoch_sync_done(&self, node_id: ObjectID, epoch: Epoch) -> SuiClientResult<()> {
         let node_capability_object_id = get_owned_objects::<StorageNodeCap>(
             &self.read_client.sui_client,
             self.wallet_address,
@@ -764,19 +768,23 @@ impl ContractClient for SuiContractClient {
         .await?
         .collect::<Vec<_>>()
         .iter()
-        .find_map(|cap| (cap.node_id == node_id).then_some(cap.id));
+        .find_map(|cap| (cap.node_id == node_id).then_some(cap.id))
+        .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?;
 
-        tracing::info!("calling epoch_sync_done {:?}", node_capability_object_id);
-        if node_capability_object_id.is_none() {
-            return Err(SuiClientError::StorageNodeCapabilityObjectNotSet);
+        let node_capability: StorageNodeCap =
+            get_sui_object(&self.read_client.sui_client, node_capability_object_id).await?;
+        if node_capability.last_epoch_sync_done >= epoch {
+            return Err(SuiClientError::LatestAttestedIsMoreRecent);
         }
 
+        tracing::debug!("calling epoch_sync_done {:?}", node_capability_object_id);
         let cap_obj_ref = self
             .wallet
             .lock()
             .await
-            .get_object_ref(node_capability_object_id.expect("We just checked it is not none"))
+            .get_object_ref(node_capability_object_id)
             .await?;
+
         self.move_call_and_transfer(
             contracts::staking::epoch_sync_done,
             vec![
