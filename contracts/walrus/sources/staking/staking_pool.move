@@ -5,13 +5,18 @@
 module walrus::staking_pool;
 
 use std::string::String;
-use sui::{balance::{Self, Balance}, coin::Coin, table::{Self, Table}, vec_map::{Self, VecMap}};
+use sui::{balance::{Self, Balance}, coin::Coin, table::{Self, Table}};
 use wal::wal::WAL;
 use walrus::{
+    pending_values::{Self, PendingValues},
+    pool_exchange_rate::{Self, PoolExchangeRate},
     staked_wal::{Self, StakedWal},
     storage_node::{Self, StorageNodeInfo},
     walrus_context::WalrusContext
 };
+
+#[error]
+const EPoolAlreadyUpdated: vector<u8> = b"Pool already updated for the current epoch";
 
 /// Represents the state of the staking pool.
 ///
@@ -26,14 +31,6 @@ public enum PoolState has store, copy, drop {
     Withdrawing(u32),
     // The pool is empty and can be destroyed.
     Withdrawn,
-}
-
-/// Represents the exchange rate for the staking pool.
-public struct PoolExchangeRate has store, copy, drop {
-    /// Amount of staked WAL tokens this epoch.
-    wal_amount: u64,
-    /// Amount of total tokens in the pool this epoch.
-    pool_token_amount: u64,
 }
 
 /// The parameters for the staking pool. Stored for the next epoch.
@@ -61,14 +58,16 @@ public struct StakingPool has key, store {
     /// Serves information purposes only, the checks are performed in the `state`
     /// property.
     activation_epoch: u32,
+    /// Epoch when the pool was last updated.
+    latest_epoch: u32,
     /// Currently staked WAL in the pool + rewards pool.
     wal_balance: u64,
     /// Balance of the pool token in the pool in the current epoch.
     pool_token_balance: u64,
     /// Balance of the pool token in the pool in the current epoch, E+1 (and E+2).
-    pending_pool_token: VecMap<u32, u64>,
+    pending_pool_token: PendingValues,
     /// The amount of the pool token that will be withdrawn in E+1 or E+2.
-    pending_pool_token_withdraw: VecMap<u32, u64>,
+    pending_pool_token_withdraw: PendingValues,
     /// The commission rate for the pool.
     /// TODO: allow changing the commission rate in E+2.
     commission_rate: u64,
@@ -87,11 +86,11 @@ public struct StakingPool has key, store {
     ///
     /// Single key is cleared in the `advance_epoch` function, leaving only the
     /// next epoch's stake.
-    pending_stake: VecMap<u32, u64>,
+    pending_stake: PendingValues,
     /// The amount of stake that will be withdrawn in the next epoch.
     /// Depending on the committee state, the withdrawal can be in E+1 or E+2.
     /// Hence, we need to track withdrawal amounts for both epochs separately.
-    pending_withdrawal: VecMap<u32, u64>,
+    pending_withdrawal: PendingValues,
     /// The rewards that the pool has received from being in the committee.
     rewards_pool: Balance<WAL>,
 }
@@ -120,13 +119,7 @@ public(package) fun new(
     };
 
     let mut exchange_rates = table::new(ctx);
-    exchange_rates.add(
-        activation_epoch,
-        PoolExchangeRate {
-            wal_amount: 0,
-            pool_token_amount: 0,
-        },
-    );
+    exchange_rates.add(activation_epoch, pool_exchange_rate::empty());
 
     StakingPool {
         id,
@@ -146,10 +139,11 @@ public(package) fun new(
         ),
         commission_rate,
         activation_epoch,
-        pending_stake: vec_map::empty(),
-        pending_withdrawal: vec_map::empty(),
-        pending_pool_token: vec_map::empty(),
-        pending_pool_token_withdraw: vec_map::empty(),
+        latest_epoch: wctx.epoch(),
+        pending_stake: pending_values::empty(),
+        pending_withdrawal: pending_values::empty(),
+        pending_pool_token: pending_values::empty(),
+        pending_pool_token_withdraw: pending_values::empty(),
         wal_balance: 0,
         pool_token_balance: 0,
         rewards_pool: balance::zero(),
@@ -185,8 +179,8 @@ public(package) fun stake(
         .exchange_rate_at_epoch(current_epoch)
         .get_token_amount(staked_amount);
 
-    std::debug::print(&b"(Stake) Pool token amount, staked amount, ".to_string());
-    std::debug::print(&vector[pool_token_amount, staked_amount]);
+    // std::debug::print(&b"(Stake) Pool token amount, staked amount, ".to_string());
+    // std::debug::print(&vector[pool_token_amount, staked_amount]);
 
     let staked_wal = staked_wal::mint(
         pool.id.to_inner(),
@@ -196,19 +190,8 @@ public(package) fun stake(
     );
 
     // Add the stake to the pending stake either for E+1 or E+2.
-    if (!pool.pending_stake.contains(&activation_epoch)) {
-        pool.pending_stake.insert(activation_epoch, staked_amount);
-    } else {
-        let curr = pool.pending_stake[&activation_epoch];
-        *&mut pool.pending_stake[&activation_epoch] = curr + staked_amount;
-    };
-
-    if (!pool.pending_pool_token.contains(&activation_epoch)) {
-        pool.pending_pool_token.insert(activation_epoch, pool_token_amount);
-    } else {
-        let curr = pool.pending_pool_token[&activation_epoch];
-        *&mut pool.pending_pool_token[&activation_epoch] = curr + pool_token_amount;
-    };
+    pool.pending_stake.insert_or_add(activation_epoch, staked_amount);
+    pool.pending_pool_token.insert_or_add(activation_epoch, pool_token_amount);
 
     staked_wal
 }
@@ -245,23 +228,11 @@ public(package) fun request_withdraw_stake(
     let exchange_rate_at_activation = pool.exchange_rate_at_epoch(staked_wal.activation_epoch());
     let pool_token_amount = exchange_rate_at_activation.get_token_amount(principal_amount);
 
-    staked_wal.set_withdrawing(withdraw_epoch, pool_token_amount);
+    staked_wal.set_withdrawing(withdraw_epoch);
 
     // Add the withdrawal to the pending withdrawal either for E+1 or E+2.
-    if (!pool.pending_withdrawal.contains(&withdraw_epoch)) {
-        pool.pending_withdrawal.insert(withdraw_epoch, principal_amount);
-    } else {
-        let curr = pool.pending_withdrawal[&withdraw_epoch];
-        *&mut pool.pending_withdrawal[&withdraw_epoch] = curr + principal_amount;
-    };
-
-    // Add the pool token withdrawal to the pending withdrawal either for E+1 or E+2.
-    if (!pool.pending_pool_token_withdraw.contains(&withdraw_epoch)) {
-        pool.pending_pool_token_withdraw.insert(withdraw_epoch, pool_token_amount);
-    } else {
-        let curr = pool.pending_pool_token_withdraw[&withdraw_epoch];
-        *&mut pool.pending_pool_token_withdraw[&withdraw_epoch] = curr + pool_token_amount;
-    };
+    pool.pending_withdrawal.insert_or_add(withdraw_epoch, principal_amount);
+    pool.pending_pool_token_withdraw.insert_or_add(withdraw_epoch, pool_token_amount);
 }
 
 /// Perform the withdrawal of the staked WAL, returning the amount to the caller.
@@ -290,16 +261,16 @@ public(package) fun withdraw_stake(
     // TODO: current epoch or withdraw epoch?
     let latest_exchange_rate = pool.exchange_rate_at_epoch(wctx.epoch());
 
-    std::debug::print(&b"(Withdraw) Recent exchange rate".to_string());
-    std::debug::print(
-        &vector[
-            token_amount,
-            principal.value(),
-            pool.pool_token_at_epoch(wctx.epoch()),
-            pool.wal_balance_at_epoch(wctx.epoch()),
-        ],
-    );
-    std::debug::print(&latest_exchange_rate);
+    // std::debug::print(&b"(Withdraw) Recent exchange rate".to_string());
+    // std::debug::print(
+    //     &vector[
+    //         token_amount,
+    //         principal.value(),
+    //         pool.pool_token_at_epoch(wctx.epoch()),
+    //         pool.wal_balance_at_epoch(wctx.epoch()),
+    //     ],
+    // );
+    // std::debug::print(&latest_exchange_rate);
 
     let principal_amount = principal.value();
     let total_amount = latest_exchange_rate.get_wal_amount(token_amount);
@@ -307,44 +278,17 @@ public(package) fun withdraw_stake(
         total_amount - principal_amount
     } else 0;
 
-    std::debug::print(&b"(Withdraw) Total amount, rewards amount".to_string());
-    std::debug::print(&vector[total_amount, rewards_amount]);
+    // std::debug::print(&b"(Withdraw) Total amount, rewards amount".to_string());
+    // std::debug::print(&vector[total_amount, rewards_amount]);
 
     // withdraw rewards. due to rounding errors, there's a chance that the
     // rewards amount is higher than the rewards pool, in this case, we
     // withdraw the maximum amount possible.
+    // TODO: add an assert that rounding is within the acceptable range.
     let rewards_amount = rewards_amount.min(pool.rewards_pool.value());
     let mut to_withdraw = pool.rewards_pool.split(rewards_amount);
     to_withdraw.join(principal);
     to_withdraw.into_coin(ctx)
-}
-
-fun get_wal_amount(exchange_rate: &PoolExchangeRate, token_amount: u64): u64 {
-    // When either amount is 0, that means we have no stakes with this pool.
-    // The other amount might be non-zero when there's dust left in the pool.
-    if (exchange_rate.wal_amount == 0 || exchange_rate.pool_token_amount == 0) {
-        return token_amount
-    };
-    let res =
-        exchange_rate.wal_amount as u128
-            * (token_amount as u128)
-            / (exchange_rate.pool_token_amount as u128);
-
-    res as u64
-}
-
-fun get_token_amount(exchange_rate: &PoolExchangeRate, wal_amount: u64): u64 {
-    // When either amount is 0, that means we have no stakes with this pool.
-    // The other amount might be non-zero when there's dust left in the pool.
-    if (exchange_rate.wal_amount == 0 || exchange_rate.pool_token_amount == 0) {
-        return wal_amount
-    };
-    let res =
-        exchange_rate.pool_token_amount as u128
-            * (wal_amount as u128)
-            / (exchange_rate.wal_amount as u128);
-
-    res as u64
 }
 
 // === Pool parameters ===
@@ -403,7 +347,7 @@ public(package) fun destroy_empty(pool: StakingPool) {
     exchange_rates.drop();
     rewards_pool.destroy_zero();
 
-    let (_epochs, pending_stakes) = pending_stake.into_keys_values();
+    let (_epochs, pending_stakes) = pending_stake.unwrap().into_keys_values();
     pending_stakes.do!(|stake| assert!(stake == 0));
 }
 
@@ -416,49 +360,28 @@ public(package) fun advance_epoch(
     // process the pending and withdrawal amounts
     let current_epoch = wctx.epoch();
 
-    // process the rewards, add them to the pool
+    assert!(current_epoch > pool.latest_epoch, EPoolAlreadyUpdated);
+
+    pool.latest_epoch = current_epoch;
     pool.wal_balance = pool.wal_balance + rewards.value();
     pool.rewards_pool.join(rewards);
 
     // === Process the pending stake and withdrawal requests ===
 
-    // move pending stake into active stake if it is before the current epoch
-    pool.pending_stake.keys().do!(|e| if (e <= wctx.epoch()) {
-        let (_, stake) = pool.pending_stake.remove(&e);
-        pool.wal_balance = pool.wal_balance + stake;
-    });
-
-    // remove pending withdrawals if they are before the current epoch
-    pool.pending_withdrawal.keys().do!(|e| if (e <= wctx.epoch()) {
-        let (_, stake) = pool.pending_withdrawal.remove(&e);
-        pool.wal_balance = pool.wal_balance - stake;
-    });
-
-    // move pending pool token into active pool token if it is before the current epoch
-    pool.pending_pool_token.keys().do!(|e| if (e <= wctx.epoch()) {
-        let (_, token) = pool.pending_pool_token.remove(&e);
-        pool.pool_token_balance = pool.pool_token_balance + token;
-    });
-
-    // remove pending pool token withdrawals if they are before the current epoch
-    pool.pending_pool_token_withdraw.keys().do!(|e| if (e <= wctx.epoch()) {
-        let (_, token) = pool.pending_pool_token_withdraw.remove(&e);
-        pool.pool_token_balance = pool.pool_token_balance - token;
-    });
+    pool.wal_balance = pool.wal_balance + pool.pending_stake.flush(current_epoch);
+    pool.wal_balance = pool.wal_balance - pool.pending_withdrawal.flush(current_epoch);
+    pool.pool_token_balance = pool.pool_token_balance + pool.pending_pool_token.flush(current_epoch);
+    pool.pool_token_balance = pool.pool_token_balance - pool.pending_pool_token_withdraw.flush(current_epoch);
 
     // update the pool token balance
     let wal_amount = pool.wal_balance;
-    let exchange_rate = PoolExchangeRate {
-        wal_amount,
-        pool_token_amount: pool.pool_token_balance,
-    };
-
+    let exchange_rate = pool_exchange_rate::new(wal_amount, pool.pool_token_balance);
     let pool_token_amount = exchange_rate.get_token_amount(wal_amount);
 
-    std::debug::print(&b"(Advance Epoch) Pool token amount, wal_amount".to_string());
-    std::debug::print(&vector[pool_token_amount, wal_amount]);
+    // std::debug::print(&b"(Advance Epoch) Pool token amount, wal_amount".to_string());
+    // std::debug::print(&vector[pool_token_amount, wal_amount]);
 
-    pool.exchange_rates.add(current_epoch, PoolExchangeRate { wal_amount, pool_token_amount });
+    pool.exchange_rates.add(current_epoch, pool_exchange_rate::new(wal_amount, pool_token_amount));
 }
 
 /// Set the state of the pool to `Active`.
@@ -469,13 +392,8 @@ public(package) fun set_is_active(pool: &mut StakingPool) {
 
 public(package) fun pool_token_at_epoch(pool: &StakingPool, epoch: u32): u64 {
     let mut expected = pool.pool_token_balance;
-    pool.pending_pool_token.keys().do!(|e| if (e <= epoch) {
-        expected = expected + pool.pending_pool_token[&e];
-    });
-    pool.pending_pool_token_withdraw.keys().do!(|e| if (e <= epoch) {
-        expected = expected - pool.pending_pool_token_withdraw[&e];
-    });
-
+    expected = expected + pool.pending_pool_token.value_at(epoch);
+    expected = expected - pool.pending_pool_token_withdraw.value_at(epoch);
     expected
 }
 
@@ -491,7 +409,7 @@ public(package) fun exchange_rate_at_epoch(pool: &StakingPool, mut epoch: u32): 
         epoch = epoch - 1;
     };
 
-    PoolExchangeRate { wal_amount: 0, pool_token_amount: 0 }
+    pool_exchange_rate::empty()
 }
 
 /// Returns the expected active stake for epoch `E` for the pool. It processes
@@ -502,13 +420,8 @@ public(package) fun exchange_rate_at_epoch(pool: &StakingPool, mut epoch: u32): 
 /// requests, and lack of immediate updates.
 public(package) fun wal_balance_at_epoch(pool: &StakingPool, epoch: u32): u64 {
     let mut expected = pool.wal_balance;
-    pool.pending_stake.keys().do!(|e| if (e <= epoch) {
-        expected = expected + pool.pending_stake[&e]
-    });
-    pool.pending_withdrawal.keys().do!(|e| if (e <= epoch) {
-        expected = expected - pool.pending_withdrawal[&e]
-    });
-
+    expected = expected + pool.pending_stake.value_at(epoch);
+    expected = expected - pool.pending_withdrawal.value_at(epoch);
     expected
 }
 
@@ -554,8 +467,8 @@ public(package) fun is_withdrawing(pool: &StakingPool): bool {
 
 //// Returns `true` if the pool is empty.
 public(package) fun is_empty(pool: &StakingPool): bool {
-    let pending_stake_epochs = pool.pending_stake.keys();
-    let non_empty = pending_stake_epochs.count!(|epoch| pool.pending_stake[epoch] != 0);
+    let pending_stake = pool.pending_stake.unwrap();
+    let non_empty = pending_stake.keys().count!(|epoch| pending_stake[epoch] != 0);
 
     pool.wal_balance == 0 && non_empty == 0
 }

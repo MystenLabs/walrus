@@ -31,7 +31,7 @@ public enum StakedWalState has store, copy, drop {
     Staked,
     // The staked WAL is in the process of withdrawing. The value inside the
     // variant is the epoch when the staked WAL can be withdrawn.
-    Withdrawing { withdraw_epoch: u32, withdraw_amount: u64 },
+    Withdrawing { withdraw_epoch: u32 },
 }
 
 /// Represents a staked WAL, does not store the `Balance` inside, but uses
@@ -76,8 +76,8 @@ public(package) fun into_balance(sw: StakedWal): Balance<WAL> {
 }
 
 /// Sets the staked WAL state to `Withdrawing`
-public(package) fun set_withdrawing(sw: &mut StakedWal, withdraw_epoch: u32, withdraw_amount: u64) {
-    sw.state = StakedWalState::Withdrawing { withdraw_epoch, withdraw_amount };
+public(package) fun set_withdrawing(sw: &mut StakedWal, withdraw_epoch: u32) {
+    sw.state = StakedWalState::Withdrawing { withdraw_epoch };
 }
 
 // === Accessors ===
@@ -107,16 +107,7 @@ public fun is_withdrawing(sw: &StakedWal): bool {
 /// Aborts otherwise.
 public fun withdraw_epoch(sw: &StakedWal): u32 {
     match (sw.state) {
-        StakedWalState::Withdrawing { withdraw_epoch, .. } => withdraw_epoch,
-        _ => abort ENotWithdrawing,
-    }
-}
-
-/// Returns the `withdraw_amount` of the staked WAL if it is in the `Withdrawing`.
-/// Aborts otherwise.
-public fun withdraw_amount(sw: &StakedWal): u64 {
-    match (sw.state) {
-        StakedWalState::Withdrawing { withdraw_amount, .. } => withdraw_amount,
+        StakedWalState::Withdrawing { withdraw_epoch } => withdraw_epoch,
         _ => abort ENotWithdrawing,
     }
 }

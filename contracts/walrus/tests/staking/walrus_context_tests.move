@@ -12,6 +12,6 @@ fun test_walrus_context_flow() {
     let walrus_ctx = walrus_context::new(1, true, vec_map::empty());
 
     // assert that the WalrusContext is created correctly
-    assert!(walrus_context::epoch(&walrus_ctx) == 1);
-    assert!(walrus_context::committee_selected(&walrus_ctx) == true);
+    assert!(walrus_ctx.epoch() == 1);
+    assert!(walrus_ctx.committee_selected() == true);
 }
