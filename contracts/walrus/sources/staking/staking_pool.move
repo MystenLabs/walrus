@@ -197,9 +197,11 @@ public(package) fun stake(
 /// Marks the `StakedWal` as withdrawing and updates the activation epoch.
 ///
 /// TODO: rewards calculation.
-/// TODO: if pool is out and is withdrawing, we can perform the withdrawal immediately
+/// TODO: if pool is out and is withdrawing, we can perform the withdrawal
+/// immediately
 /// TODO: Only if the pool is already withdrawn.
-/// TODO: consider the case of early withdrawal if stake hasn't been activated and commitee not selected.
+/// TODO: consider the case of early withdrawal if stake hasn't been activated
+/// and commitee not selected.
 public(package) fun request_withdraw_stake(
     pool: &mut StakingPool,
     staked_wal: &mut StakedWal,
@@ -351,8 +353,10 @@ public(package) fun advance_epoch(
 
     pool.wal_balance = pool.wal_balance + pool.pending_stake.flush(current_epoch);
     pool.wal_balance = pool.wal_balance - pool.pending_withdrawal.flush(current_epoch);
-    pool.pool_token_balance = pool.pool_token_balance + pool.pending_pool_token.flush(current_epoch);
-    pool.pool_token_balance = pool.pool_token_balance - pool.pending_pool_token_withdraw.flush(current_epoch);
+    pool.pool_token_balance =
+        pool.pool_token_balance + pool.pending_pool_token.flush(current_epoch);
+    pool.pool_token_balance =
+        pool.pool_token_balance - pool.pending_pool_token_withdraw.flush(current_epoch);
 
     // update the pool token balance
     let wal_amount = pool.wal_balance;
