@@ -36,7 +36,7 @@ mod request_futures;
 
 pub(crate) use self::{
     committee_service::NodeCommitteeService,
-    node_service::default_node_service_factory,
+    node_service::DefaultNodeServiceFactory,
 };
 use super::errors::SyncShardClientError;
 

@@ -59,6 +59,7 @@ use crate::{
             BeginCommitteeChangeError,
             CommitteeLookupService,
             CommitteeService,
+            DefaultNodeServiceFactory,
             EndCommitteeChangeError,
             NodeCommitteeService,
         },
@@ -912,12 +913,11 @@ impl TestClusterBuilder {
                 builder.with_committee_service(service)
             } else {
                 store_lookup_service = true;
-                let service = NodeCommitteeService::new(
-                    lookup_service.clone(),
-                    local_identity,
-                    Default::default(),
-                )
-                .await?;
+                let service = NodeCommitteeService::builder()
+                    .local_identity(local_identity)
+                    .node_service_factory(DefaultNodeServiceFactory::avoid_system_services())
+                    .build(lookup_service.clone())
+                    .await?;
                 builder.with_committee_service(Box::new(service))
             };
 
@@ -1107,7 +1107,11 @@ pub mod test_cluster {
     use super::*;
     use crate::{
         client::{self, ClientCommunicationConfig, Config},
-        node::{contract_service::SuiSystemContractService, system_events::SuiSystemEventProvider},
+        node::{
+            committee::DefaultNodeServiceFactory,
+            contract_service::SuiSystemContractService,
+            system_events::SuiSystemEventProvider,
+        },
     };
 
     /// Performs the default setup for the test cluster.
@@ -1201,6 +1205,7 @@ pub mod test_cluster {
         let cluster_builder = cluster_builder
             .with_committee_services(|| async {
                 NodeCommitteeService::builder()
+                    .node_service_factory(DefaultNodeServiceFactory::avoid_system_services())
                     .build(sui_read_client.clone())
                     .await
                     .expect("service construction must succeed in tests")

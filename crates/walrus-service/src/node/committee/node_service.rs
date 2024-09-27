@@ -18,7 +18,6 @@
 // the remote and storage local nodes the same.
 use std::{
     fmt::Debug,
-    future::Future,
     sync::Arc,
     task::{Context, Poll},
 };
@@ -45,7 +44,7 @@ use walrus_sdk::{
 };
 use walrus_sui::types::StorageNode as SuiStorageNode;
 
-use super::DefaultRecoverySymbol;
+use super::{DefaultRecoverySymbol, NodeServiceFactory};
 
 /// Requests used with a [`NodeService`].
 #[derive(Debug, Clone)]
@@ -273,18 +272,54 @@ impl Service<Request> for RemoteStorageNode {
 // pub(crate) type LocalStorageNode = Weak<StorageNodeInner>;
 
 /// A [`NodeServiceFactory`] creating [`RemoteStorageNode`] services.
-pub(crate) fn default_node_service_factory<'a>(
-    member: &'a SuiStorageNode,
-    encoding_config: &'a Arc<EncodingConfig>,
-) -> impl Future<Output = Result<RemoteStorageNode, ClientBuildError>> + 'static {
-    let result = walrus_sdk::client::Client::for_storage_node(
-        &member.network_address.0,
-        &member.network_public_key,
-    )
-    .map(|client| RemoteStorageNode {
-        client,
-        encoding_config: encoding_config.clone(),
-    });
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct DefaultNodeServiceFactory {
+    /// If true, disables the use of proxies.
+    ///
+    /// This speeds up the construction of new instances.
+    pub no_use_proxy: bool,
 
-    std::future::ready(result)
+    /// If true, disables the loading of native certificates.
+    ///
+    /// This speeds up the construction of new instances.
+    pub no_loading_native_certs: bool,
+}
+
+impl DefaultNodeServiceFactory {
+    /// Skips the use of proxies or the loading of native certificates, as these require interacting
+    /// with the operating system and can significantly slow down the construction of new instances.
+    pub fn avoid_system_services() -> Self {
+        Self {
+            no_use_proxy: true,
+            no_loading_native_certs: true,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl NodeServiceFactory for DefaultNodeServiceFactory {
+    type Service = RemoteStorageNode;
+
+    async fn make_service(
+        &mut self,
+        member: &SuiStorageNode,
+        encoding_config: &Arc<EncodingConfig>,
+    ) -> Result<Self::Service, ClientBuildError> {
+        let mut builder = walrus_sdk::client::Client::builder()
+            .authenticate_with_public_key(member.network_public_key.clone());
+
+        if self.no_loading_native_certs {
+            builder = builder.tls_built_in_root_certs(false);
+        }
+        if self.no_use_proxy {
+            builder = builder.no_proxy();
+        }
+
+        builder
+            .build(&member.network_address.0)
+            .map(|client| RemoteStorageNode {
+                client,
+                encoding_config: encoding_config.clone(),
+            })
+    }
 }

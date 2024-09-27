@@ -38,6 +38,7 @@ use super::{
     BeginCommitteeChangeError,
     CommitteeLookupService,
     CommitteeService,
+    DefaultNodeServiceFactory,
     EndCommitteeChangeError,
     NodeServiceFactory,
 };
@@ -62,7 +63,7 @@ pub(crate) struct NodeCommitteeServiceBuilder<T> {
 impl Default for NodeCommitteeServiceBuilder<RemoteStorageNode> {
     fn default() -> Self {
         Self {
-            service_factory: Box::new(super::default_node_service_factory),
+            service_factory: Box::new(DefaultNodeServiceFactory::default()),
             local_identity: None,
             rng: StdRng::seed_from_u64(rand::thread_rng().gen()),
             config: CommitteeServiceConfig::default(),
@@ -74,7 +75,6 @@ impl<T> NodeCommitteeServiceBuilder<T>
 where
     T: NodeService,
 {
-    #[cfg(test)]
     pub fn node_service_factory<F>(
         self,
         service_factory: F,
