@@ -10,8 +10,8 @@ license = "Apache-2.0"
 
 [workspace.dependencies]
 anyhow = "1.0.89"
-async-trait = "0.1.82"
-axum = { version = "0.7.6", default-features = false }
+async-trait = "0.1.83"
+axum = { version = "0.7.7", default-features = false }
 axum-server = { version = "0.7.1", default-features = false }
 base64 = "0.22.1"
 bcs = "0.1.6"
@@ -69,7 +69,7 @@ sui-storage = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.33.
 sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.33.1" }
 syn = "2.0"
 telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.33.1" }
-tempfile = "3.11.0"
+tempfile = "3.13.0"
 test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.33.1" }
 thiserror = "1.0.64"
 tokio = "=1.36.0"
