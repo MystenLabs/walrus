@@ -40,12 +40,13 @@ public(package) fun get_wal_amount(exchange_rate: &PoolExchangeRate, token_amoun
         return token_amount
     };
 
+    let token_amount = (token_amount as u128) * SCALING;
     let res =
         exchange_rate.wal_amount
-            * (token_amount as u128)
+            * token_amount
             / (exchange_rate.pool_token_amount);
 
-    res as u64
+    (res / SCALING) as u64
 }
 
 public(package) fun get_token_amount(exchange_rate: &PoolExchangeRate, wal_amount: u64): u64 {
@@ -54,10 +55,12 @@ public(package) fun get_token_amount(exchange_rate: &PoolExchangeRate, wal_amoun
     if (exchange_rate.wal_amount == 0 || exchange_rate.pool_token_amount == 0) {
         return wal_amount
     };
+
+    let wal_amount = (wal_amount as u128) * SCALING;
     let res =
         exchange_rate.pool_token_amount
-            * (wal_amount as u128)
+            * wal_amount
             / (exchange_rate.wal_amount);
 
-    res as u64
+    (res / SCALING) as u64
 }

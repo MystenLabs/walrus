@@ -244,7 +244,7 @@ public(package) fun withdraw_stake(
     assert!(!pool.is_new());
     assert!(staked_wal.value() > 0);
     assert!(staked_wal.node_id() == pool.id.to_inner());
-    assert!(staked_wal.withdraw_epoch() >= wctx.epoch());
+    assert!(staked_wal.withdraw_epoch() <= wctx.epoch());
     assert!(staked_wal.activation_epoch() <= wctx.epoch());
     assert!(staked_wal.is_withdrawing());
 
@@ -334,6 +334,14 @@ public(package) fun destroy_empty(pool: StakingPool) {
     pending_stakes.do!(|stake| assert!(stake == 0));
 }
 
+macro fun dbg<$T: drop>($note: vector<u8>, $value: $T) {
+    use std::debug::print;
+    let note = $note;
+    let value = $value;
+    print(&note.to_string());
+    print(&value)
+}
+
 /// Advance epoch for the `StakingPool`.
 public(package) fun advance_epoch(
     pool: &mut StakingPool,
@@ -351,12 +359,16 @@ public(package) fun advance_epoch(
 
     // === Process the pending stake and withdrawal requests ===
 
+    // dbg!(b"epoch", current_epoch);
+    // dbg!(b"wal_balance", pool.wal_balance);
+    // dbg!(b"wal_pending +", pool.pending_stake.value_at(current_epoch));
+    // dbg!(b"wal_pending -", pool.pending_withdrawal.value_at(current_epoch));
+
     pool.wal_balance = pool.wal_balance + pool.pending_stake.flush(current_epoch);
     pool.wal_balance = pool.wal_balance - pool.pending_withdrawal.flush(current_epoch);
     pool.pool_token_balance =
         pool.pool_token_balance + pool.pending_pool_token.flush(current_epoch);
-    pool.pool_token_balance =
-        pool.pool_token_balance - pool.pending_pool_token_withdraw.flush(current_epoch);
+    pool.pool_token_balance = pool.pool_token_balance - pool.pending_pool_token_withdraw.flush(current_epoch);
 
     // update the pool token balance
     let wal_amount = pool.wal_balance;
