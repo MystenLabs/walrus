@@ -267,4 +267,13 @@ impl Committee {
         self.member_index_for_shard(shard.into())
             .map(|index| &self.members[index])
     }
+
+    /// Returns the network address and network public key of the committee members.
+    pub fn network_addresses_and_pks(
+        &self,
+    ) -> impl Iterator<Item = (&NetworkAddress, &NetworkPublicKey)> {
+        self.members
+            .iter()
+            .map(|member| (&member.network_address, &member.network_public_key))
+    }
 }

@@ -239,7 +239,7 @@ impl ActiveCommittees {
     /// Returns the minimum number of correct shards.
     ///
     /// Given the invariants enforced by this struct, the result of this function is the same for
-    /// all members of the committee.
+    /// all committees.
     ///
     /// This is (`n_shards - f`), where `f` is the maximum number of faulty shards, given
     /// `n_shards`. See [walrus_core::bft] for further details.
@@ -252,7 +252,7 @@ impl ActiveCommittees {
     /// Checks if the number is large enough to reach a quorum (`2f + 1`).
     ///
     /// Given the invariants enforced by this struct, the result of this function is the same for
-    /// all members of the committee.
+    /// all committees.
     ///
     /// `f` is the maximum number of faulty shards, given `n_shards`. See [walrus_core::bft] for
     /// further details.
@@ -265,7 +265,7 @@ impl ActiveCommittees {
     ///
     ///
     /// Given the invariants enforced by this struct, the result of this function is the same for
-    /// all members of the committee.
+    /// all committees.
     ///
     /// The validity threshold is `f + 1`, where `f` is the maximum number of faulty shards. See
     /// [walrus_core::bft] for further details.
@@ -281,12 +281,12 @@ impl ActiveCommittees {
     /// the pairs of the members in previous, current, and next, committees.
     #[allow(clippy::mutable_key_type)]
     pub fn unique_node_address_and_key(&self) -> HashSet<(&NetworkAddress, &NetworkPublicKey)> {
-        let mut members = HashSet::from_iter(extract_address_and_pk(&self.current_committee));
+        let mut members = HashSet::from_iter(self.current_committee.network_addresses_and_pks());
         if let Some(previous) = self.previous_committee() {
-            members.extend(extract_address_and_pk(previous));
+            members.extend(previous.network_addresses_and_pks());
         }
         if let Some(next) = self.next_committee() {
-            members.extend(extract_address_and_pk(next));
+            members.extend(next.network_addresses_and_pks());
         }
         members
     }
@@ -418,13 +418,4 @@ impl From<ActiveCommittees> for CommitteeTracker {
     fn from(active_committees: ActiveCommittees) -> Self {
         Self::new(active_committees)
     }
-}
-
-fn extract_address_and_pk(
-    committee: &Committee,
-) -> impl Iterator<Item = (&NetworkAddress, &NetworkPublicKey)> {
-    committee
-        .members()
-        .iter()
-        .map(|member| (&member.network_address, &member.network_public_key))
 }
