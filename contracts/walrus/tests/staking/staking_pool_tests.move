@@ -6,6 +6,79 @@ module walrus::staking_pool_tests;
 use std::unit_test::assert_eq;
 use sui::test_utils::destroy;
 use walrus::test_utils::{mint, pool, context_runner};
+use std::debug::print;
+
+macro fun dbg<$T: drop>($note: vector<u8>, $value: $T) {
+    let note = $note;
+    let value = $value;
+    print(&note.to_string());
+    print(&value)
+}
+
+#[test]
+// Scenario: Alice stakes, pool receives rewards, Alice withdraws everything
+fun stake_and_receive_rewards() {
+    let mut test = context_runner();
+
+    // E0: Alice stakes 1000 WAL
+    let (wctx, ctx) = test.current();
+    let mut pool = pool().build(&wctx, ctx);
+    let mut staked_a = pool.stake(mint(1000, ctx), &wctx, ctx);
+
+    assert_eq!(pool.wal_balance(), 0);
+    assert_eq!(pool.pool_token_at_epoch(wctx.epoch()), 0);
+    dbg!(b"Exchange Rate at epoch 0 when Alice just staked", pool.exchange_rate_at_epoch(wctx.epoch()));
+    // no rate is generated yet, so the pool token is 0
+
+    // E1: Rewards received, Alice requests withdrawal of 1000 WAL + rewards
+    let (wctx, ctx) = test.next_epoch();
+    pool.advance_epoch(mint(1000, ctx).into_balance(), &wctx);
+    pool.request_withdraw_stake(&mut staked_a, &wctx, ctx);
+
+    dbg!(b"Exchange Rate at epoch 1 when Alice just requested withdrawal", pool.exchange_rate_at_epoch(wctx.epoch()));
+
+    let (wctx, ctx) = test.next_epoch();
+    pool.advance_epoch(mint(0, ctx).into_balance(), &wctx);
+
+    dbg!(b"Exchange Rate at epoch 2 when Alice is about to withdraw", pool.exchange_rate_at_epoch(wctx.epoch()));
+
+    let coin_a = pool.withdraw_stake(staked_a, &wctx, ctx);
+    assert_eq!(coin_a.burn_for_testing(), 2000); // 1000 + 1000 rewards
+
+    dbg!(b"WAL balance post withdrawal", pool.wal_balance());
+    dbg!(b"Actual rewards balance", pool.rewards_amount());
+
+    // let (wctx, ctx) = test.next_epoch();
+    // pool.advance_epoch(mint(0, ctx).into_balance(), &wctx);
+    // assert_eq!(pool.wal_balance(), 0);
+
+    // destroy(staked_a);
+    destroy(pool);
+}
+
+#[test]
+// Scenario: Alice stakes, Bob stakes, pool receives rewards, Alice withdraws
+fun stake_and_receive_partial_rewards() {
+    // let mut test = context_runner();
+
+    // // E0: Alice stakes 1000 WAL, Bob stakes 1000 WAL
+    // let (wctx, ctx) = test.current();
+    // let mut pool = pool().build(&wctx, ctx);
+    // let mut staked_a = pool.stake(mint(1000, ctx), &wctx, ctx);
+    // let mut staked_b = pool.stake(mint(1000, ctx), &wctx, ctx);
+
+    // assert_eq!(pool.wal_balance(), 0);
+    // assert_eq!(pool.pool_token_at_epoch(wctx.epoch()), 0);
+
+    // // E1: Rewards received, Alice requests withdrawal of 1000 WAL + rewards
+    // let (wctx, ctx) = test.next_epoch();
+    // pool.advance_epoch(mint(1000, ctx).into_balance(), &wctx);
+    // pool.request_withdraw_stake(&mut staked_a, &wctx, ctx);
+
+    // let (wctx, ctx) = test.next_epoch();
+
+
+}
 
 #[test]
 // Tests correct data combination in the pool for both: pending stake and
