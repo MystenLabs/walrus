@@ -7,7 +7,7 @@ use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use sui_sdk::rpc_types::SuiEvent;
 use sui_types::{base_types::ObjectID, event::EventID};
-use walrus_core::{ensure, BlobId, EncodingType, Epoch};
+use walrus_core::{ensure, BlobId, EncodingType, Epoch, ShardIndex};
 
 use crate::contracts::{self, AssociatedSuiEvent, MoveConversionError, StructTag};
 
@@ -297,7 +297,7 @@ impl TryFrom<SuiEvent> for BlobEvent {
             contracts::events::BlobRegistered => Ok(BlobEvent::Registered(value.try_into()?)),
             contracts::events::BlobCertified => Ok(BlobEvent::Certified(value.try_into()?)),
             contracts::events::InvalidBlobID => Ok(BlobEvent::InvalidBlobID(value.try_into()?)),
-            _ => Err(anyhow!("could not convert event: {}", value)),
+            _ => Err(anyhow!("could not convert to blob event: {}", value)),
         }
     }
 }
@@ -383,6 +383,63 @@ impl TryFrom<SuiEvent> for EpochChangeDone {
     }
 }
 
+/// Sui event that shards have been successfully received in the assigned storage node in the
+/// new epoch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ShardsReceived {
+    pub epoch: Epoch,
+    pub shards: Vec<ShardIndex>,
+    /// The ID of the event.
+    pub event_id: EventID,
+}
+
+impl AssociatedSuiEvent for ShardsReceived {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::ShardsReceived;
+}
+
+impl TryFrom<SuiEvent> for ShardsReceived {
+    type Error = MoveConversionError;
+
+    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
+        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+
+        let (epoch, shards) = bcs::from_bytes(&sui_event.bcs)?;
+        Ok(Self {
+            epoch,
+            shards,
+            event_id: sui_event.id,
+        })
+    }
+}
+
+/// Sui event signaling that shards start using recovery mechanism to recover data.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ShardRecoveryStart {
+    pub epoch: Epoch,
+    pub shards: Vec<ShardIndex>,
+    /// The ID of the event.
+    pub event_id: EventID,
+}
+
+impl AssociatedSuiEvent for ShardRecoveryStart {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::ShardRecoveryStart;
+}
+
+impl TryFrom<SuiEvent> for ShardRecoveryStart {
+    type Error = MoveConversionError;
+
+    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
+        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+
+        let (epoch, shards) = bcs::from_bytes(&sui_event.bcs)?;
+        Ok(Self {
+            epoch,
+            shards,
+            event_id: sui_event.id,
+        })
+    }
+}
+
 /// Enum to wrap epoch change events.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EpochChangeEvent {
@@ -392,6 +449,10 @@ pub enum EpochChangeEvent {
     EpochChangeStart(EpochChangeStart),
     /// Epoch change done event.
     EpochChangeDone(EpochChangeDone),
+    /// Shards received event.
+    ShardsReceived(ShardsReceived),
+    /// Shard recovery start event.
+    ShardRecoveryStart(ShardRecoveryStart),
 }
 
 impl EpochChangeEvent {
@@ -401,6 +462,8 @@ impl EpochChangeEvent {
             EpochChangeEvent::EpochParametersSelected(event) => event.event_id,
             EpochChangeEvent::EpochChangeStart(event) => event.event_id,
             EpochChangeEvent::EpochChangeDone(event) => event.event_id,
+            EpochChangeEvent::ShardsReceived(event) => event.event_id,
+            EpochChangeEvent::ShardRecoveryStart(event) => event.event_id,
         }
     }
 
@@ -410,6 +473,8 @@ impl EpochChangeEvent {
             EpochChangeEvent::EpochParametersSelected(event) => event.next_epoch - 1,
             EpochChangeEvent::EpochChangeStart(event) => event.epoch,
             EpochChangeEvent::EpochChangeDone(event) => event.epoch,
+            EpochChangeEvent::ShardsReceived(event) => event.epoch,
+            EpochChangeEvent::ShardRecoveryStart(event) => event.epoch,
         }
     }
 }
@@ -475,7 +540,13 @@ impl TryFrom<SuiEvent> for ContractEvent {
             contracts::events::EpochChangeDone => Ok(ContractEvent::EpochChangeEvent(
                 EpochChangeEvent::EpochChangeDone(value.try_into()?),
             )),
-            _ => Err(anyhow!("could not convert event: {}", value)),
+            contracts::events::ShardsReceived => Ok(ContractEvent::EpochChangeEvent(
+                EpochChangeEvent::ShardsReceived(value.try_into()?),
+            )),
+            contracts::events::ShardRecoveryStart => Ok(ContractEvent::EpochChangeEvent(
+                EpochChangeEvent::ShardRecoveryStart(value.try_into()?),
+            )),
+            _ => unreachable!("Encountered unexpected unrecognized events {}", value),
         }
     }
 }

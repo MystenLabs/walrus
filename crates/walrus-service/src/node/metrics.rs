@@ -135,6 +135,8 @@ impl TelemetryLabel for EpochChangeEvent {
             EpochChangeEvent::EpochParametersSelected(_) => "epoch-parameters-selected",
             EpochChangeEvent::EpochChangeStart(_) => "epoch-change-start",
             EpochChangeEvent::EpochChangeDone(_) => "epoch-change-done",
+            EpochChangeEvent::ShardsReceived(_) => "shards-received",
+            EpochChangeEvent::ShardRecoveryStart(_) => "shard-recovery-start",
         }
     }
 }

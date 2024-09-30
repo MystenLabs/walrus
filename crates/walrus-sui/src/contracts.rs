@@ -279,4 +279,6 @@ pub mod events {
     contract_ident!(struct events::EpochParametersSelected);
     contract_ident!(struct events::EpochChangeStart);
     contract_ident!(struct events::EpochChangeDone);
+    contract_ident!(struct events::ShardsReceived);
+    contract_ident!(struct events::ShardRecoveryStart);
 }

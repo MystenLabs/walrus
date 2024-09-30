@@ -489,7 +489,6 @@ impl StorageNode {
     }
 
     async fn process_events(&self) -> anyhow::Result<()> {
-        let storage = &self.inner.storage;
         let event_stream = self.continue_event_stream().await?;
 
         let from_element_index = self.get_last_committed_event_index()?;
@@ -540,84 +539,105 @@ impl StorageNode {
                 }
             }
 
-            async move {
-                let _timer_guard = &self
-                    .inner
-                    .metrics
-                    .event_process_duration_seconds
-                    .with_label_values(&[stream_element.element.label()])
-                    .start_timer();
-                if let Some(blob_event) = stream_element.element.blob_event() {
-                    storage.update_blob_info(blob_event)?;
-                }
-                match stream_element.element {
-                    EventStreamElement::ContractEvent(ContractEvent::BlobEvent(
-                        BlobEvent::Registered(event),
-                    )) => {
-                        tracing::debug!("BlobRegistered event received: {:?}", event);
-                        self.inner
-                            .mark_event_completed(element_index, &event.event_id)?;
-                    }
-                    EventStreamElement::ContractEvent(ContractEvent::BlobEvent(
-                        BlobEvent::Certified(event),
-                    )) => {
-                        tracing::debug!("BlobCertified event received: {:?}", event);
-                        self.process_blob_certified_event(element_index, event)
-                            .await?;
-                    }
-                    EventStreamElement::ContractEvent(ContractEvent::BlobEvent(
-                        BlobEvent::Deleted(event),
-                    )) => {
-                        tracing::debug!("BlobDeleted event received: {:?}", event);
-                        self.process_blob_deleted_event(element_index, event)
-                            .await?;
-                    }
-                    EventStreamElement::ContractEvent(ContractEvent::BlobEvent(
-                        BlobEvent::InvalidBlobID(event),
-                    )) => {
-                        tracing::debug!("BlobInvalid event received: {:?}", event);
-                        self.process_blob_invalid_event(element_index, event)
-                            .await?;
-                    }
-                    EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
-                        EpochChangeEvent::EpochParametersSelected(event),
-                    )) => {
-                        tracing::info!("EpochParametersSelected event received: {:?}", event);
-                        self.inner
-                            .mark_event_completed(element_index, &event.event_id)?;
-                    }
-                    EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
-                        EpochChangeEvent::EpochChangeStart(event),
-                    )) => {
-                        tracing::info!("EpochChangeStart event received: {:?}", event);
-                        self.process_epoch_change_start_event(&event).await?;
-                        self.inner
-                            .mark_event_completed(element_index, &event.event_id)?;
-                    }
-                    EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
-                        EpochChangeEvent::EpochChangeDone(event),
-                    )) => {
-                        tracing::info!("EpochChangeDone event received: {:?}", event);
-                        self.process_epoch_change_done_event(&event).await?;
-                        self.inner
-                            .mark_event_completed(element_index, &event.event_id)?;
-                    }
-                    EventStreamElement::CheckpointBoundary => {
-                        self.inner.mark_element_at_index(element_index)?;
-                    }
-                }
-                Ok::<(), anyhow::Error>(())
-            }
-            .inspect_err(|err| {
-                let span = tracing::Span::current();
-                span.record("otel.status_code", "error");
-                span.record("otel.status_message", field::display(err));
-            })
-            .instrument(span)
-            .await?;
+            self.process_event(element_index, stream_element)
+                .inspect_err(|err| {
+                    let span = tracing::Span::current();
+                    span.record("otel.status_code", "error");
+                    span.record("otel.status_message", field::display(err));
+                })
+                .instrument(span)
+                .await?;
         }
 
         bail!("event stream for blob events stopped")
+    }
+
+    async fn process_event(
+        &self,
+        element_index: usize,
+        stream_element: IndexedStreamElement,
+    ) -> anyhow::Result<()> {
+        let storage = &self.inner.storage;
+        let _timer_guard = &self
+            .inner
+            .metrics
+            .event_process_duration_seconds
+            .with_label_values(&[stream_element.element.label()])
+            .start_timer();
+        if let Some(blob_event) = stream_element.element.blob_event() {
+            storage.update_blob_info(blob_event)?;
+        }
+        match stream_element.element {
+            EventStreamElement::ContractEvent(ContractEvent::BlobEvent(BlobEvent::Registered(
+                event,
+            ))) => {
+                tracing::debug!("BlobRegistered event received: {:?}", event);
+                self.inner
+                    .mark_event_completed(element_index, &event.event_id)?;
+            }
+            EventStreamElement::ContractEvent(ContractEvent::BlobEvent(BlobEvent::Certified(
+                event,
+            ))) => {
+                tracing::debug!("BlobCertified event received: {:?}", event);
+                self.process_blob_certified_event(element_index, event)
+                    .await?;
+            }
+            EventStreamElement::ContractEvent(ContractEvent::BlobEvent(BlobEvent::Deleted(
+                event,
+            ))) => {
+                tracing::debug!("BlobDeleted event received: {:?}", event);
+                self.process_blob_deleted_event(element_index, event)
+                    .await?;
+            }
+            EventStreamElement::ContractEvent(ContractEvent::BlobEvent(
+                BlobEvent::InvalidBlobID(event),
+            )) => {
+                tracing::debug!("BlobInvalid event received: {:?}", event);
+                self.process_blob_invalid_event(element_index, event)
+                    .await?;
+            }
+            EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
+                EpochChangeEvent::EpochParametersSelected(event),
+            )) => {
+                tracing::info!("EpochParametersSelected event received: {:?}", event);
+                self.inner
+                    .mark_event_completed(element_index, &event.event_id)?;
+            }
+            EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
+                EpochChangeEvent::EpochChangeStart(event),
+            )) => {
+                tracing::info!("EpochChangeStart event received: {:?}", event);
+                self.process_epoch_change_start_event(&event).await?;
+                self.inner
+                    .mark_event_completed(element_index, &event.event_id)?;
+            }
+            EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
+                EpochChangeEvent::EpochChangeDone(event),
+            )) => {
+                tracing::info!("EpochChangeDone event received: {:?}", event);
+                self.process_epoch_change_done_event(&event).await?;
+                self.inner
+                    .mark_event_completed(element_index, &event.event_id)?;
+            }
+            EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
+                EpochChangeEvent::ShardsReceived(event),
+            )) => {
+                tracing::info!("ShardsReceived event received: {:?}", event);
+                self.inner
+                    .mark_event_completed(element_index, &event.event_id)?;
+            }
+            EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
+                EpochChangeEvent::ShardRecoveryStart(event),
+            )) => {
+                tracing::info!("ShardRecoveryStart event received: {:?}", event);
+                self.inner
+                    .mark_event_completed(element_index, &event.event_id)?;
+            }
+            EventStreamElement::CheckpointBoundary => {
+                self.inner.mark_element_at_index(element_index)?;
+            }
+        }
+        Ok::<(), anyhow::Error>(())
     }
 
     #[tracing::instrument(skip_all)]
