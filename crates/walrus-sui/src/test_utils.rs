@@ -10,7 +10,7 @@ use std::sync::mpsc;
 use std::{
     collections::BTreeSet,
     fmt::{self, Debug, Formatter},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
 };
 
@@ -29,7 +29,7 @@ use sui_types::{
     event::EventID,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
 };
-use test_cluster::{TestCluster, TestClusterBuilder};
+use test_cluster::{FullNodeHandle, TestCluster, TestClusterBuilder};
 #[cfg(not(msim))]
 use tokio::runtime::Runtime;
 #[cfg(msim)]
@@ -92,10 +92,45 @@ pub fn get_default_invalid_certificate(blob_id: BlobId, epoch: Epoch) -> Invalid
     InvalidBlobCertificate::new(vec![0], invalid_blob_id_msg, signature)
 }
 
+/// Represents a test cluster running within this process or as a separate process.
+pub enum LocalOrExternalTestCluster {
+    /// A test cluster running within this process.
+    Local {
+        /// The local test cluster.
+        cluster: TestCluster,
+    },
+    /// A test running in another process.
+    External {
+        /// The path to the configuration of the external test cluster.
+        _config_path: PathBuf,
+    },
+}
+impl Debug for LocalOrExternalTestCluster {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Local { .. } => f.debug_struct("Local").finish(),
+            Self::External { _config_path } => f
+                .debug_struct("External")
+                .field("_config_path", _config_path)
+                .finish(),
+        }
+    }
+}
+
+impl LocalOrExternalTestCluster {
+    /// Returns a handle to the test cluster's full node.
+    pub fn fullnode_handle(&self) -> &FullNodeHandle {
+        match self {
+            LocalOrExternalTestCluster::Local { cluster } => &cluster.fullnode_handle,
+            LocalOrExternalTestCluster::External { _config_path } => todo!(),
+        }
+    }
+}
+
 /// Handle for the global Sui test cluster.
 pub struct TestClusterHandle {
     wallet_path: Mutex<PathBuf>,
-    cluster: TestCluster,
+    cluster: LocalOrExternalTestCluster,
 
     #[cfg(msim)]
     node_handle: NodeHandle,
@@ -111,6 +146,12 @@ impl TestClusterHandle {
     // Creates a test Sui cluster using tokio runtime.
     #[cfg(not(msim))]
     fn new(runtime: &Runtime) -> Self {
+        Self::from_env().unwrap_or_else(|| Self::new_on_runtime(runtime))
+    }
+
+    // Creates a test Sui cluster using tokio runtime.
+    #[cfg(not(msim))]
+    fn new_on_runtime(runtime: &Runtime) -> Self {
         tracing::debug!("building global Sui test cluster");
         let (tx, rx) = mpsc::channel();
         runtime.spawn(async move {
@@ -122,8 +163,27 @@ impl TestClusterHandle {
         let (cluster, wallet_path) = rx.recv().expect("should receive test_cluster");
         Self {
             wallet_path: Mutex::new(wallet_path),
-            cluster,
+            cluster: LocalOrExternalTestCluster::Local { cluster },
         }
+    }
+
+    /// Attempts to construct a handle to an externally running sui cluster.
+    ///
+    /// If the environment variable `SUI_TEST_CONFIG_DIR` is defined, then the wallet and network
+    /// configuration information taken from the the associated Sui files in the specified
+    /// directory.
+    ///
+    /// Returns None if the environment variable is not set.
+    fn from_env() -> Option<Self> {
+        let config_path = std::env::var("SUI_TEST_CONFIG_DIR").ok()?;
+        tracing::debug!("using external sui test cluster");
+        let wallet_path = Path::new(&config_path).join("client.yaml");
+        Some(Self {
+            cluster: LocalOrExternalTestCluster::External {
+                _config_path: wallet_path.clone(),
+            },
+            wallet_path: wallet_path.into(),
+        })
     }
 
     // Creates a test Sui cluster using deterministic MSIM runtime.
@@ -161,7 +221,7 @@ impl TestClusterHandle {
     }
 
     /// Returns the test cluster reference.
-    pub fn cluster(&self) -> &TestCluster {
+    pub fn cluster(&self) -> &LocalOrExternalTestCluster {
         &self.cluster
     }
 
@@ -266,10 +326,7 @@ pub mod using_msim {
     }
 }
 
-/// Returns a wallet on the global Sui test cluster as well as a handle to the cluster.
-///
-/// Initializes the test cluster if it doesn't exist yet. The cluster handle (or at least one
-/// copy if the function is called multiple times) must be kept alive while the wallet is active.
+/// Returns a new wallet on the global Sui test cluster.
 pub async fn new_wallet_on_sui_test_cluster(
     sui_cluster: Arc<TestClusterHandle>,
 ) -> anyhow::Result<WithTempDir<WalletContext>> {
