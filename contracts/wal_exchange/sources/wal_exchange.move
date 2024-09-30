@@ -15,22 +15,67 @@ const EInsufficientFundsInExchange: vector<u8> =
 const EInsufficientInputBalance: vector<u8> =
     b"The provided coin has insufficient balance for the exchange";
 
+#[error]
+const EUnauthorizedAdminCap: vector<u8> =
+    b"The provided AdminCap is not authorized for this exchange";
+
+#[error]
+const EInvalidExchangeRate: vector<u8> =
+    b"The provided exchange rate is invaled; neither field can be 0.";
+
 /// A public exchange that allows exchanging SUI for WAL at a fixed exchange rate.
 public struct Exchange has key, store {
     id: UID,
     wal: Balance<WAL>,
     sui: Balance<SUI>,
-    wal_per_sui: u64,
+    rate: ExchangeRate,
+    admin: ID,
 }
 
-/// Creates a new shared exchange with the given exchange rate.
-public fun new(wal_per_sui: u64, ctx: &mut TxContext) {
+/// Capability that allows the holder to modify an `Exchange`'s exchange rate and withdraw funds.
+public struct AdminCap has key {
+    id: UID,
+}
+
+/// Represents an exchange rate: `wal` WAL = `sui` SUI.
+public struct ExchangeRate has copy, drop, store {
+    wal: u64,
+    sui: u64,
+}
+
+// === Functions for `ExchangeRate` ===
+
+/// Creates a new exchange rate, making sure it is valid.
+public fun new_exchange_rate(wal: u64, sui: u64): ExchangeRate {
+    assert!(wal != 0 && sui != 0, EInvalidExchangeRate);
+    ExchangeRate { wal, sui }
+}
+
+fun wal_to_sui(self: &ExchangeRate, amount: u64): u64 {
+    amount * self.sui / self.wal
+}
+
+fun sui_to_wal(self: &ExchangeRate, amount: u64): u64 {
+    amount * self.wal / self.sui
+}
+
+// === Functions for `Exchange` ===
+
+// Creation functions
+
+/// Creates a new shared exchange with a 1:1 exchange rate and returns the associated `AdminCap`.
+public fun new(ctx: &mut TxContext): AdminCap {
+    let admin_cap = AdminCap {
+        id: object::new(ctx),
+    };
     transfer::share_object(Exchange {
         id: object::new(ctx),
         wal: balance::zero(),
         sui: balance::zero(),
-        wal_per_sui,
+        rate: ExchangeRate { wal: 1, sui: 1 },
+        admin: object::id(&admin_cap),
     });
+    admin_cap
 }
 
 /// Adds WAL to the balance stored in the exchange.
@@ -43,13 +88,51 @@ public fun add_sui(self: &mut Exchange, sui: Coin<SUI>) {
     self.sui.join(sui.into_balance());
 }
 
+// Admin functions
+
+fun check_admin(self: &Exchange, admin_cap: &AdminCap) {
+    assert!(self.admin == object::id(admin_cap), EUnauthorizedAdminCap);
+}
+
+/// Withdraws WAL from the balance stored in the exchange.
+public fun withdraw_wal(
+    self: &mut Exchange,
+    amount: u64,
+    admin_cap: &AdminCap,
+    ctx: &mut TxContext,
+): Coin<WAL> {
+    self.check_admin(admin_cap);
+    assert!(self.wal.value() >= amount, EInsufficientFundsInExchange);
+    self.wal.split(amount).into_coin(ctx)
+}
+
+/// Withdraws SUI from the balance stored in the exchange.
+public fun withdraw_sui(
+    self: &mut Exchange,
+    amount: u64,
+    admin_cap: &AdminCap,
+    ctx: &mut TxContext,
+): Coin<SUI> {
+    self.check_admin(admin_cap);
+    assert!(self.sui.value() >= amount, EInsufficientFundsInExchange);
+    self.sui.split(amount).into_coin(ctx)
+}
+
+/// Sets the exchange rate of the exchange to `wal` WAL = `sui` SUI.
+public fun set_exchange_rate(self: &mut Exchange, wal: u64, sui: u64, admin_cap: &AdminCap) {
+    self.check_admin(admin_cap);
+    self.rate = new_exchange_rate(wal, sui);
+}
+
+// User functions
+
 /// Exchanges the provided SUI coin for WAL at the exchange's rate.
 public fun exchange_all_for_wal(
     self: &mut Exchange,
     sui: Coin<SUI>,
     ctx: &mut TxContext,
 ): Coin<WAL> {
-    let value_wal = sui.value() * self.wal_per_sui;
+    let value_wal = self.rate.sui_to_wal(sui.value());
     assert!(self.wal.value() >= value_wal, EInsufficientFundsInExchange);
     self.sui.join(sui.into_balance());
     self.wal.split(value_wal).into_coin(ctx)
@@ -72,7 +155,7 @@ public fun exchange_all_for_sui(
     wal: Coin<WAL>,
     ctx: &mut TxContext,
 ): Coin<SUI> {
-    let value_sui = wal.value() / self.wal_per_sui;
+    let value_sui = self.rate.wal_to_sui(wal.value());
     assert!(self.sui.value() >= value_sui, EInsufficientFundsInExchange);
     self.wal.join(wal.into_balance());
     self.sui.split(value_sui).into_coin(ctx)
@@ -97,20 +180,28 @@ use sui::coin;
 use sui::test_utils::destroy;
 
 #[test_only]
-fun new_for_testing(wal_per_sui: u64, ctx: &mut TxContext): Exchange {
-    Exchange {
+fun new_for_testing(wal_per_sui: u64, ctx: &mut TxContext): (Exchange, AdminCap) {
+    let admin_cap = AdminCap {
         id: object::new(ctx),
-        wal: balance::zero(),
-        sui: balance::zero(),
-        wal_per_sui,
-    }
+    };
+    (
+        Exchange {
+            id: object::new(ctx),
+            wal: balance::zero(),
+            sui: balance::zero(),
+            rate: ExchangeRate { wal: wal_per_sui, sui: 1 },
+            admin: object::id(&admin_cap),
+        },
+        admin_cap,
+    )
 }
 
 #[test]
 fun test_standard_flow() {
     let ctx = &mut tx_context::dummy();
-    let mut exchange = new_for_testing(2, ctx);
+    let (mut exchange, admin_cap) = new_for_testing(1, ctx);
 
+    exchange.set_exchange_rate(4, 2, &admin_cap);
     exchange.add_wal(coin::mint_for_testing(1_000_000, ctx));
     exchange.add_sui(coin::mint_for_testing(1_000_000, ctx));
 
@@ -127,30 +218,40 @@ fun test_standard_flow() {
     assert!(wal_coin_2.value() == 4);
     assert!(sui_coin.value() == 2);
 
+    let withdraw_wal_coin = exchange.withdraw_wal(13, &admin_cap, ctx);
+    assert!(withdraw_wal_coin.value() == 13);
+
+    let withdraw_sui_coin = exchange.withdraw_sui(42, &admin_cap, ctx);
+    assert!(withdraw_sui_coin.value() == 42);
+
     destroy(wal_coin);
     destroy(wal_coin_2);
     destroy(sui_coin);
+    destroy(withdraw_wal_coin);
+    destroy(withdraw_sui_coin);
     destroy(exchange);
+    destroy(admin_cap);
 }
 
 #[test]
 #[expected_failure(abort_code = EInsufficientFundsInExchange)]
 fun test_insufficient_funds_in_exchange() {
     let ctx = &mut tx_context::dummy();
-    let mut exchange = new_for_testing(2, ctx);
+    let (mut exchange, _admin_cap) = new_for_testing(2, ctx);
 
     exchange.add_sui(coin::mint_for_testing(1_000_000, ctx));
     let wal_coin = exchange.exchange_all_for_wal(coin::mint_for_testing(1, ctx), ctx);
 
     destroy(wal_coin);
     destroy(exchange);
+    destroy(_admin_cap);
 }
 
 #[test]
 #[expected_failure(abort_code = EInsufficientInputBalance)]
 fun test_insufficient_coin() {
     let ctx = &mut tx_context::dummy();
-    let mut exchange = new_for_testing(2, ctx);
+    let (mut exchange, _admin_cap) = new_for_testing(2, ctx);
 
     exchange.add_sui(coin::mint_for_testing(1_000_000, ctx));
     let mut sui_coin = coin::mint_for_testing(1, ctx);
@@ -159,4 +260,5 @@ fun test_insufficient_coin() {
     destroy(sui_coin);
     destroy(wal_coin);
     destroy(exchange);
+    destroy(_admin_cap);
 }
