@@ -231,7 +231,6 @@ impl ClientBuilder {
     /// Clears proxy settings in the client, and disables fetching proxy settings from the OS.
     ///
     /// On some systems, this can speed up the construction of the client.
-
     pub fn no_proxy(mut self) -> Self {
         self.inner = self.inner.no_proxy();
         self
