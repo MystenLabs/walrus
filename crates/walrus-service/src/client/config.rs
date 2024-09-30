@@ -55,21 +55,27 @@ pub struct ClientCommunicationConfig {
     pub reqwest_config: ReqwestConfig,
     /// The configuration specific to each node connection.
     pub request_rate_config: RequestRateConfig,
+    /// Disable the use of system proxies for communication.
+    pub disable_proxy: bool,
+    /// Disable the use of operating system certificates for authenticating the communication.
+    pub disable_native_certs: bool,
 }
 
 impl ClientCommunicationConfig {
     /// Provides a config with lower number of retries to speed up integration testing.
     #[cfg(any(test, feature = "test-utils"))]
     pub fn default_for_test() -> Self {
-        let mut config = ClientCommunicationConfig::default();
-        let request_rate_config = RequestRateConfig {
-            max_node_connections: 10,
-            max_retries: Some(1),
-            min_backoff: Duration::from_secs(2),
-            max_backoff: Duration::from_secs(10),
-        };
-        config.request_rate_config = request_rate_config;
-        config
+        ClientCommunicationConfig {
+            disable_proxy: true,
+            disable_native_certs: true,
+            request_rate_config: RequestRateConfig {
+                max_node_connections: 10,
+                max_retries: Some(1),
+                min_backoff: Duration::from_secs(2),
+                max_backoff: Duration::from_secs(10),
+            },
+            ..Default::default()
+        }
     }
 }
 

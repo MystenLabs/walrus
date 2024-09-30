@@ -169,8 +169,13 @@ impl NodeCommunicationFactory {
             Entry::Occupied(occupied) => Ok(occupied.get().clone()),
             Entry::Vacant(vacant) => {
                 let reqwest_builder = self.config.reqwest_config.apply(ReqwestClient::builder());
-                let client = StorageNodeClientBuilder::from_reqwest(reqwest_builder)
+                let mut builder = StorageNodeClientBuilder::from_reqwest(reqwest_builder);
+                if self.config.disable_proxy {
+                    builder = builder.no_proxy();
+                }
+                let client = builder
                     .authenticate_with_public_key(node.network_public_key.clone())
+                    .tls_built_in_root_certs(!self.config.disable_native_certs)
                     .build(&node.network_address.0)?;
                 Ok(vacant.insert(client).clone())
             }

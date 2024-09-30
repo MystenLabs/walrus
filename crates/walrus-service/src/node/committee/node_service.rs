@@ -277,12 +277,12 @@ pub(crate) struct DefaultNodeServiceFactory {
     /// If true, disables the use of proxies.
     ///
     /// This speeds up the construction of new instances.
-    pub no_use_proxy: bool,
+    pub disable_use_proxy: bool,
 
     /// If true, disables the loading of native certificates.
     ///
     /// This speeds up the construction of new instances.
-    pub no_loading_native_certs: bool,
+    pub disable_loading_native_certs: bool,
 }
 
 impl DefaultNodeServiceFactory {
@@ -290,8 +290,8 @@ impl DefaultNodeServiceFactory {
     /// with the operating system and can significantly slow down the construction of new instances.
     pub fn avoid_system_services() -> Self {
         Self {
-            no_use_proxy: true,
-            no_loading_native_certs: true,
+            disable_use_proxy: true,
+            disable_loading_native_certs: true,
         }
     }
 }
@@ -308,10 +308,10 @@ impl NodeServiceFactory for DefaultNodeServiceFactory {
         let mut builder = walrus_sdk::client::Client::builder()
             .authenticate_with_public_key(member.network_public_key.clone());
 
-        if self.no_loading_native_certs {
+        if self.disable_loading_native_certs {
             builder = builder.tls_built_in_root_certs(false);
         }
-        if self.no_use_proxy {
+        if self.disable_use_proxy {
             builder = builder.no_proxy();
         }
 
