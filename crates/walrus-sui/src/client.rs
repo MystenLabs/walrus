@@ -786,6 +786,7 @@ impl ContractClient for SuiContractClient {
             vec![
                 self.read_client.call_arg_from_staking_obj(true).await?,
                 cap_obj_ref.into(),
+                epoch.into(),
                 CLOCK_CALL_ARG,
             ],
         )

@@ -71,10 +71,10 @@ fun test_init_and_first_epoch_change() {
     });
 
     // === send epoch sync done messages from all nodes ===
-
+    let epoch = runner.epoch();
     nodes.do_mut!(|node| {
         runner.tx!(node.sui_address(), |staking, _, _| {
-            staking.epoch_sync_done(node.cap_mut(), runner.clock());
+            staking.epoch_sync_done(node.cap_mut(), epoch, runner.clock());
         });
     });
 
@@ -101,10 +101,10 @@ fun test_init_and_first_epoch_change() {
     });
 
     // === send epoch sync done messages from all nodes ===
-
+    let epoch = runner.epoch();
     nodes.do_mut!(|node| {
         runner.tx!(node.sui_address(), |staking, _, _| {
-            staking.epoch_sync_done(node.cap_mut(), runner.clock());
+            staking.epoch_sync_done(node.cap_mut(), epoch, runner.clock());
         });
     });
 

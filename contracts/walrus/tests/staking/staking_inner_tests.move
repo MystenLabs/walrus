@@ -3,9 +3,9 @@
 
 module walrus::staking_inner_tests;
 
+use std::unit_test::assert_eq;
 use sui::{balance, clock, test_utils::destroy};
 use walrus::{staking_inner, storage_node, test_utils as test};
-use std::unit_test::assert_eq;
 
 const EPOCH_DURATION: u64 = 7 * 24 * 60 * 60 * 1000;
 
@@ -128,15 +128,16 @@ fun test_epoch_sync_done() {
 
     clock.increment_for_testing(EPOCH_DURATION);
 
+    let epoch = staking.epoch();
     // send epoch sync done message from pool_one, which does not have a quorum
     let mut cap1 = storage_node::new_cap(pool_one, ctx);
-    staking.epoch_sync_done(&mut cap1, &clock);
+    staking.epoch_sync_done(&mut cap1, epoch, &clock);
 
     assert!(!staking.is_epoch_sync_done());
 
     // send epoch sync done message from pool_two, which creates a quorum
     let mut cap2 = storage_node::new_cap(pool_two, ctx);
-    staking.epoch_sync_done(&mut cap2, &clock);
+    staking.epoch_sync_done(&mut cap2, epoch, &clock);
 
     assert!(staking.is_epoch_sync_done());
 
@@ -167,15 +168,15 @@ fun test_epoch_sync_done_duplicate() {
     staking.advance_epoch(balance::create_for_testing(1000));
 
     clock.increment_for_testing(7 * 24 * 60 * 60 * 1000);
-
+    let epoch = staking.epoch();
     // send epoch sync done message from pool_one, which does not have a quorum
     let mut cap = storage_node::new_cap(pool_one, ctx);
-    staking.epoch_sync_done(&mut cap, &clock);
+    staking.epoch_sync_done(&mut cap, epoch, &clock);
 
     assert!(!staking.is_epoch_sync_done());
 
     // try to send duplicate, test fails here
-    staking.epoch_sync_done(&mut cap, &clock);
+    staking.epoch_sync_done(&mut cap, epoch, &clock);
 
     destroy(wal_alice);
     destroy(staking);
@@ -184,11 +185,37 @@ fun test_epoch_sync_done_duplicate() {
     clock.destroy_for_testing();
 }
 
-fun dhondt_case(
-    shards: u16,
-    stake: vector<u64>,
-    expected: vector<u16>,
-) {
+#[test, expected_failure(abort_code = staking_inner::EInvalidSyncEpoch)]
+fun test_epoch_sync_wrong_epoch() {
+    let ctx = &mut tx_context::dummy();
+    let mut clock = clock::create_for_testing(ctx);
+    let mut staking = staking_inner::new(0, EPOCH_DURATION, 300, &clock, ctx);
+
+    // register the pool in the `StakingInnerV1`.
+    let pool_one = test::pool().name(b"pool_1".to_string()).register(&mut staking, ctx);
+
+    // now Alice, Bob, and Carl stake in the pools
+    let wal_alice = staking.stake_with_pool(test::mint(300000, ctx), pool_one, ctx);
+
+    // trigger `advance_epoch` to update the committee and set the epoch state to sync
+    staking.select_committee();
+    staking.advance_epoch(balance::create_for_testing(1000));
+
+    clock.increment_for_testing(7 * 24 * 60 * 60 * 1000);
+
+    // send epoch sync done message from pool_one, which does not have a quorum
+    let mut cap = storage_node::new_cap(pool_one, ctx);
+    // wrong epoch, test fails here
+    let wrong_epoch = staking.epoch() - 1;
+    staking.epoch_sync_done(&mut cap, wrong_epoch, &clock);
+
+    destroy(wal_alice);
+    destroy(staking);
+    cap.destroy_cap_for_testing();
+    clock.destroy_for_testing();
+}
+
+fun dhondt_case(shards: u16, stake: vector<u64>, expected: vector<u16>) {
     use walrus::staking_inner::pub_dhondt as dhondt;
     let (_price, allocation) = dhondt(shards, stake);
     assert_eq!(allocation, expected);

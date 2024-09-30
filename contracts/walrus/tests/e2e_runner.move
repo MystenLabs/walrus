@@ -94,6 +94,15 @@ public fun scenario(self: &mut TestRunner): &mut Scenario { &mut self.scenario }
 /// Access runner's `Clock`.
 public fun clock(self: &mut TestRunner): &mut Clock { &mut self.clock }
 
+/// Access the current epoch of the system.
+public fun epoch(self: &mut TestRunner): u32 {
+    self.scenario.next_tx(self.admin);
+    let system = self.scenario.take_shared<System>();
+    let epoch = system.epoch();
+    test_scenario::return_shared(system);
+    epoch
+}
+
 /// Run a transaction as a `sender`, and call the function `f` with the `Staking`,
 /// `System` and `TxContext` as arguments.
 public macro fun tx(

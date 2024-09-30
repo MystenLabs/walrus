@@ -153,8 +153,13 @@ public fun shard_transfer_failed(
 }
 
 /// Signals to the contract that the node has received all its shards for the new epoch.
-public fun epoch_sync_done(staking: &mut Staking, cap: &mut StorageNodeCap, clock: &Clock) {
-    staking.inner_mut().epoch_sync_done(cap, clock);
+public fun epoch_sync_done(
+    staking: &mut Staking,
+    cap: &mut StorageNodeCap,
+    epoch: u32,
+    clock: &Clock,
+) {
+    staking.inner_mut().epoch_sync_done(cap, epoch, clock);
 }
 
 // === Public API: Staking ===
