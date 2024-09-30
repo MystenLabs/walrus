@@ -305,7 +305,7 @@ public(package) fun request_withdraw_stake(
     ctx: &mut TxContext,
 ) {
     let wctx = &self.new_walrus_context();
-    self.pools[staked_wal.node_id()].request_withdraw_stake(staked_wal, wctx, ctx)
+    self.pools[staked_wal.node_id()].request_withdraw_stake(staked_wal, wctx, ctx);
 }
 
 /// Perform the withdrawal of the staked WAL, returning the amount to the caller.

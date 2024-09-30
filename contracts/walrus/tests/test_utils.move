@@ -72,6 +72,12 @@ public fun next_epoch(self: &mut ContextRunner): (WalrusContext, &mut TxContext)
     (wctx(self.epoch, self.committee_selected), &mut self.ctx)
 }
 
+/// Macro to run `next_epoch` in a lambda.
+public macro fun next_epoch_tx($self: &mut ContextRunner, $f: |&WalrusContext, &mut TxContext|) {
+    let (wctx, ctx) = next_epoch($self);
+    $f(&wctx, ctx)
+}
+
 // === Pool Builder ===
 
 /// Struct to support building a staking pool in tests with variable parameters.
