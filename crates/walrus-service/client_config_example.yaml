@@ -1,32 +1,37 @@
-# Example configuration for the Walrus client.
-#
-# Default optional values are commented out.
-
-system_object: 0xd6f0cacdb8b365cdda24ab954a32ebc86f8b8a1707322b4cc0ba54dcbbbc5772
-# wallet_config: null
-# communication_config:
-#   max_concurrent_sliver_reads: null
-#   max_concurrent_metadata_reads: null
-#   max_concurrent_status_reads: null
-#   max_data_in_flight: null
-#   reqwest_config:
-#     total_timeout:
-#       secs: 180
-#       nanos: 0
-#     pool_idle_timeout: null
-#     http2_keep_alive_timeout:
-#       secs: 5
-#       nanos: 0
-#     http2_keep_alive_interval:
-#       secs: 30
-#       nanos: 0
-#     http2_keep_alive_while_idle: true
-#   request_rate_config:
-#     max_node_connections: 10
-#     max_retries: 5
-#     min_backoff:
-#       secs: 2
-#       nanos: 0
-#     max_backoff:
-#       secs: 60
-#       nanos: 0
+system_object: 0xa2637d13d171b278eadfa8a3fbe8379b5e471e1f3739092e5243da17fc8090eb
+staking_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
+wallet_config: null
+communication_config:
+  max_concurrent_writes: null
+  max_concurrent_sliver_reads: null
+  max_concurrent_metadata_reads: null
+  max_concurrent_status_reads: null
+  max_data_in_flight: null
+  reqwest_config:
+    total_timeout:
+      secs: 30
+      nanos: 0
+    pool_idle_timeout: null
+    http2_keep_alive_timeout:
+      secs: 5
+      nanos: 0
+    http2_keep_alive_interval:
+      secs: 30
+      nanos: 0
+    http2_keep_alive_while_idle: true
+  request_rate_config:
+    max_node_connections: 10
+    max_retries: 5
+    min_backoff:
+      secs: 2
+      nanos: 0
+    max_backoff:
+      secs: 60
+      nanos: 0
+  disable_proxy: false
+  disable_native_certs: false
+  sliver_write_extra_time:
+    fraction: 2
+    base:
+      secs: 0
+      nanos: 500000000

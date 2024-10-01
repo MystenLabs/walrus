@@ -517,11 +517,13 @@ impl<T> Client<T> {
             elapsed_time = ?start.elapsed(), "stored metadata and slivers onto a quorum of nodes"
         );
 
-        // Add 10% of the execution time, plus 100 ms. This gives the client time to collect more
-        // storage confirmations.
+        // Allow extra time for the client to store the slivers.
         let completed_reason = requests
             .execute_time(
-                start.elapsed() / 10 + Duration::from_millis(100),
+                self.config
+                    .communication_config
+                    .sliver_write_extra_time
+                    .extra_time(start.elapsed()),
                 self.committees.n_shards().get().into(),
             )
             .await;
