@@ -224,7 +224,7 @@ pub async fn register_committee_and_stake(
             );
 
             contract_client
-                .register_candidate(&storage_node_params, proof_of_possession)
+                .register_candidate(storage_node_params, proof_of_possession)
                 .and_then(move |node_cap| async move {
                     let _ = contract_client
                         .stake_with_pool(amount_to_stake, node_cap.node_id)
