@@ -74,6 +74,17 @@ additional packages and take longer to run. You can run these test as follows:
 cargo nextest run --run-ignored ignored-only
 ```
 
+Integration tests that require a running Sui test cluster can use an external cluster. `sui start` can be
+used to start such a cluster. Set the environment variable `SUI_TEST_CONFIG_DIR` to the directory containing
+the genesis files, network config, and client wallet, and run the tests using `cargo test -- --ignored` to
+use the cluster started with `sui start`:
+```sh
+SUI_CONFIG_DIR="$PWD/target/sui-start" sui start
+SUI_TEST_CONFIG_DIR="$PWD/target/sui-start" cargo test -- --ignored
+```
+It is currently not possible to use an external cluster with `cargo nextest`.
+
+
 ### Test coverage
 
 We would like to cover as much code as possible with tests. Ideally you would add unit tests for all code you
