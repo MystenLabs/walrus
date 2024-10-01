@@ -21,6 +21,7 @@ use crate::client::{
         HumanReadableBytes,
         HumanReadableMist,
     },
+    resource::ResourceOperation,
     responses::{
         BlobIdConversionOutput,
         BlobIdOutput,
@@ -71,17 +72,27 @@ impl CliOutput for BlobStoreResult {
             }
             Self::NewlyCreated {
                 blob_object,
-                encoded_size,
+                resource_operation,
                 cost,
+                encoded_size,
                 deletable,
             } => {
+                let operation_str = match resource_operation {
+                    ResourceOperation::RegisterFromScratch { .. } => {
+                        "(storage was purchased, and a new blob object was registered)"
+                    }
+                    ResourceOperation::ReuseStorage { .. } => {
+                        "(storage was reused, and a new blob object was registered)"
+                    }
+                    ResourceOperation::ReuseRegistration => "(the registration was reused)",
+                };
                 println!(
                     "{} {} blob stored successfully.\n\
                     Blob ID: {}\n\
                     Unencoded size: {}\n\
                     Encoded size (including metadata): {}\n\
                     Sui object ID: {}\n\
-                    Cost (excluding gas): {}",
+                    Cost (excluding gas): {} {}",
                     success(),
                     if *deletable { "Deletable" } else { "Permanent" },
                     blob_object.blob_id,
@@ -89,6 +100,7 @@ impl CliOutput for BlobStoreResult {
                     HumanReadableBytes(*encoded_size),
                     blob_object.id,
                     HumanReadableMist(*cost),
+                    operation_str,
                 )
             }
             Self::MarkedInvalid { blob_id, event } => {

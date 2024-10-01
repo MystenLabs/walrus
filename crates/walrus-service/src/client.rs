@@ -9,6 +9,7 @@ use anyhow::anyhow;
 use communication::NodeCommunicationFactory;
 use fastcrypto::{bls12381::min_pk::BLS12381AggregateSignature, traits::AggregateAuthenticator};
 use futures::Future;
+use resource::{PriceComputation, ResourceOperation};
 use sui_types::base_types::ObjectID;
 use tokio::{sync::Semaphore, time::Duration};
 use tracing::{Instrument, Level};
@@ -33,7 +34,6 @@ use walrus_sdk::{api::BlobStatus, error::NodeError};
 use walrus_sui::{
     client::{BlobPersistence, ContractClient, ReadClient},
     types::{Blob, BlobEvent},
-    utils::storage_price_for_encoded_length,
 };
 
 use self::{
@@ -64,6 +64,8 @@ pub use daemon::ClientDaemon;
 
 mod error;
 pub use error::{ClientError, ClientErrorKind};
+
+mod resource;
 
 mod utils;
 pub use utils::string_prefix;
@@ -101,7 +103,7 @@ pub struct Client<T> {
     config: Config,
     sui_client: T,
     committees: Arc<ActiveCommittees>,
-    storage_price_per_unit_size: u64,
+    price_computation: PriceComputation,
     communication_limits: CommunicationLimits,
     // The `Arc` is used to share the encoding config with the `communication_factory` without
     // introducing lifetimes.
@@ -122,10 +124,11 @@ impl Client<()> {
                 .map_err(ClientError::other)?,
         ));
 
-        let storage_price_per_unit_size = sui_read_client
-            .storage_price_per_unit_size()
-            .await
-            .map_err(ClientError::other)?;
+        let price_computation = PriceComputation::new(
+            sui_read_client.write_price_per_unit_size().await?,
+            sui_read_client.storage_price_per_unit_size().await?,
+            committees.n_shards(),
+        );
 
         let encoding_config = EncodingConfig::new(committees.n_shards());
         let communication_limits =
@@ -136,7 +139,7 @@ impl Client<()> {
         Ok(Self {
             sui_client: (),
             committees: committees.clone(),
-            storage_price_per_unit_size,
+            price_computation,
             encoding_config: encoding_config.clone(),
             communication_limits,
             blocklist: None,
@@ -155,7 +158,7 @@ impl Client<()> {
             config,
             sui_client: _,
             committees,
-            storage_price_per_unit_size,
+            price_computation,
             encoding_config,
             communication_limits,
             blocklist,
@@ -165,7 +168,7 @@ impl Client<()> {
             config,
             sui_client,
             committees,
-            storage_price_per_unit_size,
+            price_computation,
             encoding_config,
             communication_limits,
             blocklist,
@@ -292,7 +295,7 @@ impl<T: ContractClient> Client<T> {
         }
 
         // Get an appropriate registered blob object.
-        let mut blob = self
+        let (mut blob, resource_operation) = self
             .get_blob_registration(&metadata, epochs_ahead, persistence)
             .await?;
 
@@ -311,16 +314,17 @@ impl<T: ContractClient> Client<T> {
         let encoded_size =
             encoded_blob_length_for_n_shards(self.encoding_config.n_shards(), blob.size)
                 .expect("must be valid as the store succeeded");
-        // TODO(mlegner): Fix prices. (#820)
-        let cost = storage_price_for_encoded_length(
-            encoded_size,
-            self.storage_price_per_unit_size,
-            epochs_ahead,
-        );
+
+        let cost = self
+            .price_computation
+            .operation_cost(&resource_operation)
+            .expect("must be valid as the store succeeded");
+
         Ok(BlobStoreResult::NewlyCreated {
             blob_object: blob,
-            encoded_size,
+            resource_operation,
             cost,
+            encoded_size,
             deletable: persistence.is_deletable(),
         })
     }
@@ -339,8 +343,8 @@ impl<T: ContractClient> Client<T> {
         metadata: &VerifiedBlobMetadataWithId,
         epochs_ahead: EpochCount,
         persistence: BlobPersistence,
-    ) -> ClientResult<Blob> {
-        let blob = if let Some(blob) = self
+    ) -> ClientResult<(Blob, ResourceOperation)> {
+        let blob_and_op = if let Some(blob) = self
             .is_blob_registered_in_wallet(metadata.blob_id(), epochs_ahead, persistence)
             .await?
         {
@@ -348,7 +352,7 @@ impl<T: ContractClient> Client<T> {
                 end_epoch=%blob.storage.end_epoch,
                 "blob is already registered and valid; using the existing registration"
             );
-            blob
+            (blob, ResourceOperation::ReuseRegistration)
         } else if let Some(storage_resource) = self
             .sui_client
             .owned_storage_for_size_and_epoch(
@@ -368,7 +372,8 @@ impl<T: ContractClient> Client<T> {
                 storage_object=%storage_resource.id,
                 "using an existing storage resource to register the blob"
             );
-            self.sui_client
+            let blob = self
+                .sui_client
                 .register_blob(
                     &storage_resource,
                     *metadata.blob_id(),
@@ -377,16 +382,30 @@ impl<T: ContractClient> Client<T> {
                     metadata.metadata().encoding_type,
                     persistence,
                 )
-                .await?
+                .await?;
+            (
+                blob,
+                ResourceOperation::ReuseStorage {
+                    unencoded_length: metadata.metadata().unencoded_length,
+                },
+            )
         } else {
             tracing::debug!(
                 "the blob is not already registered or its lifetime is too short; creating new one"
             );
-            self.sui_client
+            let blob = self
+                .sui_client
                 .reserve_and_register_blob(epochs_ahead, metadata, persistence)
-                .await?
+                .await?;
+            (
+                blob,
+                ResourceOperation::RegisterFromScratch {
+                    unencoded_length: metadata.metadata().unencoded_length,
+                    epochs_ahead,
+                },
+            )
         };
-        Ok(blob)
+        Ok(blob_and_op)
     }
 
     /// Checks if the blob is registered by the active wallet for a sufficient duration.

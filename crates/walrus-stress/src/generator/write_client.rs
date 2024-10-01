@@ -132,7 +132,7 @@ impl WriteClient {
             epochs,
             BlobPersistence::Permanent,
         );
-        let blob_sui_object = get_blob_registration.await?;
+        let (blob_sui_object, _operation) = get_blob_registration.await?;
 
         // Wait to ensure that the storage nodes received the registration event.
         tokio::time::sleep(Duration::from_secs(1)).await;

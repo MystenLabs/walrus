@@ -164,7 +164,7 @@ async fn test_inconsistency(failed_shards: &[usize]) -> TestResult {
         SliverPairIndex::new(1).to_shard_index(NonZeroU16::new(13).unwrap(), &blob_id)
     );
     // Register blob.
-    let blob_sui_object = client
+    let (blob_sui_object, _op) = client
         .as_ref()
         .get_blob_registration(&metadata, 1, BlobPersistence::Permanent)
         .await?;
@@ -258,7 +258,7 @@ async fn test_store_with_existing_blob_resource(
     let metadata = VerifiedBlobMetadataWithId::new_verified_unchecked(blob_id, metadata);
 
     // Register a new blob.
-    let original_blob_object = client
+    let (original_blob_object, _op) = client
         .as_ref()
         .get_blob_registration(
             &metadata,

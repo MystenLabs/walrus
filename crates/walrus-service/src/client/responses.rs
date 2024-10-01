@@ -35,7 +35,10 @@ use walrus_sui::{
     utils::{storage_price_for_encoded_length, storage_units_from_size, BYTES_PER_UNIT_SIZE},
 };
 
-use super::cli::{BlobIdDecimal, HumanReadableBytes, HumanReadableMist};
+use super::{
+    cli::{BlobIdDecimal, HumanReadableBytes, HumanReadableMist},
+    resource::ResourceOperation,
+};
 
 /// Result when attempting to store a blob.
 #[serde_as]
@@ -59,10 +62,12 @@ pub enum BlobStoreResult {
     NewlyCreated {
         /// The Sui blob object that holds the newly created blob.
         blob_object: Blob,
-        /// The encoded size, including metadata.
-        encoded_size: u64,
+        /// The operation that created the blob.
+        resource_operation: ResourceOperation,
         /// The storage cost, excluding gas.
         cost: u64,
+        /// The encoded size, including metadata.
+        encoded_size: u64,
         /// Whether the blob is deletable.
         deletable: bool,
     },
