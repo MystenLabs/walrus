@@ -552,92 +552,103 @@ impl StorageNode {
         bail!("event stream for blob events stopped")
     }
 
+    #[tracing::instrument(skip_all)]
     async fn process_event(
         &self,
         element_index: usize,
         stream_element: IndexedStreamElement,
     ) -> anyhow::Result<()> {
-        let storage = &self.inner.storage;
         let _timer_guard = &self
             .inner
             .metrics
             .event_process_duration_seconds
             .with_label_values(&[stream_element.element.label()])
             .start_timer();
-        if let Some(blob_event) = stream_element.element.blob_event() {
-            storage.update_blob_info(blob_event)?;
-        }
         match stream_element.element {
-            EventStreamElement::ContractEvent(ContractEvent::BlobEvent(BlobEvent::Registered(
-                event,
-            ))) => {
-                tracing::debug!("BlobRegistered event received: {:?}", event);
-                self.inner
-                    .mark_event_completed(element_index, &event.event_id)?;
+            EventStreamElement::ContractEvent(ContractEvent::BlobEvent(blob_event)) => {
+                self.process_blob_event(element_index, blob_event).await?;
             }
-            EventStreamElement::ContractEvent(ContractEvent::BlobEvent(BlobEvent::Certified(
-                event,
-            ))) => {
-                tracing::debug!("BlobCertified event received: {:?}", event);
-                self.process_blob_certified_event(element_index, event)
+            EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
+                epoch_change_event,
+            )) => {
+                self.process_epoch_change_event(element_index, epoch_change_event)
                     .await?;
-            }
-            EventStreamElement::ContractEvent(ContractEvent::BlobEvent(BlobEvent::Deleted(
-                event,
-            ))) => {
-                tracing::debug!("BlobDeleted event received: {:?}", event);
-                self.process_blob_deleted_event(element_index, event)
-                    .await?;
-            }
-            EventStreamElement::ContractEvent(ContractEvent::BlobEvent(
-                BlobEvent::InvalidBlobID(event),
-            )) => {
-                tracing::debug!("BlobInvalid event received: {:?}", event);
-                self.process_blob_invalid_event(element_index, event)
-                    .await?;
-            }
-            EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
-                EpochChangeEvent::EpochParametersSelected(event),
-            )) => {
-                tracing::info!("EpochParametersSelected event received: {:?}", event);
-                self.inner
-                    .mark_event_completed(element_index, &event.event_id)?;
-            }
-            EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
-                EpochChangeEvent::EpochChangeStart(event),
-            )) => {
-                tracing::info!("EpochChangeStart event received: {:?}", event);
-                self.process_epoch_change_start_event(&event).await?;
-                self.inner
-                    .mark_event_completed(element_index, &event.event_id)?;
-            }
-            EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
-                EpochChangeEvent::EpochChangeDone(event),
-            )) => {
-                tracing::info!("EpochChangeDone event received: {:?}", event);
-                self.process_epoch_change_done_event(&event).await?;
-                self.inner
-                    .mark_event_completed(element_index, &event.event_id)?;
-            }
-            EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
-                EpochChangeEvent::ShardsReceived(event),
-            )) => {
-                tracing::info!("ShardsReceived event received: {:?}", event);
-                self.inner
-                    .mark_event_completed(element_index, &event.event_id)?;
-            }
-            EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
-                EpochChangeEvent::ShardRecoveryStart(event),
-            )) => {
-                tracing::info!("ShardRecoveryStart event received: {:?}", event);
-                self.inner
-                    .mark_event_completed(element_index, &event.event_id)?;
             }
             EventStreamElement::CheckpointBoundary => {
                 self.inner.mark_element_at_index(element_index)?;
             }
         }
         Ok::<(), anyhow::Error>(())
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn process_blob_event(
+        &self,
+        element_index: usize,
+        blob_event: BlobEvent,
+    ) -> anyhow::Result<()> {
+        self.inner.storage.update_blob_info(&blob_event)?;
+        match blob_event {
+            BlobEvent::Registered(event) => {
+                tracing::debug!("BlobRegistered event received: {:?}", event);
+                self.inner
+                    .mark_event_completed(element_index, &event.event_id)?;
+            }
+            BlobEvent::Certified(event) => {
+                tracing::debug!("BlobCertified event received: {:?}", event);
+                self.process_blob_certified_event(element_index, event)
+                    .await?;
+            }
+            BlobEvent::Deleted(event) => {
+                tracing::debug!("BlobDeleted event received: {:?}", event);
+                self.process_blob_deleted_event(element_index, event)
+                    .await?;
+            }
+            BlobEvent::InvalidBlobID(event) => {
+                tracing::debug!("BlobInvalid event received: {:?}", event);
+                self.process_blob_invalid_event(element_index, event)
+                    .await?;
+            }
+        }
+        Ok(())
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn process_epoch_change_event(
+        &self,
+        element_index: usize,
+        epoch_change_event: EpochChangeEvent,
+    ) -> anyhow::Result<()> {
+        match epoch_change_event {
+            EpochChangeEvent::EpochParametersSelected(event) => {
+                tracing::info!("EpochParametersSelected event received: {:?}", event);
+                self.inner
+                    .mark_event_completed(element_index, &event.event_id)?;
+            }
+            EpochChangeEvent::EpochChangeStart(event) => {
+                tracing::info!("EpochChangeStart event received: {:?}", event);
+                self.process_epoch_change_start_event(&event).await?;
+                self.inner
+                    .mark_event_completed(element_index, &event.event_id)?;
+            }
+            EpochChangeEvent::EpochChangeDone(event) => {
+                tracing::info!("EpochChangeDone event received: {:?}", event);
+                self.process_epoch_change_done_event(&event).await?;
+                self.inner
+                    .mark_event_completed(element_index, &event.event_id)?;
+            }
+            EpochChangeEvent::ShardsReceived(event) => {
+                tracing::info!("ShardsReceived event received: {:?}", event);
+                self.inner
+                    .mark_event_completed(element_index, &event.event_id)?;
+            }
+            EpochChangeEvent::ShardRecoveryStart(event) => {
+                tracing::info!("ShardRecoveryStart event received: {:?}", event);
+                self.inner
+                    .mark_event_completed(element_index, &event.event_id)?;
+            }
+        }
+        Ok(())
     }
 
     #[tracing::instrument(skip_all)]
