@@ -260,3 +260,74 @@ macro fun sum<$T>($v: vector<$T>): $T {
     v.do!(|e| acc = acc + e);
     acc
 }
+
+#[test]
+fun test_larger_dhondt_inputs_100_nodes_fixed_stake() {
+    let stake_basis_points = vector::tabulate!(100, |i| {
+        if (i < 5) 1250
+        else if (i < 9) 733
+        else if (i < 10) 728
+        else 1
+    });
+    assert_eq!(stake_basis_points.sum!(), 10_000);
+    larger_dhondt_inputs(stake_basis_points)
+}
+
+#[test]
+fun test_larger_dhondt_inputs_1000_nodes_fixed_stake() {
+    let stake_basis_points = vector::tabulate!(1000, |i| {
+        if (i < 50) 125
+        else if (i < 90) 60
+        else if (i < 100) 45
+        else 1
+    });
+    assert_eq!(stake_basis_points.sum!(), 10_000);
+    larger_dhondt_inputs(stake_basis_points)
+}
+
+fun larger_dhondt_inputs(stake_basis_points: vector<u128>) {
+    use walrus::staking_inner::pub_dhondt as dhondt;
+
+    let total_stake = 10_000_000_000_000_000_000;
+    let shards = 1_000;
+    let nodes = stake_basis_points.length();
+    let stake = stake_basis_points.map!(|bp| (bp * total_stake / 10_000) as u64);
+
+    let (_price, allocation) = dhondt(shards, stake);
+    let mut with_shards = 0;
+    let mut large_allocations = 0;
+    let mut small_allocations = 0;
+    allocation.do_ref!(|n| {
+        if (*n > 0) with_shards = with_shards + 1;
+        if (*n > 50) large_allocations = large_allocations + 1;
+        if (*n < 5) small_allocations = small_allocations + 1;
+    });
+    assert_eq!(with_shards, nodes / 10);
+    assert_eq!(allocation.sum!(), shards);
+}
+
+#[random_test]
+fun test_larger_dhondt_inputs_100_nodes_random_stake(seed: vector<u8>) {
+    random_dhondt_inputs(seed, 100, 10_000_000_000_000_000_000);
+}
+
+#[random_test]
+fun test_larger_dhondt_inputs_1000_nodes_random_stake(seed: vector<u8>) {
+    random_dhondt_inputs(seed, 1_000, 10_000_000_000_000_000_000);
+}
+
+fun random_dhondt_inputs(seed: vector<u8>, nodes: u64, mut total_stake: u64) {
+    use walrus::staking_inner::pub_dhondt as dhondt;
+
+    let shards = 1_000;
+    let mut rng = sui::random::new_generator_from_seed_for_testing(seed);
+    std::u8::max_value!();
+    let mut stake = vector::tabulate!(nodes, |_| {
+        let stake = rng.generate_u64_in_range(1, 100) * (total_stake / 1000);
+        total_stake = total_stake - stake;
+        stake
+    });
+    *&mut stake[0] = stake[0] + total_stake;
+    let (_price, allocation) = dhondt(shards, stake);
+    assert_eq!(allocation.sum!(), shards);
+}

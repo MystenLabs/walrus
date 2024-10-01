@@ -388,6 +388,9 @@ fun apportionment(self: &StakingInnerV1): vector<u16> {
     shards
 }
 
+// TODO: remove this when the FixedPoint32 has a replacement
+const DHONDT_TOTAL_STAKE_MAX: u64 = 0xFFFF_FFFF;
+
 // Implementation of the D'Hondt method (aka Jefferson method) for apportionment.
 // TODO: currently because of Fixedpoint32, there is a "low" limit on the `total_stake`.
 // Assuming 1000 shards (and ignoring the number of nodes), the limit for the total stake is
@@ -408,6 +411,12 @@ fun dhondt(
     };
 
     let total_stake = stake.fold!(0, |acc, x| acc + x);
+
+    // TODO remove this when the FixedPoint32 has a replacement
+    let scaling = DHONDT_TOTAL_STAKE_MAX.max(total_stake) / DHONDT_TOTAL_STAKE_MAX;
+    let total_stake = total_stake / scaling;
+    let stake = stake.map!(|s| s / scaling);
+
     let n_nodes = stake.length();
     let n_shards = n_shards as u64;
     assert!(total_stake > 0, ENoStake);
@@ -417,8 +426,10 @@ fun dhondt(
     if (n_nodes == 0) return (price, vector[]);
     let mut shards = stake.map_ref!(|s| u64_div(*s, price));
     let mut n_shards_distributed = shards.fold!(0, |acc, x| acc + x);
+    let mut i = 0;
     // loop until all shards are distributed
     while (n_shards_distributed != n_shards) {
+        i = i + 1;
         n_shards_distributed = if (n_shards_distributed < n_shards) {
                 // We decrease the price slightly such that some nodes get an additional shard.
                 price = from_raw(0);
