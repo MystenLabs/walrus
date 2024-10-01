@@ -20,6 +20,21 @@ use walrus::{
     walrus_context::{Self, WalrusContext}
 };
 
+/// Helper macro to assert equality of two values. Both values must be copyable
+/// and have a `.to_string()` method.
+public macro fun assert_eq<$T: copy>($left: $T, $right: $T) {
+    let left = $left;
+    let right = $right;
+    if (left != right) {
+        let mut str = b"assertion failed: ".to_string();
+        str.append(left.to_string());
+        str.append(b" != ".to_string());
+        str.append(right.to_string());
+        std::debug::print(&str);
+        assert!(false);
+    }
+}
+
 // === Coins and Context ===
 
 public fun wctx(epoch: u32, committee_selected: bool): WalrusContext {

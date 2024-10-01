@@ -3,17 +3,10 @@
 
 module walrus::staking_pool_tests;
 
-use std::unit_test::assert_eq;
+// use std::unit_test::assert_eq;
 use sui::test_utils::destroy;
-use walrus::test_utils::{mint, pool, context_runner};
+use walrus::test_utils::{mint, pool, context_runner, assert_eq};
 use std::debug::print;
-
-macro fun dbg<$T: drop>($note: vector<u8>, $value: $T) {
-    let note = $note;
-    let value = $value;
-    print(&note.to_string());
-    print(&value)
-}
 
 #[test]
 // Scenario: Alice stakes, pool receives rewards, Alice withdraws everything
@@ -28,20 +21,29 @@ fun stake_and_receive_rewards() {
     assert_eq!(pool.wal_balance(), 0);
     assert_eq!(pool.pool_token_at_epoch(wctx.epoch()), 0);
 
-    // E1: Rewards received, Alice requests withdrawal of 1000 WAL + rewards
+    // E1: No rewards received, stake is active an rewards will be claimable in
+    //  the future
+    let (wctx, ctx) = test.next_epoch();
+    pool.advance_epoch(mint(0, ctx).into_balance(), &wctx);
+
+    assert_eq!(pool.wal_balance(), 1000);
+    assert_eq!(pool.pool_token_at_epoch(wctx.epoch()), 1000);
+
+    // E2: Rewards received, Alice withdraws everything
     let (wctx, ctx) = test.next_epoch();
     pool.advance_epoch(mint(1000, ctx).into_balance(), &wctx);
-    let expected_amount = pool.request_withdraw_stake(&mut staked_a, &wctx, ctx);
-    assert_eq!(expected_amount, 2000); // 1000 + 1000
+    let amount = pool.request_withdraw_stake(&mut staked_a, &wctx, ctx);
 
-    // E2: Alice withdraws 500 WAL + rewards
+    assert_eq!(amount, 2000); // 1000 + 1000 rewards
+    assert_eq!(pool.wal_balance(), 2000);
+    assert_eq!(pool.pool_token_at_epoch(wctx.epoch()), 1000);
+
+    // E3: Alice withdraws everything
     let (wctx, ctx) = test.next_epoch();
     pool.advance_epoch(mint(0, ctx).into_balance(), &wctx);
     let coin_a = pool.withdraw_stake(staked_a, &wctx, ctx);
-    assert_eq!(coin_a.burn_for_testing(), 2000); // 1000 + 1000 rewards
+    assert_eq!(coin_a.burn_for_testing(), 2000);
 
-    // FAILS:
-    // assert_eq!(pool.wal_balance(), 0);
 
     destroy(pool);
 }
@@ -59,6 +61,10 @@ fun stake_and_receive_partial_rewards() {
 
     assert_eq!(pool.wal_balance(), 0);
     assert_eq!(pool.pool_token_at_epoch(wctx.epoch()), 0);
+
+    // E1: No rewards received, stake is active an rewards will be claimable in
+    let (wctx, ctx) = test.next_epoch();
+    pool.advance_epoch(mint(0, ctx).into_balance(), &wctx);
 
     // E1: Rewards received, Alice requests withdrawal of 1000 WAL + rewards
     let (wctx, ctx) = test.next_epoch();
@@ -101,27 +107,27 @@ fun stake_at_different_epochs() {
 
     // E1: Bob stakes 2000 WAL
     let (wctx, ctx) = test.next_epoch();
-    pool.advance_epoch(mint(100, ctx).into_balance(), &wctx);
+    pool.advance_epoch(mint(0, ctx).into_balance(), &wctx);
     let mut staked_b = pool.stake(mint(2000, ctx), &wctx, ctx);
 
     // E2: Alice requests withdrawal
     let (wctx, ctx) = test.next_epoch();
     pool.advance_epoch(mint(100, ctx).into_balance(), &wctx);
     let rewards_amt = pool.request_withdraw_stake(&mut staked_a, &wctx, ctx);
-    assert_eq!(rewards_amt, 1135);
+    assert_eq!(rewards_amt, 1100);
 
     // E3: Bob requests withdrawal
     let (wctx, ctx) = test.next_epoch();
     pool.advance_epoch(mint(100, ctx).into_balance(), &wctx);
     pool.request_withdraw_stake(&mut staked_b, &wctx, ctx);
     let coin_a = pool.withdraw_stake(staked_a, &wctx, ctx);
-    assert_eq!(coin_a.burn_for_testing(), 1135);
+    assert_eq!(coin_a.burn_for_testing(), 1100);
 
     // E5: Bob withdraws
     let (wctx, ctx) = test.next_epoch();
     pool.advance_epoch(mint(0, ctx).into_balance(), &wctx);
     let coin_b = pool.withdraw_stake(staked_b, &wctx, ctx);
-    assert_eq!(coin_b.burn_for_testing(), 2165);
+    assert_eq!(coin_b.burn_for_testing(), 2100);
 
     destroy(pool);
 }
@@ -129,7 +135,7 @@ fun stake_at_different_epochs() {
 #[test]
 // Scenario:
 // E0: Alice stakes: 1000 WAL;
-// E1: Pool receives 1000 rewards; Bob stakes: 2000 WAL;
+// E1: Bob stakes: 2000 WAL;
 // E2: Pool receives 1000 rewards; Both withdraw
 // E3: Alice withdraws 1000 WAL + rewards - half of the pool, Bob requests
 // E4: Bob withdraws 2000 WAL + rewards - half of the pool
@@ -143,42 +149,43 @@ fun stake_maintain_ratio() {
 
     // E1: Bob stakes 2000 WAL
     let (wctx, ctx) = test.next_epoch();
-    pool.advance_epoch(mint(1000, ctx).into_balance(), &wctx);
-
-    dbg!(b"exchange rate", pool.exchange_rate_at_epoch(wctx.epoch()));
+    pool.advance_epoch(mint(0, ctx).into_balance(), &wctx);
 
     // check the pool token amount
     assert_eq!(pool.pool_token_at_epoch(wctx.epoch()), 1000);
-    assert_eq!(pool.wal_balance_at_epoch(wctx.epoch()), 2000);
+    assert_eq!(pool.wal_balance_at_epoch(wctx.epoch()), 1000);
 
     let mut staked_b = pool.stake(mint(2000, ctx), &wctx, ctx);
 
-    // E2: Alice requests withdrawal
+    // E2: Rewards received, Alice requests withdrawal
     let (wctx, ctx) = test.next_epoch();
     pool.advance_epoch(mint(1000, ctx).into_balance(), &wctx);
-    pool.request_withdraw_stake(&mut staked_a, &wctx, ctx);
 
     assert_eq!(pool.pool_token_at_epoch(wctx.epoch()), 2000);
-    assert_eq!(pool.wal_balance_at_epoch(wctx.epoch()), 5000);
+    assert_eq!(pool.wal_balance_at_epoch(wctx.epoch()), 4000);
+
+    let amount = pool.request_withdraw_stake(&mut staked_a, &wctx, ctx);
+    assert_eq!(amount, 2000);
 
     // E3: Alice withdraws and Bob requests withdrawal
     let (wctx, ctx) = test.next_epoch();
     pool.advance_epoch(mint(0, ctx).into_balance(), &wctx);
-    pool.request_withdraw_stake(&mut staked_b, &wctx, ctx);
     let coin_a = pool.withdraw_stake(staked_a, &wctx, ctx);
-    assert_eq!(coin_a.burn_for_testing(), 2500);
+
+    assert_eq!(coin_a.burn_for_testing(), 2000);
+    assert_eq!(pool.pool_token_at_epoch(wctx.epoch()), 1000);
+    assert_eq!(pool.wal_balance_at_epoch(wctx.epoch()), 2000);
+
+    let amount = pool.request_withdraw_stake(&mut staked_b, &wctx, ctx);
+
+    assert_eq!(amount, 4000);
 
     // E4: Bob withdraws
     let (wctx, ctx) = test.next_epoch();
     pool.advance_epoch(mint(0, ctx).into_balance(), &wctx);
     let coin_b = pool.withdraw_stake(staked_b, &wctx, ctx);
-    assert_eq!(coin_b.burn_for_testing(), 2500);
 
-    // Alice withdraws
-
-
-    // destroy(staked_a);
-    // destroy(staked_b);
+    assert_eq!(coin_b.burn_for_testing(), 2000);
     destroy(pool);
 }
 
