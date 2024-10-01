@@ -245,15 +245,15 @@ public(package) fun withdraw_stake(
     assert!(staked_wal.activation_epoch() <= wctx.epoch());
     assert!(staked_wal.is_withdrawing());
 
-    let principal_amount = staked_wal.value();
+    // withdraw epoch and pool token amount are stored in the `StakedWal`
     let token_amount = staked_wal.pool_token_amount();
     let withdraw_epoch = staked_wal.withdraw_epoch();
 
+    // calculate the total amount to withdraw by converting token amount via the exchange rate
     let total_amount = pool.exchange_rate_at_epoch(withdraw_epoch).get_wal_amount(token_amount);
-
     let principal = staked_wal.into_balance();
-    let rewards_amount = if (total_amount >= principal_amount) {
-        total_amount - principal_amount
+    let rewards_amount = if (total_amount >= principal.value()) {
+        total_amount - principal.value()
     } else 0;
 
     // withdraw rewards. due to rounding errors, there's a chance that the
@@ -285,11 +285,31 @@ public(package) fun advance_epoch(
     pool.wal_balance = pool.wal_balance + rewards_amount;
     pool.latest_epoch = current_epoch;
 
-    // === Process the pending stake and withdrawal requests ===
+    process_pending_stake(pool, wctx)
+}
+
+/// Process the pending stake and withdrawal requests for the pool. Called in the
+/// `advance_epoch` function in case the pool is in the committee and receives the
+/// rewards. And may be called in user-facing functions to update the pool state,
+/// if the pool is not in the committee.
+///
+/// Additions:
+/// - `WAL` is added to the `wal_balance` directly.
+/// - Pool Token is added to the `pool_token_balance` via the exchange rate.
+///
+/// Withdrawals:
+/// - `WAL` withdrawal is processed via the exchange rate and pool token.
+/// - Pool Token withdrawal is processed directly.
+public(package) fun process_pending_stake(pool: &mut StakingPool, wctx: &WalrusContext) {
+    let current_epoch = wctx.epoch();
 
     // do the withdrawals reduction for both
     let token_withdraw = pool.pending_pool_token_withdraw.flush(wctx.epoch());
-    let exchange_rate = pool_exchange_rate::new(pool.wal_balance, pool.pool_token_balance);
+    let exchange_rate = pool_exchange_rate::new(
+        pool.wal_balance,
+        pool.pool_token_balance,
+    );
+
     let pending_withdrawal = exchange_rate.get_wal_amount(token_withdraw);
     pool.pool_token_balance = pool.pool_token_balance - token_withdraw;
 
@@ -297,7 +317,7 @@ public(package) fun advance_epoch(
     assert!(pool.wal_balance >= pending_withdrawal, ECalculationError);
     pool.wal_balance = pool.wal_balance - pending_withdrawal;
 
-    // recalculate the additions and subtractions
+    // recalculate the additions
     pool.wal_balance = pool.wal_balance + pool.pending_stake.flush(current_epoch);
     pool.pool_token_balance = exchange_rate.get_token_amount(pool.wal_balance);
     pool.exchange_rates.add(current_epoch, exchange_rate);
@@ -308,38 +328,22 @@ public(package) fun advance_epoch(
 /// Sets the next commission rate for the pool.
 /// TODO: implement changing commission rate in E+2, the change should not be
 /// immediate.
-public(package) fun set_next_commission(
-    pool: &mut StakingPool,
-    commission_rate: u64,
-    _wctx: &WalrusContext,
-) {
+public(package) fun set_next_commission(pool: &mut StakingPool, commission_rate: u64) {
     pool.commission_rate = commission_rate;
 }
 
 /// Sets the next storage price for the pool.
-public(package) fun set_next_storage_price(
-    pool: &mut StakingPool,
-    storage_price: u64,
-    _wctx: &WalrusContext,
-) {
+public(package) fun set_next_storage_price(pool: &mut StakingPool, storage_price: u64) {
     pool.voting_params.storage_price = storage_price;
 }
 
 /// Sets the next write price for the pool.
-public(package) fun set_next_write_price(
-    pool: &mut StakingPool,
-    write_price: u64,
-    _wctx: &WalrusContext,
-) {
+public(package) fun set_next_write_price(pool: &mut StakingPool, write_price: u64) {
     pool.voting_params.write_price = write_price;
 }
 
 /// Sets the next node capacity for the pool.
-public(package) fun set_next_node_capacity(
-    pool: &mut StakingPool,
-    node_capacity: u64,
-    _wctx: &WalrusContext,
-) {
+public(package) fun set_next_node_capacity(pool: &mut StakingPool, node_capacity: u64) {
     pool.voting_params.node_capacity = node_capacity;
 }
 

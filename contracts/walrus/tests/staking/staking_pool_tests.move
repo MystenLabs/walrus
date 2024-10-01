@@ -229,63 +229,116 @@ fun stake_maintain_ratio() {
     pool.destroy_empty()
 }
 
+const E0: u32 = 0;
+const E1: u32 = 1;
+const E2: u32 = 2;
+const E3: u32 = 3;
+const E4: u32 = 4;
+const E5: u32 = 5;
+
+
 #[test]
 // This test focuses on maintaining correct staked_wal state throughout the
-// staking process.
-//
+// staking process. Alice and Bob add stake,
 fun wal_balance_at_epoch() {
     let mut test = context_runner();
 
     // E0: stake applied in E+1
     let (wctx, ctx) = test.current();
     let mut pool = pool().build(&wctx, ctx);
-    let mut staked_wal_a = pool.stake(mint_balance(1000), &wctx, ctx);
 
     assert_eq!(pool.wal_balance(), 0);
-    assert_eq!(pool.wal_balance_at_epoch(wctx.epoch() + 1), 1000);
 
-    // E1: stake applied in E+2
+    let mut staked_wal_a = pool.stake(mint_balance(1000), &wctx, ctx);
+
+    {
+        assert_eq!(pool.wal_balance(), 0);
+        assert_eq!(pool.wal_balance_at_epoch(E1), 1000);
+        assert_eq!(pool.wal_balance_at_epoch(E2), 1000);
+    };
+
+    // E0+: committee has been selected, another stake applied in E+2
     let (wctx, ctx) = test.select_committee();
     let mut staked_wal_b = pool.stake(mint_balance(1000), &wctx, ctx);
 
-    // check stake at epochs
-    assert_eq!(pool.wal_balance_at_epoch(wctx.epoch()), 0);
-    assert_eq!(pool.wal_balance_at_epoch(wctx.epoch() + 1), 1000);
-    assert_eq!(pool.wal_balance_at_epoch(wctx.epoch() + 2), 2000);
+    {
+        assert_eq!(pool.wal_balance_at_epoch(E0), 0);
+        assert_eq!(pool.wal_balance_at_epoch(E1), 1000);
+        assert_eq!(pool.wal_balance_at_epoch(E2), 2000);
+    };
 
-    // check pool_token at epochs
-    assert_eq!(pool.pool_token_at_epoch(wctx.epoch()), 0);
-    assert_eq!(pool.pool_token_at_epoch(wctx.epoch() + 1), 1000);
-    assert_eq!(pool.pool_token_at_epoch(wctx.epoch() + 2), 2000);
+    // === E1 ===
 
-    // E2: previous stake active; new stake applied in E+3
+    // E1: previous stake active; new stake applied in E2
     let (wctx, ctx) = test.next_epoch();
-    let mut staked_wal_c = pool.stake(mint_balance(1000), &wctx, ctx);
+    pool.advance_epoch(mint_balance(0), &wctx);
 
-    assert_eq!(pool.wal_balance_at_epoch(wctx.epoch()), 1000);
-    assert_eq!(pool.wal_balance_at_epoch(wctx.epoch() + 1), 3000);
+    {
+        assert_eq!(pool.wal_balance_at_epoch(E1), 1000);
+        assert_eq!(pool.wal_balance_at_epoch(E2), 2000);
+        assert_eq!(pool.wal_balance_at_epoch(E3), 2000);
+    };
 
-    // E3: all stakes active
+    // add stake
+    let mut staked_wal_c = pool.stake(mint_balance(2000), &wctx, ctx);
+
+    {
+        assert_eq!(pool.wal_balance_at_epoch(E1), 1000);
+        assert_eq!(pool.wal_balance_at_epoch(E2), 4000);
+        assert_eq!(pool.wal_balance_at_epoch(E3), 4000);
+    };
+
+    // E1+: committee selected, another stake applied in E+3
+    let (wctx, ctx) = test.select_committee();
+    let mut staked_wal_d = pool.stake(mint_balance(2000), &wctx, ctx);
+
+    {
+        assert_eq!(pool.wal_balance_at_epoch(E1), 1000);
+        assert_eq!(pool.wal_balance_at_epoch(E2), 4000);
+        assert_eq!(pool.wal_balance_at_epoch(E3), 6000);
+    };
+
+    // === E2 ===
+
+    // E2: previous stake active; add rewards to the pool
+    // Active stakes: A (1000 + 1000), B (1000), C (2000)
+    // Inactive stakes: D (2000)
     let (wctx, _) = test.next_epoch();
+    pool.advance_epoch(mint_balance(1000), &wctx);
 
-    assert_eq!(pool.wal_balance_at_epoch(wctx.epoch()), 3000);
-    assert_eq!(pool.wal_balance_at_epoch(wctx.epoch() + 1), 3000);
+    {
+        assert_eq!(pool.wal_balance_at_epoch(E2), 5000);
+        assert_eq!(pool.wal_balance_at_epoch(E3), 7000); // D stake applied
+        assert_eq!(pool.wal_balance_at_epoch(E4), 7000); // D stake applied
+    };
 
-    // E4: withdraw 2 stakes before committee selection
     pool.request_withdraw_stake(&mut staked_wal_a, &wctx);
-    pool.request_withdraw_stake(&mut staked_wal_b, &wctx);
-    assert_eq!(pool.wal_balance_at_epoch(wctx.epoch() + 1), 1000);
 
-    // E5: withdraw 1 stake after committee selection
+    {
+        assert_eq!(pool.wal_balance_at_epoch(E2), 5000);
+        assert_eq!(pool.wal_balance_at_epoch(E3), 5000);
+        assert_eq!(pool.wal_balance_at_epoch(E4), 5000);
+    };
+
+    // E2+: committee selected, another stake applied in E+2
     let (wctx, _) = test.select_committee();
+    pool.request_withdraw_stake(&mut staked_wal_b, &wctx);
 
-    pool.request_withdraw_stake(&mut staked_wal_c, &wctx);
-    assert_eq!(pool.wal_balance_at_epoch(wctx.epoch() + 1), 1000);
-    assert_eq!(pool.wal_balance_at_epoch(wctx.epoch() + 2), 0);
-    assert_eq!(pool.wal_balance_at_epoch(wctx.epoch() + 3), 0);
+    {
+        assert_eq!(pool.wal_balance_at_epoch(wctx.epoch()), 5000);
+        assert_eq!(pool.wal_balance_at_epoch(wctx.epoch() + 1), 5000);
+        assert_eq!(pool.wal_balance_at_epoch(wctx.epoch() + 2), 4000);
+    };
+
+    // TODO: finish this test
 
     destroy(pool);
-    destroy(vector[staked_wal_a, staked_wal_b, staked_wal_c]);
+    destroy(vector[
+        staked_wal_a,
+        staked_wal_b,
+        staked_wal_c,
+        staked_wal_d,
+    ]);
 }
 
 #[test]
@@ -411,10 +464,10 @@ fun test_advance_pool_epoch() {
     assert_eq!(pool.node_capacity(), 1);
 
     // pool changes commission rate to 100 in epoch E+1
-    pool.set_next_commission(100, &wctx);
-    pool.set_next_node_capacity(1000, &wctx);
-    pool.set_next_storage_price(100, &wctx);
-    pool.set_next_write_price(100, &wctx);
+    pool.set_next_commission(100);
+    pool.set_next_node_capacity(1000);
+    pool.set_next_storage_price(100);
+    pool.set_next_write_price(100);
 
     // TODO: commission rate should be applied in E+2
     //_eq assert!(pool.commission_rate(), 1000);
@@ -445,7 +498,7 @@ fun test_advance_pool_epoch() {
     assert_eq!(pool.storage_price(), 100);
 
     // update just one parameter
-    pool.set_next_write_price(1000, &wctx);
+    pool.set_next_write_price(1000);
     assert_eq!(pool.write_price(), 1000);
 
     // advance epoch to 3

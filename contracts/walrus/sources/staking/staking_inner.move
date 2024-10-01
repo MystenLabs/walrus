@@ -226,8 +226,8 @@ public(package) fun set_next_commission(
     cap: &StorageNodeCap,
     commission_rate: u64,
 ) {
-    let wctx = &self.new_walrus_context();
-    self.pools[cap.node_id()].set_next_commission(commission_rate, wctx);
+    let _wctx = &self.new_walrus_context();
+    self.pools[cap.node_id()].set_next_commission(commission_rate);
 }
 
 /// Sets the next storage price for the pool.
@@ -236,8 +236,8 @@ public(package) fun set_next_storage_price(
     cap: &StorageNodeCap,
     storage_price: u64,
 ) {
-    let wctx = &self.new_walrus_context();
-    self.pools[cap.node_id()].set_next_storage_price(storage_price, wctx);
+    let _wctx = &self.new_walrus_context();
+    self.pools[cap.node_id()].set_next_storage_price(storage_price);
 }
 
 /// Sets the next write price for the pool.
@@ -246,8 +246,8 @@ public(package) fun set_next_write_price(
     cap: &StorageNodeCap,
     write_price: u64,
 ) {
-    let wctx = &self.new_walrus_context();
-    self.pools[cap.node_id()].set_next_write_price(write_price, wctx);
+    let _wctx = &self.new_walrus_context();
+    self.pools[cap.node_id()].set_next_write_price(write_price);
 }
 
 /// Sets the next node capacity for the pool.
@@ -256,8 +256,8 @@ public(package) fun set_next_node_capacity(
     cap: &StorageNodeCap,
     node_capacity: u64,
 ) {
-    let wctx = &self.new_walrus_context();
-    self.pools[cap.node_id()].set_next_node_capacity(node_capacity, wctx);
+    let _wctx = &self.new_walrus_context();
+    self.pools[cap.node_id()].set_next_node_capacity(node_capacity);
 }
 
 // === Staking ===
