@@ -79,6 +79,7 @@ used to start such a cluster. Set the environment variable `SUI_TEST_CONFIG_DIR`
 the genesis files, network config, and client wallet, and run the tests using `cargo test -- --ignored` to
 use the cluster started with `sui start`:
 ```sh
+sui genesis -f --with-faucet --working-dir "$PWD/target/sui-start"
 SUI_CONFIG_DIR="$PWD/target/sui-start" sui start
 SUI_TEST_CONFIG_DIR="$PWD/target/sui-start" cargo test -- --ignored
 ```
