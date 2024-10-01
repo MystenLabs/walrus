@@ -31,7 +31,7 @@ communication_config:
   disable_proxy: false
   disable_native_certs: false
   sliver_write_extra_time:
-    fraction: 2
+    factor: 0.5
     base:
       secs: 0
       nanos: 500000000

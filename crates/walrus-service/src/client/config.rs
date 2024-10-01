@@ -335,8 +335,8 @@ pub(crate) mod default {
 /// The additional time allowed to sliver writes, to allow for more nodes to receive them.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SliverWriteExtraTime {
-    /// The denominator of the multiplication factor for the time it took to store n-f sliver.
-    pub fraction: u32,
+    /// The multiplication factor for the time it took to store n-f sliver.
+    pub factor: f64,
     /// The minimum extra time.
     pub base: Duration,
 }
@@ -346,14 +346,16 @@ impl SliverWriteExtraTime {
     ///
     /// The extra time is computed as `store_time / fraction + base`.
     pub fn extra_time(&self, store_time: Duration) -> Duration {
-        self.base + store_time / self.fraction
+        let extra_time =
+            Duration::from_millis((store_time.as_millis() as f64 * self.factor) as u64);
+        self.base + extra_time
     }
 }
 
 impl Default for SliverWriteExtraTime {
     fn default() -> Self {
         Self {
-            fraction: 2,                      // 1/2 of the time it took to store n-f slivers.
+            factor: 0.5,                      // 1/2 of the time it took to store n-f slivers.
             base: Duration::from_millis(500), // +0.5s every time.
         }
     }
