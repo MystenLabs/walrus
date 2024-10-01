@@ -302,10 +302,10 @@ public(package) fun stake_with_pool(
 public(package) fun request_withdraw_stake(
     self: &mut StakingInnerV1,
     staked_wal: &mut StakedWal,
-    ctx: &mut TxContext,
+    _ctx: &mut TxContext,
 ) {
     let wctx = &self.new_walrus_context();
-    self.pools[staked_wal.node_id()].request_withdraw_stake(staked_wal, wctx, ctx);
+    self.pools[staked_wal.node_id()].request_withdraw_stake(staked_wal, wctx);
 }
 
 /// Perform the withdrawal of the staked WAL, returning the amount to the caller.
@@ -317,7 +317,7 @@ public(package) fun withdraw_stake(
     ctx: &mut TxContext,
 ): Coin<WAL> {
     let wctx = &self.new_walrus_context();
-    self.pools[staked_wal.node_id()].withdraw_stake(staked_wal, wctx, ctx)
+    self.pools[staked_wal.node_id()].withdraw_stake(staked_wal, wctx).into_coin(ctx)
 }
 
 /// Get the current epoch.

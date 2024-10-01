@@ -5,7 +5,7 @@
 module walrus::staking_pool;
 
 use std::string::String;
-use sui::{balance::{Self, Balance}, coin::Coin, table::{Self, Table}};
+use sui::{balance::{Self, Balance}, table::{Self, Table}};
 use wal::wal::WAL;
 use walrus::{
     pending_values::{Self, PendingValues},
@@ -17,6 +17,12 @@ use walrus::{
 
 #[error]
 const EPoolAlreadyUpdated: vector<u8> = b"Pool already updated for the current epoch";
+
+#[error]
+const ECalculationError: vector<u8> = b"Trying to withdraw more than the pool balance";
+
+#[error]
+const EIncorrectEpochAdvance: vector<u8> = b"Pool without stake cannot receive rewards";
 
 /// Represents the state of the staking pool.
 ///
@@ -73,6 +79,9 @@ public struct StakingPool has key, store {
     /// exchange rate was set, and the value is the exchange rate (the ratio of
     /// the amount of WAL tokens for the pool token).
     exchange_rates: Table<u32, PoolExchangeRate>,
+    /// The rates for the stake withdrawals. The key is the epoch when the
+    /// withdrawal will be processed, and the value is the exchange rate.
+    // withdraw_rates: Table<u32, PoolExchangeRate>,
     /// The amount of stake that will be added to the `wal_balance`. Can hold
     /// up to two keys: E+1 and E+2, due to the differences in the activation
     /// epoch.
@@ -140,6 +149,7 @@ public(package) fun new(
         latest_epoch: wctx.epoch(),
         pending_stake: pending_values::empty(),
         pending_withdrawal: pending_values::empty(),
+        // withdraw_rates: table::new(ctx),
         pending_pool_token_withdraw: pending_values::empty(),
         wal_balance: 0,
         pool_token_balance: 0,
@@ -187,10 +197,8 @@ public(package) fun stake(
 /// Request withdrawal of the given amount from the staked WAL.
 /// Marks the `StakedWal` as withdrawing and updates the activation epoch.
 ///
-/// TODO: rewards calculation.
 /// TODO: if pool is out and is withdrawing, we can perform the withdrawal
 /// immediately
-/// TODO: Only if the pool is already withdrawn.
 /// TODO: consider the case of early withdrawal if stake hasn't been activated
 /// and committee not selected.
 ///
@@ -199,8 +207,7 @@ public(package) fun request_withdraw_stake(
     pool: &mut StakingPool,
     staked_wal: &mut StakedWal,
     wctx: &WalrusContext,
-    _ctx: &mut TxContext,
-): u64 {
+) {
     assert!(!pool.is_new());
     assert!(staked_wal.value() > 0);
     assert!(staked_wal.node_id() == pool.id.to_inner());
@@ -223,8 +230,6 @@ public(package) fun request_withdraw_stake(
 
     pool.pending_pool_token_withdraw.insert_or_add(withdraw_epoch, token_amount);
     staked_wal.set_withdrawing(withdraw_epoch, token_amount);
-
-    token_amount
 }
 
 /// Perform the withdrawal of the staked WAL, returning the amount to the caller.
@@ -232,8 +237,7 @@ public(package) fun withdraw_stake(
     pool: &mut StakingPool,
     staked_wal: StakedWal,
     wctx: &WalrusContext,
-    ctx: &mut TxContext,
-): Coin<WAL> {
+): Balance<WAL> {
     assert!(!pool.is_new());
     assert!(staked_wal.value() > 0);
     assert!(staked_wal.node_id() == pool.id.to_inner());
@@ -242,12 +246,10 @@ public(package) fun withdraw_stake(
     assert!(staked_wal.is_withdrawing());
 
     let principal_amount = staked_wal.value();
-    let token_amount = staked_wal.withdraw_amount();
+    let token_amount = staked_wal.pool_token_amount();
     let withdraw_epoch = staked_wal.withdraw_epoch();
 
-    let total_amount = pool
-        .exchange_rate_at_epoch(withdraw_epoch)
-        .get_wal_amount(token_amount);
+    let total_amount = pool.exchange_rate_at_epoch(withdraw_epoch).get_wal_amount(token_amount);
 
     let principal = staked_wal.into_balance();
     let rewards_amount = if (total_amount >= principal_amount) {
@@ -256,20 +258,11 @@ public(package) fun withdraw_stake(
 
     // withdraw rewards. due to rounding errors, there's a chance that the
     // rewards amount is higher than the rewards pool, in this case, we
-    // withdraw the maximum amount possible.
-    // TODO: add an assert that rounding is within the acceptable range.
+    // withdraw the maximum amount possible
     let rewards_amount = rewards_amount.min(pool.rewards_pool.value());
     let mut to_withdraw = pool.rewards_pool.split(rewards_amount);
     to_withdraw.join(principal);
-    to_withdraw.into_coin(ctx)
-}
-
-macro fun dbg<$T: drop>($note: vector<u8>, $value: $T) {
-    use std::debug::print;
-    let note = $note;
-    let value = $value;
-    print(&note.to_string());
-    print(&value)
+    to_withdraw
 }
 
 /// Advance epoch for the `StakingPool`.
@@ -282,6 +275,7 @@ public(package) fun advance_epoch(
     let current_epoch = wctx.epoch();
 
     assert!(current_epoch > pool.latest_epoch, EPoolAlreadyUpdated);
+    assert!(rewards.value() == 0 || pool.wal_balance > 0, EIncorrectEpochAdvance);
 
     // if rewards are calculated only for full epochs, rewards addition should
     // happen prior to pool token calculation. Othewise we can add then to the
@@ -297,25 +291,16 @@ public(package) fun advance_epoch(
     let token_withdraw = pool.pending_pool_token_withdraw.flush(wctx.epoch());
     let exchange_rate = pool_exchange_rate::new(pool.wal_balance, pool.pool_token_balance);
     let pending_withdrawal = exchange_rate.get_wal_amount(token_withdraw);
-    // do the pending pool token withdrawal
     pool.pool_token_balance = pool.pool_token_balance - token_withdraw;
 
-    // rounding
-    if (pool.wal_balance >= pending_withdrawal) {
-        pool.wal_balance = pool.wal_balance - pending_withdrawal
-    } else {
-        dbg!(b"Rounding error", pending_withdrawal - pool.wal_balance);
-        assert!(false);
-    };
+    // check that the amount is not higher than the pool balance
+    assert!(pool.wal_balance >= pending_withdrawal, ECalculationError);
+    pool.wal_balance = pool.wal_balance - pending_withdrawal;
 
-    // do the stake addition
-    let exchange_rate = pool_exchange_rate::new(pool.wal_balance, pool.pool_token_balance);
+    // recalculate the additions and subtractions
     pool.wal_balance = pool.wal_balance + pool.pending_stake.flush(current_epoch);
     pool.pool_token_balance = exchange_rate.get_token_amount(pool.wal_balance);
-
-    pool
-        .exchange_rates
-        .add(current_epoch, pool_exchange_rate::new(pool.wal_balance, pool.pool_token_balance));
+    pool.exchange_rates.add(current_epoch, exchange_rate);
 }
 
 // === Pool parameters ===
@@ -413,8 +398,12 @@ public(package) fun exchange_rate_at_epoch(pool: &StakingPool, mut epoch: u32): 
 /// requests, and lack of immediate updates.
 public(package) fun wal_balance_at_epoch(pool: &StakingPool, epoch: u32): u64 {
     let mut expected = pool.wal_balance;
+    let exchange_rate = pool_exchange_rate::new(pool.wal_balance, pool.pool_token_balance);
+    let token_withdraw = pool.pending_pool_token_withdraw.value_at(epoch);
+    let pending_withdrawal = exchange_rate.get_wal_amount(token_withdraw);
+
     expected = expected + pool.pending_stake.value_at(epoch);
-    // expected = expected - pool.pending_withdrawal.value_at(epoch);
+    expected = expected - pending_withdrawal;
     expected
 }
 
@@ -462,8 +451,6 @@ public(package) fun is_withdrawing(pool: &StakingPool): bool {
 public(package) fun is_empty(pool: &StakingPool): bool {
     let pending_stake = pool.pending_stake.unwrap();
     let non_empty = pending_stake.keys().count!(|epoch| pending_stake[epoch] != 0);
-
-    dbg!(b"Actual rewards balance", pool.rewards_pool.value());
 
     pool.wal_balance == 0 && non_empty == 0 && pool.pool_token_balance == 0
 }

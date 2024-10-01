@@ -20,6 +20,16 @@ use walrus::{
     walrus_context::{Self, WalrusContext}
 };
 
+/// Debug macro for pretty printing values.
+/// The value must have a `.to_string()` method.
+public macro fun dbg<$T: drop>($note: vector<u8>, $value: $T) {
+    use std::debug::print;
+    let note = $note;
+    let value = $value;
+    print(&note.to_string());
+    print(&value)
+}
+
 /// Helper macro to assert equality of two values. Both values must be copyable
 /// and have a `.to_string()` method.
 public macro fun assert_eq<$T: copy>($left: $T, $right: $T) {
