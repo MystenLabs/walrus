@@ -120,7 +120,7 @@ jobs:
     if: ${{ needs.diff.outputs.isRust == 'true' || needs.diff.outputs.isMove == 'true' }}
     runs-on: ubuntu-ghcloud
     steps:
-      - uses: taiki-e/install-action@v2.42.37
+      - uses: taiki-e/install-action@v2.44.17
         with:
           tool: cargo-nextest
       - uses: actions/checkout@v4
@@ -155,7 +155,7 @@ jobs:
     runs-on: ubuntu-ghcloud
     continue-on-error: true
     steps:
-      - uses: taiki-e/install-action@v2.42.37
+      - uses: taiki-e/install-action@v2.44.17
         with:
           tool: cargo-nextest
       - uses: actions/checkout@v4
