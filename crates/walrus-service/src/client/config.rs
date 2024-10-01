@@ -344,7 +344,7 @@ pub struct SliverWriteExtraTime {
 impl SliverWriteExtraTime {
     /// Returns the extra time for the given time.
     ///
-    /// The extra time is computed as `store_time / fraction + base`.
+    /// The extra time is computed as `store_time * factor + base`.
     pub fn extra_time(&self, store_time: Duration) -> Duration {
         let extra_time =
             Duration::from_millis((store_time.as_millis() as f64 * self.factor) as u64);
