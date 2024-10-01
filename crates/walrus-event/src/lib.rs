@@ -37,9 +37,9 @@ pub struct EventSequenceNumber {
 }
 
 impl EventSequenceNumber {
-    pub fn new(sequence_number: CheckpointSequenceNumber, counter: u64) -> Self {
+    pub fn new(checkpoint_sequence_number: CheckpointSequenceNumber, counter: u64) -> Self {
         Self {
-            checkpoint_sequence_number: sequence_number,
+            checkpoint_sequence_number,
             counter,
         }
     }

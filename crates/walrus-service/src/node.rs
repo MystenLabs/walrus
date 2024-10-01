@@ -3061,4 +3061,56 @@ mod tests {
         );
         Ok(())
     }
+
+    async_param_test! {
+        test_update_blob_info_is_idempotent -> TestResult: [
+            empty: (&[], &[]),
+            repeated_register_and_certify: (
+                &[],
+                &[
+                    BlobRegistered::for_testing(BLOB_ID).into(),
+                    BlobCertified::for_testing(BLOB_ID).into(),
+                ]
+            ),
+            repeated_certify: (
+                &[BlobRegistered::for_testing(BLOB_ID).into()],
+                &[BlobCertified::for_testing(BLOB_ID).into()]
+            ),
+        ]
+    }
+    async fn test_update_blob_info_is_idempotent(
+        setup_events: &[BlobEvent],
+        repeated_events: &[BlobEvent],
+    ) -> TestResult {
+        let node = StorageNodeHandle::builder()
+            .with_system_event_provider(vec![])
+            .with_shard_assignment(&[ShardIndex(0)])
+            .with_node_started(true)
+            .build()
+            .await?;
+        let count_setup_events = setup_events.len();
+        for (index, event) in setup_events
+            .iter()
+            .chain(repeated_events.iter())
+            .enumerate()
+        {
+            node.storage_node
+                .inner
+                .storage
+                .update_blob_info(index, event)?;
+        }
+        let intermediate_blob_info = node.storage_node.inner.storage.get_blob_info(&BLOB_ID)?;
+
+        for (index, event) in repeated_events.iter().enumerate() {
+            node.storage_node
+                .inner
+                .storage
+                .update_blob_info(index + count_setup_events, event)?;
+        }
+        assert_eq!(
+            intermediate_blob_info,
+            node.storage_node.inner.storage.get_blob_info(&BLOB_ID)?
+        );
+        Ok(())
+    }
 }
