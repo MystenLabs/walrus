@@ -43,11 +43,12 @@ use walrus_core::{
     encoding::encoded_blob_length_for_n_shards,
     keys::ProtocolKeyPair,
     messages::{ProofOfPossessionMsg, SignedMessage},
+    Epoch,
     EpochCount,
 };
 
 use crate::{
-    client::{ReadClient, SuiClientError, SuiClientResult, SuiContractClient},
+    client::{SuiClientError, SuiClientResult, SuiContractClient},
     contracts::{self, AssociatedContractStruct},
     types::{NodeRegistrationParams, StorageNodeCap},
 };
@@ -484,18 +485,18 @@ async fn get_owned_object_data<'a>(
 }
 
 /// Generate a proof of possession of node private key for a storage node.
-pub async fn generate_proof_of_possession(
+pub fn generate_proof_of_possession(
     bls_sk: &ProtocolKeyPair,
     contract_client: &SuiContractClient,
     registration_params: &NodeRegistrationParams,
-) -> SuiClientResult<SignedMessage<ProofOfPossessionMsg>> {
-    let epoch = contract_client.current_committee().await?.epoch;
+    current_epoch: Epoch,
+) -> SignedMessage<ProofOfPossessionMsg> {
     let sui_address = contract_client.address().to_inner();
-    Ok(bls_sk.sign_message(&ProofOfPossessionMsg::new(
-        epoch,
+    bls_sk.sign_message(&ProofOfPossessionMsg::new(
+        current_epoch,
         sui_address,
         registration_params.public_key.clone(),
-    )))
+    ))
 }
 
 /// Get the [`StorageNodeCap`] object associated with the address.

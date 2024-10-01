@@ -132,6 +132,9 @@ pub trait ReadClient: Send + Sync {
     /// Returns the current epoch state.
     fn epoch_state(&self) -> impl Future<Output = SuiClientResult<EpochState>> + Send;
 
+    /// Returns the current epoch.
+    fn current_epoch(&self) -> impl Future<Output = SuiClientResult<Epoch>> + Send;
+
     /// Returns the current, previous, and next committee, along with the current epoch state.
     ///
     /// The order of the returned tuple is `(current, previous, Option<next>, epoch_state)`.
@@ -533,6 +536,12 @@ impl ReadClient for SuiReadClient {
         self.get_staking_object()
             .await
             .map(|staking| staking.inner.epoch_state)
+    }
+
+    async fn current_epoch(&self) -> SuiClientResult<Epoch> {
+        self.get_staking_object()
+            .await
+            .map(|staking| staking.inner.epoch)
     }
 
     async fn get_committees_and_state(&self) -> SuiClientResult<CommitteesAndState> {

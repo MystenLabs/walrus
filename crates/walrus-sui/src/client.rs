@@ -245,7 +245,7 @@ pub trait ContractClient: ReadClient + Send + Sync {
     fn register_candidate(
         &self,
         node_parameters: &NodeRegistrationParams,
-        proof_of_possession: &ProofOfPossession,
+        proof_of_possession: ProofOfPossession,
     ) -> impl Future<Output = SuiClientResult<StorageNodeCap>> + Send;
 
     /// Stakes the given amount with the pool of node with `node_id`.
@@ -566,6 +566,10 @@ impl ReadClient for SuiContractClient {
         self.read_client.epoch_state().await
     }
 
+    async fn current_epoch(&self) -> SuiClientResult<Epoch> {
+        self.read_client.current_epoch().await
+    }
+
     async fn get_committees_and_state(&self) -> SuiClientResult<CommitteesAndState> {
         self.read_client.get_committees_and_state().await
     }
@@ -792,7 +796,7 @@ impl ContractClient for SuiContractClient {
     async fn register_candidate(
         &self,
         node_parameters: &NodeRegistrationParams,
-        proof_of_possession: &ProofOfPossession,
+        proof_of_possession: ProofOfPossession,
     ) -> SuiClientResult<StorageNodeCap> {
         // Ensure that a storage capability object does not already exist for the given address.
         // This is enforced to guarantee that there is only one capability object associated with

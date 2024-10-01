@@ -7,7 +7,7 @@ use super::{Intent, InvalidIntent, ProtocolMessage, SignedMessage};
 use crate::{messages::IntentType, Epoch, PublicKey};
 
 /// The message body for a `ProofOfPossessionMsg`,
-#[derive(Debug, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ProofOfPossessionBody {
     /// The sui address of the signer as bytes.
     pub sui_address: [u8; 32],
@@ -16,7 +16,7 @@ pub struct ProofOfPossessionBody {
 }
 
 /// A message to create a proof of possession of the associated private key.
-#[derive(Debug, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ProofOfPossessionMsg(pub(crate) ProtocolMessage<ProofOfPossessionBody>);
 
 impl ProofOfPossessionMsg {

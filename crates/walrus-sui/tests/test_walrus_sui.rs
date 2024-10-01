@@ -317,19 +317,19 @@ async fn test_register_candidate() -> anyhow::Result<()> {
         &protocol_key_pair,
         &walrus_client.inner,
         &registration_params,
-    )
-    .await?;
+        walrus_client.inner.current_epoch().await?,
+    );
 
     let _cap = walrus_client
         .inner
-        .register_candidate(&registration_params, &proof_of_possession)
+        .register_candidate(&registration_params, proof_of_possession.clone())
         .await?;
 
     // Second registration should fail since there is already a capability object exist in the
     // address.
     let second_registration_result = walrus_client
         .inner
-        .register_candidate(&registration_params, &proof_of_possession)
+        .register_candidate(&registration_params, proof_of_possession)
         .await;
 
     assert!(matches!(

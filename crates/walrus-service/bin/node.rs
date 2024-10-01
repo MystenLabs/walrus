@@ -320,7 +320,7 @@ mod commands {
     use tokio::task::JoinSet;
     use walrus_core::ensure;
     use walrus_service::utils;
-    use walrus_sui::types::NetworkAddress;
+    use walrus_sui::{client::ReadClient as _, types::NetworkAddress};
 
     use super::*;
 
@@ -522,11 +522,11 @@ mod commands {
             config.protocol_key_pair(),
             &contract_client,
             &registration_params,
-        )
-        .await?;
+            contract_client.current_epoch().await?,
+        );
 
         let node_capability = contract_client
-            .register_candidate(&registration_params, &proof_of_possession)
+            .register_candidate(&registration_params, proof_of_possession)
             .await?;
 
         println!("Successfully registered storage node:",);
