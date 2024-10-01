@@ -206,7 +206,7 @@ impl Storage {
     ) -> Result<(), TypedStoreError> {
         let mut batch = self.metadata.batch();
         batch.insert_batch(&self.metadata, [(blob_id, metadata)])?;
-        self.blob_info.merge_blob_info(
+        self.blob_info.merge_blob_info_batch(
             &mut batch,
             blob_id,
             &BlobInfoMergeOperand::MarkMetadataStored(true),
@@ -312,7 +312,7 @@ impl Storage {
     ) -> Result<(), TypedStoreError> {
         batch.delete_batch(&self.metadata, [blob_id])?;
         if update_blob_info {
-            self.blob_info.merge_blob_info(
+            self.blob_info.merge_blob_info_batch(
                 batch,
                 blob_id,
                 &BlobInfoMergeOperand::MarkMetadataStored(false),
@@ -565,138 +565,140 @@ pub(crate) mod tests {
         Ok(())
     }
 
-    // async_param_test! {
-    //     update_blob_info -> TestResult: [
-    //         in_order: (false),
-    //         skip_certify: (true),
-    //     ]
-    // }
-    // async fn update_blob_info(skip_certify: bool) -> TestResult {
-    //     let storage = empty_storage();
-    //     let storage = storage.as_ref();
-    //     let blob_id = BLOB_ID;
+    async_param_test! {
+        update_blob_info -> TestResult: [
+            in_order: (false),
+            skip_certify: (true),
+        ]
+    }
+    async fn update_blob_info(skip_certify: bool) -> TestResult {
+        let storage = empty_storage();
+        let storage = storage.as_ref();
+        let blob_id = BLOB_ID;
 
-    //     let registered_epoch = Some(1);
-    //     let registered_event = event_id_for_testing();
-    //     println!("registered event: {registered_event:?}");
-    //     let state0 = BlobInfo::new_for_testing(
-    //         42,
-    //         BlobCertificationStatus::Registered,
-    //         registered_event,
-    //         Some(1),
-    //         None,
-    //         None,
-    //     );
-    //     storage.merge_update_blob_info(
-    //         &blob_id,
-    //         BlobInfoMergeOperand::new_change_for_testing(
-    //             BlobStatusChangeType::Register,
-    //             false,
-    //             1,
-    //             42,
-    //             registered_event,
-    //         ),
-    //     )?;
-    //     assert_eq!(storage.get_blob_info(&blob_id)?, Some(state0));
+        let registered_epoch = Some(1);
+        let registered_event = event_id_for_testing();
+        println!("registered event: {registered_event:?}");
+        let state0 = BlobInfo::new_for_testing(
+            42,
+            BlobCertificationStatus::Registered,
+            registered_event,
+            Some(1),
+            None,
+            None,
+        );
+        storage.blob_info.merge_blob_info(
+            &blob_id,
+            &BlobInfoMergeOperand::new_change_for_testing(
+                BlobStatusChangeType::Register,
+                false,
+                1,
+                42,
+                registered_event,
+            ),
+        )?;
+        assert_eq!(storage.get_blob_info(&blob_id)?, Some(state0));
 
-    //     let certified_epoch = if skip_certify { None } else { Some(2) };
-    //     let certified_event = event_id_for_testing();
-    //     println!("certified event: {certified_event:?}");
-    //     if !skip_certify {
-    //         let mut state1 = BlobInfo::new_for_testing(
-    //             42,
-    //             BlobCertificationStatus::Certified,
-    //             certified_event,
-    //             registered_epoch,
-    //             certified_epoch,
-    //             None,
-    //         );
+        let certified_epoch = if skip_certify { None } else { Some(2) };
+        let certified_event = event_id_for_testing();
+        println!("certified event: {certified_event:?}");
+        if !skip_certify {
+            let mut state1 = BlobInfo::new_for_testing(
+                42,
+                BlobCertificationStatus::Certified,
+                certified_event,
+                registered_epoch,
+                certified_epoch,
+                None,
+            );
 
-    //         // Set correct registered event.
-    //         let BlobInfo::V1(BlobInfoV1::Valid(ValidBlobInfoV1 {
-    //             permanent_total: Some(PermanentBlobInfoV1 { ref mut event, .. }),
-    //             ..
-    //         })) = &mut state1
-    //         else {
-    //             panic!()
-    //         };
-    //         *event = registered_event;
+            // Set correct registered event.
+            let BlobInfo::V1(BlobInfoV1::Valid(ValidBlobInfoV1 {
+                permanent_total: Some(PermanentBlobInfoV1 { ref mut event, .. }),
+                ..
+            })) = &mut state1
+            else {
+                panic!()
+            };
+            *event = registered_event;
 
-    //         storage.merge_update_blob_info(
-    //             &blob_id,
-    //             BlobInfoMergeOperand::new_change_for_testing(
-    //                 BlobStatusChangeType::Certify,
-    //                 false,
-    //                 2,
-    //                 42,
-    //                 certified_event,
-    //             ),
-    //         )?;
-    //         assert_eq!(storage.get_blob_info(&blob_id)?, Some(state1));
-    //     }
+            storage.blob_info.merge_blob_info(
+                &blob_id,
+                &BlobInfoMergeOperand::new_change_for_testing(
+                    BlobStatusChangeType::Certify,
+                    false,
+                    2,
+                    42,
+                    certified_event,
+                ),
+            )?;
+            assert_eq!(storage.get_blob_info(&blob_id)?, Some(state1));
+        }
 
-    //     let event = event_id_for_testing();
-    //     let state2 = BlobInfo::new_for_testing(
-    //         42,
-    //         BlobCertificationStatus::Invalid,
-    //         event,
-    //         registered_epoch,
-    //         certified_epoch,
-    //         Some(3),
-    //     );
-    //     storage.merge_update_blob_info(
-    //         &blob_id,
-    //         BlobInfoMergeOperand::MarkInvalid {
-    //             epoch: 3,
-    //             status_event: event,
-    //         },
-    //     )?;
-    //     assert_eq!(storage.get_blob_info(&blob_id)?, Some(state2));
-    //     Ok(())
-    // }
+        let event = event_id_for_testing();
+        let state2 = BlobInfo::new_for_testing(
+            42,
+            BlobCertificationStatus::Invalid,
+            event,
+            registered_epoch,
+            certified_epoch,
+            Some(3),
+        );
+        storage.blob_info.merge_blob_info(
+            &blob_id,
+            &BlobInfoMergeOperand::MarkInvalid {
+                epoch: 3,
+                status_event: event,
+            },
+        )?;
+        assert_eq!(storage.get_blob_info(&blob_id)?, Some(state2));
+        Ok(())
+    }
 
-    // #[tokio::test]
-    // async fn update_blob_info_metadata_stored() -> TestResult {
-    //     let storage = empty_storage();
-    //     let storage = storage.as_ref();
-    //     let blob_id = BLOB_ID;
+    #[tokio::test]
+    async fn update_blob_info_metadata_stored() -> TestResult {
+        let storage = empty_storage();
+        let storage = storage.as_ref();
+        let blob_id = BLOB_ID;
 
-    //     let event = event_id_for_testing();
-    //     let state0 = BlobInfo::new_for_testing(
-    //         42,
-    //         BlobCertificationStatus::Registered,
-    //         event,
-    //         Some(1),
-    //         None,
-    //         None,
-    //     );
+        let event = event_id_for_testing();
+        let state0 = BlobInfo::new_for_testing(
+            42,
+            BlobCertificationStatus::Registered,
+            event,
+            Some(1),
+            None,
+            None,
+        );
 
-    //     storage.merge_update_blob_info(
-    //         &blob_id,
-    //         BlobInfoMergeOperand::new_change_for_testing(
-    //             BlobStatusChangeType::Register,
-    //             false,
-    //             1,
-    //             42,
-    //             event,
-    //         ),
-    //     )?;
-    //     assert_eq!(storage.get_blob_info(&blob_id)?, Some(state0.clone()));
+        storage.blob_info.merge_blob_info(
+            &blob_id,
+            &BlobInfoMergeOperand::new_change_for_testing(
+                BlobStatusChangeType::Register,
+                false,
+                1,
+                42,
+                event,
+            ),
+        )?;
+        assert_eq!(storage.get_blob_info(&blob_id)?, Some(state0.clone()));
 
-    //     let mut state1 = state0.clone();
-    //     let BlobInfo::V1(BlobInfoV1::Valid(ValidBlobInfoV1 {
-    //         is_metadata_stored, ..
-    //     })) = &mut state1
-    //     else {
-    //         panic!()
-    //     };
-    //     *is_metadata_stored = true;
+        let mut state1 = state0.clone();
+        let BlobInfo::V1(BlobInfoV1::Valid(ValidBlobInfoV1 {
+            is_metadata_stored, ..
+        })) = &mut state1
+        else {
+            panic!()
+        };
+        *is_metadata_stored = true;
 
-    //     storage.merge_update_blob_info(&blob_id, BlobInfoMergeOperand::MarkMetadataStored(true))?;
-    //     assert_eq!(storage.get_blob_info(&blob_id)?, Some(state1));
+        storage
+            .blob_info
+            .merge_blob_info(&blob_id, &BlobInfoMergeOperand::MarkMetadataStored(true))?;
+        assert_eq!(storage.get_blob_info(&blob_id)?, Some(state1));
 
-    //     Ok(())
-    // }
+        Ok(())
+    }
 
     async_param_test! {
         maybe_advance_event_cursor_order -> TestResult: [
@@ -944,126 +946,128 @@ pub(crate) mod tests {
         Ok(())
     }
 
-    // async_param_test! {
-    //     handle_sync_shard_request_behave_expected -> TestResult: [
-    //         scan_first: (SliverType::Primary, ShardIndex(3), 1, 1, &[1]),
-    //         scan_all: (SliverType::Primary, ShardIndex(5), 1, 5, &[1, 2, 3, 4, 5]),
-    //         scan_tail: (SliverType::Primary, ShardIndex(3), 3, 5, &[3, 4, 5]),
-    //         scan_head: (SliverType::Primary, ShardIndex(5), 0, 2, &[1, 2]),
-    //         scan_middle_single: (SliverType::Secondary, ShardIndex(5), 3, 1, &[3]),
-    //         scan_middle_range: (SliverType::Secondary, ShardIndex(3), 2, 2, &[2, 3]),
-    //         scan_end_over: (SliverType::Secondary, ShardIndex(5), 3, 5, &[3, 4, 5]),
-    //         scan_all_wide_range: (SliverType::Secondary, ShardIndex(3), 0, 100, &[1, 2, 3, 4, 5]),
-    //         scan_out_of_range: (SliverType::Secondary, ShardIndex(5), 6, 2, &[]),
-    //     ]
-    // }
-    // async fn handle_sync_shard_request_behave_expected(
-    //     sliver_type: SliverType,
-    //     shard_index: ShardIndex,
-    //     start_blob_index: u8,
-    //     count: u64,
-    //     expected_blob_index_in_response: &[u8],
-    // ) -> TestResult {
-    //     let mut storage = empty_storage();
+    async_param_test! {
+        handle_sync_shard_request_behave_expected -> TestResult: [
+            scan_first: (SliverType::Primary, ShardIndex(3), 1, 1, &[1]),
+            scan_all: (SliverType::Primary, ShardIndex(5), 1, 5, &[1, 2, 3, 4, 5]),
+            scan_tail: (SliverType::Primary, ShardIndex(3), 3, 5, &[3, 4, 5]),
+            scan_head: (SliverType::Primary, ShardIndex(5), 0, 2, &[1, 2]),
+            scan_middle_single: (SliverType::Secondary, ShardIndex(5), 3, 1, &[3]),
+            scan_middle_range: (SliverType::Secondary, ShardIndex(3), 2, 2, &[2, 3]),
+            scan_end_over: (SliverType::Secondary, ShardIndex(5), 3, 5, &[3, 4, 5]),
+            scan_all_wide_range: (SliverType::Secondary, ShardIndex(3), 0, 100, &[1, 2, 3, 4, 5]),
+            scan_out_of_range: (SliverType::Secondary, ShardIndex(5), 6, 2, &[]),
+        ]
+    }
+    async fn handle_sync_shard_request_behave_expected(
+        sliver_type: SliverType,
+        shard_index: ShardIndex,
+        start_blob_index: u8,
+        count: u64,
+        expected_blob_index_in_response: &[u8],
+    ) -> TestResult {
+        let mut storage = empty_storage();
 
-    //     // All tests use the same setup:
-    //     // - 2 shards: 3 and 5
-    //     // - 5 blobs: 1, 2, 3, 4, 5
-    //     // - 2 slivers per blob: primary and secondary
+        // All tests use the same setup:
+        // - 2 shards: 3 and 5
+        // - 5 blobs: 1, 2, 3, 4, 5
+        // - 2 slivers per blob: primary and secondary
 
-    //     let mut seed = 10u8;
+        let mut seed = 10u8;
 
-    //     let blob_ids = [
-    //         BlobId([1; 32]),
-    //         BlobId([2; 32]),
-    //         BlobId([3; 32]),
-    //         BlobId([4; 32]),
-    //         BlobId([5; 32]),
-    //     ];
+        let blob_ids = [
+            BlobId([1; 32]),
+            BlobId([2; 32]),
+            BlobId([3; 32]),
+            BlobId([4; 32]),
+            BlobId([5; 32]),
+        ];
 
-    //     let mut data: HashMap<ShardIndex, HashMap<BlobId, HashMap<SliverType, Sliver>>> =
-    //         HashMap::new();
-    //     for shard in [ShardIndex(3), ShardIndex(5)] {
-    //         // TODO: call create storage once with the list of storages.
-    //         storage
-    //             .as_mut()
-    //             .create_storage_for_shards(&[shard])
-    //             .unwrap();
-    //         let shard_storage = storage.as_ref().shard_storage(shard).unwrap();
-    //         data.insert(shard, HashMap::new());
-    //         for blob in blob_ids.iter() {
-    //             data.get_mut(&shard).unwrap().insert(*blob, HashMap::new());
-    //             for sliver_type in [SliverType::Primary, SliverType::Secondary] {
-    //                 let sliver_data = get_sliver(sliver_type, seed);
-    //                 seed += 1;
-    //                 data.get_mut(&shard)
-    //                     .unwrap()
-    //                     .get_mut(blob)
-    //                     .unwrap()
-    //                     .insert(sliver_type, sliver_data.clone());
-    //                 shard_storage
-    //                     .put_sliver(blob, &sliver_data)
-    //                     .expect("Store should succeed");
-    //             }
-    //         }
-    //     }
+        let mut data: HashMap<ShardIndex, HashMap<BlobId, HashMap<SliverType, Sliver>>> =
+            HashMap::new();
+        for shard in [ShardIndex(3), ShardIndex(5)] {
+            // TODO: call create storage once with the list of storages.
+            storage
+                .as_mut()
+                .create_storage_for_shards(&[shard])
+                .unwrap();
+            let shard_storage = storage.as_ref().shard_storage(shard).unwrap();
+            data.insert(shard, HashMap::new());
+            for blob in blob_ids.iter() {
+                data.get_mut(&shard).unwrap().insert(*blob, HashMap::new());
+                for sliver_type in [SliverType::Primary, SliverType::Secondary] {
+                    let sliver_data = get_sliver(sliver_type, seed);
+                    seed += 1;
+                    data.get_mut(&shard)
+                        .unwrap()
+                        .get_mut(blob)
+                        .unwrap()
+                        .insert(sliver_type, sliver_data.clone());
+                    shard_storage
+                        .put_sliver(blob, &sliver_data)
+                        .expect("Store should succeed");
+                }
+            }
+        }
 
-    //     for blob_id in blob_ids.iter() {
-    //         storage
-    //             .as_mut()
-    //             .merge_update_blob_info(
-    //                 blob_id,
-    //                 BlobInfoMergeOperand::new_change_for_testing(
-    //                     BlobStatusChangeType::Register,
-    //                     false,
-    //                     0,
-    //                     2,
-    //                     event_id_for_testing(),
-    //                 ),
-    //             )
-    //             .expect("writing blob info should succeed");
-    //         storage
-    //             .as_mut()
-    //             .merge_update_blob_info(
-    //                 blob_id,
-    //                 BlobInfoMergeOperand::new_change_for_testing(
-    //                     BlobStatusChangeType::Certify,
-    //                     false,
-    //                     0,
-    //                     2,
-    //                     event_id_for_testing(),
-    //                 ),
-    //             )
-    //             .expect("writing blob info should succeed");
-    //     }
+        for blob_id in blob_ids.iter() {
+            storage
+                .as_mut()
+                .blob_info
+                .merge_blob_info(
+                    blob_id,
+                    &BlobInfoMergeOperand::new_change_for_testing(
+                        BlobStatusChangeType::Register,
+                        false,
+                        0,
+                        2,
+                        event_id_for_testing(),
+                    ),
+                )
+                .expect("writing blob info should succeed");
+            storage
+                .as_mut()
+                .blob_info
+                .merge_blob_info(
+                    blob_id,
+                    &BlobInfoMergeOperand::new_change_for_testing(
+                        BlobStatusChangeType::Certify,
+                        false,
+                        0,
+                        2,
+                        event_id_for_testing(),
+                    ),
+                )
+                .expect("writing blob info should succeed");
+        }
 
-    //     let request = SyncShardRequest::new(
-    //         shard_index,
-    //         sliver_type,
-    //         BlobId([start_blob_index; 32]),
-    //         count,
-    //         1,
-    //     );
-    //     let response = storage
-    //         .as_ref()
-    //         .handle_sync_shard_request(&request, 1)
-    //         .unwrap();
+        let request = SyncShardRequest::new(
+            shard_index,
+            sliver_type,
+            BlobId([start_blob_index; 32]),
+            count,
+            1,
+        );
+        let response = storage
+            .as_ref()
+            .handle_sync_shard_request(&request, 1)
+            .unwrap();
 
-    //     let SyncShardResponse::V1(slivers) = response;
-    //     let expected_response = expected_blob_index_in_response
-    //         .iter()
-    //         .map(|blob_index| {
-    //             (
-    //                 BlobId([*blob_index; 32]),
-    //                 data[&shard_index][&BlobId([*blob_index; 32])][&sliver_type].clone(),
-    //             )
-    //         })
-    //         .collect::<Vec<_>>();
+        let SyncShardResponse::V1(slivers) = response;
+        let expected_response = expected_blob_index_in_response
+            .iter()
+            .map(|blob_index| {
+                (
+                    BlobId([*blob_index; 32]),
+                    data[&shard_index][&BlobId([*blob_index; 32])][&sliver_type].clone(),
+                )
+            })
+            .collect::<Vec<_>>();
 
-    //     assert_eq!(slivers, expected_response);
+        assert_eq!(slivers, expected_response);
 
-    //     Ok(())
-    // }
+        Ok(())
+    }
 
     /// Tests that the storage returns correct error when trying to sync a shard that does not
     /// exist.
@@ -1129,61 +1133,61 @@ pub(crate) mod tests {
             .blob_info
             .certified_blob_info_iter_before_epoch(
                 new_epoch,
-                after_blob.map_or(Unbounded, |blob_id| Excluded(blob_id)),
+                after_blob.map_or(Unbounded, Excluded),
             )
             .map(|result| result.map(|(id, _info)| id))
             .collect::<Result<Vec<_>, _>>()
     }
 
-    // #[tokio::test]
-    // async fn test_certified_blob_info_iter_before_epoch() -> TestResult {
-    //     let storage = empty_storage();
-    //     let blob_info = storage.inner.blob_info.clone();
-    //     let new_epoch = 3;
+    #[tokio::test]
+    async fn test_certified_blob_info_iter_before_epoch() -> TestResult {
+        let storage = empty_storage();
+        let blob_info = storage.inner.blob_info.clone();
+        let new_epoch = 3;
 
-    //     let blob_ids = [
-    //         BlobId([0; 32]), // Not certified.
-    //         BlobId([1; 32]), // Not exist.
-    //         BlobId([2; 32]), // Certified within epoch 2
-    //         BlobId([3; 32]), // Certified after epoch 2
-    //         BlobId([4; 32]), // Invalid
-    //         BlobId([5; 32]), // Certified within epoch 2
-    //         BlobId([6; 32]), // Not exist.
-    //     ];
+        let blob_ids = [
+            BlobId([0; 32]), // Not certified.
+            BlobId([1; 32]), // Not exist.
+            BlobId([2; 32]), // Certified within epoch 2
+            BlobId([3; 32]), // Certified after epoch 2
+            BlobId([4; 32]), // Invalid
+            BlobId([5; 32]), // Certified within epoch 2
+            BlobId([6; 32]), // Not exist.
+        ];
 
-    //     let blob_info_map = HashMap::from([
-    //         (blob_ids[0], registered_blob_info(1)),
-    //         (blob_ids[2], certified_blob_info(2)),
-    //         (blob_ids[3], certified_blob_info(3)),
-    //         (blob_ids[4], invalid_blob_info(2)),
-    //         (blob_ids[5], certified_blob_info(2)),
-    //     ]);
+        let blob_info_map = HashMap::from([
+            (blob_ids[0], registered_blob_info(1)),
+            (blob_ids[2], certified_blob_info(2)),
+            (blob_ids[3], certified_blob_info(3)),
+            (blob_ids[4], invalid_blob_info(2)),
+            (blob_ids[5], certified_blob_info(2)),
+        ]);
 
-    //     let mut batch = blob_info.batch();
-    //     batch.insert_batch(&blob_info, blob_info_map.iter())?;
-    //     batch.write()?;
+        let mut batch = blob_info.batch();
+        blob_info.insert_batch(&mut batch, blob_info_map.iter())?;
+        batch.write()?;
 
-    //     assert_eq!(
-    //         all_certified_blob_ids(&storage, None, new_epoch)?,
-    //         vec![blob_ids[2], blob_ids[5]]
-    //     );
+        assert_eq!(
+            all_certified_blob_ids(&storage, None, new_epoch)?,
+            vec![blob_ids[2], blob_ids[5]]
+        );
 
-    //     for blob_id in blob_ids.iter().take(2) {
-    //         assert_eq!(
-    //             all_certified_blob_ids(&storage, Some(*blob_id), new_epoch)?,
-    //             vec![blob_ids[2], blob_ids[5]]
-    //         );
-    //     }
-    //     for blob_id in blob_ids.iter().take(5).skip(2) {
-    //         assert_eq!(
-    //             all_certified_blob_ids(&storage, Some(*blob_id), new_epoch)?,
-    //             vec![blob_ids[5]]
-    //         );
-    //     }
-    //     for blob_id in blob_ids.iter().take(6).skip(5) {
-    //         assert!(all_certified_blob_ids(&storage, Some(*blob_id), new_epoch)?.is_empty());
-    //     }
+        for blob_id in blob_ids.iter().take(2) {
+            assert_eq!(
+                all_certified_blob_ids(&storage, Some(*blob_id), new_epoch)?,
+                vec![blob_ids[2], blob_ids[5]]
+            );
+        }
+        for blob_id in blob_ids.iter().take(5).skip(2) {
+            assert_eq!(
+                all_certified_blob_ids(&storage, Some(*blob_id), new_epoch)?,
+                vec![blob_ids[5]]
+            );
+        }
+        for blob_id in blob_ids.iter().take(6).skip(5) {
+            assert!(all_certified_blob_ids(&storage, Some(*blob_id), new_epoch)?.is_empty());
+        }
 
-    //     Ok(())
-    // }
+        Ok(())
+    }
 }

@@ -89,7 +89,7 @@ impl BlobInfoTable {
         tracing::debug!(?operation, "updating blob info");
 
         let mut batch = self.blob_info.batch();
-        self.merge_blob_info(&mut batch, &event.blob_id(), &operation)?;
+        self.merge_blob_info_batch(&mut batch, &event.blob_id(), &operation)?;
         batch.insert_batch(&self.latest_handled_event_index, [(&(), event_index)])?;
         batch.write()
     }
@@ -103,7 +103,7 @@ impl BlobInfoTable {
             }))
     }
 
-    pub fn merge_blob_info(
+    pub fn merge_blob_info_batch(
         &self,
         batch: &mut DBBatch,
         blob_id: &BlobId,
@@ -139,6 +139,45 @@ impl BlobInfoTable {
     /// Returns the blob info for `blob_id`.
     pub fn get(&self, blob_id: &BlobId) -> Result<Option<BlobInfo>, TypedStoreError> {
         self.blob_info.get(blob_id)
+    }
+}
+
+// TODO(mlegner): Rewrite other tests without relying on blob-info internals. (#900)
+#[cfg(test)]
+impl BlobInfoTable {
+    pub fn batch(&self) -> DBBatch {
+        self.blob_info.batch()
+    }
+
+    pub fn merge_blob_info(
+        &self,
+        blob_id: &BlobId,
+        operand: &BlobInfoMergeOperand,
+    ) -> Result<(), TypedStoreError> {
+        let mut batch = self.batch();
+        self.merge_blob_info_batch(&mut batch, blob_id, operand)?;
+        batch.write()
+    }
+
+    pub fn insert(&self, blob_id: &BlobId, blob_info: &BlobInfo) -> Result<(), TypedStoreError> {
+        self.blob_info.insert(blob_id, blob_info)
+    }
+
+    pub fn remove(&self, blob_id: &BlobId) -> Result<(), TypedStoreError> {
+        self.blob_info.remove(blob_id)
+    }
+
+    pub fn keys(&self) -> Result<Vec<BlobId>, TypedStoreError> {
+        self.blob_info.keys().collect()
+    }
+
+    pub fn insert_batch<'a>(
+        &self,
+        batch: &mut DBBatch,
+        new_vals: impl IntoIterator<Item = (&'a BlobId, &'a BlobInfo)>,
+    ) -> Result<(), TypedStoreError> {
+        batch.insert_batch(&self.blob_info, new_vals)?;
+        Ok(())
     }
 }
 
