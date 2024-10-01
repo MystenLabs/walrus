@@ -287,7 +287,7 @@ public(package) fun stake_with_pool(
 ): StakedWal {
     let wctx = &self.new_walrus_context();
     let pool = &mut self.pools[node_id];
-    let staked_wal = pool.stake(to_stake, wctx, ctx);
+    let staked_wal = pool.stake(to_stake.into_balance(), wctx, ctx);
 
     // active set only tracks the stake for the next epoch, pool already knows
     // whether the stake was applied to E+1 or E+2.
