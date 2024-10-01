@@ -11481,6 +11481,7 @@ dependencies = [
  "bcs",
  "chrono",
  "fastcrypto 0.1.8 (git+https://github.com/MystenLabs/fastcrypto?rev=3366c26a746b72707572c4f3f05915e20d5c16c2)",
+ "futures",
  "move-core-types",
  "rand 0.8.5",
  "regex",

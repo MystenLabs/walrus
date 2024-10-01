@@ -1627,6 +1627,7 @@ pub(crate) fn test_committee_with_epoch(weights: &[u16], epoch: Epoch) -> Commit
 pub mod test_cluster {
     use std::sync::OnceLock;
 
+    use futures::{stream, TryStreamExt};
     use tokio::sync::Mutex;
     use walrus_event::EventProcessorConfig;
     use walrus_sui::{
@@ -1723,18 +1724,26 @@ pub mod test_cluster {
         )
         .await?;
 
-        let mut contract_clients = vec![];
-        for _ in members.iter() {
-            let client = test_utils::new_wallet_on_sui_test_cluster(sui_cluster.clone())
-                .await?
-                .and_then_async(|wallet| system_ctx.new_contract_client(wallet, DEFAULT_GAS_BUDGET))
-                .await?;
-            contract_clients.push(client);
-        }
-        let contract_clients_refs = contract_clients
-            .iter()
-            .map(|client| &client.inner)
-            .collect::<Vec<_>>();
+        let WithTempDir {
+            inner: wallets,
+            // The on-file representation of the wallets are dropped at the end of scope.
+            temp_dir: _tmp_dir,
+        } = test_utils::create_and_fund_wallets_on_cluster(sui_cluster.clone(), members.len())
+            .await?;
+
+        let contract_clients = stream::iter(wallets)
+            .then(|wallet| {
+                SuiContractClient::new(
+                    wallet,
+                    system_ctx.system_object,
+                    system_ctx.staking_object,
+                    DEFAULT_GAS_BUDGET,
+                )
+            })
+            .try_collect::<Vec<_>>()
+            .await?;
+
+        let contract_clients_refs = contract_clients.iter().collect::<Vec<_>>();
 
         let amounts_to_stake = node_weights
             .iter()
@@ -1755,7 +1764,6 @@ pub mod test_cluster {
 
         let node_contract_services = contract_clients
             .into_iter()
-            .map(|client| client.inner)
             .map(SuiSystemContractService::new)
             .collect::<Vec<_>>();
 

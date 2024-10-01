@@ -326,6 +326,53 @@ pub mod using_msim {
     }
 }
 
+/// Creates `n_wallets` wallets and funds them with the cluster's initial wallet.
+///
+/// Funds all the wallets with a single transaction, so as to avoid contention on the cluster's
+/// wallet.
+///
+/// See [`new_wallet_on_sui_test_cluster`] for a similar method that funds a single wallet at a
+/// time.
+pub async fn create_and_fund_wallets_on_cluster(
+    sui_cluster: Arc<TestClusterHandle>,
+    n_wallets: usize,
+) -> anyhow::Result<WithTempDir<Vec<WalletContext>>> {
+    let path_guard = sui_cluster.wallet_path.lock().await;
+    // Load the cluster's wallet from file instead of using the wallet stored in the cluster.
+    // This prevents tasks from being spawned in the current runtime that are expected by
+    // the wallet to continue running.
+    let mut cluster_wallet = WalletContext::new(&path_guard, None, None)?;
+    let wallets_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
+
+    let mut wallets: Vec<_> = std::iter::repeat_with(|| {
+        create_wallet(
+            &wallets_dir.path().join("wallet_config.yaml"),
+            cluster_wallet.config.get_active_env()?.to_owned(),
+            None,
+        )
+    })
+    .take(n_wallets)
+    .collect::<Result<_, _>>()?;
+
+    let recipients = wallets
+        .iter_mut()
+        .flat_map(|wallet| {
+            let active_address = wallet
+                .active_address()
+                .expect("newly created wallet has an active address");
+            // Repeat the address so that we get funded twice.
+            [active_address, active_address]
+        })
+        .collect();
+
+    fund_addresses(&mut cluster_wallet, recipients).await?;
+
+    Ok(WithTempDir {
+        inner: wallets,
+        temp_dir: wallets_dir,
+    })
+}
+
 /// Returns a new wallet on the global Sui test cluster.
 pub async fn new_wallet_on_sui_test_cluster(
     sui_cluster: Arc<TestClusterHandle>,
@@ -361,7 +408,9 @@ pub async fn wallet_for_testing(
         funding_wallet.config.get_active_env()?.to_owned(),
         None,
     )?;
-    fund_address(funding_wallet, wallet.active_address()?).await?;
+
+    let active_address = wallet.active_address()?;
+    fund_addresses(funding_wallet, vec![active_address, active_address]).await?;
 
     Ok(WithTempDir {
         inner: wallet,
@@ -369,10 +418,10 @@ pub async fn wallet_for_testing(
     })
 }
 
-/// Funds `recipient` with two gas objects with 10 Sui each.
-async fn fund_address(
+/// Funds the `recipients` with gas objects with `DEFAULT_FUNDING_PER_COIN` Sui each.
+async fn fund_addresses(
     funding_wallet: &mut WalletContext,
-    recipient: SuiAddress,
+    recipients: Vec<SuiAddress>,
 ) -> anyhow::Result<()> {
     let sender = funding_wallet.active_address()?;
 
@@ -384,10 +433,8 @@ async fn fund_address(
 
     let mut ptb = ProgrammableTransactionBuilder::new();
 
-    ptb.pay_sui(
-        vec![recipient, recipient],
-        vec![DEFAULT_FUNDING_PER_COIN, DEFAULT_FUNDING_PER_COIN],
-    )?;
+    let amounts = vec![DEFAULT_FUNDING_PER_COIN; recipients.len()];
+    ptb.pay_sui(recipients, amounts)?;
 
     sign_and_send_ptb(
         sender,
