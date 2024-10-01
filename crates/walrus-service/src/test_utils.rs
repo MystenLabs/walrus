@@ -884,12 +884,9 @@ impl TestClusterBuilder {
             .enumerate()
             .map(|(i, info)| info.to_storage_node_info(&format!("node-{i}")))
             .collect();
-        let committee = committee_from_members(committee_members.clone(), Some(1));
 
         // Create the stub lookup service and handles that may be used if none is provided.
-        let lookup_service = StubLookupService::new(committee.clone());
-        let lookup_service_handle = lookup_service.handle();
-        let mut store_lookup_service = false;
+        let mut lookup_service_and_handle = None;
 
         for (((config, event_provider), service), contract_service) in self
             .storage_node_configs
@@ -912,7 +909,13 @@ impl TestClusterBuilder {
             builder = if let Some(service) = service {
                 builder.with_committee_service(service)
             } else {
-                store_lookup_service = true;
+                let (lookup_service, _) = lookup_service_and_handle.get_or_insert_with(|| {
+                    let committee = committee_from_members(committee_members.clone(), Some(1));
+                    let lookup_service = StubLookupService::new(committee.clone());
+                    let lookup_service_handle = lookup_service.handle();
+                    (lookup_service, lookup_service_handle)
+                });
+
                 let service = NodeCommitteeService::builder()
                     .local_identity(local_identity)
                     .node_service_factory(DefaultNodeServiceFactory::avoid_system_services())
@@ -930,7 +933,7 @@ impl TestClusterBuilder {
 
         Ok(TestCluster {
             nodes,
-            lookup_service_handle: store_lookup_service.then_some(lookup_service_handle),
+            lookup_service_handle: lookup_service_and_handle.map(|(_, handle)| handle),
         })
     }
 }
@@ -986,10 +989,6 @@ where
     for<'a> &'a I: Into<ShardIndex>,
 {
     let shards: Vec<ShardIndex> = shards.iter().map(|i| i.into()).collect();
-    assert!(
-        !shards.is_empty(),
-        "shard assignments to nodes must be non-empty"
-    );
     StorageNodeTestConfig::new(shards)
 }
 
@@ -1128,7 +1127,12 @@ pub mod test_cluster {
         // Get a wallet on the global sui test cluster
         let mut wallet = test_utils::new_wallet_on_sui_test_cluster(sui_cluster.clone()).await?;
 
-        let cluster_builder = TestCluster::builder();
+        // Specify an empty assignment to ensure that storage nodes are not created with invalid
+        // shard assignments.
+        let node_weights = [1u16, 2, 3, 3, 4];
+        let n_shards = node_weights.iter().sum();
+        let cluster_builder =
+            TestCluster::builder().with_shard_assignment(&vec![[]; node_weights.len()]);
 
         // Get the default committee from the test cluster builder
         let members = cluster_builder
@@ -1137,13 +1141,6 @@ pub mod test_cluster {
             .enumerate()
             .map(|(i, info)| info.to_node_registration_params(&format!("node-{i}")))
             .collect::<Vec<_>>();
-
-        let node_weights = cluster_builder
-            .storage_node_test_configs()
-            .iter()
-            .map(|info| info.shards.len())
-            .collect::<Vec<_>>();
-        let n_shards = node_weights.iter().sum::<usize>() as u16;
 
         // TODO(#814): make epoch duration in test configurable. Currently hardcoded to 1 hour.
         let system_ctx =
@@ -1292,8 +1289,8 @@ pub fn empty_storage_with_shards(shards: &[ShardIndex]) -> WithTempDir<Storage> 
 }
 
 fn committee_from_members(members: Vec<SuiStorageNode>, initial_epoch: Option<Epoch>) -> Committee {
-    let n_shards =
-        NonZeroU16::new(members.iter().map(|node| node.shard_ids.len() as u16).sum()).unwrap();
+    let n_shards = NonZeroU16::new(members.iter().map(|node| node.shard_ids.len() as u16).sum())
+        .expect("committee cannot have zero shards");
     Committee::new(members, initial_epoch.unwrap_or(1), n_shards)
         .expect("valid members to be provided for tests")
 }
