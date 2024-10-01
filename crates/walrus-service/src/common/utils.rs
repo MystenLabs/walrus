@@ -32,6 +32,9 @@ use tokio::{
     sync::Semaphore,
     time::Instant,
 };
+use walrus_core::{PublicKey, ShardIndex};
+
+use super::active_committees::ActiveCommittees;
 
 /// Defines a constant containing the version consisting of the package version and git revision.
 ///
@@ -60,9 +63,6 @@ macro_rules! version {
     }};
 }
 pub use version;
-use walrus_core::{PublicKey, ShardIndex};
-
-use super::active_committees::ActiveCommittees;
 
 /// Trait for loading configuration from a YAML file.
 pub trait LoadConfig: DeserializeOwned {
@@ -239,7 +239,7 @@ impl SuccessOrFailure for bool {
 /// Helper functions applied to futures.
 pub(crate) trait FutureHelpers: Future {
     /// Limits the number of simultaneously executing futures.
-    #[cfg(feature = "client")]
+    #[allow(dead_code)]
     async fn batch_limit(self, permits: Arc<Semaphore>) -> Self::Output
     where
         Self: Future,

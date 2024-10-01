@@ -480,7 +480,7 @@ impl StorageNode {
     ) -> anyhow::Result<Pin<Box<dyn Stream<Item = IndexedStreamElement> + Send + Sync + '_>>> {
         let storage = &self.inner.storage;
         let from_event_id = storage.get_event_cursor()?.map(|(_, cursor)| cursor);
-        let from_element_index = self.get_last_committed_event_index()?;
+        let from_element_index = self.next_event_index()?;
         let event_cursor = EventStreamCursor::new(from_event_id, from_element_index);
 
         Ok(Box::into_pin(
@@ -491,9 +491,11 @@ impl StorageNode {
     async fn process_events(&self) -> anyhow::Result<()> {
         let event_stream = self.continue_event_stream().await?;
 
-        let from_element_index = self.get_last_committed_event_index()?;
-        let next_index: usize = from_element_index.try_into().expect("64-bit architecture");
-        let index_stream = stream::iter(next_index..);
+        let next_event_index: usize = self
+            .next_event_index()?
+            .try_into()
+            .expect("64-bit architecture");
+        let index_stream = stream::iter(next_event_index..);
         let mut maybe_epoch_at_start = Some(self.inner.committee_service.get_epoch());
 
         let mut indexed_element_stream = index_stream.zip(event_stream);
@@ -522,7 +524,7 @@ impl StorageNode {
 
             if let Some(epoch_at_start) = maybe_epoch_at_start {
                 if let EventStreamElement::ContractEvent(ref event) = stream_element.element {
-                    tracing::debug!("checking the first contract event if we're severaly lagging");
+                    tracing::debug!("checking the first contract event if we're severely lagging");
                     // Clear the starting epoch, so that we never make this check again.
                     maybe_epoch_at_start = None;
 
@@ -587,7 +589,9 @@ impl StorageNode {
         element_index: usize,
         blob_event: BlobEvent,
     ) -> anyhow::Result<()> {
-        self.inner.storage.update_blob_info(&blob_event)?;
+        self.inner
+            .storage
+            .update_blob_info(element_index, &blob_event)?;
         match blob_event {
             BlobEvent::Registered(event) => {
                 tracing::debug!("BlobRegistered event received: {:?}", event);
@@ -652,10 +656,13 @@ impl StorageNode {
     }
 
     #[tracing::instrument(skip_all)]
-    fn get_last_committed_event_index(&self) -> anyhow::Result<u64> {
-        let storage = &self.inner.storage;
-        let index: Option<u64> = storage.get_event_cursor()?.map(|(index, _)| index);
-        Ok(index.unwrap_or(0))
+    fn next_event_index(&self) -> anyhow::Result<u64> {
+        Ok(self
+            .inner
+            .storage
+            .get_event_cursor()?
+            // TODO(mlegner): Make sure this is correct and doesn't need a `+ 1`.
+            .map_or(0, |(index, _)| index))
     }
 
     #[tracing::instrument(skip_all)]

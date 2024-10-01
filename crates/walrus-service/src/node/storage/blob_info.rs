@@ -3,16 +3,207 @@
 
 //! Keeping track of the status of blob IDs and on-chain `Blob` objects.
 
-use std::num::NonZeroU32;
+use std::{
+    fmt::Debug,
+    num::NonZeroU32,
+    ops::Bound::{self, Unbounded},
+    sync::Arc,
+};
 
 use enum_dispatch::enum_dispatch;
-use rocksdb::MergeOperands;
+use rocksdb::{MergeOperands, Options};
 use serde::{Deserialize, Serialize};
 use sui_types::event::EventID;
 use tracing::Level;
-use walrus_core::Epoch;
+use typed_store::{
+    rocks::{DBBatch, DBMap, ReadWriteOptions, RocksDB},
+    Map,
+    TypedStoreError,
+};
+use walrus_core::{BlobId, Epoch};
 use walrus_sdk::api::{BlobStatus, DeletableCounts};
 use walrus_sui::types::{BlobCertified, BlobDeleted, BlobEvent, BlobRegistered, InvalidBlobId};
+
+use super::{database_config::DatabaseTableOptions, DatabaseConfig};
+
+#[derive(Debug, Clone)]
+pub(super) struct BlobInfoTable {
+    blob_info: DBMap<BlobId, BlobInfo>,
+    latest_handled_event_index: DBMap<(), u64>,
+}
+
+impl BlobInfoTable {
+    const BLOBINFO_COLUMN_FAMILY_NAME: &'static str = "blob_info";
+    const EVENT_INDEX_COLUMN_FAMILY_NAME: &'static str = "latest_handled_event_index";
+
+    pub fn reopen(database: &Arc<RocksDB>) -> Result<Self, TypedStoreError> {
+        let blob_info = DBMap::reopen(
+            database,
+            Some(Self::BLOBINFO_COLUMN_FAMILY_NAME),
+            &ReadWriteOptions::default(),
+            false,
+        )?;
+        let latest_handled_event_index = DBMap::reopen(
+            database,
+            Some(Self::EVENT_INDEX_COLUMN_FAMILY_NAME),
+            &ReadWriteOptions::default(),
+            false,
+        )?;
+
+        Ok(Self {
+            blob_info,
+            latest_handled_event_index,
+        })
+    }
+
+    pub fn options(db_config: &DatabaseConfig) -> [(&'static str, Options); 2] {
+        let mut blob_info_options = db_config.blob_info.to_options();
+        blob_info_options.set_merge_operator("merge blob info", merge_blob_info, |_, _, _| None);
+        [
+            (Self::BLOBINFO_COLUMN_FAMILY_NAME, blob_info_options),
+            (
+                Self::EVENT_INDEX_COLUMN_FAMILY_NAME,
+                // Doesn't make sense to have special options for the table containing a single
+                // value.
+                DatabaseTableOptions::default().to_options(),
+            ),
+        ]
+    }
+
+    /// Updates the blob info for a blob based on the [`BlobEvent`].
+    ///
+    /// Only updates the info if the provided `event_index` hasn't been processed yet.
+    #[tracing::instrument(skip(self))]
+    pub fn update_blob_info(
+        &self,
+        event_index: usize,
+        event: &BlobEvent,
+    ) -> Result<(), TypedStoreError> {
+        let event_index = event_index.try_into().expect("assume 64-bit architecture");
+        if self.has_event_been_handled(event_index)? {
+            tracing::debug!("skip updating blob info for already handled event");
+            return Ok(());
+        }
+
+        let operation = BlobInfoMergeOperand::from(event);
+        tracing::debug!(?operation, "updating blob info");
+
+        let mut batch = self.blob_info.batch();
+        self.merge_blob_info(&mut batch, &event.blob_id(), &operation)?;
+        batch.insert_batch(&self.latest_handled_event_index, [(&(), event_index)])?;
+        batch.write()
+    }
+
+    fn has_event_been_handled(&self, event_index: u64) -> Result<bool, TypedStoreError> {
+        Ok(self
+            .latest_handled_event_index
+            .get(&())?
+            .map_or(false, |last_handled_index| {
+                event_index <= last_handled_index
+            }))
+    }
+
+    pub fn merge_blob_info(
+        &self,
+        batch: &mut DBBatch,
+        blob_id: &BlobId,
+        operand: &BlobInfoMergeOperand,
+    ) -> Result<(), TypedStoreError> {
+        batch.partial_merge_batch(&self.blob_info, [(blob_id, operand.to_bytes())])?;
+        Ok(())
+    }
+
+    pub fn delete(&self, batch: &mut DBBatch, blob_id: &BlobId) -> Result<(), TypedStoreError> {
+        batch.delete_batch(&self.blob_info, [blob_id])?;
+        Ok(())
+    }
+
+    /// Returns an iterator over all blobs that were certified before the specified epoch in the
+    /// blob info table starting with the `starting_blob_id` bound.
+    #[tracing::instrument(skip_all)]
+    pub fn certified_blob_info_iter_before_epoch(
+        &self,
+        before_epoch: Epoch,
+        starting_blob_id: Bound<BlobId>,
+    ) -> BlobInfoIterator {
+        BlobInfoIter::new(
+            Box::new(
+                self.blob_info
+                    .safe_range_iter((starting_blob_id, Unbounded)),
+            ),
+            before_epoch,
+            true,
+        )
+    }
+
+    /// Returns the blob info for `blob_id`.
+    pub fn get(&self, blob_id: &BlobId) -> Result<Option<BlobInfo>, TypedStoreError> {
+        self.blob_info.get(blob_id)
+    }
+}
+
+/// An iterator over the blob info table.
+pub(crate) struct BlobInfoIter<I: ?Sized>
+where
+    I: Iterator<Item = Result<(BlobId, BlobInfo), TypedStoreError>> + Send,
+{
+    iter: Box<I>,
+    before_epoch: Epoch,
+    only_certified: bool,
+}
+
+impl<I: ?Sized> BlobInfoIter<I>
+where
+    I: Iterator<Item = Result<(BlobId, BlobInfo), TypedStoreError>> + Send,
+{
+    pub fn new(iter: Box<I>, before_epoch: Epoch, only_certified: bool) -> Self {
+        Self {
+            iter,
+            before_epoch,
+            only_certified,
+        }
+    }
+}
+
+impl<I: ?Sized> Debug for BlobInfoIter<I>
+where
+    I: Iterator<Item = Result<(BlobId, BlobInfo), TypedStoreError>> + Send,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BlobInfoIter")
+            .field("before_epoch", &self.before_epoch)
+            .field("only_certified", &self.only_certified)
+            .finish()
+    }
+}
+
+impl<I: ?Sized> Iterator for BlobInfoIter<I>
+where
+    I: Iterator<Item = Result<(BlobId, BlobInfo), TypedStoreError>> + Send,
+{
+    type Item = Result<(BlobId, BlobInfo), TypedStoreError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut item = self.iter.next();
+        if !self.only_certified {
+            return item;
+        }
+
+        while let Some(Ok((_, ref blob_info))) = item {
+            if matches!(
+                blob_info.initial_certified_epoch(),
+                Some(initial_certified_epoch) if initial_certified_epoch < self.before_epoch
+            ) {
+                return item;
+            }
+            item = self.iter.next();
+        }
+        item
+    }
+}
+
+pub type BlobInfoIterator<'a> =
+    BlobInfoIter<dyn Iterator<Item = Result<(BlobId, BlobInfo), TypedStoreError>> + Send + 'a>;
 
 pub(super) trait Mergeable: Sized {
     type MergeOperand;

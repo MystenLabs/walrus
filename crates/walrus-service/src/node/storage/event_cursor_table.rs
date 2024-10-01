@@ -68,19 +68,18 @@ impl EventCursorTable {
         Ok(entry.map_or(0, |(count, _)| count))
     }
 
-    /// Get the event cursor for `event_type`
+    /// Returns the current event cursor.
     pub fn get_event_cursor(&self) -> Result<Option<(u64, EventID)>, TypedStoreError> {
-        let entry = self.inner.get(&CURSOR_KEY)?;
-        Ok(entry)
+        self.inner.get(&CURSOR_KEY)
     }
 
     pub fn maybe_advance_event_cursor(
         &self,
-        sequence_number: usize,
+        event_index: usize,
         cursor: &EventID,
     ) -> Result<EventProgress, TypedStoreError> {
         let mut event_queue = self.event_queue.lock().unwrap();
-        event_queue.add(sequence_number, *cursor);
+        event_queue.add(event_index, *cursor);
         let mut count = 0u64;
         let most_recent_cursor = event_queue
             .ready_events()
