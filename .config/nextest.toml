@@ -6,4 +6,4 @@ fail-fast = false # do not stop at first failure
 
 [[profile.default.overrides]]
 filter = 'package(walrus-e2e-tests)'
-threads-required = 4
+threads-required = 8
