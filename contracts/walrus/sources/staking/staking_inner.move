@@ -66,6 +66,9 @@ const EDuplicateSyncDone: vector<u8> = b"Node already attested that sync is done
 #[error]
 const ENoStake: vector<u8> = b"Total stake is zero for apportionment";
 
+#[error]
+const ENotInCommittee: vector<u8> = b"The node is not part of the current committee";
+
 /// The epoch state.
 public enum EpochState has store, copy, drop {
     // Epoch change is currently in progress. Contains the weight of the nodes that
@@ -588,6 +591,7 @@ public(package) fun epoch_sync_done(
     assert!(cap.last_epoch_sync_done() < self.epoch, EDuplicateSyncDone);
     cap.set_last_epoch_sync_done(self.epoch);
 
+    assert!(self.committee.inner().contains(&cap.node_id()), ENotInCommittee);
     let node_shards = self.committee.shards(&cap.node_id());
     match (self.epoch_state) {
         EpochState::EpochChangeSync(weight) => {
