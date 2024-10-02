@@ -15,14 +15,7 @@ use sui_types::base_types::ObjectID;
 use tokio::{sync::Semaphore, time::Duration};
 use tracing::{Instrument, Level};
 use walrus_core::{
-    encoding::{
-        encoded_blob_length_for_n_shards,
-        BlobDecoder,
-        EncodingAxis,
-        EncodingConfig,
-        SliverData,
-        SliverPair,
-    },
+    encoding::{BlobDecoder, EncodingAxis, EncodingConfig, SliverData, SliverPair},
     ensure,
     messages::{Confirmation, ConfirmationCertificate, SignedStorageConfirmation},
     metadata::VerifiedBlobMetadataWithId,
@@ -125,11 +118,10 @@ impl Client<()> {
                 .map_err(ClientError::other)?,
         ));
 
-        let price_computation = PriceComputation::new(
-            sui_read_client.write_price_per_unit_size().await?,
-            sui_read_client.storage_price_per_unit_size().await?,
-            committees.n_shards(),
-        );
+        let (storage_price, write_price) = sui_read_client
+            .storage_and_write_price_per_unit_size()
+            .await?;
+        let price_computation = PriceComputation::new(storage_price, write_price);
 
         let encoding_config = EncodingConfig::new(committees.n_shards());
         let communication_limits =
@@ -284,24 +276,13 @@ impl<T: ContractClient> Client<T> {
             .certify_blob(blob.clone(), &certificate)
             .await
             .map_err(|e| ClientError::from(ClientErrorKind::CertificationFailed(e)))?;
-
         blob.certified_epoch = Some(self.committees.write_committee().epoch);
-
-        let encoded_size =
-            encoded_blob_length_for_n_shards(self.encoding_config.n_shards(), blob.size)
-                .expect("must be valid as the store succeeded");
-
-        let cost = self
-            .price_computation
-            .operation_cost(&resource_operation)
-            .expect("must be valid as the store succeeded");
+        let cost = self.price_computation.operation_cost(&resource_operation);
 
         Ok(BlobStoreResult::NewlyCreated {
             blob_object: blob,
             resource_operation,
             cost,
-            encoded_size,
-            deletable: persistence.is_deletable(),
         })
     }
 

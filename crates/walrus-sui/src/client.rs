@@ -60,8 +60,8 @@ use crate::{
         get_created_sui_object_ids_by_type,
         get_owned_objects,
         get_sui_object,
+        price_for_encoded_length,
         sign_and_send_ptb,
-        storage_price_for_encoded_length,
         write_price_for_encoded_length,
     },
 };
@@ -395,7 +395,7 @@ impl SuiContractClient {
         encoded_size: u64,
         epochs_ahead: EpochCount,
     ) -> SuiClientResult<u64> {
-        Ok(storage_price_for_encoded_length(
+        Ok(price_for_encoded_length(
             encoded_size,
             self.read_client.storage_price_per_unit_size().await?,
             epochs_ahead,
@@ -471,6 +471,12 @@ impl ReadClient for SuiContractClient {
 
     async fn write_price_per_unit_size(&self) -> SuiClientResult<u64> {
         self.read_client.write_price_per_unit_size().await
+    }
+
+    async fn storage_and_write_price_per_unit_size(&self) -> SuiClientResult<(u64, u64)> {
+        self.read_client
+            .storage_and_write_price_per_unit_size()
+            .await
     }
 
     async fn event_stream(

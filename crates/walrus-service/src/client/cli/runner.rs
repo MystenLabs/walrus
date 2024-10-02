@@ -15,7 +15,7 @@ use walrus_core::{
 };
 use walrus_sui::{
     client::{BlobPersistence, ContractClient, ReadClient, SuiContractClient},
-    utils::storage_price_for_encoded_length,
+    utils::price_for_encoded_length,
 };
 
 use super::args::{
@@ -226,8 +226,7 @@ impl ClientCommandRunner {
                 encoded_blob_length_for_n_shards(encoding_config.n_shards(), unencoded_size)
                     .expect("must be valid as the encoding succeeded");
             let price_per_unit_size = client.sui_client().storage_price_per_unit_size().await?;
-            let storage_cost =
-                storage_price_for_encoded_length(encoded_size, price_per_unit_size, epochs);
+            let storage_cost = price_for_encoded_length(encoded_size, price_per_unit_size, epochs);
             DryRunOutput {
                 blob_id: *metadata.blob_id(),
                 unencoded_size,

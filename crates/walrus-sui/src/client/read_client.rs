@@ -81,6 +81,11 @@ pub trait ReadClient: Send + Sync {
     /// Returns the price to write one unit of storage.
     fn write_price_per_unit_size(&self) -> impl Future<Output = SuiClientResult<u64>> + Send;
 
+    /// Returns the storage and write price for one unit of storage.
+    fn storage_and_write_price_per_unit_size(
+        &self,
+    ) -> impl Future<Output = SuiClientResult<(u64, u64)>> + Send;
+
     /// Returns a stream of new blob events.
     ///
     /// The `polling_interval` defines how often the connected full node is polled for events.
@@ -427,6 +432,14 @@ impl ReadClient for SuiReadClient {
             .await?
             .inner
             .write_price_per_unit_size)
+    }
+
+    async fn storage_and_write_price_per_unit_size(&self) -> SuiClientResult<(u64, u64)> {
+        let system_object = self.get_system_object().await?.inner;
+        Ok((
+            system_object.storage_price_per_unit_size,
+            system_object.write_price_per_unit_size,
+        ))
     }
 
     async fn event_stream(

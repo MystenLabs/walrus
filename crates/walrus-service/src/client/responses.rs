@@ -4,6 +4,7 @@
 //! Structures of client results returned by the daemon or through the JSON API.
 
 use std::{
+    fmt::Display,
     num::NonZeroU16,
     path::{Path, PathBuf},
 };
@@ -32,14 +33,14 @@ use walrus_sdk::api::BlobStatus;
 use walrus_sui::{
     client::ReadClient,
     types::{Blob, Committee, NetworkAddress, StorageNode},
-    utils::{storage_price_for_encoded_length, storage_units_from_size, BYTES_PER_UNIT_SIZE},
+    utils::{price_for_encoded_length, storage_units_from_size, BYTES_PER_UNIT_SIZE},
 };
 
 use super::{
     cli::{BlobIdDecimal, HumanReadableBytes},
     resource::RegisterBlobOp,
 };
-use crate::client::cli::HumanReadableGeorgie;
+use crate::client::cli::{format_event_id, HumanReadableGeorgie};
 
 /// Either an event ID or an object ID.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,6 +49,19 @@ pub enum EventOrObjectId {
     Event(EventID),
     /// The variant representing an object ID.
     Object(ObjectID),
+}
+
+impl Display for EventOrObjectId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EventOrObjectId::Event(event_id) => {
+                write!(f, "Certification event ID: {}", format_event_id(event_id))
+            }
+            EventOrObjectId::Object(object_id) => {
+                write!(f, "Owned Blob registration object ID: {}", object_id)
+            }
+        }
+    }
 }
 
 /// Result when attempting to store a blob.
@@ -79,10 +93,6 @@ pub enum BlobStoreResult {
         resource_operation: RegisterBlobOp,
         /// The storage cost, excluding gas.
         cost: u64,
-        /// The encoded size, including metadata.
-        encoded_size: u64,
-        /// Whether the blob is deletable.
-        deletable: bool,
     },
     /// The blob is known to Walrus but was marked as invalid.
     ///
@@ -262,7 +272,7 @@ impl ExampleBlobInfo {
         price_per_unit_size: u64,
     ) -> Option<Self> {
         let encoded_size = encoded_blob_length_for_n_shards(n_shards, unencoded_size)?;
-        let price = storage_price_for_encoded_length(encoded_size, price_per_unit_size, 1);
+        let price = price_for_encoded_length(encoded_size, price_per_unit_size, 1);
         Some(Self {
             unencoded_size,
             encoded_size,

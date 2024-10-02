@@ -56,20 +56,19 @@ pub fn storage_units_from_size(encoded_size: u64) -> u64 {
     (encoded_size + BYTES_PER_UNIT_SIZE - 1) / BYTES_PER_UNIT_SIZE
 }
 
-/// Computes the price in MIST given the unencoded blob size.
+/// Computes the price given the unencoded blob size.
 pub fn price_for_unencoded_length(
     unencoded_length: u64,
     n_shards: NonZeroU16,
     price_per_unit_size: u64,
     epochs: EpochCount,
 ) -> Option<u64> {
-    encoded_blob_length_for_n_shards(n_shards, unencoded_length).map(|encoded_length| {
-        storage_price_for_encoded_length(encoded_length, price_per_unit_size, epochs)
-    })
+    encoded_blob_length_for_n_shards(n_shards, unencoded_length)
+        .map(|encoded_length| price_for_encoded_length(encoded_length, price_per_unit_size, epochs))
 }
 
-/// Computes the price in MIST given the encoded blob size.
-pub fn storage_price_for_encoded_length(
+/// Computes the price given the encoded blob size.
+pub fn price_for_encoded_length(
     encoded_length: u64,
     price_per_unit_size: u64,
     epochs: EpochCount,
@@ -77,7 +76,7 @@ pub fn storage_price_for_encoded_length(
     storage_units_from_size(encoded_length) * price_per_unit_size * (epochs as u64)
 }
 
-/// Computes the price in MIST given the encoded blob size.
+/// Computes the price given the encoded blob size.
 pub fn write_price_for_encoded_length(encoded_length: u64, price_per_unit_size: u64) -> u64 {
     storage_units_from_size(encoded_length) * price_per_unit_size
 }

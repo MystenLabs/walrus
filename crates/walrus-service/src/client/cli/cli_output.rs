@@ -14,7 +14,6 @@ use walrus_sui::types::Blob;
 
 use crate::client::{
     cli::{
-        certification_event_string,
         error,
         format_event_id,
         success,
@@ -64,10 +63,9 @@ impl CliOutput for BlobStoreResult {
             } => {
                 println!(
                     "{} Blob was previously certified within Walrus for a sufficient period.\n\
-                    Blob ID: {}\n{}\nEnd epoch (exclusive): {}",
+                    Blob ID: {}\n{event_or_object}\nEnd epoch (exclusive): {}",
                     success(),
                     blob_id,
-                    certification_event_string(event_or_object),
                     end_epoch,
                 )
             }
@@ -75,8 +73,6 @@ impl CliOutput for BlobStoreResult {
                 blob_object,
                 resource_operation,
                 cost,
-                encoded_size,
-                deletable,
             } => {
                 let operation_str = match resource_operation {
                     RegisterBlobOp::RegisterFromScratch { .. } => {
@@ -85,20 +81,24 @@ impl CliOutput for BlobStoreResult {
                     RegisterBlobOp::ReuseStorage { .. } => {
                         "(storage was reused, and a new blob object was registered)"
                     }
-                    RegisterBlobOp::ReuseRegistration => "(the registration was reused)",
+                    RegisterBlobOp::ReuseRegistration { .. } => "(the registration was reused)",
                 };
                 println!(
                     "{} {} blob stored successfully.\n\
                     Blob ID: {}\n\
+                    Sui object ID: {}\n\
                     Unencoded size: {}\n\
                     Encoded size (including metadata): {}\n\
-                    Sui object ID: {}\n\
                     Cost (excluding gas): {} {}",
                     success(),
-                    if *deletable { "Deletable" } else { "Permanent" },
+                    if blob_object.deletable {
+                        "Deletable"
+                    } else {
+                        "Permanent"
+                    },
                     blob_object.blob_id,
                     HumanReadableBytes(blob_object.size),
-                    HumanReadableBytes(*encoded_size),
+                    HumanReadableBytes(resource_operation.encoded_length()),
                     blob_object.id,
                     HumanReadableGeorgie::from(*cost),
                     operation_str,

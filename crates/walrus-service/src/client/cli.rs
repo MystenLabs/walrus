@@ -19,7 +19,7 @@ use sui_types::event::EventID;
 use walrus_core::BlobId;
 use walrus_sui::client::{SuiContractClient, SuiReadClient};
 
-use super::{default_configuration_paths, responses::EventOrObjectId, Blocklist, Client, Config};
+use super::{default_configuration_paths, Blocklist, Client, Config};
 
 mod args;
 mod cli_output;
@@ -257,7 +257,7 @@ trait CurrencyForDisplay {
     /// The number of subunits in a unit.
     const DECIMALS: u8;
 
-    /// Converts a unit to subunits.
+    /// Converts the value in base units to the value in the superunit.
     fn unit_to_superunit(value: u64) -> f64 {
         value as f64 / Self::units_in_superunit() as f64
     }
@@ -367,18 +367,6 @@ pub fn read_blob_from_file(path: impl AsRef<Path>) -> anyhow::Result<Vec<u8>> {
 /// Format the event ID as the transaction digest and the sequence number.
 pub fn format_event_id(event_id: &EventID) -> String {
     format!("(tx: {}, seq: {})", event_id.tx_digest, event_id.event_seq)
-}
-
-/// Format the event or object ID as a string.
-pub fn certification_event_string(event_or_object: &EventOrObjectId) -> String {
-    match event_or_object {
-        EventOrObjectId::Event(event_id) => {
-            format!("Certification event ID: {}", format_event_id(event_id))
-        }
-        EventOrObjectId::Object(object_id) => {
-            format!("Owned Blob registration object ID: {}", object_id)
-        }
-    }
 }
 
 /// Error type distinguishing between a decimal value that corresponds to a valid blob ID and any
