@@ -258,8 +258,8 @@ trait CurrencyForDisplay {
     const DECIMALS: u8;
 
     /// Converts a unit to subunits.
-    fn subunit_to_unit(subunit: u64) -> f64 {
-        subunit as f64 / Self::units_in_superunit() as f64
+    fn unit_to_superunit(value: u64) -> f64 {
+        value as f64 / Self::units_in_superunit() as f64
     }
 
     fn units_in_superunit() -> u64 {
@@ -273,7 +273,7 @@ trait CurrencyForDisplay {
     fn new(value: u64) -> Self;
 }
 
-/// The rerepresentation of a currency in a human readable format.
+/// The representation of a currency in a human readable format.
 #[repr(transparent)]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct HumanReadableCoin<C>(C);
@@ -294,7 +294,7 @@ impl<C: CurrencyForDisplay> Display for HumanReadableCoin<C> {
             return write!(f, "{with_separator} {}", C::UNIT_NAME);
         }
         let digits = if ratio <= 100 { 3 } else { 4 };
-        let sui = C::subunit_to_unit(self.0.value());
+        let sui = C::unit_to_superunit(self.0.value());
         write!(f, "{sui:.digits$} {}", C::SUPERUNIT_NAME)
     }
 }
