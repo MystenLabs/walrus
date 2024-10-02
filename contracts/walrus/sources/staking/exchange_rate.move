@@ -5,10 +5,6 @@
 /// It stores a fixed point exchange rate between the Wal token and pool token.
 module walrus::pool_exchange_rate;
 
-#[allow(unused_const)]
-/// The scaling factor for the exchange rate.
-const SCALING: u128 = 1_000_000_000;
-
 /// Represents the exchange rate for the staking pool.
 public struct PoolExchangeRate has store, copy, drop {
     /// Amount of staked WAL tokens this epoch.
@@ -40,10 +36,10 @@ public(package) fun get_wal_amount(exchange_rate: &PoolExchangeRate, token_amoun
         return token_amount
     };
 
-    let token_amount = (token_amount as u128) * SCALING;
+    let token_amount = (token_amount as u128);
     let res = token_amount * exchange_rate.wal_amount / exchange_rate.pool_token_amount;
 
-    (res / SCALING) as u64
+    res as u64
 }
 
 public(package) fun get_token_amount(exchange_rate: &PoolExchangeRate, wal_amount: u64): u64 {
@@ -53,8 +49,8 @@ public(package) fun get_token_amount(exchange_rate: &PoolExchangeRate, wal_amoun
         return wal_amount
     };
 
-    let wal_amount = (wal_amount as u128) * SCALING;
+    let wal_amount = (wal_amount as u128);
     let res = wal_amount * exchange_rate.pool_token_amount / exchange_rate.wal_amount;
 
-    (res / SCALING) as u64
+    res as u64
 }
