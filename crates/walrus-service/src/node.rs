@@ -479,7 +479,9 @@ impl StorageNode {
         &self,
     ) -> anyhow::Result<Pin<Box<dyn Stream<Item = IndexedStreamElement> + Send + Sync + '_>>> {
         let storage = &self.inner.storage;
-        let from_event_id = storage.get_event_cursor()?.map(|(_, cursor)| cursor);
+        let from_event_id = storage
+            .get_event_cursor_and_next_index()?
+            .map(|(cursor, _)| cursor);
         let from_element_index = self.next_event_index()?;
         let event_cursor = EventStreamCursor::new(from_event_id, from_element_index);
 
@@ -660,9 +662,8 @@ impl StorageNode {
         Ok(self
             .inner
             .storage
-            .get_event_cursor()?
-            // TODO(mlegner): Make sure this is correct and doesn't need a `+ 1`.
-            .map_or(0, |(index, _)| index))
+            .get_event_cursor_and_next_index()?
+            .map_or(0, |(_, index)| index))
     }
 
     #[tracing::instrument(skip_all)]
@@ -2241,8 +2242,8 @@ mod tests {
             .storage_node
             .inner
             .storage
-            .get_event_cursor()?
-            .map(|(_, cursor)| cursor);
+            .get_event_cursor_and_next_index()?
+            .map(|(cursor, _)| cursor);
         assert_eq!(latest_cursor, Some(blob2_registered_event.event_id));
 
         Ok(())

@@ -220,10 +220,12 @@ impl Storage {
         self.blob_info.get(blob_id)
     }
 
-    /// Returns the current event cursor.
+    /// Returns the current event cursor and the next event index.
     #[tracing::instrument(skip_all)]
-    pub fn get_event_cursor(&self) -> Result<Option<(u64, EventID)>, TypedStoreError> {
-        self.event_cursor.get_event_cursor()
+    pub fn get_event_cursor_and_next_index(
+        &self,
+    ) -> Result<Option<(EventID, u64)>, TypedStoreError> {
+        self.event_cursor.get_event_cursor_and_next_index()
     }
 
     /// Updates the blob info for a blob based on the [`BlobEvent`].
@@ -723,7 +725,9 @@ pub(crate) mod tests {
             storage.maybe_advance_event_cursor(*seq_id, cursor)?;
 
             assert_eq!(
-                storage.get_event_cursor()?.map(|(_, event_id)| event_id),
+                storage
+                    .get_event_cursor_and_next_index()?
+                    .map(|(event_id, _)| event_id),
                 Some(cursor_lookup[expected_observed])
             );
         }
@@ -737,7 +741,7 @@ pub(crate) mod tests {
         let storage = storage.as_ref();
 
         storage.maybe_advance_event_cursor(1, &event_id_for_testing())?;
-        assert_eq!(storage.get_event_cursor()?, None);
+        assert_eq!(storage.get_event_cursor_and_next_index()?, None);
 
         Ok(())
     }

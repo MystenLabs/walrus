@@ -17,7 +17,7 @@ use super::{event_sequencer::EventSequencer, DatabaseConfig};
 const CURSOR_KEY: [u8; 6] = *b"cursor";
 const COLUMN_FAMILY_NAME: &str = "event_cursor";
 
-type EventIdWithProgress = (u64, EventID);
+type EventIdWithProgress = (EventID, u64);
 type ProgressMergeOperand = (EventID, u64);
 
 #[derive(Debug, Copy, Clone)]
@@ -65,11 +65,13 @@ impl EventCursorTable {
 
     pub fn get_sequentially_processed_event_count(&self) -> Result<u64, TypedStoreError> {
         let entry = self.inner.get(&CURSOR_KEY)?;
-        Ok(entry.map_or(0, |(count, _)| count))
+        Ok(entry.map_or(0, |(_, count)| count))
     }
 
-    /// Returns the current event cursor.
-    pub fn get_event_cursor(&self) -> Result<Option<(u64, EventID)>, TypedStoreError> {
+    /// Returns the current event cursor and the next event index.
+    pub fn get_event_cursor_and_next_index(
+        &self,
+    ) -> Result<Option<(EventID, u64)>, TypedStoreError> {
         self.inner.get(&CURSOR_KEY)
     }
 
@@ -119,9 +121,9 @@ fn update_cursor_and_progress(
             .expect("merge operand to be decodable");
         tracing::debug!("updating {current_val:?} with {cursor:?} (+{increment})");
 
-        let updated_progress = current_val.map_or(0, |(progress, _)| progress) + increment;
+        let updated_progress = current_val.map_or(0, |(_, progress)| progress) + increment;
 
-        current_val = Some((updated_progress, cursor));
+        current_val = Some((cursor, updated_progress));
     }
 
     current_val.map(|value| bcs::to_bytes(&value).expect("this can be BCS-encoded"))
