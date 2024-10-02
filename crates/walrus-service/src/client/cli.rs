@@ -255,11 +255,15 @@ trait CurrencyForDisplay {
     /// The name of the subunit, that divides the main currency.
     const UNIT_NAME: &'static str;
     /// The number of subunits in a unit.
-    const SUBUNIT_IN_UNIT: u64;
+    const DECIMALS: u8;
 
     /// Converts a unit to subunits.
     fn subunit_to_unit(subunit: u64) -> f64 {
-        subunit as f64 / Self::SUBUNIT_IN_UNIT as f64
+        subunit as f64 / Self::units_in_superunit() as f64
+    }
+
+    fn units_in_superunit() -> u64 {
+        10u64.pow(Self::DECIMALS as u32)
     }
 
     /// Gets the value of the current coin.
@@ -284,7 +288,7 @@ impl<C: CurrencyForDisplay> Display for HumanReadableCoin<C> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // We ensure that the values displayed in C::UNIT_NAME always require less or equal to 4
         // decimal digits to be readable.
-        let ratio = C::SUBUNIT_IN_UNIT / self.0.value();
+        let ratio = C::units_in_superunit() / self.0.value();
         if ratio > 10_000 {
             let with_separator = thousands_separator(self.0.value());
             return write!(f, "{with_separator} {}", C::UNIT_NAME);
@@ -295,19 +299,19 @@ impl<C: CurrencyForDisplay> Display for HumanReadableCoin<C> {
     }
 }
 
-/// The MIST coin for simple display.
+/// The SUI coin for simple display.
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct MistCoin(u64);
+pub(crate) struct SuiCoin(u64);
 
 /// The human readable representation of the MIST and SUI coins.
 #[allow(dead_code)]
-pub(crate) type HumanReadableMist = HumanReadableCoin<MistCoin>;
+pub(crate) type HumanReadableMist = HumanReadableCoin<SuiCoin>;
 
-impl CurrencyForDisplay for MistCoin {
+impl CurrencyForDisplay for SuiCoin {
     const SUPERUNIT_NAME: &'static str = "SUI";
     const UNIT_NAME: &'static str = "MIST";
-    const SUBUNIT_IN_UNIT: u64 = 1_000_000_000;
+    const DECIMALS: u8 = 9;
 
     fn value(&self) -> u64 {
         self.0
@@ -318,17 +322,17 @@ impl CurrencyForDisplay for MistCoin {
     }
 }
 
-/// The GEORGIE coin for simple display.
+/// The WAL coin for simple display.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct GeorgieCoin(u64);
+pub(crate) struct WalCoin(u64);
 
 /// The human readable representation of the GEORGIE and WAL coins.
-pub(crate) type HumanReadableGeorgie = HumanReadableCoin<GeorgieCoin>;
+pub(crate) type HumanReadableGeorgie = HumanReadableCoin<WalCoin>;
 
-impl CurrencyForDisplay for GeorgieCoin {
+impl CurrencyForDisplay for WalCoin {
     const SUPERUNIT_NAME: &'static str = "WAL";
     const UNIT_NAME: &'static str = "GEORGIE";
-    const SUBUNIT_IN_UNIT: u64 = 3_141_592;
+    const DECIMALS: u8 = 9;
 
     fn value(&self) -> u64 {
         self.0
@@ -532,6 +536,8 @@ mod tests {
         test_human_readable_mist: [
             ten: (10, "10 MIST"),
             ten_thousand: (10_000, "10,000 MIST"),
+            hundred_thousand: (100_000, "0.0001 SUI"),
+            hundred_thousand_and_one: (100_001, "0.0001 SUI"),
             million: (1_000_000, "0.0010 SUI"),
             nine_million: (9_123_456, "0.0091 SUI"),
             ten_million_exact: (10_000_000, "0.010 SUI"),
