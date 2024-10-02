@@ -1,6 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use futures::future::try_join_all;
 use sui_protocol_config::ProtocolConfig;
 use walrus_core::encoding::{Primary, Secondary};
 use walrus_proc_macros::walrus_simtest;
