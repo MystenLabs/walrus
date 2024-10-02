@@ -1124,7 +1124,7 @@ pub(crate) fn test_committee_with_epoch(weights: &[u16], epoch: Epoch) -> Commit
 /// A module for creating a Walrus test cluster.
 #[cfg(all(feature = "client", feature = "node"))]
 pub mod test_cluster {
-    use std::sync::OnceLock;
+    use std::{sync::OnceLock, thread};
 
     use tokio::sync::Mutex;
     use walrus_event::EventProcessorConfig;
@@ -1246,6 +1246,29 @@ pub mod test_cluster {
             system_ctx.staking_object,
         )
         .await?;
+
+        // Set up event processors
+        let mut event_processors = vec![];
+        let mut cancel_tokens = vec![];
+
+        for _ in cluster_builder.storage_node_test_configs().iter() {
+            let event_processor = EventProcessor::new(
+                &event_processor_config,
+                sui_read_client.get_system_package_id(),
+                Duration::from_millis(100),
+                tempfile::tempdir()
+                    .expect("temporary directory creation must succeed")
+                    .path(),
+            )
+            .await?;
+            let cancel_token = CancellationToken::new();
+            event_processors.push(event_processor);
+            cancel_tokens.push(cancel_token);
+        }
+
+        let cloned_event_processors: Vec<_> = event_processors.to_vec();
+        let cloned_cancel_tasks: Vec<_> = cancel_tokens.to_vec();
+        let task_handles = setup_event_processors(cloned_event_processors, cloned_cancel_tasks);
 
         // Create a contract service for the storage nodes using a wallet in a temp dir
         // The sui test cluster handler can be dropped since we already have one
