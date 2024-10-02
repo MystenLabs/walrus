@@ -160,7 +160,7 @@ pub(crate) struct StakingPool {
     /// Currently active stake.
     active_stake: u64,
     /// Pool token balance.
-    token_balance: u64,
+    pool_token_balance: u64,
     /// Pending withdrawals from the pool token balance indexed by epoch.
     pending_pool_token_withdraw: Vec<(Epoch, u64)>,
     /// The commission rate for the pool.
