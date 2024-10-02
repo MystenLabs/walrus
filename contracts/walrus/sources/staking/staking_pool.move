@@ -71,6 +71,8 @@ public struct StakingPool has key, store {
     /// Balance of the pool token in the pool in the current epoch.
     pool_token_balance: u64,
     /// The amount of the pool token that will be withdrawn in E+1 or E+2.
+    /// We use this amount to calculate the WAL withdrawal in the
+    /// `process_pending_stake`.
     pending_pool_token_withdraw: PendingValues,
     /// The commission rate for the pool.
     /// TODO: allow changing the commission rate in E+2.
@@ -79,9 +81,6 @@ public struct StakingPool has key, store {
     /// exchange rate was set, and the value is the exchange rate (the ratio of
     /// the amount of WAL tokens for the pool token).
     exchange_rates: Table<u32, PoolExchangeRate>,
-    /// The rates for the stake withdrawals. The key is the epoch when the
-    /// withdrawal will be processed, and the value is the exchange rate.
-    // withdraw_rates: Table<u32, PoolExchangeRate>,
     /// The amount of stake that will be added to the `wal_balance`. Can hold
     /// up to two keys: E+1 and E+2, due to the differences in the activation
     /// epoch.
