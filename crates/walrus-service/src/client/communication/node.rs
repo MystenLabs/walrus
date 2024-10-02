@@ -231,7 +231,50 @@ impl<'a, W> NodeCommunication<'a, W> {
         self.to_node_result_with_n_shards(self.client.get_blob_status(blob_id).await)
     }
 
-    // Verification flows.
+    /// Retries getting the confirmation for the blob ID.
+    async fn get_confirmation_with_retries_inner(
+        &self,
+        blob_id: &BlobId,
+        epoch: Epoch,
+    ) -> Result<SignedStorageConfirmation, NodeError> {
+        let confirmation = utils::retry(self.backoff_strategy(), || {
+            self.client.get_confirmation(blob_id)
+        })
+        .await
+        .map_err(|error| {
+            tracing::warn!(?error, "could not retrieve confirmation after retrying");
+            NodeError::other(error)
+        })?;
+
+        let _ = confirmation
+            .verify(self.public_key(), epoch, blob_id)
+            .map_err(NodeError::other)?;
+
+        Ok(confirmation)
+    }
+
+    #[tracing::instrument(level = Level::TRACE, parent = &self.span, skip_all)]
+    pub async fn get_confirmation_with_retries(
+        &self,
+        blob_id: &BlobId,
+        epoch: Epoch,
+    ) -> NodeResult<SignedStorageConfirmation, NodeError> {
+        tracing::debug!("retrieving confirmation");
+        let result = self
+            .get_confirmation_with_retries_inner(blob_id, epoch)
+            .await;
+        self.to_node_result_with_n_shards(result)
+    }
+
+    /// Gets the backoff strategy for the node.
+    fn backoff_strategy(&self) -> ExponentialBackoff<StdRng> {
+        ExponentialBackoff::new_with_seed(
+            self.config.min_backoff,
+            self.config.max_backoff,
+            self.config.max_retries,
+            self.node_index as u64,
+        )
+    }
 
     /// Converts the public key of the node.
     fn public_key(&self) -> &PublicKey {
@@ -263,12 +306,7 @@ impl<'a> NodeWriteCommunication<'a> {
                 .await?;
             tracing::debug!(n_stored_slivers, "finished storing slivers on node");
 
-            self.client
-                .get_and_verify_confirmation(
-                    metadata.blob_id(),
-                    self.committee_epoch,
-                    self.public_key(),
-                )
+            self.get_confirmation_with_retries_inner(metadata.blob_id(), self.committee_epoch)
                 .await
                 .map_err(StoreError::Confirmation)
         }
@@ -439,16 +477,6 @@ impl<'a> NodeWriteCommunication<'a> {
             sliver_type: A::sliver_type(),
             error,
         })
-    }
-
-    /// Gets the backoff strategy for the node.
-    fn backoff_strategy(&self) -> ExponentialBackoff<StdRng> {
-        ExponentialBackoff::new_with_seed(
-            self.config.min_backoff,
-            self.config.max_backoff,
-            self.config.max_retries,
-            self.node_index as u64,
-        )
     }
 
     async fn retry_with_limits_and_backoff<F, Fut, T, E>(&self, f: F) -> Result<T, E>

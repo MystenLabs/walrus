@@ -17,7 +17,13 @@ use walrus_service::{
     client::{
         responses::BlobStoreResult,
         ClientError,
-        ClientErrorKind::{self, NoMetadataReceived, NotEnoughConfirmations, NotEnoughSlivers},
+        ClientErrorKind::{
+            self,
+            NoMetadataReceived,
+            NoValidStatusReceived,
+            NotEnoughConfirmations,
+            NotEnoughSlivers,
+        },
         StoreWhen,
     },
     test_utils::test_cluster,
@@ -49,7 +55,7 @@ async_param_test! {
         one_failure: (&[0], &[], &[]),
         f_failures: (&[4], &[], &[]),
         f_plus_one_failures: (&[0, 4], &[], &[NotEnoughConfirmations(8, 9)]),
-        all_shard_failures: (&[0, 1, 2, 3, 4], &[], &[NotEnoughConfirmations(0, 9)]),
+        all_shard_failures: (&[0, 1, 2, 3, 4], &[], &[NoValidStatusReceived]),
         f_plus_one_read_failures: (&[], &[0, 4], &[]),
         two_f_plus_one_read_failures: (&[], &[1, 2, 4], &[NoMetadataReceived, NotEnoughSlivers]),
         read_and_write_overlap_failures: (&[4], &[2, 3], &[NoMetadataReceived, NotEnoughSlivers]),
@@ -75,7 +81,8 @@ async fn test_store_and_read_blob_with_crash_failures(
                 {
                     panic!(
                         "client error mismatch; expected=({:?}); actual=({:?});",
-                        expected_errs, client_err
+                        expected_errs,
+                        client_err.kind()
                     )
                 }
             }
@@ -224,6 +231,7 @@ fn error_kind_matches(actual: &ClientErrorKind, expected: &ClientErrorKind) -> b
         (ClientErrorKind::NotEnoughSlivers, ClientErrorKind::NotEnoughSlivers) => true,
         (ClientErrorKind::BlobIdDoesNotExist, ClientErrorKind::BlobIdDoesNotExist) => true,
         (ClientErrorKind::NoMetadataReceived, ClientErrorKind::NoMetadataReceived) => true,
+        (ClientErrorKind::NoValidStatusReceived, ClientErrorKind::NoValidStatusReceived) => true,
         (ClientErrorKind::Other(_), ClientErrorKind::Other(_)) => true,
         (_, _) => false,
     }

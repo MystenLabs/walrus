@@ -3,7 +3,7 @@
 
 //! Client for the Walrus service.
 
-use std::{collections::HashMap, sync::Arc, time::Instant};
+use std::{collections::HashMap, fmt::Display, sync::Arc, time::Instant};
 
 use anyhow::anyhow;
 use communication::NodeCommunicationFactory;
@@ -33,14 +33,10 @@ use walrus_sui::{
 use self::{
     communication::NodeResult,
     config::CommunicationLimits,
-    error::StoreError,
     responses::BlobStoreResult,
     utils::{CompletedReasonWeight, WeightedFutures},
 };
-use crate::{
-    common::active_committees::ActiveCommittees,
-    utils::{BackoffStrategy, ExponentialBackoff},
-};
+use crate::{common::active_committees::ActiveCommittees, utils::ExponentialBackoff};
 
 pub mod cli;
 pub mod responses;
@@ -190,7 +186,7 @@ impl<T: ReadClient> Client<T> {
         self.check_blob_id(blob_id)?;
 
         let certified_epoch = self
-            .retry_get_blob_status(blob_id, &self.sui_client)
+            .get_blob_status_with_retries(blob_id, &self.sui_client)
             .await?
             .initial_certified_epoch()
             .ok_or_else(|| ClientError::from(ClientErrorKind::BlobIdDoesNotExist))?;
@@ -238,19 +234,14 @@ impl<T: ContractClient> Client<T> {
             "computed blob pairs and metadata"
         );
 
+        let blob_status = self
+            .get_blob_status_with_retries(&blob_id, &self.sui_client)
+            .await?;
+
         // Return early if the blob is already certified or marked as invalid.
         // For deletable blobs, we need to check the ones that are owned by the current wallet
         // later, as there may be multiple already certified that we do not own.
         if !store_when.is_store_always() && !persistence.is_deletable() {
-            // Use short timeout as this is only an optimization.
-            const STATUS_TIMEOUT: Duration = Duration::from_secs(5);
-            let blob_status = self
-                .get_verified_blob_status(
-                    metadata.blob_id(),
-                    self.sui_client.read_client(),
-                    STATUS_TIMEOUT,
-                )
-                .await?;
             if let Some(result) =
                 self.blob_status_to_store_result(blob_id, epochs_ahead, blob_status)
             {
@@ -268,10 +259,16 @@ impl<T: ContractClient> Client<T> {
             StoreOp::RegisterNew(op) => op,
         };
 
-        // We do not need to wait explicitly as we anyway retry all requests to storage nodes.
-        let certificate = self
-            .send_blob_data_and_get_certificate(&metadata, &pairs)
-            .await?;
+        let certificate = if let Some(certified_epoch) = blob_status.initial_certified_epoch() {
+            // The blob is already certified on chain - the slivers are already available.
+            self.get_certificate_standalone(&blob_id, certified_epoch)
+                .await
+        } else {
+            // We do not need to wait explicitly as we anyway retry all requests to storage nodes.
+            self.send_blob_data_and_get_certificate(&metadata, &pairs)
+                .await
+        }?;
+
         self.sui_client
             .certify_blob(blob.clone(), &certificate)
             .await
@@ -461,16 +458,42 @@ impl<T> Client<T> {
         self.confirmations_to_certificate(metadata.blob_id(), results)
     }
 
+    /// Fetches confirmations for a blob from a quorum of nodes and returns the certificate.
+    async fn get_certificate_standalone(
+        &self,
+        blob_id: &BlobId,
+        certified_epoch: Epoch,
+    ) -> ClientResult<ConfirmationCertificate> {
+        let comms = self
+            .communication_factory
+            .node_read_communications(certified_epoch)?;
+
+        let mut requests = WeightedFutures::new(
+            comms
+                .iter()
+                .map(|n| n.get_confirmation_with_retries(blob_id, self.committees.epoch())),
+        );
+
+        requests
+            .execute_weight(
+                &|weight| self.committees.is_quorum(weight),
+                self.communication_limits.max_concurrent_sliver_reads,
+            )
+            .await;
+        let results = requests.into_results();
+        self.confirmations_to_certificate(blob_id, results)
+    }
+
     /// Combines the received storage confirmations into a single certificate.
     ///
     /// This function _does not_ check that the received confirmations match the current epoch and
     /// blob ID, as it assumes that the storage confirmations were received through
     /// [`NodeCommunication::store_metadata_and_pairs`], which internally verifies it to check the
     /// blob ID and epoch.
-    fn confirmations_to_certificate(
+    fn confirmations_to_certificate<E: Display>(
         &self,
         blob_id: &BlobId,
-        confirmations: Vec<NodeResult<SignedStorageConfirmation, StoreError>>,
+        confirmations: Vec<NodeResult<SignedStorageConfirmation, E>>,
     ) -> ClientResult<ConfirmationCertificate> {
         let mut aggregate_weight = 0;
         let mut signers = Vec::with_capacity(confirmations.len());
@@ -719,17 +742,20 @@ impl<T> Client<T> {
         Err(ClientErrorKind::NoMetadataReceived.into())
     }
 
-    /// Retries to get the verified blob status, with backoff, until it succeeds or the maximum
-    /// number of retries is reached.
+    /// Retries to get the verified blob status.
+    ///
+    /// Retries are implemented with backoff, until the fetch succeeds or the maximum number of
+    /// retries is reached. If the maximum number of retries is reached, the function returns an
+    /// error of kind [`ClientErrorKind::NoValidStatusReceived`].
     #[tracing::instrument(skip_all, fields(%blob_id), err(level = Level::WARN))]
-    pub async fn retry_get_blob_status<U: ReadClient>(
+    pub async fn get_blob_status_with_retries<U: ReadClient>(
         &self,
         blob_id: &BlobId,
         read_client: &U,
     ) -> ClientResult<BlobStatus> {
         // The backoff is both the interval between retries and the maximum duration of the retry.
         let config = &self.config.communication_config.request_rate_config;
-        let mut backoff = ExponentialBackoff::new_with_seed(
+        let backoff = ExponentialBackoff::new_with_seed(
             config.min_backoff,
             config.max_backoff,
             config.max_retries,
@@ -739,12 +765,14 @@ impl<T> Client<T> {
                     .expect("can always convert 8 bytes into u64"),
             ),
         );
-        while let Some(delay) = backoff.next_delay() {
+
+        let mut peekable = backoff.peekable();
+
+        while let Some(delay) = peekable.next() {
             let maybe_status = self
                 .get_verified_blob_status(blob_id, read_client, delay)
                 .await;
 
-            // Return only if we know that the blob does not exist, or if we have a valid status.
             match maybe_status {
                 Ok(_) => {
                     return maybe_status;
@@ -755,13 +783,17 @@ impl<T> Client<T> {
                     return Err(client_error)
                 }
                 Err(_) => (),
-            }
+            };
 
-            // TODO(giac): next PR fixes that we wait even if we are out of retries.
-            tracing::debug!(?delay, "fetching blob status failed; retrying");
-            tokio::time::sleep(delay).await;
+            if peekable.peek().is_some() {
+                tracing::debug!(?delay, "fetching blob status failed; retrying after delay");
+                tokio::time::sleep(delay).await;
+            } else {
+                tracing::warn!("fetching blob status failed; no more retries");
+            }
         }
-        todo!()
+
+        return Err(ClientErrorKind::NoValidStatusReceived.into());
     }
 
     /// Gets the blob status from multiple nodes and returns the latest status that can be verified.
