@@ -42,7 +42,37 @@ fun test_staked_wal_flow() {
     destroy(principal);
 }
 
-#[test, expected_failure]
+#[test, expected_failure(abort_code = staked_wal::ECantSplitWithdrawing)]
+// Scenario: Try spliting a staked WAL in the withdrawing state
+// TODO: consider enabling this behavior in the future
+fun test_unable_to_split_withdrawing() {
+    let ctx = &mut tx_context::dummy();
+    let node_id = ctx.fresh_object_address().to_id();
+    let mut staked_wal = staked_wal::mint(node_id, mint_balance(100), 1, ctx);
+
+    staked_wal.set_withdrawing(2, 100);
+    let _other = staked_wal.split(50, ctx);
+
+    abort 1337
+}
+
+#[test, expected_failure(abort_code = staked_wal::ECantJoinWithdrawing)]
+// Scenario: Try spliting a staked WAL in the withdrawing state
+// TODO: consider enabling this behavior in the future
+fun test_unable_to_join_withdrawing() {
+    let ctx = &mut tx_context::dummy();
+    let node_id = ctx.fresh_object_address().to_id();
+    let mut staked_wal_a = staked_wal::mint(node_id, mint_balance(100), 1, ctx);
+    let mut staked_wal_b = staked_wal::mint(node_id, mint_balance(100), 1, ctx);
+
+    staked_wal_a.set_withdrawing(2, 100);
+    staked_wal_b.set_withdrawing(2, 100);
+    staked_wal_a.join(staked_wal_b);
+
+    abort 1337
+}
+
+#[test, expected_failure(abort_code = staked_wal::EInvalidAmount)]
 // Scenario: Split a staked WAL with a larger amount
 fun test_unable_to_split_larger_amount() {
     let ctx = &mut tx_context::dummy();
@@ -54,7 +84,7 @@ fun test_unable_to_split_larger_amount() {
     abort 1337
 }
 
-#[test, expected_failure]
+#[test, expected_failure(abort_code = staked_wal::EMetadataMismatch)]
 // Scenario: Join a staked WAL with a different activation epoch
 fun test_unable_to_join_activation_epoch() {
     let ctx = &mut tx_context::dummy();
@@ -67,7 +97,7 @@ fun test_unable_to_join_activation_epoch() {
     abort 1337
 }
 
-#[test, expected_failure]
+#[test, expected_failure(abort_code = staked_wal::EMetadataMismatch)]
 // Scenario: Join a staked WAL with a different pool ID
 fun test_unable_to_join_different_pool() {
     let ctx = &mut tx_context::dummy();
@@ -81,7 +111,7 @@ fun test_unable_to_join_different_pool() {
     abort 1337
 }
 
-#[test, expected_failure]
+#[test, expected_failure(abort_code = staked_wal::ENonZeroPrincipal)]
 // Scenario: Destroy a staked WAL with non-zero principal
 fun test_unable_to_destroy_non_zero() {
     let ctx = &mut tx_context::dummy();

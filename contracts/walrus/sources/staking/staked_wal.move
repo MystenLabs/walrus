@@ -23,6 +23,17 @@ const EMetadataMismatch: vector<u8> =
 #[error]
 const EInvalidAmount: vector<u8> = b"Amount is higher than the staked WAL value";
 
+#[error]
+// TODO: possibly enable this behavior in the future
+const ECantJoinWithdrawing: vector<u8> = b"Cannot join a staked WAL in the `Withdrawing` state";
+
+#[error]
+// TODO: possibly enable this behavior in the future
+const ECantSplitWithdrawing: vector<u8> = b"Cannot split a staked WAL in the `Withdrawing` state";
+
+#[error]
+const ENonZeroPrincipal: vector<u8> = b"Principal must be zero to destroy the staked WAL";
+
 /// The state of the staked WAL. It can be either `Staked` or `Withdrawing`.
 /// The `Withdrawing` state contains the epoch when the staked WAL can be
 ///
@@ -139,7 +150,9 @@ public fun join(sw: &mut StakedWal, other: StakedWal) {
     let StakedWal { id, state, node_id, activation_epoch, principal } = other;
     assert!(sw.state == state, EMetadataMismatch);
     assert!(sw.node_id == node_id, EMetadataMismatch);
+    assert!(!sw.is_withdrawing(), ECantJoinWithdrawing);
     assert!(sw.activation_epoch == activation_epoch, EMetadataMismatch);
+
     id.delete();
 
     sw.principal.join(principal);
@@ -152,6 +165,7 @@ public fun join(sw: &mut StakedWal, other: StakedWal) {
 /// Aborts if the `amount` is greater than the `principal` of the staked WAL.
 public fun split(sw: &mut StakedWal, amount: u64, ctx: &mut TxContext): StakedWal {
     assert!(sw.principal.value() >= amount, EInvalidAmount);
+    assert!(!sw.is_withdrawing(), ECantSplitWithdrawing);
 
     StakedWal {
         id: object::new(ctx),
@@ -165,7 +179,7 @@ public fun split(sw: &mut StakedWal, amount: u64, ctx: &mut TxContext): StakedWa
 /// Destroys the staked WAL if the `principal` is zero. Ignores the `node_id`
 /// and `activation_epoch` of the staked WAL given that it is zero.
 public fun destroy_zero(sw: StakedWal) {
-    assert!(sw.principal.value() == 0);
+    assert!(sw.principal.value() == 0, ENonZeroPrincipal);
     let StakedWal { id, principal, .. } = sw;
     principal.destroy_zero();
     id.delete();
