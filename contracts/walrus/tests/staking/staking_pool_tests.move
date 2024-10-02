@@ -1,6 +1,9 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+// TODO: better comments above test cases
+// TODO: more tests? come up with new scenarios
+
 #[allow(unused_use)]
 module walrus::staking_pool_tests;
 
@@ -18,7 +21,6 @@ fun stake_and_receive_rewards() {
     let mut staked_a = pool.stake(mint_balance(1000), &wctx, ctx);
 
     assert_eq!(pool.wal_balance(), 0);
-    assert_eq!(pool.pool_token_at_epoch(wctx.epoch()), 0);
 
     // E1: No rewards received, stake is active an rewards will be claimable in
     //  the future
@@ -26,7 +28,6 @@ fun stake_and_receive_rewards() {
     pool.advance_epoch(mint_balance(0), &wctx);
 
     assert_eq!(pool.wal_balance(), 1000);
-    assert_eq!(pool.pool_token_at_epoch(wctx.epoch()), 1000);
 
     // E2: Rewards received, Alice withdraws everything
     let (wctx, _) = test.next_epoch();
@@ -35,7 +36,6 @@ fun stake_and_receive_rewards() {
 
     assert_eq!(pool.wal_balance(), 2000);
     assert_eq!(staked_a.pool_token_amount(), 1000);
-    assert_eq!(pool.pool_token_at_epoch(wctx.epoch()), 1000);
 
     // E3: Alice withdraws everything
     let (wctx, _) = test.next_epoch();
@@ -44,7 +44,6 @@ fun stake_and_receive_rewards() {
 
     assert_eq!(balance_a.destroy_for_testing(), 2000);
     assert_eq!(pool.wal_balance(), 0);
-    assert_eq!(pool.pool_token_at_epoch(wctx.epoch()), 0);
 
     pool.destroy_empty()
 }
@@ -65,7 +64,6 @@ fun stake_no_rewards_different_epochs() {
     let mut staked_a = pool.stake(mint_balance(1000), &wctx, ctx);
 
     assert_eq!(pool.wal_balance(), 0);
-    assert_eq!(pool.pool_token_at_epoch(wctx.epoch()), 0);
 
     // E1: Bob stakes 2000 WAL
     let (wctx, ctx) = test.next_epoch();
@@ -73,7 +71,6 @@ fun stake_no_rewards_different_epochs() {
     let mut staked_b = pool.stake(mint_balance(1000), &wctx, ctx);
 
     assert_eq!(pool.wal_balance(), 1000);
-    assert_eq!(pool.pool_token_at_epoch(wctx.epoch()), 1000);
 
     // E2: Alice requests withdrawal, expecting to withdraw 1000 WAL + 100 rewards.
     let (wctx, _) = test.next_epoch();
@@ -454,7 +451,6 @@ fun correct_stake_with_withdrawals() {
     pool.advance_epoch(mint_balance(1000), &wctx);
     pool.request_withdraw_stake(&mut staked_a, &wctx);
 
-
     // All rewards for the previous epoch go to Alice, Alice's stake does not count anymore.
     // Stake is 2000 (Bob + Chalie)
     assert_eq!(pool.wal_balance_at_epoch(wctx.epoch() + 1), 2000);
@@ -487,11 +483,7 @@ fun correct_stake_with_withdrawals() {
     assert_eq!(pool.wal_balance_at_epoch(wctx.epoch() + 1), 2750);
 
     destroy(pool);
-    destroy(vector[
-        staked_a,
-        staked_b,
-        staked_c,
-    ]);
+    destroy(vector[staked_a, staked_b, staked_c]);
 }
 
 #[test]
@@ -505,9 +497,6 @@ fun pool_token_with_rewards_at_epochs() {
     let mut pool = pool().build(&wctx, ctx);
     let mut staked_wal_a = pool.stake(mint_balance(1000), &wctx, ctx);
 
-    assert_eq!(pool.pool_token_at_epoch(wctx.epoch()), 0);
-    assert_eq!(pool.pool_token_at_epoch(wctx.epoch() + 1), 1000);
-
     let (wctx, _) = test.next_epoch();
     pool.advance_epoch(mint_balance(0), &wctx);
 
@@ -516,13 +505,10 @@ fun pool_token_with_rewards_at_epochs() {
     pool.advance_epoch(mint_balance(1000), &wctx);
 
     assert_eq!(pool.wal_balance_at_epoch(wctx.epoch()), 2000); // 1000 + 1000 rewards
-    assert_eq!(pool.pool_token_at_epoch(wctx.epoch()), 1000); // 1000 + 1000 rewards
 
     // bob stakes in E+1, stake applied in E+2
     let mut staked_wal_b = pool.stake(mint_balance(1000), &wctx, ctx);
 
-    assert_eq!(pool.pool_token_at_epoch(wctx.epoch()), 1000);
-    assert_eq!(pool.pool_token_at_epoch(wctx.epoch() + 1), 1500);
     assert_eq!(pool.wal_balance_at_epoch(wctx.epoch() + 1), 3000);
 
     // E+1, request withdraw stake A (to withdraw in E+2)
@@ -530,7 +516,6 @@ fun pool_token_with_rewards_at_epochs() {
 
     assert!(staked_wal_a.is_withdrawing());
     assert_eq!(staked_wal_a.withdraw_epoch(), wctx.epoch() + 1);
-    assert_eq!(pool.pool_token_at_epoch(wctx.epoch() + 1), 1500);
     assert_eq!(pool.wal_balance_at_epoch(wctx.epoch() + 1), 1000);
 
     // E+2, withdraw stake A
@@ -575,7 +560,6 @@ fun pool_token_split_rewards() {
     pool.advance_epoch(mint_balance(1000), &wctx);
 
     assert_eq!(pool.wal_balance_at_epoch(wctx.epoch()), 3000); // 1000 + 1000 rewards
-    assert_eq!(pool.pool_token_at_epoch(wctx.epoch()), 2000); // 2000 rewards
 
     // E+1, request withdraw stake A and B (to withdraw in E+2)
     pool.request_withdraw_stake(&mut staked_wal_a, &wctx);

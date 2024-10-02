@@ -369,15 +369,9 @@ public(package) fun set_is_active(pool: &mut StakingPool) {
     pool.state = PoolState::Active;
 }
 
-public(package) fun pool_token_at_epoch(pool: &StakingPool, epoch: u32): u64 {
-    let exchange_rate = pool_exchange_rate::new(pool.wal_balance, pool.pool_token_balance);
-    let wal_balance = pool.wal_balance + pool.pending_stake.value_at(epoch);
-    exchange_rate.get_token_amount(wal_balance)
-}
-
-/// Returns the exchange rate for the given epoch. If there isn't a value for
-/// the specified epoch, it will iterate over the previous epochs until it finds
-/// one with the exchange rate set.
+/// Returns the exchange rate for the given current or future epoch. If there
+/// isn't a value for the specified epoch, it will look for the most recent
+/// value down to the pool activation epoch.
 public(package) fun exchange_rate_at_epoch(pool: &StakingPool, mut epoch: u32): PoolExchangeRate {
     let activation_epoch = pool.activation_epoch;
     while (epoch >= activation_epoch) {
@@ -390,8 +384,9 @@ public(package) fun exchange_rate_at_epoch(pool: &StakingPool, mut epoch: u32): 
     pool_exchange_rate::empty()
 }
 
-/// Returns the expected active stake for epoch `E` for the pool. It processes
-/// the pending stake and withdrawal requests from the current epoch to `E`.
+/// Returns the expected active stake for current or future epoch `E` for the pool.
+/// It processes the pending stake and withdrawal requests from the current epoch
+/// to `E`.
 ///
 /// Should be the main function to calculate the active stake for the pool at
 /// the given epoch, due to the complexity of the pending stake and withdrawal
