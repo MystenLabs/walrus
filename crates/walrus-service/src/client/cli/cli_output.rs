@@ -14,6 +14,7 @@ use walrus_sui::types::Blob;
 
 use crate::client::{
     cli::{
+        certification_event_string,
         error,
         format_event_id,
         success,
@@ -58,15 +59,15 @@ impl CliOutput for BlobStoreResult {
         match &self {
             Self::AlreadyCertified {
                 blob_id,
-                event,
+                event_or_object,
                 end_epoch,
             } => {
                 println!(
                     "{} Blob was previously certified within Walrus for a sufficient period.\n\
-                    Blob ID: {}\nCertification event ID: {}\nEnd epoch (exclusive): {}",
+                    Blob ID: {}\n{}\nEnd epoch (exclusive): {}",
                     success(),
                     blob_id,
-                    format_event_id(event),
+                    certification_event_string(event_or_object),
                     end_epoch,
                 )
             }

@@ -131,7 +131,12 @@ impl WriteClient {
             .client
             .as_ref()
             .resource_manager()
-            .get_blob_registration(&metadata, epochs, BlobPersistence::Permanent)
+            .get_blob_registration(
+                &metadata,
+                epochs,
+                BlobPersistence::Permanent,
+                StoreWhen::NotStored,
+            )
             .await?;
 
         // Wait to ensure that the storage nodes received the registration event.

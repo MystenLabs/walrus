@@ -10,6 +10,7 @@ use communication::NodeCommunicationFactory;
 use fastcrypto::{bls12381::min_pk::BLS12381AggregateSignature, traits::AggregateAuthenticator};
 use futures::Future;
 use resource::{PriceComputation, ResourceManager};
+use responses::EventOrObjectId;
 use sui_types::base_types::ObjectID;
 use tokio::{sync::Semaphore, time::Duration};
 use tracing::{Instrument, Level};
@@ -248,57 +249,41 @@ impl<T: ContractClient> Client<T> {
         if !store_when.is_store_always() {
             // Use short timeout as this is only an optimization.
             const STATUS_TIMEOUT: Duration = Duration::from_secs(5);
-
-            match self
+            let blob_status = self
                 .get_verified_blob_status(
                     metadata.blob_id(),
                     self.sui_client.read_client(),
                     STATUS_TIMEOUT,
                 )
-                .await?
+                .await?;
+            if let Some(result) =
+                self.blob_status_to_store_result(blob_id, epochs_ahead, blob_status)
             {
-                BlobStatus::Permanent {
-                    end_epoch,
-                    is_certified: true,
-                    status_event,
-                    ..
-                } => {
-                    if end_epoch >= self.committees.write_committee().epoch + epochs_ahead {
-                        tracing::debug!(end_epoch, "blob is already certified");
-                        return Ok(BlobStoreResult::AlreadyCertified {
-                            blob_id,
-                            event: status_event,
-                            end_epoch,
-                        });
-                    } else {
-                        tracing::debug!(
-                        end_epoch,
-                        "blob is already certified but its lifetime is too short; creating new one"
-                    );
-                    }
-                }
-                BlobStatus::Invalid { event } => {
-                    tracing::debug!("blob is marked as invalid");
-                    return Ok(BlobStoreResult::MarkedInvalid { blob_id, event });
-                }
-                status => {
-                    // We intentionally don't check for "registered" blobs here: even if the blob is
-                    // already registered, we cannot certify it without access to the corresponding
-                    // Sui object. The check to see if we own the registered-but-not-certified Blob
-                    // object is done in `reserve_and_register_blob`.
-                    tracing::debug!(
-                        ?status,
-                        "no corresponding permanent certified `Blob` object exists"
-                    );
-                }
+                return Ok(result);
             }
-        }
+        };
 
         // Get an appropriate registered blob object.
         let (mut blob, resource_operation) = self
             .resource_manager()
-            .get_blob_registration(&metadata, epochs_ahead, persistence)
+            .get_blob_registration(&metadata, epochs_ahead, persistence, store_when)
             .await?;
+
+        //// If the blob is deletable and already certified, return early.
+        if blob.certified_epoch.is_some() {
+            assert!(
+                blob.deletable && !store_when.is_store_always(),
+                "at this point only deletable blobs can be certified and the store is not forced"
+            );
+            tracing::debug!(
+                "there is a deletable certified blob in the wallet, and we are not forcing a store"
+            );
+            return Ok(BlobStoreResult::AlreadyCertified {
+                blob_id,
+                event_or_object: EventOrObjectId::Object(blob.id),
+                end_epoch: blob.certified_epoch.unwrap(),
+            });
+        }
 
         // We do not need to wait explicitly as we anyway retry all requests to storage nodes.
         let certificate = self
@@ -327,6 +312,53 @@ impl<T: ContractClient> Client<T> {
             encoded_size,
             deletable: persistence.is_deletable(),
         })
+    }
+
+    /// Checks if blob of the given status is already in a state for which we can return.
+    fn blob_status_to_store_result(
+        &self,
+        blob_id: BlobId,
+        epochs_ahead: EpochCount,
+        blob_status: BlobStatus,
+    ) -> Option<BlobStoreResult> {
+        match blob_status {
+            BlobStatus::Permanent {
+                end_epoch,
+                is_certified: true,
+                status_event,
+                ..
+            } => {
+                if end_epoch >= self.committees.write_committee().epoch + epochs_ahead {
+                    tracing::debug!(end_epoch, "blob is already certified");
+                    Some(BlobStoreResult::AlreadyCertified {
+                        blob_id,
+                        event_or_object: EventOrObjectId::Event(status_event),
+                        end_epoch,
+                    })
+                } else {
+                    tracing::debug!(
+                        end_epoch,
+                        "blob is already certified but its lifetime is too short"
+                    );
+                    None
+                }
+            }
+            BlobStatus::Invalid { event } => {
+                tracing::debug!("blob is marked as invalid");
+                Some(BlobStoreResult::MarkedInvalid { blob_id, event })
+            }
+            status => {
+                // We intentionally don't check for "registered" blobs here: even if the blob is
+                // already registered, we cannot certify it without access to the corresponding
+                // Sui object. The check to see if we own the registered-but-not-certified Blob
+                // object is done in `reserve_and_register_blob`.
+                tracing::debug!(
+                    ?status,
+                    "no corresponding permanent certified `Blob` object exists"
+                );
+                None
+            }
+        }
     }
 
     /// Creates a resource manager for the client.

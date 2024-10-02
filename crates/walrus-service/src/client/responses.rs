@@ -41,6 +41,15 @@ use super::{
 };
 use crate::client::cli::HumanReadableGeorgie;
 
+/// Either an event ID or an object ID.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum EventOrObjectId {
+    /// The variant representing an event ID.
+    Event(EventID),
+    /// The variant representing an object ID.
+    Object(ObjectID),
+}
+
 /// Result when attempting to store a blob.
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -52,8 +61,11 @@ pub enum BlobStoreResult {
         /// The blob ID.
         #[serde_as(as = "DisplayFromStr")]
         blob_id: BlobId,
-        /// The event where the blob was certified.
-        event: EventID,
+        /// The event where the blob was certified, or the object ID of the registered blob.
+        ///
+        /// The object ID of the registered blob is used in place of the event ID when the blob is
+        /// deletable, already certified, and owned by the client.
+        event_or_object: EventOrObjectId,
         /// The epoch until which the blob is stored (exclusive).
         #[schema(value_type = u64)]
         end_epoch: Epoch,

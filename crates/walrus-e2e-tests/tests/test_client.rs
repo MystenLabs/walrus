@@ -167,7 +167,12 @@ async fn test_inconsistency(failed_shards: &[usize]) -> TestResult {
     let (blob_sui_object, _op) = client
         .as_ref()
         .resource_manager()
-        .get_blob_registration(&metadata, 1, BlobPersistence::Permanent)
+        .get_blob_registration(
+            &metadata,
+            1,
+            BlobPersistence::Permanent,
+            StoreWhen::NotStored,
+        )
         .await?;
 
     // Wait to ensure that the storage nodes received the registration event.
@@ -266,6 +271,7 @@ async fn test_store_with_existing_blob_resource(
             &metadata,
             epochs_ahead_registered,
             BlobPersistence::Permanent,
+            StoreWhen::NotStored,
         )
         .await?;
 

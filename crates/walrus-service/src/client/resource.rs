@@ -15,7 +15,7 @@ use walrus_sui::{
     utils::price_for_unencoded_length,
 };
 
-use super::{ClientError, ClientErrorKind, ClientResult};
+use super::{ClientError, ClientErrorKind, ClientResult, StoreWhen};
 
 #[derive(Debug, Clone)]
 pub(crate) struct PriceComputation {
@@ -55,7 +55,7 @@ impl PriceComputation {
             ResourceOperation::ReuseStorage { unencoded_length } => {
                 Some(self.write_fee_for_unencoded_length(*unencoded_length))
             }
-            ResourceOperation::ReuseRegistration => Some(0), // No cost for reusing registration
+            _ => Some(0), // No cost for reusing registration or no-op.
         }
     }
 
@@ -123,15 +123,25 @@ impl<'a, C: ContractClient> ResourceManager<'a, C> {
     /// - otherwise, it checks if there is an appropriate storage resource (with sufficient space
     ///   and for a sufficient duration) that can be used to register the blob; or
     /// - if the above fails, it purchases a new storage resource and registers the blob.
+    ///
+    /// If we are forcing a store ([`StoreWhen::Always`]), the function filters out already
+    /// certified blobs owned by the wallet, such that we always create a new certification
+    /// (possibly reusing storage resources or uncertified but registered blobs).
     #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
     pub async fn get_blob_registration(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         epochs_ahead: EpochCount,
         persistence: BlobPersistence,
+        store_when: StoreWhen,
     ) -> ClientResult<(Blob, ResourceOperation)> {
         let blob_and_op = if let Some(blob) = self
-            .is_blob_registered_in_wallet(metadata.blob_id(), epochs_ahead, persistence)
+            .is_blob_registered_in_wallet(
+                metadata.blob_id(),
+                epochs_ahead,
+                persistence,
+                store_when.is_store_always(),
+            )
             .await?
         {
             tracing::debug!(
@@ -199,11 +209,15 @@ impl<'a, C: ContractClient> ResourceManager<'a, C> {
     /// To compute if the blob is registered for a sufficient duration, it uses the epoch of the
     /// current `write_committee`. This is because registration needs to be valid compared to a new
     /// registration that would be made now to write a new blob.
+    ///
+    /// If `filter_certified` is `true`, the function filters out already certified blobs owned by
+    /// the wallet.
     async fn is_blob_registered_in_wallet(
         &self,
         blob_id: &BlobId,
         epochs_ahead: EpochCount,
         persistence: BlobPersistence,
+        filter_certified: bool,
     ) -> ClientResult<Option<Blob>> {
         Ok(self
             .sui_client
@@ -214,6 +228,7 @@ impl<'a, C: ContractClient> ResourceManager<'a, C> {
                 blob.blob_id == *blob_id
                     && blob.storage.end_epoch >= self.write_committee_epoch + epochs_ahead
                     && blob.deletable == persistence.is_deletable()
+                    && (!filter_certified || blob.certified_epoch.is_none())
             }))
     }
 }
