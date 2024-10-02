@@ -110,8 +110,7 @@ impl BlobInfoTable {
     }
 
     pub fn delete(&self, batch: &mut DBBatch, blob_id: &BlobId) -> Result<(), TypedStoreError> {
-        batch.delete_batch(&self.blob_info, [blob_id])?;
-        Ok(())
+        batch.delete_batch(&self.blob_info, [blob_id])
     }
 
     /// Returns an iterator over all blobs that were certified before the specified epoch in the
@@ -120,12 +119,12 @@ impl BlobInfoTable {
     pub fn certified_blob_info_iter_before_epoch(
         &self,
         before_epoch: Epoch,
-        starting_blob_id: Bound<BlobId>,
+        starting_blob_id_bound: Bound<BlobId>,
     ) -> BlobInfoIterator {
         BlobInfoIter::new(
             Box::new(
                 self.blob_info
-                    .safe_range_iter((starting_blob_id, Unbounded)),
+                    .safe_range_iter((starting_blob_id_bound, Unbounded)),
             ),
             before_epoch,
             true,
@@ -219,21 +218,20 @@ where
     type Item = Result<(BlobId, BlobInfo), TypedStoreError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut item = self.iter.next();
-        if !self.only_certified {
-            return item;
-        }
-
-        while let Some(Ok((_, ref blob_info))) = item {
-            if matches!(
-                blob_info.initial_certified_epoch(),
-                Some(initial_certified_epoch) if initial_certified_epoch < self.before_epoch
-            ) {
-                return item;
+        for item in self.iter.by_ref() {
+            let Ok((_, blob_info)) = &item else {
+                return Some(item);
+            };
+            if !self.only_certified
+                || matches!(
+                    blob_info.initial_certified_epoch(),
+                    Some(initial_certified_epoch) if initial_certified_epoch < self.before_epoch
+                )
+            {
+                return Some(item);
             }
-            item = self.iter.next();
         }
-        item
+        None
     }
 }
 

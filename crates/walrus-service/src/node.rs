@@ -477,26 +477,25 @@ impl StorageNode {
     /// Continues the event stream from the last committed event.
     async fn continue_event_stream(
         &self,
-    ) -> anyhow::Result<Pin<Box<dyn Stream<Item = IndexedStreamElement> + Send + Sync + '_>>> {
+    ) -> anyhow::Result<(
+        Pin<Box<dyn Stream<Item = IndexedStreamElement> + Send + Sync + '_>>,
+        usize,
+    )> {
         let storage = &self.inner.storage;
-        let from_event_id = storage
+        let (from_event_id, next_event_index) = storage
             .get_event_cursor_and_next_index()?
-            .map(|(cursor, _)| cursor);
-        let from_element_index = self.next_event_index()?;
-        let event_cursor = EventStreamCursor::new(from_event_id, from_element_index);
+            .map_or((None, 0), |(cursor, index)| (Some(cursor), index));
+        let event_cursor = EventStreamCursor::new(from_event_id, next_event_index);
 
-        Ok(Box::into_pin(
-            self.inner.event_manager.events(event_cursor).await?,
+        Ok((
+            Box::into_pin(self.inner.event_manager.events(event_cursor).await?),
+            next_event_index.try_into().expect("64-bit architecture"),
         ))
     }
 
     async fn process_events(&self) -> anyhow::Result<()> {
-        let event_stream = self.continue_event_stream().await?;
+        let (event_stream, next_event_index) = self.continue_event_stream().await?;
 
-        let next_event_index: usize = self
-            .next_event_index()?
-            .try_into()
-            .expect("64-bit architecture");
         let index_stream = stream::iter(next_event_index..);
         let mut maybe_epoch_at_start = Some(self.inner.committee_service.get_epoch());
 
