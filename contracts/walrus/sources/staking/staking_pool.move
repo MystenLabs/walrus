@@ -274,7 +274,7 @@ public(package) fun advance_epoch(
     assert!(rewards.value() == 0 || pool.wal_balance > 0, EIncorrectEpochAdvance);
 
     // if rewards are calculated only for full epochs, rewards addition should
-    // happen prior to pool token calculation. Othewise we can add then to the
+    // happen prior to pool token calculation. Otherwise we can add then to the
     // final rate instead of the
     let rewards_amount = rewards.value();
     pool.rewards_pool.join(rewards);
