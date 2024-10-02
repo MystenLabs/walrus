@@ -254,7 +254,7 @@ trait CurrencyForDisplay {
     const SUPERUNIT_NAME: &'static str;
     /// The name of the subunit, that divides the main currency.
     const UNIT_NAME: &'static str;
-    /// The number of subunits in a unit.
+    /// Number of decimal places the coin uses: 1 superunit is equal to 10^decimal units.
     const DECIMALS: u8;
 
     /// Converts the value in base units to the value in the superunit.
