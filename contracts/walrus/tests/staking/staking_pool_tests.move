@@ -244,7 +244,9 @@ const E6: u32 = 5;
 fun wal_balance_at_epoch() {
     let mut test = context_runner();
 
-    // E0: stake applied in E+1
+    // E0:
+    // A stakes 1000 (E1)
+    // B stakes 1000 (E2)
     let (wctx, ctx) = test.current();
     let mut pool = pool().build(&wctx, ctx);
 
@@ -270,7 +272,11 @@ fun wal_balance_at_epoch() {
 
     // === E1 ===
 
-    // E1: previous stake active; new stake applied in E2
+    // E1:
+    // A - active 1000 (E1)
+    // B - inactive 1000 (E2)
+    // C - stakes 2000 (E2)
+    // D - stakes 2000 (E3)
     let (wctx, ctx) = test.next_epoch();
     pool.advance_epoch(mint_balance(0), &wctx);
 
@@ -301,9 +307,13 @@ fun wal_balance_at_epoch() {
 
     // === E2 ===
 
-    // E2: previous stake active; add rewards to the pool: +1000
-    // Active stakes: A: 1000 + 1000, B: 1000 (just activated), C: 2000 (just activated)
-    // Inactive stakes: D: 2000
+    // E2:
+    // A - active 1000 + 1000 (E1)
+    // B - active 1000 (E2)
+    // C - active 2000 (E2)
+    // D - inactive 2000 (E3)
+    //
+    // A requests withdrawal in E3
     let (wctx, _) = test.next_epoch();
     pool.advance_epoch(mint_balance(1000), &wctx);
 
@@ -380,22 +390,25 @@ fun wal_balance_at_epoch() {
         assert_eq!(pool.wal_balance_at_epoch(E6), 0);
     };
 
+    // === E5 ===
+
+    // Everyone withdraws their stakes
     let (wctx, _) = test.next_epoch();
+    pool.advance_epoch(mint_balance(0), &wctx);
 
-    {
-        assert_eq!(pool.wal_balance_at_epoch(E5), 0);
-    };
+    assert_eq!(pool.wal_balance_at_epoch(E5), 0);
 
+    let balance_a = pool.withdraw_stake(staked_wal_a, &wctx);
+    let balance_b = pool.withdraw_stake(staked_wal_b, &wctx);
+    let balance_c = pool.withdraw_stake(staked_wal_c, &wctx);
+    let balance_d = pool.withdraw_stake(staked_wal_d, &wctx);
 
-    // TODO: finish this test
+    assert_eq!(balance_a.destroy_for_testing(), 4000);
+    assert_eq!(balance_b.destroy_for_testing(), 3000);
+    assert_eq!(balance_c.destroy_for_testing(), 6000);
+    assert_eq!(balance_d.destroy_for_testing(), 3000);
 
-    destroy(pool);
-    destroy(vector[
-        staked_wal_a,
-        staked_wal_b,
-        staked_wal_c,
-        staked_wal_d,
-    ]);
+    pool.destroy_empty()
 }
 
 #[test]
