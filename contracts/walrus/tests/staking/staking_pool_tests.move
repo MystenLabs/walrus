@@ -314,6 +314,7 @@ fun wal_balance_at_epoch() {
     // D - inactive 2000 (E3)
     //
     // A requests withdrawal in E3
+    // B requests withdrawal in E4
     let (wctx, _) = test.next_epoch();
     pool.advance_epoch(mint_balance(1000), &wctx);
 
@@ -343,8 +344,14 @@ fun wal_balance_at_epoch() {
 
     // === E3 ===
 
-    // E3: all stake active, add rewards to the pool: +5000
-    // Active stakes: A: 2000 + 2000, B: 1000 + 1000, C: 2000 + 2000, D: 2000
+    // E3:
+    // A - inactive 2000 + 2000 (W in E3)
+    // B - active 1000 + 1000 (W in E4)
+    // C - active 2000 + 2000
+    // D - active 2000
+    //
+    // C requests withdrawal in E4
+    // D requests withdrawal in E5
     let (wctx, _) = test.next_epoch();
     pool.advance_epoch(mint_balance(5000), &wctx);
 
@@ -364,7 +371,7 @@ fun wal_balance_at_epoch() {
         assert_eq!(pool.wal_balance_at_epoch(E5), 2000);
     };
 
-    // E3+: committee selected, D stake requests withdrawal
+    // E3+: committee selected, D requests withdrawal
     let (wctx, _) = test.select_committee();
     pool.request_withdraw_stake(&mut staked_wal_d, &wctx); // D (-2000)
 
@@ -378,9 +385,9 @@ fun wal_balance_at_epoch() {
 
     // E3: B, C and D receive rewards (4000)
     // A is excluded
-    // B (2000 + 1000) can withdraw
-    // C (4000 + 2000) can withdraw
-    // D (2000 + 1000) can't withdraw until E5
+    // B - inactive 2000 + 1000
+    // C - inactive 4000 + 2000
+    // D - active 2000 + 1000 (W in E5)
     let (wctx, _) = test.next_epoch();
     pool.advance_epoch(mint_balance(4000), &wctx);
 
@@ -392,7 +399,11 @@ fun wal_balance_at_epoch() {
 
     // === E5 ===
 
-    // Everyone withdraws their stakes
+    // E5:
+    // A - inactive 6000
+    // B - inactive 3000
+    // C - inactive 6000
+    // D - inactive 3000
     let (wctx, _) = test.next_epoch();
     pool.advance_epoch(mint_balance(0), &wctx);
 
