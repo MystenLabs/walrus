@@ -237,7 +237,6 @@ const E4: u32 = 4;
 const E5: u32 = 5;
 const E6: u32 = 5;
 
-
 #[test]
 // This test focuses on maintaining correct staked_wal state throughout the
 // staking process. Alice and Bob add stake,
@@ -420,6 +419,79 @@ fun wal_balance_at_epoch() {
     assert_eq!(balance_d.destroy_for_testing(), 3000);
 
     pool.destroy_empty()
+}
+
+#[test]
+// Scenario:
+// E0: Alice stakes: 1000 WAL;
+// E1: Bob stakes: 1000 WAL; Chalie stakes: 1000 WAL;
+// E2: +1000 Rewards for E1; Alice requests withdrawal;
+// E3: +1000 Rewards for E2; Bob requests withdrawal;
+// E4: +1000 Rewards for E3;
+// E5: +1000 Rewards for E4;
+fun correct_stake_with_withdrawals() {
+    let mut test = context_runner();
+
+    // E0: Alice stakes 1000 WAL
+    let (wctx, ctx) = test.current();
+    let mut pool = pool().build(&wctx, ctx);
+    let mut staked_a = pool.stake(mint_balance(1000), &wctx, ctx);
+
+    // No rewards yet, stake for next committee selection is 1000
+    assert_eq!(pool.wal_balance_at_epoch(wctx.epoch() + 1), 1000);
+
+    // E1: Bob stakes 1000 WAL; Chalie stakes 1000 WAL;
+    let (wctx, ctx) = test.next_epoch();
+    pool.advance_epoch(mint_balance(0), &wctx);
+    let mut staked_b = pool.stake(mint_balance(1000), &wctx, ctx);
+    let staked_c = pool.stake(mint_balance(1000), &wctx, ctx);
+
+    // No rewards yet, stake for next committee selection is 3000
+    assert_eq!(pool.wal_balance_at_epoch(wctx.epoch() + 1), 3000);
+
+    // E2: +1000 Rewards for E1; Alice requests withdrawal
+    let (wctx, _) = test.next_epoch();
+    pool.advance_epoch(mint_balance(1000), &wctx);
+    pool.request_withdraw_stake(&mut staked_a, &wctx);
+
+
+    // All rewards for the previous epoch go to Alice, Alice's stake does not count anymore.
+    // Stake is 2000 (Bob + Chalie)
+    assert_eq!(pool.wal_balance_at_epoch(wctx.epoch() + 1), 2000);
+
+    // E3: +1000 Rewards for E2; Bob requests withdrawal
+    let (wctx, _) = test.next_epoch();
+    pool.advance_epoch(mint_balance(1000), &wctx);
+    pool.request_withdraw_stake(&mut staked_b, &wctx);
+
+    // Half of the rewards for the previous epoch go to Alice, a quarter to Bob and Charlie each.
+    // Alice's and Bob's stakes does not count anymore.
+    // Stake is 1250 (Chalie + rewards on his stake)
+    assert_eq!(pool.wal_balance_at_epoch(wctx.epoch() + 1), 1250);
+
+    // E4: +1000 Rewards for E3;
+    let (wctx, _) = test.next_epoch();
+    pool.advance_epoch(mint_balance(1000), &wctx);
+
+    // Half of the rewards for the previous epoch go to Bob and Charlie each.
+    // Alice's and Bob's stakes does not count anymore.
+    // Stake is 1750 (Chalie + rewards on his stake)
+    assert_eq!(pool.wal_balance_at_epoch(wctx.epoch() + 1), 1750);
+
+    // E5: +1000 Rewards for E4;
+    let (wctx, _) = test.next_epoch();
+    pool.advance_epoch(mint_balance(1000), &wctx);
+
+    // All rewards go to Charlie
+    // Stake is 2750 (Chalie + rewards on his stake)
+    assert_eq!(pool.wal_balance_at_epoch(wctx.epoch() + 1), 2750);
+
+    destroy(pool);
+    destroy(vector[
+        staked_a,
+        staked_b,
+        staked_c,
+    ]);
 }
 
 #[test]
