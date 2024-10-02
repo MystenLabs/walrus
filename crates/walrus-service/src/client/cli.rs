@@ -249,32 +249,94 @@ impl std::fmt::Display for HumanReadableBytes {
     }
 }
 
-/// A human readable representation of a price in MIST.
-///
-/// [`HumanReadableMist`] is a helper type to format prices in MIST. The formatting works as
-/// follows:
-///
-/// 1. If the price is below 1_000_000 MIST, it is printed fully, with thousands separators.
-/// 2. Else, it is printed in SUI with 3 decimal places.
+trait CurrencyForDisplay {
+    /// The name of the main unit of currency
+    const SUPERUNIT_NAME: &'static str;
+    /// The name of the subunit, that divides the main currency.
+    const UNIT_NAME: &'static str;
+    /// The number of subunits in a unit.
+    const SUBUNIT_IN_UNIT: u64;
+
+    /// Converts a unit to subunits.
+    fn subunit_to_unit(subunit: u64) -> f64 {
+        subunit as f64 / Self::SUBUNIT_IN_UNIT as f64
+    }
+
+    /// Gets the value of the current coin.
+    fn value(&self) -> u64;
+
+    // Creates a new instance of the currency.
+    fn new(value: u64) -> Self;
+}
+
+/// The rerepresentation of a currency in a human readable format.
 #[repr(transparent)]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct HumanReadableMist(pub u64);
+pub(crate) struct HumanReadableCoin<C>(C);
 
-impl Display for HumanReadableMist {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let value = self.0;
-        if value < 1_000_000 {
-            let with_separator = thousands_separator(value);
-            return write!(f, "{with_separator} MIST");
-        }
-        let digits = if value < 10_000_000 { 4 } else { 3 };
-        let sui = mist_to_sui(value);
-        write!(f, "{sui:.digits$} SUI",)
+impl<C: CurrencyForDisplay> From<u64> for HumanReadableCoin<C> {
+    fn from(value: u64) -> Self {
+        Self(C::new(value))
     }
 }
 
-fn mist_to_sui(mist: u64) -> f64 {
-    mist as f64 / 1e9
+impl<C: CurrencyForDisplay> Display for HumanReadableCoin<C> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // We ensure that the values displayed in C::UNIT_NAME always require less or equal to 4
+        // decimal digits to be readable.
+        let ratio = C::SUBUNIT_IN_UNIT / self.0.value();
+        if ratio > 10_000 {
+            let with_separator = thousands_separator(self.0.value());
+            return write!(f, "{with_separator} {}", C::UNIT_NAME);
+        }
+        let digits = if ratio <= 100 { 3 } else { 4 };
+        let sui = C::subunit_to_unit(self.0.value());
+        write!(f, "{sui:.digits$} {}", C::SUPERUNIT_NAME)
+    }
+}
+
+/// The MIST coin for simple display.
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct MistCoin(u64);
+
+/// The human readable representation of the MIST and SUI coins.
+#[allow(dead_code)]
+pub(crate) type HumanReadableMist = HumanReadableCoin<MistCoin>;
+
+impl CurrencyForDisplay for MistCoin {
+    const SUPERUNIT_NAME: &'static str = "SUI";
+    const UNIT_NAME: &'static str = "MIST";
+    const SUBUNIT_IN_UNIT: u64 = 1_000_000_000;
+
+    fn value(&self) -> u64 {
+        self.0
+    }
+
+    fn new(value: u64) -> Self {
+        Self(value)
+    }
+}
+
+/// The GEORGIE coin for simple display.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct GeorgieCoin(u64);
+
+/// The human readable representation of the GEORGIE and WAL coins.
+pub(crate) type HumanReadableGeorgie = HumanReadableCoin<GeorgieCoin>;
+
+impl CurrencyForDisplay for GeorgieCoin {
+    const SUPERUNIT_NAME: &'static str = "WAL";
+    const UNIT_NAME: &'static str = "GEORGIE";
+    const SUBUNIT_IN_UNIT: u64 = 3_141_592;
+
+    fn value(&self) -> u64 {
+        self.0
+    }
+
+    fn new(value: u64) -> Self {
+        Self(value)
+    }
 }
 
 /// Returns a string representation of the input `num`, with digits grouped in threes by a
@@ -460,11 +522,13 @@ mod tests {
             ten_thousand: (10_000, "10,000 MIST"),
             million: (1_000_000, "0.0010 SUI"),
             nine_million: (9_123_456, "0.0091 SUI"),
+            ten_million_exact: (10_000_000, "0.010 SUI"),
             ten_million: (10_123_456, "0.010 SUI"),
+            hundred_million: (123_456_789, "0.123 SUI"),
         ]
     }
     fn test_human_readable_mist(mist: u64, expected: &str) {
-        assert_eq!(&format!("{}", HumanReadableMist(mist)), expected,)
+        assert_eq!(&format!("{}", HumanReadableMist::from(mist)), expected,)
     }
 
     param_test! {

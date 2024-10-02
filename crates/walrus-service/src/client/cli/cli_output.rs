@@ -19,7 +19,7 @@ use crate::client::{
         success,
         thousands_separator,
         HumanReadableBytes,
-        HumanReadableMist,
+        HumanReadableGeorgie,
     },
     resource::ResourceOperation,
     responses::{
@@ -99,7 +99,7 @@ impl CliOutput for BlobStoreResult {
                     HumanReadableBytes(blob_object.size),
                     HumanReadableBytes(*encoded_size),
                     blob_object.id,
-                    HumanReadableMist(*cost),
+                    HumanReadableGeorgie::from(*cost),
                     operation_str,
                 )
             }
@@ -153,7 +153,7 @@ impl CliOutput for DryRunOutput {
             self.blob_id,
             HumanReadableBytes(self.unencoded_size),
             HumanReadableBytes(self.encoded_size),
-            HumanReadableMist(self.storage_cost),
+            HumanReadableGeorgie::from(self.storage_cost),
         )
     }
 }
@@ -275,10 +275,10 @@ impl CliOutput for InfoOutput {
             hr_storage_unit = HumanReadableBytes(*unit_size),
             max_blob_size_sep = thousands_separator(*max_blob_size),
             price_heading = "Approximate storage prices per epoch".bold().green(),
-            hr_price_per_unit_size = HumanReadableMist(*price_per_unit_size),
-            metadata_price = HumanReadableMist(*metadata_price),
+            hr_price_per_unit_size = HumanReadableGeorgie::from(*price_per_unit_size),
+            metadata_price = HumanReadableGeorgie::from(*metadata_price),
             marginal_size = HumanReadableBytes(*marginal_size),
-            marginal_price = HumanReadableMist(*marginal_price),
+            marginal_price = HumanReadableGeorgie::from(*marginal_price),
             price_examples_heading = "Total price for example blob sizes".bold().green(),
             example_blob_output = example_blobs
                 .iter()

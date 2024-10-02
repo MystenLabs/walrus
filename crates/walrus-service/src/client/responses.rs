@@ -36,9 +36,10 @@ use walrus_sui::{
 };
 
 use super::{
-    cli::{BlobIdDecimal, HumanReadableBytes, HumanReadableMist},
+    cli::{BlobIdDecimal, HumanReadableBytes},
     resource::ResourceOperation,
 };
+use crate::client::cli::HumanReadableGeorgie;
 
 /// Result when attempting to store a blob.
 #[serde_as]
@@ -262,7 +263,7 @@ impl ExampleBlobInfo {
             "{} unencoded ({} encoded): {} per epoch",
             HumanReadableBytes(self.unencoded_size),
             HumanReadableBytes(self.encoded_size),
-            HumanReadableMist(self.price)
+            HumanReadableGeorgie::from(self.price)
         )
     }
 }
