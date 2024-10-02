@@ -43,7 +43,7 @@ fun test_staked_wal_flow() {
 }
 
 #[test, expected_failure(abort_code = staked_wal::ECantSplitWithdrawing)]
-// Scenario: Try spliting a staked WAL in the withdrawing state
+// Scenario: Try splitting a staked WAL in the withdrawing state
 // TODO: consider enabling this behavior in the future
 fun test_unable_to_split_withdrawing() {
     let ctx = &mut tx_context::dummy();
@@ -57,7 +57,7 @@ fun test_unable_to_split_withdrawing() {
 }
 
 #[test, expected_failure(abort_code = staked_wal::ECantJoinWithdrawing)]
-// Scenario: Try spliting a staked WAL in the withdrawing state
+// Scenario: Try splitting a staked WAL in the withdrawing state
 // TODO: consider enabling this behavior in the future
 fun test_unable_to_join_withdrawing() {
     let ctx = &mut tx_context::dummy();
