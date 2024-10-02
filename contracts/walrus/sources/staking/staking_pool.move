@@ -24,6 +24,9 @@ const ECalculationError: vector<u8> = b"Trying to withdraw more than the pool ba
 #[error]
 const EIncorrectEpochAdvance: vector<u8> = b"Pool without stake cannot receive rewards";
 
+#[error]
+const EPoolNotEmpty: vector<u8> = b"Pool is not empty, cannot be destroyed";
+
 /// Represents the state of the staking pool.
 ///
 /// TODO: revisit the state machine.
@@ -342,7 +345,7 @@ public(package) fun set_next_node_capacity(pool: &mut StakingPool, node_capacity
 
 /// Destroy the pool if it is empty.
 public(package) fun destroy_empty(pool: StakingPool) {
-    assert!(pool.is_empty());
+    assert!(pool.is_empty(), EPoolNotEmpty);
 
     let StakingPool {
         id,

@@ -235,6 +235,7 @@ const E2: u32 = 2;
 const E3: u32 = 3;
 const E4: u32 = 4;
 const E5: u32 = 5;
+const E6: u32 = 5;
 
 
 #[test]
@@ -300,9 +301,9 @@ fun wal_balance_at_epoch() {
 
     // === E2 ===
 
-    // E2: previous stake active; add rewards to the pool
-    // Active stakes: A (1000 + 1000), B (1000), C (2000)
-    // Inactive stakes: D (2000)
+    // E2: previous stake active; add rewards to the pool: +1000
+    // Active stakes: A: 1000 + 1000, B: 1000 (just activated), C: 2000 (just activated)
+    // Inactive stakes: D: 2000
     let (wctx, _) = test.next_epoch();
     pool.advance_epoch(mint_balance(1000), &wctx);
 
@@ -312,7 +313,7 @@ fun wal_balance_at_epoch() {
         assert_eq!(pool.wal_balance_at_epoch(E4), 7000); // D stake applied
     };
 
-    pool.request_withdraw_stake(&mut staked_wal_a, &wctx);
+    pool.request_withdraw_stake(&mut staked_wal_a, &wctx); // -2000 E+1
 
     {
         assert_eq!(pool.wal_balance_at_epoch(E2), 5000);
@@ -322,13 +323,69 @@ fun wal_balance_at_epoch() {
 
     // E2+: committee selected, another stake applied in E+2
     let (wctx, _) = test.select_committee();
-    pool.request_withdraw_stake(&mut staked_wal_b, &wctx);
+    pool.request_withdraw_stake(&mut staked_wal_b, &wctx); // -1000 E+2
 
     {
-        assert_eq!(pool.wal_balance_at_epoch(wctx.epoch()), 5000);
-        assert_eq!(pool.wal_balance_at_epoch(wctx.epoch() + 1), 5000);
-        assert_eq!(pool.wal_balance_at_epoch(wctx.epoch() + 2), 4000);
+        assert_eq!(pool.wal_balance_at_epoch(E2), 5000);
+        assert_eq!(pool.wal_balance_at_epoch(E3), 5000);
+        assert_eq!(pool.wal_balance_at_epoch(E4), 4000);
     };
+
+    // === E3 ===
+
+    // E3: all stake active, add rewards to the pool: +5000
+    // Active stakes: A: 2000 + 2000, B: 1000 + 1000, C: 2000 + 2000, D: 2000
+    let (wctx, _) = test.next_epoch();
+    pool.advance_epoch(mint_balance(5000), &wctx);
+
+    // Stake A will withdraw an epoch later to test the behavior
+
+    {
+        assert_eq!(pool.wal_balance_at_epoch(E3), 8000); // A (-4000) D (+2000)
+        assert_eq!(pool.wal_balance_at_epoch(E4), 6000); // B (-2000)
+        assert_eq!(pool.wal_balance_at_epoch(E5), 6000);
+    };
+
+    pool.request_withdraw_stake(&mut staked_wal_c, &wctx); // C (-4000)
+
+    {
+        assert_eq!(pool.wal_balance_at_epoch(E3), 8000);
+        assert_eq!(pool.wal_balance_at_epoch(E4), 2000);
+        assert_eq!(pool.wal_balance_at_epoch(E5), 2000);
+    };
+
+    // E3+: committee selected, D stake requests withdrawal
+    let (wctx, _) = test.select_committee();
+    pool.request_withdraw_stake(&mut staked_wal_d, &wctx); // D (-2000)
+
+    {
+        assert_eq!(pool.wal_balance_at_epoch(E3), 8000);
+        assert_eq!(pool.wal_balance_at_epoch(E4), 2000);
+        assert_eq!(pool.wal_balance_at_epoch(E5), 0);
+    };
+
+    // === E4 ===
+
+    // E3: B, C and D receive rewards (4000)
+    // A is excluded
+    // B (2000 + 1000) can withdraw
+    // C (4000 + 2000) can withdraw
+    // D (2000 + 1000) can't withdraw until E5
+    let (wctx, _) = test.next_epoch();
+    pool.advance_epoch(mint_balance(4000), &wctx);
+
+    {
+        assert_eq!(pool.wal_balance_at_epoch(E4), 3000); // only D active
+        assert_eq!(pool.wal_balance_at_epoch(E5), 0); // D withdrawn
+        assert_eq!(pool.wal_balance_at_epoch(E6), 0);
+    };
+
+    let (wctx, _) = test.next_epoch();
+
+    {
+        assert_eq!(pool.wal_balance_at_epoch(E5), 0);
+    };
+
 
     // TODO: finish this test
 
