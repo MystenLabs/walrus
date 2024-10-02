@@ -15,9 +15,6 @@ ignore = [
     "RUSTSEC-2024-0336",
     # proc-macro-error is not maintained, but is a dependency in many of our packages.
     "RUSTSEC-2024-0370",
-    # Temporary exception for vulnerable versions of tonic.
-    # TODO: Remove this after the next version bump of Sui.
-    "RUSTSEC-2024-0376",
 ]
 
 # This section is considered when running `cargo deny check licenses`
