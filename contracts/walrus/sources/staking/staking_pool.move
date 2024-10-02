@@ -94,10 +94,6 @@ public struct StakingPool has key, store {
     /// Single key is cleared in the `advance_epoch` function, leaving only the
     /// next epoch's stake.
     pending_stake: PendingValues,
-    /// The amount of stake that will be withdrawn in the next epoch.
-    /// Depending on the committee state, the withdrawal can be in E+1 or E+2.
-    /// Hence, we need to track withdrawal amounts for both epochs separately.
-    pending_withdrawal: PendingValues,
     /// The rewards that the pool has received from being in the committee.
     rewards_pool: Balance<WAL>,
 }
@@ -148,8 +144,6 @@ public(package) fun new(
         activation_epoch,
         latest_epoch: wctx.epoch(),
         pending_stake: pending_values::empty(),
-        pending_withdrawal: pending_values::empty(),
-        // withdraw_rates: table::new(ctx),
         pending_pool_token_withdraw: pending_values::empty(),
         wal_balance: 0,
         pool_token_balance: 0,
