@@ -7,7 +7,7 @@ use std::{
     fmt::Debug,
     num::NonZeroU32,
     ops::Bound::{self, Unbounded},
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
 use enum_dispatch::enum_dispatch;
@@ -29,7 +29,7 @@ use super::{database_config::DatabaseTableOptions, DatabaseConfig};
 #[derive(Debug, Clone)]
 pub(super) struct BlobInfoTable {
     blob_info: DBMap<BlobId, BlobInfo>,
-    latest_handled_event_index: DBMap<(), u64>,
+    latest_handled_event_index: Arc<Mutex<DBMap<(), u64>>>,
 }
 
 impl BlobInfoTable {
@@ -43,12 +43,12 @@ impl BlobInfoTable {
             &ReadWriteOptions::default(),
             false,
         )?;
-        let latest_handled_event_index = DBMap::reopen(
+        let latest_handled_event_index = Arc::new(Mutex::new(DBMap::reopen(
             database,
             Some(Self::EVENT_INDEX_COLUMN_FAMILY_NAME),
             &ReadWriteOptions::default(),
             false,
-        )?;
+        )?));
 
         Ok(Self {
             blob_info,
@@ -80,7 +80,8 @@ impl BlobInfoTable {
         event: &BlobEvent,
     ) -> Result<(), TypedStoreError> {
         let event_index = event_index.try_into().expect("assume 64-bit architecture");
-        if self.has_event_been_handled(event_index)? {
+        let latest_handled_event_index = self.latest_handled_event_index.lock().unwrap();
+        if Self::has_event_been_handled(latest_handled_event_index.get(&())?, event_index) {
             tracing::debug!("skip updating blob info for already handled event");
             return Ok(());
         }
@@ -90,17 +91,12 @@ impl BlobInfoTable {
 
         let mut batch = self.blob_info.batch();
         self.merge_blob_info_batch(&mut batch, &event.blob_id(), &operation)?;
-        batch.insert_batch(&self.latest_handled_event_index, [(&(), event_index)])?;
+        batch.insert_batch(&latest_handled_event_index, [(&(), event_index)])?;
         batch.write()
     }
 
-    fn has_event_been_handled(&self, event_index: u64) -> Result<bool, TypedStoreError> {
-        Ok(self
-            .latest_handled_event_index
-            .get(&())?
-            .map_or(false, |last_handled_index| {
-                event_index <= last_handled_index
-            }))
+    fn has_event_been_handled(latest_handled_index: Option<u64>, event_index: u64) -> bool {
+        latest_handled_index.map_or(false, |i| event_index <= i)
     }
 
     pub fn merge_blob_info_batch(
