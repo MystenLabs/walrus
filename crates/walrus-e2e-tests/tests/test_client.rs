@@ -166,6 +166,7 @@ async fn test_inconsistency(failed_shards: &[usize]) -> TestResult {
     // Register blob.
     let (blob_sui_object, _op) = client
         .as_ref()
+        .resource_manager()
         .get_blob_registration(&metadata, 1, BlobPersistence::Permanent)
         .await?;
 
@@ -260,6 +261,7 @@ async fn test_store_with_existing_blob_resource(
     // Register a new blob.
     let (original_blob_object, _op) = client
         .as_ref()
+        .resource_manager()
         .get_blob_registration(
             &metadata,
             epochs_ahead_registered,

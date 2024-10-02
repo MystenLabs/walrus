@@ -9,7 +9,7 @@ use anyhow::anyhow;
 use communication::NodeCommunicationFactory;
 use fastcrypto::{bls12381::min_pk::BLS12381AggregateSignature, traits::AggregateAuthenticator};
 use futures::Future;
-use resource::{PriceComputation, ResourceOperation};
+use resource::{PriceComputation, ResourceManager};
 use sui_types::base_types::ObjectID;
 use tokio::{sync::Semaphore, time::Duration};
 use tracing::{Instrument, Level};
@@ -296,6 +296,7 @@ impl<T: ContractClient> Client<T> {
 
         // Get an appropriate registered blob object.
         let (mut blob, resource_operation) = self
+            .resource_manager()
             .get_blob_registration(&metadata, epochs_ahead, persistence)
             .await?;
 
@@ -308,7 +309,6 @@ impl<T: ContractClient> Client<T> {
             .await
             .map_err(|e| ClientError::from(ClientErrorKind::CertificationFailed(e)))?;
 
-        // TODO(mlegner): Make sure this works if the epoch changes. (#753)
         blob.certified_epoch = Some(self.committees.write_committee().epoch);
 
         let encoded_size =
@@ -329,107 +329,9 @@ impl<T: ContractClient> Client<T> {
         })
     }
 
-    /// Returns a [`Blob`] registration object for the specified metadata and number of epochs.
-    ///
-    /// Tries to reuse existing blob registrations or storage resources if possible.
-    /// Specifically:
-    /// - First, it checks if the blob is registered and returns the corresponding [`Blob`];
-    /// - otherwise, it checks if there is an appropriate storage resource (with sufficient space
-    ///   and for a sufficient duration) that can be used to register the blob; or
-    /// - if the above fails, it purchases a new storage resource and registers the blob.
-    #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
-    pub async fn get_blob_registration(
-        &self,
-        metadata: &VerifiedBlobMetadataWithId,
-        epochs_ahead: EpochCount,
-        persistence: BlobPersistence,
-    ) -> ClientResult<(Blob, ResourceOperation)> {
-        let blob_and_op = if let Some(blob) = self
-            .is_blob_registered_in_wallet(metadata.blob_id(), epochs_ahead, persistence)
-            .await?
-        {
-            tracing::debug!(
-                end_epoch=%blob.storage.end_epoch,
-                "blob is already registered and valid; using the existing registration"
-            );
-            (blob, ResourceOperation::ReuseRegistration)
-        } else if let Some(storage_resource) = self
-            .sui_client
-            .owned_storage_for_size_and_epoch(
-                metadata.metadata().encoded_size().ok_or_else(|| {
-                    ClientError::other(ClientErrorKind::Other(
-                        anyhow!(
-                            "the provided metadata is invalid: could not compute the encoded size"
-                        )
-                        .into(),
-                    ))
-                })?,
-                epochs_ahead + self.committees.write_committee().epoch,
-            )
-            .await?
-        {
-            tracing::debug!(
-                storage_object=%storage_resource.id,
-                "using an existing storage resource to register the blob"
-            );
-            let blob = self
-                .sui_client
-                .register_blob(
-                    &storage_resource,
-                    *metadata.blob_id(),
-                    metadata.metadata().compute_root_hash().bytes(),
-                    metadata.metadata().unencoded_length,
-                    metadata.metadata().encoding_type,
-                    persistence,
-                )
-                .await?;
-            (
-                blob,
-                ResourceOperation::ReuseStorage {
-                    unencoded_length: metadata.metadata().unencoded_length,
-                },
-            )
-        } else {
-            tracing::debug!(
-                "the blob is not already registered or its lifetime is too short; creating new one"
-            );
-            let blob = self
-                .sui_client
-                .reserve_and_register_blob(epochs_ahead, metadata, persistence)
-                .await?;
-            (
-                blob,
-                ResourceOperation::RegisterFromScratch {
-                    unencoded_length: metadata.metadata().unencoded_length,
-                    epochs_ahead,
-                },
-            )
-        };
-        Ok(blob_and_op)
-    }
-
-    /// Checks if the blob is registered by the active wallet for a sufficient duration.
-    ///
-    /// To compute if the blob is registered for a sufficient duration, it uses the epoch of the
-    /// current `write_committee`. This is because registration needs to be valid compared to a new
-    /// registration that would be made now to write a new blob.
-    async fn is_blob_registered_in_wallet(
-        &self,
-        blob_id: &BlobId,
-        epochs_ahead: EpochCount,
-        persistence: BlobPersistence,
-    ) -> ClientResult<Option<Blob>> {
-        Ok(self
-            .sui_client
-            .owned_blobs(false)
-            .await?
-            .into_iter()
-            .find(|blob| {
-                blob.blob_id == *blob_id
-                    && blob.storage.end_epoch
-                        >= self.committees.write_committee().epoch + epochs_ahead
-                    && blob.deletable == persistence.is_deletable()
-            }))
+    /// Creates a resource manager for the client.
+    pub fn resource_manager(&self) -> ResourceManager<T> {
+        ResourceManager::new(&self.sui_client, self.committees.write_committee().epoch)
     }
 
     // Blob deletion
