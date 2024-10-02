@@ -4,8 +4,9 @@
 [advisories]
 version = 2
 ignore = [
+    # We depend on rsa via fastcrypto but don't actually use it.
     "RUSTSEC-2023-0071",
-    # difference 2.0.0 is unmaintained
+    # difference 2.0.0 is unmaintained.
     "RUSTSEC-2020-0095",
     # rust-yaml is not maintained, but is a dependency in many of our packages.
     "RUSTSEC-2024-0320",
@@ -14,6 +15,9 @@ ignore = [
     "RUSTSEC-2024-0336",
     # proc-macro-error is not maintained, but is a dependency in many of our packages.
     "RUSTSEC-2024-0370",
+    # Temporary exception for vulnerable versions of tonic.
+    # TODO: Remove this after the next version bump of Sui.
+    "RUSTSEC-2024-0376",
 ]
 
 # This section is considered when running `cargo deny check licenses`
