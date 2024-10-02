@@ -4,12 +4,23 @@
 use std::{
     fs::File,
     io::{BufReader, BufWriter},
-    path::PathBuf,
 };
 
+use anyhow::anyhow;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
-use sui_types::{event::EventID, messages_checkpoint::CheckpointSequenceNumber};
+use sui_rest_api::Client;
+use sui_sdk::{
+    rpc_types::{SuiObjectDataOptions, SuiTransactionBlockResponseOptions},
+    SuiClient,
+};
+use sui_types::{
+    base_types::ObjectID,
+    committee::Committee,
+    event::EventID,
+    messages_checkpoint::{CheckpointSequenceNumber, VerifiedCheckpoint},
+    sui_serde::BigInt,
+};
 use walrus_core::BlobId;
 use walrus_sui::types::{BlobEvent, ContractEvent};
 
@@ -20,8 +31,6 @@ pub mod event_processor;
 pub struct EventProcessorConfig {
     /// The REST URL of the fullnode.
     pub rest_url: String,
-    /// The path to the Sui genesis file.
-    pub sui_genesis_path: PathBuf,
     /// Event pruning interval in number of seconds.
     pub pruning_interval: u64,
 }
@@ -145,4 +154,45 @@ impl EventStreamCursor {
             element_index,
         }
     }
+}
+
+pub async fn get_bootstrap_committee_and_checkpoint(
+    sui_client: SuiClient,
+    client: Client,
+    system_pkg_id: ObjectID,
+) -> anyhow::Result<(Committee, VerifiedCheckpoint)> {
+    let object = sui_client
+        .read_api()
+        .get_object_with_options(
+            system_pkg_id,
+            SuiObjectDataOptions::new()
+                .with_bcs()
+                .with_type()
+                .with_previous_transaction(),
+        )
+        .await?;
+    let txn = sui_client
+        .read_api()
+        .get_transaction_with_options(
+            object
+                .data
+                .ok_or(anyhow!("No object data"))?
+                .previous_transaction
+                .ok_or(anyhow!("No transaction data"))?,
+            SuiTransactionBlockResponseOptions::new(),
+        )
+        .await?;
+    let checkpoint_data = client
+        .get_full_checkpoint(txn.checkpoint.ok_or(anyhow!("No checkpoint data"))?)
+        .await?;
+    let sui_committee = sui_client
+        .governance_api()
+        .get_committee_info(Some(BigInt::from(checkpoint_data.checkpoint_summary.epoch)))
+        .await?;
+    let committee = Committee::new(
+        sui_committee.epoch,
+        sui_committee.validators.into_iter().collect(),
+    );
+    let verified_checkpoint = VerifiedCheckpoint::new_unchecked(checkpoint_data.checkpoint_summary);
+    Ok((committee, verified_checkpoint))
 }
