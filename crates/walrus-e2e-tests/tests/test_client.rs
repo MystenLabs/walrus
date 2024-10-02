@@ -167,7 +167,7 @@ async fn test_inconsistency(failed_shards: &[usize]) -> TestResult {
     let (blob_sui_object, _op) = client
         .as_ref()
         .resource_manager()
-        .get_blob_registration(
+        .get_existing_registration(
             &metadata,
             1,
             BlobPersistence::Permanent,
@@ -267,7 +267,7 @@ async fn test_store_with_existing_blob_resource(
     let (original_blob_object, _op) = client
         .as_ref()
         .resource_manager()
-        .get_blob_registration(
+        .get_existing_registration(
             &metadata,
             epochs_ahead_registered,
             BlobPersistence::Permanent,

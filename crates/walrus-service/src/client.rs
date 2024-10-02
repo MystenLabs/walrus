@@ -9,7 +9,7 @@ use anyhow::anyhow;
 use communication::NodeCommunicationFactory;
 use fastcrypto::{bls12381::min_pk::BLS12381AggregateSignature, traits::AggregateAuthenticator};
 use futures::Future;
-use resource::{PriceComputation, ResourceManager};
+use resource::{PriceComputation, ResourceManager, StoreOp};
 use responses::EventOrObjectId;
 use sui_types::base_types::ObjectID;
 use tokio::{sync::Semaphore, time::Duration};
@@ -236,6 +236,7 @@ impl<T: ContractClient> Client<T> {
         let blob_id = *metadata.blob_id();
         self.check_blob_id(&blob_id)?;
         tracing::Span::current().record("blob_id", blob_id.to_string());
+
         let pair = pairs.first().expect("the encoding produces sliver pairs");
         let symbol_size = pair.primary.symbols.symbol_size().get();
         tracing::debug!(
@@ -246,7 +247,9 @@ impl<T: ContractClient> Client<T> {
         );
 
         // Return early if the blob is already certified or marked as invalid.
-        if !store_when.is_store_always() {
+        // For deletable blobs, we need to check the ones that are owned by the current wallet
+        // later, as there may be multiple already certified that we do not own.
+        if !store_when.is_store_always() && !persistence.is_deletable() {
             // Use short timeout as this is only an optimization.
             const STATUS_TIMEOUT: Duration = Duration::from_secs(5);
             let blob_status = self
@@ -263,27 +266,15 @@ impl<T: ContractClient> Client<T> {
             }
         };
 
-        // Get an appropriate registered blob object.
-        let (mut blob, resource_operation) = self
+        let (mut blob, store_operation) = self
             .resource_manager()
             .get_blob_registration(&metadata, epochs_ahead, persistence, store_when)
             .await?;
 
-        //// If the blob is deletable and already certified, return early.
-        if blob.certified_epoch.is_some() {
-            assert!(
-                blob.deletable && !store_when.is_store_always(),
-                "at this point only deletable blobs can be certified and the store is not forced"
-            );
-            tracing::debug!(
-                "there is a deletable certified blob in the wallet, and we are not forcing a store"
-            );
-            return Ok(BlobStoreResult::AlreadyCertified {
-                blob_id,
-                event_or_object: EventOrObjectId::Object(blob.id),
-                end_epoch: blob.certified_epoch.unwrap(),
-            });
-        }
+        let resource_operation = match store_operation {
+            StoreOp::NoOp(result) => return Ok(result),
+            StoreOp::RegisterNew(op) => op,
+        };
 
         // We do not need to wait explicitly as we anyway retry all requests to storage nodes.
         let certificate = self

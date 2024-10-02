@@ -22,7 +22,7 @@ use crate::client::{
         HumanReadableBytes,
         HumanReadableGeorgie,
     },
-    resource::ResourceOperation,
+    resource::RegisterBlobOp,
     responses::{
         BlobIdConversionOutput,
         BlobIdOutput,
@@ -79,13 +79,13 @@ impl CliOutput for BlobStoreResult {
                 deletable,
             } => {
                 let operation_str = match resource_operation {
-                    ResourceOperation::RegisterFromScratch { .. } => {
+                    RegisterBlobOp::RegisterFromScratch { .. } => {
                         "(storage was purchased, and a new blob object was registered)"
                     }
-                    ResourceOperation::ReuseStorage { .. } => {
+                    RegisterBlobOp::ReuseStorage { .. } => {
                         "(storage was reused, and a new blob object was registered)"
                     }
-                    ResourceOperation::ReuseRegistration => "(the registration was reused)",
+                    RegisterBlobOp::ReuseRegistration => "(the registration was reused)",
                 };
                 println!(
                     "{} {} blob stored successfully.\n\

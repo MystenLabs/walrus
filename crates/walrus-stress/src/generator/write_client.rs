@@ -131,7 +131,7 @@ impl WriteClient {
             .client
             .as_ref()
             .resource_manager()
-            .get_blob_registration(
+            .get_existing_registration(
                 &metadata,
                 epochs,
                 BlobPersistence::Permanent,

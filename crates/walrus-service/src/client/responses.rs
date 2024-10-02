@@ -37,7 +37,7 @@ use walrus_sui::{
 
 use super::{
     cli::{BlobIdDecimal, HumanReadableBytes},
-    resource::ResourceOperation,
+    resource::RegisterBlobOp,
 };
 use crate::client::cli::HumanReadableGeorgie;
 
@@ -76,7 +76,7 @@ pub enum BlobStoreResult {
         /// The Sui blob object that holds the newly created blob.
         blob_object: Blob,
         /// The operation that created the blob.
-        resource_operation: ResourceOperation,
+        resource_operation: RegisterBlobOp,
         /// The storage cost, excluding gas.
         cost: u64,
         /// The encoded size, including metadata.

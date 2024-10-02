@@ -15,7 +15,8 @@ use walrus_sui::{
     utils::price_for_unencoded_length,
 };
 
-use super::{ClientError, ClientErrorKind, ClientResult, StoreWhen};
+use super::{responses::BlobStoreResult, ClientError, ClientErrorKind, ClientResult, StoreWhen};
+use crate::client::responses::EventOrObjectId;
 
 #[derive(Debug, Clone)]
 pub(crate) struct PriceComputation {
@@ -42,9 +43,9 @@ impl PriceComputation {
     ///
     /// Returns `None` if `unencoded_length` is invalid for the current encoding and `n_shards`, and
     /// therefore the encoded length cannot be computed.
-    pub(crate) fn operation_cost(&self, operation: &ResourceOperation) -> Option<u64> {
+    pub(crate) fn operation_cost(&self, operation: &RegisterBlobOp) -> Option<u64> {
         match operation {
-            ResourceOperation::RegisterFromScratch {
+            RegisterBlobOp::RegisterFromScratch {
                 unencoded_length,
                 epochs_ahead,
             } => self
@@ -52,7 +53,7 @@ impl PriceComputation {
                 .map(|storage_fee| {
                     storage_fee + self.write_fee_for_unencoded_length(*unencoded_length)
                 }),
-            ResourceOperation::ReuseStorage { unencoded_length } => {
+            RegisterBlobOp::ReuseStorage { unencoded_length } => {
                 Some(self.write_fee_for_unencoded_length(*unencoded_length))
             }
             _ => Some(0), // No cost for reusing registration or no-op.
@@ -87,7 +88,7 @@ impl PriceComputation {
 
 /// The operation performed on blob and storage resources to register a blob.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum ResourceOperation {
+pub enum RegisterBlobOp {
     /// The storage and blob resources are purchased from scratch.
     RegisterFromScratch {
         unencoded_length: u64,
@@ -97,6 +98,15 @@ pub enum ResourceOperation {
     ReuseStorage { unencoded_length: u64 },
     /// A registration was already present.
     ReuseRegistration,
+}
+
+/// The result of a store operation.
+#[derive(Debug, Clone)]
+pub enum StoreOp {
+    /// No operation needs to be performed.
+    NoOp(BlobStoreResult),
+    /// A new blob registration needs to be created.
+    RegisterNew(RegisterBlobOp),
 }
 
 /// Manages the storage and blob resources in the Wallet on behalf of the client.
@@ -115,6 +125,38 @@ impl<'a, C: ContractClient> ResourceManager<'a, C> {
         }
     }
 
+    pub async fn get_blob_registration(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+        epochs_ahead: EpochCount,
+        persistence: BlobPersistence,
+        store_when: StoreWhen,
+    ) -> ClientResult<(Blob, StoreOp)> {
+        let (blob, op) = self
+            .get_existing_registration(metadata, epochs_ahead, persistence, store_when)
+            .await?;
+
+        // If the blob is deletable and already certified, return early.
+        let store_op = if blob.certified_epoch.is_some() {
+            debug_assert!(
+                blob.deletable && !store_when.is_store_always(),
+                "get_blob_registration with StoreWhen::Always filters certified blobs"
+            );
+            tracing::debug!(
+                "there is a deletable certified blob in the wallet, and we are not forcing a store"
+            );
+            StoreOp::NoOp(BlobStoreResult::AlreadyCertified {
+                blob_id: *metadata.blob_id(),
+                event_or_object: EventOrObjectId::Object(blob.id),
+                end_epoch: blob.certified_epoch.unwrap(),
+            })
+        } else {
+            StoreOp::RegisterNew(op)
+        };
+
+        Ok((blob, store_op))
+    }
+
     /// Returns a [`Blob`] registration object for the specified metadata and number of epochs.
     ///
     /// Tries to reuse existing blob registrations or storage resources if possible.
@@ -128,13 +170,13 @@ impl<'a, C: ContractClient> ResourceManager<'a, C> {
     /// certified blobs owned by the wallet, such that we always create a new certification
     /// (possibly reusing storage resources or uncertified but registered blobs).
     #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
-    pub async fn get_blob_registration(
+    pub async fn get_existing_registration(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         epochs_ahead: EpochCount,
         persistence: BlobPersistence,
         store_when: StoreWhen,
-    ) -> ClientResult<(Blob, ResourceOperation)> {
+    ) -> ClientResult<(Blob, RegisterBlobOp)> {
         let blob_and_op = if let Some(blob) = self
             .is_blob_registered_in_wallet(
                 metadata.blob_id(),
@@ -148,7 +190,7 @@ impl<'a, C: ContractClient> ResourceManager<'a, C> {
                 end_epoch=%blob.storage.end_epoch,
                 "blob is already registered and valid; using the existing registration"
             );
-            (blob, ResourceOperation::ReuseRegistration)
+            (blob, RegisterBlobOp::ReuseRegistration)
         } else if let Some(storage_resource) = self
             .sui_client
             .owned_storage_for_size_and_epoch(
@@ -181,7 +223,7 @@ impl<'a, C: ContractClient> ResourceManager<'a, C> {
                 .await?;
             (
                 blob,
-                ResourceOperation::ReuseStorage {
+                RegisterBlobOp::ReuseStorage {
                     unencoded_length: metadata.metadata().unencoded_length,
                 },
             )
@@ -195,7 +237,7 @@ impl<'a, C: ContractClient> ResourceManager<'a, C> {
                 .await?;
             (
                 blob,
-                ResourceOperation::RegisterFromScratch {
+                RegisterBlobOp::RegisterFromScratch {
                     unencoded_length: metadata.metadata().unencoded_length,
                     epochs_ahead,
                 },
