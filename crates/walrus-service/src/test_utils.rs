@@ -41,10 +41,17 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
-use walrus_event::{EventSequenceNumber, EventStreamCursor, IndexedStreamElement};
+use walrus_event::{
+    event_processor::EventProcessor,
+    EventProcessorConfig,
+    EventSequenceNumber,
+    EventStreamCursor,
+    IndexedStreamElement,
+};
 use walrus_sdk::client::Client;
 use walrus_sui::{
     client::FixedSystemParameters,
+    test_utils::TestClusterHandle,
     types::{
         move_structs::{EpochState, VotingParams},
         Committee,
@@ -102,6 +109,9 @@ impl SystemEventProvider for DefaultSystemEventManager {
         anyhow::Error,
     > {
         self.event_provider.events(cursor).await
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 
@@ -316,6 +326,22 @@ impl StorageNodeHandleBuilder {
             ..storage_node_config().inner
         };
 
+        let cancel_token = CancellationToken::new();
+
+        if let Some(event_processor) = self
+            .event_provider
+            .as_any()
+            .downcast_ref::<EventProcessor>()
+        {
+            let cloned_cancel_token = cancel_token.clone();
+            let cloned_event_processor = event_processor.clone();
+            tokio::spawn(
+                async move { cloned_event_processor.start(cloned_cancel_token).await }.instrument(
+                    tracing::info_span!("cluster-node", address = %config.rest_api_address),
+                ),
+            );
+        }
+
         let metrics_registry = Registry::default();
         let node = StorageNode::builder()
             .with_storage(storage)
@@ -328,7 +354,6 @@ impl StorageNodeHandleBuilder {
             .await?;
         let node = Arc::new(node);
 
-        let cancel_token = CancellationToken::new();
         let rest_api = Arc::new(UserServer::new(
             node.clone(),
             cancel_token.clone(),
@@ -672,6 +697,9 @@ impl SystemEventProvider for Vec<ContractEvent> {
             .chain(tokio_stream::pending()),
         ))
     }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 #[async_trait::async_trait]
@@ -689,6 +717,9 @@ impl SystemEventProvider for tokio::sync::broadcast::Sender<ContractEvent> {
                 )
             },
         )))
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 
@@ -1096,6 +1127,7 @@ pub mod test_cluster {
     use std::sync::OnceLock;
 
     use tokio::sync::Mutex;
+    use walrus_event::EventProcessorConfig;
     use walrus_sui::{
         client::{SuiContractClient, SuiReadClient},
         test_utils::{
@@ -1113,11 +1145,7 @@ pub mod test_cluster {
     use super::*;
     use crate::{
         client::{self, ClientCommunicationConfig, Config},
-        node::{
-            committee::DefaultNodeServiceFactory,
-            contract_service::SuiSystemContractService,
-            system_events::SuiSystemEventProvider,
-        },
+        node::{committee::DefaultNodeServiceFactory, contract_service::SuiSystemContractService},
     };
 
     /// Performs the default setup for the test cluster.
@@ -1221,7 +1249,6 @@ pub mod test_cluster {
 
         // Create a contract service for the storage nodes using a wallet in a temp dir
         // The sui test cluster handler can be dropped since we already have one
-
         // Set up the cluster
         let cluster_builder = cluster_builder
             .with_committee_services(|| async {
@@ -1232,11 +1259,17 @@ pub mod test_cluster {
                     .expect("service construction must succeed in tests")
             })
             .await
-            .with_system_event_providers(SuiSystemEventProvider::new(
-                sui_read_client.clone(),
-                Duration::from_millis(100),
-            ))
             .with_system_contract_services(&node_contract_services);
+
+        // event processor config
+        let event_processor_config = create_event_processor_config(sui_cluster.clone())?;
+
+        let cluster_builder = setup_event_processors(
+            &event_processor_config,
+            sui_read_client.clone(),
+            cluster_builder,
+        )
+        .await?;
 
         let cluster = {
             // Lock to avoid race conditions.
@@ -1264,11 +1297,83 @@ pub mod test_cluster {
         Ok((sui_cluster, cluster, client))
     }
 
+    #[cfg(msim)]
+    async fn setup_event_processors(
+        event_processor_config: &EventProcessorConfig,
+        sui_read_client: SuiReadClient,
+        test_cluster_builder: TestClusterBuilder,
+    ) -> anyhow::Result<TestClusterBuilder> {
+        use rand::{Rng, SeedableRng};
+        // Probabilistically choose event processor or event provider
+        let mut rng = rand::prelude::StdRng::from_entropy();
+        if rng.gen_bool(0.5) {
+            let mut event_processors = vec![];
+            for _ in test_cluster_builder.storage_node_test_configs().iter() {
+                let event_processor = walrus_event::event_processor::EventProcessor::new(
+                    event_processor_config,
+                    sui_read_client.get_system_package_id(),
+                    Duration::from_millis(100),
+                    tempfile::tempdir()
+                        .expect("temporary directory creation must succeed")
+                        .path(),
+                )
+                .await?;
+                event_processors.push(event_processor.clone());
+            }
+            let res =
+                test_cluster_builder.with_individual_system_event_providers(&event_processors);
+            Ok(res)
+        } else {
+            let event_provider = crate::node::system_events::SuiSystemEventProvider::new(
+                sui_read_client.clone(),
+                Duration::from_millis(100),
+            );
+            let res = test_cluster_builder.with_system_event_providers(event_provider);
+            Ok(res)
+        }
+    }
+
+    #[cfg(not(msim))]
+    async fn setup_event_processors(
+        _event_processor_config: &EventProcessorConfig,
+        sui_read_client: SuiReadClient,
+        test_cluster_builder: TestClusterBuilder,
+    ) -> anyhow::Result<TestClusterBuilder> {
+        let event_provider = crate::node::system_events::SuiSystemEventProvider::new(
+            sui_read_client.clone(),
+            Duration::from_millis(100),
+        );
+        let res = test_cluster_builder.with_system_event_providers(event_provider);
+        Ok(res)
+    }
+
     // Prevent tests running simultaneously to avoid interferences or race conditions.
     fn global_test_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(Mutex::default)
     }
+}
+
+fn create_event_processor_config(
+    sui_cluster: Arc<TestClusterHandle>,
+) -> anyhow::Result<EventProcessorConfig> {
+    // Save genesis in a temp file
+    let genesis_dir = tempfile::tempdir()?;
+    let genesis = sui_cluster.cluster().get_genesis();
+    let genesis_file_path = genesis_dir.into_path().join("genesis.json");
+    genesis.save(&genesis_file_path)?;
+
+    // FullNode rest url
+    let rest_url = sui_cluster.cluster().fullnode_handle.rpc_url.clone();
+
+    // Event processor config
+    let event_processor_config = EventProcessorConfig {
+        rest_url,
+        sui_genesis_path: genesis_file_path,
+        pruning_interval: 3600,
+    };
+
+    Ok(event_processor_config)
 }
 
 /// Creates a new [`StorageNodeConfig`] object for testing.

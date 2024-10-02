@@ -12,6 +12,7 @@ use walrus_core::{
     EpochCount,
     SliverPairIndex,
 };
+use walrus_proc_macros::walrus_simtest;
 use walrus_sdk::api::BlobStatus;
 use walrus_service::{
     client::{
@@ -35,7 +36,8 @@ use walrus_sui::{
 use walrus_test_utils::{async_param_test, Result as TestResult};
 
 async_param_test! {
-    #[ignore = "ignore E2E tests by default"] #[tokio::test]
+    #[ignore = "ignore E2E tests by default"]
+    #[walrus_simtest]
     test_store_and_read_blob_without_failures : [
         empty: (0),
         one_byte: (1),
@@ -49,7 +51,8 @@ async fn test_store_and_read_blob_without_failures(blob_size: usize) {
 }
 
 async_param_test! {
-    #[ignore = "ignore E2E tests by default"] #[tokio::test]
+    #[ignore = "ignore E2E tests by default"]
+    #[walrus_simtest]
     test_store_and_read_blob_with_crash_failures : [
         no_failures: (&[], &[], &[]),
         one_failure: (&[0], &[], &[]),
@@ -57,8 +60,10 @@ async_param_test! {
         f_plus_one_failures: (&[0, 4], &[], &[NotEnoughConfirmations(8, 9)]),
         all_shard_failures: (&[0, 1, 2, 3, 4], &[], &[NoValidStatusReceived]),
         f_plus_one_read_failures: (&[], &[0, 4], &[]),
-        two_f_plus_one_read_failures: (&[], &[1, 2, 4], &[NoMetadataReceived, NotEnoughSlivers]),
-        read_and_write_overlap_failures: (&[4], &[2, 3], &[NoMetadataReceived, NotEnoughSlivers]),
+        two_f_plus_one_read_failures: (
+            &[], &[1, 2, 4], &[NoMetadataReceived, NotEnoughSlivers]),
+        read_and_write_overlap_failures: (
+            &[4], &[2, 3], &[NoMetadataReceived, NotEnoughSlivers]),
     ]
 }
 async fn test_store_and_read_blob_with_crash_failures(
@@ -139,7 +144,8 @@ async fn run_store_and_read_with_crash_failures(
 }
 
 async_param_test! {
-    #[ignore = "ignore E2E tests by default"] #[tokio::test]
+    #[ignore = "ignore E2E tests by default"]
+    #[walrus_simtest]
     test_inconsistency -> TestResult : [
         no_failures: (&[]),
         one_failure: (&[0]),
@@ -219,6 +225,7 @@ async fn test_inconsistency(failed_shards: &[usize]) -> TestResult {
         panic!("should be infinite stream")
     })
     .await?;
+
     Ok(())
 }
 
@@ -238,7 +245,8 @@ fn error_kind_matches(actual: &ClientErrorKind, expected: &ClientErrorKind) -> b
 }
 
 async_param_test! {
-    #[ignore = "ignore E2E tests by default"] #[tokio::test]
+    #[ignore = "ignore E2E tests by default"]
+    #[walrus_simtest]
     test_store_with_existing_blob_resource -> TestResult : [
         reuse_resource: (1, 1, true),
         reuse_resource_two: (2, 1, true),
@@ -250,8 +258,8 @@ async_param_test! {
 /// The `epochs_ahead_registered` are the epochs ahead of the already-existing blob object.
 /// The `epochs_ahead_required` are the epochs ahead that are requested to the client when
 /// registering anew.
-/// `should_match` is a boolean that indicates if the blob object used in the final upload should
-/// be the same as the first one registered.
+/// `should_match` is a boolean that indicates if the blob object used in the final upload
+/// should be the same as the first one registered.
 async fn test_store_with_existing_blob_resource(
     epochs_ahead_registered: EpochCount,
     epochs_ahead_required: EpochCount,
@@ -308,7 +316,8 @@ async fn test_store_with_existing_blob_resource(
 }
 
 async_param_test! {
-    #[ignore = "ignore E2E tests by default"] #[tokio::test]
+    #[ignore = "ignore E2E tests by default"]
+    #[walrus_simtest]
     test_store_with_existing_storage_resource -> TestResult : [
         reuse_storage: (1, 1, true),
         reuse_storage_two: (2, 1, true),
@@ -320,8 +329,8 @@ async_param_test! {
 /// The `epochs_ahead_registered` are the epochs ahead of the already-existing storage resource.
 /// The `epochs_ahead_required` are the epochs ahead that are requested to the client when
 /// registering anew.
-/// `should_match` is a boolean that indicates if the storage object used in the final upload should
-/// be the same as the first one registered.
+/// `should_match` is a boolean that indicates if the storage object used in the final upload
+/// should be the same as the first one registered.
 async fn test_store_with_existing_storage_resource(
     epochs_ahead_registered: EpochCount,
     epochs_ahead_required: EpochCount,
@@ -379,7 +388,8 @@ async fn test_store_with_existing_storage_resource(
 }
 
 async_param_test! {
-    #[ignore = "ignore E2E tests by default"] #[tokio::test]
+    #[ignore = "ignore E2E tests by default"]
+    #[walrus_simtest]
     test_delete_blob -> TestResult : [
         no_delete: (0),
         one_delete: (1),
@@ -392,8 +402,8 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
     let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
     let blob = walrus_test_utils::random_data(314);
 
-    // Store the blob multiple times, using separate end times to obtain multiple blob objects with
-    // the same blob ID.
+    // Store the blob multiple times, using separate end times to obtain multiple blob objects
+    // with the same blob ID.
     for idx in 1..blobs_to_create + 1 {
         client
             .as_ref()
@@ -426,7 +436,7 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
 }
 
 #[ignore = "ignore E2E tests by default"]
-#[tokio::test]
+#[walrus_simtest]
 async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
     let _ = tracing_subscriber::fmt::try_init();
     let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
@@ -465,7 +475,7 @@ async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
 /// Tests that storing the same blob multiple times with possibly different end epochs,
 /// persistence, and force-store conditions always works.
 #[ignore = "ignore E2E tests by default"]
-#[tokio::test]
+#[walrus_simtest]
 async fn test_multiple_stores_same_blob() -> TestResult {
     let _ = tracing_subscriber::fmt::try_init();
     let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;

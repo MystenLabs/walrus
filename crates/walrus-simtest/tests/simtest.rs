@@ -22,7 +22,7 @@ async fn walrus_basic_determinism() {
         config
     });
 
-    let (_sui_cluster, _walrus_cluster, client) = test_cluster::default_setup().await.unwrap();
+    let (_sui_cluster, _cluster, client) = test_cluster::default_setup().await.unwrap();
 
     // Write a random blob.
     let blob = walrus_test_utils::random_data(31415);

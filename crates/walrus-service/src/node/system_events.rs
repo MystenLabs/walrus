@@ -3,7 +3,7 @@
 
 //! System events observed by the storage node.
 
-use std::{sync::Arc, time::Duration};
+use std::{any::Any, sync::Arc, time::Duration};
 
 use anyhow::Error;
 use async_trait::async_trait;
@@ -59,6 +59,8 @@ pub trait SystemEventProvider: std::fmt::Debug + Sync + Send {
         &self,
         cursor: EventStreamCursor,
     ) -> Result<Box<dyn Stream<Item = IndexedStreamElement> + Send + Sync + 'life0>, anyhow::Error>;
+    /// Return a reference to this provider as a [`dyn Any`].
+    fn as_any(&self) -> &dyn Any;
 }
 
 /// A manager for event retention. This is used to drop events that are no longer needed.
@@ -88,6 +90,9 @@ impl SystemEventProvider for SuiSystemEventProvider {
             events.map(|event| IndexedStreamElement::new(event, EventSequenceNumber::new(0, 0)));
         Ok(Box::new(event_stream))
     }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 #[async_trait]
@@ -102,8 +107,8 @@ impl EventManager for SuiSystemEventProvider {}
 
 #[async_trait]
 impl SystemEventProvider for EventProcessor {
-    async fn events(
-        &self,
+    async fn events<'life0>(
+        &'life0 self,
         cursor: EventStreamCursor,
     ) -> anyhow::Result<
         Box<dyn Stream<Item = IndexedStreamElement> + Send + Sync + 'life0>,
@@ -128,6 +133,9 @@ impl SystemEventProvider for EventProcessor {
         .flatten();
         Ok(Box::new(event_stream))
     }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 #[async_trait]
@@ -151,6 +159,9 @@ impl SystemEventProvider for Arc<EventProcessor> {
         cursor: EventStreamCursor,
     ) -> Result<Box<dyn Stream<Item = IndexedStreamElement> + Send + Sync + 'life0>, Error> {
         self.as_ref().events(cursor).await
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 

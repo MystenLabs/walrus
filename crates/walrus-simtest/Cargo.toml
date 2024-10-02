@@ -6,10 +6,10 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+futures.workspace = true
 prometheus.workspace = true
 # explicitly import reqwest in test to disable its system proxy cache. It causes indeterminism in simtest.
 reqwest = { version = "0.12.5", default-features = false, features = [ "http2", "json", "rustls-tls", "__internal_proxy_sys_no_cache" ] }
-sui-json-rpc-types = { workspace = true, features = ["test-utils"] }
 sui-macros.workspace = true
 sui-protocol-config.workspace = true
 tokio.workspace = true

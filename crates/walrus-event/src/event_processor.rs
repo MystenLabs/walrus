@@ -128,11 +128,11 @@ impl EventProcessor {
     }
 
     pub async fn start(&self, cancellation_token: CancellationToken) -> Result<(), anyhow::Error> {
-        let (pruning_task, tailing_task) = join!(
-            self.start_pruning_events(cancellation_token.clone()),
-            self.start_tailing_checkpoints(cancellation_token.clone())
-        );
-        match (pruning_task, tailing_task) {
+        let pruning_task = self.start_pruning_events(cancellation_token.clone());
+        let tailing_task = self.start_tailing_checkpoints(cancellation_token.clone());
+        let (pruning_result, tailing_result) = join!(pruning_task, tailing_task);
+
+        match (pruning_result, tailing_result) {
             (Ok(_), Ok(_)) => Ok(()),
             (Err(e), _) | (_, Err(e)) => Err(e),
         }
