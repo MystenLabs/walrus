@@ -19,6 +19,7 @@ use sui::{
     clock::Clock,
     coin::Coin,
     object_table::{Self, ObjectTable},
+    priority_queue::{Self, PriorityQueue},
     vec_map
 };
 use wal::wal::WAL;
@@ -143,13 +144,6 @@ public(package) fun new(
     }
 }
 
-// === Accessors ===
-
-/// Returns the next epoch parameters if set, otherwise aborts with an error.
-public(package) fun next_epoch_params(self: &StakingInnerV1): EpochParams {
-    *self.next_epoch_params.borrow()
-}
-
 // === Staking Pool / Storage Node ===
 
 /// Creates a new staking pool with the given `commission_rate`.
@@ -213,16 +207,56 @@ public(package) fun voting_end(self: &mut StakingInnerV1, clock: &Clock) {
 
     // Assign the next epoch committee.
     self.select_committee();
-
-    // TODO: perform the voting for the next epoch params, replace dummy.
-    // Set a dummy value.
-    self.next_epoch_params = option::some(epoch_parameters::new(1_000_000_000_000, 5, 1));
+    self.next_epoch_params = option::some(self.calculate_votes());
 
     // Set the new epoch state.
     self.epoch_state = EpochState::NextParamsSelected(last_epoch_change);
 
     // Emit event that parameters have been selected.
     events::emit_epoch_parameters_selected(self.epoch + 1);
+}
+
+/// Calculates the votes for the next epoch parameters. The function sorts the
+/// write and storage prices and picks the value that satisfies 2/3 of the weight.
+public(package) fun calculate_votes(self: &StakingInnerV1): EpochParams {
+    assert!(self.next_committee.is_some());
+
+    let size = self.next_committee.borrow().size();
+    let inner = self.next_committee.borrow().inner();
+    let mut write_prices = priority_queue::new(vector[]);
+    let mut storage_prices = priority_queue::new(vector[]);
+    let mut node_capacities = priority_queue::new(vector[]);
+
+    size.do!(|i| {
+        let (node_id, shards) = inner.get_entry_by_idx(i);
+        let pool = &self.pools[*node_id];
+        let weight = shards.length();
+        write_prices.insert(pool.write_price(), weight);
+        storage_prices.insert(pool.storage_price(), weight);
+
+        // for node capacities we want to reverse the order, and pick the highest
+        // value that satisfies 2/3 of the weight
+        node_capacities.insert(pool.node_capacity(), weight);
+    });
+
+    // 2/3 of the weight is the minimum threshold for prices
+    let min_threshold = (self.n_shards * 2 / 3) as u64;
+    let max_threshold = (self.n_shards as u64) - min_threshold;
+
+    epoch_parameters::new(
+        max_threshold(&mut node_capacities, max_threshold),
+        max_threshold(&mut storage_prices, min_threshold),
+        max_threshold(&mut write_prices, min_threshold),
+    )
+}
+
+fun max_threshold(pq: &mut PriorityQueue<u64>, threshold: u64): u64 {
+    let mut sum_weight = 0;
+    loop {
+        let (value, weight) = pq.pop_max();
+        sum_weight = sum_weight + weight;
+        if (sum_weight >= threshold) return value
+    }
 }
 
 // === Voting ===
@@ -321,36 +355,6 @@ public(package) fun withdraw_stake(
 ): Coin<WAL> {
     let wctx = &self.new_walrus_context();
     self.pools[staked_wal.node_id()].withdraw_stake(staked_wal, wctx).into_coin(ctx)
-}
-
-/// Get the current epoch.
-public(package) fun epoch(self: &StakingInnerV1): u32 {
-    self.epoch
-}
-
-/// Get the current committee.
-public(package) fun committee(self: &StakingInnerV1): &Committee {
-    &self.committee
-}
-
-/// Get the previous committee.
-public(package) fun previous_committee(self: &StakingInnerV1): &Committee {
-    &self.previous_committee
-}
-
-/// Construct the BLS committee for the next epoch.
-public(package) fun next_bls_committee(self: &StakingInnerV1): BlsCommittee {
-    let (ids, shard_assignments) = (*self.next_committee.borrow().inner()).into_keys_values();
-    let members = ids.zip_map!(shard_assignments, |id, shards| {
-        let pk = self.pools.borrow(id).node_info().public_key();
-        bls_aggregate::new_bls_committee_member(*pk, shards.length() as u16, id)
-    });
-    bls_aggregate::new_bls_committee(self.epoch + 1, members)
-}
-
-/// Check if a node with the given `ID` exists in the staking pools.
-public(package) fun has_pool(self: &StakingInnerV1, node_id: ID): bool {
-    self.pools.contains(node_id)
 }
 
 // === System ===
@@ -596,6 +600,48 @@ public(package) fun epoch_sync_done(
     };
     // Emit the event that the node has received all shards.
     events::emit_shards_received(self.epoch, *node_shards);
+}
+
+// === Accessors ===
+
+/// Returns the Option with next committee.
+public(package) fun next_committee(self: &StakingInnerV1): &Option<Committee> {
+    &self.next_committee
+}
+
+/// Returns the next epoch parameters if set, otherwise aborts with an error.
+public(package) fun next_epoch_params(self: &StakingInnerV1): EpochParams {
+    *self.next_epoch_params.borrow()
+}
+
+/// Get the current epoch.
+public(package) fun epoch(self: &StakingInnerV1): u32 {
+    self.epoch
+}
+
+/// Get the current committee.
+public(package) fun committee(self: &StakingInnerV1): &Committee {
+    &self.committee
+}
+
+/// Get the previous committee.
+public(package) fun previous_committee(self: &StakingInnerV1): &Committee {
+    &self.previous_committee
+}
+
+/// Construct the BLS committee for the next epoch.
+public(package) fun next_bls_committee(self: &StakingInnerV1): BlsCommittee {
+    let (ids, shard_assignments) = (*self.next_committee.borrow().inner()).into_keys_values();
+    let members = ids.zip_map!(shard_assignments, |id, shards| {
+        let pk = self.pools.borrow(id).node_info().public_key();
+        bls_aggregate::new_bls_committee_member(*pk, shards.length() as u16, id)
+    });
+    bls_aggregate::new_bls_committee(self.epoch + 1, members)
+}
+
+/// Check if a node with the given `ID` exists in the staking pools.
+public(package) fun has_pool(self: &StakingInnerV1, node_id: ID): bool {
+    self.pools.contains(node_id)
 }
 
 // === Internal ===

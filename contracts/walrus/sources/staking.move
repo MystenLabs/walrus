@@ -216,6 +216,11 @@ fun inner(staking: &Staking): &StakingInnerV1 {
 use sui::{clock, coin};
 
 #[test_only]
+public(package) fun inner_for_testing(staking: &Staking): &StakingInnerV1 {
+    staking.inner()
+}
+
+#[test_only]
 public(package) fun new_for_testing(ctx: &mut TxContext): Staking {
     let clock = clock::create_for_testing(ctx);
     let mut staking = Staking { id: object::new(ctx), version: VERSION };

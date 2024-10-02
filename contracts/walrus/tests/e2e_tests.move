@@ -5,6 +5,7 @@
 module walrus::e2e_tests;
 
 use walrus::{e2e_runner, test_node, test_utils};
+use std::unit_test::assert_eq;
 
 const COMMISSION: u64 = 1;
 const STORAGE_PRICE: u64 = 5;
@@ -113,6 +114,74 @@ fun test_init_and_first_epoch_change() {
     runner.tx!(admin, |staking, _, _| assert!(staking.is_epoch_sync_done()));
 
     // === cleanup ===
+
+    nodes.destroy!(|node| node.destroy());
+    runner.destroy();
+}
+
+#[test]
+fun node_voting_parameters() {
+    let mut nodes = test_node::test_nodes();
+    let admin = @0xA11CE;
+    let mut runner = e2e_runner::prepare(admin)
+        .epoch_zero_duration(EPOCH_ZERO_DURATION)
+        .epoch_duration(EPOCH_DURATION)
+        .n_shards(N_SHARDS)
+        .build();
+
+    // 10 storage nodes, we'll set storage price, write_capacity and node_capacity
+    // to 10, 20, 30, 40, 50, 60, 70, 80, 90, 100
+    // and stake 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000
+    let mut i = 0;
+    nodes.do_mut!(|node| {
+        runner.tx!(node.sui_address(), |staking, _, ctx| {
+            let cap = staking.register_candidate(
+                node.name(),
+                node.network_address(),
+                node.bls_pk(),
+                node.network_key(),
+                COMMISSION,
+                i * 1000,
+                i * 1000,
+                i * 1000,
+                ctx,
+            );
+            node.set_storage_node_cap(cap);
+
+            i = i + 1;
+
+            // stake in the same tx
+            let staked_wal = staking.stake_with_pool(
+                test_utils::mint(1000, ctx),
+                node.node_id(),
+                ctx,
+            );
+            transfer::public_transfer(staked_wal, ctx.sender());
+        });
+    });
+
+    runner.clock().increment_for_testing(EPOCH_ZERO_DURATION);
+    runner.tx!(admin, |staking, system, _| {
+        staking.voting_end(runner.clock());
+        staking.initiate_epoch_change(system, runner.clock());
+
+        assert!(system.epoch() == 1);
+        assert!(system.committee().n_shards() == N_SHARDS);
+
+        nodes.do_ref!(|node| assert!(system.committee().contains(&node.node_id())));
+    });
+
+    runner.tx!(admin, |staking, _, _| {
+        let inner = staking.inner_for_testing();
+        let params = inner.next_epoch_params();
+
+        // values are: 1000, 2000, 3000 (picked), 4000, 5000, 6000, 7000, 8000, 9000, 10000
+        assert_eq!(params.storage_price(), 3000);
+        assert_eq!(params.write_price(), 3000);
+
+        // values are: 1000, 2000, 3000, 4000, 5000, 6000 (picked), 7000, 8000, 9000, 10000
+        assert_eq!(params.capacity(), 6000);
+    });
 
     nodes.destroy!(|node| node.destroy());
     runner.destroy();
