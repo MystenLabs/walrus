@@ -7,6 +7,7 @@ use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use tracing::Level;
 use walrus_core::{metadata::VerifiedBlobMetadataWithId, BlobId, Epoch, EpochCount};
+use walrus_sdk::api::BlobStatus;
 use walrus_sui::{
     client::{BlobPersistence, ContractClient},
     types::Blob,
@@ -91,7 +92,10 @@ pub enum StoreOp {
     /// No operation needs to be performed.
     NoOp(BlobStoreResult),
     /// A new blob registration needs to be created.
-    RegisterNew(RegisterBlobOp),
+    RegisterNew {
+        blob: Blob,
+        operation: RegisterBlobOp,
+    },
 }
 
 /// Manages the storage and blob resources in the Wallet on behalf of the client.
@@ -110,13 +114,29 @@ impl<'a, C: ContractClient> ResourceManager<'a, C> {
         }
     }
 
-    pub async fn get_blob_registration(
+    /// Returns the appropriate storage operation for the given blob to be stored.
+    ///
+    /// The function considers the requirements for the store operation (epcoh ahead, persistence,
+    /// force store), the status of the blob on chain, and the available resources in the wallet.
+    pub async fn store_operation_for_blob(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         epochs_ahead: EpochCount,
         persistence: BlobPersistence,
         store_when: StoreWhen,
-    ) -> ClientResult<(Blob, StoreOp)> {
+        blob_status: BlobStatus,
+    ) -> ClientResult<StoreOp> {
+        // Return early if the blob is already certified or marked as invalid.
+        // For deletable blobs, we need to check the ones that are owned by the current wallet
+        // later, as there may be multiple already certified that we do not own.
+        if !store_when.is_store_always() && !persistence.is_deletable() {
+            if let Some(result) =
+                self.blob_status_to_store_result(*metadata.blob_id(), epochs_ahead, blob_status)
+            {
+                return Ok(StoreOp::NoOp(result));
+            }
+        };
+
         let (blob, op) = self
             .get_existing_registration(metadata, epochs_ahead, persistence, store_when)
             .await?;
@@ -125,7 +145,7 @@ impl<'a, C: ContractClient> ResourceManager<'a, C> {
         let store_op = if blob.certified_epoch.is_some() {
             debug_assert!(
                 blob.deletable && !store_when.is_store_always(),
-                "get_blob_registration with StoreWhen::Always filters certified blobs"
+                "get_existing_registration with StoreWhen::Always filters certified blobs"
             );
             tracing::debug!(
                 "there is a deletable certified blob in the wallet, and we are not forcing a store"
@@ -136,10 +156,13 @@ impl<'a, C: ContractClient> ResourceManager<'a, C> {
                 end_epoch: blob.certified_epoch.unwrap(),
             })
         } else {
-            StoreOp::RegisterNew(op)
+            StoreOp::RegisterNew {
+                blob,
+                operation: op,
+            }
         };
 
-        Ok((blob, store_op))
+        Ok(store_op)
     }
 
     /// Returns a [`Blob`] registration object for the specified metadata and number of epochs.
@@ -194,7 +217,7 @@ impl<'a, C: ContractClient> ResourceManager<'a, C> {
                 storage_object=%storage_resource.id,
                 "using an existing storage resource to register the blob"
             );
-            // TODO(giac): consider splitting the storage before reusing it.
+            // TODO(giac): consider splitting the storage before reusing it (#811).
             let blob = self
                 .sui_client
                 .register_blob(
@@ -252,6 +275,53 @@ impl<'a, C: ContractClient> ResourceManager<'a, C> {
                     && blob.deletable == persistence.is_deletable()
                     && (include_certified || blob.certified_epoch.is_none())
             }))
+    }
+
+    /// Checks if blob of the given status is already in a state for which we can return.
+    fn blob_status_to_store_result(
+        &self,
+        blob_id: BlobId,
+        epochs_ahead: EpochCount,
+        blob_status: BlobStatus,
+    ) -> Option<BlobStoreResult> {
+        match blob_status {
+            BlobStatus::Permanent {
+                end_epoch,
+                is_certified: true,
+                status_event,
+                ..
+            } => {
+                if end_epoch >= self.write_committee_epoch + epochs_ahead {
+                    tracing::debug!(end_epoch, "blob is already certified");
+                    Some(BlobStoreResult::AlreadyCertified {
+                        blob_id,
+                        event_or_object: EventOrObjectId::Event(status_event),
+                        end_epoch,
+                    })
+                } else {
+                    tracing::debug!(
+                        end_epoch,
+                        "blob is already certified but its lifetime is too short"
+                    );
+                    None
+                }
+            }
+            BlobStatus::Invalid { event } => {
+                tracing::debug!("blob is marked as invalid");
+                Some(BlobStoreResult::MarkedInvalid { blob_id, event })
+            }
+            status => {
+                // We intentionally don't check for "registered" blobs here: even if the blob is
+                // already registered, we cannot certify it without access to the corresponding
+                // Sui object. The check to see if we own the registered-but-not-certified Blob
+                // object is done in `reserve_and_register_blob`.
+                tracing::debug!(
+                    ?status,
+                    "no corresponding permanent certified `Blob` object exists"
+                );
+                None
+            }
+        }
     }
 }
 

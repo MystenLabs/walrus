@@ -10,7 +10,6 @@ use communication::NodeCommunicationFactory;
 use fastcrypto::{bls12381::min_pk::BLS12381AggregateSignature, traits::AggregateAuthenticator};
 use futures::Future;
 use resource::{PriceComputation, ResourceManager, StoreOp};
-use responses::EventOrObjectId;
 use sui_types::base_types::ObjectID;
 use tokio::{sync::Semaphore, time::Duration};
 use tracing::{Instrument, Level};
@@ -238,25 +237,20 @@ impl<T: ContractClient> Client<T> {
             .get_blob_status_with_retries(&blob_id, &self.sui_client)
             .await?;
 
-        // Return early if the blob is already certified or marked as invalid.
-        // For deletable blobs, we need to check the ones that are owned by the current wallet
-        // later, as there may be multiple already certified that we do not own.
-        if !store_when.is_store_always() && !persistence.is_deletable() {
-            if let Some(result) =
-                self.blob_status_to_store_result(blob_id, epochs_ahead, blob_status)
-            {
-                return Ok(result);
-            }
-        };
-
-        let (mut blob, store_operation) = self
+        let store_operation = self
             .resource_manager()
-            .get_blob_registration(&metadata, epochs_ahead, persistence, store_when)
+            .store_operation_for_blob(
+                &metadata,
+                epochs_ahead,
+                persistence,
+                store_when,
+                blob_status,
+            )
             .await?;
 
-        let resource_operation = match store_operation {
+        let (mut blob, resource_operation) = match store_operation {
             StoreOp::NoOp(result) => return Ok(result),
-            StoreOp::RegisterNew(op) => op,
+            StoreOp::RegisterNew { blob, operation } => (blob, operation),
         };
 
         let certificate = match blob_status.initial_certified_epoch() {
@@ -285,53 +279,6 @@ impl<T: ContractClient> Client<T> {
             resource_operation,
             cost,
         })
-    }
-
-    /// Checks if blob of the given status is already in a state for which we can return.
-    fn blob_status_to_store_result(
-        &self,
-        blob_id: BlobId,
-        epochs_ahead: EpochCount,
-        blob_status: BlobStatus,
-    ) -> Option<BlobStoreResult> {
-        match blob_status {
-            BlobStatus::Permanent {
-                end_epoch,
-                is_certified: true,
-                status_event,
-                ..
-            } => {
-                if end_epoch >= self.committees.write_committee().epoch + epochs_ahead {
-                    tracing::debug!(end_epoch, "blob is already certified");
-                    Some(BlobStoreResult::AlreadyCertified {
-                        blob_id,
-                        event_or_object: EventOrObjectId::Event(status_event),
-                        end_epoch,
-                    })
-                } else {
-                    tracing::debug!(
-                        end_epoch,
-                        "blob is already certified but its lifetime is too short"
-                    );
-                    None
-                }
-            }
-            BlobStatus::Invalid { event } => {
-                tracing::debug!("blob is marked as invalid");
-                Some(BlobStoreResult::MarkedInvalid { blob_id, event })
-            }
-            status => {
-                // We intentionally don't check for "registered" blobs here: even if the blob is
-                // already registered, we cannot certify it without access to the corresponding
-                // Sui object. The check to see if we own the registered-but-not-certified Blob
-                // object is done in `reserve_and_register_blob`.
-                tracing::debug!(
-                    ?status,
-                    "no corresponding permanent certified `Blob` object exists"
-                );
-                None
-            }
-        }
     }
 
     /// Creates a resource manager for the client.

@@ -496,10 +496,6 @@ async fn test_multiple_stores_same_blob() -> TestResult {
             .reserve_and_store_blob(&blob, epochs, store_when, persistence)
             .await?;
 
-        println!(
-            "epochs: {}, store_when: {:?}, persistence: {:?}, is_already_certified: {}",
-            epochs, store_when, persistence, is_already_certified
-        );
         match result {
             BlobStoreResult::NewlyCreated { .. } => {
                 assert!(!is_already_certified, "the blob should be newly stored");
