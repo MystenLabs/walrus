@@ -3,15 +3,21 @@
 # Only the uncommented parameters are required.
 # Default optional values are commented out.
 
+name: walrus-node
 storage_path: /path/to/node/storage
 protocol_key_pair: /path/to/keypair
 network_key_pair: /path/to/network_keypair
 sui:
   rpc: https://fullnode.testnet.sui.io:443
   system_object: 0xd6f0cacdb8b365cdda24ab954a32ebc86f8b8a1707322b4cc0ba54dcbbbc5772
+  staking_object: 0x2be0418db0dc7b07fe4c32bf80e250b8993cef130ce8c51ad8f12aa91def42df
   wallet_config: /path/to/sui/wallet-config.yaml
   # event_polling_interval_millis: 400
   # gas_budget: 500000000
+voting_params:
+  storage_price: 5
+  write_price: 1
+  node_capacity: 250000000000
 # metrics_address: 0.0.0.0:9184
 # rest_api_address: 0.0.0.0:9185
 # blob_recovery:
@@ -83,3 +89,5 @@ sui:
 #     write_buffer_size: 67108864
 #     target_file_size_base: 67108864
 #     max_bytes_for_level_base: 536870912
+# commission_rate: 0
+# node_id: 0x222

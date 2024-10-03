@@ -32,8 +32,8 @@ use walrus_core::{
 use walrus_sdk::api::BlobStatus;
 use walrus_sui::{
     client::ReadClient,
-    types::{Blob, Committee, NetworkAddress, StorageNode},
-    utils::{price_for_encoded_length, storage_units_from_size, BYTES_PER_UNIT_SIZE},
+    types::{Blob, Committee, NetworkAddress, StakedWal, StorageNode, StorageNodeCap},
+    utils::{storage_price_for_encoded_length, storage_units_from_size, BYTES_PER_UNIT_SIZE},
 };
 
 use super::{
@@ -406,4 +406,18 @@ pub(crate) struct DeleteOutput {
     #[serde_as(as = "Option<DisplayFromStr>")]
     pub(crate) object_id: Option<ObjectID>,
     pub(crate) deleted_blobs: Vec<Blob>,
+}
+
+#[serde_as]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RegisterNodeOutput {
+    pub(crate) node_capability: StorageNodeCap,
+}
+
+#[serde_as]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct StakeOutput {
+    pub(crate) staked_wal: StakedWal,
 }

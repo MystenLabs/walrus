@@ -36,7 +36,7 @@ use walrus_sui::{
         },
         DEFAULT_GAS_BUDGET,
     },
-    types::{NetworkAddress, NodeRegistrationParams},
+    types::{move_structs::VotingParams, NetworkAddress, NodeRegistrationParams},
     utils::{create_wallet, request_sui_from_faucet, SuiNetwork},
 };
 
@@ -501,6 +501,7 @@ pub async fn create_storage_node_configs(
         };
 
         storage_node_configs.push(StorageNodeConfig {
+            name: node.name,
             storage_path,
             protocol_key_pair: node.keypair.into(),
             network_key_pair: node.network_keypair.into(),
@@ -513,6 +514,13 @@ pub async fn create_storage_node_configs(
             tls,
             shard_sync_config: Default::default(),
             event_processor_config: None,
+            commission_rate: node.commission_rate,
+            voting_params: VotingParams {
+                storage_price: node.storage_price,
+                write_price: node.write_price,
+                node_capacity: node.node_capacity,
+            },
+            node_id: None,
         });
     }
 

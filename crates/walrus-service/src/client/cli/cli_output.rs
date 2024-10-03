@@ -32,6 +32,8 @@ use crate::client::{
         InfoDevOutput,
         InfoOutput,
         ReadOutput,
+        RegisterNodeOutput,
+        StakeOutput,
     },
     string_prefix,
     BlobStoreResult,
@@ -402,6 +404,25 @@ impl CliOutput for DeleteOutput {
             );
             self.deleted_blobs.print_cli_output();
         }
+    }
+}
+
+impl CliOutput for RegisterNodeOutput {
+    fn print_cli_output(&self) {
+        println!("{} Registered storage node with capability:", success());
+        println!("Capability object id: {}", self.node_capability.id);
+        println!("Node id: {}", self.node_capability.node_id);
+    }
+}
+
+impl CliOutput for StakeOutput {
+    fn print_cli_output(&self) {
+        println!("{} Staked WAL successfully.", success());
+        println!("Node id: {}", self.staked_wal.node_id);
+        println!("Staked WAL object id: {}", self.staked_wal.id);
+        println!("Staked WAL state: {:?}", self.staked_wal.state);
+        println!("Staked principal: {}", self.staked_wal.principal);
+        println!("Activation epoch: {}", self.staked_wal.activation_epoch);
     }
 }
 

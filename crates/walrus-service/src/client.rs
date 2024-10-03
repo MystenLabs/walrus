@@ -26,7 +26,8 @@ use walrus_core::{
 use walrus_sdk::{api::BlobStatus, error::NodeError};
 use walrus_sui::{
     client::{BlobPersistence, ContractClient, ReadClient},
-    types::{Blob, BlobEvent},
+    types::{Blob, BlobEvent, NodeRegistrationParams, StakedWal, StorageNodeCap},
+    utils::storage_price_for_encoded_length,
 };
 
 use self::{
@@ -317,6 +318,21 @@ impl<T: ContractClient> Client<T> {
         tracing::debug!(%blob_object_id, "deleting blob object");
         self.sui_client.delete_blob(blob_object_id).await?;
         Ok(())
+    }
+
+    /// Registers node represented by `node_params` as a candidate for Walrus.
+    pub async fn register_candidate(
+        &self,
+        node_params: NodeRegistrationParams,
+    ) -> ClientResult<StorageNodeCap> {
+        let node_capability = self.sui_client.register_candidate(&node_params).await?;
+        Ok(node_capability)
+    }
+
+    /// Stakes the specified amount of WAL with the node represented by `node_id`.
+    pub async fn stake(&self, node_id: ObjectID, amount: u64) -> ClientResult<StakedWal> {
+        let staked_wal = self.sui_client.stake_with_pool(amount, node_id).await?;
+        Ok(staked_wal)
     }
 }
 

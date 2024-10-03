@@ -46,7 +46,7 @@ use walrus_sdk::client::Client;
 use walrus_sui::{
     client::FixedSystemParameters,
     types::{
-        move_structs::EpochState,
+        move_structs::{EpochState, VotingParams},
         Committee,
         ContractEvent,
         NetworkAddress,
@@ -1252,6 +1252,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
     let temp_dir = TempDir::new().expect("able to create a temporary directory");
     WithTempDir {
         inner: StorageNodeConfig {
+            name: "node".to_string(),
             protocol_key_pair: walrus_core::test_utils::protocol_key_pair().into(),
             network_key_pair: walrus_core::test_utils::network_key_pair().into(),
             rest_api_address: unused_socket_address(),
@@ -1264,6 +1265,13 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             rest_graceful_shutdown_period_secs: Some(Some(0)),
             shard_sync_config: Default::default(),
             event_processor_config: None,
+            commission_rate: 0,
+            voting_params: VotingParams {
+                storage_price: 5,
+                write_price: 1,
+                node_capacity: 1_000_000_000,
+            },
+            node_id: None,
         },
         temp_dir,
     }
