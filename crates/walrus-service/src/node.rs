@@ -423,6 +423,7 @@ impl StorageNode {
         let blob_sync_handler = BlobSyncHandler::new(
             inner.clone(),
             config.blob_recovery.max_concurrent_blob_syncs,
+            config.blob_recovery.max_concurrent_sliver_syncs,
         );
 
         let shard_sync_handler =

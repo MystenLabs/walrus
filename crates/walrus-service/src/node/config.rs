@@ -126,6 +126,8 @@ impl LoadConfig for StorageNodeConfig {}
 pub struct BlobRecoveryConfig {
     /// The number of in-parallel blobs synchronized
     pub max_concurrent_blob_syncs: usize,
+    /// The number of in-parallel slivers synchronized
+    pub max_concurrent_sliver_syncs: usize,
     /// Configuration of the committee service timeouts and retries
     #[serde(flatten)]
     pub committee_service_config: CommitteeServiceConfig,
@@ -135,6 +137,7 @@ impl Default for BlobRecoveryConfig {
     fn default() -> Self {
         Self {
             max_concurrent_blob_syncs: 10,
+            max_concurrent_sliver_syncs: 500,
             committee_service_config: CommitteeServiceConfig::default(),
         }
     }

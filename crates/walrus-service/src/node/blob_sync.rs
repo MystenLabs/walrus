@@ -7,8 +7,9 @@ use std::{
 };
 
 use futures::{
-    future::{try_join_all, Either},
-    stream::FuturesUnordered,
+    future::try_join_all,
+    stream::{self, FuturesUnordered},
+    FutureExt as _,
     StreamExt,
     TryFutureExt,
 };
@@ -38,19 +39,32 @@ use super::{
 use crate::common::utils::FutureHelpers as _;
 
 #[derive(Debug, Clone)]
+struct Permits {
+    blob: Arc<Semaphore>,
+    sliver: Arc<Semaphore>,
+}
+
+#[derive(Debug, Clone)]
 pub(crate) struct BlobSyncHandler {
     // INV: For each blob id at most one sync is in progress at a time.
     blob_syncs_in_progress: Arc<Mutex<HashMap<BlobId, InProgressSyncHandle>>>,
     node: Arc<StorageNodeInner>,
-    semaphore: Arc<Semaphore>,
+    permits: Permits,
 }
 
 impl BlobSyncHandler {
-    pub fn new(node: Arc<StorageNodeInner>, max_concurrent_blob_syncs: usize) -> Self {
+    pub fn new(
+        node: Arc<StorageNodeInner>,
+        max_concurrent_blob_syncs: usize,
+        max_concurrent_sliver_syncs: usize,
+    ) -> Self {
         Self {
             blob_syncs_in_progress: Arc::default(),
             node,
-            semaphore: Arc::new(Semaphore::new(max_concurrent_blob_syncs)),
+            permits: Permits {
+                blob: Arc::new(Semaphore::new(max_concurrent_blob_syncs)),
+                sliver: Arc::new(Semaphore::new(max_concurrent_sliver_syncs)),
+            },
         }
     }
 
@@ -110,7 +124,7 @@ impl BlobSyncHandler {
 
             let sync_handle = tokio::spawn(
                 self.clone()
-                    .sync(synchronizer, start, self.semaphore.clone())
+                    .sync(synchronizer, start, self.permits.clone())
                     .inspect_err(|err| {
                         let span = Span::current();
                         span.record("otel.status_code", "ERROR");
@@ -138,12 +152,13 @@ impl BlobSyncHandler {
         self,
         synchronizer: BlobSynchronizer,
         start: tokio::time::Instant,
-        semaphore: Arc<Semaphore>,
+        permits: Permits,
     ) -> Result<Option<(usize, EventID)>, anyhow::Error> {
         let node = &synchronizer.node;
 
         let queued_gauge = metrics::with_label!(node.metrics.recover_blob_backlog, STATUS_QUEUED);
-        let _permit = semaphore
+        let _permit = permits
+            .blob
             .acquire_owned()
             .count_in_flight(&queued_gauge)
             .await
@@ -159,7 +174,7 @@ impl BlobSyncHandler {
                     tracing::info!("cancelled blob sync");
                     Ok(Some((synchronizer.event_index, synchronizer.event_id)))
                 }
-                sync_result = synchronizer.run() => match sync_result {
+                sync_result = synchronizer.run(permits.sliver) => match sync_result {
                     Ok(()) => {
                         node.mark_event_completed(
                             synchronizer.event_index, &synchronizer.event_id
@@ -279,7 +294,7 @@ impl BlobSynchronizer {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn run(&self) -> anyhow::Result<()> {
+    async fn run(&self, sliver_permits: Arc<Semaphore>) -> anyhow::Result<()> {
         let histograms = &self.metrics().recover_blob_part_duration_seconds;
 
         let (_, metadata) = self
@@ -288,38 +303,61 @@ impl BlobSynchronizer {
             .await?;
         let metadata = Arc::new(metadata);
 
-        let mut sliver_sync_futures: FuturesUnordered<_> = self
-            .storage()
-            .shards()
-            .into_iter()
-            .flat_map(|shard| {
-                [
-                    Either::Left(
-                        self.recover_sliver::<Primary>(shard, metadata.clone())
-                            .observe(histograms.clone(), labels_from_sliver_result::<Primary>),
-                    ),
-                    Either::Right(
-                        self.recover_sliver::<Secondary>(shard, metadata.clone())
-                            .observe(histograms.clone(), labels_from_sliver_result::<Secondary>),
-                    ),
-                ]
-            })
-            .collect();
+        let futures_iter = self.storage().shards().into_iter().flat_map(|shard| {
+            [
+                self.recover_sliver::<Primary>(shard, metadata.clone())
+                    .observe(histograms.clone(), labels_from_sliver_result::<Primary>)
+                    .left_future(),
+                self.recover_sliver::<Secondary>(shard, metadata.clone())
+                    .observe(histograms.clone(), labels_from_sliver_result::<Secondary>)
+                    .right_future(),
+            ]
+        });
 
-        while let Some(result) = sliver_sync_futures.next().await {
-            match result {
-                Err(RecoverSliverError::Inconsistent(inconsistency_proof)) => {
-                    tracing::warn!("received an inconsistency proof");
-                    // No need to recover other slivers, sync the inconsistency proof and return
-                    self.sync_inconsistency_proof(&inconsistency_proof)
-                        .observe(histograms.clone(), labels_from_inconsistency_sync_result)
-                        .await;
+        let mut futures_with_permits = stream::iter(futures_iter).then(move |future| {
+            let permits = sliver_permits.clone();
+
+            async move {
+                let claimed_permit = permits
+                    .acquire_owned()
+                    .await
+                    .expect("sempahore has not been dropped");
+                // Attach the permit to the future, so that it is held until the future completes.
+                future.map(|result| (result, claimed_permit))
+            }
+        });
+        let mut futures_with_permits = std::pin::pin!(futures_with_permits);
+        let mut pending_futures = FuturesUnordered::new();
+
+        loop {
+            tokio::select! {
+                biased;
+
+                Some(future) = futures_with_permits.next() => {
+                    // Add the permit and the future to the list of pending futures
+                    pending_futures.push(future);
+                }
+                Some((result, _permit)) = pending_futures.next() => {
+                     match result {
+                         Err(RecoverSliverError::Inconsistent(inconsistency_proof)) => {
+                             tracing::warn!("received an inconsistency proof");
+                             // No need to recover other slivers, sync the inconsistency proof and return
+                             self.sync_inconsistency_proof(&inconsistency_proof)
+                                 .observe(histograms.clone(), labels_from_inconsistency_sync_result)
+                                 .await;
+                             break;
+                         }
+                         Err(RecoverSliverError::Database(err)) => {
+                             panic!("database operations should not fail: {:?}", err)
+                         }
+                         _ => (),
+                     }
+                }
+                else => {
+                    // Both the pending futures and the waiting futures streams have completed, we
+                    // are therefore complete.
                     break;
                 }
-                Err(RecoverSliverError::Database(err)) => {
-                    panic!("database operations should not fail: {:?}", err)
-                }
-                _ => (),
             }
         }
 
