@@ -36,7 +36,10 @@ impl PriceComputation {
             RegisterBlobOp::RegisterFromScratch {
                 encoded_length,
                 epochs_ahead,
-            } => self.storage_fee_for_encoded_length(*encoded_length, *epochs_ahead),
+            } => {
+                self.storage_fee_for_encoded_length(*encoded_length, *epochs_ahead)
+                    + self.write_fee_for_encoded_length(*encoded_length)
+            }
             RegisterBlobOp::ReuseStorage { encoded_length } => {
                 self.write_fee_for_encoded_length(*encoded_length)
             }
