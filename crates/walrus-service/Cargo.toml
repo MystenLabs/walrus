@@ -57,6 +57,7 @@ axum = { workspace = true, features = [
 axum-server = { workspace = true, features = ["tls-rustls-no-provider"] }
 bcs.workspace = true
 byteorder.workspace = true
+chrono.workspace = true
 clap.workspace = true
 colored = { workspace = true, optional = true }
 enum_dispatch = { workspace = true, optional = true }

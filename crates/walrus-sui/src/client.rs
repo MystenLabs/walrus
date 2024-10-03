@@ -67,7 +67,7 @@ use crate::{
 };
 
 mod read_client;
-pub use read_client::{CommitteesAndState, ReadClient, SuiReadClient};
+pub use read_client::{CommitteesAndState, FixedSystemParameters, ReadClient, SuiReadClient};
 
 const CLOCK_CALL_ARG: CallArg = CallArg::Object(sui_types::transaction::ObjectArg::SharedObject {
     id: SUI_CLOCK_OBJECT_ID,
@@ -505,6 +505,10 @@ impl ReadClient for SuiContractClient {
 
     async fn get_committees_and_state(&self) -> SuiClientResult<CommitteesAndState> {
         self.read_client.get_committees_and_state().await
+    }
+
+    async fn fixed_system_parameters(&self) -> SuiClientResult<FixedSystemParameters> {
+        self.read_client.fixed_system_parameters().await
     }
 }
 

@@ -9,13 +9,17 @@ use std::{
     time::Duration,
 };
 
+use anyhow::Context as _;
 use async_trait::async_trait;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
 use tokio::sync::Mutex as TokioMutex;
 use walrus_core::{messages::InvalidBlobCertificate, Epoch};
-use walrus_sui::client::{ContractClient, SuiClientError, SuiContractClient};
+use walrus_sui::{
+    client::{ContractClient, FixedSystemParameters, SuiClientError, SuiContractClient},
+    types::move_structs::EpochState,
+};
 
 use super::config::SuiConfig;
 use crate::common::utils::{self, ExponentialBackoff};
@@ -24,13 +28,23 @@ const MIN_BACKOFF: Duration = Duration::from_secs(1);
 const MAX_BACKOFF: Duration = Duration::from_secs(3600);
 
 /// A service for interacting with the system contract.
+#[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait SystemContractService: std::fmt::Debug + Sync + Send {
+    /// Returns the current epoch and the state that the committee's state.
+    async fn get_epoch_and_state(&self) -> Result<(Epoch, EpochState), anyhow::Error>;
+
+    /// Returns the non-variable system parameters.
+    async fn fixed_system_parameters(&self) -> Result<FixedSystemParameters, anyhow::Error>;
+
     /// Submits a certificate that a blob is invalid to the contract.
     async fn invalidate_blob_id(&self, certificate: &InvalidBlobCertificate);
 
     /// Submits a notification to the contract that this storage node epoch sync is done.
     async fn epoch_sync_done(&self, node_id: ObjectID, epoch: Epoch);
+
+    /// Ends voting for the parameters of the next epoch.
+    async fn end_voting(&self) -> Result<(), anyhow::Error>;
 }
 
 /// A [`SystemContractService`] that uses a [`ContractClient`] for chain interactions.
@@ -86,6 +100,22 @@ impl<T> SystemContractService for SuiSystemContractService<T>
 where
     T: ContractClient + std::fmt::Debug + Sync + Send,
 {
+    async fn fixed_system_parameters(&self) -> Result<FixedSystemParameters, anyhow::Error> {
+        let contract_client = self.contract_client.lock().await;
+        contract_client
+            .fixed_system_parameters()
+            .await
+            .context("failed to retrieve system parameters")
+    }
+
+    async fn end_voting(&self) -> Result<(), anyhow::Error> {
+        let contract_client = self.contract_client.lock().await;
+        contract_client
+            .voting_end()
+            .await
+            .context("failed to end voting for the next epoch")
+    }
+
     async fn invalidate_blob_id(&self, certificate: &InvalidBlobCertificate) {
         let backoff = ExponentialBackoff::new_with_seed(
             MIN_BACKOFF,
@@ -138,5 +168,15 @@ where
             }
         })
         .await;
+    }
+
+    async fn get_epoch_and_state(&self) -> Result<(Epoch, EpochState), anyhow::Error> {
+        let client = self.contract_client.lock().await;
+        let committees = client
+            .get_committees_and_state()
+            .await
+            .context("unable to get the active committees")?;
+
+        Ok((committees.current.epoch, committees.epoch_state))
     }
 }

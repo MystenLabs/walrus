@@ -15,6 +15,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use chrono::Utc;
 use futures::{stream::FuturesUnordered, StreamExt};
 use prometheus::Registry;
 use sui_types::base_types::ObjectID;
@@ -42,13 +43,17 @@ use walrus_core::{
 };
 use walrus_event::{EventSequenceNumber, EventStreamCursor, IndexedStreamElement};
 use walrus_sdk::client::Client;
-use walrus_sui::types::{
-    Committee,
-    ContractEvent,
-    NetworkAddress,
-    NodeRegistrationParams,
-    StorageNode as SuiStorageNode,
-    GENESIS_EPOCH,
+use walrus_sui::{
+    client::FixedSystemParameters,
+    types::{
+        move_structs::EpochState,
+        Committee,
+        ContractEvent,
+        NetworkAddress,
+        NodeRegistrationParams,
+        StorageNode as SuiStorageNode,
+        GENESIS_EPOCH,
+    },
 };
 use walrus_test_utils::WithTempDir;
 
@@ -155,44 +160,6 @@ impl AsRef<StorageNode> for StorageNodeHandle {
 /// constructed by calling [`build`][Self::build`].
 ///
 /// See function level documentation for details on the various configuration settings.
-///
-/// # Examples
-///
-/// The following would create a storage node, and start its REST API and event loop:
-///
-/// ```
-/// use walrus_core::encoding::EncodingConfig;
-/// use walrus_service::test_utils::StorageNodeHandleBuilder;
-/// use std::num::NonZeroU16;
-///
-/// # #[tokio::main]
-/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// let handle = StorageNodeHandleBuilder::default()
-///     .with_rest_api_started(true)
-///     .with_node_started(true)
-///     .build()
-///     .await?;
-/// # Ok(())
-/// # }
-/// ```
-///
-/// Whereas the following will create a storage node with no blobs stored and responsible
-/// for shards 0 and 4.
-///
-/// ```
-/// use walrus_core::{encoding::EncodingConfig, ShardIndex};
-/// use walrus_service::test_utils::{self, StorageNodeHandleBuilder};
-/// use std::num::NonZeroU16;
-///
-/// # #[tokio::main]
-/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// let handle = StorageNodeHandleBuilder::default()
-///     .with_storage(test_utils::empty_storage_with_shards(&[ShardIndex(0), ShardIndex(4)]))
-///     .build()
-///     .await?;
-/// # Ok(())
-/// # }
-/// ```
 #[derive(Debug)]
 pub struct StorageNodeHandleBuilder {
     storage: Option<WithTempDir<Storage>>,
@@ -331,9 +298,14 @@ impl StorageNodeHandleBuilder {
             })
         });
 
-        let contract_service = self
-            .contract_service
-            .unwrap_or_else(|| Box::new(StubContractService {}));
+        let contract_service = self.contract_service.unwrap_or_else(|| {
+            Box::new(StubContractService {
+                system_parameters: FixedSystemParameters {
+                    epoch_duration: Duration::from_secs(600),
+                    epoch_zero_end: Utc::now() + Duration::from_secs(60),
+                },
+            })
+        });
 
         // Create the node's config using the previously generated keypair and address.
         let config = StorageNodeConfig {
@@ -642,12 +614,23 @@ impl CommitteeService for StubCommitteeService {
 ///
 /// Performs a no-op when calling [`invalidate_blob_id()`][Self::invalidate_blob_id]
 #[derive(Debug)]
-pub struct StubContractService {}
+pub struct StubContractService {
+    system_parameters: FixedSystemParameters,
+}
 
 #[async_trait]
 impl SystemContractService for StubContractService {
     async fn invalidate_blob_id(&self, _certificate: &InvalidBlobCertificate) {}
     async fn epoch_sync_done(&self, _node_id: ObjectID, _epoch: Epoch) {}
+    async fn get_epoch_and_state(&self) -> Result<(Epoch, EpochState), anyhow::Error> {
+        anyhow::bail!("stub service does not store the epoch or state")
+    }
+    async fn fixed_system_parameters(&self) -> Result<FixedSystemParameters, anyhow::Error> {
+        Ok(self.system_parameters.clone())
+    }
+    async fn end_voting(&self) -> Result<(), anyhow::Error> {
+        anyhow::bail!("stub service cannot end voting")
+    }
 }
 
 /// Returns a socket address that is not currently in use on the system.
@@ -1041,12 +1024,24 @@ impl<T> SystemContractService for Arc<WithTempDir<T>>
 where
     T: SystemContractService,
 {
+    async fn end_voting(&self) -> Result<(), anyhow::Error> {
+        self.as_ref().inner.end_voting().await
+    }
+
     async fn invalidate_blob_id(&self, certificate: &InvalidBlobCertificate) {
         self.as_ref().inner.invalidate_blob_id(certificate).await
     }
 
     async fn epoch_sync_done(&self, node_id: ObjectID, epoch: Epoch) {
         self.as_ref().inner.epoch_sync_done(node_id, epoch).await
+    }
+
+    async fn get_epoch_and_state(&self) -> Result<(Epoch, EpochState), anyhow::Error> {
+        self.as_ref().inner.get_epoch_and_state().await
+    }
+
+    async fn fixed_system_parameters(&self) -> Result<FixedSystemParameters, anyhow::Error> {
+        self.as_ref().inner.fixed_system_parameters().await
     }
 }
 

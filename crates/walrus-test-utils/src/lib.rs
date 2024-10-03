@@ -363,6 +363,17 @@ pub fn random_data(data_length: usize) -> Vec<u8> {
     random_data_from_rng(data_length, &mut StdRng::seed_from_u64(42))
 }
 
+/// Creates a NonZero value from a literal with a compile-time check disallowing zero.
+#[macro_export]
+macro_rules! nonzero {
+    (0) => {
+        compile_error!("cannot create a NonZero with value zero")
+    };
+    ($value:literal) => {
+        NonZero::new($value).expect("is non-zero")
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use std::error::Error;

@@ -260,7 +260,8 @@ pub enum EpochState {
     /// Contains the weight of the nodes that have already attested that they finished the sync.
     EpochChangeSync(u16),
     /// The epoch change has been completed at the contained timestamp.
-    EpochChangeDone(u64),
+    #[serde(deserialize_with = "chrono::serde::ts_milliseconds::deserialize")]
+    EpochChangeDone(chrono::DateTime<chrono::Utc>),
     /// The parameters for the next epoch have been selected.
     ///
     /// The contained timestamp is the start of the current epoch.

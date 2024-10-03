@@ -12,6 +12,7 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, Context, Result};
+use chrono::{DateTime, Utc};
 use sui_sdk::{
     apis::EventApi,
     rpc_types::{Coin, EventFilter, SuiEvent, SuiObjectDataOptions},
@@ -73,6 +74,15 @@ pub struct CommitteesAndState {
     pub epoch_state: EpochState,
 }
 
+/// Walrus parameters that do not change across epochs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FixedSystemParameters {
+    /// The duration of an epoch for epochs 1 onwards.
+    pub epoch_duration: Duration,
+    /// The time at which the genesis epoch, epoch 0, can change to epoch 1.
+    pub epoch_zero_end: DateTime<Utc>,
+}
+
 /// Trait to read system state information and events from chain.
 pub trait ReadClient: Send + Sync {
     /// Returns the price for one unit of storage per epoch.
@@ -122,6 +132,14 @@ pub trait ReadClient: Send + Sync {
     fn get_committees_and_state(
         &self,
     ) -> impl Future<Output = SuiClientResult<CommitteesAndState>> + Send;
+
+    /// Returns the non-variable system parameters.
+    ///
+    /// These include the number of shards, epoch duration, and the time at which epoch zero ends
+    /// and epoch 1 can start.
+    fn fixed_system_parameters(
+        &self,
+    ) -> impl Future<Output = SuiClientResult<FixedSystemParameters>> + Send;
 }
 
 /// Client implementation for interacting with the Walrus smart contracts.
@@ -524,6 +542,19 @@ impl ReadClient for SuiReadClient {
             previous,
             next,
             epoch_state,
+        })
+    }
+
+    async fn fixed_system_parameters(&self) -> SuiClientResult<FixedSystemParameters> {
+        let staking_object = self.get_staking_object().await?.inner;
+        let first_epoch_start = i64::try_from(staking_object.first_epoch_start)
+            .context("first-epoch start time does not fit in i64")?;
+
+        Ok(FixedSystemParameters {
+            epoch_duration: Duration::from_millis(staking_object.epoch_duration),
+            epoch_zero_end: DateTime::<Utc>::from_timestamp_millis(first_epoch_start).ok_or_else(
+                || anyhow!("invalid first_epoch_start timestamp received from contracts"),
+            )?,
         })
     }
 }

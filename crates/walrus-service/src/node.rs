@@ -3,14 +3,21 @@
 
 //! Walrus storage node.
 
-use std::{future::Future, num::NonZeroU16, pin::Pin, sync::Arc};
+use std::{
+    future::Future,
+    num::{NonZero, NonZeroU16},
+    pin::Pin,
+    sync::Arc,
+};
 
 use anyhow::{anyhow, bail, Context};
 use committee::{BeginCommitteeChangeError, EndCommitteeChangeError};
+use epoch_change_driver::EpochChangeDriver;
 use fastcrypto::traits::KeyPair;
 use futures::{Stream, StreamExt, TryFutureExt};
 use futures_util::stream;
 use prometheus::Registry;
+use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use serde::Serialize;
 use shard_sync::ShardSyncHandler;
 use sui_types::{base_types::ObjectID, digests::TransactionDigest, event::EventID};
@@ -80,6 +87,7 @@ pub mod system_events;
 pub(crate) mod metrics;
 
 mod blob_sync;
+mod epoch_change_driver;
 mod shard_sync;
 
 pub(crate) mod errors;
@@ -358,6 +366,7 @@ pub struct StorageNode {
     inner: Arc<StorageNodeInner>,
     blob_sync_handler: BlobSyncHandler,
     shard_sync_handler: ShardSyncHandler,
+    epoch_change_driver: EpochChangeDriver,
 }
 
 /// The internal state of a Walrus storage node.
@@ -405,12 +414,13 @@ impl StorageNode {
             bail!("node is not in the committee");
         };
 
+        let contract_service: Arc<dyn SystemContractService> = Arc::from(contract_service);
         let inner = Arc::new(StorageNodeInner {
             protocol_key_pair: key_pair,
             storage,
             event_manager,
             encoding_config,
-            contract_service: contract_service.into(),
+            contract_service: contract_service.clone(),
             current_epoch: watch::Sender::new(committee_service.get_epoch()),
             committee_service: committee_service.into(),
             metrics: NodeMetricSet::new(registry),
@@ -430,10 +440,18 @@ impl StorageNode {
         // Upon restart, resume any ongoing blob syncs if there is any.
         shard_sync_handler.restart_syncs().await?;
 
+        let system_parameters = contract_service.fixed_system_parameters().await?;
+        let epoch_change_driver = EpochChangeDriver::new(
+            system_parameters,
+            contract_service,
+            StdRng::seed_from_u64(thread_rng().gen()),
+        );
+
         Ok(StorageNode {
             inner,
             blob_sync_handler,
             shard_sync_handler,
+            epoch_change_driver,
         })
     }
 
@@ -445,6 +463,9 @@ impl StorageNode {
     /// Run the walrus-node logic until cancelled using the provided cancellation token.
     pub async fn run(&self, cancel_token: CancellationToken) -> anyhow::Result<()> {
         select! {
+            () = self.epoch_change_driver.run() => {
+                unreachable!("epoch change driver never completes");
+            },
             result = self.process_events() => match result {
                 Ok(()) => unreachable!("process_events should never return successfully"),
                 Err(err) => return Err(err),
@@ -885,6 +906,10 @@ impl StorageNode {
                 return Err(error.into());
             }
         }
+
+        self.epoch_change_driver.schedule_voting_end(
+            NonZero::new(event.epoch + 1).expect("incremented value is non-zero"),
+        );
 
         Ok(())
     }
