@@ -31,10 +31,6 @@ impl PriceComputation {
         }
     }
 
-    /// Computes the cost of the operation.
-    ///
-    /// Returns `None` if `encoded_length` is invalid for the current encoding and `n_shards`, and
-    /// therefore the encoded length cannot be computed.
     pub(crate) fn operation_cost(&self, operation: &RegisterBlobOp) -> u64 {
         match operation {
             RegisterBlobOp::RegisterFromScratch {
