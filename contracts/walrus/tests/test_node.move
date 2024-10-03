@@ -5,7 +5,7 @@ module walrus::test_node;
 
 use std::string::String;
 use sui::address;
-use walrus::{storage_node::StorageNodeCap, test_utils};
+use walrus::{messages, storage_node::StorageNodeCap, test_utils};
 
 public struct TestStorageNode {
     sui_address: address,
@@ -27,6 +27,13 @@ public fun network_key(_self: &TestStorageNode): vector<u8> {
 
 public fun bls_pk(self: &TestStorageNode): vector<u8> {
     test_utils::bls_min_pk_from_sk(&self.bls_sk)
+}
+
+public fun create_proof_of_possession(self: &TestStorageNode, epoch: u32): vector<u8> {
+    test_utils::bls_min_pk_sign(
+        &messages::new_proof_of_possession_msg(epoch, self.sui_address, self.bls_pk()).to_bcs(),
+        &self.bls_sk,
+    )
 }
 
 /// Returns a reference to the storage node cap. Aborts if not set.
@@ -65,14 +72,12 @@ public fun destroy(self: TestStorageNode) {
 /// `test_utils::bls_secret_keys_for_testing`.
 public fun test_nodes(): vector<TestStorageNode> {
     let mut sui_address: u256 = 0x0;
-    test_utils::bls_secret_keys_for_testing().map!(
-        |bls_sk| {
-            sui_address = sui_address + 1;
-            TestStorageNode {
-                sui_address: address::from_u256(sui_address),
-                bls_sk,
-                storage_node_cap: option::none(),
-            }
-        },
-    )
+    test_utils::bls_secret_keys_for_testing().map!(|bls_sk| {
+        sui_address = sui_address + 1;
+        TestStorageNode {
+            sui_address: address::from_u256(sui_address),
+            bls_sk,
+            storage_node_cap: option::none(),
+        }
+    })
 }

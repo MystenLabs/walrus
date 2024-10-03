@@ -57,11 +57,14 @@ public(package) fun create(
 
 /// Creates a staking pool for the candidate, registers the candidate as a storage node.
 public fun register_candidate(
-    staking: &mut Staking, // node info
+    staking: &mut Staking,
+    // node info
     name: String,
     network_address: String,
     public_key: vector<u8>,
-    network_public_key: vector<u8>, // voting parameters
+    network_public_key: vector<u8>,
+    proof_of_possession: vector<u8>,
+    // voting parameters
     commission_rate: u64,
     storage_price: u64,
     write_price: u64,
@@ -76,6 +79,7 @@ public fun register_candidate(
             network_address,
             public_key,
             network_public_key,
+            proof_of_possession,
             commission_rate,
             storage_price,
             write_price,
@@ -213,7 +217,7 @@ fun inner(staking: &Staking): &StakingInnerV1 {
 // === Tests ===
 
 #[test_only]
-use sui::{clock, coin};
+use sui::clock;
 
 #[test_only]
 public(package) fun inner_for_testing(staking: &Staking): &StakingInnerV1 {
@@ -232,109 +236,6 @@ public(package) fun new_for_testing(ctx: &mut TxContext): Staking {
 #[test_only]
 public(package) fun is_epoch_sync_done(self: &Staking): bool {
     self.inner().is_epoch_sync_done()
-}
-
-#[test, expected_failure]
-fun test_register_candidate() {
-    let ctx = &mut tx_context::dummy();
-    let clock = clock::create_for_testing(ctx);
-    let cap = new_for_testing(ctx).register_candidate(
-        b"node".to_string(),
-        b"127.0.0.1".to_string(),
-        x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677",
-        x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677",
-        0,
-        0,
-        0,
-        0,
-        ctx,
-    );
-    abort 1337
-}
-
-#[test, expected_failure]
-fun test_withdraw_node() {
-    let ctx = &mut tx_context::dummy();
-    let clock = clock::create_for_testing(ctx);
-    let mut staking = new_for_testing(ctx);
-    let mut cap = staking.register_candidate(
-        b"node".to_string(),
-        b"127.0.0.1".to_string(),
-        x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677",
-        x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677",
-        0,
-        0,
-        0,
-        0,
-        ctx,
-    );
-    staking.withdraw_node(&mut cap);
-    abort 1337
-}
-
-#[test, expected_failure]
-fun test_set_next_commission() {
-    let ctx = &mut tx_context::dummy();
-    let clock = clock::create_for_testing(ctx);
-    let mut staking = new_for_testing(ctx);
-    let cap = staking.register_candidate(
-        b"node".to_string(),
-        b"127.0.0.1".to_string(),
-        x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677",
-        x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677",
-        0,
-        0,
-        0,
-        0,
-        ctx,
-    );
-    staking.set_next_commission(&cap, 0);
-    abort 1337
-}
-
-#[test, expected_failure]
-fun test_collect_commission() {
-    let ctx = &mut tx_context::dummy();
-    let clock = clock::create_for_testing(ctx);
-    let cap = storage_node::new_cap(new_id(ctx), ctx);
-    let coin = new_for_testing(ctx).collect_commission(&cap);
-    abort 1337
-}
-
-#[test, expected_failure]
-fun test_vote_for_price_next_epoch() {
-    let ctx = &mut tx_context::dummy();
-    let clock = clock::create_for_testing(ctx);
-    let cap = storage_node::new_cap(new_id(ctx), ctx);
-    new_for_testing(ctx).vote_for_price_next_epoch(&cap, 0, 0, 0);
-    abort 1337
-}
-
-#[test, expected_failure]
-fun test_voting_end() {
-    let ctx = &mut tx_context::dummy();
-    let clock = clock::create_for_testing(ctx);
-    new_for_testing(ctx).voting_end(&clock);
-    abort 1337
-}
-
-#[test, expected_failure]
-fun test_shard_transfer_failed() {
-    let ctx = &mut tx_context::dummy();
-    let clock = clock::create_for_testing(ctx);
-    let cap = storage_node::new_cap(new_id(ctx), ctx);
-    new_for_testing(ctx).shard_transfer_failed(&cap, new_id(ctx), vector[]);
-    abort 1337
-}
-
-#[test, expected_failure]
-fun test_stake_with_pool() {
-    let ctx = &mut tx_context::dummy();
-    let clock = clock::create_for_testing(ctx);
-    let coin = coin::mint_for_testing<WAL>(100, ctx);
-    let cap = storage_node::new_cap(new_id(ctx), ctx);
-    let staked_wal = new_for_testing(ctx).stake_with_pool(coin, cap.node_id(), ctx);
-    abort 1337
 }
 
 #[test_only]

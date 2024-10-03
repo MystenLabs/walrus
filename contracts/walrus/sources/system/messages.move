@@ -3,12 +3,15 @@
 
 module walrus::messages;
 
-use sui::bcs;
+use sui::{bcs, bls12381::bls12381_min_pk_verify};
 
 const APP_ID: u8 = 3;
 const INTENT_VERSION: u8 = 0;
 
+const BLS_KEY_LEN: u64 = 48;
+
 // Message Types
+const PROOF_OF_POSSESSION_MSG_TYPE: u8 = 0;
 const BLOB_CERT_MSG_TYPE: u8 = 1;
 const INVALID_BLOB_ID_MSG_TYPE: u8 = 2;
 
@@ -17,6 +20,63 @@ const EIncorrectAppId: u64 = 0;
 const EIncorrectEpoch: u64 = 1;
 const EInvalidMsgType: u64 = 2;
 const EIncorrectIntentVersion: u64 = 3;
+
+#[error]
+const EInvalidKeyLength: vector<u8> = b"The length of the provided bls key is incorrect.";
+
+/// Message signed by a BLS key in the proof of possession.
+public struct ProofOfPossessionMessage has drop {
+    intent_type: u8,
+    intent_version: u8,
+    intent_app: u8,
+    epoch: u32,
+    sui_address: address,
+    bls_key: vector<u8>,
+}
+
+/// Creates a new ProofOfPossessionMessage given the expected epoch, sui address and BLS key.
+public(package) fun new_proof_of_possession_msg(
+    epoch: u32,
+    sui_address: address,
+    bls_key: vector<u8>,
+): ProofOfPossessionMessage {
+    assert!(bls_key.length() == BLS_KEY_LEN, EInvalidKeyLength);
+    ProofOfPossessionMessage {
+        intent_type: PROOF_OF_POSSESSION_MSG_TYPE,
+        intent_version: INTENT_VERSION,
+        intent_app: APP_ID,
+        epoch,
+        sui_address,
+        bls_key,
+    }
+}
+
+/// BCS encodes a ProofOfPossessionMessage, considering the BLS key as a fixed-length byte
+/// array with 48 bytes.
+public(package) fun to_bcs(self: &ProofOfPossessionMessage): vector<u8> {
+    let mut bcs = vector[];
+    bcs.append(bcs::to_bytes(&self.intent_type));
+    bcs.append(bcs::to_bytes(&self.intent_version));
+    bcs.append(bcs::to_bytes(&self.intent_app));
+    bcs.append(bcs::to_bytes(&self.epoch));
+    bcs.append(bcs::to_bytes(&self.sui_address));
+    self.bls_key.do_ref!(|key_byte| bcs.append(bcs::to_bytes(key_byte)));
+    bcs
+}
+
+/// Verify the provided proof of possession using the contained public key and the provided
+/// signature.
+public(package) fun verify_proof_of_possession(
+    self: &ProofOfPossessionMessage,
+    pop_signature: vector<u8>,
+): bool {
+    let message_bytes = self.to_bcs();
+    bls12381_min_pk_verify(
+        &pop_signature,
+        &self.bls_key,
+        &message_bytes,
+    )
+}
 
 /// A message certified by nodes holding `stake_support` shards.
 public struct CertifiedMessage has drop {

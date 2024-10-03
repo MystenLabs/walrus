@@ -17,7 +17,8 @@ use walrus::{
     bls_aggregate,
     staking_inner::StakingInnerV1,
     staking_pool::{Self, StakingPool},
-    walrus_context::{Self, WalrusContext}
+    walrus_context::{Self, WalrusContext},
+    messages,
 };
 
 /// Debug macro for pretty printing values.
@@ -109,7 +110,7 @@ public macro fun next_epoch_tx($self: &mut ContextRunner, $f: |&WalrusContext, &
 public struct PoolBuilder has copy, drop {
     name: Option<String>,
     network_address: Option<String>,
-    public_key: Option<vector<u8>>,
+    bls_sk: Option<vector<u8>>,
     network_public_key: Option<vector<u8>>,
     commission_rate: Option<u64>,
     storage_price: Option<u64>,
@@ -126,7 +127,7 @@ public struct PoolBuilder has copy, drop {
 /// let pool_c = pool()
 ///     .name(b"my node".to_string())
 ///     .network_address(b"0.0.0.0".to_string())
-///     .public_key(x"a60e75190e62b6a54142d147289a735c4ce11a9d997543da539a3db57def5ed83ba40b74e55065f02b35aa1d504c404b")
+///     .bls_sk(x"75")
 ///     .network_public_key(x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677ab")
 ///     .commission_rate(1000)
 ///     .storage_price(1000)
@@ -138,7 +139,7 @@ public fun pool(): PoolBuilder {
     PoolBuilder {
         name: option::none(),
         network_address: option::none(),
-        public_key: option::none(),
+        bls_sk: option::none(),
         network_public_key: option::none(),
         commission_rate: option::none(),
         storage_price: option::none(),
@@ -184,8 +185,8 @@ public fun network_address(mut self: PoolBuilder, network_address: String): Pool
 }
 
 /// Sets the public key for the pool.
-public fun public_key(mut self: PoolBuilder, public_key: vector<u8>): PoolBuilder {
-    self.public_key.fill(public_key);
+public fun bls_sk(mut self: PoolBuilder, secret_key: vector<u8>): PoolBuilder {
+    self.bls_sk.fill(pad_bls_sk(&secret_key));
     self
 }
 
@@ -200,7 +201,7 @@ public fun build(self: PoolBuilder, wctx: &WalrusContext, ctx: &mut TxContext): 
     let PoolBuilder {
         name,
         network_address,
-        public_key,
+        bls_sk,
         network_public_key,
         commission_rate,
         storage_price,
@@ -208,15 +209,18 @@ public fun build(self: PoolBuilder, wctx: &WalrusContext, ctx: &mut TxContext): 
         node_capacity,
     } = self;
 
+    let bls_sk = bls_sk.destroy_with_default(bls_sk_for_testing());
+    let bls_pub_key = bls_min_pk_from_sk(&bls_sk);
+    let pop = bls_min_pk_sign(&messages::new_proof_of_possession_msg(wctx.epoch(), ctx.sender(), bls_pub_key).to_bcs(), &bls_sk);
+
     staking_pool::new(
         name.destroy_with_default(b"pool".to_string()),
         network_address.destroy_with_default(b"127.0.0.1".to_string()),
-        public_key.destroy_with_default(
-            x"a60e75190e62b6a54142d147289a735c4ce11a9d997543da539a3db57def5ed83ba40b74e55065f02b35aa1d504c404b",
-        ),
+        bls_pub_key,
         network_public_key.destroy_with_default(
             x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677ab",
         ),
+        pop,
         commission_rate.destroy_with_default(1000),
         storage_price.destroy_with_default(1000),
         write_price.destroy_with_default(1000),
@@ -232,7 +236,7 @@ public fun register(self: PoolBuilder, inner: &mut StakingInnerV1, ctx: &mut TxC
     let PoolBuilder {
         name,
         network_address,
-        public_key,
+        bls_sk,
         network_public_key,
         commission_rate,
         storage_price,
@@ -240,15 +244,18 @@ public fun register(self: PoolBuilder, inner: &mut StakingInnerV1, ctx: &mut TxC
         node_capacity,
     } = self;
 
+    let bls_sk = bls_sk.destroy_with_default(bls_sk_for_testing());
+    let bls_pub_key = bls_min_pk_from_sk(&bls_sk);
+    let pop = bls_min_pk_sign(&messages::new_proof_of_possession_msg(inner.epoch(), ctx.sender(), bls_pub_key).to_bcs(), &bls_sk);
+
     inner.create_pool(
         name.destroy_with_default(b"pool".to_string()),
         network_address.destroy_with_default(b"127.0.0.1".to_string()),
-        public_key.destroy_with_default(
-            x"a60e75190e62b6a54142d147289a735c4ce11a9d997543da539a3db57def5ed83ba40b74e55065f02b35aa1d504c404b",
-        ),
+        bls_pub_key,
         network_public_key.destroy_with_default(
             x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677ab",
         ),
+        pop,
         commission_rate.destroy_with_default(1000),
         storage_price.destroy_with_default(1000),
         write_price.destroy_with_default(1000),

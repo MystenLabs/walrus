@@ -8,6 +8,7 @@ use std::string::String;
 use sui::{balance::{Self, Balance}, table::{Self, Table}};
 use wal::wal::WAL;
 use walrus::{
+    messages,
     pending_values::{Self, PendingValues},
     pool_exchange_rate::{Self, PoolExchangeRate},
     staked_wal::{Self, StakedWal},
@@ -26,6 +27,9 @@ const EIncorrectEpochAdvance: vector<u8> = b"Pool without stake cannot receive r
 
 #[error]
 const EPoolNotEmpty: vector<u8> = b"Pool is not empty, cannot be destroyed";
+
+#[error]
+const EInvalidProofOfPossession: vector<u8> = b"The provided proof of possession is invalid";
 
 /// Represents the state of the staking pool.
 ///
@@ -108,6 +112,7 @@ public(package) fun new(
     network_address: String,
     public_key: vector<u8>,
     network_public_key: vector<u8>,
+    proof_of_possession: vector<u8>,
     commission_rate: u64,
     storage_price: u64,
     write_price: u64,
@@ -117,6 +122,17 @@ public(package) fun new(
 ): StakingPool {
     let id = object::new(ctx);
     let node_id = id.to_inner();
+
+    // Verify proof of possession
+    assert!(
+        messages::new_proof_of_possession_msg(
+            wctx.epoch(),
+            ctx.sender(),
+            public_key,
+        ).verify_proof_of_possession(proof_of_possession),
+        EInvalidProofOfPossession,
+    );
+
     let (activation_epoch, state) = if (wctx.committee_selected()) {
         (wctx.epoch() + 1, PoolState::New)
     } else {

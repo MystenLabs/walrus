@@ -35,7 +35,7 @@ use tokio_stream::Stream;
 use walrus_core::{
     ensure,
     merkle::DIGEST_LEN,
-    messages::{ConfirmationCertificate, InvalidBlobCertificate},
+    messages::{ConfirmationCertificate, InvalidBlobCertificate, ProofOfPossession},
     metadata::BlobMetadataWithId,
     BlobId,
     EncodingType,
@@ -229,6 +229,7 @@ pub trait ContractClient: ReadClient + Send + Sync {
     fn register_candidate(
         &self,
         node_parameters: &NodeRegistrationParams,
+        proof_of_possession: &ProofOfPossession,
     ) -> impl Future<Output = SuiClientResult<StorageNodeCap>> + Send;
 
     /// Stakes the given amount with the pool of node with `node_id`.
@@ -711,6 +712,7 @@ impl ContractClient for SuiContractClient {
     async fn register_candidate(
         &self,
         node_parameters: &NodeRegistrationParams,
+        proof_of_possession: &ProofOfPossession,
     ) -> SuiClientResult<StorageNodeCap> {
         let res = self
             .move_call_and_transfer(
@@ -721,6 +723,7 @@ impl ContractClient for SuiContractClient {
                     call_arg_pure!(&node_parameters.network_address.to_string()),
                     call_arg_pure!(node_parameters.public_key.as_bytes()),
                     call_arg_pure!(node_parameters.network_public_key.as_bytes()),
+                    call_arg_pure!(proof_of_possession.signature.as_bytes()),
                     node_parameters.commission_rate.into(),
                     node_parameters.storage_price.into(),
                     node_parameters.write_price.into(),

@@ -1130,12 +1130,17 @@ pub mod test_cluster {
             TestCluster::builder().with_shard_assignment(&vec![[]; node_weights.len()]);
 
         // Get the default committee from the test cluster builder
-        let members = cluster_builder
+        let (members, protocol_keypairs): (Vec<_>, Vec<_>) = cluster_builder
             .storage_node_test_configs()
             .iter()
             .enumerate()
-            .map(|(i, info)| info.to_node_registration_params(&format!("node-{i}")))
-            .collect::<Vec<_>>();
+            .map(|(i, info)| {
+                (
+                    info.to_node_registration_params(&format!("node-{i}")),
+                    info.key_pair.to_owned(),
+                )
+            })
+            .unzip();
 
         // TODO(#814): make epoch duration in test configurable. Currently hardcoded to 1 hour.
         let system_ctx =
@@ -1169,6 +1174,7 @@ pub mod test_cluster {
             &mut wallet.inner,
             &system_ctx,
             &members,
+            &protocol_keypairs,
             &contract_clients_refs,
             &amounts_to_stake,
         )

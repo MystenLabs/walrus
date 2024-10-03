@@ -10,7 +10,7 @@ use std::sync::mpsc;
 use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
 
 use fastcrypto::{
-    bls12381::min_pk::{BLS12381AggregateSignature, BLS12381PrivateKey},
+    bls12381::min_pk::{BLS12381AggregateSignature, BLS12381KeyPair, BLS12381PrivateKey},
     traits::{Signer, ToFromBytes},
 };
 #[cfg(msim)]
@@ -31,6 +31,7 @@ use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 use walrus_core::{
+    keys::ProtocolKeyPair,
     messages::{Confirmation, ConfirmationCertificate, InvalidBlobCertificate, InvalidBlobIdMsg},
     BlobId,
     EncodingType,
@@ -317,10 +318,14 @@ async fn fund_address(
 }
 
 fn sign_with_default_committee(msg: &[u8]) -> BLS12381AggregateSignature {
+    default_protocol_keypair().as_ref().sign(msg).into()
+}
+
+fn default_protocol_keypair() -> ProtocolKeyPair {
     let mut sk = [0; 32];
     sk[31] = 117;
     let sk = BLS12381PrivateKey::from_bytes(&sk).unwrap();
-    BLS12381AggregateSignature::from(sk.sign(msg))
+    BLS12381KeyPair::from(sk).into()
 }
 
 /// Trait to provide an event with the specified `blob_id` for testing.

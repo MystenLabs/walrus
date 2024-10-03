@@ -6,7 +6,6 @@
 use std::{iter, path::PathBuf, str::FromStr};
 
 use anyhow::{anyhow, Result};
-use fastcrypto::{bls12381::min_pk::BLS12381PublicKey, traits::ToFromBytes};
 use rand::{rngs::StdRng, SeedableRng as _};
 use serde::{Deserialize, Serialize};
 use sui_sdk::{
@@ -22,9 +21,12 @@ use sui_types::{
     TypeTag,
     SUI_FRAMEWORK_PACKAGE_ID,
 };
-use walrus_core::keys::NetworkKeyPair;
+use walrus_core::{
+    keys::{NetworkKeyPair, ProtocolKeyPair},
+    messages::ProofOfPossessionMsg,
+};
 
-use super::DEFAULT_GAS_BUDGET;
+use super::{default_protocol_keypair, DEFAULT_GAS_BUDGET};
 use crate::{
     client::{ContractClient, ReadClient, SuiContractClient},
     system_setup::{create_system_and_staking_objects, publish_coin_and_system_package},
@@ -59,16 +61,12 @@ pub async fn publish_with_default_system(
     // Set up node params.
     // Pk corresponding to secret key scalar(117)
     let network_key_pair = NetworkKeyPair::generate_with_rng(&mut StdRng::seed_from_u64(0));
-    let pubkey_bytes = [
-        149, 234, 204, 58, 220, 9, 200, 39, 89, 63, 88, 30, 142, 45, 224, 104, 191, 76, 245, 208,
-        192, 235, 41, 229, 55, 47, 13, 35, 54, 71, 136, 238, 15, 155, 235, 17, 44, 138, 126, 156,
-        47, 12, 114, 4, 51, 112, 92, 240,
-    ];
+    let protocol_keypair = default_protocol_keypair();
 
     let storage_node_params = NodeRegistrationParams {
         name: "Test0".to_owned(),
         network_address: NetworkAddress("127.0.0.1:8080".to_owned()),
-        public_key: BLS12381PublicKey::from_bytes(&pubkey_bytes)?,
+        public_key: protocol_keypair.public().to_owned(),
         network_public_key: network_key_pair.public().clone(),
         commission_rate: 0,
         storage_price: 5,
@@ -89,6 +87,7 @@ pub async fn publish_with_default_system(
         admin_wallet,
         &system_context,
         &[storage_node_params],
+        &[protocol_keypair],
         &[&contract_client],
         &[1_000_000_000],
     )
@@ -172,6 +171,7 @@ pub async fn register_committee_and_stake(
     admin_wallet: &mut WalletContext,
     system_context: &SystemContext,
     node_params: &[NodeRegistrationParams],
+    node_bls_keys: &[ProtocolKeyPair],
     contract_clients: &[&SuiContractClient],
     amounts_to_stake: &[u64],
 ) -> Result<()> {
@@ -194,13 +194,21 @@ pub async fn register_committee_and_stake(
 
     // Initialize client
 
-    for ((storage_node_params, contract_client), amount_to_stake) in node_params
+    for (((storage_node_params, bls_sk), contract_client), amount_to_stake) in node_params
         .iter()
+        .zip(node_bls_keys)
         .zip(contract_clients)
         .zip(amounts_to_stake)
     {
+        let epoch = contract_client.current_committee().await?.epoch;
+        let sui_address = contract_client.address().to_inner();
+        let proof_of_possession = bls_sk.sign_message(&ProofOfPossessionMsg::new(
+            epoch,
+            sui_address,
+            storage_node_params.public_key.clone(),
+        ));
         let node_cap = contract_client
-            .register_candidate(storage_node_params)
+            .register_candidate(storage_node_params, &proof_of_possession)
             .await?;
 
         // stake with storage nodes

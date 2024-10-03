@@ -13,6 +13,9 @@ use fastcrypto::{
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
+mod proof_of_possession;
+pub use proof_of_possession::{ProofOfPossession, ProofOfPossessionBody, ProofOfPossessionMsg};
+
 mod storage_confirmation;
 pub use storage_confirmation::{Confirmation, SignedStorageConfirmation, StorageConfirmation};
 
@@ -163,6 +166,8 @@ pub enum MessageVerificationError {
 wrapped_uint! {
     /// Type for the intent type of signed messages.
     pub struct IntentType(pub u8) {
+        /// Intent type for proof of possession messages.
+        pub const PROOF_OF_POSSESSION_MSG: Self = Self(0);
         /// Intent type for blob-certification messages.
         pub const BLOB_CERT_MSG: Self = Self(1);
         /// Intent type for invalid blob id messages.

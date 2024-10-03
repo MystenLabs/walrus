@@ -451,11 +451,14 @@ pub async fn create_storage_node_configs(
     )
     .await?;
 
-    let node_params = nodes
+    let (node_params, protocol_keypairs): (Vec<_>, Vec<_>) = nodes
         .clone()
         .into_iter()
-        .map(NodeRegistrationParams::from)
-        .collect::<Vec<_>>();
+        .map(|node_config| {
+            let keypair = node_config.keypair.clone();
+            (NodeRegistrationParams::from(node_config), keypair)
+        })
+        .unzip();
 
     let rpc = wallets[0].config.get_active_env()?.rpc.clone();
     let mut storage_node_configs = Vec::new();
@@ -535,6 +538,7 @@ pub async fn create_storage_node_configs(
         admin_wallet,
         &testbed_config.system_ctx,
         &node_params,
+        &protocol_keypairs,
         &contract_clients.iter().collect::<Vec<_>>(),
         &amounts_to_stake,
     )

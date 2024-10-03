@@ -5,7 +5,7 @@
 module walrus::e2e_tests;
 
 use std::unit_test::assert_eq;
-use walrus::{e2e_runner, test_node, test_utils};
+use walrus::{e2e_runner, staking_pool, test_node, test_utils};
 
 const COMMISSION: u64 = 1;
 const STORAGE_PRICE: u64 = 5;
@@ -29,7 +29,7 @@ fun test_init_and_first_epoch_change() {
         .build();
 
     // === register candidates ===
-
+    let epoch = runner.epoch();
     nodes.do_mut!(|node| {
         runner.tx!(node.sui_address(), |staking, _, ctx| {
             let cap = staking.register_candidate(
@@ -37,6 +37,7 @@ fun test_init_and_first_epoch_change() {
                 node.network_address(),
                 node.bls_pk(),
                 node.network_key(),
+                node.create_proof_of_possession(epoch),
                 COMMISSION,
                 STORAGE_PRICE,
                 WRITE_PRICE,
@@ -132,6 +133,7 @@ fun node_voting_parameters() {
     // 10 storage nodes, we'll set storage price, write_capacity and node_capacity
     // to 10, 20, 30, 40, 50, 60, 70, 80, 90, 100 and equal stake.
     let mut i = 1;
+    let epoch = runner.epoch();
     nodes.do_mut!(|node| {
         runner.tx!(node.sui_address(), |staking, _, ctx| {
             let cap = staking.register_candidate(
@@ -139,6 +141,7 @@ fun node_voting_parameters() {
                 node.network_address(),
                 node.bls_pk(),
                 node.network_key(),
+                node.create_proof_of_possession(epoch),
                 COMMISSION,
                 i * 1000,
                 i * 1000,
@@ -198,7 +201,7 @@ fun test_first_epoch_too_soon_fail() {
         .build();
 
     // === register nodes as storage node + stake for each ===
-
+    let epoch = runner.epoch();
     nodes.do_mut!(|node| {
         runner.tx!(node.sui_address(), |staking, _, ctx| {
             let stake = test_utils::mint(1000, ctx);
@@ -207,6 +210,7 @@ fun test_first_epoch_too_soon_fail() {
                 node.network_address(),
                 node.bls_pk(),
                 node.network_key(),
+                node.create_proof_of_possession(epoch),
                 COMMISSION,
                 STORAGE_PRICE,
                 WRITE_PRICE,
@@ -231,7 +235,6 @@ fun test_first_epoch_too_soon_fail() {
     abort 0
 }
 
-
 #[test]
 fun test_epoch_change_with_rewards() {
     let admin = @0xA11CE;
@@ -243,7 +246,7 @@ fun test_epoch_change_with_rewards() {
         .build();
 
     // === register candidates ===
-
+    let epoch = runner.epoch();
     nodes.do_mut!(|node| {
         runner.tx!(node.sui_address(), |staking, _, ctx| {
             let cap = staking.register_candidate(
@@ -251,6 +254,7 @@ fun test_epoch_change_with_rewards() {
                 node.network_address(),
                 node.bls_pk(),
                 node.network_key(),
+                node.create_proof_of_possession(epoch),
                 COMMISSION,
                 STORAGE_PRICE,
                 WRITE_PRICE,
@@ -295,12 +299,12 @@ fun test_epoch_change_with_rewards() {
 
     // === buy some storage to add rewards ===
 
-    runner.tx!(admin, |_ , system , ctx| {
+    runner.tx!(admin, |_, system, ctx| {
         let mut coin = test_utils::mint(1_000_000_000_000, ctx);
         let storage = system.reserve_space(1_000_000_000, 10, &mut coin, ctx);
         transfer::public_transfer(storage, ctx.sender());
         transfer::public_transfer(coin, ctx.sender());
-    } );
+    });
 
     // === perform another epoch change ===
     // === check if epoch state is changed correctly ==
@@ -340,4 +344,72 @@ fun test_epoch_change_with_rewards() {
 
     nodes.destroy!(|node| node.destroy());
     runner.destroy();
+}
+
+#[test, expected_failure(abort_code = staking_pool::EInvalidProofOfPossession)]
+fun test_register_invalid_pop_epoch() {
+    let admin = @0xA11CE;
+    let mut nodes = test_node::test_nodes();
+    let mut runner = e2e_runner::prepare(admin)
+        .epoch_zero_duration(EPOCH_ZERO_DURATION)
+        .epoch_duration(EPOCH_DURATION)
+        .n_shards(N_SHARDS)
+        .build();
+
+    // === register candidate with proof of possession for wrong epoch ===
+    let epoch = runner.epoch() + 1;
+    let node = &mut nodes[0];
+    // Test fails here
+    runner.tx!(node.sui_address(), |staking, _, ctx| {
+        let cap = staking.register_candidate(
+            node.name(),
+            node.network_address(),
+            node.bls_pk(),
+            node.network_key(),
+            node.create_proof_of_possession(epoch),
+            COMMISSION,
+            STORAGE_PRICE,
+            WRITE_PRICE,
+            NODE_CAPACITY,
+            ctx,
+        );
+        node.set_storage_node_cap(cap);
+    });
+
+    abort 0
+}
+
+#[test, expected_failure(abort_code = staking_pool::EInvalidProofOfPossession)]
+fun test_register_invalid_pop_signer() {
+    let admin = @0xA11CE;
+    let mut nodes = test_node::test_nodes();
+    let mut runner = e2e_runner::prepare(admin)
+        .epoch_zero_duration(EPOCH_ZERO_DURATION)
+        .epoch_duration(EPOCH_DURATION)
+        .n_shards(N_SHARDS)
+        .build();
+
+    // === register candidate with proof of possession for wrong epoch ===
+    let epoch = runner.epoch() + 1;
+    // wrong signer
+    let pop = nodes[1].create_proof_of_possession(epoch);
+    let node = &mut nodes[0];
+    // Test fails here
+    runner.tx!(node.sui_address(), |staking, _, ctx| {
+        let cap = staking.register_candidate(
+            node.name(),
+            node.network_address(),
+            node.bls_pk(),
+            node.network_key(),
+            pop,
+            COMMISSION,
+            STORAGE_PRICE,
+            WRITE_PRICE,
+            NODE_CAPACITY,
+            ctx,
+        );
+        node.set_storage_node_cap(cap);
+    });
+
+    abort 0
 }
