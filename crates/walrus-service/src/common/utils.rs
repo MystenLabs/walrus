@@ -516,7 +516,7 @@ pub fn path_or_defaults_if_exist(path: &Option<PathBuf>, defaults: &[PathBuf]) -
 /// If no path is provided, tries to load the configuration first from the local folder, and then
 /// from the standard Sui configuration directory.
 // NB: When making changes to the logic, make sure to update the argument docs in
-// `crates/walrus-service/bin/client.rs`.
+// `crates/walrus-service/src/client/cli/args.rs`.
 pub fn load_wallet_context(path: &Option<PathBuf>) -> Result<WalletContext> {
     let mut default_paths = vec!["./sui_config.yaml".into()];
     if let Some(home_dir) = home::home_dir() {

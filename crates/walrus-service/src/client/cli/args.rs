@@ -31,7 +31,7 @@ pub struct App {
     /// 2. If the environment variable `XDG_CONFIG_HOME` is set, in `$XDG_CONFIG_HOME/walrus/`.
     /// 3. In `~/.config/walrus/`.
     /// 4. In `~/.walrus/`.
-    // NB: Keep this in sync with `crate::cli`.
+    // NB: Keep this in sync with `crate::client::cli`.
     #[clap(short, long, verbatim_doc_comment)]
     #[serde(default, deserialize_with = "crate::utils::resolve_home_dir_option")]
     pub config: Option<PathBuf>,
@@ -46,7 +46,7 @@ pub struct App {
     ///
     /// If an invalid path is specified through this option or in the configuration file, an error
     /// is returned.
-    // NB: Keep this in sync with `crate::cli`.
+    // NB: Keep this in sync with `crate::common::utils`.
     #[clap(short, long, verbatim_doc_comment)]
     #[serde(default, deserialize_with = "crate::utils::resolve_home_dir_option")]
     pub wallet: Option<PathBuf>,

@@ -40,7 +40,7 @@ pub const DEFAULT_RPC_URL: &str = TESTNET_RPC;
 /// If no path is provided, tries to load the configuration first from the local folder, and then
 /// from the standard Walrus configuration directory.
 // NB: When making changes to the logic, make sure to update the argument docs in
-// `crates/walrus-service/bin/client.rs`.
+// `crates/walrus-service/src/client/cli/args.rs` and `crates/walrus-service/bin/deploy.rs`.
 pub fn load_configuration(path: &Option<PathBuf>) -> Result<Config> {
     let path = crate::utils::path_or_defaults_if_exist(path, &default_configuration_paths())
         .ok_or(anyhow!("could not find a valid Walrus configuration file"))?;

@@ -40,6 +40,8 @@ enum Commands {
 
     /// Generate the configuration files to run a testbed of storage nodes.
     GenerateDryRunConfigs(GenerateDryRunConfigsArgs),
+
+    InitiateEpochChange(InitiateEpochChangeArgs),
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -125,6 +127,29 @@ struct GenerateDryRunConfigsArgs {
     faucet_cooldown: Option<Duration>,
 }
 
+/// Manually trigger an epoch change.
+#[derive(Debug, Clone, clap::Args)]
+struct InitiateEpochChangeArgs {
+    /// The path to the Walrus client configuration file.
+    ///
+    /// If a path is specified through this option, the CLI attempts to read the specified file
+    /// and returns an error if the path is invalid.
+    ///
+    /// If no path is specified explicitly, the CLI looks for `client_config.yaml` or
+    /// `client_config.yml` in the following locations (in order):
+    ///
+    /// 1. The current working directory (`./`).
+    /// 2. If the environment variable `XDG_CONFIG_HOME` is set, in `$XDG_CONFIG_HOME/walrus/`.
+    /// 3. In `~/.config/walrus/`.
+    /// 4. In `~/.walrus/`.
+    // NB: Keep this in sync with `crate::client::cli`.
+    #[clap(short, long, verbatim_doc_comment)]
+    pub config: Option<PathBuf>,
+    /// Gas budget for the Sui transaction.
+    #[clap(long, default_value_t = 500_000_000)]
+    pub gas_budget: u64,
+}
+
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
@@ -132,6 +157,8 @@ fn main() -> anyhow::Result<()> {
         Commands::DeploySystemContract(args) => commands::deploy_system_contract(args)?,
 
         Commands::GenerateDryRunConfigs(args) => commands::generate_dry_run_configs(args)?,
+
+        Commands::InitiateEpochChange(args) => commands::initiate_epoch_change(args)?,
     }
     Ok(())
 }
@@ -139,6 +166,7 @@ fn main() -> anyhow::Result<()> {
 mod commands {
     use testbed::ADMIN_CONFIG_PREFIX;
     use walrus_service::{
+        client::cli::{get_contract_client, load_configuration},
         testbed::{
             create_client_config,
             create_storage_node_configs,
@@ -146,9 +174,9 @@ mod commands {
             DeployTestbedContractParameters,
             TestbedConfig,
         },
-        utils::LoadConfig as _,
+        utils::{load_wallet_context, LoadConfig as _},
     };
-    use walrus_sui::utils::load_wallet;
+    use walrus_sui::{client::ContractClient, utils::load_wallet};
 
     use super::*;
 
@@ -277,6 +305,20 @@ mod commands {
             fs::write(node_config_path, serialized_storage_node_config)
                 .context("Failed to write storage node configs")?;
         }
+
+        Ok(())
+    }
+
+    #[tokio::main]
+    pub(super) async fn initiate_epoch_change(
+        InitiateEpochChangeArgs { config, gas_budget }: InitiateEpochChangeArgs,
+    ) -> anyhow::Result<()> {
+        let config = load_configuration(&config)?;
+        let wallet = load_wallet_context(&config.wallet_config);
+
+        let client = get_contract_client(config, wallet, gas_budget, &None).await?;
+
+        client.sui_client().initiate_epoch_change().await?;
 
         Ok(())
     }
