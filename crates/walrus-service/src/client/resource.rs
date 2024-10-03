@@ -114,10 +114,11 @@ impl<'a, C: ContractClient> ResourceManager<'a, C> {
         }
     }
 
-    /// Returns the appropriate storage operation for the given blob to be stored.
+    /// Returns the appropriate store operation for the given blob.
     ///
-    /// The function considers the requirements for the store operation (epcoh ahead, persistence,
-    /// force store), the status of the blob on chain, and the available resources in the wallet.
+    /// The function considers the requirements given to the store operation (epochs ahead,
+    /// persistence, force store), the status of the blob on chain, and the available resources in
+    /// the wallet.
     pub async fn store_operation_for_blob(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
