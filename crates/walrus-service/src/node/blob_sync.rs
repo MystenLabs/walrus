@@ -317,11 +317,14 @@ impl BlobSynchronizer {
         let mut futures_with_permits = stream::iter(futures_iter).then(move |future| {
             let permits = sliver_permits.clone();
 
+            // We use a future to get the permit. Only then is the future returned from the stream
+            // to be awaited.
+            #[allow(clippy::async_yields_async)]
             async move {
                 let claimed_permit = permits
                     .acquire_owned()
                     .await
-                    .expect("sempahore has not been dropped");
+                    .expect("semaphore has not been dropped");
                 // Attach the permit to the future, so that it is held until the future completes.
                 future.map(|result| (result, claimed_permit))
             }
@@ -338,20 +341,20 @@ impl BlobSynchronizer {
                     pending_futures.push(future);
                 }
                 Some((result, _permit)) = pending_futures.next() => {
-                     match result {
-                         Err(RecoverSliverError::Inconsistent(inconsistency_proof)) => {
-                             tracing::warn!("received an inconsistency proof");
-                             // No need to recover other slivers, sync the inconsistency proof and return
-                             self.sync_inconsistency_proof(&inconsistency_proof)
-                                 .observe(histograms.clone(), labels_from_inconsistency_sync_result)
-                                 .await;
-                             break;
-                         }
-                         Err(RecoverSliverError::Database(err)) => {
-                             panic!("database operations should not fail: {:?}", err)
-                         }
-                         _ => (),
-                     }
+                    match result {
+                        Err(RecoverSliverError::Inconsistent(inconsistency_proof)) => {
+                            tracing::warn!("received an inconsistency proof");
+                            // No need to recover other slivers, sync the proof and return
+                            self.sync_inconsistency_proof(&inconsistency_proof)
+                                .observe(histograms.clone(), labels_from_inconsistency_sync_result)
+                                .await;
+                            break;
+                        }
+                        Err(RecoverSliverError::Database(err)) => {
+                            panic!("database operations should not fail: {:?}", err)
+                        }
+                        _ => (),
+                    }
                 }
                 else => {
                     // Both the pending futures and the waiting futures streams have completed, we
