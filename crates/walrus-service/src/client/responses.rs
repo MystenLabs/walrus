@@ -40,7 +40,7 @@ use super::{
     cli::{BlobIdDecimal, HumanReadableBytes},
     resource::RegisterBlobOp,
 };
-use crate::client::cli::{format_event_id, HumanReadableGeorgie};
+use crate::client::cli::{format_event_id, HumanReadableFrost};
 
 /// Either an event ID or an object ID.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -285,7 +285,7 @@ impl ExampleBlobInfo {
             "{} unencoded ({} encoded): {} per epoch",
             HumanReadableBytes(self.unencoded_size),
             HumanReadableBytes(self.encoded_size),
-            HumanReadableGeorgie::from(self.price)
+            HumanReadableFrost::from(self.price)
         )
     }
 }

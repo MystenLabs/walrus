@@ -326,12 +326,12 @@ impl CurrencyForDisplay for SuiCoin {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct WalCoin(u64);
 
-/// The human readable representation of the GEORGIE and WAL coins.
-pub(crate) type HumanReadableGeorgie = HumanReadableCoin<WalCoin>;
+/// The human readable representation of the FROST and WAL coins.
+pub(crate) type HumanReadableFrost = HumanReadableCoin<WalCoin>;
 
 impl CurrencyForDisplay for WalCoin {
     const SUPERUNIT_NAME: &'static str = "WAL";
-    const UNIT_NAME: &'static str = "GEORGIE";
+    const UNIT_NAME: &'static str = "FROST";
     const DECIMALS: u8 = 9;
 
     fn value(&self) -> u64 {
