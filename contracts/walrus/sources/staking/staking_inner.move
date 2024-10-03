@@ -413,7 +413,9 @@ fun dhondt(
     let total_stake = stake.fold!(0, |acc, x| acc + x);
 
     // TODO remove this when the FixedPoint32 has a replacement
-    let scaling = DHONDT_TOTAL_STAKE_MAX.max(total_stake) / DHONDT_TOTAL_STAKE_MAX;
+    let scaling = DHONDT_TOTAL_STAKE_MAX
+        .max(total_stake)
+        .divide_and_round_up(DHONDT_TOTAL_STAKE_MAX);
     let total_stake = total_stake / scaling;
     let stake = stake.map!(|s| s / scaling);
 
