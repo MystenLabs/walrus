@@ -217,7 +217,7 @@ fun test_epoch_sync_wrong_epoch() {
 
 fun dhondt_case(shards: u16, stake: vector<u64>, expected: vector<u16>) {
     use walrus::staking_inner::pub_dhondt as dhondt;
-    let (_price, allocation) = dhondt(shards, stake);
+    let allocation = dhondt(shards, stake);
     assert_eq!(allocation, expected);
     assert_eq!(allocation.sum!(), shards);
 }
@@ -320,7 +320,7 @@ fun larger_dhondt_inputs(stake_basis_points: vector<u128>) {
     let nodes = stake_basis_points.length();
     let stake = stake_basis_points.map!(|bp| (bp * total_stake / 10_000) as u64);
 
-    let (_price, allocation) = dhondt(shards, stake);
+    let allocation = dhondt(shards, stake);
     let mut with_shards = 0;
     let mut large_allocations = 0;
     let mut small_allocations = 0;
@@ -338,16 +338,26 @@ fun test_larger_dhondt_inputs_100_nodes_random_stake(seed: vector<u8>) {
     random_dhondt_inputs(seed, 100, 10_000_000_000_000_000_000);
 }
 
-// TODO fix dhondt efficiency
-// #[random_test]
-// fun test_larger_dhondt_inputs_1000_nodes_random_stake(seed: vector<u8>) {
-//     random_dhondt_inputs(seed, 1_000, 10_000_000_000_000_000_000);
-// }
+#[random_test]
+fun test_larger_dhondt_inputs_1000_nodes_random_stake(seed: vector<u8>) {
+    random_dhondt_inputs(seed, 1_000, 10_000_000_000_000_000_000);
+}
 
-fun random_dhondt_inputs(seed: vector<u8>, nodes: u64, mut total_stake: u64) {
+#[random_test]
+fun test_larger_dhondt_setup_1000_nodes_random_stake(seed: vector<u8>) {
+    random_dhondt_setup(seed, 1_000, 10_000_000_000_000_000_000);
+}
+
+fun random_dhondt_inputs(seed: vector<u8>, nodes: u64, total_stake: u64) {
     use walrus::staking_inner::pub_dhondt as dhondt;
 
     let shards = 1_000;
+    let stake = random_dhondt_setup(seed, nodes, total_stake);
+    let allocation = dhondt(shards, stake);
+    assert_eq!(allocation.sum!(), shards);
+}
+
+fun random_dhondt_setup(seed: vector<u8>, nodes: u64, mut total_stake: u64): vector<u64> {
     let mut rng = sui::random::new_generator_from_seed_for_testing(seed);
     std::u8::max_value!();
     let mut stake = vector::tabulate!(nodes, |_| {
@@ -356,6 +366,5 @@ fun random_dhondt_inputs(seed: vector<u8>, nodes: u64, mut total_stake: u64) {
         stake
     });
     *&mut stake[0] = stake[0] + total_stake;
-    let (_price, allocation) = dhondt(shards, stake);
-    assert_eq!(allocation.sum!(), shards);
+    stake
 }

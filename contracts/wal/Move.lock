@@ -21,6 +21,6 @@ dependencies = [
 ]
 
 [move.toolchain-version]
-compiler-version = "1.34.0"
+compiler-version = "1.34.2"
 edition = "2024.beta"
 flavor = "sui"

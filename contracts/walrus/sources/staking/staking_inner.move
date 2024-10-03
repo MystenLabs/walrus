@@ -13,7 +13,7 @@
 // - get "epoch_sync_done" event
 module walrus::staking_inner;
 
-use std::{fixed_point32::FixedPoint32, string::String};
+use std::string::String;
 use sui::{
     balance::{Self, Balance},
     clock::Clock,
@@ -396,42 +396,29 @@ public(package) fun select_committee(self: &mut StakingInnerV1) {
 fun apportionment(self: &StakingInnerV1): vector<u16> {
     let active_ids = self.active_set.active_ids();
     let stake = active_ids.map_ref!(|node_id| self.active_set[node_id]);
-    // TODO better ranking
-    let ranking = {
-        // TODO use std::vector::tabulate
-        let mut v = vector[];
-        stake.length().do!(|i| v.push_back(i));
-        v
-    };
-    let (_price, shards) = dhondt(ranking, self.n_shards, stake);
+    let n_nodes = stake.length();
+    // TODO better ranking (#943)
+    let priorities = vector::tabulate!(n_nodes, |i| n_nodes - i);
+    let shards = dhondt(priorities, self.n_shards, stake);
     shards
 }
 
-// TODO: remove this when the FixedPoint32 has a replacement
+// TODO: remove this when the FixedPoint32 has a replacement (#835)
 const DHONDT_TOTAL_STAKE_MAX: u64 = 0xFFFF_FFFF;
 
 // Implementation of the D'Hondt method (aka Jefferson method) for apportionment.
-// TODO: currently because of Fixedpoint32, there is a "low" limit on the `total_stake`.
-// Assuming 1000 shards (and ignoring the number of nodes), the limit for the total stake is
-// 4,000,000,000,000 (4e12).
 fun dhondt(
-    // A ranking of the nodes by index in the `stake` vector. The lower the index, the higher the
-    // rank. So the first index in this vector is the node that has the highest precedence for
-    // additional shards.
-    ranking: vector<u64>,
+    // Priorities for the nodes for tie-breaking. Nodes with a higher priority value
+    // have a higher precedence.
+    node_priorities: vector<u64>,
     n_shards: u16,
     stake: vector<u64>,
-): (FixedPoint32, vector<u16>) {
-    use std::fixed_point32::{
-        divide_u64 as u64_div,
-        create_from_rational as from_rational,
-        create_from_raw_value as from_raw,
-        get_raw_value as to_raw,
-    };
+): vector<u16> {
+    use std::fixed_point32::{create_from_rational as from_rational, get_raw_value as to_raw};
 
     let total_stake = stake.fold!(0, |acc, x| acc + x);
 
-    // TODO remove this when the FixedPoint32 has a replacement
+    // TODO remove this when the FixedPoint32 has a replacement (#835)
     let scaling = DHONDT_TOTAL_STAKE_MAX
         .max(total_stake)
         .divide_and_round_up(DHONDT_TOTAL_STAKE_MAX);
@@ -442,108 +429,60 @@ fun dhondt(
     let n_shards = n_shards as u64;
     assert!(total_stake > 0, ENoStake);
 
-    // initial price guess following Pukelsheim
-    let mut price = from_rational(total_stake, n_shards + (n_nodes / 2));
-    if (n_nodes == 0) return (price, vector[]);
-    let mut shards = stake.map_ref!(|s| u64_div(*s, price));
+    // Initial assignment following Hagenbach-Bischoff.
+    // This assigns an initial number of shards to each node, s.t. this does not exceed the final
+    // assignment.
+    // The denominator (`total_stake/(n_shards + 1) + 1`) is called "distribution number" and
+    // is the amount of stake that guarantees receiving a shard with the d'Hondt method. By
+    // dividing the stake per node by this distribution number and rounding down (integer
+    // division), we therefore get a lower bound for the number of shards assigned to the node.
+    let mut shards = stake.map_ref!(|s| *s / (total_stake/(n_shards + 1) + 1));
+    // Set up quotients priority queue.
+    let mut quotients = priority_queue::new(vector[]);
+    n_nodes.do!(|index| {
+        let quotient = from_rational(stake[index], shards[index] + 1);
+        quotients.insert(quotient.to_raw(), index);
+    });
+
+    // Set up a priority queue for the ranking of nodes with equal quotient.
+    let mut equal_quotient_ranking = priority_queue::new(vector[]);
+    // Priority_queue currently doesn't allow peeking at the head or checking the length.
+    // TODO: improve priority queue and change this afterwards.
+    let mut equal_quotient_ranking_len = 0;
+
+    if (n_nodes == 0) return vector[];
     let mut n_shards_distributed = shards.fold!(0, |acc, x| acc + x);
     // loop until all shards are distributed
     while (n_shards_distributed != n_shards) {
-        n_shards_distributed = if (n_shards_distributed < n_shards) {
-                // We decrease the price slightly such that some nodes get an additional shard.
-                price = from_raw(0);
-                let mut at_threshold = vector[];
-                let mut i = 0;
-                stake.zip_do_ref!(&shards, |s, m| {
-                    let threshold_price = from_rational(*s, *m + 1);
-                    if (threshold_price.to_raw() > price.to_raw()) {
-                        price = threshold_price;
-                        at_threshold = vector[i];
-                    } else if (threshold_price == price) {
-                        at_threshold.push_back(i);
-                    };
-                    i = i + 1;
-                });
-
-                let adjusted_distribution = n_shards_distributed + at_threshold.length();
-                if (adjusted_distribution <= n_shards) {
-                    // We give one additional shard to all nodes with the same threshold price.
-                    at_threshold.do!(|n| *&mut shards[n] = shards[n] + 1);
-                    adjusted_distribution
+        let index = if (equal_quotient_ranking_len > 0) {
+            let (_priority, index) = equal_quotient_ranking.pop_max();
+            equal_quotient_ranking_len = equal_quotient_ranking_len - 1;
+            index
+        } else {
+            let (quotient, index) = quotients.pop_max();
+            equal_quotient_ranking.insert(node_priorities[index], index);
+            equal_quotient_ranking_len = equal_quotient_ranking_len + 1;
+            // Condition ensures that `quotients` is not empty.
+            while (n_nodes > equal_quotient_ranking_len) {
+                let (next_quotient, next_index) = quotients.pop_max();
+                if (next_quotient == quotient) {
+                    equal_quotient_ranking.insert(node_priorities[next_index], next_index);
+                    equal_quotient_ranking_len = equal_quotient_ranking_len + 1;
                 } else {
-                    // If there are more nodes with the same threshold price than additional shards
-                    // to distribute, we only give an additional shard to a subset according to
-                    // their rank so that `n_shards_distributed == n_shards`.
-                    let mut to_give = n_shards - n_shards_distributed;
-                    // Iterate over the ranking, giving shards from the nodes with the highest
-                    // rank first.
-                    ranking.length().do!(|i| {
-                        if (to_give == 0) return;
-                        let idx = &ranking[i];
-                        if (at_threshold.contains(idx)) {
-                            *&mut shards[*idx] = shards[*idx] + 1;
-                            to_give = to_give - 1;
-                        }
-                    });
-                    n_shards
+                    quotients.insert(next_quotient, next_index);
+                    break
                 }
-            } else {
-                // We increase the price slightly such that some nodes get one fewer shard.
-                price = from_raw(0xFFFF_FFFF_FFFF_FFFF); // TODO: use std::u64::max_value!()
-                let mut at_threshold = vector[];
-                let mut i = 0;
-                stake.zip_do_ref!(&shards, |s, m| {
-                    let m = *m;
-                    if (m != 0) {
-                        let threshold_price = from_rational(*s, m);
-                        if (threshold_price.to_raw() < price.to_raw()) {
-                            price = threshold_price;
-                            at_threshold = vector[i];
-                        } else if (threshold_price == price) {
-                            at_threshold.push_back(i);
-                        }
-                    };
-                    i = i + 1;
-                });
-                // `at_threshold.length() <= n_shards_distributed` due to the check `m != 0` above.
-                let adjusted_distribution = n_shards_distributed - at_threshold.length();
-                if (adjusted_distribution >= n_shards) {
-                    // We increase the price slightly above the threshold such that all nodes at
-                    // the threshold lose one shard.
-                    // price += 1 / 4000000000
-                    price = price.add(from_raw(1));
-                    at_threshold.do!(|n| *&mut shards[n] = shards[n] - 1);
-                    adjusted_distribution
-                } else {
-                    // If there are more nodes with the same threshold price than shards to take
-                    // away, we only remove a shard from a subset according to their rank so that
-                    // `n_shards_distributed == n_shards`. In this case, the price remains at the
-                    // threshold.
-                    let mut to_take = n_shards_distributed - n_shards;
-                    let n = ranking.length();
-                    n.do!(|i| {
-                        if (to_take == 0) return;
-                        let idx = &ranking[n - 1 - i];
-                        if (at_threshold.contains(idx)) {
-                            *&mut shards[*idx] = shards[*idx] - 1;
-                            to_take = to_take - 1;
-                        }
-                    });
-                    n_shards
-                }
-            }
+            };
+            let (_priority, index) = equal_quotient_ranking.pop_max();
+            equal_quotient_ranking_len = equal_quotient_ranking_len - 1;
+            index
+        };
+        *&mut shards[index] = shards[index] + 1;
+        let quotient = from_rational(stake[index], shards[index] + 1);
+        quotients.insert(quotient.to_raw(), index);
+        n_shards_distributed = n_shards_distributed + 1;
     };
-    (price, shards.map!(|s| s as u16))
-}
-
-use fun fp_add as FixedPoint32.add;
-
-fun fp_add(a: FixedPoint32, b: FixedPoint32): FixedPoint32 {
-    use std::fixed_point32::{create_from_raw_value as from_raw, get_raw_value as to_raw};
-    let sum = (a.to_raw() as u128) + (b.to_raw() as u128);
-    // TODO use std::u64::max_value!()
-    assert!(sum <= 0xFFFF_FFFF_FFFF_FFFF);
-    from_raw(sum as u64)
+    shards.map!(|s| s as u16)
 }
 
 /// Initiates the epoch change if the current time allows.
@@ -723,15 +662,11 @@ public(package) fun borrow_mut(self: &mut StakingInnerV1, node_id: ID): &mut Sta
 }
 
 #[test_only]
-public(package) fun pub_dhondt(n_shards: u16, stake: vector<u64>): (FixedPoint32, vector<u16>) {
-    // TODO better ranking
-    let ranking = {
-        // TODO use std::vector::tabulate
-        let mut v = vector[];
-        stake.length().do!(|i| v.push_back(i));
-        v
-    };
-    dhondt(ranking, n_shards, stake)
+public(package) fun pub_dhondt(n_shards: u16, stake: vector<u64>): vector<u16> {
+    let n_nodes = stake.length();
+    // TODO better ranking (#943)
+    let priorities = vector::tabulate!(n_nodes, |i| n_nodes - i);
+    dhondt(priorities, n_shards, stake)
 }
 
 #[test]
