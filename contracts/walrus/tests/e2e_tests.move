@@ -161,3 +161,114 @@ fun test_first_epoch_too_soon_fail() {
 
     abort 0
 }
+
+
+#[test]
+fun test_epoch_change_with_rewards() {
+    let admin = @0xA11CE;
+    let mut nodes = test_node::test_nodes();
+    let mut runner = e2e_runner::prepare(admin)
+        .epoch_zero_duration(EPOCH_ZERO_DURATION)
+        .epoch_duration(EPOCH_DURATION)
+        .n_shards(N_SHARDS)
+        .build();
+
+    // === register candidates ===
+
+    nodes.do_mut!(|node| {
+        runner.tx!(node.sui_address(), |staking, _, ctx| {
+            let cap = staking.register_candidate(
+                node.name(),
+                node.network_address(),
+                node.bls_pk(),
+                node.network_key(),
+                COMMISSION,
+                STORAGE_PRICE,
+                WRITE_PRICE,
+                NODE_CAPACITY,
+                ctx,
+            );
+            node.set_storage_node_cap(cap);
+        });
+    });
+
+    // === stake with each node ===
+
+    nodes.do_ref!(|node| {
+        runner.tx!(node.sui_address(), |staking, _, ctx| {
+            let coin = test_utils::mint(1000, ctx);
+            let staked_wal = staking.stake_with_pool(coin, node.node_id(), ctx);
+            transfer::public_transfer(staked_wal, ctx.sender());
+        });
+    });
+
+    // === advance clock, end voting, and change epoch ===
+    // === check if epoch state is changed correctly ==
+
+    runner.clock().increment_for_testing(EPOCH_ZERO_DURATION);
+    runner.tx!(admin, |staking, system, _| {
+        staking.voting_end(runner.clock());
+        staking.initiate_epoch_change(system, runner.clock());
+
+        assert!(system.epoch() == 1);
+        assert!(system.committee().n_shards() == N_SHARDS);
+
+        nodes.do_ref!(|node| assert!(system.committee().contains(&node.node_id())));
+    });
+
+    // === send epoch sync done messages from all nodes ===
+    let epoch = runner.epoch();
+    nodes.do_mut!(|node| {
+        runner.tx!(node.sui_address(), |staking, _, _| {
+            staking.epoch_sync_done(node.cap_mut(), epoch, runner.clock());
+        });
+    });
+
+    // === buy some storage to add rewards ===
+
+    runner.tx!(admin, |_ , system , ctx| {
+        let mut coin = test_utils::mint(1_000_000_000_000, ctx);
+        let storage = system.reserve_space(1_000_000_000, 10, &mut coin, ctx);
+        transfer::public_transfer(storage, ctx.sender());
+        transfer::public_transfer(coin, ctx.sender());
+    } );
+
+    // === perform another epoch change ===
+    // === check if epoch state is changed correctly ==
+
+    runner.clock().increment_for_testing(PARAM_SELECTION_DELTA);
+    runner.tx!(admin, |staking, _, _| {
+        assert!(staking.is_epoch_sync_done());
+        staking.voting_end(runner.clock());
+    });
+
+    // === advance clock and change epoch ===
+    // === check if epoch was changed as expected ===
+
+    runner.clock().increment_for_testing(EPOCH_DURATION - PARAM_SELECTION_DELTA);
+    runner.tx!(admin, |staking, system, _| {
+        staking.initiate_epoch_change(system, runner.clock());
+
+        assert!(system.epoch() == 2);
+        assert!(system.committee().n_shards() == N_SHARDS);
+
+        nodes.do_ref!(|node| assert!(system.committee().contains(&node.node_id())));
+    });
+
+    // === send epoch sync done messages from all nodes ===
+    let epoch = runner.epoch();
+    nodes.do_mut!(|node| {
+        runner.tx!(node.sui_address(), |staking, _, _| {
+            staking.epoch_sync_done(node.cap_mut(), epoch, runner.clock());
+        });
+    });
+
+    // === check if epoch state is changed correctly ==
+
+    runner.tx!(admin, |staking, _, _| assert!(staking.is_epoch_sync_done()));
+
+    // === cleanup ===
+
+    nodes.destroy!(|node| node.destroy());
+    runner.destroy();
+}

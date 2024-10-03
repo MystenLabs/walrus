@@ -442,7 +442,7 @@ public(package) fun is_withdrawing(pool: &StakingPool): bool {
     }
 }
 
-//// Returns `true` if the pool is empty.
+///  Returns `true` if the pool is empty.
 public(package) fun is_empty(pool: &StakingPool): bool {
     let pending_stake = pool.pending_stake.unwrap();
     let non_empty = pending_stake.keys().count!(|epoch| pending_stake[epoch] != 0);

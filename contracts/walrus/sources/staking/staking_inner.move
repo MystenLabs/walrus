@@ -553,9 +553,15 @@ public(package) fun advance_epoch(self: &mut StakingInnerV1, mut rewards: Balanc
     let leftover_value = self.leftover_rewards.value();
     rewards.join(self.leftover_rewards.split(leftover_value));
     let rewards_per_shard = rewards.value() / (self.n_shards as u64);
-    let (node_ids, shard_assignments) = (*self.previous_committee.inner()).into_keys_values();
-    // TODO: check if we can combine this with the iteration over the current committee above
-    // to reduce the accesses to dynamic fields.
+
+    // Add any nodes that are new in the committee to the previous shard assignments
+    // without any shards, s.t. we call advance_epoch on them and update the active set.
+    let mut prev_shard_assignments = *self.previous_committee.inner();
+    self.committee.inner().keys().do!(|node_id| if (!prev_shard_assignments.contains(&node_id)) {
+        prev_shard_assignments.insert(node_id, vector[]);
+    });
+    let (node_ids, shard_assignments) = prev_shard_assignments.into_keys_values();
+
     node_ids.zip_do!(shard_assignments, |node_id, shards| {
         self.pools[node_id].advance_epoch(rewards.split(rewards_per_shard * shards.length()), wctx);
         self.active_set.update(node_id, self.pools[node_id].wal_balance_at_epoch(wctx.epoch() + 1));
