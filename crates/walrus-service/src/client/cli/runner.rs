@@ -3,9 +3,9 @@
 
 //! Helper struct to run the Walrus client binary commands.
 
-use std::{fs, io::Write, num::NonZeroU16, path::PathBuf, time::Duration};
+use std::{io::Write, num::NonZeroU16, path::PathBuf, time::Duration};
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use prometheus::Registry;
 use sui_sdk::wallet_context::WalletContext;
 use walrus_core::{
@@ -48,16 +48,12 @@ use crate::{
             DryRunOutput,
             InfoOutput,
             ReadOutput,
-            RegisterNodeOutput,
-            StakeOutput,
         },
         Client,
         ClientDaemon,
         Config,
         StoreWhen,
     },
-    common::utils::LoadConfig,
-    node::config::StorageNodeConfig,
     utils::MetricsAndLoggingRuntime,
 };
 
@@ -151,13 +147,6 @@ impl ClientCommandRunner {
             CliCommands::ListBlobs { include_expired } => self.list_blobs(include_expired).await,
 
             CliCommands::Delete { target } => self.delete(target).await,
-
-            CliCommands::RegisterNode { config_path } => self.register_node(config_path).await,
-
-            CliCommands::Stake {
-                config_path,
-                amount,
-            } => self.stake(config_path, amount).await,
         }
     }
 
@@ -468,28 +457,6 @@ impl ClientCommandRunner {
             deleted_blobs,
         }
         .print_output(self.json)
-    }
-
-    pub(crate) async fn register_node(self, config_path: PathBuf) -> Result<()> {
-        let storage_config = StorageNodeConfig::load(&config_path)?;
-        let mut storage_config_output = storage_config.clone();
-        let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
-        let node_capability = client.register_candidate(storage_config.into()).await?;
-        storage_config_output.node_id = Some(node_capability.node_id);
-        let serialized_storage_node_config = serde_yaml::to_string(&storage_config_output)?;
-        fs::write(config_path, serialized_storage_node_config)?;
-        RegisterNodeOutput { node_capability }.print_output(self.json)
-    }
-
-    pub(crate) async fn stake(self, config_path: PathBuf, amount: u64) -> Result<()> {
-        let storage_config = StorageNodeConfig::load(&config_path)?;
-        let Some(node_id) = storage_config.node_id else {
-            bail!("Node ID not found in the config file");
-        };
-
-        let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
-        let staked_wal = client.stake(node_id, amount).await?;
-        StakeOutput { staked_wal }.print_output(self.json)
     }
 }
 

@@ -411,13 +411,17 @@ pub(crate) struct DeleteOutput {
 #[serde_as]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct RegisterNodeOutput {
-    pub(crate) node_capability: StorageNodeCap,
+/// The output of the `walrus-node register-node` command.
+pub struct RegisterNodeOutput {
+    /// The storage capability after registration.
+    pub node_capability: StorageNodeCap,
 }
 
 #[serde_as]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct StakeOutput {
-    pub(crate) staked_wal: StakedWal,
+/// The output of the `walrus-node stake-with-node-pool` command.
+pub struct StakeOutput {
+    /// The staked WAL after staking.
+    pub staked_wal: StakedWal,
 }

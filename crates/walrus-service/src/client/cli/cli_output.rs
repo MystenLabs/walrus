@@ -412,6 +412,7 @@ impl CliOutput for RegisterNodeOutput {
         println!("{} Registered storage node with capability:", success());
         println!("Capability object id: {}", self.node_capability.id);
         println!("Node id: {}", self.node_capability.node_id);
+        println!("The node id is added to the storage config file.");
     }
 }
 

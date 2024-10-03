@@ -11,10 +11,11 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::Context;
+use anyhow::{bail, Context};
 use clap::{Parser, Subcommand};
 use fastcrypto::traits::KeyPair;
 use prometheus::Registry;
+use serde::Deserialize;
 use tokio::{
     runtime::{self, Runtime},
     sync::oneshot,
@@ -24,15 +25,16 @@ use tokio_util::sync::CancellationToken;
 use walrus_core::keys::ProtocolKeyPair;
 use walrus_event::{event_processor::EventProcessor, EventProcessorConfig};
 use walrus_service::{
+    client::cli::{load_wallet_context, CliOutput},
     node::{
         config::{StorageNodeConfig, SuiConfig},
         server::{UserServer, UserServerConfig},
         system_events::{EventManager, SuiSystemEventProvider},
         StorageNode,
     },
-    utils::{version, LoadConfig as _, MetricsAndLoggingRuntime},
+    utils::{self, version, LoadConfig as _, MetricsAndLoggingRuntime},
 };
-use walrus_sui::client::SuiReadClient;
+use walrus_sui::client::{ContractClient, SuiContractClient, SuiReadClient};
 
 const VERSION: &str = version!();
 
@@ -46,8 +48,9 @@ struct Args {
     command: Commands,
 }
 
-#[derive(Subcommand, Debug, Clone)]
+#[derive(Subcommand, Debug, Clone, Deserialize)]
 #[clap(rename_all = "kebab-case")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 enum Commands {
     /// Run a storage node with the provided configuration.
     Run {
@@ -66,6 +69,26 @@ enum Commands {
         #[clap(default_value = "protocol.key")]
         out: PathBuf,
     },
+    /// Register a new node with the Walrus storage network.
+    RegisterNode {
+        #[serde(deserialize_with = "crate::utils::resolve_home_dir")]
+        /// The path to the node's configuration file.
+        config_path: PathBuf,
+    },
+    /// Stake with storage node.
+    Stake {
+        #[serde(deserialize_with = "crate::utils::resolve_home_dir")]
+        /// The path to the node's configuration file.
+        config_path: PathBuf,
+        #[clap(short, long, default_value_t = default_staking_amount())]
+        #[serde(default = "default_staking_amount")]
+        /// The amount to stake with the storage node.
+        amount: u64,
+    },
+}
+
+fn default_staking_amount() -> u64 {
+    1_000_000_000
 }
 
 fn main() -> anyhow::Result<()> {
@@ -78,12 +101,22 @@ fn main() -> anyhow::Result<()> {
         } => commands::run(StorageNodeConfig::load(config_path)?, cleanup_storage)?,
 
         Commands::KeyGen { out } => commands::keygen(&out)?,
+
+        Commands::RegisterNode { config_path } => commands::register_node(config_path)?,
+
+        Commands::Stake {
+            config_path,
+            amount,
+        } => commands::stake_with_node_pool(config_path, amount)?,
     }
     Ok(())
 }
 
 mod commands {
     use std::io;
+
+    use anyhow::bail;
+    use walrus_service::client::responses::{RegisterNodeOutput, StakeOutput};
 
     use super::*;
 
@@ -165,6 +198,62 @@ mod commands {
 
         Ok(())
     }
+
+    #[tokio::main]
+    pub(crate) async fn register_node(config_path: PathBuf) -> anyhow::Result<()> {
+        let storage_config = StorageNodeConfig::load(&config_path)?;
+        let mut storage_config_store = storage_config.clone();
+
+        // Uses the Sui wallet configuration in the storage node config to register the node.
+        let contract_client = get_contract_client_from_node_config(&storage_config).await?;
+
+        let node_capability = contract_client
+            .register_candidate(&storage_config.into())
+            .await?;
+
+        // Updates storage config to include the node ID in it.
+        storage_config_store.node_id = Some(node_capability.node_id);
+        let serialized_storage_node_config = serde_yaml::to_string(&storage_config_store)?;
+        fs::write(config_path, serialized_storage_node_config)?;
+
+        RegisterNodeOutput { node_capability }.print_output(false)
+    }
+
+    #[tokio::main]
+    pub(crate) async fn stake_with_node_pool(
+        config_path: PathBuf,
+        amount: u64,
+    ) -> anyhow::Result<()> {
+        let storage_config = StorageNodeConfig::load(&config_path)?;
+        let Some(node_id) = storage_config.node_id else {
+            bail!("Node ID not found in the config file");
+        };
+
+        // Uses the Sui wallet configuration in the storage node config to register the node.
+        let contract_client = get_contract_client_from_node_config(&storage_config).await?;
+        let staked_wal = contract_client.stake_with_pool(amount, node_id).await?;
+        StakeOutput { staked_wal }.print_output(false)
+    }
+}
+
+/// Creates a [`SuiContractClient`] from the Sui config in the provided storage node config.
+async fn get_contract_client_from_node_config(
+    storage_config: &StorageNodeConfig,
+) -> anyhow::Result<SuiContractClient> {
+    let Some(ref node_wallet_config) = storage_config.sui else {
+        bail!("storage config does not contain Sui wallet configuration");
+    };
+
+    let node_wallet = load_wallet_context(&Some(node_wallet_config.wallet_config.clone()))?;
+    let contract_client = SuiContractClient::new(
+        node_wallet,
+        node_wallet_config.system_object,
+        node_wallet_config.staking_object,
+        node_wallet_config.gas_budget,
+    )
+    .await?;
+
+    Ok(contract_client)
 }
 
 struct EventProcessorRuntime {
