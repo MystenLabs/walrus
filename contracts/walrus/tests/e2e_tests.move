@@ -4,8 +4,8 @@
 #[allow(unused_mut_ref)]
 module walrus::e2e_tests;
 
-use walrus::{e2e_runner, test_node, test_utils};
 use std::unit_test::assert_eq;
+use walrus::{e2e_runner, test_node, test_utils};
 
 const COMMISSION: u64 = 1;
 const STORAGE_PRICE: u64 = 5;
@@ -130,9 +130,8 @@ fun node_voting_parameters() {
         .build();
 
     // 10 storage nodes, we'll set storage price, write_capacity and node_capacity
-    // to 10, 20, 30, 40, 50, 60, 70, 80, 90, 100
-    // and stake 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000
-    let mut i = 0;
+    // to 10, 20, 30, 40, 50, 60, 70, 80, 90, 100 and equal stake.
+    let mut i = 1;
     nodes.do_mut!(|node| {
         runner.tx!(node.sui_address(), |staking, _, ctx| {
             let cap = staking.register_candidate(
@@ -175,12 +174,13 @@ fun node_voting_parameters() {
         let inner = staking.inner_for_testing();
         let params = inner.next_epoch_params();
 
-        // values are: 1000, 2000, 3000 (picked), 4000, 5000, 6000, 7000, 8000, 9000, 10000
-        assert_eq!(params.storage_price(), 3000);
-        assert_eq!(params.write_price(), 3000);
+        // values are: 1000, 2000, 3000, 4000, 5000, 6000, 7000 (picked), 8000, 9000, 10000
+        assert_eq!(params.storage_price(), 7000);
+        assert_eq!(params.write_price(), 7000);
 
-        // values are: 1000, 2000, 3000, 4000, 5000, 6000 (picked), 7000, 8000, 9000, 10000
-        assert_eq!(params.capacity(), 6000);
+        // node capacities are: 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000
+        // votes:  10000, 20000, 30000, 40000 (picked), 50000, 60000, 70000, 80000, 90000, 100000
+        assert_eq!(params.capacity(), 40000);
     });
 
     nodes.destroy!(|node| node.destroy());

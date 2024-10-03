@@ -217,7 +217,7 @@ public(package) fun voting_end(self: &mut StakingInnerV1, clock: &Clock) {
 }
 
 /// Calculates the votes for the next epoch parameters. The function sorts the
-/// write and storage prices and picks the value that satisfies 2/3 of the weight.
+/// write and storage prices and picks the value that satisfies a quorum of the weight.
 public(package) fun calculate_votes(self: &StakingInnerV1): EpochParams {
     assert!(self.next_committee.is_some());
 
@@ -225,7 +225,7 @@ public(package) fun calculate_votes(self: &StakingInnerV1): EpochParams {
     let inner = self.next_committee.borrow().inner();
     let mut write_prices = priority_queue::new(vector[]);
     let mut storage_prices = priority_queue::new(vector[]);
-    let mut node_capacities = priority_queue::new(vector[]);
+    let mut capacity_votes = priority_queue::new(vector[]);
 
     size.do!(|i| {
         let (node_id, shards) = inner.get_entry_by_idx(i);
@@ -233,29 +233,39 @@ public(package) fun calculate_votes(self: &StakingInnerV1): EpochParams {
         let weight = shards.length();
         write_prices.insert(pool.write_price(), weight);
         storage_prices.insert(pool.storage_price(), weight);
-
-        // for node capacities we want to reverse the order, and pick the highest
-        // value that satisfies 2/3 of the weight
-        node_capacities.insert(pool.node_capacity(), weight);
+        // The vote for capacity is determined by the node capacity and number of assigned shards.
+        let capacity_vote = pool.node_capacity() / weight * (self.n_shards as u64);
+        capacity_votes.insert(capacity_vote, weight);
     });
 
-    // 2/3 of the weight is the minimum threshold for prices
-    let min_threshold = (self.n_shards * 2 / 3) as u64;
-    let max_threshold = (self.n_shards as u64) - min_threshold;
-
     epoch_parameters::new(
-        max_threshold(&mut node_capacities, max_threshold),
-        max_threshold(&mut storage_prices, min_threshold),
-        max_threshold(&mut write_prices, min_threshold),
+        quorum_above(&mut capacity_votes, self.n_shards),
+        quorum_below(&mut storage_prices, self.n_shards),
+        quorum_below(&mut write_prices, self.n_shards),
     )
 }
 
-fun max_threshold(pq: &mut PriorityQueue<u64>, threshold: u64): u64 {
+/// Take the highest value, s.t. a quorum voted for a value larger or equal to this.
+fun quorum_above(vote_queue: &mut PriorityQueue<u64>, n_shards: u16): u64 {
+    let threshold = (n_shards - (n_shards - 1) / 3) as u64;
+    take_threshold_value(vote_queue, threshold)
+}
+
+
+/// Take the lowest value, s.t. a quorum voted for a value lower or equal to this.
+fun quorum_below(vote_queue: &mut PriorityQueue<u64>, n_shards: u16): u64 {
+    let threshold = ((n_shards - 1) / 3 + 1) as u64;
+    take_threshold_value(vote_queue, threshold)
+}
+
+fun take_threshold_value(vote_queue: &mut PriorityQueue<u64>, threshold: u64): u64 {
     let mut sum_weight = 0;
     loop {
-        let (value, weight) = pq.pop_max();
+        let (value, weight) = vote_queue.pop_max();
         sum_weight = sum_weight + weight;
-        if (sum_weight >= threshold) return value
+        if (sum_weight >= threshold) {
+            return value
+        };
     }
 }
 
@@ -659,6 +669,8 @@ fun is_quorum(weight: u16, n_shards: u16): bool {
 }
 
 // ==== Tests ===
+#[test_only]
+use walrus::test_utils::assert_eq;
 
 #[test_only]
 public(package) fun is_epoch_sync_done(self: &StakingInnerV1): bool {
@@ -697,4 +709,58 @@ public(package) fun pub_dhondt(n_shards: u16, stake: vector<u64>): (FixedPoint32
         v
     };
     dhondt(ranking, n_shards, stake)
+}
+
+#[test]
+fun test_quorum_above() {
+    let mut queue = priority_queue::new(vector[]);
+    let votes = vector[1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    let weights = vector[5, 5, 4, 6, 3, 7, 2, 8, 1, 9];
+    votes.zip_do!(weights, |vote, weight|
+    queue.insert(vote, weight));
+    assert_eq!(quorum_above(&mut queue, 50), 4);
+}
+
+#[test]
+fun test_quorum_above_all_above() {
+    let mut queue = priority_queue::new(vector[]);
+    let votes = vector[1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    let weights = vector[17, 1, 1, 1, 3, 7, 2, 8, 1, 9];
+    votes.zip_do!(weights, |vote, weight|
+    queue.insert(vote, weight));
+    assert_eq!(quorum_above(&mut queue, 50), 1);
+}
+
+#[test]
+fun test_quorum_above_one_value() {
+    let mut queue = priority_queue::new(vector[]);
+    queue.insert(1, 50);
+    assert_eq!(quorum_above(&mut queue, 50), 1);
+}
+
+#[test]
+fun test_quorum_below() {
+    let mut queue = priority_queue::new(vector[]);
+    let votes = vector[1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    let weights = vector[5, 5, 4, 6, 3, 7, 4, 6, 1, 9];
+    votes.zip_do!(weights, |vote, weight|
+    queue.insert(vote, weight));
+    assert_eq!(quorum_below(&mut queue, 50), 7);
+}
+
+#[test]
+fun test_quorum_below_all_below() {
+    let mut queue = priority_queue::new(vector[]);
+    let votes = vector[1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    let weights = vector[5, 5, 4, 6, 3, 7, 1, 1, 1, 17];
+    votes.zip_do!(weights, |vote, weight|
+    queue.insert(vote, weight));
+    assert_eq!(quorum_below(&mut queue, 50), 10);
+}
+
+#[test]
+fun test_quorum_below_one_value() {
+    let mut queue = priority_queue::new(vector[]);
+    queue.insert(1, 50);
+    assert_eq!(quorum_below(&mut queue, 50), 1);
 }
