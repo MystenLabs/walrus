@@ -259,14 +259,18 @@ impl<T: ContractClient> Client<T> {
             StoreOp::RegisterNew(op) => op,
         };
 
-        let certificate = if let Some(certified_epoch) = blob_status.initial_certified_epoch() {
-            // The blob is already certified on chain - the slivers are already available.
-            self.get_certificate_standalone(&blob_id, certified_epoch)
-                .await
-        } else {
-            // We do not need to wait explicitly as we anyway retry all requests to storage nodes.
-            self.send_blob_data_and_get_certificate(&metadata, &pairs)
-                .await
+        let certificate = match blob_status.initial_certified_epoch() {
+            Some(certified_epoch) if !self.committees.is_change_in_progress() => {
+                // The blob is already certified on chain: the slivers are already available.
+                // However, during epoch change we may need to store the slivers again, as the
+                // current committee may not have synced them yet.
+                self.get_certificate_standalone(&blob_id, certified_epoch)
+                    .await
+            }
+            _ => {
+                self.send_blob_data_and_get_certificate(&metadata, &pairs)
+                    .await
+            }
         }?;
 
         self.sui_client
