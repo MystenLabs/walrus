@@ -20,7 +20,7 @@ use prometheus::Registry;
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use serde::Serialize;
 use shard_sync::ShardSyncHandler;
-use sui_types::{base_types::ObjectID, digests::TransactionDigest, event::EventID};
+use sui_types::{digests::TransactionDigest, event::EventID};
 use tokio::{select, sync::watch, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{field, Instrument};
@@ -110,7 +110,7 @@ pub use storage::{DatabaseConfig, Storage};
 use walrus_event::{EventStreamCursor, EventStreamElement};
 
 use crate::{
-    common::{active_committees::ActiveCommittees, utils::ShardDiff},
+    common::utils::ShardDiff,
     node::system_events::{EventManager, SuiSystemEventProvider},
 };
 
@@ -380,7 +380,6 @@ pub struct StorageNodeInner {
     committee_service: Arc<dyn CommitteeService>,
     start_time: Instant,
     metrics: NodeMetricSet,
-    node_object_id: ObjectID,
     current_epoch: watch::Sender<Epoch>,
 }
 
@@ -407,13 +406,6 @@ impl StorageNode {
             )?
         };
 
-        // TODO(jsmith): This should be fetched from the wallet (#862).
-        let active_committee = committee_service.active_committees();
-        let Some(node_id) = node_id_for_public_key(&active_committee, key_pair.as_ref().public())
-        else {
-            bail!("node is not in the committee");
-        };
-
         let contract_service: Arc<dyn SystemContractService> = Arc::from(contract_service);
         let inner = Arc::new(StorageNodeInner {
             protocol_key_pair: key_pair,
@@ -425,7 +417,6 @@ impl StorageNode {
             committee_service: committee_service.into(),
             metrics: NodeMetricSet::new(registry),
             start_time,
-            node_object_id: node_id,
         });
 
         inner.init_gauges()?;
@@ -834,7 +825,7 @@ impl StorageNode {
             tracing::debug!("no shards gained, so signalling that epoch sync is done");
             self.inner
                 .contract_service
-                .epoch_sync_done(self.inner.node_object_id, event.epoch)
+                .epoch_sync_done(event.epoch)
                 .await;
         } else {
             self.inner
@@ -1376,27 +1367,6 @@ where
         })?;
 
     Ok(signed)
-}
-
-fn node_id_for_public_key(
-    committees: &ActiveCommittees,
-    public_key: &PublicKey,
-) -> Option<ObjectID> {
-    committees
-        .current_committee()
-        .node_id_for_public_key(public_key)
-        .or_else(|| {
-            committees
-                .previous_committee()
-                .as_ref()
-                .and_then(|committee| committee.node_id_for_public_key(public_key))
-        })
-        .or_else(|| {
-            committees
-                .next_committee()
-                .as_ref()
-                .and_then(|committee| committee.node_id_for_public_key(public_key))
-        })
 }
 
 #[cfg(test)]

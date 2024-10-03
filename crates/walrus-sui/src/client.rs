@@ -57,6 +57,7 @@ use crate::{
         StorageResource,
     },
     utils::{
+        get_address_capability_object,
         get_created_sui_object_ids_by_type,
         get_owned_objects,
         get_sui_object,
@@ -109,6 +110,9 @@ pub enum SuiClientError {
     /// An attestation has already been performed for that or a more recent epoch.
     #[error("the storage node has already attested to that or a later epoch being synced")]
     LatestAttestedIsMoreRecent,
+    /// The address has multiple storage node capability objects, which is unexpected.
+    #[error("there are multiple storage node capability objects in the address")]
+    MultipleStorageNodeCapabilities,
 }
 
 /// Represents the persistence state of a blob on Walrus.
@@ -250,11 +254,7 @@ pub trait ContractClient: ReadClient + Send + Sync {
     fn initiate_epoch_change(&self) -> impl Future<Output = SuiClientResult<()>> + Send;
 
     /// Call to notify the contract that this node is done syncing the specified epoch.
-    fn epoch_sync_done(
-        &self,
-        node_id: ObjectID,
-        epoch: Epoch,
-    ) -> impl Future<Output = SuiClientResult<()>> + Send;
+    fn epoch_sync_done(&self, epoch: Epoch) -> impl Future<Output = SuiClientResult<()>> + Send;
 
     /// Deletes the owned blob with the specified Sui object ID, returning the storage resource.
     fn delete_blob(
@@ -826,15 +826,13 @@ impl ContractClient for SuiContractClient {
         Ok(())
     }
 
-    async fn epoch_sync_done(&self, node_id: ObjectID, epoch: Epoch) -> SuiClientResult<()> {
-        let node_capability = get_owned_objects::<StorageNodeCap>(
+    async fn epoch_sync_done(&self, epoch: Epoch) -> SuiClientResult<()> {
+        let node_capability = get_address_capability_object(
             &self.read_client.sui_client,
             self.wallet_address,
             self.read_client.system_pkg_id,
-            &[],
         )
         .await?
-        .find(|cap| cap.node_id == node_id)
         .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?;
 
         if node_capability.last_epoch_sync_done >= epoch {

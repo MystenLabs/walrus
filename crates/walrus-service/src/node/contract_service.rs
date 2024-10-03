@@ -13,7 +13,6 @@ use anyhow::Context as _;
 use async_trait::async_trait;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use sui_sdk::wallet_context::WalletContext;
-use sui_types::base_types::ObjectID;
 use tokio::sync::Mutex as TokioMutex;
 use walrus_core::{messages::InvalidBlobCertificate, Epoch};
 use walrus_sui::{
@@ -41,7 +40,7 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
     async fn invalidate_blob_id(&self, certificate: &InvalidBlobCertificate);
 
     /// Submits a notification to the contract that this storage node epoch sync is done.
-    async fn epoch_sync_done(&self, node_id: ObjectID, epoch: Epoch);
+    async fn epoch_sync_done(&self, epoch: Epoch);
 
     /// Ends voting for the parameters of the next epoch.
     async fn end_voting(&self) -> Result<(), anyhow::Error>;
@@ -143,7 +142,7 @@ where
         .await;
     }
 
-    async fn epoch_sync_done(&self, node_id: ObjectID, epoch: Epoch) {
+    async fn epoch_sync_done(&self, epoch: Epoch) {
         let backoff = ExponentialBackoff::new_with_seed(
             MIN_BACKOFF,
             MAX_BACKOFF,
@@ -156,7 +155,7 @@ where
                 .contract_client
                 .lock()
                 .await
-                .epoch_sync_done(node_id, epoch)
+                .epoch_sync_done(epoch)
                 .await
             {
                 Ok(()) => Some(()),

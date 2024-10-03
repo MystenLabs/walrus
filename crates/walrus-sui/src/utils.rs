@@ -47,9 +47,9 @@ use walrus_core::{
 };
 
 use crate::{
-    client::{ReadClient, SuiClientResult, SuiContractClient},
+    client::{ReadClient, SuiClientError, SuiClientResult, SuiContractClient},
     contracts::{self, AssociatedContractStruct},
-    types::NodeRegistrationParams,
+    types::{NodeRegistrationParams, StorageNodeCap},
 };
 
 // Keep in sync with the same constant in `contracts/walrus/sources/system.move`.
@@ -485,6 +485,28 @@ pub async fn generate_proof_of_possession(
         sui_address,
         registration_params.public_key.clone(),
     )))
+}
+
+/// Get the [`StorageNodeCap`] object associated with the address.
+/// Function returns error if there is more than one [`StorageNodeCap`] object associated with the
+/// address.
+pub async fn get_address_capability_object(
+    sui_client: &SuiClient,
+    owner: SuiAddress,
+    package_id: ObjectID,
+) -> SuiClientResult<Option<StorageNodeCap>> {
+    let mut node_capabilities =
+        get_owned_objects::<StorageNodeCap>(sui_client, owner, package_id, &[]).await?;
+
+    match node_capabilities.next() {
+        Some(cap) => {
+            if node_capabilities.next().is_some() {
+                return Err(SuiClientError::MultipleStorageNodeCapabilities);
+            }
+            Ok(Some(cap))
+        }
+        None => Ok(None),
+    }
 }
 
 // Macros
