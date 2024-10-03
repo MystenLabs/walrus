@@ -286,6 +286,7 @@ impl BlobSynchronizer {
             .recover_metadata()
             .observe(histograms.clone(), labels_from_metadata_result)
             .await?;
+        let metadata = Arc::new(metadata);
 
         let mut sliver_sync_futures: FuturesUnordered<_> = self
             .storage()
@@ -294,11 +295,11 @@ impl BlobSynchronizer {
             .flat_map(|shard| {
                 [
                     Either::Left(
-                        self.recover_sliver::<Primary>(shard, &metadata)
+                        self.recover_sliver::<Primary>(shard, metadata.clone())
                             .observe(histograms.clone(), labels_from_sliver_result::<Primary>),
                     ),
                     Either::Right(
-                        self.recover_sliver::<Secondary>(shard, &metadata)
+                        self.recover_sliver::<Secondary>(shard, metadata.clone())
                             .observe(histograms.clone(), labels_from_sliver_result::<Secondary>),
                     ),
                 ]
@@ -359,7 +360,7 @@ impl BlobSynchronizer {
     async fn recover_sliver<A: EncodingAxis>(
         &self,
         shard: ShardIndex,
-        metadata: &VerifiedBlobMetadataWithId,
+        metadata: Arc<VerifiedBlobMetadataWithId>,
     ) -> Result<bool, RecoverSliverError> {
         {
             let shard_storage = self

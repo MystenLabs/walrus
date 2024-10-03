@@ -459,7 +459,7 @@ where
     #[tracing::instrument(name = "recover_sliver committee", skip_all)]
     async fn recover_sliver(
         &self,
-        metadata: &VerifiedBlobMetadataWithId,
+        metadata: Arc<VerifiedBlobMetadataWithId>,
         sliver_id: SliverPairIndex,
         sliver_type: SliverType,
         certified_epoch: Epoch,

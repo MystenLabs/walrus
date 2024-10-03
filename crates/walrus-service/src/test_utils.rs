@@ -578,7 +578,7 @@ impl CommitteeService for StubCommitteeService {
 
     async fn recover_sliver(
         &self,
-        _metadata: &VerifiedBlobMetadataWithId,
+        _metadata: Arc<VerifiedBlobMetadataWithId>,
         _sliver_id: SliverPairIndex,
         _sliver_type: SliverType,
         _certified_epoch: Epoch,

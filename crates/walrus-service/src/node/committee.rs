@@ -181,7 +181,7 @@ pub trait CommitteeService: std::fmt::Debug + Send + Sync {
     /// Recovers a sliver from symbols stored by the committee.
     async fn recover_sliver(
         &self,
-        metadata: &VerifiedBlobMetadataWithId,
+        metadata: Arc<VerifiedBlobMetadataWithId>,
         sliver_id: SliverPairIndex,
         sliver_type: SliverType,
         certified_epoch: Epoch,

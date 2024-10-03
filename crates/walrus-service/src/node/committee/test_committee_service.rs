@@ -520,7 +520,7 @@ async fn recovers_slivers_across_epoch_change() -> TestResult {
         .await?;
 
     let mut pending_request = committee_service.recover_sliver(
-        &metadata,
+        metadata.into(),
         target_sliver_index.into(),
         SliverType::Primary,
         0,

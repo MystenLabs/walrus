@@ -173,7 +173,7 @@ where
 }
 
 pub(super) struct RecoverSliver<'a, T> {
-    metadata: &'a VerifiedBlobMetadataWithId,
+    metadata: Arc<VerifiedBlobMetadataWithId>,
     sliver_id: SliverPairIndex,
     sliver_type: SliverType,
     epoch_certified: Epoch,
@@ -186,7 +186,7 @@ where
     T: NodeService,
 {
     pub fn new(
-        metadata: &'a VerifiedBlobMetadataWithId,
+        metadata: Arc<VerifiedBlobMetadataWithId>,
         sliver_id: SliverPairIndex,
         sliver_type: SliverType,
         epoch_certified: Epoch,
@@ -385,8 +385,7 @@ where
                 let request = client
                     .oneshot(Request::GetVerifiedRecoverySymbol {
                         sliver_type: self.sliver_type,
-                        // TODO(jsmith): Accept an arc from the caller.
-                        metadata: Arc::new(self.metadata.clone()),
+                        metadata: self.metadata.clone(),
                         sliver_pair_at_remote,
                         intersecting_pair_index: sliver_id,
                     })
@@ -434,7 +433,7 @@ where
             recovery_symbols,
             self.sliver_id
                 .to_sliver_index::<A>(self.metadata.n_shards()),
-            self.metadata.as_ref(),
+            (*self.metadata).as_ref(),
             &self.shared.encoding_config,
         );
         tracing::debug!("completing decoding, parsing result");

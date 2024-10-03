@@ -809,7 +809,7 @@ impl ShardStorage {
 
         let result = node
             .committee_service
-            .recover_sliver(&metadata, sliver_id, sliver_type, epoch)
+            .recover_sliver(metadata.into(), sliver_id, sliver_type, epoch)
             .await;
 
         match result {
