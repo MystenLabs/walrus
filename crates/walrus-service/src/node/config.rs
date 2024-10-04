@@ -136,8 +136,8 @@ pub struct BlobRecoveryConfig {
 impl Default for BlobRecoveryConfig {
     fn default() -> Self {
         Self {
-            max_concurrent_blob_syncs: 1000,
-            max_concurrent_sliver_syncs: 50_000,
+            max_concurrent_blob_syncs: 100,
+            max_concurrent_sliver_syncs: 2_000,
             committee_service_config: CommitteeServiceConfig::default(),
         }
     }
