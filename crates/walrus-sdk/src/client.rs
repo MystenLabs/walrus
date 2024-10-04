@@ -3,7 +3,7 @@
 
 //! Client for interacting with the StorageNode API.
 
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use fastcrypto::traits::{EncodeDecodeBase64, KeyPair};
 use opentelemetry::propagation::Injector;
@@ -195,9 +195,13 @@ pub struct ClientBuilder {
     server_public_key: Option<NetworkPublicKey>,
     roots: Vec<CertificateDer<'static>>,
     no_built_in_root_certs: bool,
+    connect_timeout: Option<Duration>,
 }
 
 impl ClientBuilder {
+    /// Default timeout that is configured for connecting to the remote server.
+    const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(1);
+
     /// Creates a new builder to construct a [`Client`].
     pub fn new() -> Self {
         Self::default()
@@ -250,6 +254,14 @@ impl ClientBuilder {
     /// Defaults to true – built-in system certs will be used.
     pub fn tls_built_in_root_certs(mut self, tls_built_in_root_certs: bool) -> Self {
         self.no_built_in_root_certs = !tls_built_in_root_certs;
+        self
+    }
+
+    /// Set a timeout for only the connect phase of a Client.
+    ///
+    /// The default is 1 second.
+    pub fn connect_timeout(mut self, timeout: Duration) -> Self {
+        self.connect_timeout = Some(timeout);
         self
     }
 
@@ -313,6 +325,10 @@ impl ClientBuilder {
             .https_only(true)
             .http2_prior_knowledge()
             .use_preconfigured_tls(rustls_config)
+            .connect_timeout(
+                self.connect_timeout
+                    .unwrap_or(Self::DEFAULT_CONNECT_TIMEOUT),
+            )
             .build()
             .map_err(ClientBuildError::reqwest)?;
 
