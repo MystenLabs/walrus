@@ -81,7 +81,7 @@ pub struct StorageNodeConfig {
     /// Configuration for running checkpoint processor
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub event_processor_config: Option<EventProcessorConfig>,
-    /// The commission rate of the storage node.
+    /// The commission rate of the storage node, in basis points.
     #[serde(default)]
     pub commission_rate: u64,
     /// The parameters for the staking pool.

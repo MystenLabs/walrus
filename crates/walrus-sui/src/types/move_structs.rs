@@ -3,7 +3,7 @@
 
 //! Walrus move type bindings. Replicates the move types in Rust.
 
-use std::num::NonZeroU16;
+use std::{fmt::Display, num::NonZeroU16};
 
 use fastcrypto::traits::ToFromBytes;
 use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
@@ -403,6 +403,17 @@ pub enum StakedWalState {
     Withdrawing(Epoch, u64),
 }
 
+impl Display for StakedWalState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StakedWalState::Staked => write!(f, "Staked"),
+            StakedWalState::Withdrawing(epoch, amount) => {
+                write!(f, "Withdrawing: epoch={}, amount={}", epoch, amount)
+            }
+        }
+    }
+}
+
 /// Sui type for the StakedWal object.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct StakedWal {
@@ -420,4 +431,15 @@ pub struct StakedWal {
 
 impl AssociatedContractStruct for StakedWal {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::staked_wal::StakedWal;
+}
+
+impl Display for StakedWal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "StakedWal:")?;
+        writeln!(f, "    object id: {},", self.id)?;
+        writeln!(f, "    state: {},", self.state)?;
+        writeln!(f, "    node_id: {},", self.node_id)?;
+        writeln!(f, "    principal: {},", self.principal)?;
+        writeln!(f, "    activation_epoch: {}", self.activation_epoch)
+    }
 }

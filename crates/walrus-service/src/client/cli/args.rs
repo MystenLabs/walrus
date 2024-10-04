@@ -260,6 +260,16 @@ pub enum CliCommands {
         #[serde(flatten)]
         target: FileOrBlobIdOrObjectId,
     },
+    /// Stake with storage node.
+    Stake {
+        #[clap(long)]
+        /// The object ID of the storage node to stake with.
+        node_id: ObjectID,
+        #[clap(short, long, default_value_t = default::staking_amount_wal())]
+        #[serde(default = "default::staking_amount_wal")]
+        /// The amount of WAL to stake with the storage node.
+        amount: u64,
+    },
 }
 
 /// The daemon commands for the Walrus client.
@@ -522,6 +532,10 @@ mod default {
         "127.0.0.1:27182"
             .parse()
             .expect("this is a correct socket address")
+    }
+
+    pub(crate) fn staking_amount_wal() -> u64 {
+        1_000_000_000
     }
 }
 

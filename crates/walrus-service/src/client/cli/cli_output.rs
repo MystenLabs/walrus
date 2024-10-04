@@ -410,20 +410,16 @@ impl CliOutput for DeleteOutput {
 impl CliOutput for RegisterNodeOutput {
     fn print_cli_output(&self) {
         println!("{} Registered storage node with capability:", success());
-        println!("Capability object id: {}", self.node_capability.id);
-        println!("Node id: {}", self.node_capability.node_id);
-        println!("The node id is added to the storage config file.");
+        println!("Capability object ID: {}", self.node_capability.id);
+        println!("Node ID: {}", self.node_capability.node_id);
+        println!("The node ID is added to the storage config file.");
     }
 }
 
 impl CliOutput for StakeOutput {
     fn print_cli_output(&self) {
         println!("{} Staked WAL successfully.", success());
-        println!("Node id: {}", self.staked_wal.node_id);
-        println!("Staked WAL object id: {}", self.staked_wal.id);
-        println!("Staked WAL state: {:?}", self.staked_wal.state);
-        println!("Staked principal: {}", self.staked_wal.principal);
-        println!("Activation epoch: {}", self.staked_wal.activation_epoch);
+        println!("Staked WAL Info:\n{}", self.staked_wal);
     }
 }
 

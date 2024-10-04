@@ -75,20 +75,6 @@ enum Commands {
         /// The path to the node's configuration file.
         config_path: PathBuf,
     },
-    /// Stake with storage node.
-    Stake {
-        #[serde(deserialize_with = "crate::utils::resolve_home_dir")]
-        /// The path to the node's configuration file.
-        config_path: PathBuf,
-        #[clap(short, long, default_value_t = default_staking_amount())]
-        #[serde(default = "default_staking_amount")]
-        /// The amount to stake with the storage node.
-        amount: u64,
-    },
-}
-
-fn default_staking_amount() -> u64 {
-    1_000_000_000
 }
 
 fn main() -> anyhow::Result<()> {
@@ -103,11 +89,6 @@ fn main() -> anyhow::Result<()> {
         Commands::KeyGen { out } => commands::keygen(&out)?,
 
         Commands::RegisterNode { config_path } => commands::register_node(config_path)?,
-
-        Commands::Stake {
-            config_path,
-            amount,
-        } => commands::stake_with_node_pool(config_path, amount)?,
     }
     Ok(())
 }
@@ -115,8 +96,7 @@ fn main() -> anyhow::Result<()> {
 mod commands {
     use std::io;
 
-    use anyhow::bail;
-    use walrus_service::client::responses::{RegisterNodeOutput, StakeOutput};
+    use walrus_service::client::responses::RegisterNodeOutput;
 
     use super::*;
 
@@ -217,22 +197,6 @@ mod commands {
         fs::write(config_path, serialized_storage_node_config)?;
 
         RegisterNodeOutput { node_capability }.print_output(false)
-    }
-
-    #[tokio::main]
-    pub(crate) async fn stake_with_node_pool(
-        config_path: PathBuf,
-        amount: u64,
-    ) -> anyhow::Result<()> {
-        let storage_config = StorageNodeConfig::load(&config_path)?;
-        let Some(node_id) = storage_config.node_id else {
-            bail!("Node ID not found in the config file");
-        };
-
-        // Uses the Sui wallet configuration in the storage node config to register the node.
-        let contract_client = get_contract_client_from_node_config(&storage_config).await?;
-        let staked_wal = contract_client.stake_with_pool(amount, node_id).await?;
-        StakeOutput { staked_wal }.print_output(false)
     }
 }
 
