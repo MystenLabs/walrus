@@ -37,6 +37,10 @@ use walrus::{
 /// The minimum amount of staked WAL required to be included in the active set.
 const MIN_STAKE: u64 = 0;
 
+/// Temporary upper limit for the number of storage nodes.
+/// TODO: Remove once solutions are in place to prevent hitting move execution limits (#935).
+const TEMP_ACTIVE_SET_SIZE_LIMIT: u16 = 100;
+
 // TODO: decide epoch duration. Consider making it a system parameter.
 
 // The duration of an epoch in ms.
@@ -133,7 +137,7 @@ public(package) fun new(
         first_epoch_start: epoch_zero_duration + clock.timestamp_ms(),
         pools: object_table::new(ctx),
         epoch: 0,
-        active_set: active_set::new(n_shards, MIN_STAKE),
+        active_set: active_set::new(TEMP_ACTIVE_SET_SIZE_LIMIT, MIN_STAKE),
         next_committee: option::none(),
         committee: committee::empty(),
         previous_committee: committee::empty(),
