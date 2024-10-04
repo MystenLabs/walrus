@@ -20,6 +20,7 @@ use walrus_core::BlobId;
 use walrus_sui::client::{SuiContractClient, SuiReadClient};
 
 use super::{default_configuration_paths, Blocklist, Client, Config};
+use crate::utils as ServiceUtils;
 
 mod args;
 mod cli_output;
@@ -35,36 +36,6 @@ pub const TESTNET_RPC: &str = "https://fullnode.testnet.sui.io:443";
 /// Default RPC URL to connect to if none is specified explicitly or in the wallet config.
 pub const DEFAULT_RPC_URL: &str = TESTNET_RPC;
 
-/// Returns the path if it is `Some` or any of the default paths if they exist (attempt in order).
-pub fn path_or_defaults_if_exist(path: &Option<PathBuf>, defaults: &[PathBuf]) -> Option<PathBuf> {
-    tracing::debug!(?path, ?defaults, "looking for configuration file");
-    let mut path = path.clone();
-    for default in defaults {
-        if path.is_some() {
-            break;
-        }
-        path = default.exists().then_some(default.clone());
-    }
-    path
-}
-
-/// Loads the wallet context from the given path.
-///
-/// If no path is provided, tries to load the configuration first from the local folder, and then
-/// from the standard Sui configuration directory.
-// NB: When making changes to the logic, make sure to update the argument docs in
-// `crates/walrus-service/bin/client.rs`.
-pub fn load_wallet_context(path: &Option<PathBuf>) -> Result<WalletContext> {
-    let mut default_paths = vec!["./sui_config.yaml".into()];
-    if let Some(home_dir) = home::home_dir() {
-        default_paths.push(home_dir.join(".sui").join("sui_config").join("client.yaml"))
-    }
-    let path = path_or_defaults_if_exist(path, &default_paths)
-        .ok_or(anyhow!("could not find a valid wallet config file"))?;
-    tracing::info!("using Sui wallet configuration from '{}'", path.display());
-    WalletContext::new(&path, None, None)
-}
-
 /// Loads the Walrus configuration from the given path.
 ///
 /// If no path is provided, tries to load the configuration first from the local folder, and then
@@ -72,7 +43,7 @@ pub fn load_wallet_context(path: &Option<PathBuf>) -> Result<WalletContext> {
 // NB: When making changes to the logic, make sure to update the argument docs in
 // `crates/walrus-service/bin/client.rs`.
 pub fn load_configuration(path: &Option<PathBuf>) -> Result<Config> {
-    let path = path_or_defaults_if_exist(path, &default_configuration_paths())
+    let path = ServiceUtils::path_or_defaults_if_exist(path, &default_configuration_paths())
         .ok_or(anyhow!("could not find a valid Walrus configuration file"))?;
     tracing::info!("using Walrus configuration from '{}'", path.display());
 

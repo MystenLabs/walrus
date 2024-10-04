@@ -32,7 +32,6 @@ use crate::client::{
         InfoDevOutput,
         InfoOutput,
         ReadOutput,
-        RegisterNodeOutput,
         StakeOutput,
     },
     string_prefix,
@@ -407,19 +406,10 @@ impl CliOutput for DeleteOutput {
     }
 }
 
-impl CliOutput for RegisterNodeOutput {
-    fn print_cli_output(&self) {
-        println!("{} Registered storage node with capability:", success());
-        println!("Capability object ID: {}", self.node_capability.id);
-        println!("Node ID: {}", self.node_capability.node_id);
-        println!("The node ID is added to the storage config file.");
-    }
-}
-
 impl CliOutput for StakeOutput {
     fn print_cli_output(&self) {
         println!("{} Staked WAL successfully.", success());
-        println!("Staked WAL Info:\n{}", self.staked_wal);
+        println!("Staking info:\n{}", self.staked_wal);
     }
 }
 

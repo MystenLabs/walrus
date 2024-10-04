@@ -35,7 +35,6 @@ use crate::{
             get_read_client,
             get_sui_read_client_from_rpc_node_or_wallet,
             load_configuration,
-            load_wallet_context,
             read_blob_from_file,
             success,
             BlobIdDecimal,
@@ -56,7 +55,7 @@ use crate::{
         Config,
         StoreWhen,
     },
-    utils::MetricsAndLoggingRuntime,
+    utils::{self as ServiceUtils, MetricsAndLoggingRuntime},
 };
 
 /// A helper struct to run commands for the Walrus client.
@@ -87,7 +86,7 @@ impl ClientCommandRunner {
             .as_ref()
             .ok()
             .and_then(|conf| conf.wallet_config.clone()));
-        let wallet = load_wallet_context(&wallet_path);
+        let wallet = ServiceUtils::load_wallet_context(&wallet_path);
 
         Self {
             wallet_path,

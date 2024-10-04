@@ -86,9 +86,6 @@ pub struct StorageNodeConfig {
     pub commission_rate: u64,
     /// The parameters for the staking pool.
     pub voting_params: VotingParams,
-    /// The on chain ID of the node. This config can be populated by running `walrus register-node`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub node_id: Option<ObjectID>,
 }
 
 impl StorageNodeConfig {

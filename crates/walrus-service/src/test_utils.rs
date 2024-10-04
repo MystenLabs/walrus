@@ -1271,7 +1271,6 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
                 write_price: 1,
                 node_capacity: 1_000_000_000,
             },
-            node_id: None,
         },
         temp_dir,
     }

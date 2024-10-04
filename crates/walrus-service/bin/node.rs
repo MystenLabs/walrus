@@ -25,7 +25,6 @@ use tokio_util::sync::CancellationToken;
 use walrus_core::keys::ProtocolKeyPair;
 use walrus_event::{event_processor::EventProcessor, EventProcessorConfig};
 use walrus_service::{
-    client::cli::{load_wallet_context, CliOutput},
     node::{
         config::{StorageNodeConfig, SuiConfig},
         server::{UserServer, UserServerConfig},
@@ -50,7 +49,6 @@ struct Args {
 
 #[derive(Subcommand, Debug, Clone, Deserialize)]
 #[clap(rename_all = "kebab-case")]
-#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 enum Commands {
     /// Run a storage node with the provided configuration.
     Run {
@@ -69,8 +67,10 @@ enum Commands {
         #[clap(default_value = "protocol.key")]
         out: PathBuf,
     },
+
     /// Register a new node with the Walrus storage network.
-    RegisterNode {
+    Register {
+        #[clap(short, long)]
         #[serde(deserialize_with = "crate::utils::resolve_home_dir")]
         /// The path to the node's configuration file.
         config_path: PathBuf,
@@ -88,15 +88,13 @@ fn main() -> anyhow::Result<()> {
 
         Commands::KeyGen { out } => commands::keygen(&out)?,
 
-        Commands::RegisterNode { config_path } => commands::register_node(config_path)?,
+        Commands::Register { config_path } => commands::register_node(config_path)?,
     }
     Ok(())
 }
 
 mod commands {
     use std::io;
-
-    use walrus_service::client::responses::RegisterNodeOutput;
 
     use super::*;
 
@@ -182,7 +180,6 @@ mod commands {
     #[tokio::main]
     pub(crate) async fn register_node(config_path: PathBuf) -> anyhow::Result<()> {
         let storage_config = StorageNodeConfig::load(&config_path)?;
-        let mut storage_config_store = storage_config.clone();
 
         // Uses the Sui wallet configuration in the storage node config to register the node.
         let contract_client = get_contract_client_from_node_config(&storage_config).await?;
@@ -191,12 +188,10 @@ mod commands {
             .register_candidate(&storage_config.into())
             .await?;
 
-        // Updates storage config to include the node ID in it.
-        storage_config_store.node_id = Some(node_capability.node_id);
-        let serialized_storage_node_config = serde_yaml::to_string(&storage_config_store)?;
-        fs::write(config_path, serialized_storage_node_config)?;
-
-        RegisterNodeOutput { node_capability }.print_output(false)
+        println!("Successfully registered storage node with capability:",);
+        println!("      Capability object ID: {}", node_capability.id);
+        println!("      Node ID: {}", node_capability.node_id);
+        Ok(())
     }
 }
 
@@ -208,7 +203,7 @@ async fn get_contract_client_from_node_config(
         bail!("storage config does not contain Sui wallet configuration");
     };
 
-    let node_wallet = load_wallet_context(&Some(node_wallet_config.wallet_config.clone()))?;
+    let node_wallet = utils::load_wallet_context(&Some(node_wallet_config.wallet_config.clone()))?;
     let contract_client = SuiContractClient::new(
         node_wallet,
         node_wallet_config.system_object,

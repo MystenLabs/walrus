@@ -520,7 +520,6 @@ pub async fn create_storage_node_configs(
                 write_price: node.write_price,
                 node_capacity: node.node_capacity,
             },
-            node_id: None,
         });
     }
 
