@@ -33,7 +33,7 @@ use walrus_sdk::api::BlobStatus;
 use walrus_sui::{
     client::ReadClient,
     types::{Blob, Committee, NetworkAddress, StakedWal, StorageNode, StorageNodeCap},
-    utils::{storage_price_for_encoded_length, storage_units_from_size, BYTES_PER_UNIT_SIZE},
+    utils::{price_for_encoded_length, storage_units_from_size, BYTES_PER_UNIT_SIZE},
 };
 
 use super::{

@@ -27,7 +27,6 @@ use walrus_sdk::{api::BlobStatus, error::NodeError};
 use walrus_sui::{
     client::{BlobPersistence, ContractClient, ReadClient},
     types::{Blob, BlobEvent},
-    utils::storage_price_for_encoded_length,
 };
 
 use self::{
