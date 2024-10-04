@@ -197,7 +197,14 @@ impl ClientCommandRunner {
             &None,
         )
         .await?;
+
+        let start_timer = std::time::Instant::now();
         let blob = client.read_blob::<Primary>(&blob_id).await?;
+        let blob_size = blob.len();
+        let elapsed = start_timer.elapsed();
+
+        tracing::info!(?blob_id, ?elapsed, blob_size, "read blob");
+
         match out.as_ref() {
             Some(path) => std::fs::write(path, &blob)?,
             None => {
