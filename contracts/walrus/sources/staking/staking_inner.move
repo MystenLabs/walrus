@@ -428,10 +428,8 @@ fun dhondt(
     if (n_nodes == 0) return (price, vector[]);
     let mut shards = stake.map_ref!(|s| u64_div(*s, price));
     let mut n_shards_distributed = shards.fold!(0, |acc, x| acc + x);
-    let mut i = 0;
     // loop until all shards are distributed
     while (n_shards_distributed != n_shards) {
-        i = i + 1;
         n_shards_distributed = if (n_shards_distributed < n_shards) {
                 // We decrease the price slightly such that some nodes get an additional shard.
                 price = from_raw(0);
