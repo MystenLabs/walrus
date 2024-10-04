@@ -245,25 +245,25 @@ public(package) fun calculate_votes(self: &StakingInnerV1): EpochParams {
     )
 }
 
-/// Take the highest value, s.t. a quorum voted for a value larger or equal to this.
+/// Take the highest value, s.t. a quorum (2f + 1) voted for a value larger or equal to this.
 fun quorum_above(vote_queue: &mut PriorityQueue<u64>, n_shards: u16): u64 {
-    let threshold = (n_shards - (n_shards - 1) / 3) as u64;
-    take_threshold_value(vote_queue, threshold)
+    let threshold_weight = (n_shards - (n_shards - 1) / 3) as u64;
+    take_threshold_value(vote_queue, threshold_weight)
 }
 
-
-/// Take the lowest value, s.t. a quorum voted for a value lower or equal to this.
+/// Take the lowest value, s.t. a quorum  (2f + 1) voted for a value lower or equal to this.
 fun quorum_below(vote_queue: &mut PriorityQueue<u64>, n_shards: u16): u64 {
-    let threshold = ((n_shards - 1) / 3 + 1) as u64;
-    take_threshold_value(vote_queue, threshold)
+    let threshold_weight = ((n_shards - 1) / 3 + 1) as u64;
+    take_threshold_value(vote_queue, threshold_weight)
 }
 
-fun take_threshold_value(vote_queue: &mut PriorityQueue<u64>, threshold: u64): u64 {
+fun take_threshold_value(vote_queue: &mut PriorityQueue<u64>, threshold_weight: u64): u64 {
     let mut sum_weight = 0;
+    // The loop will always succeed if `threshold_weight` is smaller than the total weight.
     loop {
         let (value, weight) = vote_queue.pop_max();
         sum_weight = sum_weight + weight;
-        if (sum_weight >= threshold) {
+        if (sum_weight >= threshold_weight) {
             return value
         };
     }
@@ -716,8 +716,7 @@ fun test_quorum_above() {
     let mut queue = priority_queue::new(vector[]);
     let votes = vector[1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
     let weights = vector[5, 5, 4, 6, 3, 7, 2, 8, 1, 9];
-    votes.zip_do!(weights, |vote, weight|
-    queue.insert(vote, weight));
+    votes.zip_do!(weights, |vote, weight| queue.insert(vote, weight));
     assert_eq!(quorum_above(&mut queue, 50), 4);
 }
 
@@ -726,8 +725,7 @@ fun test_quorum_above_all_above() {
     let mut queue = priority_queue::new(vector[]);
     let votes = vector[1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
     let weights = vector[17, 1, 1, 1, 3, 7, 2, 8, 1, 9];
-    votes.zip_do!(weights, |vote, weight|
-    queue.insert(vote, weight));
+    votes.zip_do!(weights, |vote, weight| queue.insert(vote, weight));
     assert_eq!(quorum_above(&mut queue, 50), 1);
 }
 
@@ -743,8 +741,7 @@ fun test_quorum_below() {
     let mut queue = priority_queue::new(vector[]);
     let votes = vector[1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
     let weights = vector[5, 5, 4, 6, 3, 7, 4, 6, 1, 9];
-    votes.zip_do!(weights, |vote, weight|
-    queue.insert(vote, weight));
+    votes.zip_do!(weights, |vote, weight| queue.insert(vote, weight));
     assert_eq!(quorum_below(&mut queue, 50), 7);
 }
 
@@ -753,8 +750,7 @@ fun test_quorum_below_all_below() {
     let mut queue = priority_queue::new(vector[]);
     let votes = vector[1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
     let weights = vector[5, 5, 4, 6, 3, 7, 1, 1, 1, 17];
-    votes.zip_do!(weights, |vote, weight|
-    queue.insert(vote, weight));
+    votes.zip_do!(weights, |vote, weight| queue.insert(vote, weight));
     assert_eq!(quorum_below(&mut queue, 50), 10);
 }
 
