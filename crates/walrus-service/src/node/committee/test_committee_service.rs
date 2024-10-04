@@ -102,6 +102,8 @@ impl NodeServiceFactory for ServiceFactoryMap {
         tracing::trace!("returning an infinitely pending service");
         Ok(tower::service_fn(|_request| std::future::pending()).boxed_clone())
     }
+
+    fn connect_timeout(&mut self, _timeout: Duration) {}
 }
 
 /// Returns true if there are any members that share the same public key.

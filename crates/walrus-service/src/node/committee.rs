@@ -3,7 +3,7 @@
 
 //! Walrus committee service and associated types.
 
-use std::{future::Future, num::NonZeroU16, sync::Arc};
+use std::{num::NonZeroU16, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use walrus_core::{
@@ -223,22 +223,7 @@ pub(crate) trait NodeServiceFactory: Send {
         info: &StorageNode,
         encoding_config: &Arc<EncodingConfig>,
     ) -> Result<Self::Service, ClientBuildError>;
-}
 
-#[async_trait]
-impl<F, S, Fut> NodeServiceFactory for F
-where
-    F: for<'a> FnMut(&'a StorageNode, &'a Arc<EncodingConfig>) -> Fut + Send,
-    Fut: Future<Output = Result<S, ClientBuildError>> + Send,
-    S: NodeService,
-{
-    type Service = S;
-
-    async fn make_service(
-        &mut self,
-        info: &StorageNode,
-        encoding_config: &Arc<EncodingConfig>,
-    ) -> Result<Self::Service, ClientBuildError> {
-        (self)(info, encoding_config).await
-    }
+    /// Set the timeout for any new connections to the storage node.
+    fn connect_timeout(&mut self, timeout: Duration);
 }

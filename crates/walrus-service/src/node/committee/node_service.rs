@@ -20,6 +20,7 @@ use std::{
     fmt::Debug,
     sync::Arc,
     task::{Context, Poll},
+    time::Duration,
 };
 
 use futures::{future::BoxFuture, FutureExt};
@@ -283,15 +284,24 @@ pub(crate) struct DefaultNodeServiceFactory {
     ///
     /// This speeds up the construction of new instances.
     pub disable_loading_native_certs: bool,
+
+    /// The timeout to configure when connecting to remote nodes.
+    pub connect_timeout: Option<Duration>,
 }
 
 impl DefaultNodeServiceFactory {
+    /// Sets the timeout for connecting to nodes, for all subsequently created nodes.
+    pub fn connect_timeout(&mut self, timeout: Duration) {
+        self.connect_timeout = Some(timeout);
+    }
+
     /// Skips the use of proxies or the loading of native certificates, as these require interacting
     /// with the operating system and can significantly slow down the construction of new instances.
     pub fn avoid_system_services() -> Self {
         Self {
             disable_use_proxy: true,
             disable_loading_native_certs: true,
+            connect_timeout: None,
         }
     }
 }
@@ -314,6 +324,9 @@ impl NodeServiceFactory for DefaultNodeServiceFactory {
         if self.disable_use_proxy {
             builder = builder.no_proxy();
         }
+        if let Some(timeout) = self.connect_timeout.as_ref() {
+            builder = builder.connect_timeout(*timeout);
+        }
 
         builder
             .build(&member.network_address.0)
@@ -321,5 +334,9 @@ impl NodeServiceFactory for DefaultNodeServiceFactory {
                 client,
                 encoding_config: encoding_config.clone(),
             })
+    }
+
+    fn connect_timeout(&mut self, timeout: Duration) {
+        self.connect_timeout(timeout);
     }
 }

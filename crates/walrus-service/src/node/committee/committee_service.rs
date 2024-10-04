@@ -106,7 +106,10 @@ where
         self
     }
 
-    pub async fn build<S>(self, lookup_service: S) -> Result<NodeCommitteeService<T>, anyhow::Error>
+    pub async fn build<S>(
+        mut self,
+        lookup_service: S,
+    ) -> Result<NodeCommitteeService<T>, anyhow::Error>
     where
         S: CommitteeLookupService + std::fmt::Debug + 'static,
     {
@@ -119,6 +122,9 @@ where
                 .current_committee()
                 .n_shards(),
         ));
+
+        self.service_factory
+            .connect_timeout(self.config.node_connect_timeout);
 
         let inner = NodeCommitteeServiceInner::new(
             committee_tracker,
