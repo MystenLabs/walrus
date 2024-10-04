@@ -39,8 +39,6 @@ use crate::common::utils::{self, LoadConfig};
 #[serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct StorageNodeConfig {
-    /// Name of the storage node.
-    pub name: String,
     /// Directory in which to persist the database
     #[serde(deserialize_with = "utils::resolve_home_dir")]
     pub storage_path: PathBuf,
@@ -86,6 +84,9 @@ pub struct StorageNodeConfig {
     pub commission_rate: u64,
     /// The parameters for the staking pool.
     pub voting_params: VotingParams,
+    /// Name of the storage node.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 impl StorageNodeConfig {
@@ -110,21 +111,20 @@ impl StorageNodeConfig {
             .get()
             .expect("key pair should already be loaded into memory")
     }
-}
 
-impl From<StorageNodeConfig> for NodeRegistrationParams {
-    fn from(value: StorageNodeConfig) -> Self {
-        let network_key_pair = value.network_key_pair();
-        let protocol_key_pair = value.protocol_key_pair();
-        Self {
-            name: value.name.clone(),
-            network_address: value.rest_api_address.into(),
+    /// Converts the configuration into a registration parameters used for node registration.
+    pub fn to_registration_params(&self, name: String) -> NodeRegistrationParams {
+        let network_key_pair = self.network_key_pair();
+        let protocol_key_pair = self.protocol_key_pair();
+        NodeRegistrationParams {
+            name,
+            network_address: self.rest_api_address.into(),
             public_key: protocol_key_pair.public().clone(),
             network_public_key: network_key_pair.public().clone(),
-            commission_rate: value.commission_rate,
-            storage_price: value.voting_params.storage_price,
-            write_price: value.voting_params.write_price,
-            node_capacity: value.voting_params.node_capacity,
+            commission_rate: self.commission_rate,
+            storage_price: self.voting_params.storage_price,
+            write_price: self.voting_params.write_price,
+            node_capacity: self.voting_params.node_capacity,
         }
     }
 }

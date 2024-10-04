@@ -265,9 +265,9 @@ pub enum CliCommands {
         #[clap(long)]
         /// The object ID of the storage node to stake with.
         node_id: ObjectID,
-        #[clap(short, long, default_value_t = default::staking_amount_wal())]
-        #[serde(default = "default::staking_amount_wal")]
-        /// The amount of WAL to stake with the storage node.
+        #[clap(short, long, default_value_t = default::staking_amount_frost())]
+        #[serde(default = "default::staking_amount_frost")]
+        /// The amount of FROST (smallest unit of WAL token) to stake with the storage node.
         amount: u64,
     },
 }
@@ -534,7 +534,7 @@ mod default {
             .expect("this is a correct socket address")
     }
 
-    pub(crate) fn staking_amount_wal() -> u64 {
+    pub(crate) fn staking_amount_frost() -> u64 {
         1_000_000_000
     }
 }

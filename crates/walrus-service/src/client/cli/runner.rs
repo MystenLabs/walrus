@@ -55,7 +55,7 @@ use crate::{
         Config,
         StoreWhen,
     },
-    utils::{self as ServiceUtils, MetricsAndLoggingRuntime},
+    utils::MetricsAndLoggingRuntime,
 };
 
 /// A helper struct to run commands for the Walrus client.
@@ -86,7 +86,7 @@ impl ClientCommandRunner {
             .as_ref()
             .ok()
             .and_then(|conf| conf.wallet_config.clone()));
-        let wallet = ServiceUtils::load_wallet_context(&wallet_path);
+        let wallet = crate::utils::load_wallet_context(&wallet_path);
 
         Self {
             wallet_path,

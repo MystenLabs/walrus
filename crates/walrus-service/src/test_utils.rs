@@ -1252,7 +1252,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
     let temp_dir = TempDir::new().expect("able to create a temporary directory");
     WithTempDir {
         inner: StorageNodeConfig {
-            name: "node".to_string(),
+            name: Some("node".to_string()),
             protocol_key_pair: walrus_core::test_utils::protocol_key_pair().into(),
             network_key_pair: walrus_core::test_utils::network_key_pair().into(),
             rest_api_address: unused_socket_address(),

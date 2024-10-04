@@ -20,7 +20,6 @@ use walrus_core::BlobId;
 use walrus_sui::client::{SuiContractClient, SuiReadClient};
 
 use super::{default_configuration_paths, Blocklist, Client, Config};
-use crate::utils as ServiceUtils;
 
 mod args;
 mod cli_output;
@@ -43,7 +42,7 @@ pub const DEFAULT_RPC_URL: &str = TESTNET_RPC;
 // NB: When making changes to the logic, make sure to update the argument docs in
 // `crates/walrus-service/bin/client.rs`.
 pub fn load_configuration(path: &Option<PathBuf>) -> Result<Config> {
-    let path = ServiceUtils::path_or_defaults_if_exist(path, &default_configuration_paths())
+    let path = crate::utils::path_or_defaults_if_exist(path, &default_configuration_paths())
         .ok_or(anyhow!("could not find a valid Walrus configuration file"))?;
     tracing::info!("using Walrus configuration from '{}'", path.display());
 

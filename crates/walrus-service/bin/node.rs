@@ -74,6 +74,10 @@ enum Commands {
         #[serde(deserialize_with = "crate::utils::resolve_home_dir")]
         /// The path to the node's configuration file.
         config_path: PathBuf,
+        #[clap(short, long)]
+        #[serde(default)]
+        /// The name of the node.
+        name: Option<String>,
     },
 }
 
@@ -88,13 +92,15 @@ fn main() -> anyhow::Result<()> {
 
         Commands::KeyGen { out } => commands::keygen(&out)?,
 
-        Commands::Register { config_path } => commands::register_node(config_path)?,
+        Commands::Register { config_path, name } => commands::register_node(config_path, name)?,
     }
     Ok(())
 }
 
 mod commands {
     use std::io;
+
+    use anyhow::anyhow;
 
     use super::*;
 
@@ -178,14 +184,28 @@ mod commands {
     }
 
     #[tokio::main]
-    pub(crate) async fn register_node(config_path: PathBuf) -> anyhow::Result<()> {
+    pub(crate) async fn register_node(
+        config_path: PathBuf,
+        name: Option<String>,
+    ) -> anyhow::Result<()> {
         let storage_config = StorageNodeConfig::load(&config_path)?;
+        let node_name = name.or(storage_config.name.clone()).ok_or(anyhow!(
+            "Name is required to register node. Set it in the config file or provided in the \
+                commandline argument."
+        ))?;
+        let registration_params = storage_config.to_registration_params(node_name);
 
         // Uses the Sui wallet configuration in the storage node config to register the node.
         let contract_client = get_contract_client_from_node_config(&storage_config).await?;
+        let proof_of_possession = walrus_sui::utils::generate_proof_of_possession(
+            storage_config.protocol_key_pair(),
+            &contract_client,
+            &registration_params,
+        )
+        .await?;
 
         let node_capability = contract_client
-            .register_candidate(&storage_config.into())
+            .register_candidate(&registration_params, &proof_of_possession)
             .await?;
 
         println!("Successfully registered storage node with capability:",);

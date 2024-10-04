@@ -501,7 +501,7 @@ pub async fn create_storage_node_configs(
         };
 
         storage_node_configs.push(StorageNodeConfig {
-            name: node.name,
+            name: Some(node.name),
             storage_path,
             protocol_key_pair: node.keypair.into(),
             network_key_pair: node.network_keypair.into(),

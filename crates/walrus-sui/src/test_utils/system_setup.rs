@@ -21,10 +21,7 @@ use sui_types::{
     TypeTag,
     SUI_FRAMEWORK_PACKAGE_ID,
 };
-use walrus_core::{
-    keys::{NetworkKeyPair, ProtocolKeyPair},
-    messages::ProofOfPossessionMsg,
-};
+use walrus_core::keys::{NetworkKeyPair, ProtocolKeyPair};
 
 use super::{default_protocol_keypair, DEFAULT_GAS_BUDGET};
 use crate::{
@@ -200,13 +197,12 @@ pub async fn register_committee_and_stake(
         .zip(contract_clients)
         .zip(amounts_to_stake)
     {
-        let epoch = contract_client.current_committee().await?.epoch;
-        let sui_address = contract_client.address().to_inner();
-        let proof_of_possession = bls_sk.sign_message(&ProofOfPossessionMsg::new(
-            epoch,
-            sui_address,
-            storage_node_params.public_key.clone(),
-        ));
+        let proof_of_possession = crate::utils::generate_proof_of_possession(
+            bls_sk,
+            contract_client,
+            storage_node_params,
+        )
+        .await?;
         let node_cap = contract_client
             .register_candidate(storage_node_params, &proof_of_possession)
             .await?;

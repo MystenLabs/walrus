@@ -90,4 +90,3 @@ voting_params:
 #     target_file_size_base: 67108864
 #     max_bytes_for_level_base: 536870912
 # commission_rate: 0
-# node_id: 0x222

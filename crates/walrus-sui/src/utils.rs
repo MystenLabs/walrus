@@ -39,11 +39,17 @@ use sui_types::{
     transaction::{ProgrammableTransaction, TransactionData},
     TypeTag,
 };
-use walrus_core::{encoding::encoded_blob_length_for_n_shards, EpochCount};
+use walrus_core::{
+    encoding::encoded_blob_length_for_n_shards,
+    keys::ProtocolKeyPair,
+    messages::{ProofOfPossessionMsg, SignedMessage},
+    EpochCount,
+};
 
 use crate::{
-    client::SuiClientResult,
+    client::{ReadClient, SuiClientResult, SuiContractClient},
     contracts::{self, AssociatedContractStruct},
+    types::NodeRegistrationParams,
 };
 
 // Keep in sync with the same constant in `contracts/walrus/sources/system.move`.
@@ -464,6 +470,21 @@ async fn get_owned_object_data<'a>(
         resp.data
             .ok_or_else(|| anyhow!("response does not contain object data"))
     }))
+}
+
+/// Generate a proof of possession of node private key for a storage node.
+pub async fn generate_proof_of_possession(
+    bls_sk: &ProtocolKeyPair,
+    contract_client: &SuiContractClient,
+    registration_params: &NodeRegistrationParams,
+) -> SuiClientResult<SignedMessage<ProofOfPossessionMsg>> {
+    let epoch = contract_client.current_committee().await?.epoch;
+    let sui_address = contract_client.address().to_inner();
+    Ok(bls_sk.sign_message(&ProofOfPossessionMsg::new(
+        epoch,
+        sui_address,
+        registration_params.public_key.clone(),
+    )))
 }
 
 // Macros

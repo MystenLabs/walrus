@@ -20,7 +20,6 @@ use sui_sdk::{
     SuiClient,
 };
 use tokio::{sync::Mutex, task::JoinHandle, time::MissedTickBehavior};
-use walrus_service::utils as ServiceUtils;
 use walrus_sui::utils::{send_faucet_request, sign_and_send_ptb, SuiNetwork};
 
 use crate::metrics::ClientMetrics;
@@ -137,7 +136,7 @@ impl FaucetOrWallet {
                 "Creating gas refill station from wallet: {:?}",
                 &wallet_path
             );
-            let wallet = ServiceUtils::load_wallet_context(&Some(wallet_path))?;
+            let wallet = walrus_service::utils::load_wallet_context(&Some(wallet_path))?;
             Ok(Self::new_wallet(wallet)?)
         } else {
             tracing::info!("Created gas refill station from faucet: {:?}", &sui_network);

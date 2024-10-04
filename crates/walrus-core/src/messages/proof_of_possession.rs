@@ -22,7 +22,7 @@ pub struct ProofOfPossessionMsg(pub(crate) ProtocolMessage<ProofOfPossessionBody
 impl ProofOfPossessionMsg {
     const INTENT: Intent = Intent::storage(IntentType::PROOF_OF_POSSESSION_MSG);
 
-    /// Creates a new confirmation message for the provided blob ID.
+    /// Creates a new `ProofOfPossessionMsg` with the given epoch, sui address, and BLS public key.
     pub fn new(epoch: Epoch, sui_address: [u8; 32], bls_public_key: PublicKey) -> Self {
         Self(ProtocolMessage {
             intent: Intent::storage(IntentType::PROOF_OF_POSSESSION_MSG),
