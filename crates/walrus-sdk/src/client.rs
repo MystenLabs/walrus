@@ -200,7 +200,16 @@ pub struct ClientBuilder {
 
 impl ClientBuilder {
     /// Default timeout that is configured for connecting to the remote server.
-    const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(1);
+    ///
+    /// Modern advice is that TCP implementations should have a retry timeout of 1 second
+    /// (previously, it was 3 seconds). In the event of a lossy network, the SYN/SYN-ACK
+    /// packets may be lost necessitating one or several retries until actually connecting to the
+    /// server. We therefore want to allow for several retries.
+    ///
+    /// The default of 5 seconds should allow for around 2-3 SYN attempts before failing.
+    ///
+    /// See RFC6298 for more information.
+    const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
     /// Creates a new builder to construct a [`Client`].
     pub fn new() -> Self {
@@ -259,7 +268,7 @@ impl ClientBuilder {
 
     /// Set a timeout for only the connect phase of a Client.
     ///
-    /// The default is 1 second.
+    /// The default is 5 seconds.
     pub fn connect_timeout(mut self, timeout: Duration) -> Self {
         self.connect_timeout = Some(timeout);
         self
