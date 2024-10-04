@@ -169,7 +169,7 @@ public(package) fun create_pool(
         network_address,
         public_key,
         network_public_key,
-    proof_of_possession,
+        proof_of_possession,
         commission_rate,
         storage_price,
         write_price,
