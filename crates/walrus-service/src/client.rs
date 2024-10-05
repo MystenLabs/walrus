@@ -234,8 +234,8 @@ impl<T: ContractClient> Client<T> {
             symbol_size=%symbol_size,
             primary_sliver_size=%pair.primary.symbols.len() * usize::from(symbol_size),
             secondary_sliver_size=%pair.secondary.symbols.len() * usize::from(symbol_size),
-            duration = ?encode_duration,
-            "computed blob pairs and metadata"
+            duration = %humantime::Duration::from(encode_duration),
+            "computed sliver pairs and metadata"
         );
 
         let blob_status = self
@@ -264,23 +264,23 @@ impl<T: ContractClient> Client<T> {
                 // However, during epoch change we may need to store the slivers again, as the
                 // current committee may not have synced them yet.
                 self.get_certificate_standalone(&blob_id, certified_epoch)
-                    .await
+                    .await?
             }
             _ => {
                 let certify_start_timer = Instant::now();
                 let result = self
                     .send_blob_data_and_get_certificate(&metadata, &pairs)
-                    .await;
+                    .await?;
                 let certify_duration = certify_start_timer.elapsed();
                 let blob_size = blob.size;
                 tracing::info!(
-                    duration = ?certify_duration,
+                    duration =  %humantime::Duration::from(certify_duration),
                     blob_size = blob_size,
-                    "send blob data and get certificate"
+                    "finished sending blob data and collected certificate"
                 );
                 result
             }
-        }?;
+        };
 
         self.sui_client
             .certify_blob(blob.clone(), &certificate)
