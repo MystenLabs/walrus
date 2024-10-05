@@ -89,7 +89,7 @@ impl CliOutput for BlobStoreResult {
                     Blob ID: {}\n\
                     Sui object ID: {}\n\
                     Unencoded size: {}\n\
-                    Encoded size (including metadata): {}\n\
+                    Encoded size (including replicated metadata): {}\n\
                     Cost (excluding gas): {} {}",
                     success(),
                     if blob_object.deletable {
@@ -98,9 +98,9 @@ impl CliOutput for BlobStoreResult {
                         "Permanent"
                     },
                     blob_object.blob_id,
+                    blob_object.id,
                     HumanReadableBytes(blob_object.size),
                     HumanReadableBytes(resource_operation.encoded_length()),
-                    blob_object.id,
                     HumanReadableFrost::from(*cost),
                     operation_str,
                 )
@@ -149,7 +149,7 @@ impl CliOutput for DryRunOutput {
             "{} Store dry-run succeeded.\n\
                 Blob ID: {}\n\
                 Unencoded size: {}\n\
-                Encoded size (including metadata): {}\n\
+                Encoded size (including replicated metadata): {}\n\
                 Cost (excluding gas): {}\n",
             success(),
             self.blob_id,
