@@ -43,6 +43,7 @@ pub struct StorageNodeConfig {
     #[serde(deserialize_with = "utils::resolve_home_dir")]
     pub storage_path: PathBuf,
     /// Option config to tune storage db
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub db_config: Option<DatabaseConfig>,
     /// Key pair used in Walrus protocol messages
     #[serde_as(as = "PathOrInPlace<Base64>")]
@@ -66,15 +67,16 @@ pub struct StorageNodeConfig {
     )]
     pub rest_graceful_shutdown_period_secs: Option<Option<u64>>,
     /// Sui config for the node
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sui: Option<SuiConfig>,
     /// Configuration of blob synchronization
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub blob_recovery: BlobRecoveryConfig,
     /// Configuration for TLS of the rest API.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub tls: TlsConfig,
     /// Configuration for shard synchronization.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub shard_sync_config: ShardSyncConfig,
     /// Configuration for running checkpoint processor
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -87,6 +89,32 @@ pub struct StorageNodeConfig {
     /// Name of the storage node.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+}
+
+impl Default for StorageNodeConfig {
+    fn default() -> Self {
+        Self {
+            storage_path: PathBuf::from("db"),
+            db_config: Default::default(),
+            protocol_key_pair: PathOrInPlace::InPlace(ProtocolKeyPair::generate()),
+            network_key_pair: PathOrInPlace::InPlace(NetworkKeyPair::generate()),
+            metrics_address: defaults::metrics_address(),
+            rest_api_address: defaults::rest_api_address(),
+            rest_graceful_shutdown_period_secs: defaults::rest_graceful_shutdown_period_secs(),
+            sui: Default::default(),
+            blob_recovery: Default::default(),
+            tls: Default::default(),
+            shard_sync_config: Default::default(),
+            event_processor_config: Default::default(),
+            commission_rate: 0,
+            voting_params: VotingParams {
+                storage_price: 5,
+                write_price: 1,
+                node_capacity: 250_000_000_000,
+            },
+            name: Default::default(),
+        }
+    }
 }
 
 impl StorageNodeConfig {
@@ -130,7 +158,7 @@ impl StorageNodeConfig {
 }
 
 /// Configuration for TLS of the rest API.
-#[derive(Debug, Default, Clone, Deserialize, Serialize)]
+#[derive(Debug, Default, Clone, Deserialize, Serialize, PartialEq)]
 pub struct TlsConfig {
     /// Do not use TLS on the REST API.
     ///
@@ -145,7 +173,7 @@ pub struct TlsConfig {
 }
 
 /// Paths to a TLS certificate and key.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct TlsCertificateAndKey {
     /// Path to the PEM-encoded x509 certificate.
     pub certificate_path: PathBuf,
@@ -157,7 +185,7 @@ impl LoadConfig for StorageNodeConfig {}
 
 /// Configuration of a Walrus storage node.
 #[serde_as]
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(default)]
 pub struct BlobRecoveryConfig {
     /// The number of in-parallel blobs synchronized
@@ -181,7 +209,7 @@ impl Default for BlobRecoveryConfig {
 
 /// Configuration of a Walrus storage node.
 #[serde_as]
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(default)]
 pub struct CommitteeServiceConfig {
     /// The minimum number of seconds to wait before retrying an operation.
@@ -228,7 +256,7 @@ impl Default for CommitteeServiceConfig {
 
 /// Configuration for Walrus storage node shard synchronization.
 #[serde_as]
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(default)]
 pub struct ShardSyncConfig {
     /// The number of slivers to fetch in a single sync shard request.
@@ -338,6 +366,11 @@ pub mod defaults {
     pub(super) const fn rest_graceful_shutdown_period_secs() -> Option<Option<u64>> {
         Some(Some(REST_GRACEFUL_SHUTDOWN_PERIOD_SECS))
     }
+
+    /// Returns true iff the value is the default.
+    pub fn is_default<T: PartialEq + Default>(t: &T) -> bool {
+        t == &T::default()
+    }
 }
 
 /// Enum that represents a configuration value being preset or at a path.
@@ -386,6 +419,11 @@ impl<T> PathOrInPlace<T> {
         } else {
             None
         }
+    }
+
+    /// Returns true iff the value is in-place.
+    pub const fn is_path(&self) -> bool {
+        matches!(self, PathOrInPlace::Path { .. })
     }
 }
 

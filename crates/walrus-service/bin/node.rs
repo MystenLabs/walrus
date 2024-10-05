@@ -6,7 +6,7 @@
 use std::{
     fs,
     io::{self, Write},
-    net::{IpAddr, Ipv4Addr},
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -16,6 +16,7 @@ use clap::{Parser, Subcommand};
 use fastcrypto::traits::KeyPair;
 use prometheus::Registry;
 use serde::Deserialize;
+use sui_types::base_types::ObjectID;
 use tokio::{
     runtime::{self, Runtime},
     sync::oneshot,
@@ -26,7 +27,7 @@ use walrus_core::keys::ProtocolKeyPair;
 use walrus_event::{event_processor::EventProcessor, EventProcessorConfig};
 use walrus_service::{
     node::{
-        config::{StorageNodeConfig, SuiConfig},
+        config::{self, StorageNodeConfig, SuiConfig},
         server::{UserServer, UserServerConfig},
         system_events::{EventManager, SuiSystemEventProvider},
         StorageNode,
@@ -49,6 +50,7 @@ struct Args {
 
 #[derive(Subcommand, Debug, Clone, Deserialize)]
 #[clap(rename_all = "kebab-case")]
+#[allow(clippy::large_enum_variant)]
 enum Commands {
     /// Run a storage node with the provided configuration.
     Run {
@@ -66,6 +68,9 @@ enum Commands {
         /// not overwritten and the operation will fail.
         #[clap(default_value = "protocol.key")]
         out: PathBuf,
+        /// Whether to generate a network key instead of a protocol key.
+        #[clap(short, long, default_value_t = false)]
+        network_key: bool,
     },
 
     /// Register a new node with the Walrus storage network.
@@ -79,6 +84,70 @@ enum Commands {
         /// The name of the node.
         name: Option<String>,
     },
+    GenerateConfig {
+        #[clap(long)]
+        #[serde(deserialize_with = "crate::utils::resolve_home_dir")]
+        /// The path where walrus node database will be stored.
+        storage_path: PathBuf,
+        #[clap(long)]
+        #[serde(deserialize_with = "crate::utils::resolve_home_dir")]
+        /// The path to the key pair used in Walrus protocol messages
+        protocol_key_pair_path: PathBuf,
+        #[clap(long)]
+        #[serde(deserialize_with = "crate::utils::resolve_home_dir")]
+        /// The path to the key pair used to authenticate nodes in network communication.
+        network_key_pair_path: PathBuf,
+        #[clap(long)]
+        /// HTTP URL of the Sui full-node RPC endpoint (including scheme).
+        sui_rpc: String,
+        #[clap(long)]
+        /// Object ID of walrus system object.
+        system_object: ObjectID,
+        #[clap(long)]
+        /// Object ID of walrus staking object.
+        staking_object: ObjectID,
+        #[clap(long)]
+        #[serde(deserialize_with = "utils::resolve_home_dir")]
+        /// Location of the node wallet config.
+        wallet_config: PathBuf,
+        #[clap(long)]
+        /// Storage price for the first epoch this node joins as committee.
+        storage_price: u64,
+        #[clap(long)]
+        /// Write price for the first epoch this node joins as committee.
+        write_price: u64,
+        #[clap(long)]
+        /// Node capacity for the first epoch this node joins as committee.
+        node_capacity: u64,
+        // ***************************
+        //   Optional fields below
+        // ***************************
+        #[clap(long, default_value_t = config::defaults::gas_budget())]
+        #[serde(default = "config::defaults::gas_budget")]
+        /// Gas budget for transactions.
+        gas_budget: u64,
+        #[clap(long, default_value_t = config::defaults::rest_api_address())]
+        #[serde(default = "config::defaults::rest_api_address")]
+        /// Socket address on which the REST API listens.
+        rest_api_address: SocketAddr,
+        #[clap(long, default_value_t = config::defaults::metrics_address())]
+        #[serde(default = "config::defaults::metrics_address")]
+        /// Socket address on which the Prometheus server should export its metrics.
+        metrics_address: SocketAddr,
+        #[clap(long)]
+        #[serde(default)]
+        /// The commission rate of the storage node, in basis points.
+        commission_rate: Option<u64>,
+        #[clap(long)]
+        #[serde(default)]
+        /// The name of the storage node used in registration.
+        name: Option<String>,
+        #[clap(short, long)]
+        #[serde(deserialize_with = "crate::utils::resolve_home_dir_option")]
+        #[serde(default)]
+        /// The output path for the generated configuration file.
+        config_path: Option<PathBuf>,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -90,9 +159,11 @@ fn main() -> anyhow::Result<()> {
             cleanup_storage,
         } => commands::run(StorageNodeConfig::load(config_path)?, cleanup_storage)?,
 
-        Commands::KeyGen { out } => commands::keygen(&out)?,
+        Commands::KeyGen { out, network_key } => commands::keygen(&out, network_key)?,
 
         Commands::Register { config_path, name } => commands::register_node(config_path, name)?,
+
+        args @ Commands::GenerateConfig { .. } => commands::generate_config(args)?,
     }
     Ok(())
 }
@@ -101,6 +172,9 @@ mod commands {
     use std::io;
 
     use anyhow::anyhow;
+    use config::PathOrInPlace;
+    use walrus_core::keys::NetworkKeyPair;
+    use walrus_sui::types::move_structs::VotingParams;
 
     use super::*;
 
@@ -174,11 +248,15 @@ mod commands {
         node_runtime.join()
     }
 
-    pub(super) fn keygen(path: &Path) -> anyhow::Result<()> {
+    pub(super) fn keygen(path: &Path, network_key: bool) -> anyhow::Result<()> {
         let mut file = std::fs::File::create_new(path)
             .with_context(|| format!("Cannot create a the keyfile '{}'", path.display()))?;
 
-        file.write_all(ProtocolKeyPair::generate().to_base64().as_bytes())?;
+        if network_key {
+            file.write_all(NetworkKeyPair::generate().to_base64().as_bytes())?;
+        } else {
+            file.write_all(ProtocolKeyPair::generate().to_base64().as_bytes())?;
+        }
 
         Ok(())
     }
@@ -188,11 +266,23 @@ mod commands {
         config_path: PathBuf,
         name: Option<String>,
     ) -> anyhow::Result<()> {
-        let storage_config = StorageNodeConfig::load(&config_path)?;
+        let mut storage_config = StorageNodeConfig::load(&config_path)?;
         let node_name = name.or(storage_config.name.clone()).ok_or(anyhow!(
             "Name is required to register node. Set it in the config file or provided in the \
                 commandline argument."
         ))?;
+
+        if storage_config.protocol_key_pair.is_path() {
+            storage_config.protocol_key_pair.load()?;
+        } else {
+            bail!("storage config protocol keys must be loaded from a key file");
+        }
+
+        if storage_config.network_key_pair.is_path() {
+            storage_config.network_key_pair.load()?;
+        } else {
+            bail!("storage config network keys must be loaded from a key file");
+        }
         let registration_params = storage_config.to_registration_params(node_name);
 
         // Uses the Sui wallet configuration in the storage node config to register the node.
@@ -211,6 +301,70 @@ mod commands {
         println!("Successfully registered storage node with capability:",);
         println!("      Capability object ID: {}", node_capability.id);
         println!("      Node ID: {}", node_capability.node_id);
+        Ok(())
+    }
+
+    pub(crate) fn generate_config(args: Commands) -> anyhow::Result<()> {
+        let Commands::GenerateConfig {
+            storage_path,
+            protocol_key_pair_path,
+            network_key_pair_path,
+            sui_rpc,
+            system_object,
+            staking_object,
+            wallet_config,
+            storage_price,
+            write_price,
+            node_capacity,
+            gas_budget,
+            rest_api_address,
+            metrics_address,
+            commission_rate,
+            name,
+            config_path,
+        } = args
+        else {
+            unreachable!()
+        };
+
+        let mut config = StorageNodeConfig::default();
+        config.storage_path = storage_path;
+        config.protocol_key_pair = PathOrInPlace::from_path(protocol_key_pair_path);
+        config.network_key_pair = PathOrInPlace::from_path(network_key_pair_path);
+        config.sui = Some(SuiConfig {
+            rpc: sui_rpc,
+            system_object,
+            staking_object,
+            wallet_config,
+            event_polling_interval: config::defaults::polling_interval(),
+            gas_budget,
+        });
+        config.voting_params = VotingParams {
+            storage_price,
+            write_price,
+            node_capacity,
+        };
+
+        if let Some(commission_rate) = commission_rate {
+            config.commission_rate = commission_rate;
+        }
+        config.rest_api_address = rest_api_address;
+        config.metrics_address = metrics_address;
+        config.name = name;
+
+        // Generates config file.
+        let yaml_config =
+            serde_yaml::to_string(&config).context("Failed to serialize configuration to YAML")?;
+        if let Some(config_path) = config_path {
+            fs::write(&config_path, yaml_config)
+                .context("Failed to write the generated configuration to a file")?;
+            println!(
+                "Storage node configuration written to '{}'",
+                config_path.display()
+            );
+        } else {
+            println!("{}", yaml_config);
+        }
         Ok(())
     }
 }
@@ -451,7 +605,7 @@ mod tests {
         let dir = TempDir::new()?;
         let filename = dir.path().join("keyfile.key");
 
-        commands::keygen(&filename)?;
+        commands::keygen(&filename, false)?;
 
         let file_content = std::fs::read_to_string(filename)
             .expect("a file should have been created with the key");
@@ -476,7 +630,7 @@ mod tests {
 
         std::fs::write(filename.as_path(), "original-file-contents".as_bytes())?;
 
-        commands::keygen(&filename).expect_err("must fail as the file already exists");
+        commands::keygen(&filename, false).expect_err("must fail as the file already exists");
 
         let file_content = std::fs::read_to_string(filename).expect("the file should still exist");
         assert_eq!(file_content, "original-file-contents");
