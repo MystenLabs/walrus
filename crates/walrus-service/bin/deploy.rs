@@ -15,7 +15,10 @@ use clap::{Parser, Subcommand};
 use humantime::Duration;
 use tokio::sync::oneshot;
 use walrus_service::{
-    node::config::defaults::{METRICS_PORT, REST_API_PORT},
+    node::config::{
+        self,
+        defaults::{METRICS_PORT, REST_API_PORT},
+    },
     testbed,
     utils::version,
 };
@@ -75,11 +78,11 @@ struct DeploySystemContractArgs {
     testbed_config_path: Option<PathBuf>,
     // Note: The storage unit is set in `crates/walrus-sui/utils.rs`. Change the unit in
     // the doc comment here if it changes.
-    /// The price to set per unit of storage (1 KiB) and epoch.
-    #[arg(long, default_value_t = 50)]
+    /// The price in FROST to set per unit of storage (1 KiB) per epoch.
+    #[arg(long, default_value_t = config::defaults::storage_price())]
     storage_price: u64,
-    /// The price to set for writing one unit of storage (1 KiB).
-    #[arg(long, default_value_t = 50)]
+    /// The price in FROST to set for writing one unit of storage (1 KiB).
+    #[arg(long, default_value_t = config::defaults::write_price())]
     write_price: u64,
     /// The storage capacity in bytes to deploy the system with.
     #[arg(long, default_value_t = 1_000_000_000_000)]

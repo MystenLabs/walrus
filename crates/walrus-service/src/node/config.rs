@@ -108,8 +108,8 @@ impl Default for StorageNodeConfig {
             event_processor_config: Default::default(),
             commission_rate: 0,
             voting_params: VotingParams {
-                storage_price: 5,
-                write_price: 1,
+                storage_price: defaults::storage_price(),
+                write_price: defaults::write_price(),
                 node_capacity: 250_000_000_000,
             },
             name: Default::default(),
@@ -367,6 +367,16 @@ pub mod defaults {
         Some(Some(REST_GRACEFUL_SHUTDOWN_PERIOD_SECS))
     }
 
+    /// The default vote for the storage price.
+    pub fn storage_price() -> u64 {
+        5
+    }
+
+    /// The default vote for the write price.
+    pub fn write_price() -> u64 {
+        1
+    }
+
     /// Returns true iff the value is the default.
     pub fn is_default<T: PartialEq + Default>(t: &T) -> bool {
         t == &T::default()
@@ -421,7 +431,7 @@ impl<T> PathOrInPlace<T> {
         }
     }
 
-    /// Returns true iff the value is in-place.
+    /// Returns true iff the value is a path.
     pub const fn is_path(&self) -> bool {
         matches!(self, PathOrInPlace::Path { .. })
     }
