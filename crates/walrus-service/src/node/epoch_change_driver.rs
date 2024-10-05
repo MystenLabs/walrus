@@ -16,7 +16,6 @@ use std::{
 use chrono::{DateTime, TimeDelta, Utc};
 use futures::{future::BoxFuture, FutureExt};
 use rand::{rngs::StdRng, Rng, SeedableRng};
-use tracing::Instrument;
 use walrus_core::Epoch;
 use walrus_sui::{
     client::FixedSystemParameters,
@@ -101,36 +100,59 @@ impl EpochChangeDriver {
         .await
     }
 
+    /// Fetches the state of the current epoch, and schedules all applicable calls.
+    ///
+    /// This method should be used after a restart of the storage node to schedule calls for the
+    /// current state, in the event that the events that would otherwise trigger such calls has
+    /// already been processed.
+    ///
+    /// This function may fail if it is unable to get the current epoch's state. See the individual
+    /// `schedule_*` methods for alternatives that will retry until successful.
+    pub async fn schedule_relevant_calls_for_current_epoch(&self) -> Result<(), anyhow::Error> {
+        let (epoch, state) = self.contract_service.get_epoch_and_state().await?;
+        let next_epoch = NonZero::new(epoch + 1).expect("incremented value is non-zero");
+
+        match state {
+            EpochState::EpochChangeSync(_) => (),
+            EpochState::EpochChangeDone(_) => self.schedule_voting_end(next_epoch),
+            EpochState::NextParamsSelected(_) => self.schedule_initiate_epoch_change(next_epoch),
+        }
+
+        Ok(())
+    }
+
     /// Schedule a call to end voting for the next epoch that will be dispatched by
     /// [`run()`][Self::run].
     ///
     /// Should be called after [`EpochChangeDone`] events. Subsequent calls to this
     /// method cancel any earlier scheduled calls to end voting.
+    #[tracing::instrument(skip_all)]
     pub fn schedule_voting_end(&self, next_epoch: NonZero<Epoch>) {
         let mut inner = self.inner.lock().expect("thread did not panic with lock");
 
-        if inner.end_voting_future.is_some() {
-            tracing::debug!("replacing end-voting future");
+        if let Some((ref epoch_of_future, _)) = inner.end_voting_future {
+            tracing::debug!(
+                prior_epoch = epoch_of_future,
+                new_epoch = next_epoch.get(),
+                "replacing end-voting future"
+            );
         }
 
-        let end_voting_future = ScheduledEpochOperation {
-            operation: VotingEndOperation {
+        let end_voting_future = ScheduledEpochOperation::new(
+            VotingEndOperation {
                 epoch_under_vote: next_epoch,
                 system_params: self.system_parameters.clone(),
             },
-            rng: StdRng::from_seed(inner.rng.gen()),
-            contract_service: self.contract_service.clone(),
-            time_fn: self.utc_now_fn.clone(),
-        }
+            self.system_parameters.epoch_duration,
+            self.contract_service.clone(),
+            self.utc_now_fn.clone(),
+            &mut inner.rng,
+        )
         .wait_then_call();
 
-        inner.end_voting_future = Some((
-            next_epoch.get(),
-            end_voting_future
-                .instrument(tracing::info_span!("scheduled_end_voting"))
-                .boxed(),
-        ));
+        inner.end_voting_future = Some((next_epoch.get(), end_voting_future.boxed()));
 
+        tracing::debug!(walrus.epoch = next_epoch, "scheduled voting end");
         inner.wake();
     }
 
@@ -142,6 +164,13 @@ impl EpochChangeDriver {
         if let Some((ref epoch_of_scheduled_future, _)) = inner.end_voting_future {
             if epoch == *epoch_of_scheduled_future {
                 inner.end_voting_future = None;
+                tracing::debug!(walrus.epoch = epoch, "cancelled voting end operation");
+            } else {
+                tracing::debug!(
+                    scheduled_epoch = epoch_of_scheduled_future,
+                    requested_epoch = epoch,
+                    "did not cancel voting end operation as epochs did not match"
+                );
             }
         }
     }
@@ -151,42 +180,55 @@ impl EpochChangeDriver {
     ///
     /// Should be called after [`NextParamsSelected`] events. Subsequent calls to this
     /// method cancel any earlier scheduled calls.
+    #[tracing::instrument(skip_all)]
     pub fn schedule_initiate_epoch_change(&self, next_epoch: NonZero<Epoch>) {
         let mut inner = self.inner.lock().expect("thread did not panic with lock");
 
-        if inner.epoch_change_start_future.is_some() {
-            tracing::debug!("replacing epoch-change-start future");
+        if let Some((ref epoch_of_future, _)) = inner.epoch_change_start_future {
+            tracing::debug!(
+                prior_epoch = epoch_of_future,
+                new_epoch = next_epoch.get(),
+                "replacing epoch-change-start future"
+            );
         }
 
-        let epoch_change_start_future = ScheduledEpochOperation {
-            operation: InitiateEpochChangeOperation {
+        let epoch_change_start_future = ScheduledEpochOperation::new(
+            InitiateEpochChangeOperation {
                 next_epoch,
                 system_params: self.system_parameters.clone(),
             },
-            rng: StdRng::from_seed(inner.rng.gen()),
-            contract_service: self.contract_service.clone(),
-            time_fn: self.utc_now_fn.clone(),
-        }
+            self.system_parameters.epoch_duration,
+            self.contract_service.clone(),
+            self.utc_now_fn.clone(),
+            &mut inner.rng,
+        )
         .wait_then_call();
 
-        inner.epoch_change_start_future = Some((
-            next_epoch.get(),
-            epoch_change_start_future
-                .instrument(tracing::info_span!("scheduled_initiate_epoch_change"))
-                .boxed(),
-        ));
+        inner.epoch_change_start_future =
+            Some((next_epoch.get(), epoch_change_start_future.boxed()));
 
+        tracing::debug!(
+            walrus.epoch = next_epoch,
+            "scheduled initiation of epoch change"
+        );
         inner.wake();
     }
 
     /// Cancels the call to initiate epoch change that was scheduled with
-    /// [`scheduled_initiate_epoch_change()`][Self::scheduled_initiate_epoch_change].
+    /// [`schedule_initiate_epoch_change()`][Self::schedule_initiate_epoch_change].
     pub fn cancel_scheduled_epoch_change_initiation(&self, epoch: Epoch) {
         let mut inner = self.inner.lock().expect("thread did not panic with lock");
 
         if let Some((ref epoch_of_scheduled_future, _)) = inner.end_voting_future {
             if epoch == *epoch_of_scheduled_future {
                 inner.epoch_change_start_future = None;
+                tracing::debug!(walrus.epoch = epoch, "cancelled epoch change initiation");
+            } else {
+                tracing::debug!(
+                    scheduled_epoch = epoch_of_scheduled_future,
+                    requested_epoch = epoch,
+                    "did not cancel epoch change initiation as epochs did not match"
+                );
             }
         }
     }
@@ -256,19 +298,23 @@ impl Future for EpochChangeDriverInner<'_> {
             .get_or_insert_with(|| cx.waker().clone())
             .clone_from(cx.waker());
 
-        if let Some((_, end_voting_future)) = this.end_voting_future.as_mut() {
-            if let Poll::Ready(()) = end_voting_future.poll_unpin(cx) {
-                tracing::trace!("voting-end future completed");
-                this.end_voting_future = None;
+        tracing::info_span!("scheduled_end_voting").in_scope(|| {
+            if let Some((_, end_voting_future)) = this.end_voting_future.as_mut() {
+                if let Poll::Ready(()) = end_voting_future.poll_unpin(cx) {
+                    tracing::trace!("voting-end future completed");
+                    this.end_voting_future = None;
+                }
             }
-        }
+        });
 
-        if let Some((_, epoch_change_start)) = this.epoch_change_start_future.as_mut() {
-            if let Poll::Ready(()) = epoch_change_start.poll_unpin(cx) {
-                tracing::trace!("epoch-change-start future completed");
-                this.epoch_change_start_future = None;
+        tracing::info_span!("scheduled_initiate_epoch_change").in_scope(|| {
+            if let Some((_, epoch_change_start)) = this.epoch_change_start_future.as_mut() {
+                if let Poll::Ready(()) = epoch_change_start.poll_unpin(cx) {
+                    tracing::trace!("epoch-change-start future completed");
+                    this.epoch_change_start_future = None;
+                }
             }
-        }
+        });
 
         // This future never completes, as this is an infinite task.
         Poll::Pending
@@ -314,6 +360,10 @@ trait EpochOperation {
 struct ScheduledEpochOperation<T> {
     /// The operation that will be scheduled and invoked.
     operation: T,
+    /// The maximum amount of jitter added to a scheduled call.
+    ///
+    /// Is set to `max(0.1 * epoch_duration, MAX_SCHEDULE_JITTER)`.
+    max_jitter: Duration,
 
     contract_service: Arc<dyn SystemContractService>,
     time_fn: UtcNowFn,
@@ -321,6 +371,22 @@ struct ScheduledEpochOperation<T> {
 }
 
 impl<T: EpochOperation> ScheduledEpochOperation<T> {
+    fn new(
+        operation: T,
+        epoch_duration: Duration,
+        contract_service: Arc<dyn SystemContractService>,
+        time_fn: UtcNowFn,
+        rng: &mut StdRng,
+    ) -> Self {
+        Self {
+            operation,
+            contract_service,
+            time_fn,
+            max_jitter: std::cmp::min(MAX_SCHEDULE_JITTER, epoch_duration / 10),
+            rng: StdRng::seed_from_u64(rng.gen()),
+        }
+    }
+
     /// Invoke the stored operation after its selected delay, retrying if it fails.
     #[tracing::instrument(skip_all)]
     async fn wait_then_call(mut self) {
@@ -330,7 +396,7 @@ impl<T: EpochOperation> ScheduledEpochOperation<T> {
             let backoff_duration = backoff.next_delay(&mut self.rng).expect("infinite backoff");
             tracing::debug!(
                 %error,
-                "attempt to failed, waiting {backoff_duration:?} until next attempt"
+                "attempt failed, waiting {backoff_duration:?} until next attempt"
             );
             tokio::time::sleep(backoff_duration).await;
         }
@@ -352,7 +418,7 @@ impl<T: EpochOperation> ScheduledEpochOperation<T> {
             tracing::debug!("operation signalled that it is already complete");
             return Ok(());
         };
-        let schedule_jitter = jitter(MAX_SCHEDULE_JITTER, &mut self.rng);
+        let schedule_jitter = jitter(self.max_jitter, &mut self.rng);
 
         tracing::debug!(
             "scheduling operation to be called in {wait_duration:.0?} (+{schedule_jitter:.0?})"

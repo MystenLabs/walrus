@@ -463,6 +463,15 @@ impl StorageNode {
 
     /// Run the walrus-node logic until cancelled using the provided cancellation token.
     pub async fn run(&self, cancel_token: CancellationToken) -> anyhow::Result<()> {
+        if let Err(error) = self
+            .epoch_change_driver
+            .schedule_relevant_calls_for_current_epoch()
+            .await
+        {
+            // We only warn here, as this fails during tests.
+            tracing::warn!(?error, "unable to schedule epoch calls on startup")
+        };
+
         select! {
             () = self.epoch_change_driver.run() => {
                 unreachable!("epoch change driver never completes");
@@ -475,6 +484,7 @@ impl StorageNode {
                 self.blob_sync_handler.cancel_all().await?;
             },
         }
+
         Ok(())
     }
 

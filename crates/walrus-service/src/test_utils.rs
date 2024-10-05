@@ -621,16 +621,21 @@ pub struct StubContractService {
 #[async_trait]
 impl SystemContractService for StubContractService {
     async fn invalidate_blob_id(&self, _certificate: &InvalidBlobCertificate) {}
+
     async fn epoch_sync_done(&self, _node_id: ObjectID, _epoch: Epoch) {}
+
     async fn get_epoch_and_state(&self) -> Result<(Epoch, EpochState), anyhow::Error> {
         anyhow::bail!("stub service does not store the epoch or state")
     }
+
     async fn fixed_system_parameters(&self) -> Result<FixedSystemParameters, anyhow::Error> {
         Ok(self.system_parameters.clone())
     }
+
     async fn end_voting(&self) -> Result<(), anyhow::Error> {
         anyhow::bail!("stub service cannot end voting")
     }
+
     async fn initiate_epoch_change(&self) -> Result<(), anyhow::Error> {
         anyhow::bail!("stub service cannot initiate epoch change")
     }
@@ -1121,6 +1126,17 @@ pub mod test_cluster {
         TestCluster,
         WithTempDir<client::Client<SuiContractClient>>,
     )> {
+        default_setup_with_epoch_duration(Duration::from_secs(60 * 60)).await
+    }
+
+    /// Performs the default setup for the test cluster.
+    pub async fn default_setup_with_epoch_duration(
+        epoch_duration: Duration,
+    ) -> anyhow::Result<(
+        Arc<TestClusterHandle>,
+        TestCluster,
+        WithTempDir<client::Client<SuiContractClient>>,
+    )> {
         #[cfg(not(msim))]
         let sui_cluster = test_utils::using_tokio::global_sui_test_cluster();
         #[cfg(msim)]
@@ -1144,9 +1160,16 @@ pub mod test_cluster {
             .map(|(i, info)| info.to_node_registration_params(&format!("node-{i}")))
             .collect::<Vec<_>>();
 
-        // TODO(#814): make epoch duration in test configurable. Currently hardcoded to 1 hour.
-        let system_ctx =
-            create_and_init_system_for_test(&mut wallet.inner, n_shards, 0, 3600000).await?;
+        let system_ctx = create_and_init_system_for_test(
+            &mut wallet.inner,
+            n_shards,
+            0,
+            epoch_duration
+                .as_millis()
+                .try_into()
+                .expect("duration is within u64 millis"),
+        )
+        .await?;
 
         let mut contract_clients = vec![];
         for _ in members.iter() {
