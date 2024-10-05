@@ -45,6 +45,9 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
 
     /// Ends voting for the parameters of the next epoch.
     async fn end_voting(&self) -> Result<(), anyhow::Error>;
+
+    /// Initiates epoch change.
+    async fn initiate_epoch_change(&self) -> Result<(), anyhow::Error>;
 }
 
 /// A [`SystemContractService`] that uses a [`ContractClient`] for chain interactions.
@@ -178,5 +181,13 @@ where
             .context("unable to get the active committees")?;
 
         Ok((committees.current.epoch, committees.epoch_state))
+    }
+
+    async fn initiate_epoch_change(&self) -> Result<(), anyhow::Error> {
+        let client = self.contract_client.lock().await;
+        client
+            .initiate_epoch_change()
+            .await
+            .context("failed to initiate epoch change")
     }
 }

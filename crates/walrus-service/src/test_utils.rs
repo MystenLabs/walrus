@@ -631,6 +631,9 @@ impl SystemContractService for StubContractService {
     async fn end_voting(&self) -> Result<(), anyhow::Error> {
         anyhow::bail!("stub service cannot end voting")
     }
+    async fn initiate_epoch_change(&self) -> Result<(), anyhow::Error> {
+        anyhow::bail!("stub service cannot initiate epoch change")
+    }
 }
 
 /// Returns a socket address that is not currently in use on the system.
@@ -1042,6 +1045,10 @@ where
 
     async fn fixed_system_parameters(&self) -> Result<FixedSystemParameters, anyhow::Error> {
         self.as_ref().inner.fixed_system_parameters().await
+    }
+
+    async fn initiate_epoch_change(&self) -> Result<(), anyhow::Error> {
+        self.as_ref().inner.initiate_epoch_change().await
     }
 }
 

@@ -649,6 +649,11 @@ impl StorageNode {
         match epoch_change_event {
             EpochChangeEvent::EpochParametersSelected(event) => {
                 tracing::info!("EpochParametersSelected event received: {:?}", event);
+                self.epoch_change_driver
+                    .cancel_scheduled_voting_end(event.next_epoch);
+                self.epoch_change_driver.schedule_initiate_epoch_change(
+                    NonZero::new(event.next_epoch).expect("the next epoch is always non-zero"),
+                );
                 self.inner
                     .mark_event_completed(element_index, &event.event_id)?;
             }
@@ -786,6 +791,13 @@ impl StorageNode {
         &self,
         event: &EpochChangeStart,
     ) -> anyhow::Result<()> {
+        // Irrespective of whether we are in this epoch, we can cancel any scheduled calls to change
+        // to or end voting for the epoch identified by the event, as we're already in that epoch.
+        self.epoch_change_driver
+            .cancel_scheduled_voting_end(event.epoch);
+        self.epoch_change_driver
+            .cancel_scheduled_epoch_change_initiation(event.epoch);
+
         if !self.begin_committee_change(event.epoch).await? {
             return Ok(());
         }

@@ -16,6 +16,7 @@ use std::{
 use chrono::{DateTime, TimeDelta, Utc};
 use futures::{future::BoxFuture, FutureExt};
 use rand::{rngs::StdRng, Rng, SeedableRng};
+use tracing::Instrument;
 use walrus_core::Epoch;
 use walrus_sui::{
     client::FixedSystemParameters,
@@ -111,19 +112,83 @@ impl EpochChangeDriver {
         if inner.end_voting_future.is_some() {
             tracing::debug!("replacing end-voting future");
         }
-        inner.end_voting_future = Some(
-            ScheduleVotingEnd {
-                rng: StdRng::from_seed(inner.rng.gen()),
-                system_params: self.system_parameters.clone(),
+
+        let end_voting_future = ScheduledEpochOperation {
+            operation: VotingEndOperation {
                 epoch_under_vote: next_epoch,
-                contract_service: self.contract_service.clone(),
-                time_fn: self.utc_now_fn.clone(),
-            }
-            .wait_then_end_voting()
-            .boxed(),
-        );
+                system_params: self.system_parameters.clone(),
+            },
+            rng: StdRng::from_seed(inner.rng.gen()),
+            contract_service: self.contract_service.clone(),
+            time_fn: self.utc_now_fn.clone(),
+        }
+        .wait_then_call();
+
+        inner.end_voting_future = Some((
+            next_epoch.get(),
+            end_voting_future
+                .instrument(tracing::info_span!("scheduled_end_voting"))
+                .boxed(),
+        ));
 
         inner.wake();
+    }
+
+    /// Cancels the call to end voting that was scheduled with
+    /// [`schedule_voting_end()`][Self::schedule_voting_end].
+    pub fn cancel_scheduled_voting_end(&self, epoch: Epoch) {
+        let mut inner = self.inner.lock().expect("thread did not panic with lock");
+
+        if let Some((ref epoch_of_scheduled_future, _)) = inner.end_voting_future {
+            if epoch == *epoch_of_scheduled_future {
+                inner.end_voting_future = None;
+            }
+        }
+    }
+
+    /// Schedules a call to start epoch change to the next epoch that will be dispatched by
+    /// [`run()`][Self::run].
+    ///
+    /// Should be called after [`NextParamsSelected`] events. Subsequent calls to this
+    /// method cancel any earlier scheduled calls.
+    pub fn schedule_initiate_epoch_change(&self, next_epoch: NonZero<Epoch>) {
+        let mut inner = self.inner.lock().expect("thread did not panic with lock");
+
+        if inner.epoch_change_start_future.is_some() {
+            tracing::debug!("replacing epoch-change-start future");
+        }
+
+        let epoch_change_start_future = ScheduledEpochOperation {
+            operation: InitiateEpochChangeOperation {
+                next_epoch,
+                system_params: self.system_parameters.clone(),
+            },
+            rng: StdRng::from_seed(inner.rng.gen()),
+            contract_service: self.contract_service.clone(),
+            time_fn: self.utc_now_fn.clone(),
+        }
+        .wait_then_call();
+
+        inner.epoch_change_start_future = Some((
+            next_epoch.get(),
+            epoch_change_start_future
+                .instrument(tracing::info_span!("scheduled_initiate_epoch_change"))
+                .boxed(),
+        ));
+
+        inner.wake();
+    }
+
+    /// Cancels the call to initiate epoch change that was scheduled with
+    /// [`scheduled_initiate_epoch_change()`][Self::scheduled_initiate_epoch_change].
+    pub fn cancel_scheduled_epoch_change_initiation(&self, epoch: Epoch) {
+        let mut inner = self.inner.lock().expect("thread did not panic with lock");
+
+        if let Some((ref epoch_of_scheduled_future, _)) = inner.end_voting_future {
+            if epoch == *epoch_of_scheduled_future {
+                inner.epoch_change_start_future = None;
+            }
+        }
     }
 
     #[cfg(test)]
@@ -131,6 +196,12 @@ impl EpochChangeDriver {
     pub fn is_voting_end_scheduled(&self) -> bool {
         let inner = self.inner.lock().expect("thread did not panic with lock");
         inner.end_voting_future.is_some()
+    }
+
+    #[cfg(test)]
+    pub fn is_epoch_change_start_scheduled(&self) -> bool {
+        let inner = self.inner.lock().expect("thread did not panic with lock");
+        inner.epoch_change_start_future.is_some()
     }
 }
 
@@ -152,9 +223,9 @@ struct EpochChangeDriverInner<'pin> {
     /// replaced.
     waker: Option<Waker>,
     /// An optional future that will end voting for an epoch.
-    end_voting_future: Option<BoxFuture<'pin, ()>>,
+    end_voting_future: Option<(Epoch, BoxFuture<'pin, ()>)>,
     /// An optional future that will start epoch change for a given epoch.
-    epoch_change_start_future: Option<BoxFuture<'pin, ()>>,
+    epoch_change_start_future: Option<(Epoch, BoxFuture<'pin, ()>)>,
 }
 
 impl EpochChangeDriverInner<'_> {
@@ -185,14 +256,14 @@ impl Future for EpochChangeDriverInner<'_> {
             .get_or_insert_with(|| cx.waker().clone())
             .clone_from(cx.waker());
 
-        if let Some(end_voting_future) = this.end_voting_future.as_mut() {
+        if let Some((_, end_voting_future)) = this.end_voting_future.as_mut() {
             if let Poll::Ready(()) = end_voting_future.poll_unpin(cx) {
                 tracing::trace!("voting-end future completed");
                 this.end_voting_future = None;
             }
         }
 
-        if let Some(epoch_change_start) = this.epoch_change_start_future.as_mut() {
+        if let Some((_, epoch_change_start)) = this.epoch_change_start_future.as_mut() {
             if let Poll::Ready(()) = epoch_change_start.poll_unpin(cx) {
                 tracing::trace!("epoch-change-start future completed");
                 this.epoch_change_start_future = None;
@@ -224,36 +295,89 @@ impl std::fmt::Debug for EpochChangeDriverInner<'_> {
     }
 }
 
-/// Future-like that ends voting after waiting until the appropriate time.
-struct ScheduleVotingEnd {
-    /// The epoch for which voting is to be ended.
-    epoch_under_vote: NonZero<Epoch>,
+/// An operation that drives epoch change.
+trait EpochOperation {
+    /// Returns the duration until the operation is ready to be called or None if the operation has
+    /// already completed.
+    fn time_until_ready(
+        &self,
+        utc_now: DateTime<Utc>,
+        current_epoch: Epoch,
+        state: EpochState,
+    ) -> Option<Duration>;
+
+    /// Invokes the operation with the provided contract service.
+    async fn invoke(&self, contract: &dyn SystemContractService) -> Result<(), anyhow::Error>;
+}
+
+/// An [`EpochOperation`] scheduled to be called.
+struct ScheduledEpochOperation<T> {
+    /// The operation that will be scheduled and invoked.
+    operation: T,
 
     contract_service: Arc<dyn SystemContractService>,
-    system_params: FixedSystemParameters,
     time_fn: UtcNowFn,
     rng: StdRng,
 }
 
-impl ScheduleVotingEnd {
-    #[tracing::instrument(skip_all, fields(epoch_under_vote = self.epoch_under_vote))]
-    async fn wait_then_end_voting(mut self) {
+impl<T: EpochOperation> ScheduledEpochOperation<T> {
+    /// Invoke the stored operation after its selected delay, retrying if it fails.
+    #[tracing::instrument(skip_all)]
+    async fn wait_then_call(mut self) {
         let mut backoff = ExponentialBackoffState::new(MIN_BACKOFF, MAX_BACKOFF, None);
 
-        while let Err(error) = self.try_to_end_voting().await {
+        while let Err(error) = self.try_wait_then_call().await {
             let backoff_duration = backoff.next_delay(&mut self.rng).expect("infinite backoff");
             tracing::debug!(
                 %error,
-                "attempt to end voting failed, waiting {backoff_duration:?} until next attempt"
+                "attempt to failed, waiting {backoff_duration:?} until next attempt"
             );
             tokio::time::sleep(backoff_duration).await;
         }
     }
 
     #[tracing::instrument(skip_all)]
-    async fn try_to_end_voting(&mut self) -> Result<(), anyhow::Error> {
-        let (current_epoch, state) = self.get_epoch_and_state().await?;
+    async fn try_wait_then_call(&mut self) -> Result<(), anyhow::Error> {
+        let (current_epoch, state) = self.contract_service.get_epoch_and_state().await?;
+        tracing::debug!(
+            walrus.epoch = current_epoch,
+            ?state,
+            "successfully retrieved current epoch and committee state"
+        );
 
+        let Some(wait_duration) =
+            self.operation
+                .time_until_ready((self.time_fn)(), current_epoch, state)
+        else {
+            tracing::debug!("operation signalled that it is already complete");
+            return Ok(());
+        };
+        let schedule_jitter = jitter(MAX_SCHEDULE_JITTER, &mut self.rng);
+
+        tracing::debug!(
+            "scheduling operation to be called in {wait_duration:.0?} (+{schedule_jitter:.0?})"
+        );
+        tokio::time::sleep(wait_duration).await;
+
+        tracing::debug!("invoking scheduled operation");
+        self.operation.invoke(self.contract_service.as_ref()).await
+    }
+}
+
+/// Operation that ends voting for the next epoch parameters.
+struct VotingEndOperation {
+    /// The epoch for which voting is to be ended.
+    epoch_under_vote: NonZero<Epoch>,
+    system_params: FixedSystemParameters,
+}
+
+impl EpochOperation for VotingEndOperation {
+    fn time_until_ready(
+        &self,
+        utc_now: DateTime<Utc>,
+        current_epoch: Epoch,
+        state: EpochState,
+    ) -> Option<Duration> {
         // Since we should only ever be trailing the state on chain, there is something seriously
         // wrong if a storage node thinks the epoch being voted upon is in the far future.
         assert!(
@@ -263,73 +387,102 @@ impl ScheduleVotingEnd {
 
         if current_epoch >= self.epoch_under_vote.get() {
             tracing::debug!("the epoch has already advanced");
-            return Ok(());
+            return None;
         }
         debug_assert_eq!(current_epoch + 1, self.epoch_under_vote.get());
 
         let change_completed_at = match state {
             EpochState::EpochChangeDone(change_completed_at) => change_completed_at,
             EpochState::EpochChangeSync(_) => {
-                // The genesis epoch does not have sync, so we are NOT transitioning to epoch 1.
-                debug_assert!(self.epoch_under_vote.get() > GENESIS_EPOCH + 1);
-                let voting_duration = default_voting_duration(self.system_params.epoch_duration);
-
-                tracing::warn!("attempted to end voting before the epoch change has completed");
-
-                tracing::debug!("waiting {voting_duration:?} before backing off and trying again");
-                tokio::time::sleep(voting_duration).await;
-
-                anyhow::bail!("epoch change had not yet completed");
+                panic!("must not end voting before being notified that the epoch change is done");
             }
             EpochState::NextParamsSelected(_) => {
                 tracing::debug!("voting has already ended");
-                return Ok(());
+                return None;
             }
         };
 
-        let duration_until_vote_end = self.duration_until_vote_ends(change_completed_at);
-        tracing::debug!("voting ends in {duration_until_vote_end:?}");
-
-        let wait_duration = duration_until_vote_end + jitter(MAX_SCHEDULE_JITTER, &mut self.rng);
-        tracing::debug!("waiting {wait_duration:?} before ending vote");
-
-        tokio::time::sleep(wait_duration).await;
-        tracing::debug!("attempting to end voting");
-
-        self.contract_service.end_voting().await?;
-        tracing::debug!("voting successfully ended");
-
-        Ok(())
-    }
-
-    fn duration_until_vote_ends(&self, change_completed_at: DateTime<Utc>) -> Duration {
-        let utc_now = (self.time_fn)();
-
-        let delta_until_vote_end = if self.epoch_under_vote.get() == GENESIS_EPOCH + 1 {
-            self.system_params
-                .epoch_zero_end
-                .signed_duration_since(utc_now)
+        let voting_ends_at = if self.epoch_under_vote.get() == GENESIS_EPOCH + 1 {
+            self.system_params.epoch_zero_end
         } else {
             debug_assert!(self.epoch_under_vote.get() > GENESIS_EPOCH + 1);
-            let voting_duration = default_voting_duration(self.system_params.epoch_duration);
-            let vote_can_be_ended_after = change_completed_at + voting_duration;
-            vote_can_be_ended_after - utc_now
+            change_completed_at + default_voting_duration(self.system_params.epoch_duration)
         };
 
-        delta_until_vote_end
+        let duration_until_vote_ends = voting_ends_at
+            .signed_duration_since(utc_now)
             .max(TimeDelta::zero())
             .to_std()
-            .expect("delta is at least zero")
+            .expect("max makes the value always positive");
+        tracing::debug!("voting ends in {duration_until_vote_ends:.0?}");
+
+        Some(duration_until_vote_ends)
     }
 
-    async fn get_epoch_and_state(&self) -> Result<(Epoch, EpochState), anyhow::Error> {
-        let (current_epoch, state) = self.contract_service.get_epoch_and_state().await?;
-        tracing::debug!(
-            walrus.epoch = current_epoch,
-            ?state,
-            "successfully retrieved current epoch and committee state"
+    async fn invoke(&self, contract: &dyn SystemContractService) -> Result<(), anyhow::Error> {
+        tracing::debug!("attempting to end voting");
+        contract.end_voting().await?;
+        tracing::debug!("voting successfully ended");
+        Ok(())
+    }
+}
+
+/// Operation that initiates epoch change.
+struct InitiateEpochChangeOperation {
+    /// The next epoch.
+    next_epoch: NonZero<Epoch>,
+    system_params: FixedSystemParameters,
+}
+
+impl EpochOperation for InitiateEpochChangeOperation {
+    fn time_until_ready(
+        &self,
+        utc_now: DateTime<Utc>,
+        current_epoch: Epoch,
+        state: EpochState,
+    ) -> Option<Duration> {
+        // Since we should only ever be trailing the state on chain, there is something seriously
+        // wrong if a storage node thinks the next epoch is in the far future.
+        assert!(
+            current_epoch + 1 >= self.next_epoch.get(),
+            "cannot start epoch change for an epoch in the far future"
         );
-        Ok((current_epoch, state))
+
+        if current_epoch >= self.next_epoch.get() {
+            tracing::debug!("the epoch has already advanced");
+            return None;
+        }
+        debug_assert_eq!(current_epoch + 1, self.next_epoch.get());
+
+        let current_epoch_started_at = match state {
+            EpochState::EpochChangeDone(_) | EpochState::EpochChangeSync(_) => {
+                panic!("call to start epoch change initiated before the required event");
+            }
+            EpochState::NextParamsSelected(current_epoch_started_at) => current_epoch_started_at,
+        };
+
+        let epoch_ends_at = if self.next_epoch.get() == GENESIS_EPOCH + 1 {
+            self.system_params.epoch_zero_end
+        } else {
+            debug_assert!(self.next_epoch.get() > GENESIS_EPOCH + 1);
+            current_epoch_started_at + self.system_params.epoch_duration
+        };
+
+        let duration_until_epoch_ends = epoch_ends_at
+            .signed_duration_since(utc_now)
+            .max(TimeDelta::zero())
+            .to_std()
+            .expect("max(., 0) makes the value always positive");
+        tracing::debug!("epoch ends in {duration_until_epoch_ends:.0?}");
+
+        Some(duration_until_epoch_ends)
+    }
+
+    async fn invoke(&self, contract: &dyn SystemContractService) -> Result<(), anyhow::Error> {
+        tracing::debug!("attempting to start epoch change");
+        contract.initiate_epoch_change().await?;
+        tracing::debug!("epoch change successfully started");
+        Ok(())
     }
 }
 
@@ -345,7 +498,7 @@ pub fn default_voting_duration(epoch_duration: Duration) -> Duration {
 
 #[cfg(test)]
 mod tests {
-    use std::{iter, num::NonZero};
+    use std::num::NonZero;
 
     use tokio::time::Instant;
     use walrus_test_utils::{async_param_test, nonzero, Result as TestResult};
@@ -353,198 +506,317 @@ mod tests {
     use super::*;
     use crate::node::contract_service::MockSystemContractService;
 
-    const EPOCH_ZERO_VOTE_DURATION: Duration = Duration::from_secs(1000);
+    const EPOCH_ZERO_DURATION: Duration = Duration::from_secs(1000);
+    const EPOCH_ZERO_VOTE_DURATION: Duration = EPOCH_ZERO_DURATION;
     const EPOCH_DURATION: Duration = Duration::from_secs(10_000);
+
+    #[derive(Debug, Copy, Clone)]
+    struct UtcInstant {
+        utc: DateTime<Utc>,
+        instant: Instant,
+    }
+
+    impl UtcInstant {
+        fn now() -> Self {
+            Self {
+                utc: Utc::now(),
+                instant: Instant::now(),
+            }
+        }
+    }
 
     fn driver_under_test<S: SystemContractService + 'static>(
         service: S,
         seed: u64,
+        start: UtcInstant,
     ) -> EpochChangeDriver {
-        let utc_at_start = Utc::now();
-        let instant_at_start = Instant::now();
-
         EpochChangeDriver::new_with_time_provider(
             FixedSystemParameters {
                 epoch_duration: EPOCH_DURATION,
-                epoch_zero_end: utc_at_start + EPOCH_ZERO_VOTE_DURATION,
+                epoch_zero_end: start.utc + EPOCH_ZERO_VOTE_DURATION,
             },
             Arc::new(service),
             StdRng::seed_from_u64(seed),
             // Compute the time in Utc as a (possibly) fast-forwarded offset from the utc when this
             // object was created.
-            Arc::new(move || utc_at_start + instant_at_start.elapsed()),
+            Arc::new(move || start.utc + start.instant.elapsed()),
         )
     }
 
-    #[tokio::test(start_paused = true)]
-    async fn waits_until_voting_is_endable() -> TestResult {
-        let upcoming_epoch: NonZero<Epoch> = nonzero!(2);
-        let voting_duration = default_voting_duration(EPOCH_DURATION);
-        let voting_duration_elapsed = voting_duration / 10;
-        let voting_duration_remaining = voting_duration - voting_duration_elapsed;
-        let epoch_change_completed_at = Utc::now() - voting_duration_elapsed;
-        let test_start_time = Instant::now();
+    mod end_voting {
+        use super::*;
 
-        let mut service = MockSystemContractService::new();
-        // Voting should only be called once, between the time remaining until the voting ends and
-        // the maximum jitter.
-        service.expect_end_voting().once().returning(move || {
-            let called_at = Instant::now();
-            let voting_can_end_at = test_start_time + voting_duration_remaining;
-            assert!(called_at >= voting_can_end_at);
-            assert!(called_at <= voting_can_end_at + MAX_SCHEDULE_JITTER);
-            Ok(())
-        });
-        // Set that epoch change has already completed to the current epoch.
-        service.expect_get_epoch_and_state().returning(move || {
-            Ok((
-                upcoming_epoch.get() - 1,
-                EpochState::EpochChangeDone(epoch_change_completed_at),
-            ))
-        });
-
-        let driver = driver_under_test(service, /*seed=*/ 0);
-
-        // Schedule voting end for the next epoch.
-        driver.schedule_voting_end(upcoming_epoch);
-
-        // Run the driver for a finite amount of time, in which the call should be dispatched.
-        let _ = tokio::time::timeout(
-            voting_duration_remaining + MAX_SCHEDULE_JITTER,
-            driver.run(),
-        )
-        .await;
-
-        // Drop the driver to ensure that all conditions of the mock service have been met.
-        drop(driver);
-
-        Ok(())
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn waits_until_voting_is_endable_epoch_zero() -> TestResult {
-        let upcoming_epoch: NonZero<Epoch> = nonzero!(1);
-        let voting_duration = EPOCH_ZERO_VOTE_DURATION;
-        let voting_duration_elapsed = voting_duration / 10;
-        let voting_duration_remaining = voting_duration - voting_duration_elapsed;
-        let epoch_change_completed_at = Utc::now() - voting_duration_elapsed;
-        let test_start_time = Instant::now();
-
-        let mut service = MockSystemContractService::new();
-        // Voting should only be called once, between the time remaining until the voting ends and
-        // the maximum jitter.
-        service.expect_end_voting().once().returning(move || {
-            let called_at = Instant::now();
-            let voting_can_end_at = test_start_time + voting_duration_remaining;
-            assert!(called_at >= voting_can_end_at);
-            assert!(called_at <= voting_can_end_at + MAX_SCHEDULE_JITTER);
-            Ok(())
-        });
-        // Set that epoch change has already completed to the current epoch.
-        service.expect_get_epoch_and_state().returning(move || {
-            Ok((
-                upcoming_epoch.get() - 1,
-                EpochState::EpochChangeDone(epoch_change_completed_at),
-            ))
-        });
-
-        let driver = driver_under_test(service, /*seed=*/ 0);
-
-        // Schedule voting end for the next epoch.
-        driver.schedule_voting_end(upcoming_epoch);
-
-        // Run the driver for a finite amount of time, in which the call should be dispatched.
-        let _ = tokio::time::timeout(
-            voting_duration_remaining + MAX_SCHEDULE_JITTER,
-            driver.run(),
-        )
-        .await;
-
-        // Drop the driver to ensure that all conditions of the mock service have been met.
-        drop(driver);
-
-        Ok(())
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn waits_for_epoch_sync_done() -> TestResult {
-        let upcoming_epoch: NonZero<Epoch> = nonzero!(2);
-        let voting_duration = default_voting_duration(EPOCH_DURATION);
-        let voting_starts_after = voting_duration / 10;
-        let voting_duration_remaining = voting_duration + voting_starts_after;
-        let epoch_change_completed_at = Utc::now() + voting_starts_after;
-        let test_start_time = Instant::now();
-
-        let mut service = MockSystemContractService::new();
-        // Voting should only be called once, between the time remaining until the voting ends and
-        // the maximum jitter.
-        service.expect_end_voting().once().returning(move || {
-            let called_at = Instant::now();
-            let voting_can_end_at = test_start_time + voting_duration_remaining;
-            assert!(called_at >= voting_can_end_at);
-            assert!(called_at <= voting_can_end_at + MAX_SCHEDULE_JITTER);
-            Ok(())
-        });
-
-        let mut states = iter::once(EpochState::EpochChangeSync(16)).chain(iter::repeat(
-            EpochState::EpochChangeDone(epoch_change_completed_at),
-        ));
-        service
-            .expect_get_epoch_and_state()
-            .returning(move || Ok((upcoming_epoch.get() - 1, states.next().unwrap())));
-
-        let driver = driver_under_test(service, /*seed=*/ 0);
-
-        // Schedule voting end for the next epoch.
-        driver.schedule_voting_end(upcoming_epoch);
-
-        // Run the driver for a finite amount of time, in which the call should be dispatched.
-        let _ = tokio::time::timeout(
-            voting_duration_remaining + MAX_SCHEDULE_JITTER,
-            driver.run(),
-        )
-        .await;
-
-        // Drop the driver to ensure that all conditions of the mock service have been met.
-        drop(driver);
-
-        Ok(())
-    }
-
-    async_param_test! {
         #[tokio::test(start_paused = true)]
-        skips_voting_end -> TestResult: [
-            already_in_epoch_during_sync: (2, 2, EpochState::EpochChangeSync(0)),
-            already_in_epoch_and_change_is_done: (2, 3, EpochState::EpochChangeDone(Utc::now())),
-            already_in_epoch_and_next_vote_done: (2, 4, EpochState::NextParamsSelected(Utc::now())),
-            voting_already_done: (2, 1, EpochState::NextParamsSelected(Utc::now())),
-        ]
+        async fn waits_until_voting_is_endable() -> TestResult {
+            let start = UtcInstant::now();
+
+            let upcoming_epoch: NonZero<Epoch> = nonzero!(2);
+            let voting_duration = default_voting_duration(EPOCH_DURATION);
+            let voting_duration_elapsed = voting_duration / 10;
+            let voting_duration_remaining = voting_duration - voting_duration_elapsed;
+            let epoch_change_completed_at = start.utc - voting_duration_elapsed;
+
+            let mut service = MockSystemContractService::new();
+            // Voting should only be called once, between the time remaining until the voting ends
+            // and the maximum jitter.
+            service.expect_end_voting().once().returning(move || {
+                let called_at = Instant::now();
+                let voting_can_end_at = start.instant + voting_duration_remaining;
+                assert!(called_at >= voting_can_end_at);
+                assert!(called_at <= voting_can_end_at + MAX_SCHEDULE_JITTER);
+                Ok(())
+            });
+            // Set that epoch change has already completed to the current epoch.
+            service.expect_get_epoch_and_state().returning(move || {
+                Ok((
+                    upcoming_epoch.get() - 1,
+                    EpochState::EpochChangeDone(epoch_change_completed_at),
+                ))
+            });
+
+            let driver = driver_under_test(service, /*seed=*/ 0, start);
+
+            // Schedule voting end for the next epoch.
+            driver.schedule_voting_end(upcoming_epoch);
+
+            // Run the driver for a finite amount of time, in which the call should be dispatched.
+            let _ = tokio::time::timeout(
+                voting_duration_remaining + MAX_SCHEDULE_JITTER,
+                driver.run(),
+            )
+            .await;
+
+            // Drop the driver to ensure that all conditions of the mock service have been met.
+            drop(driver);
+
+            Ok(())
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn waits_until_voting_is_endable_epoch_zero() -> TestResult {
+            let start = UtcInstant::now();
+            let upcoming_epoch: NonZero<Epoch> = nonzero!(1);
+            let voting_duration = EPOCH_ZERO_VOTE_DURATION;
+            let voting_duration_elapsed = voting_duration / 10;
+            let voting_duration_remaining = voting_duration - voting_duration_elapsed;
+            let epoch_change_completed_at = start.utc - voting_duration_elapsed;
+
+            let mut service = MockSystemContractService::new();
+            // Voting should only be called once, between the time remaining until the voting ends
+            // and the maximum jitter.
+            service.expect_end_voting().once().returning(move || {
+                let called_at = Instant::now();
+                let voting_can_end_at = start.instant + voting_duration_remaining;
+                assert!(called_at >= voting_can_end_at);
+                assert!(called_at <= voting_can_end_at + MAX_SCHEDULE_JITTER);
+                Ok(())
+            });
+            // Set that epoch change has already completed to the current epoch.
+            service.expect_get_epoch_and_state().returning(move || {
+                Ok((
+                    upcoming_epoch.get() - 1,
+                    EpochState::EpochChangeDone(epoch_change_completed_at),
+                ))
+            });
+
+            let driver = driver_under_test(service, /*seed=*/ 1, start);
+
+            // Schedule voting end for the next epoch.
+            driver.schedule_voting_end(upcoming_epoch);
+
+            // Run the driver for a finite amount of time, in which the call should be dispatched.
+            let _ = tokio::time::timeout(
+                voting_duration_remaining + MAX_SCHEDULE_JITTER,
+                driver.run(),
+            )
+            .await;
+
+            // Drop the driver to ensure that all conditions of the mock service have been met.
+            drop(driver);
+
+            Ok(())
+        }
+
+        async_param_test! {
+            #[tokio::test(start_paused = true)]
+            skips_voting_end -> TestResult: [
+                already_in_epoch_during_sync: (2, 2, EpochState::EpochChangeSync(0)),
+                already_in_epoch_and_change_is_done: (
+                    2, 3, EpochState::EpochChangeDone(Utc::now())
+                ),
+                already_in_epoch_and_next_vote_done: (
+                    2, 4, EpochState::NextParamsSelected(Utc::now())
+                ),
+                voting_already_done: (2, 1, EpochState::NextParamsSelected(Utc::now())),
+            ]
+        }
+        async fn skips_voting_end(
+            epoch: Epoch,
+            system_epoch: Epoch,
+            state: EpochState,
+        ) -> TestResult {
+            let mut service = MockSystemContractService::new();
+
+            // Return the configured system epoch and state.
+            service
+                .expect_get_epoch_and_state()
+                .returning(move || Ok((system_epoch, state.clone())));
+            // End voting should not be called since epoch has already advanced.
+            service.expect_end_voting().never();
+
+            let driver = driver_under_test(service, /*seed=*/ 2, UtcInstant::now());
+
+            // Schedule voting end for the epoch.
+            driver.schedule_voting_end(NonZero::new(epoch).unwrap());
+
+            // Run the driver for a finite amount of time, in which the call should be dispatched.
+            let _ = tokio::time::timeout(EPOCH_DURATION, driver.run()).await;
+
+            assert!(
+                !driver.is_voting_end_scheduled(),
+                "scheduled call should have completed"
+            );
+            // Drop the driver to ensure that all conditions of the mock service have been met.
+            drop(driver);
+
+            Ok(())
+        }
     }
-    async fn skips_voting_end(epoch: Epoch, system_epoch: Epoch, state: EpochState) -> TestResult {
-        let mut service = MockSystemContractService::new();
 
-        // Return the configured system epoch and state.
-        service
-            .expect_get_epoch_and_state()
-            .returning(move || Ok((system_epoch, state.clone())));
-        // End voting should not be called since epoch has already advanced.
-        service.expect_end_voting().never();
+    mod start_epoch_change {
+        use super::*;
 
-        let driver = driver_under_test(service, /*seed=*/ 1);
+        #[tokio::test(start_paused = true)]
+        async fn waits_until_epoch_change_may_start() -> TestResult {
+            let start = UtcInstant::now();
+            let upcoming_epoch: NonZero<Epoch> = nonzero!(2);
+            let epoch_duration_elapsed = EPOCH_DURATION / 8;
+            let epoch_duration_remaining = EPOCH_DURATION - epoch_duration_elapsed;
+            let current_epoch_started_at = start.utc - epoch_duration_elapsed;
 
-        // Schedule voting end for the epoch.
-        driver.schedule_voting_end(NonZero::new(epoch).unwrap());
+            let mut service = MockSystemContractService::new();
 
-        // Run the driver for a finite amount of time, in which the call should be dispatched.
-        let _ = tokio::time::timeout(EPOCH_DURATION, driver.run()).await;
+            service
+                .expect_initiate_epoch_change()
+                .once()
+                .returning(move || {
+                    let called_at = Instant::now();
+                    let epoch_can_end_at = start.instant + epoch_duration_remaining;
+                    assert!(called_at >= epoch_can_end_at);
+                    assert!(called_at <= epoch_can_end_at + MAX_SCHEDULE_JITTER);
+                    Ok(())
+                });
 
-        assert!(
-            !driver.is_voting_end_scheduled(),
-            "scheduled call should have completed"
-        );
-        // Drop the driver to ensure that all conditions of the mock service have been met.
-        drop(driver);
+            service.expect_get_epoch_and_state().returning(move || {
+                Ok((
+                    upcoming_epoch.get() - 1,
+                    EpochState::NextParamsSelected(current_epoch_started_at),
+                ))
+            });
 
-        Ok(())
+            let driver = driver_under_test(service, /*seed=*/ 3, start);
+
+            // Schedule epoch change for the next epoch.
+            driver.schedule_initiate_epoch_change(upcoming_epoch);
+
+            // Run the driver for a finite amount of time, in which the call should be dispatched.
+            let _ =
+                tokio::time::timeout(epoch_duration_remaining + MAX_SCHEDULE_JITTER, driver.run())
+                    .await;
+
+            // Drop the driver to ensure that all conditions of the mock service have been met.
+            drop(driver);
+
+            Ok(())
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn waits_until_epoch_zero_can_end() -> TestResult {
+            let start = UtcInstant::now();
+
+            let next_epoch = nonzero!(1);
+            let epoch_duration_elapsed = EPOCH_ZERO_DURATION / 8;
+            let epoch_duration_remaining = EPOCH_ZERO_DURATION - epoch_duration_elapsed;
+            let current_epoch_started_at = start.utc - epoch_duration_elapsed;
+
+            let mut service = MockSystemContractService::new();
+
+            service
+                .expect_initiate_epoch_change()
+                .once()
+                .returning(move || {
+                    let called_at = Instant::now();
+                    let epoch_can_end_at = start.instant + epoch_duration_remaining;
+                    assert!(called_at >= epoch_can_end_at);
+                    assert!(called_at <= epoch_can_end_at + MAX_SCHEDULE_JITTER);
+                    Ok(())
+                });
+
+            service.expect_get_epoch_and_state().returning(move || {
+                Ok((
+                    next_epoch.get() - 1,
+                    EpochState::NextParamsSelected(current_epoch_started_at),
+                ))
+            });
+
+            let driver = driver_under_test(service, /*seed=*/ 1, start);
+
+            // Schedule epoch change for the next epoch.
+            driver.schedule_initiate_epoch_change(next_epoch);
+
+            // Run the driver for a finite amount of time, in which the call should be dispatched.
+            let _ =
+                tokio::time::timeout(epoch_duration_remaining + MAX_SCHEDULE_JITTER, driver.run())
+                    .await;
+
+            // Drop the driver to ensure that all conditions of the mock service have been met.
+            drop(driver);
+
+            Ok(())
+        }
+
+        async_param_test! {
+            #[tokio::test(start_paused = true)]
+            skips_starting_in_epoch_change -> TestResult: [
+                already_in_next_epoch_sync: (2, 2, EpochState::EpochChangeSync(0)),
+                already_in_further_epoch_and_change_is_done: (
+                    2, 3, EpochState::EpochChangeDone(Utc::now())
+                ),
+                already_in_further_epoch_and_vote_done: (
+                    2, 4, EpochState::NextParamsSelected(Utc::now())
+                ),
+            ]
+        }
+        async fn skips_starting_in_epoch_change(
+            epoch: Epoch,
+            system_epoch: Epoch,
+            state: EpochState,
+        ) -> TestResult {
+            let mut service = MockSystemContractService::new();
+
+            // Return the configured system epoch and state.
+            service
+                .expect_get_epoch_and_state()
+                .returning(move || Ok((system_epoch, state.clone())));
+            // Should not initiate epoch change since epoch has already advanced.
+            service.expect_initiate_epoch_change().never();
+
+            let driver = driver_under_test(service, /*seed=*/ 2, UtcInstant::now());
+
+            // Schedule epoch change
+            driver.schedule_initiate_epoch_change(NonZero::new(epoch).unwrap());
+
+            // Run the driver for a finite amount of time, in which the call should be dispatched.
+            let _ = tokio::time::timeout(EPOCH_DURATION, driver.run()).await;
+
+            assert!(
+                !driver.is_epoch_change_start_scheduled(),
+                "scheduled call should have completed"
+            );
+            // Drop the driver to ensure that all conditions of the mock service have been met.
+            drop(driver);
+
+            Ok(())
+        }
     }
 }
