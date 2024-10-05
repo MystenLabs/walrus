@@ -8,6 +8,7 @@ use std::{
     fmt::{self, Debug},
     future::Future,
     num::NonZeroU16,
+    ops::ControlFlow,
     time::Duration,
 };
 
@@ -638,8 +639,10 @@ where
             .await
         {
             Ok(events) => {
+                let tx_event_ref = &tx_event;
                 page_available = events.has_next_page;
                 polling_interval = initial_polling_interval;
+
                 for event in events.data {
                     last_event = Some(event.id);
                     let span = tracing::error_span!(
@@ -647,20 +650,32 @@ where
                         event_id = ?event.id,
                         event_type = ?event.type_
                     );
-                    let _guard = span.enter();
-                    let event_obj = match event.try_into() {
-                        Ok(event_obj) => event_obj,
-                        Err(_) => {
-                            tracing::error!("could not convert event");
-                            continue;
+
+                    let continue_or_exit = async move {
+                        let event_obj = match event.try_into() {
+                            Ok(event_obj) => event_obj,
+                            Err(_) => {
+                                tracing::error!("could not convert event");
+                                return ControlFlow::Continue(());
+                            }
+                        };
+
+                        match tx_event_ref.send(event_obj).await {
+                            Ok(()) => {
+                                tracing::debug!("received event");
+                                ControlFlow::Continue(())
+                            }
+                            Err(_) => {
+                                tracing::debug!("channel was closed by receiver");
+                                ControlFlow::Break(())
+                            }
                         }
-                    };
-                    match tx_event.send(event_obj).in_current_span().await {
-                        Ok(()) => tracing::debug!("received event"),
-                        Err(_) => {
-                            tracing::debug!("channel was closed by receiver");
-                            return Ok(());
-                        }
+                    }
+                    .instrument(span)
+                    .await;
+
+                    if continue_or_exit.is_break() {
+                        return Ok(());
                     }
                 }
             }
