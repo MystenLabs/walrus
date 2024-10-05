@@ -69,7 +69,10 @@ enum Commands {
         /// [default: ./<KEY_TYPE>.key]
         #[clap(short, long)]
         out: Option<PathBuf>,
-        /// Which type of key to generate.
+        /// Which type of key to generate. Valid options are 'protocol' and 'network'.
+        ///
+        /// The protocol key is used to sign Walrus protocol messages.
+        /// The network key is used to authenticate nodes in network communication.
         #[clap(short, long)]
         key_type: KeyType,
         /// Overwrite existing files.
@@ -124,7 +127,7 @@ struct GenerateConfigArgs {
     /// The path where the Walrus database will be stored.
     storage_path: PathBuf,
     #[clap(long)]
-    /// The path to the key pair used in Walrus protocol messages
+    /// The path to the key pair used in Walrus protocol messages.
     protocol_key_pair_path: PathBuf,
     #[clap(long)]
     /// The path to the key pair used to authenticate nodes in network communication.
