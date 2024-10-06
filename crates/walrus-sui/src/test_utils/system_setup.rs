@@ -27,7 +27,7 @@ use super::{default_protocol_keypair, DEFAULT_GAS_BUDGET};
 use crate::{
     client::{ContractClient, ReadClient, SuiContractClient},
     system_setup::{create_system_and_staking_objects, publish_coin_and_system_package},
-    types::{NetworkAddress, NodeRegistrationParams},
+    types::NodeRegistrationParams,
 };
 
 /// Provides the default contract path for testing for the package with name `package`.
@@ -60,16 +60,8 @@ pub async fn publish_with_default_system(
     let network_key_pair = NetworkKeyPair::generate_with_rng(&mut StdRng::seed_from_u64(0));
     let protocol_keypair = default_protocol_keypair();
 
-    let storage_node_params = NodeRegistrationParams {
-        name: "Test0".to_owned(),
-        network_address: NetworkAddress("127.0.0.1:8080".to_owned()),
-        public_key: protocol_keypair.public().to_owned(),
-        network_public_key: network_key_pair.public().clone(),
-        commission_rate: 0,
-        storage_price: 5,
-        write_price: 1,
-        node_capacity: 1_000_000_000_000,
-    };
+    let storage_node_params =
+        NodeRegistrationParams::new_for_test(protocol_keypair.public(), network_key_pair.public());
 
     // Initialize client
     let contract_client = SuiContractClient::new(

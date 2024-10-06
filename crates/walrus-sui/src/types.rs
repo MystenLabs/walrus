@@ -103,6 +103,25 @@ pub struct NodeRegistrationParams {
     pub node_capacity: u64,
 }
 
+impl NodeRegistrationParams {
+    /// Creates a new node registration parameters for testing.
+    pub fn new_for_test(
+        protocol_public_key: &PublicKey,
+        network_public_key: &NetworkPublicKey,
+    ) -> Self {
+        Self {
+            name: "Test0".to_owned(),
+            network_address: NetworkAddress("127.0.0.1:8080".to_owned()),
+            public_key: protocol_public_key.clone(),
+            network_public_key: network_public_key.clone(),
+            commission_rate: 0,
+            storage_price: 5,
+            write_price: 1,
+            node_capacity: 1_000_000_000_000,
+        }
+    }
+}
+
 /// Error returned when trying to create a committee with no shards.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum InvalidCommittee {

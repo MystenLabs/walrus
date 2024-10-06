@@ -720,7 +720,21 @@ impl ContractClient for SuiContractClient {
         node_parameters: &NodeRegistrationParams,
         proof_of_possession: &ProofOfPossession,
     ) -> SuiClientResult<StorageNodeCap> {
-        // TODO: client race.
+        // Ensure that a storage capability object does not already exist for the given address.
+        // This is enforced to guarantee that there is only one capability object associated with
+        // each address. With this invariant, we don't need to persist the node ID or capability
+        // object ID separately in the storage node. If needed, we can simply query the capability
+        // object linked to the address.
+        //
+        // However, the test-and-set operation in this function is susceptible to a race condition.
+        // If two instances of this function run concurrently (may not be in the same process), both
+        // could potentially pass the capability object check  and attempt to register as a
+        // candidate. Ideally, this enforcement should be handled within the contract itself.
+        // However, in practice, this race condition is unlikely to occur, as each node registers
+        // only once during its lifetime, typically under human supervision by the node operator.
+        //
+        // TODO(#928): revisit this choice after mainnet to see if this causes inconvenience for
+        // node operators.
         let existing_capability_object = get_address_capability_object(
             &self.read_client.sui_client,
             self.wallet_address,

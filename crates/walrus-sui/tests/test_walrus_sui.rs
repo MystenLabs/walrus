@@ -6,9 +6,16 @@ use std::{num::NonZeroU16, sync::Arc};
 use anyhow::bail;
 use fastcrypto::traits::ToFromBytes;
 use tokio_stream::StreamExt;
-use walrus_core::{encoding::EncodingConfig, merkle::Node, BlobId, EncodingType, ShardIndex};
+use walrus_core::{
+    encoding::EncodingConfig,
+    keys::{NetworkKeyPair, ProtocolKeyPair},
+    merkle::Node,
+    BlobId,
+    EncodingType,
+    ShardIndex,
+};
 use walrus_sui::{
-    client::{BlobPersistence, ContractClient, ReadClient, SuiContractClient},
+    client::{BlobPersistence, ContractClient, ReadClient, SuiClientError, SuiContractClient},
     test_utils::{
         self,
         get_default_blob_certificate,
@@ -17,7 +24,8 @@ use walrus_sui::{
         system_setup::publish_with_default_system,
         TestClusterHandle,
     },
-    types::{BlobEvent, ContractEvent, EpochChangeEvent},
+    types::{BlobEvent, ContractEvent, EpochChangeEvent, NodeRegistrationParams},
+    utils,
 };
 use walrus_test_utils::WithTempDir;
 
@@ -294,4 +302,40 @@ async fn test_get_committee() -> anyhow::Result<()> {
     Ok(())
 }
 
-// TODO: test register candidate
+#[tokio::test]
+#[ignore = "ignore integration tests by default"]
+async fn test_register_candidate() -> anyhow::Result<()> {
+    _ = tracing_subscriber::fmt::try_init();
+    let (_sui_cluster_handle, walrus_client) = initialize_contract_and_wallet().await?;
+    let protocol_key_pair = ProtocolKeyPair::generate();
+    let network_key_pair = NetworkKeyPair::generate();
+
+    let registration_params =
+        NodeRegistrationParams::new_for_test(protocol_key_pair.public(), network_key_pair.public());
+
+    let proof_of_possession = utils::generate_proof_of_possession(
+        &protocol_key_pair,
+        &walrus_client.inner,
+        &registration_params,
+    )
+    .await?;
+
+    let _cap = walrus_client
+        .inner
+        .register_candidate(&registration_params, &proof_of_possession)
+        .await?;
+
+    // Second registration should fail since there is already a capability object exist in the
+    // address.
+    let second_registration_result = walrus_client
+        .inner
+        .register_candidate(&registration_params, &proof_of_possession)
+        .await;
+
+    assert!(matches!(
+        second_registration_result,
+        Err(SuiClientError::CapabilityObjectAlreadyExists(_))
+    ));
+
+    Ok(())
+}
