@@ -36,10 +36,10 @@ use walrus_service::{
         system_events::{EventManager, SuiSystemEventProvider},
         StorageNode,
     },
-    utils::{self, version, LoadConfig as _, MetricsAndLoggingRuntime},
+    utils::{version, LoadConfig as _, MetricsAndLoggingRuntime},
 };
 use walrus_sui::{
-    client::{ContractClient, SuiContractClient, SuiReadClient},
+    client::{ContractClient, SuiContractClient},
     types::move_structs::VotingParams,
     utils::SuiNetwork,
 };
@@ -555,17 +555,7 @@ async fn get_contract_client_from_node_config(
     let Some(ref node_wallet_config) = storage_config.sui else {
         bail!("storage config does not contain Sui wallet configuration");
     };
-
-    let node_wallet = utils::load_wallet_context(&Some(node_wallet_config.wallet_config.clone()))?;
-    let contract_client = SuiContractClient::new(
-        node_wallet,
-        node_wallet_config.system_object,
-        node_wallet_config.staking_object,
-        node_wallet_config.gas_budget,
-    )
-    .await?;
-
-    Ok(contract_client)
+    Ok(node_wallet_config.new_contract_client().await?)
 }
 
 struct EventProcessorRuntime {
@@ -580,14 +570,7 @@ impl EventProcessorRuntime {
         event_processor_config: Option<EventProcessorConfig>,
         db_path: &Path,
     ) -> anyhow::Result<Option<Arc<EventProcessor>>> {
-        let SuiConfig {
-            rpc,
-            system_object,
-            staking_object,
-            ..
-        } = sui_config;
-
-        let read_client = SuiReadClient::new_for_rpc(&rpc, system_object, staking_object).await?;
+        let read_client = sui_config.new_read_client().await?;
         match &event_processor_config {
             Some(event_processor_config) => Ok(Some(Arc::new(
                 EventProcessor::new(
@@ -615,12 +598,7 @@ impl EventProcessorRuntime {
             .context("event manager runtime creation failed")?;
         let _guard = runtime.enter();
         let (read_client, event_processor) = runtime.block_on(async {
-            let read_client = SuiReadClient::new_for_rpc(
-                &sui_config.rpc,
-                sui_config.system_object,
-                sui_config.staking_object,
-            )
-            .await?;
+            let read_client = sui_config.new_read_client().await?;
             let event_processor =
                 Self::build_event_processor(sui_config.clone(), event_processor_config, db_path)
                     .await?;

@@ -9,7 +9,7 @@ use tracing::instrument;
 use walrus_core::{merkle::Node, metadata::VerifiedBlobMetadataWithId, BlobId, SliverPairIndex};
 use walrus_service::client::{Client, ClientError, Config, StoreWhen};
 use walrus_sui::{
-    client::{BlobPersistence, ContractClient, ReadClient, SuiContractClient, SuiReadClient},
+    client::{BlobPersistence, ContractClient, ReadClient, SuiContractClient},
     test_utils::temp_dir_wallet,
     utils::SuiNetwork,
 };
@@ -166,12 +166,9 @@ async fn new_client<G: GasRefill + 'static>(
 ) -> anyhow::Result<WithTempDir<Client<SuiContractClient>>> {
     // Create the client with a separate wallet
     let wallet = wallet_for_testing_from_refill(network, refiller).await?;
-    let sui_read_client = SuiReadClient::new(
-        wallet.as_ref().get_client().await?,
-        config.system_object,
-        config.staking_object,
-    )
-    .await?;
+    let sui_read_client = config
+        .new_read_client(wallet.as_ref().get_client().await?)
+        .await?;
     let sui_contract_client = wallet.and_then(|wallet| {
         SuiContractClient::new_with_read_client(wallet, gas_budget, sui_read_client)
     })?;

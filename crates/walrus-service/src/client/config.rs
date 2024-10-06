@@ -11,8 +11,10 @@ use std::{
 use itertools::Itertools;
 use reqwest::ClientBuilder;
 use serde::{Deserialize, Serialize};
+use sui_sdk::{wallet_context::WalletContext, SuiClient};
 use sui_types::base_types::ObjectID;
 use walrus_core::encoding::{EncodingConfig, Primary};
+use walrus_sui::client::{SuiClientError, SuiContractClient, SuiReadClient};
 
 use crate::common::utils::{self, LoadConfig};
 
@@ -29,6 +31,25 @@ pub struct Config {
     /// Configuration for the client's network communication.
     #[serde(default)]
     pub communication_config: ClientCommunicationConfig,
+}
+
+impl Config {
+    /// Creates a [`SuiReadClient`] based on the configuration.
+    pub async fn new_read_client(
+        &self,
+        sui_client: SuiClient,
+    ) -> Result<SuiReadClient, SuiClientError> {
+        SuiReadClient::new(sui_client, self.system_object, self.staking_object).await
+    }
+
+    /// Creates a [`SuiContractClient`] based on the configuration.
+    pub async fn new_contract_client(
+        &self,
+        wallet: WalletContext,
+        gas_budget: u64,
+    ) -> Result<SuiContractClient, SuiClientError> {
+        SuiContractClient::new(wallet, self.system_object, self.staking_object, gas_budget).await
+    }
 }
 
 impl LoadConfig for Config {}

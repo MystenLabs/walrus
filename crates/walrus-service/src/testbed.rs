@@ -25,7 +25,6 @@ use walrus_core::{
     ShardIndex,
 };
 use walrus_sui::{
-    client::SuiContractClient,
     test_utils::{
         system_setup::{
             create_and_init_system,
@@ -524,14 +523,11 @@ pub async fn create_storage_node_configs(
     }
 
     let contract_clients = join_all(wallets.into_iter().map(|wallet| async {
-        SuiContractClient::new(
-            wallet,
-            testbed_config.system_ctx.system_obj_id,
-            testbed_config.system_ctx.staking_obj_id,
-            DEFAULT_GAS_BUDGET,
-        )
-        .await
-        .expect("should not fail")
+        testbed_config
+            .system_ctx
+            .new_contract_client(wallet, DEFAULT_GAS_BUDGET)
+            .await
+            .expect("should not fail")
     }))
     .await;
     assert_eq!(node_params.len(), contract_clients.len());

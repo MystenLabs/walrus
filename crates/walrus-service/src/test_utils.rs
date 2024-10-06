@@ -1180,14 +1180,7 @@ pub mod test_cluster {
         for _ in members.iter() {
             let client = test_utils::new_wallet_on_sui_test_cluster(sui_cluster.clone())
                 .await?
-                .and_then_async(|wallet| {
-                    SuiContractClient::new(
-                        wallet,
-                        system_ctx.system_obj_id,
-                        system_ctx.staking_obj_id,
-                        DEFAULT_GAS_BUDGET,
-                    )
-                })
+                .and_then_async(|wallet| system_ctx.new_contract_client(wallet, DEFAULT_GAS_BUDGET))
                 .await?;
             contract_clients.push(client);
         }

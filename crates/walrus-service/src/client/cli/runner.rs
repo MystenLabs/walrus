@@ -15,7 +15,7 @@ use walrus_core::{
     EpochCount,
 };
 use walrus_sui::{
-    client::{BlobPersistence, ContractClient, ReadClient, SuiContractClient},
+    client::{BlobPersistence, ContractClient, ReadClient},
     utils::price_for_encoded_length,
 };
 
@@ -328,13 +328,9 @@ impl ClientCommandRunner {
 
     pub(crate) async fn list_blobs(self, include_expired: bool) -> Result<()> {
         let config = self.config?;
-        let contract_client = SuiContractClient::new(
-            self.wallet?,
-            config.system_object,
-            config.staking_object,
-            self.gas_budget,
-        )
-        .await?;
+        let contract_client = config
+            .new_contract_client(self.wallet?, self.gas_budget)
+            .await?;
         let blobs = contract_client.owned_blobs(include_expired).await?;
         blobs.print_output(self.json)
     }

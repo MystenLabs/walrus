@@ -21,7 +21,7 @@ use serde_with::{
     DurationSeconds,
     SerializeAs,
 };
-use sui_sdk::types::base_types::ObjectID;
+use sui_sdk::{types::base_types::ObjectID, wallet_context::WalletContext};
 use walrus_core::keys::{
     KeyPairParseError,
     NetworkKeyPair,
@@ -30,7 +30,10 @@ use walrus_core::keys::{
     TaggedKeyPair,
 };
 use walrus_event::EventProcessorConfig;
-use walrus_sui::types::{move_structs::VotingParams, NodeRegistrationParams};
+use walrus_sui::{
+    client::{SuiClientError, SuiContractClient, SuiReadClient},
+    types::{move_structs::VotingParams, NodeRegistrationParams},
+};
 
 use super::storage::DatabaseConfig;
 use crate::common::utils::{self, LoadConfig};
@@ -290,9 +293,9 @@ impl Default for ShardSyncConfig {
 pub struct SuiConfig {
     /// HTTP URL of the Sui full-node RPC endpoint (including scheme).
     pub rpc: String,
-    /// Object ID of walrus system object.
+    /// Object ID of the Walrus system object.
     pub system_object: ObjectID,
-    /// Object ID of walrus staking object.
+    /// Object ID of the Walrus staking object.
     pub staking_object: ObjectID,
     /// Interval with which events are polled, in milliseconds.
     #[serde_as(as = "serde_with::DurationMilliSeconds")]
@@ -307,6 +310,24 @@ pub struct SuiConfig {
     /// Gas budget for transactions.
     #[serde(default = "defaults::gas_budget")]
     pub gas_budget: u64,
+}
+
+impl SuiConfig {
+    /// Creates a new [`SuiReadClient`] based on the configuration.
+    pub async fn new_read_client(&self) -> Result<SuiReadClient, SuiClientError> {
+        SuiReadClient::new_for_rpc(&self.rpc, self.system_object, self.staking_object).await
+    }
+
+    /// Creates a [`SuiContractClient`] based on the configuration.
+    pub async fn new_contract_client(&self) -> Result<SuiContractClient, SuiClientError> {
+        SuiContractClient::new(
+            WalletContext::new(&self.wallet_config, None, None)?,
+            self.system_object,
+            self.staking_object,
+            self.gas_budget,
+        )
+        .await
+    }
 }
 
 impl LoadConfig for SuiConfig {}

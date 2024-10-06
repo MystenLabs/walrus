@@ -12,7 +12,6 @@ use std::{
 use anyhow::Context as _;
 use async_trait::async_trait;
 use rand::{rngs::StdRng, Rng, SeedableRng};
-use sui_sdk::wallet_context::WalletContext;
 use tokio::sync::Mutex as TokioMutex;
 use walrus_core::{messages::InvalidBlobCertificate, Epoch};
 use walrus_sui::{
@@ -85,15 +84,7 @@ where
 impl SuiSystemContractService<SuiContractClient> {
     /// Creates a new provider with a [`SuiContractClient`] constructed from the config.
     pub async fn from_config(config: &SuiConfig) -> Result<Self, anyhow::Error> {
-        let wallet = WalletContext::new(&config.wallet_config, None, None)?;
-        let contract_client = SuiContractClient::new(
-            wallet,
-            config.system_object,
-            config.staking_object,
-            config.gas_budget,
-        )
-        .await?;
-        Ok(Self::new(contract_client))
+        Ok(Self::new(config.new_contract_client().await?))
     }
 }
 

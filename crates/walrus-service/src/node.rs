@@ -348,16 +348,7 @@ impl StorageNodeBuilder {
 }
 
 async fn create_read_client(sui_config: &SuiConfig) -> Result<SuiReadClient, anyhow::Error> {
-    let SuiConfig {
-        rpc,
-        system_object,
-        staking_object,
-        ..
-    } = sui_config;
-
-    let client = SuiReadClient::new_for_rpc(&rpc, *system_object, *staking_object).await?;
-
-    Ok(client)
+    Ok(sui_config.new_read_client().await?)
 }
 
 /// A Walrus storage node, responsible for 1 or more shards on Walrus.

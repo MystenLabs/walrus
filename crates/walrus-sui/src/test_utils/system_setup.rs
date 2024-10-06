@@ -25,7 +25,7 @@ use walrus_core::keys::{NetworkKeyPair, ProtocolKeyPair};
 
 use super::{default_protocol_keypair, DEFAULT_GAS_BUDGET};
 use crate::{
-    client::{ContractClient, ReadClient, SuiContractClient},
+    client::{ContractClient, ReadClient, SuiClientError, SuiContractClient},
     system_setup::{create_system_and_staking_objects, publish_coin_and_system_package},
     types::NodeRegistrationParams,
 };
@@ -64,13 +64,9 @@ pub async fn publish_with_default_system(
         NodeRegistrationParams::new_for_test(protocol_keypair.public(), network_key_pair.public());
 
     // Initialize client
-    let contract_client = SuiContractClient::new(
-        node_wallet,
-        system_context.system_obj_id,
-        system_context.staking_obj_id,
-        DEFAULT_GAS_BUDGET,
-    )
-    .await?;
+    let contract_client = system_context
+        .new_contract_client(node_wallet, DEFAULT_GAS_BUDGET)
+        .await?;
 
     register_committee_and_stake(
         admin_wallet,
@@ -99,6 +95,17 @@ pub struct SystemContext {
     pub staking_obj_id: ObjectID,
     /// The ID of the WAL treasury Cap.
     pub treasury_cap: ObjectID,
+}
+
+impl SystemContext {
+    /// Creates a [`SuiContractClient`] based on the configuration.
+    pub async fn new_contract_client(
+        &self,
+        wallet: WalletContext,
+        gas_budget: u64,
+    ) -> Result<SuiContractClient, SuiClientError> {
+        SuiContractClient::new(wallet, self.system_obj_id, self.staking_obj_id, gas_budget).await
+    }
 }
 
 /// Publishes the test contracts and initializes the system.
