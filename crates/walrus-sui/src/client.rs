@@ -105,7 +105,7 @@ pub enum SuiClientError {
     #[error("no corresponding blob event found for {0:?}")]
     NoCorrespondingBlobEvent(EventID),
     /// Storage capability object is missing when interacting with the contract.
-    #[error("No storage capability object set")]
+    #[error("no storage capability object set")]
     StorageNodeCapabilityObjectNotSet,
     /// An attestation has already been performed for that or a more recent epoch.
     #[error("the storage node has already attested to that or a later epoch being synced")]
@@ -113,6 +113,12 @@ pub enum SuiClientError {
     /// The address has multiple storage node capability objects, which is unexpected.
     #[error("there are multiple storage node capability objects in the address")]
     MultipleStorageNodeCapabilities,
+    /// The storage capability object already exists in the account and cannot register another.
+    #[error(
+        "storage capability object already exists in the account and cannot register another\n\
+        object ID: {0}"
+    )]
+    CapabilityObjectAlreadyExists(StorageNodeCap),
 }
 
 /// Represents the persistence state of a blob on Walrus.
@@ -714,6 +720,18 @@ impl ContractClient for SuiContractClient {
         node_parameters: &NodeRegistrationParams,
         proof_of_possession: &ProofOfPossession,
     ) -> SuiClientResult<StorageNodeCap> {
+        // TODO: client race.
+        let existing_capability_object = get_address_capability_object(
+            &self.read_client.sui_client,
+            self.wallet_address,
+            self.read_client.system_pkg_id,
+        )
+        .await?;
+
+        if let Some(cap) = existing_capability_object {
+            return Err(SuiClientError::CapabilityObjectAlreadyExists(cap));
+        }
+
         let res = self
             .move_call_and_transfer(
                 contracts::staking::register_candidate,

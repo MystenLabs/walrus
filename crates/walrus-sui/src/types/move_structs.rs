@@ -119,6 +119,16 @@ impl AssociatedContractStruct for StorageNodeCap {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::storage_node::StorageNodeCap;
 }
 
+impl Display for StorageNodeCap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "StorageNodeCap: object ID: {}, node ID: {}, last_epoch_sync_done: {}",
+            self.id, self.node_id, self.last_epoch_sync_done
+        )
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 enum PoolState {
     // The pool is new and awaits the stake to be added.

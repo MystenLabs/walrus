@@ -293,3 +293,5 @@ async fn test_get_committee() -> anyhow::Result<()> {
     );
     Ok(())
 }
+
+// TODO: test register candidate
