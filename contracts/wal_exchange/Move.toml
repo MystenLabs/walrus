@@ -1,5 +1,5 @@
 [package]
-name = "WAL Exchange"
+name = "WAL_exchange"
 license = "Apache-2.0"
 authors = ["Mysten Labs <build@mystenlabs.com>"]
 edition = "2024.beta"

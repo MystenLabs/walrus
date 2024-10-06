@@ -78,13 +78,42 @@ public fun new(ctx: &mut TxContext): AdminCap {
     admin_cap
 }
 
+/// Creates a new shared exchange with a 1:1 exchange rate, funds it with WAL, and returns the
+/// associated `AdminCap`.
+public fun new_funded(wal: &mut Coin<WAL>, amount: u64, ctx: &mut TxContext): AdminCap {
+    let admin_cap = AdminCap {
+        id: object::new(ctx),
+    };
+    let mut exchange = Exchange {
+        id: object::new(ctx),
+        wal: balance::zero(),
+        sui: balance::zero(),
+        rate: ExchangeRate { wal: 1, sui: 1 },
+        admin: object::id(&admin_cap),
+    };
+    exchange.add_wal(wal, amount);
+
+    transfer::share_object(exchange);
+    admin_cap
+}
+
 /// Adds WAL to the balance stored in the exchange.
-public fun add_wal(self: &mut Exchange, wal: Coin<WAL>) {
+public fun add_wal(self: &mut Exchange, wal: &mut Coin<WAL>, amount: u64) {
+    self.wal.join(wal.balance_mut().split(amount));
+}
+
+/// Adds SUI to the balance stored in the exchange.
+public fun add_sui(self: &mut Exchange, sui: &mut Coin<SUI>, amount: u64) {
+    self.sui.join(sui.balance_mut().split(amount));
+}
+
+/// Adds WAL to the balance stored in the exchange.
+public fun add_all_wal(self: &mut Exchange, wal: Coin<WAL>) {
     self.wal.join(wal.into_balance());
 }
 
 /// Adds SUI to the balance stored in the exchange.
-public fun add_sui(self: &mut Exchange, sui: Coin<SUI>) {
+public fun add_all_sui(self: &mut Exchange, sui: Coin<SUI>) {
     self.sui.join(sui.into_balance());
 }
 
@@ -202,8 +231,8 @@ fun test_standard_flow() {
     let (mut exchange, admin_cap) = new_for_testing(1, ctx);
 
     exchange.set_exchange_rate(4, 2, &admin_cap);
-    exchange.add_wal(coin::mint_for_testing(1_000_000, ctx));
-    exchange.add_sui(coin::mint_for_testing(1_000_000, ctx));
+    exchange.add_all_wal(coin::mint_for_testing(1_000_000, ctx));
+    exchange.add_all_sui(coin::mint_for_testing(1_000_000, ctx));
 
     let mut wal_coin = exchange.exchange_all_for_wal(coin::mint_for_testing(42, ctx), ctx);
     assert!(wal_coin.value() == 84);
@@ -239,7 +268,7 @@ fun test_insufficient_funds_in_exchange() {
     let ctx = &mut tx_context::dummy();
     let (mut exchange, _admin_cap) = new_for_testing(2, ctx);
 
-    exchange.add_sui(coin::mint_for_testing(1_000_000, ctx));
+    exchange.add_all_sui(coin::mint_for_testing(1_000_000, ctx));
     let wal_coin = exchange.exchange_all_for_wal(coin::mint_for_testing(1, ctx), ctx);
 
     destroy(wal_coin);
@@ -253,7 +282,7 @@ fun test_insufficient_coin() {
     let ctx = &mut tx_context::dummy();
     let (mut exchange, _admin_cap) = new_for_testing(2, ctx);
 
-    exchange.add_sui(coin::mint_for_testing(1_000_000, ctx));
+    exchange.add_all_sui(coin::mint_for_testing(1_000_000, ctx));
     let mut sui_coin = coin::mint_for_testing(1, ctx);
     let wal_coin = exchange.exchange_for_wal(&mut sui_coin, 2, ctx);
 
@@ -261,4 +290,32 @@ fun test_insufficient_coin() {
     destroy(wal_coin);
     destroy(exchange);
     destroy(_admin_cap);
+}
+
+#[test]
+#[expected_failure(abort_code = EUnauthorizedAdminCap)]
+fun test_unauthorized() {
+    let ctx = &mut tx_context::dummy();
+    let (mut exchange_1, _admin_cap_1) = new_for_testing(2, ctx);
+    let (mut _exchange_2, admin_cap_2) = new_for_testing(2, ctx);
+
+    exchange_1.set_exchange_rate(1, 1, &admin_cap_2);
+
+    destroy(exchange_1);
+    destroy(_admin_cap_1);
+    destroy(_exchange_2);
+    destroy(admin_cap_2);
+}
+
+#[test]
+fun test_creation() {
+    let ctx = &mut tx_context::dummy();
+    let mut coin = coin::mint_for_testing(1_000_000, ctx);
+    let _admin_cap_1 = new(ctx);
+    let _admin_cap_2 = new_funded(&mut coin, 100, ctx);
+    (ctx);
+
+    destroy(coin);
+    destroy(_admin_cap_1);
+    destroy(_admin_cap_2);
 }
