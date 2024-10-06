@@ -60,7 +60,7 @@ const SLIVER_STATUS_TEMPLATE: &str =
     "/v1/blobs/:blob_id/slivers/:sliver_pair_index/:sliver_type/status";
 const STORAGE_CONFIRMATION_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/confirmation";
 const RECOVERY_URL_TEMPLATE: &str =
-    "/v1/blobs/:blob_id/slivers/:sliver_pair_index/:sliver_type/:target_pair_index";
+    "/v1/recovery/:blob_id/:sliver_type/:sliver_pair_index/:target_pair_index";
 const INCONSISTENCY_PROOF_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/inconsistent/:sliver_type";
 const BLOB_STATUS_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/status";
 const HEALTH_URL_TEMPLATE: &str = "/v1/health";
@@ -151,12 +151,14 @@ impl UrlEndpoints {
         sliver_pair_at_remote: SliverPairIndex,
         intersecting_pair_index: SliverPairIndex,
     ) -> (Url, &'static str) {
+        let sliver_type = SliverType::for_encoding::<A>();
         (
-            self.sliver_path::<A>(
-                blob_id,
-                sliver_pair_at_remote,
-                Some(&intersecting_pair_index.0.to_string()),
-            ),
+            self.0
+                .join(&format!(
+                    "/v1/recovery/{blob_id}/{sliver_type}/{}/{}",
+                    sliver_pair_at_remote.0, intersecting_pair_index.0,
+                ))
+                .expect("this is a valid URL"),
             RECOVERY_URL_TEMPLATE,
         )
     }
@@ -926,12 +928,6 @@ mod tests {
             metadata: (|e| e.metadata(&BLOB_ID).0, "metadata"),
             confirmation: (|e| e.confirmation(&BLOB_ID).0, "confirmation"),
             sliver: (|e| e.sliver::<Primary>(&BLOB_ID, SliverPairIndex(1)).0, "slivers/1/primary"),
-            recovery_symbol: (
-                |e| e.recovery_symbol::<Primary>(
-                    &BLOB_ID, SliverPairIndex(1), SliverPairIndex(2)
-                ).0,
-                "slivers/1/primary/2"
-            ),
             inconsistency_proof: (
                 |e| e.inconsistency_proof::<Primary>(&BLOB_ID).0, "inconsistent/primary"
             ),
@@ -946,6 +942,18 @@ mod tests {
         let expected = format!("https://node.com/v1/blobs/{BLOB_ID}/{expected_path}");
 
         assert_eq!(url.to_string(), expected);
+    }
+
+    #[test]
+    fn test_url_recovery_symbol_endpoint() {
+        let endpoints = UrlEndpoints(Url::parse("https://node.com").unwrap());
+        let (url, _) =
+            endpoints.recovery_symbol::<Primary>(&BLOB_ID, SliverPairIndex(1), SliverPairIndex(2));
+
+        assert_eq!(
+            url.to_string(),
+            format!("https://node.com/v1/recovery/{BLOB_ID}/primary/1/2")
+        );
     }
 
     #[test]

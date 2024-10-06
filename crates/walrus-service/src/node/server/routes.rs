@@ -57,7 +57,7 @@ pub const SLIVER_STATUS_ENDPOINT: &str =
 pub const STORAGE_CONFIRMATION_ENDPOINT: &str = "/v1/blobs/:blob_id/confirmation";
 /// The path to get recovery symbols.
 pub const RECOVERY_ENDPOINT: &str =
-    "/v1/blobs/:blob_id/slivers/:sliver_pair_index/:sliver_type/:target_pair_index";
+    "/v1/recovery/:blob_id/:sliver_type/:sliver_pair_index/:target_pair_index";
 /// The path to push inconsistency proofs.
 pub const INCONSISTENCY_PROOF_ENDPOINT: &str = "/v1/blobs/:blob_id/inconsistent/:sliver_type";
 /// The path to get the status of a blob.
@@ -324,9 +324,9 @@ pub async fn get_storage_confirmation<S: SyncServiceState>(
     path = api::rewrite_route(RECOVERY_ENDPOINT),
     params(
         ("blob_id" = BlobIdString,),
+        ("sliver_type" = SliverType, ),
         ("sliver_pair_index" = SliverPairIndex, ),
         ("target_pair_index" = SliverPairIndex, ),
-        ("sliver_type" = SliverType, )
     ),
     responses(
         (status = 200, description = "BCS encoded symbol", body = [u8]),
@@ -336,10 +336,10 @@ pub async fn get_storage_confirmation<S: SyncServiceState>(
 )]
 pub async fn get_recovery_symbol<S: SyncServiceState>(
     State(state): State<Arc<S>>,
-    Path((blob_id, sliver_pair_index, sliver_type, target_pair_index)): Path<(
+    Path((blob_id, sliver_type, sliver_pair_index, target_pair_index)): Path<(
         BlobIdString,
-        SliverPairIndex,
         SliverType,
+        SliverPairIndex,
         SliverPairIndex,
     )>,
 ) -> Result<Response, RetrieveSymbolError> {
