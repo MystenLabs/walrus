@@ -88,11 +88,11 @@ pub enum SuiClientError {
     /// Error in a transaction execution.
     #[error("transaction execution failed: {0}")]
     TransactionExecutionError(String),
-    /// No matching payment coin found for the transaction.
-    #[error("no compatible payment coin found")]
-    NoCompatiblePaymentCoin,
+    /// No matching WAL coin found for the transaction.
+    #[error("could not find a WAL coin with sufficient balance")]
+    NoCompatibleWalCoin,
     /// No matching gas coin found for the transaction.
-    #[error("no compatible gas coins found: {0}")]
+    #[error("could not find gas coins with sufficient balance: {0}")]
     NoCompatibleGasCoins(anyhow::Error),
     /// The Walrus system object does not exist.
     #[error(
@@ -152,7 +152,7 @@ impl BlobPersistence {
 /// Result alias for functions returning a `SuiClientError`.
 pub type SuiClientResult<T> = Result<T, SuiClientError>;
 
-/// Trait for interactions with the walrus contracts.
+/// Trait for interactions with the Walrus contracts.
 pub trait ContractClient: ReadClient + Send + Sync {
     /// Purchases blob storage for the next `epochs_ahead` Walrus epochs and an encoded
     /// size of `encoded_size` and returns the created storage resource.
@@ -416,23 +416,38 @@ impl SuiContractClient {
         ))
     }
 
-    /// Returns a payment coin with sufficient balance to pay the `price`.
+    /// Returns a WAL coin with a balance of at least `min_balance`.
     ///
     /// # Errors
     ///
-    /// Returns a [`SuiClientError::NoCompatiblePaymentCoin`] if no payment coin with sufficient
-    /// balance can be found or created (by merging coins).
-    async fn get_payment_coin(&self, price: u64) -> SuiClientResult<Coin> {
+    /// Returns a [`SuiClientError::NoCompatibleWalCoin`] if no WAL coin with sufficient balance can
+    /// be found.
+    async fn get_wal_coin(&self, min_balance: u64) -> SuiClientResult<Coin> {
         tracing::debug!(coin_type=?self.read_client.coin_type());
         self.read_client
             .get_coin_with_balance(
                 self.wallet_address,
                 Some(self.read_client.coin_type()),
-                price,
+                min_balance,
                 Default::default(),
             )
             .await
-            .map_err(|_| SuiClientError::NoCompatiblePaymentCoin)
+            .map_err(|_| SuiClientError::NoCompatibleWalCoin)
+    }
+
+    /// Adds a WAL coin with a balance of at least `min_balance` as an input to the PTB and returns
+    /// the corresponding [`Argument`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`SuiClientError::NoCompatibleWalCoin`] if no WAL coin with sufficient balance can
+    /// be found.
+    async fn add_wal_coin_to_ptb(
+        &self,
+        pt_builder: &mut ProgrammableTransactionBuilder,
+        min_balance: u64,
+    ) -> anyhow::Result<Argument> {
+        pt_builder.input(self.get_wal_coin(min_balance).await?.object_ref().into())
     }
 
     /// Adds a call to `reserve_space` to the `pt_builder` and returns the result index.
@@ -451,7 +466,7 @@ impl SuiContractClient {
                 let price = self
                     .storage_price_for_encoded_length(encoded_size, epochs_ahead)
                     .await?;
-                pt_builder.input(self.get_payment_coin(price).await?.object_ref().into())?
+                self.add_wal_coin_to_ptb(pt_builder, price).await?
             }
         };
 
@@ -581,7 +596,7 @@ impl ContractClient for SuiContractClient {
                     blob_size.into(),
                     u8::from(encoding_type).into(),
                     persistence.is_deletable().into(),
-                    self.get_payment_coin(price).await?.object_ref().into(),
+                    self.get_wal_coin(price).await?.object_ref().into(),
                 ],
             )
             .await?;
@@ -615,8 +630,7 @@ impl ContractClient for SuiContractClient {
             .storage_price_for_encoded_length(encoded_size, epochs_ahead)
             .await?
             + self.write_price_for_encoded_length(encoded_size).await?;
-        let payment_coin =
-            pt_builder.input(self.get_payment_coin(price).await?.object_ref().into())?;
+        let payment_coin = self.add_wal_coin_to_ptb(&mut pt_builder, price).await?;
 
         let reserve_result_index = self
             .add_reserve_transaction(
@@ -786,12 +800,9 @@ impl ContractClient for SuiContractClient {
 
         let staking_object_arg = self.read_client.call_arg_from_staking_obj(true).await?;
 
-        let input_coin_arg = pt_builder.input(
-            self.get_payment_coin(amount_to_stake)
-                .await?
-                .object_ref()
-                .into(),
-        )?;
+        let input_coin_arg = self
+            .add_wal_coin_to_ptb(&mut pt_builder, amount_to_stake)
+            .await?;
 
         // TODO: split coin, does this work?
         let amount_to_stake_arg = pt_builder.pure(amount_to_stake)?;
