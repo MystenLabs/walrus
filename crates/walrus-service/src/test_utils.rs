@@ -20,7 +20,7 @@ use futures::{stream::FuturesUnordered, StreamExt};
 use prometheus::Registry;
 use sui_types::base_types::ObjectID;
 use tempfile::TempDir;
-use tokio::{task::JoinHandle, time::Duration};
+use tokio::{runtime::Runtime, task::JoinHandle, time::Duration};
 use tokio_stream::{wrappers::BroadcastStream, Stream};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
@@ -1120,8 +1120,11 @@ pub mod test_cluster {
     use std::{sync::OnceLock, thread};
 
     use futures_util::future::try_join_all;
-    use tokio::{runtime::Builder, sync::Mutex};
-    use walrus_event::event_processor::EventProcessor;
+    use tokio::{
+        runtime::{Builder, Runtime},
+        sync::Mutex,
+    };
+    use walrus_event::{event_processor::EventProcessor, EventProcessorConfig};
     use walrus_sui::{
         client::{SuiContractClient, SuiReadClient},
         test_utils::{
@@ -1139,7 +1142,11 @@ pub mod test_cluster {
     use super::*;
     use crate::{
         client::{self, ClientCommunicationConfig, Config},
-        node::{committee::DefaultNodeServiceFactory, contract_service::SuiSystemContractService},
+        node::{
+            committee::DefaultNodeServiceFactory,
+            contract_service::SuiSystemContractService,
+            system_events::SuiSystemEventProvider,
+        },
     };
 
     /// Performs the default setup for the test cluster.
@@ -1239,29 +1246,6 @@ pub mod test_cluster {
         )
         .await?;
 
-        // Set up event processors
-        let mut event_processors = vec![];
-        let mut cancel_tokens = vec![];
-
-        for _ in cluster_builder.storage_node_test_configs().iter() {
-            let event_processor = EventProcessor::new(
-                &event_processor_config,
-                sui_read_client.get_system_package_id(),
-                Duration::from_millis(100),
-                tempfile::tempdir()
-                    .expect("temporary directory creation must succeed")
-                    .path(),
-            )
-            .await?;
-            let cancel_token = CancellationToken::new();
-            event_processors.push(event_processor);
-            cancel_tokens.push(cancel_token);
-        }
-
-        let cloned_event_processors: Vec<_> = event_processors.to_vec();
-        let cloned_cancel_tasks: Vec<_> = cancel_tokens.to_vec();
-        let task_handles = setup_event_processors(cloned_event_processors, cloned_cancel_tasks);
-
         // Create a contract service for the storage nodes using a wallet in a temp dir
         // The sui test cluster handler can be dropped since we already have one
 
@@ -1275,12 +1259,16 @@ pub mod test_cluster {
                     .expect("service construction must succeed in tests")
             })
             .await
-            .with_individual_system_event_providers(&event_processors)
-            .with_cancellation_tokens(cancel_tokens)
-            .with_event_task_handles(task_handles)
             .with_system_contract_services(&node_contract_services);
 
-        let cluster = {
+        let cluster_builder = setup_event_processors(
+            &event_processor_config,
+            sui_read_client.clone(),
+            cluster_builder,
+        )
+        .await?;
+
+        let mut cluster = {
             // Lock to avoid race conditions.
             let _lock = global_test_lock().lock().await;
             cluster_builder.build().await?
@@ -1306,53 +1294,49 @@ pub mod test_cluster {
     }
 
     #[cfg(msim)]
-    fn setup_event_processors(
-        event_processors: Vec<EventProcessor>,
-        cancel_tokens: Vec<CancellationToken>,
-    ) -> Vec<JoinHandle<anyhow::Result<()>>> {
+    async fn setup_event_processors(
+        event_processor_config: &EventProcessorConfig,
+        sui_read_client: SuiReadClient,
+        test_cluster_builder: TestClusterBuilder,
+    ) -> anyhow::Result<TestClusterBuilder> {
         let mut task_handles = vec![];
-        for (event_processor, cancel_task) in
-            event_processors.into_iter().zip(cancel_tokens.into_iter())
-        {
+        let mut event_processors = vec![];
+        let mut cancel_tokens = vec![];
+
+        for _ in test_cluster_builder.storage_node_test_configs().iter() {
+            let event_processor = EventProcessor::new(
+                event_processor_config,
+                sui_read_client.get_system_package_id(),
+                Duration::from_millis(100),
+                tempfile::tempdir()
+                    .expect("temporary directory creation must succeed")
+                    .path(),
+            )
+            .await?;
+            event_processors.push(event_processor.clone());
+            let cancel_token = CancellationToken::new();
+            cancel_tokens.push(cancel_token.clone());
             task_handles.push(tokio::task::spawn(async move {
-                event_processor.start(cancel_task).await
+                event_processor.start(cancel_token).await
             }));
         }
-        task_handles
+        let res = test_cluster_builder
+            .with_individual_system_event_providers(&event_processors)
+            .with_cancellation_tokens(cancel_tokens)
+            .with_event_task_handles(task_handles);
+        Ok(res)
     }
 
     #[cfg(not(msim))]
-    fn setup_event_processors(
-        event_processors: Vec<EventProcessor>,
-        cancel_tokens: Vec<CancellationToken>,
-    ) -> Vec<JoinHandle<anyhow::Result<()>>> {
-        tokio::task::spawn_blocking(move || {
-            let runtime = thread::spawn(move || {
-                Builder::new_multi_thread()
-                    .enable_all()
-                    .build()
-                    .expect("should be able to build runtime")
-            })
-            .join()
-            .expect("should be able to wait for thread to finish");
-            runtime.block_on(async {
-                let mut task_handles = vec![];
-                for (event_processor, cancel_task) in
-                    event_processors.into_iter().zip(cancel_tokens.into_iter())
-                {
-                    task_handles.push(tokio::task::spawn(async move {
-                        event_processor.start(cancel_task).await
-                    }));
-                }
-                try_join_all(task_handles)
-                    .await
-                    .unwrap()
-                    .into_iter()
-                    .collect::<Result<Vec<_>, _>>()
-                    .unwrap();
-            });
-        });
-        vec![]
+    async fn setup_event_processors(
+        _event_processor_config: &EventProcessorConfig,
+        sui_read_client: SuiReadClient,
+        test_cluster_builder: TestClusterBuilder,
+    ) -> anyhow::Result<TestClusterBuilder> {
+        let event_provider =
+            SuiSystemEventProvider::new(sui_read_client.clone(), Duration::from_millis(100));
+        let res = test_cluster_builder.with_system_event_providers(event_provider);
+        Ok(res)
     }
 
     // Prevent tests running simultaneously to avoid interferences or race conditions.

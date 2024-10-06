@@ -35,7 +35,7 @@ use tokio::{
     time::{sleep, Instant},
 };
 use tokio_util::sync::CancellationToken;
-use tracing::error;
+use tracing::{error, info};
 use typed_store::{
     rocks,
     rocks::{errors::typed_store_err_from_rocks_err, DBMap, MetricConf, ReadWriteOptions},
@@ -184,6 +184,7 @@ impl EventProcessor {
     /// cancellation token is cancelled. If the checkpoint processor falls behind the full node, it
     /// will read events from the event blobs so it can catch up.
     pub async fn start_tailing_checkpoints(&self, cancel_token: CancellationToken) -> Result<()> {
+        info!("started tailing checkpoints");
         let mut next_event_index = self
             .event_store
             .unbounded_iter()
@@ -207,13 +208,14 @@ impl EventProcessor {
                     );
                 } else {
                     error!(
-                        "Failed to read checkpoint from full node: {}",
+                        "Failed to read checkpoint from full nodes: {}",
                         result.err().unwrap()
                     );
                     continue;
                 }
             };
             start = Instant::now();
+            info!("Downloaded checkpoint with seq: {}", next_checkpoint);
             let Some(committee) = self.committee_store.get(&())? else {
                 bail!("No committee found in the committee store");
             };

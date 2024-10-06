@@ -171,6 +171,7 @@ pub mod using_tokio {
         fn new() -> Self {
             let runtime = thread::spawn(move || {
                 Builder::new_multi_thread()
+                    .worker_threads(4)
                     .enable_all()
                     .build()
                     .expect("should be able to build runtime")
