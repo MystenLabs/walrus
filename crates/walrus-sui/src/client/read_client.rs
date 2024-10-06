@@ -191,6 +191,21 @@ impl SuiReadClient {
         Self::new(client, system_object, staking_object).await
     }
 
+    pub(crate) async fn call_arg_for_shared_obj(
+        &self,
+        object_id: ObjectID,
+        mutable: bool,
+    ) -> SuiClientResult<CallArg> {
+        let initial_shared_version = self.get_shared_object_initial_version(object_id).await?;
+        Ok(CallArg::Object(
+            sui_types::transaction::ObjectArg::SharedObject {
+                id: object_id,
+                initial_shared_version,
+                mutable,
+            },
+        ))
+    }
+
     pub(crate) async fn call_arg_from_system_obj(&self, mutable: bool) -> SuiClientResult<CallArg> {
         let initial_shared_version = self.system_object_initial_version().await?;
         Ok(CallArg::Object(

@@ -1251,6 +1251,7 @@ pub mod test_cluster {
         let config = Config {
             system_object: system_ctx.system_obj_id,
             staking_object: system_ctx.staking_obj_id,
+            exchange_object: None,
             wallet_config: None,
             communication_config: ClientCommunicationConfig::default_for_test(),
         };

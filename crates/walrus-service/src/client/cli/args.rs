@@ -270,6 +270,18 @@ pub enum CliCommands {
         /// The amount of FROST (smallest unit of WAL token) to stake with the storage node.
         amount: u64,
     },
+    /// Exchange SUI for WAL through the configured exchange.
+    GetWal {
+        #[clap(long)]
+        /// The object ID of the exchange to use.
+        ///
+        /// This takes precedence over the value in the config file.
+        exchange_id: Option<ObjectID>,
+        #[clap(short, long, default_value_t = default::exchange_amount_mist())]
+        #[serde(default = "default::exchange_amount_mist")]
+        /// The amount of MIST to exchange for WAL/FROST.
+        amount: u64,
+    },
 }
 
 /// The daemon commands for the Walrus client.
@@ -535,6 +547,10 @@ mod default {
     }
 
     pub(crate) fn staking_amount_frost() -> u64 {
+        1_000_000_000
+    }
+
+    pub(crate) fn exchange_amount_mist() -> u64 {
         1_000_000_000
     }
 }

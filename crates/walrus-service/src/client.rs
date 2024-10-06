@@ -328,6 +328,18 @@ impl<T: ContractClient> Client<T> {
         let staked_wal = self.sui_client.stake_with_pool(amount, node_id).await?;
         Ok(staked_wal)
     }
+
+    /// Exchanges the provided amount of SUI (in MIST) for WAL using the specified exchange.
+    pub async fn exchange_sui_for_wal(
+        &self,
+        exchange_id: ObjectID,
+        amount: u64,
+    ) -> ClientResult<()> {
+        Ok(self
+            .sui_client
+            .exchange_sui_for_wal(exchange_id, amount)
+            .await?)
+    }
 }
 
 impl<T> Client<T> {

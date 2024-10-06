@@ -1,8 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Walrus move type bindings. Replicates the move types in Rust and provides some convenient
-//! structs to use with the sdk.
+//! Walrus Move type bindings. Replicates the Move types in Rust and provides some convenient
+//! structs to use with the SDK.
 
 use std::{
     fmt::Display,

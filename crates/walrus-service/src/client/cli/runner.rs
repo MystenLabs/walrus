@@ -5,7 +5,7 @@
 
 use std::{io::Write, num::NonZeroU16, path::PathBuf, time::Duration};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use prometheus::Registry;
 use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
@@ -46,6 +46,7 @@ use crate::{
             BlobStatusOutput,
             DeleteOutput,
             DryRunOutput,
+            ExchangeOutput,
             InfoOutput,
             ReadOutput,
             StakeOutput,
@@ -152,6 +153,11 @@ impl ClientCommandRunner {
             CliCommands::Stake { node_id, amount } => {
                 self.stake_with_node_pool(node_id, amount).await
             }
+
+            CliCommands::GetWal {
+                exchange_id,
+                amount,
+            } => self.exchange_sui_for_wal(exchange_id, amount).await,
         }
     }
 
@@ -464,6 +470,21 @@ impl ClientCommandRunner {
         let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
         let staked_wal = client.stake_with_node_pool(node_id, amount).await?;
         StakeOutput { staked_wal }.print_output(self.json)
+    }
+
+    pub(crate) async fn exchange_sui_for_wal(
+        self,
+        exchange_id: Option<ObjectID>,
+        amount: u64,
+    ) -> Result<()> {
+        let config = self.config?;
+        let exchange_id = exchange_id.or(config.exchange_object).context(
+            "Object ID of exchange object must be specified either in the config file or as a \
+            command-line argument.",
+        )?;
+        let client = get_contract_client(config, self.wallet, self.gas_budget, &None).await?;
+        client.exchange_sui_for_wal(exchange_id, amount).await?;
+        ExchangeOutput { amount_sui: amount }.print_output(self.json)
     }
 }
 

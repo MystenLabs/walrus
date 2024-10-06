@@ -267,6 +267,13 @@ pub trait ContractClient: ReadClient + Send + Sync {
         &self,
         blob_object_id: ObjectID,
     ) -> impl Future<Output = SuiClientResult<()>> + Send;
+
+    /// Exchanges the given `amount` of SUI (in MIST) for WAL using the shared exchange.
+    fn exchange_sui_for_wal(
+        &self,
+        exchange_id: ObjectID,
+        amount: u64,
+    ) -> impl Future<Output = SuiClientResult<()>>;
 }
 
 /// Client implementation for interacting with the Walrus smart contracts.
@@ -900,6 +907,41 @@ impl ContractClient for SuiContractClient {
             ],
         )
         .await?;
+        Ok(())
+    }
+
+    async fn exchange_sui_for_wal(
+        &self,
+        exchange_id: ObjectID,
+        amount: u64,
+    ) -> SuiClientResult<()> {
+        tracing::debug!("exchanging {amount} MIST for WAL/FROST");
+        let mut pt_builder = ProgrammableTransactionBuilder::new();
+
+        let amount_argument = pt_builder.input(call_arg_pure!(&amount))?;
+        let Argument::Result(split_result_index) = pt_builder.command(Command::SplitCoins(
+            Argument::GasCoin,
+            vec![amount_argument],
+        )) else {
+            unreachable!("this always returns an `Argument::Result`")
+        };
+        let sui_coin_arg = Argument::NestedResult(split_result_index, 0);
+        let exchange_arg = pt_builder.input(
+            self.read_client
+                .call_arg_for_shared_obj(exchange_id, true)
+                .await?,
+        )?;
+
+        let result_index = self.add_move_call_to_ptb(
+            &mut pt_builder,
+            contracts::wal_exchange::exchange_all_for_wal,
+            vec![exchange_arg, sui_coin_arg],
+        )?;
+        pt_builder.transfer_arg(self.wallet_address, Argument::NestedResult(result_index, 0));
+
+        self.sign_and_send_ptb(pt_builder.finish(), Some(self.gas_budget + amount))
+            .await?;
+
         Ok(())
     }
 

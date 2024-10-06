@@ -282,3 +282,26 @@ pub mod events {
     contract_ident!(struct events::ShardsReceived);
     contract_ident!(struct events::ShardRecoveryStart);
 }
+
+/// Module for tags corresponding to the Move module `wal_exchange`.
+pub mod wal_exchange {
+    use super::*;
+
+    contract_ident!(struct wal_exchange::AdminCap);
+    contract_ident!(struct wal_exchange::Exchange);
+    contract_ident!(struct wal_exchange::ExchangeRate);
+    contract_ident!(fn wal_exchange::new_exchange_rate, 1);
+    contract_ident!(fn wal_exchange::new, 1);
+    contract_ident!(fn wal_exchange::new_funded, 1);
+    contract_ident!(fn wal_exchange::add_wal);
+    contract_ident!(fn wal_exchange::add_sui);
+    contract_ident!(fn wal_exchange::add_all_wal);
+    contract_ident!(fn wal_exchange::add_all_sui);
+    contract_ident!(fn wal_exchange::withdraw_wal, 1);
+    contract_ident!(fn wal_exchange::withdraw_sui, 1);
+    contract_ident!(fn wal_exchange::set_exchange_rate);
+    contract_ident!(fn wal_exchange::exchange_all_for_wal, 1);
+    contract_ident!(fn wal_exchange::exchange_for_wal, 1);
+    contract_ident!(fn wal_exchange::exchange_all_for_sui, 1);
+    contract_ident!(fn wal_exchange::exchange_for_sui, 1);
+}

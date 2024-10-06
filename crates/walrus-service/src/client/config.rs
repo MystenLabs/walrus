@@ -25,6 +25,9 @@ pub struct Config {
     pub system_object: ObjectID,
     /// The Walrus staking object ID.
     pub staking_object: ObjectID,
+    /// The WAL exchange object ID.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exchange_object: Option<ObjectID>,
     /// Path to the wallet configuration.
     #[serde(default, deserialize_with = "utils::resolve_home_dir_option")]
     pub wallet_config: Option<PathBuf>,
@@ -396,6 +399,7 @@ mod tests {
         let config = super::Config {
             system_object: ObjectID::random_from_rng(&mut rng),
             staking_object: ObjectID::random_from_rng(&mut rng),
+            exchange_object: Some(ObjectID::random_from_rng(&mut rng)),
             wallet_config: None,
             communication_config: Default::default(),
         };

@@ -370,6 +370,7 @@ pub async fn create_client_config(
     let client_config = client::Config {
         system_object: system_ctx.system_obj_id,
         staking_object: system_ctx.staking_obj_id,
+        exchange_object: None,
         wallet_config: Some(wallet_path),
         communication_config: ClientCommunicationConfig::default(),
     };

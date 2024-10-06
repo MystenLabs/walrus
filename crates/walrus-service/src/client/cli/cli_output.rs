@@ -20,6 +20,7 @@ use crate::client::{
         thousands_separator,
         HumanReadableBytes,
         HumanReadableFrost,
+        HumanReadableMist,
     },
     resource::RegisterBlobOp,
     responses::{
@@ -29,6 +30,7 @@ use crate::client::{
         DeleteOutput,
         DryRunOutput,
         ExampleBlobInfo,
+        ExchangeOutput,
         InfoDevOutput,
         InfoOutput,
         ReadOutput,
@@ -410,6 +412,16 @@ impl CliOutput for StakeOutput {
     fn print_cli_output(&self) {
         println!("{} Staked WAL successfully.", success());
         println!("Staking info:\n{}", self.staked_wal);
+    }
+}
+
+impl CliOutput for ExchangeOutput {
+    fn print_cli_output(&self) {
+        println!(
+            "{} Exchanged {} for WAL.",
+            success(),
+            HumanReadableMist::from(self.amount_sui),
+        );
     }
 }
 

@@ -126,7 +126,7 @@ impl BlobStoreResult {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ReadOutput {
-    #[serde(skip_serializing_if = "std::option::Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) out: Option<PathBuf>,
     #[serde_as(as = "DisplayFromStr")]
     pub(crate) blob_id: BlobId,
@@ -204,14 +204,13 @@ pub(crate) struct BlobStatusOutput {
     #[serde_as(as = "DisplayFromStr")]
     pub blob_id: BlobId,
     /// The file from which the blob was read.
-    #[serde(skip_serializing_if = "std::option::Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub file: Option<PathBuf>,
     /// The blob's status.
     pub status: BlobStatus,
 }
 
 /// The output of the `info` command.
-#[serde_as]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct InfoOutput {
@@ -230,7 +229,6 @@ pub(crate) struct InfoOutput {
 }
 
 /// Additional dev info for the `info` command.
-#[serde_as]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct InfoDevOutput {
@@ -394,25 +392,30 @@ impl InfoOutput {
 }
 
 #[serde_as]
+#[serde_with::skip_serializing_none]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DeleteOutput {
-    #[serde(skip_serializing_if = "std::option::Option::is_none")]
     #[serde_as(as = "Option<DisplayFromStr>")]
     pub(crate) blob_id: Option<BlobId>,
-    #[serde(skip_serializing_if = "std::option::Option::is_none")]
     pub(crate) file: Option<PathBuf>,
-    #[serde(skip_serializing_if = "std::option::Option::is_none")]
     #[serde_as(as = "Option<DisplayFromStr>")]
     pub(crate) object_id: Option<ObjectID>,
     pub(crate) deleted_blobs: Vec<Blob>,
 }
 
-#[serde_as]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-/// The output of the `walrus-node stake-with-node-pool` command.
+/// The output of the `walrus stake` command.
 pub struct StakeOutput {
     /// The staked WAL after staking.
     pub staked_wal: StakedWal,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// The output of the `walrus get-wal` command.
+pub struct ExchangeOutput {
+    /// The amount of SUI exchanged (in MIST).
+    pub amount_sui: u64,
 }
