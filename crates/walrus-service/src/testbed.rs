@@ -227,6 +227,8 @@ pub struct DeployTestbedContractParameters<'a> {
     pub deterministic_keys: bool,
     /// The total number of shards.
     pub n_shards: u16,
+    /// The epoch duration.
+    pub epoch_duration: Duration,
 }
 
 // Todo: Refactor configs #377
@@ -244,6 +246,7 @@ pub async fn deploy_walrus_contract(
         write_price,
         deterministic_keys,
         n_shards,
+        epoch_duration,
     }: DeployTestbedContractParameters<'_>,
 ) -> anyhow::Result<TestbedConfig> {
     // Check whether the testbed collocates the storage nodes on the same machine
@@ -304,7 +307,10 @@ pub async fn deploy_walrus_contract(
         &mut admin_wallet,
         n_shards,
         0,
-        3600000,
+        epoch_duration
+            .as_millis()
+            .try_into()
+            .context("epoch duration is too long")?,
         gas_budget,
     )
     .await?;

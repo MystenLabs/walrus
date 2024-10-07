@@ -66,6 +66,9 @@ struct DeploySystemContractArgs {
     // TODO: accept non-even shard distributions #377
     #[arg(long, default_value_t = 1000)]
     n_shards: u16,
+    /// The epoch duration.
+    #[arg(long, default_value = "1h")]
+    epoch_duration: Duration,
     /// The list of host names or public IP addresses of the storage nodes.
     #[clap(long, value_name = "ADDR", value_delimiter = ' ', num_args(4..))]
     host_addresses: Vec<String>,
@@ -163,6 +166,7 @@ mod commands {
             contract_path,
             gas_budget,
             n_shards,
+            epoch_duration,
             host_addresses,
             rest_api_port,
             testbed_config_path,
@@ -194,6 +198,7 @@ mod commands {
             write_price,
             deterministic_keys,
             n_shards,
+            epoch_duration: *epoch_duration,
         })
         .await
         .context("Failed to deploy system contract")?;
