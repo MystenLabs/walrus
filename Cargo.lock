@@ -11904,6 +11904,7 @@ name = "walrus-e2e-tests"
 version = "1.0.0"
 dependencies = [
  "anyhow",
+ "reqwest 0.12.8",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -12088,6 +12089,7 @@ name = "walrus-simtest"
 version = "1.0.0"
 dependencies = [
  "prometheus",
+ "reqwest 0.12.8",
  "sui-json-rpc-types",
  "sui-macros",
  "sui-protocol-config",
