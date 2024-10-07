@@ -26,7 +26,7 @@ use walrus_core::keys::{NetworkKeyPair, ProtocolKeyPair};
 use super::{default_protocol_keypair, DEFAULT_GAS_BUDGET};
 use crate::{
     client::{ContractClient, ReadClient, SuiClientError, SuiContractClient},
-    system_setup::{create_system_and_staking_objects, publish_coin_and_system_package},
+    system_setup,
     types::NodeRegistrationParams,
 };
 
@@ -53,7 +53,7 @@ pub async fn publish_with_default_system(
     // Default system config, compatible with current tests
 
     // TODO(#814): make epoch duration in test configurable. Currently hardcoded to 1 hour.
-    let system_context = create_and_init_system_for_test(admin_wallet, 100, 0, 3600000).await?;
+    let system_context = create_and_init_system_for_test(admin_wallet, 100, 0, 3_600_000).await?;
 
     // Set up node params.
     // Pk corresponding to secret key scalar(117)
@@ -81,7 +81,7 @@ pub async fn publish_with_default_system(
     // call vote end
     end_epoch_zero(&contract_client).await?;
 
-    Ok((system_context.system_obj_id, system_context.staking_obj_id))
+    Ok((system_context.system_object, system_context.staking_object))
 }
 
 /// Helper struct to pass around all needed object IDs when setting up the system.
@@ -90,9 +90,9 @@ pub struct SystemContext {
     /// The package ID.
     pub package_id: ObjectID,
     /// The ID of the system Object.
-    pub system_obj_id: ObjectID,
+    pub system_object: ObjectID,
     /// The ID of the staking Object.
-    pub staking_obj_id: ObjectID,
+    pub staking_object: ObjectID,
     /// The ID of the WAL treasury Cap.
     pub treasury_cap: ObjectID,
 }
@@ -104,7 +104,7 @@ impl SystemContext {
         wallet: WalletContext,
         gas_budget: u64,
     ) -> Result<SuiContractClient, SuiClientError> {
-        SuiContractClient::new(wallet, self.system_obj_id, self.staking_obj_id, gas_budget).await
+        SuiContractClient::new(wallet, self.system_object, self.staking_object, gas_budget).await
     }
 }
 
@@ -130,7 +130,8 @@ pub async fn create_and_init_system_for_test(
 
 /// Publishes the contracts specified in `contract_path` and initializes the system.
 ///
-/// Returns the package id and the object IDs of the system object and the staking object.
+/// Returns the package ID and the object IDs of the system object, the staking object, and the WAL
+/// treasury cap.
 pub async fn create_and_init_system(
     contract_path: PathBuf,
     admin_wallet: &mut WalletContext,
@@ -140,9 +141,10 @@ pub async fn create_and_init_system(
     gas_budget: u64,
 ) -> Result<SystemContext> {
     let (package_id, cap_id, treasury_cap) =
-        publish_coin_and_system_package(admin_wallet, contract_path, gas_budget).await?;
+        system_setup::publish_coin_and_system_package(admin_wallet, contract_path, gas_budget)
+            .await?;
 
-    let (system_obj_id, staking_obj_id) = create_system_and_staking_objects(
+    let (system_object, staking_object) = system_setup::create_system_and_staking_objects(
         admin_wallet,
         package_id,
         cap_id,
@@ -152,10 +154,11 @@ pub async fn create_and_init_system(
         gas_budget,
     )
     .await?;
+
     Ok(SystemContext {
         package_id,
-        system_obj_id,
-        staking_obj_id,
+        system_object,
+        staking_object,
         treasury_cap,
     })
 }
@@ -214,7 +217,7 @@ pub async fn register_committee_and_stake(
     Ok(())
 }
 
-/// Calls `voting_end`, immediately followed by `initiate_epoch_change`
+/// Calls `voting_end`, immediately followed by `initiate_epoch_change`.
 pub async fn end_epoch_zero(contract_client: &SuiContractClient) -> Result<()> {
     // call vote end
     contract_client.voting_end().await?;
@@ -232,7 +235,6 @@ pub async fn end_epoch_zero(contract_client: &SuiContractClient) -> Result<()> {
         contract_client.current_committee().await?
     );
 
-    // TODO(#784): call epoch change done from each node
     Ok(())
 }
 
@@ -244,7 +246,7 @@ pub async fn mint_wal_to_addresses(
     receiver_addrs: &[SuiAddress],
     value: u64,
 ) -> Result<()> {
-    // Mint Wal to stake with storage nodes
+    // Mint WAL to stake with storage nodes.
     let sender = admin_wallet.active_address()?;
     let mut pt_builder = ProgrammableTransactionBuilder::new();
     let treasury_cap_arg = pt_builder.input(

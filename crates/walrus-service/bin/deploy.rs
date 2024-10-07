@@ -247,6 +247,7 @@ mod commands {
             testbed_config.sui_network.clone(),
             set_config_dir.as_deref(),
             &mut admin_wallet,
+            testbed_config.exchange_object,
         )
         .await?;
 

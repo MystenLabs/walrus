@@ -268,6 +268,13 @@ pub trait ContractClient: ReadClient + Send + Sync {
         blob_object_id: ObjectID,
     ) -> impl Future<Output = SuiClientResult<()>> + Send;
 
+    /// Creates a new [`contracts::wal_exchange::Exchange`] with a 1:1 exchange rate, funds it with
+    /// `amount` FROST, and returns its object ID.
+    fn create_and_fund_exchange(
+        &self,
+        amount: u64,
+    ) -> impl Future<Output = SuiClientResult<ObjectID>>;
+
     /// Exchanges the given `amount` of SUI (in MIST) for WAL using the shared exchange.
     fn exchange_sui_for_wal(
         &self,
@@ -908,6 +915,32 @@ impl ContractClient for SuiContractClient {
         )
         .await?;
         Ok(())
+    }
+
+    async fn create_and_fund_exchange(&self, amount: u64) -> SuiClientResult<ObjectID> {
+        tracing::info!("creating a new SUI/WAL exchange");
+
+        let res = self
+            .move_call_and_transfer(
+                contracts::wal_exchange::new_funded,
+                vec![
+                    self.get_wal_coin(amount).await?.object_ref().into(),
+                    call_arg_pure!(&amount),
+                ],
+            )
+            .await?;
+
+        let exchange_id = get_created_sui_object_ids_by_type(
+            &res,
+            &contracts::wal_exchange::Exchange
+                .to_move_struct_tag(self.read_client.system_pkg_id, &[])?,
+        )?;
+        ensure!(
+            exchange_id.len() == 1,
+            "unexpected number of `Exchange`s created: {}",
+            exchange_id.len()
+        );
+        Ok(exchange_id[0])
     }
 
     async fn exchange_sui_for_wal(

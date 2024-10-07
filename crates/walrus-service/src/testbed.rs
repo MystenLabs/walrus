@@ -19,12 +19,14 @@ use rand::{rngs::StdRng, SeedableRng};
 use serde::{Deserialize, Serialize};
 use serde_with::base64::Base64;
 use sui_sdk::wallet_context::WalletContext;
+use sui_types::base_types::ObjectID;
 use tracing::instrument;
 use walrus_core::{
     keys::{NetworkKeyPair, ProtocolKeyPair},
     ShardIndex,
 };
 use walrus_sui::{
+    client::{ContractClient as _, SuiContractClient},
     test_utils::{
         system_setup::{
             create_and_init_system,
@@ -103,6 +105,8 @@ pub struct TestbedConfig {
     pub nodes: Vec<TestbedNodeConfig>,
     /// The objects used in the system contract.
     pub system_ctx: SystemContext,
+    /// The object ID of the shared WAL exchange.
+    pub exchange_object: ObjectID,
 }
 
 impl LoadConfig for TestbedConfig {}
@@ -245,6 +249,9 @@ pub async fn deploy_walrus_contract(
         n_shards,
     }: DeployTestbedContractParameters<'_>,
 ) -> anyhow::Result<TestbedConfig> {
+    const WAL_MINT_AMOUNT: u64 = 100_000_000 * 1_000_000_000;
+    const WAL_AMOUNT_EXCHANGE: u64 = 10_000_000 * 1_000_000_000;
+
     // Check whether the testbed collocates the storage nodes on the same machine
     // (that is, local testbed).
     let hosts_set = hosts.iter().collect::<HashSet<_>>();
@@ -292,10 +299,11 @@ pub async fn deploy_walrus_contract(
         sui_network.env(),
         Some(&format!("{ADMIN_CONFIG_PREFIX}.keystore")),
     )?;
+    let admin_address = admin_wallet.active_address()?;
 
     // Get coins from faucet for the wallets.
     let sui_client = admin_wallet.get_client().await?;
-    request_sui_from_faucet(admin_wallet.active_address()?, &sui_network, &sui_client).await?;
+    request_sui_from_faucet(admin_address, &sui_network, &sui_client).await?;
 
     // TODO(#814): make epoch duration in test configurable. Currently hardcoded to 1 hour.
     let system_ctx = create_and_init_system(
@@ -307,15 +315,42 @@ pub async fn deploy_walrus_contract(
         gas_budget,
     )
     .await?;
-    println!(
-        "Walrus contract created:\npackage id: {:?}\nsystem object: {:?}\nstaking object: {:?}",
-        system_ctx.package_id, system_ctx.system_obj_id, system_ctx.staking_obj_id
-    );
 
+    // Mint WAL to the admin wallet.
+    mint_wal_to_addresses(
+        &mut admin_wallet,
+        system_ctx.package_id,
+        system_ctx.treasury_cap,
+        &[admin_address],
+        WAL_MINT_AMOUNT,
+    )
+    .await?;
+
+    // Create WAL exchange.
+    let contract_client = SuiContractClient::new(
+        admin_wallet,
+        system_ctx.system_object,
+        system_ctx.staking_object,
+        gas_budget,
+    )
+    .await?;
+    let exchange_object = contract_client
+        .create_and_fund_exchange(WAL_AMOUNT_EXCHANGE)
+        .await?;
+
+    println!(
+        "Walrus contract created:\n\
+            package_id: {}\n\
+            system_object: {}\n\
+            staking_object: {}\n\
+            exchange_object: {}",
+        system_ctx.package_id, system_ctx.system_object, system_ctx.staking_object, exchange_object
+    );
     Ok(TestbedConfig {
         sui_network,
         nodes: node_configs,
         system_ctx,
+        exchange_object,
     })
 }
 
@@ -326,6 +361,7 @@ pub async fn create_client_config(
     sui_network: SuiNetwork,
     set_config_dir: Option<&Path>,
     admin_wallet: &mut WalletContext,
+    exchange_object: ObjectID,
 ) -> anyhow::Result<client::Config> {
     // Create the working directory if it does not exist
     fs::create_dir_all(working_dir).expect("Failed to create working directory");
@@ -362,15 +398,15 @@ pub async fn create_client_config(
         system_ctx.package_id,
         system_ctx.treasury_cap,
         &[client_address],
-        1_000_000_000_000_000, // 1 million WAL
+        1_000_000 * 1_000_000_000, // 1 million WAL
     )
     .await?;
 
     // Create the client config.
     let client_config = client::Config {
-        system_object: system_ctx.system_obj_id,
-        staking_object: system_ctx.staking_obj_id,
-        exchange_object: None,
+        system_object: system_ctx.system_object,
+        staking_object: system_ctx.staking_object,
+        exchange_object: Some(exchange_object),
         wallet_config: Some(wallet_path),
         communication_config: ClientCommunicationConfig::default(),
     };
@@ -483,8 +519,8 @@ pub async fn create_storage_node_configs(
 
         let sui = Some(SuiConfig {
             rpc: rpc.clone(),
-            system_object: testbed_config.system_ctx.system_obj_id,
-            staking_object: testbed_config.system_ctx.staking_obj_id,
+            system_object: testbed_config.system_ctx.system_object,
+            staking_object: testbed_config.system_ctx.staking_object,
             event_polling_interval: defaults::polling_interval(),
             wallet_config: wallet_path,
             gas_budget: defaults::gas_budget(),

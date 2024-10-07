@@ -1214,8 +1214,8 @@ pub mod test_cluster {
         // Build the walrus cluster
         let sui_read_client = SuiReadClient::new(
             wallet.as_ref().get_client().await?,
-            system_ctx.system_obj_id,
-            system_ctx.staking_obj_id,
+            system_ctx.system_object,
+            system_ctx.staking_object,
         )
         .await?;
 
@@ -1249,8 +1249,8 @@ pub mod test_cluster {
             SuiContractClient::new_with_read_client(wallet, DEFAULT_GAS_BUDGET, sui_read_client)
         })?;
         let config = Config {
-            system_object: system_ctx.system_obj_id,
-            staking_object: system_ctx.staking_obj_id,
+            system_object: system_ctx.system_object,
+            staking_object: system_ctx.staking_object,
             exchange_object: None,
             wallet_config: None,
             communication_config: ClientCommunicationConfig::default_for_test(),

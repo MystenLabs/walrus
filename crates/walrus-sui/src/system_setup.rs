@@ -103,7 +103,7 @@ pub(crate) async fn publish_package(
     Ok(transaction_response)
 }
 
-/// Publishes the `wal` and the `walrus` packages.
+/// Publishes the `wal`, `wal_exchange`, and `walrus` packages.
 ///
 /// Returns the IDs of the walrus package and the `InitCap` as well as the `TreasuryCap`
 /// of the `WAL` coin.
@@ -113,7 +113,7 @@ pub async fn publish_coin_and_system_package(
     walrus_contract_path: PathBuf,
     gas_budget: u64,
 ) -> Result<(ObjectID, ObjectID, ObjectID)> {
-    // Publish `walrus` package with unpublished dependencies
+    // Publish `walrus` package with unpublished dependencies.
     let transaction_response = publish_package(wallet, walrus_contract_path, gas_budget).await?;
 
     let walrus_pkg_id = get_pkg_id_from_tx_response(&transaction_response)?;

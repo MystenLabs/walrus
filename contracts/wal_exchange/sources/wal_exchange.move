@@ -1,8 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-/// Module: exchange
-module wal_exchange::exchange;
+/// Module: wal_exchange
+module wal_exchange::wal_exchange;
 
 use sui::{balance::{Self, Balance}, coin::Coin, sui::SUI};
 use wal::wal::WAL;
@@ -33,7 +33,7 @@ public struct Exchange has key, store {
 }
 
 /// Capability that allows the holder to modify an `Exchange`'s exchange rate and withdraw funds.
-public struct AdminCap has key {
+public struct AdminCap has key, store {
     id: UID,
 }
 
