@@ -32,7 +32,7 @@ use walrus_core::keys::{
 use walrus_event::EventProcessorConfig;
 use walrus_sui::{
     client::{SuiClientError, SuiContractClient, SuiReadClient},
-    types::{move_structs::VotingParams, NodeRegistrationParams},
+    types::{move_structs::VotingParams, NetworkAddress, NodeRegistrationParams},
 };
 
 use super::storage::DatabaseConfig;
@@ -143,13 +143,17 @@ impl StorageNodeConfig {
             .expect("key pair should already be loaded into memory")
     }
 
-    /// Converts the configuration into a registration parameters used for node registration.
-    pub fn to_registration_params(&self, name: String) -> NodeRegistrationParams {
+    /// Converts the configuration into registration parameters used for node registration.
+    pub fn to_registration_params(
+        &self,
+        public_address: NetworkAddress,
+        name: String,
+    ) -> NodeRegistrationParams {
         let network_key_pair = self.network_key_pair();
         let protocol_key_pair = self.protocol_key_pair();
         NodeRegistrationParams {
             name,
-            network_address: self.rest_api_address.into(),
+            network_address: public_address,
             public_key: protocol_key_pair.public().clone(),
             network_public_key: network_key_pair.public().clone(),
             commission_rate: self.commission_rate,

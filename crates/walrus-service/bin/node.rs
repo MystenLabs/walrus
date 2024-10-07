@@ -86,6 +86,9 @@ enum Commands {
         /// The path to the node's configuration file.
         config_path: PathBuf,
         #[clap(short, long)]
+        /// The public address of the node in the format `<HOSTNAME>:<PORT>`.
+        public_address: String,
+        #[clap(short, long)]
         /// The name of the node.
         name: Option<String>,
     },
@@ -243,7 +246,11 @@ fn main() -> anyhow::Result<()> {
             config_args,
         } => commands::setup(config_directory, storage_path, sui_network, config_args)?,
 
-        Commands::Register { config_path, name } => commands::register_node(config_path, name)?,
+        Commands::Register {
+            config_path,
+            public_address,
+            name,
+        } => commands::register_node(config_path, public_address, name)?,
 
         Commands::Run {
             config_path,
@@ -272,6 +279,8 @@ fn main() -> anyhow::Result<()> {
 mod commands {
 
     use std::time::Duration;
+
+    use walrus_sui::types::NetworkAddress;
 
     use super::*;
 
@@ -371,6 +380,7 @@ mod commands {
     #[tokio::main]
     pub(crate) async fn register_node(
         config_path: PathBuf,
+        public_address: String,
         name: Option<String>,
     ) -> anyhow::Result<()> {
         let mut storage_config = StorageNodeConfig::load(&config_path)?;
@@ -390,7 +400,11 @@ mod commands {
         } else {
             bail!("storage config network keys must be loaded from a key file");
         }
-        let registration_params = storage_config.to_registration_params(node_name);
+        let public_address = NetworkAddress(public_address);
+        if public_address.try_get_port().is_err() {
+            bail!("provided public address does not have the correct format");
+        }
+        let registration_params = storage_config.to_registration_params(public_address, node_name);
 
         // Uses the Sui wallet configuration in the storage node config to register the node.
         let contract_client = get_contract_client_from_node_config(&storage_config).await?;
