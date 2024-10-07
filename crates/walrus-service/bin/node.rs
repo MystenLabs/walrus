@@ -13,10 +13,13 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{bail, Context};
+use anyhow::{anyhow, bail, ensure, Context};
 use clap::{Parser, Subcommand};
+use config::{PathOrInPlace, TlsConfig};
 use fastcrypto::traits::KeyPair;
+use fs::File;
 use prometheus::Registry;
+use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
 use tokio::{
     runtime::{self, Runtime},
@@ -24,7 +27,7 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
-use walrus_core::keys::ProtocolKeyPair;
+use walrus_core::keys::{NetworkKeyPair, ProtocolKeyPair};
 use walrus_event::{event_processor::EventProcessor, EventProcessorConfig};
 use walrus_service::{
     node::{
@@ -37,6 +40,7 @@ use walrus_service::{
 };
 use walrus_sui::{
     client::{ContractClient, SuiContractClient, SuiReadClient},
+    types::move_structs::VotingParams,
     utils::SuiNetwork,
 };
 
@@ -166,9 +170,6 @@ impl KeyType {
 #[derive(Debug, Clone, clap::Args)]
 struct ConfigArgs {
     #[clap(long)]
-    /// HTTP URL of the Sui full-node RPC endpoint (including scheme and port).
-    sui_rpc: String,
-    #[clap(long)]
     /// Object ID of the Walrus system object.
     system_object: ObjectID,
     #[clap(long)]
@@ -180,6 +181,12 @@ struct ConfigArgs {
     // ***************************
     //   Optional fields below
     // ***************************
+    #[clap(long)]
+    /// HTTP URL of the Sui full-node RPC endpoint (including scheme and port) to use for event
+    /// processing.
+    ///
+    /// If not provided, the RPC node from the wallet's active environment will be used.
+    sui_rpc: Option<String>,
     #[clap(long, default_value_t = config::defaults::storage_price())]
     /// Initial vote for the storage price in FROST per KiB per epoch.
     storage_price: u64,
@@ -263,13 +270,8 @@ fn main() -> anyhow::Result<()> {
 }
 
 mod commands {
-    use std::io;
 
-    use anyhow::{anyhow, ensure};
-    use config::{PathOrInPlace, TlsConfig};
-    use fs::File;
-    use walrus_core::keys::NetworkKeyPair;
-    use walrus_sui::types::move_structs::VotingParams;
+    use std::time::Duration;
 
     use super::*;
 
@@ -432,6 +434,23 @@ mod commands {
             name,
         }: ConfigArgs,
     ) -> anyhow::Result<()> {
+        let sui_rpc = if let Some(rpc) = sui_rpc {
+            rpc
+        } else {
+            tracing::debug!(
+                "getting Sui RPC URL from wallet at '{}'",
+                wallet_config.display()
+            );
+            let wallet_context = WalletContext::new(&wallet_config, None, None)
+                .context("Reading Sui wallet failed")?;
+            wallet_context
+                .config
+                .get_active_env()
+                .context("Unable to get the wallet's active environment")?
+                .rpc
+                .clone()
+        };
+
         let config = StorageNodeConfig {
             storage_path,
             protocol_key_pair: PathOrInPlace::from_path(protocol_key_path),
@@ -500,13 +519,21 @@ mod commands {
         );
         let mut wallet = walrus_sui::utils::create_wallet(&wallet_config, sui_network.env(), None)?;
 
-        println!("Requesting SUI from faucet...");
-        walrus_sui::utils::request_sui_from_faucet(
-            wallet.active_address()?,
-            &sui_network,
-            &wallet.get_client().await?,
+        println!("Attempting to get SUI from faucet...");
+        match tokio::time::timeout(
+            Duration::from_secs(20),
+            walrus_sui::utils::request_sui_from_faucet(
+                wallet.active_address()?,
+                &sui_network,
+                &wallet.get_client().await?,
+            ),
         )
-        .await?;
+        .await
+        {
+            Err(_) => println!("Reached timeout while waiting to get SUI from the faucet"),
+            Ok(Err(e)) => println!("An error occurred when trying to get SUI from the faucet: {e}"),
+            Ok(Ok(_)) => (),
+        }
 
         generate_config(
             PathArgs {
