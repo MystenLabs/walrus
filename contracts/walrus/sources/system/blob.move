@@ -3,12 +3,14 @@
 
 module walrus::blob;
 
-use sui::{bcs, hash};
+use sui::{bcs, dynamic_field, hash};
+use std::string::String;
 use walrus::{
     encoding,
     events::{emit_blob_registered, emit_blob_certified, emit_blob_deleted},
     messages::CertifiedBlobMessage,
-    storage_resource::Storage
+    metadata::Metadata,
+    storage_resource::Storage,
 };
 
 // Error codes
@@ -19,6 +21,9 @@ const EAlreadyCertified: u64 = 5;
 const EInvalidBlobId: u64 = 6;
 const ENotCertified: u64 = 7;
 const EBlobNotDeletable: u64 = 8;
+
+// The fixed dynamic filed name for metadata
+const METADATA_DF: vector<u8> = b"metadata";
 
 // === Object definitions ===
 
@@ -262,4 +267,41 @@ public(package) fun emit_certified(self: &Blob, is_extension: bool) {
         self.id.to_inner(),
         is_extension,
     );
+}
+
+// === Metadata ===
+
+/// Adds the metadata dynamic field to the Blob.
+///
+/// Aborts if the metadata is already present.
+public fun add_metadata(self: &mut Blob, metadata: Metadata) {
+    dynamic_field::add(&mut self.id, METADATA_DF, metadata)
+}
+
+/// Removes the metadata dynamic field from the Blob, returning the contained `Metadata`.
+///
+/// Aborts if the metadata does not exist.
+public fun take_metadata(self: &mut Blob): Metadata {
+    dynamic_field::remove(&mut self.id, METADATA_DF)
+}
+
+/// Returns the metadata associated with the Blob.
+///
+/// Aborts if the metadata does not exist.
+fun metadata(self: &mut Blob): &mut Metadata {
+    dynamic_field::borrow_mut(&mut self.id, METADATA_DF)
+}
+
+/// Inserts a key-value pair into the metadata.
+///
+/// If the key is already present, the value is updated. Aborts if the metadata does not exist.
+public fun insert_or_update_metadata_pair(self: &mut Blob, key: String, value: String) {
+    self.metadata().insert_or_update(key, value)
+}
+
+/// Removes the metadata associated with the given key.
+///
+/// Aborts if the metadata does not exist.
+public fun remove_metadata_pair(self: &mut Blob, key: &String): (String, String) {
+    self.metadata().remove(key)
 }

@@ -4,12 +4,13 @@
 #[test_only]
 module walrus::blob_tests;
 
-use sui::bcs;
+use sui::{bcs, dynamic_field};
 use walrus::{
     blob::{Self, Blob},
     encoding,
     epoch_parameters::epoch_params_for_testing,
     messages,
+    metadata,
     storage_resource::{Self, split_by_epoch, destroy, Storage},
     system::{Self, System},
     system_state_inner,
@@ -377,6 +378,58 @@ public fun test_delete_undeletable_blob(): system::System {
     system
 }
 
+// === Metadata ===
+
+#[test]
+public fun test_blob_add_metadata(): system::System {
+    get_blob_and_clean_up!(| blob| {
+        let metadata = metadata::new();
+        blob.add_metadata(metadata);
+        blob.insert_or_update_metadata_pair(b"key1".to_string(), b"value1".to_string());
+        blob.insert_or_update_metadata_pair(b"key1".to_string(), b"value3".to_string());
+
+        let (key, value) = blob.remove_metadata_pair(&b"key1".to_string());
+        assert!(key == b"key1".to_string());
+        assert!(value == b"value3".to_string());
+    })
+}
+
+#[test, expected_failure(abort_code = dynamic_field::EFieldAlreadyExists)]
+public fun test_blob_add_metadata_already_exists(): system::System {
+    get_blob_and_clean_up!(| blob | {
+        let metadata1 = metadata::new();
+        blob.add_metadata(metadata1);
+        let metadata2 = metadata::new();
+
+        // The metadata field already exists. Test fails here.
+        blob.add_metadata(metadata2);
+    })
+}
+
+#[test, expected_failure(abort_code = dynamic_field::EFieldDoesNotExist)]
+public fun test_blob_take_metadata_nonexistent(): system::System {
+    get_blob_and_clean_up!(| blob | {
+        // Try to take the metadata from a blob without metadata. Test fails here.
+        blob.take_metadata();
+    })
+}
+
+#[test, expected_failure(abort_code = dynamic_field::EFieldDoesNotExist)]
+public fun test_blob_insert_metadata_pair_nonexistent(): system::System {
+    get_blob_and_clean_up!(| blob | {
+        // Try to insert metadata into a blob without metadata. Test fails here.
+        blob.insert_or_update_metadata_pair(b"key1".to_string(), b"value1".to_string());
+    })
+}
+
+#[test, expected_failure(abort_code = dynamic_field::EFieldDoesNotExist)]
+public fun test_blob_remove_metadata_pair_nonexistent(): system::System {
+    get_blob_and_clean_up!(| blob | {
+        // Try to remove metadata from a blob without metadata. Test fails here.
+        blob.remove_metadata_pair(&b"key1".to_string());
+    })
+}
+
 // === Helper functions ===
 
 fun get_storage_resource(system: &mut System, unencoded_size: u64, epochs_ahead: u32): Storage {
@@ -415,4 +468,21 @@ fun register_default_blob(system: &mut System, storage: Storage, deletable: bool
 
 fun default_blob_id(): u256 {
     blob::derive_blob_id(ROOT_HASH, RED_STUFF, SIZE)
+}
+
+/// Utiliy macro that calls the given function on a new Blob.
+///
+/// Creates the system, registers the default blob, and calls the given function with the blob.
+/// Finally, it destroys the blob and returns the system.
+macro fun get_blob_and_clean_up($f: |&mut Blob|->()): system::System {
+    let mut system: system::System = system::new_for_testing();
+    let storage = get_storage_resource(&mut system, SIZE, 3);
+    let mut blob = register_default_blob(&mut system, storage, false);
+
+    // Call the function with the blob.
+    $f(&mut blob);
+
+    // Cleanup.
+    blob.burn();
+    system
 }
