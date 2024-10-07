@@ -20,6 +20,7 @@ function usage() {
     echo "  -c <committee_size>   Number of storage nodes (default: 4)"
     echo "  -s <n_shards>         Number of shards (default: 10)"
     echo "  -n <network>          Network (${nets[@]}; default: devnet) to generate configs for"
+    echo "  -d <duration>         Set the length of the epoch (in human readable format, e.g., '60s', default: 1h)"
     echo "  -e                    Use existing config"
     echo "  -h                    Print this usage message"
 }
@@ -36,8 +37,9 @@ existing=false
 committee_size=4 # Default value of 4 if no argument is provided
 shards=10 # Default value of 4 if no argument is provided
 network=devnet
+epoch_duration=1h
 
-while getopts "n:c:s:eh" arg; do
+while getopts "n:c:s:d:eh" arg; do
     case "${arg}" in
         n)
             network=${OPTARG}
@@ -47,6 +49,9 @@ while getopts "n:c:s:eh" arg; do
             ;;
         s)
             shards=${OPTARG}
+            ;;
+        d)
+            epoch_duration=${OPTARG}
             ;;
         e)
             existing=true
@@ -104,7 +109,7 @@ if ! $existing; then
     echo Deploying system contract...
     cargo run --bin walrus-deploy -- deploy-system-contract \
     --working-dir $working_dir --sui-network $network --n-shards $shards --host-addresses $ips \
-    --storage-price 5 --write-price 1
+    --storage-price 5 --write-price 1 --epoch-duration $epoch_duration
 
     # Generate configs
     echo Generating configuration...
