@@ -180,6 +180,7 @@ async fn test_inconsistency(failed_shards: &[usize]) -> TestResult {
     let (blob_sui_object, _) = client
         .as_ref()
         .resource_manager()
+        .await
         .get_existing_registration(
             &metadata,
             1,
@@ -283,6 +284,7 @@ async fn test_store_with_existing_blob_resource(
     let (original_blob_object, _) = client
         .as_ref()
         .resource_manager()
+        .await
         .get_existing_registration(
             &metadata,
             epochs_ahead_registered,

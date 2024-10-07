@@ -11,7 +11,10 @@ use fastcrypto::{bls12381::min_pk::BLS12381AggregateSignature, traits::Aggregate
 use futures::Future;
 use resource::{PriceComputation, ResourceManager, StoreOp};
 use sui_types::base_types::ObjectID;
-use tokio::{sync::Semaphore, time::Duration};
+use tokio::{
+    sync::{RwLock, Semaphore},
+    time::Duration,
+};
 use tracing::{Instrument, Level};
 use walrus_core::{
     encoding::{BlobDecoder, EncodingAxis, EncodingConfig, SliverData, SliverPair},
@@ -91,7 +94,7 @@ impl StoreWhen {
 pub struct Client<T> {
     config: Config,
     sui_client: T,
-    committees: Arc<ActiveCommittees>,
+    committees: Arc<RwLock<ActiveCommittees>>,
     price_computation: PriceComputation,
     communication_limits: CommunicationLimits,
     // The `Arc` is used to share the encoding config with the `communication_factory` without
@@ -106,12 +109,12 @@ impl Client<()> {
     pub async fn new(config: Config, sui_read_client: &impl ReadClient) -> ClientResult<Self> {
         tracing::debug!(?config, "running client");
 
-        let committees = Arc::new(ActiveCommittees::from_committees_and_state(
+        let committees = ActiveCommittees::from_committees_and_state(
             sui_read_client
                 .get_committees_and_state()
                 .await
                 .map_err(ClientError::other)?,
-        ));
+        );
 
         let (storage_price, write_price) = sui_read_client
             .storage_and_write_price_per_unit_size()
@@ -119,6 +122,8 @@ impl Client<()> {
         let price_computation = PriceComputation::new(storage_price, write_price);
 
         let encoding_config = EncodingConfig::new(committees.n_shards());
+
+        let committees = Arc::new(RwLock::new(committees));
         let communication_limits =
             CommunicationLimits::new(&config.communication_config, encoding_config.n_shards());
 
@@ -133,7 +138,6 @@ impl Client<()> {
             blocklist: None,
             communication_factory: NodeCommunicationFactory::new(
                 config.communication_config.clone(),
-                committees,
                 encoding_config,
             ),
             config,
@@ -193,6 +197,18 @@ impl<T: ReadClient> Client<T> {
         self.request_slivers_and_decode::<U>(certified_epoch, &metadata)
             .await
     }
+
+    /// Fetches again the current committees from chain.
+    pub async fn refresh_committees(&mut self) -> ClientResult<()> {
+        let new_committees = ActiveCommittees::from_committees_and_state(
+            self.sui_client
+                .get_committees_and_state()
+                .await
+                .map_err(ClientError::other)?,
+        );
+        *self.committees.write().await = new_committees;
+        Ok(())
+    }
 }
 
 impl<T: ContractClient> Client<T> {
@@ -244,6 +260,7 @@ impl<T: ContractClient> Client<T> {
 
         let store_operation = self
             .resource_manager()
+            .await
             .store_operation_for_blob(
                 &metadata,
                 epochs_ahead,
@@ -258,8 +275,10 @@ impl<T: ContractClient> Client<T> {
             StoreOp::RegisterNew { blob, operation } => (blob, operation),
         };
 
+        let committees = self.committees.read().await;
+
         let certificate = match blob_status.initial_certified_epoch() {
-            Some(certified_epoch) if !self.committees.is_change_in_progress() => {
+            Some(certified_epoch) if !committees.is_change_in_progress() => {
                 // The blob is already certified on chain: the slivers are already available.
                 // However, during epoch change we may need to store the slivers again, as the
                 // current committee may not have synced them yet.
@@ -286,7 +305,7 @@ impl<T: ContractClient> Client<T> {
             .certify_blob(blob.clone(), &certificate)
             .await
             .map_err(|e| ClientError::from(ClientErrorKind::CertificationFailed(e)))?;
-        blob.certified_epoch = Some(self.committees.write_committee().epoch);
+        blob.certified_epoch = Some(committees.write_committee().epoch);
         let cost = self.price_computation.operation_cost(&resource_operation);
 
         Ok(BlobStoreResult::NewlyCreated {
@@ -297,8 +316,11 @@ impl<T: ContractClient> Client<T> {
     }
 
     /// Creates a resource manager for the client.
-    pub fn resource_manager(&self) -> ResourceManager<T> {
-        ResourceManager::new(&self.sui_client, self.committees.write_committee().epoch)
+    pub async fn resource_manager(&self) -> ResourceManager<T> {
+        ResourceManager::new(
+            &self.sui_client,
+            self.committees.read().await.write_committee().epoch,
+        )
     }
 
     // Blob deletion
@@ -377,7 +399,7 @@ impl<T> Client<T> {
         pairs: &[SliverPair],
     ) -> ClientResult<ConfirmationCertificate> {
         tracing::info!("starting to send data to storage nodes");
-        let mut pairs_per_node = self.pairs_per_node(metadata.blob_id(), pairs);
+        let mut pairs_per_node = self.pairs_per_node(metadata.blob_id(), pairs).await;
         let sliver_write_limit = self
             .communication_limits
             .max_concurrent_sliver_writes_for_blob_size(
@@ -388,9 +410,11 @@ impl<T> Client<T> {
             communication_limits = sliver_write_limit,
             "establishing node communications"
         );
+
+        let committees = self.committees.read().await;
         let comms = self
             .communication_factory
-            .node_write_communications(Arc::new(Semaphore::new(sliver_write_limit)))?;
+            .node_write_communications(&committees, Arc::new(Semaphore::new(sliver_write_limit)))?;
 
         let mut requests = WeightedFutures::new(comms.iter().map(|n| {
             n.store_metadata_and_pairs(
@@ -407,11 +431,11 @@ impl<T> Client<T> {
         if let CompletedReasonWeight::FuturesConsumed(weight) = requests
             .execute_weight(
                 &|weight| {
-                    self.committees
+                    committees
                         .write_committee()
                         .is_at_least_min_n_correct(weight)
                 },
-                self.committees.n_shards().get().into(),
+                committees.n_shards().get().into(),
             )
             .await
         {
@@ -421,7 +445,7 @@ impl<T> Client<T> {
                 responses = ?requests.into_results(),
                 "all futures consumed before reaching a threshold of successful responses"
             );
-            return Err(self.not_enough_confirmations_error(weight));
+            return Err(self.not_enough_confirmations_error(weight).await);
         }
         tracing::debug!(
             elapsed_time = ?start.elapsed(), "stored metadata and slivers onto a quorum of nodes"
@@ -434,7 +458,7 @@ impl<T> Client<T> {
                     .communication_config
                     .sliver_write_extra_time
                     .extra_time(start.elapsed()),
-                self.committees.n_shards().get().into(),
+                committees.n_shards().get().into(),
             )
             .await;
         tracing::debug!(
@@ -444,6 +468,7 @@ impl<T> Client<T> {
         );
         let results = requests.into_results();
         self.confirmations_to_certificate(metadata.blob_id(), results)
+            .await
     }
 
     /// Fetches confirmations for a blob from a quorum of nodes and returns the certificate.
@@ -452,24 +477,25 @@ impl<T> Client<T> {
         blob_id: &BlobId,
         certified_epoch: Epoch,
     ) -> ClientResult<ConfirmationCertificate> {
+        let committees = self.committees.read().await;
         let comms = self
             .communication_factory
-            .node_read_communications(certified_epoch)?;
+            .node_read_communications(&committees, certified_epoch)?;
 
         let mut requests = WeightedFutures::new(
             comms
                 .iter()
-                .map(|n| n.get_confirmation_with_retries(blob_id, self.committees.epoch())),
+                .map(|n| n.get_confirmation_with_retries(blob_id, committees.epoch())),
         );
 
         requests
             .execute_weight(
-                &|weight| self.committees.is_quorum(weight),
+                &|weight| committees.is_quorum(weight),
                 self.communication_limits.max_concurrent_sliver_reads,
             )
             .await;
         let results = requests.into_results();
-        self.confirmations_to_certificate(blob_id, results)
+        self.confirmations_to_certificate(blob_id, results).await
     }
 
     /// Combines the received storage confirmations into a single certificate.
@@ -478,7 +504,7 @@ impl<T> Client<T> {
     /// blob ID, as it assumes that the storage confirmations were received through
     /// [`NodeCommunication::store_metadata_and_pairs`], which internally verifies it to check the
     /// blob ID and epoch.
-    fn confirmations_to_certificate<E: Display>(
+    async fn confirmations_to_certificate<E: Display>(
         &self,
         blob_id: &BlobId,
         confirmations: Vec<NodeResult<SignedStorageConfirmation, E>>,
@@ -499,11 +525,13 @@ impl<T> Client<T> {
                 Err(error) => tracing::warn!(node, %error, "storing metadata and pairs failed"),
             }
         }
+
+        let committees = self.committees.read().await;
         ensure!(
-            self.committees
+            committees
                 .write_committee()
                 .is_at_least_min_n_correct(aggregate_weight),
-            self.not_enough_confirmations_error(aggregate_weight)
+            self.not_enough_confirmations_error(aggregate_weight).await
         );
 
         let aggregate =
@@ -511,7 +539,7 @@ impl<T> Client<T> {
         let cert = ConfirmationCertificate::new(
             signers,
             bcs::to_bytes(&Confirmation::new(
-                self.committees.write_committee().epoch,
+                committees.write_committee().epoch,
                 *blob_id,
             ))
             .expect("serialization should always succeed"),
@@ -520,10 +548,14 @@ impl<T> Client<T> {
         Ok(cert)
     }
 
-    fn not_enough_confirmations_error(&self, weight: usize) -> ClientError {
+    async fn not_enough_confirmations_error(&self, weight: usize) -> ClientError {
         ClientErrorKind::NotEnoughConfirmations(
             weight,
-            self.committees.write_committee().min_n_correct(),
+            self.committees
+                .read()
+                .await
+                .write_committee()
+                .min_n_correct(),
         )
         .into()
     }
@@ -542,9 +574,11 @@ impl<T> Client<T> {
         U: EncodingAxis,
         SliverData<U>: TryFrom<Sliver>,
     {
+        let committees = self.committees.read().await;
+
         let comms = self
             .communication_factory
-            .node_read_communications(certified_epoch)?;
+            .node_read_communications(&committees, certified_epoch)?;
         // Create requests to get all slivers from all nodes.
         let futures = comms.iter().flat_map(|n| {
             // NOTE: the cloned here is needed because otherwise the compiler complains about the
@@ -589,7 +623,7 @@ impl<T> Client<T> {
             })
             .collect::<Vec<_>>();
 
-        if self.committees.is_quorum(n_not_found) {
+        if committees.is_quorum(n_not_found) {
             return Err(ClientErrorKind::BlobIdDoesNotExist.into());
         }
 
@@ -645,7 +679,7 @@ impl<T> Client<T> {
                     tracing::warn!(%node, %error, "retrieving sliver failed");
                     if error.is_status_not_found() && {
                         n_not_found += 1;
-                        self.committees.is_quorum(n_not_found)
+                        self.committees.read().await.is_quorum(n_not_found)
                     } {
                         return Err(ClientErrorKind::BlobIdDoesNotExist.into());
                     }
@@ -690,9 +724,10 @@ impl<T> Client<T> {
         certified_epoch: Epoch,
         blob_id: &BlobId,
     ) -> ClientResult<VerifiedBlobMetadataWithId> {
+        let committees = self.committees.read().await;
         let comms = self
             .communication_factory
-            .node_read_communications_quorum(certified_epoch);
+            .node_read_communications_quorum(&committees, certified_epoch);
         let futures = comms.iter().map(|n| {
             n.retrieve_verified_metadata(blob_id)
                 .instrument(n.span.clone())
@@ -717,7 +752,7 @@ impl<T> Client<T> {
                 Err(error) => {
                     if error.is_status_not_found() && {
                         n_not_found += weight;
-                        self.committees.is_quorum(n_not_found)
+                        committees.is_quorum(n_not_found)
                     } {
                         // TODO(giac): now that we check that the blob is certified before starting
                         // to read, this error should not technically happen unless (1) the client
@@ -797,17 +832,18 @@ impl<T> Client<T> {
         timeout: Duration,
     ) -> ClientResult<BlobStatus> {
         tracing::debug!(?timeout, "trying to get blob status");
+        let committees = self.committees.read().await;
+
         let comms = self
             .communication_factory
-            .node_read_communications(self.committees.write_committee().epoch)?;
-
+            .node_read_communications(&committees, committees.write_committee().epoch)?;
         let futures = comms
             .iter()
             .map(|n| n.get_blob_status(blob_id).instrument(n.span.clone()));
         let mut requests = WeightedFutures::new(futures);
         requests
             .execute_until(
-                &|weight| self.committees.is_quorum(weight),
+                &|weight| committees.is_quorum(weight),
                 timeout,
                 self.communication_limits.max_concurrent_status_reads,
             )
@@ -819,7 +855,7 @@ impl<T> Client<T> {
             .iter()
             .filter(|err| err.is_status_not_found())
             .count();
-        if self.committees.is_quorum(n_not_found) {
+        if committees.is_quorum(n_not_found) {
             return Err(ClientErrorKind::BlobIdDoesNotExist.into());
         }
 
@@ -832,8 +868,7 @@ impl<T> Client<T> {
         // of `Ord` and `PartialOrd` for `BlobStatus`.
         statuses_list.sort_unstable();
         for status in statuses_list.into_iter().rev() {
-            if self
-                .committees
+            if committees
                 .write_committee()
                 .is_above_validity(statuses[&status])
                 || verify_blob_status_event(blob_id, status, read_client)
@@ -860,23 +895,27 @@ impl<T> Client<T> {
     }
 
     /// Maps the sliver pairs to the node in the write committee that holds their shard.
-    fn pairs_per_node<'a>(
+    async fn pairs_per_node<'a>(
         &'a self,
         blob_id: &'a BlobId,
         pairs: &'a [SliverPair],
-    ) -> HashMap<usize, impl Iterator<Item = &SliverPair>> {
-        self.committees
+    ) -> HashMap<usize, Vec<&SliverPair>> {
+        let committees = self.committees.read().await;
+        committees
             .write_committee()
             .members()
             .iter()
             .map(|node| {
-                pairs.iter().filter(|pair| {
-                    node.shard_ids.contains(
-                        &pair
-                            .index()
-                            .to_shard_index(self.committees.n_shards(), blob_id),
-                    )
-                })
+                pairs
+                    .iter()
+                    .filter(|pair| {
+                        node.shard_ids.contains(
+                            &pair
+                                .index()
+                                .to_shard_index(committees.n_shards().clone(), blob_id),
+                        )
+                    })
+                    .collect()
             })
             .enumerate()
             .collect()

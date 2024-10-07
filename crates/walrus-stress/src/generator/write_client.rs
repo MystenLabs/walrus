@@ -131,6 +131,7 @@ impl WriteClient {
             .client
             .as_ref()
             .resource_manager()
+            .await
             .get_existing_registration(
                 &metadata,
                 epochs,
