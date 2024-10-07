@@ -90,9 +90,9 @@ fun test_parameter_changes() {
     let cap = storage_node::new_cap(pool_id, ctx);
 
     staking.set_next_commission(&cap, 10000);
-    staking.set_next_storage_price(&cap, 100000000);
-    staking.set_next_write_price(&cap, 100000000);
-    staking.set_next_node_capacity(&cap, 10000000000000);
+    staking.set_storage_price_vote(&cap, 100000000);
+    staking.set_write_price_vote(&cap, 100000000);
+    staking.set_node_capacity_vote(&cap, 10000000000000);
 
     // manually trigger advance epoch to apply the changes
     // TODO: this should be triggered via a system api

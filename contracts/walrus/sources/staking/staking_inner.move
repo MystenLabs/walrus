@@ -286,8 +286,8 @@ public(package) fun set_next_commission(
     self.pools[cap.node_id()].set_next_commission(commission_rate);
 }
 
-/// Sets the next storage price for the pool.
-public(package) fun set_next_storage_price(
+/// Sets the storage price vote for the pool.
+public(package) fun set_storage_price_vote(
     self: &mut StakingInnerV1,
     cap: &StorageNodeCap,
     storage_price: u64,
@@ -295,8 +295,8 @@ public(package) fun set_next_storage_price(
     self.pools[cap.node_id()].set_next_storage_price(storage_price);
 }
 
-/// Sets the next write price for the pool.
-public(package) fun set_next_write_price(
+/// Sets the write price vote for the pool.
+public(package) fun set_write_price_vote(
     self: &mut StakingInnerV1,
     cap: &StorageNodeCap,
     write_price: u64,
@@ -304,8 +304,8 @@ public(package) fun set_next_write_price(
     self.pools[cap.node_id()].set_next_write_price(write_price);
 }
 
-/// Sets the next node capacity for the pool.
-public(package) fun set_next_node_capacity(
+/// Sets the node capacity vote for the pool.
+public(package) fun set_node_capacity_vote(
     self: &mut StakingInnerV1,
     cap: &StorageNodeCap,
     node_capacity: u64,

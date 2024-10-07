@@ -112,16 +112,35 @@ public fun collect_commission(staking: &mut Staking, cap: &StorageNodeCap): Coin
     staking.inner_mut().collect_commission(cap)
 }
 
-/// TODO: split these into separate functions to match ones in the StakingInnerV1
-public fun vote_for_price_next_epoch(
-    staking: &mut Staking,
+// === Voting ===
+
+/// Sets the storage price vote for the pool.
+public fun set_storage_price_vote(
+    self: &mut Staking,
     cap: &StorageNodeCap,
     storage_price: u64,
+) {
+    self.inner_mut().set_storage_price_vote(cap, storage_price);
+}
+
+/// Sets the write price vote for the pool.
+public fun set_write_price_vote(
+    self: &mut Staking,
+    cap: &StorageNodeCap,
     write_price: u64,
+) {
+    self.inner_mut().set_write_price_vote(cap, write_price);
+}
+
+/// Sets the node capacity vote for the pool.
+public fun set_node_capacity_vote(
+    self: &mut Staking,
+    cap: &StorageNodeCap,
     node_capacity: u64,
 ) {
-    abort ENotImplemented
+    self.inner_mut().set_node_capacity_vote(cap, node_capacity);
 }
+
 
 /// Ends the voting period and runs the apportionment if the current time allows.
 /// Permissionless, can be called by anyone.
