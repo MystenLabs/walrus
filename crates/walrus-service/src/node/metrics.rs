@@ -43,8 +43,9 @@ macro_rules! create_metric {
     }};
 }
 
-macro_rules! define_node_metric_set {
+macro_rules! define_metric_set {
     (
+        $name:ident;
         $(
             $metric_type:path: [
                 $(( $metric:ident, $descr:literal $(, $labels:expr )? )),+ $(,)?
@@ -52,11 +53,11 @@ macro_rules! define_node_metric_set {
         ),+ $(,)?
     ) => {
         #[derive(Debug)]
-        pub(crate) struct NodeMetricSet {
+        pub(crate) struct $name {
             $($( pub $metric: $metric_type ),*),*
         }
 
-        impl NodeMetricSet {
+        impl $name {
             pub fn new(registry: &Registry) -> Self {
                 Self { $($(
                     $metric: {
@@ -79,7 +80,8 @@ macro_rules! define_node_metric_set {
     };
 }
 
-define_node_metric_set! {
+define_metric_set! {
+    NodeMetricSet;
     IntCounter: [
         (metadata_stored_total, "The total number of metadata stored"),
         (metadata_retrieved_total, "The total number of metadata instances returned"),
@@ -87,7 +89,7 @@ define_node_metric_set! {
     ],
     IntCounterVec: [
         (slivers_stored_total, "The total number of slivers stored", &["sliver_type"]),
-        (slivers_retrieved_total, "Total number of sliver instances returned", &["sliver_type"])
+        (slivers_retrieved_total, "Total number of sliver instances returned", &["sliver_type"]),
     ],
     GenericGaugeVec<AtomicU64>: [
         (event_cursor_progress, "The number of Walrus events processed", &["state"]),
@@ -97,8 +99,7 @@ define_node_metric_set! {
     ],
     HistogramVec: [
         (
-            event_process_duration_seconds,
-            "Time (in seconds) spent processing events",
+            event_process_duration_seconds, "Time (in seconds) spent processing events",
             &["event_type"]
         ),
         (
@@ -112,6 +113,17 @@ define_node_metric_set! {
             &["part", "status"]
         )
     ]
+}
+
+define_metric_set! {
+    CommitteeServiceMetricSet;
+    IntGaugeVec: [
+        (
+            epoch_change_timestamp_seconds,
+            "The UNIX timestamp in seconds of the epoch change",
+            &["epoch", "is_in_sync"]
+        )
+    ],
 }
 
 pub(crate) trait TelemetryLabel {

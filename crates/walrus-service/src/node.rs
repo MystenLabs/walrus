@@ -325,12 +325,12 @@ impl StorageNodeBuilder {
         } else {
             let (read_client, _) = sui_config_and_client
                 .expect("this is always created if self.committee_service_factory.is_none()");
-            let service = NodeCommitteeService::new(
-                read_client,
-                protocol_key_pair.public().clone(),
-                config.blob_recovery.committee_service_config.clone(),
-            )
-            .await?;
+            let service = NodeCommitteeService::builder()
+                .local_identity(protocol_key_pair.public().clone())
+                .config(config.blob_recovery.committee_service_config.clone())
+                .metrics_registry(&metrics_registry)
+                .build(read_client)
+                .await?;
             Box::new(service)
         };
 

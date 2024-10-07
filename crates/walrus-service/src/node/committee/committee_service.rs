@@ -10,7 +10,9 @@ use std::{
     sync::{Arc, Mutex as SyncMutex},
 };
 
+use chrono::Utc;
 use futures::TryFutureExt;
+use prometheus::Registry;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use tokio::sync::{watch, Mutex as TokioMutex};
 use tower::ServiceExt as _;
@@ -50,7 +52,11 @@ use crate::{
         NextCommitteeAlreadySet,
         StartChangeError,
     },
-    node::{config::CommitteeServiceConfig, errors::SyncShardClientError},
+    node::{
+        config::CommitteeServiceConfig,
+        errors::SyncShardClientError,
+        metrics::CommitteeServiceMetricSet,
+    },
 };
 
 pub(crate) struct NodeCommitteeServiceBuilder<T> {
@@ -58,6 +64,7 @@ pub(crate) struct NodeCommitteeServiceBuilder<T> {
     local_identity: Option<PublicKey>,
     rng: StdRng,
     config: CommitteeServiceConfig,
+    metrics: Option<CommitteeServiceMetricSet>,
 }
 
 impl Default for NodeCommitteeServiceBuilder<RemoteStorageNode> {
@@ -67,6 +74,7 @@ impl Default for NodeCommitteeServiceBuilder<RemoteStorageNode> {
             local_identity: None,
             rng: StdRng::seed_from_u64(rand::thread_rng().gen()),
             config: CommitteeServiceConfig::default(),
+            metrics: None,
         }
     }
 }
@@ -87,6 +95,7 @@ where
             rng: self.rng,
             config: self.config,
             service_factory: Box::new(service_factory),
+            metrics: self.metrics,
         }
     }
 
@@ -97,6 +106,11 @@ where
 
     pub fn config(mut self, config: CommitteeServiceConfig) -> Self {
         self.config = config;
+        self
+    }
+
+    pub fn metrics_registry(mut self, registry: &Registry) -> Self {
+        self.metrics = Some(CommitteeServiceMetricSet::new(registry));
         self
     }
 
@@ -132,14 +146,12 @@ where
             self.config,
             encoding_config,
             self.local_identity,
+            self.metrics,
             self.rng,
         )
         .await?;
 
-        Ok(NodeCommitteeService {
-            inner,
-            committee_lookup: Box::new(lookup_service),
-        })
+        Ok(NodeCommitteeService::new(inner, Box::new(lookup_service)))
     }
 }
 
@@ -155,27 +167,30 @@ impl NodeCommitteeService<RemoteStorageNode> {
     pub fn builder() -> NodeCommitteeServiceBuilder<RemoteStorageNode> {
         Default::default()
     }
-
-    pub async fn new<S>(
-        lookup_service: S,
-        local_identity: PublicKey,
-        config: CommitteeServiceConfig,
-    ) -> Result<Self, anyhow::Error>
-    where
-        S: CommitteeLookupService + std::fmt::Debug + 'static,
-    {
-        Self::builder()
-            .local_identity(local_identity)
-            .config(config)
-            .build(lookup_service)
-            .await
-    }
 }
 
 impl<T> NodeCommitteeService<T>
 where
     T: NodeService,
 {
+    fn new(
+        inner: NodeCommitteeServiceInner<T>,
+        committee_lookup: Box<dyn super::CommitteeLookupService>,
+    ) -> Self {
+        let tracker = inner.committee_tracker.borrow();
+        let is_in_sync = tracker.committees().is_change_in_progress();
+        let current_epoch = tracker.committees().epoch();
+        drop(tracker);
+
+        let this = Self {
+            inner,
+            committee_lookup,
+        };
+        // Record the epoch we are in on startup
+        this.record_epoch_change_metrics(current_epoch, is_in_sync);
+        this
+    }
+
     async fn sync_shard_as_of_epoch(
         &self,
         shard: ShardIndex,
@@ -235,6 +250,7 @@ where
         &self,
         next_committee: Committee,
     ) -> Result<(), BeginCommitteeChangeError> {
+        let next_epoch = next_committee.epoch;
         let mut service_factory = self.inner.service_factory.lock().await;
 
         // Begin by creating the needed services, placing them into a temporary map.
@@ -289,6 +305,7 @@ where
             Err(error)
         } else {
             services.extend(new_services);
+            self.record_epoch_change_metrics(next_epoch, true);
             Ok(())
         }
     }
@@ -340,7 +357,19 @@ where
             }
         }
 
+        self.record_epoch_change_metrics(current_epoch, false);
         Ok(())
+    }
+
+    fn record_epoch_change_metrics(&self, epoch: Epoch, is_in_sync: bool) {
+        let Some(metrics) = self.inner.metrics.as_ref() else {
+            return;
+        };
+
+        metrics
+            .epoch_change_timestamp_seconds
+            .with_label_values(&[&epoch.to_string(), &is_in_sync.to_string()])
+            .set(Utc::now().timestamp());
     }
 }
 
@@ -359,6 +388,8 @@ pub(super) struct NodeCommitteeServiceInner<T> {
     local_identity: Option<PublicKey>,
     /// Function used to construct new services.
     service_factory: TokioMutex<Box<dyn NodeServiceFactory<Service = T>>>,
+    /// Exported metrics
+    metrics: Option<CommitteeServiceMetricSet>,
 }
 
 impl<T> NodeCommitteeServiceInner<T>
@@ -371,6 +402,7 @@ where
         config: CommitteeServiceConfig,
         encoding_config: Arc<EncodingConfig>,
         local_identity: Option<PublicKey>,
+        metrics: Option<CommitteeServiceMetricSet>,
         rng: StdRng,
     ) -> Result<Self, anyhow::Error> {
         let committees = committee_tracker.committees();
@@ -396,6 +428,7 @@ where
             config,
             rng: SyncMutex::new(rng),
             encoding_config,
+            metrics,
         };
 
         Ok(this)
