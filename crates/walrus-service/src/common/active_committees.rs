@@ -151,6 +151,10 @@ impl ActiveCommittees {
     ///
     /// Returns None if the epoch is larger than [`epoch()`][Self::epoch].
     pub fn read_committee(&self, certified_epoch: Epoch) -> Option<&Arc<Committee>> {
+        if certified_epoch > self.current_committee.epoch {
+            return None;
+        }
+
         if !self.is_transitioning {
             return Some(&self.current_committee);
         }
@@ -158,7 +162,7 @@ impl ActiveCommittees {
         match certified_epoch.cmp(&self.current_committee.epoch) {
             Ordering::Less => self.previous_committee.as_ref(),
             Ordering::Equal => Some(&self.current_committee),
-            Ordering::Greater => None,
+            Ordering::Greater => unreachable!("certified_epoch > current_epoch checked above"),
         }
     }
 

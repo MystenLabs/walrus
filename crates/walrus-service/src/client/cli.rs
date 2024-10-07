@@ -250,6 +250,9 @@ impl<C: CurrencyForDisplay> From<u64> for HumanReadableCoin<C> {
 
 impl<C: CurrencyForDisplay> Display for HumanReadableCoin<C> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if self.0.value() == 0 {
+            return write!(f, "0 {}", C::UNIT_NAME);
+        }
         // We ensure that the values displayed in C::UNIT_NAME always require less or equal to 4
         // decimal digits to be readable.
         let ratio = C::units_in_superunit() / self.0.value();
@@ -486,6 +489,7 @@ mod tests {
 
     param_test! {
         test_human_readable_mist: [
+            zero: (0, "0 MIST"),
             ten: (10, "10 MIST"),
             ten_thousand: (10_000, "10,000 MIST"),
             hundred_thousand: (100_000, "0.0001 SUI"),

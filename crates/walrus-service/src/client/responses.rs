@@ -43,7 +43,7 @@ use super::{
 use crate::client::cli::{format_event_id, HumanReadableFrost};
 
 /// Either an event ID or an object ID.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub enum EventOrObjectId {
     /// The variant representing an event ID.
     Event(EventID),

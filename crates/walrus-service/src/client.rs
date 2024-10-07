@@ -193,6 +193,20 @@ impl<T: ReadClient> Client<T> {
             .await?
             .initial_certified_epoch()
             .ok_or_else(|| ClientError::from(ClientErrorKind::BlobIdDoesNotExist))?;
+
+        self.read_metadata_and_slivers::<U>(certified_epoch, blob_id)
+            .await
+    }
+
+    async fn read_metadata_and_slivers<U>(
+        &self,
+        certified_epoch: Epoch,
+        blob_id: &BlobId,
+    ) -> ClientResult<Vec<u8>>
+    where
+        U: EncodingAxis,
+        SliverData<U>: TryFrom<Sliver>,
+    {
         let metadata = self.retrieve_metadata(certified_epoch, blob_id).await?;
         self.request_slivers_and_decode::<U>(certified_epoch, &metadata)
             .await
@@ -220,6 +234,48 @@ impl<T: ContractClient> Client<T> {
             .await)
     }
 
+    /// Stores the blob to Walrus, retrying if it fails because of epoch change.
+    #[tracing::instrument(skip_all, fields(blob_id))]
+    pub async fn reserve_and_store_blob_retry(
+        &mut self,
+        blob: &[u8],
+        epochs_ahead: EpochCount,
+        store_when: StoreWhen,
+        persistence: BlobPersistence,
+    ) -> ClientResult<BlobStoreResult> {
+        let (pairs, metadata) = self.encode_pairs_and_metadata(blob).await?;
+
+        match self
+            .reserve_and_store_encoded_blob(
+                &pairs,
+                &metadata,
+                epochs_ahead,
+                store_when,
+                persistence,
+            )
+            .await
+        {
+            Ok(result) => Ok(result),
+            Err(error) if error.may_be_caused_by_epoch_change() => {
+                tracing::warn!(
+                    %error,
+                    "there was an error during blob store that may be caused by epoch change; \
+                    refreshing the committees and retrying"
+                );
+                self.refresh_committees().await?;
+                self.reserve_and_store_encoded_blob(
+                    &pairs,
+                    &metadata,
+                    epochs_ahead,
+                    store_when,
+                    persistence,
+                )
+                .await
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     /// Encodes the blob, reserves & registers the space on chain, and stores the slivers to the
     /// storage nodes. Finally, the function aggregates the storage confirmations and posts the
     /// [`ConfirmationCertificate`] on chain.
@@ -231,6 +287,22 @@ impl<T: ContractClient> Client<T> {
         store_when: StoreWhen,
         persistence: BlobPersistence,
     ) -> ClientResult<BlobStoreResult> {
+        let (pairs, metadata) = self.encode_pairs_and_metadata(blob).await?;
+
+        self.reserve_and_store_encoded_blob(
+            &pairs,
+            &metadata,
+            epochs_ahead,
+            store_when,
+            persistence,
+        )
+        .await
+    }
+
+    async fn encode_pairs_and_metadata(
+        &self,
+        blob: &[u8],
+    ) -> ClientResult<(Vec<SliverPair>, VerifiedBlobMetadataWithId)> {
         let encode_start_timer = Instant::now();
 
         let (pairs, metadata) = self
@@ -238,9 +310,6 @@ impl<T: ContractClient> Client<T> {
             .get_blob_encoder(blob)
             .map_err(ClientError::other)?
             .encode_with_metadata();
-        let blob_id = *metadata.blob_id();
-        self.check_blob_id(&blob_id)?;
-        tracing::Span::current().record("blob_id", blob_id.to_string());
 
         let encode_duration = encode_start_timer.elapsed();
 
@@ -254,6 +323,21 @@ impl<T: ContractClient> Client<T> {
             "computed sliver pairs and metadata"
         );
 
+        Ok((pairs, metadata))
+    }
+
+    async fn reserve_and_store_encoded_blob(
+        &self,
+        pairs: &[SliverPair],
+        metadata: &VerifiedBlobMetadataWithId,
+        epochs_ahead: EpochCount,
+        store_when: StoreWhen,
+        persistence: BlobPersistence,
+    ) -> ClientResult<BlobStoreResult> {
+        let blob_id = *metadata.blob_id();
+        self.check_blob_id(&blob_id)?;
+        tracing::Span::current().record("blob_id", blob_id.to_string());
+
         let blob_status = self
             .get_blob_status_with_retries(&blob_id, &self.sui_client)
             .await?;
@@ -261,16 +345,10 @@ impl<T: ContractClient> Client<T> {
         let store_operation = self
             .resource_manager()
             .await
-            .store_operation_for_blob(
-                &metadata,
-                epochs_ahead,
-                persistence,
-                store_when,
-                blob_status,
-            )
+            .store_operation_for_blob(metadata, epochs_ahead, persistence, store_when, blob_status)
             .await?;
 
-        let (mut blob, resource_operation) = match store_operation {
+        let (mut blob_object, resource_operation) = match store_operation {
             StoreOp::NoOp(result) => return Ok(result),
             StoreOp::RegisterNew { blob, operation } => (blob, operation),
         };
@@ -288,10 +366,10 @@ impl<T: ContractClient> Client<T> {
             _ => {
                 let certify_start_timer = Instant::now();
                 let result = self
-                    .send_blob_data_and_get_certificate(&metadata, &pairs)
+                    .send_blob_data_and_get_certificate(metadata, pairs)
                     .await?;
                 let certify_duration = certify_start_timer.elapsed();
-                let blob_size = blob.size;
+                let blob_size = blob_object.size;
                 tracing::info!(
                     duration =  %humantime::Duration::from(certify_duration),
                     blob_size = blob_size,
@@ -302,14 +380,14 @@ impl<T: ContractClient> Client<T> {
         };
 
         self.sui_client
-            .certify_blob(blob.clone(), &certificate)
+            .certify_blob(blob_object.clone(), &certificate)
             .await
             .map_err(|e| ClientError::from(ClientErrorKind::CertificationFailed(e)))?;
-        blob.certified_epoch = Some(committees.write_committee().epoch);
+        blob_object.certified_epoch = Some(committees.write_committee().epoch);
         let cost = self.price_computation.operation_cost(&resource_operation);
 
         Ok(BlobStoreResult::NewlyCreated {
-            blob_object: blob,
+            blob_object,
             resource_operation,
             cost,
         })
@@ -727,7 +805,7 @@ impl<T> Client<T> {
         let committees = self.committees.read().await;
         let comms = self
             .communication_factory
-            .node_read_communications_quorum(&committees, certified_epoch);
+            .node_read_communications_quorum(&committees, certified_epoch)?;
         let futures = comms.iter().map(|n| {
             n.retrieve_verified_metadata(blob_id)
                 .instrument(n.span.clone())
@@ -909,11 +987,8 @@ impl<T> Client<T> {
                 pairs
                     .iter()
                     .filter(|pair| {
-                        node.shard_ids.contains(
-                            &pair
-                                .index()
-                                .to_shard_index(committees.n_shards().clone(), blob_id),
-                        )
+                        node.shard_ids
+                            .contains(&pair.index().to_shard_index(committees.n_shards(), blob_id))
                     })
                     .collect()
             })

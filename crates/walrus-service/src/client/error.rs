@@ -3,7 +3,7 @@
 
 //! The errors for the storage client and the communication with storage nodes.
 
-use walrus_core::{BlobId, SliverPairIndex, SliverType};
+use walrus_core::{BlobId, Epoch, SliverPairIndex, SliverType};
 use walrus_sdk::error::{ClientBuildError, NodeError};
 use walrus_sui::client::SuiClientError;
 
@@ -63,6 +63,16 @@ impl ClientError {
             ClientErrorKind::NoCompatiblePaymentCoin | ClientErrorKind::NoCompatibleGasCoins
         )
     }
+
+    /// Returns `true` if the error may have been caused by epoch change.
+    pub fn may_be_caused_by_epoch_change(&self) -> bool {
+        matches!(
+            &self.kind,
+            ClientErrorKind::NotEnoughConfirmations(_, _)
+                | ClientErrorKind::CertificationFailed(_)
+                | ClientErrorKind::BehindCurrentEpoch(_, _)
+        )
+    }
 }
 
 impl From<SuiClientError> for ClientError {
@@ -84,10 +94,7 @@ pub enum ClientErrorKind {
     #[error("blob certification failed: {0}")]
     CertificationFailed(SuiClientError),
     /// The client could not retrieve sufficient confirmations to certify the blob.
-    #[error(
-        "could not retrieve enough confirmations to certify the blob: {0} / {1} required; \
-        this usually indicates a misconfiguration"
-    )]
+    #[error("could not retrieve enough confirmations to certify the blob: {0} / {1} required;")]
     NotEnoughConfirmations(usize, usize),
     /// The client could not retrieve enough slivers to reconstruct the blob.
     #[error("could not retrieve enough slivers to reconstruct the blob")]
@@ -124,6 +131,9 @@ pub enum ClientErrorKind {
     /// The client was unable to open connections to any storage node.
     #[error("connecting to all storage nodes failed: {0}")]
     AllConnectionsFailed(ClientBuildError),
+    /// The client seems to be behind the current epoch.
+    #[error("the client's current epoch is {0}, but received a certification for epoch {1}")]
+    BehindCurrentEpoch(Epoch, Epoch),
     /// A failure internal to the node.
     #[error("client internal error: {0}")]
     Other(Box<dyn std::error::Error + Send + Sync + 'static>),

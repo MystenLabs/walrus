@@ -21,7 +21,7 @@ use walrus_sui::types::{Committee, NetworkAddress, StorageNode};
 
 use super::{NodeCommunication, NodeReadCommunication, NodeWriteCommunication};
 use crate::{
-    client::{ClientCommunicationConfig, ClientErrorKind, ClientResult},
+    client::{ClientCommunicationConfig, ClientError, ClientErrorKind, ClientResult},
     common::active_committees::ActiveCommittees,
 };
 
@@ -59,8 +59,10 @@ impl NodeCommunicationFactory {
                 .expect("other threads should not panic"),
         );
 
-        node_communications(committees.write_committee(), |index| {
-            self.create_write_communication(committees, index, sliver_write_limit.clone())
+        let write_committee = committees.write_committee();
+
+        node_communications(write_committee, |index| {
+            self.create_write_communication(write_committee, index, sliver_write_limit.clone())
         })
     }
 
@@ -84,12 +86,19 @@ impl NodeCommunicationFactory {
                 .expect("other threads should not panic"),
         );
 
-        node_communications(
-            committees
-                .read_committee(certified_epoch)
-                .expect("the certified epoch must be less than the current known committee epoch"),
-            |index| self.create_read_communication(committees, index, certified_epoch),
-        )
+        let read_committee = committees.read_committee(certified_epoch).ok_or_else(|| {
+            ClientErrorKind::BehindCurrentEpoch(committees.epoch(), certified_epoch)
+        })?;
+        let current_epoch = committees.epoch();
+        tracing::warn!(
+            ?current_epoch,
+            ?certified_epoch,
+            "gotten read committee for epoch "
+        );
+
+        node_communications(read_committee, |index| {
+            self.create_read_communication(read_committee, index)
+        })
     }
 
     /// Returns a vector of [`NodeReadCommunication`] objects, the weight of which is at least a
@@ -98,11 +107,10 @@ impl NodeCommunicationFactory {
         &'a self,
         committees: &'a ActiveCommittees,
         certified_epoch: Epoch,
-    ) -> Vec<NodeReadCommunication> {
+    ) -> ClientResult<Vec<NodeReadCommunication>> {
         self.node_read_communications_threshold(committees, certified_epoch, |weight| {
             committees.is_quorum(weight)
         })
-        .expect("the threshold is below the total number of shards")
     }
 
     // Private functions
@@ -117,8 +125,8 @@ impl NodeCommunicationFactory {
     /// Panics if the index is out of range of the committee members.
     fn create_node_communication<'a>(
         &'a self,
-        index: usize,
         committee: &'a Committee,
+        index: usize,
     ) -> Result<Option<NodeCommunication<'_>>, ClientBuildError> {
         let node = &committee.members()[index];
         let client = self.create_client(node)?;
@@ -144,14 +152,10 @@ impl NodeCommunicationFactory {
     /// Panics if the certified epoch is larger than the current known committee epoch.
     fn create_read_communication<'a>(
         &'a self,
-        committees: &'a ActiveCommittees,
+        read_committee: &'a Committee,
         index: usize,
-        certified_epoch: Epoch,
     ) -> Result<Option<NodeReadCommunication<'a>>, ClientBuildError> {
-        let committee = committees
-            .read_committee(certified_epoch)
-            .expect("the certified epoch must be less than the current known committee epoch");
-        self.create_node_communication(index, committee)
+        self.create_node_communication(read_committee, index)
     }
 
     /// Builds a [`NodeWriteCommunication`] object for the given storage node.
@@ -159,12 +163,12 @@ impl NodeCommunicationFactory {
     /// Returns `None` if the node has no shards.
     fn create_write_communication<'a>(
         &'a self,
-        committees: &'a ActiveCommittees,
+        write_committee: &'a Committee,
         index: usize,
         sliver_write_limit: Arc<Semaphore>,
     ) -> Result<Option<NodeWriteCommunication<'a>>, ClientBuildError> {
         let maybe_node_communication = self
-            .create_node_communication(index, committees.write_committee())?
+            .create_node_communication(write_committee, index)?
             .map(|nc| nc.with_write_limits(sliver_write_limit));
         Ok(maybe_node_communication)
     }
@@ -222,16 +226,18 @@ impl NodeCommunicationFactory {
     /// # Panics
     ///
     /// Panics if the `certified_epoch` provided is greater than the current committee epoch.
+    // TODO: update docstring
     fn node_read_communications_threshold<'a>(
         &'a self,
         committees: &'a ActiveCommittees,
         certified_epoch: Epoch,
         threshold_fn: impl Fn(usize) -> bool,
     ) -> ClientResult<Vec<NodeReadCommunication>> {
-        let read_members = committees
-            .read_committee(certified_epoch)
-            .expect("the certified epoch must be less than the current known committee epoch")
-            .members();
+        let read_committee = committees.read_committee(certified_epoch).ok_or_else(|| {
+            ClientErrorKind::BehindCurrentEpoch(committees.epoch(), certified_epoch)
+        })?;
+
+        let read_members = read_committee.members();
 
         let mut random_indices: Vec<_> = (0..read_members.len()).collect();
         random_indices.shuffle(&mut thread_rng());
@@ -253,9 +259,7 @@ impl NodeCommunicationFactory {
 
             // Since we are attempting this in a loop, we will retry until we have a threshold of
             // successfully constructed clients (no error and with shards).
-            if let Ok(Some(comm)) =
-                self.create_read_communication(committees, index, certified_epoch)
-            {
+            if let Ok(Some(comm)) = self.create_read_communication(read_committee, index) {
                 comms.push(comm);
             }
         }
@@ -275,7 +279,9 @@ fn node_communications<'a, W>(
         let Some((_, Err(sample_error))) = comms.pop() else {
             unreachable!("`all()` guarantees at least 1 result and all results are errors");
         };
-        return Err(ClientErrorKind::AllConnectionsFailed(sample_error).into());
+        return Err(ClientError::from(ClientErrorKind::AllConnectionsFailed(
+            sample_error,
+        )));
     }
 
     let mut comms: Vec<_> = comms
