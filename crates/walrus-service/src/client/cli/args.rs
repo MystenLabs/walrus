@@ -547,11 +547,11 @@ mod default {
     }
 
     pub(crate) fn staking_amount_frost() -> u64 {
-        1_000_000_000
+        1_000_000_000 // 1 WAL
     }
 
     pub(crate) fn exchange_amount_mist() -> u64 {
-        1_000_000_000
+        500_000_000 // 0.5 SUI
     }
 }
 

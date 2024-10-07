@@ -7,6 +7,7 @@ edition = "2024.beta"
 [dependencies]
 Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "testnet-v1.34.2" }
 WAL = { local = "../wal" }
+# TODO: Remove this after we publish contracts separately (#909).
 WAL_exchange = { local = "../wal_exchange" }
 
 # For remote import, use the `{ git = "...", subdir = "...", rev = "..." }`.
