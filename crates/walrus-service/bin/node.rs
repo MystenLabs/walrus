@@ -317,6 +317,10 @@ mod commands {
             config.protocol_key_pair.load()?.as_ref().public()
         );
         tracing::info!(
+            "Walrus network key: {}",
+            config.network_key_pair.load()?.as_ref().public()
+        );
+        tracing::info!(
             "Started Prometheus HTTP endpoint at {}",
             config.metrics_address
         );
@@ -389,17 +393,9 @@ mod commands {
                 command-line argument."
         ))?;
 
-        if storage_config.protocol_key_pair.is_path() {
-            storage_config.protocol_key_pair.load()?;
-        } else {
-            bail!("storage config protocol keys must be loaded from a key file");
-        }
+        storage_config.protocol_key_pair.load()?;
+        storage_config.network_key_pair.load()?;
 
-        if storage_config.network_key_pair.is_path() {
-            storage_config.network_key_pair.load()?;
-        } else {
-            bail!("storage config network keys must be loaded from a key file");
-        }
         let public_address = NetworkAddress(public_address);
         if public_address.try_get_port().is_err() {
             bail!("provided public address does not have the correct format");
