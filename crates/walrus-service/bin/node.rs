@@ -528,12 +528,14 @@ mod commands {
             wallet_config.display()
         );
         let mut wallet = walrus_sui::utils::create_wallet(&wallet_config, sui_network.env(), None)?;
+        let wallet_address = wallet.active_address()?;
+        println!("Generated a new Sui wallet; address: {wallet_address}");
 
         println!("Attempting to get SUI from faucet...");
         match tokio::time::timeout(
             Duration::from_secs(20),
             walrus_sui::utils::request_sui_from_faucet(
-                wallet.active_address()?,
+                wallet_address,
                 &sui_network,
                 &wallet.get_client().await?,
             ),
