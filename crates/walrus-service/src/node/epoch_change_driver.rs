@@ -423,7 +423,7 @@ impl<T: EpochOperation> ScheduledEpochOperation<T> {
         tracing::debug!(
             "scheduling operation to be called in {wait_duration:.0?} (+{schedule_jitter:.0?})"
         );
-        tokio::time::sleep(wait_duration).await;
+        tokio::time::sleep(wait_duration + schedule_jitter).await;
 
         tracing::debug!("invoking scheduled operation");
         self.operation.invoke(self.contract_service.as_ref()).await
@@ -596,10 +596,24 @@ mod tests {
         seed: u64,
         start: UtcInstant,
     ) -> EpochChangeDriver {
+        driver_under_test_with_epoch_zero_end(
+            service,
+            seed,
+            start,
+            start.utc + EPOCH_ZERO_VOTE_DURATION,
+        )
+    }
+
+    fn driver_under_test_with_epoch_zero_end<S: SystemContractService + 'static>(
+        service: S,
+        seed: u64,
+        start: UtcInstant,
+        epoch_zero_end: DateTime<Utc>,
+    ) -> EpochChangeDriver {
         EpochChangeDriver::new_with_time_provider(
             FixedSystemParameters {
                 epoch_duration: EPOCH_DURATION,
-                epoch_zero_end: start.utc + EPOCH_ZERO_VOTE_DURATION,
+                epoch_zero_end,
             },
             Arc::new(service),
             StdRng::seed_from_u64(seed),
@@ -661,7 +675,6 @@ mod tests {
         #[tokio::test(start_paused = true)]
         async fn waits_until_voting_is_endable_epoch_zero() -> TestResult {
             let start = UtcInstant::now();
-            let upcoming_epoch: NonZero<Epoch> = nonzero!(1);
             let voting_duration = EPOCH_ZERO_VOTE_DURATION;
             let voting_duration_elapsed = voting_duration / 10;
             let voting_duration_remaining = voting_duration - voting_duration_elapsed;
@@ -680,15 +693,20 @@ mod tests {
             // Set that epoch change has already completed to the current epoch.
             service.expect_get_epoch_and_state().returning(move || {
                 Ok((
-                    upcoming_epoch.get() - 1,
+                    GENESIS_EPOCH,
                     EpochState::EpochChangeDone(epoch_change_completed_at),
                 ))
             });
 
-            let driver = driver_under_test(service, /*seed=*/ 1, start);
+            let driver = driver_under_test_with_epoch_zero_end(
+                service,
+                /*seed=*/ 1,
+                start,
+                start.utc + voting_duration_remaining,
+            );
 
             // Schedule voting end for the next epoch.
-            driver.schedule_voting_end(upcoming_epoch);
+            driver.schedule_voting_end(NonZero::new(GENESIS_EPOCH + 1).unwrap());
 
             // Run the driver for a finite amount of time, in which the call should be dispatched.
             let _ = tokio::time::timeout(
