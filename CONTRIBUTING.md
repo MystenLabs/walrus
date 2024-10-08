@@ -109,7 +109,7 @@ To run simulation tests, first install the `cargo simtest` tool:
 You can then run all simtests with
 
 ```sh
-cargo simtest --run-ignored all
+cargo simtest
 ```
 
 Further information about the simtest framework is available

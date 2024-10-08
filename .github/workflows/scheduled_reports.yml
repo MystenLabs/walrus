@@ -51,7 +51,7 @@ jobs:
           tool: cargo-nextest
       - uses: actions/checkout@v4
       - run: ./scripts/simtest/install.sh
-      - run: cargo simtest --run-ignored all simtest
+      - run: MSIM_TEST_NUM=30 cargo simtest --run-ignored all simtest
 
   dependencies:
     name: Check dependencies (including vulnerabilities)

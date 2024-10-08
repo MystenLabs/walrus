@@ -160,7 +160,7 @@ jobs:
           tool: cargo-nextest
       - uses: actions/checkout@v4
       - run: ./scripts/simtest/install.sh
-      - run: cargo simtest --run-ignored all
+      - run: MSIM_TEST_NUM=10 cargo simtest
 
   test-move:
     name: Test Move code
