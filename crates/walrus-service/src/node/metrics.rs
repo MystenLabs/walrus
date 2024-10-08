@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use prometheus::{
-    core::{AtomicU64, GenericGaugeVec},
+    core::{AtomicU64, GenericGauge, GenericGaugeVec},
     HistogramVec,
     IntCounter,
     IntCounterVec,
@@ -23,6 +23,10 @@ pub(crate) const STATUS_QUEUED: &str = "queued";
 pub(crate) const STATUS_PENDING: &str = "pending";
 pub(crate) const STATUS_PERSISTED: &str = "persisted";
 pub(crate) const STATUS_IN_PROGRESS: &str = "in-progress";
+
+pub(crate) const EPOCH_STATE_CHANGE_SYNC: &str = "epoch_change_sync";
+pub(crate) const EPOCH_STATE_CHANGE_DONE: &str = "epoch_change_done";
+pub(crate) const EPOCH_STATE_NEXT_PARAMS_SELECTED: &str = "next_params_selected";
 
 macro_rules! with_label {
     ($metric:expr, $label:expr) => {
@@ -117,13 +121,12 @@ define_metric_set! {
 
 define_metric_set! {
     CommitteeServiceMetricSet;
-    IntGaugeVec: [
-        (
-            epoch_change_timestamp_seconds,
-            "The UNIX timestamp in seconds of the epoch change",
-            &["epoch", "is_in_sync"]
-        )
+    GenericGauge<AtomicU64>: [
+        (current_epoch, "The current Walrus epoch"),
     ],
+    IntGaugeVec: [
+        (current_epoch_state, "The state of the current walrus epoch", &["state"]),
+    ]
 }
 
 pub(crate) trait TelemetryLabel {

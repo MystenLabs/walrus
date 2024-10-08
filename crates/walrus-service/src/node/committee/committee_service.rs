@@ -10,7 +10,6 @@ use std::{
     sync::{Arc, Mutex as SyncMutex},
 };
 
-use chrono::Utc;
 use futures::TryFutureExt;
 use prometheus::Registry;
 use rand::{rngs::StdRng, Rng, SeedableRng};
@@ -55,7 +54,13 @@ use crate::{
     node::{
         config::CommitteeServiceConfig,
         errors::SyncShardClientError,
-        metrics::CommitteeServiceMetricSet,
+        metrics::{
+            self,
+            CommitteeServiceMetricSet,
+            EPOCH_STATE_CHANGE_DONE,
+            EPOCH_STATE_CHANGE_SYNC,
+            EPOCH_STATE_NEXT_PARAMS_SELECTED,
+        },
     },
 };
 
@@ -366,10 +371,18 @@ where
             return;
         };
 
-        metrics
-            .epoch_change_timestamp_seconds
-            .with_label_values(&[&epoch.to_string(), &is_in_sync.to_string()])
-            .set(Utc::now().timestamp());
+        metrics.current_epoch.set(epoch.into());
+
+        metrics::with_label!(metrics.current_epoch_state, EPOCH_STATE_CHANGE_SYNC)
+            .set(is_in_sync.into());
+        metrics::with_label!(metrics.current_epoch_state, EPOCH_STATE_CHANGE_DONE)
+            .set((!is_in_sync).into());
+        // NOTE(jsmith): We currently do not track when the params are selected.
+        metrics::with_label!(
+            metrics.current_epoch_state,
+            EPOCH_STATE_NEXT_PARAMS_SELECTED
+        )
+        .set(false.into());
     }
 }
 
