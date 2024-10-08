@@ -328,8 +328,9 @@ pub fn create_wallet(
 ) -> Result<WalletContext> {
     let keystore_path = config_path
         .parent()
-        .unwrap_or(&sui_config_dir()?)
+        .map_or_else(sui_config_dir, |path| Ok(path.to_path_buf()))?
         .join(keystore_filename.unwrap_or(SUI_KEYSTORE_FILENAME));
+
     let mut keystore = FileBasedKeystore::new(&keystore_path)?;
     let (new_address, _phrase, _scheme) =
         keystore.generate_and_add_new_key(SignatureScheme::ED25519, None, None, None)?;
