@@ -129,6 +129,10 @@ struct GenerateDryRunConfigsArgs {
     /// sending another request.
     #[clap(long)]
     faucet_cooldown: Option<Duration>,
+    /// Enable checkpoint based event processor
+    /// [default: false]
+    #[clap(long, action)]
+    enable_checkpoint_event_processor: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -222,6 +226,7 @@ mod commands {
             listening_ips,
             set_db_path,
             faucet_cooldown,
+            enable_checkpoint_event_processor,
         }: GenerateDryRunConfigsArgs,
     ) -> anyhow::Result<()> {
         tracing_subscriber::fmt::init();
@@ -273,6 +278,7 @@ mod commands {
             set_db_path.as_deref(),
             faucet_cooldown.map(|duration| duration.into()),
             &mut admin_wallet,
+            enable_checkpoint_event_processor,
         )
         .await?;
         for (i, storage_node_config) in storage_node_configs.into_iter().enumerate() {

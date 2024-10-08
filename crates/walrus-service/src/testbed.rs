@@ -25,6 +25,7 @@ use walrus_core::{
     keys::{NetworkKeyPair, ProtocolKeyPair},
     ShardIndex,
 };
+use walrus_event::EventProcessorConfig;
 use walrus_sui::{
     client::{ContractClient as _, SuiContractClient},
     test_utils::{
@@ -432,6 +433,7 @@ pub async fn create_storage_node_configs(
     set_db_path: Option<&Path>,
     faucet_cooldown: Option<Duration>,
     admin_wallet: &mut WalletContext,
+    enable_checkpoint_event_processor: bool,
 ) -> anyhow::Result<Vec<StorageNodeConfig>> {
     tracing::debug!(
         ?working_dir,
@@ -440,6 +442,7 @@ pub async fn create_storage_node_configs(
         ?set_config_dir,
         ?set_db_path,
         ?faucet_cooldown,
+        ?enable_checkpoint_event_processor,
         "starting to create storage-node configs"
     );
     let nodes = testbed_config.nodes;
@@ -542,6 +545,15 @@ pub async fn create_storage_node_configs(
             server_name: Some(node.network_address.get_host().to_owned()),
         };
 
+        let event_processor_config = if enable_checkpoint_event_processor {
+            Some(EventProcessorConfig {
+                rest_url: rpc.clone(),
+                pruning_interval: 3600,
+            })
+        } else {
+            None
+        };
+
         storage_node_configs.push(StorageNodeConfig {
             name: Some(node.name),
             storage_path,
@@ -555,7 +567,7 @@ pub async fn create_storage_node_configs(
             blob_recovery: Default::default(),
             tls,
             shard_sync_config: Default::default(),
-            event_processor_config: None,
+            event_processor_config,
             commission_rate: node.commission_rate,
             voting_params: VotingParams {
                 storage_price: node.storage_price,
