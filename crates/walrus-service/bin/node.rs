@@ -36,7 +36,7 @@ use walrus_service::{
         system_events::{EventManager, SuiSystemEventProvider},
         StorageNode,
     },
-    utils::{version, LoadConfig as _, MetricsAndLoggingRuntime},
+    utils::{version, ByteCount, LoadConfig as _, MetricsAndLoggingRuntime},
 };
 use walrus_sui::{
     client::{ContractClient, SuiContractClient},
@@ -180,7 +180,11 @@ struct ConfigArgs {
     staking_object: ObjectID,
     #[clap(long)]
     /// Initial storage capacity of this node in bytes.
-    node_capacity: u64,
+    ///
+    /// The value can either by unitless; have suffixes for powers of 1000, such as (B),
+    /// kilobytes (K), etc, or have suffixes for the IEC units such as kibibytes (Ki),
+    /// mebibytes (Mi), etc.
+    node_capacity: ByteCount,
     // ***************************
     //   Optional fields below
     // ***************************
@@ -476,7 +480,7 @@ mod commands {
             voting_params: VotingParams {
                 storage_price,
                 write_price,
-                node_capacity,
+                node_capacity: node_capacity.as_u64(),
             },
             rest_api_address,
             metrics_address,

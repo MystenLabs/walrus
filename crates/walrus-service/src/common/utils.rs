@@ -11,6 +11,7 @@ use std::{
     num::Saturating,
     path::{Path, PathBuf},
     pin::Pin,
+    str::FromStr,
     sync::Arc,
     task::{ready, Context, Poll},
     time::Duration,
@@ -528,8 +529,60 @@ pub fn load_wallet_context(path: &Option<PathBuf>) -> Result<WalletContext> {
     WalletContext::new(&path, None, None)
 }
 
+/// Provides approximate parsing of human-friendly byte values.
+///
+/// Values are calculated as floating points and the resulting number of bytes is rounded down.
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
+pub struct ByteCount(pub u64);
+
+impl ByteCount {
+    /// Returns the number of bytes as a `u64`.
+    pub fn as_u64(&self) -> u64 {
+        self.0
+    }
+}
+
+impl FromStr for ByteCount {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        // ensure!(s.is_ascii(), "only ascii characters allowed in byte sizes");
+        if let Some(value_prefix) = s.strip_suffix("B") {
+            // Bytes cannot have fractional components
+            return Ok(ByteCount(u64::from_str(value_prefix.trim())?));
+        }
+
+        let suffixes = [
+            ("K", 1e3),
+            ("M", 1e6),
+            ("G", 1e9),
+            ("T", 1e12),
+            ("P", 1e15),
+            ("Ki", (1u64 << 10) as f64),
+            ("Mi", (1u64 << 20) as f64),
+            ("Gi", (1u64 << 30) as f64),
+            ("Ti", (1u64 << 40) as f64),
+            ("Pi", (1u64 << 50) as f64),
+        ];
+
+        if let Some((value_str, scale)) = suffixes
+            .into_iter()
+            .find_map(|(suffix, scale)| Some((s.strip_suffix(suffix)?, scale)))
+        {
+            let value = (f64::from_str(value_str.trim())? * scale).floor() as u64;
+            return Ok(ByteCount(value));
+        }
+
+        // Otherwise, assume unittless.
+        // Bytes cannot have fractional components
+        Ok(ByteCount(u64::from_str(s)?))
+    }
+}
+
 #[cfg(test)]
 mod tests {
+
+    use walrus_test_utils::param_test;
 
     use super::*;
 
@@ -578,6 +631,31 @@ mod tests {
                 actual += 1;
             }
             assert_eq!(retries, actual);
+        }
+    }
+
+    mod byte_count {
+        use super::*;
+
+        param_test! {
+            parse: [
+                unitless: ("7240", 7240),
+                byte: ("1240B", 1240),
+                kilo: ("2K", 2000),
+                kibi: ("3.5Ki", (3.5 * 1024.0) as u64),
+                mega: ("1.93M", (1.93 * 1e6) as u64),
+                mebi: ("1478Mi", 1478 * 1024 * 1024),
+                giga: ("21G", (21.0 * 1e9) as u64),
+                gibi: ("21.791Gi", (21.791 * 1024.0 * 1024.0* 1024.0) as u64),
+                tera: ("7.4T", (7.4 * 1e12) as u64),
+                tebi: ("19Ti", 19 * 1024 * 1024* 1024 * 1024),
+                peta: ("21000P", (21000.0 * 1e15) as u64),
+                pebi: ("21.721Pi", (21.721 * 1024.0 * 1024.0 * 1024.0 * 1024.0 * 1024.0) as u64),
+                with_space: ("1.489 M", (1.489 * 1e6) as u64),
+            ]
+        }
+        fn parse(input: &str, expected: u64) {
+            assert_eq!(ByteCount::from_str(input).unwrap(), ByteCount(expected));
         }
     }
 }
