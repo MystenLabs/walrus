@@ -90,6 +90,7 @@ impl SystemEventProvider for SuiSystemEventProvider {
             events.map(|event| IndexedStreamElement::new(event, EventSequenceNumber::new(0, 0)));
         Ok(Box::new(event_stream))
     }
+
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -133,6 +134,7 @@ impl SystemEventProvider for EventProcessor {
         .flatten();
         Ok(Box::new(event_stream))
     }
+
     fn as_any(&self) -> &dyn Any {
         self
     }

@@ -84,6 +84,15 @@ pub struct FixedSystemParameters {
     pub epoch_zero_end: DateTime<Utc>,
 }
 
+impl Default for FixedSystemParameters {
+    fn default() -> Self {
+        Self {
+            epoch_duration: Duration::from_secs(600),
+            epoch_zero_end: Utc::now() + Duration::from_secs(60),
+        }
+    }
+}
+
 /// Trait to read system state information and events from chain.
 pub trait ReadClient: Send + Sync {
     /// Returns the price for one unit of storage per epoch.

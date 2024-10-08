@@ -813,12 +813,29 @@ impl StorageNode {
         }
 
         if shard_diff.gained.is_empty() {
-            tracing::debug!("no shards gained, so signalling that epoch sync is done");
-            self.inner
-                .contract_service
-                .epoch_sync_done(event.epoch)
-                .await;
+            let node_in_committee = committees.current_committee().contains(public_key);
+            if node_in_committee && committees.epoch() == event.epoch {
+                // We are in the current committee, but no shards were gained. Directly signal that
+                // the epoch sync is done.
+                tracing::info!("no shards gained, so signalling that epoch sync is done");
+                self.inner
+                    .contract_service
+                    .epoch_sync_done(event.epoch)
+                    .await;
+            } else {
+                // Since we just refreshed the committee after receiving the event, the committees'
+                // epoch must be at least the event's epoch.
+                assert!(committees.epoch() >= event.epoch);
+                tracing::info!(
+                    "skip sending epoch sync done event. \
+                    node in committee: {}, committee epoch: {}, event epoch: {}",
+                    node_in_committee,
+                    committees.epoch(),
+                    event.epoch
+                );
+            }
         } else {
+            assert!(committees.current_committee().contains(public_key));
             self.inner
                 .storage
                 .create_storage_for_shards(&shard_diff.gained)?;
@@ -1365,6 +1382,8 @@ mod tests {
 
     use std::{sync::OnceLock, time::Duration};
 
+    use chrono::Utc;
+    use contract_service::MockSystemContractService;
     use storage::{
         tests::{populated_storage, WhichSlivers, BLOB_ID, OTHER_SHARD_INDEX, SHARD_INDEX},
         ShardStatus,
@@ -1377,8 +1396,9 @@ mod tests {
     };
     use walrus_sdk::client::Client;
     use walrus_sui::{
+        client::FixedSystemParameters,
         test_utils::{event_id_for_testing, EventForTesting},
-        types::BlobRegistered,
+        types::{move_structs::EpochState, BlobRegistered},
     };
     use walrus_test_utils::{async_param_test, Result as TestResult, WithTempDir};
 
@@ -3120,6 +3140,56 @@ mod tests {
             intermediate_blob_info,
             node.storage_node.inner.storage.get_blob_info(&BLOB_ID)?
         );
+        Ok(())
+    }
+
+    async_param_test! {
+        test_no_epoch_sync_done_transaction -> TestResult: [
+            not_committee_member: (None, &[]),
+            outdated_epoch: (Some(2), &[ShardIndex(0)]),
+        ]
+    }
+    async fn test_no_epoch_sync_done_transaction(
+        initial_epoch: Option<Epoch>,
+        shard_assignment: &[ShardIndex],
+    ) -> TestResult {
+        let mut contract_service = MockSystemContractService::new();
+        contract_service.expect_epoch_sync_done().never();
+        contract_service
+            .expect_fixed_system_parameters()
+            .returning(|| Ok(FixedSystemParameters::default()));
+        contract_service
+            .expect_get_epoch_and_state()
+            .returning(move || Ok((0, EpochState::EpochChangeDone(Utc::now()))));
+        let node = StorageNodeHandle::builder()
+            .with_system_event_provider(vec![ContractEvent::EpochChangeEvent(
+                EpochChangeEvent::EpochChangeStart(EpochChangeStart {
+                    epoch: 1,
+                    event_id: event_id_for_testing(),
+                }),
+            )])
+            .with_shard_assignment(shard_assignment)
+            .with_system_contract_service(Box::new(contract_service))
+            .with_node_started(true)
+            .with_initial_epoch(initial_epoch)
+            .build()
+            .await?;
+
+        retry_until_success_or_timeout(Duration::from_secs(10), || async {
+            if node
+                .storage_node
+                .inner
+                .storage
+                .get_sequentially_processed_event_count()?
+                > 0
+            {
+                Ok(())
+            } else {
+                bail!("no events processed yet")
+            }
+        })
+        .await?;
+
         Ok(())
     }
 }
