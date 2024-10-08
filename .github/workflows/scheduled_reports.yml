@@ -45,13 +45,15 @@ jobs:
   simtests:
     name: Run all simtests
     runs-on: ubuntu-ghcloud
+    env:
+      MSIM_TEST_NUM: 30
     steps:
       - uses: taiki-e/install-action@v2.44.17
         with:
           tool: cargo-nextest
       - uses: actions/checkout@v4
       - run: ./scripts/simtest/install.sh
-      - run: MSIM_TEST_NUM=30 cargo simtest --run-ignored all simtest
+      - run: cargo simtest
 
   dependencies:
     name: Check dependencies (including vulnerabilities)

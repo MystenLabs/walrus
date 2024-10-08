@@ -154,13 +154,15 @@ jobs:
     if: ${{ needs.diff.outputs.isRust == 'true' || needs.diff.outputs.isMove == 'true' }}
     runs-on: ubuntu-ghcloud
     continue-on-error: true
+    env:
+      MSIM_TEST_NUM: 10
     steps:
       - uses: taiki-e/install-action@v2.44.17
         with:
           tool: cargo-nextest
       - uses: actions/checkout@v4
       - run: ./scripts/simtest/install.sh
-      - run: MSIM_TEST_NUM=10 cargo simtest
+      - run: cargo simtest
 
   test-move:
     name: Test Move code
