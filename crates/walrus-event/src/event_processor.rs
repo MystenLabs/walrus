@@ -10,7 +10,6 @@ use move_core_types::{
     annotated_value::{MoveDatatypeLayout, MoveTypeLayout},
 };
 use rocksdb::Options;
-use sui_config::genesis::Genesis;
 use sui_package_resolver::{
     error::Error as PackageResolverError,
     Package,
@@ -19,7 +18,7 @@ use sui_package_resolver::{
     Resolver,
 };
 use sui_rest_api::Client;
-use sui_sdk::rpc_types::SuiEvent;
+use sui_sdk::{rpc_types::SuiEvent, SuiClientBuilder};
 use sui_storage::verify_checkpoint_with_committee;
 use sui_types::{
     base_types::ObjectID,
@@ -44,7 +43,12 @@ use typed_store::{
 };
 use walrus_sui::types::ContractEvent;
 
-use crate::{EventProcessorConfig, EventSequenceNumber, IndexedStreamElement};
+use crate::{
+    get_bootstrap_committee_and_checkpoint,
+    EventProcessorConfig,
+    EventSequenceNumber,
+    IndexedStreamElement,
+};
 
 /// The name of the checkpoint store.
 #[allow(dead_code)]
@@ -321,6 +325,7 @@ impl EventProcessor {
     /// resume from the last checkpoint.
     pub async fn new(
         config: &EventProcessorConfig,
+        rpc_address: String,
         system_pkg_id: ObjectID,
         event_polling_interval: Duration,
         db_path: &Path,
@@ -407,18 +412,17 @@ impl EventProcessor {
             event_processor.committee_store.schedule_delete_all()?;
             event_processor.event_store.schedule_delete_all()?;
             event_processor.walrus_package_store.schedule_delete_all()?;
-            let genesis = Genesis::load(&config.sui_genesis_path)?;
-            let genesis_committee = genesis.committee()?;
-            let checkpoint = genesis.checkpoint();
-            event_processor
-                .committee_store
-                .insert(&(), &genesis_committee)?;
+            let sui_client = SuiClientBuilder::default().build(rpc_address).await?;
+            let (committee, verified_checkpoint) = get_bootstrap_committee_and_checkpoint(
+                sui_client,
+                event_processor.client.clone(),
+                event_processor.system_pkg_id,
+            )
+            .await?;
+            event_processor.committee_store.insert(&(), &committee)?;
             event_processor
                 .checkpoint_store
-                .insert(&(), checkpoint.serializable_ref())?;
-            event_processor
-                .update_package_store(genesis.objects())
-                .map_err(|e| anyhow!("Failed to update walrus package store: {}", e))?;
+                .insert(&(), verified_checkpoint.serializable_ref())?;
         }
 
         Ok(event_processor)

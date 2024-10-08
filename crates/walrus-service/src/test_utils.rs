@@ -1311,6 +1311,7 @@ pub mod test_cluster {
             for _ in test_cluster_builder.storage_node_test_configs().iter() {
                 let event_processor = walrus_event::event_processor::EventProcessor::new(
                     event_processor_config,
+                    event_processor_config.rest_url.clone(),
                     sui_read_client.get_system_package_id(),
                     Duration::from_millis(100),
                     tempfile::tempdir()
@@ -1357,19 +1358,12 @@ pub mod test_cluster {
 fn create_event_processor_config(
     sui_cluster: Arc<TestClusterHandle>,
 ) -> anyhow::Result<EventProcessorConfig> {
-    // Save genesis in a temp file
-    let genesis_dir = tempfile::tempdir()?;
-    let genesis = sui_cluster.cluster().get_genesis();
-    let genesis_file_path = genesis_dir.into_path().join("genesis.json");
-    genesis.save(&genesis_file_path)?;
-
     // FullNode rest url
     let rest_url = sui_cluster.cluster().fullnode_handle.rpc_url.clone();
 
     // Event processor config
     let event_processor_config = EventProcessorConfig {
         rest_url,
-        sui_genesis_path: genesis_file_path,
         pruning_interval: 3600,
     };
 

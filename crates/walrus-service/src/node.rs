@@ -296,6 +296,7 @@ impl StorageNodeBuilder {
                 Some(event_processor_config) => Box::new(
                     EventProcessor::new(
                         event_processor_config,
+                        sui_config.rpc.clone(),
                         read_client.get_system_package_id(),
                         sui_config.event_polling_interval,
                         &config.storage_path,
