@@ -818,7 +818,6 @@ mod tests {
         async fn waits_until_epoch_zero_can_end() -> TestResult {
             let start = UtcInstant::now();
 
-            let next_epoch = nonzero!(1);
             let epoch_duration_elapsed = EPOCH_ZERO_DURATION / 8;
             let epoch_duration_remaining = EPOCH_ZERO_DURATION - epoch_duration_elapsed;
             let current_epoch_started_at = start.utc - epoch_duration_elapsed;
@@ -838,15 +837,20 @@ mod tests {
 
             service.expect_get_epoch_and_state().returning(move || {
                 Ok((
-                    next_epoch.get() - 1,
+                    GENESIS_EPOCH,
                     EpochState::NextParamsSelected(current_epoch_started_at),
                 ))
             });
 
-            let driver = driver_under_test(service, /*seed=*/ 1, start);
+            let driver = driver_under_test_with_epoch_zero_end(
+                service,
+                /*seed=*/ 1,
+                start,
+                start.utc + epoch_duration_remaining,
+            );
 
             // Schedule epoch change for the next epoch.
-            driver.schedule_initiate_epoch_change(next_epoch);
+            driver.schedule_initiate_epoch_change(NonZero::new(GENESIS_EPOCH + 1).unwrap());
 
             // Run the driver for a finite amount of time, in which the call should be dispatched.
             let _ =
