@@ -218,25 +218,54 @@ pub struct ServiceHealthInfo {
     /// The public key of the storage node.
     #[schema(value_type = [u8], format = "Base58")]
     pub public_key: PublicKey,
+    /// The overall status of the shards.
+    pub shard_summary: ShardStatusSummary,
     /// The status of the shards for which the node is responsible.
-    pub shard_status: Vec<ShardHealthInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shard_detail: Option<ShardStatusDetail>,
+}
+
+/// Summary of the shard statuses.
+#[derive(Debug, Default, Clone, Deserialize, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ShardStatusSummary {
+    /// The number of shards, for which this node is responsible.
+    pub owned: usize,
+    /// The number of shards in an unknown state.
+    pub unknown: usize,
+    /// The number of shards that are up-to-date for the epoch.
+    pub ready: usize,
+    /// The number of shards that are being transferred to the node.
+    pub in_transfer: usize,
+    /// The number of shards that are being recovered.
+    pub in_recovery: usize,
+    /// The number of shards that are read only, i.e., serving reads from this node.
+    pub read_only: usize,
+}
+
+/// Summary of the shard statuses.
+#[derive(Debug, Default, Clone, Deserialize, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ShardStatusDetail {
+    /// Statuses of the shards for which the node is responsible in this epoch.
+    pub owned: Vec<ShardHealthInfo>,
+    /// Statuses of other shards the node currently stores.
+    pub other: Vec<ShardHealthInfo>,
 }
 
 /// A shard with its status.
-#[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ShardHealthInfo {
     /// The identifier of the shard in the walrus system.
     #[schema(value_type = u16)]
     pub shard: ShardIndex,
-    /// Whether the node is responsible for the shard in this epoch.
-    pub is_owned: bool,
     /// The status of the shard, None if unavailable.
     pub status: ShardStatus,
 }
 
 /// The current state of a shard on the storage node.
-#[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Deserialize, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum ShardStatus {
     /// The status of the shard is indeterminate.

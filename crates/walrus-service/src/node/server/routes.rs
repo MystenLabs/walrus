@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
 };
@@ -416,6 +416,14 @@ pub async fn get_blob_status<S: SyncServiceState>(
     Ok(ApiSuccess::ok(state.blob_status(&blob_id)?))
 }
 
+#[derive(Debug, Clone, serde::Deserialize, utoipa::IntoParams)]
+#[serde(rename_all = "camelCase")]
+pub struct HealthInfoQuery {
+    /// When true, includes the status of each start in the health info.
+    #[serde(default)]
+    detailed: bool,
+}
+
 /// Get storage health information.
 ///
 /// Gets the storage node's health information and basic running stats.
@@ -423,15 +431,21 @@ pub async fn get_blob_status<S: SyncServiceState>(
 #[utoipa::path(
     get,
     path = api::rewrite_route(HEALTH_ENDPOINT),
+    params(HealthInfoQuery),
     responses(
         (status = 200, description = "Server is running", body = ApiSuccessServiceHealthInfo),
     ),
     tag = openapi::GROUP_STATUS
 )]
 pub async fn health_info<S: SyncServiceState>(
+    Query(query): Query<HealthInfoQuery>,
     State(state): State<Arc<S>>,
 ) -> ApiSuccess<ServiceHealthInfo> {
-    ApiSuccess::ok(state.health_info())
+    let mut health_info = state.health_info();
+    if !query.detailed {
+        health_info.shard_detail = None;
+    }
+    ApiSuccess::ok(health_info)
 }
 
 #[tracing::instrument(skip_all)]

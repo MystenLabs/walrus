@@ -401,7 +401,13 @@ mod tests {
         SliverType,
     };
     use walrus_sdk::{
-        api::{BlobStatus, DeletableCounts, ServiceHealthInfo, StoredOnNodeStatus},
+        api::{
+            BlobStatus,
+            DeletableCounts,
+            ServiceHealthInfo,
+            ShardStatusSummary,
+            StoredOnNodeStatus,
+        },
         client::{Client, ClientBuilder},
     };
     use walrus_sui::test_utils::event_id_for_testing;
@@ -578,7 +584,8 @@ mod tests {
                 uptime: Duration::from_secs(0),
                 epoch: 0,
                 public_key: ProtocolKeyPair::generate().as_ref().public().clone(),
-                shard_status: vec![],
+                shard_detail: None,
+                shard_summary: ShardStatusSummary::default(),
             }
         }
 

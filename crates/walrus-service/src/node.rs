@@ -56,6 +56,8 @@ use walrus_sdk::api::{
     ServiceHealthInfo,
     ShardHealthInfo,
     ShardStatus as ApiShardStatus,
+    ShardStatusDetail,
+    ShardStatusSummary,
     StoredOnNodeStatus,
 };
 use walrus_sui::{
@@ -826,8 +828,8 @@ impl StorageNode {
                 .await;
         } else {
             self.inner
-                .storage
-                .create_storage_for_shards(&shard_diff.gained)?;
+                .create_storage_for_shards_in_background(shard_diff.gained.clone())
+                .await?;
 
             // There shouldn't be an epoch change event for the genesis epoch.
             assert!(event.epoch != GENESIS_EPOCH);
@@ -997,42 +999,52 @@ impl StorageNodeInner {
         self.protocol_key_pair.as_ref().public()
     }
 
-    fn shard_health_status(&self) -> Vec<ShardHealthInfo> {
+    fn shard_health_status(&self) -> (ShardStatusSummary, ShardStatusDetail) {
         // NOTE: It is possible that the committee or shards change between this and the next call.
         // As this is for admin consumption, this is not considered a problem.
         let mut shard_statuses = self.storage.try_list_shard_status().unwrap_or_default();
         let committee = self.committee_service.committee();
         let owned_shards = committee.shards_for_node_public_key(self.public_key());
-        let mut output = Vec::with_capacity(owned_shards.len());
+        let mut summary = ShardStatusSummary::default();
+
+        let mut detail = ShardStatusDetail::default();
+        detail.owned.reserve_exact(owned_shards.len());
 
         // Record the status for the owned shards.
-        for &shard_index in owned_shards {
+        for &shard in owned_shards {
             // Consume statuses, so that we are left with shards that are not owned.
             let status = shard_statuses
-                .remove(&shard_index)
+                .remove(&shard)
                 .flatten()
                 .map_or(ApiShardStatus::Unknown, api_status_from_shard_status);
 
-            output.push(ShardHealthInfo {
-                shard: shard_index,
-                is_owned: true,
-                status,
-            });
+            increment_shard_summary(&mut summary, status, true);
+            detail.owned.push(ShardHealthInfo { shard, status });
         }
 
         // Record the status for the unowned shards.
-        for (shard_index, status) in shard_statuses {
-            output.push(ShardHealthInfo {
-                shard: shard_index,
-                is_owned: false,
-                status: status.map_or(ApiShardStatus::Unknown, api_status_from_shard_status),
-            });
+        for (shard, status) in shard_statuses {
+            let status = status.map_or(ApiShardStatus::Unknown, api_status_from_shard_status);
+            increment_shard_summary(&mut summary, status, false);
+            detail.other.push(ShardHealthInfo { shard, status });
         }
 
         // Sort the result by the shard index.
-        output.sort_by_key(|info| info.shard);
+        detail.owned.sort_by_key(|info| info.shard);
+        detail.other.sort_by_key(|info| info.shard);
 
-        output
+        (summary, detail)
+    }
+
+    async fn create_storage_for_shards_in_background(
+        self: &Arc<Self>,
+        new_shards: Vec<ShardIndex>,
+    ) -> Result<(), anyhow::Error> {
+        let this = self.clone();
+        tokio::task::spawn_blocking(move || this.storage.create_storage_for_shards(&new_shards))
+            .in_current_span()
+            .await??;
+        Ok(())
     }
 }
 
@@ -1043,6 +1055,30 @@ fn api_status_from_shard_status(status: ShardStatus) -> ApiShardStatus {
         ShardStatus::ActiveSync => ApiShardStatus::InTransfer,
         ShardStatus::ActiveRecover => ApiShardStatus::InRecovery,
         ShardStatus::LockedToMove => ApiShardStatus::ReadOnly,
+    }
+}
+
+fn increment_shard_summary(
+    summary: &mut ShardStatusSummary,
+    status: ApiShardStatus,
+    is_owned: bool,
+) {
+    if !is_owned {
+        if ApiShardStatus::ReadOnly == status {
+            summary.read_only += 1;
+        }
+        return;
+    }
+
+    debug_assert!(is_owned);
+    summary.owned += 1;
+    match status {
+        ApiShardStatus::Unknown => summary.unknown += 1,
+        ApiShardStatus::Ready => summary.ready += 1,
+        ApiShardStatus::InTransfer => summary.in_transfer += 1,
+        ApiShardStatus::InRecovery => summary.in_recovery += 1,
+        // We do not expect owned shards to be read-only.
+        _ => (),
     }
 }
 
@@ -1343,11 +1379,13 @@ impl ServiceState for StorageNodeInner {
     }
 
     fn health_info(&self) -> ServiceHealthInfo {
+        let (summary, detail) = self.shard_health_status();
         ServiceHealthInfo {
             uptime: self.start_time.elapsed(),
             epoch: self.current_epoch(),
             public_key: self.public_key().clone(),
-            shard_status: self.shard_health_status(),
+            shard_detail: Some(detail),
+            shard_summary: summary,
         }
     }
 
@@ -3094,6 +3132,8 @@ mod tests {
             .with_rest_api_started(true)
             .build()
             .await?;
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
 
         assert_eq!(
             node.as_ref()

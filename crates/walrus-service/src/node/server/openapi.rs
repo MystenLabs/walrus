@@ -16,6 +16,8 @@ use walrus_sdk::api::{
     ServiceHealthInfo,
     ShardHealthInfo,
     ShardStatus,
+    ShardStatusDetail,
+    ShardStatusSummary,
     StoredOnNodeStatus,
 };
 
@@ -60,6 +62,8 @@ pub(super) const GROUP_SYNC_SHARD: &str = "Sync Shard";
         ShardStatus,
         ServiceHealthInfo,
         ShardHealthInfo,
+        ShardStatusDetail,
+        ShardStatusSummary,
     ))
 )]
 pub(super) struct RestApiDoc;
