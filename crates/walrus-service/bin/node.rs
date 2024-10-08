@@ -708,10 +708,17 @@ impl StorageNodeRuntime {
         let mut rest_api_address = node_config.rest_api_address;
         rest_api_address.set_ip(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
         let rest_api_handle = tokio::spawn(async move {
-            rest_api
+            let result = rest_api
                 .run()
                 .await
-                .inspect_err(|error| tracing::error!(?error, "REST API exited with an error"))
+                .inspect_err(|error| tracing::error!(?error, "REST API exited with an error"));
+
+            if !cancel_token.is_cancelled() {
+                tracing::info!("signalling the storage node to shutdown");
+                cancel_token.cancel();
+            }
+
+            result
         });
         tracing::info!("Started REST API on {}", node_config.rest_api_address);
 
