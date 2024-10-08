@@ -6,6 +6,7 @@
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use tracing::Level;
+use utoipa::ToSchema;
 use walrus_core::{metadata::VerifiedBlobMetadataWithId, BlobId, Epoch, EpochCount};
 use walrus_sdk::api::BlobStatus;
 use walrus_sui::{
@@ -62,11 +63,12 @@ impl PriceComputation {
 }
 
 /// The operation performed on blob and storage resources to register a blob.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub enum RegisterBlobOp {
     /// The storage and blob resources are purchased from scratch.
     RegisterFromScratch {
         encoded_length: u64,
+        #[schema(value_type = u32)]
         epochs_ahead: EpochCount,
     },
     /// The storage is reused, but the blob was not registered.

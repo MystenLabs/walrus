@@ -7,7 +7,7 @@ use walrus_sui::types::{Blob, StorageResource};
 
 use super::routes;
 use crate::{
-    client::BlobStoreResult,
+    client::{resource::RegisterBlobOp, responses::EventOrObjectId, BlobStoreResult},
     common::api::{BlobIdString, EventIdSchema, ObjectIdSchema},
 };
 
@@ -30,7 +30,9 @@ pub(super) struct AggregatorApiDoc;
         EncodingType,
         EpochSchema,
         EventIdSchema,
+        EventOrObjectId,
         ObjectIdSchema,
+        RegisterBlobOp,
         StorageResource,
     ))
 )]
@@ -47,7 +49,9 @@ pub(super) struct PublisherApiDoc;
         EncodingType,
         EpochSchema,
         EventIdSchema,
+        EventOrObjectId,
         ObjectIdSchema,
+        RegisterBlobOp,
         StorageResource,
     ))
 )]
