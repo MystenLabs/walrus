@@ -13,7 +13,7 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{anyhow, bail, ensure, Context};
+use anyhow::{anyhow, bail, Context};
 use clap::{Parser, Subcommand};
 use config::{PathOrInPlace, TlsConfig};
 use fastcrypto::traits::KeyPair;
@@ -31,7 +31,7 @@ use walrus_core::keys::{NetworkKeyPair, ProtocolKeyPair};
 use walrus_event::{event_processor::EventProcessor, EventProcessorConfig};
 use walrus_service::{
     node::{
-        config::{self, StorageNodeConfig, SuiConfig},
+        config::{self, defaults::REST_API_PORT, StorageNodeConfig, SuiConfig},
         server::{UserServer, UserServerConfig},
         system_events::{EventManager, SuiSystemEventProvider},
         StorageNode,
@@ -86,8 +86,11 @@ enum Commands {
         /// The path to the node's configuration file.
         config_path: PathBuf,
         #[clap(short, long)]
-        /// The public address of the node in the format `<HOSTNAME>:<PORT>`.
-        public_address: String,
+        /// The host name or public IP address of the node.
+        public_host: String,
+        /// The port on which the storage node will serve requests.
+        #[clap(long, default_value_t = REST_API_PORT)]
+        port: u16,
         #[clap(short, long)]
         /// The name of the node.
         name: Option<String>,
@@ -248,9 +251,10 @@ fn main() -> anyhow::Result<()> {
 
         Commands::Register {
             config_path,
-            public_address,
+            public_host,
+            port,
             name,
-        } => commands::register_node(config_path, public_address, name)?,
+        } => commands::register_node(config_path, public_host, port, name)?,
 
         Commands::Run {
             config_path,
@@ -280,6 +284,7 @@ mod commands {
 
     use std::time::Duration;
 
+    use walrus_core::ensure;
     use walrus_sui::types::NetworkAddress;
 
     use super::*;
@@ -384,7 +389,8 @@ mod commands {
     #[tokio::main]
     pub(crate) async fn register_node(
         config_path: PathBuf,
-        public_address: String,
+        public_host: String,
+        port: u16,
         name: Option<String>,
     ) -> anyhow::Result<()> {
         let mut storage_config = StorageNodeConfig::load(&config_path)?;
@@ -396,10 +402,18 @@ mod commands {
         storage_config.protocol_key_pair.load()?;
         storage_config.network_key_pair.load()?;
 
-        let public_address = NetworkAddress(public_address);
-        if public_address.try_get_port().is_err() {
-            bail!("provided public address does not have the correct format");
-        }
+        // If we have an IP address, use a SocketAddr to get the string representation
+        // as IPv6 addresses are enclosed in square brackets.
+        let public_address = if let Ok(ip_addr) = IpAddr::from_str(&public_host) {
+            NetworkAddress(SocketAddr::new(ip_addr, port).to_string())
+        } else {
+            // Do a minor sanity check that the user has not included a port in the hostname
+            ensure!(
+                !public_host.contains(':'),
+                "DNS names must not contain ':', did you include a port?"
+            );
+            NetworkAddress(public_host)
+        };
         let registration_params = storage_config.to_registration_params(public_address, node_name);
 
         // Uses the Sui wallet configuration in the storage node config to register the node.
