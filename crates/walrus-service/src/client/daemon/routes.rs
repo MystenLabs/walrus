@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use axum::{
-    body::{Body, Bytes},
+    body::Bytes,
     extract::{Path, Query, State},
     http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
@@ -21,14 +21,13 @@ use reqwest::header::{
     X_CONTENT_TYPE_OPTIONS,
 };
 use serde::Deserialize;
-use tokio::sync::RwLock;
 use tracing::Level;
 use utoipa::IntoParams;
-use walrus_core::{encoding::Primary, BlobId, EpochCount};
+use walrus_core::{encoding::Primary, EpochCount};
 use walrus_sui::client::{BlobPersistence, ContractClient, ReadClient};
 
 use crate::{
-    client::{BlobStoreResult, Client, ClientErrorKind, ClientResult, StoreWhen},
+    client::{BlobStoreResult, Client, ClientErrorKind, StoreWhen},
     common::api::{self, BlobIdString},
 };
 
@@ -53,157 +52,11 @@ pub const BLOB_PUT_ENDPOINT: &str = "/v1/store";
 )]
 pub(super) async fn get_blob<T: ReadClient + Send + Sync>(
     request_headers: HeaderMap,
-    State(client): State<Arc<RwLock<Client<T>>>>,
+    State(client): State<Arc<Client<T>>>,
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
 ) -> Response {
     tracing::debug!("starting to read blob");
-    let mut read_result = client.read().await.read_blob::<Primary>(&blob_id).await;
-
-    read_result = match read_result {
-        Err(error) if error.may_be_caused_by_epoch_change() => {
-            tracing::warn!(
-                %error,
-                "there was an error during blob read that may be caused by epoch change; \
-                refreshing the committees and retrying"
-            );
-            client
-                .write()
-                .await
-                .refresh_committees()
-                .await
-                .expect("refreshing committees should not fail");
-            client.read().await.read_blob::<Primary>(&blob_id).await
-        }
-        result => result,
-    };
-
-    read_result_to_response(request_headers, blob_id, read_result)
-}
-
-#[tracing::instrument(level = Level::ERROR, skip_all, fields(%epochs))]
-#[utoipa::path(
-    put,
-    path = api::rewrite_route(BLOB_PUT_ENDPOINT),
-    request_body(content = [u8], description = "Unencoded blob"),
-    params(PublisherQuery),
-    responses(
-        (status = 200, description = "The blob was stored successfully", body = BlobStoreResult),
-        (status = 400, description = "The request is malformed"),
-        (status = 413, description = "The blob is too large"),
-        (status = 500, description = "Internal server error"),
-        (status = 504, description = "Communication problem with Walrus storage nodes"),
-        // TODO(mlegner): Document error responses. (#178, #462)
-    ),
-)]
-pub(super) async fn put_blob<T: ContractClient>(
-    State(client): State<Arc<RwLock<Client<T>>>>,
-    Query(PublisherQuery {
-        epochs,
-        force,
-        deletable,
-    }): Query<PublisherQuery>,
-    blob: Bytes,
-) -> Response {
-    tracing::debug!("starting to store received blob");
-    let first_store = client
-        .read()
-        .await
-        .reserve_and_store_blob(
-            &blob[..],
-            epochs,
-            StoreWhen::always(force),
-            BlobPersistence::from_deletable(deletable),
-        )
-        .await;
-
-    let result = match first_store {
-        Err(error) if error.may_be_caused_by_epoch_change() => {
-            tracing::warn!(
-                %error,
-                "there was an error during blob store that may be caused by epoch change; \
-                refreshing the committees and retrying"
-            );
-            client
-                .write()
-                .await
-                .refresh_committees()
-                .await
-                .expect("refreshing committees should not fail");
-            client
-                .read()
-                .await
-                .reserve_and_store_blob(
-                    &blob[..],
-                    epochs,
-                    StoreWhen::always(force),
-                    BlobPersistence::from_deletable(deletable),
-                )
-                .await
-        }
-        result => result,
-    };
-
-    let mut response = store_result_to_response(result);
-
-    response
-        .headers_mut()
-        .insert(ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
-    response
-}
-
-#[tracing::instrument(level = Level::ERROR, skip_all)]
-pub(super) async fn store_blob_options() -> impl IntoResponse {
-    [
-        (ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
-        (ACCESS_CONTROL_ALLOW_METHODS, "PUT, OPTIONS"),
-        (ACCESS_CONTROL_MAX_AGE, "86400"),
-        (ACCESS_CONTROL_ALLOW_HEADERS, "*"),
-    ]
-}
-
-#[derive(Debug, Deserialize, IntoParams)]
-pub(super) struct PublisherQuery {
-    #[serde(default = "default_epochs")]
-    epochs: EpochCount,
-    #[serde(default)]
-    force: bool,
-    #[serde(default)]
-    deletable: bool,
-}
-
-pub(super) fn default_epochs() -> EpochCount {
-    1
-}
-
-fn store_result_to_response(result: ClientResult<BlobStoreResult>) -> Response<Body> {
-    match result {
-        Ok(result) => {
-            let status_code = if matches!(result, BlobStoreResult::MarkedInvalid { .. }) {
-                StatusCode::INTERNAL_SERVER_ERROR
-            } else {
-                StatusCode::OK
-            };
-            (status_code, Json(result)).into_response()
-        }
-        Err(error) => {
-            tracing::error!(%error, "error storing blob");
-            match error.kind() {
-                ClientErrorKind::NotEnoughConfirmations(_, _) => {
-                    StatusCode::GATEWAY_TIMEOUT.into_response()
-                }
-                ClientErrorKind::BlobIdBlocked(_) => StatusCode::FORBIDDEN.into_response(),
-                _ => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-            }
-        }
-    }
-}
-
-fn read_result_to_response(
-    request_headers: HeaderMap,
-    blob_id: BlobId,
-    result: ClientResult<Vec<u8>>,
-) -> Response {
-    match result {
+    match client.read_blob_retry_epoch::<Primary>(&blob_id).await {
         Ok(blob) => {
             tracing::debug!("successfully retrieved blob");
             let mut response = (StatusCode::OK, blob).into_response();
@@ -247,4 +100,88 @@ fn read_result_to_response(
             }
         },
     }
+}
+
+#[tracing::instrument(level = Level::ERROR, skip_all, fields(%epochs))]
+#[utoipa::path(
+    put,
+    path = api::rewrite_route(BLOB_PUT_ENDPOINT),
+    request_body(content = [u8], description = "Unencoded blob"),
+    params(PublisherQuery),
+    responses(
+        (status = 200, description = "The blob was stored successfully", body = BlobStoreResult),
+        (status = 400, description = "The request is malformed"),
+        (status = 413, description = "The blob is too large"),
+        (status = 500, description = "Internal server error"),
+        (status = 504, description = "Communication problem with Walrus storage nodes"),
+        // TODO(mlegner): Document error responses. (#178, #462)
+    ),
+)]
+pub(super) async fn put_blob<T: ContractClient>(
+    State(client): State<Arc<Client<T>>>,
+    Query(PublisherQuery {
+        epochs,
+        force,
+        deletable,
+    }): Query<PublisherQuery>,
+    blob: Bytes,
+) -> Response {
+    tracing::debug!("starting to store received blob");
+    let mut response = match client
+        .reserve_and_store_blob_retry_epoch(
+            &blob[..],
+            epochs,
+            StoreWhen::always(force),
+            BlobPersistence::from_deletable(deletable),
+        )
+        .await
+    {
+        Ok(result) => {
+            let status_code = if matches!(result, BlobStoreResult::MarkedInvalid { .. }) {
+                StatusCode::INTERNAL_SERVER_ERROR
+            } else {
+                StatusCode::OK
+            };
+            (status_code, Json(result)).into_response()
+        }
+        Err(error) => {
+            tracing::error!(%error, "error storing blob");
+            match error.kind() {
+                ClientErrorKind::NotEnoughConfirmations(_, _) => {
+                    StatusCode::GATEWAY_TIMEOUT.into_response()
+                }
+                ClientErrorKind::BlobIdBlocked(_) => StatusCode::FORBIDDEN.into_response(),
+                _ => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            }
+        }
+    };
+
+    response
+        .headers_mut()
+        .insert(ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
+    response
+}
+
+#[tracing::instrument(level = Level::ERROR, skip_all)]
+pub(super) async fn store_blob_options() -> impl IntoResponse {
+    [
+        (ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
+        (ACCESS_CONTROL_ALLOW_METHODS, "PUT, OPTIONS"),
+        (ACCESS_CONTROL_MAX_AGE, "86400"),
+        (ACCESS_CONTROL_ALLOW_HEADERS, "*"),
+    ]
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+pub(super) struct PublisherQuery {
+    #[serde(default = "default_epochs")]
+    epochs: EpochCount,
+    #[serde(default)]
+    force: bool,
+    #[serde(default)]
+    deletable: bool,
+}
+
+pub(super) fn default_epochs() -> EpochCount {
+    1
 }

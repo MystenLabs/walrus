@@ -14,7 +14,6 @@ use axum::{
 use openapi::{AggregatorApiDoc, DaemonApiDoc, PublisherApiDoc};
 use prometheus::{HistogramVec, Registry};
 use routes::{BLOB_GET_ENDPOINT, BLOB_PUT_ENDPOINT};
-use tokio::sync::RwLock;
 use tower::ServiceBuilder;
 use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
@@ -33,10 +32,10 @@ mod routes;
 /// constructed with.
 #[derive(Debug, Clone)]
 pub struct ClientDaemon<T> {
-    client: Arc<RwLock<Client<T>>>,
+    client: Arc<Client<T>>,
     network_address: SocketAddr,
     metrics: HistogramVec,
-    router: Router<Arc<RwLock<Client<T>>>>,
+    router: Router<Arc<Client<T>>>,
 }
 
 impl<T: ReadClient + Send + Sync + 'static> ClientDaemon<T> {
@@ -60,7 +59,7 @@ impl<T: ReadClient + Send + Sync + 'static> ClientDaemon<T> {
         registry: &Registry,
     ) -> Self {
         ClientDaemon {
-            client: Arc::new(RwLock::new(client)),
+            client: Arc::new(client),
             network_address,
             metrics: register_http_metrics(registry),
             router: Router::new().merge(Redoc::with_url(routes::API_DOCS, A::openapi())),

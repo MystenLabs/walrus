@@ -179,6 +179,17 @@ impl<T: ReadClient> Client<T> {
     }
 
     /// Reconstructs the blob by reading slivers from Walrus shards.
+    ///
+    /// The operation is retried if epoch it fails due to epoch change.
+    pub async fn read_blob_retry_epoch<U>(&self, blob_id: &BlobId) -> ClientResult<Vec<u8>>
+    where
+        U: EncodingAxis,
+        SliverData<U>: TryFrom<Sliver>,
+    {
+        retry_if_epoch_change(self, || self.read_blob::<U>(blob_id)).await
+    }
+
+    /// Reconstructs the blob by reading slivers from Walrus shards.
     #[tracing::instrument(level = Level::ERROR, skip_all, fields(%blob_id))]
     pub async fn read_blob<U>(&self, blob_id: &BlobId) -> ClientResult<Vec<u8>>
     where
@@ -188,11 +199,24 @@ impl<T: ReadClient> Client<T> {
         tracing::debug!("starting to read blob");
         self.check_blob_id(blob_id)?;
 
-        let certified_epoch = self
-            .get_blob_status_with_retries(blob_id, &self.sui_client)
-            .await?
-            .initial_certified_epoch()
-            .ok_or_else(|| ClientError::from(ClientErrorKind::BlobIdDoesNotExist))?;
+        let certified_epoch = if self.committees.read().await.is_change_in_progress() {
+            tracing::info!("epoch change in progress, reading from initial certified epoch");
+            self.get_blob_status_with_retries(blob_id, &self.sui_client)
+                .await?
+                .initial_certified_epoch()
+                .ok_or_else(|| ClientError::from(ClientErrorKind::BlobIdDoesNotExist))?
+        } else {
+            // We are not during epoch change, we can read from the current epoch directly.
+            self.committees.read().await.epoch()
+        };
+
+        // Return early if the committee is behind.
+        if certified_epoch > self.committees.read().await.epoch() {
+            return Err(ClientError::from(ClientErrorKind::BehindCurrentEpoch {
+                client_epoch: self.committees.read().await.epoch(),
+                certified_epoch,
+            }));
+        }
 
         self.read_metadata_and_slivers::<U>(certified_epoch, blob_id)
             .await
@@ -213,7 +237,20 @@ impl<T: ReadClient> Client<T> {
     }
 
     /// Fetches again the current committees from chain.
-    pub async fn refresh_committees(&mut self) -> ClientResult<()> {
+    ///
+    /// The provided `refresh_epoch` is the epoch at which the committee was when the function was
+    /// called. Since may concurrent calls to this function may be made, we fist check if
+    /// `self.committees` was already updated.
+    ///
+    /// This works because the `tokio::sync::RwLock` is write preferring, and all read locks are
+    /// delayed as soon as the first write lock is scheduled.
+    pub async fn refresh_committees(&self, refresh_epoch: Epoch) -> ClientResult<()> {
+        if self.committees.read().await.epoch() > refresh_epoch {
+            // Another thread has already updated the committees, no need call the chain and get
+            // the write lock.
+            return Ok(());
+        }
+
         let new_committees = ActiveCommittees::from_committees_and_state(
             self.sui_client
                 .get_committees_and_state()
@@ -236,8 +273,8 @@ impl<T: ContractClient> Client<T> {
 
     /// Stores the blob to Walrus, retrying if it fails because of epoch change.
     #[tracing::instrument(skip_all, fields(blob_id))]
-    pub async fn reserve_and_store_blob_retry(
-        &mut self,
+    pub async fn reserve_and_store_blob_retry_epoch(
+        &self,
         blob: &[u8],
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
@@ -245,35 +282,16 @@ impl<T: ContractClient> Client<T> {
     ) -> ClientResult<BlobStoreResult> {
         let (pairs, metadata) = self.encode_pairs_and_metadata(blob).await?;
 
-        match self
-            .reserve_and_store_encoded_blob(
+        retry_if_epoch_change(self, || {
+            self.reserve_and_store_encoded_blob(
                 &pairs,
                 &metadata,
                 epochs_ahead,
                 store_when,
                 persistence,
             )
-            .await
-        {
-            Ok(result) => Ok(result),
-            Err(error) if error.may_be_caused_by_epoch_change() => {
-                tracing::warn!(
-                    %error,
-                    "there was an error during blob store that may be caused by epoch change; \
-                    refreshing the committees and retrying"
-                );
-                self.refresh_committees().await?;
-                self.reserve_and_store_encoded_blob(
-                    &pairs,
-                    &metadata,
-                    epochs_ahead,
-                    store_when,
-                    persistence,
-                )
-                .await
-            }
-            Err(error) => Err(error),
-        }
+        })
+        .await
     }
 
     /// Encodes the blob, reserves & registers the space on chain, and stores the slivers to the
@@ -1060,4 +1078,28 @@ async fn verify_blob_status_event(
     };
 
     Ok(())
+}
+
+/// Retries the given function if the error may be caused by an epoch change, after refreshing the
+/// set of active committees.
+async fn retry_if_epoch_change<T, F, R, Fut>(client: &Client<T>, func: F) -> ClientResult<R>
+where
+    T: ReadClient,
+    F: Fn() -> Fut,
+    Fut: Future<Output = ClientResult<R>>,
+{
+    let current_epoch = client.committees.read().await.epoch();
+    let result = func().await;
+    match result {
+        Err(error) if error.may_be_caused_by_epoch_change() => {
+            tracing::warn!(
+                %error,
+                "an error occurred during the current operation, \
+                which may be caused by epoch change; refreshing the committees and retrying"
+            );
+            client.refresh_committees(current_epoch).await?;
+            func().await
+        }
+        result => result,
+    }
 }

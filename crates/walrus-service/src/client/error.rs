@@ -68,9 +68,16 @@ impl ClientError {
     pub fn may_be_caused_by_epoch_change(&self) -> bool {
         matches!(
             &self.kind,
+            // Cannot get confirmations.
             ClientErrorKind::NotEnoughConfirmations(_, _)
+                // Cannot certify the blob on chain.
                 | ClientErrorKind::CertificationFailed(_)
-                | ClientErrorKind::BehindCurrentEpoch(_, _)
+                // Cannot get the correct read epoch during epoch change.
+                | ClientErrorKind::BehindCurrentEpoch { .. }
+                // Cannot get metadata because we are behind by several epochs.
+                | ClientErrorKind::NoMetadataReceived
+                // Cannot get slivers because we are behind by several epochs.
+                | ClientErrorKind::NotEnoughSlivers
         )
     }
 }
@@ -132,8 +139,16 @@ pub enum ClientErrorKind {
     #[error("connecting to all storage nodes failed: {0}")]
     AllConnectionsFailed(ClientBuildError),
     /// The client seems to be behind the current epoch.
-    #[error("the client's current epoch is {0}, but received a certification for epoch {1}")]
-    BehindCurrentEpoch(Epoch, Epoch),
+    #[error(
+        "the client's current epoch is {client_epoch}, \
+        but received a certification for epoch {certified_epoch}"
+    )]
+    BehindCurrentEpoch {
+        /// The client's current epoch.
+        client_epoch: Epoch,
+        /// The epoch the blob was certified in.
+        certified_epoch: Epoch,
+    },
     /// A failure internal to the node.
     #[error("client internal error: {0}")]
     Other(Box<dyn std::error::Error + Send + Sync + 'static>),

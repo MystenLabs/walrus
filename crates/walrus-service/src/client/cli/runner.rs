@@ -230,8 +230,7 @@ impl ClientCommandRunner {
         store_when: StoreWhen,
         persistence: BlobPersistence,
     ) -> Result<()> {
-        let mut client =
-            get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
+        let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
 
         if dry_run {
             tracing::info!("Performing dry-run store for file {}", file.display());
@@ -256,7 +255,7 @@ impl ClientCommandRunner {
         } else {
             tracing::info!("Storing file {} as blob on Walrus", file.display());
             let result = client
-                .reserve_and_store_blob_retry(
+                .reserve_and_store_blob_retry_epoch(
                     &read_blob_from_file(&file)?,
                     epochs,
                     store_when,

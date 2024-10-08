@@ -70,9 +70,10 @@ impl NodeCommunicationFactory {
     ///
     /// `certified_epoch` is the epoch where the blob to be read was initially certified.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the `certified_epoch` provided is greater than the current committee epoch.
+    /// Returns a [`ClientError`] with [`ClientErrorKind::BehindCurrentEpoch`] if the certified
+    /// epoch is greater than the current committee epoch.
     pub(crate) fn node_read_communications<'a>(
         &'a self,
         committees: &'a ActiveCommittees,
@@ -87,14 +88,11 @@ impl NodeCommunicationFactory {
         );
 
         let read_committee = committees.read_committee(certified_epoch).ok_or_else(|| {
-            ClientErrorKind::BehindCurrentEpoch(committees.epoch(), certified_epoch)
+            ClientErrorKind::BehindCurrentEpoch {
+                client_epoch: committees.epoch(),
+                certified_epoch,
+            }
         })?;
-        let current_epoch = committees.epoch();
-        tracing::warn!(
-            ?current_epoch,
-            ?certified_epoch,
-            "gotten read committee for epoch "
-        );
 
         node_communications(read_committee, |index| {
             self.create_read_communication(read_committee, index)
@@ -149,7 +147,6 @@ impl NodeCommunicationFactory {
     /// # Panics
     ///
     /// Panics if the index is out of range of the committee members.
-    /// Panics if the certified epoch is larger than the current known committee epoch.
     fn create_read_communication<'a>(
         &'a self,
         read_committee: &'a Committee,
@@ -221,12 +218,9 @@ impl NodeCommunicationFactory {
     /// # Errors
     ///
     /// Returns a [`ClientError`] with [`ClientErrorKind::Other`] if the threshold function is not
-    /// fulfilled after considering all storage nodes.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the `certified_epoch` provided is greater than the current committee epoch.
-    // TODO: update docstring
+    /// fulfilled after considering all storage nodes. Returns a [`ClientError`] with
+    /// [`ClientErrorKind::BehindCurrentEpoch`] if the certified epoch is greater than the current
+    /// committee epoch.
     fn node_read_communications_threshold<'a>(
         &'a self,
         committees: &'a ActiveCommittees,
@@ -234,7 +228,10 @@ impl NodeCommunicationFactory {
         threshold_fn: impl Fn(usize) -> bool,
     ) -> ClientResult<Vec<NodeReadCommunication>> {
         let read_committee = committees.read_committee(certified_epoch).ok_or_else(|| {
-            ClientErrorKind::BehindCurrentEpoch(committees.epoch(), certified_epoch)
+            ClientErrorKind::BehindCurrentEpoch {
+                client_epoch: committees.epoch(),
+                certified_epoch,
+            }
         })?;
 
         let read_members = read_committee.members();
