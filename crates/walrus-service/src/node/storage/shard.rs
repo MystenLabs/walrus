@@ -151,6 +151,7 @@ macro_rules! reopen_cf {
 
 /// Storage corresponding to a single shard.
 impl ShardStorage {
+    #[tracing::instrument(skip_all, fields(walrus.shard_index = %id))]
     pub(crate) fn create_or_reopen(
         id: ShardIndex,
         database: &Arc<RocksDB>,

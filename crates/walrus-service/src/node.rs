@@ -19,7 +19,6 @@ use futures_util::stream;
 use prometheus::Registry;
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use serde::Serialize;
-use shard_sync::ShardSyncHandler;
 use sui_types::{digests::TransactionDigest, event::EventID};
 use tokio::{select, sync::watch, time::Instant};
 use tokio_util::sync::CancellationToken;
@@ -52,7 +51,13 @@ use walrus_core::{
     SliverType,
 };
 use walrus_event::{event_processor::EventProcessor, IndexedStreamElement};
-use walrus_sdk::api::{BlobStatus, ServiceHealthInfo, StoredOnNodeStatus};
+use walrus_sdk::api::{
+    BlobStatus,
+    ServiceHealthInfo,
+    ShardHealthInfo,
+    ShardStatus as ApiShardStatus,
+    StoredOnNodeStatus,
+};
 use walrus_sui::{
     client::SuiReadClient,
     types::{
@@ -75,9 +80,9 @@ use self::{
     contract_service::{SuiSystemContractService, SystemContractService},
     errors::IndexOutOfRange,
     metrics::{NodeMetricSet, TelemetryLabel as _, STATUS_PENDING, STATUS_PERSISTED},
-    storage::{blob_info::BlobInfoApi as _, EventProgress, ShardStorage},
+    shard_sync::ShardSyncHandler,
+    storage::{blob_info::BlobInfoApi as _, EventProgress, ShardStatus, ShardStorage},
 };
-
 pub mod committee;
 pub mod config;
 pub mod contract_service;
@@ -396,6 +401,7 @@ impl StorageNode {
                 MetricConf::new("storage"),
             )?
         };
+        tracing::info!("successfully opened the node database");
 
         let contract_service: Arc<dyn SystemContractService> = Arc::from(contract_service);
         let inner = Arc::new(StorageNodeInner {
@@ -990,6 +996,54 @@ impl StorageNodeInner {
     fn public_key(&self) -> &PublicKey {
         self.protocol_key_pair.as_ref().public()
     }
+
+    fn shard_health_status(&self) -> Vec<ShardHealthInfo> {
+        // NOTE: It is possible that the committee or shards change between this and the next call.
+        // As this is for admin consumption, this is not considered a problem.
+        let mut shard_statuses = self.storage.try_list_shard_status().unwrap_or_default();
+        let committee = self.committee_service.committee();
+        let owned_shards = committee.shards_for_node_public_key(self.public_key());
+        let mut output = Vec::with_capacity(owned_shards.len());
+
+        // Record the status for the owned shards.
+        for &shard_index in owned_shards {
+            // Consume statuses, so that we are left with shards that are not owned.
+            let status = shard_statuses
+                .remove(&shard_index)
+                .flatten()
+                .map_or(ApiShardStatus::Unknown, api_status_from_shard_status);
+
+            output.push(ShardHealthInfo {
+                shard: shard_index,
+                is_owned: true,
+                status,
+            });
+        }
+
+        // Record the status for the unowned shards.
+        for (shard_index, status) in shard_statuses {
+            output.push(ShardHealthInfo {
+                shard: shard_index,
+                is_owned: false,
+                status: status.map_or(ApiShardStatus::Unknown, api_status_from_shard_status),
+            });
+        }
+
+        // Sort the result by the shard index.
+        output.sort_by_key(|info| info.shard);
+
+        output
+    }
+}
+
+fn api_status_from_shard_status(status: ShardStatus) -> ApiShardStatus {
+    match status {
+        ShardStatus::None => ApiShardStatus::Unknown,
+        ShardStatus::Active => ApiShardStatus::Ready,
+        ShardStatus::ActiveSync => ApiShardStatus::InTransfer,
+        ShardStatus::ActiveRecover => ApiShardStatus::InRecovery,
+        ShardStatus::LockedToMove => ApiShardStatus::ReadOnly,
+    }
 }
 
 impl ServiceState for StorageNode {
@@ -1293,6 +1347,7 @@ impl ServiceState for StorageNodeInner {
             uptime: self.start_time.elapsed(),
             epoch: self.current_epoch(),
             public_key: self.public_key().clone(),
+            shard_status: self.shard_health_status(),
         }
     }
 

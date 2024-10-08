@@ -8,7 +8,7 @@ use std::cmp::{Ordering, Reverse};
 use serde::{Deserialize, Serialize};
 use sui_types::event::EventID;
 use tokio::time::Duration;
-use walrus_core::{Epoch, PublicKey};
+use walrus_core::{Epoch, PublicKey, ShardIndex};
 
 use crate::error::ServiceError;
 
@@ -207,6 +207,7 @@ pub enum StoredOnNodeStatus {
 
 /// Represents information about the health of the storage node service.
 #[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ServiceHealthInfo {
     /// The uptime of the service.
     #[schema(value_type = Object)]
@@ -217,4 +218,35 @@ pub struct ServiceHealthInfo {
     /// The public key of the storage node.
     #[schema(value_type = [u8], format = "Base58")]
     pub public_key: PublicKey,
+    /// The status of the shards for which the node is responsible.
+    pub shard_status: Vec<ShardHealthInfo>,
+}
+
+/// A shard with its status.
+#[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ShardHealthInfo {
+    /// The identifier of the shard in the walrus system.
+    #[schema(value_type = u16)]
+    pub shard: ShardIndex,
+    /// Whether the node is responsible for the shard in this epoch.
+    pub is_owned: bool,
+    /// The status of the shard, None if unavailable.
+    pub status: ShardStatus,
+}
+
+/// The current state of a shard on the storage node.
+#[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum ShardStatus {
+    /// The status of the shard is indeterminate.
+    Unknown,
+    /// The shard is ready and up-to-date.
+    Ready,
+    /// The shard is being transferred to this storage node.
+    InTransfer,
+    /// The shard is being recovered.
+    InRecovery,
+    /// The shard is currently not accepting any more writes.
+    ReadOnly,
 }

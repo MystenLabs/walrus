@@ -6,7 +6,7 @@ use std::{
     fmt::Debug,
     ops::Bound::Included,
     path::Path,
-    sync::{Arc, RwLock},
+    sync::{Arc, RwLock, TryLockError},
 };
 
 use itertools::Itertools;
@@ -47,6 +47,10 @@ pub mod event_blob_writer;
 mod shard;
 
 pub(crate) use shard::{ShardStatus, ShardStorage};
+
+/// Error returned if a requested operation would block.
+#[derive(Debug, Clone, Copy)]
+pub struct WouldBlockError;
 
 /// Storage backing a [`StorageNode`][crate::node::StorageNode].
 ///
@@ -144,15 +148,19 @@ impl Storage {
         new_shards: &[ShardIndex],
     ) -> Result<(), TypedStoreError> {
         let mut locked_map = self.shards.write().unwrap();
-        for shard in new_shards {
-            match locked_map.entry(*shard) {
+        for &shard in new_shards {
+            match locked_map.entry(shard) {
                 Entry::Vacant(entry) => {
                     let shard_storage = Arc::new(ShardStorage::create_or_reopen(
-                        *shard,
+                        shard,
                         &self.database,
                         &self.config,
                         Some(ShardStatus::None),
                     )?);
+                    tracing::info!(
+                        walrus.shard_index = %shard,
+                        "successfully created storage for shard"
+                    );
                     entry.insert(shard_storage);
                 }
                 Entry::Occupied(_) => (),
@@ -188,6 +196,31 @@ impl Storage {
             .expect("Should acquire the lock successfully")
             .get(&shard)
             .cloned()
+    }
+
+    /// Attempts to get the status of the stored shards.
+    ///
+    /// For each shard, the status is returned if it can be determined, otherwise, `None` is
+    /// returned.
+    ///
+    /// Returns an error if the operation would block.
+    pub fn try_list_shard_status(
+        &self,
+    ) -> Result<HashMap<ShardIndex, Option<ShardStatus>>, WouldBlockError> {
+        let shards = match self.shards.try_read() {
+            Ok(shards) => shards,
+            Err(TryLockError::WouldBlock) => return Err(WouldBlockError),
+            error @ Err(TryLockError::Poisoned(_)) => {
+                error.expect("shard lock should not be poisoned")
+            }
+        };
+
+        let status_list = shards
+            .iter()
+            .map(|(shard, storage)| (*shard, storage.status().ok()))
+            .collect();
+
+        Ok(status_list)
     }
 
     /// Store the verified metadata.

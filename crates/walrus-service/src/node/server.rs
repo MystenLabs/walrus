@@ -578,6 +578,7 @@ mod tests {
                 uptime: Duration::from_secs(0),
                 epoch: 0,
                 public_key: ProtocolKeyPair::generate().as_ref().public().clone(),
+                shard_status: vec![],
             }
         }
 

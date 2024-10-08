@@ -11,7 +11,13 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
-use walrus_sdk::api::{BlobStatus, ServiceHealthInfo, StoredOnNodeStatus};
+use walrus_sdk::api::{
+    BlobStatus,
+    ServiceHealthInfo,
+    ShardHealthInfo,
+    ShardStatus,
+    StoredOnNodeStatus,
+};
 
 use super::routes;
 use crate::{
@@ -51,6 +57,9 @@ pub(super) const GROUP_SYNC_SHARD: &str = "Sync Shard";
         EventIdSchema,
         ApiSuccessStorageConfirmation,
         ApiSuccessServiceHealthInfo,
+        ShardStatus,
+        ServiceHealthInfo,
+        ShardHealthInfo,
     ))
 )]
 pub(super) struct RestApiDoc;
