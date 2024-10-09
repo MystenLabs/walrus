@@ -35,7 +35,7 @@ const MIN_NUM_COINS: usize = 2;
 const WALLET_MIST_AMOUNT: u64 = 1_000_000_000;
 /// The amount in FROST that is transferred from the wallet refill account to the stress clients at
 /// each request.
-const WALLET_FROST_AMOUNT: u64 = 5_000_000_000;
+const WALLET_FROST_AMOUNT: u64 = 1_000_000_000;
 
 /// Trait to request gas and Wal coins for a client.
 pub(crate) trait CoinRefill: Send + Sync {
@@ -112,9 +112,14 @@ impl WalletCoinRefill {
     async fn send_gas(&self, address: SuiAddress) -> Result<()> {
         tracing::debug!("Sending gas to address: {:?}", &address);
         let mut pt_builder = ProgrammableTransactionBuilder::new();
+
+        // Lock the wallet here to ensure there are no race conditions with object references.
+        let wallet = self.sui_client.wallet().await;
+
         pt_builder.pay_sui(vec![address], vec![self.gas_refill_size])?;
         self.sui_client
             .sign_and_send_ptb(
+                &wallet,
                 pt_builder.finish(),
                 Some(self.gas_budget + self.gas_refill_size),
             )
@@ -125,6 +130,10 @@ impl WalletCoinRefill {
     async fn send_wal(&self, address: SuiAddress) -> Result<()> {
         tracing::debug!("Sending wal to address: {:?}", &address);
         let mut pt_builder = ProgrammableTransactionBuilder::new();
+
+        // Lock the wallet here to ensure there are no race conditions with object references.
+        let wallet = self.sui_client.wallet().await;
+
         let wal_coin: ObjectRef = self
             .sui_client
             .get_wal_coin(self.wal_refill_size)
@@ -132,7 +141,7 @@ impl WalletCoinRefill {
             .object_ref();
         pt_builder.pay(vec![wal_coin], vec![address], vec![self.wal_refill_size])?;
         self.sui_client
-            .sign_and_send_ptb(pt_builder.finish(), None)
+            .sign_and_send_ptb(&wallet, pt_builder.finish(), None)
             .await?;
         Ok(())
     }

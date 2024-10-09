@@ -336,6 +336,8 @@ impl SuiContractClient {
     ) -> SuiClientResult<SuiTransactionBlockResponse> {
         let mut pt_builder = ProgrammableTransactionBuilder::new();
 
+        // Lock the wallet here to ensure there are no race conditions with object references.
+        let wallet = self.wallet().await;
         let arguments = call_args
             .iter()
             .map(|arg| pt_builder.input(arg.to_owned()))
@@ -346,7 +348,8 @@ impl SuiContractClient {
             pt_builder.transfer_arg(self.wallet_address, Argument::NestedResult(result_index, i));
         }
 
-        self.sign_and_send_ptb(pt_builder.finish(), None).await
+        self.sign_and_send_ptb(&wallet, pt_builder.finish(), None)
+            .await
     }
 
     /// Returns a reference to the inner wallet context.
@@ -393,13 +396,13 @@ impl SuiContractClient {
     /// Sign and send a programmable transaction.
     pub async fn sign_and_send_ptb(
         &self,
+        wallet: &WalletContext,
         programmable_transaction: ProgrammableTransaction,
         min_gas_coin_balance: Option<u64>,
     ) -> SuiClientResult<SuiTransactionBlockResponse> {
-        let wallet = self.wallet.lock().await;
         let response = sign_and_send_ptb(
             self.wallet_address,
-            &wallet,
+            wallet,
             programmable_transaction,
             self.get_compatible_gas_coins(min_gas_coin_balance).await?,
             self.gas_budget,
@@ -575,6 +578,9 @@ impl ContractClient for SuiContractClient {
         tracing::debug!(encoded_size, "starting to reserve storage for blob");
         let mut pt_builder = ProgrammableTransactionBuilder::new();
 
+        // Lock the wallet here to ensure there are no race conditions with object references.
+        let wallet = self.wallet().await;
+
         let reserve_result_index = self
             .add_reserve_transaction(&mut pt_builder, encoded_size, epochs_ahead, None)
             .await?;
@@ -584,7 +590,9 @@ impl ContractClient for SuiContractClient {
             Argument::NestedResult(reserve_result_index, 0),
         );
 
-        let res = self.sign_and_send_ptb(pt_builder.finish(), None).await?;
+        let res = self
+            .sign_and_send_ptb(&wallet, pt_builder.finish(), None)
+            .await?;
         let storage_id = get_created_sui_object_ids_by_type(
             &res,
             &contracts::storage_resource::Storage
@@ -652,6 +660,9 @@ impl ContractClient for SuiContractClient {
         tracing::debug!(encoded_size, "starting to reserve and register blob");
         let mut pt_builder = ProgrammableTransactionBuilder::new();
 
+        // Lock the wallet here to ensure there are no race conditions with object references.
+        let wallet = self.wallet().await;
+
         let price = self
             .storage_price_for_encoded_length(encoded_size, epochs_ahead)
             .await?
@@ -692,7 +703,9 @@ impl ContractClient for SuiContractClient {
             );
         }
 
-        let res = self.sign_and_send_ptb(pt_builder.finish(), None).await?;
+        let res = self
+            .sign_and_send_ptb(&wallet, pt_builder.finish(), None)
+            .await?;
         let blob_obj_id = get_created_sui_object_ids_by_type(
             &res,
             &contracts::blob::Blob.to_move_struct_tag(self.read_client.system_pkg_id, &[])?,
@@ -824,6 +837,9 @@ impl ContractClient for SuiContractClient {
     ) -> SuiClientResult<StakedWal> {
         let mut pt_builder = ProgrammableTransactionBuilder::new();
 
+        // Lock the wallet here to ensure there are no race conditions with object references.
+        let wallet = self.wallet().await;
+
         let staking_object_arg = self.read_client.call_arg_from_staking_obj(true).await?;
 
         let input_coin_arg = self
@@ -854,7 +870,9 @@ impl ContractClient for SuiContractClient {
             Argument::NestedResult(stake_result_index, 0),
         );
 
-        let res = self.sign_and_send_ptb(pt_builder.finish(), None).await?;
+        let res = self
+            .sign_and_send_ptb(&wallet, pt_builder.finish(), None)
+            .await?;
 
         let staked_wal = get_created_sui_object_ids_by_type(
             &res,
@@ -963,6 +981,9 @@ impl ContractClient for SuiContractClient {
         tracing::debug!("exchanging {amount} MIST for WAL/FROST");
         let mut pt_builder = ProgrammableTransactionBuilder::new();
 
+        // Lock the wallet here to ensure there are no race conditions with object references.
+        let wallet = self.wallet().await;
+
         let amount_argument = pt_builder.input(call_arg_pure!(&amount))?;
         let Argument::Result(split_result_index) = pt_builder.command(Command::SplitCoins(
             Argument::GasCoin,
@@ -984,7 +1005,7 @@ impl ContractClient for SuiContractClient {
         )?;
         pt_builder.transfer_arg(self.wallet_address, Argument::NestedResult(result_index, 0));
 
-        self.sign_and_send_ptb(pt_builder.finish(), Some(self.gas_budget + amount))
+        self.sign_and_send_ptb(&wallet, pt_builder.finish(), Some(self.gas_budget + amount))
             .await?;
 
         Ok(())
