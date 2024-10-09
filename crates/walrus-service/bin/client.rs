@@ -17,7 +17,7 @@ use walrus_service::{
         ClientCommandRunner,
         Commands,
     },
-    utils::{export_build_info, MetricsAndLoggingRuntime},
+    utils::{self, MetricsAndLoggingRuntime},
 };
 
 /// The version of the Walrus client.
@@ -55,7 +55,7 @@ fn client() -> Result<()> {
             let metrics_address = command.get_metrics_address();
 
             let runtime = MetricsAndLoggingRuntime::start(metrics_address)?;
-            export_build_info(&runtime.registry, VERSION);
+            utils::export_build_info(&runtime.registry, VERSION);
 
             tracing::debug!(%metrics_address, "started metrics and logging on separate runtime");
 
