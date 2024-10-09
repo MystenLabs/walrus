@@ -582,10 +582,7 @@ pub async fn create_storage_node_configs(
     .await;
     assert_eq!(node_params.len(), contract_clients.len());
 
-    let amounts_to_stake = node_params
-        .iter()
-        .map(|_| 1_000_000_000)
-        .collect::<Vec<_>>();
+    let amounts_to_stake = vec![1_000 * 1_000_000_000; node_params.len()];
 
     register_committee_and_stake(
         admin_wallet,
