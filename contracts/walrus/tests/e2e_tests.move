@@ -121,6 +121,110 @@ fun test_init_and_first_epoch_change() {
 }
 
 #[test]
+fun test_stake_after_committee_selection() {
+    let admin = @0xA11CE;
+    let mut nodes = test_node::test_nodes();
+    let mut runner = e2e_runner::prepare(admin)
+        .epoch_zero_duration(EPOCH_ZERO_DURATION)
+        .epoch_duration(EPOCH_DURATION)
+        .n_shards(N_SHARDS)
+        .build();
+
+    // === register candidates ===
+    let epoch = runner.epoch();
+    nodes.do_mut!(|node| {
+        runner.tx!(node.sui_address(), |staking, _, ctx| {
+            let cap = staking.register_candidate(
+                node.name(),
+                node.network_address(),
+                node.bls_pk(),
+                node.network_key(),
+                node.create_proof_of_possession(epoch),
+                COMMISSION,
+                STORAGE_PRICE,
+                WRITE_PRICE,
+                NODE_CAPACITY,
+                ctx,
+            );
+            node.set_storage_node_cap(cap);
+        });
+    });
+
+    // === stake with each node except one ===
+
+    let excluded_node = nodes.pop_back();
+
+    nodes.do_ref!(|node| {
+        runner.tx!(node.sui_address(), |staking, _, ctx| {
+            let coin = test_utils::mint(1000, ctx);
+            let staked_wal = staking.stake_with_pool(coin, node.node_id(), ctx);
+            transfer::public_transfer(staked_wal, ctx.sender());
+        });
+    });
+
+    // === advance clock and end voting ===
+
+    runner.clock().increment_for_testing(EPOCH_ZERO_DURATION);
+    runner.tx!(admin, |staking, _, _| {
+        staking.voting_end(runner.clock());
+    });
+
+    // === add stake to excluded node ===
+
+    runner.tx!(excluded_node.sui_address(), |staking, _, ctx| {
+        let coin = test_utils::mint(1000, ctx);
+        let staked_wal = staking.stake_with_pool(coin, excluded_node.node_id(), ctx);
+        transfer::public_transfer(staked_wal, ctx.sender());
+    });
+
+    // === initiate epoch change ===
+    // === check if epoch state is changed correctly ==
+
+    runner.tx!(admin, |staking, system, _| {
+        staking.initiate_epoch_change(system, runner.clock());
+
+        assert!(system.epoch() == 1);
+        assert!(system.committee().n_shards() == N_SHARDS);
+
+        // all nodes initially staked with are in the committee
+        nodes.do_ref!(|node| assert!(system.committee().contains(&node.node_id())));
+        // excluded node is not in the committee
+        assert!(!system.committee().contains(&excluded_node.node_id()));
+    });
+
+    // === send epoch sync done messages from all nodes in the committee ===
+    let epoch = runner.epoch();
+    nodes.do_mut!(|node| {
+        runner.tx!(node.sui_address(), |staking, _, _| {
+            staking.epoch_sync_done(node.cap_mut(), epoch, runner.clock());
+        });
+    });
+
+    // === advance clock and change epoch ===
+    // === check if previously excluded node is now also in the committee ===
+
+    runner.clock().increment_for_testing(EPOCH_DURATION);
+    runner.tx!(admin, |staking, system, _| {
+        staking.voting_end(runner.clock());
+        staking.initiate_epoch_change(system, runner.clock());
+
+        assert!(system.epoch() == 2);
+        assert!(system.committee().n_shards() == N_SHARDS);
+
+        // all nodes initially staked with are in the committee
+        nodes.do_ref!(|node| assert!(system.committee().contains(&node.node_id())));
+        // previously excluded node is now also in the committee
+        assert!(system.committee().contains(&excluded_node.node_id()));
+    });
+
+    // === cleanup ===
+
+    nodes.destroy!(|node| node.destroy());
+    excluded_node.destroy();
+    runner.destroy();
+}
+
+#[test]
 fun node_voting_parameters() {
     let mut nodes = test_node::test_nodes();
     let admin = @0xA11CE;

@@ -342,9 +342,14 @@ public(package) fun stake_with_pool(
     let pool = &mut self.pools[node_id];
     let staked_wal = pool.stake(to_stake.into_balance(), wctx, ctx);
 
-    // active set only tracks the stake for the next epoch, pool already knows
-    // whether the stake was applied to E+1 or E+2.
-    self.active_set.insert_or_update(node_id, pool.wal_balance_at_epoch(wctx.epoch() + 1));
+    // Active set only tracks the stake for the next vote, which either happens for the committee
+    // in wctx.epoch() + 1, or in wctx.epoch() + 2, depending on whether the vote already happened.
+    match (self.epoch_state) {
+        EpochState::NextParamsSelected(_) => self
+            .active_set
+            .insert_or_update(node_id, pool.wal_balance_at_epoch(wctx.epoch() + 2)),
+        _ => self.active_set.insert_or_update(node_id, pool.wal_balance_at_epoch(wctx.epoch() + 1)),
+    };
 
     staked_wal
 }
