@@ -54,13 +54,7 @@ use crate::{
     node::{
         config::CommitteeServiceConfig,
         errors::SyncShardClientError,
-        metrics::{
-            self,
-            CommitteeServiceMetricSet,
-            EPOCH_STATE_CHANGE_DONE,
-            EPOCH_STATE_CHANGE_SYNC,
-            EPOCH_STATE_NEXT_PARAMS_SELECTED,
-        },
+        metrics::CommitteeServiceMetricSet,
     },
 };
 
@@ -371,18 +365,12 @@ where
             return;
         };
 
-        metrics.current_epoch.set(epoch.into());
-
-        metrics::with_label!(metrics.current_epoch_state, EPOCH_STATE_CHANGE_SYNC)
-            .set(is_in_sync.into());
-        metrics::with_label!(metrics.current_epoch_state, EPOCH_STATE_CHANGE_DONE)
-            .set((!is_in_sync).into());
-        // NOTE(jsmith): We currently do not track when the params are selected.
-        metrics::with_label!(
-            metrics.current_epoch_state,
-            EPOCH_STATE_NEXT_PARAMS_SELECTED
-        )
-        .set(false.into());
+        metrics.current_epoch.set(epoch);
+        if is_in_sync {
+            metrics.current_epoch_state.set_change_sync_state();
+        } else {
+            metrics.current_epoch_state.set_change_done_state();
+        }
     }
 }
 

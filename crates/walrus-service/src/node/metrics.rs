@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use prometheus::{
-    core::{AtomicU64, GenericGauge, GenericGaugeVec},
+    core::{AtomicU64, GenericGaugeVec},
     HistogramVec,
     IntCounter,
     IntCounterVec,
@@ -10,8 +10,11 @@ use prometheus::{
     Opts,
     Registry,
 };
+pub(crate) use telemetry::with_label;
 use walrus_event::EventStreamElement;
 use walrus_sui::types::{BlobCertified, BlobEvent, ContractEvent, EpochChangeEvent};
+
+use crate::common::telemetry::{self, CurrentEpochMetric, CurrentEpochStateMetric};
 
 pub(crate) const STATUS_FAILURE: &str = "failure";
 pub(crate) const STATUS_SUCCESS: &str = "success";
@@ -24,67 +27,7 @@ pub(crate) const STATUS_PENDING: &str = "pending";
 pub(crate) const STATUS_PERSISTED: &str = "persisted";
 pub(crate) const STATUS_IN_PROGRESS: &str = "in-progress";
 
-pub(crate) const EPOCH_STATE_CHANGE_SYNC: &str = "epoch_change_sync";
-pub(crate) const EPOCH_STATE_CHANGE_DONE: &str = "epoch_change_done";
-pub(crate) const EPOCH_STATE_NEXT_PARAMS_SELECTED: &str = "next_params_selected";
-
-macro_rules! with_label {
-    ($metric:expr, $label:expr) => {
-        $metric.with_label_values(&[$label.as_ref()])
-    };
-}
-
-pub(super) use with_label;
-
-macro_rules! create_metric {
-    ($metric_type:ty, $registry:ident, $opts:expr) => {{
-        <$metric_type>::with_opts($opts)
-            .expect("this must be called with valid metrics type and options")
-    }};
-    ($metric_type:ty, $registry:ident, $opts:expr, $label_names:expr) => {{
-        <$metric_type>::new($opts.into(), $label_names)
-            .expect("this must be called with valid metrics type, options, and labels")
-    }};
-}
-
-macro_rules! define_metric_set {
-    (
-        $name:ident;
-        $(
-            $metric_type:path: [
-                $(( $metric:ident, $descr:literal $(, $labels:expr )? )),+ $(,)?
-            ]
-        ),+ $(,)?
-    ) => {
-        #[derive(Debug)]
-        pub(crate) struct $name {
-            $($( pub $metric: $metric_type ),*),*
-        }
-
-        impl $name {
-            pub fn new(registry: &Registry) -> Self {
-                Self { $($(
-                    $metric: {
-                        let metric = create_metric!(
-                            $metric_type,
-                            registry,
-                            Opts::new(stringify!($metric), $descr).namespace("walrus")
-                            $(, $labels)?
-                        );
-
-                        registry
-                            .register(Box::new(metric.clone()))
-                            .expect("metrics defined at compile time must be valid");
-
-                        metric
-                    }
-                ),*),*}
-            }
-        }
-    };
-}
-
-define_metric_set! {
+telemetry::define_metric_set! {
     NodeMetricSet;
     IntCounter: [
         (metadata_stored_total, "The total number of metadata stored"),
@@ -119,13 +62,11 @@ define_metric_set! {
     ]
 }
 
-define_metric_set! {
+telemetry::define_metric_set! {
     CommitteeServiceMetricSet;
-    GenericGauge<AtomicU64>: [
-        (current_epoch, "The current Walrus epoch"),
-    ],
-    IntGaugeVec: [
-        (current_epoch_state, "The state of the current walrus epoch", &["state"]),
+    @TypedMetrics: [
+        (current_epoch, CurrentEpochMetric),
+        (current_epoch_state, CurrentEpochStateMetric),
     ]
 }
 

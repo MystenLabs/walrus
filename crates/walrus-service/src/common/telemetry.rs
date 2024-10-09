@@ -23,7 +23,14 @@ use axum::{
     middleware,
 };
 use opentelemetry::propagation::Extractor;
-use prometheus::{register_histogram_vec_with_registry, HistogramVec, Registry};
+use prometheus::{
+    core::{AtomicU64, GenericGauge},
+    register_histogram_vec_with_registry,
+    HistogramVec,
+    IntGaugeVec,
+    Opts,
+    Registry,
+};
 use tokio::time::Instant;
 use tower_http::trace::{MakeSpan, OnResponse};
 use tracing::{field, Span};
@@ -272,4 +279,159 @@ pub(crate) fn register_http_metrics(registry: &Registry) -> HistogramVec {
         registry
     )
     .expect("metric registration must not fail")
+}
+
+macro_rules! with_label {
+    ($metric:expr, $label:expr) => {
+        $metric.with_label_values(&[$label.as_ref()])
+    };
+}
+
+use walrus_core::Epoch;
+use walrus_sui::types::move_structs::EpochState;
+pub(crate) use with_label;
+
+macro_rules! create_metric {
+    ($metric_type:ty, $opts:expr) => {{
+        <$metric_type>::with_opts($opts)
+            .expect("this must be called with valid metrics type and options")
+    }};
+    ($metric_type:ty, $opts:expr, $label_names:expr) => {{
+        <$metric_type>::new($opts.into(), $label_names)
+            .expect("this must be called with valid metrics type, options, and labels")
+    }};
+}
+pub(crate) use create_metric;
+
+macro_rules! define_metric_set {
+    (
+        $name:ident;
+        $(
+            $metric_type:path: [
+                $(( $metric:ident, $descr:literal $(, $labels:expr )? )),+ $(,)?
+            ]
+        ),*
+        $(@TypedMetrics: [
+            $(($typed_metric_field:ident, $typed_metric_type:ident)), + $(,)?
+        ])? $(,)?
+    ) => {
+        #[derive(Debug, Clone)]
+        pub(crate) struct $name {
+            $($( pub $metric: $metric_type ),*),*
+            $($( pub $typed_metric_field: $typed_metric_type ),*),*
+        }
+
+        impl $name {
+            pub fn new(registry: &Registry) -> Self {
+                Self {
+                    $($(
+                        $metric: {
+                            let metric = $crate::common::telemetry::create_metric!(
+                                $metric_type,
+                                Opts::new(stringify!($metric), $descr).namespace("walrus")
+                                $(, $labels)?
+                            );
+
+                            registry
+                                .register(Box::new(metric.clone()))
+                                .expect("metrics defined at compile time must be valid");
+
+                            metric
+                        }
+                    ),*),*
+                    $($(
+                        $typed_metric_field: $typed_metric_type::register(registry)
+                    ),*)?
+                }
+            }
+        }
+    };
+}
+
+pub(crate) use define_metric_set;
+
+/// Metric `current_epoch` that records the currently observed walrus epoch.
+///
+/// Set the epoch with [`Self::set`].
+#[derive(Debug, Clone)]
+pub(crate) struct CurrentEpochMetric(GenericGauge<AtomicU64>);
+
+impl CurrentEpochMetric {
+    /// Registers the metric with the registry, and returns a new instance of it.
+    pub fn register(registry: &Registry) -> Self {
+        let opts = Opts::new("current_epoch", "The current Walrus epoch").namespace("walrus");
+
+        let metric = create_metric!(GenericGauge<AtomicU64>, opts);
+        registry
+            .register(Box::new(metric.clone()))
+            .expect("metrics defined at compile time must be valid");
+
+        Self(metric)
+    }
+
+    /// Sets the currently observed epoch.
+    pub fn set(&self, epoch: Epoch) {
+        self.0.set(epoch.into())
+    }
+}
+
+/// Metric `current_epoch_state` that tracks the current epoch state.
+///
+/// Use the `set_*` methods to change the observed state.
+#[derive(Debug, Clone)]
+pub(crate) struct CurrentEpochStateMetric(IntGaugeVec);
+
+impl CurrentEpochStateMetric {
+    const CHANGE_SYNC: &str = "epoch_change_sync";
+    const CHANGE_DONE: &str = "epoch_change_done";
+    const NEXT_PARAMS_SELECTED: &str = "next_params_selected";
+
+    /// Registers the metric with the registry, and returns a new instance of it.
+    pub fn register(registry: &Registry) -> Self {
+        let opts = Opts::new(
+            "current_epoch_state",
+            "The state of the current walrus epoch",
+        )
+        .namespace("walrus");
+        let metric = create_metric!(IntGaugeVec, opts, &["state"]);
+
+        registry
+            .register(Box::new(metric.clone()))
+            .expect("metrics defined at compile time must be valid");
+
+        Self(metric)
+    }
+
+    /// Record the provided [`EpochState`] as the current state.
+    pub fn set(&self, state: &EpochState) {
+        match state {
+            EpochState::EpochChangeSync(_) => self.set_change_sync_state(),
+            EpochState::EpochChangeDone(_) => self.set_change_done_state(),
+            EpochState::NextParamsSelected(_) => self.set_next_params_selected_state(),
+        }
+    }
+
+    /// Record the current state as being [`EpochState::EpochChangeSync`].
+    pub fn set_change_sync_state(&self) {
+        self.clear_state();
+        with_label!(self.0, Self::CHANGE_SYNC).set(true.into());
+    }
+
+    /// Record the current state as being [`EpochState::EpochChangeDone`].
+    pub fn set_change_done_state(&self) {
+        self.clear_state();
+        with_label!(self.0, Self::CHANGE_DONE).set(true.into());
+    }
+
+    /// Record the current state as being [`EpochState::NextParamsSelected`].
+    pub fn set_next_params_selected_state(&self) {
+        self.clear_state();
+        with_label!(self.0, Self::NEXT_PARAMS_SELECTED).set(true.into());
+    }
+
+    fn clear_state(&self) {
+        with_label!(self.0, Self::CHANGE_SYNC).set(false.into());
+        with_label!(self.0, Self::CHANGE_DONE).set(false.into());
+        with_label!(self.0, Self::NEXT_PARAMS_SELECTED).set(false.into());
+    }
 }
