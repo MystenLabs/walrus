@@ -3,7 +3,7 @@
 
 //! Utilities to publish the walrus contracts and deploy a system object for testing.
 
-use std::{iter, path::PathBuf, str::FromStr, time::Duration};
+use std::{iter, num::NonZeroU16, path::PathBuf, str::FromStr, time::Duration};
 
 use anyhow::{anyhow, Result};
 use rand::{rngs::StdRng, SeedableRng as _};
@@ -60,7 +60,7 @@ pub async fn publish_with_default_system(
     // TODO(#814): make epoch duration in test configurable. Currently hardcoded to 1 hour.
     let system_context = create_and_init_system_for_test(
         admin_wallet,
-        100,
+        NonZeroU16::new(100).expect("100 is not 0"),
         Duration::from_secs(0),
         Duration::from_secs(3600),
         None,
@@ -125,7 +125,7 @@ impl SystemContext {
 /// Returns the package id and the object IDs of the system object and the staking object.
 pub async fn create_and_init_system_for_test(
     admin_wallet: &mut WalletContext,
-    n_shards: u16,
+    n_shards: NonZeroU16,
     epoch_zero_duration: Duration,
     epoch_duration: Duration,
     max_epochs_ahead: Option<EpochCount>,

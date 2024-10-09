@@ -156,10 +156,13 @@ impl ProtocolCommands for TargetProtocol {
             storage_price: 1,
             write_price: 0,
             deterministic_keys: true,
-            n_shards: parameters
-                .node_parameters
-                .shards_allocation
-                .number_of_shards() as u16,
+            n_shards: NonZeroU16::new(
+                parameters
+                    .node_parameters
+                    .shards_allocation
+                    .number_of_shards() as u16,
+            )
+            .expect("number of shards must be non-zero"),
             epoch_duration: Duration::from_secs(3600),
             epoch_zero_duration: Duration::from_secs(0),
             max_epochs_ahead: 104,

@@ -1176,7 +1176,8 @@ pub mod test_cluster {
         // Specify an empty assignment to ensure that storage nodes are not created with invalid
         // shard assignments.
         let node_weights = [1u16, 2, 3, 3, 4];
-        let n_shards = node_weights.iter().sum();
+        let n_shards = NonZeroU16::new(node_weights.iter().sum())
+            .expect("sum of non-zero weights is not zero");
         let cluster_builder =
             TestCluster::builder().with_shard_assignment(&vec![[]; node_weights.len()]);
 

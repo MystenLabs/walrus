@@ -231,7 +231,7 @@ pub struct DeployTestbedContractParameters<'a> {
     /// Flag to generate keys deterministically.
     pub deterministic_keys: bool,
     /// The total number of shards.
-    pub n_shards: u16,
+    pub n_shards: NonZeroU16,
     /// The epoch duration of the genesis epoch.
     pub epoch_zero_duration: Duration,
     /// The epoch duration.
