@@ -52,6 +52,8 @@ pub enum RetrieveSliverError {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ComputeStorageConfirmationError {
+    #[error("the blob has not been registered or has already expired")]
+    NotCurrentlyRegistered,
     #[error("the required slivers are not all stored")]
     NotFullyStored,
     #[error(transparent)]
@@ -84,6 +86,8 @@ pub enum RetrieveSymbolError {
 pub enum StoreSliverError {
     #[error("the requested sliver index is out of range: {0}")]
     SliverOutOfRange(#[from] IndexOutOfRange),
+    #[error("the blob is not registered")]
+    NotCurrentlyRegistered,
     #[error("blob metadata is required but missing")]
     MissingMetadata,
     #[error(transparent)]

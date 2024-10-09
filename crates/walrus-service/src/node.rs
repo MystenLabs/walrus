@@ -715,7 +715,6 @@ impl StorageNode {
         }
 
         // Slivers and (possibly) metadata are not stored, so initiate blob sync.
-        // TODO(kwuest): Handle epoch change. (#405)
         self.blob_sync_handler
             .start_sync(event, event_index, start)
             .await?;
@@ -732,14 +731,14 @@ impl StorageNode {
         let blob_id = event.blob_id;
 
         if let Some(blob_info) = self.inner.storage.get_blob_info(&blob_id)? {
-            if !blob_info.is_certified() {
+            if !blob_info.is_certified(self.inner.current_epoch()) {
                 self.cancel_sync_and_mark_certified_event_completed(&blob_id)
                     .await?;
             }
             // Note that this function is called *after* the blob info has already been updated with
             // the event. So it can happen that the only registered blob was deleted and the blob is
             // now no longer registered.
-            if !blob_info.is_registered() {
+            if !blob_info.is_registered(self.inner.current_epoch()) {
                 self.inner.storage.delete_blob(&event.blob_id, true)?;
             }
         } else {
@@ -1059,6 +1058,22 @@ impl StorageNodeInner {
             .await??;
         Ok(())
     }
+
+    fn is_blob_registered(&self, blob_id: &BlobId) -> Result<bool, anyhow::Error> {
+        Ok(self
+            .storage
+            .get_blob_info(blob_id)
+            .context("could not retrieve blob info")?
+            .is_some_and(|blob_info| blob_info.is_registered(self.current_epoch())))
+    }
+
+    fn is_blob_certified(&self, blob_id: &BlobId) -> Result<bool, anyhow::Error> {
+        Ok(self
+            .storage
+            .get_blob_info(blob_id)
+            .context("could not retrieve blob info")?
+            .is_some_and(|blob_info| blob_info.is_certified(self.current_epoch())))
+    }
 }
 
 fn api_status_from_shard_status(status: ShardStatus) -> ApiShardStatus {
@@ -1203,6 +1218,11 @@ impl ServiceState for StorageNodeInner {
         &self,
         blob_id: &BlobId,
     ) -> Result<VerifiedBlobMetadataWithId, RetrieveMetadataError> {
+        ensure!(
+            self.is_blob_registered(blob_id)?,
+            RetrieveMetadataError::Unavailable,
+        );
+
         self.storage
             .get_metadata(blob_id)
             .context("database error when retrieving metadata")?
@@ -1225,6 +1245,11 @@ impl ServiceState for StorageNodeInner {
         if let Some(event) = blob_info.invalidation_event() {
             return Err(StoreMetadataError::InvalidBlob(event));
         }
+
+        ensure!(
+            blob_info.is_registered(self.current_epoch()),
+            StoreMetadataError::NotCurrentlyRegistered,
+        );
 
         if blob_info.is_metadata_stored() {
             return Ok(false);
@@ -1259,6 +1284,11 @@ impl ServiceState for StorageNodeInner {
     ) -> Result<Sliver, RetrieveSliverError> {
         self.check_index(sliver_pair_index)?;
 
+        ensure!(
+            self.is_blob_certified(blob_id)?,
+            RetrieveSliverError::Unavailable,
+        );
+
         let shard_storage = self.get_shard_for_sliver_pair(sliver_pair_index, blob_id)?;
 
         shard_storage
@@ -1278,6 +1308,18 @@ impl ServiceState for StorageNodeInner {
     ) -> Result<bool, StoreSliverError> {
         self.check_index(sliver_pair_index)?;
 
+        ensure!(
+            self.is_blob_registered(blob_id)?,
+            StoreSliverError::NotCurrentlyRegistered,
+        );
+
+        // Ensure we have received the blob metadata.
+        let metadata = self
+            .storage
+            .get_metadata(blob_id)
+            .context("database error when storing sliver")?
+            .ok_or(StoreSliverError::MissingMetadata)?;
+
         let shard_storage = self.get_shard_for_sliver_pair(sliver_pair_index, blob_id)?;
 
         let shard_status = shard_storage
@@ -1295,13 +1337,6 @@ impl ServiceState for StorageNodeInner {
             return Ok(false);
         }
 
-        // Ensure we already received metadata for this sliver.
-        let metadata = self
-            .storage
-            .get_metadata(blob_id)
-            .context("database error when storing sliver")?
-            .ok_or(StoreSliverError::MissingMetadata)?;
-
         sliver.verify(&self.encoding_config, metadata.as_ref())?;
 
         // Finally store the sliver in the appropriate shard storage.
@@ -1318,6 +1353,10 @@ impl ServiceState for StorageNodeInner {
         &self,
         blob_id: &BlobId,
     ) -> Result<StorageConfirmation, ComputeStorageConfirmationError> {
+        ensure!(
+            self.is_blob_registered(blob_id)?,
+            ComputeStorageConfirmationError::NotCurrentlyRegistered,
+        );
         ensure!(
             self.storage
                 .is_stored_at_all_shards(blob_id)
@@ -1475,6 +1514,7 @@ mod tests {
         tests::{populated_storage, WhichSlivers, BLOB_ID, OTHER_SHARD_INDEX, SHARD_INDEX},
         ShardStatus,
     };
+    use system_events::SystemEventProvider;
     use tokio::sync::{broadcast::Sender, Mutex};
     use walrus_core::{
         encoding::{Primary, Secondary, SliverData, SliverPair},
@@ -1505,13 +1545,29 @@ mod tests {
             .expect("storage node creation in setup should not fail")
     }
 
+    async fn storage_node_with_storage_and_events<U>(
+        storage: WithTempDir<Storage>,
+        events: U,
+    ) -> StorageNodeHandle
+    where
+        U: SystemEventProvider + Into<Box<U>> + 'static,
+    {
+        StorageNodeHandle::builder()
+            .with_storage(storage)
+            .with_system_event_provider(events)
+            .with_node_started(true)
+            .build()
+            .await
+            .expect("storage node creation in setup should not fail")
+    }
+
     mod get_storage_confirmation {
         use fastcrypto::traits::VerifyingKey;
 
         use super::*;
 
         #[tokio::test]
-        async fn errs_if_no_shards_store_pairs() -> TestResult {
+        async fn errs_if_blob_is_not_registered() -> TestResult {
             let storage_node = storage_node_with_storage(populated_storage(&[(
                 SHARD_INDEX,
                 vec![
@@ -1529,7 +1585,43 @@ mod tests {
 
             assert!(matches!(
                 err,
-                ComputeStorageConfirmationError::NotFullyStored
+                ComputeStorageConfirmationError::NotCurrentlyRegistered
+            ));
+
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn errs_if_not_all_slivers_stored() -> TestResult {
+            let storage_node = storage_node_with_storage_and_events(
+                populated_storage(&[(
+                    SHARD_INDEX,
+                    vec![
+                        (BLOB_ID, WhichSlivers::Primary),
+                        (OTHER_BLOB_ID, WhichSlivers::Both),
+                    ],
+                )])?,
+                vec![BlobRegistered::for_testing(BLOB_ID).into()],
+            )
+            .await;
+
+            let err = retry_until_success_or_timeout(TIMEOUT, || async {
+                match storage_node
+                    .as_ref()
+                    .compute_storage_confirmation(&BLOB_ID)
+                    .await
+                {
+                    Err(ComputeStorageConfirmationError::NotCurrentlyRegistered) => Err(()),
+                    result => Ok(result),
+                }
+            })
+            .await
+            .expect("retry should eventually return something besides 'NotCurrentlyRegistered'")
+            .expect_err("should fail");
+
+            assert!(matches!(
+                err,
+                ComputeStorageConfirmationError::NotFullyStored,
             ));
 
             Ok(())
@@ -1537,16 +1629,22 @@ mod tests {
 
         #[tokio::test]
         async fn returns_confirmation_over_nodes_storing_the_pair() -> TestResult {
-            let storage_node = storage_node_with_storage(populated_storage(&[
-                (SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
-                (OTHER_SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
-            ])?)
+            let storage_node = storage_node_with_storage_and_events(
+                populated_storage(&[(
+                    SHARD_INDEX,
+                    vec![
+                        (BLOB_ID, WhichSlivers::Both),
+                        (OTHER_BLOB_ID, WhichSlivers::Both),
+                    ],
+                )])?,
+                vec![BlobRegistered::for_testing(BLOB_ID).into()],
+            )
             .await;
 
-            let confirmation = storage_node
-                .as_ref()
-                .compute_storage_confirmation(&BLOB_ID)
-                .await?;
+            let confirmation = retry_until_success_or_timeout(TIMEOUT, || {
+                storage_node.as_ref().compute_storage_confirmation(&BLOB_ID)
+            })
+            .await?;
 
             let StorageConfirmation::Signed(signed) = confirmation;
 
@@ -2610,8 +2708,10 @@ mod tests {
 
     #[tokio::test]
     async fn can_read_locked_shard() -> TestResult {
-        let (cluster, _, blob) =
+        let (cluster, events, blob) =
             cluster_with_partially_stored_blob(&[&[0]], BLOB, |_, _| true).await?;
+
+        events.send(BlobCertified::for_testing(*blob.blob_id()).into())?;
 
         cluster.nodes[0]
             .storage_node
@@ -2622,10 +2722,15 @@ mod tests {
             .lock_shard_for_epoch_change()
             .expect("Lock shard failed.");
 
-        let sliver = cluster.nodes[0]
-            .storage_node
-            .retrieve_sliver(blob.blob_id(), SliverPairIndex(0), SliverType::Primary)
-            .expect("Sliver retrieval failed.");
+        let sliver = retry_until_success_or_timeout(TIMEOUT, || async {
+            cluster.nodes[0].storage_node.retrieve_sliver(
+                blob.blob_id(),
+                SliverPairIndex(0),
+                SliverType::Primary,
+            )
+        })
+        .await
+        .expect("Sliver retrieval failed.");
 
         assert_eq!(
             blob.assigned_sliver_pair(ShardIndex(0)).primary,

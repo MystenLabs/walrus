@@ -276,10 +276,10 @@ pub(crate) trait BlobInfoApi {
     /// Returns true iff the blob is invalid.
     fn is_invalid(&self) -> bool;
     /// Returns true iff there exists at least one non-expired deletable or permanent `Blob` object.
-    fn is_registered(&self) -> bool;
+    fn is_registered(&self, current_epoch: Epoch) -> bool;
     /// Returns true iff there exists at least one non-expired and certified deletable or permanent
     /// `Blob` object.
-    fn is_certified(&self) -> bool;
+    fn is_certified(&self, current_epoch: Epoch) -> bool;
 
     /// Returns the epoch at which this blob was first certified.
     ///
@@ -470,6 +470,11 @@ pub(crate) struct ValidBlobInfoV1 {
     pub permanent_total: Option<PermanentBlobInfoV1>,
     pub permanent_certified: Option<PermanentBlobInfoV1>,
     pub initial_certified_epoch: Option<Epoch>,
+
+    // TODO: The following are helper fields that are needed as long as we don't properly clean up
+    // deletable blobs. (#1005)
+    pub latest_seen_deletable_registered_epoch: Option<Epoch>,
+    pub latest_seen_deletable_certified_epoch: Option<Epoch>,
 }
 
 impl From<ValidBlobInfoV1> for BlobInfoV1 {
@@ -521,7 +526,15 @@ impl ValidBlobInfoV1 {
     ) {
         if change_info.deletable {
             match change_type {
-                BlobStatusChangeType::Register => self.count_deletable_total += 1,
+                BlobStatusChangeType::Register => {
+                    self.count_deletable_total += 1;
+                    self.latest_seen_deletable_registered_epoch = Some(
+                        change_info.end_epoch.max(
+                            self.latest_seen_deletable_registered_epoch
+                                .unwrap_or_default(),
+                        ),
+                    )
+                }
                 BlobStatusChangeType::Certify => {
                     if self.count_deletable_total <= self.count_deletable_certified {
                         tracing::error!(
@@ -530,6 +543,12 @@ impl ValidBlobInfoV1 {
                         return;
                     }
                     self.count_deletable_certified += 1;
+                    self.latest_seen_deletable_certified_epoch = Some(
+                        change_info.end_epoch.max(
+                            self.latest_seen_deletable_certified_epoch
+                                .unwrap_or_default(),
+                        ),
+                    )
                 }
                 BlobStatusChangeType::Extend => (),
                 BlobStatusChangeType::Delete { was_certified } => {
@@ -707,6 +726,7 @@ impl ValidBlobInfoV1 {
             permanent_total,
             permanent_certified,
             initial_certified_epoch,
+            ..
         } = self;
 
         assert!(count_deletable_total >= count_deletable_certified);
@@ -808,26 +828,48 @@ impl BlobInfoApi for BlobInfoV1 {
         matches!(self, Self::Invalid { .. })
     }
 
-    fn is_registered(&self) -> bool {
-        matches!(
-            self,
-            Self::Valid(ValidBlobInfoV1 {
-                count_deletable_total,
-                permanent_total,
-                ..
-            }) if *count_deletable_total > 0 || permanent_total.is_some()
-        )
+    // TODO: This is currently just an approximation: It is possible that this returns true even
+    // though there is no existing registered blob because the blob with the latest expiration epoch
+    // was deleted. This should be adjusted/simplified when we have proper cleanup (#1005).
+    fn is_registered(&self, current_epoch: Epoch) -> bool {
+        let Self::Valid(ValidBlobInfoV1 {
+            count_deletable_total,
+            permanent_total,
+            latest_seen_deletable_registered_epoch,
+            ..
+        }) = self
+        else {
+            return false;
+        };
+
+        let exists_registered_permanent_blob = permanent_total
+            .as_ref()
+            .is_some_and(|p| p.end_epoch > current_epoch);
+        let maybe_exists_registered_deletable_blob = *count_deletable_total > 0
+            && latest_seen_deletable_registered_epoch.is_some_and(|l| l > current_epoch);
+        exists_registered_permanent_blob || maybe_exists_registered_deletable_blob
     }
 
-    fn is_certified(&self) -> bool {
-        matches!(
-            self,
-            Self::Valid(ValidBlobInfoV1 {
-                count_deletable_certified,
-                permanent_certified,
-                ..
-            }) if *count_deletable_certified > 0 || permanent_certified.is_some()
-        )
+    // TODO: This is currently just an approximation: It is possible that this returns true even
+    // though there is no existing certified blob because the blob with the latest expiration epoch
+    // was deleted. This should be adjusted/simplified when we have proper cleanup (#1005).
+    fn is_certified(&self, current_epoch: Epoch) -> bool {
+        let Self::Valid(ValidBlobInfoV1 {
+            count_deletable_certified,
+            permanent_certified,
+            latest_seen_deletable_certified_epoch,
+            ..
+        }) = self
+        else {
+            return false;
+        };
+
+        let exists_certified_permanent_blob = permanent_certified
+            .as_ref()
+            .is_some_and(|p| p.end_epoch > current_epoch);
+        let maybe_exists_certified_deletable_blob = *count_deletable_certified > 0
+            && latest_seen_deletable_certified_epoch.is_some_and(|l| l > current_epoch);
+        exists_certified_permanent_blob || maybe_exists_certified_deletable_blob
     }
 
     fn initial_certified_epoch(&self) -> Option<Epoch> {
@@ -915,24 +957,22 @@ impl Mergeable for BlobInfoV1 {
             return None;
         };
 
-        let (count_deletable_total, permanent_total) = if deletable {
-            (1, None)
-        } else {
-            (
-                0,
-                Some(PermanentBlobInfoV1 {
-                    count: NonZeroU32::new(1).unwrap(),
-                    end_epoch,
-                    event: status_event,
-                }),
-            )
-        };
-
         Some(
-            ValidBlobInfoV1 {
-                count_deletable_total,
-                permanent_total,
-                ..Default::default()
+            if deletable {
+                ValidBlobInfoV1 {
+                    count_deletable_total: 1,
+                    latest_seen_deletable_registered_epoch: Some(end_epoch),
+                    ..Default::default()
+                }
+            } else {
+                ValidBlobInfoV1 {
+                    permanent_total: Some(PermanentBlobInfoV1 {
+                        count: NonZeroU32::new(1).unwrap(),
+                        end_epoch,
+                        event: status_event,
+                    }),
+                    ..Default::default()
+                }
             }
             .into(),
         )
@@ -1273,35 +1313,56 @@ mod tests {
                     BlobStatusChangeType::Register, true, 1, 2, event_id_for_testing()
                 ),
                 ValidBlobInfoV1{
-                    count_deletable_total:1,
+                    count_deletable_total: 1,
+                    latest_seen_deletable_registered_epoch: Some(2),
                     ..Default::default()
                 },
             ),
-            register_additional_deletable: (
+            register_additional_deletable1: (
                 ValidBlobInfoV1{
                     count_deletable_total: 3,
+                    latest_seen_deletable_registered_epoch: Some(2),
                     ..Default::default()
                 },
                 BlobInfoMergeOperand::new_change_for_testing(
-                    BlobStatusChangeType::Register, true, 1, 2, event_id_for_testing()
+                    BlobStatusChangeType::Register, true, 1, 5, event_id_for_testing()
                 ),
                 ValidBlobInfoV1{
                     count_deletable_total: 4,
+                    latest_seen_deletable_registered_epoch: Some(5),
+                    ..Default::default()
+                },
+            ),
+            register_additional_deletable2: (
+                ValidBlobInfoV1{
+                    count_deletable_total: 3,
+                    latest_seen_deletable_registered_epoch: Some(4),
+                    ..Default::default()
+                },
+                BlobInfoMergeOperand::new_change_for_testing(
+                    BlobStatusChangeType::Register, true, 1, 3, event_id_for_testing()
+                ),
+                ValidBlobInfoV1{
+                    count_deletable_total: 4,
+                    latest_seen_deletable_registered_epoch: Some(4),
                     ..Default::default()
                 },
             ),
             certify_first_deletable: (
                 ValidBlobInfoV1{
                     count_deletable_total: 3,
+                    latest_seen_deletable_registered_epoch: Some(4),
                     ..Default::default()
                 },
                 BlobInfoMergeOperand::new_change_for_testing(
-                    BlobStatusChangeType::Certify, true, 1, 2, event_id_for_testing()
+                    BlobStatusChangeType::Certify, true, 1, 4, event_id_for_testing()
                 ),
                 ValidBlobInfoV1{
                     count_deletable_total: 3,
                     count_deletable_certified: 1,
                     initial_certified_epoch: Some(1),
+                    latest_seen_deletable_registered_epoch: Some(4),
+                    latest_seen_deletable_certified_epoch: Some(4),
                     ..Default::default()
                 },
             ),
@@ -1310,6 +1371,8 @@ mod tests {
                     count_deletable_total: 3,
                     count_deletable_certified: 1,
                     initial_certified_epoch: Some(0),
+                    latest_seen_deletable_registered_epoch: Some(4),
+                    latest_seen_deletable_certified_epoch: Some(4),
                     ..Default::default()
                 },
                 BlobInfoMergeOperand::new_change_for_testing(
@@ -1319,6 +1382,8 @@ mod tests {
                     count_deletable_total: 3,
                     count_deletable_certified: 2,
                     initial_certified_epoch: Some(0),
+                    latest_seen_deletable_registered_epoch: Some(4),
+                    latest_seen_deletable_certified_epoch: Some(4),
                     ..Default::default()
                 },
             ),
@@ -1327,15 +1392,19 @@ mod tests {
                     count_deletable_total: 3,
                     count_deletable_certified: 1,
                     initial_certified_epoch: Some(1),
+                    latest_seen_deletable_registered_epoch: Some(5),
+                    latest_seen_deletable_certified_epoch: Some(4),
                     ..Default::default()
                 },
                 BlobInfoMergeOperand::new_change_for_testing(
-                    BlobStatusChangeType::Certify, true, 0, 2, event_id_for_testing()
+                    BlobStatusChangeType::Certify, true, 0, 5, event_id_for_testing()
                 ),
                 ValidBlobInfoV1{
                     count_deletable_total: 3,
                     count_deletable_certified: 2,
                     initial_certified_epoch: Some(0),
+                    latest_seen_deletable_registered_epoch: Some(5),
+                    latest_seen_deletable_certified_epoch: Some(5),
                     ..Default::default()
                 },
             ),
@@ -1351,7 +1420,7 @@ mod tests {
                     ..Default::default()
                 },
             ),
-            // TODO(mlegner): Add some more cases for permanent blobs and deletions (#717).
+            // TODO(mlegner): Add some more cases for permanent blobs and deletions (#1006).
         ]
     }
     fn test_merge_preexisting_expected_successes(

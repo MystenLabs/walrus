@@ -60,6 +60,7 @@ rest_api_error! {
 rest_api_error! {
     StoreSliverError: [
         (SliverOutOfRange(_), BAD_REQUEST, None, "the requested sliver index is out of range"),
+        (NotCurrentlyRegistered, CONFLICT, None, Self::NotCurrentlyRegistered.to_string()),
         (MissingMetadata, CONFLICT, None, Self::MissingMetadata.to_string()),
         (InvalidSliver(_), BAD_REQUEST, None, "the provided sliver failed verification"),
         (ShardNotAssigned(_), MISDIRECTED_REQUEST, None,
@@ -85,6 +86,7 @@ rest_api_error! {
 
 rest_api_error! {
     ComputeStorageConfirmationError: [
+        (NotCurrentlyRegistered, CONFLICT, None, Self::NotCurrentlyRegistered.to_string()),
         (NotFullyStored, NOT_FOUND, None, Self::NotFullyStored.to_string()),
         (Internal(_), INTERNAL_SERVER_ERROR, None, @canonical)
     ]
