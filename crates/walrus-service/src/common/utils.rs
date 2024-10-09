@@ -580,6 +580,18 @@ impl FromStr for ByteCount {
     }
 }
 
+/// Export the walrus binary version.
+// TODO(jsmith): Once the cli logic is moved within the package, this should be crate-visible
+pub fn export_build_info(registry: &Registry, version: &'static str) {
+    let opts = prometheus::opts!("walrus_build_info", "Walrus binary info");
+    let metric = prometheus::register_int_gauge_vec_with_registry!(opts, &["version"], registry)
+        .expect("static metric is valid");
+    metric
+        .get_metric_with_label_values(&[version])
+        .expect("metric exists")
+        .set(1);
+}
+
 #[cfg(test)]
 mod tests {
 

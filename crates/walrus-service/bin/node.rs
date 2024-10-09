@@ -289,6 +289,7 @@ mod commands {
     use std::time::Duration;
 
     use walrus_core::ensure;
+    use walrus_service::utils;
     use walrus_sui::types::NetworkAddress;
 
     use super::*;
@@ -320,19 +321,19 @@ mod commands {
                 .unwrap();
         });
 
-        tracing::info!("Walrus Node version: {VERSION}");
+        tracing::info!(version = VERSION, "walrus binary version");
         tracing::info!(
-            "Walrus public key: {}",
-            config.protocol_key_pair.load()?.as_ref().public()
+            walrus.node.public_key = %config.protocol_key_pair.load()?.as_ref().public(),
+            "walrus protocol public key",
         );
         tracing::info!(
-            "Walrus network key: {}",
-            config.network_key_pair.load()?.as_ref().public()
+            walrus.node.network_key = %config.network_key_pair.load()?.as_ref().public(),
+            "walrus network key",
         );
         tracing::info!(
-            "Started Prometheus HTTP endpoint at {}",
-            config.metrics_address
+            metrics_address = %config.metrics_address, "started Prometheus HTTP endpoint",
         );
+        utils::export_build_info(&metrics_runtime.registry, VERSION);
 
         let cancel_token = CancellationToken::new();
         let (exit_notifier, exit_listener) = oneshot::channel::<()>();

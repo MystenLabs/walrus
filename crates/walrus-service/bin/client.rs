@@ -17,7 +17,7 @@ use walrus_service::{
         ClientCommandRunner,
         Commands,
     },
-    utils::MetricsAndLoggingRuntime,
+    utils::{export_build_info, MetricsAndLoggingRuntime},
 };
 
 /// The version of the Walrus client.
@@ -53,8 +53,12 @@ fn client() -> Result<()> {
         }
         Commands::Daemon(command) => {
             let metrics_address = command.get_metrics_address();
+
             let runtime = MetricsAndLoggingRuntime::start(metrics_address)?;
+            export_build_info(&runtime.registry, VERSION);
+
             tracing::debug!(%metrics_address, "started metrics and logging on separate runtime");
+
             runner.run_daemon_app(command, runtime)
         }
         Commands::Json { .. } => unreachable!("we have extracted the json command above"),
