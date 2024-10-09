@@ -1550,7 +1550,7 @@ mod tests {
     use walrus_test_utils::{async_param_test, Result as TestResult, WithTempDir};
 
     use super::*;
-    use crate::test_utils::{StorageNodeHandle, TestCluster};
+    use crate::test_utils::{StorageNodeHandle, StorageNodeHandleTrait, TestCluster};
 
     const TIMEOUT: Duration = Duration::from_secs(1);
     const OTHER_BLOB_ID: BlobId = BlobId([247; 32]);
@@ -2012,9 +2012,9 @@ mod tests {
         }
     }
 
-    async fn store_at_shards<F>(
+    async fn store_at_shards<F, T: StorageNodeHandleTrait>(
         blob: &EncodedBlob,
-        cluster: &TestCluster,
+        cluster: &TestCluster<T>,
         mut store_at_shard: F,
     ) -> TestResult
     where
@@ -2023,30 +2023,30 @@ mod tests {
         let nodes_and_shards: Vec<_> = cluster
             .nodes
             .iter()
-            .flat_map(|node| std::iter::repeat(node).zip(node.storage_node.shards()))
+            .flat_map(|node| std::iter::repeat(node).zip(node.storage_node().shards()))
             .collect();
 
         let mut metadata_stored = vec![];
 
         for (node, shard) in nodes_and_shards {
-            if !metadata_stored.contains(&&node.public_key)
+            if !metadata_stored.contains(&node.public_key())
                 && (store_at_shard(&shard, SliverType::Primary)
                     || store_at_shard(&shard, SliverType::Secondary))
             {
-                node.client.store_metadata(&blob.metadata).await?;
-                metadata_stored.push(&node.public_key);
+                node.client().store_metadata(&blob.metadata).await?;
+                metadata_stored.push(node.public_key());
             }
 
             let sliver_pair = blob.assigned_sliver_pair(shard);
 
             if store_at_shard(&shard, SliverType::Primary) {
-                node.client
+                node.client()
                     .store_sliver(blob.blob_id(), sliver_pair.index(), &sliver_pair.primary)
                     .await?;
             }
 
             if store_at_shard(&shard, SliverType::Secondary) {
-                node.client
+                node.client()
                     .store_sliver(blob.blob_id(), sliver_pair.index(), &sliver_pair.secondary)
                     .await?;
             }
@@ -2065,7 +2065,11 @@ mod tests {
         assignment: &[&[u16]],
         blob: &'a [u8],
         store_at_shard: F,
-    ) -> TestResult<(TestCluster, Sender<ContractEvent>, EncodedBlob)>
+    ) -> TestResult<(
+        TestCluster<StorageNodeHandle>,
+        Sender<ContractEvent>,
+        EncodedBlob,
+    )>
     where
         F: FnMut(&ShardIndex, SliverType) -> bool,
     {
@@ -2074,7 +2078,7 @@ mod tests {
         let cluster = {
             // Lock to avoid race conditions.
             let _lock = global_test_lock().lock().await;
-            TestCluster::builder()
+            TestCluster::<StorageNodeHandle>::builder()
                 .with_shard_assignment(assignment)
                 .with_system_event_providers(events.clone())
                 .build()
@@ -2095,13 +2099,17 @@ mod tests {
         assignment: &[&[u16]],
         blobs: &[&'a [u8]],
         initial_epoch: Epoch,
-    ) -> TestResult<(TestCluster, Sender<ContractEvent>, Vec<EncodedBlob>)> {
+    ) -> TestResult<(
+        TestCluster<StorageNodeHandle>,
+        Sender<ContractEvent>,
+        Vec<EncodedBlob>,
+    )> {
         let events = Sender::new(48);
 
         let cluster = {
             // Lock to avoid race conditions.
             let _lock = global_test_lock().lock().await;
-            TestCluster::builder()
+            TestCluster::<StorageNodeHandle>::builder()
                 .with_shard_assignment(assignment)
                 .with_system_event_providers(events.clone())
                 .build()
@@ -2126,8 +2134,8 @@ mod tests {
         Ok((cluster, events, details))
     }
 
-    async fn advance_cluster_to_epoch(
-        cluster: &TestCluster,
+    async fn advance_cluster_to_epoch<T: StorageNodeHandleTrait>(
+        cluster: &TestCluster<T>,
         events: &[&Sender<ContractEvent>],
         epoch: Epoch,
     ) -> TestResult {
@@ -2161,12 +2169,12 @@ mod tests {
     ///
     /// The function is created for testing shard syncing/recovery. So for blobs that are
     /// not stored in shard 0, it also won't receive a certified event.
-    async fn cluster_with_partially_stored_blobs_in_shard_0<'a, F>(
+    async fn cluster_with_partially_stored_blobs_in_shard_0<'a, F, T: StorageNodeHandleTrait>(
         assignment: &[&[u16]],
         blobs: &[&'a [u8]],
         initial_epoch: Epoch,
         mut blob_index_store_at_shard_0: F,
-    ) -> TestResult<(TestCluster, Vec<EncodedBlob>)>
+    ) -> TestResult<(TestCluster<T>, Vec<EncodedBlob>)>
     where
         F: FnMut(usize) -> bool,
     {
@@ -2184,7 +2192,7 @@ mod tests {
         let cluster = {
             // Lock to avoid race conditions.
             let _lock = global_test_lock().lock().await;
-            TestCluster::builder()
+            TestCluster::<T>::builder()
                 .with_shard_assignment(assignment)
                 .with_individual_system_event_providers(&event_providers)
                 .build()
@@ -2824,8 +2832,11 @@ mod tests {
     //   - Initial cluster with 2 nodes. Shard 0 in node 0 and shard 1 in node 1.
     //   - 23 blobs created and certified in node 0.
     //   - Create a new shard in node 1 with shard index 0 to test sync.
-    async fn setup_cluster_for_shard_sync_tests(
-    ) -> TestResult<(TestCluster, Vec<EncodedBlob>, Arc<ShardStorage>)> {
+    async fn setup_cluster_for_shard_sync_tests() -> TestResult<(
+        TestCluster<StorageNodeHandle>,
+        Vec<EncodedBlob>,
+        Arc<ShardStorage>,
+    )> {
         let blobs: Vec<[u8; 32]> = (1..24).map(|i| [i; 32]).collect();
         let blobs: Vec<_> = blobs.iter().map(|b| &b[..]).collect();
         let (cluster, _, blob_details) =
@@ -2935,9 +2946,9 @@ mod tests {
         Ok(())
     }
 
-    async fn setup_shard_recovery_test_cluster<F>(
+    async fn setup_shard_recovery_test_cluster<F, T: StorageNodeHandleTrait>(
         blob_index_store_at_shard_0: F,
-    ) -> TestResult<(TestCluster, Vec<EncodedBlob>)>
+    ) -> TestResult<(TestCluster<T>, Vec<EncodedBlob>)>
     where
         F: FnMut(usize) -> bool,
     {
@@ -2959,7 +2970,8 @@ mod tests {
     async fn sync_shard_shard_recovery() -> TestResult {
         telemetry_subscribers::init_for_testing();
 
-        let (cluster, blob_details) = setup_shard_recovery_test_cluster(|_| false).await?;
+        let (cluster, blob_details) =
+            setup_shard_recovery_test_cluster::<_, StorageNodeHandle>(|_| false).await?;
 
         // Make sure that all blobs are not certified in node 0.
         for blob_detail in blob_details.iter() {
@@ -3003,10 +3015,11 @@ mod tests {
     #[tokio::test]
     async fn sync_shard_partial_recovery() -> TestResult {
         let skip_stored_blob_index: [usize; 12] = [3, 4, 5, 9, 10, 11, 15, 18, 19, 20, 21, 22];
-        let (cluster, blob_details) = setup_shard_recovery_test_cluster(|blob_index| {
-            !skip_stored_blob_index.contains(&blob_index)
-        })
-        .await?;
+        let (cluster, blob_details) =
+            setup_shard_recovery_test_cluster::<_, StorageNodeHandle>(|blob_index| {
+                !skip_stored_blob_index.contains(&blob_index)
+            })
+            .await?;
 
         // Make sure that blobs in `sync_shard_partial_recovery` are not certified in node 0.
         for i in skip_stored_blob_index {
@@ -3200,10 +3213,11 @@ mod tests {
             }
 
             let skip_stored_blob_index: [usize; 12] = [3, 4, 5, 9, 10, 11, 15, 18, 19, 20, 21, 22];
-            let (cluster, blob_details) = setup_shard_recovery_test_cluster(|blob_index| {
-                !skip_stored_blob_index.contains(&blob_index)
-            })
-            .await?;
+            let (cluster, blob_details) =
+                setup_shard_recovery_test_cluster::<_, StorageNodeHandle>(|blob_index| {
+                    !skip_stored_blob_index.contains(&blob_index)
+                })
+                .await?;
 
             let node_inner = unsafe {
                 &mut *(Arc::as_ptr(&cluster.nodes[1].storage_node.inner) as *mut StorageNodeInner)

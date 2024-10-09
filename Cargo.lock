@@ -11925,6 +11925,7 @@ dependencies = [
  "serde_json",
  "serde_with 3.11.0",
  "serde_yaml 0.9.34+deprecated",
+ "sui-config",
  "sui-macros",
  "sui-protocol-config",
  "sui-sdk 1.35.0",
@@ -11956,8 +11957,10 @@ dependencies = [
 name = "walrus-simtest"
 version = "1.0.0"
 dependencies = [
+ "anyhow",
  "futures",
  "prometheus",
+ "rand 0.8.5",
  "reqwest 0.12.8",
  "sui-macros",
  "sui-protocol-config",

@@ -7,7 +7,12 @@ pub mod system_setup;
 
 #[cfg(not(msim))]
 use std::sync::mpsc;
-use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
+use std::{
+    collections::BTreeSet,
+    fmt::{self, Debug, Formatter},
+    path::PathBuf,
+    sync::Arc,
+};
 
 use fastcrypto::{
     bls12381::min_pk::{BLS12381AggregateSignature, BLS12381KeyPair, BLS12381PrivateKey},
@@ -88,13 +93,18 @@ pub fn get_default_invalid_certificate(blob_id: BlobId, epoch: Epoch) -> Invalid
 }
 
 /// Handle for the global Sui test cluster.
-#[allow(missing_debug_implementations)]
 pub struct TestClusterHandle {
     wallet_path: Mutex<PathBuf>,
     cluster: TestCluster,
 
     #[cfg(msim)]
-    _node_handle: NodeHandle,
+    node_handle: NodeHandle,
+}
+
+impl Debug for TestClusterHandle {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TestClusterHandle").finish()
+    }
 }
 
 impl TestClusterHandle {
@@ -114,11 +124,6 @@ impl TestClusterHandle {
             wallet_path: Mutex::new(wallet_path),
             cluster,
         }
-    }
-
-    /// Returns the test cluster reference.
-    pub fn cluster(&self) -> &TestCluster {
-        &self.cluster
     }
 
     // Creates a test Sui cluster using deterministic MSIM runtime.
@@ -146,8 +151,24 @@ impl TestClusterHandle {
         Self {
             wallet_path: Mutex::new(wallet_path),
             cluster,
-            _node_handle: node_handle,
+            node_handle,
         }
+    }
+
+    /// Returns the path to the wallet config file.
+    pub async fn wallet_path(&self) -> PathBuf {
+        self.wallet_path.lock().await.clone()
+    }
+
+    /// Returns the test cluster reference.
+    pub fn cluster(&self) -> &TestCluster {
+        &self.cluster
+    }
+
+    /// Returns the simulator node handle for the Sui test cluster.
+    #[cfg(msim)]
+    pub fn sim_node_handle(&self) -> &NodeHandle {
+        &self.node_handle
     }
 }
 

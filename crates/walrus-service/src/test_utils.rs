@@ -51,7 +51,7 @@ use walrus_event::{
 use walrus_sdk::client::Client;
 use walrus_sui::{
     client::FixedSystemParameters,
-    test_utils::TestClusterHandle,
+    test_utils::{system_setup::SystemContext, TestClusterHandle},
     types::{
         move_structs::{EpochState, VotingParams},
         Committee,
@@ -75,7 +75,7 @@ use crate::{
             EndCommitteeChangeError,
             NodeCommitteeService,
         },
-        config::StorageNodeConfig,
+        config::{self, StorageNodeConfig, SuiConfig},
         contract_service::SystemContractService,
         errors::SyncShardClientError,
         server::{UserServer, UserServerConfig},
@@ -125,6 +125,29 @@ impl EventRetentionManager for DefaultSystemEventManager {
 #[async_trait]
 impl EventManager for DefaultSystemEventManager {}
 
+/// A test configuration for a storage node.
+pub trait StorageNodeHandleTrait {
+    /// Cancels the node's event loop and REST API.
+    fn cancel(&self);
+    /// Returns the client that can be used to communicate with the node.
+    fn client(&self) -> &Client;
+    /// Builds a new storage node handle.
+    fn build(
+        builder: StorageNodeHandleBuilder,
+        sui_cluster_handle: Option<Arc<TestClusterHandle>>,
+        system_context: Option<SystemContext>,
+        storage_dir: TempDir,
+    ) -> impl std::future::Future<Output = anyhow::Result<Self>> + Send
+    where
+        Self: Sized;
+    /// Returns the storage node.
+    fn storage_node(&self) -> &Arc<StorageNode>;
+    /// Returns the node's protocol public key.
+    fn public_key(&self) -> &PublicKey;
+    /// Returns whether the storage node should use a distinct IP address.
+    fn use_distinct_ip() -> bool;
+}
+
 /// A storage node and associated data for testing.
 #[derive(Debug)]
 pub struct StorageNodeHandle {
@@ -148,6 +171,37 @@ pub struct StorageNodeHandle {
     pub client: Client,
 }
 
+impl StorageNodeHandleTrait for StorageNodeHandle {
+    fn cancel(&self) {
+        self.cancel.cancel();
+    }
+
+    fn client(&self) -> &Client {
+        &self.client
+    }
+
+    fn storage_node(&self) -> &Arc<StorageNode> {
+        &self.storage_node
+    }
+
+    fn public_key(&self) -> &PublicKey {
+        &self.public_key
+    }
+
+    async fn build(
+        builder: StorageNodeHandleBuilder,
+        _sui_cluster_handle: Option<Arc<TestClusterHandle>>,
+        _system_context: Option<SystemContext>,
+        _storage_dir: TempDir,
+    ) -> anyhow::Result<Self> {
+        builder.build().await
+    }
+
+    fn use_distinct_ip() -> bool {
+        false
+    }
+}
+
 impl StorageNodeHandle {
     /// Creates a new builder.
     pub fn builder() -> StorageNodeHandleBuilder {
@@ -158,6 +212,72 @@ impl StorageNodeHandle {
 impl AsRef<StorageNode> for StorageNodeHandle {
     fn as_ref(&self) -> &StorageNode {
         &self.storage_node
+    }
+}
+
+/// A test configuration for a storage node.
+#[derive(Debug)]
+pub struct SimStorageNodeHandle {
+    /// The temporary directory containing the node's storage.
+    pub storage_directory: TempDir,
+    /// The node's protocol public key.
+    pub public_key: PublicKey,
+    /// The node's protocol public key.
+    pub network_public_key: NetworkPublicKey,
+    /// The address of the REST API.
+    pub rest_api_address: SocketAddr,
+    /// The address of the metric service.
+    pub metrics_address: SocketAddr,
+    /// Cancel
+    pub cancel_token: CancellationToken,
+    /// The wrapped storage node.
+    #[cfg(msim)]
+    pub node_id: sui_simulator::task::NodeId,
+}
+
+impl StorageNodeHandleTrait for SimStorageNodeHandle {
+    fn cancel(&self) {
+        unimplemented!("Sim storage can't be cancelled.")
+    }
+
+    fn client(&self) -> &Client {
+        unimplemented!("Sim storage doesn't have client.")
+    }
+
+    fn storage_node(&self) -> &Arc<StorageNode> {
+        unimplemented!("Sim storage doesn't have storage node.")
+    }
+
+    fn public_key(&self) -> &PublicKey {
+        &self.public_key
+    }
+
+    async fn build(
+        builder: StorageNodeHandleBuilder,
+        sui_cluster_handle: Option<Arc<TestClusterHandle>>,
+        system_context: Option<SystemContext>,
+        storage_dir: TempDir,
+    ) -> anyhow::Result<Self>
+    where
+        Self: Sized,
+    {
+        builder
+            .start_node(
+                sui_cluster_handle.expect("SUI cluster handle must be provided in simtest"),
+                system_context.expect("System context must be provided"),
+                storage_dir,
+            )
+            .await
+    }
+
+    fn use_distinct_ip() -> bool {
+        true
+    }
+}
+
+impl Drop for SimStorageNodeHandle {
+    fn drop(&mut self) {
+        self.cancel_token.cancel();
     }
 }
 
@@ -255,7 +375,7 @@ impl StorageNodeHandleBuilder {
     ///
     /// Resets any prior calls to [`Self::with_test_config`].
     pub fn with_shard_assignment(mut self, shards: &[ShardIndex]) -> Self {
-        self.test_config = Some(StorageNodeTestConfig::new(shards.into()));
+        self.test_config = Some(StorageNodeTestConfig::new(shards.into(), false));
         self
     }
 
@@ -291,7 +411,7 @@ impl StorageNodeHandleBuilder {
 
         let node_info = self
             .test_config
-            .unwrap_or_else(|| StorageNodeTestConfig::new(storage.shards_present()));
+            .unwrap_or_else(|| StorageNodeTestConfig::new(storage.shards_present(), false));
         // To be in the committee, the node must have at least one shard assigned to it.
         let is_in_committee = !node_info.shards.is_empty();
 
@@ -410,6 +530,197 @@ impl StorageNodeHandleBuilder {
             client,
         })
     }
+
+    /// Starts a storage node with the provided configuration.
+    #[allow(unused_variables)]
+    pub async fn start_node(
+        self,
+        sui_cluster_handle: Arc<TestClusterHandle>,
+        system_context: SystemContext,
+        storage_dir: TempDir,
+    ) -> anyhow::Result<SimStorageNodeHandle> {
+        let node_info = self
+            .test_config
+            .expect("test config must be provided to spawn a storage node");
+
+        let storage_node_config = StorageNodeConfig {
+            storage_path: storage_dir.path().to_path_buf(),
+            protocol_key_pair: node_info.key_pair.into(),
+            network_key_pair: node_info.network_key_pair.into(),
+            rest_api_address: node_info.rest_api_address,
+            sui: Some(SuiConfig {
+                rpc: sui_cluster_handle.cluster().rpc_url().to_string(),
+                system_object: system_context.system_object,
+                staking_object: system_context.staking_object,
+                wallet_config: sui_cluster_handle.wallet_path().await,
+                event_polling_interval: config::defaults::polling_interval(),
+                gas_budget: config::defaults::gas_budget(),
+            }),
+            ..storage_node_config().inner
+        };
+
+        let cancel_token = CancellationToken::new();
+
+        #[cfg(msim)]
+        let handle = Self::spawn_node(storage_node_config.clone(), cancel_token.clone()).await;
+
+        Ok(SimStorageNodeHandle {
+            storage_directory: storage_dir,
+            public_key: storage_node_config
+                .protocol_key_pair
+                .get()
+                .unwrap()
+                .public()
+                .clone(),
+            network_public_key: storage_node_config
+                .network_key_pair
+                .get()
+                .unwrap()
+                .public()
+                .clone(),
+            rest_api_address: storage_node_config.rest_api_address,
+            metrics_address: storage_node_config.metrics_address,
+            cancel_token,
+            #[cfg(msim)]
+            node_id: handle.id(),
+        })
+    }
+
+    #[cfg(msim)]
+    async fn spawn_node(
+        config: StorageNodeConfig,
+        cancel_token: CancellationToken,
+    ) -> sui_simulator::runtime::NodeHandle {
+        use std::net::IpAddr;
+
+        let (startup_sender, mut startup_receiver) = tokio::sync::watch::channel(false);
+        let ip = match config.rest_api_address {
+            SocketAddr::V4(v4) => IpAddr::V4(*v4.ip()),
+            _ => panic!("unsupported protocol"),
+        };
+        let startup_sender = Arc::new(startup_sender);
+        let handle = sui_simulator::runtime::Handle::current();
+        let builder = handle.create_node();
+        let node_handle = builder
+            .ip(ip)
+            .name(&format!(
+                "{:?}",
+                config.protocol_key_pair.get().unwrap().public()
+            ))
+            .init(move || {
+                tracing::info!("Restart node");
+                let config = config.clone();
+                let cancel_token = cancel_token.clone();
+
+                let startup_sender = startup_sender.clone();
+
+                async move {
+                    let (rest_api_handle, node_handle, event_processor_handle) =
+                        Self::build_and_run_node(config, cancel_token.clone())
+                            .await
+                            .expect("Should start node successfully");
+                    startup_sender.send(true).ok();
+
+                    tokio::select! {
+                        _ = rest_api_handle => {
+                            tracing::info!("Rest API stopped");
+                        }
+                        _ = node_handle => {
+                            tracing::info!("Node stopped");
+                        }
+                        _ = event_processor_handle => {
+                            tracing::info!("Event processor stopped");
+                        }
+                        _ = cancel_token.cancelled() => {
+                            tracing::info!("Node stopped by cancellation");
+                        }
+                    }
+
+                    tracing::info!("Node stopped");
+                }
+            })
+            .build();
+
+        startup_receiver
+            .changed()
+            .await
+            .expect("Waiting for node to start failed");
+
+        node_handle
+    }
+
+    #[cfg(msim)]
+    async fn build_and_run_node(
+        config: StorageNodeConfig,
+        cancel_token: CancellationToken,
+    ) -> anyhow::Result<(
+        tokio::task::JoinHandle<Result<(), std::io::Error>>,
+        tokio::task::JoinHandle<Result<(), anyhow::Error>>,
+        tokio::task::JoinHandle<Result<(), anyhow::Error>>,
+    )> {
+        use crate::node::system_events::SuiSystemEventProvider;
+        let sui_config = config.sui.clone().expect("cannot be none");
+
+        let sui_read_client = sui_config.new_read_client().await?;
+
+        let event_provider: Box<dyn EventManager> =
+            if let Some(event_processor_config) = config.clone().event_processor_config {
+                Box::new(
+                    EventProcessor::new(
+                        &event_processor_config,
+                        sui_config.rpc,
+                        sui_read_client.get_system_package_id(),
+                        Duration::from_millis(100),
+                        &config.storage_path,
+                    )
+                    .await?,
+                )
+            } else {
+                Box::new(SuiSystemEventProvider::new(
+                    sui_read_client.clone(),
+                    Duration::from_millis(100),
+                ))
+            };
+
+        let event_processor_handle = if let Some(event_processor) =
+            event_provider.as_any().downcast_ref::<EventProcessor>()
+        {
+            let cloned_cancel_token = cancel_token.clone();
+            let cloned_event_processor = event_processor.clone();
+            tokio::spawn(
+                async move { cloned_event_processor.start(cloned_cancel_token).await }
+                    .instrument(tracing::info_span!("cluster-event-processor",
+                    address = %config.rest_api_address)),
+            )
+        } else {
+            tokio::spawn(async { std::future::pending::<Result<(), anyhow::Error>>().await })
+        };
+
+        let metrics_registry = Registry::default();
+        let node = StorageNode::builder()
+            .with_system_event_manager(event_provider)
+            .build(&config, metrics_registry.clone())
+            .await?;
+        let node = Arc::new(node);
+
+        let rest_api = Arc::new(UserServer::new(
+            node.clone(),
+            cancel_token.clone(),
+            UserServerConfig::from(&config),
+            &metrics_registry,
+        ));
+
+        let rest_api_handle = tokio::task::spawn(async move { rest_api.run().await }.instrument(
+            tracing::info_span!("cluster-rest-api", address = %config.rest_api_address),
+        ));
+
+        let node_handle =
+            tokio::task::spawn(async move { node.run(cancel_token).await }.instrument(
+                tracing::info_span!("cluster-node", address = %config.rest_api_address),
+            ));
+
+        Ok((rest_api_handle, node_handle, event_processor_handle))
+    }
 }
 
 impl Default for StorageNodeHandleBuilder {
@@ -462,7 +773,7 @@ fn committee_partner(node_config: &StorageNodeTestConfig) -> Option<StorageNodeT
         .collect();
 
     if !other_shards.is_empty() {
-        Some(StorageNodeTestConfig::new(other_shards))
+        Some(StorageNodeTestConfig::new(other_shards, false))
     } else {
         None
     }
@@ -677,8 +988,13 @@ impl SystemContractService for StubContractService {
 }
 
 /// Returns a socket address that is not currently in use on the system.
-pub fn unused_socket_address() -> SocketAddr {
-    try_unused_socket_address().expect("unused socket address to be available")
+pub fn unused_socket_address(distinct_ip: bool) -> SocketAddr {
+    if distinct_ip {
+        try_unused_socket_address_with_distinct_ip()
+            .expect("unused socket address with distinct ip to be available")
+    } else {
+        try_unused_socket_address().expect("unused socket address to be available")
+    }
 }
 
 fn try_unused_socket_address() -> anyhow::Result<SocketAddr> {
@@ -689,6 +1005,14 @@ fn try_unused_socket_address() -> anyhow::Result<SocketAddr> {
     let _client_stream = TcpStream::connect(address)?;
     let _server_stream = listener.accept()?;
     Ok(address)
+}
+
+fn try_unused_socket_address_with_distinct_ip() -> anyhow::Result<SocketAddr> {
+    use std::str::FromStr;
+
+    Ok(SocketAddr::from_str(
+        (sui_config::local_ip_utils::get_new_ip() + ":1314").as_str(),
+    )?)
 }
 
 #[async_trait::async_trait]
@@ -735,28 +1059,24 @@ impl SystemEventProvider for tokio::sync::broadcast::Sender<ContractEvent> {
 
 /// A cluster of [`StorageNodeHandle`]s corresponding to several running storage nodes.
 #[derive(Debug)]
-pub struct TestCluster {
+pub struct TestCluster<T: StorageNodeHandleTrait> {
     /// The running storage nodes.
-    pub nodes: Vec<StorageNodeHandle>,
+    pub nodes: Vec<T>,
     /// A handle to the stub lookup service, is used.
     pub lookup_service_handle: Option<StubLookupServiceHandle>,
+    /// The number of shards in the system.
+    pub n_shards: usize,
 }
 
-impl TestCluster {
+impl<T: StorageNodeHandleTrait> TestCluster<T> {
     /// Returns a new builder to create the [`TestCluster`].
     pub fn builder() -> TestClusterBuilder {
-        TestClusterBuilder::default()
+        TestClusterBuilder::new(T::use_distinct_ip())
     }
 
     /// Returns an encoding config valid for use with the storage nodes.
     pub fn encoding_config(&self) -> EncodingConfig {
-        let n_shards = self
-            .nodes
-            .iter()
-            .map(|node| node.storage_node.shards().len())
-            .sum::<usize>();
-        let n_shards: u16 = n_shards.try_into().expect("valid number of shards");
-
+        let n_shards: u16 = self.n_shards.try_into().expect("valid number of shards");
         EncodingConfig::new(NonZeroU16::new(n_shards).expect("more than 1 shard"))
     }
 
@@ -766,12 +1086,12 @@ impl TestCluster {
             idx < self.nodes.len(),
             "the index of the node to be dropped must be within the node vector"
         );
-        self.nodes[idx].cancel.cancel();
+        self.nodes[idx].cancel();
     }
 
     /// Returns the client for the node at the specified index.
     pub fn client(&self, index: usize) -> &Client {
-        &self.nodes[index].client
+        self.nodes[index].client()
     }
 
     /// Wait for all nodes to arrive at at least the specified epoch.
@@ -779,7 +1099,7 @@ impl TestCluster {
         let waits: FuturesUnordered<_> = self
             .nodes
             .iter()
-            .map(|handle| handle.storage_node.wait_for_epoch(epoch))
+            .map(|handle| handle.storage_node().wait_for_epoch(epoch))
             .collect();
         waits.for_each(|_| std::future::ready(())).await;
     }
@@ -801,12 +1121,33 @@ pub struct TestClusterBuilder {
     event_providers: Vec<Option<Box<dyn SystemEventProvider>>>,
     committee_services: Vec<Option<Box<dyn CommitteeService>>>,
     contract_services: Vec<Option<Box<dyn SystemContractService>>>,
+    system_context: Option<SystemContext>,
+    sui_cluster_handle: Option<Arc<TestClusterHandle>>,
+    use_distinct_ip: bool,
 }
 
 impl TestClusterBuilder {
     /// Returns a new default builder.
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(use_distinct_ip: bool) -> Self {
+        let shard_assignment = vec![
+            vec![ShardIndex(0)],
+            vec![ShardIndex(1), ShardIndex(2)],
+            ShardIndex::range(3..6).collect(),
+            ShardIndex::range(6..9).collect(),
+            ShardIndex::range(9..13).collect(),
+        ];
+        Self {
+            event_providers: shard_assignment.iter().map(|_| None).collect(),
+            committee_services: shard_assignment.iter().map(|_| None).collect(),
+            contract_services: shard_assignment.iter().map(|_| None).collect(),
+            storage_node_configs: shard_assignment
+                .into_iter()
+                .map(|shards| StorageNodeTestConfig::new(shards, use_distinct_ip))
+                .collect(),
+            system_context: None,
+            sui_cluster_handle: None,
+            use_distinct_ip,
+        }
     }
 
     /// Returns a reference to the storage node test configs of the builder.
@@ -824,7 +1165,8 @@ impl TestClusterBuilder {
         S: Borrow<[I]>,
         for<'a> &'a I: Into<ShardIndex>,
     {
-        let configs = storage_node_test_configs_from_shard_assignment(assignment);
+        let configs =
+            storage_node_test_configs_from_shard_assignment(assignment, self.use_distinct_ip);
 
         self.event_providers = configs.iter().map(|_| None).collect();
         self.committee_services = configs.iter().map(|_| None).collect();
@@ -906,8 +1248,20 @@ impl TestClusterBuilder {
         self
     }
 
+    /// Sets the system context for the cluster.
+    pub fn with_system_context(mut self, system_context: SystemContext) -> Self {
+        self.system_context = Some(system_context);
+        self
+    }
+
+    /// Sets the SUI cluster handle for the cluster.
+    pub fn with_sui_cluster_handle(mut self, sui_cluster_handle: Arc<TestClusterHandle>) -> Self {
+        self.sui_cluster_handle = Some(sui_cluster_handle);
+        self
+    }
+
     /// Creates the configured `TestCluster`.
-    pub async fn build(self) -> anyhow::Result<TestCluster> {
+    pub async fn build<T: StorageNodeHandleTrait>(self) -> anyhow::Result<TestCluster<T>> {
         let mut nodes = vec![];
 
         let committee_members: Vec<_> = self
@@ -916,6 +1270,12 @@ impl TestClusterBuilder {
             .enumerate()
             .map(|(i, info)| info.to_storage_node_info(&format!("node-{i}")))
             .collect();
+
+        let n_shards = self
+            .storage_node_configs
+            .iter()
+            .map(|config| config.shards.len())
+            .sum::<usize>();
 
         // Create the stub lookup service and handles that may be used if none is provided.
         let mut lookup_service_and_handle = None;
@@ -929,6 +1289,7 @@ impl TestClusterBuilder {
         {
             let local_identity = config.key_pair.public().clone();
             let mut builder = StorageNodeHandle::builder()
+                // TODO: don't set storage in simtest
                 .with_storage(empty_storage_with_shards(&config.shards))
                 .with_test_config(config)
                 .with_rest_api_started(true)
@@ -960,12 +1321,21 @@ impl TestClusterBuilder {
                 builder = builder.with_system_contract_service(service);
             }
 
-            nodes.push(builder.build().await?);
+            nodes.push(
+                T::build(
+                    builder,
+                    self.sui_cluster_handle.clone(),
+                    self.system_context.clone(),
+                    tempfile::tempdir().expect("temporary directory creation must succeed"),
+                )
+                .await?,
+            );
         }
 
         Ok(TestCluster {
             nodes,
             lookup_service_handle: lookup_service_and_handle.map(|(_, handle)| handle),
+            n_shards,
         })
     }
 }
@@ -980,11 +1350,11 @@ pub struct StorageNodeTestConfig {
 }
 
 impl StorageNodeTestConfig {
-    fn new(shards: Vec<ShardIndex>) -> Self {
+    fn new(shards: Vec<ShardIndex>, use_distinct_ip: bool) -> Self {
         Self {
             key_pair: ProtocolKeyPair::generate(),
             network_key_pair: NetworkKeyPair::generate(),
-            rest_api_address: unused_socket_address(),
+            rest_api_address: unused_socket_address(use_distinct_ip),
             shards,
         }
     }
@@ -1016,17 +1386,21 @@ impl StorageNodeTestConfig {
     }
 }
 
-fn test_config_from_node_shard_assignment<I>(shards: &[I]) -> StorageNodeTestConfig
+fn test_config_from_node_shard_assignment<I>(
+    shards: &[I],
+    use_distinct_ip: bool,
+) -> StorageNodeTestConfig
 where
     for<'a> &'a I: Into<ShardIndex>,
 {
     let shards: Vec<ShardIndex> = shards.iter().map(|i| i.into()).collect();
-    StorageNodeTestConfig::new(shards)
+    StorageNodeTestConfig::new(shards, use_distinct_ip)
 }
 
 /// Returns storage node test configs for the given `shard_assignment`.
 pub fn storage_node_test_configs_from_shard_assignment<S, I>(
     shard_assignment: &[S],
+    use_distinct_ip: bool,
 ) -> Vec<StorageNodeTestConfig>
 where
     S: Borrow<[I]>,
@@ -1035,7 +1409,7 @@ where
     let storage_node_configs: Vec<_> = shard_assignment
         .iter()
         .map(|node_shard_assignment| {
-            test_config_from_node_shard_assignment(node_shard_assignment.borrow())
+            test_config_from_node_shard_assignment(node_shard_assignment.borrow(), use_distinct_ip)
         })
         .collect();
 
@@ -1045,27 +1419,6 @@ where
     );
 
     storage_node_configs
-}
-
-impl Default for TestClusterBuilder {
-    fn default() -> Self {
-        let shard_assignment = vec![
-            vec![ShardIndex(0)],
-            vec![ShardIndex(1), ShardIndex(2)],
-            ShardIndex::range(3..6).collect(),
-            ShardIndex::range(6..9).collect(),
-            ShardIndex::range(9..13).collect(),
-        ];
-        Self {
-            event_providers: shard_assignment.iter().map(|_| None).collect(),
-            committee_services: shard_assignment.iter().map(|_| None).collect(),
-            contract_services: shard_assignment.iter().map(|_| None).collect(),
-            storage_node_configs: shard_assignment
-                .into_iter()
-                .map(StorageNodeTestConfig::new)
-                .collect(),
-        }
-    }
 }
 
 #[async_trait]
@@ -1159,20 +1512,20 @@ pub mod test_cluster {
     };
 
     /// Performs the default setup for the test cluster.
-    pub async fn default_setup() -> anyhow::Result<(
+    pub async fn default_setup<T: StorageNodeHandleTrait>() -> anyhow::Result<(
         Arc<TestClusterHandle>,
-        TestCluster,
+        TestCluster<T>,
         WithTempDir<client::Client<SuiContractClient>>,
     )> {
         default_setup_with_epoch_duration(Duration::from_secs(60 * 60)).await
     }
 
     /// Performs the default setup for the test cluster.
-    pub async fn default_setup_with_epoch_duration(
+    pub async fn default_setup_with_epoch_duration<T: StorageNodeHandleTrait>(
         epoch_duration: Duration,
     ) -> anyhow::Result<(
         Arc<TestClusterHandle>,
-        TestCluster,
+        TestCluster<T>,
         WithTempDir<client::Client<SuiContractClient>>,
     )> {
         #[cfg(not(msim))]
@@ -1189,7 +1542,7 @@ pub mod test_cluster {
         let n_shards = NonZeroU16::new(node_weights.iter().sum())
             .expect("sum of non-zero weights is not zero");
         let cluster_builder =
-            TestCluster::builder().with_shard_assignment(&vec![[]; node_weights.len()]);
+            TestCluster::<T>::builder().with_shard_assignment(&vec![[]; node_weights.len()]);
 
         // Get the default committee from the test cluster builder
         let (members, protocol_keypairs): (Vec<_>, Vec<_>) = cluster_builder
@@ -1279,6 +1632,11 @@ pub mod test_cluster {
             cluster_builder,
         )
         .await?;
+
+        #[cfg(msim)]
+        let cluster_builder = cluster_builder
+            .with_system_context(system_ctx.clone())
+            .with_sui_cluster_handle(sui_cluster.clone());
 
         let cluster = {
             // Lock to avoid race conditions.
@@ -1388,8 +1746,8 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             name: Some("node".to_string()),
             protocol_key_pair: walrus_core::test_utils::protocol_key_pair().into(),
             network_key_pair: walrus_core::test_utils::network_key_pair().into(),
-            rest_api_address: unused_socket_address(),
-            metrics_address: unused_socket_address(),
+            rest_api_address: unused_socket_address(false),
+            metrics_address: unused_socket_address(false),
             storage_path: temp_dir.path().to_path_buf(),
             db_config: None,
             sui: None,
@@ -1448,7 +1806,7 @@ mod test {
         let n = 1000;
         assert_eq!(
             (0..n)
-                .map(|_| unused_socket_address())
+                .map(|_| unused_socket_address(false))
                 .collect::<HashSet<_>>()
                 .len(),
             n

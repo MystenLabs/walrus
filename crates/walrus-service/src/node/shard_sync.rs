@@ -190,10 +190,10 @@ impl ShardSyncHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::TestCluster;
+    use crate::test_utils::{StorageNodeHandle, TestCluster};
 
-    async fn create_test_cluster<'a>(assignment: &[&[u16]]) -> TestCluster {
-        TestCluster::builder()
+    async fn create_test_cluster<'a>(assignment: &[&[u16]]) -> TestCluster<StorageNodeHandle> {
+        TestCluster::<StorageNodeHandle>::builder()
             .with_shard_assignment(assignment)
             .build()
             .await

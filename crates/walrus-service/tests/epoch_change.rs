@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use tokio::time;
 use walrus_core::Epoch;
-use walrus_service::test_utils::test_cluster;
+use walrus_service::test_utils::{test_cluster, StorageNodeHandle};
 use walrus_test_utils::Result as TestResult;
 
 #[ignore = "ignore E2E tests by default"]
@@ -14,7 +14,8 @@ async fn nodes_drive_epoch_change() -> TestResult {
     let _ = tracing_subscriber::fmt::try_init();
     let epoch_duration = Duration::from_secs(10);
     let (_sui, storage_nodes, _) =
-        test_cluster::default_setup_with_epoch_duration(epoch_duration).await?;
+        test_cluster::default_setup_with_epoch_duration::<StorageNodeHandle>(epoch_duration)
+            .await?;
 
     let target_epoch: Epoch = 4;
     // Allow time to reach the desired epoch, with an additional 50% for the jitter.
