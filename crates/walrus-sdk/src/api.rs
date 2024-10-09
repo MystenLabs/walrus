@@ -236,7 +236,7 @@ pub struct ShardStatusSummary {
     ///
     /// Their statuses are summarized in `unknown`, `ready`, `in_transfer`, and `in_recovery`.
     pub owned: usize,
-    /// The number of owned shards shards in an unknown state.
+    /// The number of owned shards in an unknown state.
     pub unknown: usize,
     /// The number of owned shards that are up-to-date for the epoch.
     pub ready: usize,
@@ -244,7 +244,8 @@ pub struct ShardStatusSummary {
     pub in_transfer: usize,
     /// The number of owned shards that are being recovered.
     pub in_recovery: usize,
-    /// The number of owned shards that are read only, i.e., serving reads from this node.
+    /// The number of shards, no longer owned by the node, that are read only, 
+    /// i.e., only serving reads from this node.
     pub read_only: usize,
 }
 
