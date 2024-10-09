@@ -14,7 +14,6 @@ use rand::{thread_rng, Rng};
 use sui_sdk::{types::base_types::SuiAddress, SuiClientBuilder};
 use tokio::{
     sync::mpsc::{self, error::TryRecvError, Receiver, Sender},
-    task::JoinHandle,
     time::{Interval, MissedTickBehavior},
 };
 use walrus_core::{encoding::Primary, BlobId};
@@ -35,7 +34,7 @@ use write_client::WriteClient;
 
 use crate::{
     metrics::{self, ClientMetrics},
-    refill::{CoinRefill, Refiller},
+    refill::{CoinRefill, RefillHandles, Refiller},
 };
 
 /// A load generator for Walrus writes.
@@ -46,8 +45,7 @@ pub struct LoadGenerator {
     read_client_pool: Receiver<Client<SuiReadClient>>,
     read_client_pool_tx: Sender<Client<SuiReadClient>>,
     metrics: Arc<ClientMetrics>,
-    _gas_refill_handle: JoinHandle<anyhow::Result<()>>,
-    _wal_refill_handle: JoinHandle<anyhow::Result<()>>,
+    _refill_handles: RefillHandles,
 }
 
 impl LoadGenerator {
@@ -113,17 +111,11 @@ impl LoadGenerator {
 
         tracing::info!("Spawning gas refill task...");
 
-        let _gas_refill_handle = refiller.refill_gas(
+        let _refill_handles = refiller.refill_gas_and_wal(
             addresses.clone(),
             gas_refill_period,
             metrics.clone(),
-            sui_client.clone(),
-        );
-        let _wal_refill_handle = refiller.refill_wal(
-            addresses,
-            gas_refill_period,
-            metrics.clone(),
-            sui_client.clone(),
+            sui_client,
         );
 
         Ok(Self {
@@ -132,8 +124,7 @@ impl LoadGenerator {
             read_client_pool,
             read_client_pool_tx,
             metrics,
-            _gas_refill_handle,
-            _wal_refill_handle,
+            _refill_handles,
         })
     }
 

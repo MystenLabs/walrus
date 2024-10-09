@@ -229,6 +229,28 @@ impl<G: CoinRefill + 'static> Refiller<G> {
         }
     }
 
+    pub(crate) fn refill_gas_and_wal(
+        &self,
+        addresses: Vec<SuiAddress>,
+        period: Duration,
+        metrics: Arc<ClientMetrics>,
+        sui_client: SuiClient,
+    ) -> RefillHandles {
+        let _gas_refill_handle = self.refill_gas(
+            addresses.clone(),
+            period,
+            metrics.clone(),
+            sui_client.clone(),
+        );
+        let _wal_refill_handle =
+            self.refill_wal(addresses, period, metrics.clone(), sui_client.clone());
+
+        RefillHandles {
+            _gas_refill_handle,
+            _wal_refill_handle,
+        }
+    }
+
     pub(crate) fn refill_gas(
         &self,
         addresses: Vec<SuiAddress>,
@@ -348,4 +370,10 @@ impl<G: CoinRefill> CoinRefill for Refiller<G> {
     async fn send_wal_request(&self, address: SuiAddress) -> Result<()> {
         self.refill_inner.send_wal_request(address).await
     }
+}
+
+#[derive(Debug)]
+pub(crate) struct RefillHandles {
+    pub(crate) _gas_refill_handle: JoinHandle<anyhow::Result<()>>,
+    pub(crate) _wal_refill_handle: JoinHandle<anyhow::Result<()>>,
 }
