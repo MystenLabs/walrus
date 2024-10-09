@@ -54,10 +54,11 @@ impl<T: ReadClient + Send + Sync + 'static> ClientDaemon<T> {
     /// The exposed APIs can be defined by calling a subset of the functions `with_*`. The daemon is
     /// started through [`Self::run()`].
     fn new<A: OpenApi>(
-        client: Client<T>,
+        mut client: Client<T>,
         network_address: SocketAddr,
         registry: &Registry,
     ) -> Self {
+        client.set_metric_registry(registry);
         ClientDaemon {
             client: Arc::new(client),
             network_address,
