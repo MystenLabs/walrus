@@ -11793,6 +11793,7 @@ dependencies = [
  "futures-util",
  "integer-encoding 4.0.2",
  "move-core-types",
+ "prometheus",
  "reqwest 0.12.8",
  "rocksdb",
  "serde",

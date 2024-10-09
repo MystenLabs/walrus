@@ -9,6 +9,13 @@ use move_core_types::{
     account_address::AccountAddress,
     annotated_value::{MoveDatatypeLayout, MoveTypeLayout},
 };
+use prometheus::{
+    register_int_counter_with_registry,
+    register_int_gauge_with_registry,
+    IntCounter,
+    IntGauge,
+    Registry,
+};
 use rocksdb::Options;
 use sui_package_resolver::{
     error::Error as PackageResolverError,
@@ -83,6 +90,15 @@ pub struct LocalDBPackageStore {
     fallback_client: Client,
 }
 
+/// Metrics for the event processor.
+#[derive(Clone)]
+pub struct EventProcessorMetrics {
+    /// The latest downloaded full checkpoint.
+    pub latest_downloaded_checkpoint: IntGauge,
+    /// The number of checkpoints downloaded. Useful for computing the download rate.
+    pub total_downloaded_checkpoints: IntCounter,
+}
+
 #[derive(Clone)]
 pub struct EventProcessor {
     /// Full node REST client.
@@ -105,6 +121,27 @@ pub struct EventProcessor {
     pub event_store: DBMap<u64, IndexedStreamElement>,
     /// Package resolver
     pub package_resolver: Arc<Resolver<PackageCache>>,
+    /// Event processor metrics.
+    pub metrics: EventProcessorMetrics,
+}
+
+impl EventProcessorMetrics {
+    pub fn new(registry: &Registry) -> Self {
+        Self {
+            latest_downloaded_checkpoint: register_int_gauge_with_registry!(
+                "event_processor_latest_downloaded_checkpoint",
+                "Latest downloaded full checkpoint",
+                registry,
+            )
+            .expect("this is a valid metrics registration"),
+            total_downloaded_checkpoints: register_int_counter_with_registry!(
+                "event_processor_total_downloaded_checkpoints",
+                "Total number of checkpoints downloaded",
+                registry,
+            )
+            .expect("this is a valid metrics registration"),
+        }
+    }
 }
 
 impl Debug for EventProcessor {
@@ -218,6 +255,10 @@ impl EventProcessor {
                 }
             };
             start = Instant::now();
+            self.metrics
+                .latest_downloaded_checkpoint
+                .set(next_checkpoint as i64);
+            self.metrics.total_downloaded_checkpoints.inc();
             let Some(committee) = self.committee_store.get(&())? else {
                 bail!("No committee found in the committee store");
             };
@@ -329,6 +370,7 @@ impl EventProcessor {
         system_pkg_id: ObjectID,
         event_polling_interval: Duration,
         db_path: &Path,
+        registry: &Registry,
     ) -> Result<Self, anyhow::Error> {
         // return a new CheckpointProcessor
         let client = Client::new(&config.rest_url);
@@ -405,6 +447,7 @@ impl EventProcessor {
             event_store_commit_index: Arc::new(Mutex::new(0)),
             pruning_duration: Duration::from_secs(config.pruning_interval),
             package_resolver: Arc::new(Resolver::new(PackageCache::new(package_store))),
+            metrics: EventProcessorMetrics::new(registry),
         };
 
         if event_processor.checkpoint_store.is_empty() {
@@ -579,6 +622,7 @@ mod tests {
             pruning_duration: Duration::from_secs(10),
             event_polling_interval: Duration::from_secs(1),
             package_resolver: Arc::new(Resolver::new(PackageCache::new(package_store))),
+            metrics: EventProcessorMetrics::new(&Registry::default()),
         })
     }
 

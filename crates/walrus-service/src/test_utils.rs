@@ -1326,6 +1326,7 @@ pub mod test_cluster {
                     tempfile::tempdir()
                         .expect("temporary directory creation must succeed")
                         .path(),
+                    &Registry::default(),
                 )
                 .await?;
                 event_processors.push(event_processor.clone());

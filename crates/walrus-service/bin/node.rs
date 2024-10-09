@@ -356,6 +356,7 @@ mod commands {
                 .expect("SUI configuration must be present"),
             config.event_processor_config.clone(),
             &config.storage_path,
+            &metrics_runtime.registry,
             cancel_token.child_token(),
         )?;
 
@@ -589,6 +590,7 @@ impl EventProcessorRuntime {
         sui_config: SuiConfig,
         event_processor_config: Option<EventProcessorConfig>,
         db_path: &Path,
+        metrics_registry: &Registry,
     ) -> anyhow::Result<Option<Arc<EventProcessor>>> {
         let read_client = sui_config.new_read_client().await?;
         match &event_processor_config {
@@ -598,7 +600,8 @@ impl EventProcessorRuntime {
                     sui_config.rpc.clone(),
                     read_client.get_system_package_id(),
                     sui_config.event_polling_interval,
-                    db_path,
+                    &db_path.join("events"),
+                    metrics_registry,
                 )
                 .await?,
             ))),
@@ -609,6 +612,7 @@ impl EventProcessorRuntime {
         sui_config: SuiConfig,
         event_processor_config: Option<EventProcessorConfig>,
         db_path: &Path,
+        metrics_registry: &Registry,
         cancel_token: CancellationToken,
     ) -> anyhow::Result<(Box<dyn EventManager>, Self)> {
         let runtime = runtime::Builder::new_multi_thread()
@@ -620,9 +624,13 @@ impl EventProcessorRuntime {
         let _guard = runtime.enter();
         let (read_client, event_processor) = runtime.block_on(async {
             let read_client = sui_config.new_read_client().await?;
-            let event_processor =
-                Self::build_event_processor(sui_config.clone(), event_processor_config, db_path)
-                    .await?;
+            let event_processor = Self::build_event_processor(
+                sui_config.clone(),
+                event_processor_config,
+                db_path,
+                metrics_registry,
+            )
+            .await?;
             anyhow::Ok((read_client, event_processor))
         })?;
         let cloned_event_processor = event_processor.clone();
