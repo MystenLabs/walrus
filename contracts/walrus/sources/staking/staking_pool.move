@@ -296,6 +296,7 @@ public(package) fun advance_epoch(
     pool.rewards_pool.join(rewards);
     pool.wal_balance = pool.wal_balance + rewards_amount;
     pool.latest_epoch = current_epoch;
+    pool.node_info.rotate_public_key();
 
     process_pending_stake(pool, wctx)
 }
@@ -357,6 +358,41 @@ public(package) fun set_next_write_price(pool: &mut StakingPool, write_price: u6
 /// Sets the next node capacity for the pool.
 public(package) fun set_next_node_capacity(pool: &mut StakingPool, node_capacity: u64) {
     pool.voting_params.node_capacity = node_capacity;
+}
+
+/// Sets the public key to be used starting from the next epoch for which the node is selected.
+public(package) fun set_next_public_key(
+    self: &mut StakingPool,
+    public_key: vector<u8>,
+    proof_of_possession: vector<u8>,
+    wctx: &WalrusContext,
+    ctx: &TxContext,
+) {
+    // Verify proof of possession
+    assert!(
+        messages::new_proof_of_possession_msg(
+            wctx.epoch(),
+            ctx.sender(),
+            public_key,
+        ).verify_proof_of_possession(proof_of_possession),
+        EInvalidProofOfPossession,
+    );
+    self.node_info.set_next_public_key(public_key);
+}
+
+/// Sets the name of the storage node.
+public(package) fun set_name(self: &mut StakingPool, name: String) {
+    self.node_info.set_name(name);
+}
+
+/// Sets the network address or host of the storage node.
+public(package) fun set_network_address(self: &mut StakingPool, network_address: String) {
+    self.node_info.set_network_address(network_address);
+}
+
+/// Sets the public key used for TLS communication.
+public(package) fun set_network_public_key(self: &mut StakingPool, network_public_key: vector<u8>) {
+    self.node_info.set_network_public_key(network_public_key);
 }
 
 /// Destroy the pool if it is empty.

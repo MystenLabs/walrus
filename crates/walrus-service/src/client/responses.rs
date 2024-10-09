@@ -251,6 +251,8 @@ pub(crate) struct StorageNodeInfo {
     pub(crate) name: String,
     pub(crate) network_address: NetworkAddress,
     pub(crate) public_key: PublicKey,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) next_epoch_public_key: Option<PublicKey>,
     pub(crate) network_public_key: NetworkPublicKey,
     pub(crate) n_shards: usize,
 }
@@ -295,6 +297,7 @@ impl From<StorageNode> for StorageNodeInfo {
             node_id: _,
             network_address,
             public_key,
+            next_epoch_public_key,
             network_public_key,
             shard_ids,
         } = value;
@@ -302,6 +305,7 @@ impl From<StorageNode> for StorageNodeInfo {
             name,
             network_address,
             public_key,
+            next_epoch_public_key,
             network_public_key,
             n_shards: shard_ids.len(),
         }

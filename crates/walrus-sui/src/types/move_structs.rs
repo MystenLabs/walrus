@@ -91,6 +91,9 @@ pub struct StorageNode {
     /// The public key of the storage node.
     #[serde(deserialize_with = "deserialize_public_key")]
     pub public_key: PublicKey,
+    /// The public key of the storage node for the next epoch.
+    #[serde(deserialize_with = "deserialize_public_key_option")]
+    pub next_epoch_public_key: Option<PublicKey>,
     /// The network key of the storage node.
     #[serde(deserialize_with = "deserialize_public_key")]
     pub network_public_key: NetworkPublicKey,
@@ -111,6 +114,19 @@ where
 {
     let key: Vec<u8> = Deserialize::deserialize(deserializer)?;
     K::from_bytes(&key).map_err(D::Error::custom)
+}
+
+#[instrument(err, skip_all)]
+fn deserialize_public_key_option<'de, D, K>(deserializer: D) -> Result<Option<K>, D::Error>
+where
+    D: Deserializer<'de>,
+    K: ToFromBytes,
+{
+    let key: Option<Vec<u8>> = Deserialize::deserialize(deserializer)?;
+    match key {
+        Some(bytes) => K::from_bytes(&bytes).map_err(D::Error::custom).map(Some),
+        None => Ok(None),
+    }
 }
 
 /// Sui type for the capability that authorizes the holder to perform certain actions.

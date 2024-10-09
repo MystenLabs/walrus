@@ -115,32 +115,54 @@ public fun collect_commission(staking: &mut Staking, cap: &StorageNodeCap): Coin
 // === Voting ===
 
 /// Sets the storage price vote for the pool.
-public fun set_storage_price_vote(
-    self: &mut Staking,
-    cap: &StorageNodeCap,
-    storage_price: u64,
-) {
+public fun set_storage_price_vote(self: &mut Staking, cap: &StorageNodeCap, storage_price: u64) {
     self.inner_mut().set_storage_price_vote(cap, storage_price);
 }
 
 /// Sets the write price vote for the pool.
-public fun set_write_price_vote(
-    self: &mut Staking,
-    cap: &StorageNodeCap,
-    write_price: u64,
-) {
+public fun set_write_price_vote(self: &mut Staking, cap: &StorageNodeCap, write_price: u64) {
     self.inner_mut().set_write_price_vote(cap, write_price);
 }
 
 /// Sets the node capacity vote for the pool.
-public fun set_node_capacity_vote(
-    self: &mut Staking,
-    cap: &StorageNodeCap,
-    node_capacity: u64,
-) {
+public fun set_node_capacity_vote(self: &mut Staking, cap: &StorageNodeCap, node_capacity: u64) {
     self.inner_mut().set_node_capacity_vote(cap, node_capacity);
 }
 
+// === Update Node Parameters ===
+
+/// Sets the public key of a node to be used starting from the next epoch for which the node is
+/// selected.
+public fun set_next_public_key(
+    self: &mut Staking,
+    cap: &StorageNodeCap,
+    public_key: vector<u8>,
+    proof_of_possession: vector<u8>,
+    ctx: &mut TxContext,
+) {
+    self.inner_mut().set_next_public_key(cap, public_key, proof_of_possession, ctx);
+}
+
+/// Sets the name of a storage node.
+public fun set_name(self: &mut Staking, cap: &StorageNodeCap, name: String) {
+    self.inner_mut().set_name(cap, name);
+}
+
+/// Sets the network address or host of a storage node.
+public fun set_network_address(self: &mut Staking, cap: &StorageNodeCap, network_address: String) {
+    self.inner_mut().set_network_address(cap, network_address);
+}
+
+/// Sets the public key used for TLS communication for a node.
+public fun set_network_public_key(
+    self: &mut Staking,
+    cap: &StorageNodeCap,
+    network_public_key: vector<u8>,
+) {
+    self.inner_mut().set_network_public_key(cap, network_public_key);
+}
+
+// === Epoch Change ===
 
 /// Ends the voting period and runs the apportionment if the current time allows.
 /// Permissionless, can be called by anyone.

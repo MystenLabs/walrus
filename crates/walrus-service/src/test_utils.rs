@@ -986,6 +986,7 @@ impl StorageNodeTestConfig {
             name: name.into(),
             network_address: NetworkAddress(self.rest_api_address.to_string()),
             public_key: self.key_pair.public().clone(),
+            next_epoch_public_key: None,
             network_public_key: self.network_key_pair.public().clone(),
             shard_ids: self.shards.clone(),
         }
@@ -1112,6 +1113,7 @@ pub(crate) fn test_committee_with_epoch(weights: &[u16], epoch: Epoch) -> Commit
                 .map(ShardIndex)
                 .collect(),
             public_key: ProtocolKeyPair::generate().public().clone(),
+            next_epoch_public_key: None,
             network_public_key: NetworkKeyPair::generate().public().clone(),
             name: String::new(),
             network_address: NetworkAddress("host:0".to_owned()),

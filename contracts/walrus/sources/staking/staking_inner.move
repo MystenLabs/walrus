@@ -313,6 +313,44 @@ public(package) fun set_node_capacity_vote(
     self.pools[cap.node_id()].set_next_node_capacity(node_capacity);
 }
 
+// === Update Node Parameters ===
+
+/// Sets the public key of a node to be used starting from the next epoch for which the node is
+/// selected.
+public(package) fun set_next_public_key(
+    self: &mut StakingInnerV1,
+    cap: &StorageNodeCap,
+    public_key: vector<u8>,
+    proof_of_possession: vector<u8>,
+    ctx: &mut TxContext,
+) {
+    let wctx = &self.new_walrus_context();
+    self.pools[cap.node_id()].set_next_public_key(public_key, proof_of_possession, wctx, ctx);
+}
+
+/// Sets the name of a storage node.
+public(package) fun set_name(self: &mut StakingInnerV1, cap: &StorageNodeCap, name: String) {
+    self.pools[cap.node_id()].set_name(name);
+}
+
+/// Sets the network address or host of a storage node.
+public(package) fun set_network_address(
+    self: &mut StakingInnerV1,
+    cap: &StorageNodeCap,
+    network_address: String,
+) {
+    self.pools[cap.node_id()].set_network_address(network_address);
+}
+
+/// Sets the public key used for TLS communication for a node.
+public(package) fun set_network_public_key(
+    self: &mut StakingInnerV1,
+    cap: &StorageNodeCap,
+    network_public_key: vector<u8>,
+) {
+    self.pools[cap.node_id()].set_network_public_key(network_public_key);
+}
+
 // === Staking ===
 
 /// Blocks staking for the pool, marks it as "withdrawing".
@@ -608,7 +646,7 @@ public(package) fun previous_committee(self: &StakingInnerV1): &Committee {
 public(package) fun next_bls_committee(self: &StakingInnerV1): BlsCommittee {
     let (ids, shard_assignments) = (*self.next_committee.borrow().inner()).into_keys_values();
     let members = ids.zip_map!(shard_assignments, |id, shards| {
-        let pk = self.pools.borrow(id).node_info().public_key();
+        let pk = self.pools.borrow(id).node_info().next_epoch_public_key();
         bls_aggregate::new_bls_committee_member(*pk, shards.length() as u16, id)
     });
     bls_aggregate::new_bls_committee(self.epoch + 1, members)
