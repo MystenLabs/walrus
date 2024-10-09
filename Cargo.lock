@@ -11860,6 +11860,7 @@ dependencies = [
  "axum-server 0.7.1",
  "bcs",
  "fastcrypto 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "futures",
  "mime",
  "opentelemetry 0.23.0",
  "p256",

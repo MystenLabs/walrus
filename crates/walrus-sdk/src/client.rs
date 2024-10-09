@@ -6,6 +6,7 @@
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use fastcrypto::traits::{EncodeDecodeBase64, KeyPair};
+use futures::TryFutureExt as _;
 use opentelemetry::propagation::Injector;
 use reqwest::{
     header::{HeaderMap, HeaderName, HeaderValue},
@@ -49,7 +50,7 @@ use walrus_core::{
 use crate::{
     api::{BlobStatus, ServiceHealthInfo, StoredOnNodeStatus},
     error::{BuildErrorKind, ClientBuildError, NodeError},
-    node_response::NodeResponse as _,
+    node_response::NodeResponse,
     tls::TlsCertificateVerifier,
 };
 
@@ -853,8 +854,10 @@ impl Client {
         request: Request,
         url_template: &'static str,
     ) -> Result<T, NodeError> {
-        let (response, span) = self.send_request(request, url_template).await?;
-        response.bcs().instrument(span).await
+        self.send_request(request, url_template)
+            .and_then(|(response, span)| response.bcs().instrument(span))
+            .inspect_err(|error| tracing::trace!(?error))
+            .await
     }
 
     async fn send_and_parse_service_response<T: DeserializeOwned>(
@@ -862,8 +865,10 @@ impl Client {
         request: Request,
         url_template: &'static str,
     ) -> Result<T, NodeError> {
-        let (response, span) = self.send_request(request, url_template).await?;
-        response.service_response().instrument(span).await
+        self.send_request(request, url_template)
+            .and_then(|(response, span)| response.service_response().instrument(span))
+            .inspect_err(|error| tracing::trace!(?error))
+            .await
     }
 
     fn create_request_with_payload<T: Serialize>(
