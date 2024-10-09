@@ -27,9 +27,9 @@ public struct System has key {
 
 /// Creates and shares an empty system object.
 /// Must only be called by the initialization function.
-public(package) fun create_empty(ctx: &mut TxContext) {
+public(package) fun create_empty(max_epochs_ahead: u32, ctx: &mut TxContext) {
     let mut system = System { id: object::new(ctx), version: VERSION };
-    let system_state_inner = system_state_inner::create_empty(ctx);
+    let system_state_inner = system_state_inner::create_empty(max_epochs_ahead, ctx);
     dynamic_object_field::add(&mut system.id, VERSION, system_state_inner);
     transfer::share_object(system);
 }
@@ -54,16 +54,20 @@ public fun certify_event_blob(
     encoding_type: u8,
     ending_checkpoint_sequence_num: u64,
     epoch: u32,
-    ctx: &mut TxContext) {
-    system.inner_mut().certify_event_blob(
-        cap,
-        blob_id,
-        root_hash,
-        size,
-        encoding_type,
-        ending_checkpoint_sequence_num,
-        epoch,
-        ctx)
+    ctx: &mut TxContext,
+) {
+    system
+        .inner_mut()
+        .certify_event_blob(
+            cap,
+            blob_id,
+            root_hash,
+            size,
+            encoding_type,
+            ending_checkpoint_sequence_num,
+            epoch,
+            ctx,
+        )
 }
 
 /// Allows buying a storage reservation for a given period of epochs.

@@ -14,6 +14,7 @@ use anyhow::Context;
 use clap::{Parser, Subcommand};
 use humantime::Duration;
 use tokio::sync::oneshot;
+use walrus_core::EpochCount;
 use walrus_service::{
     node::config::{
         self,
@@ -69,6 +70,9 @@ struct DeploySystemContractArgs {
     /// The epoch duration.
     #[arg(long, default_value = "1h")]
     epoch_duration: Duration,
+    /// The duration of epoch 0.
+    #[arg(long, default_value = "0s")]
+    epoch_zero_duration: Duration,
     /// The list of host names or public IP addresses of the storage nodes.
     #[clap(long, value_name = "ADDR", value_delimiter = ' ', num_args(4..))]
     host_addresses: Vec<String>,
@@ -93,6 +97,9 @@ struct DeploySystemContractArgs {
     /// If set, generates the protocol key pairs of the nodes deterministically.
     #[arg(long, action)]
     deterministic_keys: bool,
+    /// The maximum number of epochs ahead for which storage can be obtained.
+    #[arg(long, default_value_t = 104)]
+    max_epochs_ahead: EpochCount,
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -167,6 +174,7 @@ mod commands {
             gas_budget,
             n_shards,
             epoch_duration,
+            epoch_zero_duration,
             host_addresses,
             rest_api_port,
             testbed_config_path,
@@ -174,6 +182,7 @@ mod commands {
             write_price,
             storage_capacity,
             deterministic_keys,
+            max_epochs_ahead,
         }: DeploySystemContractArgs,
     ) -> anyhow::Result<()> {
         tracing_subscriber::fmt::init();
@@ -199,6 +208,8 @@ mod commands {
             deterministic_keys,
             n_shards,
             epoch_duration: *epoch_duration,
+            epoch_zero_duration: *epoch_zero_duration,
+            max_epochs_ahead,
         })
         .await
         .context("Failed to deploy system contract")?;

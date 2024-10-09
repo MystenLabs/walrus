@@ -1196,11 +1196,9 @@ pub mod test_cluster {
         let system_ctx = create_and_init_system_for_test(
             &mut wallet.inner,
             n_shards,
-            0,
-            epoch_duration
-                .as_millis()
-                .try_into()
-                .expect("duration is within u64 millis"),
+            Duration::from_secs(0),
+            epoch_duration,
+            None,
         )
         .await?;
 

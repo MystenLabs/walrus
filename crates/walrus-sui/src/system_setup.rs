@@ -3,9 +3,9 @@
 
 //! Utilities to publish the walrus contracts and deploy a system object for testing.
 
-use std::{collections::BTreeSet, path::PathBuf, str::FromStr};
+use std::{collections::BTreeSet, path::PathBuf, str::FromStr, time::Duration};
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use sui_move_build::BuildConfig;
 use sui_sdk::{
     rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI, SuiTransactionBlockResponse},
@@ -25,7 +25,7 @@ use sui_types::{
     SUI_FRAMEWORK_ADDRESS,
 };
 use tracing::instrument;
-use walrus_core::ensure;
+use walrus_core::{ensure, EpochCount};
 
 use crate::{
     contracts::{self, StructTag},
@@ -139,25 +139,51 @@ pub async fn publish_coin_and_system_package(
     Ok((walrus_pkg_id, init_cap_id, treasury_cap_id))
 }
 
+/// Parameters used to call the `init_walrus` function in the Walrus contracts.
+#[derive(Debug, Clone, Copy)]
+pub struct InitSystemParams {
+    /// Number of shards in the system.
+    pub n_shards: u16,
+    /// Duration of the initial epoch in milliseconds.
+    pub epoch_zero_duration: Duration,
+    /// Duration of an epoch in milliseconds.
+    pub epoch_duration: Duration,
+    /// The maximum number of epochs ahead for which storage can be obtained.
+    pub max_epochs_ahead: EpochCount,
+}
+
 /// Initialize the system and staking objects on chain.
 pub async fn create_system_and_staking_objects(
     wallet: &mut WalletContext,
     contract_pkg_id: ObjectID,
     init_cap: ObjectID,
-    n_shards: u16,
-    epoch_zero_duration_ms: u64,
-    epoch_duration_ms: u64,
+    InitSystemParams {
+        n_shards,
+        epoch_zero_duration,
+        epoch_duration,
+        max_epochs_ahead,
+    }: InitSystemParams,
     gas_budget: u64,
 ) -> Result<(ObjectID, ObjectID)> {
     let mut pt_builder = ProgrammableTransactionBuilder::new();
+
+    let epoch_duration_millis: u64 = epoch_duration
+        .as_millis()
+        .try_into()
+        .context("epoch duration is too long")?;
+    let epoch_zero_duration_millis: u64 = epoch_zero_duration
+        .as_millis()
+        .try_into()
+        .context("genesis epoch duration is too long")?;
 
     // prepare the arguments
     let init_cap_ref = wallet.get_object_ref(init_cap).await?;
 
     let init_cap_arg = pt_builder.input(init_cap_ref.into())?;
-    let epoch_zero_duration_arg = pt_builder.pure(epoch_zero_duration_ms)?;
-    let epoch_duration_arg = pt_builder.pure(epoch_duration_ms)?;
+    let epoch_zero_duration_arg = pt_builder.pure(epoch_zero_duration_millis)?;
+    let epoch_duration_arg = pt_builder.pure(epoch_duration_millis)?;
     let n_shards_arg = pt_builder.pure(n_shards)?;
+    let max_epochs_ahead_arg = pt_builder.pure(max_epochs_ahead)?;
     let clock_arg = pt_builder.obj(ObjectArg::SharedObject {
         id: SUI_CLOCK_OBJECT_ID,
         initial_shared_version: SUI_CLOCK_OBJECT_SHARED_VERSION,
@@ -175,6 +201,7 @@ pub async fn create_system_and_staking_objects(
             epoch_zero_duration_arg,
             epoch_duration_arg,
             n_shards_arg,
+            max_epochs_ahead_arg,
             clock_arg,
         ],
     );

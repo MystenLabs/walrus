@@ -4,24 +4,24 @@
 #[allow(unused_variable, unused_mut_parameter, unused_field)]
 module walrus::system_state_inner;
 
-use sui::balance::Balance;
-use sui::coin::Coin;
+use sui::{balance::Balance, coin::Coin};
 use wal::wal::WAL;
-use walrus::blob::{Self, Blob};
-use walrus::bls_aggregate::{Self, BlsCommittee};
-use walrus::encoding::encoded_blob_length;
-use walrus::epoch_parameters::EpochParams;
-use walrus::event_blob::{Self, EventBlobCertificationState, new_attestation};
-use walrus::events::emit_invalid_blob_id;
-use walrus::messages;
-use walrus::storage_accounting::{Self, FutureAccountingRingBuffer};
-use walrus::storage_node::StorageNodeCap;
-use walrus::storage_resource::{Self, Storage};
+use walrus::{
+    blob::{Self, Blob},
+    bls_aggregate::{Self, BlsCommittee},
+    encoding::encoded_blob_length,
+    epoch_parameters::EpochParams,
+    event_blob::{Self, EventBlobCertificationState, new_attestation},
+    events::emit_invalid_blob_id,
+    messages,
+    storage_accounting::{Self, FutureAccountingRingBuffer},
+    storage_node::StorageNodeCap,
+    storage_resource::{Self, Storage}
+};
 
-/// The maximum number of periods ahead we allow for storage reservations.
-/// TODO: the number here is a placeholder, and assumes an epoch is a week,
-/// and therefore 2 x 52 weeks = 2 years.
-const MAX_EPOCHS_AHEAD: u32 = 104;
+/// An upper limit for the maximum number of epochs ahead for which a blob can be registered.
+/// Needed to bound the size of the `future_accounting`.
+const MAX_MAX_EPOCHS_AHEAD: u32 = 1000;
 
 // Keep in sync with the same constant in `crates/walrus-sui/utils.rs`.
 const BYTES_PER_UNIT_SIZE: u64 = 1_024;
@@ -35,6 +35,7 @@ const EInvalidAccountingEpoch: u64 = 5;
 const EIncorrectAttestation: u64 = 6;
 const ERepeatedAttestation: u64 = 7;
 const ENotCommitteeMember: u64 = 8;
+const EInvalidMaxEpochsAhead: u64 = 9;
 
 /// The inner object that is not present in signatures and can be versioned.
 #[allow(unused_field)]
@@ -51,15 +52,16 @@ public struct SystemStateInnerV1 has key, store {
     write_price_per_unit_size: u64,
     /// Accounting ring buffer for future epochs.
     future_accounting: FutureAccountingRingBuffer,
-    /// event blob certification state
+    /// Event blob certification state
     event_blob_certification_state: EventBlobCertificationState,
 }
 
 /// Creates an empty system state with a capacity of zero and an empty
 /// committee.
-public(package) fun create_empty(ctx: &mut TxContext): SystemStateInnerV1 {
+public(package) fun create_empty(max_epochs_ahead: u32, ctx: &mut TxContext): SystemStateInnerV1 {
     let committee = bls_aggregate::new_bls_committee(0, vector[]);
-    let future_accounting = storage_accounting::ring_new(MAX_EPOCHS_AHEAD);
+    assert!(max_epochs_ahead <= MAX_MAX_EPOCHS_AHEAD, EInvalidMaxEpochsAhead);
+    let future_accounting = storage_accounting::ring_new(max_epochs_ahead);
     let event_blob_certification_state = event_blob::create_with_empty_state(
         ctx,
     );
@@ -123,7 +125,7 @@ public(package) fun reserve_space(
 ): Storage {
     // Check the period is within the allowed range.
     assert!(epochs_ahead > 0, EInvalidEpochsAhead);
-    assert!(epochs_ahead <= MAX_EPOCHS_AHEAD, EInvalidEpochsAhead);
+    assert!(epochs_ahead <= self.future_accounting.max_epochs_ahead(), EInvalidEpochsAhead);
 
     // Check capacity is available.
     assert!(self.used_capacity_size + storage_amount <= self.total_capacity_size, EStorageExceeded);
@@ -145,7 +147,7 @@ fun reserve_space_without_payment(
 ): Storage {
     // Check the period is within the allowed range.
     assert!(epochs_ahead > 0, EInvalidEpochsAhead);
-    assert!(epochs_ahead <= MAX_EPOCHS_AHEAD, EInvalidEpochsAhead);
+    assert!(epochs_ahead <= self.future_accounting.max_epochs_ahead(), EInvalidEpochsAhead);
 
     // Update the storage accounting.
     self.used_capacity_size = self.used_capacity_size + storage_amount;
@@ -280,7 +282,7 @@ public(package) fun extend_blob(
 
     // Check the period is within the allowed range.
     assert!(epochs_ahead > 0, EInvalidEpochsAhead);
-    assert!(end_offset <= MAX_EPOCHS_AHEAD, EInvalidEpochsAhead);
+    assert!(end_offset <= self.future_accounting.max_epochs_ahead(), EInvalidEpochsAhead);
 
     // Pay rewards for each future epoch into the future accounting.
     let storage_size = blob.storage().storage_size();
@@ -395,13 +397,14 @@ public(package) fun certify_event_blob(
     };
 
     let num_shards = self.n_shards();
+    let epochs_ahead = self.future_accounting.max_epochs_ahead();
     let storage = self.reserve_space_without_payment(
         encoded_blob_length(
             size,
             encoding_type,
             num_shards,
         ),
-        MAX_EPOCHS_AHEAD,
+        epochs_ahead,
         ctx,
     );
     let mut blob = blob::new(
@@ -487,7 +490,7 @@ public(package) fun new_for_testing(): SystemStateInnerV1 {
         used_capacity_size: 0,
         storage_price_per_unit_size: 5,
         write_price_per_unit_size: 1,
-        future_accounting: storage_accounting::ring_new(MAX_EPOCHS_AHEAD),
+        future_accounting: storage_accounting::ring_new(104),
         event_blob_certification_state: event_blob::create_with_empty_state(
             ctx,
         ),
@@ -509,7 +512,7 @@ public(package) fun new_for_testing_with_multiple_members(ctx: &mut TxContext): 
         used_capacity_size: 0,
         storage_price_per_unit_size: 5,
         write_price_per_unit_size: 1,
-        future_accounting: storage_accounting::ring_new(MAX_EPOCHS_AHEAD),
+        future_accounting: storage_accounting::ring_new(104),
         event_blob_certification_state: event_blob::create_with_empty_state(
             ctx,
         ),

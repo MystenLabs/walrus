@@ -28,10 +28,11 @@ public fun initialize_walrus(
     epoch_zero_duration: u64,
     epoch_duration: u64,
     n_shards: u16,
+    max_epochs_ahead: u32,
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
-    system::create_empty(ctx);
+    system::create_empty(max_epochs_ahead, ctx);
     staking::create(epoch_zero_duration, epoch_duration, n_shards, clock, ctx);
     cap.destroy();
 }

@@ -127,3 +127,10 @@ public(package) fun ring_pop_expand(self: &mut FutureAccountingRingBuffer): Futu
 
     accounting
 }
+
+// === Accessors ===
+
+/// The maximum number of epochs for which we can use `self`.
+public(package) fun max_epochs_ahead(self: &FutureAccountingRingBuffer): u32 {
+    self.length
+}

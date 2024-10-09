@@ -23,10 +23,12 @@ use sui_types::base_types::ObjectID;
 use tracing::instrument;
 use walrus_core::{
     keys::{NetworkKeyPair, ProtocolKeyPair},
+    EpochCount,
     ShardIndex,
 };
 use walrus_sui::{
     client::{ContractClient as _, SuiContractClient},
+    system_setup::InitSystemParams,
     test_utils::{
         system_setup::{
             create_and_init_system,
@@ -230,8 +232,12 @@ pub struct DeployTestbedContractParameters<'a> {
     pub deterministic_keys: bool,
     /// The total number of shards.
     pub n_shards: u16,
+    /// The epoch duration of the genesis epoch.
+    pub epoch_zero_duration: Duration,
     /// The epoch duration.
     pub epoch_duration: Duration,
+    /// The maximum number of epochs ahead for which storage can be obtained.
+    pub max_epochs_ahead: EpochCount,
 }
 
 // Todo: Refactor configs #377
@@ -249,7 +255,9 @@ pub async fn deploy_walrus_contract(
         write_price,
         deterministic_keys,
         n_shards,
+        epoch_zero_duration,
         epoch_duration,
+        max_epochs_ahead,
     }: DeployTestbedContractParameters<'_>,
 ) -> anyhow::Result<TestbedConfig> {
     const WAL_MINT_AMOUNT: u64 = 100_000_000 * 1_000_000_000;
@@ -308,16 +316,15 @@ pub async fn deploy_walrus_contract(
     let sui_client = admin_wallet.get_client().await?;
     request_sui_from_faucet(admin_address, &sui_network, &sui_client).await?;
 
-    // TODO(#814): make epoch duration in test configurable. Currently hardcoded to 1 hour.
     let system_ctx = create_and_init_system(
         contract_path,
         &mut admin_wallet,
-        n_shards,
-        0,
-        epoch_duration
-            .as_millis()
-            .try_into()
-            .context("epoch duration is too long")?,
+        InitSystemParams {
+            n_shards,
+            epoch_zero_duration,
+            epoch_duration,
+            max_epochs_ahead,
+        },
         gas_budget,
     )
     .await?;

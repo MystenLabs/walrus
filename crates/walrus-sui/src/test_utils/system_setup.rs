@@ -3,7 +3,7 @@
 
 //! Utilities to publish the walrus contracts and deploy a system object for testing.
 
-use std::{iter, path::PathBuf, str::FromStr};
+use std::{iter, path::PathBuf, str::FromStr, time::Duration};
 
 use anyhow::{anyhow, Result};
 use rand::{rngs::StdRng, SeedableRng as _};
@@ -21,14 +21,19 @@ use sui_types::{
     TypeTag,
     SUI_FRAMEWORK_PACKAGE_ID,
 };
-use walrus_core::keys::{NetworkKeyPair, ProtocolKeyPair};
+use walrus_core::{
+    keys::{NetworkKeyPair, ProtocolKeyPair},
+    EpochCount,
+};
 
 use super::{default_protocol_keypair, DEFAULT_GAS_BUDGET};
 use crate::{
     client::{ContractClient, ReadClient, SuiClientError, SuiContractClient},
-    system_setup,
+    system_setup::{self, InitSystemParams},
     types::NodeRegistrationParams,
 };
+
+const DEFAULT_MAX_EPOCHS_AHEAD: EpochCount = 104;
 
 /// Provides the default contract path for testing for the package with name `package`.
 pub fn contract_path_for_testing(package: &str) -> anyhow::Result<PathBuf> {
@@ -53,7 +58,14 @@ pub async fn publish_with_default_system(
     // Default system config, compatible with current tests
 
     // TODO(#814): make epoch duration in test configurable. Currently hardcoded to 1 hour.
-    let system_context = create_and_init_system_for_test(admin_wallet, 100, 0, 3_600_000).await?;
+    let system_context = create_and_init_system_for_test(
+        admin_wallet,
+        100,
+        Duration::from_secs(0),
+        Duration::from_secs(3600),
+        None,
+    )
+    .await?;
 
     // Set up node params.
     // Pk corresponding to secret key scalar(117)
@@ -114,15 +126,19 @@ impl SystemContext {
 pub async fn create_and_init_system_for_test(
     admin_wallet: &mut WalletContext,
     n_shards: u16,
-    epoch_zero_duration_ms: u64,
-    epoch_duration_ms: u64,
+    epoch_zero_duration: Duration,
+    epoch_duration: Duration,
+    max_epochs_ahead: Option<EpochCount>,
 ) -> Result<SystemContext> {
     create_and_init_system(
         contract_path_for_testing("walrus")?,
         admin_wallet,
-        n_shards,
-        epoch_zero_duration_ms,
-        epoch_duration_ms,
+        InitSystemParams {
+            n_shards,
+            epoch_zero_duration,
+            epoch_duration,
+            max_epochs_ahead: max_epochs_ahead.unwrap_or(DEFAULT_MAX_EPOCHS_AHEAD),
+        },
         DEFAULT_GAS_BUDGET,
     )
     .await
@@ -135,9 +151,7 @@ pub async fn create_and_init_system_for_test(
 pub async fn create_and_init_system(
     contract_path: PathBuf,
     admin_wallet: &mut WalletContext,
-    n_shards: u16,
-    epoch_zero_duration_ms: u64,
-    epoch_duration_ms: u64,
+    init_system_params: InitSystemParams,
     gas_budget: u64,
 ) -> Result<SystemContext> {
     let (package_id, cap_id, treasury_cap) =
@@ -148,9 +162,7 @@ pub async fn create_and_init_system(
         admin_wallet,
         package_id,
         cap_id,
-        n_shards,
-        epoch_zero_duration_ms,
-        epoch_duration_ms,
+        init_system_params,
         gas_budget,
     )
     .await?;

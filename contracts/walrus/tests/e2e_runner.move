@@ -6,6 +6,8 @@ module walrus::e2e_runner;
 use sui::{clock::{Self, Clock}, test_scenario::{Self, Scenario}, test_utils};
 use walrus::{init, staking::Staking, system::System};
 
+const MAX_EPOCHS_AHEAD: u32 = 104;
+
 // === Tests Runner ===
 
 /// The test runner for end-to-end tests.
@@ -80,7 +82,15 @@ public fun build(self: InitBuilder): TestRunner {
     scenario.next_tx(admin);
     let cap = scenario.take_from_sender<init::InitCap>();
     let ctx = scenario.ctx();
-    init::initialize_walrus(cap, epoch_zero_duration, epoch_duration, n_shards, &clock, ctx);
+    init::initialize_walrus(
+        cap,
+        epoch_zero_duration,
+        epoch_duration,
+        n_shards,
+        MAX_EPOCHS_AHEAD,
+        &clock,
+        ctx,
+    );
 
     TestRunner { scenario, clock, admin }
 }

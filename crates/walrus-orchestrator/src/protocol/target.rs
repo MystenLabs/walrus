@@ -161,6 +161,8 @@ impl ProtocolCommands for TargetProtocol {
                 .shards_allocation
                 .number_of_shards() as u16,
             epoch_duration: Duration::from_secs(3600),
+            epoch_zero_duration: Duration::from_secs(0),
+            max_epochs_ahead: 104,
         })
         .await
         .expect("Failed to create Walrus contract");
