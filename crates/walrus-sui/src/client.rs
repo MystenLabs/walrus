@@ -328,16 +328,18 @@ impl SuiContractClient {
 
     /// Executes the move call to `function` with `call_args` and transfers all outputs
     /// (if any) to the sender.
-    #[tracing::instrument(err, skip(self))]
+    // TODO(giac): Currently we pass the wallet as an argument to ensure that the caller can lock before
+    // taking the object references. This ensures that no race conditions occur. We could consider a more
+    // ergonomic approach, where this function takes `&mut self`, and the whole client needs to be
+    // locked. (#1023).
+    #[tracing::instrument(err, skip(self, wallet))]
     async fn move_call_and_transfer<'a>(
         &self,
+        wallet: &WalletContext,
         function: FunctionTag<'a>,
         call_args: Vec<CallArg>,
     ) -> SuiClientResult<SuiTransactionBlockResponse> {
         let mut pt_builder = ProgrammableTransactionBuilder::new();
-
-        // Lock the wallet here to ensure there are no race conditions with object references.
-        let wallet = self.wallet().await;
         let arguments = call_args
             .iter()
             .map(|arg| pt_builder.input(arg.to_owned()))
@@ -348,7 +350,7 @@ impl SuiContractClient {
             pt_builder.transfer_arg(self.wallet_address, Argument::NestedResult(result_index, i));
         }
 
-        self.sign_and_send_ptb(&wallet, pt_builder.finish(), None)
+        self.sign_and_send_ptb(wallet, pt_builder.finish(), None)
             .await
     }
 
@@ -394,6 +396,10 @@ impl SuiContractClient {
     }
 
     /// Sign and send a programmable transaction.
+    // TODO(giac): Currently we pass the wallet as an argument to ensure that the caller can lock before
+    // taking the object references. This ensures that no race conditions occur. We could consider a more
+    // ergonomic approach, where this function takes `&mut self`, and the whole client needs to be
+    // locked. (#1023).
     pub async fn sign_and_send_ptb(
         &self,
         wallet: &WalletContext,
@@ -619,8 +625,13 @@ impl ContractClient for SuiContractClient {
         let price = self
             .write_price_for_encoded_length(storage.storage_size)
             .await?;
+
+        // Lock the wallet here to ensure there are no race conditions with object references.
+        let wallet = self.wallet().await;
+
         let res = self
             .move_call_and_transfer(
+                &wallet,
                 contracts::system::register_blob,
                 vec![
                     self.read_client.call_arg_from_system_obj(true).await?,
@@ -728,8 +739,13 @@ impl ContractClient for SuiContractClient {
         // ascending order (see `walrus::system::bls_aggregate::verify_certificate`)
         let mut signers = certificate.signers.clone();
         signers.sort_unstable();
+
+        // Lock the wallet here to ensure there are no race conditions with object references.
+        let wallet = self.wallet().await;
+
         let res = self
             .move_call_and_transfer(
+                &wallet,
                 contracts::system::certify_blob,
                 vec![
                     self.read_client.call_arg_from_system_obj(true).await?,
@@ -755,7 +771,12 @@ impl ContractClient for SuiContractClient {
         // ascending order (see `walrus::system::bls_aggregate::verify_certificate`)
         let mut signers = certificate.signers.clone();
         signers.sort_unstable();
+
+        // Lock the wallet here to ensure there are no race conditions with object references.
+        let wallet = self.wallet().await;
+
         self.move_call_and_transfer(
+            &wallet,
             contracts::system::invalidate_blob_id,
             vec![
                 self.read_client.call_arg_from_system_obj(true).await?,
@@ -799,8 +820,12 @@ impl ContractClient for SuiContractClient {
             return Err(SuiClientError::CapabilityObjectAlreadyExists(cap));
         }
 
+        // Lock the wallet here to ensure there are no race conditions with object references.
+        let wallet = self.wallet().await;
+
         let res = self
             .move_call_and_transfer(
+                &wallet,
                 contracts::staking::register_candidate,
                 vec![
                     self.read_client.call_arg_from_staking_obj(true).await?,
@@ -889,7 +914,11 @@ impl ContractClient for SuiContractClient {
     }
 
     async fn voting_end(&self) -> SuiClientResult<()> {
+        // Lock the wallet here to ensure there are no race conditions with object references.
+        let wallet = self.wallet().await;
+
         self.move_call_and_transfer(
+            &wallet,
             contracts::staking::voting_end,
             vec![
                 self.read_client.call_arg_from_staking_obj(true).await?,
@@ -901,7 +930,11 @@ impl ContractClient for SuiContractClient {
     }
 
     async fn initiate_epoch_change(&self) -> SuiClientResult<()> {
+        // Lock the wallet here to ensure there are no race conditions with object references.
+        let wallet = self.wallet().await;
+
         self.move_call_and_transfer(
+            &wallet,
             contracts::staking::initiate_epoch_change,
             vec![
                 self.read_client.call_arg_from_staking_obj(true).await?,
@@ -926,6 +959,9 @@ impl ContractClient for SuiContractClient {
             return Err(SuiClientError::LatestAttestedIsMoreRecent);
         }
 
+        // Lock the wallet here to ensure there are no race conditions with object references.
+        let wallet = self.wallet().await;
+
         tracing::debug!("calling epoch_sync_done {:?}", node_capability.node_id);
         let cap_obj_ref = self
             .wallet
@@ -935,6 +971,7 @@ impl ContractClient for SuiContractClient {
             .await?;
 
         self.move_call_and_transfer(
+            &wallet,
             contracts::staking::epoch_sync_done,
             vec![
                 self.read_client.call_arg_from_staking_obj(true).await?,
@@ -950,8 +987,12 @@ impl ContractClient for SuiContractClient {
     async fn create_and_fund_exchange(&self, amount: u64) -> SuiClientResult<ObjectID> {
         tracing::info!("creating a new SUI/WAL exchange");
 
+        // Lock the wallet here to ensure there are no race conditions with object references.
+        let wallet = self.wallet().await;
+
         let res = self
             .move_call_and_transfer(
+                &wallet,
                 contracts::wal_exchange::new_funded,
                 vec![
                     self.get_wal_coin(amount).await?.object_ref().into(),
@@ -1060,7 +1101,11 @@ impl ContractClient for SuiContractClient {
     }
 
     async fn delete_blob(&self, blob_object_id: ObjectID) -> SuiClientResult<()> {
+        // Lock the wallet here to ensure there are no race conditions with object references.
+        let wallet = self.wallet().await;
+
         self.move_call_and_transfer(
+            &wallet,
             contracts::system::delete_blob,
             vec![
                 self.read_client.call_arg_from_system_obj(true).await?,
