@@ -410,9 +410,9 @@ mod commands {
             // Do a minor sanity check that the user has not included a port in the hostname
             ensure!(
                 !public_host.contains(':'),
-                "DNS names must not contain ':', did you include a port?"
+                "DNS names must not contain ':', to specify a port, use the --port option."
             );
-            NetworkAddress(public_host)
+            NetworkAddress(format!("{public_host}:{port}"))
         };
         let registration_params = storage_config.to_registration_params(public_address, node_name);
 
