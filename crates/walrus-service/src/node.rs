@@ -3256,6 +3256,27 @@ mod tests {
         }
     }
 
+    // Waits until the storage node processes the specified number of events.
+    async fn wait_until_events_processed(
+        node: &StorageNodeHandle,
+        processed_event_count: u64,
+    ) -> anyhow::Result<()> {
+        retry_until_success_or_timeout(Duration::from_secs(10), || async {
+            if node
+                .storage_node
+                .inner
+                .storage
+                .get_sequentially_processed_event_count()?
+                >= processed_event_count
+            {
+                Ok(())
+            } else {
+                bail!("not enough events processed")
+            }
+        })
+        .await
+    }
+
     #[tokio::test]
     async fn shard_initialization_in_epoch_one() -> TestResult {
         let node = StorageNodeHandle::builder()
@@ -3271,7 +3292,7 @@ mod tests {
             .build()
             .await?;
 
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        wait_until_events_processed(&node, 1).await?;
 
         assert_eq!(
             node.as_ref()
@@ -3393,20 +3414,7 @@ mod tests {
             .build()
             .await?;
 
-        retry_until_success_or_timeout(Duration::from_secs(10), || async {
-            if node
-                .storage_node
-                .inner
-                .storage
-                .get_sequentially_processed_event_count()?
-                > 0
-            {
-                Ok(())
-            } else {
-                bail!("no events processed yet")
-            }
-        })
-        .await?;
+        wait_until_events_processed(&node, 1).await?;
 
         Ok(())
     }
