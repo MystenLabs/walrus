@@ -546,11 +546,8 @@ impl FromStr for ByteCount {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        // ensure!(s.is_ascii(), "only ascii characters allowed in byte sizes");
-        if let Some(value_prefix) = s.strip_suffix("B") {
-            // Bytes cannot have fractional components
-            return Ok(ByteCount(u64::from_str(value_prefix.trim())?));
-        }
+        let original = s;
+        let s = s.strip_suffix("B").unwrap_or(s);
 
         let suffixes = [
             ("K", 1e3),
@@ -565,17 +562,21 @@ impl FromStr for ByteCount {
             ("Pi", (1u64 << 50) as f64),
         ];
 
+        let error_context = || format!("invalid byte-count string: {original:?}");
         if let Some((value_str, scale)) = suffixes
             .into_iter()
             .find_map(|(suffix, scale)| Some((s.strip_suffix(suffix)?, scale)))
         {
-            let value = (f64::from_str(value_str.trim())? * scale).floor() as u64;
-            return Ok(ByteCount(value));
+            f64::from_str(value_str.trim())
+                .map(|value| ByteCount((value * scale).floor() as u64))
+                .with_context(error_context)
+        } else {
+            // Otherwise, assume unittless.
+            // Bytes cannot have fractional components
+            u64::from_str(s.trim())
+                .map(ByteCount)
+                .with_context(error_context)
         }
-
-        // Otherwise, assume unittless.
-        // Bytes cannot have fractional components
-        Ok(ByteCount(u64::from_str(s)?))
     }
 }
 
@@ -639,23 +640,48 @@ mod tests {
 
         param_test! {
             parse: [
-                unitless: ("7240", 7240),
                 byte: ("1240B", 1240),
-                kilo: ("2K", 2000),
-                kibi: ("3.5Ki", (3.5 * 1024.0) as u64),
-                mega: ("1.93M", (1.93 * 1e6) as u64),
-                mebi: ("1478Mi", 1478 * 1024 * 1024),
-                giga: ("21G", (21.0 * 1e9) as u64),
-                gibi: ("21.791Gi", (21.791 * 1024.0 * 1024.0* 1024.0) as u64),
-                tera: ("7.4T", (7.4 * 1e12) as u64),
-                tebi: ("19Ti", 19 * 1024 * 1024* 1024 * 1024),
-                peta: ("21000P", (21000.0 * 1e15) as u64),
-                pebi: ("21.721Pi", (21.721 * 1024.0 * 1024.0 * 1024.0 * 1024.0 * 1024.0) as u64),
-                with_space: ("1.489 M", (1.489 * 1e6) as u64),
+                byte_with_space: ("72 B", 72),
+                unitless: ("7240", 7240),
+                zero: ("0", 0),
             ]
         }
         fn parse(input: &str, expected: u64) {
             assert_eq!(ByteCount::from_str(input).unwrap(), ByteCount(expected));
         }
+
+        macro_rules! test_parse_various {
+            ($case_name:ident, $suffix:literal, $scale:expr) => {
+                mod $case_name {
+                    use super::*;
+
+                    param_test! {
+                        parse: [
+                            int: (concat!("420", $suffix), 420 * ($scale) as u64),
+                            int_b_suffix: (concat!("420", $suffix, "B"), 420 * ($scale) as u64),
+                            float: (concat!("1.97", $suffix), (1.97 * ($scale) as f64) as u64),
+                            float_b_suffix: (
+                                concat!("1.97", $suffix, "B"), (1.97 * ($scale) as f64) as u64
+                            ),
+                            with_space: (concat!("72", " ", $suffix), 72 * ($scale) as u64),
+                            with_space_b_suffix: (
+                                concat!("4.2", " ", $suffix, "B"), (4.2 * ($scale) as f64) as u64
+                            ),
+                        ]
+                    }
+                }
+            };
+        }
+
+        test_parse_various!(kilo, "K", 1000);
+        test_parse_various!(kibi, "Ki", 1024);
+        test_parse_various!(mega, "M", 1e6);
+        test_parse_various!(mebi, "Mi", 1024 * 1024);
+        test_parse_various!(giga, "G", 1e9);
+        test_parse_various!(gibi, "Gi", 1024 * 1024 * 1024);
+        test_parse_various!(tera, "T", 1e12);
+        test_parse_various!(tebi, "Ti", 1024 * 1024 * 1024 * 1024u64);
+        test_parse_various!(peta, "P", 1e15);
+        test_parse_various!(pebi, "Pi", 1024 * 1024 * 1024 * 1024 * 1024u64);
     }
 }
