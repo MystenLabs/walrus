@@ -9,7 +9,7 @@ use walrus_service::test_utils::test_cluster;
 use walrus_test_utils::Result as TestResult;
 
 #[ignore = "ignore E2E tests by default"]
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
 async fn nodes_drive_epoch_change() -> TestResult {
     let epoch_duration = Duration::from_secs(10);
     let (_sui, storage_nodes, _) =
