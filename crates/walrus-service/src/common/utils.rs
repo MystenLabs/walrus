@@ -449,7 +449,7 @@ impl MetricsAndLoggingRuntime {
         let (telemetry_guards, tracing_handle) = telemetry_subscribers::TelemetryConfig::new()
             .with_env()
             .with_prom_registry(&walrus_registry)
-            .with_log_level("debug")
+            .with_json()
             .init();
 
         Ok(Self {
