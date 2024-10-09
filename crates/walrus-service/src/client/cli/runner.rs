@@ -154,8 +154,12 @@ impl ClientCommandRunner {
                 self.stake_with_node_pool(node_id, amount).await
             }
 
-            CliCommands::GenerateSuiWallet { path, sui_network } => {
-                generate_sui_wallet(sui_network, &path, Duration::from_secs(20)).await?;
+            CliCommands::GenerateSuiWallet {
+                path,
+                sui_network,
+                faucet_timeout,
+            } => {
+                generate_sui_wallet(sui_network, &path, faucet_timeout).await?;
                 Ok(())
             }
 

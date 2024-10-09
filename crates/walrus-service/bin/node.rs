@@ -18,6 +18,7 @@ use clap::{Parser, Subcommand};
 use config::{PathOrInPlace, TlsConfig};
 use fastcrypto::traits::KeyPair;
 use fs::File;
+use humantime::Duration;
 use prometheus::Registry;
 use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
@@ -76,6 +77,9 @@ enum Commands {
         /// Available options are `devnet`, `testnet`, and `localnet`.
         #[clap(long, default_value = "testnet")]
         sui_network: SuiNetwork,
+        /// Timeout for the faucet call.
+        #[clap(long, default_value = "1min")]
+        faucet_timeout: Duration,
         #[clap(flatten)]
         config_args: ConfigArgs,
     },
@@ -250,8 +254,15 @@ fn main() -> anyhow::Result<()> {
             config_directory,
             storage_path,
             sui_network,
+            faucet_timeout,
             config_args,
-        } => commands::setup(config_directory, storage_path, sui_network, config_args)?,
+        } => commands::setup(
+            config_directory,
+            storage_path,
+            sui_network,
+            faucet_timeout.into(),
+            config_args,
+        )?,
 
         Commands::Register {
             config_path,
@@ -526,6 +537,7 @@ mod commands {
         config_directory: PathBuf,
         storage_path: PathBuf,
         sui_network: SuiNetwork,
+        faucet_timeout: Duration,
         config_args: ConfigArgs,
     ) -> anyhow::Result<()> {
         let config_path = config_directory.join("walrus-node.yaml");
@@ -541,7 +553,7 @@ mod commands {
         keygen(&protocol_key_path, KeyType::Protocol, true)?;
         keygen(&network_key_path, KeyType::Network, true)?;
 
-        utils::generate_sui_wallet(sui_network, &wallet_config, Duration::from_secs(20)).await?;
+        utils::generate_sui_wallet(sui_network, &wallet_config, faucet_timeout).await?;
 
         generate_config(
             PathArgs {

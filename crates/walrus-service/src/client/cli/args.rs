@@ -281,6 +281,10 @@ pub enum CliCommands {
         #[clap(long, default_value_t = default::sui_network())]
         #[serde(default = "default::sui_network")]
         sui_network: SuiNetwork,
+        /// Timeout for the faucet call.
+        #[clap(short, long, value_parser = humantime::parse_duration, default_value = "1min")]
+        #[serde(default = "default::faucet_timeout")]
+        faucet_timeout: Duration,
     },
     /// Exchange SUI for WAL through the configured exchange.
     GetWal {
@@ -569,6 +573,10 @@ mod default {
 
     pub(crate) fn sui_network() -> SuiNetwork {
         SuiNetwork::Testnet
+    }
+
+    pub(crate) fn faucet_timeout() -> Duration {
+        Duration::from_secs(60)
     }
 }
 
