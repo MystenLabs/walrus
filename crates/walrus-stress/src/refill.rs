@@ -72,7 +72,7 @@ impl CoinRefill for NetworkCoinRefill {
     }
 
     async fn send_wal_request(&self, _address: SuiAddress) -> Result<()> {
-        unimplemented!("WAL refill is not implemented for the network coin refill")
+        unimplemented!("WAL refill is not implemented for the network coin refill (#1015)")
     }
 }
 
