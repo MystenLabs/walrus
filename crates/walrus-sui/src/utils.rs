@@ -288,6 +288,12 @@ impl SuiNetwork {
     }
 }
 
+impl std::fmt::Display for SuiNetwork {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.r#type())
+    }
+}
+
 /// Sign and send a [`ProgrammableTransaction`].
 pub async fn sign_and_send_ptb(
     sender: SuiAddress,

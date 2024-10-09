@@ -541,30 +541,7 @@ mod commands {
         keygen(&protocol_key_path, KeyType::Protocol, true)?;
         keygen(&network_key_path, KeyType::Network, true)?;
 
-        println!(
-            "Generating Sui wallet for {} at '{}'",
-            sui_network.r#type(),
-            wallet_config.display()
-        );
-        let mut wallet = walrus_sui::utils::create_wallet(&wallet_config, sui_network.env(), None)?;
-        let wallet_address = wallet.active_address()?;
-        println!("Generated a new Sui wallet; address: {wallet_address}");
-
-        println!("Attempting to get SUI from faucet...");
-        match tokio::time::timeout(
-            Duration::from_secs(20),
-            walrus_sui::utils::request_sui_from_faucet(
-                wallet_address,
-                &sui_network,
-                &wallet.get_client().await?,
-            ),
-        )
-        .await
-        {
-            Err(_) => println!("Reached timeout while waiting to get SUI from the faucet"),
-            Ok(Err(e)) => println!("An error occurred when trying to get SUI from the faucet: {e}"),
-            Ok(Ok(_)) => (),
-        }
+        utils::generate_sui_wallet(sui_network, &wallet_config, Duration::from_secs(20)).await?;
 
         generate_config(
             PathArgs {

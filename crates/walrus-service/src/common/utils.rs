@@ -35,6 +35,7 @@ use tokio::{
     time::Instant,
 };
 use walrus_core::{PublicKey, ShardIndex};
+use walrus_sui::utils::SuiNetwork;
 
 use super::active_committees::ActiveCommittees;
 
@@ -527,6 +528,42 @@ pub fn load_wallet_context(path: &Option<PathBuf>) -> Result<WalletContext> {
         .ok_or(anyhow!("could not find a valid wallet config file"))?;
     tracing::info!("using Sui wallet configuration from '{}'", path.display());
     WalletContext::new(&path, None, None)
+}
+
+/// Generates a new Sui wallet for the specified network at the specified path and attempts to fund
+/// it through the faucet.
+pub async fn generate_sui_wallet(
+    sui_network: SuiNetwork,
+    path: &Path,
+    faucet_timeout: Duration,
+) -> Result<WalletContext> {
+    tracing::info!(
+        "generating Sui wallet for {sui_network} at '{}'",
+        path.display()
+    );
+    let mut wallet = walrus_sui::utils::create_wallet(path, sui_network.env(), None)?;
+    let wallet_address = wallet.active_address()?;
+    tracing::info!("generated a new Sui wallet; address: {wallet_address}");
+
+    tracing::info!("attempting to get SUI from faucet...");
+    match tokio::time::timeout(
+        faucet_timeout,
+        walrus_sui::utils::request_sui_from_faucet(
+            wallet_address,
+            &sui_network,
+            &wallet.get_client().await?,
+        ),
+    )
+    .await
+    {
+        Err(_) => tracing::warn!("reached timeout while waiting to get SUI from the faucet"),
+        Ok(Err(e)) => {
+            tracing::warn!("an error occurred when trying to get SUI from the faucet: {e}")
+        }
+        Ok(Ok(_)) => tracing::info!("successfully obtained SUI from the faucet"),
+    }
+
+    Ok(wallet)
 }
 
 /// Provides approximate parsing of human-friendly byte values.
