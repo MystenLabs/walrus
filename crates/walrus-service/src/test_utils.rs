@@ -15,6 +15,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use chrono::Utc;
 use futures::{stream::FuturesUnordered, StreamExt};
 use prometheus::Registry;
 use sui_types::base_types::ObjectID;
@@ -318,7 +319,10 @@ impl StorageNodeHandleBuilder {
 
         let contract_service = self.contract_service.unwrap_or_else(|| {
             Box::new(StubContractService {
-                system_parameters: FixedSystemParameters::default(),
+                system_parameters: FixedSystemParameters {
+                    epoch_duration: Duration::from_secs(600),
+                    epoch_zero_end: Utc::now() + Duration::from_secs(60),
+                },
             })
         });
 

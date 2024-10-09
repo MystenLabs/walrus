@@ -17,7 +17,7 @@ async fn nodes_drive_epoch_change() -> TestResult {
         test_cluster::default_setup_with_epoch_duration(epoch_duration).await?;
 
     let target_epoch: Epoch = 4;
-    // Allow time to reach the desired epoch, with an additional 20% for the jitter.
+    // Allow time to reach the desired epoch, with an additional 50% for the jitter.
     let time_to_reach_epoch = epoch_duration * target_epoch * 15 / 10;
 
     time::timeout(

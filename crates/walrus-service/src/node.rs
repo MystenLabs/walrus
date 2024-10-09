@@ -813,8 +813,8 @@ impl StorageNode {
         }
 
         if shard_diff.gained.is_empty() {
-            let node_in_committee = committees.current_committee().contains(public_key);
-            if node_in_committee && committees.epoch() == event.epoch {
+            let is_node_in_committee = committees.current_committee().contains(public_key);
+            if is_node_in_committee && committees.epoch() == event.epoch {
                 // We are in the current committee, but no shards were gained. Directly signal that
                 // the epoch sync is done.
                 tracing::info!("no shards gained, so signalling that epoch sync is done");
@@ -829,7 +829,7 @@ impl StorageNode {
                 tracing::info!(
                     "skip sending epoch sync done event. \
                     node in committee: {}, committee epoch: {}, event epoch: {}",
-                    node_in_committee,
+                    is_node_in_committee,
                     committees.epoch(),
                     event.epoch
                 );
@@ -3157,7 +3157,12 @@ mod tests {
         contract_service.expect_epoch_sync_done().never();
         contract_service
             .expect_fixed_system_parameters()
-            .returning(|| Ok(FixedSystemParameters::default()));
+            .returning(|| {
+                Ok(FixedSystemParameters {
+                    epoch_duration: Duration::from_secs(600),
+                    epoch_zero_end: Utc::now() + Duration::from_secs(60),
+                })
+            });
         contract_service
             .expect_get_epoch_and_state()
             .returning(move || Ok((0, EpochState::EpochChangeDone(Utc::now()))));
