@@ -226,24 +226,33 @@ pub struct ServiceHealthInfo {
 }
 
 /// Summary of the shard statuses.
+///
+/// Summarises the number of nodes for which this node is responsible, as well as those that are
+/// being transferred to another storage node.
 #[derive(Debug, Default, Clone, Deserialize, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ShardStatusSummary {
     /// The number of shards, for which this node is responsible.
+    ///
+    /// Their statuses are summarized in `unknown`, `ready`, `in_transfer`, and `in_recovery`.
     pub owned: usize,
-    /// The number of shards in an unknown state.
+    /// The number of owned shards shards in an unknown state.
     pub unknown: usize,
-    /// The number of shards that are up-to-date for the epoch.
+    /// The number of owned shards that are up-to-date for the epoch.
     pub ready: usize,
-    /// The number of shards that are being transferred to the node.
+    /// The number of owned shards that are being transferred to the node.
     pub in_transfer: usize,
-    /// The number of shards that are being recovered.
+    /// The number of owned shards that are being recovered.
     pub in_recovery: usize,
-    /// The number of shards that are read only, i.e., serving reads from this node.
+    /// The number of owned shards that are read only, i.e., serving reads from this node.
     pub read_only: usize,
 }
 
-/// Summary of the shard statuses.
+/// Detail statuses of individual shards.
+///
+/// Provides the status of each shard for which the node is responsible. Additionally, will provide
+/// the status of shards which the node is not responsible for in the current epoch, but
+/// nonetheless currently stores. These will not appear in the [`ShardStatusSummary`].
 #[derive(Debug, Default, Clone, Deserialize, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ShardStatusDetail {

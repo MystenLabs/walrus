@@ -441,11 +441,7 @@ pub async fn health_info<S: SyncServiceState>(
     Query(query): Query<HealthInfoQuery>,
     State(state): State<Arc<S>>,
 ) -> ApiSuccess<ServiceHealthInfo> {
-    let mut health_info = state.health_info();
-    if !query.detailed {
-        health_info.shard_detail = None;
-    }
-    ApiSuccess::ok(health_info)
+    ApiSuccess::ok(state.health_info(query.detailed))
 }
 
 #[tracing::instrument(skip_all)]

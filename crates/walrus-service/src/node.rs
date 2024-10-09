@@ -195,7 +195,7 @@ pub trait ServiceState {
     fn n_shards(&self) -> NonZeroU16;
 
     /// Returns the node health information of this ServiceState.
-    fn health_info(&self) -> ServiceHealthInfo;
+    fn health_info(&self, detailed: bool) -> ServiceHealthInfo;
 
     /// Returns whether the sliver is stored in the shard.
     fn sliver_status<A: EncodingAxis>(
@@ -999,7 +999,10 @@ impl StorageNodeInner {
         self.protocol_key_pair.as_ref().public()
     }
 
-    fn shard_health_status(&self) -> (ShardStatusSummary, ShardStatusDetail) {
+    fn shard_health_status(
+        &self,
+        detailed: bool,
+    ) -> (ShardStatusSummary, Option<ShardStatusDetail>) {
         // NOTE: It is possible that the committee or shards change between this and the next call.
         // As this is for admin consumption, this is not considered a problem.
         let mut shard_statuses = self.storage.try_list_shard_status().unwrap_or_default();
@@ -1007,8 +1010,11 @@ impl StorageNodeInner {
         let owned_shards = committee.shards_for_node_public_key(self.public_key());
         let mut summary = ShardStatusSummary::default();
 
-        let mut detail = ShardStatusDetail::default();
-        detail.owned.reserve_exact(owned_shards.len());
+        let mut detail = detailed.then(|| {
+            let mut detail = ShardStatusDetail::default();
+            detail.owned.reserve_exact(owned_shards.len());
+            detail
+        });
 
         // Record the status for the owned shards.
         for &shard in owned_shards {
@@ -1019,19 +1025,25 @@ impl StorageNodeInner {
                 .map_or(ApiShardStatus::Unknown, api_status_from_shard_status);
 
             increment_shard_summary(&mut summary, status, true);
-            detail.owned.push(ShardHealthInfo { shard, status });
+            if let Some(ref mut detail) = detail {
+                detail.owned.push(ShardHealthInfo { shard, status });
+            }
         }
 
         // Record the status for the unowned shards.
         for (shard, status) in shard_statuses {
             let status = status.map_or(ApiShardStatus::Unknown, api_status_from_shard_status);
             increment_shard_summary(&mut summary, status, false);
-            detail.other.push(ShardHealthInfo { shard, status });
+            if let Some(ref mut detail) = detail {
+                detail.other.push(ShardHealthInfo { shard, status });
+            }
         }
 
         // Sort the result by the shard index.
-        detail.owned.sort_by_key(|info| info.shard);
-        detail.other.sort_by_key(|info| info.shard);
+        if let Some(ref mut detail) = detail {
+            detail.owned.sort_by_key(|info| info.shard);
+            detail.other.sort_by_key(|info| info.shard);
+        }
 
         (summary, detail)
     }
@@ -1164,8 +1176,8 @@ impl ServiceState for StorageNode {
         self.inner.n_shards()
     }
 
-    fn health_info(&self) -> ServiceHealthInfo {
-        self.inner.health_info()
+    fn health_info(&self, detailed: bool) -> ServiceHealthInfo {
+        self.inner.health_info(detailed)
     }
 
     fn sliver_status<A: EncodingAxis>(
@@ -1378,14 +1390,14 @@ impl ServiceState for StorageNodeInner {
         self.encoding_config.n_shards()
     }
 
-    fn health_info(&self) -> ServiceHealthInfo {
-        let (summary, detail) = self.shard_health_status();
+    fn health_info(&self, detailed: bool) -> ServiceHealthInfo {
+        let (shard_summary, shard_detail) = self.shard_health_status(detailed);
         ServiceHealthInfo {
             uptime: self.start_time.elapsed(),
             epoch: self.current_epoch(),
             public_key: self.public_key().clone(),
-            shard_detail: Some(detail),
-            shard_summary: summary,
+            shard_detail,
+            shard_summary,
         }
     }
 
