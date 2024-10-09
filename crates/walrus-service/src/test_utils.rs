@@ -11,6 +11,7 @@ use std::{
     borrow::Borrow,
     net::{SocketAddr, TcpStream},
     num::NonZeroU16,
+    str::FromStr,
     sync::{Arc, Mutex},
 };
 
@@ -125,12 +126,18 @@ impl EventRetentionManager for DefaultSystemEventManager {
 #[async_trait]
 impl EventManager for DefaultSystemEventManager {}
 
-/// A test configuration for a storage node.
+/// Trait representing a storage node handle.
+/// The trait is used to abstract over the different types of storage node handles.
+/// More specifically, there are two types:
+///   - a node handle that the tester has control over all the internal components of the node.
+///   - a node handle that is used in the simulation tests which supports crash and recovery.
 pub trait StorageNodeHandleTrait {
     /// Cancels the node's event loop and REST API.
     fn cancel(&self);
+
     /// Returns the client that can be used to communicate with the node.
     fn client(&self) -> &Client;
+
     /// Builds a new storage node handle.
     fn build(
         builder: StorageNodeHandleBuilder,
@@ -140,10 +147,13 @@ pub trait StorageNodeHandleTrait {
     ) -> impl std::future::Future<Output = anyhow::Result<Self>> + Send
     where
         Self: Sized;
+
     /// Returns the storage node.
     fn storage_node(&self) -> &Arc<StorageNode>;
+
     /// Returns the node's protocol public key.
     fn public_key(&self) -> &PublicKey;
+
     /// Returns whether the storage node should use a distinct IP address.
     fn use_distinct_ip() -> bool;
 }
@@ -197,6 +207,8 @@ impl StorageNodeHandleTrait for StorageNodeHandle {
         builder.build().await
     }
 
+    // StorageNodeHandle is only used in integration test without crash and recovery. No need to
+    // use distinct IP.
     fn use_distinct_ip() -> bool {
         false
     }
@@ -215,7 +227,8 @@ impl AsRef<StorageNode> for StorageNodeHandle {
     }
 }
 
-/// A test configuration for a storage node.
+/// A storage node handle for simulation tests. Comparing to StorageNodeHandle, this struct
+/// removes any storage node internal state, and adds a simulator node id for node management.
 #[derive(Debug)]
 pub struct SimStorageNodeHandle {
     /// The temporary directory containing the node's storage.
@@ -228,24 +241,26 @@ pub struct SimStorageNodeHandle {
     pub rest_api_address: SocketAddr,
     /// The address of the metric service.
     pub metrics_address: SocketAddr,
-    /// Cancel
+    /// Cancellation token for the node.
     pub cancel_token: CancellationToken,
-    /// The wrapped storage node.
+    /// The wrapped simulator node id.
     #[cfg(msim)]
     pub node_id: sui_simulator::task::NodeId,
 }
 
 impl StorageNodeHandleTrait for SimStorageNodeHandle {
     fn cancel(&self) {
-        unimplemented!("Sim storage can't be cancelled.")
+        unimplemented!("cannot directly cancel a storage in proactively.")
     }
 
     fn client(&self) -> &Client {
-        unimplemented!("Sim storage doesn't have client.")
+        // Node client may change everytime the node restarts.
+        unimplemented!("simulation test does not have a stable client.")
     }
 
     fn storage_node(&self) -> &Arc<StorageNode> {
-        unimplemented!("Sim storage doesn't have storage node.")
+        // Storage node state changes everytime the node restarts.
+        unimplemented!("simulation test does not have a stable internal state.")
     }
 
     fn public_key(&self) -> &PublicKey {
@@ -270,6 +285,8 @@ impl StorageNodeHandleTrait for SimStorageNodeHandle {
             .await
     }
 
+    // Storage node in simulation requires to have distinct IP since ip represents the id of
+    // the simulator node.
     fn use_distinct_ip() -> bool {
         true
     }
@@ -531,7 +548,7 @@ impl StorageNodeHandleBuilder {
         })
     }
 
-    /// Starts a storage node with the provided configuration.
+    /// Starts and running a storage node with the provided configuration.
     #[allow(unused_variables)]
     pub async fn start_node(
         self,
@@ -543,6 +560,7 @@ impl StorageNodeHandleBuilder {
             .test_config
             .expect("test config must be provided to spawn a storage node");
 
+        // Builds the storage node config used to run the node.
         let storage_node_config = StorageNodeConfig {
             storage_path: storage_dir.path().to_path_buf(),
             protocol_key_pair: node_info.key_pair.into(),
@@ -569,13 +587,13 @@ impl StorageNodeHandleBuilder {
             public_key: storage_node_config
                 .protocol_key_pair
                 .get()
-                .unwrap()
+                .expect("protocol key must be set")
                 .public()
                 .clone(),
             network_public_key: storage_node_config
                 .network_key_pair
                 .get()
-                .unwrap()
+                .expect("network key must be set")
                 .public()
                 .clone(),
             rest_api_address: storage_node_config.rest_api_address,
@@ -586,21 +604,24 @@ impl StorageNodeHandleBuilder {
         })
     }
 
+    // Starts and runs a storage node with the provided configuration in a dedicated simulator
+    // node.
     #[cfg(msim)]
     async fn spawn_node(
         config: StorageNodeConfig,
         cancel_token: CancellationToken,
     ) -> sui_simulator::runtime::NodeHandle {
-        use std::net::IpAddr;
-
         let (startup_sender, mut startup_receiver) = tokio::sync::watch::channel(false);
+
         let ip = match config.rest_api_address {
-            SocketAddr::V4(v4) => IpAddr::V4(*v4.ip()),
+            SocketAddr::V4(v4) => std::net::IpAddr::V4(*v4.ip()),
             _ => panic!("unsupported protocol"),
         };
         let startup_sender = Arc::new(startup_sender);
         let handle = sui_simulator::runtime::Handle::current();
         let builder = handle.create_node();
+
+        // This is the entry point of node restart.
         let node_handle = builder
             .ip(ip)
             .name(&format!(
@@ -608,10 +629,9 @@ impl StorageNodeHandleBuilder {
                 config.protocol_key_pair.get().unwrap().public()
             ))
             .init(move || {
-                tracing::info!("Restart node");
+                tracing::info!("Starting simulator node. Ip: {:?}", ip);
                 let config = config.clone();
                 let cancel_token = cancel_token.clone();
-
                 let startup_sender = startup_sender.clone();
 
                 async move {
@@ -623,32 +643,35 @@ impl StorageNodeHandleBuilder {
 
                     tokio::select! {
                         _ = rest_api_handle => {
-                            tracing::info!("Rest API stopped");
+                            tracing::info!("rest API stopped");
                         }
                         _ = node_handle => {
-                            tracing::info!("Node stopped");
+                            tracing::info!("node stopped");
                         }
                         _ = event_processor_handle => {
-                            tracing::info!("Event processor stopped");
+                            tracing::info!("event processor stopped");
                         }
                         _ = cancel_token.cancelled() => {
-                            tracing::info!("Node stopped by cancellation");
+                            tracing::info!("node stopped by cancellation");
                         }
                     }
 
-                    tracing::info!("Node stopped");
+                    tracing::info!("node stopped");
                 }
             })
             .build();
 
+        // Wait for the node to start and running.
         startup_receiver
             .changed()
             .await
-            .expect("Waiting for node to start failed");
+            .expect("waiting for node to start failed");
 
         node_handle
     }
 
+    /// Builds and runs a storage node with the provided configuration. Returns the handles to the
+    /// REST API, the node, and the event processor.
     #[cfg(msim)]
     async fn build_and_run_node(
         config: StorageNodeConfig,
@@ -658,11 +681,17 @@ impl StorageNodeHandleBuilder {
         tokio::task::JoinHandle<Result<(), anyhow::Error>>,
         tokio::task::JoinHandle<Result<(), anyhow::Error>>,
     )> {
-        use crate::node::system_events::SuiSystemEventProvider;
-        let sui_config = config.sui.clone().expect("cannot be none");
+        // TODO(#996): extract the common code to start the code, and use it here as well as in
+        // StorageNodeRuntime::start.
 
+        let sui_config = config
+            .sui
+            .clone()
+            .expect("simulation must set sui config in storage node config");
+
+        // Starts the event processor thread if the node is configured to use the checkpoint
+        // based event processor.
         let sui_read_client = sui_config.new_read_client().await?;
-
         let event_provider: Box<dyn EventManager> =
             if let Some(event_processor_config) = config.clone().event_processor_config {
                 Box::new(
@@ -676,12 +705,14 @@ impl StorageNodeHandleBuilder {
                     .await?,
                 )
             } else {
-                Box::new(SuiSystemEventProvider::new(
+                Box::new(crate::node::system_events::SuiSystemEventProvider::new(
                     sui_read_client.clone(),
                     Duration::from_millis(100),
                 ))
             };
 
+        // Starts the event processor thread if it is configured, otherwise it produces a JoinHandle
+        // that never returns.
         let event_processor_handle = if let Some(event_processor) =
             event_provider.as_any().downcast_ref::<EventProcessor>()
         {
@@ -696,6 +727,7 @@ impl StorageNodeHandleBuilder {
             tokio::spawn(async { std::future::pending::<Result<(), anyhow::Error>>().await })
         };
 
+        // Build storage node with the current configuration and event manager.
         let metrics_registry = Registry::default();
         let node = StorageNode::builder()
             .with_system_event_manager(event_provider)
@@ -703,6 +735,7 @@ impl StorageNodeHandleBuilder {
             .await?;
         let node = Arc::new(node);
 
+        // Starts rest api and node threads.
         let rest_api = Arc::new(UserServer::new(
             node.clone(),
             cancel_token.clone(),
@@ -988,6 +1021,9 @@ impl SystemContractService for StubContractService {
 }
 
 /// Returns a socket address that is not currently in use on the system.
+///
+/// distinct_ip: If true, the returned address will have a distinct IP address from the local
+/// machine.
 pub fn unused_socket_address(distinct_ip: bool) -> SocketAddr {
     if distinct_ip {
         try_unused_socket_address_with_distinct_ip()
@@ -1008,8 +1044,6 @@ fn try_unused_socket_address() -> anyhow::Result<SocketAddr> {
 }
 
 fn try_unused_socket_address_with_distinct_ip() -> anyhow::Result<SocketAddr> {
-    use std::str::FromStr;
-
     Ok(SocketAddr::from_str(
         (sui_config::local_ip_utils::get_new_ip() + ":1314").as_str(),
     )?)
@@ -1289,7 +1323,6 @@ impl TestClusterBuilder {
         {
             let local_identity = config.key_pair.public().clone();
             let mut builder = StorageNodeHandle::builder()
-                // TODO: don't set storage in simtest
                 .with_storage(empty_storage_with_shards(&config.shards))
                 .with_test_config(config)
                 .with_rest_api_started(true)
@@ -1633,7 +1666,6 @@ pub mod test_cluster {
         )
         .await?;
 
-        #[cfg(msim)]
         let cluster_builder = cluster_builder
             .with_system_context(system_ctx.clone())
             .with_sui_cluster_handle(sui_cluster.clone());

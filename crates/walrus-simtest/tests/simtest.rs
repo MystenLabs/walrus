@@ -10,6 +10,7 @@ mod tests {
     };
 
     use rand::Rng;
+    use sui_macros::register_fail_points;
     use sui_protocol_config::ProtocolConfig;
     use walrus_core::encoding::{Primary, Secondary};
     use walrus_proc_macros::walrus_simtest;
@@ -20,6 +21,7 @@ mod tests {
     use walrus_sui::client::{BlobPersistence, SuiContractClient};
     use walrus_test_utils::WithTempDir;
 
+    // Helper function to write a random blob, read it back and check that it is the same.
     async fn write_read_and_check_random_blob(
         client: &WithTempDir<Client<SuiContractClient>>,
         data_length: usize,
@@ -80,11 +82,10 @@ mod tests {
             .unwrap();
     }
 
+    // Tests the scenario where a single node crashes and restarts.
     #[walrus_simtest]
     #[ignore = "ignore integration simtests by default"]
     async fn walrus_with_single_node_crash_and_restart() {
-        use sui_macros::register_fail_points;
-
         let _guard = ProtocolConfig::apply_overrides_for_testing(|_, mut config| {
             // TODO: remove once Sui simtest can work with these features.
             config.set_enable_jwk_consensus_updates_for_testing(false);
@@ -125,6 +126,7 @@ mod tests {
         let _ = tokio::time::timeout(Duration::from_secs(60), async {
             let mut data_length = 31415;
             loop {
+                // TODO(#995): use stress client for better coverage of the workload.
                 write_read_and_check_random_blob(&client, data_length)
                     .await
                     .expect("workload should not fail");
@@ -135,6 +137,8 @@ mod tests {
         .await;
     }
 
+    // Action taken during a various failpoints. There is a chance with `probability` that the
+    // current node will be crashed.
     fn handle_failpoint(
         keep_alive_nodes: HashSet<sui_simulator::task::NodeId>,
         fail_triggered: Arc<AtomicBool>,
