@@ -31,6 +31,7 @@ pub struct ClientMetrics {
     pub latency_squared_s: CounterVec,
     pub errors: CounterVec,
     pub gas_refill: IntCounter,
+    pub wal_refill: IntCounter,
 }
 
 impl ClientMetrics {
@@ -77,6 +78,12 @@ impl ClientMetrics {
                 registry,
             )
             .expect("this is a valid metrics registration"),
+            wal_refill: register_int_counter_with_registry!(
+                "wal_refill",
+                "Number of wal refills",
+                registry,
+            )
+            .expect("this is a valid metrics registration"),
         }
     }
 
@@ -104,5 +111,9 @@ impl ClientMetrics {
 
     pub fn observe_gas_refill(&self) {
         self.gas_refill.inc();
+    }
+
+    pub fn observe_wal_refill(&self) {
+        self.wal_refill.inc();
     }
 }

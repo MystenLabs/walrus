@@ -599,7 +599,7 @@ impl fmt::Debug for SuiReadClient {
 }
 
 /// Checks if the Walrus system object exist on chain and returns the Walrus package ID.
-async fn get_system_package_id(
+pub async fn get_system_package_id(
     sui_client: &SuiClient,
     system_object_id: ObjectID,
 ) -> SuiClientResult<ObjectID> {

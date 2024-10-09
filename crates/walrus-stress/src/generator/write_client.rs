@@ -16,7 +16,7 @@ use walrus_sui::{
 use walrus_test_utils::WithTempDir;
 
 use super::blob::BlobData;
-use crate::refill::{GasRefill, Refiller};
+use crate::refill::{CoinRefill, Refiller};
 
 #[derive(Debug)]
 pub(crate) struct WriteClient {
@@ -26,7 +26,7 @@ pub(crate) struct WriteClient {
 
 impl WriteClient {
     #[instrument(err, skip_all)]
-    pub async fn new<G: GasRefill + 'static>(
+    pub async fn new<G: CoinRefill + 'static>(
         config: &Config,
         network: &SuiNetwork,
         gas_budget: u64,
@@ -159,7 +159,7 @@ impl WriteClient {
     }
 }
 
-async fn new_client<G: GasRefill + 'static>(
+async fn new_client<G: CoinRefill + 'static>(
     config: &Config,
     network: &SuiNetwork,
     gas_budget: u64,
@@ -182,13 +182,13 @@ async fn new_client<G: GasRefill + 'static>(
     Ok(client)
 }
 
-pub async fn wallet_for_testing_from_refill<G: GasRefill + 'static>(
+pub async fn wallet_for_testing_from_refill<G: CoinRefill + 'static>(
     network: &SuiNetwork,
     refiller: Refiller<G>,
 ) -> anyhow::Result<WithTempDir<WalletContext>> {
     let mut wallet = temp_dir_wallet(network.env())?;
     let address = wallet.as_mut().active_address()?;
     refiller.send_gas_request(address).await?;
-    refiller.send_gas_request(address).await?;
+    refiller.send_wal_request(address).await?;
     Ok(wallet)
 }

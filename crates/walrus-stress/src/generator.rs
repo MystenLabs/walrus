@@ -11,7 +11,7 @@ use std::{
 use anyhow::Context;
 use futures::future::try_join_all;
 use rand::{thread_rng, Rng};
-use sui_sdk::SuiClientBuilder;
+use sui_sdk::{types::base_types::SuiAddress, SuiClientBuilder};
 use tokio::{
     sync::mpsc::{self, error::TryRecvError, Receiver, Sender},
     task::JoinHandle,
@@ -35,7 +35,7 @@ use write_client::WriteClient;
 
 use crate::{
     metrics::{self, ClientMetrics},
-    refill::{GasRefill, Refiller},
+    refill::{CoinRefill, Refiller},
 };
 
 /// A load generator for Walrus writes.
@@ -47,11 +47,12 @@ pub struct LoadGenerator {
     read_client_pool_tx: Sender<Client<SuiReadClient>>,
     metrics: Arc<ClientMetrics>,
     _gas_refill_handle: JoinHandle<anyhow::Result<()>>,
+    _wal_refill_handle: JoinHandle<anyhow::Result<()>>,
 }
 
 impl LoadGenerator {
     #[allow(clippy::too_many_arguments)]
-    pub async fn new<G: GasRefill + 'static>(
+    pub async fn new<G: CoinRefill + 'static>(
         n_clients: usize,
         min_size_log2: u8,
         max_size_log2: u8,
@@ -61,7 +62,7 @@ impl LoadGenerator {
         metrics: Arc<ClientMetrics>,
         refiller: Refiller<G>,
     ) -> anyhow::Result<Self> {
-        tracing::info!("Initializing clients...");
+        tracing::info!("initializing clients...");
 
         // Set up read clients
         let (read_client_pool_tx, read_client_pool) = mpsc::channel(n_clients);
@@ -100,7 +101,7 @@ impl LoadGenerator {
             )
         }
 
-        let addresses = write_clients
+        let addresses: Vec<SuiAddress> = write_clients
             .iter_mut()
             .map(|client| client.address())
             .collect();
@@ -112,7 +113,13 @@ impl LoadGenerator {
 
         tracing::info!("Spawning gas refill task...");
 
-        let gas_refill_handle = refiller.refill_gas(
+        let _gas_refill_handle = refiller.refill_gas(
+            addresses.clone(),
+            gas_refill_period,
+            metrics.clone(),
+            sui_client.clone(),
+        );
+        let _wal_refill_handle = refiller.refill_wal(
             addresses,
             gas_refill_period,
             metrics.clone(),
@@ -125,7 +132,8 @@ impl LoadGenerator {
             read_client_pool,
             read_client_pool_tx,
             metrics,
-            _gas_refill_handle: gas_refill_handle,
+            _gas_refill_handle,
+            _wal_refill_handle,
         })
     }
 

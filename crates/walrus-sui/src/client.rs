@@ -68,7 +68,13 @@ use crate::{
 };
 
 mod read_client;
-pub use read_client::{CommitteesAndState, FixedSystemParameters, ReadClient, SuiReadClient};
+pub use read_client::{
+    get_system_package_id,
+    CommitteesAndState,
+    FixedSystemParameters,
+    ReadClient,
+    SuiReadClient,
+};
 
 const CLOCK_CALL_ARG: CallArg = CallArg::Object(sui_types::transaction::ObjectArg::SharedObject {
     id: SUI_CLOCK_OBJECT_ID,
@@ -343,6 +349,11 @@ impl SuiContractClient {
         self.sign_and_send_ptb(pt_builder.finish(), None).await
     }
 
+    /// Returns a reference to the inner wallet context.
+    pub async fn wallet(&self) -> tokio::sync::MutexGuard<'_, WalletContext> {
+        self.wallet.lock().await
+    }
+
     fn add_move_call_to_ptb(
         &self,
         pt_builder: &mut ProgrammableTransactionBuilder,
@@ -379,7 +390,8 @@ impl SuiContractClient {
             .collect())
     }
 
-    async fn sign_and_send_ptb(
+    /// Sign and send a programmable transaction.
+    pub async fn sign_and_send_ptb(
         &self,
         programmable_transaction: ProgrammableTransaction,
         min_gas_coin_balance: Option<u64>,
@@ -436,7 +448,7 @@ impl SuiContractClient {
     ///
     /// Returns a [`SuiClientError::NoCompatibleWalCoin`] if no WAL coin with sufficient balance can
     /// be found.
-    async fn get_wal_coin(&self, min_balance: u64) -> SuiClientResult<Coin> {
+    pub async fn get_wal_coin(&self, min_balance: u64) -> SuiClientResult<Coin> {
         tracing::debug!(coin_type=?self.read_client.coin_type());
         self.read_client
             .get_coin_with_balance(
