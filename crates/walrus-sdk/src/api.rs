@@ -244,7 +244,7 @@ pub struct ShardStatusSummary {
     pub in_transfer: usize,
     /// The number of owned shards that are being recovered.
     pub in_recovery: usize,
-    /// The number of shards, no longer owned by the node, that are read only, 
+    /// The number of shards, no longer owned by the node, that are read only,
     /// i.e., only serving reads from this node.
     pub read_only: usize,
 }
