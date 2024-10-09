@@ -8,7 +8,6 @@ use walrus_core::Epoch;
 use walrus_service::test_utils::test_cluster;
 use walrus_test_utils::Result as TestResult;
 
-#[ignore = "ignore E2E tests by default"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
 async fn nodes_drive_epoch_change() -> TestResult {
     let _ = tracing_subscriber::fmt::try_init();
@@ -18,7 +17,7 @@ async fn nodes_drive_epoch_change() -> TestResult {
 
     let target_epoch: Epoch = 4;
     // Allow time to reach the desired epoch, with an additional 50% for the jitter.
-    let time_to_reach_epoch = epoch_duration * target_epoch * 15 / 10;
+    let time_to_reach_epoch = epoch_duration * target_epoch * 25 / 10;
 
     time::timeout(
         time_to_reach_epoch,

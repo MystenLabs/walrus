@@ -11928,6 +11928,7 @@ dependencies = [
  "sui-config",
  "sui-macros",
  "sui-protocol-config",
+ "sui-rest-api",
  "sui-sdk 1.35.0",
  "sui-simulator",
  "sui-types",

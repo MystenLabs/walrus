@@ -12,7 +12,8 @@ use std::{
     net::{SocketAddr, TcpStream},
     num::NonZeroU16,
     str::FromStr,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, MutexGuard, OnceLock},
+    thread,
 };
 
 use async_trait::async_trait;
@@ -21,11 +22,14 @@ use futures::{stream::FuturesUnordered, StreamExt};
 use prometheus::Registry;
 use sui_types::base_types::ObjectID;
 use tempfile::TempDir;
-use tokio::time::Duration;
+use tokio::{
+    runtime::{Builder, Runtime},
+    time::Duration,
+};
 use tokio_stream::{wrappers::BroadcastStream, Stream};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
-use typed_store::rocks::MetricConf;
+use typed_store::{rocks::MetricConf, Map};
 use walrus_core::{
     encoding::EncodingConfig,
     keys::{NetworkKeyPair, ProtocolKeyPair},
@@ -650,11 +654,16 @@ impl StorageNodeHandleBuilder {
         {
             let cloned_cancel_token = cancel_token.clone();
             let cloned_event_processor = event_processor.clone();
-            tokio::spawn(
+            get_runtime().spawn(
                 async move { cloned_event_processor.start(cloned_cancel_token).await }.instrument(
                     tracing::info_span!("cluster-node", address = %config.rest_api_address),
                 ),
             );
+            wait_for_event_processor_to_start(
+                event_processor.clone(),
+                event_processor.client.clone(),
+            )
+            .await?;
         }
 
         let metrics_registry = Registry::default();
@@ -829,6 +838,25 @@ fn committee_partner(node_config: &StorageNodeTestConfig) -> Option<StorageNodeT
     } else {
         None
     }
+}
+
+pub fn get_runtime() -> MutexGuard<'static, Runtime> {
+    static CLUSTER: OnceLock<std::sync::Mutex<Runtime>> = OnceLock::new();
+    CLUSTER
+        .get_or_init(|| {
+            std::sync::Mutex::new(
+                thread::spawn(move || {
+                    Builder::new_multi_thread()
+                        .enable_all()
+                        .build()
+                        .expect("should be able to build runtime")
+                })
+                .join()
+                .expect("should be able to wait for thread to finish"),
+            )
+        })
+        .lock()
+        .unwrap()
 }
 
 fn create_previous_committee(committee: &Committee) -> Option<Committee> {
@@ -1745,55 +1773,28 @@ pub mod test_cluster {
         Ok((sui_cluster, cluster, client))
     }
 
-    #[cfg(msim)]
     async fn setup_event_processors(
         event_processor_config: &EventProcessorConfig,
         sui_read_client: SuiReadClient,
         test_cluster_builder: TestClusterBuilder,
     ) -> anyhow::Result<TestClusterBuilder> {
-        use rand::{Rng, SeedableRng};
-        // Probabilistically choose event processor or event provider
-        let mut rng = rand::prelude::StdRng::from_entropy();
-        if rng.gen_bool(0.5) {
-            let mut event_processors = vec![];
-            for _ in test_cluster_builder.storage_node_test_configs().iter() {
-                let event_processor = walrus_event::event_processor::EventProcessor::new(
-                    event_processor_config,
-                    event_processor_config.rest_url.clone(),
-                    sui_read_client.get_system_package_id(),
-                    Duration::from_millis(100),
-                    tempfile::tempdir()
-                        .expect("temporary directory creation must succeed")
-                        .path(),
-                    &Registry::default(),
-                )
-                .await?;
-                event_processors.push(event_processor.clone());
-            }
-            let res =
-                test_cluster_builder.with_individual_system_event_providers(&event_processors);
-            Ok(res)
-        } else {
-            let event_provider = crate::node::system_events::SuiSystemEventProvider::new(
-                sui_read_client.clone(),
+        let mut event_processors = vec![];
+        for _ in test_cluster_builder.storage_node_test_configs().iter() {
+            let event_processor = walrus_event::event_processor::EventProcessor::new(
+                event_processor_config,
+                event_processor_config.rest_url.clone(),
+                sui_read_client.get_system_package_id(),
                 Duration::from_millis(100),
-            );
-            let res = test_cluster_builder.with_system_event_providers(event_provider);
-            Ok(res)
+                tempfile::tempdir()
+                    .expect("temporary directory creation must succeed")
+                    .path(),
+                &Registry::default(),
+            )
+                .await?;
+            event_processors.push(event_processor.clone());
         }
-    }
-
-    #[cfg(not(msim))]
-    async fn setup_event_processors(
-        _event_processor_config: &EventProcessorConfig,
-        sui_read_client: SuiReadClient,
-        test_cluster_builder: TestClusterBuilder,
-    ) -> anyhow::Result<TestClusterBuilder> {
-        let event_provider = crate::node::system_events::SuiSystemEventProvider::new(
-            sui_read_client.clone(),
-            Duration::from_millis(100),
-        );
-        let res = test_cluster_builder.with_system_event_providers(event_provider);
+        let res =
+            test_cluster_builder.with_individual_system_event_providers(&event_processors);
         Ok(res)
     }
 
@@ -1846,6 +1847,22 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
         },
         temp_dir,
     }
+}
+
+async fn wait_for_event_processor_to_start(
+    event_processor: EventProcessor,
+    client: sui_rest_api::Client,
+) -> anyhow::Result<()> {
+    // Wait until event processor is actually running and downloaded a few checkpoints
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    let checkpoint = client.get_latest_checkpoint().await?;
+    while let Some(event_processor_checkpoint) = event_processor.checkpoint_store.get(&())? {
+        if event_processor_checkpoint.inner().sequence_number >= checkpoint.sequence_number {
+            break;
+        }
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
+    Ok(())
 }
 
 /// Returns an empty storage, with the column families for the specified shards already created.
