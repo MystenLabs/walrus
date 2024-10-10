@@ -335,7 +335,7 @@ where
                 Ok(outgoing) => {
                     let outgoing = outgoing.clone();
                     self.inner.record_epoch_change_metrics(tracker.committees());
-                    Some((outgoing.clone(), current))
+                    Some((outgoing, current))
                 }
                 Err(ChangeNotInProgress) => None,
             };
