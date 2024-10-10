@@ -328,10 +328,10 @@ impl SuiContractClient {
 
     /// Executes the move call to `function` with `call_args` and transfers all outputs
     /// (if any) to the sender.
-    // TODO(giac): Currently we pass the wallet as an argument to ensure that the caller can lock before
-    // taking the object references. This ensures that no race conditions occur. We could consider a more
-    // ergonomic approach, where this function takes `&mut self`, and the whole client needs to be
-    // locked. (#1023).
+    // TODO(giac): Currently we pass the wallet as an argument to ensure that the caller can lock
+    // before taking the object references. This ensures that no race conditions occur. We could
+    // consider a more ergonomic approach, where this function takes `&mut self`, and the whole
+    // client needs to be locked. (#1023).
     #[tracing::instrument(err, skip(self, wallet))]
     async fn move_call_and_transfer<'a>(
         &self,
@@ -396,10 +396,10 @@ impl SuiContractClient {
     }
 
     /// Sign and send a programmable transaction.
-    // TODO(giac): Currently we pass the wallet as an argument to ensure that the caller can lock before
-    // taking the object references. This ensures that no race conditions occur. We could consider a more
-    // ergonomic approach, where this function takes `&mut self`, and the whole client needs to be
-    // locked. (#1023).
+    // TODO(giac): Currently we pass the wallet as an argument to ensure that the caller can lock
+    // before taking the object references. This ensures that no race conditions occur. We could
+    // consider a more ergonomic approach, where this function takes `&mut self`, and the whole
+    // client needs to be locked. (#1023).
     pub async fn sign_and_send_ptb(
         &self,
         wallet: &WalletContext,
