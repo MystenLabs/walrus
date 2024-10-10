@@ -41,7 +41,7 @@ use tokio::{
     time::{sleep, Instant},
 };
 use tokio_util::sync::CancellationToken;
-use tracing::error;
+use tracing::warn;
 use typed_store::{
     rocks,
     rocks::{errors::typed_store_err_from_rocks_err, DBMap, MetricConf, ReadWriteOptions},
@@ -247,7 +247,7 @@ impl EventProcessor {
                         result.err().unwrap()
                     );
                 } else {
-                    error!(
+                    warn!(
                         "Failed to read checkpoint from full node: {}",
                         result.err().unwrap()
                     );
