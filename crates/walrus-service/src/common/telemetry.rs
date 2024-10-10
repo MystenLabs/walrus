@@ -35,6 +35,7 @@ use tokio::time::Instant;
 use tower_http::trace::{MakeSpan, OnResponse};
 use tracing::{field, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
+use walrus_core::Epoch;
 
 /// Route string used in metrics for invalid routes.
 pub(crate) const UNMATCHED_ROUTE: &str = "invalid-route";
@@ -287,8 +288,6 @@ macro_rules! with_label {
     };
 }
 
-use walrus_core::Epoch;
-use walrus_sui::types::move_structs::EpochState;
 pub(crate) use with_label;
 
 macro_rules! create_metric {
@@ -404,15 +403,6 @@ impl CurrentEpochStateMetric {
         Self(metric)
     }
 
-    /// Record the provided [`EpochState`] as the current state.
-    pub fn set(&self, state: &EpochState) {
-        match state {
-            EpochState::EpochChangeSync(_) => self.set_change_sync_state(),
-            EpochState::EpochChangeDone(_) => self.set_change_done_state(),
-            EpochState::NextParamsSelected(_) => self.set_next_params_selected_state(),
-        }
-    }
-
     /// Record the current state based on the set of active committees.
     pub fn set_from_committees(&self, committees: &ActiveCommittees) {
         if committees.is_change_in_progress() {
@@ -426,19 +416,19 @@ impl CurrentEpochStateMetric {
         }
     }
 
-    /// Record the current state as being [`EpochState::EpochChangeSync`].
+    /// Record the current state as being `EpochState::EpochChangeSync`.
     pub fn set_change_sync_state(&self) {
         self.clear_state();
         with_label!(self.0, Self::CHANGE_SYNC).set(true.into());
     }
 
-    /// Record the current state as being [`EpochState::EpochChangeDone`].
+    /// Record the current state as being `EpochState::EpochChangeDone`.
     pub fn set_change_done_state(&self) {
         self.clear_state();
         with_label!(self.0, Self::CHANGE_DONE).set(true.into());
     }
 
-    /// Record the current state as being [`EpochState::NextParamsSelected`].
+    /// Record the current state as being `EpochState::NextParamsSelected`.
     pub fn set_next_params_selected_state(&self) {
         self.clear_state();
         with_label!(self.0, Self::NEXT_PARAMS_SELECTED).set(true.into());

@@ -277,25 +277,25 @@ impl<T: ReadClient> Client<T> {
             return Ok(());
         }
 
-        let committees_and_state = self
-            .sui_client
-            .get_committees_and_state()
-            .await
-            .map_err(ClientError::other)?;
-
-        let new_state = committees_and_state.epoch_state.clone();
-        let new_committees = ActiveCommittees::from_committees_and_state(committees_and_state);
-        let new_epoch = new_committees.epoch();
+        let new_committees = ActiveCommittees::from_committees_and_state(
+            self.sui_client
+                .get_committees_and_state()
+                .await
+                .map_err(ClientError::other)?,
+        );
 
         // Acquire the guard across updating the metric.
         let mut committee_guard = self.committees.write().await;
-        *committee_guard = new_committees;
 
-        // Update the metrics to reflect the new committee after setting it.
+        // Update the metrics to reflect the new committee.
         if let Some(metrics) = self.metrics.as_ref() {
-            metrics.current_epoch.set(new_epoch);
-            metrics.current_epoch_state.set(&new_state);
+            metrics.current_epoch.set(new_committees.epoch());
+            metrics
+                .current_epoch_state
+                .set_from_committees(&new_committees);
         }
+
+        *committee_guard = new_committees;
 
         Ok(())
     }
