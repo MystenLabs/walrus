@@ -521,7 +521,6 @@ impl StorageNode {
         let (event_stream, next_event_index) = self.continue_event_stream().await?;
 
         let index_stream = stream::iter(next_event_index..);
-        let mut maybe_epoch_at_start = Some(self.inner.committee_service.get_epoch());
 
         let mut indexed_element_stream = index_stream.zip(event_stream);
         // Important: Events must be handled consecutively and in order to prevent (intermittent)
@@ -546,25 +545,6 @@ impl StorageNode {
                 "walrus.blob_id" = ?stream_element.element.blob_id(),
                 "error.type" = field::Empty,
             );
-
-            if let Some(epoch_at_start) = maybe_epoch_at_start {
-                if let EventStreamElement::ContractEvent(ref event) = stream_element.element {
-                    tracing::debug!("checking the first contract event if we're severely lagging");
-                    // Clear the starting epoch, so that we never make this check again.
-                    maybe_epoch_at_start = None;
-
-                    // if event.event_epoch() < starting_epoch - 1
-                    if event.event_epoch() + 1 < epoch_at_start {
-                        let error = anyhow!(
-                            "the current epoch ({}) is too far ahead of the event epoch: {}",
-                            epoch_at_start,
-                            event.event_epoch(),
-                        );
-                        tracing::error!(%error);
-                        return Err(error);
-                    }
-                }
-            }
 
             self.process_event(element_index, stream_element)
                 .inspect_err(|err| {
