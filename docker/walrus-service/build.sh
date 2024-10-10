@@ -1,6 +1,6 @@
-#!/bin/sh
 # Copyright (c) Mysten Labs, Inc.
 # SPDX-License-Identifier: Apache-2.0
+#!/bin/sh
 
 # fast fail.
 set -e
@@ -13,11 +13,11 @@ BUILD_DATE="$(date -u +'%Y-%m-%d')"
 
 # option to build using debug symbols
 if [ "$1" = "--debug-symbols" ]; then
-	PROFILE="bench"
-	echo "Building with full debug info enabled ... WARNING: binary size might significantly increase"
-	shift
+    PROFILE="bench"
+    echo "Building with full debug info enabled ... WARNING: binary size might significantly increase"
+    shift
 else
-	PROFILE="release"
+    PROFILE="release"
 fi
 
 echo
@@ -29,10 +29,10 @@ echo "git revision: \t$GIT_REVISION"
 echo
 
 docker build -f "$DOCKERFILE" "$REPO_ROOT" \
-	--build-arg GIT_REVISION="$GIT_REVISION" \
-	--build-arg BUILD_DATE="$BUILD_DATE" \
-	--build-arg PROFILE="$PROFILE" \
+    --build-arg GIT_REVISION="$GIT_REVISION" \
+    --build-arg BUILD_DATE="$BUILD_DATE" \
+    --build-arg PROFILE="$PROFILE" \
     --target walrus-cli \
     --target walrus-node \
     --target walrus-deploy \
-	"$@"
+    "$@"
