@@ -85,10 +85,10 @@ struct DeploySystemContractArgs {
     testbed_config_path: Option<PathBuf>,
     // Note: The storage unit is set in `crates/walrus-sui/utils.rs`. Change the unit in
     // the doc comment here if it changes.
-    /// The price in FROST to set per unit of storage (1 KiB) per epoch.
+    /// The price in FROST to set per unit of storage (1 MiB) per epoch.
     #[arg(long, default_value_t = config::defaults::storage_price())]
     storage_price: u64,
-    /// The price in FROST to set for writing one unit of storage (1 KiB).
+    /// The price in FROST to set for writing one unit of storage (1 MiB).
     #[arg(long, default_value_t = config::defaults::write_price())]
     write_price: u64,
     /// The storage capacity in bytes to deploy the system with.

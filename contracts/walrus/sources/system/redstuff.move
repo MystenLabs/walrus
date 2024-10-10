@@ -90,7 +90,7 @@ fun test_encoded_size() {
 
 #[test]
 fun test_zero_size() {
-    //test should fail here
+    // test should fail here
     encoded_blob_length(0, 10);
 }
 

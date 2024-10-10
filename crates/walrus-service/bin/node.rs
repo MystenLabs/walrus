@@ -202,10 +202,10 @@ struct ConfigArgs {
     /// If not provided, the RPC node from the wallet's active environment will be used.
     sui_rpc: Option<String>,
     #[clap(long, default_value_t = config::defaults::storage_price())]
-    /// Initial vote for the storage price in FROST per KiB per epoch.
+    /// Initial vote for the storage price in FROST per MiB per epoch.
     storage_price: u64,
     #[clap(long, default_value_t = config::defaults::write_price())]
-    /// Initial vote for the write price in FROST per KiB.
+    /// Initial vote for the write price in FROST per MiB.
     write_price: u64,
     #[clap(long, default_value_t = config::defaults::gas_budget())]
     /// Gas budget for transactions.

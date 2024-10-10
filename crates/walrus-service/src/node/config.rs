@@ -394,12 +394,12 @@ pub mod defaults {
 
     /// The default vote for the storage price.
     pub fn storage_price() -> u64 {
-        5
+        100
     }
 
     /// The default vote for the write price.
     pub fn write_price() -> u64 {
-        1
+        2000
     }
 
     /// Returns true iff the value is the default.
