@@ -310,7 +310,7 @@ impl EventBlobWriter {
         file.seek(SeekFrom::Start(0))?;
         let mut file_content = Vec::new();
         file.read_to_end(&mut file_content)?;
-        let mut tmp_file = File::create(std::env::temp_dir().join("event_blob"))?;
+        let mut tmp_file = File::create(self.root_dir_path.join("event_blob"))?;
         tmp_file.write_all(&file_content)?;
         tmp_file.flush()?;
         Ok(())
@@ -400,8 +400,8 @@ mod tests {
             .build()
             .await?;
         let mut blob_writer =
-            EventBlobWriter::new_for_testing(dir, 100, node.storage_node.inner.clone())?;
-        let event_blob_file_path = std::env::temp_dir().join("event_blob");
+            EventBlobWriter::new_for_testing(dir.clone(), 100, node.storage_node.inner.clone())?;
+        let event_blob_file_path = dir.join("event_blob");
         if event_blob_file_path.exists() {
             fs::remove_file(event_blob_file_path.clone())?;
         }
