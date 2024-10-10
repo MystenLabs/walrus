@@ -295,11 +295,6 @@ struct ActiveSet {
     threshold_stake: u64,
     /// The amount of staked WAL for each storage node in the active set.
     nodes: Vec<(ObjectID, u64)>,
-    /// Stores indexes of the nodes in the active set sorted by stake. This
-    /// allows us to quickly find the index of a node in the sorted list of
-    /// nodes. Uses `u16` to save space, as the active set can only contain up
-    /// to 1000 nodes.
-    idx_sorted: Vec<u16>,
     /// The total amount of staked WAL in the active set.
     total_stake: u64,
 }

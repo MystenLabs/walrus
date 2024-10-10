@@ -322,7 +322,7 @@ public(package) fun set_next_public_key(
     cap: &StorageNodeCap,
     public_key: vector<u8>,
     proof_of_possession: vector<u8>,
-    ctx: &mut TxContext,
+    ctx: &TxContext,
 ) {
     let wctx = &self.new_walrus_context();
     self.pools[cap.node_id()].set_next_public_key(public_key, proof_of_possession, wctx, ctx);
@@ -422,9 +422,8 @@ public(package) fun withdraw_stake(
 public(package) fun select_committee(self: &mut StakingInnerV1) {
     assert!(self.next_committee.is_none());
 
-    let active_ids = self.active_set.active_ids();
-    let values = self.apportionment();
-    let distribution = vec_map::from_keys_values(active_ids, values);
+    let (active_ids, shards) = self.apportionment();
+    let distribution = vec_map::from_keys_values(active_ids, shards);
 
     // if we're dealing with the first epoch, we need to assign the shards to the
     // nodes in a sequential manner. Assuming there's at least 1 node in the set.
@@ -434,14 +433,13 @@ public(package) fun select_committee(self: &mut StakingInnerV1) {
     self.next_committee = option::some(committee);
 }
 
-fun apportionment(self: &StakingInnerV1): vector<u16> {
-    let active_ids = self.active_set.active_ids();
-    let stake = active_ids.map_ref!(|node_id| self.active_set[node_id]);
+fun apportionment(self: &StakingInnerV1): (vector<ID>, vector<u16>) {
+    let (active_ids, stake) = self.active_set.active_ids_and_stake();
     let n_nodes = stake.length();
     // TODO better ranking (#943)
     let priorities = vector::tabulate!(n_nodes, |i| n_nodes - i);
     let shards = dhondt(priorities, self.n_shards, stake);
-    shards
+    (active_ids, shards)
 }
 
 // TODO: remove this when the FixedPoint32 has a replacement (#835)
@@ -575,7 +573,9 @@ public(package) fun advance_epoch(self: &mut StakingInnerV1, mut rewards: Balanc
 
     node_ids.zip_do!(shard_assignments, |node_id, shards| {
         self.pools[node_id].advance_epoch(rewards.split(rewards_per_shard * shards.length()), wctx);
-        self.active_set.update(node_id, self.pools[node_id].wal_balance_at_epoch(wctx.epoch() + 1));
+        self
+            .active_set
+            .update(node_id, self.pools[node_id].wal_balance_at_epoch(wctx.epoch() + 1));
     });
 
     // Save any leftover rewards due to rounding.
