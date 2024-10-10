@@ -351,6 +351,9 @@ mod commands {
                 &metrics_runtime.registry,
                 &config.system_object,
                 &config.staking_object,
+                utils::load_wallet_context(&Some(config.wallet_config.clone()))
+                    .and_then(|mut wallet| wallet.active_address())
+                    .ok(),
             );
         }
 

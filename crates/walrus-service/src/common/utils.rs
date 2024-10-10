@@ -28,7 +28,7 @@ use serde::{
     Deserializer,
 };
 use sui_sdk::wallet_context::WalletContext;
-use sui_types::base_types::ObjectID;
+use sui_types::base_types::{ObjectID, SuiAddress};
 use telemetry_subscribers::{TelemetryGuards, TracingHandle};
 use tokio::{
     runtime::{self, Runtime},
@@ -636,11 +636,12 @@ pub fn export_contract_info(
     registry: &Registry,
     system_object: &ObjectID,
     staking_object: &ObjectID,
+    active_address: Option<SuiAddress>,
 ) {
     let opts = prometheus::opts!("walrus_contract_info", "Walrus smart-contract information");
     let metric = prometheus::register_int_gauge_vec_with_registry!(
         opts,
-        &["system_object", "staking_object"],
+        &["system_object", "staking_object", "active_address"],
         registry
     )
     .expect("static metric is valid");
@@ -649,6 +650,9 @@ pub fn export_contract_info(
         .get_metric_with_label_values(&[
             &system_object.to_hex_uncompressed(),
             &staking_object.to_hex_uncompressed(),
+            &active_address
+                .map(|addr| addr.to_string())
+                .unwrap_or_default(),
         ])
         .expect("metric exists")
         .set(1);
