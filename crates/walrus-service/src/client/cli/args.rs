@@ -536,7 +536,7 @@ mod default {
     use walrus_sui::utils::SuiNetwork;
 
     pub(crate) fn gas_budget() -> u64 {
-        500_000_000
+        100_000_000
     }
 
     pub(crate) fn epochs() -> EpochCount {
