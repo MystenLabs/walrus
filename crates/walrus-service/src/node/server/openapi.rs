@@ -82,8 +82,6 @@ api_success_alias!(ServiceHealthInfo as ApiSuccessServiceHealthInfo, ToSchema);
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
     use utoipa::OpenApi as _;
     use utoipa_redoc::Redoc;
 
@@ -93,7 +91,7 @@ mod tests {
     fn test_openapi_generation_does_not_panic() {
         std::fs::write(
             // Can also be used to view the API.
-            Path::new("/tmp/api-node.html"),
+            std::env::temp_dir().join("api-node.html"),
             Redoc::new(RestApiDoc::openapi()).to_html().as_bytes(),
         )
         .unwrap();

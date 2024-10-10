@@ -310,7 +310,7 @@ impl EventBlobWriter {
         file.seek(SeekFrom::Start(0))?;
         let mut file_content = Vec::new();
         file.read_to_end(&mut file_content)?;
-        let mut tmp_file = File::create("/tmp/event_blob")?;
+        let mut tmp_file = File::create(std::env::temp_dir().join("event_blob"))?;
         tmp_file.write_all(&file_content)?;
         tmp_file.flush()?;
         Ok(())
@@ -377,10 +377,7 @@ impl EventBlobWriter {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        fs,
-        path::{Path, PathBuf},
-    };
+    use std::{fs, path::PathBuf};
 
     use walrus_core::{BlobId, ShardIndex};
     use walrus_event::{EventStreamElement, IndexedStreamElement};
@@ -404,8 +401,9 @@ mod tests {
             .await?;
         let mut blob_writer =
             EventBlobWriter::new_for_testing(dir, 100, node.storage_node.inner.clone())?;
-        if Path::new("/tmp/event_blob").exists() {
-            fs::remove_file("/tmp/event_blob")?;
+        let event_blob_file_path = std::env::temp_dir().join("event_blob");
+        if event_blob_file_path.exists() {
+            fs::remove_file(event_blob_file_path.clone())?;
         }
         let mut counter = 0;
         // Write events into the blob
@@ -426,7 +424,7 @@ mod tests {
             counter += 1;
         }
         // Read back the events from the blob
-        let file = std::fs::File::open("/tmp/event_blob")?;
+        let file = std::fs::File::open(event_blob_file_path)?;
         let event_blob = crate::node::storage::event_blob::EventBlob::new(file)?;
         assert_eq!(event_blob.start_checkpoint_sequence_number(), 0);
         assert_eq!(event_blob.end_checkpoint_sequence_number(), 99);
