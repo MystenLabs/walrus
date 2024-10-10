@@ -350,6 +350,8 @@ macro_rules! define_metric_set {
 
 pub(crate) use define_metric_set;
 
+use super::active_committees::ActiveCommittees;
+
 /// Metric `current_epoch` that records the currently observed walrus epoch.
 ///
 /// Set the epoch with [`Self::set`].
@@ -408,6 +410,19 @@ impl CurrentEpochStateMetric {
             EpochState::EpochChangeSync(_) => self.set_change_sync_state(),
             EpochState::EpochChangeDone(_) => self.set_change_done_state(),
             EpochState::NextParamsSelected(_) => self.set_next_params_selected_state(),
+        }
+    }
+
+    /// Record the current state based on the set of active committees.
+    pub fn set_from_committees(&self, committees: &ActiveCommittees) {
+        if committees.is_change_in_progress() {
+            self.set_change_sync_state();
+        } else if committees.next_committee().is_none() {
+            // Change not in progress and next committee has not yet been decided.
+            self.set_change_done_state();
+        } else {
+            // Next committee has been decided.
+            self.set_next_params_selected_state();
         }
     }
 

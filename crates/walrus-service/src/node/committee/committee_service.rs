@@ -176,18 +176,11 @@ where
         inner: NodeCommitteeServiceInner<T>,
         committee_lookup: Box<dyn super::CommitteeLookupService>,
     ) -> Self {
-        let tracker = inner.committee_tracker.borrow();
-        let is_in_sync = tracker.committees().is_change_in_progress();
-        let current_epoch = tracker.committees().epoch();
-        drop(tracker);
-
-        let this = Self {
+        inner.record_epoch_change_metrics(inner.committee_tracker.borrow().committees());
+        Self {
             inner,
             committee_lookup,
-        };
-        // Record the epoch we are in on startup
-        this.record_epoch_change_metrics(current_epoch, is_in_sync);
-        this
+        }
     }
 
     async fn sync_shard_as_of_epoch(
@@ -249,7 +242,6 @@ where
         &self,
         next_committee: Committee,
     ) -> Result<(), BeginCommitteeChangeError> {
-        let next_epoch = next_committee.epoch;
         let mut service_factory = self.inner.service_factory.lock().await;
 
         // Begin by creating the needed services, placing them into a temporary map.
@@ -293,6 +285,9 @@ where
                 }
             });
 
+            if modify_result.is_ok() {
+                self.inner.record_epoch_change_metrics(tracker.committees());
+            }
             modify_result.is_ok()
         };
 
@@ -304,7 +299,6 @@ where
             Err(error)
         } else {
             services.extend(new_services);
-            self.record_epoch_change_metrics(next_epoch, true);
             Ok(())
         }
     }
@@ -338,9 +332,14 @@ where
         self.inner.committee_tracker.send_if_modified(|tracker| {
             let current = tracker.committees().current_committee().clone();
             maybe_committees = match tracker.end_change() {
-                Ok(outgoing) => Some((outgoing.clone(), current)),
+                Ok(outgoing) => {
+                    let outgoing = outgoing.clone();
+                    self.inner.record_epoch_change_metrics(tracker.committees());
+                    Some((outgoing.clone(), current))
+                }
                 Err(ChangeNotInProgress) => None,
             };
+
             maybe_committees.is_some()
         });
 
@@ -356,21 +355,7 @@ where
             }
         }
 
-        self.record_epoch_change_metrics(current_epoch, false);
         Ok(())
-    }
-
-    fn record_epoch_change_metrics(&self, epoch: Epoch, is_in_sync: bool) {
-        let Some(metrics) = self.inner.metrics.as_ref() else {
-            return;
-        };
-
-        metrics.current_epoch.set(epoch);
-        if is_in_sync {
-            metrics.current_epoch_state.set_change_sync_state();
-        } else {
-            metrics.current_epoch_state.set_change_done_state();
-        }
     }
 }
 
@@ -452,6 +437,15 @@ where
 
     pub(super) fn subscribe_to_committee_changes(&self) -> watch::Receiver<CommitteeTracker> {
         self.committee_tracker.subscribe()
+    }
+
+    fn record_epoch_change_metrics(&self, committees: &ActiveCommittees) {
+        let Some(metrics) = self.metrics.as_ref() else {
+            return;
+        };
+
+        metrics.current_epoch.set(committees.epoch());
+        metrics.current_epoch_state.set_from_committees(committees);
     }
 }
 

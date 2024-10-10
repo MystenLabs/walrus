@@ -187,14 +187,9 @@ impl<T> Client<T> {
         // eventually refresh the committee and log the state.
         if let Ok(committees_guard) = self.committees.try_read() {
             metrics.current_epoch.set(committees_guard.epoch());
-
-            // NOTE(jsmith): With the current ActiveCommittees we do not track whether voting has
-            // ended, however, these states are sufficient here as they affect the committee used.
-            if committees_guard.is_change_in_progress() {
-                metrics.current_epoch_state.set_change_sync_state();
-            } else {
-                metrics.current_epoch_state.set_change_done_state();
-            }
+            metrics
+                .current_epoch_state
+                .set_from_committees(&committees_guard);
         }
         self.metrics = Some(metrics);
     }
