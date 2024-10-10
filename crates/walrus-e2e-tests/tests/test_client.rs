@@ -27,7 +27,7 @@ use walrus_service::{
         },
         StoreWhen,
     },
-    test_utils::{test_cluster, StorageNodeHandle},
+    test_utils::test_cluster,
 };
 use walrus_sui::{
     client::{BlobPersistence, ContractClient, ReadClient},
@@ -107,8 +107,7 @@ async fn run_store_and_read_with_crash_failures(
 ) -> TestResult {
     let _ = tracing_subscriber::fmt::try_init();
 
-    let (_sui_cluster_handle, mut cluster, client) =
-        test_cluster::default_setup::<StorageNodeHandle>().await?;
+    let (_sui_cluster_handle, mut cluster, client) = test_cluster::default_setup().await?;
 
     // Stop the nodes in the write failure set.
     failed_shards_write
@@ -157,8 +156,7 @@ async_param_test! {
 async fn test_inconsistency(failed_shards: &[usize]) -> TestResult {
     let _ = tracing_subscriber::fmt::try_init();
 
-    let (_sui_cluster_handle, mut cluster, mut client) =
-        test_cluster::default_setup::<StorageNodeHandle>().await?;
+    let (_sui_cluster_handle, mut cluster, mut client) = test_cluster::default_setup().await?;
 
     // Store a blob and get confirmations from each node.
     let blob = walrus_test_utils::random_data(31415);
@@ -270,8 +268,7 @@ async fn test_store_with_existing_blob_resource(
 ) -> TestResult {
     let _ = tracing_subscriber::fmt::try_init();
 
-    let (_sui_cluster_handle, _cluster, client) =
-        test_cluster::default_setup::<StorageNodeHandle>().await?;
+    let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
 
     let blob = walrus_test_utils::random_data(31415);
     let (_, metadata) = client
@@ -343,8 +340,7 @@ async fn test_store_with_existing_storage_resource(
 ) -> TestResult {
     let _ = tracing_subscriber::fmt::try_init();
 
-    let (_sui_cluster_handle, _cluster, client) =
-        test_cluster::default_setup::<StorageNodeHandle>().await?;
+    let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
 
     let blob = walrus_test_utils::random_data(31415);
     let (_, metadata) = client
@@ -405,8 +401,7 @@ async_param_test! {
 /// Tests blob object deletion.
 async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
     let _ = tracing_subscriber::fmt::try_init();
-    let (_sui_cluster_handle, _cluster, client) =
-        test_cluster::default_setup::<StorageNodeHandle>().await?;
+    let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
     let blob = walrus_test_utils::random_data(314);
 
     // Store the blob multiple times, using separate end times to obtain multiple blob objects
@@ -446,8 +441,7 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
 #[walrus_simtest]
 async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
     let _ = tracing_subscriber::fmt::try_init();
-    let (_sui_cluster_handle, _cluster, client) =
-        test_cluster::default_setup::<StorageNodeHandle>().await?;
+    let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
     let client = client.as_ref();
     let blob = walrus_test_utils::random_data(314);
 
@@ -486,8 +480,7 @@ async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
 #[walrus_simtest]
 async fn test_multiple_stores_same_blob() -> TestResult {
     let _ = tracing_subscriber::fmt::try_init();
-    let (_sui_cluster_handle, _cluster, client) =
-        test_cluster::default_setup::<StorageNodeHandle>().await?;
+    let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
     let client = client.as_ref();
     let blob = walrus_test_utils::random_data(314);
 

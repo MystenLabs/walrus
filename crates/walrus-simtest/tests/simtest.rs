@@ -9,6 +9,7 @@ mod tests {
         time::Duration,
     };
 
+    use anyhow::Context;
     use rand::Rng;
     use sui_macros::register_fail_points;
     use sui_protocol_config::ProtocolConfig;
@@ -20,6 +21,8 @@ mod tests {
     };
     use walrus_sui::client::{BlobPersistence, SuiContractClient};
     use walrus_test_utils::WithTempDir;
+
+    const FAILURE_TRIGGER_PROBABILITY: f64 = 0.01;
 
     // Helper function to write a random blob, read it back and check that it is the same.
     async fn write_read_and_check_random_blob(
@@ -35,7 +38,7 @@ mod tests {
             .as_ref()
             .reserve_and_store_blob(&blob, 1, StoreWhen::Always, BlobPersistence::Permanent)
             .await
-            .unwrap()
+            .context("store blob should not fail")?
         else {
             panic!("expect newly stored blob")
         };
@@ -45,7 +48,7 @@ mod tests {
             .as_ref()
             .read_blob::<Primary>(&blob_confirmation.blob_id)
             .await
-            .expect("should be able to read blob we just stored");
+            .context("should be able to read blob we just stored")?;
 
         // Check that blob is what we wrote.
         assert_eq!(read_blob, blob);
@@ -55,13 +58,13 @@ mod tests {
             .as_ref()
             .read_blob::<Secondary>(&blob_confirmation.blob_id)
             .await
-            .expect("should be able to read blob we just stored");
+            .context("should be able to read blob we just stored")?;
         assert_eq!(read_blob, blob);
 
         Ok(())
     }
 
-    // Tests that we can create a Walrus cluster with a Sui cluster and running basic
+    // Tests that we can create a Walrus cluster with a Sui cluster and run basic
     // operations deterministically.
     #[walrus_simtest(check_determinism)]
     #[ignore = "ignore simtests by default"]
@@ -74,12 +77,15 @@ mod tests {
         });
 
         let (_sui_cluster, _cluster, client) =
-            test_cluster::default_setup::<SimStorageNodeHandle>()
-                .await
-                .unwrap();
-        write_read_and_check_random_blob(&client, 31415)
+            test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
+                Duration::from_secs(60 * 60),
+            )
             .await
             .unwrap();
+
+        write_read_and_check_random_blob(&client, 31415)
+            .await
+            .expect("workload should not fail");
     }
 
     // Tests the scenario where a single node crashes and restarts.
@@ -94,10 +100,13 @@ mod tests {
         });
 
         let (sui_cluster, _walrus_cluster, client) =
-            test_cluster::default_setup::<SimStorageNodeHandle>()
-                .await
-                .unwrap();
+            test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
+                Duration::from_secs(60 * 60),
+            )
+            .await
+            .unwrap();
 
+        // Tracks if a crash has been triggered.
         let fail_triggered = Arc::new(AtomicBool::new(false));
 
         // Do not fail any nodes in the sui cluster.
@@ -109,6 +118,7 @@ mod tests {
             .collect::<HashSet<_>>();
         do_not_fail_nodes.insert(sui_cluster.sim_node_handle().id());
 
+        let fail_triggered_clone = fail_triggered.clone();
         register_fail_points(
             &[
                 "batch-write-before",
@@ -119,12 +129,30 @@ mod tests {
                 "delete-cf-after",
             ],
             move || {
-                handle_failpoint(do_not_fail_nodes.clone(), fail_triggered.clone(), 0.01);
+                handle_failpoint(
+                    do_not_fail_nodes.clone(),
+                    fail_triggered_clone.clone(),
+                    FAILURE_TRIGGER_PROBABILITY,
+                );
             },
         );
 
+        // Run workload and wait until a crash is triggered.
+        let mut data_length = 31415;
+        loop {
+            // TODO(#995): use stress client for better coverage of the workload.
+            write_read_and_check_random_blob(&client, data_length)
+                .await
+                .expect("workload should not fail");
+
+            data_length += 1024;
+            if fail_triggered.load(std::sync::atomic::Ordering::SeqCst) {
+                break;
+            }
+        }
+
+        // Continue running the workload for another 60 seconds.
         let _ = tokio::time::timeout(Duration::from_secs(60), async {
-            let mut data_length = 31415;
             loop {
                 // TODO(#995): use stress client for better coverage of the workload.
                 write_read_and_check_random_blob(&client, data_length)
@@ -138,7 +166,7 @@ mod tests {
     }
 
     // Action taken during a various failpoints. There is a chance with `probability` that the
-    // current node will be crashed.
+    // current node will be crashed, and restarted after a random duration.
     fn handle_failpoint(
         keep_alive_nodes: HashSet<sui_simulator::task::NodeId>,
         fail_triggered: Arc<AtomicBool>,
@@ -155,7 +183,7 @@ mod tests {
 
         let mut rng = rand::thread_rng();
         if rng.gen_range(0.0..1.0) < probability {
-            let restart_after = Duration::from_secs(rng.gen_range(10..20));
+            let restart_after = Duration::from_secs(rng.gen_range(10..30));
 
             tracing::warn!(
                 "Crashing node {} for {} seconds",
