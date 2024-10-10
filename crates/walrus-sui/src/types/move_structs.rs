@@ -123,10 +123,8 @@ where
     K: ToFromBytes,
 {
     let key: Option<Vec<u8>> = Deserialize::deserialize(deserializer)?;
-    match key {
-        Some(bytes) => K::from_bytes(&bytes).map_err(D::Error::custom).map(Some),
-        None => Ok(None),
-    }
+    key.map(|bytes| K::from_bytes(&bytes).map_err(D::Error::custom))
+        .transpose()
 }
 
 /// Sui type for the capability that authorizes the holder to perform certain actions.
