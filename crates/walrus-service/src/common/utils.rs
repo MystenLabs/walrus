@@ -28,6 +28,7 @@ use serde::{
     Deserializer,
 };
 use sui_sdk::wallet_context::WalletContext;
+use sui_types::base_types::ObjectID;
 use telemetry_subscribers::{TelemetryGuards, TracingHandle};
 use tokio::{
     runtime::{self, Runtime},
@@ -625,6 +626,30 @@ pub fn export_build_info(registry: &Registry, version: &'static str) {
         .expect("static metric is valid");
     metric
         .get_metric_with_label_values(&[version])
+        .expect("metric exists")
+        .set(1);
+}
+
+/// Export information about the contract to which the storage nodes are communicating.
+// TODO(jsmith): Once the cli logic is moved within the package, this should be crate-visible
+pub fn export_contract_info(
+    registry: &Registry,
+    system_object: &ObjectID,
+    staking_object: &ObjectID,
+) {
+    let opts = prometheus::opts!("walrus_contract_info", "Walrus smart-contract information");
+    let metric = prometheus::register_int_gauge_vec_with_registry!(
+        opts,
+        &["system_object", "staking_object"],
+        registry
+    )
+    .expect("static metric is valid");
+
+    metric
+        .get_metric_with_label_values(&[
+            &system_object.to_hex_uncompressed(),
+            &staking_object.to_hex_uncompressed(),
+        ])
         .expect("metric exists")
         .set(1);
 }

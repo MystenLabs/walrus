@@ -56,7 +56,7 @@ use crate::{
         Config,
         StoreWhen,
     },
-    utils::{generate_sui_wallet, MetricsAndLoggingRuntime},
+    utils::{self, generate_sui_wallet, MetricsAndLoggingRuntime},
 };
 
 /// A helper struct to run commands for the Walrus client.
@@ -179,6 +179,8 @@ impl ClientCommandRunner {
         command: DaemonCommands,
         metrics_runtime: MetricsAndLoggingRuntime,
     ) -> Result<()> {
+        self.maybe_export_contract_info(&metrics_runtime.registry);
+
         match command {
             DaemonCommands::Publisher { args } => {
                 self.publisher(&metrics_runtime.registry, args).await
@@ -194,6 +196,13 @@ impl ClientCommandRunner {
 
             DaemonCommands::Daemon { args } => self.daemon(&metrics_runtime.registry, args).await,
         }
+    }
+
+    fn maybe_export_contract_info(&self, registry: &Registry) {
+        let Ok(config) = self.config.as_ref() else {
+            return;
+        };
+        utils::export_contract_info(registry, &config.system_object, &config.staking_object);
     }
 
     // Implementations of client commands.

@@ -344,7 +344,15 @@ mod commands {
         tracing::info!(
             metrics_address = %config.metrics_address, "started Prometheus HTTP endpoint",
         );
+
         utils::export_build_info(&metrics_runtime.registry, VERSION);
+        if let Some(config) = config.sui.as_ref() {
+            utils::export_contract_info(
+                &metrics_runtime.registry,
+                &config.system_object,
+                &config.staking_object,
+            );
+        }
 
         let cancel_token = CancellationToken::new();
         let (exit_notifier, exit_listener) = oneshot::channel::<()>();
