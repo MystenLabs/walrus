@@ -410,37 +410,42 @@ impl<T: ContractClient> Client<T> {
             StoreOp::RegisterNew { blob, operation } => (blob, operation),
         };
 
-        let committees = self.committees.read().await;
+        let (certificate, write_committee_epoch) = {
+            let committees = self.committees.read().await;
 
-        let certificate = match blob_status.initial_certified_epoch() {
-            Some(certified_epoch) if !committees.is_change_in_progress() => {
-                // The blob is already certified on chain: the slivers are already available.
-                // However, during epoch change we may need to store the slivers again, as the
-                // current committee may not have synced them yet.
-                self.get_certificate_standalone(&blob_id, certified_epoch)
-                    .await?
-            }
-            _ => {
-                let certify_start_timer = Instant::now();
-                let result = self
-                    .send_blob_data_and_get_certificate(metadata, pairs)
-                    .await?;
-                let certify_duration = certify_start_timer.elapsed();
-                let blob_size = blob_object.size;
-                tracing::info!(
-                    duration =  %humantime::Duration::from(certify_duration),
-                    blob_size = blob_size,
-                    "finished sending blob data and collected certificate"
-                );
-                result
-            }
+            let certificate = match blob_status.initial_certified_epoch() {
+                Some(certified_epoch) if !committees.is_change_in_progress() => {
+                    // The blob is already certified on chain: the slivers are already available.
+                    // However, during epoch change we may need to store the slivers again, as the
+                    // current committee may not have synced them yet.
+                    self.get_certificate_standalone(&blob_id, certified_epoch)
+                        .await?
+                }
+                _ => {
+                    let certify_start_timer = Instant::now();
+                    let result = self
+                        .send_blob_data_and_get_certificate(metadata, pairs)
+                        .await?;
+                    let certify_duration = certify_start_timer.elapsed();
+                    let blob_size = blob_object.size;
+                    tracing::info!(
+                        duration =  %humantime::Duration::from(certify_duration),
+                        blob_size = blob_size,
+                        "finished sending blob data and collected certificate"
+                    );
+                    result
+                }
+            };
+
+            let write_committee_epoch = committees.write_committee().epoch;
+            (certificate, write_committee_epoch)
         };
 
         self.sui_client
             .certify_blob(blob_object.clone(), &certificate)
             .await
             .map_err(|e| ClientError::from(ClientErrorKind::CertificationFailed(e)))?;
-        blob_object.certified_epoch = Some(committees.write_committee().epoch);
+        blob_object.certified_epoch = Some(write_committee_epoch);
         let cost = self.price_computation.operation_cost(&resource_operation);
 
         Ok(BlobStoreResult::NewlyCreated {
@@ -580,7 +585,9 @@ impl<T> Client<T> {
                 responses = ?requests.into_results(),
                 "all futures consumed before reaching a threshold of successful responses"
             );
-            return Err(self.not_enough_confirmations_error(weight).await);
+            return Err(self
+                .not_enough_confirmations_error(weight, &committees)
+                .await);
         }
         tracing::debug!(
             elapsed_time = ?start.elapsed(), "stored metadata and slivers onto a quorum of nodes"
@@ -601,8 +608,10 @@ impl<T> Client<T> {
             %completed_reason,
             "stored metadata and slivers onto additional nodes"
         );
+
         let results = requests.into_results();
-        self.confirmations_to_certificate(metadata.blob_id(), results)
+
+        self.confirmations_to_certificate(metadata.blob_id(), results, &committees)
             .await
     }
 
@@ -630,7 +639,9 @@ impl<T> Client<T> {
             )
             .await;
         let results = requests.into_results();
-        self.confirmations_to_certificate(blob_id, results).await
+
+        self.confirmations_to_certificate(blob_id, results, &committees)
+            .await
     }
 
     /// Combines the received storage confirmations into a single certificate.
@@ -643,6 +654,7 @@ impl<T> Client<T> {
         &self,
         blob_id: &BlobId,
         confirmations: Vec<NodeResult<SignedStorageConfirmation, E>>,
+        committees: &ActiveCommittees,
     ) -> ClientResult<ConfirmationCertificate> {
         let mut aggregate_weight = 0;
         let mut signers = Vec::with_capacity(confirmations.len());
@@ -661,12 +673,12 @@ impl<T> Client<T> {
             }
         }
 
-        let committees = self.committees.read().await;
         ensure!(
             committees
                 .write_committee()
                 .is_at_least_min_n_correct(aggregate_weight),
-            self.not_enough_confirmations_error(aggregate_weight).await
+            self.not_enough_confirmations_error(aggregate_weight, committees)
+                .await
         );
 
         let aggregate =
@@ -683,16 +695,12 @@ impl<T> Client<T> {
         Ok(cert)
     }
 
-    async fn not_enough_confirmations_error(&self, weight: usize) -> ClientError {
-        ClientErrorKind::NotEnoughConfirmations(
-            weight,
-            self.committees
-                .read()
-                .await
-                .write_committee()
-                .min_n_correct(),
-        )
-        .into()
+    async fn not_enough_confirmations_error(
+        &self,
+        weight: usize,
+        committees: &ActiveCommittees,
+    ) -> ClientError {
+        ClientErrorKind::NotEnoughConfirmations(weight, committees.min_n_correct()).into()
     }
 
     /// Requests the slivers and decodes them into a blob.

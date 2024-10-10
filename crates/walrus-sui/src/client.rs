@@ -963,12 +963,7 @@ impl ContractClient for SuiContractClient {
         let wallet = self.wallet().await;
 
         tracing::debug!("calling epoch_sync_done {:?}", node_capability.node_id);
-        let cap_obj_ref = self
-            .wallet
-            .lock()
-            .await
-            .get_object_ref(node_capability.id)
-            .await?;
+        let cap_obj_ref = wallet.get_object_ref(node_capability.id).await?;
 
         self.move_call_and_transfer(
             &wallet,
