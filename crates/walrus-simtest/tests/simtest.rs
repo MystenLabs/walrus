@@ -163,6 +163,8 @@ mod tests {
             }
         })
         .await;
+
+        assert!(fail_triggered.load(std::sync::atomic::Ordering::SeqCst));
     }
 
     // Action taken during a various failpoints. There is a chance with `probability` that the
