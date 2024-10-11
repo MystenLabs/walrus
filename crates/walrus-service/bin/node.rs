@@ -37,7 +37,7 @@ use walrus_service::{
         system_events::{EventManager, SuiSystemEventProvider},
         StorageNode,
     },
-    utils::{version, ByteCount, LoadConfig as _, MetricsAndLoggingRuntime},
+    utils::{self, version, ByteCount, LoadConfig as _, MetricsAndLoggingRuntime},
 };
 use walrus_sui::{
     client::{ContractClient, SuiContractClient},
@@ -248,6 +248,10 @@ struct PathArgs {
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+
+    if !matches!(args.command, Commands::Run { .. }) {
+        utils::init_tracing_subscriber()?;
+    }
 
     match args.command {
         Commands::Setup {

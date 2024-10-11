@@ -9,14 +9,7 @@ use anyhow::Result;
 use clap::Parser;
 use serde::Deserialize;
 use walrus_service::{
-    client::cli::{
-        error,
-        init_scoped_tracing_subscriber,
-        init_tracing_subscriber,
-        App,
-        ClientCommandRunner,
-        Commands,
-    },
+    client::cli::{error, App, ClientCommandRunner, Commands},
     utils::{self, MetricsAndLoggingRuntime},
 };
 
@@ -36,7 +29,7 @@ pub struct ClientArgs {
 }
 
 fn client() -> Result<()> {
-    let subscriber_guard = init_scoped_tracing_subscriber()?;
+    let subscriber_guard = utils::init_scoped_tracing_subscriber()?;
     let mut app = ClientArgs::parse().inner;
     app.extract_json_command()?;
 
@@ -48,7 +41,7 @@ fn client() -> Result<()> {
 
     match app.command {
         Commands::Cli(command) => {
-            init_tracing_subscriber()?;
+            utils::init_tracing_subscriber()?;
             runner.run_cli_app(command)
         }
         Commands::Daemon(command) => {
