@@ -189,7 +189,6 @@ impl EventBlobWriter {
         drop(file);
         file = OpenOptions::new()
             .read(true)
-            .append(true)
             .write(true)
             .open(next_file_path)?;
         file.seek(SeekFrom::Start(EventBlob::HEADER_SIZE as u64))?;
