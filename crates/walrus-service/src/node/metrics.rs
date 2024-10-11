@@ -3,6 +3,7 @@
 
 use prometheus::{
     core::{AtomicU64, GenericGaugeVec},
+    Histogram,
     HistogramVec,
     IntCounter,
     IntCounterVec,
@@ -75,7 +76,13 @@ telemetry::define_metric_set! {
         recover_blob_duration_seconds: HistogramVec["status"],
 
         #[help = "Time (in seconds) spent recovering metadata or slivers of blobs"]
-        recover_blob_part_duration_seconds: HistogramVec["part", "status"]
+        recover_blob_part_duration_seconds: HistogramVec["part", "status"],
+
+        #[help = "Unencoded size (in bytes) of the blob associated with uploaded metadata"]
+        uploaded_metadata_unencoded_blob_bytes: Histogram {
+            // Buckets from 2^18 (256 KiB) to 2^34 (16 GiB, inclusive).
+            buckets: (18..=34).map(|power| (1u64 << power) as f64).collect::<Vec<_>>()
+        }
     }
 }
 

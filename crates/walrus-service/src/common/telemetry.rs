@@ -351,32 +351,29 @@ macro_rules! define_metric_set {
 
         impl $name {
             pub fn new(registry: &Registry) -> Self {
-                Self {
-                    $(
-                        $field_name: {
-                            let opts = Opts::new(stringify!($field_name), $help_str)
-                                .namespace("walrus");
-                            let metric = $crate::common::telemetry::create_metric!(
-                                $field_type,
-                                opts,
-                                $field_def
-                            );
-                            registry
-                                .register(Box::new(metric.clone()))
-                                .expect("metrics defined at compile time must be valid");
-                            metric
-                        },
-                    )*
-                    $(
-                        $new_type_field: {
-                            let metric = $new_type_field_type::default();
-                            registry
-                                .register(metric.clone().into())
-                                .expect("metrics defined at compile time must be valid");
-                            metric
-                        }
-                    ),*
-                }
+                Self { $(
+                    $field_name: {
+                        let opts = Opts::new(stringify!($field_name), $help_str)
+                            .namespace("walrus");
+                        let metric = $crate::common::telemetry::create_metric!(
+                            $field_type,
+                            opts,
+                            $field_def
+                        );
+                        registry
+                            .register(Box::new(metric.clone()))
+                            .expect("metrics defined at compile time must be valid");
+                        metric
+                    },
+                )* $(
+                    $new_type_field: {
+                        let metric = $new_type_field_type::default();
+                        registry
+                            .register(metric.clone().into())
+                            .expect("metrics defined at compile time must be valid");
+                        metric
+                    }
+                ),* }
             }
         }
     };
@@ -394,17 +391,17 @@ macro_rules! create_metric {
             .expect("this must be called with valid metrics type and options")
     }};
     (Histogram, $opts:expr, {buckets: $buckets:expr}) => {{
-        let mut opts: HistogramOpts = $opts.into();
-        opts.buckets = $buckets;
+        let mut opts: prometheus::HistogramOpts = $opts.into();
+        opts.buckets = $buckets.into();
 
-        Histogram::with_opts(opts)
+        prometheus::Histogram::with_opts(opts)
             .expect("this must be called with valid metrics type and options")
     }};
     (HistogramVec, $opts:expr, {labels: [ $($label_names:tt)+ ], buckets: $buckets:expr}) => {{
-        let mut opts: HistogramOpts = $opts.into();
-        opts.buckets = $buckets;
+        let mut opts: prometheus::HistogramOpts = $opts.into();
+        opts.buckets = $buckets.into();
 
-        HistogramVec::new(opts, &[$($label_names)+])
+        prometheus::HistogramVec::new(opts, &[$($label_names)+])
             .expect("this must be called with valid metrics type and options")
     }};
 }
