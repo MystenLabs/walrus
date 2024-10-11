@@ -187,10 +187,23 @@ impl EventBlobWriter {
         file.write_u32::<BigEndian>(magic_bytes)?;
         file.write_u32::<BigEndian>(blob_format_version)?;
         drop(file);
-        file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(next_file_path)?;
+
+        // File::set_len requires write, not append access rights on Windows.
+        #[cfg(target_os = "windows")]
+        {
+            file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(next_file_path)?;
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            file = OpenOptions::new()
+                .read(true)
+                .append(true)
+                .open(next_file_path)?;
+        }
+
         file.seek(SeekFrom::Start(EventBlob::HEADER_SIZE as u64))?;
         Ok(file)
     }
