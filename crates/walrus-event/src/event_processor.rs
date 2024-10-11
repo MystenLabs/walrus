@@ -51,6 +51,7 @@ use typed_store::{
 use walrus_sui::types::ContractEvent;
 
 use crate::{
+    ensure_experimental_rest_endpoint_exists,
     get_bootstrap_committee_and_checkpoint,
     EventProcessorConfig,
     EventSequenceNumber,
@@ -374,6 +375,11 @@ impl EventProcessor {
     ) -> Result<Self, anyhow::Error> {
         // return a new CheckpointProcessor
         let client = Client::new(&config.rest_url);
+
+        // Fail with an error if experimental rest endpoint does not exist
+        // as we need it to get the full checkpoint
+        ensure_experimental_rest_endpoint_exists(client.clone()).await?;
+
         let metric_conf = MetricConf::default();
         let mut db_opts = Options::default();
         db_opts.create_missing_column_families(true);

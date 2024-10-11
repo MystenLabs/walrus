@@ -6,7 +6,7 @@ use std::{
     io::{BufReader, BufWriter},
 };
 
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
 use sui_rest_api::Client;
@@ -195,4 +195,31 @@ pub async fn get_bootstrap_committee_and_checkpoint(
     );
     let verified_checkpoint = VerifiedCheckpoint::new_unchecked(checkpoint_data.checkpoint_summary);
     Ok((committee, verified_checkpoint))
+}
+
+async fn check_experimental_rest_endpoint_exists(client: Client) -> anyhow::Result<bool> {
+    // TODO: Once full nodes update their openapi.json spec to include the experimental endpoint, we
+    // should update this function to download the openapi.json spec and check if the endpoint
+    // /checkpoints/{checkpoint}/full is present or not.
+    let latest_checkpoint = client.get_latest_checkpoint().await?;
+    let mut total_remaining_attempts = 5;
+    while client
+        .get_full_checkpoint(latest_checkpoint.sequence_number)
+        .await
+        .is_err()
+    {
+        total_remaining_attempts -= 1;
+        if total_remaining_attempts == 0 {
+            return Ok(false);
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
+    Ok(true)
+}
+
+pub async fn ensure_experimental_rest_endpoint_exists(client: Client) -> anyhow::Result<()> {
+    if !check_experimental_rest_endpoint_exists(client.clone()).await? {
+        bail!("Full node does not support experimental endpoint");
+    }
+    Ok(())
 }
