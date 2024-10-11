@@ -3,7 +3,12 @@
 
 //! Helper struct to run the Walrus client binary commands.
 
-use std::{io::Write, num::NonZeroU16, path::PathBuf, time::Duration};
+use std::{
+    io::Write,
+    num::NonZeroU16,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use anyhow::{Context, Result};
 use prometheus::Registry;
@@ -16,7 +21,7 @@ use walrus_core::{
 };
 use walrus_sui::{
     client::{BlobPersistence, ContractClient, ReadClient},
-    utils::price_for_encoded_length,
+    utils::{price_for_encoded_length, SuiNetwork},
 };
 
 use super::args::{
@@ -50,6 +55,7 @@ use crate::{
             InfoOutput,
             ReadOutput,
             StakeOutput,
+            WalletOutput,
         },
         Client,
         ClientDaemon,
@@ -159,8 +165,8 @@ impl ClientCommandRunner {
                 sui_network,
                 faucet_timeout,
             } => {
-                generate_sui_wallet(sui_network, &path, faucet_timeout).await?;
-                Ok(())
+                self.generate_sui_wallet(&path, sui_network, faucet_timeout)
+                    .await
             }
 
             CliCommands::GetWal {
@@ -502,6 +508,16 @@ impl ClientCommandRunner {
         let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
         let staked_wal = client.stake_with_node_pool(node_id, amount).await?;
         StakeOutput { staked_wal }.print_output(self.json)
+    }
+
+    pub(crate) async fn generate_sui_wallet(
+        self,
+        path: &Path,
+        sui_network: SuiNetwork,
+        faucet_timeout: Duration,
+    ) -> Result<()> {
+        let wallet_address = generate_sui_wallet(sui_network, path, faucet_timeout).await?;
+        WalletOutput { wallet_address }.print_output(self.json)
     }
 
     pub(crate) async fn exchange_sui_for_wal(

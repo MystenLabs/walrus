@@ -537,7 +537,7 @@ pub async fn generate_sui_wallet(
     sui_network: SuiNetwork,
     path: &Path,
     faucet_timeout: Duration,
-) -> Result<WalletContext> {
+) -> Result<SuiAddress> {
     tracing::info!(
         "generating Sui wallet for {sui_network} at '{}'",
         path.display()
@@ -564,7 +564,7 @@ pub async fn generate_sui_wallet(
         Ok(Ok(_)) => tracing::info!("successfully obtained SUI from the faucet"),
     }
 
-    Ok(wallet)
+    Ok(wallet_address)
 }
 
 /// Provides approximate parsing of human-friendly byte values.

@@ -11,7 +11,10 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use serde_with::{base64::Base64, serde_as, DisplayFromStr};
-use sui_types::{base_types::ObjectID, event::EventID};
+use sui_types::{
+    base_types::{ObjectID, SuiAddress},
+    event::EventID,
+};
 use utoipa::ToSchema;
 use walrus_core::{
     bft,
@@ -414,6 +417,14 @@ pub(crate) struct DeleteOutput {
 pub struct StakeOutput {
     /// The staked WAL after staking.
     pub staked_wal: StakedWal,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// The output of the `walrus generate-sui-wallet` command.
+pub struct WalletOutput {
+    /// The address of the generated wallet.
+    pub wallet_address: SuiAddress,
 }
 
 #[derive(Debug, Clone, Serialize)]

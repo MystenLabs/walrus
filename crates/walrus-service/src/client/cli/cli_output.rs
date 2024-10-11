@@ -35,6 +35,7 @@ use crate::client::{
         InfoOutput,
         ReadOutput,
         StakeOutput,
+        WalletOutput,
     },
     string_prefix,
     BlobStoreResult,
@@ -412,6 +413,16 @@ impl CliOutput for StakeOutput {
     fn print_cli_output(&self) {
         println!("{} Staked WAL successfully.", success());
         println!("Staking info:\n{}", self.staked_wal);
+    }
+}
+
+impl CliOutput for WalletOutput {
+    fn print_cli_output(&self) {
+        println!(
+            "{} Generated a new Sui wallet with address {}",
+            success(),
+            self.wallet_address
+        );
     }
 }
 

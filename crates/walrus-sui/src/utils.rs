@@ -322,7 +322,8 @@ pub async fn sign_and_send_ptb(
 
 /// Loads a sui wallet from `config_path`.
 pub fn load_wallet(config_path: Option<PathBuf>) -> Result<WalletContext> {
-    let config_path = config_path.unwrap_or(sui_config_dir()?.join(SUI_CLIENT_CONFIG));
+    let config_path =
+        config_path.map_or_else(|| anyhow::Ok(sui_config_dir()?.join(SUI_CLIENT_CONFIG)), Ok)?;
     WalletContext::new(&config_path, None, None)
 }
 

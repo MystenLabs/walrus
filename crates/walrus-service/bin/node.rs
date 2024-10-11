@@ -565,7 +565,12 @@ mod commands {
         keygen(&protocol_key_path, KeyType::Protocol, true)?;
         keygen(&network_key_path, KeyType::Network, true)?;
 
-        utils::generate_sui_wallet(sui_network, &wallet_config, faucet_timeout).await?;
+        let wallet_address =
+            utils::generate_sui_wallet(sui_network, &wallet_config, faucet_timeout).await?;
+        println!(
+            "Successfully generated a new Sui wallet with address {}",
+            wallet_address
+        );
 
         generate_config(
             PathArgs {
