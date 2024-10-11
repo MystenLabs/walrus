@@ -42,7 +42,7 @@ ARG GIT_REVISION
 LABEL build-date=$BUILD_DATE
 LABEL git-revision=$GIT_REVISION
 
-# Production Image for walrus CLI
+# Production Image for walrus deployment CLI
 FROM debian:bullseye-slim AS walrus-deploy
 # Use jemalloc as memory allocator
 RUN apt-get update && apt-get install -y ca-certificates curl
