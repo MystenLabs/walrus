@@ -73,17 +73,33 @@ telemetry::define_metric_set! {
         event_process_duration_seconds: HistogramVec["event_type"],
 
         #[help = "Time (in seconds) spent recovering blobs"]
-        recover_blob_duration_seconds: HistogramVec["status"],
+        recover_blob_duration_seconds: HistogramVec {
+            labels: ["status"],
+            buckets: default_buckets_for_slow_operations(),
+        },
 
         #[help = "Time (in seconds) spent recovering metadata or slivers of blobs"]
-        recover_blob_part_duration_seconds: HistogramVec["part", "status"],
+        recover_blob_part_duration_seconds: HistogramVec {
+            labels: ["part", "status"],
+            buckets: default_buckets_for_slow_operations(),
+        },
 
         #[help = "Unencoded size (in bytes) of the blob associated with uploaded metadata"]
         uploaded_metadata_unencoded_blob_bytes: Histogram {
-            // Buckets from 2^18 (256 KiB) to 2^34 (16 GiB, inclusive).
+            // Buckets from 2^18 (256 KiB) to 2^34 (16 GiB, inclusive), which covers the ~212 KiB to
+            // 14 GiB unencoded blobs which are possible in a system with 1000 shards.
             buckets: (18..=34).map(|power| (1u64 << power) as f64).collect::<Vec<_>>()
         }
     }
+}
+
+/// Returns 14 buckets from ~31 ms to 256 seconds (~4m 15s).
+///
+/// As prometheus includes a bucket to +Inf, values over 256 seconds are still counted.
+/// The number of buckets was chosen to be consistent with the default number of buckets in
+/// histograms created by Prometheus.
+fn default_buckets_for_slow_operations() -> Vec<f64> {
+    prometheus::exponential_buckets(0.03125, 2.0, 14).expect("count, start, and factor are valid")
 }
 
 telemetry::define_metric_set! {

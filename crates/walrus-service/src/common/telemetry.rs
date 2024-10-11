@@ -386,7 +386,7 @@ macro_rules! create_metric {
         <$field_type>::with_opts($opts.into())
             .expect("this must be called with valid metrics type and options")
     }};
-    ($field_type:ty, $opts:expr, [ $($label_names:tt)+ ]) => {{
+    ($field_type:ty, $opts:expr, [$($label_names:tt)+]) => {{
         <$field_type>::new($opts.into(), &[$($label_names)+])
             .expect("this must be called with valid metrics type and options")
     }};
@@ -397,7 +397,7 @@ macro_rules! create_metric {
         prometheus::Histogram::with_opts(opts)
             .expect("this must be called with valid metrics type and options")
     }};
-    (HistogramVec, $opts:expr, {labels: [ $($label_names:tt)+ ], buckets: $buckets:expr}) => {{
+    (HistogramVec, $opts:expr, {labels: [$($label_names:tt)+], buckets: $buckets:expr $(,)?}) => {{
         let mut opts: prometheus::HistogramOpts = $opts.into();
         opts.buckets = $buckets.into();
 
