@@ -42,37 +42,21 @@ const MIN_STAKE: u64 = 0;
 /// TODO: Remove once solutions are in place to prevent hitting move execution limits (#935).
 const TEMP_ACTIVE_SET_SIZE_LIMIT: u16 = 100;
 
-// TODO: decide epoch duration. Consider making it a system parameter.
-
-// The duration of an epoch in ms.
-// Currently one week.
-// TODO: currently replaced by the epoch duration.
-// const EPOCH_DURATION: u64 = 7 * 24 * 60 * 60 * 1000;
-
 // The delta between the epoch change finishing and selecting the next epoch parameters in ms.
 // Currently half of an epoch.
-// TODO: currently replaced by the epoch duration / 2.
+// TODO: currently replaced by the epoch duration / 2. Consider making this a separate system
+// parameter.
 // const PARAM_SELECTION_DELTA: u64 = 7 * 24 * 60 * 60 * 1000 / 2;
 
+// Keep errors in `walrus-sui/types/move_errors.rs` up to date with changes here.
+const EWrongEpochState: u64 = 0;
+const EInvalidSyncEpoch: u64 = 1;
+const EDuplicateSyncDone: u64 = 2;
+const ENoStake: u64 = 3;
+const ENotInCommittee: u64 = 4;
+
 // TODO: remove this once the module is implemented.
-#[error]
-const ENotImplemented: vector<u8> = b"Function is not implemented";
-
-#[error]
-const EWrongEpochState: vector<u8> = b"Current epoch state does not allow this operation";
-
-#[error]
-const EInvalidSyncEpoch: vector<u8> =
-    b"The epoch of the epoch sync done call does not match the current epoch";
-
-#[error]
-const EDuplicateSyncDone: vector<u8> = b"Node already attested that sync is done for this epoch";
-
-#[error]
-const ENoStake: vector<u8> = b"Total stake is zero for apportionment";
-
-#[error]
-const ENotInCommittee: vector<u8> = b"The node is not part of the current committee";
+const ENotImplemented: u64 = 5;
 
 /// The epoch state.
 public enum EpochState has store, copy, drop {
@@ -613,6 +597,21 @@ public(package) fun epoch_sync_done(
     };
     // Emit the event that the node has received all shards.
     events::emit_shards_received(self.epoch, *node_shards);
+}
+
+/// Checks if the node should either have received the specified shards from the specified node
+/// or vice-versa.
+///
+/// - also checks that for the provided shards, this function has not been called before
+/// - if so, slashes both nodes and emits an event that allows the receiving node to start
+///     shard recovery
+public fun shard_transfer_failed(
+    _staking: &mut StakingInnerV1,
+    _cap: &StorageNodeCap,
+    _other_node_id: ID,
+    _shard_ids: vector<u16>,
+) {
+    abort ENotImplemented
 }
 
 // === Accessors ===

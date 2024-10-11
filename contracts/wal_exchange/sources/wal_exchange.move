@@ -7,21 +7,11 @@ module wal_exchange::wal_exchange;
 use sui::{balance::{Self, Balance}, coin::Coin, sui::SUI};
 use wal::wal::WAL;
 
-#[error]
-const EInsufficientFundsInExchange: vector<u8> =
-    b"The exchange has insufficient funds to perform the exchange";
-
-#[error]
-const EInsufficientInputBalance: vector<u8> =
-    b"The provided coin has insufficient balance for the exchange";
-
-#[error]
-const EUnauthorizedAdminCap: vector<u8> =
-    b"The provided AdminCap is not authorized for this exchange";
-
-#[error]
-const EInvalidExchangeRate: vector<u8> =
-    b"The provided exchange rate is invaled; neither field can be 0.";
+// Keep errors in `walrus-sui/types/move_errors.rs` up to date with changes here.
+const EInsufficientFundsInExchange: u64 = 0;
+const EInsufficientInputBalance: u64 = 1;
+const EUnauthorizedAdminCap: u64 = 2;
+const EInvalidExchangeRate: u64 = 3;
 
 /// A public exchange that allows exchanging SUI for WAL at a fixed exchange rate.
 public struct Exchange has key, store {

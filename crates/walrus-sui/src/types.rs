@@ -36,6 +36,9 @@ pub use move_structs::{
     StorageResource,
     SystemObject,
 };
+
+pub(crate) mod move_errors;
+
 use serde::{Deserialize, Serialize};
 use walrus_core::{bft, ensure, Epoch, NetworkPublicKey, PublicKey, ShardIndex};
 

@@ -12,27 +12,15 @@ module walrus::staked_wal;
 use sui::balance::Balance;
 use wal::wal::WAL;
 
-#[error]
-const ENotWithdrawing: vector<u8> =
-    b"`withdrawing_epoch` can only be accessed for staked WAL in `Withdrawing` state";
-
-#[error]
-const EMetadataMismatch: vector<u8> =
-    b"`join` operation can only be performed on staked WALs with matching metadata";
-
-#[error]
-const EInvalidAmount: vector<u8> = b"Amount is higher than the staked WAL value";
-
-#[error]
+// Keep errors in `walrus-sui/types/move_errors.rs` up to date with changes here.
+const ENotWithdrawing: u64 = 0;
+const EMetadataMismatch: u64 = 1;
+const EInvalidAmount: u64 = 2;
+const ENonZeroPrincipal: u64 = 3;
 // TODO: possibly enable this behavior in the future
-const ECantJoinWithdrawing: vector<u8> = b"Cannot join a staked WAL in the `Withdrawing` state";
-
-#[error]
+const ECantJoinWithdrawing: u64 = 4;
 // TODO: possibly enable this behavior in the future
-const ECantSplitWithdrawing: vector<u8> = b"Cannot split a staked WAL in the `Withdrawing` state";
-
-#[error]
-const ENonZeroPrincipal: vector<u8> = b"Principal must be zero to destroy the staked WAL";
+const ECantSplitWithdrawing: u64 = 5;
 
 /// The state of the staked WAL. It can be either `Staked` or `Withdrawing`.
 /// The `Withdrawing` state contains the epoch when the staked WAL can be

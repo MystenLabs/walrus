@@ -16,20 +16,12 @@ use walrus::{
     walrus_context::WalrusContext
 };
 
-#[error]
-const EPoolAlreadyUpdated: vector<u8> = b"Pool already updated for the current epoch";
-
-#[error]
-const ECalculationError: vector<u8> = b"Trying to withdraw more than the pool balance";
-
-#[error]
-const EIncorrectEpochAdvance: vector<u8> = b"Pool without stake cannot receive rewards";
-
-#[error]
-const EPoolNotEmpty: vector<u8> = b"Pool is not empty, cannot be destroyed";
-
-#[error]
-const EInvalidProofOfPossession: vector<u8> = b"The provided proof of possession is invalid";
+// Keep errors in `walrus-sui/types/move_errors.rs` up to date with changes here.
+const EPoolAlreadyUpdated: u64 = 0;
+const ECalculationError: u64 = 1;
+const EIncorrectEpochAdvance: u64 = 2;
+const EPoolNotEmpty: u64 = 3;
+const EInvalidProofOfPossession: u64 = 4;
 
 /// Represents the state of the staking pool.
 ///

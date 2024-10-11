@@ -14,13 +14,14 @@ use walrus::{
 };
 
 // Error codes
+// Keep errors in `walrus-sui/types/move_errors.rs` up to date with changes here.
+const ENotCertified: u64 = 0;
+const EBlobNotDeletable: u64 = 1;
 const EResourceBounds: u64 = 2;
 const EResourceSize: u64 = 3;
 const EWrongEpoch: u64 = 4;
 const EAlreadyCertified: u64 = 5;
 const EInvalidBlobId: u64 = 6;
-const ENotCertified: u64 = 7;
-const EBlobNotDeletable: u64 = 8;
 
 // The fixed dynamic filed name for metadata
 const METADATA_DF: vector<u8> = b"metadata";

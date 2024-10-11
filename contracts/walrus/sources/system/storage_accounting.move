@@ -7,7 +7,8 @@ use sui::balance::{Self, Balance};
 use wal::wal::WAL;
 
 // Errors
-const EIndexOutOfBounds: u64 = 3;
+// Keep errors in `walrus-sui/types/move_errors.rs` up to date with changes here.
+const ETooFarInFuture: u64 = 0;
 
 /// Holds information about a future epoch, namely how much
 /// storage needs to be reclaimed and the rewards to be distributed.
@@ -101,7 +102,7 @@ public(package) fun ring_lookup_mut(
     epochs_in_future: u32,
 ): &mut FutureAccounting {
     // Check for out-of-bounds access.
-    assert!(epochs_in_future < self.length, EIndexOutOfBounds);
+    assert!(epochs_in_future < self.length, ETooFarInFuture);
 
     let actual_index = (epochs_in_future + self.current_index) % self.length;
     &mut self.ring_buffer[actual_index as u64]

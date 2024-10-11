@@ -27,6 +27,8 @@ const MAX_MAX_EPOCHS_AHEAD: u32 = 1000;
 const BYTES_PER_UNIT_SIZE: u64 = 1_024 * 1_024; // 1 MiB
 
 // Errors
+// Keep errors in `walrus-sui/types/move_errors.rs` up to date with changes here.
+const EInvalidMaxEpochsAhead: u64 = 0;
 const EStorageExceeded: u64 = 1;
 const EInvalidEpochsAhead: u64 = 2;
 const EInvalidIdEpoch: u64 = 3;
@@ -35,7 +37,6 @@ const EInvalidAccountingEpoch: u64 = 5;
 const EIncorrectAttestation: u64 = 6;
 const ERepeatedAttestation: u64 = 7;
 const ENotCommitteeMember: u64 = 8;
-const EInvalidMaxEpochsAhead: u64 = 9;
 
 /// The inner object that is not present in signatures and can be versioned.
 #[allow(unused_field)]

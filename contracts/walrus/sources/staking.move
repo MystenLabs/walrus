@@ -15,9 +15,6 @@ use walrus::{
     system::System
 };
 
-#[error]
-const ENotImplemented: vector<u8> = b"Function is not implemented";
-
 /// Flag to indicate the version of the Walrus system.
 const VERSION: u64 = 0;
 
@@ -195,7 +192,7 @@ public fun shard_transfer_failed(
     other_node_id: ID,
     shard_ids: vector<u16>,
 ) {
-    abort ENotImplemented
+    staking.inner_mut().shard_transfer_failed(cap, other_node_id, shard_ids);
 }
 
 /// Signals to the contract that the node has received all its shards for the new epoch.
