@@ -41,7 +41,6 @@ use tokio::{
     time::{sleep, Instant},
 };
 use tokio_util::sync::CancellationToken;
-use tracing::warn;
 use typed_store::{
     rocks,
     rocks::{errors::typed_store_err_from_rocks_err, DBMap, MetricConf, ReadWriteOptions},
@@ -53,6 +52,7 @@ use walrus_sui::types::ContractEvent;
 use crate::{
     ensure_experimental_rest_endpoint_exists,
     get_bootstrap_committee_and_checkpoint,
+    handle_checkpoint_error,
     EventProcessorConfig,
     EventSequenceNumber,
     IndexedStreamElement,
@@ -248,10 +248,7 @@ impl EventProcessor {
                         result.err().unwrap()
                     );
                 } else {
-                    warn!(
-                        "Failed to read checkpoint from full node: {}",
-                        result.err().unwrap()
-                    );
+                    handle_checkpoint_error(result.err(), next_checkpoint);
                     continue;
                 }
             };

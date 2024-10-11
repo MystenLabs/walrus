@@ -9,7 +9,7 @@ use std::{
 use anyhow::{anyhow, bail};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
-use sui_rest_api::Client;
+use sui_rest_api::{client::sdk, Client};
 use sui_sdk::{
     rpc_types::{SuiObjectDataOptions, SuiTransactionBlockResponseOptions},
     SuiClient,
@@ -21,6 +21,7 @@ use sui_types::{
     messages_checkpoint::{CheckpointSequenceNumber, VerifiedCheckpoint},
     sui_serde::BigInt,
 };
+use tracing::{debug, error, info};
 use walrus_core::BlobId;
 use walrus_sui::types::{BlobEvent, ContractEvent};
 
@@ -198,9 +199,9 @@ pub async fn get_bootstrap_committee_and_checkpoint(
 }
 
 async fn check_experimental_rest_endpoint_exists(client: Client) -> anyhow::Result<bool> {
-    // TODO: Once full nodes update their openapi.json spec to include the experimental endpoint, we
-    // should update this function to download the openapi.json spec and check if the endpoint
-    // /checkpoints/{checkpoint}/full is present or not.
+    // TODO: https://github.com/MystenLabs/walrus/issues/1049
+    // TODO: Use utils::retry once it is outside walrus-service such that it doesn't trigger
+    // cyclic dependency errors
     let latest_checkpoint = client.get_latest_checkpoint().await?;
     let mut total_remaining_attempts = 5;
     while client
@@ -217,9 +218,35 @@ async fn check_experimental_rest_endpoint_exists(client: Client) -> anyhow::Resu
     Ok(true)
 }
 
-pub async fn ensure_experimental_rest_endpoint_exists(client: Client) -> anyhow::Result<()> {
+async fn ensure_experimental_rest_endpoint_exists(client: Client) -> anyhow::Result<()> {
     if !check_experimental_rest_endpoint_exists(client.clone()).await? {
         bail!("Full node does not support experimental endpoint");
+    } else {
+        info!("Full node supports experimental endpoint");
     }
     Ok(())
+}
+
+/// Handles an error that occurred while reading the next checkpoint.
+/// If the error is due to a checkpoint that is already present on the server, it is logged as an
+/// error. Otherwise, it is logged as a debug.
+fn handle_checkpoint_error(err: Option<sdk::Error>, next_checkpoint: u64) {
+    let error = err.as_ref().map(|e| e.to_string()).unwrap_or_default();
+    if let Some(checkpoint_height) = err
+        .as_ref()
+        .and_then(|e| e.parts())
+        .and_then(|p| p.checkpoint_height)
+    {
+        if next_checkpoint > checkpoint_height {
+            debug!(
+                "Failed to read next checkpoint: {}, checkpoint_height: {}, error: {}",
+                next_checkpoint, checkpoint_height, error
+            );
+            return;
+        }
+    }
+    error!(
+        "Failed to read next checkpoint: {} with error: {}",
+        next_checkpoint, error
+    );
 }
