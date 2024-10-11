@@ -104,7 +104,7 @@ public(package) fun insert(set: &mut ActiveSet, node_id: ID, staked_amount: u64)
         // If there is such a node, replace it in the list.
         if (min_idx.is_some()) {
             let min_idx = min_idx.extract();
-            set.total_stake = set.total_stake - set.nodes[min_idx].staked_amount + staked_amount;
+            set.total_stake = set.total_stake - min_stake + staked_amount;
             *&mut set.nodes[min_idx] = ActiveSetEntry { node_id, staked_amount };
             true
         } else {
@@ -170,11 +170,11 @@ public(package) fun cur_min_stake(set: &ActiveSet): u64 {
     }
 }
 
-// #[syntax(index)]
-// /// Get the staked amount of the storage node with the given `node_id`.
-// public(package) fun borrow(set: &ActiveSet, node_id: &ID): &u64 {
-//     &set.nodes[node_id]
-// }
+#[test_only]
+public fun stake_for_node(set: &ActiveSet, node_id: ID): u64 {
+    set.nodes.find_index!(|entry| entry.node_id == node_id)
+        .map!(|index| set.nodes[index].staked_amount ).destroy_with_default(0)
+}
 
 // === Test ===
 
@@ -187,8 +187,16 @@ fun test_evict_correct_node_simple() {
     set.insert_or_update(object::id_from_address(@4), 7);
     set.insert_or_update(object::id_from_address(@5), 6);
 
+    let mut total_stake = 10 + 9 + 8 + 7 + 6;
+
+    assert!(set.total_stake == total_stake);
+
     // insert another node which should eject node 5
     set.insert_or_update(object::id_from_address(@6), 11);
+
+    // check if total stake was updated correctly
+    total_stake = total_stake - 6 + 11;
+    assert!(set.total_stake == total_stake);
 
     let active_ids = set.active_ids();
 
@@ -205,33 +213,79 @@ fun test_evict_correct_node_simple() {
 
 #[test]
 fun test_evict_correct_node_with_updates() {
-    let mut set = new(5, 0);
-    set.insert_or_update(object::id_from_address(@4), 7);
-    set.insert_or_update(object::id_from_address(@1), 10);
-    set.insert_or_update(object::id_from_address(@3), 8);
-    set.insert_or_update(object::id_from_address(@2), 9);
-    set.insert_or_update(object::id_from_address(@5), 6);
+    let nodes = vector[
+        object::id_from_address(@1),
+        object::id_from_address(@2),
+        object::id_from_address(@3),
+        object::id_from_address(@4),
+        object::id_from_address(@5),
+        object::id_from_address(@6),
+    ];
 
+    let mut set = new(5, 0);
+    set.insert_or_update(nodes[3], 7);
+    set.insert_or_update(nodes[0], 10);
+    set.insert_or_update(nodes[2], 8);
+    set.insert_or_update(nodes[1], 9);
+    set.insert_or_update(nodes[4], 6);
+
+    let mut total_stake = 10 + 9 + 8 + 7 + 6;
+
+    assert!(set.total_stake == total_stake);
 
     // update nodes again
-    set.insert_or_update(object::id_from_address(@1), 12);
-    set.insert_or_update(object::id_from_address(@3), 13);
-    set.insert_or_update(object::id_from_address(@4), 9);
-    set.insert_or_update(object::id_from_address(@2), 10);
-    set.insert_or_update(object::id_from_address(@5), 7);
+    set.insert_or_update(nodes[0], 12);
+    // check if total stake was updated correctly
+    total_stake = total_stake - 10 + 12;
+    assert!(set.total_stake == total_stake);
+    // check if the stake of the node was updated correctly
+    assert!(set.stake_for_node(nodes[0]) == 12);
 
-    // insert another node which should eject node 5
-    set.insert_or_update(object::id_from_address(@6), 11);
+    set.insert_or_update(nodes[2], 13);
+    // check if total stake was updated correctly
+    total_stake = total_stake - 8 + 13;
+    assert!(set.total_stake == total_stake);
+    // check if the stake of the node was updated correctly
+    assert!(set.stake_for_node(nodes[2]) == 13);
+
+    set.insert_or_update(nodes[3], 9);
+    // check if total stake was updated correctly
+    total_stake = total_stake - 7 + 9;
+    assert!(set.total_stake == total_stake);
+    // check if the stake of the node was updated correctly
+    assert!(set.stake_for_node(nodes[3]) == 9);
+
+    set.insert_or_update(nodes[1], 10);
+    // check if total stake was updated correctly
+    total_stake = total_stake - 9 + 10;
+    assert!(set.total_stake == total_stake);
+    // check if the stake of the node was updated correctly
+    assert!(set.stake_for_node(nodes[1]) == 10);
+
+    set.insert_or_update(nodes[4], 7);
+    // check if total stake was updated correctly
+    total_stake = total_stake - 6 + 7;
+    assert!(set.total_stake == total_stake);
+    // check if the stake of the node was updated correctly
+    assert!(set.stake_for_node(nodes[4]) == 7);
+
+    // insert another node which should eject nodes[4] (address @5)
+    set.insert_or_update(nodes[5], 11);
+    // check if total stake was updated correctly
+    total_stake = total_stake - 7 + 11;
+    assert!(set.total_stake == total_stake);
+    // check if the stake of the node was updated correctly
+    assert!(set.stake_for_node(nodes[5]) == 11);
 
     let active_ids = set.active_ids();
 
     // node 5 should not be part of the set
-    assert!(!active_ids.contains(&object::id_from_address(@5)));
+    assert!(!active_ids.contains(&nodes[4]));
 
     // all other nodes should be
-    assert!(active_ids.contains(&object::id_from_address(@1)));
-    assert!(active_ids.contains(&object::id_from_address(@2)));
-    assert!(active_ids.contains(&object::id_from_address(@3)));
-    assert!(active_ids.contains(&object::id_from_address(@4)));
-    assert!(active_ids.contains(&object::id_from_address(@6)));
+    assert!(active_ids.contains(&nodes[0]));
+    assert!(active_ids.contains(&nodes[1]));
+    assert!(active_ids.contains(&nodes[2]));
+    assert!(active_ids.contains(&nodes[3]));
+    assert!(active_ids.contains(&nodes[5]));
 }
