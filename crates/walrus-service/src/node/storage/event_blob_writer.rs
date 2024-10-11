@@ -223,11 +223,7 @@ impl EventBlobWriter {
         self.wbuf.flush()?;
         self.wbuf.get_ref().sync_data()?;
         let off = self.wbuf.get_ref().stream_position()?;
-        println!("offsite is {}", off);
-        println!("file to print is {:?}", self.wbuf.get_ref());
-        let e = self.wbuf.get_ref().set_len(off);
-        println!("set len error is {:?}", e);
-        e?;
+        self.wbuf.get_ref().set_len(off)?;
         Ok(())
     }
 
