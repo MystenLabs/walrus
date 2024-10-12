@@ -13,7 +13,7 @@ use axum::{
 };
 use openapi::{AggregatorApiDoc, DaemonApiDoc, PublisherApiDoc};
 use prometheus::{HistogramVec, Registry};
-use routes::{BLOB_GET_ENDPOINT, BLOB_PUT_ENDPOINT};
+use routes::{BLOB_GET_ENDPOINT, BLOB_PUT_ENDPOINT, STATUS_ENDPOINT};
 use tower::ServiceBuilder;
 use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
@@ -69,7 +69,9 @@ impl<T: ReadClient + Send + Sync + 'static> ClientDaemon<T> {
 
     /// Specifies that the daemon should expose the aggregator interface (read blobs).
     fn with_aggregator(mut self) -> Self {
-        self.router = self.router.route(BLOB_GET_ENDPOINT, get(routes::get_blob));
+        self.router = self.router
+            .route(BLOB_GET_ENDPOINT, get(routes::get_blob))
+            .route(STATUS_ENDPOINT, get(routes::status));
         self
     }
 
@@ -126,12 +128,14 @@ impl<T: ContractClient + 'static> ClientDaemon<T> {
 
     /// Specifies that the daemon should expose the publisher interface (store blobs).
     fn with_publisher(mut self, max_body_limit: usize) -> Self {
-        self.router = self.router.route(
+        self.router = self.router
+            .route(
             BLOB_PUT_ENDPOINT,
             put(routes::put_blob)
                 .route_layer(DefaultBodyLimit::max(max_body_limit))
                 .options(routes::store_blob_options),
-        );
+            )
+            .route(STATUS_ENDPOINT, get(routes::status));
         self
     }
 }
