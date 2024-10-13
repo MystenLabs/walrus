@@ -26,6 +26,12 @@ jobs:
     name: Check editorconfig
     steps:
       - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.x'
+      - run: python3 -m venv venv
+      - run: source venv/bin/activate
       - run: pip install editorconfig-checker=="2.7.3"
       - run: ec
 
