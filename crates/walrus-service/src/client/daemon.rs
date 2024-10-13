@@ -69,7 +69,8 @@ impl<T: ReadClient + Send + Sync + 'static> ClientDaemon<T> {
 
     /// Specifies that the daemon should expose the aggregator interface (read blobs).
     fn with_aggregator(mut self) -> Self {
-        self.router = self.router
+        self.router = self
+            .router
             .route(BLOB_GET_ENDPOINT, get(routes::get_blob))
             .route(STATUS_ENDPOINT, get(routes::status));
         self
@@ -128,12 +129,13 @@ impl<T: ContractClient + 'static> ClientDaemon<T> {
 
     /// Specifies that the daemon should expose the publisher interface (store blobs).
     fn with_publisher(mut self, max_body_limit: usize) -> Self {
-        self.router = self.router
+        self.router = self
+            .router
             .route(
-            BLOB_PUT_ENDPOINT,
-            put(routes::put_blob)
-                .route_layer(DefaultBodyLimit::max(max_body_limit))
-                .options(routes::store_blob_options),
+                BLOB_PUT_ENDPOINT,
+                put(routes::put_blob)
+                    .route_layer(DefaultBodyLimit::max(max_body_limit))
+                    .options(routes::store_blob_options),
             )
             .route(STATUS_ENDPOINT, get(routes::status));
         self
