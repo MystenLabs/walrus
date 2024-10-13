@@ -179,10 +179,7 @@ pub(super) async fn store_blob_options() -> impl IntoResponse {
     get,
     path = api::rewrite_route(STATUS_ENDPOINT),
     responses(
-        (status = 200, description = "OK"),
-        (status = 404, description = "Not found"),
-        (status = 500, description = "Internal server error" ),
-        // TODO(mlegner): Improve error responses. (#178, #462)
+        (status = 200, description = "The service is running"),
     ),
 )]
 pub(super) async fn status() -> Response {
