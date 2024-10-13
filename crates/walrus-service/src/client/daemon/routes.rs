@@ -31,7 +31,7 @@ use crate::{
     common::api::{self, BlobIdString},
 };
 
-/// status endpoint.
+/// The status endpoint, which always returns a 200 status when it is available.
 pub const STATUS_ENDPOINT: &str = "/status";
 /// OpenAPI documentation endpoint.
 pub const API_DOCS: &str = "/v1/api";
