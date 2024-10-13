@@ -16,7 +16,6 @@ RUN cargo build --profile $PROFILE --bin walrus --bin walrus-node --bin walrus-d
 
 # Production Image for walrus CLI
 FROM debian:bullseye-slim AS walrus-cli
-# Use jemalloc as memory allocator
 RUN apt-get update && apt-get install -y ca-certificates curl
 ARG PROFILE=release
 WORKDIR "$WORKDIR/walrus"
@@ -30,7 +29,6 @@ LABEL git-revision=$GIT_REVISION
 
 # Production Image for walrus node
 FROM debian:bullseye-slim AS walrus-node
-# Use jemalloc as memory allocator
 RUN apt-get update && apt-get install -y ca-certificates curl
 ARG PROFILE=release
 WORKDIR "$WORKDIR/walrus"
@@ -44,7 +42,6 @@ LABEL git-revision=$GIT_REVISION
 
 # Production Image for walrus deployment CLI
 FROM debian:bullseye-slim AS walrus-deploy
-# Use jemalloc as memory allocator
 RUN apt-get update && apt-get install -y ca-certificates curl
 ARG PROFILE=release
 WORKDIR "$WORKDIR/walrus"

@@ -14,9 +14,8 @@ COPY crates crates
 
 RUN cargo build --profile $PROFILE --bin walrus-orchestrator
 
-# Production Image for walrus CLI
+# Production Image for walrus orchestrator
 FROM debian:bullseye-slim AS walrus-orchestrator
-# Use jemalloc as memory allocator
 RUN apt-get update && apt-get install -y ca-certificates curl
 ARG PROFILE=release
 WORKDIR "$WORKDIR/walrus"

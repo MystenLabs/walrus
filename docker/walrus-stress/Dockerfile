@@ -16,7 +16,6 @@ RUN cargo build --profile $PROFILE --bin walrus-stress
 
 # Production Image for walrus stress
 FROM debian:bullseye-slim AS walrus-stress
-# Use jemalloc as memory allocator
 RUN apt-get update && apt-get install -y ca-certificates curl
 ARG PROFILE=release
 WORKDIR "$WORKDIR/walrus"
