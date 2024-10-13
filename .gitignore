@@ -26,3 +26,4 @@ build/
 client_config.yaml
 working_dir
 *.log
+venv/
