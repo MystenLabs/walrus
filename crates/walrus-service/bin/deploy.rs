@@ -139,10 +139,6 @@ struct GenerateDryRunConfigsArgs {
     /// Use the legacy event processor instead of the standard checkpoint-based event processor.
     #[clap(long, action)]
     use_legacy_event_provider: bool,
-    /// Deprecated; using the checkpoint-based event processor is now the default. Use
-    /// `--use-legacy-event-processor` to use the legacy event processor.
-    #[clap(long, action)]
-    enable_checkpoint_event_processor: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -241,7 +237,6 @@ mod commands {
             set_db_path,
             faucet_cooldown,
             use_legacy_event_provider,
-            enable_checkpoint_event_processor: _,
         }: GenerateDryRunConfigsArgs,
     ) -> anyhow::Result<()> {
         tracing_subscriber::fmt::init();
