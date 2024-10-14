@@ -348,8 +348,12 @@ impl SimStorageNodeHandle {
         // Starts the event processor thread if the node is configured to use the checkpoint
         // based event processor.
         let sui_read_client = sui_config.new_read_client().await?;
-        let event_provider: Box<dyn EventManager> =
-            if let Some(event_processor_config) = config.clone().event_processor_config {
+        let event_provider: Box<dyn EventManager> = match &config.event_provider_config {
+            EventProviderConfig::CheckpointBasedEventProcessor(event_processor_config) => {
+                let event_processor_config = event_processor_config.clone().unwrap_or_else(|| {
+                    EventProcessorConfig::new_with_default_pruning_interval(sui_config.rpc.clone())
+                });
+
                 Box::new(
                     EventProcessor::new(
                         &event_processor_config,
@@ -361,12 +365,14 @@ impl SimStorageNodeHandle {
                     )
                     .await?,
                 )
-            } else {
+            }
+            EventProviderConfig::LegacyEventProvider => {
                 Box::new(crate::node::system_events::SuiSystemEventProvider::new(
                     sui_read_client.clone(),
                     Duration::from_millis(100),
                 ))
-            };
+            }
+        };
 
         // Starts the event processor thread if it is configured, otherwise it produces a JoinHandle
         // that never returns.
@@ -1756,7 +1762,7 @@ pub mod test_cluster {
         if rng.gen_bool(0.5) {
             let mut event_processors = vec![];
             for _ in test_cluster_builder.storage_node_test_configs().iter() {
-                let event_processor = walrus_event::event_processor::EventProcessor::new(
+                let event_processor = EventProcessor::new(
                     event_processor_config,
                     event_processor_config.rest_url.clone(),
                     sui_read_client.get_system_package_id(),

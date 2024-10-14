@@ -300,7 +300,8 @@ impl StorageNodeBuilder {
             let (read_client, sui_config) = sui_config_and_client
                 .as_ref()
                 .expect("this is always created if self.event_manager.is_none()");
-            let event_manager: Box<dyn EventManager> = match &config.event_provider_config {
+
+            match &config.event_provider_config {
                 EventProviderConfig::CheckpointBasedEventProcessor(event_processor_config) => {
                     let event_processor_config =
                         event_processor_config.clone().unwrap_or_else(|| {
@@ -325,8 +326,7 @@ impl StorageNodeBuilder {
                     read_client.clone(),
                     sui_config.event_polling_interval,
                 )),
-            };
-            event_manager
+            }
         };
 
         let contract_service = match self.contract_service {
