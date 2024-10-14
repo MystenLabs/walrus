@@ -351,7 +351,9 @@ impl SimStorageNodeHandle {
         let event_provider: Box<dyn EventManager> = match &config.event_provider_config {
             EventProviderConfig::CheckpointBasedEventProcessor(event_processor_config) => {
                 let event_processor_config = event_processor_config.clone().unwrap_or_else(|| {
-                    EventProcessorConfig::new_with_default_pruning_interval(sui_config.rpc.clone())
+                    walrus_event::EventProcessorConfig::new_with_default_pruning_interval(
+                        sui_config.rpc.clone(),
+                    )
                 });
 
                 Box::new(
