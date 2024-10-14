@@ -66,7 +66,7 @@ enum Commands {
     /// This overwrites existing files in the configuration directory.
     /// Fails if the specified directory does not exist yet.
     Setup {
-        #[clap(short, long)]
+        #[clap(long)]
         /// The path to the directory in which to set up wallet and node configuration.
         config_directory: PathBuf,
         #[clap(long)]
@@ -86,16 +86,16 @@ enum Commands {
 
     /// Register a new node with the Walrus storage network.
     Register {
-        #[clap(short, long)]
+        #[clap(long)]
         /// The path to the node's configuration file.
         config_path: PathBuf,
-        #[clap(short, long)]
+        #[clap(long)]
         /// The host name or public IP address of the node.
         public_host: String,
         /// The port on which the storage node will serve requests.
         #[clap(long, default_value_t = REST_API_PORT)]
         port: u16,
-        #[clap(short, long)]
+        #[clap(long)]
         /// The name of the node.
         name: Option<String>,
     },
@@ -115,16 +115,16 @@ enum Commands {
         /// Path to the file at which the key will be created. If the file already exists, it is
         /// not overwritten and the operation will fail unless the `--force` option is provided.
         /// [default: ./<KEY_TYPE>.key]
-        #[clap(short, long)]
+        #[clap(long)]
         out: Option<PathBuf>,
         /// Which type of key to generate. Valid options are 'protocol' and 'network'.
         ///
         /// The protocol key is used to sign Walrus protocol messages.
         /// The network key is used to authenticate nodes in network communication.
-        #[clap(short, long)]
+        #[clap(long)]
         key_type: KeyType,
         /// Overwrite existing files.
-        #[clap(short, long)]
+        #[clap(long)]
         force: bool,
     },
 
@@ -229,7 +229,7 @@ struct ConfigArgs {
 
 #[derive(Debug, Clone, clap::Args)]
 struct PathArgs {
-    #[clap(short, long)]
+    #[clap(long)]
     /// The output path for the generated configuration file.
     config_path: PathBuf,
     #[clap(long)]
