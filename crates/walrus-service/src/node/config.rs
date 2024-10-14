@@ -81,9 +81,12 @@ pub struct StorageNodeConfig {
     /// Configuration for shard synchronization.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub shard_sync_config: ShardSyncConfig,
-    /// Configuration for running checkpoint processor
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub event_processor_config: Option<EventProcessorConfig>,
+    /// Configuration for the event provider.
+    ///
+    /// By default, the checkpoint-based event processor is used with the normal RPC node from the
+    /// Sui config.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub event_provider_config: EventProviderConfig,
     /// The commission rate of the storage node, in basis points.
     #[serde(default)]
     pub commission_rate: u64,
@@ -108,7 +111,7 @@ impl Default for StorageNodeConfig {
             blob_recovery: Default::default(),
             tls: Default::default(),
             shard_sync_config: Default::default(),
-            event_processor_config: Default::default(),
+            event_provider_config: Default::default(),
             commission_rate: 0,
             voting_params: VotingParams {
                 storage_price: defaults::storage_price(),
@@ -335,6 +338,27 @@ impl SuiConfig {
 }
 
 impl LoadConfig for SuiConfig {}
+
+/// Configuration of the event provider.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub enum EventProviderConfig {
+    /// Use the checkpoint-based event processor implemented in `walrus_event`.
+    CheckpointBasedEventProcessor(Option<EventProcessorConfig>),
+    /// Use the legacy event provider based on polling the RPC node for events.
+    LegacyEventProvider,
+}
+
+impl Default for EventProviderConfig {
+    fn default() -> Self {
+        Self::CheckpointBasedEventProcessor(None)
+    }
+}
+
+impl From<EventProcessorConfig> for EventProviderConfig {
+    fn from(value: EventProcessorConfig) -> Self {
+        Self::CheckpointBasedEventProcessor(Some(value))
+    }
+}
 
 /// Default values for the storage-node configuration.
 pub mod defaults {

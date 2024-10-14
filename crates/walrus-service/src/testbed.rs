@@ -26,7 +26,6 @@ use walrus_core::{
     EpochCount,
     ShardIndex,
 };
-use walrus_event::EventProcessorConfig;
 use walrus_sui::{
     client::{ContractClient as _, SuiContractClient},
     system_setup::InitSystemParams,
@@ -49,6 +48,7 @@ use crate::{
     common::utils::LoadConfig,
     node::config::{
         defaults::{self, REST_API_PORT},
+        EventProviderConfig,
         StorageNodeConfig,
         SuiConfig,
         TlsConfig,
@@ -440,16 +440,16 @@ pub async fn create_storage_node_configs(
     set_db_path: Option<&Path>,
     faucet_cooldown: Option<Duration>,
     admin_wallet: &mut WalletContext,
-    enable_checkpoint_event_processor: bool,
+    use_legacy_event_provider: bool,
 ) -> anyhow::Result<Vec<StorageNodeConfig>> {
     tracing::debug!(
         ?working_dir,
         ?listening_ips,
-        ?metrics_port,
+        metrics_port,
         ?set_config_dir,
         ?set_db_path,
         ?faucet_cooldown,
-        ?enable_checkpoint_event_processor,
+        use_legacy_event_provider,
         "starting to create storage-node configs"
     );
     let nodes = testbed_config.nodes;
@@ -552,13 +552,10 @@ pub async fn create_storage_node_configs(
             server_name: Some(node.network_address.get_host().to_owned()),
         };
 
-        let event_processor_config = if enable_checkpoint_event_processor {
-            Some(EventProcessorConfig {
-                rest_url: rpc.clone(),
-                pruning_interval: 3600,
-            })
+        let event_provider_config = if use_legacy_event_provider {
+            EventProviderConfig::LegacyEventProvider
         } else {
-            None
+            EventProviderConfig::CheckpointBasedEventProcessor(None)
         };
 
         storage_node_configs.push(StorageNodeConfig {
@@ -574,7 +571,7 @@ pub async fn create_storage_node_configs(
             blob_recovery: Default::default(),
             tls,
             shard_sync_config: Default::default(),
-            event_processor_config,
+            event_provider_config,
             commission_rate: node.commission_rate,
             voting_params: VotingParams {
                 storage_price: node.storage_price,

@@ -12,6 +12,7 @@ use std::{
 
 use anyhow::{anyhow, bail, Context};
 use committee::{BeginCommitteeChangeError, EndCommitteeChangeError};
+use config::EventProviderConfig;
 use epoch_change_driver::EpochChangeDriver;
 use fastcrypto::traits::KeyPair;
 use futures::{Stream, StreamExt, TryFutureExt};
@@ -50,7 +51,7 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
-use walrus_event::{event_processor::EventProcessor, IndexedStreamElement};
+use walrus_event::{event_processor::EventProcessor, EventProcessorConfig, IndexedStreamElement};
 use walrus_sdk::api::{
     BlobStatus,
     ServiceHealthInfo,
@@ -299,19 +300,28 @@ impl StorageNodeBuilder {
             let (read_client, sui_config) = sui_config_and_client
                 .as_ref()
                 .expect("this is always created if self.event_manager.is_none()");
-            let event_manager: Box<dyn EventManager> = match &config.event_processor_config {
-                Some(event_processor_config) => Box::new(
-                    EventProcessor::new(
-                        event_processor_config,
-                        sui_config.rpc.clone(),
-                        read_client.get_system_package_id(),
-                        sui_config.event_polling_interval,
-                        &config.storage_path.join("events"),
-                        &metrics_registry,
+            let event_manager: Box<dyn EventManager> = match &config.event_provider_config {
+                EventProviderConfig::CheckpointBasedEventProcessor(event_processor_config) => {
+                    let event_processor_config =
+                        event_processor_config.clone().unwrap_or_else(|| {
+                            EventProcessorConfig::new_with_default_pruning_interval(
+                                sui_config.rpc.clone(),
+                            )
+                        });
+
+                    Box::new(
+                        EventProcessor::new(
+                            &event_processor_config,
+                            sui_config.rpc.clone(),
+                            read_client.get_system_package_id(),
+                            sui_config.event_polling_interval,
+                            &config.storage_path.join("events"),
+                            &metrics_registry,
+                        )
+                        .await?,
                     )
-                    .await?,
-                ),
-                None => Box::new(SuiSystemEventProvider::new(
+                }
+                EventProviderConfig::LegacyEventProvider => Box::new(SuiSystemEventProvider::new(
                     read_client.clone(),
                     sui_config.event_polling_interval,
                 )),

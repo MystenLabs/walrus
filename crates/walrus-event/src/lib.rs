@@ -4,6 +4,7 @@
 use std::{
     fs::File,
     io::{BufReader, BufWriter},
+    time::Duration,
 };
 
 use anyhow::{anyhow, bail};
@@ -27,12 +28,22 @@ use walrus_sui::types::{BlobEvent, ContractEvent};
 pub mod event_processor;
 
 /// Configuration for event processing.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct EventProcessorConfig {
-    /// The REST URL of the fullnode.
+    /// The REST URL of the full node.
     pub rest_url: String,
-    /// Event pruning interval in number of seconds.
-    pub pruning_interval: u64,
+    /// Event pruning interval.
+    pub pruning_interval: Duration,
+}
+
+impl EventProcessorConfig {
+    /// Creates a new config with the default pruning interval of 1h.
+    pub fn new_with_default_pruning_interval(rest_url: String) -> Self {
+        Self {
+            rest_url,
+            pruning_interval: Duration::from_secs(3600),
+        }
+    }
 }
 
 /// The sequence number of an event in the event stream. This is a combination of the sequence
@@ -157,7 +168,7 @@ impl EventStreamCursor {
 }
 
 pub async fn get_bootstrap_committee_and_checkpoint(
-    sui_client: SuiClient,
+    sui_client: &SuiClient,
     client: Client,
     system_pkg_id: ObjectID,
 ) -> anyhow::Result<(Committee, VerifiedCheckpoint)> {

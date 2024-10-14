@@ -104,14 +104,14 @@ pub struct EventProcessorMetrics {
 pub struct EventProcessor {
     /// Full node REST client.
     pub client: Client,
-    /// Event polling interval
+    /// Event polling interval.
     pub event_polling_interval: Duration,
     /// The address of the Walrus system package.
     pub system_pkg_id: ObjectID,
     /// Event index before which events are pruned.
     pub event_store_commit_index: Arc<Mutex<u64>>,
-    /// Event store pruning duration
-    pub pruning_duration: Duration,
+    /// Event store pruning interval.
+    pub pruning_interval: Duration,
     /// Store which only stores the latest checkpoint.
     pub checkpoint_store: DBMap<(), TrustedCheckpoint>,
     /// Store which only stores the latest Walrus package.
@@ -120,7 +120,7 @@ pub struct EventProcessor {
     pub committee_store: DBMap<(), Committee>,
     /// Store which only stores all event stream elements.
     pub event_store: DBMap<u64, IndexedStreamElement>,
-    /// Package resolver
+    /// Package resolver.
     pub package_resolver: Arc<Resolver<PackageCache>>,
     /// Event processor metrics.
     pub metrics: EventProcessorMetrics,
@@ -203,7 +203,7 @@ impl EventProcessor {
     pub async fn start_pruning_events(&self, cancel_token: CancellationToken) -> Result<()> {
         loop {
             select! {
-                _ = sleep(self.pruning_duration) => {
+                _ = sleep(self.pruning_interval) => {
                     let commit_index = *self.event_store_commit_index.lock().await;
                     if commit_index == 0 {
                         continue;
@@ -448,7 +448,7 @@ impl EventProcessor {
             system_pkg_id,
             event_polling_interval,
             event_store_commit_index: Arc::new(Mutex::new(0)),
-            pruning_duration: Duration::from_secs(config.pruning_interval),
+            pruning_interval: config.pruning_interval,
             package_resolver: Arc::new(Resolver::new(PackageCache::new(package_store))),
             metrics: EventProcessorMetrics::new(registry),
         };
@@ -460,7 +460,7 @@ impl EventProcessor {
             event_processor.walrus_package_store.schedule_delete_all()?;
             let sui_client = SuiClientBuilder::default().build(rpc_address).await?;
             let (committee, verified_checkpoint) = get_bootstrap_committee_and_checkpoint(
-                sui_client,
+                &sui_client,
                 event_processor.client.clone(),
                 event_processor.system_pkg_id,
             )
@@ -622,7 +622,7 @@ mod tests {
             event_store,
             system_pkg_id: ObjectID::random(),
             event_store_commit_index: Arc::new(Mutex::new(0)),
-            pruning_duration: Duration::from_secs(10),
+            pruning_interval: Duration::from_secs(10),
             event_polling_interval: Duration::from_secs(1),
             package_resolver: Arc::new(Resolver::new(PackageCache::new(package_store))),
             metrics: EventProcessorMetrics::new(&Registry::default()),
