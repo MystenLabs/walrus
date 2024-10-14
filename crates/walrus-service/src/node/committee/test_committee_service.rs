@@ -4,7 +4,7 @@
 use std::{
     borrow::Borrow,
     collections::HashMap,
-    num::NonZero,
+    num::{NonZero, NonZeroU16},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -247,12 +247,17 @@ async fn metadata_request_succeeds_if_available(
     let committee_service = NodeCommitteeService::builder()
         .node_service_factory(service_map)
         .randomness(StdRng::seed_from_u64(0))
-        .build(ActiveCommittees::new(committee, None))
+        .build(ActiveCommittees::new(
+            committee,
+            Some(Committee::new(vec![], 0, NonZeroU16::new(10).unwrap()).unwrap()),
+        ))
         .await?;
 
-    let returned_metadata = committee_service
-        .get_and_verify_metadata(*expected_metadata.blob_id(), 0)
-        .await;
+    let returned_metadata = time::timeout(
+        Duration::from_secs(60),
+        committee_service.get_and_verify_metadata(*expected_metadata.blob_id(), 1),
+    )
+    .await?;
 
     assert_eq!(expected_metadata, returned_metadata);
 
@@ -341,13 +346,13 @@ async fn rejects_non_incremental_epochs(initial_epoch: Epoch, jumped_epoch: Epoc
 
 async_param_test! {
     #[tokio::test(start_paused = true)]
-    requests_for_metadata_are_dipsatched_to_correct_committee -> TestResult: [
-        old_metadata_to_old_committee: (0, 0, true),
+    requests_for_metadata_are_dispatched_to_correct_committee -> TestResult: [
+        old_metadata_to_old_committee: (1, 1, true),
         very_old_metadata_old_committee: (20, 7, true),
         new_metadata_new_committee: (22, 23, false),
     ]
 }
-async fn requests_for_metadata_are_dipsatched_to_correct_committee(
+async fn requests_for_metadata_are_dispatched_to_correct_committee(
     initial_epoch: Epoch,
     certified_epoch: Epoch,
     should_read_from_old_committee: bool,

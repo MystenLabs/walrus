@@ -1522,7 +1522,7 @@ where
 #[cfg(test)]
 #[allow(unused)]
 pub(crate) fn test_committee(weights: &[u16]) -> Committee {
-    test_committee_with_epoch(weights, 0)
+    test_committee_with_epoch(weights, 1)
 }
 
 #[cfg(test)]

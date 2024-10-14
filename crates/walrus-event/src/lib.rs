@@ -21,7 +21,6 @@ use sui_types::{
     messages_checkpoint::{CheckpointSequenceNumber, VerifiedCheckpoint},
     sui_serde::BigInt,
 };
-use tracing::{debug, error, info};
 use walrus_core::BlobId;
 use walrus_sui::types::{BlobEvent, ContractEvent};
 
@@ -220,9 +219,15 @@ async fn check_experimental_rest_endpoint_exists(client: Client) -> anyhow::Resu
 
 async fn ensure_experimental_rest_endpoint_exists(client: Client) -> anyhow::Result<()> {
     if !check_experimental_rest_endpoint_exists(client.clone()).await? {
-        bail!("Full node does not support experimental endpoint");
+        bail!(
+            "the configured full node *does not* provide the required REST endpoint for event \
+            processing; make sure to configure a full node in the node's configuration file, which \
+            provides the necessary endpoint"
+        );
     } else {
-        info!("Full node supports experimental endpoint");
+        tracing::info!(
+            "the configured full node provides the required REST endpoint for event processing"
+        );
     }
     Ok(())
 }
@@ -238,15 +243,18 @@ fn handle_checkpoint_error(err: Option<sdk::Error>, next_checkpoint: u64) {
         .and_then(|p| p.checkpoint_height)
     {
         if next_checkpoint > checkpoint_height {
-            debug!(
-                "Failed to read next checkpoint: {}, checkpoint_height: {}, error: {}",
-                next_checkpoint, checkpoint_height, error
+            tracing::trace!(
+                next_checkpoint,
+                checkpoint_height,
+                %error,
+                "failed to read next checkpoint, probably not produced yet",
             );
             return;
         }
     }
-    error!(
-        "Failed to read next checkpoint: {} with error: {}",
-        next_checkpoint, error
+    tracing::error!(
+        next_checkpoint,
+        %error,
+        "failed to read next checkpoint",
     );
 }

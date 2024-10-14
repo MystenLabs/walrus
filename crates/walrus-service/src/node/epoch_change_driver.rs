@@ -110,6 +110,12 @@ impl EpochChangeDriver {
     /// `schedule_*` methods for alternatives that will retry until successful.
     pub async fn schedule_relevant_calls_for_current_epoch(&self) -> Result<(), anyhow::Error> {
         let (epoch, state) = self.contract_service.get_epoch_and_state().await?;
+
+        if epoch == 0 {
+            tracing::info!("not scheduling any epoch-change calls in genesis epoch");
+            return Ok(());
+        }
+
         let next_epoch = NonZero::new(epoch + 1).expect("incremented value is non-zero");
 
         match state {

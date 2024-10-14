@@ -646,6 +646,13 @@ async fn add_members_from_committee<T: NodeService>(
     committee: &Committee,
     encoding_config: &Arc<EncodingConfig>,
 ) -> Result<(), anyhow::Error> {
+    if committee.epoch == 0 {
+        tracing::info!(
+            "we are in the genesis epoch, not creating any services for committee members"
+        );
+        return Ok(());
+    }
+
     let mut n_created = 0usize;
 
     for member in committee.members() {
