@@ -114,7 +114,7 @@ if ! $existing; then
     # Generate configs
     echo Generating configuration...
     cargo run --bin walrus-deploy -- generate-dry-run-configs \
-    --working-dir $working_dir
+    --working-dir $working_dir --use-legacy-event-provider
 fi
 
 i=0
