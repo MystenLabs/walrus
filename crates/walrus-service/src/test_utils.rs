@@ -658,7 +658,14 @@ impl StorageNodeHandleBuilder {
             let cloned_cancel_token = cancel_token.clone();
             let cloned_event_processor = event_processor.clone();
             tokio::spawn(
-                async move { cloned_event_processor.start(cloned_cancel_token).await }.instrument(
+                async move {
+                    let status = cloned_event_processor.start(cloned_cancel_token).await;
+                    if let Err(error) = status {
+                        tracing::error!("event processor stopped with error: {:?}", error);
+                        std::process::exit(1);
+                    }
+                }
+                .instrument(
                     tracing::info_span!("cluster-node", address = %config.rest_api_address),
                 ),
             );
@@ -686,18 +693,36 @@ impl StorageNodeHandleBuilder {
         if self.run_rest_api {
             let rest_api_clone = rest_api.clone();
 
-            tokio::task::spawn(async move { rest_api_clone.run().await }.instrument(
-                tracing::info_span!("cluster-node", address = %config.rest_api_address),
-            ));
+            tokio::task::spawn(
+                async move {
+                    let status = rest_api_clone.run().await;
+                    if let Err(error) = status {
+                        tracing::error!("rest api stopped with error: {:?}", error);
+                        std::process::exit(1);
+                    }
+                }
+                .instrument(
+                    tracing::info_span!("cluster-node", address = %config.rest_api_address),
+                ),
+            );
         }
 
         if self.run_node {
             let node = node.clone();
             let cancel_token = cancel_token.clone();
 
-            tokio::task::spawn(async move { node.run(cancel_token).await }.instrument(
-                tracing::info_span!("cluster-node", address = %config.rest_api_address),
-            ));
+            tokio::task::spawn(
+                async move {
+                    let status = node.run(cancel_token).await;
+                    if let Err(error) = status {
+                        tracing::error!("node stopped with error: {:?}", error);
+                        std::process::exit(1);
+                    }
+                }
+                .instrument(
+                    tracing::info_span!("cluster-node", address = %config.rest_api_address),
+                ),
+            );
         }
 
         let client = Client::builder()
