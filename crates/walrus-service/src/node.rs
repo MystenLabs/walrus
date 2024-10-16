@@ -118,7 +118,7 @@ pub use storage::{DatabaseConfig, Storage};
 use walrus_event::{EventStreamCursor, EventStreamElement};
 
 use crate::{
-    common::utils::ShardDiff,
+    common::{active_committees::ActiveCommittees, utils::ShardDiff},
     node::system_events::{EventManager, SuiSystemEventProvider},
 };
 
@@ -813,62 +813,7 @@ impl StorageNode {
             return Ok(());
         }
 
-        let public_key = self.inner.public_key();
-        let storage = &self.inner.storage;
-        let committees = self.inner.committee_service.active_committees();
-        let shard_diff = ShardDiff::diff_previous(&committees, public_key);
-
-        assert!(event.epoch <= committees.epoch());
-
-        for shard_id in &shard_diff.lost {
-            let Some(shard_storage) = storage.shard_storage(*shard_id) else {
-                tracing::debug!("skipping lost shard during epoch change as it is not stored");
-                continue;
-            };
-            // TODO: remove shard at the next EpochChangeStart event.
-            //       eventually, we can remove the shard upon receiving ShardsReceived events.
-            tracing::debug!(walrus.shard_index = %shard_id, "locking shard for epoch change");
-            shard_storage
-                .lock_shard_for_epoch_change()
-                .context("failed to lock shard")?;
-        }
-
-        if shard_diff.gained.is_empty() {
-            let is_node_in_committee = committees.current_committee().contains(public_key);
-            if is_node_in_committee && committees.epoch() == event.epoch {
-                // We are in the current committee, but no shards were gained. Directly signal that
-                // the epoch sync is done.
-                tracing::info!("no shards gained, so signalling that epoch sync is done");
-                self.inner
-                    .contract_service
-                    .epoch_sync_done(event.epoch)
-                    .await;
-            } else {
-                // Since we just refreshed the committee after receiving the event, the committees'
-                // epoch must be at least the event's epoch.
-                assert!(committees.epoch() >= event.epoch);
-                tracing::info!(
-                    "skip sending epoch sync done event. \
-                    node in committee: {}, committee epoch: {}, event epoch: {}",
-                    is_node_in_committee,
-                    committees.epoch(),
-                    event.epoch
-                );
-            }
-        } else {
-            assert!(committees.current_committee().contains(public_key));
-            self.inner
-                .create_storage_for_shards_in_background(shard_diff.gained.clone())
-                .await?;
-
-            // There shouldn't be an epoch change event for the genesis epoch.
-            assert!(event.epoch != GENESIS_EPOCH);
-            for shard in &shard_diff.gained {
-                self.shard_sync_handler.start_new_shard_sync(*shard).await?;
-            }
-        }
-
-        Ok(())
+        self.process_shard_changes_in_new_epoch(event).await
     }
 
     /// Initiates a committee transition to a new epoch.
@@ -917,6 +862,89 @@ impl StorageNode {
                 tracing::error!(?error, "failed to initiate a transition to the new epoch");
                 Err(error)
             }
+        }
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn process_shard_changes_in_new_epoch(
+        &self,
+        event: &EpochChangeStart,
+    ) -> anyhow::Result<()> {
+        let public_key = self.inner.public_key();
+        let storage = &self.inner.storage;
+        let committees = self.inner.committee_service.active_committees();
+
+        let shard_diff = ShardDiff::diff_previous(&committees, &storage.shards(), public_key);
+
+        if shard_diff.no_shard_change() {
+            tracing::info!(
+                "no shard changes in the new epoch. Event epoch: {}, committee epoch: {}",
+                event.epoch,
+                committees.epoch()
+            );
+            self.epoch_sync_done(&committees, event).await;
+            return Ok(());
+        }
+
+        assert!(event.epoch <= committees.epoch());
+
+        self.inner
+            .remove_storage_for_shards_in_background(shard_diff.removed.clone())
+            .await?;
+
+        for shard_id in &shard_diff.lost {
+            let Some(shard_storage) = storage.shard_storage(*shard_id) else {
+                tracing::debug!("skipping lost shard during epoch change as it is not stored");
+                continue;
+            };
+            tracing::debug!(walrus.shard_index = %shard_id, "locking shard for epoch change");
+            shard_storage
+                .lock_shard_for_epoch_change()
+                .context("failed to lock shard")?;
+        }
+
+        if shard_diff.gained.is_empty() {
+            self.epoch_sync_done(&committees, event).await;
+        } else {
+            assert!(committees.current_committee().contains(public_key));
+            self.inner
+                .create_storage_for_shards_in_background(shard_diff.gained.clone())
+                .await?;
+
+            // There shouldn't be an epoch change event for the genesis epoch.
+            assert!(event.epoch != GENESIS_EPOCH);
+            for shard in &shard_diff.gained {
+                self.shard_sync_handler.start_new_shard_sync(*shard).await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Signals that the epoch sync is done if the node is in the current committee and no shards.
+    async fn epoch_sync_done(&self, committees: &ActiveCommittees, event: &EpochChangeStart) {
+        let is_node_in_committee = committees
+            .current_committee()
+            .contains(self.inner.public_key());
+        if is_node_in_committee && committees.epoch() == event.epoch {
+            // We are in the current committee, but no shards were gained. Directly signal that
+            // the epoch sync is done.
+            tracing::info!("no shards gained, so signalling that epoch sync is done");
+            self.inner
+                .contract_service
+                .epoch_sync_done(event.epoch)
+                .await;
+        } else {
+            // Since we just refreshed the committee after receiving the event, the committees'
+            // epoch must be at least the event's epoch.
+            assert!(committees.epoch() >= event.epoch);
+            tracing::info!(
+                "skip sending epoch sync done event. \
+                    node in committee: {}, committee epoch: {}, event epoch: {}",
+                is_node_in_committee,
+                committees.epoch(),
+                event.epoch
+            );
         }
     }
 
@@ -1084,6 +1112,17 @@ impl StorageNodeInner {
     ) -> Result<(), anyhow::Error> {
         let this = self.clone();
         tokio::task::spawn_blocking(move || this.storage.create_storage_for_shards(&new_shards))
+            .in_current_span()
+            .await??;
+        Ok(())
+    }
+
+    async fn remove_storage_for_shards_in_background(
+        self: &Arc<Self>,
+        shards: Vec<ShardIndex>,
+    ) -> Result<(), anyhow::Error> {
+        let this = self.clone();
+        tokio::task::spawn_blocking(move || this.storage.remove_storage_for_shards(&shards))
             .in_current_span()
             .await??;
         Ok(())

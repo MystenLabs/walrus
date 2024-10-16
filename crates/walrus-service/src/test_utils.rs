@@ -59,6 +59,7 @@ use walrus_sui::{
         NetworkAddress,
         NodeRegistrationParams,
         StorageNode as SuiStorageNode,
+        StorageNodeCap,
         GENESIS_EPOCH,
     },
 };
@@ -180,6 +181,8 @@ pub struct StorageNodeHandle {
     pub cancel: CancellationToken,
     /// Client that can be used to communicate with the node.
     pub client: Client,
+    /// The storage capability object of the node.
+    pub storage_capability: Option<StorageNodeCap>,
 }
 
 impl StorageNodeHandleTrait for StorageNodeHandle {
@@ -493,6 +496,7 @@ pub struct StorageNodeHandleBuilder {
     run_node: bool,
     test_config: Option<StorageNodeTestConfig>,
     initial_epoch: Option<Epoch>,
+    storage_capability: Option<StorageNodeCap>,
 }
 
 impl StorageNodeHandleBuilder {
@@ -588,6 +592,12 @@ impl StorageNodeHandleBuilder {
     /// If specified, the committee service will be created with the provided epoch.
     pub fn with_initial_epoch(mut self, epoch: Option<Epoch>) -> Self {
         self.initial_epoch = epoch;
+        self
+    }
+
+    /// Specify the storage capability for the node.
+    pub fn with_storage_capability(mut self, storage_capability: Option<StorageNodeCap>) -> Self {
+        self.storage_capability = storage_capability;
         self
     }
 
@@ -746,6 +756,7 @@ impl StorageNodeHandleBuilder {
             rest_api,
             cancel: cancel_token,
             client,
+            storage_capability: self.storage_capability,
         })
     }
 
@@ -818,6 +829,7 @@ impl Default for StorageNodeHandleBuilder {
             contract_service: None,
             test_config: None,
             initial_epoch: None,
+            storage_capability: None,
         }
     }
 }
@@ -1221,6 +1233,7 @@ pub struct TestClusterBuilder {
     event_providers: Vec<Option<Box<dyn SystemEventProvider>>>,
     committee_services: Vec<Option<Box<dyn CommitteeService>>>,
     contract_services: Vec<Option<Box<dyn SystemContractService>>>,
+    storage_capabilities: Vec<Option<StorageNodeCap>>,
 }
 
 impl TestClusterBuilder {
@@ -1257,6 +1270,7 @@ impl TestClusterBuilder {
 
         self.event_providers = configs.iter().map(|_| None).collect();
         self.committee_services = configs.iter().map(|_| None).collect();
+        self.storage_capabilities = configs.iter().map(|_| None).collect();
         self.storage_node_configs = configs;
         self
     }
@@ -1270,6 +1284,7 @@ impl TestClusterBuilder {
         self.event_providers = configs.iter().map(|_| None).collect();
         self.committee_services = configs.iter().map(|_| None).collect();
         self.contract_services = configs.iter().map(|_| None).collect();
+        self.storage_capabilities = configs.iter().map(|_| None).collect();
         self.storage_node_configs = configs;
         self
     }
@@ -1347,6 +1362,12 @@ impl TestClusterBuilder {
         self
     }
 
+    /// Sets the storage capabilities for each storage node.
+    pub fn with_storage_capabilities(mut self, capabilities: Vec<StorageNodeCap>) -> Self {
+        self.storage_capabilities = capabilities.into_iter().map(Some).collect();
+        self
+    }
+
     /// Creates the configured `TestCluster`.
     pub async fn build<T: StorageNodeHandleTrait>(self) -> anyhow::Result<TestCluster<T>> {
         let mut nodes = vec![];
@@ -1367,19 +1388,21 @@ impl TestClusterBuilder {
         // Create the stub lookup service and handles that may be used if none is provided.
         let mut lookup_service_and_handle = None;
 
-        for (((config, event_provider), service), contract_service) in self
+        for ((((config, event_provider), service), contract_service), capability) in self
             .storage_node_configs
             .into_iter()
             .zip(self.event_providers.into_iter())
             .zip(self.committee_services.into_iter())
             .zip(self.contract_services.into_iter())
+            .zip(self.storage_capabilities.into_iter())
         {
             let local_identity = config.key_pair.public().clone();
             let mut builder = StorageNodeHandle::builder()
                 .with_storage(empty_storage_with_shards(&config.shards))
                 .with_test_config(config)
                 .with_rest_api_started(true)
-                .with_node_started(true);
+                .with_node_started(true)
+                .with_storage_capability(capability);
 
             if let Some(provider) = event_provider {
                 builder = builder.with_boxed_system_event_provider(provider);
@@ -1521,6 +1544,7 @@ impl Default for TestClusterBuilder {
             event_providers: shard_assignment.iter().map(|_| None).collect(),
             committee_services: shard_assignment.iter().map(|_| None).collect(),
             contract_services: shard_assignment.iter().map(|_| None).collect(),
+            storage_capabilities: shard_assignment.iter().map(|_| None).collect(),
             storage_node_configs: shard_assignment
                 .into_iter()
                 .map(|shards| StorageNodeTestConfig::new(shards, false))
@@ -1642,13 +1666,19 @@ pub mod test_cluster {
         TestCluster,
         WithTempDir<client::Client<SuiContractClient>>,
     )> {
-        default_setup_with_epoch_duration_generic::<StorageNodeHandle>(epoch_duration).await
+        let node_weights = [1u16, 2, 3, 3, 4];
+        default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
+            epoch_duration,
+            &node_weights,
+        )
+        .await
     }
 
     /// Performs the default setup with the input epoch duration for the test cluster with the
     /// specified storage node handle.
     pub async fn default_setup_with_epoch_duration_generic<T: StorageNodeHandleTrait>(
         epoch_duration: Duration,
+        node_weights: &[u16],
     ) -> anyhow::Result<(
         Arc<TestClusterHandle>,
         TestCluster<T>,
@@ -1664,7 +1694,6 @@ pub mod test_cluster {
 
         // Specify an empty assignment to ensure that storage nodes are not created with invalid
         // shard assignments.
-        let node_weights = [1u16, 2, 3, 3, 4];
         let n_shards = NonZeroU16::new(node_weights.iter().sum())
             .expect("sum of non-zero weights is not zero");
         let cluster_builder =
@@ -1709,7 +1738,7 @@ pub mod test_cluster {
             .iter()
             .map(|&weight| 1_000_000 * weight as u64)
             .collect::<Vec<_>>();
-        register_committee_and_stake(
+        let storage_capabilities = register_committee_and_stake(
             &mut wallet.inner,
             &system_ctx,
             &members,
@@ -1761,7 +1790,8 @@ pub mod test_cluster {
 
         let cluster_builder = cluster_builder
             .with_system_context(system_ctx.clone())
-            .with_sui_cluster_handle(sui_cluster.clone());
+            .with_sui_cluster_handle(sui_cluster.clone())
+            .with_storage_capabilities(storage_capabilities);
 
         let cluster = {
             // Lock to avoid race conditions.

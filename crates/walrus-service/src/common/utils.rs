@@ -481,32 +481,48 @@ pub(crate) struct ShardDiff {
     pub gained: Vec<ShardIndex>,
     /// Shards which are common to both assignments.
     pub unchanged: Vec<ShardIndex>,
+    /// Shards that can be removed from this node.
+    pub removed: Vec<ShardIndex>,
 }
 
 impl ShardDiff {
     /// Returns a new `ShardDiff` when moving from the allocation in
     /// `committees.previous_committee()` to `committees.current_committee()` for the node
     /// identified by the provided public key.
-    pub fn diff_previous(committees: &ActiveCommittees, id: &PublicKey) -> ShardDiff {
+    pub fn diff_previous(
+        committees: &ActiveCommittees,
+        exist: &[ShardIndex],
+        id: &PublicKey,
+    ) -> ShardDiff {
         let from: &[ShardIndex] = committees
             .previous_committee()
             .map_or(&[], |committee| committee.shards_for_node_public_key(id));
         let to = committees
             .current_committee()
             .shards_for_node_public_key(id);
-        Self::diff(from, to)
+        Self::diff(from, to, exist)
     }
 
     /// Returns a new `ShardDiff` when moving from the allocation in `from` to `to`.
-    pub fn diff(from: &[ShardIndex], to: &[ShardIndex]) -> ShardDiff {
+    pub fn diff(from: &[ShardIndex], to: &[ShardIndex], exist: &[ShardIndex]) -> ShardDiff {
         let from: HashSet<ShardIndex> = from.iter().copied().collect();
         let to: HashSet<ShardIndex> = to.iter().copied().collect();
+        let exist: HashSet<ShardIndex> = exist.iter().copied().collect();
 
         ShardDiff {
             unchanged: from.intersection(&to).copied().collect(),
             lost: from.difference(&to).copied().collect(),
             gained: to.difference(&from).copied().collect(),
+            removed: exist
+                .difference(&from.union(&to).copied().collect())
+                .copied()
+                .collect(),
         }
+    }
+
+    /// Returns `true` if there are no changes in the shard assignments.
+    pub fn no_shard_change(&self) -> bool {
+        self.lost.is_empty() && self.gained.is_empty() && self.removed.is_empty()
     }
 }
 
@@ -821,5 +837,65 @@ mod tests {
         test_parse_various!(tebi, "Ti", 1024 * 1024 * 1024 * 1024u64);
         test_parse_various!(peta, "P", 1e15);
         test_parse_various!(pebi, "Pi", 1024 * 1024 * 1024 * 1024 * 1024u64);
+    }
+
+    #[test]
+    fn test_shard_diff() {
+        let mut result = ShardDiff::diff(
+            &[],
+            &[ShardIndex(1), ShardIndex(2), ShardIndex(3), ShardIndex(4)],
+            &[],
+        );
+        result.lost.sort();
+        result.gained.sort();
+        result.unchanged.sort();
+        result.removed.sort();
+        assert_eq!(
+            result,
+            ShardDiff {
+                lost: vec![],
+                gained: vec![ShardIndex(1), ShardIndex(2), ShardIndex(3), ShardIndex(4)],
+                unchanged: vec![],
+                removed: vec![],
+            }
+        );
+
+        let mut result = ShardDiff::diff(
+            &[ShardIndex(1), ShardIndex(2), ShardIndex(3), ShardIndex(4)],
+            &[ShardIndex(2), ShardIndex(3), ShardIndex(4), ShardIndex(5)],
+            &[],
+        );
+        result.lost.sort();
+        result.gained.sort();
+        result.unchanged.sort();
+        result.removed.sort();
+        assert_eq!(
+            result,
+            ShardDiff {
+                lost: vec![ShardIndex(1)],
+                gained: vec![ShardIndex(5)],
+                unchanged: vec![ShardIndex(2), ShardIndex(3), ShardIndex(4)],
+                removed: vec![],
+            }
+        );
+
+        let mut result = ShardDiff::diff(
+            &[ShardIndex(3), ShardIndex(4), ShardIndex(5)],
+            &[ShardIndex(6), ShardIndex(7), ShardIndex(4)],
+            &[ShardIndex(1), ShardIndex(2)],
+        );
+        result.lost.sort();
+        result.gained.sort();
+        result.unchanged.sort();
+        result.removed.sort();
+        assert_eq!(
+            result,
+            ShardDiff {
+                lost: vec![ShardIndex(3), ShardIndex(5)],
+                gained: vec![ShardIndex(6), ShardIndex(7)],
+                unchanged: vec![ShardIndex(4)],
+                removed: vec![ShardIndex(1), ShardIndex(2)],
+            }
+        );
     }
 }

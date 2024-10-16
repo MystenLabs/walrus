@@ -169,6 +169,23 @@ impl Storage {
         Ok(())
     }
 
+    #[tracing::instrument(skip_all)]
+    pub(crate) fn remove_storage_for_shards(
+        &self,
+        removed: &[ShardIndex],
+    ) -> Result<(), TypedStoreError> {
+        let mut locked_map = self.shards.write().unwrap();
+        for shard in removed {
+            tracing::info!("removing storage for shard {}", shard);
+            if let Some(shard_storage) = locked_map.get(shard) {
+                shard_storage.delete_shard()?;
+                locked_map.remove(shard).expect("shard should exist");
+            }
+            tracing::info!("removed storage for shard {} done", shard);
+        }
+        Ok(())
+    }
+
     /// Returns the indices of the shards managed by the storage.
     pub fn shards(&self) -> Vec<ShardIndex> {
         self.shards
@@ -468,6 +485,13 @@ pub(crate) mod tests {
         ValidBlobInfoV1,
     };
     use prometheus::Registry;
+    use shard::{
+        pending_recover_slivers_column_family_name,
+        primary_slivers_column_family_name,
+        secondary_slivers_column_family_name,
+        shard_status_column_family_name,
+        shard_sync_progress_column_family_name,
+    };
     use tempfile::TempDir;
     use tokio::runtime::Runtime;
     use walrus_core::{
@@ -979,6 +1003,69 @@ pub(crate) mod tests {
             ShardStorage::existing_shards(storage.temp_dir.path(), &Options::default())
                 .contains(&test_shard_index)
         );
+
+        Ok(())
+    }
+
+    fn check_cf_existence(db: Arc<RocksDB>, exists: bool) {
+        for cf in [
+            &primary_slivers_column_family_name(SHARD_INDEX),
+            &secondary_slivers_column_family_name(SHARD_INDEX),
+            &shard_status_column_family_name(SHARD_INDEX),
+            &shard_sync_progress_column_family_name(SHARD_INDEX),
+            &pending_recover_slivers_column_family_name(SHARD_INDEX),
+        ] {
+            if exists {
+                assert!(db.cf_handle(cf).is_some());
+            } else {
+                assert!(db.cf_handle(cf).is_none());
+            }
+        }
+    }
+
+    #[test]
+    #[cfg_attr(msim, ignore)]
+    fn test_remove_shard_cf() -> TestResult {
+        let directory = populate_storage_then_close(
+            &[
+                (SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
+                (OTHER_SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
+            ],
+            None,
+        )?;
+
+        let path_clone = directory.path().to_path_buf();
+
+        Runtime::new()?.block_on(async move {
+            let storage = Storage::open(
+                path_clone.as_path(),
+                DatabaseConfig::default(),
+                MetricConf::default(),
+            )?;
+
+            // Check shard files exist.
+            check_cf_existence(storage.database.clone(), true);
+
+            storage.remove_storage_for_shards(&[SHARD_INDEX])?;
+
+            // Check shard file does not exist.
+            check_cf_existence(storage.database.clone(), false);
+
+            Result::<(), anyhow::Error>::Ok(())
+        })?;
+
+        Runtime::new()?.block_on(async move {
+            let storage = Storage::open(
+                directory.path(),
+                DatabaseConfig::default(),
+                MetricConf::default(),
+            )?;
+
+            // Reload storage and the shard should not exist.
+            check_cf_existence(storage.database.clone(), false);
+
+            Result::<(), anyhow::Error>::Ok(())
+        })?;
 
         Ok(())
     }

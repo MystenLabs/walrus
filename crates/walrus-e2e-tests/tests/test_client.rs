@@ -27,7 +27,7 @@ use walrus_service::{
         },
         StoreWhen,
     },
-    test_utils::test_cluster,
+    test_utils::{test_cluster, StorageNodeHandle},
 };
 use walrus_sui::{
     client::{BlobPersistence, ContractClient, ReadClient},
@@ -523,6 +523,49 @@ async fn test_multiple_stores_same_blob() -> TestResult {
     // client.
     let blobs = client.sui_client().owned_blobs(false).await?;
     assert_eq!(blobs.len(), 9);
+
+    Ok(())
+}
+
+// Tests moving a shard to a storage node and then move it back.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_repeated_shard_move() -> TestResult {
+    let _ = tracing_subscriber::fmt::try_init();
+    let (_sui_cluster_handle, walrus_cluster, client) =
+        test_cluster::default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
+            Duration::from_secs(20),
+            &[1, 1],
+        )
+        .await?;
+
+    client
+        .as_ref()
+        .stake_with_node_pool(
+            walrus_cluster.nodes[1]
+                .storage_capability
+                .as_ref()
+                .unwrap()
+                .node_id,
+            1_000_000_000,
+        )
+        .await?;
+
+    walrus_cluster.wait_for_nodes_to_reach_epoch(4).await;
+
+    client
+        .as_ref()
+        .stake_with_node_pool(
+            walrus_cluster.nodes[0]
+                .storage_capability
+                .as_ref()
+                .unwrap()
+                .node_id,
+            500_000_000_000,
+        )
+        .await?;
+
+    walrus_cluster.wait_for_nodes_to_reach_epoch(7).await;
 
     Ok(())
 }

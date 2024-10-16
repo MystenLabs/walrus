@@ -79,6 +79,7 @@ mod tests {
         let (_sui_cluster, _cluster, client) =
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(60 * 60),
+                &[1u16, 2, 3, 3, 4],
             )
             .await
             .unwrap();
@@ -102,6 +103,7 @@ mod tests {
         let (sui_cluster, _walrus_cluster, client) =
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(60 * 60),
+                &[1u16, 2, 3, 3, 4],
             )
             .await
             .unwrap();
