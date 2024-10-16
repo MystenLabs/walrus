@@ -913,7 +913,8 @@ impl StubLookupService {
 /// A handle to a [`StubLookupService`] which can be used to modify the value of the services.
 #[derive(Debug, Clone)]
 pub struct StubLookupServiceHandle {
-    committees: Arc<Mutex<ActiveCommittees>>,
+    /// The active committees.
+    pub committees: Arc<Mutex<ActiveCommittees>>,
 }
 
 impl StubLookupServiceHandle {
@@ -935,6 +936,17 @@ impl StubLookupServiceHandle {
         };
         *committees = ActiveCommittees::new(next, Some(current));
         next_epoch
+    }
+
+    /// Sets the next epoch committee.
+    pub fn set_next_epoch_committee(&self, next_committee: Committee) {
+        let mut committees = self.committees.lock().unwrap();
+        *committees = ActiveCommittees::new_with_next(
+            committees.current_committee().clone(),
+            committees.previous_committee().cloned(),
+            Some(Arc::new(next_committee)),
+            true,
+        )
     }
 }
 

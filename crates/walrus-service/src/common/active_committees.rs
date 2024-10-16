@@ -87,15 +87,15 @@ impl ActiveCommittees {
     /// than zero, if the previous committee's epoch does not precede that of the current
     /// committees, or if they have a different number of shards.
     pub fn new_with_next(
-        current_committee: Committee,
-        previous_committee: Option<Committee>,
-        next_committee: Option<Committee>,
+        current_committee: Arc<Committee>,
+        previous_committee: Option<Arc<Committee>>,
+        next_committee: Option<Arc<Committee>>,
         is_transitioning: bool,
     ) -> Self {
         let this = Self {
-            current_committee: Arc::new(current_committee),
-            previous_committee: previous_committee.map(Arc::new),
-            next_committee: next_committee.map(Arc::new),
+            current_committee,
+            previous_committee,
+            next_committee,
             is_transitioning,
         };
         this.check_invariants();

@@ -818,6 +818,8 @@ impl StorageNode {
         let committees = self.inner.committee_service.active_committees();
         let shard_diff = ShardDiff::diff_previous(&committees, public_key);
 
+        assert!(event.epoch <= committees.epoch());
+
         for shard_id in &shard_diff.lost {
             let Some(shard_storage) = storage.shard_storage(*shard_id) else {
                 tracing::debug!("skipping lost shard during epoch change as it is not stored");
@@ -3426,6 +3428,97 @@ mod tests {
             .await?;
 
         wait_until_events_processed(&node, 1).await?;
+
+        Ok(())
+    }
+
+    async_param_test! {
+        process_epoch_change_start_idempotent -> TestResult: [
+            wait_for_shard_active: (true),
+            do_not_wait_for_shard: (false),
+        ]
+    }
+    async fn process_epoch_change_start_idempotent(wait_for_shard_active: bool) -> TestResult {
+        let _ = tracing_subscriber::fmt::try_init();
+
+        let (cluster, events, _blob_detail) =
+            cluster_with_initial_epoch_and_certified_blob(&[&[0, 1], &[2, 3]], &[BLOB], 2).await?;
+        let lookup_service_handle = cluster
+            .lookup_service_handle
+            .as_ref()
+            .expect("should contain lookup service");
+
+        // Set up the committee in a way that shard 1 is moved to the second storage node, and
+        // shard 2 is moved to the first storage node.
+        let committees = lookup_service_handle.committees.lock().unwrap().clone();
+        let mut next_committee = (**committees.current_committee()).clone();
+        next_committee.epoch += 1;
+        let moved_index_0 = next_committee.members_mut()[0].shard_ids.remove(1);
+        let moved_index_1 = next_committee.members_mut()[1].shard_ids.remove(0);
+        next_committee.members_mut()[1]
+            .shard_ids
+            .push(moved_index_0);
+        next_committee.members_mut()[0]
+            .shard_ids
+            .push(moved_index_1);
+
+        lookup_service_handle.set_next_epoch_committee(next_committee);
+
+        assert_eq!(
+            cluster
+                .lookup_service_handle
+                .as_ref()
+                .expect("should contain lookup service")
+                .advance_epoch(),
+            3
+        );
+
+        let processed_event_count = &cluster.nodes[1]
+            .storage_node
+            .inner
+            .storage
+            .get_sequentially_processed_event_count()?;
+
+        // Sends one epoch change start event.
+        events.send(ContractEvent::EpochChangeEvent(
+            EpochChangeEvent::EpochChangeStart(EpochChangeStart {
+                epoch: 3,
+                event_id: walrus_sui::test_utils::event_id_for_testing(),
+            }),
+        ))?;
+
+        if wait_for_shard_active {
+            wait_until_events_processed(&cluster.nodes[1], processed_event_count + 1).await?;
+            wait_for_shard_in_active_state(
+                &cluster.nodes[1]
+                    .storage_node
+                    .inner
+                    .storage
+                    .shard_storage(ShardIndex(1))
+                    .unwrap(),
+            )
+            .await?;
+        }
+
+        // Sends another epoch change start for the same event to simulate duplicate events.
+        events.send(ContractEvent::EpochChangeEvent(
+            EpochChangeEvent::EpochChangeStart(EpochChangeStart {
+                epoch: 3,
+                event_id: walrus_sui::test_utils::event_id_for_testing(),
+            }),
+        ))?;
+
+        wait_until_events_processed(&cluster.nodes[1], processed_event_count + 2).await?;
+
+        assert_eq!(
+            cluster
+                .lookup_service_handle
+                .as_ref()
+                .expect("should contain lookup service")
+                .advance_epoch(),
+            4
+        );
+        advance_cluster_to_epoch(&cluster, &[&events], 4).await?;
 
         Ok(())
     }

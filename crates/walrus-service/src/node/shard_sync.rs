@@ -43,9 +43,35 @@ impl ShardSyncHandler {
         &self,
         shard_index: ShardIndex,
     ) -> Result<(), SyncShardClientError> {
+        // restart_syncs() is called before event processor starts processing events. So, for any
+        // resumed shard syncs, we should be able to observe them here, unless they have finished.
+        if self
+            .shard_sync_in_progress
+            .lock()
+            .await
+            .contains_key(&shard_index)
+        {
+            tracing::info!(
+                "Shard index: {} is already being synced. Skipping starting new sync task.",
+                shard_index
+            );
+            return Ok(());
+        }
+
         match self.node.storage.shard_storage(shard_index) {
             Some(shard_storage) => {
                 let shard_status = shard_storage.status()?;
+
+                // When a shard is in active state, it has synced to the epoch that corresponding to
+                // the epoch start event.
+                if shard_status == ShardStatus::Active {
+                    tracing::info!(
+                        "Shard {} has already been synced. Skipping sync.",
+                        shard_index
+                    );
+                    return Ok(());
+                }
+
                 if shard_status != ShardStatus::None {
                     return Err(SyncShardClientError::InvalidShardStatusToSync(
                         shard_index,
@@ -85,9 +111,12 @@ impl ShardSyncHandler {
     }
 
     async fn start_shard_sync_impl(&self, shard_storage: Arc<ShardStorage>) {
+        // This epoch must be the same as the epoch in the committee we refreshed when processing
+        // epoch start event, or when the node starts up.
         let current_epoch = self.node.current_epoch();
+
         tracing::info!(
-            "Syncing shard index {} to the end of epoch {}",
+            "Syncing shard index {} to the beginning of epoch {}",
             shard_storage.id(),
             current_epoch
         );
@@ -95,7 +124,9 @@ impl ShardSyncHandler {
         // TODO(#705): implement rate limiting for shard syncs.
         let mut shard_sync_in_progress = self.shard_sync_in_progress.lock().await;
         let Entry::Vacant(entry) = shard_sync_in_progress.entry(shard_storage.id()) else {
-            tracing::info!(
+            // We have checked the shard_sync_in_progress map before starting the sync task. So,
+            // this is an unexpected state.
+            tracing::error!(
                 "Shard index: {} is already being synced. Skipping starting new sync task.",
                 shard_storage.id()
             );
@@ -248,7 +279,7 @@ mod tests {
             .storage
             .shard_storage(ShardIndex(0))
             .expect("Failed to get shard storage")
-            .update_status_in_test(ShardStatus::Active)
+            .update_status_in_test(ShardStatus::LockedToMove)
             .expect("Failed to update shard status");
 
         assert!(matches!(

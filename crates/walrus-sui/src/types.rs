@@ -290,4 +290,10 @@ impl Committee {
             .iter()
             .map(|member| (&member.network_address, &member.network_public_key))
     }
+
+    /// Helper function to returns the members of the committee as mutable in tests.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn members_mut(&mut self) -> &mut Vec<StorageNode> {
+        &mut self.members
+    }
 }
