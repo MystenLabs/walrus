@@ -53,7 +53,7 @@ jobs:
           tool: cargo-nextest
       - uses: actions/checkout@v4
       - run: ./scripts/simtest/install.sh
-      - run: cargo simtest
+      - run: cargo simtest simtest --profile simtest
 
   dependencies:
     name: Check dependencies (including vulnerabilities)

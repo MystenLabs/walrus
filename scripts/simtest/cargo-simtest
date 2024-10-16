@@ -87,12 +87,12 @@ if ! cargo nextest --help > /dev/null 2>&1; then
   exit 1
 fi
 
-# Adding `simtest` after `run` since all walrus simtest is prefixed with `simtest`.
 if [ -n "$1" ]; then
   echo "Running test $1"
   CARGO_COMMAND=(nextest run "$1" --cargo-profile simulator --run-ignored all)
 else
   echo "Running all simtest"
+  # Adding `simtest` after `run` since all walrus simtest is prefixed with `simtest`.
   CARGO_COMMAND=(nextest run simtest --cargo-profile simulator --run-ignored all)
 fi
 
