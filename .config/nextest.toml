@@ -1,9 +1,20 @@
 # See https://nexte.st/docs/configuration/ for configuration parameters.
 
 [profile.default]
-retries = 2 # retry twice for a total of 3 attempts
 fail-fast = false # do not stop at first failure
+slow-timeout = { period = "60s", terminate-after = 5 }
 
 [[profile.default.overrides]]
 filter = 'package(walrus-e2e-tests)'
 threads-required = 4
+
+
+[profile.ci]
+fail-fast = false # do not stop at first failure
+slow-timeout = { period = "60s", terminate-after = 5 } # Timeout tests after 5 minutes
+retries = 2 # retry twice for a total of 3 attempts
+
+[profile.simtest]
+fail-fast = false # do not stop at first failure
+slow-timeout = { period = "5m", terminate-after = 3 } # Timeout tests after 15 minutes
+test-threads = "num-cpus"
