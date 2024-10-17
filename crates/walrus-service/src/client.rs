@@ -48,7 +48,7 @@ pub mod responses;
 mod blocklist;
 pub use blocklist::Blocklist;
 
-mod communication;
+pub(crate) mod communication;
 
 mod config;
 pub use config::{
@@ -737,14 +737,16 @@ impl<T> Client<T> {
             .communication_factory
             .node_read_communications(&committees, certified_epoch)?;
         // Create requests to get all slivers from all nodes.
-        let futures = comms.iter().flat_map(|n| {
-            // NOTE: the cloned here is needed because otherwise the compiler complains about the
-            // lifetimes of `s`.
-            n.node.shard_ids.iter().cloned().map(|s| {
-                n.retrieve_verified_sliver::<U>(metadata, s)
-                    .instrument(n.span.clone())
-            })
-        });
+        let futures = comms
+            .iter()
+            .flat_map(|n: &communication::NodeCommunication<'_>| {
+                // NOTE: the cloned here is needed because otherwise the compiler complains about the
+                // lifetimes of `s`.
+                n.node.shard_ids.iter().cloned().map(|s| {
+                    n.retrieve_verified_sliver::<U>(metadata, s)
+                        .instrument(n.span.clone())
+                })
+            });
         let mut decoder = self
             .encoding_config
             .get_blob_decoder::<U>(metadata.metadata().unencoded_length)

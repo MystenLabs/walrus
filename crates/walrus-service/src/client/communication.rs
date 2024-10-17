@@ -3,7 +3,7 @@
 
 //! Logic to handle the communication between the client and the storage nodes.
 
-mod factory;
+pub(crate) mod factory;
 mod node;
 
 pub(crate) use factory::NodeCommunicationFactory;

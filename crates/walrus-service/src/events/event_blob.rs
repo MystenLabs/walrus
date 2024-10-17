@@ -7,15 +7,16 @@ use std::{
     fs::File,
     io,
     io::{BufReader, Read, Seek, SeekFrom, Write},
+    path::Path,
 };
 
 use anyhow::{anyhow, Error, Result};
 use byteorder::ReadBytesExt;
 use integer_encoding::{VarInt, VarIntReader};
 use sui_types::messages_checkpoint::CheckpointSequenceNumber;
-use walrus_core::BlobId;
+use walrus_core::{BlobId, Epoch};
 
-use crate::events::IndexedStreamElement;
+use crate::events::{IndexedStreamElement, IndexedStreamElementWithCursor};
 
 /// The encoding of an entry in the blob file.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -69,7 +70,7 @@ impl BlobEntry {
     }
 
     /// Decode the blob entry into a value.
-    pub fn decode(self) -> Result<IndexedStreamElement> {
+    pub fn decode(self) -> Result<IndexedStreamElementWithCursor> {
         let data = match &self.encoding {
             EntryEncoding::Bcs => self.data,
         };
@@ -114,7 +115,7 @@ impl BlobEntry {
 
     /// Decode the blob entry from a byte vector.
     #[allow(dead_code)]
-    pub fn decode_from_bytes(bytes: &[u8]) -> Result<IndexedStreamElement> {
+    pub fn decode_from_bytes(bytes: &[u8]) -> Result<IndexedStreamElementWithCursor> {
         let (encoding, data) = bytes.split_first().ok_or(anyhow!("empty bytes"))?;
         BlobEntry {
             data: data.to_vec(),
@@ -127,17 +128,18 @@ impl BlobEntry {
 #[allow(dead_code)]
 #[derive(Debug)]
 /// An iterator over events in a blob file.
-pub struct EventBlob {
-    reader: BufReader<File>,
+pub struct EventBlob<'a> {
+    reader: BufReader<io::Cursor<&'a [u8]>>,
     current_pos: u64,
     total_size: u64,
     prev_blob_id: BlobId,
     start: CheckpointSequenceNumber,
     end: CheckpointSequenceNumber,
     blob_format_version: u32,
+    epoch: Epoch,
 }
 
-impl EventBlob {
+impl<'a> EventBlob<'a> {
     /// The magic bytes at the start of the blob file.
     pub const MAGIC: u32 = 0x0000DEAD;
     /// The size of the magic bytes in bytes.
@@ -146,18 +148,26 @@ impl EventBlob {
     pub const FORMAT_VERSION: u32 = 1;
     /// The size of the format version in bytes.
     pub const FORMAT_BYTES_SIZE: usize = std::mem::size_of::<u32>();
+    /// The size of the epoch in bytes.
+    pub const EPOCH_BYTES_SIZE: usize = std::mem::size_of::<u32>();
     /// The size of the header of the blob file in bytes.
-    pub const HEADER_SIZE: usize = EventBlob::MAGIC_BYTES_SIZE + EventBlob::FORMAT_BYTES_SIZE;
+    pub const HEADER_SIZE: usize = EventBlob::MAGIC_BYTES_SIZE
+        + EventBlob::FORMAT_BYTES_SIZE
+        + EventBlob::EPOCH_BYTES_SIZE
+        + BlobId::LENGTH;
+    /// The offset of the blob ID in the blob file in bytes.
+    pub const BLOB_ID_OFFSET: usize =
+        EventBlob::MAGIC_BYTES_SIZE + EventBlob::FORMAT_BYTES_SIZE + EventBlob::EPOCH_BYTES_SIZE;
     /// The size of the tail of the blob file in bytes.
-    pub const TRAILER_SIZE: usize = 2 * std::mem::size_of::<u64>() + BlobId::LENGTH;
+    pub const TRAILER_SIZE: usize = 2 * std::mem::size_of::<u64>();
     /// The minimum size of a blob file in bytes.
     pub const MIN_SIZE: usize = EventBlob::HEADER_SIZE + EventBlob::TRAILER_SIZE;
 
-    /// Create a new event blob from the given file.
-    #[allow(dead_code)]
-    pub fn new(file: File) -> Result<Self> {
-        let mut buf_reader = BufReader::new(file);
-        let mut total_size = buf_reader.seek(SeekFrom::End(0))?;
+    /// Create a new event blob from the given buffer.
+    pub fn new(buf: &'a [u8]) -> Result<Self> {
+        let cursor = io::Cursor::new(buf);
+        let mut buf_reader = BufReader::new(cursor);
+        let total_size = buf_reader.seek(SeekFrom::End(0))?;
         if total_size < EventBlob::MIN_SIZE as u64 {
             return Err(Error::from(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -179,13 +189,13 @@ impl EventBlob {
                 "Unsupported blob format version",
             )));
         }
+        let epoch = buf_reader.read_u32::<byteorder::BigEndian>()?;
+        let mut prev_blob_id = [0u8; BlobId::LENGTH];
+        buf_reader.read_exact(&mut prev_blob_id)?;
         let trailer_size = Self::TRAILER_SIZE as i64;
-        total_size -= trailer_size as u64;
         buf_reader.seek(SeekFrom::End(-trailer_size))?;
         let start = buf_reader.read_u64::<byteorder::BigEndian>()?;
         let end = buf_reader.read_u64::<byteorder::BigEndian>()?;
-        let mut prev_blob_id = [0u8; BlobId::LENGTH];
-        buf_reader.read_exact(&mut prev_blob_id)?;
         buf_reader.seek(SeekFrom::Start(Self::HEADER_SIZE as u64))?;
         Ok(Self {
             reader: buf_reader,
@@ -195,6 +205,7 @@ impl EventBlob {
             start,
             end,
             blob_format_version,
+            epoch,
         })
     }
 
@@ -210,16 +221,36 @@ impl EventBlob {
         self.end
     }
 
-    /// Return the next event.
-    fn next_event(&mut self) -> Result<IndexedStreamElement> {
+    /// Previous blob ID.
+    pub fn prev_blob_id(&self) -> BlobId {
+        self.prev_blob_id
+    }
+
+    /// Epoch of the blob.
+    pub fn epoch(&self) -> Epoch {
+        self.epoch
+    }
+
+    /// Returns the next event in the blob.
+    fn next_event(&mut self) -> Result<IndexedStreamElementWithCursor> {
         let entry = BlobEntry::read(&mut self.reader)?;
         self.current_pos += entry.size() as u64;
         entry.decode()
     }
+
+    /// Store the blob as a file at the given path.
+    pub fn store_as_file(&mut self, path: &Path) -> anyhow::Result<()> {
+        let mut file = File::create(path)?;
+        let mut buf = Vec::new();
+        self.reader.seek(SeekFrom::Start(0))?;
+        self.reader.read_to_end(&mut buf)?;
+        file.write_all(&buf)?;
+        Ok(())
+    }
 }
 
-impl Iterator for EventBlob {
-    type Item = IndexedStreamElement;
+impl Iterator for EventBlob<'_> {
+    type Item = IndexedStreamElementWithCursor;
     fn next(&mut self) -> Option<Self::Item> {
         if self.current_pos >= self.total_size {
             return None;

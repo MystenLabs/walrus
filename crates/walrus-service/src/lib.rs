@@ -6,10 +6,10 @@
 #[cfg(feature = "client")]
 pub mod client;
 
+pub mod events;
+
 #[cfg(feature = "node")]
 pub mod node;
-
-pub mod events;
 
 #[cfg(feature = "deploy")]
 pub mod testbed;

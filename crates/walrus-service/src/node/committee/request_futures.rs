@@ -172,6 +172,87 @@ where
         std::pin::pin!(requests).next().await
     }
 }
+//
+// pub(super) struct ReadBlob<'a, T> {
+//     metadata: Arc<VerifiedBlobMetadataWithId>,
+//     sliver_type: SliverType,
+//     epoch_certified: Epoch,
+//     backoff: ExponentialBackoffState,
+//     shared: &'a NodeCommitteeServiceInner<T>,
+// }
+//
+// impl<'a, T> ReadBlob<'a, T>
+// where
+//     T: NodeService,
+// {
+//     pub fn new(
+//         metadata: Arc<VerifiedBlobMetadataWithId>,
+//         sliver_type: SliverType,
+//         epoch_certified: Epoch,
+//         shared: &'a NodeCommitteeServiceInner<T>,
+//     ) -> Self {
+//         Self {
+//             metadata,
+//             sliver_type,
+//             epoch_certified,
+//             backoff: ExponentialBackoffState::new_infinite(
+//                 shared.config.retry_interval_min,
+//                 shared.config.retry_interval_max,
+//             ),
+//             shared,
+//         }
+//     }
+//
+//     pub async fn run(mut self) -> Result<Sliver, InconsistencyProofEnum> {
+//         let slivers = self.metadata.clone()
+//     }
+//
+//     async fn recover_with_additional_symbols<U: EncodingAxis>(
+//         &mut self,
+//         additional_symbols: usize,
+//     ) -> Result<Sliver, InconsistencyProofEnum> {
+//         let mut committee_listener = self.shared.subscribe_to_committee_changes();
+//         let mut collected_symbols: HashMap<ShardIndex, RecoverySymbol<MerkleProof>> =
+//             Default::default();
+//
+//         loop {
+//             let weak_committee = {
+//                 let committee_tracker = committee_listener.borrow_and_update();
+//                 Arc::downgrade(
+//                     committee_tracker
+//                         .committees()
+//                         .read_committee(self.epoch_certified)
+//                         .expect("epoch must not be in the future"),
+//                 )
+//             };
+//
+//             let Some(committee) = weak_committee.upgrade() else {
+//                 tracing::trace!("committee has been dropped, skipping shard");
+//                 return None;
+//             };
+//
+//             let f = crate::client::communication::factory::NodeCommunicationFactory::new();
+//             let comms = node_communications(&committee, |index| {
+//                 f.create_read_communication(&committee, index)
+//             })?;
+//             // Create requests to get all slivers from all nodes.
+//             let futures = comms.iter().flat_map(|n: &communication::NodeCommunication<'_>| {
+//                 // NOTE: the cloned here is needed because otherwise the compiler complains about the
+//                 // lifetimes of `s`.
+//                 n.node.shard_ids.iter().cloned().map(|s| {
+//                     n.retrieve_verified_sliver::<U>(&self.metadata, s)
+//                         .instrument(n.span.clone())
+//                 })
+//             });
+//             let mut decoder = self
+//                 .encoding_config
+//                 .get_blob_decoder::<U>(metadata.metadata().unencoded_length)
+//                 .map_err(ClientError::other)?;
+//             // Get the first ~1/3 or ~2/3 of slivers directly, and decode with these.
+//             let mut requests = WeightedFutures::new(futures);
+//
+//             Ok(())
+// }
 
 pub(super) struct RecoverSliver<'a, T> {
     metadata: Arc<VerifiedBlobMetadataWithId>,

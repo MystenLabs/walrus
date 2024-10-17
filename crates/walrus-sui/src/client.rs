@@ -32,6 +32,7 @@ use sui_types::{
 };
 use tokio::sync::Mutex;
 use tokio_stream::Stream;
+use tracing::info;
 use walrus_core::{
     ensure,
     merkle::DIGEST_LEN,
@@ -75,6 +76,8 @@ pub use read_client::{
     ReadClient,
     SuiReadClient,
 };
+
+use crate::types::move_structs::EventBlob;
 
 const CLOCK_CALL_ARG: CallArg = CallArg::Object(sui_types::transaction::ObjectArg::SharedObject {
     id: SUI_CLOCK_OBJECT_ID,
@@ -287,6 +290,17 @@ pub trait ContractClient: ReadClient + Send + Sync {
         exchange_id: ObjectID,
         amount: u64,
     ) -> impl Future<Output = SuiClientResult<()>>;
+
+    /// Certifies the event blob with the given `blob_id` and `root_digest`.
+    fn certify_event_blob(
+        &self,
+        blob_id: BlobId,
+        root_digest: [u8; DIGEST_LEN],
+        blob_size: u64,
+        encoding_type: EncodingType,
+        ending_checkpoint_seq_num: u64,
+        epoch: u32,
+    ) -> impl Future<Output = SuiClientResult<()>> + Send;
 }
 
 /// Client implementation for interacting with the Walrus smart contracts.
@@ -546,6 +560,10 @@ impl ReadClient for SuiContractClient {
             .await
     }
 
+    async fn last_certified_event_blob(&self) -> SuiClientResult<Option<EventBlob>> {
+        self.read_client.last_certified_event_blob().await
+    }
+
     async fn get_blob_event(&self, event_id: EventID) -> SuiClientResult<BlobEvent> {
         self.read_client.get_blob_event(event_id).await
     }
@@ -763,6 +781,54 @@ impl ContractClient for SuiContractClient {
         }
     }
 
+    async fn certify_event_blob(
+        &self,
+        blob_id: BlobId,
+        root_digest: [u8; DIGEST_LEN],
+        blob_size: u64,
+        encoding_type: EncodingType,
+        ending_checkpoint_seq_num: u64,
+        epoch: u32,
+    ) -> SuiClientResult<()> {
+        info!("running certify event blob: {}", self.wallet_address);
+        let node_capability = get_address_capability_object(
+            &self.read_client.sui_client,
+            self.wallet_address,
+            self.read_client.system_pkg_id,
+        )
+        .await?
+        .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?;
+        info!("failed certify event blob");
+
+        // Lock the wallet here to ensure there are no race conditions with object references.
+        let wallet = self.wallet().await;
+
+        tracing::debug!("calling certify_event_blob {:?}", node_capability.node_id);
+        let cap_obj_ref = wallet.get_object_ref(node_capability.id).await?;
+
+        let res = self
+            .move_call_and_transfer(
+                &wallet,
+                contracts::system::certify_event_blob,
+                vec![
+                    self.read_client.call_arg_from_system_obj(true).await?,
+                    cap_obj_ref.into(),
+                    call_arg_pure!(&blob_id),
+                    call_arg_pure!(&root_digest),
+                    blob_size.into(),
+                    u8::from(encoding_type).into(),
+                    call_arg_pure!(&ending_checkpoint_seq_num),
+                    call_arg_pure!(&epoch),
+                ],
+            )
+            .await?;
+        if res.errors.is_empty() {
+            Ok(())
+        } else {
+            Err(anyhow!("could not certify blob: {:?}", res.errors).into())
+        }
+    }
+
     async fn invalidate_blob_id(
         &self,
         certificate: &InvalidBlobCertificate,
@@ -809,6 +875,10 @@ impl ContractClient for SuiContractClient {
         //
         // TODO(#928): revisit this choice after mainnet to see if this causes inconvenience for
         // node operators.
+        info!(
+            "running register candidate, address: {}",
+            self.wallet_address
+        );
         let existing_capability_object = get_address_capability_object(
             &self.read_client.sui_client,
             self.wallet_address,

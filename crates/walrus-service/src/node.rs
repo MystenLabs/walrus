@@ -113,17 +113,19 @@ use errors::{
     SyncShardServiceError,
 };
 
-mod storage;
+pub mod storage;
 pub use storage::{DatabaseConfig, Storage};
 
 use crate::{
     common::{active_committees::ActiveCommittees, utils::ShardDiff},
     events::{
-        event_processor::EventProcessor,
+        event_blob_writer::EventBlobWriterFactory,
+        event_processor::{EventProcessor, ProcessorConfig, SystemConfig},
         EventProcessorConfig,
         EventStreamCursor,
         EventStreamElement,
         IndexedStreamElement,
+        InitState,
     },
     node::system_events::{EventManager, SuiSystemEventProvider},
 };
@@ -157,6 +159,15 @@ pub trait ServiceState {
         sliver_pair_index: SliverPairIndex,
         sliver_type: SliverType,
     ) -> Result<Sliver, RetrieveSliverError>;
+
+    /// Stores the primary or secondary encoding for a blob for a shard held by this storage node
+    /// without checking if the sliver is registered.
+    fn store_sliver_unchecked(
+        &self,
+        blob_id: &BlobId,
+        sliver_pair_index: SliverPairIndex,
+        sliver: &Sliver,
+    ) -> Result<bool, StoreSliverError>;
 
     /// Stores the primary or secondary encoding for a blob for a shard held by this storage node.
     fn store_sliver(
@@ -315,14 +326,21 @@ impl StorageNodeBuilder {
                                 sui_config.rpc.clone(),
                             )
                         });
-
+                    let processor_config = ProcessorConfig {
+                        rpc_address: sui_config.rpc.clone(),
+                        event_polling_interval: sui_config.event_polling_interval,
+                        db_path: config.storage_path.join("events"),
+                    };
+                    let system_config = SystemConfig {
+                        system_pkg_id: read_client.get_system_package_id(),
+                        system_object_id: sui_config.system_object,
+                        staking_object_id: sui_config.staking_object,
+                    };
                     Box::new(
                         EventProcessor::new(
                             &event_processor_config,
-                            sui_config.rpc.clone(),
-                            read_client.get_system_package_id(),
-                            sui_config.event_polling_interval,
-                            &config.storage_path.join("events"),
+                            processor_config,
+                            system_config,
                             &metrics_registry,
                         )
                         .await?,
@@ -384,6 +402,7 @@ pub struct StorageNode {
     shard_sync_handler: ShardSyncHandler,
     epoch_change_driver: EpochChangeDriver,
     background_shard_remover: BackgroundShardRemover,
+    event_blob_writer_factory: EventBlobWriterFactory,
 }
 
 /// The internal state of a Walrus storage node.
@@ -453,11 +472,17 @@ impl StorageNode {
         let system_parameters = contract_service.fixed_system_parameters().await?;
         let epoch_change_driver = EpochChangeDriver::new(
             system_parameters,
-            contract_service,
+            contract_service.clone(),
             StdRng::seed_from_u64(thread_rng().gen()),
         );
 
         let background_shard_remover = BackgroundShardRemover::new(inner.clone());
+        let event_blob_writer_factory = EventBlobWriterFactory::new(
+            &config.storage_path,
+            inner.clone(),
+            contract_service,
+            registry,
+        )?;
 
         Ok(StorageNode {
             inner,
@@ -465,6 +490,7 @@ impl StorageNode {
             shard_sync_handler,
             epoch_change_driver,
             background_shard_remover,
+            event_blob_writer_factory,
         })
     }
 
@@ -521,25 +547,44 @@ impl StorageNode {
     /// Continues the event stream from the last committed event.
     async fn continue_event_stream(
         &self,
+        writer_cursor: EventStreamCursor,
+        storage_node_cursor: EventStreamCursor,
     ) -> anyhow::Result<(
+        Option<InitState>,
         Pin<Box<dyn Stream<Item = IndexedStreamElement> + Send + Sync + '_>>,
         usize,
     )> {
+        let event_cursor = std::cmp::min(writer_cursor, storage_node_cursor);
+        let (init_state, event_stream) = self
+            .inner
+            .event_manager
+            .events(event_cursor.clone())
+            .await?;
+        let element_index = event_cursor
+            .element_index
+            .try_into()
+            .expect("64-bit architecture");
+        Ok((init_state, Pin::from(event_stream), element_index))
+    }
+
+    async fn storage_node_cursor(&self) -> anyhow::Result<EventStreamCursor> {
         let storage = &self.inner.storage;
         let (from_event_id, next_event_index) = storage
             .get_event_cursor_and_next_index()?
             .map_or((None, 0), |(cursor, index)| (Some(cursor), index));
-        let event_cursor = EventStreamCursor::new(from_event_id, next_event_index);
-
-        Ok((
-            Box::into_pin(self.inner.event_manager.events(event_cursor).await?),
-            next_event_index.try_into().expect("64-bit architecture"),
-        ))
+        Ok(EventStreamCursor::new(from_event_id, next_event_index))
     }
 
     async fn process_events(&self) -> anyhow::Result<()> {
-        let (event_stream, next_event_index) = self.continue_event_stream().await?;
-
+        let writer_cursor = self
+            .event_blob_writer_factory
+            .event_cursor()
+            .unwrap_or_default();
+        let storage_node_cursor = self.storage_node_cursor().await?;
+        let (init_state, event_stream, next_event_index) = self
+            .continue_event_stream(writer_cursor.clone(), storage_node_cursor.clone())
+            .await?;
+        let mut event_blob_writer = self.event_blob_writer_factory.create(init_state).await?;
         let index_stream = stream::iter(next_event_index..);
         let mut maybe_epoch_at_start = Some(self.inner.committee_service.get_epoch());
 
@@ -567,34 +612,55 @@ impl StorageNode {
                 "error.type" = field::Empty,
             );
 
-            if let Some(epoch_at_start) = maybe_epoch_at_start {
-                if let EventStreamElement::ContractEvent(ref event) = stream_element.element {
-                    tracing::debug!("checking the first contract event if we're severely lagging");
-                    // Clear the starting epoch, so that we never make this check again.
-                    maybe_epoch_at_start = None;
-
-                    // if event.event_epoch() < starting_epoch - 1
-                    if event.event_epoch() + 1 < epoch_at_start {
-                        tracing::warn!(
-                            "the current epoch ({}) is too far ahead of the event epoch: {}",
-                            epoch_at_start,
-                            event.event_epoch()
-                        );
-                    }
-                }
+            if let Some(epoch_at_start) = maybe_epoch_at_start.take() {
+                self.check_epoch_lag(&stream_element, epoch_at_start)?;
             }
 
-            self.process_event(element_index, stream_element)
-                .inspect_err(|err| {
-                    let span = tracing::Span::current();
-                    span.record("otel.status_code", "error");
-                    span.record("otel.status_message", field::display(err));
-                })
-                .instrument(span)
+            let should_write = element_index as u64 >= writer_cursor.element_index;
+            let should_process = element_index >= storage_node_cursor.element_index as usize;
+            ensure!(should_write || should_process, "event stream out of sync");
+
+            if should_process {
+                self.process_event(element_index, stream_element.clone())
+                    .inspect_err(|err| {
+                        let span = tracing::Span::current();
+                        span.record("otel.status_code", "error");
+                        span.record("otel.status_message", field::display(err));
+                    })
+                    .instrument(span)
+                    .await?;
+            }
+
+            if !should_write {
+                continue;
+            }
+
+            event_blob_writer
+                .write(stream_element.clone(), element_index as u64)
                 .await?;
         }
 
         bail!("event stream for blob events stopped")
+    }
+
+    fn check_epoch_lag(
+        &self,
+        stream_element: &IndexedStreamElement,
+        epoch_at_start: u32,
+    ) -> anyhow::Result<()> {
+        if let EventStreamElement::ContractEvent(ref event) = stream_element.element {
+            tracing::debug!("checking the first contract event if we're severely lagging");
+            if event.event_epoch() + 1 < epoch_at_start {
+                let error = anyhow!(
+                    "the current epoch ({}) is too far ahead of the event epoch: {}",
+                    epoch_at_start,
+                    event.event_epoch(),
+                );
+                tracing::error!(%error);
+                return Err(error);
+            }
+        }
+        Ok(())
     }
 
     #[tracing::instrument(skip_all)]
@@ -1034,8 +1100,8 @@ impl StorageNode {
 }
 
 impl StorageNodeInner {
-    pub(crate) fn encoding_config(&self) -> &EncodingConfig {
-        &self.encoding_config
+    pub(crate) fn encoding_config(&self) -> Arc<EncodingConfig> {
+        self.encoding_config.clone()
     }
 
     pub(crate) fn storage(&self) -> &Storage {
@@ -1248,6 +1314,16 @@ impl ServiceState for StorageNode {
             .retrieve_sliver(blob_id, sliver_pair_index, sliver_type)
     }
 
+    fn store_sliver_unchecked(
+        &self,
+        blob_id: &BlobId,
+        sliver_pair_index: SliverPairIndex,
+        sliver: &Sliver,
+    ) -> Result<bool, StoreSliverError> {
+        self.inner
+            .store_sliver_unchecked(blob_id, sliver_pair_index, sliver)
+    }
+
     fn store_sliver(
         &self,
         blob_id: &BlobId,
@@ -1409,19 +1485,12 @@ impl ServiceState for StorageNodeInner {
             })
     }
 
-    fn store_sliver(
+    fn store_sliver_unchecked(
         &self,
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
         sliver: &Sliver,
     ) -> Result<bool, StoreSliverError> {
-        self.check_index(sliver_pair_index)?;
-
-        ensure!(
-            self.is_blob_registered(blob_id)?,
-            StoreSliverError::NotCurrentlyRegistered,
-        );
-
         // Ensure we have received the blob metadata.
         let metadata = self
             .storage
@@ -1456,6 +1525,22 @@ impl ServiceState for StorageNodeInner {
         metrics::with_label!(self.metrics.slivers_stored_total, sliver.r#type()).inc();
 
         Ok(true)
+    }
+
+    fn store_sliver(
+        &self,
+        blob_id: &BlobId,
+        sliver_pair_index: SliverPairIndex,
+        sliver: &Sliver,
+    ) -> Result<bool, StoreSliverError> {
+        self.check_index(sliver_pair_index)?;
+
+        ensure!(
+            self.is_blob_registered(blob_id)?,
+            StoreSliverError::NotCurrentlyRegistered,
+        );
+
+        self.store_sliver_unchecked(blob_id, sliver_pair_index, sliver)
     }
 
     async fn compute_storage_confirmation(

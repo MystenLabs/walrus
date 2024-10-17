@@ -1,11 +1,13 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{num::NonZeroU16, time::Duration};
+use std::{io::BufReader, num::NonZeroU16, time::Duration};
 
+use anyhow::Context;
+use sui_protocol_config::ProtocolConfig;
 use tokio_stream::StreamExt;
 use walrus_core::{
-    encoding::Primary,
+    encoding::{Primary, Secondary},
     merkle::Node,
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
@@ -31,7 +33,7 @@ use walrus_service::{
 };
 use walrus_sui::{
     client::{BlobPersistence, ContractClient, ReadClient},
-    types::{BlobEvent, ContractEvent},
+    types::{move_structs::EventBlob, BlobEvent, ContractEvent},
 };
 use walrus_test_utils::{async_param_test, Result as TestResult};
 
@@ -425,6 +427,71 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
 
     // TODO(mlegner): Check correct handling on nodes.
 
+    Ok(())
+}
+
+#[cfg(test)]
+#[tokio::test]
+async fn test_event_blobs() -> TestResult {
+    let (_sui_cluster, _cluster, client) =
+        test_cluster::default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
+            Duration::from_secs(60 * 60),
+            false,
+        )
+        .await
+        .unwrap();
+
+    let mut event_blob = client
+        .inner
+        .sui_client()
+        .read_client
+        .last_certified_event_blob()
+        .await
+        .unwrap();
+
+    // wait until event_blob is some
+    while event_blob.is_none() {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        event_blob = client
+            .inner
+            .sui_client()
+            .read_client
+            .last_certified_event_blob()
+            .await
+            .unwrap();
+        println!("event_blob: {:?}", event_blob);
+    }
+    // Read the blob using primary slivers.
+    let read_blob_primary = client
+        .as_ref()
+        .read_blob::<Primary>(&event_blob.clone().unwrap().blob_id)
+        .await
+        .context("should be able to read blob we just stored")?;
+
+    // Read using secondary slivers and check the result.
+    let read_blob_secondary = client
+        .as_ref()
+        .read_blob::<Secondary>(&event_blob.clone().unwrap().blob_id)
+        .await
+        .context("should be able to read blob we just stored")?;
+
+    assert_eq!(read_blob_primary, read_blob_secondary);
+    let zero_blob_id = BlobId([0; 32]);
+    let mut prev_event_blob = event_blob.as_ref().unwrap().blob_id;
+    while prev_event_blob != zero_blob_id {
+        println!("prev_event_blob: {:?}", prev_event_blob);
+        let read_blob_primary = client
+            .as_ref()
+            .read_blob::<Primary>(&prev_event_blob)
+            .await
+            .context("should be able to read blob we just stored")?;
+        let event_blob =
+            walrus_service::node::storage::event_blob::EventBlob::new(&read_blob_primary)?;
+        prev_event_blob = event_blob.prev_blob_id();
+        for i in event_blob {
+            println!("element: {:?}", i);
+        }
+    }
     Ok(())
 }
 

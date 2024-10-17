@@ -13,13 +13,16 @@ mod tests {
     use rand::Rng;
     use sui_macros::register_fail_points;
     use sui_protocol_config::ProtocolConfig;
-    use walrus_core::encoding::{Primary, Secondary};
+    use walrus_core::{
+        encoding::{Primary, Secondary},
+        BlobId,
+    };
     use walrus_proc_macros::walrus_simtest;
     use walrus_service::{
         client::{responses::BlobStoreResult, Client, StoreWhen},
         test_utils::{test_cluster, SimStorageNodeHandle},
     };
-    use walrus_sui::client::{BlobPersistence, SuiContractClient};
+    use walrus_sui::client::{BlobPersistence, ReadClient, SuiContractClient};
     use walrus_test_utils::WithTempDir;
 
     const FAILURE_TRIGGER_PROBABILITY: f64 = 0.01;
@@ -80,6 +83,7 @@ mod tests {
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(60 * 60),
                 &[1, 2, 3, 3, 4],
+                true,
             )
             .await
             .unwrap();
@@ -104,6 +108,7 @@ mod tests {
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(60 * 60),
                 &[1, 2, 3, 3, 4],
+                true,
             )
             .await
             .unwrap();

@@ -732,3 +732,44 @@ macro_rules! ensure {
         }
     };
 }
+
+/// Provides an early return with `Ok` if a condition is met.
+///
+/// This macro allows for concise early returns in functions that return `Result`,
+/// when certain conditions warrant an immediate successful return.
+///
+/// # Examples
+///
+/// ```
+/// use anyhow::Result;
+/// use std::collections::HashMap;
+/// use std::sync::RwLock;
+/// use walrus_core::early_return;
+///
+/// struct Cache {
+///  data: HashMap<String, String>,
+/// }
+/// fn validate_data(data: &[i32]) -> Result<()> {
+///     early_return!(data.is_empty());
+///     // More validation...
+///     Ok(())
+/// }
+/// ```
+///
+/// # Note
+///
+/// This macro is designed to be used in functions that return `Result`.
+/// It will not compile in functions with other return types.
+#[macro_export]
+macro_rules! early_return {
+    ($condition:expr) => {
+        if $condition {
+            return Ok(());
+        }
+    };
+    ($condition:expr, $value:expr) => {
+        if $condition {
+            return Ok($value);
+        }
+    };
+}

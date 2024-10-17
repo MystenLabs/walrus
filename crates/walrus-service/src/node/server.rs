@@ -495,6 +495,20 @@ mod tests {
         }
 
         /// Successful only for the pair index 0, otherwise, returns an internal error.
+        fn store_sliver_unchecked(
+            &self,
+            _blob_id: &BlobId,
+            sliver_pair_index: SliverPairIndex,
+            _sliver: &Sliver,
+        ) -> Result<bool, StoreSliverError> {
+            if sliver_pair_index.as_usize() == 0 {
+                Ok(true)
+            } else {
+                Err(StoreSliverError::Internal(anyhow!("Invalid shard")))
+            }
+        }
+
+        /// Successful only for the pair index 0, otherwise, returns an internal error.
         fn store_sliver(
             &self,
             _blob_id: &BlobId,

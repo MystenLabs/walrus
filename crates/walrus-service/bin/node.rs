@@ -30,7 +30,10 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use walrus_core::keys::{NetworkKeyPair, ProtocolKeyPair};
 use walrus_service::{
-    events::{event_processor::EventProcessor, EventProcessorConfig},
+    events::{
+        event_processor::{EventProcessor, ProcessorConfig, SystemConfig},
+        EventProcessorConfig,
+    },
     node::{
         config::{
             self,
@@ -703,13 +706,21 @@ impl EventProcessorRuntime {
         db_path: &Path,
         metrics_registry: &Registry,
     ) -> anyhow::Result<Arc<EventProcessor>> {
+        let processor_config = ProcessorConfig {
+            rpc_address: sui_config.rpc.clone(),
+            event_polling_interval: sui_config.event_polling_interval,
+            db_path: db_path.join("events"),
+        };
+        let system_config = SystemConfig {
+            system_pkg_id: sui_config.new_read_client().await?.get_system_package_id(),
+            system_object_id: sui_config.system_object,
+            staking_object_id: sui_config.staking_object,
+        };
         Ok(Arc::new(
             EventProcessor::new(
                 event_processor_config,
-                sui_config.rpc.clone(),
-                sui_config.new_read_client().await?.get_system_package_id(),
-                sui_config.event_polling_interval,
-                &db_path.join("events"),
+                processor_config,
+                system_config,
                 metrics_registry,
             )
             .await?,

@@ -3,9 +3,9 @@
 
 //! Event processor for processing events from the full node.
 
-use std::{fmt::Debug, path::Path, sync::Arc, time::Duration};
+use std::{fmt::Debug, path::PathBuf, sync::Arc, time::Duration};
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
 use move_core_types::{
     account_address::AccountAddress,
@@ -52,11 +52,16 @@ use walrus_sui::types::ContractEvent;
 use walrus_utils::checkpoint_downloader::ParallelCheckpointDownloader;
 
 use crate::events::{
+    catchup_using_event_blobs,
     ensure_experimental_rest_endpoint_exists,
     get_bootstrap_committee_and_checkpoint,
+    ClientConfig,
+    Database,
     EventProcessorConfig,
     EventSequenceNumber,
     IndexedStreamElement,
+    InitState,
+    SystemObjects,
 };
 
 /// The name of the checkpoint store.
@@ -71,6 +76,9 @@ const COMMITTEE_STORE: &str = "committee_store";
 /// The name of the event store.
 #[allow(dead_code)]
 const EVENT_STORE: &str = "event_store";
+/// The name of the event store.
+#[allow(dead_code)]
+const INIT_STATE: &str = "init_state";
 
 pub(crate) type PackageCache = PackageStoreWithLruCache<LocalDBPackageStore>;
 
@@ -116,7 +124,9 @@ pub struct EventProcessor {
     pub committee_store: DBMap<(), Committee>,
     /// Store which only stores all event stream elements.
     pub event_store: DBMap<u64, IndexedStreamElement>,
-    /// Package resolver.
+    /// Initial state of the event processor.
+    pub init_state: DBMap<u64, InitState>,
+    /// Package resolver
     pub package_resolver: Arc<Resolver<PackageCache>>,
     /// Event processor metrics.
     pub metrics: EventProcessorMetrics,
@@ -164,6 +174,26 @@ impl Debug for EventProcessor {
     }
 }
 
+/// Struct to group system-related parameters
+pub struct SystemConfig {
+    /// The package ID of the system package.
+    pub system_pkg_id: ObjectID,
+    /// The object ID of the system object.
+    pub system_object_id: ObjectID,
+    /// The object ID of the staking object.
+    pub staking_object_id: ObjectID,
+}
+
+/// Struct to group general configuration parameters
+pub struct ProcessorConfig {
+    /// The address of the RPC server.
+    pub rpc_address: String,
+    /// The event polling interval.
+    pub event_polling_interval: Duration,
+    /// The path to the database.
+    pub db_path: PathBuf,
+}
+
 #[allow(dead_code)]
 impl EventProcessor {
     /// Polls the event store for new events starting from the given sequence number.
@@ -175,6 +205,18 @@ impl EventProcessor {
             elements.push(event.clone());
         }
         Ok(elements)
+    }
+
+    /// Returns the init state for the given event index.
+    pub async fn init_state(&self, from: u64) -> Result<Option<InitState>> {
+        let mut iter = self.event_store.unbounded_iter();
+        iter = iter.skip_to(&from)?;
+        let next = iter.next();
+        let Some((event_index, _)) = next else {
+            return Ok(None);
+        };
+        let init_state = self.init_state.get(&event_index)?;
+        Ok(init_state)
     }
 
     /// Starts the event processor. This method will run until the cancellation token is cancelled.
@@ -224,6 +266,7 @@ impl EventProcessor {
                     }
                     let mut write_batch = self.event_store.batch();
                     write_batch.schedule_delete_range(&self.event_store, &0, &commit_index)?;
+                    write_batch.schedule_delete_range(&self.init_state, &0, &commit_index)?;
                     write_batch.write()?;
                     // This will prune the event store by deleting all the sst files relevant to the
                     // events before the commit index
@@ -436,10 +479,8 @@ impl EventProcessor {
     /// resume from the last checkpoint.
     pub async fn new(
         config: &EventProcessorConfig,
-        rpc_address: String,
-        system_pkg_id: ObjectID,
-        event_polling_interval: Duration,
-        db_path: &Path,
+        processor_config: ProcessorConfig,
+        system_config: SystemConfig,
         registry: &Registry,
     ) -> Result<Self, anyhow::Error> {
         // return a new CheckpointProcessor
@@ -454,7 +495,7 @@ impl EventProcessor {
         db_opts.create_missing_column_families(true);
         db_opts.create_if_missing(true);
         let database = rocks::open_cf_opts(
-            db_path,
+            processor_config.db_path,
             Some(db_opts),
             metric_conf,
             &[
@@ -462,6 +503,7 @@ impl EventProcessor {
                 (WALRUS_PACKAGE_STORE, Options::default()),
                 (COMMITTEE_STORE, Options::default()),
                 (EVENT_STORE, Options::default()),
+                (INIT_STATE, Options::default()),
             ],
         )?;
         if database.cf_handle(CHECKPOINT_STORE).is_none() {
@@ -482,6 +524,11 @@ impl EventProcessor {
         if database.cf_handle(EVENT_STORE).is_none() {
             database
                 .create_cf(EVENT_STORE, &rocksdb::Options::default())
+                .map_err(typed_store_err_from_rocks_err)?;
+        }
+        if database.cf_handle(INIT_STATE).is_none() {
+            database
+                .create_cf(INIT_STATE, &rocksdb::Options::default())
                 .map_err(typed_store_err_from_rocks_err)?;
         }
         let checkpoint_store = DBMap::reopen(
@@ -508,7 +555,12 @@ impl EventProcessor {
             &ReadWriteOptions::default().set_ignore_range_deletions(true),
             false,
         )?;
-
+        let init_state = DBMap::reopen(
+            &database,
+            Some(INIT_STATE),
+            &ReadWriteOptions::default().set_ignore_range_deletions(true),
+            false,
+        )?;
         let package_store = LocalDBPackageStore::new(walrus_package_store.clone(), client.clone());
         let checkpoint_downloader = ParallelCheckpointDownloader::new(
             client.clone(),
@@ -518,13 +570,14 @@ impl EventProcessor {
         )?;
 
         let event_processor = EventProcessor {
-            client,
+            client: client.clone(),
             walrus_package_store,
             checkpoint_store,
             committee_store,
             event_store,
-            system_pkg_id,
-            event_polling_interval,
+            init_state,
+            system_pkg_id: system_config.system_pkg_id,
+            event_polling_interval: processor_config.event_polling_interval,
             event_store_commit_index: Arc::new(Mutex::new(0)),
             pruning_interval: config.pruning_interval,
             package_resolver: Arc::new(Resolver::new(PackageCache::new(package_store))),
@@ -532,12 +585,47 @@ impl EventProcessor {
             checkpoint_downloader,
         };
 
+        let Ok(Some(current_checkpoint)) = event_processor.checkpoint_store.get(&()) else {
+            return Err(anyhow!("Failed to fetch current checkpoint"));
+        };
+        let latest_checkpoint = client.get_latest_checkpoint().await?;
+        let current_lag =
+            latest_checkpoint.sequence_number - current_checkpoint.inner().sequence_number;
+
+        let url = config.rest_url.clone();
+        let sui_client = SuiClientBuilder::default()
+            .build(&url)
+            .await
+            .context(format!("cannot connect to Sui RPC node at {url}"))?;
+
+        if current_lag > config.event_stream_catchup_min_checkpoint_lag {
+            let clients = ClientConfig {
+                sui_client,
+                client: client.clone(),
+            };
+            let system_objects = SystemObjects {
+                system_object_id: system_config.system_object_id,
+                staking_object_id: system_config.staking_object_id,
+            };
+            let database = Database {
+                checkpoints: event_processor.checkpoint_store.clone(),
+                events: event_processor.event_store.clone(),
+                committee: event_processor.committee_store.clone(),
+                init_state: event_processor.init_state.clone(),
+            };
+            catchup_using_event_blobs(clients, system_objects, database).await?;
+        }
+
         if event_processor.checkpoint_store.is_empty() {
             // This is a fresh start as there is no prev disk state
             event_processor.committee_store.schedule_delete_all()?;
             event_processor.event_store.schedule_delete_all()?;
             event_processor.walrus_package_store.schedule_delete_all()?;
-            let sui_client = SuiClientBuilder::default().build(rpc_address).await?;
+            event_processor.init_state.schedule_delete_all()?;
+            let sui_client = SuiClientBuilder::default()
+                .build(processor_config.rpc_address)
+                .await?;
+
             let (committee, verified_checkpoint) = get_bootstrap_committee_and_checkpoint(
                 &sui_client,
                 event_processor.client.clone(),
@@ -622,6 +710,7 @@ mod tests {
     use walrus_utils::{checkpoint_downloader::AdaptiveDownloaderConfig, tests::global_test_lock};
 
     use super::*;
+    use crate::events::EventSequenceNumber;
 
     async fn new_event_processor_for_testing() -> Result<EventProcessor, anyhow::Error> {
         let metric_conf = MetricConf::default();
@@ -642,6 +731,7 @@ mod tests {
                     (WALRUS_PACKAGE_STORE, Options::default()),
                     (COMMITTEE_STORE, Options::default()),
                     (EVENT_STORE, Options::default()),
+                    (INIT_STATE, Options::default()),
                 ],
             )?
         };
@@ -663,6 +753,11 @@ mod tests {
         if database.cf_handle(EVENT_STORE).is_none() {
             database
                 .create_cf(EVENT_STORE, &Options::default())
+                .map_err(typed_store_err_from_rocks_err)?;
+        }
+        if database.cf_handle(INIT_STATE).is_none() {
+            database
+                .create_cf(INIT_STATE, &Options::default())
                 .map_err(typed_store_err_from_rocks_err)?;
         }
         let checkpoint_store = DBMap::reopen(
@@ -689,6 +784,12 @@ mod tests {
             &ReadWriteOptions::default(),
             false,
         )?;
+        let init_state = DBMap::<u64, InitState>::reopen(
+            &database,
+            Some(INIT_STATE),
+            &ReadWriteOptions::default(),
+            false,
+        )?;
         let client = Client::new("http://localhost:8080");
         let package_store = LocalDBPackageStore::new(walrus_package_store.clone(), client.clone());
         let checkpoint_downloader = ParallelCheckpointDownloader::new(
@@ -703,6 +804,7 @@ mod tests {
             checkpoint_store,
             committee_store,
             event_store,
+            init_state,
             system_pkg_id: ObjectID::random(),
             event_store_commit_index: Arc::new(Mutex::new(0)),
             pruning_interval: Duration::from_secs(10),

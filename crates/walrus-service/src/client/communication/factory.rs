@@ -147,7 +147,7 @@ impl NodeCommunicationFactory {
     /// # Panics
     ///
     /// Panics if the index is out of range of the committee members.
-    fn create_read_communication<'a>(
+    pub(crate) fn create_read_communication<'a>(
         &'a self,
         read_committee: &'a Committee,
         index: usize,
@@ -264,7 +264,7 @@ impl NodeCommunicationFactory {
 }
 
 /// Create a vector of node communication objects from the given committee and constructor.
-fn node_communications<'a, W>(
+pub(crate) fn node_communications<'a, W>(
     committee: &Committee,
     constructor: impl Fn(usize) -> Result<Option<NodeCommunication<'a, W>>, ClientBuildError>,
 ) -> ClientResult<Vec<NodeCommunication<'a, W>>> {

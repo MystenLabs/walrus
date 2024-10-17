@@ -3,7 +3,7 @@
 
 //! System events observed by the storage node.
 
-use std::{any::Any, sync::Arc, time::Duration};
+use std::{any::Any, pin::Pin, sync::Arc, time::Duration};
 
 use anyhow::Error;
 use async_trait::async_trait;
@@ -19,6 +19,7 @@ use crate::events::{
     EventSequenceNumber,
     EventStreamCursor,
     IndexedStreamElement,
+    InitState,
 };
 
 /// The capacity of the event channel.
@@ -58,7 +59,13 @@ pub trait SystemEventProvider: std::fmt::Debug + Sync + Send {
     async fn events(
         &self,
         cursor: EventStreamCursor,
-    ) -> Result<Box<dyn Stream<Item = IndexedStreamElement> + Send + Sync + 'life0>, anyhow::Error>;
+    ) -> Result<
+        (
+            Option<InitState>,
+            Box<dyn Stream<Item = IndexedStreamElement> + Send + Sync + 'life0>,
+        ),
+        anyhow::Error,
+    >;
     /// Return a reference to this provider as a [`dyn Any`].
     fn as_any(&self) -> &dyn Any;
 }
@@ -79,8 +86,13 @@ impl SystemEventProvider for SuiSystemEventProvider {
     async fn events(
         &self,
         cursor: EventStreamCursor,
-    ) -> Result<Box<dyn Stream<Item = IndexedStreamElement> + Send + Sync + 'life0>, anyhow::Error>
-    {
+    ) -> Result<
+        (
+            Option<InitState>,
+            Box<dyn Stream<Item = IndexedStreamElement> + Send + Sync + 'life0>,
+        ),
+        anyhow::Error,
+    > {
         tracing::info!(?cursor, "resuming from event");
         let events = self
             .read_client
@@ -88,7 +100,7 @@ impl SystemEventProvider for SuiSystemEventProvider {
             .await?;
         let event_stream =
             events.map(|event| IndexedStreamElement::new(event, EventSequenceNumber::new(0, 0)));
-        Ok(Box::new(event_stream))
+        Ok((None, Box::new(event_stream)))
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -111,8 +123,11 @@ impl SystemEventProvider for EventProcessor {
     async fn events<'life0>(
         &'life0 self,
         cursor: EventStreamCursor,
-    ) -> anyhow::Result<
-        Box<dyn Stream<Item = IndexedStreamElement> + Send + Sync + 'life0>,
+    ) -> Result<
+        (
+            Option<InitState>,
+            Box<dyn Stream<Item = IndexedStreamElement> + Send + Sync + 'life0>,
+        ),
         anyhow::Error,
     > {
         let mut interval = tokio::time::interval(self.event_polling_interval);
@@ -132,7 +147,16 @@ impl SystemEventProvider for EventProcessor {
             },
         )
         .flatten();
-        Ok(Box::new(event_stream))
+        // Create a pinned boxed stream
+        let pinned_stream = Box::pin(event_stream)
+            as Pin<Box<dyn Stream<Item = IndexedStreamElement> + Send + Sync + 'life0>>;
+
+        // Convert the Pin<Box<dyn Stream>> to Box<dyn Stream>
+        let boxed_stream = Box::new(pinned_stream)
+            as Box<dyn Stream<Item = IndexedStreamElement> + Send + Sync + 'life0>;
+
+        let init_state = self.init_state(cursor.element_index).await?;
+        Ok((init_state, boxed_stream))
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -159,7 +183,13 @@ impl SystemEventProvider for Arc<EventProcessor> {
     async fn events(
         &self,
         cursor: EventStreamCursor,
-    ) -> Result<Box<dyn Stream<Item = IndexedStreamElement> + Send + Sync + 'life0>, Error> {
+    ) -> Result<
+        (
+            Option<InitState>,
+            Box<dyn Stream<Item = IndexedStreamElement> + Send + Sync + 'life0>,
+        ),
+        anyhow::Error,
+    > {
         self.as_ref().events(cursor).await
     }
     fn as_any(&self) -> &dyn Any {

@@ -5,7 +5,7 @@ use std::{
     collections::{hash_map::Entry, HashMap},
     fmt::Debug,
     ops::Bound::Included,
-    path::Path,
+    path::{Path, PathBuf},
     sync::{Arc, RwLock, TryLockError},
 };
 
@@ -61,6 +61,7 @@ pub struct Storage {
     event_cursor: EventCursorTable,
     shards: Arc<RwLock<HashMap<ShardIndex, Arc<ShardStorage>>>>,
     config: DatabaseConfig,
+    root_db_path: PathBuf,
 }
 
 impl Storage {
@@ -136,6 +137,7 @@ impl Storage {
             event_cursor,
             shards,
             config: db_config,
+            root_db_path: path.to_path_buf(),
         })
     }
 
@@ -469,6 +471,11 @@ impl Storage {
         Ok(shard
             .fetch_slivers(request.sliver_type(), &blobs_to_fetch)?
             .into())
+    }
+
+    /// Returns the path to the root database directory.
+    pub fn root_db_path(&self) -> &Path {
+        &self.root_db_path
     }
 }
 

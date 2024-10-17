@@ -37,6 +37,7 @@ use crate::{
     types::{
         move_structs::{
             EpochState,
+            EventBlob,
             StakingObjectForDeserialization,
             StakingPool,
             SystemObjectForDeserialization,
@@ -131,6 +132,11 @@ pub trait ReadClient: Send + Sync {
 
     /// Returns the current epoch state.
     fn epoch_state(&self) -> impl Future<Output = SuiClientResult<EpochState>> + Send;
+
+    /// Returns the last certified event blob.
+    fn last_certified_event_blob(
+        &self,
+    ) -> impl Future<Output = SuiClientResult<Option<EventBlob>>> + Send;
 
     /// Returns the current, previous, and next committee, along with the current epoch state.
     ///
@@ -493,6 +499,16 @@ impl ReadClient for SuiReadClient {
             poll_for_events(tx_event, polling_interval, event_api, event_filter, cursor).await
         });
         Ok(ReceiverStream::new(rx_event))
+    }
+
+    async fn last_certified_event_blob(&self) -> SuiClientResult<Option<EventBlob>> {
+        let blob = self
+            .get_system_object()
+            .await?
+            .inner
+            .event_blob_certification_state
+            .latest_certified_blob;
+        Ok(blob)
     }
 
     async fn get_blob_event(&self, event_id: EventID) -> SuiClientResult<BlobEvent> {

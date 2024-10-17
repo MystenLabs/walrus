@@ -21,6 +21,7 @@ use sui_types::{
     TypeTag,
     SUI_FRAMEWORK_PACKAGE_ID,
 };
+use tracing::info;
 use walrus_core::{
     keys::{NetworkKeyPair, ProtocolKeyPair},
     EpochCount,
@@ -225,6 +226,8 @@ pub async fn register_committee_and_stake(
         let node_cap = contract_client
             .register_candidate(storage_node_params, &proof_of_possession)
             .await?;
+        println!("candidate registerd");
+        info!("storage node cap id: {:?}", node_cap);
 
         // stake with storage nodes
         if *amount_to_stake > 0 {

@@ -9,11 +9,17 @@ use std::{
     time::Duration,
 };
 
-use anyhow::Context as _;
+use anyhow::{Context as _, Error};
 use async_trait::async_trait;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use tokio::sync::Mutex as TokioMutex;
-use walrus_core::{messages::InvalidBlobCertificate, Epoch};
+use walrus_core::{
+    merkle::DIGEST_LEN,
+    messages::InvalidBlobCertificate,
+    BlobId,
+    EncodingType,
+    Epoch,
+};
 use walrus_sui::{
     client::{ContractClient, FixedSystemParameters, SuiClientError, SuiContractClient},
     types::move_structs::EpochState,
@@ -46,6 +52,17 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
 
     /// Initiates epoch change.
     async fn initiate_epoch_change(&self) -> Result<(), anyhow::Error>;
+
+    /// Certify an event blob to the contract.
+    async fn certify_event_blob(
+        &self,
+        blob_id: BlobId,
+        root_digest: [u8; DIGEST_LEN],
+        blob_size: u64,
+        encoding_type: EncodingType,
+        ending_checkpoint_seq_num: u64,
+        epoch: u32,
+    ) -> Result<(), anyhow::Error>;
 }
 
 /// A [`SystemContractService`] that uses a [`ContractClient`] for chain interactions.
@@ -172,6 +189,29 @@ where
     async fn initiate_epoch_change(&self) -> Result<(), anyhow::Error> {
         let client = self.contract_client.lock().await;
         client.initiate_epoch_change().await?;
+        Ok(())
+    }
+
+    async fn certify_event_blob(
+        &self,
+        blob_id: BlobId,
+        root_digest: [u8; DIGEST_LEN],
+        blob_size: u64,
+        encoding_type: EncodingType,
+        ending_checkpoint_seq_num: u64,
+        epoch: u32,
+    ) -> Result<(), Error> {
+        let client = self.contract_client.lock().await;
+        client
+            .certify_event_blob(
+                blob_id,
+                root_digest,
+                blob_size,
+                encoding_type,
+                ending_checkpoint_seq_num,
+                epoch,
+            )
+            .await?;
         Ok(())
     }
 }
