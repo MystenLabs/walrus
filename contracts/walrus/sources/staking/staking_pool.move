@@ -245,9 +245,22 @@ public(package) fun withdraw_stake(
     assert!(!pool.is_new());
     assert!(staked_wal.value() > 0);
     assert!(staked_wal.node_id() == pool.id.to_inner());
+
+    let activation_epoch = staked_wal.activation_epoch();
+
+    // early withdrawal in the case when committee before activation epoch hasn't
+    // been selected. covers both E+1 and E+2 cases.
+    if (
+        activation_epoch > wctx.epoch() &&
+        (wctx.epoch().diff(activation_epoch) == 2 || !wctx.committee_selected())
+    ) {
+        pool.pending_stake.reduce(activation_epoch, staked_wal.value());
+        return staked_wal.into_balance()
+    };
+
+    assert!(staked_wal.is_withdrawing());
     assert!(staked_wal.withdraw_epoch() <= wctx.epoch());
     assert!(staked_wal.activation_epoch() <= wctx.epoch());
-    assert!(staked_wal.is_withdrawing());
 
     // withdraw epoch and pool token amount are stored in the `StakedWal`
     let token_amount = staked_wal.pool_token_amount();
