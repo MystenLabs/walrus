@@ -1,0 +1,43 @@
+[package]
+name = "walrus-proxy"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+axum-extra.workspace = true
+axum-server.workspace = true
+axum.workspace = true
+bytes.workspace = true
+clap.workspace = true
+const-str.workspace = true
+git-version.workspace = true
+hyper.workspace = true
+mysten-metrics.workspace = true
+once_cell.workspace = true
+prometheus.workspace = true
+protobuf.workspace = true
+prost.workspace = true
+fastcrypto.workspace = true
+serde_with.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+serde.workspace = true
+snap.workspace = true
+sui-proxy.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+reqwest.workspace = true
+tower-http.workspace = true
+rand.workspace = true
+uuid.workspace = true
+tower.workspace = true
+tracing-subscriber = { workspace = true, features = ["fmt"] }
+tracing.workspace = true
+futures.workspace = true
+xxhash-rust.workspace = true
+
+[lints]
+workspace = true

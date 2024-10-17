@@ -105,6 +105,9 @@ pub struct StorageNodeConfig {
     /// Name of the storage node.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// Metric push configuration.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metrics: Option<MetricsConfig>,
 }
 
 impl Default for StorageNodeConfig {
@@ -131,6 +134,7 @@ impl Default for StorageNodeConfig {
                 node_capacity: 250_000_000_000,
             },
             name: Default::default(),
+            metrics: None,
         }
     }
 }
@@ -177,6 +181,15 @@ impl StorageNodeConfig {
             node_capacity: self.voting_params.node_capacity,
         }
     }
+}
+
+/// Configuration for metric push
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct MetricsConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub push_interval_seconds: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub push_url: Option<String>,
 }
 
 /// Configuration for TLS of the rest API.
@@ -440,7 +453,7 @@ pub mod defaults {
         2000
     }
 
-    /// Returns true iff the value is the default.
+    /// Returns true if the value is the default.
     pub fn is_default<T: PartialEq + Default>(t: &T) -> bool {
         t == &T::default()
     }

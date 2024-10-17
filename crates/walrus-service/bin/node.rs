@@ -39,6 +39,7 @@ use walrus_service::{
             SuiConfig,
         },
         events::{event_processor::EventProcessor, EventProcessorConfig},
+        push_metrics,
         server::{UserServer, UserServerConfig},
         system_events::{EventManager, SuiSystemEventProvider},
         StorageNode,
@@ -73,7 +74,8 @@ enum Commands {
     /// Fails if the specified directory does not exist yet.
     Setup {
         #[clap(long)]
-        /// The path to the directory in which to set up wallet and node configuration.
+        /// The path to the directory in which to set up wallet and node
+        /// configuration.
         config_directory: PathBuf,
         #[clap(long)]
         /// The path where the Walrus database will be stored.
@@ -110,17 +112,21 @@ enum Commands {
         cleanup_storage: bool,
     },
 
-    /// Generate a new key for use with the Walrus protocol, and writes it to a file.
+    /// Generate a new key for use with the Walrus protocol, and writes it to a
+    /// file.
     KeyGen {
-        /// Path to the file at which the key will be created. If the file already exists, it is
-        /// not overwritten and the operation will fail unless the `--force` option is provided.
-        /// [default: ./<KEY_TYPE>.key]
+        /// Path to the file at which the key will be created. If the file
+        /// already exists, it is not overwritten and the operation will
+        /// fail unless the `--force` option is provided. [default: ./
+        /// <KEY_TYPE>.key]
         #[clap(long)]
         out: Option<PathBuf>,
-        /// Which type of key to generate. Valid options are 'protocol' and 'network'.
+        /// Which type of key to generate. Valid options are 'protocol' and
+        /// 'network'.
         ///
         /// The protocol key is used to sign Walrus protocol messages.
-        /// The network key is used to authenticate nodes in network communication.
+        /// The network key is used to authenticate nodes in network
+        /// communication.
         #[clap(long)]
         key_type: KeyType,
         /// Overwrite existing files.
@@ -197,9 +203,9 @@ struct ConfigArgs {
     #[clap(long)]
     /// Initial storage capacity of this node in bytes.
     ///
-    /// The value can either by unitless; have suffixes for powers of 1000, such as (B),
-    /// kilobytes (K), etc.; or have suffixes for the IEC units such as kibibytes (Ki),
-    /// mebibytes (Mi), etc.
+    /// The value can either by unitless; have suffixes for powers of 1000, such
+    /// as (B), kilobytes (K), etc, or have suffixes for the IEC units such
+    /// as kibibytes (Ki), mebibytes (Mi), etc.
     node_capacity: ByteCount,
     #[clap(long)]
     /// The host name or public IP address of the node.
@@ -208,13 +214,15 @@ struct ConfigArgs {
     //   Optional fields below
     // ***************************
     #[clap(long)]
-    /// HTTP URL of the Sui full-node RPC endpoint (including scheme and port) to use for event
-    /// processing.
+    /// HTTP URL of the Sui full-node RPC endpoint (including scheme and port)
+    /// to use for event processing.
     ///
-    /// If not provided, the RPC node from the wallet's active environment will be used.
+    /// If not provided, the RPC node from the wallet's active environment will
+    /// be used.
     sui_rpc: Option<String>,
     #[clap(long, action)]
-    /// Use the legacy event provider instead of the standard checkpoint-based event processor.
+    /// Use the legacy event provider instead of the standard checkpoint-based
+    /// event processor.
     use_legacy_event_provider: bool,
     #[clap(long, default_value_t = REST_API_PORT)]
     /// The port on which the storage node will serve requests.
@@ -254,7 +262,8 @@ struct PathArgs {
     /// The path to the key pair used in Walrus protocol messages.
     protocol_key_path: PathBuf,
     #[clap(long)]
-    /// The path to the key pair used to authenticate nodes in network communication.
+    /// The path to the key pair used to authenticate nodes in network
+    /// communication.
     network_key_path: PathBuf,
     #[clap(long)]
     /// Location of the node's wallet config.
@@ -379,6 +388,18 @@ mod commands {
 
         let cancel_token = CancellationToken::new();
         let (exit_notifier, exit_listener) = oneshot::channel::<()>();
+
+        if let Some(metric_config) = config.metrics.clone() {
+            if let Some(tagged_key_pair) = config.network_key_pair.clone().get() {
+                let network_key_pair = tagged_key_pair.0.clone();
+                push_metrics::start_metrics_push_task(
+                    cancel_token.child_token(),
+                    network_key_pair.clone(),
+                    metric_config,
+                    metrics_runtime.registry.clone(),
+                );
+            }
+        }
 
         let (event_manager, event_processor_runtime) = EventProcessorRuntime::start(
             config
@@ -517,8 +538,9 @@ mod commands {
         };
         let registration_params = config.to_registration_params(public_address, node_name);
 
-        // Uses the Sui wallet configuration in the storage node config to register the node.
-        let contract_client = get_contract_client_from_node_config(&config).await?;
+        // Uses the Sui wallet configuration in the storage node config to register the
+        // node.
+        let contract_client = get_contract_client_from_node_config(&storage_config).await?;
         let proof_of_possession = walrus_sui::utils::generate_proof_of_possession(
             config.protocol_key_pair(),
             &contract_client,
@@ -680,7 +702,8 @@ mod commands {
     }
 }
 
-/// Creates a [`SuiContractClient`] from the Sui config in the provided storage node config.
+/// Creates a [`SuiContractClient`] from the Sui config in the provided storage
+/// node config.
 async fn get_contract_client_from_node_config(
     storage_config: &StorageNodeConfig,
 ) -> anyhow::Result<SuiContractClient> {
