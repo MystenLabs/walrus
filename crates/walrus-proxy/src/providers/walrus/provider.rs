@@ -47,11 +47,8 @@ static JSON_RPC_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
 pub type AllowedPeers = Arc<RwLock<HashMap<u64, NodeInfo>>>;
 
 /// WalrusNodeProvider queries the sui blockchain and keeps a record of known
-/// validators based on the response from sui_getValidators.  The node name,
-/// public key and other info is extracted from the chain and stored in this
-/// data structure.  We pass this struct to the tls verifier and it depends on
-/// the state contained within. Handlers also use this data in an Extractor
-/// extension to check incoming clients on the http api against known keys.
+/// nodes. Middleware and handlers use this node info to determine if we should
+/// speak to this client
 #[derive(Debug, Clone)]
 pub struct WalrusNodeProvider {
     nodes: AllowedPeers,
