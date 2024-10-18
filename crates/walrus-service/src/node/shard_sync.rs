@@ -52,8 +52,8 @@ impl ShardSyncHandler {
             .contains_key(&shard_index)
         {
             tracing::info!(
-                "Shard index: {} is already being synced. Skipping starting new sync task.",
-                shard_index
+                shard_index=%shard_index,
+                "shard is already being synced; skipping starting new shard sync",
             );
             return Ok(());
         }
@@ -127,8 +127,8 @@ impl ShardSyncHandler {
             // We have checked the shard_sync_in_progress map before starting the sync task. So,
             // this is an unexpected state.
             tracing::error!(
-                "Shard index: {} is already being synced. Skipping starting new sync task.",
-                shard_storage.id()
+                shard_index=%shard_storage.id(),
+                "shard is already being synced; skipping starting new sync task",
             );
             return;
         };
