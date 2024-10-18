@@ -291,10 +291,7 @@ async fn convert(
 /// convert_to_remote_write is an expensive method due to the time it takes to
 /// submit to mimir. other operations here are optimized for async, within
 /// reason.  The post process uses a single connection to mimir and thus incurs
-/// the seriliaztion delay for each metric family sent. Possible
-/// future optimizations would be to use multiple tcp connections to mimir,
-/// within reason. Nevertheless we await on each post of each metric family so
-/// it shouldn't block any other async work in a significant way.
+/// the seriliaztion delay for each metric family sent.
 pub async fn convert_to_remote_write(
     rc: ReqwestClient,
     node_metric: NodeMetric,
