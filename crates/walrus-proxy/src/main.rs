@@ -15,7 +15,7 @@ use walrus_proxy::{
     admin,
     config::{load, ProxyConfig},
     consumer::Label,
-    metrics, providers,
+    histogram_relay, metrics, providers,
 };
 
 // Define the `GIT_REVISION` and `VERSION` consts
@@ -63,7 +63,7 @@ async fn main() -> Result<()> {
     let metrics_listener = std::net::TcpListener::bind(config.metrics_address).unwrap();
 
     let remote_write_client = admin::make_reqwest_client(config.remote_write, APP_USER_AGENT);
-    let histogram_relay = sui_proxy::histogram_relay::start_prometheus_server(histogram_listener);
+    let histogram_relay = histogram_relay::start_prometheus_server(histogram_listener);
     let registry_service = metrics::start_prometheus_server(metrics_listener);
 
     let prometheus_registry = registry_service.default_registry();
@@ -74,16 +74,8 @@ async fn main() -> Result<()> {
             "unavailable",
         ))
         .unwrap();
-    // TODO if we need this to refresh each time, move this into WalrusNodeProvider
-    // let committee = walrus_proxy::providers::get_walrus_committee(
-    //     &config.dynamic_peers.url,
-    //     &config.dynamic_peers.staking_object_id,
-    // )
-    // .await?;
 
-    // for NodeInfo{name, network_address, ..} in committee {
-    //     println!("node:{name} network_address: {network_address}");
-    // }
+    // setup committee provider
     let walrus_node_provider = providers::WalrusNodeProvider::new(
         &config.dynamic_peers.url,
         &config.dynamic_peers.interval,
@@ -102,6 +94,6 @@ async fn main() -> Result<()> {
         Some(walrus_node_provider),
     );
 
-    admin::server(listener, app).await.unwrap();
+    admin::server(listener, app, None).await.unwrap();
     Ok(())
 }

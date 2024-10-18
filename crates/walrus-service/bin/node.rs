@@ -389,15 +389,17 @@ mod commands {
         let cancel_token = CancellationToken::new();
         let (exit_notifier, exit_listener) = oneshot::channel::<()>();
 
+        let mut push_metrics_runtime: Option<push_metrics::MetricPushRuntime> = None;
         if let Some(metric_config) = config.metrics.clone() {
             if let Some(tagged_key_pair) = config.network_key_pair.clone().get() {
                 let network_key_pair = tagged_key_pair.0.clone();
-                push_metrics::start_metrics_push_task(
+                let handle = push_metrics::MetricPushRuntime::start(
                     cancel_token.child_token(),
                     network_key_pair.clone(),
                     metric_config,
                     metrics_runtime.registry.clone(),
-                );
+                )?;
+                push_metrics_runtime = Some(handle);
             }
         }
 
@@ -421,6 +423,7 @@ mod commands {
         )?;
 
         monitor_runtimes(
+            push_metrics_runtime,
             node_runtime,
             event_processor_runtime,
             exit_listener,
@@ -432,6 +435,7 @@ mod commands {
 
     #[cfg(not(msim))]
     fn monitor_runtimes(
+        mut push_metrics_runtime: Option<push_metrics::MetricPushRuntime>,
         mut node_runtime: StorageNodeRuntime,
         mut event_processor_runtime: EventProcessorRuntime,
         exit_listener: oneshot::Receiver<()>,
@@ -443,6 +447,9 @@ mod commands {
                 let mut set = JoinSet::new();
                 set.spawn_blocking(move || node_runtime.join());
                 set.spawn_blocking(move || event_processor_runtime.join());
+                if let Some(push_metrics_runtime) = push_metrics_runtime {
+                    set.spawn_blocking(move || push_metrics_runtime.join());
+                }
                 tokio::select! {
                     _ = wait_until_terminated(exit_listener) => {
                         tracing::info!("Received termination signal, shutting down...");
@@ -465,6 +472,7 @@ mod commands {
 
     #[cfg(msim)]
     fn monitor_runtimes(
+        mut push_metrics_runtime: Option<push_metrics::MetricPushRuntime>,
         mut node_runtime: StorageNodeRuntime,
         mut event_processor_runtime: EventProcessorRuntime,
         exit_listener: oneshot::Receiver<()>,
@@ -480,6 +488,11 @@ mod commands {
         // Wait for the node runtime to complete, may take a moment as
         // the REST-API waits for open connections to close before exiting.
         node_runtime.join()?;
+
+        // see if we also should wait for metrics to shutdown
+        if let Some(mut push_metrics_runtime) = push_metrics_runtime {
+            push_metrics_runtime.join()?;
+        }
         Ok(())
     }
 

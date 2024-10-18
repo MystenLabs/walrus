@@ -3,6 +3,7 @@
 
 use axum::{extract::Extension, http::StatusCode, routing::get, Router};
 use mysten_metrics::RegistryService;
+use once_cell::sync::Lazy;
 use prometheus::{Registry, TextEncoder};
 use std::net::TcpListener;
 use std::sync::{Arc, RwLock};
@@ -10,6 +11,24 @@ use tower::ServiceBuilder;
 use tower_http::trace::{DefaultOnResponse, TraceLayer};
 use tower_http::LatencyUnit;
 use tracing::Level;
+
+// Walrus proxy prom registry, to avoid collisions with prometheus in some shared counters
+// from other crates, namely sui-proxy
+pub(crate) static WALRUS_PROXY_PROM_REGISTRY: Lazy<Registry> = Lazy::new(Registry::new);
+// Function to access the registry
+pub(crate) fn walrus_proxy_prom_registry() -> &'static Registry {
+    &WALRUS_PROXY_PROM_REGISTRY
+}
+/// macro to register metrics into the walrus proxy (local) default registry
+#[macro_export]
+macro_rules! register_metric {
+    ($metric:expr) => {{
+        $crate::metrics::walrus_proxy_prom_registry()
+            .register(Box::new($metric))
+            .unwrap();
+        $metric
+    }};
+}
 
 const METRICS_ROUTE: &str = "/metrics";
 const POD_HEALTH_ROUTE: &str = "/pod_health";

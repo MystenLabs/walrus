@@ -1,45 +1,48 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
+use crate::register_metric;
 use anyhow::{bail, Result};
 use axum::{extract::Extension, http::StatusCode, routing::get, Router};
 use once_cell::sync::Lazy;
 use prometheus::proto::{Metric, MetricFamily};
-use prometheus::{register_counter_vec, register_histogram_vec};
-use prometheus::{CounterVec, HistogramVec};
+use prometheus::{CounterVec, HistogramOpts, HistogramVec, Opts};
 use std::net::TcpListener;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
 };
+use sui_proxy::var;
 use tower::ServiceBuilder;
 use tower_http::trace::{DefaultOnResponse, TraceLayer};
 use tower_http::LatencyUnit;
 use tracing::{info, Level};
 
-use sui_proxy::var;
-
 const METRICS_ROUTE: &str = "/metrics";
 
 static RELAY_PRESSURE: Lazy<CounterVec> = Lazy::new(|| {
-    register_counter_vec!(
-        "relay_pressure",
-        "HistogramRelay's number of metric families submitted, exported, overflowed to/from the queue.",
+    register_metric!(CounterVec::new(
+        Opts::new(
+            "relay_pressure",
+            "HistogramRelay's number of metric families submitted, exported, overflowed to/from the queue.",
+        ),
         &["histogram_relay"]
     )
-    .unwrap()
+    .unwrap())
 });
 static RELAY_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
-    register_histogram_vec!(
-        "relay_duration_seconds",
-        "HistogramRelay's submit/export fn latencies in seconds.",
-        &["histogram_relay"],
-        vec![
+    register_metric!(HistogramVec::new(
+        HistogramOpts::new(
+            "relay_duration_seconds",
+            "HistogramRelay's submit/export fn latencies in seconds.",
+        )
+        .buckets(vec![
             0.0008, 0.0016, 0.0032, 0.0064, 0.0128, 0.0256, 0.0512, 0.1024, 0.2048, 0.4096, 0.8192,
             1.0, 1.25, 1.5, 1.75, 2.0, 4.0, 8.0, 10.0, 12.5, 15.0
-        ],
+        ]),
+        &["histogram_relay"]
     )
-    .unwrap()
+    .unwrap())
 });
 
 /// Creates a new http server that has as a sole purpose to expose

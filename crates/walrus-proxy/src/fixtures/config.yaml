@@ -5,10 +5,12 @@ url: https://metrics-gw.joenet.sui.io/api/v1/push
 remote-write:
   url: http://unittest.abcd.io/api/v1/push
   username: foo
-  password: fooman
+  password: bar
 dynamic-peers:
-  url: https://public-rpc.testnet.sui.io:443
-  interval: 30
-  staking-object-id: 0x37c0e4d7b36a2f64d51bba262a1791f844cfd88f31379f1b7c04244061d43914
+  url: https://fullnode.devnet.sui.io:443
+  interval: 60
+  staking-object-id: 0xd712e4973087e91a89c4f8c2c2f2dcc249071ad71d35e95be0645508f3f25eb0
 metrics-address: localhost:9184
 histogram-address: localhost:9185
+certificate: /foo/bar/cert
+private-key: /foo/bar/key

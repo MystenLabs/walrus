@@ -9,7 +9,7 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 axum-extra.workspace = true
-axum-server.workspace = true
+axum-server = { workspace = true, features = ["tls-rustls"] }
 axum.workspace = true
 bytes.workspace = true
 clap.workspace = true
@@ -17,6 +17,8 @@ const-str.workspace = true
 git-version.workspace = true
 hyper.workspace = true
 mysten-metrics.workspace = true
+rcgen.workspace = true
+rustls.workspace = true
 once_cell.workspace = true
 prometheus.workspace = true
 protobuf.workspace = true

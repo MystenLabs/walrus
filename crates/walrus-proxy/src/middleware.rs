@@ -1,5 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
+use crate::providers::WalrusNodeProvider;
+use crate::register_metric;
 use anyhow::Error;
 use axum::{
     async_trait,
@@ -19,30 +21,34 @@ use fastcrypto::{
 };
 use hyper::header::CONTENT_ENCODING;
 use once_cell::sync::Lazy;
-use prometheus::{proto::MetricFamily, register_counter_vec, CounterVec};
+use prometheus::proto::MetricFamily;
+use prometheus::{CounterVec, Opts};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use sui_proxy::consumer::ProtobufDecoder;
 use tracing::error;
-
-use crate::providers::WalrusNodeProvider;
+use uuid::Uuid;
 
 static MIDDLEWARE_OPS: Lazy<CounterVec> = Lazy::new(|| {
-    register_counter_vec!(
-        "middleware_operations",
-        "Operations counters and status for axum middleware.",
+    register_metric!(CounterVec::new(
+        Opts::new(
+            "middleware_operations",
+            "Operations counters and status for axum middleware.",
+        ),
         &["operation", "status"]
     )
-    .unwrap()
+    .unwrap())
 });
 
 static MIDDLEWARE_HEADERS: Lazy<CounterVec> = Lazy::new(|| {
-    register_counter_vec!(
-        "middleware_headers",
-        "Operations counters and status for axum middleware.",
+    register_metric!(CounterVec::new(
+        Opts::new(
+            "middleware_headers",
+            "Operations counters and status for axum middleware.",
+        ),
         &["header", "value"]
     )
-    .unwrap()
+    .unwrap())
 });
 
 /// we expect sui-node to send us an http header content-length encoding.
@@ -88,7 +94,11 @@ impl AuthInfo {
         let recovered_signature =
             secp256r1::recoverable::Secp256r1RecoverableSignature::decode_base64(&self.signature)
                 .map_err(|e| anyhow::anyhow!(e))?;
-        let recovered_pub_key = recovered_signature.recover(self.message.as_bytes())?;
+        let uid = Uuid::parse_str(&self.message).map_err(|e| {
+            error!("failed parsing uuid sent from client!");
+            dbg!(e)
+        })?;
+        let recovered_pub_key = recovered_signature.recover(uid.as_bytes())?;
         Ok(recovered_pub_key)
     }
 }
@@ -112,22 +122,15 @@ pub async fn expect_valid_recoverable_pubkey(
             .inc();
         return Err((StatusCode::FORBIDDEN, "authorization header is required"));
     };
-    // Split the authorization header by space
-    // TODO maybe add counters in the map_err calls. seems like a lot of work and a lot of counters though
-    let (_prefix, data) = auth_header
-        .to_str()
-        .map_err(|_| (StatusCode::FORBIDDEN, "authorization header is malformed"))?
-        .split_once("Secp256r1-recoverable")
-        .ok_or_else(|| (StatusCode::FORBIDDEN, "authorization header is malformed"))?;
 
-    let auth_info: AuthInfo = serde_json::from_str(data)
+    let auth_info: AuthInfo = serde_json::from_str(auth_header.to_str().unwrap_or_default())
         .map_err(|_| (StatusCode::FORBIDDEN, "authorization header is malformed"))?;
 
-    let Some(peer) = allower.get(
-        &auth_info
-            .recover()
-            .map_err(|_| (StatusCode::FORBIDDEN, "authorization header is malformed"))?,
-    ) else {
+    let Some(peer) = allower.get(&auth_info.recover().map_err(|e| {
+        error!("allower failed us; {}", e);
+        (StatusCode::FORBIDDEN, "authorization header is malformed")
+    })?) else {
+        // no errors from allower, we just didn't match
         MIDDLEWARE_OPS
             .with_label_values(&[
                 "expect_valid_recoverable_pubkey",

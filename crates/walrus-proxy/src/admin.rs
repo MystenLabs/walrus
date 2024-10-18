@@ -1,6 +1,10 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::config::RemoteWriteConfig;
+use crate::handlers;
+use crate::histogram_relay::HistogramRelay;
+use crate::providers::WalrusNodeProvider;
 use crate::{
     consumer::Label,
     middleware::{
@@ -8,8 +12,9 @@ use crate::{
     },
 };
 use axum::{extract::DefaultBodyLimit, middleware, routing::post, Extension, Router};
+use axum_server::tls_rustls::RustlsConfig;
+use rcgen::{generate_simple_self_signed, CertifiedKey};
 use std::{net::SocketAddr, sync::Arc, time::Duration};
-use sui_proxy::histogram_relay::HistogramRelay;
 use sui_proxy::var;
 use tokio::signal;
 use tower::ServiceBuilder;
@@ -19,10 +24,6 @@ use tower_http::{
     LatencyUnit,
 };
 use tracing::{info, Level};
-
-use crate::config::RemoteWriteConfig;
-use crate::handlers;
-use crate::providers::WalrusNodeProvider;
 
 /// Reqwest client holds the global client for remote_push api calls
 /// it also holds the username and password.  The client has an underlying
@@ -98,13 +99,21 @@ pub fn app(
 }
 
 /// Server creates our http/https server
-pub async fn server(listener: std::net::TcpListener, app: Router) -> std::io::Result<()> {
+pub async fn server(
+    listener: std::net::TcpListener,
+    app: Router,
+    tls_config: Option<RustlsConfig>,
+) -> std::io::Result<()> {
+    let tls_config = match tls_config {
+        Some(v) => v,
+        None => generate_self_signed_cert(vec!["localhost"]).await?,
+    };
     // setup our graceful shutdown
     let handle = axum_server::Handle::new();
     // Spawn a task to gracefully shutdown server.
     tokio::spawn(shutdown_signal(handle.clone()));
 
-    axum_server::Server::from_tcp(listener)
+    axum_server::from_tcp_rustls(listener, tls_config)
         .handle(handle)
         .serve(app.into_make_service_with_connect_info::<SocketAddr>())
         .await
@@ -140,4 +149,26 @@ pub async fn shutdown_signal(h: axum_server::Handle) {
         &grace
     );
     h.graceful_shutdown(Some(Duration::from_secs(grace)))
+}
+
+/// generate a self signed certificate for tests and return a RustlsConfig we can use in axum_server
+async fn generate_self_signed_cert(sans: Vec<&str>) -> std::io::Result<RustlsConfig> {
+    let tls_provider = rustls::crypto::ring::default_provider();
+    tls_provider
+        .install_default()
+        .expect("unable to install default tls provider for rustls");
+    let subject_alt_names = sans.iter().map(|v| v.to_string()).collect::<Vec<String>>();
+
+    let CertifiedKey { cert, key_pair } = generate_simple_self_signed(subject_alt_names)
+        .expect("unable to generate self signed cert");
+
+    let tls_config =
+        RustlsConfig::from_der(vec![cert.der().to_vec()], key_pair.serialize_der()).await?;
+    Ok(tls_config)
+}
+
+/// load TLS certs from disk. please use pem formats
+pub async fn load_tls_certs(cert: &str, key: &str) -> std::io::Result<RustlsConfig> {
+    info!("load tls cert: [{cert}] key: [{key}]");
+    RustlsConfig::from_pem_file(cert, key).await
 }

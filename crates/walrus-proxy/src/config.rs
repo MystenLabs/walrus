@@ -24,6 +24,10 @@ pub struct ProxyConfig {
     pub metrics_address: String,
     /// histogram scrape address to get histogram data form clients that push data to us
     pub histogram_address: String,
+    /// certificate key path for TLS
+    pub certificate: String,
+    /// private key path for TLS
+    pub private_key: String,
 }
 
 /// RemoteWriteConfig defines the mimir config items for connecting to mimir

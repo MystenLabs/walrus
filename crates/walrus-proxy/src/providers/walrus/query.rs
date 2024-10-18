@@ -99,7 +99,7 @@ async fn get_well_known_staking_object_id(
     // Parse the response as JSON
     let response_json: serde_json::Value = response.json().await.map_err(|e| dbg!(e))?;
 
-    const WANTED_OBJECT_TYPE: &str = "0x9f992cc2430a1f442ca7a5ca7638169f5d5c00e0ebc3977a65e9ac6e497fe5ef::staking_inner::StakingInnerV1";
+    const WANTED_OBJECT_TYPE: &str = "StakingInnerV1";
     // Filter the result to get only objectId and objectType
     let Some(data) = response_json["result"]["data"].as_array() else {
         return Err(anyhow::anyhow!("unable to query for staking object.  method: {method} staking_object_id: {staking_object_id} staking_object_type: {WANTED_OBJECT_TYPE}"));
@@ -111,8 +111,12 @@ async fn get_well_known_staking_object_id(
         else {
             continue;
         };
-        // validate it is the object type we want
-        if object_type != WANTED_OBJECT_TYPE {
+        // validate it is the object type we want by hoping it contains WANTED_OBJECT_TYPE
+        if !object_type
+            .as_str()
+            .unwrap_or_default()
+            .contains(WANTED_OBJECT_TYPE)
+        {
             continue;
         }
         return object_id
@@ -215,14 +219,16 @@ async fn get_node_info(url: &str, object_id: &str) -> Result<NodeInfo, Error> {
     let Some(network_public_key) = fields["network_public_key"].as_array() else {
         return Err(anyhow::anyhow!("unable to get committee object network_public_key.  method: {method} object_id: {object_id}"));
     };
+
     let network_public_key: Vec<u8> = network_public_key
         .iter()
-        .filter_map(|v| v.as_u64().map(|num| num as u8)) // map u64 to u8, serde_json uses u64s
+        .filter_map(|v| v.as_u64().map(|num| num as u8)) // somewhat difficult to extract u8
         .collect();
+
     Ok(NodeInfo {
         name: name.to_string(),
         network_address: network_address.to_string(),
-        network_public_key,
+        network_public_key: network_public_key.to_vec(),
     })
 }
 
@@ -238,7 +244,7 @@ pub async fn get_walrus_committee(
         .map(|object_id| get_node_info(url, object_id));
     let nodes = try_join_all(node_info_futures).await?;
     if nodes.is_empty() {
-        return Err(anyhow::anyhow!("unable to get any committee objects; no metrics will be allowed in until this call succeeds"));
+        return Err(anyhow::anyhow!("unable to get any committee objects; the node cache won't be updated until this call succeeds"));
     }
     Ok(nodes)
 }

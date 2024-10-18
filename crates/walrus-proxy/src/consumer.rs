@@ -2,16 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::admin::ReqwestClient;
+use crate::register_metric;
 use anyhow::Result;
 use axum::body::Bytes;
 use axum::http::StatusCode;
 use bytes::buf::Reader;
-// use fastcrypto::ed25519::Ed25519PublicKey;
-// use multiaddr::Multiaddr;
 use once_cell::sync::Lazy;
 use prometheus::proto::{self, MetricFamily};
-use prometheus::{register_counter, register_counter_vec, register_histogram_vec};
-use prometheus::{Counter, CounterVec, HistogramVec};
+use prometheus::{opts, Counter, CounterVec, HistogramOpts, HistogramVec, Opts};
 use prost::Message;
 use protobuf::CodedInputStream;
 use std::io::Read;
@@ -19,38 +17,43 @@ use sui_proxy::{prom_to_mimir::Mimir, remote_write::WriteRequest};
 use tracing::{debug, error};
 
 static CONSUMER_OPS_SUBMITTED: Lazy<Counter> = Lazy::new(|| {
-    register_counter!(
+    register_metric!(Counter::with_opts(opts!(
         "consumer_operations_submitted",
-        "Operations counter for the number of metric family types we submit, excluding histograms, and not the discrete timeseries counts.",
-    )
-    .unwrap()
+        "Operations counter for the number of metric family types we submit, excluding histograms, and not the discrete timeseries counts."
+    ))
+    .unwrap())
 });
 static CONSUMER_OPS: Lazy<CounterVec> = Lazy::new(|| {
-    register_counter_vec!(
-        "consumer_operations",
-        "Operations counters and status from operations performed in the consumer.",
+    register_metric!(CounterVec::new(
+        Opts::new(
+            "consumer_operations",
+            "Operations counters and status from operations performed in the consumer."
+        ),
         &["operation", "status"]
     )
-    .unwrap()
+    .unwrap())
 });
 static CONSUMER_ENCODE_COMPRESS_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
-    register_histogram_vec!(
-        "protobuf_compression_seconds",
-        "The time it takes to compress a remote_write payload in seconds.",
-        &["operation"],
-        vec![
+    register_metric!(HistogramVec::new(
+        HistogramOpts::new(
+            "protobuf_compression_seconds",
+            "The time it takes to compress a remote_write payload in seconds.",
+        )
+        .buckets(vec![
             1e-08, 2e-08, 4e-08, 8e-08, 1.6e-07, 3.2e-07, 6.4e-07, 1.28e-06, 2.56e-06, 5.12e-06,
-            1.024e-05, 2.048e-05, 4.096e-05, 8.192e-05
-        ],
+            1.024e-05, 2.048e-05, 4.096e-05, 8.192e-05,
+        ]),
+        &["operation"]
     )
-    .unwrap()
+    .unwrap())
 });
 static CONSUMER_OPERATION_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
-    register_histogram_vec!(
-        "consumer_operations_duration_seconds",
-        "The time it takes to perform various consumer operations in seconds.",
-        &["operation"],
-        vec![
+    register_metric!(HistogramVec::new(
+        HistogramOpts::new(
+            "consumer_operations_duration_seconds",
+            "The time it takes to perform various consumer operations in seconds.",
+        )
+        .buckets(vec![
             0.0008, 0.0016, 0.0032, 0.0064, 0.0128, 0.0256, 0.0512, 0.1024, 0.2048, 0.4096, 0.8192,
             1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75, 3.0, 3.25, 3.5, 3.75, 4.0, 4.25, 4.5, 4.75,
             5.0, 5.25, 5.5, 5.75, 6.0, 6.25, 6.5, 6.75, 7.0, 7.25, 7.5, 7.75, 8.0, 8.25, 8.5, 8.75,
@@ -59,10 +62,11 @@ static CONSUMER_OPERATION_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
             15.75, 16.0, 16.25, 16.5, 16.75, 17.0, 17.25, 17.5, 17.75, 18.0, 18.25, 18.5, 18.75,
             19.0, 19.25, 19.5, 19.75, 20.0, 20.25, 20.5, 20.75, 21.0, 21.25, 21.5, 21.75, 22.0,
             22.25, 22.5, 22.75, 23.0, 23.25, 23.5, 23.75, 24.0, 24.25, 24.5, 24.75, 25.0, 26.0,
-            27.0, 28.0, 29.0, 30.0
-        ],
+            27.0, 28.0, 29.0, 30.0,
+        ]),
+        &["operation"]
     )
-    .unwrap()
+    .expect("consumer_operations_duration_seconds"))
 });
 
 /// NodeMetric holds metadata and a metric payload from the calling node
@@ -345,36 +349,3 @@ pub async fn convert_to_remote_write(
     timer.observe_duration();
     (StatusCode::CREATED, "created")
 }
-
-// #[cfg(test)]
-// mod tests {
-//     use prometheus::proto;
-//     use protobuf;
-
-//     use crate::{
-//         consumer::populate_labels,
-//         prom_to_mimir::tests::{
-//             create_histogram, create_labels, create_metric_family, create_metric_histogram,
-//         },
-//     };
-
-//     #[test]
-//     fn test_populate_labels() {
-//         let mf = create_metric_family(
-//             "test_histogram",
-//             "i'm a help message",
-//             Some(proto::MetricType::HISTOGRAM),
-//             protobuf::RepeatedField::from(vec![create_metric_histogram(
-//                 protobuf::RepeatedField::from_vec(create_labels(vec![])),
-//                 create_histogram(),
-//             )]),
-//         );
-
-//         let labeled_mf = populate_labels("walrus-0".into(), "unittest-network".into(), vec![mf]);
-//         let metric = &labeled_mf[0].get_metric()[0];
-//         assert_eq!(
-//             metric.get_label(),
-//             &create_labels(vec![("network", "unittest-network"), ("host", "walrus-0"),])
-//         );
-//     }
-// }

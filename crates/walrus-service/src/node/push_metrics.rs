@@ -4,60 +4,98 @@
 //! Push metrics implementation
 
 use super::config::MetricsConfig;
-use anyhow::{Error, Result};
+use anyhow::{Error, Result, Context as _};
 use fastcrypto::secp256r1::Secp256r1KeyPair;
+use fastcrypto::traits::EncodeDecodeBase64;
 use fastcrypto::traits::RecoverableSigner;
 use prometheus::Encoder;
 use prometheus::Registry;
 use serde_json;
-use uuid::Uuid;
 use std::{
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+use tokio::{task::JoinHandle, runtime::{Builder, Runtime}};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info};
+use uuid::Uuid;
 
-/// Starts a task to periodically push metrics to a configured endpoint if a metrics push endpoint
-/// is configured.
-pub fn start_metrics_push_task(
-    cancel: CancellationToken,
-    network_key_pair: Arc<Secp256r1KeyPair>,
-    config: MetricsConfig,
-    registry: Registry,
-) {
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(
-            config.push_interval_seconds.unwrap_or(60),
-        ));
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        let mut client = create_push_client();
-        let push_url = config.push_url.expect("missing push for metrics url!");
-        info!("starting metrics push to {}", &push_url);
-        loop {
-            tokio::select! {
-                _ = interval.tick() => {
-                    if let Err(e) = push_metrics(network_key_pair.clone(), &client, &push_url, &registry).await {
-                        error!("unable to push metrics: {e}; a new push client will be created");
-                        client = create_push_client();
-                    }
-                }
-                _ = cancel.cancelled() => {
-                    info!("received cancellation request, shutting down metrics push");
-                    return;
-                }
-            }
-        }
-    });
+/// MetricPushRuntime to manage the metric push task
+#[allow(missing_debug_implementations)]
+pub struct MetricPushRuntime {
+    metric_push_handle: JoinHandle<anyhow::Result<()>>,
+    // INV: Runtime must be dropped last.
+    runtime: Runtime,
 }
 
+impl MetricPushRuntime {
+    /// Starts a task to periodically push metrics to a configured endpoint if a metrics push endpoint
+    /// is configured.
+    pub fn start(
+        cancel: CancellationToken,
+        network_key_pair: Arc<Secp256r1KeyPair>,
+        config: MetricsConfig,
+        registry: Registry,
+    ) -> anyhow::Result<Self> {
+        let runtime = Builder::new_multi_thread()
+            .thread_name("event-manager-runtime")
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .context("event manager runtime creation failed")?;
+        let _guard = runtime.enter();
+
+        // associate a default tls provider for this runtime
+        let tls_provider = rustls::crypto::ring::default_provider();
+        tls_provider.install_default().expect("unable to install default tls provider for rustls in MetricPushRuntime");
+
+        let metric_push_handle = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(
+                config.push_interval_seconds.unwrap_or(60),
+            ));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            let mut client = create_push_client();
+            let push_url = config.push_url.expect("missing push for metrics url!");
+            info!("starting metrics push to {}", &push_url);
+            loop {
+                tokio::select! {
+                    _ = interval.tick() => {
+                        if let Err(e) = push_metrics(network_key_pair.clone(), &client, &push_url, &registry).await {
+                            error!("unable to push metrics: {e}; a new push client will be created");
+                            client = create_push_client();
+                        }
+                    }
+                    _ = cancel.cancelled() => {
+                        info!("received cancellation request, shutting down metrics push");
+                        return Ok(());
+                    }
+                }
+            }
+        });
+
+        Ok(Self {
+            runtime,
+            metric_push_handle,
+        })
+    }
+
+    /// join handle for the task
+    pub fn join(&mut self) -> Result<(), anyhow::Error> {
+        tracing::debug!("waiting for the metric push to shutdown...");
+        self.runtime.block_on(&mut self.metric_push_handle)?
+    }
+}
+
+/// create a request client builder that enforces some defaults
 fn create_push_client() -> reqwest::Client {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
+        .https_only(true)
         .build()
         .expect("unable to build client")
 }
 
+/// push_metrics is the func responsible for sending data to walrus-proxy
 async fn push_metrics(
     network_key_pair: Arc<Secp256r1KeyPair>,
     client: &reqwest::Client,
@@ -91,7 +129,8 @@ async fn push_metrics(
 
     let uid = Uuid::now_v7();
     let uids = uid.simple().to_string();
-    let auth = serde_json::json!({"signature":network_key_pair.sign_recoverable(uid.as_bytes()), "message":uids});
+    let signature = network_key_pair.sign_recoverable(uid.as_bytes());
+    let auth = serde_json::json!({"signature":signature.encode_base64(), "message":uids});
 
     let response = client
         .post(push_url)

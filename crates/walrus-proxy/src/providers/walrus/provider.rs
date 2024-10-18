@@ -2,6 +2,7 @@
 // // SPDX-License-Identifier: Apache-2.0
 
 use fastcrypto::secp256r1::Secp256r1PublicKey;
+use fastcrypto::traits::{EncodeDecodeBase64, ToFromBytes};
 use once_cell::sync::Lazy;
 use prometheus::{register_counter_vec, register_histogram_vec};
 use prometheus::{CounterVec, HistogramVec};
@@ -123,7 +124,15 @@ impl WalrusNodeProvider {
         }
         let nodes: HashMap<u64, NodeInfo> = committee
             .into_iter()
-            .map(|v| (xxh3_64(v.network_public_key.as_ref()), v))
+            .filter_map(|v| {
+                let Ok(pub_key) = Secp256r1PublicKey::from_bytes(&v.network_public_key) else {
+                    return None;
+                };
+                let encoded_pub_key = pub_key.encode_base64();
+                let cache_key = xxh3_64(encoded_pub_key.clone().as_bytes());
+                debug!("add {} {}", encoded_pub_key, cache_key);
+                Some((cache_key, v))
+            })
             .collect();
         let mut allow = self.nodes.write().unwrap();
         allow.clear();
@@ -135,10 +144,13 @@ impl WalrusNodeProvider {
     }
     /// get is used to retrieve peer info in our handlers
     pub fn get(&self, key: &Secp256r1PublicKey) -> Option<NodeInfo> {
-        debug!("look for {:?}", key);
-        if let Some(v) = self.nodes.read().unwrap().get(&xxh3_64(key.as_ref())) {
+        let encoded_pub_key = key.encode_base64();
+        let cache_key = xxh3_64(encoded_pub_key.clone().as_bytes());
+        debug!("look for {} {}", &encoded_pub_key, &cache_key);
+        if let Some(v) = self.nodes.read().unwrap().get(&cache_key) {
             return Some(v.to_owned());
         }
+        debug!("not found {} {}", &encoded_pub_key, &cache_key);
         None
     }
 }

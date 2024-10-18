@@ -106,7 +106,7 @@ pub struct StorageNodeConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     /// Metric push configuration.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metrics: Option<MetricsConfig>,
 }
 
@@ -186,8 +186,10 @@ impl StorageNodeConfig {
 /// Configuration for metric push
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct MetricsConfig {
+    /// the interval of time we will allow to elapse before pushing metrics
     #[serde(skip_serializing_if = "Option::is_none")]
     pub push_interval_seconds: Option<u64>,
+    /// the url that we will push metrics to
     #[serde(skip_serializing_if = "Option::is_none")]
     pub push_url: Option<String>,
 }
