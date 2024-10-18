@@ -6,6 +6,7 @@
 
 use std::{
     collections::HashMap,
+    hash::{DefaultHasher, Hash, Hasher},
     sync::{Arc, RwLock},
     time::Duration,
 };
@@ -17,7 +18,6 @@ use fastcrypto::{
 use once_cell::sync::Lazy;
 use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, HistogramVec};
 use tracing::{debug, error, info};
-use xxhash_rust::xxh3::xxh3_64;
 
 use super::query::{get_walrus_committee, NodeInfo};
 use crate::Allower;
@@ -62,7 +62,7 @@ impl Allower<Secp256r1PublicKey> for WalrusNodeProvider {
         self.nodes
             .read()
             .unwrap()
-            .contains_key(&xxh3_64(key.as_ref()))
+            .contains_key(&stdlib_hash(key.as_ref()))
     }
 }
 
@@ -133,7 +133,7 @@ impl WalrusNodeProvider {
                     return None;
                 };
                 let encoded_pub_key = pub_key.encode_base64();
-                let cache_key = xxh3_64(encoded_pub_key.clone().as_bytes());
+                let cache_key = stdlib_hash(encoded_pub_key.clone().as_bytes());
                 debug!("add {} {}", encoded_pub_key, cache_key);
                 Some((cache_key, v))
             })
@@ -149,7 +149,7 @@ impl WalrusNodeProvider {
     /// get is used to retrieve peer info in our handlers
     pub fn get(&self, key: &Secp256r1PublicKey) -> Option<NodeInfo> {
         let encoded_pub_key = key.encode_base64();
-        let cache_key = xxh3_64(encoded_pub_key.clone().as_bytes());
+        let cache_key = stdlib_hash(encoded_pub_key.clone().as_bytes());
         debug!("look for {} {}", &encoded_pub_key, &cache_key);
         if let Some(v) = self.nodes.read().unwrap().get(&cache_key) {
             return Some(v.to_owned());
@@ -157,4 +157,12 @@ impl WalrusNodeProvider {
         debug!("not found {} {}", &encoded_pub_key, &cache_key);
         None
     }
+}
+
+/// use the stdlib hash to make stable, fixed length keys for our
+/// node cache.
+fn stdlib_hash(t: &[u8]) -> u64 {
+    let mut s = DefaultHasher::new();
+    t.hash(&mut s);
+    s.finish()
 }

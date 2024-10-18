@@ -115,7 +115,6 @@ walrus-sui = { path = "crates/walrus-sui" }
 walrus-test-utils = { path = "crates/walrus-test-utils" }
 walrus-utils = { path = "crates/walrus-utils" }
 x509-cert = "0.2.5"
-xxhash-rust = { version = "0.8.12", features = ["xxh3"] }
 
 [workspace.lints.rust]
 missing_debug_implementations = "warn"

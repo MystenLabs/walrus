@@ -118,9 +118,9 @@ tracing.workspace = true
 tracing-opentelemetry.workspace = true
 tracing-subscriber.workspace = true
 typed-store = { workspace = true, optional = true }
-uuid.workspace = true
 utoipa = { workspace = true, features = ["axum_extras"] }
 utoipa-redoc.workspace = true
+uuid.workspace = true
 walrus-core = { workspace = true, features = ["utoipa"] }
 walrus-sdk.workspace = true
 walrus-sui = { workspace = true, features = ["utoipa"] }
