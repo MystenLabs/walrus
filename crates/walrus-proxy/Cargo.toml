@@ -18,6 +18,7 @@ fastcrypto.workspace = true
 futures.workspace = true
 git-version.workspace = true
 hyper.workspace = true
+itertools.workspace = true
 mysten-metrics.workspace = true
 once_cell.workspace = true
 prometheus.workspace = true
@@ -32,9 +33,9 @@ serde_json.workspace = true
 serde_with.workspace = true
 serde_yaml.workspace = true
 snap.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
 tower.workspace = true
-tower-http.workspace = true
+tower-http = { workspace = true, features = ["timeout"] }
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["fmt"] }
 uuid.workspace = true

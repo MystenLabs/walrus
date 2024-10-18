@@ -61,7 +61,7 @@ impl MetricPushRuntime {
                 config.push_interval_seconds.unwrap_or(60),
             ));
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-            let mut client = create_push_client();
+            let mut client = create_push_client(config.allow_unsafe);
             let push_url = config.push_url.expect("missing push for metrics url!");
             info!("starting metrics push to {}", &push_url);
             loop {
@@ -72,7 +72,7 @@ impl MetricPushRuntime {
                             &client, &push_url, &registry
                         ).await {
                             error!("unable to push metrics: {e}");
-                            client = create_push_client();
+                            client = create_push_client(config.allow_unsafe);
                         }
                     }
                     _ = cancel.cancelled() => {
@@ -97,12 +97,18 @@ impl MetricPushRuntime {
 }
 
 /// create a request client builder that enforces some defaults
-fn create_push_client() -> reqwest::Client {
-    reqwest::Client::builder()
+fn create_push_client(allow_unsafe: bool) -> reqwest::Client {
+    let mut client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
-        .https_only(true)
-        .build()
-        .expect("unable to build client")
+        .https_only(true);
+
+    if allow_unsafe {
+        // enable these for local testing
+        client = client
+            .danger_accept_invalid_certs(true)
+            .danger_accept_invalid_hostnames(true)
+    }
+    client.build().expect("unable to build client")
 }
 
 /// push_metrics is the func responsible for sending data to walrus-proxy
@@ -114,7 +120,8 @@ async fn push_metrics(
 ) -> Result<(), Error> {
     info!(push_url =% push_url, "pushing metrics to remote");
 
-    // now represents a collection timestamp for all of the metrics we send to the proxy
+    // now represents a collection timestamp for all of the metrics we send to the
+    // proxy
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
