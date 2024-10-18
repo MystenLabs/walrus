@@ -3,22 +3,27 @@
 
 //! Push metrics implementation
 
-use super::config::MetricsConfig;
-use anyhow::{Error, Result, Context as _};
-use fastcrypto::secp256r1::Secp256r1KeyPair;
-use fastcrypto::traits::EncodeDecodeBase64;
-use fastcrypto::traits::RecoverableSigner;
-use prometheus::Encoder;
-use prometheus::Registry;
-use serde_json;
 use std::{
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tokio::{task::JoinHandle, runtime::{Builder, Runtime}};
+
+use anyhow::{Context as _, Error, Result};
+use fastcrypto::{
+    secp256r1::Secp256r1KeyPair,
+    traits::{EncodeDecodeBase64, RecoverableSigner},
+};
+use prometheus::{Encoder, Registry};
+use serde_json;
+use tokio::{
+    runtime::{Builder, Runtime},
+    task::JoinHandle,
+};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info};
 use uuid::Uuid;
+
+use super::config::MetricsConfig;
 
 /// MetricPushRuntime to manage the metric push task
 #[allow(missing_debug_implementations)]
@@ -29,8 +34,8 @@ pub struct MetricPushRuntime {
 }
 
 impl MetricPushRuntime {
-    /// Starts a task to periodically push metrics to a configured endpoint if a metrics push endpoint
-    /// is configured.
+    /// Starts a task to periodically push metrics to a configured
+    /// endpoint if a metrics push endpoint is configured.
     pub fn start(
         cancel: CancellationToken,
         network_key_pair: Arc<Secp256r1KeyPair>,
@@ -47,7 +52,9 @@ impl MetricPushRuntime {
 
         // associate a default tls provider for this runtime
         let tls_provider = rustls::crypto::ring::default_provider();
-        tls_provider.install_default().expect("unable to install default tls provider for rustls in MetricPushRuntime");
+        tls_provider
+            .install_default()
+            .expect("unable to install default tls provider for rustls in MetricPushRuntime");
 
         let metric_push_handle = tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_secs(
@@ -60,8 +67,11 @@ impl MetricPushRuntime {
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
-                        if let Err(e) = push_metrics(network_key_pair.clone(), &client, &push_url, &registry).await {
-                            error!("unable to push metrics: {e}; a new push client will be created");
+                        if let Err(e) = push_metrics(
+                            network_key_pair.clone(),
+                            &client, &push_url, &registry
+                        ).await {
+                            error!("unable to push metrics: {e}");
                             client = create_push_client();
                         }
                     }

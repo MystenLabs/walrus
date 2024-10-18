@@ -1,20 +1,11 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::config::RemoteWriteConfig;
-use crate::handlers;
-use crate::histogram_relay::HistogramRelay;
-use crate::providers::WalrusNodeProvider;
-use crate::{
-    consumer::Label,
-    middleware::{
-        expect_content_length, expect_mysten_proxy_header, expect_valid_recoverable_pubkey,
-    },
-};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
+
 use axum::{extract::DefaultBodyLimit, middleware, routing::post, Extension, Router};
 use axum_server::tls_rustls::RustlsConfig;
 use rcgen::{generate_simple_self_signed, CertifiedKey};
-use std::{net::SocketAddr, sync::Arc, time::Duration};
 use sui_proxy::var;
 use tokio::signal;
 use tower::ServiceBuilder;
@@ -24,6 +15,19 @@ use tower_http::{
     LatencyUnit,
 };
 use tracing::{info, Level};
+
+use crate::{
+    config::RemoteWriteConfig,
+    consumer::Label,
+    handlers,
+    histogram_relay::HistogramRelay,
+    middleware::{
+        expect_content_length,
+        expect_mysten_proxy_header,
+        expect_valid_recoverable_pubkey,
+    },
+    providers::WalrusNodeProvider,
+};
 
 /// Reqwest client holds the global client for remote_push api calls
 /// it also holds the username and password.  The client has an underlying
@@ -151,7 +155,8 @@ pub async fn shutdown_signal(h: axum_server::Handle) {
     h.graceful_shutdown(Some(Duration::from_secs(grace)))
 }
 
-/// generate a self signed certificate for tests and return a RustlsConfig we can use in axum_server
+/// generate a self signed certificate for tests and return a RustlsConfig we
+/// can use in axum_server
 async fn generate_self_signed_cert(sans: Vec<&str>) -> std::io::Result<RustlsConfig> {
     let tls_provider = rustls::crypto::ring::default_provider();
     tls_provider

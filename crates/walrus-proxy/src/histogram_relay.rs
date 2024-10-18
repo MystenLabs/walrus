@@ -1,22 +1,31 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
-use crate::register_metric;
+use std::{
+    collections::VecDeque,
+    net::TcpListener,
+    sync::{Arc, Mutex},
+    time::{SystemTime, UNIX_EPOCH},
+};
+
 use anyhow::{bail, Result};
 use axum::{extract::Extension, http::StatusCode, routing::get, Router};
 use once_cell::sync::Lazy;
-use prometheus::proto::{Metric, MetricFamily};
-use prometheus::{CounterVec, HistogramOpts, HistogramVec, Opts};
-use std::net::TcpListener;
-use std::time::{SystemTime, UNIX_EPOCH};
-use std::{
-    collections::VecDeque,
-    sync::{Arc, Mutex},
+use prometheus::{
+    proto::{Metric, MetricFamily},
+    CounterVec,
+    HistogramOpts,
+    HistogramVec,
+    Opts,
 };
 use sui_proxy::var;
 use tower::ServiceBuilder;
-use tower_http::trace::{DefaultOnResponse, TraceLayer};
-use tower_http::LatencyUnit;
+use tower_http::{
+    trace::{DefaultOnResponse, TraceLayer},
+    LatencyUnit,
+};
 use tracing::{info, Level};
+
+use crate::register_metric;
 
 const METRICS_ROUTE: &str = "/metrics";
 
@@ -24,7 +33,8 @@ static RELAY_PRESSURE: Lazy<CounterVec> = Lazy::new(|| {
     register_metric!(CounterVec::new(
         Opts::new(
             "relay_pressure",
-            "HistogramRelay's number of metric families submitted, exported, overflowed to/from the queue.",
+            "HistogramRelay's number of metric families submitted, exported, \
+overflowed to/from the queue.",
         ),
         &["histogram_relay"]
     )
@@ -47,7 +57,8 @@ static RELAY_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
 
 /// Creates a new http server that has as a sole purpose to expose
 /// and endpoint that prometheus agent can use to poll for the metrics.
-/// A RegistryService is returned that can be used to get access in prometheus Registries.
+/// A RegistryService is returned that can be used to get access in prometheus
+/// Registries.
 pub fn start_prometheus_server(listener: TcpListener) -> HistogramRelay {
     let relay = HistogramRelay::new();
     let app = Router::new()
@@ -83,9 +94,11 @@ async fn metrics(Extension(relay): Extension<HistogramRelay>) -> (StatusCode, St
 
 struct Wrapper(i64, Vec<MetricFamily>);
 
-/// HistogramRelay manages the histograms we receive from nodes.  it exports them to a local agent for scraping
-/// we do this because histograms pose a challenge in the remote write protobuf we use.  our prometheus crate
-/// does not support native histograms but the remote write protobuf expects them, so we have to export them this way
+/// HistogramRelay manages the histograms we receive from nodes.  it exports
+/// them to a local agent for scraping we do this because histograms pose a
+/// challenge in the remote write protobuf we use.  our prometheus crate
+/// does not support native histograms but the remote write protobuf expects
+/// them, so we have to export them this way
 #[allow(missing_debug_implementations)]
 #[derive(Clone)]
 pub struct HistogramRelay(Arc<Mutex<VecDeque<Wrapper>>>);
@@ -101,8 +114,9 @@ impl HistogramRelay {
         Self::default()
     }
     /// submit will take metric family submissions and store them for scraping
-    /// in doing so, it will also wrap each entry in a timestamp which will be use
-    /// for pruning old entires on each submission call. this may not be ideal long term.
+    /// in doing so, it will also wrap each entry in a timestamp which will be
+    /// use for pruning old entries on each submission call. this may not be
+    /// ideal long term.
     pub fn submit(&self, data: Vec<MetricFamily>) {
         RELAY_PRESSURE.with_label_values(&["submit"]).inc();
         let timer = RELAY_DURATION.with_label_values(&["submit"]).start_timer();
@@ -132,12 +146,13 @@ impl HistogramRelay {
         queue.push_back(Wrapper(timestamp_secs, data));
         timer.observe_duration();
     }
-    /// export drains our histogram registry from the nodes and exports it to a string format that we
-    /// can send to mimir
+    /// export drains our histogram registry from the nodes and exports it to a
+    /// string format that we can send to mimir
     pub fn export(&self) -> Result<String> {
         RELAY_PRESSURE.with_label_values(&["export"]).inc();
         let timer = RELAY_DURATION.with_label_values(&["export"]).start_timer();
-        // totally drain all metrics whenever we get a scrape request from the metrics handler
+        // totally drain all metrics whenever we get a scrape request from the metrics
+        // handler
         let mut queue = self
             .0
             .lock()
@@ -167,8 +182,8 @@ impl HistogramRelay {
     }
 }
 
-/// extract_histograms just grabs the histograms from our metrics because we don't want to export
-/// non-histogram metric types here
+/// extract_histograms just grabs the histograms from our metrics because we
+/// don't want to export non-histogram metric types here
 fn extract_histograms(data: Vec<MetricFamily>) -> impl Iterator<Item = MetricFamily> {
     data.into_iter().filter_map(|mf| {
         let metrics = mf.get_metric().iter().filter_map(|m| {

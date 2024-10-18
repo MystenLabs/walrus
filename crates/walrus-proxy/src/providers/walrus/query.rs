@@ -1,13 +1,15 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use anyhow::Error;
-use futures::future::try_join_all;
 use std::vec;
 
-// The process to obtain a list of nodes we will speak to is onerous. At a high level, we start with the staking objectID
-// for the network itself. This is a well known objectID and forms your root query.  From there, you may resolve the list
-// of nodes that are allowed to send us metric information.
+use anyhow::Error;
+use futures::future::try_join_all;
+
+// The process to obtain a list of nodes we will speak to is onerous. At a high
+// level, we start with the staking objectID for the network itself. This is a
+// well known objectID and forms your root query.  From there, you may resolve
+// the list of nodes that are allowed to send us metric information.
 
 // 1.
 // curl -s https://public-rpc.testnet.sui.io:443 \
@@ -16,21 +18,49 @@ use std::vec;
 //   "jsonrpc": "2.0",
 //   "id": 1,
 //   "method": "suix_getDynamicFields",
-//   "params": ["0x37c0e4d7b36a2f64d51bba262a1791f844cfd88f31379f1b7c04244061d43914"]
+//   "params":
+// ["0x37c0e4d7b36a2f64d51bba262a1791f844cfd88f31379f1b7c04244061d43914"]
 // }' | jq '.result.data[] | {objectId: .objectId, objectType: .objectType}'
+// {
+//     "jsonrpc": "2.0",
+//     "result": {
+//         "data": [
+//             {
+//                 "name": {
+//                     "type": "u64",
+//                     "value": "0"
+//                 },
+//                 "bcsName": "11111111",
+//                 "type": "DynamicObject",
+//                 "objectType": <snip>::staking_inner::StakingInnerV1",
+//                 "objectId":
+// "0xf3814a38466649d1da66877ae66ba14514f7cd1c7f3ab1dfa8e9f660422db9c5",
+//                 "version": 182019998,
+//                 "digest": "7wcTjAKwz6hqNnMS6XarJEUStYRHVH9zzpwfBewkfbP"
+//             }
+//         ],
+//         "nextCursor":
+//  "0xcfb0fa1c845789a8885cd3ce361eabbd5974cf18f311324a0232eb4f2ea82da2",
+//         "hasNextPage": false
+//     },
+//     "id": 1
+// }
 
-// {"jsonrpc":"2.0","result":{"data":[{"name":{"type":"u64","value":"0"},"bcsName":"11111111","type":"DynamicObject","objectType":"0x9f992cc2430a1f442ca7a5ca7638169f5d5c00e0ebc3977a65e9ac6e497fe5ef::staking_inner::StakingInnerV1","objectId":"0xf3814a38466649d1da66877ae66ba14514f7cd1c7f3ab1dfa8e9f660422db9c5","version":182019998,"digest":"7wcTjAKwz6hqNnMS6XarJEUStYRHVH9zzpwfBewkfbP"}],"nextCursor":"0xcfb0fa1c845789a8885cd3ce361eabbd5974cf18f311324a0232eb4f2ea82da2","hasNextPage":false},"id":1}%
-
-// 2. take objectID: 0xf3814a38466649d1da66877ae66ba14514f7cd1c7f3ab1dfa8e9f660422db9c5
-// 3. collect all .result.data.content.fields.committee.fields.pos0.fields.contents[].fields.key
+// 2. take objectID:
+//    0xf3814a38466649d1da66877ae66ba14514f7cd1c7f3ab1dfa8e9f660422db9c5
+// 3. collect all
+//    .result.data.content.fields.committee.fields.pos0.fields.contents[].
+//    fields.key
 // curl -s https://public-rpc.testnet.sui.io:443 \
 // -H 'Content-Type: application/json' \
 // -d '{
 //   "jsonrpc": "2.0",
 //   "id": 1,
 //   "method": "sui_getObject",
-//   "params": ["0xf3814a38466649d1da66877ae66ba14514f7cd1c7f3ab1dfa8e9f660422db9c5", {"showContent": true}]
-// }' | jq '.result.data.content.fields.committee.fields.pos0.fields.contents[].fields.key'
+//   "params":
+// ["0xf3814a38466649d1da66877ae66ba14514f7cd1c7f3ab1dfa8e9f660422db9c5",
+// {"showContent": true}] }' | jq '.result.data.content.fields.committee.fields.
+// pos0.fields.contents[].fields.key'
 
 // "0xcf4b9402e7f156bc75082bc07581b0829f081ccfc8c444c71df4536ea33d094a"
 // "0x70bc82baec578437bf2f61ce024c2b6da46038ddbcb95dbfc72a2151103a8097"
@@ -65,14 +95,17 @@ use std::vec;
 //   "jsonrpc": "2.0",
 //   "id": 1,
 //   "method": "sui_getObject",
-//   "params": ["0xcf4b9402e7f156bc75082bc07581b0829f081ccfc8c444c71df4536ea33d094a", {"showContent": true}]
-// }' | jq '.result.data.content.fields.node_info.fields | {name, network_address, network_public_key}'
+//   "params":
+// ["0xcf4b9402e7f156bc75082bc07581b0829f081ccfc8c444c71df4536ea33d094a",
+// {"showContent": true}] }' | jq '.result.data.content.fields.node_info.fields
+// | {name, network_address, network_public_key}'
 
 // now save {name: String, network_address: String, network_public_key: Vec<u8>}
 // and you have your nodes!
 
-/// get_well_known_staking_object_id depends on the well known staking object.  this forms the basis for
-/// all queries in this module. The staking_object_id is exposed in yaml as a config item.
+/// get_well_known_staking_object_id depends on the well known staking object.
+/// this forms the basis for all queries in this module. The staking_object_id
+/// is exposed in yaml as a config item.
 async fn get_well_known_staking_object_id(
     url: &str,
     staking_object_id: &str,
@@ -102,7 +135,11 @@ async fn get_well_known_staking_object_id(
     const WANTED_OBJECT_TYPE: &str = "StakingInnerV1";
     // Filter the result to get only objectId and objectType
     let Some(data) = response_json["result"]["data"].as_array() else {
-        return Err(anyhow::anyhow!("unable to query for staking object.  method: {method} staking_object_id: {staking_object_id} staking_object_type: {WANTED_OBJECT_TYPE}"));
+        return Err(anyhow::anyhow!(
+            "unable to query for staking object.  \
+method: {method} staking_object_id: {staking_object_id} \
+staking_object_type: {WANTED_OBJECT_TYPE}"
+        ));
     };
     // we found data, now ensure it is the data we want
     for item in data {
@@ -111,7 +148,8 @@ async fn get_well_known_staking_object_id(
         else {
             continue;
         };
-        // validate it is the object type we want by hoping it contains WANTED_OBJECT_TYPE
+        // validate it is the object type we want by hoping it contains
+        // WANTED_OBJECT_TYPE
         if !object_type
             .as_str()
             .unwrap_or_default()
@@ -124,10 +162,15 @@ async fn get_well_known_staking_object_id(
             .ok_or_else(|| anyhow::anyhow!("expected object_id to be a string, but it was not"))
             .map(|id| id.to_string());
     }
-    Err(anyhow::anyhow!("staking object did not return data that we wanted.  method: {method} staking_object_id: {staking_object_id} staking_object_type: {WANTED_OBJECT_TYPE}"))
+    Err(anyhow::anyhow!(
+        "staking object did not return data that we wanted.  \
+method: {method} staking_object_id: {staking_object_id} \
+staking_object_type: {WANTED_OBJECT_TYPE}"
+    ))
 }
 
-/// get_committee will fetch the node object_ids from the well known staking_object_id, returning a list of object_ids to futher resolve
+/// get_committee will fetch the node object_ids from the well known
+/// staking_object_id, returning a list of object_ids to further resolve
 async fn get_committee(url: &str, dynamic_field_object_id: &str) -> Result<Vec<String>, Error> {
     let method = "sui_getObject";
     let body = serde_json::json!({
@@ -155,7 +198,10 @@ async fn get_committee(url: &str, dynamic_field_object_id: &str) -> Result<Vec<S
         ["fields"]["pos0"]["fields"]["contents"]
         .as_array()
     else {
-        return Err(anyhow::anyhow!("unable to find committee data in json response.  method: {method} dynamic_field_object_id: {dynamic_field_object_id}"));
+        return Err(anyhow::anyhow!(
+            "unable to find committee data in json response.  \
+method: {method} dynamic_field_object_id: {dynamic_field_object_id}"
+        ));
     };
     let mut object_ids = vec![];
     for item in contents {
@@ -166,7 +212,8 @@ async fn get_committee(url: &str, dynamic_field_object_id: &str) -> Result<Vec<S
     Ok(object_ids)
 }
 
-/// NodeInfo represents a node we discovered that is a member of the staking committee
+/// NodeInfo represents a node we discovered that is a member of the staking
+/// committee
 #[derive(Hash, PartialEq, Eq, Debug, Clone)]
 pub struct NodeInfo {
     /// name of the node, can be anything
@@ -177,7 +224,8 @@ pub struct NodeInfo {
     pub network_public_key: Vec<u8>,
 }
 
-/// get_node_info will take a committee member object_id and build a NodeInfo for it
+/// get_node_info will take a committee member object_id and build a NodeInfo
+/// for it
 async fn get_node_info(url: &str, object_id: &str) -> Result<NodeInfo, Error> {
     let method = "sui_getObject";
     let body = serde_json::json!({
@@ -214,15 +262,22 @@ async fn get_node_info(url: &str, object_id: &str) -> Result<NodeInfo, Error> {
         ));
     };
     let Some(network_address) = fields["network_address"].as_str() else {
-        return Err(anyhow::anyhow!("unable to get committee object network_address.  method: {method} object_id: {object_id}"));
+        return Err(anyhow::anyhow!(
+            "unable to get committee object network_address.  \
+method: {method} object_id: {object_id}"
+        ));
     };
     let Some(network_public_key) = fields["network_public_key"].as_array() else {
-        return Err(anyhow::anyhow!("unable to get committee object network_public_key.  method: {method} object_id: {object_id}"));
+        return Err(anyhow::anyhow!(
+            "unable to get committee object network_public_key.  \
+method: {method} object_id: {object_id}"
+        ));
     };
 
     let network_public_key: Vec<u8> = network_public_key
         .iter()
-        .filter_map(|v| v.as_u64().map(|num| num as u8)) // somewhat difficult to extract u8
+        // somewhat difficult to extract u8
+        .filter_map(|v| v.as_u64().map(|num| num as u8))
         .collect();
 
     Ok(NodeInfo {
@@ -232,7 +287,8 @@ async fn get_node_info(url: &str, object_id: &str) -> Result<NodeInfo, Error> {
     })
 }
 
-/// get_walrus_committee is the entry point for pub callers to get the set of committee members
+/// get_walrus_committee is the entry point for pub callers to get the set of
+/// committee members
 pub async fn get_walrus_committee(
     url: &str,
     staking_object_id: &str,
@@ -244,7 +300,10 @@ pub async fn get_walrus_committee(
         .map(|object_id| get_node_info(url, object_id));
     let nodes = try_join_all(node_info_futures).await?;
     if nodes.is_empty() {
-        return Err(anyhow::anyhow!("unable to get any committee objects; the node cache won't be updated until this call succeeds"));
+        return Err(anyhow::anyhow!(
+            "unable to get any committee objects; \
+the node cache won't be updated until this call succeeds"
+        ));
     }
     Ok(nodes)
 }

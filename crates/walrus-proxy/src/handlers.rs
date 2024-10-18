@@ -1,14 +1,17 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
-use crate::admin::ReqwestClient;
-use crate::consumer::{convert_to_remote_write, populate_labels, Label, NodeMetric};
-use crate::histogram_relay::HistogramRelay;
-use crate::middleware::LenDelimProtobuf;
-use crate::providers::NodeInfo;
-use crate::register_metric;
 use axum::{extract::Extension, http::StatusCode};
 use once_cell::sync::Lazy;
 use prometheus::{CounterVec, HistogramOpts, HistogramVec, Opts};
+
+use crate::{
+    admin::ReqwestClient,
+    consumer::{convert_to_remote_write, populate_labels, Label, NodeMetric},
+    histogram_relay::HistogramRelay,
+    middleware::LenDelimProtobuf,
+    providers::NodeInfo,
+    register_metric,
+};
 
 static HANDLER_HITS: Lazy<CounterVec> = Lazy::new(|| {
     register_metric!(CounterVec::new(
@@ -33,10 +36,10 @@ static HTTP_HANDLER_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
     .unwrap())
 });
 
-/// Publish handler which receives metrics from nodes.  Nodes will call us at this endpoint
-/// and we relay them to the upstream tsdb
-///
-/// Clients will receive a response after successfully relaying the metrics upstream
+/// Publish handler which receives metrics from nodes.  Nodes will call us at
+/// this endpoint and we relay them to the upstream tsdb.
+/// Clients will receive a response after successfully relaying the metrics
+/// upstream
 pub async fn publish_metrics(
     Extension(labels): Extension<Vec<Label>>,
     Extension(remote_write_client): Extension<ReqwestClient>,

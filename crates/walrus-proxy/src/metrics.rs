@@ -1,19 +1,24 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::{
+    net::TcpListener,
+    sync::{Arc, RwLock},
+};
+
 use axum::{extract::Extension, http::StatusCode, routing::get, Router};
 use mysten_metrics::RegistryService;
 use once_cell::sync::Lazy;
 use prometheus::{Registry, TextEncoder};
-use std::net::TcpListener;
-use std::sync::{Arc, RwLock};
 use tower::ServiceBuilder;
-use tower_http::trace::{DefaultOnResponse, TraceLayer};
-use tower_http::LatencyUnit;
+use tower_http::{
+    trace::{DefaultOnResponse, TraceLayer},
+    LatencyUnit,
+};
 use tracing::Level;
 
-// Walrus proxy prom registry, to avoid collisions with prometheus in some shared counters
-// from other crates, namely sui-proxy
+// Walrus proxy prom registry, to avoid collisions with prometheus in some
+// shared counters from other crates, namely sui-proxy
 pub(crate) static WALRUS_PROXY_PROM_REGISTRY: Lazy<Registry> = Lazy::new(Registry::new);
 // Function to access the registry
 pub(crate) fn walrus_proxy_prom_registry() -> &'static Registry {
@@ -42,8 +47,8 @@ struct HealthCheck {
     consumer_operations_submitted: f64,
 }
 
-/// HealthCheck contains fields we believe are interesting that say whether this pod should be
-/// considered health.  do not use w/o using an arc+mutex
+/// HealthCheck contains fields we believe are interesting that say whether this
+/// pod should be considered health.  do not use w/o using an arc+mutex
 impl HealthCheck {
     fn new() -> Self {
         Self {
@@ -54,7 +59,8 @@ impl HealthCheck {
 
 /// Creates a new http server that has as a sole purpose to expose
 /// and endpoint that prometheus agent can use to poll for the metrics.
-/// A RegistryService is returned that can be used to get access in prometheus Registries.
+/// A RegistryService is returned that can be used to get access in prometheus
+/// Registries.
 pub fn start_prometheus_server(listener: TcpListener) -> RegistryService {
     let registry = Registry::new();
 
@@ -119,7 +125,8 @@ async fn metrics(
     }
 }
 
-// pod_health is called by k8s to know if this service is correctly processing data
+// pod_health is called by k8s to know if this service is correctly processing
+// data
 async fn pod_health(Extension(pod_health): Extension<HealthCheckMetrics>) -> (StatusCode, String) {
     let consumer_operations_submitted = pod_health
         .read()

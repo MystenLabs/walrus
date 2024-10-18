@@ -2,20 +2,22 @@
 // SPDX-License-Identifier: Apache-2.0
 //! - walrus-proxy service
 //!
-//! the walrus-proxy service acts as a relay for nodes to push metrics to and we in turn push them to
-//! a mimir cluster.
-//!
+//! the walrus-proxy service acts as a relay for nodes to push metrics to and we
+//! in turn push them to a mimir cluster.
+
+use std::env;
 
 use anyhow::Result;
 use clap::Parser;
-use std::env;
 use tracing::info;
 use tracing_subscriber;
 use walrus_proxy::{
     admin,
     config::{load, ProxyConfig},
     consumer::Label,
-    histogram_relay, metrics, providers,
+    histogram_relay,
+    metrics,
+    providers,
 };
 
 // Define the `GIT_REVISION` and `VERSION` consts

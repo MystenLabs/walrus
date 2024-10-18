@@ -11,9 +11,11 @@
 //!
 //! - `admin`: Handles administrative actions for the proxy.
 //! - `config`: Config params for this service.
-//! - `consumer`: Manages the proxy code that consumes metrics from calling nodes.
+//! - `consumer`: Manages the proxy code that consumes metrics from calling
+//!   nodes.
 //! - `handlers`: Axum handler that clients hit.
-//! - `histogram_relay`: Export histograms to an agent for scraping. Remote write restrictions.
+//! - `histogram_relay`: Export histograms to an agent for scraping. Remote
+//!   write restrictions.
 //! - `metrics`: Exposes metrics for the system to monitor the server itself
 //! - `middleware`: Middleware we use to validate incoming client connections.
 //! - `providers`: Implements the provider functionality for the proxy.
@@ -42,9 +44,11 @@ pub mod middleware;
 /// Implements the provider functionality for the proxy.
 pub mod providers;
 
-/// The Allower trait provides an interface for callers to decide if a generic key type should be allowed
+/// The Allower trait provides an interface for callers to decide if a generic
+/// key type should be allowed
 pub trait Allower<KeyType>: std::fmt::Debug + Send + Sync {
-    /// allowed is called in middleware to determin if a client should be allowed. Providers implement this interface
+    /// allowed is called in middleware to determine if a client should be
+    /// allowed. Providers implement this interface
     fn allowed(&self, key: &KeyType) -> bool;
 }
 
@@ -57,14 +61,15 @@ pub mod _hidden {
 /// Define constants that hold the git revision and package versions.
 ///
 /// Defines two global `const`s:
-///   `GIT_REVISION`: The git revision as specified by the `GIT_REVISION` env variable provided at
-///   compile time, or the current git revision as discovered by running `git describe`.
+///   `GIT_REVISION`: The git revision as specified by the `GIT_REVISION` env
+/// variable provided at   compile time, or the current git revision as
+/// discovered by running `git describe`.
 ///
-///   `VERSION`: The value of the `CARGO_PKG_VERSION` environment variable concatenated with the
-///   value of `GIT_REVISION`.
+///   `VERSION`: The value of the `CARGO_PKG_VERSION` environment variable
+/// concatenated with the   value of `GIT_REVISION`.
 ///
-/// Note: This macro must only be used from a binary, if used inside a library this will fail to
-/// compile.
+/// Note: This macro must only be used from a binary, if used inside a library
+/// this will fail to compile.
 #[macro_export]
 macro_rules! bin_version {
     () => {
@@ -77,11 +82,12 @@ macro_rules! bin_version {
 
 /// Defines constant that holds the git revision at build time.
 ///
-///   `GIT_REVISION`: The git revision as specified by the `GIT_REVISION` env variable provided at
-///   compile time, or the current git revision as discovered by running `git describe`.
+///   `GIT_REVISION`: The git revision as specified by the `GIT_REVISION` env
+/// variable provided at   compile time, or the current git revision as
+/// discovered by running `git describe`.
 ///
-/// Note: This macro must only be used from a binary, if used inside a library this will fail to
-/// compile.
+/// Note: This macro must only be used from a binary, if used inside a library
+/// this will fail to compile.
 #[macro_export]
 macro_rules! git_revision {
     () => {
@@ -114,9 +120,15 @@ macro_rules! git_revision {
 mod tests {
 
     use anyhow::{Error, Result};
-    use fastcrypto::secp256r1;
-    use fastcrypto::traits::{
-        EncodeDecodeBase64, KeyPair, RecoverableSignature, RecoverableSigner, ToFromBytes,
+    use fastcrypto::{
+        secp256r1,
+        traits::{
+            EncodeDecodeBase64,
+            KeyPair,
+            RecoverableSignature,
+            RecoverableSigner,
+            ToFromBytes,
+        },
     };
     use rand::thread_rng;
     use uuid::Uuid;
@@ -128,7 +140,8 @@ mod tests {
         let uid = Uuid::now_v7();
         let signature: secp256r1::recoverable::Secp256r1RecoverableSignature =
             kp.sign_recoverable(uid.as_bytes());
-        // this would be sent in the header: Authorization: Secp256r1-recoverable signature: base64_value message: base64_uuidv7
+        // this would be sent in the header: Authorization: Secp256r1-recoverable
+        // signature: base64_value message: base64_uuidv7
         let signature_b64 = signature.encode_base64();
         // now pretend we decoded that header and verify the pub key matches
         let recovered_signature =

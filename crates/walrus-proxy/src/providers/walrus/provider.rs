@@ -1,21 +1,26 @@
+// Copyright (c) Mysten Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 // // Copyright (c) Mysten Labs, Inc.
 // // SPDX-License-Identifier: Apache-2.0
 
-use fastcrypto::secp256r1::Secp256r1PublicKey;
-use fastcrypto::traits::{EncodeDecodeBase64, ToFromBytes};
-use once_cell::sync::Lazy;
-use prometheus::{register_counter_vec, register_histogram_vec};
-use prometheus::{CounterVec, HistogramVec};
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
     time::Duration,
 };
 
-use super::query::{get_walrus_committee, NodeInfo};
-use crate::Allower;
+use fastcrypto::{
+    secp256r1::Secp256r1PublicKey,
+    traits::{EncodeDecodeBase64, ToFromBytes},
+};
+use once_cell::sync::Lazy;
+use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, HistogramVec};
 use tracing::{debug, error, info};
 use xxhash_rust::xxh3::xxh3_64;
+
+use super::query::{get_walrus_committee, NodeInfo};
+use crate::Allower;
 
 static JSON_RPC_STATE: Lazy<CounterVec> = Lazy::new(|| {
     register_counter_vec!(
@@ -41,10 +46,12 @@ static JSON_RPC_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
 /// AllowedPeers is a mapping of public key to AllowedPeer data
 pub type AllowedPeers = Arc<RwLock<HashMap<u64, NodeInfo>>>;
 
-/// WalrusNodeProvider queries the sui blockchain and keeps a record of known validators based on the response from
-/// sui_getValidators.  The node name, public key and other info is extracted from the chain and stored in this
-/// data structure.  We pass this struct to the tls verifier and it depends on the state contained within.
-/// Handlers also use this data in an Extractor extension to check incoming clients on the http api against known keys.
+/// WalrusNodeProvider queries the sui blockchain and keeps a record of known
+/// validators based on the response from sui_getValidators.  The node name,
+/// public key and other info is extracted from the chain and stored in this
+/// data structure.  We pass this struct to the tls verifier and it depends on
+/// the state contained within. Handlers also use this data in an Extractor
+/// extension to check incoming clients on the http api against known keys.
 #[derive(Debug, Clone)]
 pub struct WalrusNodeProvider {
     nodes: AllowedPeers,

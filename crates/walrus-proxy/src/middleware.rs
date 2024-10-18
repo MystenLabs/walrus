@@ -1,19 +1,20 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
-use crate::providers::WalrusNodeProvider;
-use crate::register_metric;
+use std::sync::Arc;
+
 use anyhow::Error;
 use axum::{
     async_trait,
-    body::Body,
-    body::Bytes,
+    body::{Body, Bytes},
     extract::{Extension, FromRequest},
     http::{header, Request, StatusCode},
     middleware::Next,
     response::Response,
 };
-use axum_extra::headers::{ContentLength, ContentType};
-use axum_extra::typed_header::TypedHeader;
+use axum_extra::{
+    headers::{ContentLength, ContentType},
+    typed_header::TypedHeader,
+};
 use bytes::Buf;
 use fastcrypto::{
     secp256r1,
@@ -21,13 +22,13 @@ use fastcrypto::{
 };
 use hyper::header::CONTENT_ENCODING;
 use once_cell::sync::Lazy;
-use prometheus::proto::MetricFamily;
-use prometheus::{CounterVec, Opts};
+use prometheus::{proto::MetricFamily, CounterVec, Opts};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use sui_proxy::consumer::ProtobufDecoder;
 use tracing::error;
 use uuid::Uuid;
+
+use crate::{providers::WalrusNodeProvider, register_metric};
 
 static MIDDLEWARE_OPS: Lazy<CounterVec> = Lazy::new(|| {
     register_metric!(CounterVec::new(
@@ -89,7 +90,8 @@ pub struct AuthInfo {
 }
 
 impl AuthInfo {
-    /// recover will attempt to recover the pub key from a signature contained in self
+    /// recover will attempt to recover the pub key from a signature contained
+    /// in self
     pub fn recover(&self) -> Result<secp256r1::Secp256r1PublicKey, Error> {
         let recovered_signature =
             secp256r1::recoverable::Secp256r1RecoverableSignature::decode_base64(&self.signature)
@@ -146,8 +148,8 @@ pub async fn expect_valid_recoverable_pubkey(
     Ok(next.run(request).await)
 }
 
-/// LenDelimProtobuf is an axum extractor that will consume protobuf content by decompressing it and
-/// decoding it into protobuf metrics
+/// LenDelimProtobuf is an axum extractor that will consume protobuf content by
+/// decompressing it and decoding it into protobuf metrics
 #[derive(Debug)]
 pub struct LenDelimProtobuf(pub Vec<MetricFamily>);
 
@@ -197,7 +199,7 @@ where
 
         let mut decoder = ProtobufDecoder::new(intermediate);
         let decoded = decoder.parse::<MetricFamily>().map_err(|e| {
-            let msg = format!("unable to decode len deliminated protobufs; {e}");
+            let msg = format!("unable to decode len delimited protobufs; {e}");
             error!(msg);
             MIDDLEWARE_OPS
                 .with_label_values(&[

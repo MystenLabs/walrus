@@ -1,13 +1,15 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
-use anyhow::{Context, Result};
 use core::time::Duration;
+use std::net::SocketAddr;
+
+use anyhow::{Context, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_with::{serde_as, DurationSeconds};
-use std::net::SocketAddr;
 use tracing::debug;
 
-/// ProxyConfig is the walrus-proxy config type used when reading the yaml config
+/// ProxyConfig is the walrus-proxy config type used when reading the yaml
+/// config
 #[serde_as]
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -22,7 +24,8 @@ pub struct ProxyConfig {
     pub dynamic_peers: DynamicPeerValidationConfig,
     /// metrics address for the service itself
     pub metrics_address: String,
-    /// histogram scrape address to get histogram data form clients that push data to us
+    /// histogram scrape address to get histogram data form clients that push
+    /// data to us
     pub histogram_address: String,
     /// certificate key path for TLS
     pub certificate: String,
@@ -43,14 +46,14 @@ pub struct RemoteWriteConfig {
     pub password: String,
 
     /// Sets the maximum idle connection per host allowed in the pool.
-    /// <https://docs.rs/reqwest/latest/reqwest/struct.ClientBuilder.html#method.pool_max_idle_per_host>
     #[serde(default = "pool_max_idle_per_host_default")]
     pub pool_max_idle_per_host: usize,
 }
 
-/// DynamicPeerValidationConfig controls what sui-node & sui-bridge binaries that are functioning as a validator that we'll speak with.
-/// Peer in this case is peers within the consensus committee, for each epoch.  This membership is determined dynamically
-/// for each epoch via json-rpc calls to a full node.
+/// DynamicPeerValidationConfig controls what sui-node & sui-bridge binaries
+/// that are functioning as a validator that we'll speak with. Peer in this case
+/// is peers within the consensus committee, for each epoch.  This membership is
+/// determined dynamically for each epoch via json-rpc calls to a full node.
 #[serde_as]
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
