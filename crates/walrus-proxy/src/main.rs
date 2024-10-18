@@ -96,6 +96,10 @@ async fn main() -> Result<()> {
         Some(walrus_node_provider),
     );
 
-    admin::server(listener, app, None).await.unwrap();
+    let tls_config = admin::load_tls_certs(&config.certificate, &config.private_key).await?;
+
+    admin::server(listener, app, Some(tls_config))
+        .await
+        .unwrap();
     Ok(())
 }
