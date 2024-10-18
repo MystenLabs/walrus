@@ -128,7 +128,7 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
       - name: Run tests
-        run: cargo nextest run --run-ignored all
+        run: cargo nextest run --profile ci --run-ignored all
 
   test-coverage:
     name: Run all Rust tests and report coverage
@@ -159,7 +159,7 @@ jobs:
           tool: cargo-nextest
       - uses: actions/checkout@v4
       - run: ./scripts/simtest/install.sh
-      - run: cargo simtest --run-ignored all simtest
+      - run: cargo simtest --profile simtest --run-ignored all simtest
 
   test-move:
     name: Test Move code
