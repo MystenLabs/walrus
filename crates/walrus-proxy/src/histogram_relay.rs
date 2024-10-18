@@ -17,7 +17,6 @@ use prometheus::{
     HistogramVec,
     Opts,
 };
-use sui_proxy::var;
 use tower::ServiceBuilder;
 use tower_http::{
     trace::{DefaultOnResponse, TraceLayer},
@@ -25,7 +24,7 @@ use tower_http::{
 };
 use tracing::{info, Level};
 
-use crate::register_metric;
+use crate::{register_metric, var};
 
 const METRICS_ROUTE: &str = "/metrics";
 

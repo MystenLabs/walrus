@@ -6,7 +6,6 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 use axum::{extract::DefaultBodyLimit, middleware, routing::post, Extension, Router};
 use axum_server::tls_rustls::RustlsConfig;
 use rcgen::{generate_simple_self_signed, CertifiedKey};
-use sui_proxy::var;
 use tokio::signal;
 use tower::ServiceBuilder;
 use tower_http::{
@@ -27,6 +26,7 @@ use crate::{
         expect_valid_recoverable_pubkey,
     },
     providers::WalrusNodeProvider,
+    var,
 };
 
 /// Reqwest client holds the global client for remote_push api calls

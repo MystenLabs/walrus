@@ -44,6 +44,12 @@ pub mod middleware;
 /// Implements the provider functionality for the proxy.
 pub mod providers;
 
+/// Implements the prometheus to remote write conversion.
+pub mod prom_to_mimir;
+
+// Implements remote write details, generated from protobufs.
+pub mod remote_write;
+
 /// The Allower trait provides an interface for callers to decide if a generic
 /// key type should be allowed
 pub trait Allower<KeyType>: std::fmt::Debug + Send + Sync {
@@ -113,6 +119,26 @@ macro_rules! git_revision {
                 version
             }
         };
+    };
+}
+
+/// var extracts environment variables at runtime with a default fallback value
+/// if a default is not provided, the value is simply an empty string if not
+/// found This function will return the provided default if env::var cannot find
+/// the key or if the key is somehow malformed.
+#[macro_export]
+macro_rules! var {
+    ($key:expr) => {
+        match std::env::var($key) {
+            Ok(val) => val,
+            Err(_) => "".into(),
+        }
+    };
+    ($key:expr, $default:expr) => {
+        match std::env::var($key) {
+            Ok(val) => val.parse::<_>().unwrap(),
+            Err(_) => $default,
+        }
     };
 }
 

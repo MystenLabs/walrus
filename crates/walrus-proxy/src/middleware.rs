@@ -24,11 +24,10 @@ use hyper::header::CONTENT_ENCODING;
 use once_cell::sync::Lazy;
 use prometheus::{proto::MetricFamily, CounterVec, Opts};
 use serde::{Deserialize, Serialize};
-use sui_proxy::consumer::ProtobufDecoder;
 use tracing::error;
 use uuid::Uuid;
 
-use crate::{providers::WalrusNodeProvider, register_metric};
+use crate::{consumer::ProtobufDecoder, providers::WalrusNodeProvider, register_metric};
 
 static MIDDLEWARE_OPS: Lazy<CounterVec> = Lazy::new(|| {
     register_metric!(CounterVec::new(
