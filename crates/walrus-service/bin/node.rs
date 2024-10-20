@@ -313,6 +313,7 @@ mod commands {
     use std::time::Duration;
 
     use config::EventProviderConfig;
+    use tokio::task::JoinSet;
     use walrus_core::ensure;
     use walrus_service::utils;
     use walrus_sui::types::NetworkAddress;
@@ -374,7 +375,7 @@ mod commands {
         let cancel_token = CancellationToken::new();
         let (exit_notifier, exit_listener) = oneshot::channel::<()>();
 
-        let (event_manager, mut event_processor_runtime) = EventProcessorRuntime::start(
+        let (event_manager, event_processor_runtime) = EventProcessorRuntime::start(
             config
                 .sui
                 .clone()
@@ -385,7 +386,7 @@ mod commands {
             cancel_token.child_token(),
         )?;
 
-        let mut node_runtime = StorageNodeRuntime::start(
+        let node_runtime = StorageNodeRuntime::start(
             &config,
             metrics_runtime.registry.clone(),
             exit_notifier,
@@ -393,16 +394,67 @@ mod commands {
             cancel_token.child_token(),
         )?;
 
-        wait_until_terminated(exit_listener);
+        monitor_runtimes(
+            node_runtime,
+            event_processor_runtime,
+            exit_listener,
+            cancel_token,
+        )?;
 
+        Ok(())
+    }
+
+    #[cfg(not(msim))]
+    fn monitor_runtimes(
+        mut node_runtime: StorageNodeRuntime,
+        mut event_processor_runtime: EventProcessorRuntime,
+        exit_listener: oneshot::Receiver<()>,
+        cancel_token: CancellationToken,
+    ) -> anyhow::Result<()> {
+        let monitor_runtime = Runtime::new()?;
+        monitor_runtime.block_on(async {
+            tokio::spawn(async move {
+                let mut set = JoinSet::new();
+                set.spawn_blocking(move || node_runtime.join());
+                set.spawn_blocking(move || event_processor_runtime.join());
+                tokio::select! {
+                    _ = wait_until_terminated(exit_listener) => {
+                        tracing::info!("Received termination signal, shutting down...");
+                    }
+                    _ = set.join_next() => {
+                        tracing::info!("Runtime stopped successfully");
+                    }
+                }
+                cancel_token.cancel();
+                tracing::info!("Cancellation token triggered, waiting for tasks to shut down...");
+
+                // Drain remaining runtimes
+                while set.join_next().await.is_some() {}
+                tracing::info!("All runtimes have shut down");
+            })
+            .await
+        })?;
+        Ok(())
+    }
+
+    #[cfg(msim)]
+    fn monitor_runtimes(
+        mut node_runtime: StorageNodeRuntime,
+        mut event_processor_runtime: EventProcessorRuntime,
+        exit_listener: oneshot::Receiver<()>,
+        cancel_token: CancellationToken,
+    ) -> anyhow::Result<()> {
+        let monitor_runtime = Runtime::new()?;
+        monitor_runtime.block_on(async {
+            tokio::spawn(async move { wait_until_terminated(exit_listener).await }).await
+        })?;
         // Cancel the node runtime, if it is still executing.
         cancel_token.cancel();
-
         event_processor_runtime.join()?;
-
         // Wait for the node runtime to complete, may take a moment as
         // the REST-API waits for open connections to close before exiting.
-        node_runtime.join()
+        node_runtime.join()?;
+        Ok(())
     }
 
     pub(super) fn keygen(path: &Path, key_type: KeyType, force: bool) -> anyhow::Result<()> {
@@ -800,7 +852,6 @@ impl StorageNodeRuntime {
 }
 
 /// Wait for SIGINT and SIGTERM (unix only).
-#[tokio::main(flavor = "current_thread")]
 #[tracing::instrument(skip_all)]
 async fn wait_until_terminated(mut exit_listener: oneshot::Receiver<()>) {
     #[cfg(not(unix))]
