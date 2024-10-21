@@ -291,7 +291,7 @@ pub(crate) trait BlobInfoApi {
     fn invalidation_event(&self) -> Option<EventID>;
 
     /// Converts the blob information to a `BlobStatus` object.
-    fn to_blob_status(&self) -> BlobStatus;
+    fn to_blob_status(&self, current_epoch: Epoch) -> BlobStatus;
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
@@ -484,37 +484,58 @@ impl From<ValidBlobInfoV1> for BlobInfoV1 {
 }
 
 impl ValidBlobInfoV1 {
-    fn to_blob_status(&self) -> BlobStatus {
-        let Self {
-            count_deletable_total,
-            count_deletable_certified,
-            permanent_total,
-            permanent_certified,
-            initial_certified_epoch,
-            ..
-        } = self;
-
+    fn to_blob_status(&self, current_epoch: Epoch) -> BlobStatus {
+        // TODO: The following should be adjusted/simplified when we have proper cleanup (#1005).
         let deletable_counts = DeletableCounts {
-            count_deletable_total: *count_deletable_total,
-            count_deletable_certified: *count_deletable_certified,
+            count_deletable_total: self
+                .latest_seen_deletable_registered_epoch
+                .is_some_and(|e| e > current_epoch)
+                .then_some(self.count_deletable_total)
+                .unwrap_or_default(),
+            count_deletable_certified: self
+                .latest_seen_deletable_certified_epoch
+                .is_some_and(|e| e > current_epoch)
+                .then_some(self.count_deletable_certified)
+                .unwrap_or_default(),
         };
-        let initial_certified_epoch = *initial_certified_epoch;
+
+        let initial_certified_epoch = self.initial_certified_epoch;
         if let Some(PermanentBlobInfoV1 {
             end_epoch, event, ..
-        }) = permanent_certified.as_ref().or(permanent_total.as_ref())
+        }) = self.permanent_certified.as_ref()
         {
-            BlobStatus::Permanent {
-                end_epoch: *end_epoch,
-                is_certified: permanent_certified.is_some(),
-                status_event: *event,
-                deletable_counts,
-                initial_certified_epoch,
+            if *end_epoch > current_epoch {
+                return BlobStatus::Permanent {
+                    end_epoch: *end_epoch,
+                    is_certified: true,
+                    status_event: *event,
+                    deletable_counts,
+                    initial_certified_epoch,
+                };
             }
-        } else {
+        }
+        if let Some(PermanentBlobInfoV1 {
+            end_epoch, event, ..
+        }) = self.permanent_total.as_ref()
+        {
+            if *end_epoch > current_epoch {
+                return BlobStatus::Permanent {
+                    end_epoch: *end_epoch,
+                    is_certified: false,
+                    status_event: *event,
+                    deletable_counts,
+                    initial_certified_epoch,
+                };
+            }
+        }
+
+        if deletable_counts != Default::default() {
             BlobStatus::Deletable {
                 initial_certified_epoch,
                 deletable_counts,
             }
+        } else {
+            BlobStatus::Nonexistent
         }
     }
 
@@ -892,10 +913,10 @@ impl BlobInfoApi for BlobInfoV1 {
         }
     }
 
-    fn to_blob_status(&self) -> BlobStatus {
+    fn to_blob_status(&self, current_epoch: Epoch) -> BlobStatus {
         match self {
             BlobInfoV1::Invalid { event, .. } => BlobStatus::Invalid { event: *event },
-            BlobInfoV1::Valid(valid_blob_info) => valid_blob_info.to_blob_status(),
+            BlobInfoV1::Valid(valid_blob_info) => valid_blob_info.to_blob_status(current_epoch),
         }
     }
 }
@@ -1060,12 +1081,6 @@ impl BlobInfo {
             }
         };
         Self::V1(blob_info)
-    }
-}
-
-impl From<BlobInfo> for BlobStatus {
-    fn from(value: BlobInfo) -> Self {
-        value.to_blob_status()
     }
 }
 
@@ -1466,5 +1481,69 @@ mod tests {
         let preexisting_info = BlobInfoV1::Valid(preexisting_info);
         let blob_info = preexisting_info.clone().merge_with(operand);
         assert_eq!(preexisting_info, blob_info);
+    }
+
+    param_test! {
+        test_blob_status_is_inexistent_for_expired_blobs: [
+            expired_permanent_registered_0: (
+                ValidBlobInfoV1 {
+                    permanent_total: Some(PermanentBlobInfoV1::new_for_testing(1, 2)),
+                    ..Default::default()
+                },
+                1,
+                2,
+            ),
+            expired_permanent_registered_1: (
+                ValidBlobInfoV1 {
+                    permanent_total: Some(PermanentBlobInfoV1::new_for_testing(2, 3)),
+                    ..Default::default()
+                },
+                2,
+                4,
+            ),
+            expired_permanent_certified: (
+                ValidBlobInfoV1 {
+                    permanent_total: Some(PermanentBlobInfoV1::new_for_testing(2, 2)),
+                    permanent_certified: Some(PermanentBlobInfoV1::new_for_testing(1, 2)),
+                    ..Default::default()
+                },
+                1,
+                2,
+            ),
+            expired_deletable_registered: (
+                ValidBlobInfoV1 {
+                    count_deletable_total: 1,
+                    latest_seen_deletable_registered_epoch: Some(2),
+                    ..Default::default()
+                },
+                1,
+                2,
+            ),
+            expired_deletable_certified: (
+                ValidBlobInfoV1 {
+                    count_deletable_total: 1,
+                    latest_seen_deletable_registered_epoch: Some(2),
+                    count_deletable_certified: 1,
+                    latest_seen_deletable_certified_epoch: Some(2),
+                    ..Default::default()
+                },
+                1,
+                2,
+            ),
+        ]
+    }
+    fn test_blob_status_is_inexistent_for_expired_blobs(
+        blob_info: ValidBlobInfoV1,
+        epoch_not_expired: Epoch,
+        epoch_expired: Epoch,
+    ) {
+        assert!(!matches!(
+            BlobInfoV1::Valid(blob_info.clone()).to_blob_status(epoch_not_expired),
+            BlobStatus::Nonexistent,
+        ));
+        assert!(matches!(
+            BlobInfoV1::Valid(blob_info).to_blob_status(epoch_expired),
+            BlobStatus::Nonexistent,
+        ));
     }
 }

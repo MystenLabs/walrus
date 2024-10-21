@@ -1407,7 +1407,7 @@ impl ServiceState for StorageNodeInner {
             .storage
             .get_blob_info(blob_id)
             .context("could not retrieve blob info")?
-            .map(BlobStatus::from)
+            .map(|blob_info| blob_info.to_blob_status(self.current_epoch()))
             .unwrap_or_default())
     }
 
@@ -2981,7 +2981,7 @@ mod tests {
                 .storage
                 .get_blob_info(blob_detail.blob_id());
             assert!(matches!(
-                blob_info.unwrap().unwrap().to_blob_status(),
+                blob_info.unwrap().unwrap().to_blob_status(1),
                 BlobStatus::Permanent {
                     is_certified: false,
                     ..
@@ -3028,7 +3028,7 @@ mod tests {
                 .storage
                 .get_blob_info(blob_details[i].blob_id());
             assert!(matches!(
-                blob_info.unwrap().unwrap().to_blob_status(),
+                blob_info.unwrap().unwrap().to_blob_status(1),
                 BlobStatus::Permanent {
                     is_certified: false,
                     ..
