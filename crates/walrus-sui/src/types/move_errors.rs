@@ -232,8 +232,12 @@ move_error_kind!(
     3,
     ENotInCommittee,
     4,
-    ENotImplemented,
+    ECommitteeSelected,
     5,
+    ENextCommitteeIsEmpty,
+    6,
+    ENotImplemented,
+    264,
 );
 
 move_error_kind!(
@@ -318,6 +322,22 @@ move_error_kind!(
     3,
     EInvalidProofOfPossession,
     4,
+    EPoolAlreadyWithdrawing,
+    5,
+    EPoolIsNotActive,
+    6,
+    EZeroStake,
+    7,
+    EPoolIsNotNew,
+    8,
+    EIncorrectPoolId,
+    9,
+    ENotWithdrawing,
+    10,
+    EWithdrawEpochNotReached,
+    11,
+    EActivationEpochNotReached,
+    12,
 );
 
 move_error_kind!(
