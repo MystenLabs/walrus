@@ -27,10 +27,9 @@ pub struct ProxyConfig {
     /// histogram scrape address to get histogram data form clients that push
     /// data to us
     pub histogram_address: String,
-    /// certificate key path for TLS
-    pub certificate: String,
-    /// private key path for TLS
-    pub private_key: String,
+    /// use in test mode
+    #[serde(default = "default_self_signed_tls")]
+    pub self_signd_tls: bool,
 }
 
 /// RemoteWriteConfig defines the mimir config items for connecting to mimir
@@ -44,7 +43,6 @@ pub struct RemoteWriteConfig {
     pub username: String,
     /// password to submit metrics
     pub password: String,
-
     /// Sets the maximum idle connection per host allowed in the pool.
     #[serde(default = "pool_max_idle_per_host_default")]
     pub pool_max_idle_per_host: usize,
@@ -69,6 +67,10 @@ fn pool_max_idle_per_host_default() -> usize {
     8
 }
 
+/// whether we should generate a self-signed cert.  We don't want to unless in tests
+fn default_self_signed_tls() -> bool {
+    false
+}
 /// load our config file from a path
 pub fn load<P: AsRef<std::path::Path>, T: DeserializeOwned + Serialize>(path: P) -> Result<T> {
     let path = path.as_ref();

@@ -106,21 +106,28 @@ pub fn app(
 pub async fn server(
     listener: std::net::TcpListener,
     app: Router,
-    tls_config: Option<RustlsConfig>,
+    self_signed_tls: bool,
 ) -> std::io::Result<()> {
-    let tls_config = match tls_config {
-        Some(v) => v,
-        None => generate_self_signed_cert(vec!["localhost"]).await?,
-    };
     // setup our graceful shutdown
     let handle = axum_server::Handle::new();
     // Spawn a task to gracefully shutdown server.
     tokio::spawn(shutdown_signal(handle.clone()));
 
-    axum_server::from_tcp_rustls(listener, tls_config)
-        .handle(handle)
-        .serve(app.into_make_service_with_connect_info::<SocketAddr>())
-        .await
+    if self_signed_tls {
+        // really only useful for local testing
+        let tls_config = generate_self_signed_cert(vec!["localhost"]).await?;
+        axum_server::from_tcp_rustls(listener, tls_config)
+            .handle(handle)
+            .serve(app.into_make_service_with_connect_info::<SocketAddr>())
+            .await
+    } else {
+        // generally we fall into this else most commonly since we will be term'd in
+        // cloud for tls
+        axum_server::from_tcp(listener)
+            .handle(handle)
+            .serve(app.into_make_service_with_connect_info::<SocketAddr>())
+            .await
+    }
 }
 
 /// Configure our graceful shutdown scenarios
@@ -170,10 +177,4 @@ async fn generate_self_signed_cert(sans: Vec<&str>) -> std::io::Result<RustlsCon
     let tls_config =
         RustlsConfig::from_der(vec![cert.der().to_vec()], key_pair.serialize_der()).await?;
     Ok(tls_config)
-}
-
-/// load TLS certs from disk. please use pem formats
-pub async fn load_tls_certs(cert: &str, key: &str) -> std::io::Result<RustlsConfig> {
-    info!("load tls cert: [{cert}] key: [{key}]");
-    RustlsConfig::from_pem_file(cert, key).await
 }

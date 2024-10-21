@@ -9,7 +9,6 @@ use std::env;
 
 use anyhow::Result;
 use clap::Parser;
-use reqwest::tls;
 use tracing::info;
 use tracing_subscriber;
 use walrus_proxy::{
@@ -97,13 +96,8 @@ async fn main() -> Result<()> {
         Some(walrus_node_provider),
     );
 
-    // try to load a cert, if not, use a self-signed one which will fail in other
-    // ways in the wrong environment.
-    let tls_config = match admin::load_tls_certs(&config.certificate, &config.private_key).await {
-        Ok(v) => Some(v),
-        Err(_) => None,
-    };
-
-    admin::server(listener, app, tls_config).await.unwrap();
+    admin::server(listener, app, config.self_signd_tls)
+        .await
+        .unwrap();
     Ok(())
 }

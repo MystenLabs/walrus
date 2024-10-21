@@ -7,6 +7,7 @@ use tracing::{debug, error};
 
 use crate::{remote_write, var};
 
+/// Mimir's type state pattern for converting from prometheus to mimir's remote write format
 #[derive(Debug)]
 pub struct Mimir<S> {
     state: S,
@@ -140,6 +141,7 @@ impl IntoIterator for Mimir<Vec<remote_write::WriteRequest>> {
 }
 
 impl Mimir<RepeatedField<remote_write::TimeSeries>> {
+    /// repeated field state transition
     pub fn repeated(self) -> RepeatedField<remote_write::TimeSeries> {
         self.state
     }
@@ -190,6 +192,7 @@ impl From<MetricFamily> for Mimir<Vec<remote_write::TimeSeries>> {
 }
 
 impl Mimir<remote_write::TimeSeries> {
+    /// time series state transition
     pub fn timeseries(self) -> remote_write::TimeSeries {
         self.state
     }

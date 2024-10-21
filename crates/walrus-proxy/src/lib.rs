@@ -47,6 +47,7 @@ pub mod providers;
 /// Implements the prometheus to remote write conversion.
 pub mod prom_to_mimir;
 
+#[allow(clippy::all)]
 // Implements remote write details, generated from protobufs.
 pub mod remote_write;
 
