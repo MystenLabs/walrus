@@ -76,6 +76,8 @@ const MAX_TIMEOUT: Duration = Duration::from_secs(60);
 /// The delay between retries when polling the full node on failure
 /// to read a checkpoint.
 const RETRY_DELAY: Duration = Duration::from_millis(250);
+/// The minimum number of attempts to read a checkpoint from the full node.
+const MIN_ATTEMPTS: u64 = 10;
 
 pub(crate) type PackageCache = PackageStoreWithLruCache<LocalDBPackageStore>;
 
@@ -234,6 +236,7 @@ impl EventProcessor {
             .map(|(k, _)| k + 1)
             .unwrap_or(0);
         let mut start = Instant::now();
+        let mut num_attempts = 0;
         while !cancel_token.is_cancelled() {
             let Some(prev_checkpoint) = self.checkpoint_store.get(&())? else {
                 bail!("No checkpoint found in the checkpoint store");
@@ -242,7 +245,8 @@ impl EventProcessor {
             let result = self.client.get_full_checkpoint(next_checkpoint).await;
             let Ok(checkpoint) = result else {
                 sleep(RETRY_DELAY).await;
-                if start.elapsed() > MAX_TIMEOUT {
+                num_attempts += 1;
+                if start.elapsed() > MAX_TIMEOUT && num_attempts >= MIN_ATTEMPTS {
                     bail!(
                         "Failed to read checkpoint from full node: {}",
                         result.err().unwrap()
@@ -253,6 +257,7 @@ impl EventProcessor {
                 }
             };
             start = Instant::now();
+            num_attempts = 0;
             self.metrics
                 .latest_downloaded_checkpoint
                 .set(next_checkpoint as i64);
