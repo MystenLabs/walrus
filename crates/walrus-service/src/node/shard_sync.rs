@@ -17,7 +17,7 @@ use super::{
     StorageNodeInner,
 };
 use crate::{
-    node::errors::ShardNotAssigned,
+    node::{errors::ShardNotAssigned, metrics},
     utils::{self, ExponentialBackoff},
 };
 
@@ -146,6 +146,7 @@ impl ShardSyncHandler {
             );
 
             utils::retry(backoff, || async {
+                metrics::with_label!(node_clone.metrics.shard_sync_total, "start").inc();
                 let sync_result = shard_storage
                     .start_sync_shard_before_epoch(
                         current_epoch,
@@ -155,6 +156,7 @@ impl ShardSyncHandler {
                     .await;
 
                 if let Err(err) = sync_result {
+                    metrics::with_label!(node_clone.metrics.shard_sync_total, "error").inc();
                     tracing::error!(
                         "Failed to sync shard index: {} to before epoch: {}. Error: {:?}",
                         shard_index,
@@ -181,6 +183,7 @@ impl ShardSyncHandler {
                         }
                     }
                 } else {
+                    metrics::with_label!(node_clone.metrics.shard_sync_total, "complete").inc();
                     tracing::info!(
                         "Successfully synced shard index: {} to before epoch: {}",
                         shard_index,

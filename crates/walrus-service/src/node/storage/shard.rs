@@ -47,7 +47,12 @@ use super::{
     blob_info::{BlobInfo, BlobInfoIterator},
     DatabaseConfig,
 };
-use crate::node::{config::ShardSyncConfig, errors::SyncShardClientError, StorageNodeInner};
+use crate::node::{
+    config::ShardSyncConfig,
+    errors::SyncShardClientError,
+    metrics,
+    StorageNodeInner,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ShardStatus {
@@ -607,6 +612,12 @@ impl ShardStorage {
             }
             batch.write()?;
 
+            metrics::with_label!(
+                node.metrics.sync_shard_sync_blob_total,
+                &self.id.to_string()
+            )
+            .inc_by(fetched_slivers.len() as u64);
+
             if last_synced_blob_id.is_none() {
                 break;
             }
@@ -808,15 +819,33 @@ impl ShardStorage {
             .id
             .to_pair_index(node.encoding_config.n_shards(), &blob_id);
 
+        metrics::with_label!(
+            node.metrics.sync_shard_recover_blob_total,
+            &self.id.to_string()
+        )
+        .inc();
+
         let result = node
             .committee_service
             .recover_sliver(metadata.into(), sliver_id, sliver_type, epoch)
             .await;
 
         match result {
-            Ok(sliver) => self.put_sliver(&blob_id, &sliver)?,
+            Ok(sliver) => {
+                metrics::with_label!(
+                    node.metrics.sync_shard_recover_blob_success_total,
+                    &self.id.to_string()
+                )
+                .inc();
+                self.put_sliver(&blob_id, &sliver)?;
+            }
             Err(inconsistency_proof) => {
                 tracing::debug!("received an inconsistency proof when recovering sliver");
+                metrics::with_label!(
+                    node.metrics.sync_shard_recover_blob_error_total,
+                    &self.id.to_string()
+                )
+                .inc();
                 // TODO(#704): once committee service supports multi-epoch. This needs to use the
                 // committee from the latest epoch.
                 let invalid_blob_certificate = node

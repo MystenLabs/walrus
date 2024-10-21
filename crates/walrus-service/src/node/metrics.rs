@@ -37,6 +37,15 @@ telemetry::define_metric_set! {
     IntCounterVec: [
         (slivers_stored_total, "The total number of slivers stored", &["sliver_type"]),
         (slivers_retrieved_total, "Total number of sliver instances returned", &["sliver_type"]),
+        (shard_sync_total, "The number of shard sync per status", &["status"]),
+        (sync_shard_sync_blob_total,
+            "Total number of blobs synced during shard sync", &["shard"]),
+        (sync_shard_recover_blob_total,
+            "Total number of blobs recovered during shard sync", &["shard"]),
+        (sync_shard_recover_blob_success_total,
+            "Total number of blobs recovered during shard sync", &["shard"]),
+        (sync_shard_recover_blob_error_total,
+            "Total number of blobs recovered during shard sync", &["shard"]),
     ],
     GenericGaugeVec<AtomicU64>: [
         (event_cursor_progress, "The number of Walrus events processed", &["state"]),
