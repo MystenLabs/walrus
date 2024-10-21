@@ -5,8 +5,9 @@ module walrus::pending_values;
 
 use sui::vec_map::{Self, VecMap};
 
-#[error]
-const EIncorrectValue: vector<u8> = b"Incorrect value, can't reduce non existing value";
+/// Attempt to reduce the value of a pending value for an epoch that does not
+/// exist.
+const EIncorrectValue: u64 = 0;
 
 /// Represents a map of pending values. The key is the epoch when the value is
 /// pending, and the value is the amount of WALs or pool tokens.
