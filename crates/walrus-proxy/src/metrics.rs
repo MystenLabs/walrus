@@ -7,9 +7,8 @@ use std::{
 };
 
 use axum::{extract::Extension, http::StatusCode, routing::get, Router};
-use mysten_metrics::RegistryService;
 use once_cell::sync::Lazy;
-use prometheus::{Registry, TextEncoder};
+use prometheus::{Registry, TextEncoder, Opts, IntCounter};
 use tower::ServiceBuilder;
 use tower_http::{
     trace::{DefaultOnResponse, TraceLayer},
@@ -57,21 +56,37 @@ impl HealthCheck {
     }
 }
 
+/// a simple uptime metric
+fn uptime_metric(registry: Registry) {
+        // Define the uptime counter
+        let opts = Opts::new("uptime_seconds", "Uptime in seconds");
+        let uptime_counter = IntCounter::with_opts(opts).unwrap();
+
+        // Register the counter with the registry
+        registry.register(Box::new(uptime_counter.clone())).unwrap();
+
+        // Spawn a background task to increment the uptime counter every second
+        tokio::spawn(async move {
+            loop {
+                uptime_counter.inc();
+                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            }
+        });
+}
+
 /// Creates a new http server that has as a sole purpose to expose
 /// and endpoint that prometheus agent can use to poll for the metrics.
-/// A RegistryService is returned that can be used to get access in prometheus
-/// Registries.
-pub fn start_prometheus_server(listener: TcpListener) -> RegistryService {
+pub fn start_prometheus_server(listener: TcpListener) -> Registry {
     let registry = Registry::new();
 
-    let registry_service = RegistryService::new(registry);
+    uptime_metric(registry.clone());
 
     let pod_health_data = Arc::new(RwLock::new(HealthCheck::new()));
 
     let app = Router::new()
         .route(METRICS_ROUTE, get(metrics))
         .route(POD_HEALTH_ROUTE, get(pod_health))
-        .layer(Extension(registry_service.clone()))
+        .layer(Extension(registry.clone()))
         .layer(Extension(pod_health_data.clone()))
         .layer(
             ServiceBuilder::new().layer(
@@ -89,14 +104,14 @@ pub fn start_prometheus_server(listener: TcpListener) -> RegistryService {
         axum::serve(listener, app).await.unwrap();
     });
 
-    registry_service
+    registry
 }
 
 async fn metrics(
-    Extension(registry_service): Extension<RegistryService>,
+    Extension(registry_service): Extension<Registry>,
     Extension(pod_health): Extension<HealthCheckMetrics>,
 ) -> (StatusCode, String) {
-    let mut metric_families = registry_service.gather_all();
+    let mut metric_families = registry_service.gather();
     metric_families.extend(prometheus::gather());
 
     if let Some(consumer_operations_submitted) = metric_families

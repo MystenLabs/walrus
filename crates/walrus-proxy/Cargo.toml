@@ -10,7 +10,7 @@ publish = false
 anyhow.workspace = true
 axum.workspace = true
 axum-extra.workspace = true
-axum-server = { workspace = true, features = ["tls-rustls"] }
+axum-server.workspace = true
 bytes.workspace = true
 clap.workspace = true
 const-str.workspace = true
@@ -19,7 +19,6 @@ futures.workspace = true
 git-version.workspace = true
 hyper.workspace = true
 itertools.workspace = true
-mysten-metrics.workspace = true
 once_cell.workspace = true
 prometheus.workspace = true
 prost.workspace = true
@@ -33,11 +32,11 @@ serde_json.workspace = true
 serde_with.workspace = true
 serde_yaml.workspace = true
 snap.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
+tokio.workspace = true
 tower.workspace = true
-tower-http = { workspace = true, features = ["timeout"] }
+tower-http.workspace = true
 tracing.workspace = true
-tracing-subscriber = { workspace = true, features = ["fmt"] }
+tracing-subscriber.workspace = true
 uuid.workspace = true
 
 [lints]

@@ -66,16 +66,7 @@ async fn main() -> Result<()> {
 
     let remote_write_client = admin::make_reqwest_client(config.remote_write, APP_USER_AGENT);
     let histogram_relay = histogram_relay::start_prometheus_server(histogram_listener);
-    let registry_service = metrics::start_prometheus_server(metrics_listener);
-
-    let prometheus_registry = registry_service.default_registry();
-    prometheus_registry
-        .register(mysten_metrics::uptime_metric(
-            "walrus-proxy",
-            VERSION,
-            "unavailable",
-        ))
-        .unwrap();
+    let _registry = metrics::start_prometheus_server(metrics_listener);
 
     // setup committee provider
     let walrus_node_provider = providers::WalrusNodeProvider::new(
