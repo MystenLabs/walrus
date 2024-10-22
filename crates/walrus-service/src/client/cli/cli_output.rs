@@ -8,7 +8,7 @@ use colored::Colorize;
 use indoc::printdoc;
 use prettytable::{format, row, Table};
 use serde::Serialize;
-use walrus_core::BlobId;
+use walrus_core::{BlobId, ShardIndex};
 use walrus_sdk::api::{BlobStatus, DeletableCounts};
 use walrus_sui::types::Blob;
 
@@ -358,12 +358,9 @@ impl CliOutput for InfoOutput {
     }
 }
 
-struct DisplayShardList<'a, T: 'a>(&'a [T]);
+struct DisplayShardList<'a>(&'a [ShardIndex]);
 
-impl<T> std::fmt::Display for DisplayShardList<'_, T>
-where
-    T: std::fmt::Display,
-{
+impl std::fmt::Display for DisplayShardList<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let shard_ids = &self.0;
         if shard_ids.is_empty() {
@@ -374,10 +371,10 @@ where
                 if i > 0 && counter != 0 {
                     write!(f, ", ")?;
                 }
-                write!(f, "{}", shard_id)?;
+                write!(f, "{}", usize::from(*shard_id))?;
                 counter += 1;
-                // Insert a newline after every 5 shard IDs for better readability
-                if counter == 5 {
+                // Insert a newline after every 10 shard IDs for better readability
+                if counter == 10 {
                     writeln!(f)?;
                     counter = 0;
                 }
