@@ -1,5 +1,5 @@
 [package]
-name = "walrus-event"
+name = "walrus-utils"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
@@ -8,33 +8,19 @@ license.workspace = true
 [dependencies]
 anyhow.workspace = true
 async-channel.workspace = true
-async-trait.workspace = true
-bcs.workspace = true
-byteorder.workspace = true
-futures-util.workspace = true
-integer-encoding.workspace = true
-move-core-types.workspace = true
 prometheus.workspace = true
+rand.workspace = true
 reqwest.workspace = true
 rocksdb.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
-serde_yaml.workspace = true
-sui-config.workspace = true
-sui-package-resolver.workspace = true
 sui-rest-api.workspace = true
-sui-sdk.workspace = true
-sui-storage.workspace = true
 sui-types = { workspace = true, features = ["test-utils"] }
 tempfile = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tokio-util.workspace = true
 tracing.workspace = true
 typed-store.workspace = true
-url.workspace = true
-walrus-core.workspace = true
-walrus-sdk.workspace = true
-walrus-sui.workspace = true
 
 [features]
 default = ["test-utils"]

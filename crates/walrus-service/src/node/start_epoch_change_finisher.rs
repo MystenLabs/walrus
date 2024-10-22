@@ -10,12 +10,10 @@ use sui_macros::fail_point_async;
 use typed_store::TypedStoreError;
 use walrus_core::ShardIndex;
 use walrus_sui::types::EpochChangeStart;
+use walrus_utils::backoff::{self, ExponentialBackoff};
 
 use super::StorageNodeInner;
-use crate::{
-    common::active_committees::ActiveCommittees,
-    utils::{self, ExponentialBackoff},
-};
+use crate::common::active_committees::ActiveCommittees;
 
 #[derive(Debug, Clone)]
 pub struct StartEpochChangeFinisher {
@@ -66,7 +64,7 @@ impl StartEpochChangeFinisher {
 
             fail_point_async!("blocking_finishing_epoch_change_start");
 
-            let result = utils::retry(backoff, || async {
+            let result = backoff::retry(backoff, || async {
                 if !ongoing_shard_sync {
                     self_clone
                         .epoch_sync_done(&committees_clone, &event_clone)

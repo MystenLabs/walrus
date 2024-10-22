@@ -52,7 +52,6 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
-use walrus_event::{event_processor::EventProcessor, EventProcessorConfig, IndexedStreamElement};
 use walrus_sdk::api::{
     BlobStatus,
     EventProgress,
@@ -91,6 +90,7 @@ use self::{
 pub mod committee;
 pub mod config;
 pub mod contract_service;
+pub mod events;
 pub mod server;
 pub mod system_events;
 
@@ -116,10 +116,16 @@ use errors::{
     StoreSliverError,
     SyncShardServiceError,
 };
+use events::{
+    event_processor::EventProcessor,
+    EventProcessorConfig,
+    EventStreamCursor,
+    EventStreamElement,
+    IndexedStreamElement,
+};
 
 mod storage;
 pub use storage::{DatabaseConfig, NodeStatus, Storage};
-use walrus_event::{EventStreamCursor, EventStreamElement};
 
 use crate::{
     common::utils::ShardDiff,
@@ -1082,6 +1088,10 @@ impl StorageNode {
         );
 
         Ok(())
+    }
+
+    pub(crate) fn inner(&self) -> &Arc<StorageNodeInner> {
+        &self.inner
     }
 }
 

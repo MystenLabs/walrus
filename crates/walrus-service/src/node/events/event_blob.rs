@@ -1,6 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Event blob file format.
+
 use std::{
     fs::File,
     io,
@@ -12,10 +14,13 @@ use byteorder::ReadBytesExt;
 use integer_encoding::{VarInt, VarIntReader};
 use sui_types::messages_checkpoint::CheckpointSequenceNumber;
 use walrus_core::BlobId;
-use walrus_event::IndexedStreamElement;
 
+use crate::node::events::IndexedStreamElement;
+
+/// The encoding of an entry in the blob file.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum EntryEncoding {
+    /// The entry is encoded using BCS.
     Bcs = 1,
 }
 
@@ -38,8 +43,12 @@ impl TryFrom<u8> for EntryEncoding {
     }
 }
 
+/// A blob entry in the blob file.
+#[derive(Debug)]
 pub struct BlobEntry {
+    /// The data of the blob entry.
     pub data: Vec<u8>,
+    /// The encoding of the event.
     pub encoding: EntryEncoding,
 }
 
@@ -97,11 +106,13 @@ impl BlobEntry {
         self.data.len().required_space() + BlobEntry::EVENT_ENCODING_BYTES + self.data.len()
     }
 
+    /// Encode the blob entry into a byte vector.
     #[allow(dead_code)]
     pub fn encode_to_bytes(&self) -> Vec<u8> {
         [vec![self.encoding.into()], self.data.clone()].concat()
     }
 
+    /// Decode the blob entry from a byte vector.
     #[allow(dead_code)]
     pub fn decode_from_bytes(bytes: &[u8]) -> Result<IndexedStreamElement> {
         let (encoding, data) = bytes.split_first().ok_or(anyhow!("empty bytes"))?;
@@ -114,6 +125,7 @@ impl BlobEntry {
 }
 
 #[allow(dead_code)]
+#[derive(Debug)]
 /// An iterator over events in a blob file.
 pub struct EventBlob {
     reader: BufReader<File>,
@@ -141,6 +153,7 @@ impl EventBlob {
     /// The minimum size of a blob file in bytes.
     pub const MIN_SIZE: usize = EventBlob::HEADER_SIZE + EventBlob::TRAILER_SIZE;
 
+    /// Create a new event blob from the given file.
     #[allow(dead_code)]
     pub fn new(file: File) -> Result<Self> {
         let mut buf_reader = BufReader::new(file);
@@ -185,16 +198,19 @@ impl EventBlob {
         })
     }
 
+    /// Checkpoint sequence number of first event in the blob.
     #[allow(dead_code)]
     pub fn start_checkpoint_sequence_number(&self) -> CheckpointSequenceNumber {
         self.start
     }
 
+    /// Checkpoint sequence number of last event in the blob.
     #[allow(dead_code)]
     pub fn end_checkpoint_sequence_number(&self) -> CheckpointSequenceNumber {
         self.end
     }
 
+    /// Return the next event.
     fn next_event(&mut self) -> Result<IndexedStreamElement> {
         let entry = BlobEntry::read(&mut self.reader)?;
         self.current_pos += entry.size() as u64;

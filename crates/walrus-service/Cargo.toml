@@ -76,6 +76,7 @@ indoc = { workspace = true, optional = true }
 integer-encoding.workspace = true
 itertools = { workspace = true, optional = true }
 mime = { workspace = true, optional = true }
+move-core-types.workspace = true
 mysten-metrics = { workspace = true, optional = true }
 num-bigint.workspace = true
 opentelemetry.workspace = true
@@ -95,8 +96,11 @@ serde_with.workspace = true
 serde_yaml.workspace = true
 sui-config.workspace = true
 sui-macros.workspace = true
+sui-package-resolver.workspace = true
 sui-protocol-config.workspace = true
+sui-rest-api.workspace = true
 sui-sdk.workspace = true
+sui-storage.workspace = true
 sui-types.workspace = true
 telemetry-subscribers.workspace = true
 tempfile = { workspace = true, optional = true }
@@ -113,10 +117,10 @@ typed-store = { workspace = true, optional = true }
 utoipa = { workspace = true, features = ["axum_extras"] }
 utoipa-redoc.workspace = true
 walrus-core = { workspace = true, features = ["utoipa"] }
-walrus-event.workspace = true
 walrus-sdk.workspace = true
 walrus-sui = { workspace = true, features = ["utoipa"] }
 walrus-test-utils = { workspace = true, optional = true }
+walrus-utils.workspace = true
 
 [dev-dependencies]
 mockall.workspace = true

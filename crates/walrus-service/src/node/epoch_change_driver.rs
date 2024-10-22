@@ -21,9 +21,9 @@ use walrus_sui::{
     client::FixedSystemParameters,
     types::{move_structs::EpochState, GENESIS_EPOCH},
 };
+use walrus_utils::backoff::ExponentialBackoffState;
 
 use super::contract_service::SystemContractService;
-use crate::utils::ExponentialBackoffState;
 
 /// Maximum number of seconds that an operation can be randomly delayed by.
 const MAX_SCHEDULE_JITTER: Duration = Duration::from_secs(180);

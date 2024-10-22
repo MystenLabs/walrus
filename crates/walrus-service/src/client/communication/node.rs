@@ -25,6 +25,7 @@ use walrus_sdk::{
     error::NodeError,
 };
 use walrus_sui::types::StorageNode;
+use walrus_utils::backoff::{self, ExponentialBackoff};
 
 use crate::{
     client::{
@@ -32,7 +33,7 @@ use crate::{
         error::{SliverStoreError, StoreError},
         utils::{string_prefix, WeightedResult},
     },
-    common::utils::{self, ExponentialBackoff, FutureHelpers},
+    common::utils::FutureHelpers,
 };
 
 /// Below this threshold, the `NodeCommunication` client will not check if the sliver is present on
@@ -237,7 +238,7 @@ impl<'a, W> NodeCommunication<'a, W> {
         blob_id: &BlobId,
         epoch: Epoch,
     ) -> Result<SignedStorageConfirmation, NodeError> {
-        let confirmation = utils::retry(self.backoff_strategy(), || {
+        let confirmation = backoff::retry(self.backoff_strategy(), || {
             self.client.get_confirmation(blob_id)
         })
         .await
@@ -484,7 +485,7 @@ impl<'a> NodeWriteCommunication<'a> {
         F: FnMut() -> Fut,
         Fut: Future<Output = Result<T, E>>,
     {
-        utils::retry(self.backoff_strategy(), f)
+        backoff::retry(self.backoff_strategy(), f)
             .batch_limit(self.node_write_limit.clone())
             .batch_limit(self.sliver_write_limit.clone())
             .await

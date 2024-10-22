@@ -46,12 +46,13 @@ use walrus_core::{
     SliverType,
 };
 use walrus_sui::types::Committee;
+use walrus_utils::backoff::ExponentialBackoffState;
 
 use super::{
     committee_service::NodeCommitteeServiceInner,
     node_service::{NodeService, NodeServiceError, Request, Response},
 };
-use crate::{common::active_committees::CommitteeTracker, utils::ExponentialBackoffState};
+use crate::common::active_committees::CommitteeTracker;
 
 pub(super) struct GetAndVerifyMetadata<'a, T> {
     blob_id: BlobId,

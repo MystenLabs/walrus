@@ -11,15 +11,15 @@ use futures::StreamExt;
 use futures_util::stream;
 use tokio::time::MissedTickBehavior;
 use tokio_stream::Stream;
-use walrus_event::{
+use walrus_sui::client::{ReadClient, SuiReadClient};
+
+use super::config::SuiConfig;
+use crate::node::events::{
     event_processor::EventProcessor,
     EventSequenceNumber,
     EventStreamCursor,
     IndexedStreamElement,
 };
-use walrus_sui::client::{ReadClient, SuiReadClient};
-
-use super::config::SuiConfig;
 
 /// The capacity of the event channel.
 pub const EVENT_CHANNEL_CAPACITY: usize = 1024;
@@ -53,7 +53,7 @@ impl SuiSystemEventProvider {
 /// A provider of system events to a storage node.
 #[async_trait]
 pub trait SystemEventProvider: std::fmt::Debug + Sync + Send {
-    /// Return a new stream over [`walrus_event::IndexedStreamElement`]s starting from those
+    /// Return a new stream over [`IndexedStreamElement`]s starting from those
     /// specified by `from`.
     async fn events(
         &self,

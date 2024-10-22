@@ -40,7 +40,7 @@ use self::{
     responses::BlobStoreResult,
     utils::{CompletedReasonWeight, WeightedFutures},
 };
-use crate::{common::active_committees::ActiveCommittees, utils::ExponentialBackoff};
+use crate::common::active_committees::ActiveCommittees;
 
 pub mod cli;
 pub mod responses;
@@ -68,6 +68,7 @@ mod resource;
 
 mod utils;
 pub use utils::string_prefix;
+use walrus_utils::backoff::ExponentialBackoff;
 
 pub mod metrics;
 

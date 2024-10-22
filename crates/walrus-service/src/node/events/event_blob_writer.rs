@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 #![allow(dead_code)]
 
+//! Event blob writer module for writing event blobs to Walrus.
+
 use std::{
     fs,
     fs::{File, OpenOptions},
@@ -22,11 +24,14 @@ use typed_store::{
     Map,
 };
 use walrus_core::{BlobId, Sliver};
-use walrus_event::{EventSequenceNumber, IndexedStreamElement};
 
 use crate::node::{
     errors::StoreSliverError,
-    storage::event_blob::{BlobEntry, EventBlob},
+    events::{
+        event_blob::{BlobEntry, EntryEncoding, EventBlob},
+        EventSequenceNumber,
+        IndexedStreamElement,
+    },
     ServiceState,
     StorageNodeInner,
 };
@@ -48,6 +53,7 @@ struct EventBlobMetadata {
     last_event_index: u64,
 }
 
+/// EventBlobWriter writes events to event blobs.
 #[derive(Debug)]
 pub struct EventBlobWriter {
     /// Root directory path where the event blobs are stored.
@@ -77,6 +83,7 @@ pub struct EventBlobWriter {
 }
 
 impl EventBlobWriter {
+    /// Create a new EventBlobWriter.
     pub fn new(root_dir_path: &Path, node: Arc<StorageNodeInner>) -> Result<Self> {
         if root_dir_path.exists() {
             fs::remove_dir_all(root_dir_path)?;
@@ -127,6 +134,7 @@ impl EventBlobWriter {
         })
     }
 
+    /// Create a new file for the next blob.
     #[cfg(any(test, feature = "test-utils"))]
     fn new_for_testing(
         root_dir_path: PathBuf,
@@ -181,6 +189,7 @@ impl EventBlobWriter {
         })
     }
 
+    /// Create a new file for the next blob.
     fn next_file(dir_path: &Path, magic_bytes: u32, blob_format_version: u32) -> Result<File> {
         let next_file_path = dir_path.join("current_blob");
         let mut file = File::create(&next_file_path)?;
@@ -208,6 +217,7 @@ impl EventBlobWriter {
         Ok(file)
     }
 
+    /// Finalize the current blob.
     fn finalize(&mut self) -> Result<()> {
         self.wbuf
             .write_u64::<BigEndian>(self.start.unwrap_or_default())?;
@@ -227,6 +237,7 @@ impl EventBlobWriter {
         Ok(())
     }
 
+    /// Reset the writer to start writing a new blob.
     fn reset(&mut self) -> Result<()> {
         self.start = None;
         self.end = None;
@@ -240,6 +251,7 @@ impl EventBlobWriter {
         Ok(())
     }
 
+    /// Store the slivers of the blob content.
     async fn store_slivers(&mut self, content: &[u8]) -> Result<BlobId> {
         let blob_encoder = self.node.encoding_config.get_blob_encoder(content)?;
         let (sliver_pairs, blob_metadata) = blob_encoder.encode_with_metadata();
@@ -293,6 +305,8 @@ impl EventBlobWriter {
         Ok(*blob_metadata.blob_id())
     }
 
+    /// Write an event to the current blob. If the event is an end of epoch event or the current
+    /// blob reaches the maximum number of processed sui checkpoints, the current blob is committed
     #[cfg(not(test))]
     async fn cut(&mut self) -> Result<()> {
         self.finalize()?;
@@ -316,6 +330,8 @@ impl EventBlobWriter {
         Ok(())
     }
 
+    /// Write an event to the current blob. If the event is an end of epoch event or the current
+    /// blob reaches the maximum number of processed sui checkpoints, the current blob is committed
     #[cfg(test)]
     async fn cut(&mut self) -> Result<()> {
         self.finalize()?;
@@ -355,6 +371,7 @@ impl EventBlobWriter {
         Ok(())
     }
 
+    /// Update the sequence range of the current blob.
     fn update_sequence_range(&mut self, element: &IndexedStreamElement, element_index: u64) {
         if self.start.is_none() {
             self.start = Some(element.global_sequence_number.checkpoint_sequence_number);
@@ -364,25 +381,29 @@ impl EventBlobWriter {
         self.latest_event_index = Some(element_index);
     }
 
+    /// Write an event to the buffer.
     fn write_event_to_buffer(&mut self, event: &IndexedStreamElement) -> Result<()> {
         if event.is_end_of_checkpoint_marker() {
             return Ok(());
         }
-        let entry = BlobEntry::encode(event, crate::node::storage::event_blob::EntryEncoding::Bcs)?;
+        let entry = BlobEntry::encode(event, EntryEncoding::Bcs)?;
         self.buf_offset += entry.write(&mut self.wbuf)?;
         Ok(())
     }
 
+    /// Commit the current blob.
     pub async fn commit(&mut self) -> Result<()> {
         self.cut().await?;
         self.reset()?;
         Ok(())
     }
 
+    /// Get the latest committed event sequence number.
     pub fn latest_committed_event_sequence_number(&self) -> Option<EventSequenceNumber> {
         self.latest_committed_event_sequence_number.clone()
     }
 
+    /// Get the latest committed event index.
     pub fn latest_committed_event_index(&self) -> Option<u64> {
         self.latest_committed_event_index
     }
@@ -393,11 +414,16 @@ mod tests {
     use std::{fs, path::PathBuf};
 
     use walrus_core::{BlobId, ShardIndex};
-    use walrus_event::{EventStreamElement, IndexedStreamElement};
     use walrus_sui::{test_utils::EventForTesting, types::BlobCertified};
 
     use crate::{
-        node::storage::event_blob_writer::{EventBlobWriter, EventSequenceNumber},
+        node::events::{
+            event_blob::EventBlob,
+            event_blob_writer::EventBlobWriter,
+            EventSequenceNumber,
+            EventStreamElement,
+            IndexedStreamElement,
+        },
         test_utils::StorageNodeHandle,
     };
 
@@ -413,7 +439,7 @@ mod tests {
             .build()
             .await?;
         let mut blob_writer =
-            EventBlobWriter::new_for_testing(dir.clone(), 100, node.storage_node.inner.clone())?;
+            EventBlobWriter::new_for_testing(dir.clone(), 100, node.storage_node.inner().clone())?;
         let event_blob_file_path = dir.join("event_blob");
         if event_blob_file_path.exists() {
             fs::remove_file(event_blob_file_path.clone())?;
@@ -438,7 +464,7 @@ mod tests {
         }
         // Read back the events from the blob
         let file = std::fs::File::open(event_blob_file_path)?;
-        let event_blob = crate::node::storage::event_blob::EventBlob::new(file)?;
+        let event_blob = EventBlob::new(file)?;
         assert_eq!(event_blob.start_checkpoint_sequence_number(), 0);
         assert_eq!(event_blob.end_checkpoint_sequence_number(), 99);
         let events: Vec<_> = event_blob.collect();

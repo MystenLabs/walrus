@@ -43,12 +43,6 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
-use walrus_event::{
-    event_processor::EventProcessor,
-    EventSequenceNumber,
-    EventStreamCursor,
-    IndexedStreamElement,
-};
 use walrus_sdk::client::Client;
 use walrus_sui::{
     client::FixedSystemParameters,
@@ -82,6 +76,12 @@ use crate::{
         config::{EventProviderConfig, StorageNodeConfig},
         contract_service::SystemContractService,
         errors::SyncShardClientError,
+        events::{
+            event_processor::EventProcessor,
+            EventSequenceNumber,
+            EventStreamCursor,
+            IndexedStreamElement,
+        },
         server::{UserServer, UserServerConfig},
         system_events::{EventManager, EventRetentionManager, SystemEventProvider},
         DatabaseConfig,
@@ -357,7 +357,7 @@ impl SimStorageNodeHandle {
         let event_provider: Box<dyn EventManager> = match &config.event_provider_config {
             EventProviderConfig::CheckpointBasedEventProcessor(event_processor_config) => {
                 let event_processor_config = event_processor_config.clone().unwrap_or_else(|| {
-                    walrus_event::EventProcessorConfig::new_with_default_pruning_interval(
+                    crate::node::events::EventProcessorConfig::new_with_default_pruning_interval(
                         sui_config.rpc.clone(),
                     )
                 });
@@ -1664,7 +1664,6 @@ pub mod test_cluster {
     use std::sync::OnceLock;
 
     use tokio::sync::Mutex;
-    use walrus_event::EventProcessorConfig;
     use walrus_sui::{
         client::{SuiContractClient, SuiReadClient},
         test_utils::{
@@ -1682,7 +1681,11 @@ pub mod test_cluster {
     use super::*;
     use crate::{
         client::{self, ClientCommunicationConfig, Config},
-        node::{committee::DefaultNodeServiceFactory, contract_service::SuiSystemContractService},
+        node::{
+            committee::DefaultNodeServiceFactory,
+            contract_service::SuiSystemContractService,
+            events::EventProcessorConfig,
+        },
     };
 
     /// The weight of each storage node in the test cluster.
