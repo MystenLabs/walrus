@@ -116,20 +116,22 @@ use errors::{
     StoreSliverError,
     SyncShardServiceError,
 };
-use events::{
-    event_processor::EventProcessor,
-    EventProcessorConfig,
-    EventStreamCursor,
-    EventStreamElement,
-    IndexedStreamElement,
-};
 
 mod storage;
 pub use storage::{DatabaseConfig, NodeStatus, Storage};
 
 use crate::{
     common::utils::ShardDiff,
-    node::system_events::{EventManager, SuiSystemEventProvider},
+    node::{
+        events::{
+            event_processor::EventProcessor,
+            EventProcessorConfig,
+            EventStreamCursor,
+            EventStreamElement,
+            IndexedStreamElement,
+        },
+        system_events::{EventManager, SuiSystemEventProvider},
+    },
 };
 
 /// Trait for all functionality offered by a storage node.
