@@ -565,13 +565,11 @@ impl StorageNode {
 
                     // if event.event_epoch() < starting_epoch - 1
                     if event.event_epoch() + 1 < epoch_at_start {
-                        let error = anyhow!(
+                        tracing::warn!(
                             "the current epoch ({}) is too far ahead of the event epoch: {}",
                             epoch_at_start,
-                            event.event_epoch(),
+                            event.event_epoch()
                         );
-                        tracing::error!(%error);
-                        return Err(error);
                     }
                 }
             }
