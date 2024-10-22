@@ -51,7 +51,6 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
-use walrus_event::{event_processor::EventProcessor, EventProcessorConfig, IndexedStreamElement};
 use walrus_sdk::api::{
     BlobStatus,
     ServiceHealthInfo,
@@ -116,10 +115,16 @@ use errors::{
 
 mod storage;
 pub use storage::{DatabaseConfig, Storage};
-use walrus_event::{EventStreamCursor, EventStreamElement};
 
 use crate::{
     common::{active_committees::ActiveCommittees, utils::ShardDiff},
+    events::{
+        event_processor::EventProcessor,
+        EventProcessorConfig,
+        EventStreamCursor,
+        EventStreamElement,
+        IndexedStreamElement,
+    },
     node::system_events::{EventManager, SuiSystemEventProvider},
 };
 
@@ -1022,9 +1027,21 @@ impl StorageNode {
 
         Ok(())
     }
+
+    pub(crate) fn inner(&self) -> &Arc<StorageNodeInner> {
+        &self.inner
+    }
 }
 
 impl StorageNodeInner {
+    pub(crate) fn encoding_config(&self) -> &EncodingConfig {
+        &self.encoding_config
+    }
+
+    pub(crate) fn storage(&self) -> &Storage {
+        &self.storage
+    }
+
     fn current_epoch(&self) -> Epoch {
         self.committee_service.get_epoch()
     }

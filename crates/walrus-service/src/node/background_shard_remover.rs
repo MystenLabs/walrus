@@ -8,9 +8,9 @@ use std::{
 
 use walrus_core::ShardIndex;
 use walrus_sui::types::EpochChangeStart;
+use walrus_utils::backoff::{retry, ExponentialBackoff};
 
 use super::StorageNodeInner;
-use crate::utils::{self, ExponentialBackoff};
 
 #[derive(Debug, Clone)]
 pub struct BackgroundShardRemover {
@@ -50,7 +50,7 @@ impl BackgroundShardRemover {
                 shards[0].as_u64(), // Seed the backoff with the shard index.
             );
 
-            let result = utils::retry(backoff, || async {
+            let result = retry(backoff, || async {
                 remover_clone
                     .remove_storage_for_shards(event_element, event_clone.clone(), &shards.clone())
                     .await

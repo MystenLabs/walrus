@@ -86,12 +86,12 @@ url = "2.5.2"
 utoipa = { version = "4.2.3" }
 utoipa-redoc = { version = "4.0.0", features = ["axum"] }
 walrus-core = { path = "crates/walrus-core" }
-walrus-event = { path = "crates/walrus-event" }
 walrus-proc-macros = { path = "crates/walrus-proc-macros" }
 walrus-sdk = { path = "crates/walrus-sdk" }
 walrus-service = { path = "crates/walrus-service" }
 walrus-sui = { path = "crates/walrus-sui" }
 walrus-test-utils = { path = "crates/walrus-test-utils" }
+walrus-utils = { path = "crates/walrus-utils" }
 x509-cert = "0.2.5"
 
 [workspace.lints.rust]

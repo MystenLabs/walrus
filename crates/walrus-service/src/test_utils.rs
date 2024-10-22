@@ -42,12 +42,6 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
-use walrus_event::{
-    event_processor::EventProcessor,
-    EventSequenceNumber,
-    EventStreamCursor,
-    IndexedStreamElement,
-};
 use walrus_sdk::client::Client;
 use walrus_sui::{
     client::FixedSystemParameters,
@@ -69,6 +63,12 @@ use walrus_test_utils::WithTempDir;
 use crate::node::config::{self, SuiConfig};
 use crate::{
     common::active_committees::ActiveCommittees,
+    events::{
+        event_processor::EventProcessor,
+        EventSequenceNumber,
+        EventStreamCursor,
+        IndexedStreamElement,
+    },
     node::{
         committee::{
             BeginCommitteeChangeError,
@@ -1626,7 +1626,6 @@ pub mod test_cluster {
     use std::sync::OnceLock;
 
     use tokio::sync::Mutex;
-    use walrus_event::EventProcessorConfig;
     use walrus_sui::{
         client::{SuiContractClient, SuiReadClient},
         test_utils::{
@@ -1644,6 +1643,7 @@ pub mod test_cluster {
     use super::*;
     use crate::{
         client::{self, ClientCommunicationConfig, Config},
+        events::EventProcessorConfig,
         node::{committee::DefaultNodeServiceFactory, contract_service::SuiSystemContractService},
     };
 

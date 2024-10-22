@@ -41,9 +41,6 @@ mod event_cursor_table;
 pub(super) use event_cursor_table::EventProgress;
 
 mod event_sequencer;
-
-pub mod event_blob;
-pub mod event_blob_writer;
 mod shard;
 
 pub(crate) use shard::{ShardStatus, ShardStorage};

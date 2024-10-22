@@ -1,5 +1,5 @@
 [package]
-name = "walrus-event"
+name = "walrus-utils"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
@@ -15,6 +15,7 @@ futures-util.workspace = true
 integer-encoding.workspace = true
 move-core-types.workspace = true
 prometheus.workspace = true
+rand.workspace = true
 reqwest.workspace = true
 rocksdb.workspace = true
 serde = { workspace = true, features = ["derive"] }

@@ -1,6 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Checkpoint downloader util.
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Debug,
@@ -74,8 +76,8 @@ pub struct ChannelConfig {
     pub result_queue_buffer_factor: usize,
 }
 
-impl ChannelConfig {
-    pub fn default() -> Self {
+impl Default for ChannelConfig {
+    fn default() -> Self {
         Self {
             work_queue_buffer_factor: 3,
             result_queue_buffer_factor: 3,
