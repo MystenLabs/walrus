@@ -13,7 +13,8 @@ use std::{
     num::NonZeroU16,
     path::PathBuf,
     str::FromStr,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, MutexGuard, OnceLock},
+    thread,
 };
 
 use async_trait::async_trait;
@@ -22,11 +23,15 @@ use futures::{stream::FuturesUnordered, StreamExt};
 use prometheus::Registry;
 use sui_types::base_types::ObjectID;
 use tempfile::TempDir;
-use tokio::time::Duration;
+use tokio::{
+    runtime::{Builder, Runtime},
+    task::JoinHandle,
+    time::Duration,
+};
 use tokio_stream::{wrappers::BroadcastStream, Stream};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
-use typed_store::rocks::MetricConf;
+use typed_store::{rocks::MetricConf, Map};
 use walrus_core::{
     encoding::EncodingConfig,
     keys::{NetworkKeyPair, ProtocolKeyPair},
@@ -368,7 +373,9 @@ impl SimStorageNodeHandle {
                         sui_config.rpc,
                         sui_read_client.get_system_package_id(),
                         Duration::from_millis(100),
-                        &config.storage_path,
+                        tempfile::tempdir()
+                            .expect("temporary directory creation must succeed")
+                            .path(),
                         &metrics_registry,
                     )
                     .await?,
@@ -681,18 +688,16 @@ impl StorageNodeHandleBuilder {
         {
             let cloned_cancel_token = cancel_token.clone();
             let cloned_event_processor = event_processor.clone();
-            tokio::spawn(
-                async move {
-                    let status = cloned_event_processor.start(cloned_cancel_token).await;
-                    if let Err(error) = status {
-                        tracing::error!("event processor stopped with error: {:?}", error);
-                        std::process::exit(1);
-                    }
-                }
-                .instrument(
-                    tracing::info_span!("cluster-node", address = %config.rest_api_address),
-                ),
+            spawn_event_processor(
+                cloned_event_processor,
+                cloned_cancel_token,
+                config.rest_api_address.to_string(),
             );
+            wait_for_event_processor_to_start(
+                event_processor.clone(),
+                event_processor.client.clone(),
+            )
+            .await?;
         }
 
         let metrics_registry = Registry::default();
@@ -890,6 +895,62 @@ fn committee_partner(node_config: &StorageNodeTestConfig) -> Option<StorageNodeT
     } else {
         None
     }
+}
+
+#[cfg(not(msim))]
+fn spawn_event_processor(
+    event_processor: EventProcessor,
+    cancellation_token: CancellationToken,
+    rest_api_address: String,
+) -> JoinHandle<()> {
+    get_runtime().spawn(
+        async move {
+            let status = event_processor.start(cancellation_token).await;
+            if let Err(error) = status {
+                tracing::error!("event processor stopped with error: {:?}", error);
+                std::process::exit(1);
+            }
+        }
+        .instrument(tracing::info_span!("cluster-node", address = %rest_api_address)),
+    )
+}
+
+#[cfg(msim)]
+fn spawn_event_processor(
+    event_processor: EventProcessor,
+    cancellation_token: CancellationToken,
+    rest_api_address: String,
+) -> JoinHandle<()> {
+    tokio::task::spawn(
+        async move {
+            let status = event_processor.start(cancellation_token).await;
+            if let Err(error) = status {
+                tracing::error!("event processor stopped with error: {:?}", error);
+                std::process::exit(1);
+            }
+        }
+        .instrument(tracing::info_span!("cluster-node", address = %rest_api_address)),
+    )
+}
+
+/// Returns a runtime that can be used to spawn tasks.
+fn get_runtime() -> MutexGuard<'static, Runtime> {
+    static CLUSTER: OnceLock<std::sync::Mutex<Runtime>> = OnceLock::new();
+    CLUSTER
+        .get_or_init(|| {
+            std::sync::Mutex::new(
+                thread::spawn(move || {
+                    Builder::new_multi_thread()
+                        .enable_all()
+                        .build()
+                        .expect("should be able to build runtime")
+                })
+                .join()
+                .expect("should be able to wait for thread to finish"),
+            )
+        })
+        .lock()
+        .unwrap()
 }
 
 fn create_previous_committee(committee: &Committee) -> Option<Committee> {
@@ -1714,6 +1775,7 @@ pub mod test_cluster {
         default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
             epoch_duration,
             &node_weights,
+            false,
         )
         .await
     }
@@ -1723,6 +1785,7 @@ pub mod test_cluster {
     pub async fn default_setup_with_epoch_duration_generic<T: StorageNodeHandleTrait>(
         epoch_duration: Duration,
         node_weights: &[u16],
+        use_legacy_event_processor: bool,
     ) -> anyhow::Result<(
         Arc<TestClusterHandle>,
         TestCluster<T>,
@@ -1835,12 +1898,21 @@ pub mod test_cluster {
         let event_processor_config = EventProcessorConfig::new_with_default_pruning_interval(
             sui_cluster.cluster().fullnode_handle.rpc_url.clone(),
         );
-        let cluster_builder = setup_event_processors(
-            &event_processor_config,
-            sui_read_client.clone(),
-            cluster_builder,
-        )
-        .await?;
+        let cluster_builder = if use_legacy_event_processor {
+            setup_legacy_event_processors(
+                &event_processor_config,
+                sui_read_client.clone(),
+                cluster_builder,
+            )
+            .await?
+        } else {
+            setup_checkpoint_based_event_processors(
+                &event_processor_config,
+                sui_read_client.clone(),
+                cluster_builder,
+            )
+            .await?
+        };
 
         let cluster_builder = cluster_builder
             .with_system_context(system_ctx.clone())
@@ -1875,46 +1947,31 @@ pub mod test_cluster {
         Ok((sui_cluster, cluster, client))
     }
 
-    #[cfg(msim)]
-    async fn setup_event_processors(
+    async fn setup_checkpoint_based_event_processors(
         event_processor_config: &EventProcessorConfig,
         sui_read_client: SuiReadClient,
         test_cluster_builder: TestClusterBuilder,
     ) -> anyhow::Result<TestClusterBuilder> {
-        use rand::{Rng, SeedableRng};
-        // Probabilistically choose event processor or event provider
-        let mut rng = rand::prelude::StdRng::from_entropy();
-        if rng.gen_bool(0.5) {
-            let mut event_processors = vec![];
-            for _ in test_cluster_builder.storage_node_test_configs().iter() {
-                let event_processor = EventProcessor::new(
-                    event_processor_config,
-                    event_processor_config.rest_url.clone(),
-                    sui_read_client.get_system_package_id(),
-                    Duration::from_millis(100),
-                    tempfile::tempdir()
-                        .expect("temporary directory creation must succeed")
-                        .path(),
-                    &Registry::default(),
-                )
-                .await?;
-                event_processors.push(event_processor.clone());
-            }
-            let res =
-                test_cluster_builder.with_individual_system_event_providers(&event_processors);
-            Ok(res)
-        } else {
-            let event_provider = crate::node::system_events::SuiSystemEventProvider::new(
-                sui_read_client.clone(),
+        let mut event_processors = vec![];
+        for _ in test_cluster_builder.storage_node_test_configs().iter() {
+            let event_processor = EventProcessor::new(
+                event_processor_config,
+                event_processor_config.rest_url.clone(),
+                sui_read_client.get_system_package_id(),
                 Duration::from_millis(100),
-            );
-            let res = test_cluster_builder.with_system_event_providers(event_provider);
-            Ok(res)
+                tempfile::tempdir()
+                    .expect("temporary directory creation must succeed")
+                    .path(),
+                &Registry::default(),
+            )
+            .await?;
+            event_processors.push(event_processor.clone());
         }
+        let res = test_cluster_builder.with_individual_system_event_providers(&event_processors);
+        Ok(res)
     }
 
-    #[cfg(not(msim))]
-    async fn setup_event_processors(
+    async fn setup_legacy_event_processors(
         _event_processor_config: &EventProcessorConfig,
         sui_read_client: SuiReadClient,
         test_cluster_builder: TestClusterBuilder,
@@ -1964,6 +2021,22 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
         },
         temp_dir,
     }
+}
+
+async fn wait_for_event_processor_to_start(
+    event_processor: EventProcessor,
+    client: sui_rest_api::Client,
+) -> anyhow::Result<()> {
+    // Wait until event processor is actually running and downloaded a few checkpoints
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    let checkpoint = client.get_latest_checkpoint().await?;
+    while let Some(event_processor_checkpoint) = event_processor.checkpoint_store.get(&())? {
+        if event_processor_checkpoint.inner().sequence_number >= checkpoint.sequence_number {
+            break;
+        }
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
+    Ok(())
 }
 
 /// Returns an empty storage, with the column families for the specified shards already created.

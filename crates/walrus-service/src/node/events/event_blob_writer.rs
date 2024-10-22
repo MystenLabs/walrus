@@ -253,10 +253,10 @@ impl EventBlobWriter {
 
     /// Store the slivers of the blob content.
     async fn store_slivers(&mut self, content: &[u8]) -> Result<BlobId> {
-        let blob_encoder = self.node.encoding_config.get_blob_encoder(content)?;
+        let blob_encoder = self.node.encoding_config().get_blob_encoder(content)?;
         let (sliver_pairs, blob_metadata) = blob_encoder.encode_with_metadata();
         self.node
-            .storage
+            .storage()
             .put_verified_metadata(&blob_metadata)
             .context("unable to store metadata")?;
         // TODO: Once shard assignment per storage node will be read from walrus

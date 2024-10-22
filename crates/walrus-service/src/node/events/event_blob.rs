@@ -16,7 +16,6 @@ use sui_types::messages_checkpoint::CheckpointSequenceNumber;
 use walrus_core::BlobId;
 
 use crate::node::events::IndexedStreamElement;
-
 /// The encoding of an entry in the blob file.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum EntryEncoding {

@@ -1098,6 +1098,14 @@ impl StorageNode {
 }
 
 impl StorageNodeInner {
+    pub(crate) fn encoding_config(&self) -> &EncodingConfig {
+        &self.encoding_config
+    }
+
+    pub(crate) fn storage(&self) -> &Storage {
+        &self.storage
+    }
+
     fn current_epoch(&self) -> Epoch {
         self.committee_service.get_epoch()
     }
