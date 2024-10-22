@@ -613,7 +613,7 @@ impl ShardStorage {
             batch.write()?;
 
             metrics::with_label!(
-                node.metrics.sync_shard_sync_blob_total,
+                node.metrics.sync_shard_sync_sliver_total,
                 &self.id.to_string()
             )
             .inc_by(fetched_slivers.len() as u64);
@@ -820,11 +820,13 @@ impl ShardStorage {
             .to_pair_index(node.encoding_config.n_shards(), &blob_id);
 
         metrics::with_label!(
-            node.metrics.sync_shard_recover_blob_total,
+            node.metrics.sync_shard_recover_sliver_total,
             &self.id.to_string()
         )
         .inc();
 
+        // TODO(#1095): we need to make sure that we don't recover expired/deleted/invalidated blobs
+        // here. Otherwise, this may be blocked forever.
         let result = node
             .committee_service
             .recover_sliver(metadata.into(), sliver_id, sliver_type, epoch)
@@ -833,7 +835,7 @@ impl ShardStorage {
         match result {
             Ok(sliver) => {
                 metrics::with_label!(
-                    node.metrics.sync_shard_recover_blob_success_total,
+                    node.metrics.sync_shard_recover_sliver_success_total,
                     &self.id.to_string()
                 )
                 .inc();
@@ -842,7 +844,7 @@ impl ShardStorage {
             Err(inconsistency_proof) => {
                 tracing::debug!("received an inconsistency proof when recovering sliver");
                 metrics::with_label!(
-                    node.metrics.sync_shard_recover_blob_error_total,
+                    node.metrics.sync_shard_recover_sliver_error_total,
                     &self.id.to_string()
                 )
                 .inc();
