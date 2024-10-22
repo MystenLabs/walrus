@@ -35,7 +35,6 @@ use sui_types::{
     SYSTEM_PACKAGE_ADDRESSES,
 };
 use tokio::{
-    join,
     select,
     sync::Mutex,
     time::{sleep, Instant},
@@ -174,11 +173,15 @@ impl EventProcessor {
     pub async fn start(&self, cancellation_token: CancellationToken) -> Result<(), anyhow::Error> {
         let pruning_task = self.start_pruning_events(cancellation_token.clone());
         let tailing_task = self.start_tailing_checkpoints(cancellation_token.clone());
-        let (pruning_result, tailing_result) = join!(pruning_task, tailing_task);
-
-        match (pruning_result, tailing_result) {
-            (Ok(_), Ok(_)) => Ok(()),
-            (Err(e), _) | (_, Err(e)) => Err(e),
+        select! {
+            pruning_result = pruning_task => {
+                cancellation_token.cancel();
+                pruning_result
+            }
+            tailing_result = tailing_task => {
+                cancellation_token.cancel();
+                tailing_result
+            }
         }
     }
 
