@@ -489,6 +489,8 @@ impl ShardDiff {
     /// Returns a new `ShardDiff` when moving from the allocation in
     /// `committees.previous_committee()` to `committees.current_committee()` for the node
     /// identified by the provided public key.
+    /// `exist` is the list of shards that the node currently holds, which is used to find out
+    /// the shards that are no longer needed in the node and can be removed.
     pub fn diff_previous(
         committees: &ActiveCommittees,
         exist: &[ShardIndex],
@@ -737,7 +739,7 @@ pub fn init_scoped_tracing_subscriber() -> Result<DefaultGuard> {
 #[cfg(test)]
 mod tests {
 
-    use walrus_test_utils::param_test;
+    use walrus_test_utils::{assert_unordered_eq, param_test};
 
     use super::*;
 
@@ -839,63 +841,51 @@ mod tests {
         test_parse_various!(pebi, "Pi", 1024 * 1024 * 1024 * 1024 * 1024u64);
     }
 
-    #[test]
-    fn test_shard_diff() {
-        let mut result = ShardDiff::diff(
-            &[],
-            &[ShardIndex(1), ShardIndex(2), ShardIndex(3), ShardIndex(4)],
-            &[],
-        );
-        result.lost.sort();
-        result.gained.sort();
-        result.unchanged.sort();
-        result.removed.sort();
-        assert_eq!(
-            result,
-            ShardDiff {
-                lost: vec![],
-                gained: vec![ShardIndex(1), ShardIndex(2), ShardIndex(3), ShardIndex(4)],
-                unchanged: vec![],
-                removed: vec![],
-            }
-        );
-
-        let mut result = ShardDiff::diff(
-            &[ShardIndex(1), ShardIndex(2), ShardIndex(3), ShardIndex(4)],
-            &[ShardIndex(2), ShardIndex(3), ShardIndex(4), ShardIndex(5)],
-            &[],
-        );
-        result.lost.sort();
-        result.gained.sort();
-        result.unchanged.sort();
-        result.removed.sort();
-        assert_eq!(
-            result,
-            ShardDiff {
-                lost: vec![ShardIndex(1)],
-                gained: vec![ShardIndex(5)],
-                unchanged: vec![ShardIndex(2), ShardIndex(3), ShardIndex(4)],
-                removed: vec![],
-            }
-        );
-
-        let mut result = ShardDiff::diff(
-            &[ShardIndex(3), ShardIndex(4), ShardIndex(5)],
-            &[ShardIndex(6), ShardIndex(7), ShardIndex(4)],
-            &[ShardIndex(1), ShardIndex(2)],
-        );
-        result.lost.sort();
-        result.gained.sort();
-        result.unchanged.sort();
-        result.removed.sort();
-        assert_eq!(
-            result,
-            ShardDiff {
-                lost: vec![ShardIndex(3), ShardIndex(5)],
-                gained: vec![ShardIndex(6), ShardIndex(7)],
-                unchanged: vec![ShardIndex(4)],
-                removed: vec![ShardIndex(1), ShardIndex(2)],
-            }
-        );
+    param_test! {
+        test_shard_diff: [
+            only_gain: (
+                ShardDiff::diff(
+                    &[],
+                    &[ShardIndex(1), ShardIndex(2), ShardIndex(3), ShardIndex(4)],
+                    &[],
+                ),
+                ShardDiff {
+                    gained: vec![ShardIndex(1), ShardIndex(2), ShardIndex(3), ShardIndex(4)],
+                    ..Default::default()
+                },
+            ),
+            gained_and_lost: (
+                ShardDiff::diff(
+                    &[ShardIndex(1), ShardIndex(2), ShardIndex(3), ShardIndex(4)],
+                    &[ShardIndex(2), ShardIndex(3), ShardIndex(4), ShardIndex(5)],
+                    &[],
+                ),
+                ShardDiff {
+                    lost: vec![ShardIndex(1)],
+                    gained: vec![ShardIndex(5)],
+                    unchanged: vec![ShardIndex(2), ShardIndex(3), ShardIndex(4)],
+                    removed: vec![],
+                },
+            ),
+            gained_lost_and_removed: (
+                ShardDiff::diff(
+                    &[ShardIndex(3), ShardIndex(4), ShardIndex(5)],
+                    &[ShardIndex(6), ShardIndex(7), ShardIndex(4)],
+                    &[ShardIndex(1), ShardIndex(2)],
+                ),
+                ShardDiff {
+                    lost: vec![ShardIndex(3), ShardIndex(5)],
+                    gained: vec![ShardIndex(6), ShardIndex(7)],
+                    unchanged: vec![ShardIndex(4)],
+                    removed: vec![ShardIndex(1), ShardIndex(2)],
+                },
+            ),
+        ]
+    }
+    fn test_shard_diff(computed_diff: ShardDiff, expected_result: ShardDiff) {
+        assert_unordered_eq!(computed_diff.lost, expected_result.lost);
+        assert_unordered_eq!(computed_diff.gained, expected_result.gained);
+        assert_unordered_eq!(computed_diff.unchanged, expected_result.unchanged);
+        assert_unordered_eq!(computed_diff.removed, expected_result.removed);
     }
 }
