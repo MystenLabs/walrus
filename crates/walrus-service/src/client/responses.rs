@@ -31,6 +31,7 @@ use walrus_core::{
     Epoch,
     NetworkPublicKey,
     PublicKey,
+    ShardIndex,
 };
 use walrus_sdk::api::BlobStatus;
 use walrus_sui::{
@@ -258,6 +259,7 @@ pub(crate) struct StorageNodeInfo {
     pub(crate) next_epoch_public_key: Option<PublicKey>,
     pub(crate) network_public_key: NetworkPublicKey,
     pub(crate) n_shards: usize,
+    pub(crate) shard_ids: Vec<ShardIndex>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -311,6 +313,7 @@ impl From<StorageNode> for StorageNodeInfo {
             next_epoch_public_key,
             network_public_key,
             n_shards: shard_ids.len(),
+            shard_ids,
         }
     }
 }
