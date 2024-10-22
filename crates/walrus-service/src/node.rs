@@ -713,6 +713,7 @@ impl StorageNode {
 
         if self.inner.storage.is_stored_at_all_shards(&event.blob_id)?
             || self.inner.storage.is_invalid(&event.blob_id)?
+            || self.inner.current_epoch() >= event.end_epoch
         {
             self.inner
                 .mark_event_completed(event_index, &event.event_id)?;
@@ -1544,6 +1545,7 @@ mod tests {
         tests::{populated_storage, WhichSlivers, BLOB_ID, OTHER_SHARD_INDEX, SHARD_INDEX},
         ShardStatus,
     };
+    use sui_types::base_types::ObjectID;
     use system_events::SystemEventProvider;
     use tokio::sync::{broadcast::Sender, Mutex};
     use walrus_core::{
@@ -2071,14 +2073,9 @@ mod tests {
         LOCK.get_or_init(Mutex::default)
     }
 
-    async fn cluster_with_partially_stored_blob<'a, F>(
+    async fn cluster_at_epoch1_without_blobs(
         assignment: &[&[u16]],
-        blob: &'a [u8],
-        store_at_shard: F,
-    ) -> TestResult<(TestCluster, Sender<ContractEvent>, EncodedBlob)>
-    where
-        F: FnMut(&ShardIndex, SliverType) -> bool,
-    {
+    ) -> TestResult<(TestCluster, Sender<ContractEvent>)> {
         let events = Sender::new(48);
 
         let cluster = {
@@ -2090,6 +2087,19 @@ mod tests {
                 .build()
                 .await?
         };
+
+        Ok((cluster, events))
+    }
+
+    async fn cluster_with_partially_stored_blob<'a, F>(
+        assignment: &[&[u16]],
+        blob: &'a [u8],
+        store_at_shard: F,
+    ) -> TestResult<(TestCluster, Sender<ContractEvent>, EncodedBlob)>
+    where
+        F: FnMut(&ShardIndex, SliverType) -> bool,
+    {
+        let (cluster, events) = cluster_at_epoch1_without_blobs(assignment).await?;
 
         let config = cluster.encoding_config();
         let blob_details = EncodedBlob::new(blob, config);
@@ -2106,17 +2116,7 @@ mod tests {
         blobs: &[&'a [u8]],
         initial_epoch: Epoch,
     ) -> TestResult<(TestCluster, Sender<ContractEvent>, Vec<EncodedBlob>)> {
-        let events = Sender::new(48);
-
-        let cluster = {
-            // Lock to avoid race conditions.
-            let _lock = global_test_lock().lock().await;
-            TestCluster::<StorageNodeHandle>::builder()
-                .with_shard_assignment(assignment)
-                .with_system_event_providers(events.clone())
-                .build()
-                .await?
-        };
+        let (cluster, events) = cluster_at_epoch1_without_blobs(assignment).await?;
 
         let config = cluster.encoding_config();
         let mut details = Vec::new();
@@ -2299,6 +2299,57 @@ mod tests {
             SliverType::Secondary => pair_to_sync.secondary.clone().into(),
         };
         assert_eq!(synced_sliver, expected);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn does_not_start_blob_sync_for_already_expired_blob() -> TestResult {
+        let shards: &[&[u16]] = &[&[1], &[0, 2, 3, 4]];
+
+        let (cluster, events) = cluster_at_epoch1_without_blobs(shards).await?;
+        let node = &cluster.nodes[0];
+
+        // Register and certify an already expired blob.
+        let object_id = ObjectID::random();
+        let event_id = event_id_for_testing();
+        events.send(
+            BlobRegistered {
+                epoch: 1,
+                blob_id: BLOB_ID,
+                end_epoch: 1,
+                deletable: false,
+                object_id,
+                event_id,
+                size: 0,
+                encoding_type: walrus_core::EncodingType::RedStuff,
+            }
+            .into(),
+        )?;
+        events.send(
+            BlobCertified {
+                epoch: 1,
+                blob_id: BLOB_ID,
+                end_epoch: 1,
+                deletable: false,
+                object_id,
+                is_extension: false,
+                event_id,
+            }
+            .into(),
+        )?;
+
+        // Make sure the node actually saw and started processing the event.
+        retry_until_success_or_timeout(TIMEOUT, || async {
+            node.storage_node
+                .inner
+                .storage
+                .get_blob_info(&BLOB_ID)?
+                .ok_or(anyhow!("blob info not updated"))
+        })
+        .await?;
+
+        assert_eq!(node.storage_node.blob_sync_handler.cancel_all().await?, 0);
 
         Ok(())
     }
