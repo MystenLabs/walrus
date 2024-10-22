@@ -352,7 +352,7 @@ impl ParallelCheckpointDownloaderInner {
         client: &Client,
     ) -> Result<u64> {
         let Ok(Some(current_checkpoint)) = checkpoint_store.get(&()) else {
-            return Err(anyhow!("Failed to fetch current checkpoint"));
+            return Err(anyhow!("Failed to get current checkpoint"));
         };
         let latest_checkpoint = client.get_latest_checkpoint().await?;
         let current_lag =

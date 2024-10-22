@@ -4,27 +4,19 @@
 //! Service functionality for downloading and processing events from the full node.
 
 use std::{
+    cmp::Ordering,
+    fmt::Debug,
     fs::File,
     io::{BufReader, BufWriter},
     time::Duration,
 };
 
-use anyhow::{anyhow, bail};
+use anyhow::bail;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
 use sui_rpc_api::Client;
-use sui_sdk::{
-    rpc_types::{SuiObjectDataOptions, SuiTransactionBlockResponseOptions},
-    SuiClient,
-};
-use sui_types::{
-    base_types::ObjectID,
-    committee::Committee,
-    event::EventID,
-    messages_checkpoint::{CheckpointSequenceNumber, VerifiedCheckpoint},
-    sui_serde::BigInt,
-};
-use walrus_core::BlobId;
+use sui_types::{event::EventID, messages_checkpoint::CheckpointSequenceNumber};
+use walrus_core::{BlobId, Epoch};
 use walrus_sui::types::{BlobEvent, ContractEvent};
 use walrus_utils::checkpoint_downloader::AdaptiveDownloaderConfig;
 
@@ -41,6 +33,13 @@ pub struct EventProcessorConfig {
     pub pruning_interval: Duration,
     /// Configuration options for the pipelined checkpoint fetcher.
     pub adaptive_downloader_config: Option<AdaptiveDownloaderConfig>,
+    /// Minimum checkpoint lag threshold for event blob based catch-up.
+    ///
+    /// Specifies the minimum number of checkpoints the system must be behind
+    /// the latest checkpoint before initiating catch-up using event blobs.
+    /// This helps balance between catchup for small lags using checkpoints vs
+    /// using event streams for longer checkpoint lags.
+    pub event_stream_catchup_min_checkpoint_lag: u64,
 }
 
 impl EventProcessorConfig {
@@ -50,6 +49,7 @@ impl EventProcessorConfig {
             rest_url,
             pruning_interval: Duration::from_secs(3600),
             adaptive_downloader_config: Some(AdaptiveDownloaderConfig::default()),
+            event_stream_catchup_min_checkpoint_lag: 20_000,
         }
     }
 
@@ -59,17 +59,17 @@ impl EventProcessorConfig {
     }
 }
 
-/// The sequence number of an event in the event stream. This is a combination of the sequence
+/// The position of an event in the event stream. This is a combination of the sequence
 /// number of the Sui checkpoint the event belongs to and the index of the event in the checkpoint.
 #[derive(Eq, PartialEq, Default, Clone, Debug, Serialize, Deserialize)]
-pub struct EventSequenceNumber {
+pub struct CheckpointEventPosition {
     /// The sequence number of the Sui checkpoint an event belongs to.
     pub checkpoint_sequence_number: CheckpointSequenceNumber,
     /// Index of the event in the checkpoint.
     pub counter: u64,
 }
 
-impl EventSequenceNumber {
+impl CheckpointEventPosition {
     /// Creates a new event sequence number.
     pub fn new(checkpoint_sequence_number: CheckpointSequenceNumber, counter: u64) -> Self {
         Self {
@@ -85,12 +85,13 @@ impl EventSequenceNumber {
         wbuf.write_u64::<BigEndian>(self.counter)?;
         Ok(())
     }
+
     /// Reads an event ID from the given buffer.
     #[allow(dead_code)]
-    pub(crate) fn read(rbuf: &mut BufReader<File>) -> anyhow::Result<EventSequenceNumber> {
+    pub(crate) fn read(rbuf: &mut BufReader<File>) -> anyhow::Result<CheckpointEventPosition> {
         let sequence = rbuf.read_u64::<BigEndian>()?;
         let counter = rbuf.read_u64::<BigEndian>()?;
-        Ok(EventSequenceNumber::new(sequence, counter))
+        Ok(CheckpointEventPosition::new(sequence, counter))
     }
 }
 
@@ -132,20 +133,23 @@ impl EventStreamElement {
 
 /// An indexed element in the event stream.
 #[derive(Eq, PartialEq, Clone, Debug, Serialize, Deserialize)]
-pub struct IndexedStreamElement {
+pub struct PositionedStreamEvent {
     /// The walrus Blob event or a marker event.
     pub element: EventStreamElement,
     /// Unique identifier for the element within the overall sequence.
-    pub global_sequence_number: EventSequenceNumber,
+    pub checkpoint_event_position: CheckpointEventPosition,
 }
 
-impl IndexedStreamElement {
+impl PositionedStreamEvent {
     /// Creates a new indexed stream element.
     #[allow(dead_code)]
-    pub fn new(contract_event: ContractEvent, event_sequence_number: EventSequenceNumber) -> Self {
+    pub fn new(
+        contract_event: ContractEvent,
+        checkpoint_event_position: CheckpointEventPosition,
+    ) -> Self {
         Self {
             element: EventStreamElement::ContractEvent(contract_event),
-            global_sequence_number: event_sequence_number,
+            checkpoint_event_position,
         }
     }
 
@@ -157,7 +161,7 @@ impl IndexedStreamElement {
     ) -> Self {
         Self {
             element: EventStreamElement::CheckpointBoundary,
-            global_sequence_number: EventSequenceNumber::new(sequence_number, counter),
+            checkpoint_event_position: CheckpointEventPosition::new(sequence_number, counter),
         }
     }
 
@@ -173,8 +177,105 @@ impl IndexedStreamElement {
     }
 }
 
+/// An indexed element in the event stream with an index that points to the element.
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct IndexedStreamEvent {
+    /// The indexed stream element.
+    pub element: PositionedStreamEvent,
+    /// The index of the element in the event stream.
+    pub index: u64,
+}
+
+impl IndexedStreamEvent {
+    /// Creates a new indexed stream element with a cursor.
+    pub fn new(element: PositionedStreamEvent, index: u64) -> Self {
+        Self { element, index }
+    }
+}
+
+/// An indexed element in the event stream with an initialization state.
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct StreamEventWithInitState {
+    /// The indexed stream element.
+    pub element: PositionedStreamEvent,
+    /// Init state required to initialize event blob writer and storage node's event tracking.
+    pub init_state: Option<InitState>,
+}
+
+impl StreamEventWithInitState {
+    /// Creates a new indexed stream element with a cursor.
+    pub fn new(element: PositionedStreamEvent, init_state: Option<InitState>) -> Self {
+        Self {
+            element,
+            init_state,
+        }
+    }
+}
+
+/// State that is needed to initialize event blob writer and storage node's event tracking.
+/// This struct contains essential information required to start processing of events for blob
+/// writing and processing:
+///
+/// - The ID of the previous written event blob
+/// - The cursor pointing to the next event to be processed
+/// - The current Walrus epoch of the event stream
+///
+/// InitState is like a snapshot/summary/checkpoint of all previous events at different points in
+/// the event stream. Every time we download an event blob during node startup, we store an
+/// InitState entry in our database. InitState serves two critical purposes - it helps both the
+/// event blob writer and storage node initialize correctly and maintain event continuity given that
+/// some initial event blobs may have expired (due to MAX_EPOCHS_AHEAD limitation).
+///
+/// For example: if there are total 1000 event blobs each containing 5 events that were generated
+/// so far, and first 100 blobs have expired - a new node joining the network will bootstrap its
+/// event db starting from event blob 101 with event index of the first event in its db being 500.
+/// The reason we need this info because:
+///
+/// For Event Blob Writer:
+/// - Needs to know how to start writing new blobs when joining the network
+///   Uses InitState to:
+/// - Get prev_blob_id to properly chain new blobs to existing ones
+/// - Even if starting at event 500, needs to link to the blob that contained events [495, 499]
+/// - Know which epoch it's starting in
+/// - Ensures blob metadata is correct for that epoch
+///
+/// For Storage Node:
+/// - Needs to know how to handle events when some early events aren't available
+///   Uses InitState to:
+/// - Recognize legitimate gaps in early events
+/// - If starting at event 500, knows events [0, 499] are intentionally missing
+/// - Can mark events [0, 499] as "processed" to prevent blocking
+/// - Maintain proper event sequencing
+/// - Won't wait forever for events that will never arrive (like [0, 499])
+/// - Can still process new events correctly
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct InitState {
+    /// The blob ID of the previous event blob.
+    pub prev_blob_id: BlobId,
+    /// The cursor that points to the current element in the event stream.
+    pub event_cursor: EventStreamCursor,
+    /// The epoch of the event stream.
+    pub epoch: Epoch,
+}
+
+impl InitState {
+    /// This creates a new initialization state for event blob writing.
+    pub fn new(
+        prev_blob_id: BlobId,
+        prev_event_id: Option<EventID>,
+        event_index: u64,
+        epoch: Epoch,
+    ) -> Self {
+        Self {
+            prev_blob_id,
+            event_cursor: EventStreamCursor::new(prev_event_id, event_index),
+            epoch,
+        }
+    }
+}
+
 /// A cursor that points to a specific element in the event stream.
-#[derive(Debug, Clone)]
+#[derive(Default, Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct EventStreamCursor {
     /// The event ID of the event the cursor points to.
     pub event_id: Option<EventID>,
@@ -192,46 +293,16 @@ impl EventStreamCursor {
     }
 }
 
-/// Returns the next checkpoint sequence number.
-pub async fn get_bootstrap_committee_and_checkpoint(
-    sui_client: &SuiClient,
-    client: Client,
-    system_pkg_id: ObjectID,
-) -> anyhow::Result<(Committee, VerifiedCheckpoint)> {
-    let object = sui_client
-        .read_api()
-        .get_object_with_options(
-            system_pkg_id,
-            SuiObjectDataOptions::new()
-                .with_bcs()
-                .with_type()
-                .with_previous_transaction(),
-        )
-        .await?;
-    let txn = sui_client
-        .read_api()
-        .get_transaction_with_options(
-            object
-                .data
-                .ok_or(anyhow!("No object data"))?
-                .previous_transaction
-                .ok_or(anyhow!("No transaction data"))?,
-            SuiTransactionBlockResponseOptions::new(),
-        )
-        .await?;
-    let checkpoint_data = client
-        .get_full_checkpoint(txn.checkpoint.ok_or(anyhow!("No checkpoint data"))?)
-        .await?;
-    let sui_committee = sui_client
-        .governance_api()
-        .get_committee_info(Some(BigInt::from(checkpoint_data.checkpoint_summary.epoch)))
-        .await?;
-    let committee = Committee::new(
-        sui_committee.epoch,
-        sui_committee.validators.into_iter().collect(),
-    );
-    let verified_checkpoint = VerifiedCheckpoint::new_unchecked(checkpoint_data.checkpoint_summary);
-    Ok((committee, verified_checkpoint))
+impl PartialOrd for EventStreamCursor {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for EventStreamCursor {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.element_index.cmp(&other.element_index)
+    }
 }
 
 /// Checks if the full node provides the required REST endpoint for event processing.

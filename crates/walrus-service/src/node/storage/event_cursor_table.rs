@@ -85,6 +85,20 @@ impl EventCursorTable {
         (COLUMN_FAMILY_NAME, options)
     }
 
+    pub fn reposition_event_cursor(
+        &self,
+        cursor: EventID,
+        next_index: u64,
+    ) -> Result<(), TypedStoreError> {
+        self.inner.insert(&CURSOR_KEY, &(cursor, next_index))?;
+        self.persisted_event_count
+            .store(next_index, Ordering::SeqCst);
+        *self.event_queue.lock().unwrap() =
+            EventSequencer::continue_from(next_index.try_into().expect("64-bit architecture"));
+
+        Ok(())
+    }
+
     pub fn get_sequentially_processed_event_count(&self) -> Result<u64, TypedStoreError> {
         let entry = self.inner.get(&CURSOR_KEY)?;
         Ok(entry.map_or(0, |(_, count)| count))

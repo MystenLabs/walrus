@@ -3,7 +3,7 @@
 
 //! Walrus events observed by the storage node.
 
-use std::{any::Any, fmt::Debug, sync::Arc, thread, time::Duration};
+use std::{any::Any, fmt::Debug, future::ready, pin::Pin, sync::Arc, thread, time::Duration};
 
 use anyhow::Error;
 use async_trait::async_trait;
@@ -11,7 +11,7 @@ use futures::StreamExt;
 use futures_util::stream;
 use sui_types::{digests::TransactionDigest, event::EventID};
 use tokio::time::MissedTickBehavior;
-use tokio_stream::Stream;
+use tokio_stream::{wrappers::IntervalStream, Stream};
 use tracing::Level;
 use walrus_sui::client::{ReadClient, SuiReadClient};
 
@@ -19,9 +19,10 @@ use super::{config::SuiConfig, metrics, StorageNodeInner, STATUS_PENDING, STATUS
 use crate::node::{
     events::{
         event_processor::EventProcessor,
-        EventSequenceNumber,
+        CheckpointEventPosition,
         EventStreamCursor,
-        IndexedStreamElement,
+        InitState,
+        PositionedStreamEvent,
     },
     storage::EventProgress,
 };
@@ -184,12 +185,28 @@ impl SuiSystemEventProvider {
 /// A provider of system events to a storage node.
 #[async_trait]
 pub trait SystemEventProvider: std::fmt::Debug + Sync + Send {
-    /// Return a new stream over [`IndexedStreamElement`]s starting from those
+    /// Return a new stream over [`PositionedStreamEvent`]s starting from those
     /// specified by `from`.
     async fn events(
         &self,
-        cursor: EventStreamCursor,
-    ) -> Result<Box<dyn Stream<Item = IndexedStreamElement> + Send + Sync + 'life0>, anyhow::Error>;
+        from: EventStreamCursor,
+    ) -> Result<Box<dyn Stream<Item = PositionedStreamEvent> + Send + Sync + 'life0>, Error>;
+
+    /// Returns the state that is required to initialize the event blob writer and storage node's
+    /// event tracking system when requesting an event stream starting from event cursor `from` via
+    /// [`Self::events`].
+    ///
+    /// The returned value is `None` if the event stream starts from `from` (i.e., no special
+    /// initialization is required). Otherwise, the returned value is `Some(init_state)`, and the
+    /// event stream starts from an event cursor `actual_from` that is different from `from` (and
+    /// `actual_from` > `from`). This happens when the local event DB is initialized via event blobs
+    /// and older event blobs are expired (i.e., the first event in the local event DB is not the
+    /// first event that was emitted by the system contract and its event index > 0) but upon first
+    /// time initialization of storage node, the event stream is requested to start from event
+    /// cursor 0.
+    async fn init_state(&self, from: EventStreamCursor)
+        -> Result<Option<InitState>, anyhow::Error>;
+
     /// Return a reference to this provider as a [`dyn Any`].
     fn as_any(&self) -> &dyn Any;
 }
@@ -210,16 +227,23 @@ impl SystemEventProvider for SuiSystemEventProvider {
     async fn events(
         &self,
         cursor: EventStreamCursor,
-    ) -> Result<Box<dyn Stream<Item = IndexedStreamElement> + Send + Sync + 'life0>, anyhow::Error>
+    ) -> Result<Box<dyn Stream<Item = PositionedStreamEvent> + Send + Sync + 'life0>, anyhow::Error>
     {
         tracing::info!(?cursor, "resuming from event");
         let events = self
             .read_client
             .event_stream(self.polling_interval, cursor.event_id)
             .await?;
-        let event_stream =
-            events.map(|event| IndexedStreamElement::new(event, EventSequenceNumber::new(0, 0)));
+        let event_stream = events
+            .map(|event| PositionedStreamEvent::new(event, CheckpointEventPosition::new(0, 0)));
         Ok(Box::new(event_stream))
+    }
+
+    async fn init_state(
+        &self,
+        _from: EventStreamCursor,
+    ) -> Result<Option<InitState>, anyhow::Error> {
+        Ok(None)
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -243,7 +267,7 @@ impl SystemEventProvider for EventProcessor {
         &'life0 self,
         cursor: EventStreamCursor,
     ) -> anyhow::Result<
-        Box<dyn Stream<Item = IndexedStreamElement> + Send + Sync + 'life0>,
+        Box<dyn Stream<Item = PositionedStreamEvent> + Send + Sync + 'life0>,
         anyhow::Error,
     > {
         let mut interval = tokio::time::interval(self.event_polling_interval);
@@ -254,7 +278,6 @@ impl SystemEventProvider for EventProcessor {
                 interval.tick().await;
                 let events = self
                     .poll(element_index)
-                    .await
                     .inspect_err(|error| tracing::error!(?error, "failed to poll event stream"))
                     .ok()?;
                 // Update the index such that the next future continues the sequence.
@@ -264,6 +287,17 @@ impl SystemEventProvider for EventProcessor {
         )
         .flatten();
         Ok(Box::new(event_stream))
+    }
+
+    async fn init_state(&self, cursor: EventStreamCursor) -> Result<Option<InitState>, Error> {
+        let interval = tokio::time::interval(self.event_polling_interval);
+        let stream = IntervalStream::new(interval)
+            .then(move |_| ready(self.poll_next(cursor.element_index)))
+            .filter_map(|res| async move { res.ok().flatten() })
+            .map(|element| element.init_state);
+
+        let mut pinned_stream: Pin<Box<dyn Stream<Item = _> + Send>> = Box::pin(stream);
+        Ok(pinned_stream.next().await.flatten())
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -290,9 +324,17 @@ impl SystemEventProvider for Arc<EventProcessor> {
     async fn events(
         &self,
         cursor: EventStreamCursor,
-    ) -> Result<Box<dyn Stream<Item = IndexedStreamElement> + Send + Sync + 'life0>, Error> {
+    ) -> Result<Box<dyn Stream<Item = PositionedStreamEvent> + Send + Sync + 'life0>, Error> {
         self.as_ref().events(cursor).await
     }
+
+    async fn init_state(
+        &self,
+        from: EventStreamCursor,
+    ) -> Result<Option<InitState>, anyhow::Error> {
+        self.as_ref().init_state(from).await
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }

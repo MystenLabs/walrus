@@ -16,6 +16,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use anyhow::Error;
 use async_trait::async_trait;
 use chrono::Utc;
 use futures::{stream::FuturesUnordered, StreamExt};
@@ -45,7 +46,7 @@ use walrus_core::{
 };
 use walrus_sdk::client::Client;
 use walrus_sui::{
-    client::FixedSystemParameters,
+    client::{BlobObjectMetadata, FixedSystemParameters},
     test_utils::{system_setup::SystemContext, TestClusterHandle},
     types::{
         move_structs::{EpochState, VotingParams},
@@ -81,9 +82,10 @@ use crate::{
         errors::SyncShardClientError,
         events::{
             event_processor::EventProcessor,
-            EventSequenceNumber,
+            CheckpointEventPosition,
             EventStreamCursor,
-            IndexedStreamElement,
+            InitState,
+            PositionedStreamEvent,
         },
         server::{RestApiConfig, RestApiServer},
         system_events::{EventManager, EventRetentionManager, SystemEventProvider},
@@ -112,10 +114,16 @@ impl SystemEventProvider for DefaultSystemEventManager {
         &self,
         cursor: EventStreamCursor,
     ) -> anyhow::Result<
-        Box<dyn Stream<Item = IndexedStreamElement> + Send + Sync + 'life0>,
+        Box<dyn Stream<Item = PositionedStreamEvent> + Send + Sync + 'life0>,
         anyhow::Error,
     > {
         self.event_provider.events(cursor).await
+    }
+    async fn init_state(
+        &self,
+        _from: EventStreamCursor,
+    ) -> Result<Option<InitState>, anyhow::Error> {
+        Ok(None)
     }
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -369,16 +377,25 @@ impl SimStorageNodeHandle {
                         sui_config.rpc.clone(),
                     )
                 });
-
+                let processor_config =
+                    crate::node::events::event_processor::EventProcessorRuntimeConfig {
+                        rpc_address: sui_config.rpc.clone(),
+                        event_polling_interval: Duration::from_millis(100),
+                        db_path: tempfile::tempdir()
+                            .expect("temporary directory creation must succeed")
+                            .path()
+                            .to_path_buf(),
+                    };
+                let system_config = crate::node::events::event_processor::SystemConfig {
+                    system_object_id: sui_config.system_object,
+                    staking_object_id: sui_config.staking_object,
+                    system_pkg_id: sui_read_client.get_system_package_id(),
+                };
                 Box::new(
                     EventProcessor::new(
                         &event_processor_config,
-                        sui_config.rpc,
-                        sui_read_client.get_system_package_id(),
-                        Duration::from_millis(100),
-                        tempfile::tempdir()
-                            .expect("temporary directory creation must succeed")
-                            .path(),
+                        processor_config,
+                        system_config,
                         &metrics_registry,
                     )
                     .await?,
@@ -513,6 +530,7 @@ pub struct StorageNodeHandleBuilder {
     initial_epoch: Option<Epoch>,
     storage_node_capability: Option<StorageNodeCap>,
     node_wallet_dir: Option<PathBuf>,
+    num_checkpoints_per_blob: Option<u32>,
 }
 
 impl StorageNodeHandleBuilder {
@@ -578,6 +596,12 @@ impl StorageNodeHandleBuilder {
     /// Enable or disable the REST API being started on build.
     pub fn with_rest_api_started(mut self, run_rest_api: bool) -> Self {
         self.run_rest_api = run_rest_api;
+        self
+    }
+
+    /// Sets the number of checkpoints per blob.
+    pub fn with_num_checkpoints_per_blob(mut self, num_checkpoints_per_blob: u32) -> Self {
+        self.num_checkpoints_per_blob = Some(num_checkpoints_per_blob);
         self
     }
 
@@ -708,7 +732,11 @@ impl StorageNodeHandleBuilder {
         }
 
         let metrics_registry = Registry::default();
-        let node = StorageNode::builder()
+        let mut builder = StorageNode::builder();
+        if let Some(num_checkpoints_per_blob) = self.num_checkpoints_per_blob {
+            builder = builder.with_num_checkpoints_per_blob(num_checkpoints_per_blob);
+        };
+        let node = builder
             .with_storage(storage)
             .with_system_event_manager(Box::new(DefaultSystemEventManager::new(
                 self.event_provider,
@@ -809,6 +837,7 @@ impl StorageNodeHandleBuilder {
             network_key_pair: node_info.network_key_pair.into(),
             rest_api_address: node_info.rest_api_address,
             public_host: Some(node_info.rest_api_address.ip().to_string()),
+            event_provider_config: EventProviderConfig::CheckpointBasedEventProcessor(None),
             sui: Some(SuiConfig {
                 rpc: sui_cluster_handle.cluster().rpc_url().to_string(),
                 system_object: system_context.system_object,
@@ -871,6 +900,7 @@ impl Default for StorageNodeHandleBuilder {
             initial_epoch: None,
             storage_node_capability: None,
             node_wallet_dir: None,
+            num_checkpoints_per_blob: None,
         }
     }
 }
@@ -1171,7 +1201,7 @@ impl CommitteeService for StubCommitteeService {
 /// Performs a no-op when calling [`invalidate_blob_id()`][Self::invalidate_blob_id]
 #[derive(Debug)]
 pub struct StubContractService {
-    system_parameters: FixedSystemParameters,
+    pub(crate) system_parameters: FixedSystemParameters,
 }
 
 #[async_trait]
@@ -1198,6 +1228,15 @@ impl SystemContractService for StubContractService {
 
     async fn initiate_epoch_change(&self) -> Result<(), anyhow::Error> {
         anyhow::bail!("stub service cannot initiate epoch change")
+    }
+
+    async fn certify_event_blob(
+        &self,
+        _blob_metadata: BlobObjectMetadata,
+        _ending_checkpoint_seq_num: u64,
+        _epoch: u32,
+    ) -> Result<(), Error> {
+        anyhow::bail!("stub service cannot certify event blob")
     }
 }
 
@@ -1235,17 +1274,25 @@ impl SystemEventProvider for Vec<ContractEvent> {
     async fn events(
         &self,
         _cursor: EventStreamCursor,
-    ) -> Result<Box<dyn Stream<Item = IndexedStreamElement> + Send + Sync + 'life0>, anyhow::Error>
+    ) -> Result<Box<dyn Stream<Item = PositionedStreamEvent> + Send + Sync + 'life0>, anyhow::Error>
     {
         Ok(Box::new(
             tokio_stream::iter(
                 self.clone()
                     .into_iter()
-                    .map(|c| IndexedStreamElement::new(c, EventSequenceNumber::new(0, 0))),
+                    .map(|c| PositionedStreamEvent::new(c, CheckpointEventPosition::new(0, 0))),
             )
             .chain(tokio_stream::pending()),
         ))
     }
+
+    async fn init_state(
+        &self,
+        _from: EventStreamCursor,
+    ) -> Result<Option<InitState>, anyhow::Error> {
+        Ok(None)
+    }
+
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -1256,17 +1303,25 @@ impl SystemEventProvider for tokio::sync::broadcast::Sender<ContractEvent> {
     async fn events(
         &self,
         _cursor: EventStreamCursor,
-    ) -> Result<Box<dyn Stream<Item = IndexedStreamElement> + Send + Sync + 'life0>, anyhow::Error>
+    ) -> Result<Box<dyn Stream<Item = PositionedStreamEvent> + Send + Sync + 'life0>, anyhow::Error>
     {
         Ok(Box::new(BroadcastStream::new(self.subscribe()).map(
             |value| {
-                IndexedStreamElement::new(
+                PositionedStreamEvent::new(
                     value.expect("should not return errors in test"),
-                    EventSequenceNumber::new(0, 0),
+                    CheckpointEventPosition::new(0, 0),
                 )
             },
         )))
     }
+
+    async fn init_state(
+        &self,
+        _from: EventStreamCursor,
+    ) -> Result<Option<InitState>, anyhow::Error> {
+        Ok(None)
+    }
+
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -1342,6 +1397,7 @@ pub struct TestClusterBuilder {
     storage_capabilities: Vec<Option<StorageNodeCap>>,
     node_wallet_dirs: Vec<Option<PathBuf>>,
     start_node_from_beginning: Vec<bool>,
+    num_checkpoints_per_blob: Option<u32>,
 }
 
 impl TestClusterBuilder {
@@ -1470,6 +1526,12 @@ impl TestClusterBuilder {
         self
     }
 
+    /// Sets the SUI cluster handle for the cluster.
+    pub fn with_num_checkpoints_per_blob(mut self, num_checkpoints_per_blob: u32) -> Self {
+        self.num_checkpoints_per_blob = Some(num_checkpoints_per_blob);
+        self
+    }
+
     /// Sets the storage capabilities for each storage node.
     pub fn with_storage_capabilities(mut self, capabilities: Vec<StorageNodeCap>) -> Self {
         self.storage_capabilities = capabilities.into_iter().map(Some).collect();
@@ -1525,13 +1587,20 @@ impl TestClusterBuilder {
             .zip(self.start_node_from_beginning.into_iter())
         {
             let local_identity = config.key_pair.public().clone();
-            let mut builder = StorageNodeHandle::builder()
+            let builder = StorageNodeHandle::builder()
                 .with_storage(empty_storage_with_shards(&config.shards))
                 .with_test_config(config)
                 .with_rest_api_started(true)
                 .with_node_started(true)
                 .with_storage_node_capability(capability)
                 .with_node_wallet_dir(node_wallet_dir);
+
+            let mut builder = if let Some(num_checkpoints_per_blob) = self.num_checkpoints_per_blob
+            {
+                builder.with_num_checkpoints_per_blob(num_checkpoints_per_blob)
+            } else {
+                builder
+            };
 
             if let Some(provider) = event_provider {
                 builder = builder.with_boxed_system_event_provider(provider);
@@ -1687,6 +1756,7 @@ impl Default for TestClusterBuilder {
             system_context: None,
             sui_cluster_handle: None,
             use_distinct_ip: false,
+            num_checkpoints_per_blob: None,
         }
     }
 }
@@ -1722,6 +1792,18 @@ where
 
     async fn initiate_epoch_change(&self) -> Result<(), anyhow::Error> {
         self.as_ref().inner.initiate_epoch_change().await
+    }
+
+    async fn certify_event_blob(
+        &self,
+        blob_metadata: BlobObjectMetadata,
+        ending_checkpoint_seq_num: u64,
+        epoch: u32,
+    ) -> Result<(), Error> {
+        self.as_ref()
+            .inner
+            .certify_event_blob(blob_metadata, ending_checkpoint_seq_num, epoch)
+            .await
     }
 }
 
@@ -1788,7 +1870,10 @@ pub mod test_cluster {
         node::{
             committee::DefaultNodeServiceFactory,
             contract_service::SuiSystemContractService,
-            events::EventProcessorConfig,
+            events::{
+                event_processor::{EventProcessorRuntimeConfig, SystemConfig},
+                EventProcessorConfig,
+            },
         },
     };
 
@@ -1830,6 +1915,29 @@ pub mod test_cluster {
         epoch_duration: Duration,
         node_weights: &[u16],
         use_legacy_event_processor: bool,
+        communication_config: ClientCommunicationConfig,
+    ) -> anyhow::Result<(
+        Arc<TestClusterHandle>,
+        TestCluster<T>,
+        WithTempDir<client::Client<SuiContractClient>>,
+    )> {
+        default_setup_with_num_checkpoints_generic(
+            epoch_duration,
+            node_weights,
+            use_legacy_event_processor,
+            None,
+            communication_config,
+        )
+        .await
+    }
+
+    /// Performs the default setup with the input epoch duration for the test cluster with the
+    /// specified storage node handle.
+    pub async fn default_setup_with_num_checkpoints_generic<T: StorageNodeHandleTrait>(
+        epoch_duration: Duration,
+        node_weights: &[u16],
+        use_legacy_event_processor: bool,
+        num_checkpoints_per_blob: Option<u32>,
         communication_config: ClientCommunicationConfig,
     ) -> anyhow::Result<(
         Arc<TestClusterHandle>,
@@ -1969,8 +2077,16 @@ pub mod test_cluster {
                 &event_processor_config,
                 sui_read_client.clone(),
                 cluster_builder,
+                system_ctx.system_object,
+                system_ctx.staking_object,
             )
             .await?
+        };
+
+        let cluster_builder = if let Some(num_checkpoints_per_blob) = num_checkpoints_per_blob {
+            cluster_builder.with_num_checkpoints_per_blob(num_checkpoints_per_blob)
+        } else {
+            cluster_builder
         };
 
         let cluster_builder = cluster_builder
@@ -2016,17 +2132,28 @@ pub mod test_cluster {
         event_processor_config: &EventProcessorConfig,
         sui_read_client: SuiReadClient,
         test_cluster_builder: TestClusterBuilder,
+        system_object_id: ObjectID,
+        staking_object_id: ObjectID,
     ) -> anyhow::Result<TestClusterBuilder> {
         let mut event_processors = vec![];
         for _ in test_cluster_builder.storage_node_test_configs().iter() {
+            let processor_config = EventProcessorRuntimeConfig {
+                rpc_address: event_processor_config.rest_url.clone(),
+                event_polling_interval: Duration::from_millis(100),
+                db_path: tempfile::tempdir()
+                    .expect("temporary directory creation must succeed")
+                    .path()
+                    .to_path_buf(),
+            };
+            let system_config = SystemConfig {
+                system_pkg_id: sui_read_client.get_system_package_id(),
+                system_object_id,
+                staking_object_id,
+            };
             let event_processor = EventProcessor::new(
                 event_processor_config,
-                event_processor_config.rest_url.clone(),
-                sui_read_client.get_system_package_id(),
-                Duration::from_millis(100),
-                tempfile::tempdir()
-                    .expect("temporary directory creation must succeed")
-                    .path(),
+                processor_config,
+                system_config,
                 &Registry::default(),
             )
             .await?;
@@ -2101,7 +2228,7 @@ async fn wait_for_event_processor_to_start(
     // Wait until event processor is actually running and downloaded a few checkpoints
     tokio::time::sleep(Duration::from_secs(5)).await;
     let checkpoint = client.get_latest_checkpoint().await?;
-    while let Some(event_processor_checkpoint) = event_processor.checkpoint_store.get(&())? {
+    while let Some(event_processor_checkpoint) = event_processor.stores.checkpoint_store.get(&())? {
         if event_processor_checkpoint.inner().sequence_number >= checkpoint.sequence_number {
             break;
         }

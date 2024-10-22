@@ -325,6 +325,18 @@ impl Storage {
         Ok(status_list)
     }
 
+    /// Store the verified metadata without updating blob info. This is only
+    /// used during storing metadata for event blobs which are stored without getting registered
+    /// first.
+    #[tracing::instrument(skip_all)]
+    pub fn put_verified_metadata_without_blob_info(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+    ) -> Result<(), TypedStoreError> {
+        self.metadata
+            .insert(metadata.blob_id(), metadata.metadata())
+    }
+
     /// Store the verified metadata.
     #[tracing::instrument(skip_all)]
     pub fn put_verified_metadata(
@@ -372,6 +384,16 @@ impl Storage {
         event: &BlobEvent,
     ) -> Result<(), TypedStoreError> {
         self.blob_info.update_blob_info(event_index, event)
+    }
+
+    /// Repositions the event cursor to the specified event index.
+    pub(crate) fn reposition_event_cursor(
+        &self,
+        event_index: usize,
+        cursor: EventID,
+    ) -> Result<(), TypedStoreError> {
+        self.event_cursor
+            .reposition_event_cursor(cursor, event_index as u64)
     }
 
     /// Advances the event cursor to the most recent, sequential event observed.

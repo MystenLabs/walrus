@@ -53,8 +53,11 @@ use tracing_subscriber::{
 };
 use typed_store::DBMetrics;
 use uuid::Uuid;
-use walrus_core::{PublicKey, ShardIndex};
-use walrus_sui::utils::SuiNetwork;
+use walrus_core::{BlobId, PublicKey, ShardIndex};
+use walrus_sui::{
+    client::{retry_client::RetriableSuiClient, SuiReadClient},
+    utils::SuiNetwork,
+};
 
 use super::active_committees::ActiveCommittees;
 use crate::node::config::MetricsConfig;
@@ -86,6 +89,8 @@ macro_rules! version {
     }};
 }
 pub use version;
+
+use crate::common::event_blob_downloader::EventBlobDownloader;
 
 /// Trait for loading configuration from a YAML file.
 pub trait LoadConfig: DeserializeOwned {
@@ -744,6 +749,51 @@ pub fn init_scoped_tracing_subscriber() -> Result<DefaultGuard> {
     let guard = prepare_subscriber()?.set_default();
     tracing::debug!("initialized scoped tracing subscriber");
     Ok(guard)
+}
+
+/// Downloads event blobs for catchup purposes.
+///
+/// This function creates a client to download event blobs up to a specified
+/// checkpoint. The blobs are stored in the provided recovery path.
+#[cfg(feature = "client")]
+pub async fn collect_event_blobs_for_catchup(
+    sui_client: RetriableSuiClient,
+    staking_object_id: ObjectID,
+    system_object_id: ObjectID,
+    package_id: Option<ObjectID>,
+    upto_checkpoint: Option<u64>,
+    recovery_path: &Path,
+) -> Result<Vec<BlobId>> {
+    let sui_read_client =
+        SuiReadClient::new(sui_client, system_object_id, staking_object_id, package_id).await?;
+    let config = crate::client::Config {
+        system_object: system_object_id,
+        staking_object: staking_object_id,
+        walrus_package: package_id,
+        exchange_object: None,
+        wallet_config: None,
+        communication_config: crate::client::ClientCommunicationConfig::default(),
+    };
+    let walrus_client =
+        crate::client::Client::new_read_client(config, sui_read_client.clone()).await?;
+    let blob_downloader = EventBlobDownloader::new(walrus_client, sui_read_client);
+    let blob_ids = blob_downloader
+        .download(upto_checkpoint, None, recovery_path)
+        .await?;
+    Ok(blob_ids)
+}
+
+/// Placeholder function for when the client feature is not enabled.
+#[cfg(not(feature = "client"))]
+pub async fn collect_event_blobs_for_catchup(
+    sui_client: RetriableSuiClient,
+    staking_object_id: ObjectID,
+    system_object_id: ObjectID,
+    package_id: Option<ObjectID>,
+    upto_checkpoint: Option<u64>,
+    recovery_path: &Path,
+) -> Result<Vec<BlobId>> {
+    Ok(vec![])
 }
 
 #[cfg(test)]

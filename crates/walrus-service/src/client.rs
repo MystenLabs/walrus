@@ -246,13 +246,46 @@ impl<T: ReadClient> Client<T> {
         U: EncodingAxis,
         SliverData<U>: TryFrom<Sliver>,
     {
+        self.read_blob_internal(blob_id, None).await
+    }
+
+    /// Reconstructs the blob by reading slivers from Walrus shards with the given status.
+    #[tracing::instrument(level = Level::ERROR, skip_all, fields(%blob_id))]
+    pub async fn read_blob_with_status<U>(
+        &self,
+        blob_id: &BlobId,
+        blob_status: BlobStatus,
+    ) -> ClientResult<Vec<u8>>
+    where
+        U: EncodingAxis,
+        SliverData<U>: TryFrom<Sliver>,
+    {
+        self.read_blob_internal(blob_id, Some(blob_status)).await
+    }
+
+    /// Internal method to handle the common logic for reading blobs.
+    async fn read_blob_internal<U>(
+        &self,
+        blob_id: &BlobId,
+        blob_status: Option<BlobStatus>,
+    ) -> ClientResult<Vec<u8>>
+    where
+        U: EncodingAxis,
+        SliverData<U>: TryFrom<Sliver>,
+    {
         tracing::debug!("starting to read blob");
         self.check_blob_id(blob_id)?;
 
         let certified_epoch = if self.committees.read().await.is_change_in_progress() {
             tracing::info!("epoch change in progress, reading from initial certified epoch");
-            self.get_blob_status_with_retries(blob_id, &self.sui_client)
-                .await?
+            let blob_status = match blob_status {
+                Some(status) => status,
+                None => {
+                    self.get_blob_status_with_retries(blob_id, &self.sui_client)
+                        .await?
+                }
+            };
+            blob_status
                 .initial_certified_epoch()
                 .ok_or_else(|| ClientError::from(ClientErrorKind::BlobIdDoesNotExist))?
         } else {
@@ -261,9 +294,10 @@ impl<T: ReadClient> Client<T> {
         };
 
         // Return early if the committee is behind.
-        if certified_epoch > self.committees.read().await.epoch() {
+        let current_epoch = self.committees.read().await.epoch();
+        if certified_epoch > current_epoch {
             return Err(ClientError::from(ClientErrorKind::BehindCurrentEpoch {
-                client_epoch: self.committees.read().await.epoch(),
+                client_epoch: current_epoch,
                 certified_epoch,
             }));
         }

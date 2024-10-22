@@ -17,6 +17,7 @@ use anyhow::{anyhow, bail, Context};
 use committee::{BeginCommitteeChangeError, EndCommitteeChangeError};
 use config::EventProviderConfig;
 use epoch_change_driver::EpochChangeDriver;
+use events::event_blob_writer::EventBlobWriter;
 use fastcrypto::traits::KeyPair;
 use futures::{stream, Stream, StreamExt, TryFutureExt as _};
 use node_recovery::NodeRecoveryHandler;
@@ -25,6 +26,7 @@ use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use serde::Serialize;
 use start_epoch_change_finisher::StartEpochChangeFinisher;
 use sui_macros::fail_point_async;
+use sui_types::event::EventID;
 use system_events::{CompletableHandle, EventHandle};
 use tokio::{select, sync::watch, time::Instant};
 use tokio_util::sync::CancellationToken;
@@ -127,11 +129,12 @@ use crate::{
     common::utils::ShardDiff,
     node::{
         events::{
-            event_processor::EventProcessor,
+            event_blob_writer::EventBlobWriterFactory,
+            event_processor::{EventProcessor, EventProcessorRuntimeConfig, SystemConfig},
             EventProcessorConfig,
             EventStreamCursor,
             EventStreamElement,
-            IndexedStreamElement,
+            PositionedStreamEvent,
         },
         system_events::{EventManager, SuiSystemEventProvider},
     },
@@ -235,6 +238,7 @@ pub struct StorageNodeBuilder {
     event_manager: Option<Box<dyn EventManager>>,
     committee_service: Option<Arc<dyn CommitteeService>>,
     contract_service: Option<Arc<dyn SystemContractService>>,
+    num_checkpoints_per_blob: Option<u32>,
 }
 
 impl StorageNodeBuilder {
@@ -261,6 +265,13 @@ impl StorageNodeBuilder {
         contract_service: Arc<dyn SystemContractService>,
     ) -> Self {
         self.contract_service = Some(contract_service);
+        self
+    }
+
+    /// Sets the number of checkpoints to use per event blob.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn with_num_checkpoints_per_blob(mut self, num_checkpoints_per_blob: u32) -> Self {
+        self.num_checkpoints_per_blob = Some(num_checkpoints_per_blob);
         self
     }
 
@@ -322,14 +333,21 @@ impl StorageNodeBuilder {
                                 sui_config.rpc.clone(),
                             )
                         });
-
+                    let processor_config = EventProcessorRuntimeConfig {
+                        rpc_address: sui_config.rpc.clone(),
+                        event_polling_interval: sui_config.event_polling_interval,
+                        db_path: config.storage_path.join("events"),
+                    };
+                    let system_config = SystemConfig {
+                        system_pkg_id: read_client.get_system_package_id(),
+                        system_object_id: sui_config.system_object,
+                        staking_object_id: sui_config.staking_object,
+                    };
                     Box::new(
                         EventProcessor::new(
                             &event_processor_config,
-                            sui_config.rpc.clone(),
-                            read_client.get_system_package_id(),
-                            sui_config.event_polling_interval,
-                            &config.storage_path.join("events"),
+                            processor_config,
+                            system_config,
                             &metrics_registry,
                         )
                         .await?,
@@ -370,6 +388,11 @@ impl StorageNodeBuilder {
                 )
             };
 
+        let node_params = NodeParameters {
+            pre_created_storage: self.storage,
+            num_checkpoints_per_blob: self.num_checkpoints_per_blob,
+        };
+
         StorageNode::new(
             config,
             protocol_key_pair,
@@ -377,7 +400,7 @@ impl StorageNodeBuilder {
             committee_service,
             contract_service,
             &metrics_registry,
-            self.storage,
+            node_params,
         )
         .await
     }
@@ -396,6 +419,7 @@ pub struct StorageNode {
     epoch_change_driver: EpochChangeDriver,
     start_epoch_change_finisher: StartEpochChangeFinisher,
     node_recovery_handler: NodeRecoveryHandler,
+    event_blob_writer_factory: EventBlobWriterFactory,
 }
 
 /// The internal state of a Walrus storage node.
@@ -413,6 +437,19 @@ pub struct StorageNodeInner {
     is_shutting_down: AtomicBool,
 }
 
+/// Parameters for configuring and initializing a node.
+///
+/// This struct contains optional configuration parameters that can be used
+/// to customize the behavior of a node during its creation or runtime.
+#[derive(Debug)]
+pub struct NodeParameters {
+    // For testing purposes. TODO(#703): remove.
+    pre_created_storage: Option<Storage>,
+    // Number of checkpoints per blob to use when creating event blobs.
+    // If not provided, the default value will be used.
+    num_checkpoints_per_blob: Option<u32>,
+}
+
 impl StorageNode {
     async fn new(
         config: &StorageNodeConfig,
@@ -421,12 +458,12 @@ impl StorageNode {
         committee_service: Arc<dyn CommitteeService>,
         contract_service: Arc<dyn SystemContractService>,
         registry: &Registry,
-        pre_created_storage: Option<Storage>, // For testing purposes. TODO(#703): remove.
+        node_params: NodeParameters,
     ) -> Result<Self, anyhow::Error> {
         let start_time = Instant::now();
         let encoding_config = committee_service.encoding_config().clone();
 
-        let storage = if let Some(storage) = pre_created_storage {
+        let storage = if let Some(storage) = node_params.pre_created_storage {
             storage
         } else {
             Storage::open(
@@ -466,7 +503,7 @@ impl StorageNode {
         let system_parameters = contract_service.fixed_system_parameters().await?;
         let epoch_change_driver = EpochChangeDriver::new(
             system_parameters,
-            contract_service,
+            contract_service.clone(),
             StdRng::seed_from_u64(thread_rng().gen()),
         );
 
@@ -475,6 +512,12 @@ impl StorageNode {
         let node_recovery_handler =
             NodeRecoveryHandler::new(inner.clone(), blob_sync_handler.clone());
         node_recovery_handler.restart_recovery()?;
+        let event_blob_writer_factory = EventBlobWriterFactory::new(
+            &config.storage_path,
+            inner.clone(),
+            registry,
+            node_params.num_checkpoints_per_blob,
+        )?;
 
         Ok(StorageNode {
             inner,
@@ -483,6 +526,7 @@ impl StorageNode {
             epoch_change_driver,
             start_epoch_change_finisher,
             node_recovery_handler,
+            event_blob_writer_factory,
         })
     }
 
@@ -554,32 +598,132 @@ impl StorageNode {
     /// Continues the event stream from the last committed event.
     async fn continue_event_stream(
         &self,
+        event_blob_writer_cursor: EventStreamCursor,
+        storage_node_cursor: EventStreamCursor,
+        event_blob_writer: &mut EventBlobWriter,
     ) -> anyhow::Result<(
-        Pin<Box<dyn Stream<Item = IndexedStreamElement> + Send + Sync + '_>>,
+        Pin<Box<dyn Stream<Item = PositionedStreamEvent> + Send + Sync + '_>>,
         usize,
     )> {
+        let event_cursor = std::cmp::min(
+            storage_node_cursor.clone(),
+            event_blob_writer_cursor.clone(),
+        );
+        let event_stream = self
+            .inner
+            .event_manager
+            .events(event_cursor.clone())
+            .await?;
+        let event_index = event_cursor
+            .element_index
+            .try_into()
+            .expect("64-bit architecture");
+
+        let init_state = self
+            .inner
+            .event_manager
+            .init_state(event_cursor.clone())
+            .await?;
+        let Some(init_state) = init_state else {
+            return Ok((Pin::from(event_stream), event_index));
+        };
+
+        let actual_event_index = init_state.event_cursor.element_index as usize;
+
+        let storage_index = storage_node_cursor.element_index as usize;
+        let mut storage_node_cursor_repositioned = false;
+        if self.should_reposition_cursor(storage_index, actual_event_index) {
+            tracing::info!(
+                "Repositioning storage node cursor from {} to {}",
+                storage_index,
+                actual_event_index
+            );
+            self.inner.reposition_event_cursor(
+                init_state.event_cursor.event_id.expect("EventID expected"),
+                actual_event_index,
+            )?;
+            storage_node_cursor_repositioned = true;
+        }
+
+        let mut event_blob_writer_repositioned = false;
+        let event_blob_writer_index = event_blob_writer_cursor.element_index as usize;
+        if self.should_reposition_cursor(event_blob_writer_index, actual_event_index) {
+            tracing::info!(
+                "Repositioning event blob writer cursor from {} to {}",
+                event_blob_writer_index,
+                actual_event_index
+            );
+            event_blob_writer.update(init_state).await?;
+            event_blob_writer_repositioned = true;
+        }
+
+        if !storage_node_cursor_repositioned && !event_blob_writer_repositioned {
+            ensure!(
+                event_index == actual_event_index,
+                "event stream out of sync"
+            );
+        }
+
+        Ok((Pin::from(event_stream), actual_event_index))
+    }
+
+    async fn storage_node_cursor(&self) -> anyhow::Result<EventStreamCursor> {
         let storage = &self.inner.storage;
         let (from_event_id, next_event_index) = storage
             .get_event_cursor_and_next_index()?
             .map_or((None, 0), |(cursor, index)| (Some(cursor), index));
-        let event_cursor = EventStreamCursor::new(from_event_id, next_event_index);
+        Ok(EventStreamCursor::new(from_event_id, next_event_index))
+    }
 
-        Ok((
-            Box::into_pin(self.inner.event_manager.events(event_cursor).await?),
-            next_event_index.try_into().expect("64-bit architecture"),
-        ))
+    /// Returns whether the storage node cursor should be repositioned.
+    ///
+    /// The storage node cursor should be repositioned if the storage node cursor is behind the
+    /// actual event index and the storage node cursor is at the beginning of the event stream.
+    ///
+    /// - `storage_index`: The index of the next event the node needs to process.
+    /// - `actual_event_index`: The index of the first event available in the current event stream.
+    ///
+    /// Usually, these indices match up, meaning the node picks up processing right where it left
+    /// off. However, there's a special case during node bootstrapping (when starting with no
+    /// previous state) and event processor bootstrapping itself from event blobs:
+    ///
+    /// When a node starts up for the first time, older event blobs might have expired due to the
+    /// MAX_EPOCHS_AHEAD limit. Let's say the earliest available event starts at index N ( where N >
+    /// 0).
+    ///
+    /// In this case, the event stream can only provide events starting from index N. But the
+    /// storage node, being brand new, wants to start processing from index 0. In this scenario, we
+    /// actually want to reposition the storage node cursor to index N. This is safe because those
+    /// events are no longer available in the system anyway (they've expired), and marking them as
+    /// completed prevents the event tracking system from flagging this natural gap as an error.
+    fn should_reposition_cursor(&self, event_index: usize, actual_event_index: usize) -> bool {
+        let is_behind = event_index < actual_event_index;
+        let is_at_beginning = event_index == 0;
+        is_behind && is_at_beginning
     }
 
     async fn process_events(&self) -> anyhow::Result<()> {
-        let (event_stream, next_event_index) = self.continue_event_stream().await?;
+        let writer_cursor = self
+            .event_blob_writer_factory
+            .event_cursor()
+            .unwrap_or_default();
+        let storage_node_cursor = self.storage_node_cursor().await?;
+        let mut event_blob_writer = self.event_blob_writer_factory.create().await?;
+
+        let (event_stream, next_event_index) = self
+            .continue_event_stream(
+                writer_cursor.clone(),
+                storage_node_cursor.clone(),
+                &mut event_blob_writer,
+            )
+            .await?;
 
         let index_stream = stream::iter(next_event_index..);
         let mut maybe_epoch_at_start = Some(self.inner.committee_service.get_epoch());
 
         let mut indexed_element_stream = index_stream.zip(event_stream);
         // Important: Events must be handled consecutively and in order to prevent (intermittent)
-        // invariant violations and interference between different events. See, for example,
-        // `BlobSyncHandler::cancel_sync_and_mark_event_complete`.
+        // invariant violations and interference between different events.
         while let Some((element_index, stream_element)) = indexed_element_stream.next().await {
             let event_handle = EventHandle::new(
                 element_index,
@@ -598,8 +742,9 @@ impl StorageNode {
                 "messaging.destination.name" = "blob_store",
                 "messaging.client.id" = %self.inner.public_key(),
                 "walrus.event.index" = element_index,
-                "walrus.event.tx_digest" = ?stream_element.element.event_id().map(|c| c.tx_digest),
-                "walrus.event.checkpoint_seq" = ?stream_element.global_sequence_number
+                "walrus.event.tx_digest" = ?stream_element.element.event_id()
+                    .map(|c| c.tx_digest),
+                "walrus.event.checkpoint_seq" = ?stream_element.checkpoint_event_position
                     .checkpoint_sequence_number,
                 "walrus.event.kind" = stream_element.element.label(),
                 "walrus.blob_id" = ?stream_element.element.blob_id(),
@@ -628,14 +773,27 @@ impl StorageNode {
                 }
             }
 
-            self.process_event(event_handle, stream_element)
-                .inspect_err(|err| {
-                    let span = tracing::Span::current();
-                    span.record("otel.status_code", "error");
-                    span.record("otel.status_message", field::display(err));
-                })
-                .instrument(span)
-                .await?;
+            let element_index = u64::try_from(element_index).expect("should fit into a u64");
+            let should_write = element_index >= writer_cursor.element_index;
+            let should_process = element_index >= storage_node_cursor.element_index;
+            ensure!(should_write || should_process, "event stream out of sync");
+
+            if should_process {
+                self.process_event(event_handle, stream_element.clone())
+                    .inspect_err(|err| {
+                        let span = tracing::Span::current();
+                        span.record("otel.status_code", "error");
+                        span.record("otel.status_message", field::display(err));
+                    })
+                    .instrument(span)
+                    .await?;
+            }
+
+            if should_write {
+                event_blob_writer
+                    .write(stream_element.clone(), element_index)
+                    .await?;
+            }
         }
 
         bail!("event stream for blob events stopped")
@@ -645,7 +803,7 @@ impl StorageNode {
     async fn process_event(
         &self,
         event_handle: EventHandle,
-        stream_element: IndexedStreamElement,
+        stream_element: PositionedStreamEvent,
     ) -> anyhow::Result<()> {
         let _timer_guard = &self
             .inner
@@ -1255,6 +1413,14 @@ impl StorageNodeInner {
         }
     }
 
+    fn reposition_event_cursor(
+        &self,
+        event_id: EventID,
+        event_index: usize,
+    ) -> Result<(), TypedStoreError> {
+        self.storage.reposition_event_cursor(event_index, event_id)
+    }
+
     fn get_shard_for_sliver_pair(
         &self,
         sliver_pair_index: SliverPairIndex,
@@ -1325,6 +1491,48 @@ impl StorageNodeInner {
         }
 
         (summary, detail)
+    }
+
+    pub(crate) fn store_sliver_unchecked(
+        &self,
+        blob_id: &BlobId,
+        sliver_pair_index: SliverPairIndex,
+        sliver: &Sliver,
+    ) -> Result<bool, StoreSliverError> {
+        // Ensure we have received the blob metadata.
+        let metadata = self
+            .storage
+            .get_metadata(blob_id)
+            .context("database error when storing sliver")?
+            .ok_or(StoreSliverError::MissingMetadata)?;
+
+        let shard_storage = self.get_shard_for_sliver_pair(sliver_pair_index, blob_id)?;
+
+        let shard_status = shard_storage
+            .status()
+            .context("Unable to retrieve shard status")?;
+
+        if !shard_status.is_owned_by_node() {
+            return Err(ShardNotAssigned(shard_storage.id(), self.current_epoch()).into());
+        }
+
+        if shard_storage
+            .is_sliver_type_stored(blob_id, sliver.r#type())
+            .context("database error when checking sliver existence")?
+        {
+            return Ok(false);
+        }
+
+        sliver.verify(&self.encoding_config, metadata.as_ref())?;
+
+        // Finally store the sliver in the appropriate shard storage.
+        shard_storage
+            .put_sliver(blob_id, sliver)
+            .context("unable to store sliver")?;
+
+        metrics::with_label!(self.metrics.slivers_stored_total, sliver.r#type()).inc();
+
+        Ok(true)
     }
 
     async fn create_storage_for_shards_in_background(
@@ -1609,40 +1817,7 @@ impl ServiceState for StorageNodeInner {
             StoreSliverError::NotCurrentlyRegistered,
         );
 
-        // Ensure we have received the blob metadata.
-        let metadata = self
-            .storage
-            .get_metadata(blob_id)
-            .context("database error when storing sliver")?
-            .ok_or(StoreSliverError::MissingMetadata)?;
-
-        let shard_storage = self.get_shard_for_sliver_pair(sliver_pair_index, blob_id)?;
-
-        let shard_status = shard_storage
-            .status()
-            .context("Unable to retrieve shard status")?;
-
-        if !shard_status.is_owned_by_node() {
-            return Err(ShardNotAssigned(shard_storage.id(), self.current_epoch()).into());
-        }
-
-        if shard_storage
-            .is_sliver_type_stored(blob_id, sliver.r#type())
-            .context("database error when checking sliver existence")?
-        {
-            return Ok(false);
-        }
-
-        sliver.verify(&self.encoding_config, metadata.as_ref())?;
-
-        // Finally store the sliver in the appropriate shard storage.
-        shard_storage
-            .put_sliver(blob_id, sliver)
-            .context("unable to store sliver")?;
-
-        metrics::with_label!(self.metrics.slivers_stored_total, sliver.r#type()).inc();
-
-        Ok(true)
+        self.store_sliver_unchecked(blob_id, sliver_pair_index, sliver)
     }
 
     async fn compute_storage_confirmation(
@@ -2566,7 +2741,6 @@ mod tests {
         epoch: Epoch,
     ) -> TestResult {
         let lookup_service_handle = cluster.lookup_service_handle.clone().unwrap();
-
         for epoch in lookup_service_handle.epoch() + 1..epoch + 1 {
             let new_epoch = lookup_service_handle.advance_epoch();
             assert_eq!(new_epoch, epoch);
@@ -2858,7 +3032,6 @@ mod tests {
 
         let (cluster, events, blob) =
             cluster_with_partially_stored_blob(shards, BLOB, |shard, _| shard.get() != 1).await?;
-
         events.send(
             BlobCertified {
                 epoch: 1,
@@ -2871,7 +3044,6 @@ mod tests {
             }
             .into(),
         )?;
-
         advance_cluster_to_epoch(&cluster, &[&events], 2).await?;
 
         // Node 1 which has the blob stored should finish processing 4 events: blob registered,

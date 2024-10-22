@@ -296,6 +296,29 @@ impl WalrusPtbBuilder {
         bitmap
     }
 
+    /// Adds a call to `certify_event_blob` to the `pt_builder`.
+    pub async fn certify_event_blob(
+        &mut self,
+        blob_metadata: BlobObjectMetadata,
+        storage_node_cap: ArgumentOrOwnedObject,
+        ending_checkpoint_seq_num: u64,
+        epoch: u32,
+    ) -> SuiClientResult<()> {
+        let arguments = vec![
+            self.system_arg(Mutability::Mutable).await?,
+            self.argument_from_arg_or_obj(storage_node_cap).await?,
+            self.pt_builder.pure(blob_metadata.blob_id)?,
+            self.pt_builder.pure(blob_metadata.root_hash.bytes())?,
+            self.pt_builder.pure(blob_metadata.unencoded_size)?,
+            self.pt_builder
+                .pure(u8::from(blob_metadata.encoding_type))?,
+            self.pt_builder.pure(ending_checkpoint_seq_num)?,
+            self.pt_builder.pure(epoch)?,
+        ];
+        self.move_call(contracts::system::certify_event_blob, arguments)?;
+        Ok(())
+    }
+
     /// Adds a call to `delete_blob` to the `pt_builder` and returns the result [`Argument`].
     pub async fn delete_blob(
         &mut self,

@@ -9,13 +9,19 @@ use std::{
     time::Duration,
 };
 
-use anyhow::Context as _;
+use anyhow::{Context as _, Error};
 use async_trait::async_trait;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use tokio::sync::Mutex as TokioMutex;
 use walrus_core::{messages::InvalidBlobCertificate, Epoch};
 use walrus_sui::{
-    client::{FixedSystemParameters, ReadClient as _, SuiClientError, SuiContractClient},
+    client::{
+        BlobObjectMetadata,
+        FixedSystemParameters,
+        ReadClient as _,
+        SuiClientError,
+        SuiContractClient,
+    },
     types::move_structs::EpochState,
 };
 use walrus_utils::backoff::{self, ExponentialBackoff};
@@ -49,6 +55,14 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
 
     /// Initiates epoch change.
     async fn initiate_epoch_change(&self) -> Result<(), anyhow::Error>;
+
+    /// Certify an event blob to the contract.
+    async fn certify_event_blob(
+        &self,
+        blob_metadata: BlobObjectMetadata,
+        ending_checkpoint_seq_num: u64,
+        epoch: u32,
+    ) -> Result<(), Error>;
 }
 
 /// A [`SystemContractService`] that uses a [`SuiContractClient`] for chain interactions.
@@ -186,6 +200,48 @@ impl SystemContractService for SuiSystemContractService {
     async fn initiate_epoch_change(&self) -> Result<(), anyhow::Error> {
         let client = self.contract_client.lock().await;
         client.initiate_epoch_change().await?;
+        Ok(())
+    }
+
+    async fn certify_event_blob(
+        &self,
+        blob_metadata: BlobObjectMetadata,
+        ending_checkpoint_seq_num: u64,
+        epoch: u32,
+    ) -> Result<(), Error> {
+        let backoff = ExponentialBackoff::new_with_seed(
+            MIN_BACKOFF,
+            MAX_BACKOFF,
+            None,
+            self.rng.lock().unwrap().gen(),
+        );
+        backoff::retry(backoff, || {
+            let blob_metadata = blob_metadata.clone();
+            async move {
+                match self
+                    .contract_client
+                    .lock()
+                    .await
+                    .certify_event_blob(blob_metadata, ending_checkpoint_seq_num, epoch)
+                    .await
+                {
+                    Ok(()) => Some(()),
+                    Err(SuiClientError::TransactionExecutionError(e)) => {
+                        tracing::debug!(
+                            walrus.epoch = epoch,
+                            error = ?e,
+                            "repeatedly submitted certify_event_blob"
+                        );
+                        Some(())
+                    }
+                    Err(error) => {
+                        tracing::warn!(?error, "submitting certify event blob to contract failed");
+                        None
+                    }
+                }
+            }
+        })
+        .await;
         Ok(())
     }
 }

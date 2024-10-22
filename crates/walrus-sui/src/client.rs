@@ -67,6 +67,7 @@ pub use read_client::{
 pub mod retry_client;
 
 pub mod transaction_builder;
+use crate::types::move_structs::EventBlob;
 
 #[derive(Debug, thiserror::Error)]
 /// Error returned by the [`SuiContractClient`] and the [`SuiReadClient`].
@@ -455,6 +456,42 @@ impl SuiContractClient {
             Err(anyhow!("could not certify blob: {:?}", res.errors).into())
         }
     }
+
+    /// Certifies the specified event blob on Sui, with the given metadata and epoch.
+    pub async fn certify_event_blob(
+        &self,
+        blob_metadata: BlobObjectMetadata,
+        ending_checkpoint_seq_num: u64,
+        epoch: u32,
+    ) -> SuiClientResult<()> {
+        let node_capability = self
+            .read_client
+            .get_address_capability_object(self.wallet_address)
+            .await?
+            .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?;
+
+        tracing::debug!(
+            storage_node_cap = %node_capability.node_id,
+            "calling certify_event_blob"
+        );
+
+        // Lock the wallet here to ensure there are no race conditions with object references.
+        let wallet = self.wallet().await;
+
+        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        pt_builder
+            .certify_event_blob(
+                blob_metadata,
+                node_capability.id.into(),
+                ending_checkpoint_seq_num,
+                epoch,
+            )
+            .await?;
+        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        self.sign_and_send_ptb(&wallet, ptb, None).await?;
+        Ok(())
+    }
+
     /// Invalidates the specified blob id on Sui, given a certificate that confirms that it is
     /// invalid.
     pub async fn invalidate_blob_id(
@@ -912,6 +949,10 @@ impl ReadClient for SuiContractClient {
 
     async fn stake_assignment(&self) -> SuiClientResult<HashMap<ObjectID, u64>> {
         self.read_client.stake_assignment().await
+    }
+
+    async fn last_certified_event_blob(&self) -> SuiClientResult<Option<EventBlob>> {
+        self.read_client.last_certified_event_blob().await
     }
 }
 

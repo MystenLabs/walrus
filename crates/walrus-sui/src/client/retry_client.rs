@@ -13,7 +13,7 @@ use rand::{
 };
 use serde::{de::DeserializeOwned, Serialize};
 use sui_sdk::{
-    apis::EventApi,
+    apis::{EventApi, GovernanceApi},
     error::SuiRpcResult,
     rpc_types::{
         Balance,
@@ -274,6 +274,14 @@ impl RetriableSuiClient {
     /// implemented for this function.
     pub fn event_api(&self) -> &EventApi {
         self.sui_client.event_api()
+    }
+
+    /// Returns a reference to the [`GovernanceApi`].
+    ///
+    /// Internally calls the [`SuiClient::governance_api`] function. Note that no retries are
+    /// implemented for this function.
+    pub fn governance_api(&self) -> &GovernanceApi {
+        self.sui_client.governance_api()
     }
 
     // Other wrapper methods.

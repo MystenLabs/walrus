@@ -90,6 +90,9 @@ impl BlobId {
     /// The length of a blob ID in bytes.
     pub const LENGTH: usize = 32;
 
+    /// A blob ID with all zeros.
+    pub const ZERO: Self = Self([0u8; Self::LENGTH]);
+
     /// Returns the blob ID as a hash over the Merkle root, encoding type,
     /// and unencoded_length of the blob.
     pub fn from_metadata(merkle_root: Node, encoding: EncodingType, unencoded_length: u64) -> Self {
