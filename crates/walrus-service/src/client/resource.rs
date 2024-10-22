@@ -86,6 +86,13 @@ impl RegisterBlobOp {
             | RegisterBlobOp::ReuseRegistration { encoded_length } => *encoded_length,
         }
     }
+
+    /// Returns if the operation involved issuing a new registration.
+    pub fn is_registration(&self) -> bool {
+        matches!(self, RegisterBlobOp::RegisterFromScratch { .. })
+            // Reusing storage also requires a new registration.
+            || matches!(self, RegisterBlobOp::ReuseStorage { .. })
+    }
 }
 
 /// The result of a store operation.

@@ -189,9 +189,6 @@ async fn test_inconsistency(failed_shards: &[usize]) -> TestResult {
         )
         .await?;
 
-    // Wait to ensure that the storage nodes received the registration event.
-    tokio::time::sleep(Duration::from_secs(1)).await;
-
     // Certify blob.
     let certificate = client
         .as_ref()
@@ -293,9 +290,6 @@ async fn test_store_with_existing_blob_resource(
         )
         .await?;
 
-    // Wait to ensure that the storage nodes received the registration event.
-    tokio::time::sleep(Duration::from_secs(1)).await;
-
     // Now ask the client to store again.
     let blob_store = client
         .inner
@@ -363,9 +357,6 @@ async fn test_store_with_existing_storage_resource(
         .sui_client()
         .reserve_space(encoded_size, epochs_ahead_registered)
         .await?;
-
-    // Wait to ensure that the storage nodes received the registration event.
-    tokio::time::sleep(Duration::from_secs(1)).await;
 
     // Now ask the client to store again.
 

@@ -410,6 +410,14 @@ impl<T: ContractClient> Client<T> {
             StoreOp::RegisterNew { blob, operation } => (blob, operation),
         };
 
+        if resource_operation.is_registration() {
+            tracing::debug!(
+                delay=?self.config.communication_config.registration_delay,
+                "waiting to ensure that all storage nodes have seen the registration"
+            );
+            tokio::time::sleep(self.config.communication_config.registration_delay).await;
+        }
+
         let (certificate, write_committee_epoch) = {
             let committees = self.committees.read().await;
 

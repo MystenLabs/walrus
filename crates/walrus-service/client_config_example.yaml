@@ -36,3 +36,6 @@ communication_config:
     base:
       secs: 0
       nanos: 500000000
+  registration_delay:
+    secs: 0
+    nanos: 200000000
