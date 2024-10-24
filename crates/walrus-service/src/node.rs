@@ -11,6 +11,7 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, Context};
+use background_shard_remover::BackgroundShardRemover;
 use committee::{BeginCommitteeChangeError, EndCommitteeChangeError};
 use config::EventProviderConfig;
 use epoch_change_driver::EpochChangeDriver;
@@ -94,6 +95,7 @@ pub mod system_events;
 
 pub(crate) mod metrics;
 
+mod background_shard_remover;
 mod blob_sync;
 mod epoch_change_driver;
 mod shard_sync;
@@ -377,6 +379,7 @@ pub struct StorageNode {
     blob_sync_handler: BlobSyncHandler,
     shard_sync_handler: ShardSyncHandler,
     epoch_change_driver: EpochChangeDriver,
+    background_shard_remover: BackgroundShardRemover,
 }
 
 /// The internal state of a Walrus storage node.
@@ -450,11 +453,14 @@ impl StorageNode {
             StdRng::seed_from_u64(thread_rng().gen()),
         );
 
+        let background_shard_remover = BackgroundShardRemover::new(inner.clone());
+
         Ok(StorageNode {
             inner,
             blob_sync_handler,
             shard_sync_handler,
             epoch_change_driver,
+            background_shard_remover,
         })
     }
 
@@ -671,9 +677,8 @@ impl StorageNode {
             }
             EpochChangeEvent::EpochChangeStart(event) => {
                 tracing::info!("EpochChangeStart event received: {:?}", event);
-                self.process_epoch_change_start_event(&event).await?;
-                self.inner
-                    .mark_event_completed(element_index, &event.event_id)?;
+                self.process_epoch_change_start_event(element_index, &event)
+                    .await?;
             }
             EpochChangeEvent::EpochChangeDone(event) => {
                 tracing::info!("EpochChangeDone event received: {:?}", event);
@@ -800,6 +805,7 @@ impl StorageNode {
     #[tracing::instrument(skip_all)]
     async fn process_epoch_change_start_event(
         &self,
+        element_index: usize,
         event: &EpochChangeStart,
     ) -> anyhow::Result<()> {
         // Irrespective of whether we are in this epoch, we can cancel any scheduled calls to change
@@ -810,10 +816,20 @@ impl StorageNode {
             .cancel_scheduled_epoch_change_initiation(event.epoch);
 
         if !self.begin_committee_change(event.epoch).await? {
+            self.inner
+                .mark_event_completed(element_index, &event.event_id)?;
             return Ok(());
         }
 
-        self.process_shard_changes_in_new_epoch(event).await
+        if self
+            .process_shard_changes_in_new_epoch(element_index, event)
+            .await?
+        {
+            self.inner
+                .mark_event_completed(element_index, &event.event_id)?;
+        }
+
+        Ok(())
     }
 
     /// Initiates a committee transition to a new epoch.
@@ -865,11 +881,13 @@ impl StorageNode {
         }
     }
 
+    /// Returns true if the caller should mark the event complete.
     #[tracing::instrument(skip_all)]
     async fn process_shard_changes_in_new_epoch(
         &self,
+        element_index: usize,
         event: &EpochChangeStart,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<bool> {
         let public_key = self.inner.public_key();
         let storage = &self.inner.storage;
         let committees = self.inner.committee_service.active_committees();
@@ -883,14 +901,10 @@ impl StorageNode {
                 committees.epoch()
             );
             self.epoch_sync_done(&committees, event).await;
-            return Ok(());
+            return Ok(true);
         }
 
         assert!(event.epoch <= committees.epoch());
-
-        self.inner
-            .remove_storage_for_shards_in_background(shard_diff.removed.clone())
-            .await?;
 
         for shard_id in &shard_diff.lost {
             let Some(shard_storage) = storage.shard_storage(*shard_id) else {
@@ -902,6 +916,17 @@ impl StorageNode {
                 .lock_shard_for_epoch_change()
                 .context("failed to lock shard")?;
         }
+
+        // Here we need to wait for the previous shard removal to finish so that for the case where
+        // same shard is moved in again, we don't have shard removal and move-in running
+        // concurrently.
+        //
+        // Note that we expect this call to finish quickly because removing RocksDb column families
+        // is supposed to be fast, and we have an entire epoch duration to do so. By the time next
+        // epoch starts, the shard removal task should have completed.
+        self.background_shard_remover
+            .wait_until_previous_shard_remove_task_done()
+            .await;
 
         if shard_diff.gained.is_empty() {
             self.epoch_sync_done(&committees, event).await;
@@ -918,7 +943,15 @@ impl StorageNode {
             }
         }
 
-        Ok(())
+        if !shard_diff.removed.is_empty() {
+            // We start shard removal in the background so that we don't block even processing.
+            // And the removal task will mark the event completed.
+            self.background_shard_remover
+                .start_remove_storage_for_shards(element_index, event, shard_diff.removed.clone());
+            return Ok(false);
+        }
+
+        Ok(true)
     }
 
     /// Signals that the epoch sync is done if the node is in the current committee and no shards.
@@ -1117,12 +1150,12 @@ impl StorageNodeInner {
         Ok(())
     }
 
-    async fn remove_storage_for_shards_in_background(
+    async fn remove_storage_for_shard_in_background(
         self: &Arc<Self>,
-        shards: Vec<ShardIndex>,
+        shards: ShardIndex,
     ) -> Result<(), anyhow::Error> {
         let this = self.clone();
-        tokio::task::spawn_blocking(move || this.storage.remove_storage_for_shards(&shards))
+        tokio::task::spawn_blocking(move || this.storage.remove_storage_for_shards(&[shards]))
             .in_current_span()
             .await??;
         Ok(())

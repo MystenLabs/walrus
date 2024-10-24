@@ -86,6 +86,7 @@ pub async fn publish_with_default_system(
         &[storage_node_params],
         &[protocol_keypair],
         &[&contract_client],
+        1_000_000_000_000,
         &[1_000_000_000],
     )
     .await?;
@@ -184,6 +185,7 @@ pub async fn register_committee_and_stake(
     node_params: &[NodeRegistrationParams],
     node_bls_keys: &[ProtocolKeyPair],
     contract_clients: &[&SuiContractClient],
+    wal_to_mint: u64,
     amounts_to_stake: &[u64],
 ) -> Result<Vec<StorageNodeCap>> {
     let receiver_addrs: Vec<_> = contract_clients
@@ -196,7 +198,12 @@ pub async fn register_committee_and_stake(
         system_context.package_id,
         system_context.treasury_cap,
         &receiver_addrs,
-        1_000_000_000_000,
+        wal_to_mint.max(
+            *amounts_to_stake
+                .iter()
+                .max()
+                .expect("stake amount must be set"),
+        ),
     )
     .await?;
 

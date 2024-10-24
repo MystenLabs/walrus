@@ -200,6 +200,11 @@ macro_rules! index_type {
                 pub fn as_u32(&self) -> u32 {
                     self.0.into()
                 }
+
+                /// Returns the index as a `u64`.
+                pub fn as_u64(&self) -> u64 {
+                    self.0.into()
+                }
             }
         );
 

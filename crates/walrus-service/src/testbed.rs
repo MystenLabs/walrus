@@ -599,6 +599,7 @@ pub async fn create_storage_node_configs(
         &node_params,
         &protocol_keypairs,
         &contract_clients.iter().collect::<Vec<_>>(),
+        1_000_000_000_000,
         &amounts_to_stake,
     )
     .await?;

@@ -1666,7 +1666,7 @@ pub mod test_cluster {
         TestCluster,
         WithTempDir<client::Client<SuiContractClient>>,
     )> {
-        let node_weights = [1u16, 2, 3, 3, 4];
+        let node_weights = [1, 2, 3, 3, 4];
         default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
             epoch_duration,
             &node_weights,
@@ -1744,6 +1744,7 @@ pub mod test_cluster {
             &members,
             &protocol_keypairs,
             &contract_clients_refs,
+            1_000_000_000_000,
             &amounts_to_stake,
         )
         .await?;

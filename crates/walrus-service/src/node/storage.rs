@@ -174,12 +174,14 @@ impl Storage {
         &self,
         removed: &[ShardIndex],
     ) -> Result<(), TypedStoreError> {
-        let mut locked_map = self.shards.write().unwrap();
         for shard in removed {
             tracing::info!("removing storage for shard {}", shard);
-            if let Some(shard_storage) = locked_map.get(shard) {
+            if let Some(shard_storage) = {
+                let mut shards = self.shards.write().expect("take lock shouldn't fail");
+                shards.remove(shard)
+            } {
+                // Do not hold the `shards` lock when deleting column families.
                 shard_storage.delete_shard()?;
-                locked_map.remove(shard).expect("shard should exist");
             }
             tracing::info!("removed storage for shard {} done", shard);
         }
@@ -1063,6 +1065,9 @@ pub(crate) mod tests {
 
             // Reload storage and the shard should not exist.
             check_cf_existence(storage.database.clone(), false);
+
+            // Remove it again should not encounter any error.
+            storage.remove_storage_for_shards(&[SHARD_INDEX])?;
 
             Result::<(), anyhow::Error>::Ok(())
         })?;
