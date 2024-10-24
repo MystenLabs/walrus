@@ -1150,17 +1150,6 @@ impl StorageNodeInner {
         Ok(())
     }
 
-    async fn remove_storage_for_shard_in_background(
-        self: &Arc<Self>,
-        shards: ShardIndex,
-    ) -> Result<(), anyhow::Error> {
-        let this = self.clone();
-        tokio::task::spawn_blocking(move || this.storage.remove_storage_for_shards(&[shards]))
-            .in_current_span()
-            .await??;
-        Ok(())
-    }
-
     fn is_blob_registered(&self, blob_id: &BlobId) -> Result<bool, anyhow::Error> {
         Ok(self
             .storage

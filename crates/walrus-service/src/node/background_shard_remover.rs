@@ -52,7 +52,7 @@ impl BackgroundShardRemover {
 
             let result = utils::retry(backoff, || async {
                 remover_clone
-                    .remove_storage_for_shards(event_element, event_clone.clone(), shards.clone())
+                    .remove_storage_for_shards(event_element, event_clone.clone(), &shards.clone())
                     .await
             })
             .await;
@@ -78,13 +78,13 @@ impl BackgroundShardRemover {
         &self,
         event_element: usize,
         event: EpochChangeStart,
-        shards: Vec<ShardIndex>,
+        shards: &[ShardIndex],
     ) -> anyhow::Result<()> {
         for shard in shards {
             tracing::info!(shard = %shard, "start removing shard from storage");
             self.node
-                .remove_storage_for_shard_in_background(shard)
-                .await
+                .storage
+                .remove_storage_for_shards(&[*shard])
                 .map_err(|err| {
                     tracing::error!(
                         epoch = %event.epoch,
