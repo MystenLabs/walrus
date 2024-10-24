@@ -37,11 +37,7 @@ use sui_types::{
     object::Object,
     SYSTEM_PACKAGE_ADDRESSES,
 };
-use tokio::{
-    select,
-    sync::Mutex,
-    time::{sleep, Instant},
-};
+use tokio::{select, sync::Mutex, time::sleep};
 use tokio_util::sync::CancellationToken;
 use typed_store::{
     rocks,
@@ -49,12 +45,13 @@ use typed_store::{
     Map,
     TypedStoreError,
 };
+use walrus_core::ensure;
 use walrus_sui::types::ContractEvent;
 
 use crate::{
+    checkpoint_downloader::ParallelCheckpointDownloader,
     ensure_experimental_rest_endpoint_exists,
     get_bootstrap_committee_and_checkpoint,
-    handle_checkpoint_error,
     EventProcessorConfig,
     EventSequenceNumber,
     IndexedStreamElement,
@@ -72,14 +69,6 @@ const COMMITTEE_STORE: &str = "committee_store";
 /// The name of the event store.
 #[allow(dead_code)]
 const EVENT_STORE: &str = "event_store";
-/// The maximum time without successfully reading a checkpoint
-/// before stopping event processor
-const MAX_TIMEOUT: Duration = Duration::from_secs(60);
-/// The delay between retries when polling the full node on failure
-/// to read a checkpoint.
-const RETRY_DELAY: Duration = Duration::from_millis(250);
-/// The minimum number of attempts to read a checkpoint from the full node.
-const MIN_ATTEMPTS: u64 = 10;
 
 pub(crate) type PackageCache = PackageStoreWithLruCache<LocalDBPackageStore>;
 
@@ -128,6 +117,8 @@ pub struct EventProcessor {
     pub package_resolver: Arc<Resolver<PackageCache>>,
     /// Event processor metrics.
     pub metrics: EventProcessorMetrics,
+    /// Pipelined checkpoint downloader.
+    pub checkpoint_downloader: ParallelCheckpointDownloader,
 }
 
 impl EventProcessorMetrics {
@@ -233,7 +224,7 @@ impl EventProcessor {
     pub fn verify_checkpoint(
         &self,
         checkpoint: &CheckpointData,
-        prev_checkpoint: TrustedCheckpoint,
+        prev_checkpoint: VerifiedCheckpoint,
     ) -> Result<VerifiedCheckpoint> {
         let Some(committee) = self.committee_store.get(&())? else {
             bail!("No committee found in the committee store");
@@ -241,7 +232,7 @@ impl EventProcessor {
 
         let verified_checkpoint = verify_checkpoint_with_committee(
             Arc::new(committee.clone()),
-            &VerifiedCheckpoint::new_from_verified(prev_checkpoint.into_inner()),
+            &prev_checkpoint,
             checkpoint.checkpoint_summary.clone(),
         )
         .map_err(|checkpoint| {
@@ -299,35 +290,39 @@ impl EventProcessor {
             .next()
             .map(|(k, _)| k + 1)
             .unwrap_or(0);
-        let mut start = Instant::now();
-        let mut num_attempts = 0;
-        while !cancel_token.is_cancelled() {
-            let Some(prev_checkpoint) = self.checkpoint_store.get(&())? else {
-                bail!("No checkpoint found in the checkpoint store");
+        let Some(prev_checkpoint) = self.checkpoint_store.get(&())? else {
+            bail!("No checkpoint found in the checkpoint store");
+        };
+        let mut next_checkpoint = prev_checkpoint.inner().sequence_number().saturating_add(1);
+        let mut prev_verified_checkpoint =
+            VerifiedCheckpoint::new_from_verified(prev_checkpoint.into_inner());
+        let mut rx = self
+            .checkpoint_downloader
+            .start(next_checkpoint, cancel_token);
+        while let Some(entry) = rx.recv().await {
+            let Ok(checkpoint) = entry.result else {
+                tracing::error!(
+                    "Failed to download checkpoint {}: {}",
+                    entry.sequence_number,
+                    entry
+                        .result
+                        .err()
+                        .map_or("Unknown error".to_string(), |e| e.to_string())
+                );
+                bail!("Failed to download checkpoint: {}", entry.sequence_number);
             };
-            let next_checkpoint = prev_checkpoint.inner().sequence_number().saturating_add(1);
-            let result = self.client.get_full_checkpoint(next_checkpoint).await;
-            let Ok(checkpoint) = result else {
-                sleep(RETRY_DELAY).await;
-                num_attempts += 1;
-                if start.elapsed() > MAX_TIMEOUT && num_attempts >= MIN_ATTEMPTS {
-                    bail!(
-                        "Failed to read checkpoint from full node: {}",
-                        result.err().unwrap()
-                    );
-                } else {
-                    handle_checkpoint_error(result.err(), next_checkpoint);
-                    continue;
-                }
-            };
-            start = Instant::now();
-            num_attempts = 0;
+            ensure!(
+                *checkpoint.checkpoint_summary.sequence_number() == next_checkpoint,
+                "Received out of order checkpoint: expected {}, got {}",
+                next_checkpoint,
+                checkpoint.checkpoint_summary.sequence_number()
+            );
             self.metrics
                 .latest_downloaded_checkpoint
                 .set(next_checkpoint as i64);
             self.metrics.total_downloaded_checkpoints.inc();
-
-            let verified_checkpoint = self.verify_checkpoint(&checkpoint, prev_checkpoint)?;
+            let verified_checkpoint =
+                self.verify_checkpoint(&checkpoint, prev_verified_checkpoint)?;
             let mut write_batch = self.event_store.batch();
             let mut counter = 0;
             for tx in checkpoint.transactions.into_iter() {
@@ -411,6 +406,8 @@ impl EventProcessor {
                 )
                 .map_err(|e| anyhow!("Failed to insert checkpoint into checkpoint store: {}", e))?;
             write_batch.write()?;
+            prev_verified_checkpoint = verified_checkpoint;
+            next_checkpoint += 1;
         }
         Ok(())
     }
@@ -495,6 +492,12 @@ impl EventProcessor {
         )?;
 
         let package_store = LocalDBPackageStore::new(walrus_package_store.clone(), client.clone());
+        let checkpoint_downloader = ParallelCheckpointDownloader::new(
+            client.clone(),
+            checkpoint_store.clone(),
+            config.adaptive_downloader_config(),
+            registry,
+        )?;
 
         let event_processor = EventProcessor {
             client,
@@ -508,6 +511,7 @@ impl EventProcessor {
             pruning_interval: config.pruning_interval,
             package_resolver: Arc::new(Resolver::new(PackageCache::new(package_store))),
             metrics: EventProcessorMetrics::new(registry),
+            checkpoint_downloader,
         };
 
         if event_processor.checkpoint_store.is_empty() {
@@ -588,7 +592,6 @@ impl PackageStore for LocalDBPackageStore {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::OnceLock;
 
     use sui_types::messages_checkpoint::CheckpointSequenceNumber;
     use tokio::sync::Mutex;
@@ -596,12 +599,7 @@ mod tests {
     use walrus_sui::{test_utils::EventForTesting, types::BlobCertified};
 
     use super::*;
-
-    // Prevent tests running simultaneously to avoid interferences or race conditions.
-    fn global_test_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(Mutex::default)
-    }
+    use crate::{checkpoint_downloader::AdaptiveDownloaderConfig, tests::global_test_lock};
 
     async fn new_event_processor_for_testing() -> Result<EventProcessor, anyhow::Error> {
         let metric_conf = MetricConf::default();
@@ -671,6 +669,12 @@ mod tests {
         )?;
         let client = Client::new("http://localhost:8080");
         let package_store = LocalDBPackageStore::new(walrus_package_store.clone(), client.clone());
+        let checkpoint_downloader = ParallelCheckpointDownloader::new(
+            client.clone(),
+            checkpoint_store.clone(),
+            AdaptiveDownloaderConfig::default(),
+            &Registry::default(),
+        )?;
         Ok(EventProcessor {
             client,
             walrus_package_store,
@@ -683,6 +687,7 @@ mod tests {
             event_polling_interval: Duration::from_secs(1),
             package_resolver: Arc::new(Resolver::new(PackageCache::new(package_store))),
             metrics: EventProcessorMetrics::new(&Registry::default()),
+            checkpoint_downloader,
         })
     }
 

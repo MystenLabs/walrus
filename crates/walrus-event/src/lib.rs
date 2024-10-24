@@ -10,7 +10,7 @@ use std::{
 use anyhow::{anyhow, bail};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
-use sui_rest_api::{client::sdk, Client};
+use sui_rest_api::Client;
 use sui_sdk::{
     rpc_types::{SuiObjectDataOptions, SuiTransactionBlockResponseOptions},
     SuiClient,
@@ -25,6 +25,9 @@ use sui_types::{
 use walrus_core::BlobId;
 use walrus_sui::types::{BlobEvent, ContractEvent};
 
+use crate::checkpoint_downloader::AdaptiveDownloaderConfig;
+
+mod checkpoint_downloader;
 pub mod event_processor;
 
 /// Configuration for event processing.
@@ -34,6 +37,8 @@ pub struct EventProcessorConfig {
     pub rest_url: String,
     /// Event pruning interval.
     pub pruning_interval: Duration,
+    /// Configuration options for the pipelined checkpoint fetcher.
+    pub adaptive_downloader_config: Option<AdaptiveDownloaderConfig>,
 }
 
 impl EventProcessorConfig {
@@ -42,7 +47,12 @@ impl EventProcessorConfig {
         Self {
             rest_url,
             pruning_interval: Duration::from_secs(3600),
+            adaptive_downloader_config: Some(AdaptiveDownloaderConfig::default()),
         }
+    }
+
+    pub fn adaptive_downloader_config(&self) -> AdaptiveDownloaderConfig {
+        self.adaptive_downloader_config.clone().unwrap_or_default()
     }
 }
 
@@ -243,29 +253,15 @@ async fn ensure_experimental_rest_endpoint_exists(client: Client) -> anyhow::Res
     Ok(())
 }
 
-/// Handles an error that occurred while reading the next checkpoint.
-/// If the error is due to a checkpoint that is already present on the server, it is logged as an
-/// error. Otherwise, it is logged as a debug.
-fn handle_checkpoint_error(err: Option<sdk::Error>, next_checkpoint: u64) {
-    let error = err.as_ref().map(|e| e.to_string()).unwrap_or_default();
-    if let Some(checkpoint_height) = err
-        .as_ref()
-        .and_then(|e| e.parts())
-        .and_then(|p| p.checkpoint_height)
-    {
-        if next_checkpoint > checkpoint_height {
-            tracing::trace!(
-                next_checkpoint,
-                checkpoint_height,
-                %error,
-                "failed to read next checkpoint, probably not produced yet",
-            );
-            return;
-        }
+#[cfg(test)]
+mod tests {
+    use std::sync::OnceLock;
+
+    use tokio::sync::Mutex;
+
+    // Prevent tests running simultaneously to avoid interferences or race conditions.
+    pub fn global_test_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(Mutex::default)
     }
-    tracing::error!(
-        next_checkpoint,
-        %error,
-        "failed to read next checkpoint",
-    );
 }
