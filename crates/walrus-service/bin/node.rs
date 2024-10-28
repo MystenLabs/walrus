@@ -143,6 +143,8 @@ enum Commands {
     },
 
     /// Repair a corrupted RocksDB database due to non-clean shutdowns.
+    /// Hidden command for emergency use only.
+    #[clap(hide = true)]
     RepairDb {
         #[clap(long)]
         /// Path to the RocksDB database directory.
