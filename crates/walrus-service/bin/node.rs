@@ -633,6 +633,7 @@ mod commands {
 
         // In case the integrity of the entire database is compromised.
         opts.create_if_missing(true);
+        opts.set_max_open_files(512_000);
         DB::repair(&opts, db_path).map_err(|err| err.into())
     }
 
