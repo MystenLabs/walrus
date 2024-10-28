@@ -141,6 +141,13 @@ enum Commands {
         #[clap(flatten)]
         config_args: ConfigArgs,
     },
+
+    /// Repair a corrupted RocksDB database due to non-clean shutdowns.
+    RepairDb {
+        #[clap(long)]
+        /// Path to the RocksDB database directory.
+        db_path: PathBuf,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, clap::Parser)]
@@ -304,6 +311,8 @@ fn main() -> anyhow::Result<()> {
             path_args,
             config_args,
         } => commands::generate_config(path_args, config_args)?,
+
+        Commands::RepairDb { db_path } => commands::repair_db(db_path)?,
     }
     Ok(())
 }
@@ -313,6 +322,7 @@ mod commands {
     use std::time::Duration;
 
     use config::EventProviderConfig;
+    use rocksdb::{Options, DB};
     use tokio::task::JoinSet;
     use walrus_core::ensure;
     use walrus_service::utils;
@@ -616,6 +626,14 @@ mod commands {
             config_path.display()
         );
         Ok(())
+    }
+
+    pub fn repair_db(db_path: PathBuf) -> anyhow::Result<()> {
+        let mut opts = Options::default();
+
+        // In case the integrity of the entire database is compromised.
+        opts.create_if_missing(true);
+        DB::repair(&opts, db_path).map_err(|err| err.into())
     }
 
     #[tokio::main]
