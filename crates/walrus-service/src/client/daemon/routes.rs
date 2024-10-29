@@ -123,7 +123,8 @@ pub(super) async fn put_blob<T: ContractClient>(
     State(client): State<Arc<Client<T>>>,
     Query(PublisherQuery {
         epochs,
-        force,
+        // TODO(giac): remove the force parameter from the publisher. (breaking change)
+        force: _force,
         deletable,
     }): Query<PublisherQuery>,
     blob: Bytes,
@@ -133,7 +134,7 @@ pub(super) async fn put_blob<T: ContractClient>(
         .reserve_and_store_blob_retry_epoch(
             &blob[..],
             epochs,
-            StoreWhen::always(force),
+            StoreWhen::AlwaysAndIgnoreResources,
             BlobPersistence::from_deletable(deletable),
         )
         .await

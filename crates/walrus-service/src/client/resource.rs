@@ -201,6 +201,33 @@ impl<'a, C: ContractClient> ResourceManager<'a, C> {
                     .into(),
             ))
         })?;
+
+        if store_when.is_ignore_resources() {
+            tracing::debug!(
+                "ignoring existing resources and creating a new registration from scratch"
+            );
+            self.reserve_and_register_blob_op(encoded_length, epochs_ahead, metadata, persistence)
+                .await
+        } else {
+            self.get_existing_registration_with_resources(
+                encoded_length,
+                epochs_ahead,
+                metadata,
+                persistence,
+                store_when,
+            )
+            .await
+        }
+    }
+
+    async fn get_existing_registration_with_resources(
+        &self,
+        encoded_length: u64,
+        epochs_ahead: EpochCount,
+        metadata: &VerifiedBlobMetadataWithId,
+        persistence: BlobPersistence,
+        store_when: StoreWhen,
+    ) -> ClientResult<(Blob, RegisterBlobOp)> {
         let blob_and_op = if let Some(blob) = self
             .is_blob_registered_in_wallet(
                 metadata.blob_id(),
@@ -244,19 +271,30 @@ impl<'a, C: ContractClient> ResourceManager<'a, C> {
             tracing::debug!(
                 "the blob is not already registered or its lifetime is too short; creating new one"
             );
-            let blob = self
-                .sui_client
-                .reserve_and_register_blob(epochs_ahead, metadata, persistence)
-                .await?;
-            (
-                blob,
-                RegisterBlobOp::RegisterFromScratch {
-                    encoded_length,
-                    epochs_ahead,
-                },
-            )
+            self.reserve_and_register_blob_op(encoded_length, epochs_ahead, metadata, persistence)
+                .await?
         };
         Ok(blob_and_op)
+    }
+
+    async fn reserve_and_register_blob_op(
+        &self,
+        encoded_length: u64,
+        epochs_ahead: EpochCount,
+        metadata: &VerifiedBlobMetadataWithId,
+        persistence: BlobPersistence,
+    ) -> ClientResult<(Blob, RegisterBlobOp)> {
+        let blob = self
+            .sui_client
+            .reserve_and_register_blob(epochs_ahead, metadata, persistence)
+            .await?;
+        Ok((
+            blob,
+            RegisterBlobOp::RegisterFromScratch {
+                encoded_length,
+                epochs_ahead,
+            },
+        ))
     }
 
     /// Checks if the blob is registered by the active wallet for a sufficient duration.
