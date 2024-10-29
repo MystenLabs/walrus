@@ -745,7 +745,7 @@ impl EventProcessorRuntime {
                             read_client,
                             sui_config.event_polling_interval,
                         )),
-                        tokio::spawn(async { Ok(()) }),
+                        tokio::spawn(async { std::future::pending().await }),
                     )
                 }
             };
