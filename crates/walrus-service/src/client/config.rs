@@ -85,6 +85,27 @@ pub struct ClientCommunicationConfig {
     pub disable_native_certs: bool,
     /// The extra time allowed for sliver writes.
     pub sliver_write_extra_time: SliverWriteExtraTime,
+    /// The delay for which the client waits before storing data to ensure that storage nodes have
+    /// seen the registration event.
+    pub registration_delay: Duration,
+}
+
+impl Default for ClientCommunicationConfig {
+    fn default() -> Self {
+        Self {
+            disable_native_certs: true,
+            max_concurrent_writes: Default::default(),
+            max_concurrent_sliver_reads: Default::default(),
+            max_concurrent_metadata_reads: Default::default(),
+            max_concurrent_status_reads: Default::default(),
+            max_data_in_flight: Default::default(),
+            reqwest_config: Default::default(),
+            request_rate_config: Default::default(),
+            disable_proxy: Default::default(),
+            sliver_write_extra_time: Default::default(),
+            registration_delay: Duration::from_millis(200),
+        }
+    }
 }
 
 impl Default for ClientCommunicationConfig {
