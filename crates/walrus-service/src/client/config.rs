@@ -27,7 +27,7 @@ pub struct Config {
     pub staking_object: ObjectID,
     /// The WAL exchange object ID.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub exchange_object: Option<ObjectID>,
+    pub exchange_object: Option<ExchangeObjectConfig>,
     /// Path to the wallet configuration.
     #[serde(default, deserialize_with = "utils::resolve_home_dir_option")]
     pub wallet_config: Option<PathBuf>,
@@ -56,6 +56,16 @@ impl Config {
 }
 
 impl LoadConfig for Config {}
+
+/// Represents one or more exchange objects to be used for SUI/WAL exchange.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum ExchangeObjectConfig {
+    /// A single exchange is configured.
+    One(ObjectID),
+    /// Multiple exchanges are configured. A random one is chosen to perform the exchange.
+    Multiple(Vec<ObjectID>),
+}
 
 /// Configuration for the communication parameters of the client
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -407,8 +417,13 @@ impl Default for SliverWriteExtraTime {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use rand::{rngs::StdRng, SeedableRng};
     use sui_types::base_types::ObjectID;
+    use walrus_test_utils::Result as TestResult;
+
+    use crate::client::ExchangeObjectConfig;
 
     /// Serializes a default config to the example file when tests are run.
     ///
@@ -420,11 +435,50 @@ mod tests {
         let config = super::Config {
             system_object: ObjectID::random_from_rng(&mut rng),
             staking_object: ObjectID::random_from_rng(&mut rng),
-            exchange_object: Some(ObjectID::random_from_rng(&mut rng)),
+            exchange_object: Some(super::ExchangeObjectConfig::Multiple(vec![
+                ObjectID::random_from_rng(&mut rng),
+                ObjectID::random_from_rng(&mut rng),
+            ])),
             wallet_config: None,
             communication_config: Default::default(),
         };
         let serialized = serde_yaml::to_string(&config).unwrap();
         std::fs::write("client_config_example.yaml", serialized).unwrap();
+    }
+
+    #[test]
+    fn test_deserialize_single_exchange_object() -> TestResult {
+        let yaml = "---\n\
+            0xa9b00f69d3b033e7b64acff2672b54fbb7c31361954251e235395dea8bd6dcac";
+
+        assert_eq!(
+            ExchangeObjectConfig::One(ObjectID::from_str(
+                "0xa9b00f69d3b033e7b64acff2672b54fbb7c31361954251e235395dea8bd6dcac"
+            )?),
+            serde_yaml::from_str(yaml)?
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_deserialize_multiple_exchange_objects() -> TestResult {
+        let yaml = "---\n\
+            - 0xa9b00f69d3b033e7b64acff2672b54fbb7c31361954251e235395dea8bd6dcac\n\
+            - 0x26a8a417b553b18d13027c23e8016c3466b81e7083225436b55143c127f3c0cb";
+
+        assert_eq!(
+            ExchangeObjectConfig::Multiple(vec![
+                ObjectID::from_str(
+                    "0xa9b00f69d3b033e7b64acff2672b54fbb7c31361954251e235395dea8bd6dcac"
+                )?,
+                ObjectID::from_str(
+                    "0x26a8a417b553b18d13027c23e8016c3466b81e7083225436b55143c127f3c0cb"
+                )?
+            ]),
+            serde_yaml::from_str(yaml)?
+        );
+
+        Ok(())
     }
 }
