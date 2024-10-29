@@ -12,6 +12,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use prometheus::Registry;
+use rand::seq::SliceRandom;
 use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
 use walrus_core::{
@@ -44,7 +45,9 @@ use crate::{
             success,
             BlobIdDecimal,
             CliOutput,
+            HumanReadableMist,
         },
+        config::ExchangeObjectConfig,
         responses::{
             BlobIdConversionOutput,
             BlobIdOutput,
@@ -526,11 +529,23 @@ impl ClientCommandRunner {
         amount: u64,
     ) -> Result<()> {
         let config = self.config?;
-        let exchange_id = exchange_id.or(config.exchange_object).context(
+        let exchange_id = match (exchange_id, &config.exchange_object) {
+            (Some(exchange_id), _) => Some(exchange_id),
+            (None, None) => None,
+            (None, Some(ExchangeObjectConfig::One(exchange_id))) => Some(*exchange_id),
+            (None, Some(ExchangeObjectConfig::Multiple(exchange_ids))) => {
+                exchange_ids.choose(&mut rand::thread_rng()).copied()
+            }
+        }
+        .context(
             "Object ID of exchange object must be specified either in the config file or as a \
             command-line argument.",
         )?;
         let client = get_contract_client(config, self.wallet, self.gas_budget, &None).await?;
+        tracing::info!(
+            "exchanging {} for WAL using exchange object {exchange_id}",
+            HumanReadableMist::from(amount)
+        );
         client.exchange_sui_for_wal(exchange_id, amount).await?;
         ExchangeOutput { amount_sui: amount }.print_output(self.json)
     }

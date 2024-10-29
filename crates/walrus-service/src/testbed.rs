@@ -44,7 +44,7 @@ use walrus_sui::{
 };
 
 use crate::{
-    client::{self, ClientCommunicationConfig},
+    client::{self, ClientCommunicationConfig, ExchangeObjectConfig},
     common::utils::LoadConfig,
     node::config::{
         defaults::{self, REST_API_PORT},
@@ -420,7 +420,7 @@ pub async fn create_client_config(
     let client_config = client::Config {
         system_object: system_ctx.system_object,
         staking_object: system_ctx.staking_object,
-        exchange_object: Some(exchange_object),
+        exchange_object: Some(ExchangeObjectConfig::One(exchange_object)),
         wallet_config: Some(wallet_path),
         communication_config: ClientCommunicationConfig::default(),
     };
