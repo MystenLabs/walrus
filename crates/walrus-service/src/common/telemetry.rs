@@ -24,7 +24,7 @@ use axum::{
 };
 use opentelemetry::propagation::Extractor;
 use prometheus::{
-    core::{AtomicU64, GenericGauge},
+    core::{AtomicU64, Collector, GenericGauge},
     register_histogram_vec_with_registry,
     HistogramVec,
     IntGaugeVec,
@@ -36,6 +36,8 @@ use tower_http::trace::{MakeSpan, OnResponse};
 use tracing::{field, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use walrus_core::Epoch;
+
+use super::active_committees::ActiveCommittees;
 
 /// Route string used in metrics for invalid routes.
 pub(crate) const UNMATCHED_ROUTE: &str = "invalid-route";
@@ -290,58 +292,88 @@ macro_rules! with_label {
 
 pub(crate) use with_label;
 
-macro_rules! create_metric {
-    ($metric_type:ty, $opts:expr) => {{
-        <$metric_type>::with_opts($opts)
-            .expect("this must be called with valid metrics type and options")
-    }};
-    ($metric_type:ty, $opts:expr, $label_names:expr) => {{
-        <$metric_type>::new($opts.into(), $label_names)
-            .expect("this must be called with valid metrics type, options, and labels")
-    }};
-}
-pub(crate) use create_metric;
-
+/// Defines a set of prometheus metrics.
+///
+/// # Example
+///
+/// ```
+/// define_metric_set! {
+///     /// Docstring applied to the containing struct.
+///     struct MyMetricSet {
+///         // Gauges, counters, and histograms can be defined with an empty `[]`.
+///         #[help = "Help text and docstring for this metric"]
+///         my_int_counter: IntCounter[],
+///         #[help = "Help text for the my_histogram field"]
+///         my_histogram: Histogram[],
+///
+///         // Vec-type metrics have their label names specified in the brackets.
+///         #[help = "Help text for the int_counter_vec field"]
+///         int_counter_vec: IntCounterVec["label1", "label2"],
+///         #[help = "Help text for the my_histogram_vec field"]
+///         my_histogram_vec: HistogramVec["label1", "label2"],
+///
+///         // `Histogram` and `HistogramVec` can additionally have their buckets specified.
+///         #[help = "Help text for the my_histogram_with_buckets field"]
+///         my_histogram_with_buckets: Histogram{buckets: vec![0.25, 1.0, 10.0]},
+///         #[help = "Help text for the my_histogram_vec_with_buckets field"]
+///         my_histogram_vec_with_buckets: HistogramVec{
+///             labels: ["field1", "field2"], buckets: vec![1.0, 2.0]
+///         },
+///
+///         // New-type metrics can be used to define metrics, and are any types that implement both
+///         // `Default` and `Into<Box<dyn Collector>>`.
+///         typed_metric: CurrentEpochMetric,
+///     }
+/// }
+/// ```
 macro_rules! define_metric_set {
     (
-        $name:ident;
-        $(
-            $metric_type:path: [
-                $(( $metric:ident, $descr:literal $(, $labels:expr )? )),+ $(,)?
-            ]
-        ),*
-        $(@TypedMetrics: [
-            $(($typed_metric_field:ident, $typed_metric_type:ident)), + $(,)?
-        ])? $(,)?
+        $(#[$outer:meta])*
+        struct $name:ident {
+            $($new_type_field:ident: $new_type_field_type:ident),*
+            $(
+                #[help = $help_str:literal]
+                $field_name:ident: $field_type:ident $field_def:tt
+            ),* $(,)?
+        }
     ) => {
+        $(#[$outer])*
         #[derive(Debug, Clone)]
         pub(crate) struct $name {
-            $($( pub $metric: $metric_type ),*),*
-            $($( pub $typed_metric_field: $typed_metric_type ),*),*
+            $(
+                #[doc = $help_str]
+                pub $field_name: $field_type,
+            )*
+            $(
+                pub $new_type_field: $new_type_field_type,
+            )*
         }
 
         impl $name {
             pub fn new(registry: &Registry) -> Self {
-                Self {
-                    $($(
-                        $metric: {
-                            let metric = $crate::common::telemetry::create_metric!(
-                                $metric_type,
-                                Opts::new(stringify!($metric), $descr).namespace("walrus")
-                                $(, $labels)?
-                            );
-
-                            registry
-                                .register(Box::new(metric.clone()))
-                                .expect("metrics defined at compile time must be valid");
-
-                            metric
-                        }
-                    ),*),*
-                    $($(
-                        $typed_metric_field: $typed_metric_type::register(registry)
-                    ),*)?
-                }
+                Self { $(
+                    $field_name: {
+                        let opts = Opts::new(stringify!($field_name), $help_str)
+                            .namespace("walrus");
+                        let metric = $crate::common::telemetry::create_metric!(
+                            $field_type,
+                            opts,
+                            $field_def
+                        );
+                        registry
+                            .register(Box::new(metric.clone()))
+                            .expect("metrics defined at compile time must be valid");
+                        metric
+                    },
+                )* $(
+                    $new_type_field: {
+                        let metric = $new_type_field_type::default();
+                        registry
+                            .register(metric.clone().into())
+                            .expect("metrics defined at compile time must be valid");
+                        metric
+                    }
+                ),* }
             }
         }
     };
@@ -349,7 +381,32 @@ macro_rules! define_metric_set {
 
 pub(crate) use define_metric_set;
 
-use super::active_committees::ActiveCommittees;
+macro_rules! create_metric {
+    ($field_type:ty, $opts:expr, []) => {{
+        <$field_type>::with_opts($opts.into())
+            .expect("this must be called with valid metrics type and options")
+    }};
+    ($field_type:ty, $opts:expr, [$($label_names:tt)+]) => {{
+        <$field_type>::new($opts.into(), &[$($label_names)+])
+            .expect("this must be called with valid metrics type and options")
+    }};
+    (Histogram, $opts:expr, {buckets: $buckets:expr}) => {{
+        let mut opts: prometheus::HistogramOpts = $opts.into();
+        opts.buckets = $buckets.into();
+
+        prometheus::Histogram::with_opts(opts)
+            .expect("this must be called with valid metrics type and options")
+    }};
+    (HistogramVec, $opts:expr, {labels: [$($label_names:tt)+], buckets: $buckets:expr $(,)?}) => {{
+        let mut opts: prometheus::HistogramOpts = $opts.into();
+        opts.buckets = $buckets.into();
+
+        prometheus::HistogramVec::new(opts, &[$($label_names)+])
+            .expect("this must be called with valid metrics type and options")
+    }};
+}
+
+pub(crate) use create_metric;
 
 /// Metric `current_epoch` that records the currently observed walrus epoch.
 ///
@@ -358,11 +415,17 @@ use super::active_committees::ActiveCommittees;
 pub(crate) struct CurrentEpochMetric(GenericGauge<AtomicU64>);
 
 impl CurrentEpochMetric {
+    pub fn new() -> Self {
+        let opts = Opts::new("current_epoch", "The current Walrus epoch").namespace("walrus");
+        let metric = create_metric!(GenericGauge<AtomicU64>, opts, []);
+        Self(metric)
+    }
+
     /// Registers the metric with the registry, and returns a new instance of it.
     pub fn register(registry: &Registry) -> Self {
         let opts = Opts::new("current_epoch", "The current Walrus epoch").namespace("walrus");
 
-        let metric = create_metric!(GenericGauge<AtomicU64>, opts);
+        let metric = create_metric!(GenericGauge<AtomicU64>, opts, []);
         registry
             .register(Box::new(metric.clone()))
             .expect("metrics defined at compile time must be valid");
@@ -373,6 +436,18 @@ impl CurrentEpochMetric {
     /// Sets the currently observed epoch.
     pub fn set(&self, epoch: Epoch) {
         self.0.set(epoch.into())
+    }
+}
+
+impl Default for CurrentEpochMetric {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl From<CurrentEpochMetric> for Box<dyn Collector> {
+    fn from(value: CurrentEpochMetric) -> Self {
+        Box::new(value.0)
     }
 }
 
@@ -387,19 +462,14 @@ impl CurrentEpochStateMetric {
     const CHANGE_DONE: &str = "epoch_change_done";
     const NEXT_PARAMS_SELECTED: &str = "next_params_selected";
 
-    /// Registers the metric with the registry, and returns a new instance of it.
-    pub fn register(registry: &Registry) -> Self {
+    /// Returns a new, unregistered instance of the metric.
+    pub fn new() -> Self {
         let opts = Opts::new(
             "current_epoch_state",
             "The state of the current walrus epoch",
         )
         .namespace("walrus");
-        let metric = create_metric!(IntGaugeVec, opts, &["state"]);
-
-        registry
-            .register(Box::new(metric.clone()))
-            .expect("metrics defined at compile time must be valid");
-
+        let metric = create_metric!(IntGaugeVec, opts, ["state"]);
         Self(metric)
     }
 
@@ -438,5 +508,17 @@ impl CurrentEpochStateMetric {
         with_label!(self.0, Self::CHANGE_SYNC).set(false.into());
         with_label!(self.0, Self::CHANGE_DONE).set(false.into());
         with_label!(self.0, Self::NEXT_PARAMS_SELECTED).set(false.into());
+    }
+}
+
+impl Default for CurrentEpochStateMetric {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl From<CurrentEpochStateMetric> for Box<dyn Collector> {
+    fn from(value: CurrentEpochStateMetric) -> Self {
+        Box::new(value.0)
     }
 }

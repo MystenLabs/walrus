@@ -16,8 +16,7 @@ use committee::{BeginCommitteeChangeError, EndCommitteeChangeError};
 use config::EventProviderConfig;
 use epoch_change_driver::EpochChangeDriver;
 use fastcrypto::traits::KeyPair;
-use futures::{Stream, StreamExt, TryFutureExt};
-use futures_util::stream;
+use futures::{stream, Stream, StreamExt, TryFutureExt};
 use prometheus::Registry;
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use serde::Serialize;
@@ -1350,6 +1349,9 @@ impl ServiceState for StorageNodeInner {
             .put_verified_metadata(&verified_metadata_with_id)
             .context("unable to store metadata")?;
 
+        self.metrics
+            .uploaded_metadata_unencoded_blob_bytes
+            .observe(verified_metadata_with_id.as_ref().unencoded_length as f64);
         self.metrics.metadata_stored_total.inc();
 
         Ok(true)
