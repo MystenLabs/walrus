@@ -1882,12 +1882,13 @@ pub mod test_cluster {
 /// Creates a new [`StorageNodeConfig`] object for testing.
 pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
     let temp_dir = TempDir::new().expect("able to create a temporary directory");
+    let rest_api_address = unused_socket_address(false);
     WithTempDir {
         inner: StorageNodeConfig {
             name: Some("node".to_string()),
             protocol_key_pair: walrus_core::test_utils::protocol_key_pair().into(),
             network_key_pair: walrus_core::test_utils::network_key_pair().into(),
-            rest_api_address: unused_socket_address(false),
+            rest_api_address,
             metrics_address: unused_socket_address(false),
             storage_path: temp_dir.path().to_path_buf(),
             db_config: None,
@@ -1903,6 +1904,8 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
                 write_price: 1,
                 node_capacity: 1_000_000_000,
             },
+            public_host: Some(rest_api_address.ip().to_string()),
+            public_port: Some(rest_api_address.port()),
         },
         temp_dir,
     }

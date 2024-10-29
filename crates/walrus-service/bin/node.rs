@@ -15,7 +15,7 @@ use std::{
 
 use anyhow::{anyhow, bail, Context};
 use clap::{Parser, Subcommand};
-use config::{PathOrInPlace, TlsConfig};
+use config::PathOrInPlace;
 use fastcrypto::traits::KeyPair;
 use fs::File;
 use humantime::Duration;
@@ -92,17 +92,11 @@ enum Commands {
 
     /// Register a new node with the Walrus storage network.
     Register {
-        #[clap(long)]
         /// The path to the node's configuration file.
+        #[clap(long)]
         config_path: PathBuf,
-        #[clap(long)]
-        /// The host name or public IP address of the node.
-        public_host: String,
-        /// The port on which the storage node will serve requests.
-        #[clap(long, default_value_t = REST_API_PORT)]
-        port: u16,
-        #[clap(long)]
         /// The name of the node.
+        #[clap(long)]
         name: Option<String>,
     },
 
@@ -204,9 +198,12 @@ struct ConfigArgs {
     /// Initial storage capacity of this node in bytes.
     ///
     /// The value can either by unitless; have suffixes for powers of 1000, such as (B),
-    /// kilobytes (K), etc, or have suffixes for the IEC units such as kibibytes (Ki),
+    /// kilobytes (K), etc.; or have suffixes for the IEC units such as kibibytes (Ki),
     /// mebibytes (Mi), etc.
     node_capacity: ByteCount,
+    #[clap(long)]
+    /// The host name or public IP address of the node.
+    public_host: String,
     // ***************************
     //   Optional fields below
     // ***************************
@@ -219,24 +216,24 @@ struct ConfigArgs {
     #[clap(long, action)]
     /// Use the legacy event provider instead of the standard checkpoint-based event processor.
     use_legacy_event_provider: bool,
-    #[clap(long, default_value_t = config::defaults::storage_price())]
-    /// Initial vote for the storage price in FROST per MiB per epoch.
-    storage_price: u64,
-    #[clap(long, default_value_t = config::defaults::write_price())]
-    /// Initial vote for the write price in FROST per MiB.
-    write_price: u64,
-    #[clap(long, default_value_t = config::defaults::gas_budget())]
-    /// Gas budget for transactions.
-    gas_budget: u64,
-    #[clap(long)]
-    /// Public IP address or hostname of the storage node.
-    server_name: Option<String>,
+    #[clap(long, default_value_t = REST_API_PORT)]
+    /// The port on which the storage node will serve requests.
+    public_port: u16,
     #[clap(long, default_value_t = config::defaults::rest_api_address())]
     /// Socket address on which the REST API listens.
     rest_api_address: SocketAddr,
     #[clap(long, default_value_t = config::defaults::metrics_address())]
     /// Socket address on which the Prometheus server should export its metrics.
     metrics_address: SocketAddr,
+    #[clap(long, default_value_t = config::defaults::gas_budget())]
+    /// Gas budget for transactions.
+    gas_budget: u64,
+    #[clap(long, default_value_t = config::defaults::storage_price())]
+    /// Initial vote for the storage price in FROST per MiB per epoch.
+    storage_price: u64,
+    #[clap(long, default_value_t = config::defaults::write_price())]
+    /// Initial vote for the write price in FROST per MiB.
+    write_price: u64,
     #[clap(long, default_value_t = 0)]
     /// The commission rate of the storage node, in basis points.
     commission_rate: u64,
@@ -286,12 +283,7 @@ fn main() -> anyhow::Result<()> {
             config_args,
         )?,
 
-        Commands::Register {
-            config_path,
-            public_host,
-            port,
-            name,
-        } => commands::register_node(config_path, public_host, port, name)?,
+        Commands::Register { config_path, name } => commands::register_node(config_path, name)?,
 
         Commands::Run {
             config_path,
@@ -495,37 +487,34 @@ mod commands {
     #[tokio::main]
     pub(crate) async fn register_node(
         config_path: PathBuf,
-        public_host: String,
-        port: u16,
         name: Option<String>,
     ) -> anyhow::Result<()> {
-        let mut storage_config = StorageNodeConfig::load(&config_path)?;
-        let node_name = name.or(storage_config.name.clone()).ok_or(anyhow!(
+        let mut config = StorageNodeConfig::load(&config_path)?;
+        let node_name = name.or(config.name.clone()).ok_or(anyhow!(
             "Name is required to register a node. Set it in the config file or provide it as a \
                 command-line argument."
         ))?;
 
-        storage_config.protocol_key_pair.load()?;
-        storage_config.network_key_pair.load()?;
+        config.protocol_key_pair.load()?;
+        config.network_key_pair.load()?;
 
         // If we have an IP address, use a SocketAddr to get the string representation
         // as IPv6 addresses are enclosed in square brackets.
-        let public_address = if let Ok(ip_addr) = IpAddr::from_str(&public_host) {
-            NetworkAddress(SocketAddr::new(ip_addr, port).to_string())
-        } else {
-            // Do a minor sanity check that the user has not included a port in the hostname
-            ensure!(
-                !public_host.contains(':'),
-                "DNS names must not contain ':', to specify a port, use the --port option."
-            );
-            NetworkAddress(format!("{public_host}:{port}"))
+        let Some(public_host) = config.public_host.clone() else {
+            bail!("The 'public_host' must be set in the configuration file.");
         };
-        let registration_params = storage_config.to_registration_params(public_address, node_name);
+        let public_port = config.public_port.unwrap_or(REST_API_PORT);
+        let public_address = if let Ok(ip_addr) = IpAddr::from_str(&public_host) {
+            NetworkAddress(SocketAddr::new(ip_addr, public_port).to_string())
+        } else {
+            NetworkAddress(format!("{}:{}", public_host, public_port))
+        };
+        let registration_params = config.to_registration_params(public_address, node_name);
 
         // Uses the Sui wallet configuration in the storage node config to register the node.
-        let contract_client = get_contract_client_from_node_config(&storage_config).await?;
+        let contract_client = get_contract_client_from_node_config(&config).await?;
         let proof_of_possession = walrus_sui::utils::generate_proof_of_possession(
-            storage_config.protocol_key_pair(),
+            config.protocol_key_pair(),
             &contract_client,
             &registration_params,
         )
@@ -535,7 +524,7 @@ mod commands {
             .register_candidate(&registration_params, &proof_of_possession)
             .await?;
 
-        println!("Successfully registered storage node with capability:",);
+        println!("Successfully registered storage node:",);
         println!("      Capability object ID: {}", node_capability.id);
         println!("      Node ID: {}", node_capability.node_id);
         Ok(())
@@ -550,17 +539,18 @@ mod commands {
             wallet_config,
         }: PathArgs,
         ConfigArgs {
-            sui_rpc,
-            use_legacy_event_provider,
             system_object,
             staking_object,
-            storage_price,
-            write_price,
             node_capacity,
-            gas_budget,
-            server_name,
+            public_host,
+            sui_rpc,
+            use_legacy_event_provider,
+            public_port,
             rest_api_address,
             metrics_address,
+            gas_budget,
+            storage_price,
+            write_price,
             commission_rate,
             name,
         }: ConfigArgs,
@@ -588,10 +578,21 @@ mod commands {
             EventProviderConfig::CheckpointBasedEventProcessor(None)
         };
 
+        // Do a minor sanity check that the user has not included a port in the hostname.
+        ensure!(
+            !public_host.contains(':'),
+            "DNS names must not contain ':'; to specify a port different from the default, use the \
+                '--public-port' option."
+        );
+
         let config = StorageNodeConfig {
             storage_path,
             protocol_key_pair: PathOrInPlace::from_path(protocol_key_path),
             network_key_pair: PathOrInPlace::from_path(network_key_path),
+            public_host: Some(public_host),
+            public_port: Some(public_port),
+            rest_api_address,
+            metrics_address,
             sui: Some(SuiConfig {
                 rpc: sui_rpc,
                 system_object,
@@ -605,16 +606,9 @@ mod commands {
                 write_price,
                 node_capacity: node_capacity.as_u64(),
             },
-            rest_api_address,
-            metrics_address,
-            name,
             commission_rate,
-            tls: TlsConfig {
-                disable_tls: false,
-                pem_files: None,
-                server_name,
-            },
             event_provider_config,
+            name,
             ..Default::default()
         };
 

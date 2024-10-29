@@ -74,14 +74,13 @@ impl From<&StorageNodeConfig> for UserServerConfig {
                 key_path: paths.key_path,
             })
         } else {
-            let server_name = config
-                .tls
-                .server_name
-                .clone()
-                .unwrap_or_else(|| config.rest_api_address.ip().to_string());
-
             Some(TlsCertificateSource::GenerateSelfSigned {
-                server_name,
+                server_name: config
+                    .tls
+                    .server_name
+                    .clone()
+                    .or_else(|| config.public_host.clone())
+                    .unwrap_or_else(|| config.rest_api_address.ip().to_string()),
                 network_key_pair: config.network_key_pair().clone(),
             })
         };

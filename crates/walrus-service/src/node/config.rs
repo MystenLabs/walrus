@@ -54,6 +54,14 @@ pub struct StorageNodeConfig {
     /// Key pair used to authenticate nodes in network communication.
     #[serde_as(as = "PathOrInPlace<Base64>")]
     pub network_key_pair: PathOrInPlace<NetworkKeyPair>,
+    /// The host name or public IP address of the node.
+    // TODO: Make this non-optional when cleaning up the config files (#407).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_host: Option<String>,
+    /// The port on which the storage node will serve requests.
+    // TODO: Make this non-optional when cleaning up the config files (#407).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_port: Option<u16>,
     /// Socket address on which the Prometheus server should export its metrics.
     #[serde(default = "defaults::metrics_address")]
     pub metrics_address: SocketAddr,
@@ -104,6 +112,8 @@ impl Default for StorageNodeConfig {
             db_config: Default::default(),
             protocol_key_pair: PathOrInPlace::InPlace(ProtocolKeyPair::generate()),
             network_key_pair: PathOrInPlace::InPlace(NetworkKeyPair::generate()),
+            public_host: Some("127.0.0.1".into()),
+            public_port: Some(defaults::rest_api_port()),
             metrics_address: defaults::metrics_address(),
             rest_api_address: defaults::rest_api_address(),
             rest_graceful_shutdown_period_secs: defaults::rest_graceful_shutdown_period_secs(),
@@ -178,7 +188,9 @@ pub struct TlsConfig {
     /// Paths to the certificate and key used to secure the REST API.
     pub pem_files: Option<TlsCertificateAndKey>,
     /// The server name add to self-signed certificates, if used. If not provided, any self-signed
-    /// certificates will use the IP address as the subject name.
+    /// certificates will use the [`StorageNodeConfig::public_host`] if set or the IP address as the
+    /// subject name.
+    // TODO: Remove this when cleaning up the config files (#407).
     pub server_name: Option<String>,
 }
 
@@ -634,6 +646,7 @@ mod tests {
         storage_path: target/storage\n\
         protocol_key_pair:\n  BBlm7tRefoPuaKoVoxVtnUBBDCfy+BGPREM8B6oSkOEj\n\
         network_key_pair:\n  As5tqQFRGrjPSvcZeKfBX98NwDuCUtZyJdzWR2bUn0oY\n\
+        public_host: 31.41.59.26\n\
         voting_params:
             storage_price: 5
             write_price: 1
@@ -665,6 +678,7 @@ db_config:
     blob_garbage_collection_age_cutoff: 0.0
 protocol_key_pair: BBlm7tRefoPuaKoVoxVtnUBBDCfy+BGPREM8B6oSkOEj
 network_key_pair:  As5tqQFRGrjPSvcZeKfBX98NwDuCUtZyJdzWR2bUn0oY
+public_host: node.walrus.space
 metrics_address: 173.199.90.181:9184
 rest_api_address: 173.199.90.181:9185
 sui:

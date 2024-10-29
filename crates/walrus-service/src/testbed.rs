@@ -51,7 +51,6 @@ use crate::{
         EventProviderConfig,
         StorageNodeConfig,
         SuiConfig,
-        TlsConfig,
     },
 };
 
@@ -546,11 +545,6 @@ pub async fn create_storage_node_configs(
             .map(|path| path.to_path_buf())
             .or(set_config_dir.map(|path| path.join(&name)))
             .unwrap_or_else(|| working_dir.join(&name));
-        let tls = TlsConfig {
-            disable_tls: false,
-            pem_files: None,
-            server_name: Some(node.network_address.get_host().to_owned()),
-        };
 
         let event_provider_config = if use_legacy_event_provider {
             EventProviderConfig::LegacyEventProvider
@@ -563,13 +557,18 @@ pub async fn create_storage_node_configs(
             storage_path,
             protocol_key_pair: node.keypair.into(),
             network_key_pair: node.network_keypair.into(),
+            public_host: Some(node.network_address.get_host().to_owned()),
+            public_port: Some(node.network_address.try_get_port()?.context(format!(
+                "network address without port: {}",
+                node.network_address
+            ))?),
             metrics_address,
             rest_api_address,
             sui,
             db_config: None,
             rest_graceful_shutdown_period_secs: None,
             blob_recovery: Default::default(),
-            tls,
+            tls: Default::default(),
             shard_sync_config: Default::default(),
             event_provider_config,
             commission_rate: node.commission_rate,
