@@ -2417,6 +2417,43 @@ mod tests {
         Ok(())
     }
 
+    // TODO(#1095): fix this test once process epoch change start cancels expired blob syncs.
+    #[tokio::test]
+    async fn cancel_expired_blob_sync_upon_epoch_change() -> TestResult {
+        let shards: &[&[u16]] = &[&[1], &[0, 2, 3, 4]];
+
+        let (cluster, events, blob) =
+            cluster_with_partially_stored_blob(shards, BLOB, |shard, _| shard.get() != 1).await?;
+
+        events.send(
+            BlobCertified {
+                epoch: 1,
+                blob_id: *blob.blob_id(),
+                end_epoch: 2,
+                deletable: false,
+                object_id: ObjectID::random(),
+                is_extension: false,
+                event_id: event_id_for_testing(),
+            }
+            .into(),
+        )?;
+
+        advance_cluster_to_epoch(&cluster, &[&events], 2).await?;
+
+        // Node 1 which has the blob stored should finish process 4 events: blob registered,
+        // blob certified, epoch change start, epoch change done.
+        wait_until_events_processed(&cluster.nodes[1], 4).await?;
+
+        // TODO(#1095): wait_until_events_processed shouldn't return error once process epoch change
+        // start cancels expired blob syncs.
+        assert!(matches!(
+            wait_until_events_processed(&cluster.nodes[0], 4).await,
+            Err(e) if e.to_string() == "not enough events processed"
+        ));
+
+        Ok(())
+    }
+
     #[tokio::test]
     async fn recovers_slivers_for_multiple_shards_from_other_nodes() -> TestResult {
         let shards: &[&[u16]] = &[&[1, 6], &[0, 2, 3, 4, 5]];

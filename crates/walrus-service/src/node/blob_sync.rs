@@ -86,7 +86,7 @@ impl BlobSyncHandler {
         handle.await?
     }
 
-    async fn remove_sync_handle(&self, blob_id: &BlobId) {
+    fn remove_sync_handle(&self, blob_id: &BlobId) {
         self.blob_syncs_in_progress
             .lock()
             .expect("should be able to acquire lock")
@@ -192,7 +192,7 @@ impl BlobSyncHandler {
         .inspect_err(|error| tracing::error!(?error, "blob synchronization failed"));
 
         // We remove the bob handler regardless of the result.
-        self.remove_sync_handle(&synchronizer.blob_id).await;
+        self.remove_sync_handle(&synchronizer.blob_id);
 
         let label = match output {
             Ok(Some(_)) => metrics::STATUS_SUCCESS,
