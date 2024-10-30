@@ -112,7 +112,7 @@ impl Default for StorageNodeConfig {
             db_config: Default::default(),
             protocol_key_pair: PathOrInPlace::InPlace(ProtocolKeyPair::generate()),
             network_key_pair: PathOrInPlace::InPlace(NetworkKeyPair::generate()),
-            public_host: Some("127.0.0.1".into()),
+            public_host: Some(defaults::rest_api_address().ip().to_string()),
             public_port: Some(defaults::rest_api_port()),
             metrics_address: defaults::metrics_address(),
             rest_api_address: defaults::rest_api_address(),

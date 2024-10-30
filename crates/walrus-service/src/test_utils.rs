@@ -655,6 +655,7 @@ impl StorageNodeHandleBuilder {
             protocol_key_pair: node_info.key_pair.into(),
             network_key_pair: node_info.network_key_pair.into(),
             rest_api_address: node_info.rest_api_address,
+            public_host: Some(node_info.rest_api_address.ip().to_string()),
             ..storage_node_config().inner
         };
 
@@ -778,6 +779,7 @@ impl StorageNodeHandleBuilder {
             protocol_key_pair: node_info.key_pair.into(),
             network_key_pair: node_info.network_key_pair.into(),
             rest_api_address: node_info.rest_api_address,
+            public_host: Some(node_info.rest_api_address.ip().to_string()),
             sui: Some(SuiConfig {
                 rpc: sui_cluster_handle.cluster().rpc_url().to_string(),
                 system_object: system_context.system_object,
