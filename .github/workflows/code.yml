@@ -34,7 +34,7 @@ env:
 
 jobs:
   diff:
-    runs-on: [ubuntu-ghcloud]
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: read
