@@ -122,12 +122,16 @@ impl ClientCommunicationConfig {
     /// Provides a config with lower number of retries to speed up integration testing.
     #[cfg(any(test, feature = "test-utils"))]
     pub fn default_for_test() -> Self {
+        #[cfg(msim)]
+        let max_retries = Some(5);
+        #[cfg(not(msim))]
+        let max_retries = Some(1);
         ClientCommunicationConfig {
             disable_proxy: true,
             disable_native_certs: true,
             request_rate_config: RequestRateConfig {
                 max_node_connections: 10,
-                max_retries: Some(1),
+                max_retries,
                 min_backoff: Duration::from_secs(2),
                 max_backoff: Duration::from_secs(10),
             },
