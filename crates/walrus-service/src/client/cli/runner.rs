@@ -393,6 +393,8 @@ impl ClientCommandRunner {
             args.daemon_args.bind_address,
             args.max_body_size(),
             registry,
+            args.max_request_buffer_size,
+            args.max_concurrent_requests,
         )
         .run()
         .await?;
@@ -434,6 +436,8 @@ impl ClientCommandRunner {
             args.daemon_args.bind_address,
             args.max_body_size(),
             registry,
+            args.max_request_buffer_size,
+            args.max_concurrent_requests,
         )
         .run()
         .await?;

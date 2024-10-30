@@ -6,15 +6,24 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use axum::{
+    error_handling::HandleErrorLayer,
     extract::DefaultBodyLimit,
     middleware,
+    response::{IntoResponse, Response},
     routing::{get, put},
+    BoxError,
     Router,
 };
 use openapi::{AggregatorApiDoc, DaemonApiDoc, PublisherApiDoc};
 use prometheus::{HistogramVec, Registry};
+use reqwest::StatusCode;
 use routes::{BLOB_GET_ENDPOINT, BLOB_PUT_ENDPOINT, STATUS_ENDPOINT};
-use tower::ServiceBuilder;
+use tower::{
+    buffer::BufferLayer,
+    limit::ConcurrencyLimitLayer,
+    load_shed::{error::Overloaded, LoadShedLayer},
+    ServiceBuilder,
+};
 use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_redoc::{Redoc, Servable};
@@ -109,9 +118,14 @@ impl<T: ContractClient + 'static> ClientDaemon<T> {
         network_address: SocketAddr,
         max_body_limit: usize,
         registry: &Registry,
+        max_request_buffer_size: usize,
+        max_concurrent_requests: usize,
     ) -> Self {
-        Self::new::<PublisherApiDoc>(client, network_address, registry)
-            .with_publisher(max_body_limit)
+        Self::new::<PublisherApiDoc>(client, network_address, registry).with_publisher(
+            max_body_limit,
+            max_request_buffer_size,
+            max_concurrent_requests,
+        )
     }
 
     /// Constructs a new [`ClientDaemon`] with combined aggregator and publisher functionality.
@@ -120,20 +134,60 @@ impl<T: ContractClient + 'static> ClientDaemon<T> {
         network_address: SocketAddr,
         max_body_limit: usize,
         registry: &Registry,
+        max_request_buffer_size: usize,
+        max_concurrent_requests: usize,
     ) -> Self {
         Self::new::<DaemonApiDoc>(client, network_address, registry)
             .with_aggregator()
-            .with_publisher(max_body_limit)
+            .with_publisher(
+                max_body_limit,
+                max_request_buffer_size,
+                max_concurrent_requests,
+            )
     }
 
     /// Specifies that the daemon should expose the publisher interface (store blobs).
-    fn with_publisher(mut self, max_body_limit: usize) -> Self {
+    fn with_publisher(
+        mut self,
+        max_body_limit: usize,
+        max_request_buffer_size: usize,
+        max_concurrent_requests: usize,
+    ) -> Self {
+        tracing::debug!(
+            %max_body_limit,
+            %max_request_buffer_size,
+            %max_concurrent_requests,
+            "configuring the publisher endpoint",
+        );
+        let publisher_layers = ServiceBuilder::new()
+            .layer(DefaultBodyLimit::max(max_body_limit))
+            .layer(HandleErrorLayer::new(handle_publisher_error))
+            .layer(LoadShedLayer::new())
+            .layer(BufferLayer::new(max_request_buffer_size))
+            .layer(ConcurrencyLimitLayer::new(max_concurrent_requests));
+
         self.router = self.router.route(
             BLOB_PUT_ENDPOINT,
             put(routes::put_blob)
-                .route_layer(DefaultBodyLimit::max(max_body_limit))
+                .route_layer(publisher_layers)
                 .options(routes::store_blob_options),
         );
         self
+    }
+}
+
+async fn handle_publisher_error(error: BoxError) -> Response {
+    if error.is::<Overloaded>() {
+        (
+            StatusCode::TOO_MANY_REQUESTS,
+            "the publisher is receiving too many requests; please try again later",
+        )
+            .into_response()
+    } else {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "something went wrong while storing the blob",
+        )
+            .into_response()
     }
 }

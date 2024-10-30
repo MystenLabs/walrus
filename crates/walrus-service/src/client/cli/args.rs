@@ -355,9 +355,17 @@ pub struct PublisherArgs {
     #[serde(flatten)]
     pub daemon_args: DaemonArgs,
     /// The maximum body size of PUT requests in KiB.
-    #[clap(short, long = "max-body-size", default_value_t = default::max_body_size_kib())]
+    #[clap(long = "max-body-size", default_value_t = default::max_body_size_kib())]
     #[serde(default = "default::max_body_size_kib")]
     pub max_body_size_kib: usize,
+    /// The maximum number of requests that can be buffered before the server starts rejecting new
+    /// ones.
+    #[clap(long = "max-buffer-size", default_value_t = default::max_request_buffer_size())]
+    #[serde(default = "default::max_request_buffer_size")]
+    pub max_request_buffer_size: usize,
+    #[clap(long, default_value_t = default::max_concurrent_requests())]
+    #[serde(default = "default::max_concurrent_requests")]
+    pub max_concurrent_requests: usize,
 }
 
 impl PublisherArgs {
@@ -547,6 +555,19 @@ mod default {
         10_240
     }
 
+    pub(crate) fn max_concurrent_requests() -> usize {
+        16
+    }
+
+    pub(crate) fn max_request_buffer_size() -> usize {
+        // 1x the number of concurrent requests by default means that we start rejecting requests
+        // rather soon to avoid overloading the publisher.
+        //
+        // In total there can be 1x processing and 1x in the buffer, for 2x number of concurrent
+        // requests allowed before we start rejecting.
+        max_concurrent_requests()
+    }
+
     pub(crate) fn status_timeout() -> Duration {
         Duration::from_secs(10)
     }
@@ -634,6 +655,8 @@ mod tests {
                     blocklist: None,
                 },
                 max_body_size_kib: default::max_body_size_kib(),
+                max_request_buffer_size: default::max_request_buffer_size(),
+                max_concurrent_requests: default::max_concurrent_requests(),
             },
         })
     }
