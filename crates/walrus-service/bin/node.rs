@@ -503,6 +503,11 @@ mod commands {
         let Some(public_host) = config.public_host.clone() else {
             bail!("The 'public_host' must be set in the configuration file.");
         };
+        ensure!(
+            !public_host.contains(':'),
+            "DNS names must not contain ':'; the public port can be specified in the config file \
+                with the `public_port` parameter."
+        );
         let public_port = config.public_port.unwrap_or(REST_API_PORT);
         let public_address = if let Ok(ip_addr) = IpAddr::from_str(&public_host) {
             NetworkAddress(SocketAddr::new(ip_addr, public_port).to_string())
