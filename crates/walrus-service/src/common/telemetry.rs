@@ -330,7 +330,7 @@ macro_rules! define_metric_set {
     (
         $(#[$outer:meta])*
         struct $name:ident {
-            $($new_type_field:ident: $new_type_field_type:ident),*
+            $($new_type_field:ident: $new_type_field_type:ident,)*
             $(
                 #[help = $help_str:literal]
                 $field_name:ident: $field_type:ident $field_def:tt
@@ -416,21 +416,11 @@ pub(crate) struct CurrentEpochMetric(GenericGauge<AtomicU64>);
 
 impl CurrentEpochMetric {
     pub fn new() -> Self {
-        let opts = Opts::new("current_epoch", "The current Walrus epoch").namespace("walrus");
-        let metric = create_metric!(GenericGauge<AtomicU64>, opts, []);
-        Self(metric)
-    }
-
-    /// Registers the metric with the registry, and returns a new instance of it.
-    pub fn register(registry: &Registry) -> Self {
-        let opts = Opts::new("current_epoch", "The current Walrus epoch").namespace("walrus");
-
-        let metric = create_metric!(GenericGauge<AtomicU64>, opts, []);
-        registry
-            .register(Box::new(metric.clone()))
-            .expect("metrics defined at compile time must be valid");
-
-        Self(metric)
+        Self(create_metric!(
+            GenericGauge<AtomicU64>,
+            Opts::new("current_epoch", "The current Walrus epoch").namespace("walrus"),
+            []
+        ))
     }
 
     /// Sets the currently observed epoch.

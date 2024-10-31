@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use prometheus::{
-    core::{AtomicU64, GenericGaugeVec},
+    core::{AtomicU64, GenericGauge, GenericGaugeVec},
     Histogram,
     HistogramVec,
     IntCounter,
@@ -29,6 +29,7 @@ pub(crate) const STATUS_PERSISTED: &str = "persisted";
 pub(crate) const STATUS_IN_PROGRESS: &str = "in-progress";
 
 type U64GaugeVec = GenericGaugeVec<AtomicU64>;
+type U64Gauge = GenericGauge<AtomicU64>;
 
 telemetry::define_metric_set! {
     /// Metrics exported by the storage node.
@@ -107,6 +108,9 @@ telemetry::define_metric_set! {
     struct CommitteeServiceMetricSet {
         current_epoch: CurrentEpochMetric,
         current_epoch_state: CurrentEpochStateMetric,
+
+        #[help = "The number shards currently owned by this node"]
+        current_shards_owned: U64Gauge[],
     }
 }
 
