@@ -71,12 +71,12 @@ type ClientResult<T> = Result<T, ClientError>;
 /// Represents how the store operation should be carried out by the client.
 #[derive(Debug, Clone, Copy)]
 pub enum StoreWhen {
-    /// Store the blob always and do not check the resources in the current wallet.
+    /// Store the blob if not stored, but do not check the resources in the current wallet.
     ///
     /// With this command, the client does not check for usable registrations or
     /// storage space. This is useful when using the publisher, to avoid wasting multiple round
     /// trips to the fullnode.
-    AlwaysAndIgnoreResources,
+    NotStoredIgnoreResources,
     /// Store the blob always, without checking the status.
     Always,
     /// Check the status of the blob before storing it, and store it only if it is not already.
@@ -86,12 +86,12 @@ pub enum StoreWhen {
 impl StoreWhen {
     /// Returns `true` if the operation is [`Self::Always`].
     pub fn is_store_always(&self) -> bool {
-        matches!(self, Self::Always | Self::AlwaysAndIgnoreResources)
+        matches!(self, Self::Always)
     }
 
-    /// Returns `true` if the operation is [`Self::AlwaysAndIgnoreResources`].
+    /// Returns `true` if the operation is [`Self::NotStoredIgnoreResources`].
     pub fn is_ignore_resources(&self) -> bool {
-        matches!(self, Self::AlwaysAndIgnoreResources)
+        matches!(self, Self::NotStoredIgnoreResources)
     }
 
     /// Returns [`Self`] based on the value of a `force` flag.

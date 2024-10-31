@@ -134,7 +134,7 @@ pub(super) async fn put_blob<T: ContractClient>(
         .reserve_and_store_blob_retry_epoch(
             &blob[..],
             epochs,
-            StoreWhen::AlwaysAndIgnoreResources,
+            StoreWhen::NotStoredIgnoreResources,
             BlobPersistence::from_deletable(deletable),
         )
         .await

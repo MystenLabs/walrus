@@ -148,7 +148,7 @@ impl<'a, C: ContractClient> ResourceManager<'a, C> {
         };
 
         let (blob, op) = self
-            .get_existing_registration(metadata, epochs_ahead, persistence, store_when)
+            .get_existing_or_register(metadata, epochs_ahead, persistence, store_when)
             .await?;
 
         // If the blob is deletable and already certified, return early.
@@ -188,7 +188,7 @@ impl<'a, C: ContractClient> ResourceManager<'a, C> {
     /// certified blobs owned by the wallet, such that we always create a new certification
     /// (possibly reusing storage resources or uncertified but registered blobs).
     #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
-    pub async fn get_existing_registration(
+    pub async fn get_existing_or_register(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         epochs_ahead: EpochCount,
@@ -209,7 +209,7 @@ impl<'a, C: ContractClient> ResourceManager<'a, C> {
             self.reserve_and_register_blob_op(encoded_length, epochs_ahead, metadata, persistence)
                 .await
         } else {
-            self.get_existing_registration_with_resources(
+            self.get_existing_or_register_with_resources(
                 encoded_length,
                 epochs_ahead,
                 metadata,
@@ -220,7 +220,7 @@ impl<'a, C: ContractClient> ResourceManager<'a, C> {
         }
     }
 
-    async fn get_existing_registration_with_resources(
+    async fn get_existing_or_register_with_resources(
         &self,
         encoded_length: u64,
         epochs_ahead: EpochCount,
