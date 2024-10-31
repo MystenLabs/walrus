@@ -117,7 +117,7 @@ impl<R: Rng> ExponentialBackoff<R> {
         }
     }
 
-    fn next_delay(&mut self) -> Option<Duration> {
+    pub fn next_delay(&mut self) -> Option<Duration> {
         self.state.next_delay(&mut self.rng)
     }
 }

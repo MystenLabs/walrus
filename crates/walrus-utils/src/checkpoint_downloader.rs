@@ -12,6 +12,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use prometheus::{register_int_gauge_with_registry, IntGauge, Registry};
+use rand::{rngs::StdRng, SeedableRng};
 use serde::{Deserialize, Serialize};
 use sui_rest_api::{client::sdk, Client};
 use sui_types::{
@@ -32,6 +33,8 @@ pub struct ParallelDownloaderConfig {
     pub min_retries: u32,
     /// Delay between retries.
     pub retry_delay: Duration,
+    /// Max timeout
+    pub timeout: Duration,
 }
 
 impl Default for ParallelDownloaderConfig {
@@ -61,6 +64,7 @@ impl Default for ParallelDownloaderConfig {
         Self {
             min_retries: 10,
             retry_delay: Duration::from_millis(150),
+            timeout: Duration::from_secs(2),
         }
     }
 }
@@ -338,7 +342,9 @@ impl ParallelCheckpointDownloaderInner {
         });
     }
 
-    /// Returns the current checkpoint lag between the local store and the full node.
+    /// Returns the current checkpoint lag between the local store and the full node
+    /// in terms of sequence numbers. This works by downloading the latest checkpoint
+    /// summary from the full node and comparing it with the current checkpoint in the store.
     async fn current_checkpoint_lag(
         checkpoint_store: &DBMap<(), TrustedCheckpoint>,
         client: &Client,
@@ -361,8 +367,10 @@ impl ParallelCheckpointDownloaderInner {
         config: ParallelDownloaderConfig,
     ) -> Result<()> {
         tracing::info!("Starting checkpoint download worker {}", worker_id);
+        let mut rng = StdRng::from_entropy();
         while let Ok(WorkerMessage::Download(sequence_number)) = message_receiver.recv().await {
-            let entry = Self::download_with_retry(&client, sequence_number, &config).await;
+            let entry =
+                Self::download_with_retry(&client, sequence_number, &config, &mut rng).await;
             checkpoint_sender.send(entry).await?;
         }
         tracing::info!("Checkpoint download worker {} shutting down", worker_id);
@@ -392,8 +400,12 @@ impl ParallelCheckpointDownloaderInner {
                         continue;
                     }
 
-                    let lag = Self::current_checkpoint_lag(
-                        &config.checkpoint_store, &config.client).await?;
+                    let Ok(lag) = Self::current_checkpoint_lag(
+                        &config.checkpoint_store, &config.client).await else {
+                        tracing::error!("Failed to fetch current checkpoint lag");
+                        continue;
+                    };
+
                     config.metrics.checkpoint_lag.set(lag as i64);
                     let num_workers_before = *worker_count.read().await;
                     let mut num_workers_after = num_workers_before;
@@ -420,6 +432,7 @@ impl ParallelCheckpointDownloaderInner {
                         *worker_count.write().await = num_workers_after;
                         last_scale = now;
                     }
+
                     config.metrics.num_workers.set(num_workers_after as i64);
                 }
             }
@@ -495,14 +508,26 @@ impl ParallelCheckpointDownloaderInner {
         client: &Client,
         sequence_number: CheckpointSequenceNumber,
         config: &ParallelDownloaderConfig,
+        rng: &mut StdRng,
     ) -> CheckpointEntry {
-        let mut checkpoint = client.get_full_checkpoint(sequence_number).await;
-        while let Err(err) = checkpoint {
-            handle_checkpoint_error(Some(&err), sequence_number);
-            tokio::time::sleep(config.retry_delay).await;
-            checkpoint = client.get_full_checkpoint(sequence_number).await;
+        let mut backoff = create_backoff(rng, config);
+        loop {
+            let result = client.get_full_checkpoint(sequence_number).await;
+            let Ok(checkpoint) = result else {
+                let err = result.err();
+                handle_checkpoint_error(err.as_ref(), sequence_number);
+
+                let Some(delay) = backoff.next_delay() else {
+                    backoff = create_backoff(rng, config);
+                    continue;
+                };
+
+                tokio::time::sleep(delay).await;
+                continue;
+            };
+
+            return CheckpointEntry::new(sequence_number, Ok(checkpoint));
         }
-        CheckpointEntry::new(sequence_number, Ok(checkpoint.unwrap()))
     }
 
     #[cfg(test)]
@@ -510,6 +535,7 @@ impl ParallelCheckpointDownloaderInner {
         client: &Client,
         sequence_number: CheckpointSequenceNumber,
         _config: &ParallelDownloaderConfig,
+        _rng: &mut StdRng,
     ) -> CheckpointEntry {
         let res = client.get_full_checkpoint(sequence_number).await;
         let Ok(checkpoint) = res else {
@@ -525,6 +551,21 @@ impl ParallelCheckpointDownloaderInner {
             result: Ok(checkpoint),
         }
     }
+}
+
+/// Helper function to create backoff with consistent settings
+#[cfg(not(test))]
+fn create_backoff(
+    rng: &mut StdRng,
+    config: &ParallelDownloaderConfig,
+) -> crate::backoff::ExponentialBackoff<StdRng> {
+    use rand::RngCore;
+    crate::backoff::ExponentialBackoff::new_with_seed(
+        config.retry_delay,
+        config.timeout,
+        None,
+        rng.next_u64(),
+    )
 }
 
 /// Handles an error that occurred while reading the next checkpoint.
@@ -571,6 +612,7 @@ mod tests {
         let parallel_config = ParallelDownloaderConfig {
             min_retries: 10,
             retry_delay: Duration::from_millis(250),
+            timeout: Duration::from_secs(2),
         };
         let channel_config = ChannelConfig {
             work_queue_buffer_factor: 3,
