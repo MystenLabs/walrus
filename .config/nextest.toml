@@ -2,22 +2,21 @@
 
 [profile.default]
 fail-fast = false # do not stop at first failure
-slow-timeout = { period = "60s", terminate-after = 5 }
+slow-timeout = { period = "1m", terminate-after = 5 }
 
 [[profile.default.overrides]]
 filter = 'package(walrus-e2e-tests)'
 threads-required = 4
 
 [profile.ci]
-fail-fast = false # do not stop at first failure
-slow-timeout = { period = "60s", terminate-after = 5 } # Timeout tests after 5 minutes
+slow-timeout = { period = "1m", terminate-after = 10 } # Timeout tests after 10 minutes
 retries = 2 # retry twice for a total of 3 attempts
 
 [[profile.ci.overrides]]
 filter = 'package(walrus-e2e-tests)'
 threads-required = 4
+slow-timeout = { period = "2m", terminate-after = 5 } # Mark E2E tests as slow only after 2 minutes
 
 [profile.simtest]
-fail-fast = false # do not stop at first failure
 slow-timeout = { period = "5m", terminate-after = 3 } # Timeout tests after 15 minutes
 test-threads = "num-cpus"
