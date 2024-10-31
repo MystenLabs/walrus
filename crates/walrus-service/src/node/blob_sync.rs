@@ -44,6 +44,13 @@ struct Permits {
     sliver: Arc<Semaphore>,
 }
 
+#[must_use]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct BlobSyncResult {
+    pub event_index: usize,
+    pub event_id: EventID,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct BlobSyncHandler {
     // INV: For each blob id at most one sync is in progress at a time.
@@ -68,8 +75,24 @@ impl BlobSyncHandler {
         }
     }
 
+    fn mark_event_completed(&self, sync_result: BlobSyncResult) -> Result<(), TypedStoreError> {
+        self.node
+            .mark_event_completed(sync_result.event_index, &sync_result.event_id)
+    }
+
+    /// Cancels any existing blob sync for the provided `blob_id` and marks the corresponding event
+    /// as completed.
+    ///
+    /// Returns `true` if an event was marked as complete.
+    ///
+    /// To avoid interference with later events (e.g., cancelling a sync initiated by a later event
+    /// or immediately restarting the sync that is cancelled here), this function should be called
+    /// before any later events are being handled.
     #[tracing::instrument(skip_all)]
-    pub async fn cancel_sync(&self, blob_id: &BlobId) -> anyhow::Result<Option<(usize, EventID)>> {
+    pub async fn cancel_sync_and_mark_event_complete(
+        &self,
+        blob_id: &BlobId,
+    ) -> anyhow::Result<bool> {
         let Some(handle) = self
             .blob_syncs_in_progress
             .lock()
@@ -80,13 +103,63 @@ impl BlobSyncHandler {
                 sync.cancel()
             })
         else {
-            return Ok(None);
+            return Ok(false);
         };
 
-        handle.await?
+        if let Some(sync_result) = handle.await?? {
+            self.mark_event_completed(sync_result)?;
+            return Ok(true);
+        }
+
+        Ok(false)
     }
 
-    fn remove_sync_handle(&self, blob_id: &BlobId) {
+    /// Cancels all existing blob syncs for blobs that are already expired in the `current_epoch`
+    /// and marks the corresponding events as completed.
+    ///
+    /// Returns the number of thus completed events.
+    ///
+    /// To avoid interference with later events (e.g., cancelling a sync initiated by a later event
+    /// or immediately restarting the sync that is cancelled here), this function should be called
+    /// before any later events are being handled.
+    #[tracing::instrument(skip(self))]
+    pub async fn cancel_all_expired_syncs_and_mark_events_completed(
+        &self,
+        current_epoch: Epoch,
+    ) -> anyhow::Result<usize> {
+        tracing::debug!("cancelling all blob syncs for expired blobs");
+
+        let join_handles: Vec<_> = self
+            .blob_syncs_in_progress
+            .lock()
+            .expect("should be able to acquire lock")
+            .iter_mut()
+            .filter_map(|(_, sync)| {
+                (sync.latest_expiration_epoch <= current_epoch)
+                    .then(|| sync.cancel())
+                    .flatten()
+            })
+            .collect();
+        let count = join_handles.len();
+
+        let join_results = try_join_all(join_handles)
+            .await?
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()?;
+        for sync_result in join_results.into_iter().flatten() {
+            self.mark_event_completed(sync_result)?;
+        }
+
+        if count > 0 {
+            tracing::info!("cancelled {count} blob syncs for now expired blobs");
+        } else {
+            tracing::debug!("no blob syncs cancelled");
+        }
+
+        Ok(count)
+    }
+
+    async fn remove_sync_handle(&self, blob_id: &BlobId) {
         self.blob_syncs_in_progress
             .lock()
             .expect("should be able to acquire lock")
@@ -100,49 +173,65 @@ impl BlobSyncHandler {
         event_index: usize,
         start: tokio::time::Instant,
     ) -> Result<(), TypedStoreError> {
-        let mut in_progress = self.blob_syncs_in_progress.lock().unwrap();
+        let mut in_progress = self
+            .blob_syncs_in_progress
+            .lock()
+            .expect("should be able to acquire lock");
 
-        if let Entry::Vacant(entry) = in_progress.entry(event.blob_id) {
-            let spawned_trace = info_span!(
-                parent: None,
-                "blob_sync",
-                "otel.kind" = "CONSUMER",
-                "otel.status_code" = field::Empty,
-                "otel.status_message" = field::Empty,
-                "walrus.event.index" = event_index,
-                "walrus.event.tx_digest" = ?event.event_id.tx_digest,
-                "walrus.event.event_seq" = ?event.event_id.event_seq,
-                "walrus.event.kind" = event.label(),
-                "walrus.blob_id" = %event.blob_id,
-                "error.type" = field::Empty,
-            );
-            spawned_trace.follows_from(Span::current());
+        match in_progress.entry(event.blob_id) {
+            Entry::Vacant(entry) => {
+                let spawned_trace = info_span!(
+                    parent: None,
+                    "blob_sync",
+                    "otel.kind" = "CONSUMER",
+                    "otel.status_code" = field::Empty,
+                    "otel.status_message" = field::Empty,
+                    "walrus.event.index" = event_index,
+                    "walrus.event.tx_digest" = ?event.event_id.tx_digest,
+                    "walrus.event.event_seq" = ?event.event_id.event_seq,
+                    "walrus.event.kind" = event.label(),
+                    "walrus.blob_id" = %event.blob_id,
+                    "error.type" = field::Empty,
+                );
+                spawned_trace.follows_from(Span::current());
 
-            let cancel_token = CancellationToken::new();
-            let synchronizer =
-                BlobSynchronizer::new(event, event_index, self.node.clone(), cancel_token.clone());
+                let cancel_token = CancellationToken::new();
+                let end_epoch = event.end_epoch;
+                let synchronizer = BlobSynchronizer::new(
+                    event,
+                    event_index,
+                    self.node.clone(),
+                    cancel_token.clone(),
+                );
 
-            let sync_handle = tokio::spawn(
-                self.clone()
-                    .sync(synchronizer, start, self.permits.clone())
-                    .inspect_err(|err| {
-                        let span = Span::current();
-                        span.record("otel.status_code", "ERROR");
-                        span.record("otel.status_message", field::display(err));
-                        span.record("error.type", "_OTHER");
-                    })
-                    .instrument(spawned_trace),
-            );
-            entry.insert(InProgressSyncHandle {
-                cancel_token,
-                blob_sync_handle: Some(sync_handle),
-            });
-        } else {
-            // A blob sync with a lower sequence number is already in progress. We can safely try to
-            // increase the event cursor since it will only be advanced once that sync is finished
-            // or cancelled due to an invalid blob event.
-            self.node
-                .mark_event_completed(event_index, &event.event_id)?;
+                let sync_handle = tokio::spawn(
+                    self.clone()
+                        .sync(synchronizer, start, self.permits.clone())
+                        .inspect_err(|err| {
+                            let span = Span::current();
+                            span.record("otel.status_code", "ERROR");
+                            span.record("otel.status_message", field::display(err));
+                            span.record("error.type", "_OTHER");
+                        })
+                        .instrument(spawned_trace),
+                );
+                entry.insert(InProgressSyncHandle {
+                    cancel_token,
+                    blob_sync_handle: Some(sync_handle),
+                    latest_expiration_epoch: end_epoch,
+                });
+            }
+            Entry::Occupied(entry) => {
+                entry
+                    .into_mut()
+                    .maybe_increase_expiration_epoch(event.end_epoch);
+
+                // A blob sync with a lower sequence number is already in progress. We can safely
+                // try to increase the event cursor since it will only be advanced once that sync is
+                // finished or cancelled when the blob expires, is deleted, or marked as invalid.
+                self.node
+                    .mark_event_completed(event_index, &event.event_id)?;
+            }
         }
         Ok(())
     }
@@ -153,7 +242,7 @@ impl BlobSyncHandler {
         synchronizer: BlobSynchronizer,
         start: tokio::time::Instant,
         permits: Permits,
-    ) -> Result<Option<(usize, EventID)>, anyhow::Error> {
+    ) -> Result<Option<BlobSyncResult>, anyhow::Error> {
         let node = &synchronizer.node;
 
         let queued_gauge = metrics::with_label!(node.metrics.recover_blob_backlog, STATUS_QUEUED);
@@ -172,17 +261,13 @@ impl BlobSyncHandler {
             select! {
                 _ = synchronizer.cancel_token.cancelled() => {
                     tracing::info!("cancelled blob sync");
-                    Ok(Some((synchronizer.event_index, synchronizer.event_id)))
+                    Ok(Some(synchronizer.to_result()))
                 }
                 sync_result = synchronizer.run(permits.sliver) => match sync_result {
                     Ok(()) => {
-                        node.mark_event_completed(
-                            synchronizer.event_index, &synchronizer.event_id
-                        )?;
+                        self.mark_event_completed(synchronizer.to_result())?;
                         Ok(None)
                     }
-                    // NOTE(jsmith): This changes behaviour from the previous implementation.
-                    // Before, an error in synchronizer.run() was logged and dropped, this returns.
                     Err(err) => Err(err),
                 }
 
@@ -192,7 +277,7 @@ impl BlobSyncHandler {
         .inspect_err(|error| tracing::error!(?error, "blob synchronization failed"));
 
         // We remove the bob handler regardless of the result.
-        self.remove_sync_handle(&synchronizer.blob_id);
+        self.remove_sync_handle(&synchronizer.blob_id).await;
 
         let label = match output {
             Ok(Some(_)) => metrics::STATUS_SUCCESS,
@@ -205,7 +290,7 @@ impl BlobSyncHandler {
         output
     }
 
-    /// Cancels all blob syncs and returns the number of canceled syncs.
+    /// Cancels all blob syncs and returns the number of cancelled syncs.
     #[tracing::instrument(skip_all)]
     pub async fn cancel_all(&self) -> anyhow::Result<usize> {
         let join_handles: Vec<_> = self
@@ -225,18 +310,25 @@ impl BlobSyncHandler {
     }
 }
 
-type SyncJoinHandle = JoinHandle<Result<Option<(usize, EventID)>, anyhow::Error>>;
+type SyncJoinHandle = JoinHandle<Result<Option<BlobSyncResult>, anyhow::Error>>;
 
 #[derive(Debug)]
 struct InProgressSyncHandle {
     cancel_token: CancellationToken,
     blob_sync_handle: Option<SyncJoinHandle>,
+    latest_expiration_epoch: Epoch,
 }
 
 impl InProgressSyncHandle {
+    // Important: Awaiting the returned `SyncJoinHandle` requires a lock on the
+    // `blob_syncs_in_progress`.
     fn cancel(&mut self) -> Option<SyncJoinHandle> {
         self.cancel_token.cancel();
         self.blob_sync_handle.take()
+    }
+
+    fn maybe_increase_expiration_epoch(&mut self, expiration_epoch: Epoch) {
+        self.latest_expiration_epoch = self.latest_expiration_epoch.max(expiration_epoch);
     }
 }
 
@@ -293,6 +385,13 @@ impl BlobSynchronizer {
 
     fn metrics(&self) -> &NodeMetricSet {
         &self.node.metrics
+    }
+
+    fn to_result(&self) -> BlobSyncResult {
+        BlobSyncResult {
+            event_index: self.event_index,
+            event_id: self.event_id,
+        }
     }
 
     #[tracing::instrument(skip_all)]

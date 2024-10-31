@@ -541,7 +541,7 @@ impl StorageNode {
         let mut indexed_element_stream = index_stream.zip(event_stream);
         // Important: Events must be handled consecutively and in order to prevent (intermittent)
         // invariant violations and interference between different events. See, for example,
-        // `Self::cancel_sync_and_mark_certified_event_completed`.
+        // `BlobSyncHandler::cancel_sync_and_mark_event_complete`.
         while let Some((element_index, stream_element)) = indexed_element_stream.next().await {
             let span = tracing::info_span!(
                 parent: None,
@@ -746,7 +746,8 @@ impl StorageNode {
 
         if let Some(blob_info) = self.inner.storage.get_blob_info(&blob_id)? {
             if !blob_info.is_certified(self.inner.current_epoch()) {
-                self.cancel_sync_and_mark_certified_event_completed(&blob_id)
+                self.blob_sync_handler
+                    .cancel_sync_and_mark_event_complete(&blob_id)
                     .await?;
             }
             // Note that this function is called *after* the blob info has already been updated with
@@ -774,32 +775,12 @@ impl StorageNode {
         event_index: usize,
         event: InvalidBlobId,
     ) -> anyhow::Result<()> {
-        self.cancel_sync_and_mark_certified_event_completed(&event.blob_id)
+        self.blob_sync_handler
+            .cancel_sync_and_mark_event_complete(&event.blob_id)
             .await?;
         self.inner.storage.delete_blob(&event.blob_id, false)?;
         self.inner
             .mark_event_completed(event_index, &event.event_id)?;
-        Ok(())
-    }
-
-    /// Cancels any existing blob syncs for the provided `blob_id` and marks the corresponding
-    /// events as completed.
-    ///
-    /// To avoid interference with later events (e.g., cancelling a sync initiated by a later event
-    /// or immediately restarting the sync that is cancelled here), this function should be called
-    /// before any later events are being handled.
-    async fn cancel_sync_and_mark_certified_event_completed(
-        &self,
-        blob_id: &BlobId,
-    ) -> anyhow::Result<()> {
-        if let Some((cancelled_event_index, cancelled_event_id)) =
-            self.blob_sync_handler.cancel_sync(blob_id).await?
-        {
-            // Advance the event cursor with the event of the cancelled sync. Since the blob is
-            // invalid the associated blob certified event is completed without a sync.
-            self.inner
-                .mark_event_completed(cancelled_event_index, &cancelled_event_id)?;
-        }
         Ok(())
     }
 
@@ -815,6 +796,11 @@ impl StorageNode {
             .cancel_scheduled_voting_end(event.epoch);
         self.epoch_change_driver
             .cancel_scheduled_epoch_change_initiation(event.epoch);
+
+        // Cancel all blob syncs for blobs that are now expired.
+        self.blob_sync_handler
+            .cancel_all_expired_syncs_and_mark_events_completed(event.epoch)
+            .await?;
 
         if !self.begin_committee_change(event.epoch).await? {
             self.inner
@@ -1619,6 +1605,7 @@ mod tests {
         messages::{SyncShardMsg, SyncShardRequest},
         test_utils::generate_config_metadata_and_valid_recovery_symbols,
     };
+    use walrus_proc_macros::walrus_simtest;
     use walrus_sdk::client::Client;
     use walrus_sui::{
         client::FixedSystemParameters,
@@ -2467,9 +2454,10 @@ mod tests {
         Ok(())
     }
 
-    // TODO(#1095): fix this test once process epoch change start cancels expired blob syncs.
-    #[tokio::test]
+    #[walrus_simtest]
     async fn cancel_expired_blob_sync_upon_epoch_change() -> TestResult {
+        let _ = tracing_subscriber::fmt::try_init();
+
         let shards: &[&[u16]] = &[&[1], &[0, 2, 3, 4]];
 
         let (cluster, events, blob) =
@@ -2490,16 +2478,13 @@ mod tests {
 
         advance_cluster_to_epoch(&cluster, &[&events], 2).await?;
 
-        // Node 1 which has the blob stored should finish process 4 events: blob registered,
+        // Node 1 which has the blob stored should finish processing 4 events: blob registered,
         // blob certified, epoch change start, epoch change done.
         wait_until_events_processed(&cluster.nodes[1], 4).await?;
 
-        // TODO(#1095): wait_until_events_processed shouldn't return error once process epoch change
-        // start cancels expired blob syncs.
-        assert!(matches!(
-            wait_until_events_processed(&cluster.nodes[0], 4).await,
-            Err(e) if e.to_string() == "not enough events processed"
-        ));
+        // Node 0 should also finish all events as blob syncs of expired blobs are cancelled on
+        // epoch change.
+        wait_until_events_processed(&cluster.nodes[0], 4).await?;
 
         Ok(())
     }
