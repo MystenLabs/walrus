@@ -383,12 +383,12 @@ impl<T: ContractClient> Client<T> {
 
         let pair = pairs.first().expect("the encoding produces sliver pairs");
         let symbol_size = pair.primary.symbols.symbol_size().get();
-        tracing::debug!(
+        tracing::info!(
             symbol_size=%symbol_size,
             primary_sliver_size=%pair.primary.symbols.len() * usize::from(symbol_size),
             secondary_sliver_size=%pair.secondary.symbols.len() * usize::from(symbol_size),
             duration = %humantime::Duration::from(encode_duration),
-            "computed sliver pairs and metadata"
+            "encoded sliver pairs and metadata"
         );
 
         Ok((pairs, metadata))
@@ -406,15 +406,25 @@ impl<T: ContractClient> Client<T> {
         self.check_blob_id(&blob_id)?;
         tracing::Span::current().record("blob_id", blob_id.to_string());
 
+        let status_start_timer = Instant::now();
         let blob_status = self
             .get_blob_status_with_retries(&blob_id, &self.sui_client)
             .await?;
+        tracing::info!(
+            duration = %humantime::Duration::from(status_start_timer.elapsed()),
+            "retrieved blob status"
+        );
 
+        let store_op_timer = Instant::now();
         let store_operation = self
             .resource_manager()
             .await
             .store_operation_for_blob(metadata, epochs_ahead, persistence, store_when, blob_status)
             .await?;
+        tracing::info!(
+            duration = %humantime::Duration::from(store_op_timer.elapsed()),
+            "blob resource obtained"
+        );
 
         let (mut blob_object, resource_operation) = match store_operation {
             StoreOp::NoOp(result) => return Ok(result),
@@ -460,10 +470,15 @@ impl<T: ContractClient> Client<T> {
             (certificate, write_committee_epoch)
         };
 
+        let sui_cert_timer = Instant::now();
         self.sui_client
             .certify_blob(blob_object.clone(), &certificate)
             .await
             .map_err(|e| ClientError::from(ClientErrorKind::CertificationFailed(e)))?;
+        tracing::info!(
+            duration = %humantime::Duration::from(sui_cert_timer.elapsed()),
+            "certified blob on SUI"
+        );
         blob_object.certified_epoch = Some(write_committee_epoch);
         let cost = self.price_computation.operation_cost(&resource_operation);
 
