@@ -381,6 +381,10 @@ impl ShardStorage {
         self.shard_status.insert(&(), &ShardStatus::ActiveSync)
     }
 
+    pub(crate) fn set_active_status(&self) -> Result<(), TypedStoreError> {
+        self.shard_status.insert(&(), &ShardStatus::Active)
+    }
+
     /// Fetches the slivers with `sliver_type` for the provided blob IDs.
     pub(crate) fn fetch_slivers(
         &self,

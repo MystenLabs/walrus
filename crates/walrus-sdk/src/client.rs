@@ -172,7 +172,9 @@ impl UrlEndpoints {
 
     fn server_health_info(&self) -> (Url, &'static str) {
         (
-            self.0.join("/v1/health").expect("this is a valid URL"),
+            self.0
+                .join("/v1/health?detailed=true")
+                .expect("this is a valid URL"),
             HEALTH_URL_TEMPLATE,
         )
     }

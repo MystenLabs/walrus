@@ -523,7 +523,7 @@ async fn test_multiple_stores_same_blob() -> TestResult {
 #[walrus_simtest]
 async fn test_repeated_shard_move() -> TestResult {
     let _ = tracing_subscriber::fmt::try_init();
-    let (_sui_cluster_handle, walrus_cluster, client) =
+    let (_sui_cluster_handle, walrus_cluster, client, _) =
         test_cluster::default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
             Duration::from_secs(20),
             &[1, 1],

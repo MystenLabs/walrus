@@ -171,6 +171,8 @@ pub trait CommitteeService: std::fmt::Debug + Send + Sync {
     /// Otherwise, an error is returned.
     fn end_committee_change(&self, epoch: Epoch) -> Result<(), EndCommitteeChangeError>;
 
+    async fn update_to_latest_committee(&self) -> Result<(), BeginCommitteeChangeError>;
+
     /// Get and verify metadata.
     async fn get_and_verify_metadata(
         &self,

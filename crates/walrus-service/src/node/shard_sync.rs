@@ -215,6 +215,13 @@ impl ShardSyncHandler {
         entry.insert(shard_sync_task);
     }
 
+    pub async fn cancel_all(&self) {
+        let mut shard_sync_in_progress = self.shard_sync_in_progress.lock().await;
+        for (_, task) in shard_sync_in_progress.drain() {
+            task.abort();
+        }
+    }
+
     #[cfg(test)]
     pub async fn current_sync_task_count(&self) -> usize {
         self.shard_sync_in_progress.lock().await.len()

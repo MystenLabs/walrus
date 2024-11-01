@@ -392,14 +392,7 @@ where
         rng: StdRng,
     ) -> Result<Self, anyhow::Error> {
         let committees = committee_tracker.committees();
-        let mut services = create_services_from_committee(
-            &mut service_factory,
-            committees.current_committee(),
-            &encoding_config,
-        )
-        .await?;
-        add_members_from_committee(
-            &mut services,
+        let services = create_services_from_committee(
             &mut service_factory,
             committees.current_committee(),
             &encoding_config,
@@ -611,6 +604,57 @@ where
     fn end_committee_change(&self, epoch: Epoch) -> Result<(), EndCommitteeChangeError> {
         self.end_committee_change_to(epoch)
     }
+
+    async fn update_to_latest_committee(&self) -> Result<(), BeginCommitteeChangeError> {
+        let latest = self
+            .committee_lookup
+            .get_active_committees()
+            .await
+            .map_err(BeginCommitteeChangeError::LookupError)?;
+
+        let mut service_factory = self.inner.service_factory.lock().await;
+
+        if let Some(previous_committee) = latest.previous_committee() {
+            let new_services = create_services_from_committee(
+                &mut service_factory,
+                previous_committee,
+                &self.inner.encoding_config,
+            )
+            .await
+            .map_err(BeginCommitteeChangeError::AllServicesFailed)?;
+
+            let mut services = self
+                .inner
+                .services
+                .lock()
+                .expect("thread did not panic with mutex");
+            services.extend(new_services);
+        }
+
+        {
+            let new_services = create_services_from_committee(
+                &mut service_factory,
+                latest.current_committee(),
+                &self.inner.encoding_config,
+            )
+            .await
+            .map_err(BeginCommitteeChangeError::AllServicesFailed)?;
+
+            let mut services = self
+                .inner
+                .services
+                .lock()
+                .expect("thread did not panic with mutex");
+            services.extend(new_services);
+        }
+
+        self.inner.committee_tracker.send_if_modified(|tracker| {
+            tracker.update_active_committees(latest);
+            true
+        });
+
+        Ok(())
+    }
 }
 
 impl<T> std::fmt::Debug for NodeCommitteeServiceInner<T> {
@@ -642,9 +686,8 @@ async fn create_services_from_committee<T: NodeService>(
     encoding_config: &Arc<EncodingConfig>,
 ) -> Result<HashMap<PublicKey, T>, anyhow::Error> {
     let mut services = HashMap::default();
-    add_members_from_committee(&mut services, service_factory, committee, encoding_config)
-        .await
-        .map(|_| services)
+    add_members_from_committee(&mut services, service_factory, committee, encoding_config).await?;
+    Ok(services)
 }
 
 #[tracing::instrument(skip_all, fields(walrus.epoch = committee.epoch))]

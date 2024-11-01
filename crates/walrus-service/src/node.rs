@@ -17,6 +17,7 @@ use config::EventProviderConfig;
 use epoch_change_driver::EpochChangeDriver;
 use fastcrypto::traits::KeyPair;
 use futures::{stream, Stream, StreamExt, TryFutureExt};
+use node_recovery::NodeRecoveryHandler;
 use prometheus::Registry;
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use serde::Serialize;
@@ -77,7 +78,7 @@ use walrus_sui::{
 };
 
 use self::{
-    blob_sync::BlobSyncHandler,
+    blob_sync::{BlobSyncHandler, EventInfo},
     committee::{CommitteeService, NodeCommitteeService},
     config::{StorageNodeConfig, SuiConfig},
     contract_service::{SuiSystemContractService, SystemContractService},
@@ -97,6 +98,7 @@ pub(crate) mod metrics;
 mod background_shard_remover;
 mod blob_sync;
 mod epoch_change_driver;
+mod node_recovery;
 mod shard_sync;
 
 pub(crate) mod errors;
@@ -115,7 +117,7 @@ use errors::{
 };
 
 mod storage;
-pub use storage::{DatabaseConfig, Storage};
+pub use storage::{DatabaseConfig, NodeStatus, Storage};
 use walrus_event::{EventStreamCursor, EventStreamElement};
 
 use crate::{
@@ -375,10 +377,11 @@ async fn create_read_client(sui_config: &SuiConfig) -> Result<SuiReadClient, any
 #[derive(Debug)]
 pub struct StorageNode {
     inner: Arc<StorageNodeInner>,
-    blob_sync_handler: BlobSyncHandler,
+    blob_sync_handler: Arc<BlobSyncHandler>,
     shard_sync_handler: ShardSyncHandler,
     epoch_change_driver: EpochChangeDriver,
     background_shard_remover: BackgroundShardRemover,
+    node_recovery_handler: NodeRecoveryHandler,
 }
 
 /// The internal state of a Walrus storage node.
@@ -434,11 +437,11 @@ impl StorageNode {
 
         inner.init_gauges()?;
 
-        let blob_sync_handler = BlobSyncHandler::new(
+        let blob_sync_handler = Arc::new(BlobSyncHandler::new(
             inner.clone(),
             config.blob_recovery.max_concurrent_blob_syncs,
             config.blob_recovery.max_concurrent_sliver_syncs,
-        );
+        ));
 
         let shard_sync_handler =
             ShardSyncHandler::new(inner.clone(), config.shard_sync_config.clone());
@@ -454,12 +457,17 @@ impl StorageNode {
 
         let background_shard_remover = BackgroundShardRemover::new(inner.clone());
 
+        let node_recovery_handler =
+            NodeRecoveryHandler::new(inner.clone(), blob_sync_handler.clone());
+        node_recovery_handler.restart_recovery()?;
+
         Ok(StorageNode {
             inner,
             blob_sync_handler,
             shard_sync_handler,
             epoch_change_driver,
             background_shard_remover,
+            node_recovery_handler,
         })
     }
 
@@ -543,6 +551,7 @@ impl StorageNode {
         // invariant violations and interference between different events. See, for example,
         // `BlobSyncHandler::cancel_sync_and_mark_event_complete`.
         while let Some((element_index, stream_element)) = indexed_element_stream.next().await {
+            let node_status = self.inner.storage.node_status()?;
             let span = tracing::info_span!(
                 parent: None,
                 "blob_store receive",
@@ -559,6 +568,7 @@ impl StorageNode {
                     .checkpoint_sequence_number,
                 "walrus.event.kind" = stream_element.element.label(),
                 "walrus.blob_id" = ?stream_element.element.blob_id(),
+                "walrus.node_status" = %node_status,
                 "error.type" = field::Empty,
             );
 
@@ -568,13 +578,16 @@ impl StorageNode {
                     // Clear the starting epoch, so that we never make this check again.
                     maybe_epoch_at_start = None;
 
-                    // if event.event_epoch() < starting_epoch - 1
-                    if event.event_epoch() + 1 < epoch_at_start {
+                    if node_status == NodeStatus::Active && event.event_epoch() + 1 < epoch_at_start
+                    {
                         tracing::warn!(
-                            "the current epoch ({}) is too far ahead of the event epoch: {}",
+                            "the current epoch ({}) is too far ahead of the event epoch: {}; node entering recovery mode",
                             epoch_at_start,
                             event.event_epoch()
                         );
+                        self.inner
+                            .storage
+                            .set_node_status(NodeStatus::RecoveryCatchUp)?;
                     }
                 }
             }
@@ -718,6 +731,7 @@ impl StorageNode {
         if self.inner.storage.is_stored_at_all_shards(&event.blob_id)?
             || self.inner.storage.is_invalid(&event.blob_id)?
             || self.inner.current_epoch() >= event.end_epoch
+            || self.inner.storage.node_status()? == NodeStatus::RecoveryCatchUp
         {
             self.inner
                 .mark_event_completed(event_index, &event.event_id)?;
@@ -730,7 +744,15 @@ impl StorageNode {
 
         // Slivers and (possibly) metadata are not stored, so initiate blob sync.
         self.blob_sync_handler
-            .start_sync(event, event_index, start)
+            .start_sync(
+                event.blob_id,
+                event.epoch,
+                Some(EventInfo {
+                    event_id: event.event_id,
+                    event_index,
+                }),
+                start,
+            )
             .await?;
 
         Ok(())
@@ -796,6 +818,53 @@ impl StorageNode {
             .cancel_scheduled_voting_end(event.epoch);
         self.epoch_change_driver
             .cancel_scheduled_epoch_change_initiation(event.epoch);
+
+        if self.inner.storage.node_status()? == NodeStatus::RecoveryCatchUp {
+            self.inner
+                .committee_service
+                .update_to_latest_committee()
+                .await?;
+
+            if event.epoch == self.inner.current_epoch() {
+                tracing::info!(
+                    "processing event reaches the latest epoch, start recover entire node"
+                );
+
+                self.inner
+                    .storage
+                    .set_node_status(NodeStatus::RecoveryInProgress)?;
+
+                // Cancel any shard sync;
+                self.shard_sync_handler.cancel_all().await;
+
+                let public_key = self.inner.public_key();
+                let storage = &self.inner.storage;
+                let committees = self.inner.committee_service.active_committees();
+
+                // First, create all the shards
+                let current_shards = committees
+                    .current_committee()
+                    .shards_for_node_public_key(public_key);
+                self.inner
+                    .create_storage_for_shards_in_background(current_shards.to_vec())
+                    .await?;
+
+                for shard in current_shards {
+                    storage
+                        .shard_storage(*shard)
+                        .expect("we just create all storage, it must exist")
+                        .set_active_status()?;
+                }
+
+                // Initiate blob sync for all blobs
+                self.node_recovery_handler
+                    .start_node_recovery(event.epoch)?;
+            }
+
+            self.inner
+                .mark_event_completed(element_index, &event.event_id)?;
+            return Ok(());
+        }
 
         if !self.begin_committee_change(event.epoch).await? {
             self.inner

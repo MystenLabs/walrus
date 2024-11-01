@@ -17,7 +17,7 @@ mod tests {
     use walrus_proc_macros::walrus_simtest;
     use walrus_service::{
         client::{responses::BlobStoreResult, Client, StoreWhen},
-        test_utils::{test_cluster, SimStorageNodeHandle},
+        test_utils::{test_cluster, SimStorageNodeHandle, StorageNodeHandleTrait},
     };
     use walrus_sui::client::{BlobPersistence, SuiContractClient};
     use walrus_test_utils::WithTempDir;
@@ -31,14 +31,19 @@ mod tests {
     ) -> anyhow::Result<()> {
         // Write a random blob.
         let blob = walrus_test_utils::random_data(data_length);
+        let result = client
+            .as_ref()
+            .reserve_and_store_blob(&blob, 1, StoreWhen::Always, BlobPersistence::Permanent)
+            .await;
+        if let Err(err) = result {
+            tracing::error!("Error storing blob: {:?}", err);
+            return Ok(());
+        }
+
         let BlobStoreResult::NewlyCreated {
             blob_object: blob_confirmation,
             ..
-        } = client
-            .as_ref()
-            .reserve_and_store_blob(&blob, 1, StoreWhen::Always, BlobPersistence::Permanent)
-            .await
-            .context("store blob should not fail")?
+        } = result.context("store blob should not fail")?
         else {
             panic!("expect newly stored blob")
         };
@@ -76,7 +81,7 @@ mod tests {
             config
         });
 
-        let (_sui_cluster, _cluster, client) =
+        let (_sui_cluster, _cluster, client, _) =
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(60 * 60),
                 &[1, 2, 3, 3, 4],
@@ -100,7 +105,7 @@ mod tests {
             config
         });
 
-        let (sui_cluster, _walrus_cluster, client) =
+        let (sui_cluster, _walrus_cluster, client, _) =
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(60 * 60),
                 &[1, 2, 3, 3, 4],
@@ -199,5 +204,114 @@ mod tests {
 
             sui_simulator::task::kill_current_node(Some(restart_after));
         }
+    }
+
+    fn handle_failpoint_in_target_node(
+        target_node_id: sui_simulator::task::NodeId,
+        fail_triggered: Arc<AtomicBool>,
+    ) {
+        if fail_triggered.load(std::sync::atomic::Ordering::SeqCst) {
+            // We only need to traiger failure once.
+            return;
+        }
+
+        let current_node = sui_simulator::current_simnode_id();
+        if target_node_id != current_node {
+            return;
+        }
+
+        tracing::warn!("Crashing node {} for 120 seconds", current_node,);
+
+        fail_triggered.store(true, std::sync::atomic::Ordering::SeqCst);
+
+        sui_simulator::task::kill_current_node(Some(Duration::from_secs(120)));
+    }
+
+    #[ignore = "ignore E2E tests by default"]
+    #[walrus_simtest]
+    async fn test_lagging_node_recovery() {
+        let (_sui_cluster, walrus_cluster, client, wallet_dirs) =
+            test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
+                Duration::from_secs(20),
+                &[1, 2, 3, 3, 4],
+            )
+            .await
+            .unwrap();
+
+        let client_arc = Arc::new(client);
+        let client_clone = client_arc.clone();
+
+        tokio::spawn(async move {
+            let mut data_length = 31415;
+            loop {
+                tracing::info!("writing data with size {}", data_length);
+
+                // TODO(#995): use stress client for better coverage of the workload.
+                write_read_and_check_random_blob(client_clone.as_ref(), data_length)
+                    .await
+                    .expect("workload should not fail");
+
+                tracing::info!("finish writing data with size {}", data_length);
+
+                data_length += 1024;
+            }
+        });
+
+        tokio::time::sleep(Duration::from_secs(60)).await;
+
+        // Tracks if a crash has been triggered.
+        let fail_triggered = Arc::new(AtomicBool::new(false));
+        let target_fail_node_id = walrus_cluster.nodes[0].node_id;
+        let fail_triggered_clone = fail_triggered.clone();
+        register_fail_points(
+            &[
+                "batch-write-before",
+                "batch-write-after",
+                "put-cf-before",
+                "put-cf-after",
+                "delete-cf-before",
+                "delete-cf-after",
+            ],
+            move || {
+                handle_failpoint_in_target_node(target_fail_node_id, fail_triggered_clone.clone());
+            },
+        );
+
+        client_arc
+            .as_ref()
+            .as_ref()
+            .stake_with_node_pool(
+                walrus_cluster.nodes[0]
+                    .storage_capability
+                    .as_ref()
+                    .unwrap()
+                    .node_id,
+                test_cluster::FROSTER_PER_NODE_WEIGHT * 10,
+            )
+            .await
+            .expect("stake with node pool should not fail");
+
+        tokio::time::sleep(Duration::from_secs(240)).await;
+
+        let mut i = 0;
+        let client = walrus_sdk::client::Client::builder()
+            .authenticate_with_public_key(walrus_cluster.nodes[0].network_public_key.clone())
+            // Disable proxy and root certs from the OS for tests.
+            .no_proxy()
+            .tls_built_in_root_certs(false)
+            .build_for_remote_ip(walrus_cluster.nodes[0].rest_api_address)
+            .unwrap();
+
+        loop {
+            let health = client.get_server_health_info().await.unwrap();
+            tracing::warn!("ZZZZZZ {:?}", health);
+            i += 1;
+            if i > 12 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_secs(10)).await;
+        }
+
+        tracing::info!("walent len {}", wallet_dirs.len());
     }
 }

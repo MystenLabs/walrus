@@ -11,6 +11,7 @@ use std::{
     borrow::Borrow,
     net::{SocketAddr, TcpStream},
     num::NonZeroU16,
+    path::PathBuf,
     str::FromStr,
     sync::{Arc, Mutex},
 };
@@ -250,6 +251,8 @@ pub struct SimStorageNodeHandle {
     pub cancel_token: CancellationToken,
     /// The wrapped simulator node id.
     pub node_id: sui_simulator::task::NodeId,
+    /// The storage capability object of the node.
+    pub storage_capability: Option<StorageNodeCap>,
 }
 
 #[cfg(msim)]
@@ -497,6 +500,7 @@ pub struct StorageNodeHandleBuilder {
     test_config: Option<StorageNodeTestConfig>,
     initial_epoch: Option<Epoch>,
     storage_capability: Option<StorageNodeCap>,
+    node_wallet_dir: Option<PathBuf>,
 }
 
 impl StorageNodeHandleBuilder {
@@ -598,6 +602,11 @@ impl StorageNodeHandleBuilder {
     /// Specify the storage capability for the node.
     pub fn with_storage_capability(mut self, storage_capability: Option<StorageNodeCap>) -> Self {
         self.storage_capability = storage_capability;
+        self
+    }
+
+    pub fn with_node_wallet_dir(mut self, node_wallet_dir: Option<PathBuf>) -> Self {
+        self.node_wallet_dir = node_wallet_dir;
         self
     }
 
@@ -784,7 +793,7 @@ impl StorageNodeHandleBuilder {
                 rpc: sui_cluster_handle.cluster().rpc_url().to_string(),
                 system_object: system_context.system_object,
                 staking_object: system_context.staking_object,
-                wallet_config: sui_cluster_handle.wallet_path().await,
+                wallet_config: self.node_wallet_dir.unwrap().join("wallet_config.yaml"),
                 event_polling_interval: config::defaults::polling_interval(),
                 gas_budget: config::defaults::gas_budget(),
             }),
@@ -816,6 +825,7 @@ impl StorageNodeHandleBuilder {
             cancel_token,
             #[cfg(msim)]
             node_id: handle.id(),
+            storage_capability: self.storage_capability,
         })
     }
 }
@@ -832,6 +842,7 @@ impl Default for StorageNodeHandleBuilder {
             test_config: None,
             initial_epoch: None,
             storage_capability: None,
+            node_wallet_dir: None,
         }
     }
 }
@@ -1064,6 +1075,10 @@ impl CommitteeService for StubCommitteeService {
     fn end_committee_change(&self, _epoch: Epoch) -> Result<(), EndCommitteeChangeError> {
         Ok(())
     }
+
+    async fn update_to_latest_committee(&self) -> Result<(), BeginCommitteeChangeError> {
+        Ok(())
+    }
 }
 
 /// A stub [`SystemContractService`].
@@ -1236,6 +1251,7 @@ pub struct TestClusterBuilder {
     committee_services: Vec<Option<Box<dyn CommitteeService>>>,
     contract_services: Vec<Option<Box<dyn SystemContractService>>>,
     storage_capabilities: Vec<Option<StorageNodeCap>>,
+    node_wallet_dirs: Vec<Option<PathBuf>>,
 }
 
 impl TestClusterBuilder {
@@ -1273,6 +1289,7 @@ impl TestClusterBuilder {
         self.event_providers = configs.iter().map(|_| None).collect();
         self.committee_services = configs.iter().map(|_| None).collect();
         self.storage_capabilities = configs.iter().map(|_| None).collect();
+        self.node_wallet_dirs = configs.iter().map(|_| None).collect();
         self.storage_node_configs = configs;
         self
     }
@@ -1287,6 +1304,7 @@ impl TestClusterBuilder {
         self.committee_services = configs.iter().map(|_| None).collect();
         self.contract_services = configs.iter().map(|_| None).collect();
         self.storage_capabilities = configs.iter().map(|_| None).collect();
+        self.node_wallet_dirs = configs.iter().map(|_| None).collect();
         self.storage_node_configs = configs;
         self
     }
@@ -1370,6 +1388,11 @@ impl TestClusterBuilder {
         self
     }
 
+    pub fn with_node_wallet_dirs(mut self, wallet_dirs: Vec<PathBuf>) -> Self {
+        self.node_wallet_dirs = wallet_dirs.into_iter().map(Some).collect();
+        self
+    }
+
     /// Creates the configured `TestCluster`.
     pub async fn build<T: StorageNodeHandleTrait>(self) -> anyhow::Result<TestCluster<T>> {
         let mut nodes = vec![];
@@ -1390,13 +1413,17 @@ impl TestClusterBuilder {
         // Create the stub lookup service and handles that may be used if none is provided.
         let mut lookup_service_and_handle = None;
 
-        for ((((config, event_provider), service), contract_service), capability) in self
+        for (
+            ((((config, event_provider), service), contract_service), capability),
+            node_wallet_dir,
+        ) in self
             .storage_node_configs
             .into_iter()
             .zip(self.event_providers.into_iter())
             .zip(self.committee_services.into_iter())
             .zip(self.contract_services.into_iter())
             .zip(self.storage_capabilities.into_iter())
+            .zip(self.node_wallet_dirs.into_iter())
         {
             let local_identity = config.key_pair.public().clone();
             let mut builder = StorageNodeHandle::builder()
@@ -1404,7 +1431,8 @@ impl TestClusterBuilder {
                 .with_test_config(config)
                 .with_rest_api_started(true)
                 .with_node_started(true)
-                .with_storage_capability(capability);
+                .with_storage_capability(capability)
+                .with_node_wallet_dir(node_wallet_dir);
 
             if let Some(provider) = event_provider {
                 builder = builder.with_boxed_system_event_provider(provider);
@@ -1547,6 +1575,7 @@ impl Default for TestClusterBuilder {
             committee_services: shard_assignment.iter().map(|_| None).collect(),
             contract_services: shard_assignment.iter().map(|_| None).collect(),
             storage_capabilities: shard_assignment.iter().map(|_| None).collect(),
+            node_wallet_dirs: shard_assignment.iter().map(|_| None).collect(),
             storage_node_configs: shard_assignment
                 .into_iter()
                 .map(|shards| StorageNodeTestConfig::new(shards, false))
@@ -1649,6 +1678,9 @@ pub mod test_cluster {
         node::{committee::DefaultNodeServiceFactory, contract_service::SuiSystemContractService},
     };
 
+    /// The weight of each storage node in the test cluster.
+    pub const FROSTER_PER_NODE_WEIGHT: u64 = 1_000_000;
+
     /// Performs the default setup for the test cluster using StorageNodeHandle as default storage
     /// node handle.
     pub async fn default_setup() -> anyhow::Result<(
@@ -1669,11 +1701,12 @@ pub mod test_cluster {
         WithTempDir<client::Client<SuiContractClient>>,
     )> {
         let node_weights = [1, 2, 3, 3, 4];
-        default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
+        let (a, b, c, d) = default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
             epoch_duration,
             &node_weights,
         )
-        .await
+        .await?;
+        Ok((a, b, c))
     }
 
     /// Performs the default setup with the input epoch duration for the test cluster with the
@@ -1685,6 +1718,7 @@ pub mod test_cluster {
         Arc<TestClusterHandle>,
         TestCluster<T>,
         WithTempDir<client::Client<SuiContractClient>>,
+        Vec<TempDir>,
     )> {
         #[cfg(not(msim))]
         let sui_cluster = test_utils::using_tokio::global_sui_test_cluster();
@@ -1724,11 +1758,13 @@ pub mod test_cluster {
         .await?;
 
         let mut contract_clients = vec![];
+        let mut node_wallet_dirs = vec![];
         for _ in members.iter() {
             let client = test_utils::new_wallet_on_sui_test_cluster(sui_cluster.clone())
                 .await?
                 .and_then_async(|wallet| system_ctx.new_contract_client(wallet, DEFAULT_GAS_BUDGET))
                 .await?;
+            node_wallet_dirs.push(client.temp_dir.path().to_owned());
             contract_clients.push(client);
         }
         let contract_clients_refs = contract_clients
@@ -1738,7 +1774,7 @@ pub mod test_cluster {
 
         let amounts_to_stake = node_weights
             .iter()
-            .map(|&weight| 1_000_000 * weight as u64)
+            .map(|&weight| FROSTER_PER_NODE_WEIGHT * weight as u64)
             .collect::<Vec<_>>();
         let storage_capabilities = register_committee_and_stake(
             &mut wallet.inner,
@@ -1753,11 +1789,11 @@ pub mod test_cluster {
 
         end_epoch_zero(contract_clients_refs.first().unwrap()).await?;
 
-        let node_contract_services = contract_clients
+        let (node_contract_services, wallet_dirs): (Vec<_>, Vec<_>) = contract_clients
             .into_iter()
-            .map(|client| client.inner)
-            .map(SuiSystemContractService::new)
-            .collect::<Vec<_>>();
+            .map(|client| (client.inner, client.temp_dir))
+            .map(|(client, tmp_dir)| (SuiSystemContractService::new(client), tmp_dir))
+            .unzip();
 
         // Build the walrus cluster
         let sui_read_client = SuiReadClient::new(
@@ -1794,7 +1830,8 @@ pub mod test_cluster {
         let cluster_builder = cluster_builder
             .with_system_context(system_ctx.clone())
             .with_sui_cluster_handle(sui_cluster.clone())
-            .with_storage_capabilities(storage_capabilities);
+            .with_storage_capabilities(storage_capabilities)
+            .with_node_wallet_dirs(node_wallet_dirs);
 
         let cluster = {
             // Lock to avoid race conditions.
@@ -1819,7 +1856,9 @@ pub mod test_cluster {
                 client::Client::new_contract_client(config, contract_client)
             })
             .await?;
-        Ok((sui_cluster, cluster, client))
+
+        // TODO: find better way to preserve wallet dirs so that it won't get dropped after setup.
+        Ok((sui_cluster, cluster, client, wallet_dirs))
     }
 
     #[cfg(msim)]

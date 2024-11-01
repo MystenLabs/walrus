@@ -1,6 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use core::fmt::{self, Display};
 use std::{
     collections::{hash_map::Entry, HashMap},
     fmt::Debug,
@@ -9,8 +10,10 @@ use std::{
     sync::{Arc, RwLock, TryLockError},
 };
 
+use blob_info::BlobInfoIterator;
 use itertools::Itertools;
 use rocksdb::Options;
+use serde::{Deserialize, Serialize};
 use sui_sdk::types::event::EventID;
 use typed_store::{
     rocks::{self, DBBatch, DBMap, MetricConf, ReadWriteOptions, RocksDB},
@@ -52,6 +55,31 @@ pub(crate) use shard::{ShardStatus, ShardStorage};
 #[derive(Debug, Clone, Copy)]
 pub struct WouldBlockError;
 
+// TODO: add status to health endpoint
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum NodeStatus {
+    Active,
+    RecoveryCatchUp,
+    RecoveryInProgress,
+}
+
+impl Display for NodeStatus {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+impl NodeStatus {
+    /// Provides a string representation of the enum variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            NodeStatus::Active => "Active",
+            NodeStatus::RecoveryCatchUp => "RecoveryCatchUp",
+            NodeStatus::RecoveryInProgress => "RecoveryInProgress",
+        }
+    }
+}
+
 /// Storage backing a [`StorageNode`][crate::node::StorageNode].
 ///
 /// Enables storing blob metadata, which is shared across all shards. The method
@@ -59,6 +87,7 @@ pub struct WouldBlockError;
 #[derive(Debug, Clone)]
 pub struct Storage {
     database: Arc<RocksDB>,
+    node_status: DBMap<(), NodeStatus>,
     metadata: DBMap<BlobId, BlobMetadata>,
     blob_info: BlobInfoTable,
     event_cursor: EventCursorTable,
@@ -67,6 +96,7 @@ pub struct Storage {
 }
 
 impl Storage {
+    const NODE_STATUS_COLUMN_FAMILY_NAME: &'static str = "node_status";
     const METADATA_COLUMN_FAMILY_NAME: &'static str = "metadata";
 
     /// Opens the storage database located at the specified path, creating the database if absent.
@@ -94,6 +124,7 @@ impl Storage {
             })
             .collect::<Vec<_>>();
 
+        let (node_status_cf_name, node_status_options) = Self::node_status_options(&db_config);
         let (metadata_cf_name, metadata_options) = Self::metadata_options(&db_config);
         let blob_info_column_families = BlobInfoTable::options(&db_config);
         let (event_cursor_cf_name, event_cursor_options) = EventCursorTable::options(&db_config);
@@ -102,6 +133,7 @@ impl Storage {
             .iter_mut()
             .map(|(name, opts)| (name.as_str(), std::mem::take(opts)))
             .chain([
+                (node_status_cf_name, node_status_options),
                 (metadata_cf_name, metadata_options),
                 (event_cursor_cf_name, event_cursor_options),
             ])
@@ -114,12 +146,24 @@ impl Storage {
             metrics_config,
             &expected_column_families,
         )?;
+
+        let node_status = DBMap::reopen(
+            &database,
+            Some(node_status_cf_name),
+            &ReadWriteOptions::default(),
+            false,
+        )?;
+        if node_status.get(&())?.is_none() {
+            node_status.insert(&(), &NodeStatus::Active)?;
+        }
+
         let metadata = DBMap::reopen(
             &database,
             Some(metadata_cf_name),
             &ReadWriteOptions::default(),
             false,
         )?;
+
         let event_cursor = EventCursorTable::reopen(&database)?;
         let blob_info = BlobInfoTable::reopen(&database)?;
         let shards = Arc::new(RwLock::new(
@@ -134,12 +178,23 @@ impl Storage {
 
         Ok(Self {
             database,
+            node_status,
             metadata,
             blob_info,
             event_cursor,
             shards,
             config: db_config,
         })
+    }
+
+    pub(crate) fn node_status(&self) -> Result<NodeStatus, TypedStoreError> {
+        self.node_status
+            .get(&())
+            .and_then(|value| Ok(value.expect("node status should always be set")))
+    }
+
+    pub(crate) fn set_node_status(&self, status: NodeStatus) -> Result<(), TypedStoreError> {
+        self.node_status.insert(&(), &status)
     }
 
     /// Returns the storage for the specified shard, creating it if it does not exist.
@@ -386,6 +441,7 @@ impl Storage {
     /// Returns true if the sliver pairs for the provided blob-id is stored at
     /// all of the storage's shards.
     #[tracing::instrument(skip_all)]
+    // TODO: this needs to check shard assignment onchain.
     pub fn is_stored_at_all_shards(&self, blob_id: &BlobId) -> Result<bool, TypedStoreError> {
         for shard in self.shard_storages() {
             if !shard.status()?.is_owned_by_node() {
@@ -427,6 +483,13 @@ impl Storage {
         }
 
         Ok(shards_with_sliver_pairs)
+    }
+
+    fn node_status_options(db_config: &DatabaseConfig) -> (&'static str, Options) {
+        (
+            Self::NODE_STATUS_COLUMN_FAMILY_NAME,
+            db_config.node_status.to_options(),
+        )
     }
 
     fn metadata_options(db_config: &DatabaseConfig) -> (&'static str, Options) {
@@ -472,6 +535,11 @@ impl Storage {
         Ok(shard
             .fetch_slivers(request.sliver_type(), &blobs_to_fetch)?
             .into())
+    }
+
+    pub fn certified_blob_info_iter_before_epoch(&self, epoch: Epoch) -> BlobInfoIterator {
+        self.blob_info
+            .certified_blob_info_iter_before_epoch(epoch, std::ops::Bound::Unbounded)
     }
 }
 
