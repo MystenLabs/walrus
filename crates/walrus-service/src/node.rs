@@ -752,7 +752,10 @@ impl StorageNode {
             // Note that this function is called *after* the blob info has already been updated with
             // the event. So it can happen that the only registered blob was deleted and the blob is
             // now no longer registered.
-            if !blob_info.is_registered(self.inner.current_epoch()) {
+            // We use the event's epoch for this check (as opposed to the current epoch) as
+            // subsequent certify or delete events may update the `blob_info`; so we cannot remove
+            // it even if it is no longer valid in the *current* epoch
+            if !blob_info.is_registered(event.epoch) {
                 self.inner.storage.delete_blob(&event.blob_id, true)?;
             }
         } else {
@@ -1844,6 +1847,53 @@ mod tests {
 
         tokio::time::sleep(Duration::from_millis(100)).await;
         assert!(!storage.is_stored_at_all_shards(&BLOB_ID)?);
+        Ok(())
+    }
+
+    async_param_test! {
+        correctly_handles_blob_deletions_with_concurrent_instances -> TestResult: [
+            same_epoch: (1),
+            later_epoch: (2),
+        ]
+    }
+    async fn correctly_handles_blob_deletions_with_concurrent_instances(
+        current_epoch: Epoch,
+    ) -> TestResult {
+        let (cluster, events) = cluster_at_epoch1_without_blobs(&[&[0]]).await?;
+        advance_cluster_to_epoch(&cluster, &[&events], current_epoch).await?;
+
+        let node = &cluster.nodes[0];
+        println!("{}", node.storage_node.inner.current_epoch());
+
+        let blob_events: Vec<BlobEvent> = vec![
+            BlobRegistered {
+                deletable: true,
+                end_epoch: 2,
+                ..BlobRegistered::for_testing(BLOB_ID)
+            }
+            .into(),
+            BlobCertified {
+                deletable: true,
+                end_epoch: 2,
+                ..BlobCertified::for_testing(BLOB_ID)
+            }
+            .into(),
+            BlobDeleted {
+                end_epoch: 2,
+                ..BlobDeleted::for_testing(BLOB_ID)
+            }
+            .into(),
+        ];
+
+        // Send each event twice. This corresponds to registering and certifying two `Blob`
+        // instances with the same blob ID, and then deleting both.
+        for event in blob_events {
+            events.send(event.clone().into())?;
+            events.send(event.into())?;
+        }
+
+        wait_until_events_processed(node, 6).await?;
+
         Ok(())
     }
 
