@@ -9,7 +9,7 @@ edition = "2021"
 license = "Apache-2.0"
 
 [workspace.dependencies]
-anyhow = "1.0.91"
+anyhow = "1.0.92"
 async-channel = "2.3.1"
 async-trait = "0.1.83"
 axum = { version = "0.7.7", default-features = false }
@@ -47,9 +47,9 @@ rand = "0.8.5"
 raptorq = "2.0.0"
 rcgen = "0.13.1"
 regex = "1"
-reqwest = { version = "0.12.8", default-features = false, features = [ "http2", "json", "rustls-tls", ] }
+reqwest = { version = "0.12.9", default-features = false, features = [ "http2", "json", "rustls-tls", ] }
 rocksdb = "0.21.0"
-rustls = { version = "0.23.15", default-features = false, features = ["ring", "tls12", "logging"] }
+rustls = { version = "0.23.16", default-features = false, features = ["ring", "tls12", "logging"] }
 rustls-native-certs = "0.8.0"
 serde = { version = "1.0.213", features = ["derive"] }
 serde_json = "1.0.132"
@@ -72,7 +72,7 @@ syn = "2.0"
 telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.36.2" }
 tempfile = "3.13.0"
 test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.36.2" }
-thiserror = "1.0.65"
+thiserror = "1.0.67"
 tokio = "=1.38.1"
 tokio-stream = "0.1.16"
 tokio-util = "0.7.12"
