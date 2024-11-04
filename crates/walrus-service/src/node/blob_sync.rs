@@ -93,7 +93,7 @@ impl BlobSyncHandler {
     pub async fn cancel_sync_and_mark_event_complete(
         &self,
         blob_id: &BlobId,
-    ) -> anyhow::Result<bool> {
+    ) -> anyhow::Result<()> {
         let Some(handle) = self
             .blob_syncs_in_progress
             .lock()
@@ -104,15 +104,14 @@ impl BlobSyncHandler {
                 sync.cancel()
             })
         else {
-            return Ok(false);
+            return Ok(());
         };
 
         if let Some(sync_result) = handle.await?? {
             self.mark_event_completed(sync_result)?;
-            return Ok(true);
         }
 
-        Ok(false)
+        Ok(())
     }
 
     /// Cancels all existing blob syncs for blobs that are already expired in the `current_epoch`
