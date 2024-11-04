@@ -23,11 +23,12 @@ use reqwest::header::{
 use serde::Deserialize;
 use tracing::Level;
 use utoipa::IntoParams;
-use walrus_core::{encoding::Primary, EpochCount};
-use walrus_sui::client::{BlobPersistence, ContractClient, ReadClient};
+use walrus_core::EpochCount;
+use walrus_sui::client::BlobPersistence;
 
+use super::{WalrusReadClient, WalrusWriteClient};
 use crate::{
-    client::{BlobStoreResult, Client, ClientErrorKind, StoreWhen},
+    client::{BlobStoreResult, ClientErrorKind, StoreWhen},
     common::api::{self, BlobIdString},
 };
 
@@ -52,13 +53,13 @@ pub const BLOB_PUT_ENDPOINT: &str = "/v1/store";
         // TODO(mlegner): Improve error responses. (#178, #462)
     ),
 )]
-pub(super) async fn get_blob<T: ReadClient + Send + Sync>(
+pub(super) async fn get_blob<T: WalrusReadClient>(
     request_headers: HeaderMap,
-    State(client): State<Arc<Client<T>>>,
+    State(client): State<Arc<T>>,
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
 ) -> Response {
     tracing::debug!("starting to read blob");
-    match client.read_blob_retry_epoch::<Primary>(&blob_id).await {
+    match client.read_blob(&blob_id).await {
         Ok(blob) => {
             tracing::debug!("successfully retrieved blob");
             let mut response = (StatusCode::OK, blob).into_response();
@@ -119,8 +120,8 @@ pub(super) async fn get_blob<T: ReadClient + Send + Sync>(
         // TODO(mlegner): Document error responses. (#178, #462)
     ),
 )]
-pub(super) async fn put_blob<T: ContractClient>(
-    State(client): State<Arc<Client<T>>>,
+pub(super) async fn put_blob<T: WalrusWriteClient>(
+    State(client): State<Arc<T>>,
     Query(PublisherQuery {
         epochs,
         // TODO(giac): remove the force parameter from the publisher. (breaking change)
@@ -131,7 +132,7 @@ pub(super) async fn put_blob<T: ContractClient>(
 ) -> Response {
     tracing::debug!("starting to store received blob");
     let mut response = match client
-        .reserve_and_store_blob_retry_epoch(
+        .write_blob(
             &blob[..],
             epochs,
             StoreWhen::NotStoredIgnoreResources,

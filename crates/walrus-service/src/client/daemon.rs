@@ -27,13 +27,55 @@ use tower::{
 use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_redoc::{Redoc, Servable};
-use walrus_sui::client::{ContractClient, ReadClient};
+use walrus_core::{encoding::Primary, BlobId, EpochCount};
+use walrus_sui::client::{BlobPersistence, ContractClient, ReadClient};
 
-use super::Client;
+use super::{responses::BlobStoreResult, Client, ClientResult, StoreWhen};
 use crate::common::telemetry::{metrics_middleware, register_http_metrics, MakeHttpSpan};
 
 mod openapi;
 mod routes;
+
+pub trait WalrusReadClient {
+    fn read_blob(
+        &self,
+        blob_id: &BlobId,
+    ) -> impl std::future::Future<Output = ClientResult<Vec<u8>>> + Send;
+    fn set_metric_registry(&mut self, registry: &Registry);
+}
+
+pub trait WalrusWriteClient: WalrusReadClient {
+    fn write_blob(
+        &self,
+        blob: &[u8],
+        epochs_ahead: EpochCount,
+        store_when: StoreWhen,
+        persistence: BlobPersistence,
+    ) -> impl std::future::Future<Output = ClientResult<BlobStoreResult>> + Send;
+}
+
+impl<T: ReadClient> WalrusReadClient for Client<T> {
+    async fn read_blob(&self, blob_id: &BlobId) -> ClientResult<Vec<u8>> {
+        self.read_blob_retry_epoch::<Primary>(blob_id).await
+    }
+
+    fn set_metric_registry(&mut self, registry: &Registry) {
+        self.set_metric_registry(registry);
+    }
+}
+
+impl<T: ContractClient> WalrusWriteClient for Client<T> {
+    async fn write_blob(
+        &self,
+        blob: &[u8],
+        epochs_ahead: EpochCount,
+        store_when: StoreWhen,
+        persistence: BlobPersistence,
+    ) -> ClientResult<BlobStoreResult> {
+        self.reserve_and_store_blob_retry_epoch(blob, epochs_ahead, store_when, persistence)
+            .await
+    }
+}
 
 /// The client daemon.
 ///
@@ -41,19 +83,15 @@ mod routes;
 /// constructed with.
 #[derive(Debug, Clone)]
 pub struct ClientDaemon<T> {
-    client: Arc<Client<T>>,
+    client: Arc<T>,
     network_address: SocketAddr,
     metrics: HistogramVec,
-    router: Router<Arc<Client<T>>>,
+    router: Router<Arc<T>>,
 }
 
-impl<T: ReadClient + Send + Sync + 'static> ClientDaemon<T> {
+impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
     /// Constructs a new [`ClientDaemon`] with aggregator functionality.
-    pub fn new_aggregator(
-        client: Client<T>,
-        network_address: SocketAddr,
-        registry: &Registry,
-    ) -> Self {
+    pub fn new_aggregator(client: T, network_address: SocketAddr, registry: &Registry) -> Self {
         Self::new::<AggregatorApiDoc>(client, network_address, registry).with_aggregator()
     }
 
@@ -62,11 +100,7 @@ impl<T: ReadClient + Send + Sync + 'static> ClientDaemon<T> {
     ///
     /// The exposed APIs can be defined by calling a subset of the functions `with_*`. The daemon is
     /// started through [`Self::run()`].
-    fn new<A: OpenApi>(
-        mut client: Client<T>,
-        network_address: SocketAddr,
-        registry: &Registry,
-    ) -> Self {
+    fn new<A: OpenApi>(mut client: T, network_address: SocketAddr, registry: &Registry) -> Self {
         client.set_metric_registry(registry);
         ClientDaemon {
             client: Arc::new(client),
@@ -111,10 +145,10 @@ impl<T: ReadClient + Send + Sync + 'static> ClientDaemon<T> {
     }
 }
 
-impl<T: ContractClient + 'static> ClientDaemon<T> {
+impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
     /// Constructs a new [`ClientDaemon`] with publisher functionality.
     pub fn new_publisher(
-        client: Client<T>,
+        client: T,
         network_address: SocketAddr,
         max_body_limit: usize,
         registry: &Registry,
@@ -130,7 +164,7 @@ impl<T: ContractClient + 'static> ClientDaemon<T> {
 
     /// Constructs a new [`ClientDaemon`] with combined aggregator and publisher functionality.
     pub fn new_daemon(
-        client: Client<T>,
+        client: T,
         network_address: SocketAddr,
         max_body_limit: usize,
         registry: &Registry,
