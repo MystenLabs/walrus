@@ -3,6 +3,7 @@
 
 use std::{
     collections::{hash_map::Entry, HashMap},
+    ops::Not,
     sync::{Arc, Mutex},
 };
 
@@ -125,7 +126,6 @@ impl BlobSyncHandler {
     #[tracing::instrument(skip(self))]
     pub async fn cancel_all_expired_syncs_and_mark_events_completed(
         &self,
-        current_epoch: Epoch,
     ) -> anyhow::Result<usize> {
         tracing::debug!("cancelling all blob syncs for expired blobs");
 
@@ -134,8 +134,10 @@ impl BlobSyncHandler {
             .lock()
             .expect("should be able to acquire lock")
             .iter_mut()
-            .filter_map(|(_, sync)| {
-                (sync.latest_expiration_epoch <= current_epoch)
+            .filter_map(|(blob_id, sync)| {
+                self.node
+                    .is_blob_certified(blob_id)
+                    .is_ok_and(Not::not)
                     .then(|| sync.cancel())
                     .flatten()
             })
@@ -196,7 +198,6 @@ impl BlobSyncHandler {
                 spawned_trace.follows_from(Span::current());
 
                 let cancel_token = CancellationToken::new();
-                let end_epoch = event.end_epoch;
                 let synchronizer = BlobSynchronizer::new(
                     event,
                     event_index,
@@ -218,14 +219,9 @@ impl BlobSyncHandler {
                 entry.insert(InProgressSyncHandle {
                     cancel_token,
                     blob_sync_handle: Some(sync_handle),
-                    latest_expiration_epoch: end_epoch,
                 });
             }
-            Entry::Occupied(entry) => {
-                entry
-                    .into_mut()
-                    .maybe_increase_expiration_epoch(event.end_epoch);
-
+            Entry::Occupied(_) => {
                 // A blob sync with a lower sequence number is already in progress. We can safely
                 // try to increase the event cursor since it will only be advanced once that sync is
                 // finished or cancelled when the blob expires, is deleted, or marked as invalid.
@@ -316,7 +312,6 @@ type SyncJoinHandle = JoinHandle<Result<Option<BlobSyncResult>, anyhow::Error>>;
 struct InProgressSyncHandle {
     cancel_token: CancellationToken,
     blob_sync_handle: Option<SyncJoinHandle>,
-    latest_expiration_epoch: Epoch,
 }
 
 impl InProgressSyncHandle {
@@ -325,10 +320,6 @@ impl InProgressSyncHandle {
     fn cancel(&mut self) -> Option<SyncJoinHandle> {
         self.cancel_token.cancel();
         self.blob_sync_handle.take()
-    }
-
-    fn maybe_increase_expiration_epoch(&mut self, expiration_epoch: Epoch) {
-        self.latest_expiration_epoch = self.latest_expiration_epoch.max(expiration_epoch);
     }
 }
 

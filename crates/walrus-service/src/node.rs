@@ -797,16 +797,16 @@ impl StorageNode {
         self.epoch_change_driver
             .cancel_scheduled_epoch_change_initiation(event.epoch);
 
-        // Cancel all blob syncs for blobs that are now expired.
-        self.blob_sync_handler
-            .cancel_all_expired_syncs_and_mark_events_completed(event.epoch)
-            .await?;
-
         if !self.begin_committee_change(event.epoch).await? {
             self.inner
                 .mark_event_completed(element_index, &event.event_id)?;
             return Ok(());
         }
+
+        // Cancel all blob syncs for blobs that are expired in the *current epoch*.
+        self.blob_sync_handler
+            .cancel_all_expired_syncs_and_mark_events_completed()
+            .await?;
 
         if self
             .process_shard_changes_in_new_epoch(element_index, event)
