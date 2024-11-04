@@ -448,13 +448,10 @@ where
         metrics.current_epoch_state.set_from_committees(committees);
 
         if let Some(local_identity) = self.local_identity.as_ref() {
-            metrics.current_shards_owned.set(
+            metrics.shards_owned.set(
                 committees
                     .current_committee()
-                    .shards_for_node_public_key(local_identity)
-                    .len()
-                    .try_into()
-                    .expect("number of shards must fit into a u64"),
+                    .n_shards_for_node_public_key(local_identity),
             );
         }
     }

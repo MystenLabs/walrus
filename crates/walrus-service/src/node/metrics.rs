@@ -110,7 +110,7 @@ telemetry::define_metric_set! {
         current_epoch_state: CurrentEpochStateMetric,
 
         #[help = "The number shards currently owned by this node"]
-        current_shards_owned: U64Gauge[],
+        shards_owned: U64Gauge[],
     }
 }
 

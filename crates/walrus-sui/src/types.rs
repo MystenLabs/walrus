@@ -209,13 +209,21 @@ impl Committee {
         num > usize::from(bft::max_n_faulty(self.n_shards))
     }
 
-    /// Return the shards handed by the specified storage node, based on its public key.
+    /// Return the shards handled by the specified storage node, based on its public key.
     /// If empty, the node is not in the committee.
     pub fn shards_for_node_public_key(&self, public_key: &PublicKey) -> &[ShardIndex] {
         self.members
             .iter()
             .find_map(|node| (node.public_key == *public_key).then_some(node.shard_ids.as_slice()))
             .unwrap_or_default()
+    }
+
+    /// Return the number of shards handled by the specified storage node, based on its public key.
+    pub fn n_shards_for_node_public_key(&self, public_key: &PublicKey) -> u64 {
+        self.shards_for_node_public_key(public_key)
+            .len()
+            .try_into()
+            .expect("number of shards must fit into a u64")
     }
 
     /// Return the total number of shards in the committee.
