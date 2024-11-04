@@ -25,7 +25,7 @@ serde_with.workspace = true
 serde_yaml.workspace = true
 ssh2 = "0.9.4"
 thiserror.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 walrus-core.workspace = true
 walrus-service = { workspace = true, features = ["deploy", "node"] }
 walrus-sui.workspace = true

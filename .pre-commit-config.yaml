@@ -25,15 +25,15 @@ repos:
   hooks:
   - id: typos
     pass_filenames: false
-- repo: https://github.com/DevinR528/cargo-sort
-  rev: 55ec89082466f6bb246d870a8d56d166a8e1f08b
-  hooks:
-  - id: cargo-sort
-    args: ["--workspace"]
 - repo: https://github.com/EmbarkStudios/cargo-deny
   rev: 0.16.1
   hooks:
   - id: cargo-deny
+- repo: https://github.com/ComPWA/taplo-pre-commit
+  rev: v0.9.3
+  hooks:
+    - id: taplo-format
+      args: ['**/*.toml']
 - repo: local
   hooks:
   - id: cargo-fmt

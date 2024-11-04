@@ -84,16 +84,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2.7.5
         with:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
-      - run: >
-          cargo install cargo-sort --git https://github.com/DevinR528/cargo-sort
-          --rev 55ec89082466f6bb246d870a8d56d166a8e1f08b
 
       - name: Check formatting with rustfmt
         run: >
           cargo fmt --all -- --check
           --config group_imports=StdExternalCrate,imports_granularity=Crate,imports_layout=HorizontalVertical
-      - name: Check sorting of dependencies
-        run: cargo sort -w -c
       - name: Lint using clippy (w/o tests)
         run: cargo clippy --all-features --no-deps -- -D warnings
       - name: Lint using clippy (w/ tests)

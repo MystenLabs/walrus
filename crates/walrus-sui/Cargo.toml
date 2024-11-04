@@ -9,10 +9,10 @@ license.workspace = true
 [features]
 default = ["test-utils"]
 test-utils = [
-    "dep:test-cluster",
-    "dep:walrus-test-utils",
-    "dep:tempfile",
-    "walrus-core/test-utils"
+  "dep:tempfile",
+  "dep:test-cluster",
+  "dep:walrus-test-utils",
+  "walrus-core/test-utils",
 ]
 
 [dependencies]

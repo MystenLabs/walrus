@@ -1,0 +1,30 @@
+include = ["**/*.toml"]
+
+[formatting]
+
+[[rule]]
+
+[rule.formatting]
+align_comments = false
+array_auto_collapse = false
+array_auto_expand = true
+array_trailing_comma = true
+column_width = 150
+indent_entries = false
+reorder_arrays = true
+reorder_keys = true
+trailing_newline = true
+
+[[rule]]
+include = ["**/Cargo.toml", "**/Move.toml"]
+keys = ["bench", "package", "workspace.package"]
+
+[rule.formatting]
+align_comments = true
+reorder_keys = false
+
+[[rule]]
+include = ["deny.toml"]
+
+[rule.formatting]
+reorder_keys = false

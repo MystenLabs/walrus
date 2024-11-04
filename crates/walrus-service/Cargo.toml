@@ -23,36 +23,41 @@ required-features = ["deploy"]
 
 [features]
 client = [
-    "dep:colored",
-    "dep:humantime",
-    "dep:indoc",
-    "dep:itertools",
-    "dep:prettytable"
+  "dep:colored",
+  "dep:humantime",
+  "dep:indoc",
+  "dep:itertools",
+  "dep:prettytable",
 ]
 deploy = ["client", "node"]
 node = [
-    "dep:async-trait",
-    "dep:enum_dispatch",
-    "dep:mime",
-    "dep:mysten-metrics",
-    "dep:rocksdb",
-    "dep:tokio-stream",
-    "dep:tokio-util",
-    "dep:typed-store"
+  "dep:async-trait",
+  "dep:enum_dispatch",
+  "dep:mime",
+  "dep:mysten-metrics",
+  "dep:rocksdb",
+  "dep:tokio-stream",
+  "dep:tokio-util",
+  "dep:typed-store",
 ]
 test-utils = [
-    "client",
-    "node",
-    "dep:tempfile",
-    "walrus-core/test-utils",
-    "dep:walrus-test-utils"
+  "client",
+  "dep:tempfile",
+  "dep:walrus-test-utils",
+  "node",
+  "walrus-core/test-utils",
 ]
 
 [dependencies]
 anyhow.workspace = true
 async-trait = { workspace = true, optional = true }
 axum = { workspace = true, features = [
-    "http1", "http2", "matched-path", "tokio", "tower-log", "tracing"
+  "http1",
+  "http2",
+  "matched-path",
+  "tokio",
+  "tower-log",
+  "tracing",
 ] }
 axum-server = { workspace = true, features = ["tls-rustls-no-provider"] }
 bcs.workspace = true

@@ -4,17 +4,17 @@
 [advisories]
 version = 2
 ignore = [
-    # We depend on rsa via fastcrypto but don't actually use it.
-    "RUSTSEC-2023-0071",
-    # difference 2.0.0 is unmaintained.
-    "RUSTSEC-2020-0095",
-    # rust-yaml is not maintained, but is a dependency in many of our packages.
-    "RUSTSEC-2024-0320",
-    # We have a vulnerable version of `rustls` in our dependency tree through the old version of
-    # jsonrpsee used by sui.
-    "RUSTSEC-2024-0336",
-    # proc-macro-error is not maintained, but is a dependency in many of our packages.
-    "RUSTSEC-2024-0370",
+  # We depend on rsa via fastcrypto but don't actually use it.
+  "RUSTSEC-2023-0071",
+  # difference 2.0.0 is unmaintained.
+  "RUSTSEC-2020-0095",
+  # rust-yaml is not maintained, but is a dependency in many of our packages.
+  "RUSTSEC-2024-0320",
+  # We have a vulnerable version of `rustls` in our dependency tree through the old version of
+  # jsonrpsee used by sui.
+  "RUSTSEC-2024-0336",
+  # proc-macro-error is not maintained, but is a dependency in many of our packages.
+  "RUSTSEC-2024-0370",
 ]
 
 # This section is considered when running `cargo deny check licenses`
@@ -26,17 +26,17 @@ version = 2
 # See https://spdx.org/licenses/ for list of possible licenses
 # [possible values: any SPDX 3.11 short identifier (+ optional exception)].
 allow = [
-    "0BSD",
-    "Apache-2.0",
-    "BSD-2-Clause",
-    "BSD-3-Clause",
-    "CC0-1.0",
-    "ISC",
-    "LicenseRef-ring",
-    "MIT",
-    "MPL-2.0",
-    "Unicode-DFS-2016",
-    "Unlicense",
+  "0BSD",
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "CC0-1.0",
+  "ISC",
+  "LicenseRef-ring",
+  "MIT",
+  "MPL-2.0",
+  "Unicode-DFS-2016",
+  "Unlicense",
 ]
 # The confidence threshold for detecting a license from license text.
 # The higher the value, the more closely the license text must be to the
@@ -48,7 +48,7 @@ confidence-threshold = 0.8
 name = "ring"
 expression = "LicenseRef-ring"
 license-files = [
-    { path = "LICENSE", hash = 0xbd0eed23 },
+  { path = "LICENSE", hash = 0xbd0eed23 },
 ]
 
 [licenses.private]
@@ -65,20 +65,20 @@ ignore = true
 # Lint level for when multiple versions of the same crate are detected
 multiple-versions = "deny"
 skip = [
-    { name = "itertools", version = "<=12.1" },
+  { name = "itertools", version = "<=12.1" },
 ]
 skip-tree = [
-    # Mysten's libraries pull in several conflicting repo versions.
-    { name = "fastcrypto", depth = 4 },
-    { name = "typed-store", depth = 6},
-    { name = "test-cluster", depth = 6},
-    # several crates depend on an older version of windows-sys
-    { name = "windows-sys", depth = 3, version = "0.48" },
+  # Mysten's libraries pull in several conflicting repo versions.
+  { name = "fastcrypto", depth = 4 },
+  { name = "test-cluster", depth = 6 },
+  { name = "typed-store", depth = 6 },
+  # several crates depend on an older version of windows-sys
+  { name = "windows-sys", depth = 3, version = "0.48" },
 ]
 deny = [
   # TODO: Remove the following three lines after removing SSH. (#221)
-  { name = "openssl-sys", wrappers = ["libssh2-sys"] },
   { name = "libssh2-sys", wrappers = ["ssh2"] },
+  { name = "openssl-sys", wrappers = ["libssh2-sys"] },
   { name = "ssh2", wrappers = ["walrus-orchestrator"] },
 ]
 
@@ -93,17 +93,17 @@ unknown-registry = "deny"
 # in the allow list is encountered
 unknown-git = "deny"
 allow-git = [
-    "https://github.com/asonnino/prometheus-parser",
-    "https://github.com/bmwill/axum-server",
-    "https://github.com/bmwill/openapiv3",
-    "https://github.com/mystenmark/tokio-madsim-fork",
-    "https://github.com/mystenmark/async-task",
-    "https://github.com/wlmyng/jsonrpsee",
-    "https://github.com/zhiburt/tabled",
+  "https://github.com/asonnino/prometheus-parser",
+  "https://github.com/bmwill/axum-server",
+  "https://github.com/bmwill/openapiv3",
+  "https://github.com/mystenmark/async-task",
+  "https://github.com/mystenmark/tokio-madsim-fork",
+  "https://github.com/wlmyng/jsonrpsee",
+  "https://github.com/zhiburt/tabled",
 ]
 
 [sources.allow-org]
 # github.com organizations to allow git sources for
 github = [
-    "MystenLabs",
+  "MystenLabs",
 ]

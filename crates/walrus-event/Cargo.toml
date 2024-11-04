@@ -27,7 +27,7 @@ sui-sdk.workspace = true
 sui-storage.workspace = true
 sui-types = { workspace = true, features = ["test-utils"] }
 tempfile = { workspace = true, optional = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tokio-util.workspace = true
 tracing.workspace = true
 typed-store.workspace = true
