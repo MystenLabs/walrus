@@ -401,7 +401,7 @@ pub mod defaults {
 
     /// Returns the default metrics address.
     pub fn metrics_address() -> SocketAddr {
-        (Ipv4Addr::UNSPECIFIED, METRICS_PORT).into()
+        (Ipv4Addr::LOCALHOST, METRICS_PORT).into()
     }
 
     /// Returns the default REST API address.

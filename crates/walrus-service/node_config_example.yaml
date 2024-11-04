@@ -18,7 +18,7 @@ voting_params:
   storage_price: 5
   write_price: 1
   node_capacity: 250000000000
-# metrics_address: 0.0.0.0:9184
+# metrics_address: 127.0.0.1:9184
 # rest_api_address: 0.0.0.0:9185
 # blob_recovery:
 #   max_concurrent_blob_syncs: 10
