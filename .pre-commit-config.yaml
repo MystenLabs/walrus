@@ -29,13 +29,17 @@ repos:
   rev: 0.16.1
   hooks:
   - id: cargo-deny
-- repo: https://github.com/ComPWA/taplo-pre-commit
-  rev: v0.9.3
-  hooks:
-    - id: taplo-format
-      args: ['**/*.toml']
 - repo: local
   hooks:
+  - id: taplo-format
+    alias: taplo
+    name: taplo-format
+    description: Format TOML documents
+    entry: taplo format
+    language: python
+    types: [toml]
+    args: ['**/*.toml']
+    additional_dependencies: ["taplo==0.9.3"]
   - id: cargo-fmt
     name: cargo-fmt
     entry: cargo fmt
