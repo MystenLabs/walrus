@@ -56,27 +56,36 @@ pub(crate) use shard::{ShardStatus, ShardStorage};
 pub struct WouldBlockError;
 
 // TODO: add status to health endpoint
+/// The status of the node.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum NodeStatus {
+    /// The node is active and processing events.
     Active,
+    /// The node is in recovery mode and catching up with the chain.
     RecoveryCatchUp,
-    RecoveryInProgress,
+    /// The node is in recovery mode and processing events.
+    RecoveryInProgress(Epoch),
+}
+
+impl NodeStatus {
+    /// Used to convert `NodeStatus` to `i64` for metrics.
+    pub fn to_i64(&self) -> i64 {
+        match self {
+            NodeStatus::Active => 0,
+            NodeStatus::RecoveryCatchUp => 1,
+            NodeStatus::RecoveryInProgress(_) => 2,
+        }
+    }
 }
 
 impl Display for NodeStatus {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.as_str())
-    }
-}
-
-impl NodeStatus {
-    /// Provides a string representation of the enum variant.
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            NodeStatus::Active => "Active",
-            NodeStatus::RecoveryCatchUp => "RecoveryCatchUp",
-            NodeStatus::RecoveryInProgress => "RecoveryInProgress",
-        }
+        let display_string = match self {
+            NodeStatus::Active => "Active".to_string(),
+            NodeStatus::RecoveryCatchUp => "RecoveryCatchUp".to_string(),
+            NodeStatus::RecoveryInProgress(epoch) => format!("RecoveryInProgress ({epoch})"),
+        };
+        write!(f, "{}", display_string)
     }
 }
 
@@ -190,7 +199,7 @@ impl Storage {
     pub(crate) fn node_status(&self) -> Result<NodeStatus, TypedStoreError> {
         self.node_status
             .get(&())
-            .and_then(|value| Ok(value.expect("node status should always be set")))
+            .map(|value| value.expect("node status should always be set"))
     }
 
     pub(crate) fn set_node_status(&self, status: NodeStatus) -> Result<(), TypedStoreError> {
@@ -441,7 +450,6 @@ impl Storage {
     /// Returns true if the sliver pairs for the provided blob-id is stored at
     /// all of the storage's shards.
     #[tracing::instrument(skip_all)]
-    // TODO: this needs to check shard assignment onchain.
     pub fn is_stored_at_all_shards(&self, blob_id: &BlobId) -> Result<bool, TypedStoreError> {
         for shard in self.shard_storages() {
             if !shard.status()?.is_owned_by_node() {
@@ -537,7 +545,8 @@ impl Storage {
             .into())
     }
 
-    pub fn certified_blob_info_iter_before_epoch(&self, epoch: Epoch) -> BlobInfoIterator {
+    /// Returns an iterator over the certified blob info before the specified epoch.
+    pub(crate) fn certified_blob_info_iter_before_epoch(&self, epoch: Epoch) -> BlobInfoIterator {
         self.blob_info
             .certified_blob_info_iter_before_epoch(epoch, std::ops::Bound::Unbounded)
     }

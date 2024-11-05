@@ -417,6 +417,7 @@ impl CommitteeTracker {
         Ok(previous_committee)
     }
 
+    /// Updates the active committees with the provided `ActiveCommittees`.
     pub fn update_active_committees(&mut self, active_committees: ActiveCommittees) {
         self.0 = active_committees;
     }

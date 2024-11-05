@@ -7,6 +7,7 @@ use prometheus::{
     HistogramVec,
     IntCounter,
     IntCounterVec,
+    IntGauge,
     IntGaugeVec,
     Opts,
     Registry,
@@ -90,7 +91,10 @@ telemetry::define_metric_set! {
             // Buckets from 2^18 (256 KiB) to 2^34 (16 GiB, inclusive), which covers the ~212 KiB to
             // 14 GiB unencoded blobs which are possible in a system with 1000 shards.
             buckets: (18..=34).map(|power| (1u64 << power) as f64).collect::<Vec<_>>()
-        }
+        },
+
+        #[help = "Indicates the current node status"]
+        current_node_status: IntGauge[],
     }
 }
 

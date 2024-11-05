@@ -605,6 +605,7 @@ impl StorageNodeHandleBuilder {
         self
     }
 
+    /// Specify the sui wallet directory for the node.
     pub fn with_node_wallet_dir(mut self, node_wallet_dir: Option<PathBuf>) -> Self {
         self.node_wallet_dir = node_wallet_dir;
         self
@@ -851,7 +852,7 @@ impl Default for StorageNodeHandleBuilder {
 /// client.
 async fn wait_for_rest_api_ready(client: &Client) -> anyhow::Result<()> {
     tokio::time::timeout(Duration::from_secs(10), async {
-        while let Err(err) = client.get_server_health_info().await {
+        while let Err(err) = client.get_server_health_info(false).await {
             tracing::trace!(%err, "node is not ready yet, retrying...");
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
@@ -1388,6 +1389,7 @@ impl TestClusterBuilder {
         self
     }
 
+    /// Sets the sui wallet config directory for each storage node.
     pub fn with_node_wallet_dirs(mut self, wallet_dirs: Vec<PathBuf>) -> Self {
         self.node_wallet_dirs = wallet_dirs.into_iter().map(Some).collect();
         self
@@ -1701,12 +1703,11 @@ pub mod test_cluster {
         WithTempDir<client::Client<SuiContractClient>>,
     )> {
         let node_weights = [1, 2, 3, 3, 4];
-        let (a, b, c, d) = default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
+        default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
             epoch_duration,
             &node_weights,
         )
-        .await?;
-        Ok((a, b, c))
+        .await
     }
 
     /// Performs the default setup with the input epoch duration for the test cluster with the
@@ -1718,7 +1719,6 @@ pub mod test_cluster {
         Arc<TestClusterHandle>,
         TestCluster<T>,
         WithTempDir<client::Client<SuiContractClient>>,
-        Vec<TempDir>,
     )> {
         #[cfg(not(msim))]
         let sui_cluster = test_utils::using_tokio::global_sui_test_cluster();
@@ -1789,10 +1789,17 @@ pub mod test_cluster {
 
         end_epoch_zero(contract_clients_refs.first().unwrap()).await?;
 
-        let (node_contract_services, wallet_dirs): (Vec<_>, Vec<_>) = contract_clients
+        let (node_contract_services, _wallet_dirs): (Vec<_>, Vec<_>) = contract_clients
             .into_iter()
             .map(|client| (client.inner, client.temp_dir))
-            .map(|(client, tmp_dir)| (SuiSystemContractService::new(client), tmp_dir))
+            .map(|(client, tmp_dir)| {
+                (
+                    SuiSystemContractService::new(client),
+                    // In simtest, storage nodes load sui wallet config from the `tmp_dir`. We need
+                    // to keep the directory alive throughout the test.
+                    Box::leak(Box::new(tmp_dir)),
+                )
+            })
             .unzip();
 
         // Build the walrus cluster
@@ -1857,8 +1864,7 @@ pub mod test_cluster {
             })
             .await?;
 
-        // TODO: find better way to preserve wallet dirs so that it won't get dropped after setup.
-        Ok((sui_cluster, cluster, client, wallet_dirs))
+        Ok((sui_cluster, cluster, client))
     }
 
     #[cfg(msim)]

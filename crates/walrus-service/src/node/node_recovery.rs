@@ -3,12 +3,12 @@
 
 use std::sync::{Arc, Mutex};
 
-use futures::future::{join_all, try_join_all};
+use futures::future::join_all;
 use typed_store::TypedStoreError;
 use walrus_core::Epoch;
 
 use super::{blob_sync::BlobSyncHandler, StorageNodeInner};
-use crate::node::storage::blob_info::BlobInfoApi;
+use crate::node::{storage::blob_info::BlobInfoApi, NodeStatus};
 
 #[derive(Debug, Clone)]
 pub struct NodeRecoveryHandler {
@@ -33,21 +33,20 @@ impl NodeRecoveryHandler {
         let mut locked_task_handle = self.task_handle.lock().unwrap();
         assert!(locked_task_handle.is_none());
 
-        let node: Arc<StorageNodeInner> = self.node.clone();
+        let node = self.node.clone();
         let blob_sync_handler = self.blob_sync_handler.clone();
         let task_handle = tokio::spawn(async move {
             loop {
                 let mut all_blob_syncs = Vec::new();
-                let mut contain_recovery_blob = false;
                 for blob_result in node.storage.certified_blob_info_iter_before_epoch(epoch) {
                     match blob_result {
                         Ok((blob_id, blob_info)) => {
                             if !blob_info.is_certified(epoch) {
-                                // Skip blobs that are not certified in the given epoch. This includes blobs that are
-                                // invalid or expired.
-                                tracing::info!(
-                                    blob_id = ?blob_id,
-                                    epoch = epoch,
+                                // Skip blobs that are not certified in the given epoch. This
+                                // includes blobs that are invalid or expired.
+                                tracing::debug!(
+                                    %blob_id,
+                                    %epoch,
                                     "skip non-certified blob"
                                 );
                                 continue;
@@ -58,19 +57,20 @@ impl NodeRecoveryHandler {
                             {
                                 if stored_at_all_shards {
                                     tracing::info!(
-                                        blob_id = ?blob_id,
-                                        epoch = epoch,
+                                        %blob_id,
+                                        %epoch,
                                         "blob is stored at all shards; skip recovery"
                                     );
                                     continue;
                                 }
                             } else {
-                                tracing::warn!(blob_id = ?blob_id, "failed to check if blob is stored at all shards; start blob sync");
+                                tracing::warn!(
+                                    %blob_id,
+                                    "failed to check if blob is stored at all shards;
+                                    start blob sync");
                             }
 
-                            contain_recovery_blob = true;
-
-                            tracing::info!("ZZZZZZ start recovery sync for blob");
+                            tracing::debug!(%blob_id, "start recovery sync for blob");
 
                             // TODO: rate limit start sync to avoid OOM.
                             let start_sync_result = blob_sync_handler
@@ -88,10 +88,12 @@ impl NodeRecoveryHandler {
                                     all_blob_syncs.push(notify);
                                 }
                                 Err(err) => {
-                                    tracing::error!(
-                                        blob_id = ?blob_id,
-                                        error = ?err,
-                                        "failed to start recovery sync for blob",
+                                    // The only place where start_sync can fail is when marking the
+                                    // event complete, which is not applicable here since the there
+                                    // is no event associated with the recovery task.
+                                    panic!(
+                                        "failed to start recovery sync for blob {}: {}",
+                                        blob_id, err,
                                     );
                                 }
                             }
@@ -102,7 +104,7 @@ impl NodeRecoveryHandler {
                     }
                 }
 
-                if !contain_recovery_blob {
+                if all_blob_syncs.is_empty() {
                     tracing::info!("no recovery blob found; stop recovery task");
                     break;
                 }
@@ -116,10 +118,10 @@ impl NodeRecoveryHandler {
 
             tracing::info!("node recovery task finished; set node status to active");
 
-            match node
-                .storage
-                .set_node_status(crate::node::NodeStatus::Active)
-            {
+            node.metrics
+                .current_node_status
+                .set(NodeStatus::Active.to_i64());
+            match node.storage.set_node_status(NodeStatus::Active) {
                 Ok(()) => node.contract_service.epoch_sync_done(epoch).await,
                 Err(error) => {
                     tracing::error!(error = ?error, "failed to set node status to active");
@@ -131,9 +133,22 @@ impl NodeRecoveryHandler {
         Ok(())
     }
 
+    /// Restarts any in progress recovery.
     pub fn restart_recovery(&self) -> Result<(), TypedStoreError> {
-        if self.node.storage.node_status()? == crate::node::NodeStatus::RecoveryInProgress {
-            return self.start_node_recovery(self.node.current_epoch());
+        if let crate::node::NodeStatus::RecoveryInProgress(recovering_epoch) =
+            self.node.storage.node_status()?
+        {
+            if recovering_epoch == self.node.current_epoch() {
+                return self.start_node_recovery(self.node.current_epoch());
+            } else {
+                assert!(recovering_epoch < self.node.current_epoch());
+                tracing::warn!(
+                    recovering_epoch = recovering_epoch,
+                    current_epoch = self.node.current_epoch(),
+                    "recovery epoch mismatch; skip recovery restart; next epoch change start event
+                    will bring node to the latest state"
+                );
+            }
         }
         Ok(())
     }

@@ -32,12 +32,11 @@ use walrus_core::{
     InconsistencyProof,
     ShardIndex,
 };
-use walrus_sui::types::BlobCertified;
 
 use super::{
     committee::CommitteeService,
     contract_service::SystemContractService,
-    metrics::{self, NodeMetricSet, TelemetryLabel as _, STATUS_IN_PROGRESS, STATUS_QUEUED},
+    metrics::{self, NodeMetricSet, STATUS_IN_PROGRESS, STATUS_QUEUED},
     storage::Storage,
     StorageNodeInner,
 };
@@ -240,9 +239,9 @@ impl BlobSyncHandler {
                     event_index,
                 }) = event_info
                 {
-                    // A blob sync with a lower sequence number is already in progress. We can safely try to
-                    // increase the event cursor since it will only be advanced once that sync is finished
-                    // or cancelled due to an invalid blob event.
+                    // A blob sync with a lower sequence number is already in progress. We can
+                    // safely try to increase the event cursor since it will only be advanced once
+                    // that sync is finished or cancelled due to an invalid blob event.
                     self.node.mark_event_completed(event_index, &event_id)?;
                 }
                 finish_notify.notify_one();

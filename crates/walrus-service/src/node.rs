@@ -578,13 +578,21 @@ impl StorageNode {
                     // Clear the starting epoch, so that we never make this check again.
                     maybe_epoch_at_start = None;
 
-                    if node_status == NodeStatus::Active && event.event_epoch() + 1 < epoch_at_start
+                    // Checks if the node is severely lagging behind.
+                    // This applies to node both in `Active` or `RecoveryInProgress` status.
+                    if node_status != NodeStatus::RecoveryCatchUp
+                        && event.event_epoch() + 1 < epoch_at_start
                     {
                         tracing::warn!(
-                            "the current epoch ({}) is too far ahead of the event epoch: {}; node entering recovery mode",
+                            "the current epoch ({}) is far ahead of the event epoch: {};
+                            node entering recovery mode",
                             epoch_at_start,
                             event.event_epoch()
                         );
+                        self.inner
+                            .metrics
+                            .current_node_status
+                            .set(NodeStatus::RecoveryCatchUp.to_i64());
                         self.inner
                             .storage
                             .set_node_status(NodeStatus::RecoveryCatchUp)?;
@@ -825,44 +833,25 @@ impl StorageNode {
                 .update_to_latest_committee()
                 .await?;
 
+            let mut need_to_mark_event_complete = false;
             if event.epoch == self.inner.current_epoch() {
                 tracing::info!(
+                    epoch = %event.epoch,
                     "processing event reaches the latest epoch, start recover entire node"
                 );
-
-                self.inner
-                    .storage
-                    .set_node_status(NodeStatus::RecoveryInProgress)?;
-
-                // Cancel any shard sync;
-                self.shard_sync_handler.cancel_all().await;
-
-                let public_key = self.inner.public_key();
-                let storage = &self.inner.storage;
-                let committees = self.inner.committee_service.active_committees();
-
-                // First, create all the shards
-                let current_shards = committees
-                    .current_committee()
-                    .shards_for_node_public_key(public_key);
-                self.inner
-                    .create_storage_for_shards_in_background(current_shards.to_vec())
-                    .await?;
-
-                for shard in current_shards {
-                    storage
-                        .shard_storage(*shard)
-                        .expect("we just create all storage, it must exist")
-                        .set_active_status()?;
-                }
-
-                // Initiate blob sync for all blobs
-                self.node_recovery_handler
-                    .start_node_recovery(event.epoch)?;
+                need_to_mark_event_complete =
+                    self.start_node_recovery(element_index, event).await?;
+            } else {
+                tracing::info!(
+                    event_epoch = %event.epoch,
+                    committee_epoch = %self.inner.current_epoch(),
+                    "epoch change start event reaches new epoch that is still lagging" );
             }
 
-            self.inner
-                .mark_event_completed(element_index, &event.event_id)?;
+            if need_to_mark_event_complete {
+                self.inner
+                    .mark_event_completed(element_index, &event.event_id)?;
+            }
             return Ok(());
         }
 
@@ -886,6 +875,62 @@ impl StorageNode {
         }
 
         Ok(())
+    }
+
+    /// Starts the node recovery process.
+    /// Returns `true` if the caller should mark the event complete.
+    async fn start_node_recovery(
+        &self,
+        element_index: usize,
+        event: &EpochChangeStart,
+    ) -> anyhow::Result<bool> {
+        self.inner
+            .metrics
+            .current_node_status
+            .set(NodeStatus::RecoveryInProgress(event.epoch).to_i64());
+        self.inner
+            .storage
+            .set_node_status(NodeStatus::RecoveryInProgress(event.epoch))?;
+
+        // // Cancel any shard syncs that are currently in progress. Since the node is lagging,
+        // self.shard_sync_handler.cancel_all().await;
+
+        let public_key = self.inner.public_key();
+        let storage = &self.inner.storage;
+        let committees = self.inner.committee_service.active_committees();
+
+        // Create storage for shards that are currently owned by the node in the latest epoch.
+        let shard_diff = ShardDiff::diff_previous(&committees, &storage.shards(), public_key);
+        self.inner
+            .create_storage_for_shards_in_background(shard_diff.gained)
+            .await?;
+
+        // Given that the storage node is severely lagging, the node may contain shards in outdated
+        // status. We need to set the status of all currently owned shards to `Active` despite
+        // their current status.
+        for shard in committees
+            .current_committee()
+            .shards_for_node_public_key(public_key)
+        {
+            storage
+                .shard_storage(*shard)
+                .expect("we just create all storage, it must exist")
+                .set_active_status()?;
+        }
+
+        // Initiate blob sync for all certified blobs we've tracked so far. After this is done,
+        // the node will be in a state where it has all the shards and blobs that it should have.
+        self.node_recovery_handler
+            .start_node_recovery(event.epoch)?;
+
+        // Last but not least, we need to remove any shards that are no longer owned by the node.
+        if !shard_diff.removed.is_empty() {
+            self.background_shard_remover
+                .start_remove_storage_for_shards(element_index, event, shard_diff.removed.clone());
+            return Ok(false);
+        }
+
+        Ok(true)
     }
 
     /// Initiates a committee transition to a new epoch.
@@ -1586,6 +1631,11 @@ impl ServiceState for StorageNodeInner {
             uptime: self.start_time.elapsed(),
             epoch: self.current_epoch(),
             public_key: self.public_key().clone(),
+            node_status: self
+                .storage
+                .node_status()
+                .expect("fetching node status should not fail")
+                .to_string(),
             shard_detail,
             shard_summary,
         }
