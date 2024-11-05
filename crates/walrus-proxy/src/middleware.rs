@@ -15,6 +15,7 @@ use axum_extra::{
     headers::{ContentLength, ContentType},
     typed_header::TypedHeader,
 };
+use base64::Engine;
 use bytes::Buf;
 use fastcrypto::{
     secp256r1,
@@ -124,7 +125,20 @@ pub async fn expect_valid_recoverable_pubkey(
         return Err((StatusCode::FORBIDDEN, "authorization header is required"));
     };
 
-    let auth_info: AuthInfo = serde_json::from_str(auth_header.to_str().unwrap_or_default())
+    let auth_header_value_with_scheme = auth_header
+        .to_str()
+        .map_err(|_| (StatusCode::FORBIDDEN, "authorization header is malformed"))?;
+
+    // split the scheme from our b64 data, delimited by ': '
+    let (_scheme, base64_data) = auth_header_value_with_scheme
+        .split_once(": ")
+        .unwrap_or_default();
+
+    let decoded_data = base64::prelude::BASE64_STANDARD
+        .decode(base64_data)
+        .map_err(|_| (StatusCode::FORBIDDEN, "authorization header is malformed"))?;
+
+    let auth_info: AuthInfo = serde_json::from_slice(&decoded_data)
         .map_err(|_| (StatusCode::FORBIDDEN, "authorization header is malformed"))?;
 
     let Some(peer) = allower.get(&auth_info.recover().map_err(|e| {

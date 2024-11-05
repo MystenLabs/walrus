@@ -31,16 +31,16 @@ client = [
 ]
 deploy = ["client", "node", "walrus-sui/test-utils"]
 node = [
-    "dep:async-trait",
-    "dep:enum_dispatch",
-    "dep:humantime",
-    "dep:itertools",
-    "dep:mime",
-    "dep:mysten-metrics",
-    "dep:rocksdb",
-    "dep:tokio-stream",
-    "dep:tokio-util",
-    "dep:typed-store"
+  "dep:async-trait",
+  "dep:enum_dispatch",
+  "dep:humantime",
+  "dep:itertools",
+  "dep:mime",
+  "dep:mysten-metrics",
+  "dep:rocksdb",
+  "dep:tokio-stream",
+  "dep:tokio-util",
+  "dep:typed-store",
 ]
 test-utils = [
   "client",
