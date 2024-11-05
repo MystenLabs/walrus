@@ -10,7 +10,6 @@ use std::env;
 use anyhow::Result;
 use clap::Parser;
 use tracing::info;
-use tracing_subscriber;
 use walrus_proxy::{
     admin,
     config::{load, ProxyConfig},
