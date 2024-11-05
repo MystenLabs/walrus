@@ -363,6 +363,11 @@ pub struct PublisherArgs {
     #[clap(long = "max-buffer-size", default_value_t = default::max_request_buffer_size())]
     #[serde(default = "default::max_request_buffer_size")]
     pub max_request_buffer_size: usize,
+    /// The maximum number of requests the publisher can process concurrently.
+    ///
+    /// If more requests than this maximum are received, the excess requests are buffered up to
+    /// `--max-buffer-size`. Any outstanding request will result in a response with a 429 HTTP
+    /// status code.
     #[clap(long, default_value_t = default::max_concurrent_requests())]
     #[serde(default = "default::max_concurrent_requests")]
     pub max_concurrent_requests: usize,

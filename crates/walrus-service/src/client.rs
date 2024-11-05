@@ -387,7 +387,7 @@ impl<T: ContractClient> Client<T> {
             symbol_size=%symbol_size,
             primary_sliver_size=%pair.primary.symbols.len() * usize::from(symbol_size),
             secondary_sliver_size=%pair.secondary.symbols.len() * usize::from(symbol_size),
-            duration = %humantime::Duration::from(encode_duration),
+            duration = ?encode_duration,
             "encoded sliver pairs and metadata"
         );
 
@@ -411,7 +411,7 @@ impl<T: ContractClient> Client<T> {
             .get_blob_status_with_retries(&blob_id, &self.sui_client)
             .await?;
         tracing::info!(
-            duration = %humantime::Duration::from(status_start_timer.elapsed()),
+            duration = ?status_start_timer.elapsed(),
             "retrieved blob status"
         );
 
@@ -422,7 +422,7 @@ impl<T: ContractClient> Client<T> {
             .store_operation_for_blob(metadata, epochs_ahead, persistence, store_when, blob_status)
             .await?;
         tracing::info!(
-            duration = %humantime::Duration::from(store_op_timer.elapsed()),
+            duration = ?store_op_timer.elapsed(),
             "blob resource obtained"
         );
 
@@ -458,7 +458,7 @@ impl<T: ContractClient> Client<T> {
                     let certify_duration = certify_start_timer.elapsed();
                     let blob_size = blob_object.size;
                     tracing::info!(
-                        duration =  %humantime::Duration::from(certify_duration),
+                        duration =  ?certify_duration,
                         blob_size = blob_size,
                         "finished sending blob data and collected certificate"
                     );
@@ -476,7 +476,7 @@ impl<T: ContractClient> Client<T> {
             .await
             .map_err(|e| ClientError::from(ClientErrorKind::CertificationFailed(e)))?;
         tracing::info!(
-            duration = %humantime::Duration::from(sui_cert_timer.elapsed()),
+            duration = ?sui_cert_timer.elapsed(),
             "certified blob on Sui"
         );
         blob_object.certified_epoch = Some(write_committee_epoch);
