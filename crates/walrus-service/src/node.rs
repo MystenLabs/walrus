@@ -757,7 +757,10 @@ impl StorageNode {
             // subsequent certify or delete events may update the `blob_info`; so we cannot remove
             // it even if it is no longer valid in the *current* epoch
             if !blob_info.is_registered(event.epoch) {
-                self.inner.storage.delete_blob(&event.blob_id, true)?;
+                tracing::debug!("deleting data for deleted blob");
+                // TODO: Uncomment the following line as soon as we fixed the certification
+                // vulnerability with deletable blobs (#1147).
+                // self.inner.storage.delete_blob(&event.blob_id, true)?;
             }
         } else {
             tracing::warn!(%blob_id, "handling `BlobDeleted` event for untracked blob");
@@ -1789,12 +1792,14 @@ mod tests {
     async_param_test! {
         deletes_blob_data_on_event -> TestResult: [
             invalid_blob_event_registered: (InvalidBlobId::for_testing(BLOB_ID).into(), false),
-            blob_deleted_event_registered: (
-                BlobDeleted{was_certified: false, ..BlobDeleted::for_testing(BLOB_ID)}.into(),
-                false
-            ),
             invalid_blob_event_certified: (InvalidBlobId::for_testing(BLOB_ID).into(), true),
-            blob_deleted_event_certified: (BlobDeleted::for_testing(BLOB_ID).into(), true),
+            // TODO: Uncomment the following tests as soon as we fixed the certification
+            // vulnerability with deletable blobs (#1147).
+            // blob_deleted_event_registered: (
+            //     BlobDeleted{was_certified: false, ..BlobDeleted::for_testing(BLOB_ID)}.into(),
+            //     false
+            // ),
+            // blob_deleted_event_certified: (BlobDeleted::for_testing(BLOB_ID).into(), true),
         ]
     }
     async fn deletes_blob_data_on_event(event: BlobEvent, is_certified: bool) -> TestResult {
@@ -1834,6 +1839,60 @@ mod tests {
 
         tokio::time::sleep(Duration::from_millis(100)).await;
         assert!(!storage.is_stored_at_all_shards(&BLOB_ID)?);
+        Ok(())
+    }
+
+    // TODO: Remove the following test as soon as we fixed the certification vulnerability with
+    // deletable blobs (#1147).
+    async_param_test! {
+        does_not_delete_blob_data_on_deletion -> TestResult: [
+            registered: (
+                BlobDeleted{was_certified: false, ..BlobDeleted::for_testing(BLOB_ID)}.into(),
+                false
+            ),
+            certified: (BlobDeleted::for_testing(BLOB_ID).into(), true),
+        ]
+    }
+    async fn does_not_delete_blob_data_on_deletion(
+        event: BlobEvent,
+        is_certified: bool,
+    ) -> TestResult {
+        let events = Sender::new(48);
+        let node = StorageNodeHandle::builder()
+            .with_storage(populated_storage(&[
+                (SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
+                (OTHER_SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
+            ])?)
+            .with_system_event_provider(events.clone())
+            .with_node_started(true)
+            .build()
+            .await?;
+        let storage = &node.as_ref().inner.storage;
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        assert!(storage.is_stored_at_all_shards(&BLOB_ID)?);
+        events.send(
+            BlobRegistered {
+                deletable: true,
+                ..BlobRegistered::for_testing(BLOB_ID)
+            }
+            .into(),
+        )?;
+        if is_certified {
+            events.send(
+                BlobCertified {
+                    deletable: true,
+                    ..BlobCertified::for_testing(BLOB_ID)
+                }
+                .into(),
+            )?;
+        }
+
+        events.send(event.into())?;
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(storage.is_stored_at_all_shards(&BLOB_ID)?);
         Ok(())
     }
 
