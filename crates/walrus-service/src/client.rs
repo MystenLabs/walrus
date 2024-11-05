@@ -477,7 +477,7 @@ impl<T: ContractClient> Client<T> {
             .map_err(|e| ClientError::from(ClientErrorKind::CertificationFailed(e)))?;
         tracing::info!(
             duration = %humantime::Duration::from(sui_cert_timer.elapsed()),
-            "certified blob on SUI"
+            "certified blob on Sui"
         );
         blob_object.certified_epoch = Some(write_committee_epoch);
         let cost = self.price_computation.operation_cost(&resource_operation);
