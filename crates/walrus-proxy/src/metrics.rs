@@ -8,7 +8,7 @@ use std::{
 
 use axum::{extract::Extension, http::StatusCode, routing::get, Router};
 use once_cell::sync::Lazy;
-use prometheus::{Registry, TextEncoder, Opts, IntCounter};
+use prometheus::{IntCounter, Opts, Registry, TextEncoder};
 use tower::ServiceBuilder;
 use tower_http::{
     trace::{DefaultOnResponse, TraceLayer},
@@ -58,20 +58,20 @@ impl HealthCheck {
 
 /// a simple uptime metric
 fn uptime_metric(registry: Registry) {
-        // Define the uptime counter
-        let opts = Opts::new("uptime_seconds", "Uptime in seconds");
-        let uptime_counter = IntCounter::with_opts(opts).unwrap();
+    // Define the uptime counter
+    let opts = Opts::new("uptime_seconds", "Uptime in seconds");
+    let uptime_counter = IntCounter::with_opts(opts).unwrap();
 
-        // Register the counter with the registry
-        registry.register(Box::new(uptime_counter.clone())).unwrap();
+    // Register the counter with the registry
+    registry.register(Box::new(uptime_counter.clone())).unwrap();
 
-        // Spawn a background task to increment the uptime counter every second
-        tokio::spawn(async move {
-            loop {
-                uptime_counter.inc();
-                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-            }
-        });
+    // Spawn a background task to increment the uptime counter every second
+    tokio::spawn(async move {
+        loop {
+            uptime_counter.inc();
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        }
+    });
 }
 
 /// Creates a new http server that has as a sole purpose to expose

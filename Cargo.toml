@@ -16,13 +16,8 @@ axum = { version = "0.7.7", default-features = false, features = [
     "tokio",
     "http2",
 ] }
-axum-server = { version = "0.7.1", default-features = false, features = [
-    "tls-rustls",
-] }
-axum-extra = { version = "0.9", features = ["typed-header"] }
+axum-server = { version = "0.7.1", default-features = false }
 base64 = "0.22.1"
-base64-url = "3"
-headers = "0.4"
 bcs = "0.1.6"
 byteorder = "1.5.0"
 bytes = { version = "1.5.0", features = ["serde"] }

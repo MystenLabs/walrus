@@ -60,7 +60,9 @@ async fn main() -> Result<()> {
         config.listen_address, config.remote_write.url
     );
 
-    let listener = std::net::TcpListener::bind(config.listen_address).unwrap();
+    let listener = tokio::net::TcpListener::bind(config.listen_address)
+        .await
+        .unwrap();
     let histogram_listener = std::net::TcpListener::bind(config.histogram_address).unwrap();
     let metrics_listener = std::net::TcpListener::bind(config.metrics_address).unwrap();
 
@@ -87,8 +89,6 @@ async fn main() -> Result<()> {
         Some(walrus_node_provider),
     );
 
-    admin::server(listener, app, config.self_signd_tls)
-        .await
-        .unwrap();
+    admin::server(listener, app).await.unwrap();
     Ok(())
 }

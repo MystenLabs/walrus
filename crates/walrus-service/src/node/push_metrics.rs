@@ -10,6 +10,7 @@ use std::{
 
 use anyhow::{Context as _, Error, Result};
 use fastcrypto::{
+    encoding::{Base64, Encoding},
     secp256r1::Secp256r1KeyPair,
     traits::{EncodeDecodeBase64, RecoverableSigner},
 };
@@ -98,17 +99,10 @@ impl MetricPushRuntime {
 
 /// create a request client builder that enforces some defaults
 fn create_push_client(allow_unsafe: bool) -> reqwest::Client {
-    let mut client = reqwest::Client::builder()
+    client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
-        .https_only(true);
-
-    if allow_unsafe {
-        // enable these for local testing
-        client = client
-            .danger_accept_invalid_certs(true)
-            .danger_accept_invalid_hostnames(true)
-    }
-    client.build().expect("unable to build client")
+        .build()
+        .expect("unable to build client")
 }
 
 /// push_metrics is the func responsible for sending data to walrus-proxy
@@ -148,10 +142,13 @@ async fn push_metrics(
     let uids = uid.simple().to_string();
     let signature = network_key_pair.sign_recoverable(uid.as_bytes());
     let auth = serde_json::json!({"signature":signature.encode_base64(), "message":uids});
-
+    let auth_encoded_with_scheme = format!(
+        "Secp256k1-recoverable: {}",
+        Base64::from_bytes(auth_value.to_string().as_bytes()).encoded()
+    );
     let response = client
         .post(push_url)
-        .header(reqwest::header::AUTHORIZATION, auth.to_string())
+        .header(reqwest::header::AUTHORIZATION, auth_encoded_with_scheme)
         .header(reqwest::header::CONTENT_ENCODING, "snappy")
         .header(reqwest::header::CONTENT_TYPE, prometheus::PROTOBUF_FORMAT)
         .body(compressed)

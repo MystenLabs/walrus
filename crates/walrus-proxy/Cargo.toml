@@ -9,8 +9,8 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 axum.workspace = true
-axum-extra.workspace = true
-axum-server.workspace = true
+# axum-extra.workspace = true
+axum-extra = { version = "0.9", features = ["typed-header"] }
 bytes.workspace = true
 clap.workspace = true
 const-str.workspace = true
@@ -24,9 +24,9 @@ prometheus.workspace = true
 prost.workspace = true
 protobuf.workspace = true
 rand.workspace = true
-rcgen.workspace = true
+# rcgen.workspace = true
 reqwest.workspace = true
-rustls.workspace = true
+# rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serde_with.workspace = true

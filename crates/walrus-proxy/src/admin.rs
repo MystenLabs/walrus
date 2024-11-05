@@ -1,11 +1,9 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use axum::{extract::DefaultBodyLimit, middleware, routing::post, Extension, Router};
-use axum_server::tls_rustls::RustlsConfig;
-use rcgen::{generate_simple_self_signed, CertifiedKey};
 use tokio::signal;
 use tower::ServiceBuilder;
 use tower_http::{
@@ -13,7 +11,7 @@ use tower_http::{
     trace::{DefaultOnFailure, DefaultOnResponse, TraceLayer},
     LatencyUnit,
 };
-use tracing::{info, Level};
+use tracing::Level;
 
 use crate::{
     config::RemoteWriteConfig,
@@ -103,35 +101,14 @@ pub fn app(
 }
 
 /// Server creates our http/https server
-pub async fn server(
-    listener: std::net::TcpListener,
-    app: Router,
-    self_signed_tls: bool,
-) -> std::io::Result<()> {
-    // setup our graceful shutdown
-    let handle = axum_server::Handle::new();
-    // Spawn a task to gracefully shutdown server.
-    tokio::spawn(shutdown_signal(handle.clone()));
-
-    if self_signed_tls {
-        // really only useful for local testing
-        let tls_config = generate_self_signed_cert(vec!["localhost"]).await?;
-        axum_server::from_tcp_rustls(listener, tls_config)
-            .handle(handle)
-            .serve(app.into_make_service_with_connect_info::<SocketAddr>())
-            .await
-    } else {
-        // generally we fall into this else most commonly since we will be term'd in
-        // cloud for tls
-        axum_server::from_tcp(listener)
-            .handle(handle)
-            .serve(app.into_make_service_with_connect_info::<SocketAddr>())
-            .await
-    }
+pub async fn server(listener: tokio::net::TcpListener, app: Router) -> std::io::Result<()> {
+    // run the server
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
 }
 
-/// Configure our graceful shutdown scenarios
-pub async fn shutdown_signal(h: axum_server::Handle) {
+async fn shutdown_signal() {
     let ctrl_c = async {
         signal::ctrl_c()
             .await
@@ -153,28 +130,4 @@ pub async fn shutdown_signal(h: axum_server::Handle) {
         _ = ctrl_c => {},
         _ = terminate => {},
     }
-
-    let grace = 30;
-    info!(
-        "signal received, starting graceful shutdown, grace period {} seconds, if needed",
-        &grace
-    );
-    h.graceful_shutdown(Some(Duration::from_secs(grace)))
-}
-
-/// generate a self signed certificate for tests and return a RustlsConfig we
-/// can use in axum_server
-async fn generate_self_signed_cert(sans: Vec<&str>) -> std::io::Result<RustlsConfig> {
-    let tls_provider = rustls::crypto::ring::default_provider();
-    tls_provider
-        .install_default()
-        .expect("unable to install default tls provider for rustls");
-    let subject_alt_names = sans.iter().map(|v| v.to_string()).collect::<Vec<String>>();
-
-    let CertifiedKey { cert, key_pair } = generate_simple_self_signed(subject_alt_names)
-        .expect("unable to generate self signed cert");
-
-    let tls_config =
-        RustlsConfig::from_der(vec![cert.der().to_vec()], key_pair.serialize_der()).await?;
-    Ok(tls_config)
 }
