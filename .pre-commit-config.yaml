@@ -38,7 +38,7 @@ repos:
     entry: taplo format
     language: python
     types: [toml]
-    args: ['**/*.toml']
+    args: []
     additional_dependencies: ["taplo==0.9.3"]
   - id: cargo-fmt
     name: cargo-fmt
