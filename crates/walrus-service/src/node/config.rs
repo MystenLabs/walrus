@@ -190,11 +190,7 @@ pub struct MetricsConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub push_interval_seconds: Option<u64>,
     /// the url that we will push metrics to
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub push_url: Option<String>,
-    /// dangerous allow untrusted certificates
-    #[serde(default, skip_serializing_if = "defaults::is_default")]
-    pub allow_unsafe: bool,
+    pub push_url: String,
 }
 
 /// Configuration for TLS of the rest API.

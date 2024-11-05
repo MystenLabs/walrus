@@ -10,7 +10,7 @@ use std::{
 
 use anyhow::{Context as _, Error, Result};
 use fastcrypto::{
-    encoding::{Base64, Encoding},
+    encoding::Base64,
     secp256r1::Secp256r1KeyPair,
     traits::{EncodeDecodeBase64, RecoverableSigner},
 };
@@ -62,18 +62,17 @@ impl MetricPushRuntime {
                 config.push_interval_seconds.unwrap_or(60),
             ));
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-            let mut client = create_push_client(config.allow_unsafe);
-            let push_url = config.push_url.expect("missing push for metrics url!");
-            info!("starting metrics push to {}", &push_url);
+            let mut client = create_push_client();
+            info!("starting metrics push to {}", &config.push_url);
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
                         if let Err(e) = push_metrics(
                             network_key_pair.clone(),
-                            &client, &push_url, &registry
+                            &client, &config.push_url, &registry
                         ).await {
                             error!("unable to push metrics: {e}");
-                            client = create_push_client(config.allow_unsafe);
+                            client = create_push_client();
                         }
                     }
                     _ = cancel.cancelled() => {
@@ -98,8 +97,8 @@ impl MetricPushRuntime {
 }
 
 /// create a request client builder that enforces some defaults
-fn create_push_client(allow_unsafe: bool) -> reqwest::Client {
-    client = reqwest::Client::builder()
+fn create_push_client() -> reqwest::Client {
+    reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .build()
         .expect("unable to build client")
@@ -144,7 +143,7 @@ async fn push_metrics(
     let auth = serde_json::json!({"signature":signature.encode_base64(), "message":uids});
     let auth_encoded_with_scheme = format!(
         "Secp256k1-recoverable: {}",
-        Base64::from_bytes(auth_value.to_string().as_bytes()).encoded()
+        Base64::from_bytes(auth.to_string().as_bytes()).encoded()
     );
     let response = client
         .post(push_url)

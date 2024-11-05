@@ -435,7 +435,7 @@ mod commands {
 
     #[cfg(not(msim))]
     fn monitor_runtimes(
-        mut push_metrics_runtime: Option<push_metrics::MetricPushRuntime>,
+        push_metrics_runtime: Option<push_metrics::MetricPushRuntime>,
         mut node_runtime: StorageNodeRuntime,
         mut event_processor_runtime: EventProcessorRuntime,
         exit_listener: oneshot::Receiver<()>,
@@ -447,7 +447,7 @@ mod commands {
                 let mut set = JoinSet::new();
                 set.spawn_blocking(move || node_runtime.join());
                 set.spawn_blocking(move || event_processor_runtime.join());
-                if let Some(push_metrics_runtime) = push_metrics_runtime {
+                if let Some(mut push_metrics_runtime) = push_metrics_runtime {
                     set.spawn_blocking(move || push_metrics_runtime.join());
                 }
                 tokio::select! {
@@ -472,7 +472,7 @@ mod commands {
 
     #[cfg(msim)]
     fn monitor_runtimes(
-        mut push_metrics_runtime: Option<push_metrics::MetricPushRuntime>,
+        push_metrics_runtime: Option<push_metrics::MetricPushRuntime>,
         mut node_runtime: StorageNodeRuntime,
         mut event_processor_runtime: EventProcessorRuntime,
         exit_listener: oneshot::Receiver<()>,
@@ -553,7 +553,7 @@ mod commands {
 
         // Uses the Sui wallet configuration in the storage node config to register the
         // node.
-        let contract_client = get_contract_client_from_node_config(&storage_config).await?;
+        let contract_client = get_contract_client_from_node_config(&config).await?;
         let proof_of_possession = walrus_sui::utils::generate_proof_of_possession(
             config.protocol_key_pair(),
             &contract_client,
@@ -619,7 +619,8 @@ mod commands {
             EventProviderConfig::CheckpointBasedEventProcessor(None)
         };
 
-        // Do a minor sanity check that the user has not included a port in the hostname.
+        // Do a minor sanity check that the user has not included a port in the
+        // hostname.
         ensure!(
             !public_host.contains(':'),
             "DNS names must not contain ':'; to specify a port different from the default, use the \
