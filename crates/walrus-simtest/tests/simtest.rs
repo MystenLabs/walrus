@@ -235,7 +235,7 @@ mod tests {
     async fn test_lagging_node_recovery() {
         let (_sui_cluster, walrus_cluster, client) =
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
-                Duration::from_secs(20),
+                Duration::from_secs(30),
                 &[1, 2, 3, 3, 4],
             )
             .await
@@ -246,7 +246,7 @@ mod tests {
 
         // Starts a background workload that a client keeps writing and retrieving data.
         // All requests should succeed even if a node crashes.
-        tokio::spawn(async move {
+        let workload_handle = tokio::spawn(async move {
             let mut data_length = 31415;
             loop {
                 tracing::info!("writing data with size {}", data_length);
@@ -355,5 +355,7 @@ mod tests {
                 );
             }
         }
+
+        workload_handle.abort();
     }
 }
