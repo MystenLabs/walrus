@@ -11,6 +11,7 @@
 // - advance_epoch - initiates the epoch change
 // - initiate epoch change - bumped in `advance_epoch`
 // - get "epoch_sync_done" event
+#[allow(deprecated_usage)]
 module walrus::staking_inner;
 
 use std::string::String;
