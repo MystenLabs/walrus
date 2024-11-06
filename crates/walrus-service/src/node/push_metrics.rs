@@ -26,7 +26,7 @@ use uuid::Uuid;
 
 use super::config::MetricsConfig;
 
-/// MetricPushRuntime to manage the metric push task
+/// MetricPushRuntime to manage the metric push task.
 #[allow(missing_debug_implementations)]
 pub struct MetricPushRuntime {
     metric_push_handle: JoinHandle<anyhow::Result<()>>,
@@ -44,11 +44,11 @@ impl MetricPushRuntime {
         registry: Registry,
     ) -> anyhow::Result<Self> {
         let runtime = Builder::new_multi_thread()
-            .thread_name("event-manager-runtime")
+            .thread_name("metrics-push-runtime")
             .worker_threads(2)
             .enable_all()
             .build()
-            .context("event manager runtime creation failed")?;
+            .context("metrics push runtime creation failed")?;
         let _guard = runtime.enter();
 
         // associate a default tls provider for this runtime
@@ -58,9 +58,7 @@ impl MetricPushRuntime {
             .expect("unable to install default tls provider for rustls in MetricPushRuntime");
 
         let metric_push_handle = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(
-                config.push_interval_seconds.unwrap_or(60),
-            ));
+            let mut interval = tokio::time::interval(config.push_interval_seconds);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             let mut client = create_push_client();
             info!("starting metrics push to {}", &config.push_url);
@@ -89,14 +87,14 @@ impl MetricPushRuntime {
         })
     }
 
-    /// join handle for the task
+    /// join handle for the task.
     pub fn join(&mut self) -> Result<(), anyhow::Error> {
         tracing::debug!("waiting for the metric push to shutdown...");
         self.runtime.block_on(&mut self.metric_push_handle)?
     }
 }
 
-/// create a request client builder that enforces some defaults
+/// Create a request client builder that is used to push metrics to mimir.
 fn create_push_client() -> reqwest::Client {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
@@ -104,7 +102,8 @@ fn create_push_client() -> reqwest::Client {
         .expect("unable to build client")
 }
 
-/// push_metrics is the func responsible for sending data to walrus-proxy
+/// Responsible for sending data to walrus-proxy, used within the async
+/// scope of MetricPushRuntime::start.
 async fn push_metrics(
     network_key_pair: Arc<Secp256r1KeyPair>,
     client: &reqwest::Client,
@@ -114,7 +113,7 @@ async fn push_metrics(
     info!(push_url =% push_url, "pushing metrics to remote");
 
     // now represents a collection timestamp for all of the metrics we send to the
-    // proxy
+    // proxy.
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()

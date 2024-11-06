@@ -85,7 +85,9 @@ static CONSUMER_OPERATION_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
 #[derive(Debug)]
 pub struct NodeMetric {
     /// dns or ip found from walrus committee along with port;
-    /// walrus-testnet.blockscope.net:9185 or 57.129.49.124:9185
+    /// for example:
+    /// walrus-testnet.fooman.net:9185
+    /// 123.123.123.123:9185
     pub network_address: String,
     /// decoded protobuf of prometheus data
     pub data: Vec<proto::MetricFamily>,

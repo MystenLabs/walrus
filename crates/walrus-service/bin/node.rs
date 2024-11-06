@@ -204,7 +204,7 @@ struct ConfigArgs {
     /// Initial storage capacity of this node in bytes.
     ///
     /// The value can either by unitless; have suffixes for powers of 1000, such
-    /// as (B), kilobytes (K), etc, or have suffixes for the IEC units such
+    /// as (B), kilobytes (K), etc.; or have suffixes for the IEC units such
     /// as kibibytes (Ki), mebibytes (Mi), etc.
     node_capacity: ByteCount,
     #[clap(long)]
@@ -366,8 +366,10 @@ mod commands {
             walrus.node.public_key = %config.protocol_key_pair.load()?.as_ref().public(),
             "walrus protocol public key",
         );
+
+        let network_key_pair = config.network_key_pair.load()?;
         tracing::info!(
-            walrus.node.network_key = %config.network_key_pair.load()?.as_ref().public(),
+            walrus.node.network_key = %network_key_pair.as_ref().public(),
             "walrus network key",
         );
         tracing::info!(
@@ -390,17 +392,15 @@ mod commands {
         let (exit_notifier, exit_listener) = oneshot::channel::<()>();
 
         let mut push_metrics_runtime: Option<push_metrics::MetricPushRuntime> = None;
-        if let Some(metric_config) = config.metrics.clone() {
-            if let Some(tagged_key_pair) = config.network_key_pair.clone().get() {
-                let network_key_pair = tagged_key_pair.0.clone();
-                let handle = push_metrics::MetricPushRuntime::start(
-                    cancel_token.child_token(),
-                    network_key_pair.clone(),
-                    metric_config,
-                    metrics_runtime.registry.clone(),
-                )?;
-                push_metrics_runtime = Some(handle);
-            }
+        if let Some(metric_config) = config.metrics_push.as_ref() {
+            let network_key_pair = network_key_pair.0.clone();
+            let handle = push_metrics::MetricPushRuntime::start(
+                cancel_token.child_token(),
+                network_key_pair,
+                metric_config.clone(),
+                metrics_runtime.registry.clone(),
+            )?;
+            push_metrics_runtime = Some(handle);
         }
 
         let (event_manager, event_processor_runtime) = EventProcessorRuntime::start(
@@ -488,8 +488,7 @@ mod commands {
         // Wait for the node runtime to complete, may take a moment as
         // the REST-API waits for open connections to close before exiting.
         node_runtime.join()?;
-
-        // see if we also should wait for metrics to shutdown
+        // wait as needed if we have an active push_metrics_runtime
         if let Some(mut push_metrics_runtime) = push_metrics_runtime {
             push_metrics_runtime.join()?;
         }

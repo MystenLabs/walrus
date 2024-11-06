@@ -24,17 +24,13 @@ required-features = ["deploy"]
 [features]
 client = [
   "dep:colored",
-  "dep:humantime",
   "dep:indoc",
-  "dep:itertools",
   "dep:prettytable",
 ]
 deploy = ["client", "node", "walrus-sui/test-utils"]
 node = [
   "dep:async-trait",
   "dep:enum_dispatch",
-  "dep:humantime",
-  "dep:itertools",
   "dep:mime",
   "dep:mysten-metrics",
   "dep:rocksdb",
@@ -74,10 +70,10 @@ futures.workspace = true
 futures-util.workspace = true
 git-version.workspace = true
 home.workspace = true
-humantime = { workspace = true, optional = true }
+humantime = { workspace = true }
 indoc = { workspace = true, optional = true }
 integer-encoding.workspace = true
-itertools = { workspace = true, optional = true }
+itertools = { workspace = true }
 mime = { workspace = true, optional = true }
 move-core-types.workspace = true
 mysten-metrics = { workspace = true, optional = true }
