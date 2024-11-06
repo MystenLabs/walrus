@@ -461,7 +461,7 @@ pub mod defaults {
         2000
     }
 
-    /// Returns true if the value is the default.
+    /// Returns true iff the value is the default.
     pub fn is_default<T: PartialEq + Default>(t: &T) -> bool {
         t == &T::default()
     }
