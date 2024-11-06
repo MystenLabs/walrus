@@ -605,7 +605,9 @@ where
         self.end_committee_change_to(epoch)
     }
 
-    async fn update_to_latest_committee(&self) -> Result<(), BeginCommitteeChangeError> {
+    async fn begin_committee_change_to_latest_committee(
+        &self,
+    ) -> Result<(), BeginCommitteeChangeError> {
         let latest = self
             .committee_lookup
             .get_active_committees()

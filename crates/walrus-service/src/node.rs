@@ -589,13 +589,7 @@ impl StorageNode {
                             epoch_at_start,
                             event.event_epoch()
                         );
-                        self.inner
-                            .metrics
-                            .current_node_status
-                            .set(NodeStatus::RecoveryCatchUp.to_i64());
-                        self.inner
-                            .storage
-                            .set_node_status(NodeStatus::RecoveryCatchUp)?;
+                        self.inner.set_node_status(NodeStatus::RecoveryCatchUp)?;
                     }
                 }
             }
@@ -830,7 +824,7 @@ impl StorageNode {
         if self.inner.storage.node_status()? == NodeStatus::RecoveryCatchUp {
             self.inner
                 .committee_service
-                .update_to_latest_committee()
+                .begin_committee_change_to_latest_committee()
                 .await?;
 
             let mut need_to_mark_event_complete = false;
@@ -885,15 +879,7 @@ impl StorageNode {
         event: &EpochChangeStart,
     ) -> anyhow::Result<bool> {
         self.inner
-            .metrics
-            .current_node_status
-            .set(NodeStatus::RecoveryInProgress(event.epoch).to_i64());
-        self.inner
-            .storage
             .set_node_status(NodeStatus::RecoveryInProgress(event.epoch))?;
-
-        // // Cancel any shard syncs that are currently in progress. Since the node is lagging,
-        // self.shard_sync_handler.cancel_all().await;
 
         let public_key = self.inner.public_key();
         let storage = &self.inner.storage;
@@ -1265,6 +1251,12 @@ impl StorageNodeInner {
             .get_blob_info(blob_id)
             .context("could not retrieve blob info")?
             .is_some_and(|blob_info| blob_info.is_certified(self.current_epoch())))
+    }
+
+    /// Sets the status of the node.
+    pub fn set_node_status(&self, status: NodeStatus) -> Result<(), TypedStoreError> {
+        self.metrics.current_node_status.set(status.to_i64());
+        self.storage.set_node_status(status)
     }
 }
 

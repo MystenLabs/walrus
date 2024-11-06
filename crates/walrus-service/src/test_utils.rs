@@ -183,7 +183,7 @@ pub struct StorageNodeHandle {
     /// Client that can be used to communicate with the node.
     pub client: Client,
     /// The storage capability object of the node.
-    pub storage_capability: Option<StorageNodeCap>,
+    pub storage_node_capability: Option<StorageNodeCap>,
 }
 
 impl StorageNodeHandleTrait for StorageNodeHandle {
@@ -252,7 +252,7 @@ pub struct SimStorageNodeHandle {
     /// The wrapped simulator node id.
     pub node_id: sui_simulator::task::NodeId,
     /// The storage capability object of the node.
-    pub storage_capability: Option<StorageNodeCap>,
+    pub storage_node_capability: Option<StorageNodeCap>,
 }
 
 #[cfg(msim)]
@@ -499,7 +499,7 @@ pub struct StorageNodeHandleBuilder {
     run_node: bool,
     test_config: Option<StorageNodeTestConfig>,
     initial_epoch: Option<Epoch>,
-    storage_capability: Option<StorageNodeCap>,
+    storage_node_capability: Option<StorageNodeCap>,
     node_wallet_dir: Option<PathBuf>,
 }
 
@@ -600,8 +600,11 @@ impl StorageNodeHandleBuilder {
     }
 
     /// Specify the storage capability for the node.
-    pub fn with_storage_capability(mut self, storage_capability: Option<StorageNodeCap>) -> Self {
-        self.storage_capability = storage_capability;
+    pub fn with_storage_node_capability(
+        mut self,
+        storage_node_capability: Option<StorageNodeCap>,
+    ) -> Self {
+        self.storage_node_capability = storage_node_capability;
         self
     }
 
@@ -767,7 +770,7 @@ impl StorageNodeHandleBuilder {
             rest_api,
             cancel: cancel_token,
             client,
-            storage_capability: self.storage_capability,
+            storage_node_capability: self.storage_node_capability,
         })
     }
 
@@ -826,7 +829,7 @@ impl StorageNodeHandleBuilder {
             cancel_token,
             #[cfg(msim)]
             node_id: handle.id(),
-            storage_capability: self.storage_capability,
+            storage_node_capability: self.storage_node_capability,
         })
     }
 }
@@ -842,7 +845,7 @@ impl Default for StorageNodeHandleBuilder {
             contract_service: None,
             test_config: None,
             initial_epoch: None,
-            storage_capability: None,
+            storage_node_capability: None,
             node_wallet_dir: None,
         }
     }
@@ -1077,7 +1080,9 @@ impl CommitteeService for StubCommitteeService {
         Ok(())
     }
 
-    async fn update_to_latest_committee(&self) -> Result<(), BeginCommitteeChangeError> {
+    async fn begin_committee_change_to_latest_committee(
+        &self,
+    ) -> Result<(), BeginCommitteeChangeError> {
         Ok(())
     }
 }
@@ -1433,7 +1438,7 @@ impl TestClusterBuilder {
                 .with_test_config(config)
                 .with_rest_api_started(true)
                 .with_node_started(true)
-                .with_storage_capability(capability)
+                .with_storage_node_capability(capability)
                 .with_node_wallet_dir(node_wallet_dir);
 
             if let Some(provider) = event_provider {
@@ -1681,7 +1686,7 @@ pub mod test_cluster {
     };
 
     /// The weight of each storage node in the test cluster.
-    pub const FROSTER_PER_NODE_WEIGHT: u64 = 1_000_000;
+    pub const FROST_PER_NODE_WEIGHT: u64 = 1_000_000;
 
     /// Performs the default setup for the test cluster using StorageNodeHandle as default storage
     /// node handle.
@@ -1774,7 +1779,7 @@ pub mod test_cluster {
 
         let amounts_to_stake = node_weights
             .iter()
-            .map(|&weight| FROSTER_PER_NODE_WEIGHT * weight as u64)
+            .map(|&weight| FROST_PER_NODE_WEIGHT * weight as u64)
             .collect::<Vec<_>>();
         let storage_capabilities = register_committee_and_stake(
             &mut wallet.inner,

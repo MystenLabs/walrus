@@ -193,7 +193,7 @@ impl BlobSyncHandler {
                     "otel.status_code" = field::Empty,
                     "otel.status_message" = field::Empty,
                     "walrus.event.index" = event_info.map(|info| info.event_index),
-                    "walrus.event.tx_digest" = ?event_info.map(|info| info.event_id),
+                    "walrus.event.tx_digest" = ?event_info.map(|info| info.event_id.tx_digest),
                     "walrus.event.event_seq" = ?event_info.map(|event| event.event_id.event_seq),
                     "walrus.event.kind" = "certified",
                     "walrus.blob_id" = %blob_id,
@@ -275,7 +275,7 @@ impl BlobSyncHandler {
             select! {
                 _ = synchronizer.cancel_token.cancelled() => {
                     tracing::info!("cancelled blob sync");
-                    Ok(synchronizer.event_info)
+                    Ok((false, synchronizer.event_info))
                 }
                 sync_result = synchronizer.run(permits.sliver) => match sync_result {
                     Ok(()) => {
@@ -286,7 +286,7 @@ impl BlobSyncHandler {
                         {
                             node.mark_event_completed(event_index, &event_id)?;
                         }
-                        Ok(None)
+                        Ok((true, None))
                     }
                     Err(err) => Err(err),
                 }
@@ -300,14 +300,14 @@ impl BlobSyncHandler {
         self.remove_sync_handle(&synchronizer.blob_id).await;
 
         let label = match output {
-            Ok(None) => metrics::STATUS_SUCCESS,
-            Ok(Some(_)) => metrics::STATUS_CANCELLED,
+            Ok((true, _)) => metrics::STATUS_SUCCESS,
+            Ok((false, _)) => metrics::STATUS_CANCELLED,
             Err(_) => metrics::STATUS_FAILURE,
         };
         metrics::with_label!(node.metrics.recover_blob_duration_seconds, label)
             .observe(start.elapsed().as_secs_f64());
 
-        output
+        output.map(|output| output.1)
     }
 
     /// Cancels all blob syncs and returns the number of cancelled syncs.

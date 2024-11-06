@@ -293,16 +293,16 @@ mod tests {
             .as_ref()
             .stake_with_node_pool(
                 walrus_cluster.nodes[0]
-                    .storage_capability
+                    .storage_node_capability
                     .as_ref()
                     .unwrap()
                     .node_id,
-                test_cluster::FROSTER_PER_NODE_WEIGHT * 3,
+                test_cluster::FROST_PER_NODE_WEIGHT * 3,
             )
             .await
             .expect("stake with node pool should not fail");
 
-        tokio::time::sleep(Duration::from_secs(240)).await;
+        tokio::time::sleep(Duration::from_secs(150)).await;
 
         let node_health_info = futures::future::join_all(
             walrus_cluster

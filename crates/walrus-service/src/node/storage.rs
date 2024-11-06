@@ -55,7 +55,6 @@ pub(crate) use shard::{ShardStatus, ShardStorage};
 #[derive(Debug, Clone, Copy)]
 pub struct WouldBlockError;
 
-// TODO: add status to health endpoint
 /// The status of the node.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum NodeStatus {
@@ -80,12 +79,11 @@ impl NodeStatus {
 
 impl Display for NodeStatus {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let display_string = match self {
-            NodeStatus::Active => "Active".to_string(),
-            NodeStatus::RecoveryCatchUp => "RecoveryCatchUp".to_string(),
-            NodeStatus::RecoveryInProgress(epoch) => format!("RecoveryInProgress ({epoch})"),
-        };
-        write!(f, "{}", display_string)
+        match self {
+            NodeStatus::Active => write!(f, "Active"),
+            NodeStatus::RecoveryCatchUp => write!(f, "RecoveryCatchUp"),
+            NodeStatus::RecoveryInProgress(epoch) => write!(f, "RecoveryInProgress ({epoch})"),
+        }
     }
 }
 

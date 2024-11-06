@@ -172,7 +172,9 @@ pub trait CommitteeService: std::fmt::Debug + Send + Sync {
     fn end_committee_change(&self, epoch: Epoch) -> Result<(), EndCommitteeChangeError>;
 
     /// Update the committee in the node to the latest committee on chain.
-    async fn update_to_latest_committee(&self) -> Result<(), BeginCommitteeChangeError>;
+    async fn begin_committee_change_to_latest_committee(
+        &self,
+    ) -> Result<(), BeginCommitteeChangeError>;
 
     /// Get and verify metadata.
     async fn get_and_verify_metadata(

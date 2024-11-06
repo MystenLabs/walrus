@@ -171,19 +171,9 @@ impl UrlEndpoints {
     }
 
     fn server_health_info(&self, detailed: bool) -> (Url, &'static str) {
-        if detailed {
-            (
-                self.0
-                    .join("/v1/health?detailed=true")
-                    .expect("this is a valid URL"),
-                HEALTH_URL_TEMPLATE,
-            )
-        } else {
-            (
-                self.0.join("/v1/health").expect("this is a valid URL"),
-                HEALTH_URL_TEMPLATE,
-            )
-        }
+        let mut url = self.0.join("/v1/health").expect("this is a valid URL");
+        url.set_query(detailed.then_some("detailed=true"));
+        (url, HEALTH_URL_TEMPLATE)
     }
 
     fn sync_shard(&self) -> (Url, &'static str) {
@@ -965,12 +955,17 @@ mod tests {
         assert_eq!(url.to_string(), expected);
     }
 
-    #[test]
-    fn test_url_health_info_endpoint() {
+    param_test! {
+        test_url_health_info_endpoint: [
+            default: (false, "https://node.com/v1/health"),
+            detailed: (true, "https://node.com/v1/health?detailed=true"),
+        ]
+    }
+    fn test_url_health_info_endpoint(detailed: bool, expected_url: &str) {
         let endpoints = UrlEndpoints(Url::parse("https://node.com").unwrap());
-        let (url, _) = endpoints.server_health_info(false);
+        let (url, _) = endpoints.server_health_info(detailed);
 
-        assert_eq!(url.to_string(), "https://node.com/v1/health");
+        assert_eq!(url.to_string(), expected_url);
     }
 
     #[test]
