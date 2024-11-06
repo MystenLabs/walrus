@@ -11229,7 +11229,7 @@ version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6b91f57fe13a38d0ce9e28a03463d8d3c2468ed03d75375110ec71d93b449a08"
 dependencies = [
- "proc-macro2 1.0.86",
+ "proc-macro2 1.0.89",
  "quote 1.0.37",
  "syn 2.0.87",
 ]
@@ -11384,7 +11384,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-proxy"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -11393,10 +11393,10 @@ dependencies = [
  "bytes",
  "clap",
  "const-str",
- "fastcrypto 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "fastcrypto 0.1.8 (git+https://github.com/MystenLabs/fastcrypto?rev=3366c26a746b72707572c4f3f05915e20d5c16c2)",
  "futures",
  "git-version",
- "hyper 1.4.1",
+ "hyper 1.5.0",
  "itertools 0.13.0",
  "once_cell",
  "prometheus",
@@ -11406,7 +11406,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "serde_with 3.11.0",
+ "serde_with",
  "serde_yaml 0.9.34+deprecated",
  "snap",
  "tokio",

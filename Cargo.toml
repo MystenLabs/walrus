@@ -80,6 +80,7 @@ serde_json = "1.0.132"
 serde_test = "1.0.177"
 serde_with = { version = "3.11", features = ["base64"] }
 serde_yaml = "0.9"
+snap = "1.1.0"
 sui-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.37.1" }
 sui-json-rpc-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.37.1" }
 sui-keys = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.37.1" }
@@ -92,7 +93,6 @@ sui-sdk = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.37.1" }
 sui-simulator = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.37.1" }
 sui-storage = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.37.1" }
 sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.37.1" }
-snap = "1.1.0"
 syn = "2.0"
 telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.37.1" }
 tempfile = "3.14.0"
@@ -109,15 +109,10 @@ tower = "0.5"
 tower-http = { version = "0.5.2", features = ["timeout", "trace"] }
 tracing = "0.1.40"
 tracing-opentelemetry = { version = "0.26", default-features = false }
-typed-store = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.37.1" }
 tracing-subscriber = { version = "0.3.18", default-features = false, features = [
   "fmt",
 ] }
-uuid = { version = "1.11.0", features = [
-    "v7",                # Lets you generate random UUIDs
-    "fast-rng",          # Use a faster (but still sufficiently random) RNG
-    "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
-] }
+typed-store = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.37.1" }
 url = "2.5.2"
 utoipa = { version = "4.2.3" }
 utoipa-redoc = { version = "4.0.0", features = ["axum"] }
