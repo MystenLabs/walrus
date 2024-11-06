@@ -371,6 +371,16 @@ pub struct PublisherArgs {
     #[clap(long, default_value_t = default::max_concurrent_requests())]
     #[serde(default = "default::max_concurrent_requests")]
     pub max_concurrent_requests: usize,
+    /// The number of clients to use for the publisher.
+    ///
+    /// The publisher uses this number of clients to publish blobs concurrenty.
+    #[clap(long, default_value_t = default::n_publisher_clients())]
+    #[serde(default = "default::n_publisher_clients")]
+    pub n_clients: usize,
+    /// The interval of time between refilling the publisher's sub clients' wallets.
+    #[clap(long, value_parser = humantime::parse_duration, default_value = "1s" )]
+    #[serde(default = "default::refill_interval")]
+    pub refill_interval: Duration,
 }
 
 impl PublisherArgs {
@@ -571,6 +581,14 @@ mod default {
         // In total there can be 1x processing and 1x in the buffer, for 2x number of concurrent
         // requests allowed before we start rejecting.
         max_concurrent_requests()
+    }
+
+    pub(crate) fn n_publisher_clients() -> usize {
+        10
+    }
+
+    pub(crate) fn refill_interval() -> Duration {
+        Duration::from_secs(1)
     }
 
     pub(crate) fn status_timeout() -> Duration {

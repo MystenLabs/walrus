@@ -1117,6 +1117,11 @@ impl<T> Client<T> {
     pub fn sui_client_mut(&mut self) -> &mut T {
         &mut self.sui_client
     }
+
+    /// Returns the config used by the client.
+    pub fn config(&self) -> &Config {
+        &self.config
+    }
 }
 
 /// Verifies the [`BlobStatus`] using the on-chain event.

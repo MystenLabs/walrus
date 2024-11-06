@@ -21,6 +21,7 @@ use sui_sdk::{
         transaction::CallArg,
     },
     wallet_context::WalletContext,
+    SuiClient,
 };
 use sui_types::{
     base_types::SuiAddress,
@@ -518,6 +519,16 @@ impl SuiContractClient {
         )?;
 
         Ok(reserve_result_index)
+    }
+
+    /// Returns the gas budget used by the client.
+    pub fn gas_budget(&self) -> u64 {
+        self.gas_budget
+    }
+
+    /// Gets the [`SuiClient`] from the associated read client.
+    pub fn sui_client(&self) -> &SuiClient {
+        &self.read_client.sui_client
     }
 }
 

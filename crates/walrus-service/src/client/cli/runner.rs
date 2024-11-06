@@ -48,6 +48,7 @@ use crate::{
             HumanReadableMist,
         },
         config::ExchangeObjectConfig,
+        multiplexer::ClientMultiplexer,
         responses::{
             BlobIdConversionOutput,
             BlobIdOutput,
@@ -384,13 +385,22 @@ impl ClientCommandRunner {
 
     pub(crate) async fn publisher(self, registry: &Registry, args: PublisherArgs) -> Result<()> {
         args.print_debug_message("attempting to run the Walrus publisher");
-        let client = get_contract_client(
-            self.config?,
-            self.wallet,
+        let config = &self.config?;
+        let sui_contract_client = config
+            .new_contract_client(self.wallet?, self.gas_budget)
+            .await?;
+
+        // TODO: cleanup
+        let client = ClientMultiplexer::new(
+            args.n_clients,
+            sui_contract_client,
+            &config,
             self.gas_budget,
-            &args.daemon_args.blocklist,
+            args.refill_interval,
+            registry,
         )
         .await?;
+
         ClientDaemon::new_publisher(
             client,
             args.daemon_args.bind_address,
