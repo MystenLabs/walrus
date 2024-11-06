@@ -43,7 +43,7 @@ fun withdraw_before_activation_before_committee_selection() {
 
 #[test]
 // Scenario:
-// 1. Alice stakes in E0 and imediately withdraws in E0
+// 1. Alice stakes in E0 and immediately withdraws in E0
 // 2. Bob stakes in E0 (and then requests after committee selection)
 // 3. Charlie stakes in E0' (after committee selection) and withdraws in E1
 // 4. Dave stakes in E0' (after committee selection) and requests in E1' and withdraws in E2
@@ -97,15 +97,17 @@ fun withdraw_processing_at_different_epochs() {
 
     // E2: Bob withdraws his stake
     let (wctx, _ctx) = test.next_epoch();
-    pool.advance_epoch(mint_balance(0), &wctx);
+    pool.advance_epoch(mint_balance(1000), &wctx);
+
     let balance = pool.withdraw_stake(bob, &wctx);
-    assert_eq!(balance.destroy_for_testing(), 1000);
+    assert_eq!(balance.destroy_for_testing(), 2000); // 1000 + rewards
 
     // E3: Dave withdraws his stake
     let (wctx, _ctx) = test.next_epoch();
-    pool.advance_epoch(mint_balance(0), &wctx);
+    pool.advance_epoch(mint_balance(1000), &wctx);
+
     let balance = pool.withdraw_stake(dave, &wctx);
-    assert_eq!(balance.destroy_for_testing(), 1000);
+    assert_eq!(balance.destroy_for_testing(), 2000); // 1000 + rewards
 
     // empty wal balance but not empty pool tokens
     // because we haven't registered the pool token withdrawal
