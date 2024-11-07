@@ -5,6 +5,10 @@ authors.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = []
+test-utils = ["dep:tempfile"]
+
 [dependencies]
 anyhow.workspace = true
 async-channel.workspace = true
@@ -36,6 +40,5 @@ walrus-core.workspace = true
 walrus-sdk.workspace = true
 walrus-sui.workspace = true
 
-[features]
-default = ["test-utils"]
-test-utils = ["dep:tempfile"]
+[dev-dependencies]
+tempfile.workspace = true

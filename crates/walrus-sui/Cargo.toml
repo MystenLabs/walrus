@@ -7,7 +7,7 @@ edition.workspace = true
 license.workspace = true
 
 [features]
-default = ["test-utils"]
+default = []
 test-utils = [
   "dep:tempfile",
   "dep:test-cluster",

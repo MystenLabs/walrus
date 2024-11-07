@@ -29,7 +29,7 @@ client = [
   "dep:itertools",
   "dep:prettytable",
 ]
-deploy = ["client", "node"]
+deploy = ["client", "node", "walrus-sui/test-utils"]
 node = [
   "dep:async-trait",
   "dep:enum_dispatch",
@@ -46,6 +46,7 @@ test-utils = [
   "dep:walrus-test-utils",
   "node",
   "walrus-core/test-utils",
+  "walrus-sui/test-utils",
 ]
 
 [dependencies]
