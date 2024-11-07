@@ -74,18 +74,32 @@ additional packages and take longer to run. You can run these test as follows:
 cargo nextest run --run-ignored ignored-only
 ```
 
-Integration tests that require a running Sui test cluster can use an external cluster. `sui start` can be
-used to start such a cluster. Set the environment variable `SUI_TEST_CONFIG_DIR` to the directory containing
-the genesis files, network config, and client wallet, and run the tests using `cargo test -- --ignored` to
-use the cluster started with `sui start`:
+Integration tests that require a running Sui test cluster can use an external cluster. This requires a one-time setup:
 
 ```sh
-sui genesis -f --with-faucet --working-dir "$PWD/target/sui-start"
-SUI_CONFIG_DIR="$PWD/target/sui-start" sui start
-SUI_TEST_CONFIG_DIR="$PWD/target/sui-start" cargo test -- --ignored
+CLUSTER_CONFIG_DIR="$PWD/target/sui-start"
+mkdir "$CLUSTER_CONFIG_DIR"
+sui genesis -f --with-faucet --working-dir "$CLUSTER_CONFIG_DIR"
 ```
 
-It is currently not possible to use an external cluster with `cargo nextest`.
+For running tests, start the external cluster with `sui start`, set the environment variable
+`SUI_TEST_CONFIG_DIR` to the configuration directory, and run the tests using `cargo test --
+--ignored`:
+
+```sh
+CLUSTER_CONFIG_DIR="$PWD/target/sui-start"
+SUI_CONFIG_DIR="$CLUSTER_CONFIG_DIR" sui start&
+SUI_PID=$!
+SUI_TEST_CONFIG_DIR="$CLUSTER_CONFIG_DIR" cargo test -- --ignored
+```
+
+After the tests have completed, you can stop the cluster:
+
+```sh
+kill $SUI_PID
+```
+
+Note that it is currently not possible to use an external cluster with `cargo nextest`.
 
 ### Test coverage
 
