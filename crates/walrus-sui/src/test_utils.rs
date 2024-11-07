@@ -373,12 +373,10 @@ pub async fn create_and_fund_wallets_on_cluster(
 
     let recipients = wallets
         .iter_mut()
-        .flat_map(|wallet| {
-            let active_address = wallet
+        .map(|wallet| {
+            wallet
                 .active_address()
-                .expect("newly created wallet has an active address");
-            // Repeat the address so that we get funded twice.
-            [active_address, active_address]
+                .expect("newly created wallet has an active address")
         })
         .collect();
 
@@ -426,8 +424,7 @@ pub async fn wallet_for_testing(
         None,
     )?;
 
-    let active_address = wallet.active_address()?;
-    fund_addresses(funding_wallet, vec![active_address, active_address]).await?;
+    fund_addresses(funding_wallet, vec![wallet.active_address()?]).await?;
 
     Ok(WithTempDir {
         inner: wallet,
