@@ -78,13 +78,14 @@ Integration tests that require a running Sui test cluster can use an external cl
 used to start such a cluster. Set the environment variable `SUI_TEST_CONFIG_DIR` to the directory containing
 the genesis files, network config, and client wallet, and run the tests using `cargo test -- --ignored` to
 use the cluster started with `sui start`:
+
 ```sh
 sui genesis -f --with-faucet --working-dir "$PWD/target/sui-start"
 SUI_CONFIG_DIR="$PWD/target/sui-start" sui start
 SUI_TEST_CONFIG_DIR="$PWD/target/sui-start" cargo test -- --ignored
 ```
-It is currently not possible to use an external cluster with `cargo nextest`.
 
+It is currently not possible to use an external cluster with `cargo nextest`.
 
 ### Test coverage
 

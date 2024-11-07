@@ -29,7 +29,7 @@ use sui_types::{
     event::EventID,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
 };
-use test_cluster::{FullNodeHandle, TestCluster, TestClusterBuilder};
+use test_cluster::{TestCluster, TestClusterBuilder};
 #[cfg(not(msim))]
 use tokio::runtime::Runtime;
 #[cfg(msim)]
@@ -118,10 +118,12 @@ impl Debug for LocalOrExternalTestCluster {
 }
 
 impl LocalOrExternalTestCluster {
-    /// Returns a handle to the test cluster's full node.
-    pub fn fullnode_handle(&self) -> &FullNodeHandle {
+    /// Returns the URL of the RPC node.
+    pub fn rpc_url(&self) -> String {
         match self {
-            LocalOrExternalTestCluster::Local { cluster } => &cluster.fullnode_handle,
+            LocalOrExternalTestCluster::Local { cluster } => {
+                cluster.fullnode_handle.rpc_url.clone()
+            }
             LocalOrExternalTestCluster::External { _config_path } => todo!(),
         }
     }
@@ -174,6 +176,7 @@ impl TestClusterHandle {
     /// directory.
     ///
     /// Returns None if the environment variable is not set.
+    #[cfg(not(msim))]
     fn from_env() -> Option<Self> {
         let config_path = std::env::var("SUI_TEST_CONFIG_DIR").ok()?;
         tracing::debug!("using external sui test cluster");
@@ -210,7 +213,7 @@ impl TestClusterHandle {
         };
         Self {
             wallet_path: Mutex::new(wallet_path),
-            cluster,
+            cluster: LocalOrExternalTestCluster::Local { cluster },
             node_handle,
         }
     }
@@ -221,8 +224,23 @@ impl TestClusterHandle {
     }
 
     /// Returns the test cluster reference.
+    #[cfg(not(msim))]
     pub fn cluster(&self) -> &LocalOrExternalTestCluster {
         &self.cluster
+    }
+
+    /// Returns the local test cluster reference for simtests.
+    #[cfg(msim)]
+    pub fn cluster(&self) -> &TestCluster {
+        let LocalOrExternalTestCluster::Local { ref cluster } = self.cluster else {
+            unreachable!("always use a local test cluster in simtests")
+        };
+        cluster
+    }
+
+    /// Returns the URL of the RPC node.
+    pub fn rpc_url(&self) -> String {
+        self.cluster.rpc_url()
     }
 
     /// Returns the simulator node handle for the Sui test cluster.

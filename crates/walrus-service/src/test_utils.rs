@@ -1789,9 +1789,8 @@ pub mod test_cluster {
             .await
             .with_system_contract_services(&node_contract_services);
 
-        let event_processor_config = EventProcessorConfig::new_with_default_pruning_interval(
-            sui_cluster.cluster().fullnode_handle().rpc_url.clone(),
-        );
+        let event_processor_config =
+            EventProcessorConfig::new_with_default_pruning_interval(sui_cluster.rpc_url().clone());
         let cluster_builder = setup_event_processors(
             &event_processor_config,
             sui_read_client.clone(),

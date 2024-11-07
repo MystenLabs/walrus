@@ -317,6 +317,7 @@ mod commands {
 
     use config::EventProviderConfig;
     use rocksdb::{Options, DB};
+    #[cfg(not(msim))]
     use tokio::task::JoinSet;
     use walrus_core::ensure;
     use walrus_service::utils;
