@@ -247,7 +247,7 @@ mod tests {
         // Starts a background workload that a client keeps writing and retrieving data.
         // All requests should succeed even if a node crashes.
         let workload_handle = tokio::spawn(async move {
-            let mut data_length = 31415;
+            let mut data_length = 64;
             loop {
                 tracing::info!("writing data with size {}", data_length);
 
@@ -258,7 +258,7 @@ mod tests {
 
                 tracing::info!("finish writing data with size {}", data_length);
 
-                data_length += 1024;
+                data_length += 64;
             }
         });
 

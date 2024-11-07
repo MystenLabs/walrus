@@ -1148,32 +1148,18 @@ where
     F: Fn() -> Fut,
     Fut: Future<Output = ClientResult<R>>,
 {
-    let mut retry_count = 0;
-    loop {
-        let current_epoch = client.committees.read().await.epoch();
-        let result = func().await;
-        retry_count += 1;
-        match result {
-            Err(error) if error.may_be_caused_by_epoch_change() => {
-                if let Some(max_retry) = client
-                    .config
-                    .communication_config
-                    .request_rate_config
-                    .max_retries
-                {
-                    if retry_count > max_retry {
-                        tracing::warn!("request max out retries");
-                        return Err(error);
-                    }
-                }
-                tracing::warn!(
-                    %error,
-                    "an error occurred during the current operation, \
-                    which may be caused by epoch change; refreshing the committees and retrying"
-                );
-                client.refresh_committees(current_epoch).await?;
-            }
-            result => return result,
+    let current_epoch = client.committees.read().await.epoch();
+    let result = func().await;
+    match result {
+        Err(error) if error.may_be_caused_by_epoch_change() => {
+            tracing::warn!(
+                %error,
+                "an error occurred during the current operation, \
+                which may be caused by epoch change; refreshing the committees and retrying"
+            );
+            client.refresh_committees(current_epoch).await?;
+            func().await
         }
+        result => result,
     }
 }
