@@ -101,17 +101,17 @@ pub enum LocalOrExternalTestCluster {
     },
     /// A test running in another process.
     External {
-        /// The path to the configuration of the external test cluster.
-        _config_path: PathBuf,
+        /// The RPC URL of the external test cluster.
+        rpc_url: String,
     },
 }
 impl Debug for LocalOrExternalTestCluster {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::Local { .. } => f.debug_struct("Local").finish(),
-            Self::External { _config_path } => f
+            Self::External { rpc_url } => f
                 .debug_struct("External")
-                .field("_config_path", _config_path)
+                .field("rpc_url", rpc_url)
                 .finish(),
         }
     }
@@ -124,7 +124,7 @@ impl LocalOrExternalTestCluster {
             LocalOrExternalTestCluster::Local { cluster } => {
                 cluster.fullnode_handle.rpc_url.clone()
             }
-            LocalOrExternalTestCluster::External { _config_path } => todo!(),
+            LocalOrExternalTestCluster::External { rpc_url, .. } => rpc_url.clone(),
         }
     }
 }
@@ -180,12 +180,11 @@ impl TestClusterHandle {
     fn from_env() -> Option<Self> {
         let config_path = std::env::var("SUI_TEST_CONFIG_DIR").ok()?;
         tracing::debug!("using external sui test cluster");
-        let wallet_path = Path::new(&config_path).join("client.yaml");
+        let wallet_path = Path::new(&config_path).join("client.yaml").into();
+        let rpc_url = "http://127.0.0.1:9000".into();
         Some(Self {
-            cluster: LocalOrExternalTestCluster::External {
-                _config_path: wallet_path.clone(),
-            },
-            wallet_path: wallet_path.into(),
+            cluster: LocalOrExternalTestCluster::External { rpc_url },
+            wallet_path,
         })
     }
 
