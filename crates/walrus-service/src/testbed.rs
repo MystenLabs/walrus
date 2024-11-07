@@ -326,6 +326,7 @@ pub async fn deploy_walrus_contract(
             max_epochs_ahead,
         },
         gas_budget,
+        false,
     )
     .await?;
 

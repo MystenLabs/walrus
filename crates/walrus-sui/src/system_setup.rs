@@ -63,8 +63,8 @@ fn get_pkg_id_from_tx_response(tx_response: &SuiTransactionBlockResponse) -> Res
         .ok_or_else(|| anyhow!("no immutable object was created"))
 }
 
-fn compile_package(package_path: &Path) -> Arc<CompiledPackage> {
-    if cfg!(any(test, feature = "test-utils")) {
+fn compile_package(package_path: &Path, for_test: bool) -> Arc<CompiledPackage> {
+    if for_test {
         tracing::debug!("attempting to reuse compiled move packages");
         static COMPILED_PACKAGE: OnceLock<Arc<CompiledPackage>> = OnceLock::new();
         COMPILED_PACKAGE
@@ -90,11 +90,12 @@ pub(crate) async fn publish_package(
     wallet: &mut WalletContext,
     package_path: PathBuf,
     gas_budget: u64,
+    for_test: bool,
 ) -> Result<SuiTransactionBlockResponse> {
     let sender = wallet.active_address()?;
     let sui = wallet.get_client().await?;
 
-    let compiled_package = compile_package(&package_path);
+    let compiled_package = compile_package(&package_path, for_test);
     let compiled_modules = compiled_package.get_package_bytes(true);
 
     let dep_ids: Vec<ObjectID> = compiled_package
@@ -133,9 +134,11 @@ pub async fn publish_coin_and_system_package(
     wallet: &mut WalletContext,
     walrus_contract_path: PathBuf,
     gas_budget: u64,
+    for_test: bool,
 ) -> Result<(ObjectID, ObjectID, ObjectID)> {
     // Publish `walrus` package with unpublished dependencies.
-    let transaction_response = publish_package(wallet, walrus_contract_path, gas_budget).await?;
+    let transaction_response =
+        publish_package(wallet, walrus_contract_path, gas_budget, for_test).await?;
 
     let walrus_pkg_id = get_pkg_id_from_tx_response(&transaction_response)?;
 

@@ -142,6 +142,7 @@ pub async fn create_and_init_system_for_test(
             max_epochs_ahead: max_epochs_ahead.unwrap_or(DEFAULT_MAX_EPOCHS_AHEAD),
         },
         DEFAULT_GAS_BUDGET,
+        true,
     )
     .await
 }
@@ -155,10 +156,15 @@ pub async fn create_and_init_system(
     admin_wallet: &mut WalletContext,
     init_system_params: InitSystemParams,
     gas_budget: u64,
+    for_test: bool,
 ) -> Result<SystemContext> {
-    let (package_id, cap_id, treasury_cap) =
-        system_setup::publish_coin_and_system_package(admin_wallet, contract_path, gas_budget)
-            .await?;
+    let (package_id, cap_id, treasury_cap) = system_setup::publish_coin_and_system_package(
+        admin_wallet,
+        contract_path,
+        gas_budget,
+        for_test,
+    )
+    .await?;
 
     let (system_object, staking_object) = system_setup::create_system_and_staking_objects(
         admin_wallet,
