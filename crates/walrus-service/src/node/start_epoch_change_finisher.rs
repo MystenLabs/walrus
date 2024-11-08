@@ -38,7 +38,7 @@ impl StartEpochChangeFinisher {
     ///    - Sending epoch sync done if there is no newly scheduled shard syncs.
     ///    - Removing no longer owned storage for shards.
     ///    - Marking the event as completed.
-    pub fn start_finish_epoch_change_start_tasks(
+    pub fn start_finish_epoch_change_tasks(
         &self,
         event_element: usize,
         event: &EpochChangeStart,

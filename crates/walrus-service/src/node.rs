@@ -908,7 +908,7 @@ impl StorageNode {
         // Last but not least, we need to remove any shards that are no longer owned by the node.
         if !shard_diff.removed.is_empty() {
             self.start_epoch_change_finisher
-                .start_finish_epoch_change_start_tasks(
+                .start_finish_epoch_change_tasks(
                     element_index,
                     event,
                     shard_diff.removed.clone(),
@@ -997,8 +997,7 @@ impl StorageNode {
         }
 
         // Here we need to wait for the previous shard removal to finish so that for the case
-        // where
-        // same shard is moved in again, we don't have shard removal and move-in running
+        // where same shard is moved in again, we don't have shard removal and move-in running
         // concurrently.
         //
         // Note that we expect this call to finish quickly because removing RocksDb column
@@ -1025,7 +1024,7 @@ impl StorageNode {
         }
 
         self.start_epoch_change_finisher
-            .start_finish_epoch_change_start_tasks(
+            .start_finish_epoch_change_tasks(
                 element_index,
                 event,
                 shard_diff.removed.clone(),
