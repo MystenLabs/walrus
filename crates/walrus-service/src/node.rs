@@ -11,7 +11,6 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, Context};
-use background_shard_remover::BackgroundShardRemover;
 use committee::{BeginCommitteeChangeError, EndCommitteeChangeError};
 use config::EventProviderConfig;
 use epoch_change_driver::EpochChangeDriver;
@@ -21,6 +20,7 @@ use node_recovery::NodeRecoveryHandler;
 use prometheus::Registry;
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use serde::Serialize;
+use start_epoch_change_finisher::StartEpochChangeFinisher;
 use sui_types::{digests::TransactionDigest, event::EventID};
 use tokio::{select, sync::watch, time::Instant};
 use tokio_util::sync::CancellationToken;
@@ -95,11 +95,11 @@ pub mod system_events;
 
 pub(crate) mod metrics;
 
-mod background_shard_remover;
 mod blob_sync;
 mod epoch_change_driver;
 mod node_recovery;
 mod shard_sync;
+mod start_epoch_change_finisher;
 
 pub(crate) mod errors;
 use errors::{
@@ -121,7 +121,7 @@ pub use storage::{DatabaseConfig, NodeStatus, Storage};
 use walrus_event::{EventStreamCursor, EventStreamElement};
 
 use crate::{
-    common::{active_committees::ActiveCommittees, utils::ShardDiff},
+    common::utils::ShardDiff,
     node::system_events::{EventManager, SuiSystemEventProvider},
 };
 
@@ -380,7 +380,7 @@ pub struct StorageNode {
     blob_sync_handler: Arc<BlobSyncHandler>,
     shard_sync_handler: ShardSyncHandler,
     epoch_change_driver: EpochChangeDriver,
-    background_shard_remover: BackgroundShardRemover,
+    start_epoch_change_finisher: StartEpochChangeFinisher,
     node_recovery_handler: NodeRecoveryHandler,
 }
 
@@ -455,7 +455,7 @@ impl StorageNode {
             StdRng::seed_from_u64(thread_rng().gen()),
         );
 
-        let background_shard_remover = BackgroundShardRemover::new(inner.clone());
+        let start_epoch_change_finisher = StartEpochChangeFinisher::new(inner.clone());
 
         let node_recovery_handler =
             NodeRecoveryHandler::new(inner.clone(), blob_sync_handler.clone());
@@ -466,7 +466,7 @@ impl StorageNode {
             blob_sync_handler,
             shard_sync_handler,
             epoch_change_driver,
-            background_shard_remover,
+            start_epoch_change_finisher,
             node_recovery_handler,
         })
     }
@@ -863,15 +863,8 @@ impl StorageNode {
             .cancel_all_expired_syncs_and_mark_events_completed()
             .await?;
 
-        if self
-            .process_shard_changes_in_new_epoch(element_index, event)
-            .await?
-        {
-            self.inner
-                .mark_event_completed(element_index, &event.event_id)?;
-        }
-
-        Ok(())
+        self.process_shard_changes_in_new_epoch(element_index, event)
+            .await
     }
 
     /// Starts the node recovery process.
@@ -914,8 +907,14 @@ impl StorageNode {
 
         // Last but not least, we need to remove any shards that are no longer owned by the node.
         if !shard_diff.removed.is_empty() {
-            self.background_shard_remover
-                .start_remove_storage_for_shards(element_index, event, shard_diff.removed.clone());
+            self.start_epoch_change_finisher
+                .start_finish_epoch_change_start_tasks(
+                    element_index,
+                    event,
+                    shard_diff.removed.clone(),
+                    committees,
+                    true,
+                );
             return Ok(false);
         }
 
@@ -977,22 +976,12 @@ impl StorageNode {
         &self,
         element_index: usize,
         event: &EpochChangeStart,
-    ) -> anyhow::Result<bool> {
+    ) -> anyhow::Result<()> {
         let public_key = self.inner.public_key();
         let storage = &self.inner.storage;
         let committees = self.inner.committee_service.active_committees();
 
         let shard_diff = ShardDiff::diff_previous(&committees, &storage.shards(), public_key);
-
-        if shard_diff.no_shard_change() {
-            tracing::info!(
-                "no shard changes in the new epoch. Event epoch: {}, committee epoch: {}",
-                event.epoch,
-                committees.epoch()
-            );
-            self.epoch_sync_done(&committees, event).await;
-            return Ok(true);
-        }
 
         assert!(event.epoch <= committees.epoch());
 
@@ -1007,21 +996,22 @@ impl StorageNode {
                 .context("failed to lock shard")?;
         }
 
-        // Here we need to wait for the previous shard removal to finish so that for the case where
+        // Here we need to wait for the previous shard removal to finish so that for the case
+        // where
         // same shard is moved in again, we don't have shard removal and move-in running
         // concurrently.
         //
-        // Note that we expect this call to finish quickly because removing RocksDb column families
-        // is supposed to be fast, and we have an entire epoch duration to do so. By the time next
-        // epoch starts, the shard removal task should have completed.
-        self.background_shard_remover
-            .wait_until_previous_shard_remove_task_done()
+        // Note that we expect this call to finish quickly because removing RocksDb column
+        // families is supposed to be fast, and we have an entire epoch duration to do so. By
+        // the time next epoch starts, the shard removal task should have completed.
+        self.start_epoch_change_finisher
+            .wait_until_previous_task_done()
             .await;
 
-        if shard_diff.gained.is_empty() {
-            self.epoch_sync_done(&committees, event).await;
-        } else {
+        let mut ongoing_shard_sync = false;
+        if !shard_diff.gained.is_empty() {
             assert!(committees.current_committee().contains(public_key));
+
             self.inner
                 .create_storage_for_shards_in_background(shard_diff.gained.clone())
                 .await?;
@@ -1031,44 +1021,19 @@ impl StorageNode {
             for shard in &shard_diff.gained {
                 self.shard_sync_handler.start_new_shard_sync(*shard).await?;
             }
+            ongoing_shard_sync = true;
         }
 
-        if !shard_diff.removed.is_empty() {
-            // We start shard removal in the background so that we don't block even processing.
-            // And the removal task will mark the event completed.
-            self.background_shard_remover
-                .start_remove_storage_for_shards(element_index, event, shard_diff.removed.clone());
-            return Ok(false);
-        }
-
-        Ok(true)
-    }
-
-    /// Signals that the epoch sync is done if the node is in the current committee and no shards.
-    async fn epoch_sync_done(&self, committees: &ActiveCommittees, event: &EpochChangeStart) {
-        let is_node_in_committee = committees
-            .current_committee()
-            .contains(self.inner.public_key());
-        if is_node_in_committee && committees.epoch() == event.epoch {
-            // We are in the current committee, but no shards were gained. Directly signal that
-            // the epoch sync is done.
-            tracing::info!("no shards gained, so signalling that epoch sync is done");
-            self.inner
-                .contract_service
-                .epoch_sync_done(event.epoch)
-                .await;
-        } else {
-            // Since we just refreshed the committee after receiving the event, the committees'
-            // epoch must be at least the event's epoch.
-            assert!(committees.epoch() >= event.epoch);
-            tracing::info!(
-                "skip sending epoch sync done event. \
-                    node in committee: {}, committee epoch: {}, event epoch: {}",
-                is_node_in_committee,
-                committees.epoch(),
-                event.epoch
+        self.start_epoch_change_finisher
+            .start_finish_epoch_change_start_tasks(
+                element_index,
+                event,
+                shard_diff.removed.clone(),
+                committees,
+                ongoing_shard_sync,
             );
-        }
+
+        Ok(())
     }
 
     #[tracing::instrument(skip_all)]

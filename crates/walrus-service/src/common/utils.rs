@@ -521,11 +521,6 @@ impl ShardDiff {
                 .collect(),
         }
     }
-
-    /// Returns `true` if there are no changes in the shard assignments.
-    pub fn no_shard_change(&self) -> bool {
-        self.lost.is_empty() && self.gained.is_empty() && self.removed.is_empty()
-    }
 }
 
 /// Returns the path if it is `Some` or any of the default paths if they exist (attempt in order).
