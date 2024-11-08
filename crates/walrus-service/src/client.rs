@@ -69,10 +69,10 @@ mod resource;
 mod utils;
 pub use utils::string_prefix;
 
-mod metrics;
+pub mod metrics;
 
-mod dedup_metrics;
-mod dedup_refill;
+mod refill;
+pub use refill::{CoinRefill, NetworkOrWallet, RefillHandles, Refiller};
 mod multiplexer;
 
 type ClientResult<T> = Result<T, ClientError>;

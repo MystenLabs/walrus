@@ -584,7 +584,9 @@ mod default {
     }
 
     pub(crate) fn n_publisher_clients() -> usize {
-        10
+        // Use the same number of clients as the number of concurrent requests. This way, the
+        // publisher will have the lowest possible latency for every request.
+        max_concurrent_requests()
     }
 
     pub(crate) fn refill_interval() -> Duration {
@@ -672,6 +674,7 @@ mod tests {
     fn daemon_command() -> Commands {
         Commands::Daemon(DaemonCommands::Daemon {
             args: PublisherArgs {
+                n_clients: default::n_publisher_clients(),
                 daemon_args: DaemonArgs {
                     bind_address: SocketAddr::from_str("127.0.0.1:12345").unwrap(),
                     metrics_address: default::metrics_address(),
@@ -680,6 +683,7 @@ mod tests {
                 max_body_size_kib: default::max_body_size_kib(),
                 max_request_buffer_size: default::max_request_buffer_size(),
                 max_concurrent_requests: default::max_concurrent_requests(),
+                refill_interval: default::refill_interval(),
             },
         })
     }

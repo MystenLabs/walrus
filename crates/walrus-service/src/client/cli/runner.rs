@@ -390,11 +390,10 @@ impl ClientCommandRunner {
             .new_contract_client(self.wallet?, self.gas_budget)
             .await?;
 
-        // TODO: cleanup
         let client = ClientMultiplexer::new(
             args.n_clients,
             sui_contract_client,
-            &config,
+            config,
             self.gas_budget,
             args.refill_interval,
             registry,
