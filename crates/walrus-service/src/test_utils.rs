@@ -1770,6 +1770,8 @@ pub mod test_cluster {
         } = test_utils::create_and_fund_wallets_on_cluster(sui_cluster.clone(), members.len())
             .await?;
 
+        let temp_dir_path = temp_dir.path().to_path_buf();
+
         // In simtest, storage nodes load sui wallet config from the `tmp_dir`. We need to keep the
         // directory alive throughout the test.
         #[cfg(msim)]
@@ -1786,7 +1788,7 @@ pub mod test_cluster {
             })
             .try_collect::<Vec<_>>()
             .await?;
-        let node_wallet_dirs = vec![temp_dir.into_path(); contract_clients.len()];
+        let node_wallet_dirs = vec![temp_dir_path; contract_clients.len()];
 
         let contract_clients_refs = contract_clients.iter().collect::<Vec<_>>();
 
