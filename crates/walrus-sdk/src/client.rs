@@ -170,11 +170,10 @@ impl UrlEndpoints {
         )
     }
 
-    fn server_health_info(&self) -> (Url, &'static str) {
-        (
-            self.0.join("/v1/health").expect("this is a valid URL"),
-            HEALTH_URL_TEMPLATE,
-        )
+    fn server_health_info(&self, detailed: bool) -> (Url, &'static str) {
+        let mut url = self.0.join("/v1/health").expect("this is a valid URL");
+        url.set_query(detailed.then_some("detailed=true"));
+        (url, HEALTH_URL_TEMPLATE)
     }
 
     fn sync_shard(&self) -> (Url, &'static str) {
@@ -741,8 +740,11 @@ impl Client {
 
     /// Gets the health information of the storage node.
     #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
-    pub async fn get_server_health_info(&self) -> Result<ServiceHealthInfo, NodeError> {
-        let (url, template) = self.endpoints.server_health_info();
+    pub async fn get_server_health_info(
+        &self,
+        detailed: bool,
+    ) -> Result<ServiceHealthInfo, NodeError> {
+        let (url, template) = self.endpoints.server_health_info(detailed);
         self.send_and_parse_service_response(Request::new(Method::GET, url), template)
             .await
     }
@@ -953,12 +955,17 @@ mod tests {
         assert_eq!(url.to_string(), expected);
     }
 
-    #[test]
-    fn test_url_health_info_endpoint() {
+    param_test! {
+        test_url_health_info_endpoint: [
+            default: (false, "https://node.com/v1/health"),
+            detailed: (true, "https://node.com/v1/health?detailed=true"),
+        ]
+    }
+    fn test_url_health_info_endpoint(detailed: bool, expected_url: &str) {
         let endpoints = UrlEndpoints(Url::parse("https://node.com").unwrap());
-        let (url, _) = endpoints.server_health_info();
+        let (url, _) = endpoints.server_health_info(detailed);
 
-        assert_eq!(url.to_string(), "https://node.com/v1/health");
+        assert_eq!(url.to_string(), expected_url);
     }
 
     #[test]

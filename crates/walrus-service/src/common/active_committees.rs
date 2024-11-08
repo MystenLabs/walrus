@@ -416,6 +416,11 @@ impl CommitteeTracker {
         debug_assert!(!self.0.is_transitioning);
         Ok(previous_committee)
     }
+
+    /// Updates the active committees with the provided `ActiveCommittees`.
+    pub fn update_active_committees(&mut self, active_committees: ActiveCommittees) {
+        self.0 = active_committees;
+    }
 }
 
 impl From<ActiveCommittees> for CommitteeTracker {

@@ -583,6 +583,7 @@ mod tests {
                 uptime: Duration::from_secs(0),
                 epoch: 0,
                 public_key: ProtocolKeyPair::generate().as_ref().public().clone(),
+                node_status: "Active".to_string(),
                 shard_detail: None,
                 shard_summary: ShardStatusSummary::default(),
             }
@@ -993,7 +994,7 @@ mod tests {
         use super::*;
 
         async fn try_tls_request(client: Client) -> Result<(), NodeError> {
-            client.get_server_health_info().await.map(|_| ())
+            client.get_server_health_info(false).await.map(|_| ())
         }
 
         /// Enable self-signed certificates by enabling TLS but removing any certificate.

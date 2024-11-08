@@ -17,6 +17,7 @@ use config::EventProviderConfig;
 use epoch_change_driver::EpochChangeDriver;
 use fastcrypto::traits::KeyPair;
 use futures::{stream, Stream, StreamExt, TryFutureExt};
+use node_recovery::NodeRecoveryHandler;
 use prometheus::Registry;
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use serde::Serialize;
@@ -77,7 +78,7 @@ use walrus_sui::{
 };
 
 use self::{
-    blob_sync::BlobSyncHandler,
+    blob_sync::{BlobSyncHandler, EventInfo},
     committee::{CommitteeService, NodeCommitteeService},
     config::{StorageNodeConfig, SuiConfig},
     contract_service::{SuiSystemContractService, SystemContractService},
@@ -97,6 +98,7 @@ pub(crate) mod metrics;
 mod background_shard_remover;
 mod blob_sync;
 mod epoch_change_driver;
+mod node_recovery;
 mod shard_sync;
 
 pub(crate) mod errors;
@@ -115,7 +117,7 @@ use errors::{
 };
 
 mod storage;
-pub use storage::{DatabaseConfig, Storage};
+pub use storage::{DatabaseConfig, NodeStatus, Storage};
 use walrus_event::{EventStreamCursor, EventStreamElement};
 
 use crate::{
@@ -375,10 +377,11 @@ async fn create_read_client(sui_config: &SuiConfig) -> Result<SuiReadClient, any
 #[derive(Debug)]
 pub struct StorageNode {
     inner: Arc<StorageNodeInner>,
-    blob_sync_handler: BlobSyncHandler,
+    blob_sync_handler: Arc<BlobSyncHandler>,
     shard_sync_handler: ShardSyncHandler,
     epoch_change_driver: EpochChangeDriver,
     background_shard_remover: BackgroundShardRemover,
+    node_recovery_handler: NodeRecoveryHandler,
 }
 
 /// The internal state of a Walrus storage node.
@@ -434,11 +437,11 @@ impl StorageNode {
 
         inner.init_gauges()?;
 
-        let blob_sync_handler = BlobSyncHandler::new(
+        let blob_sync_handler = Arc::new(BlobSyncHandler::new(
             inner.clone(),
             config.blob_recovery.max_concurrent_blob_syncs,
             config.blob_recovery.max_concurrent_sliver_syncs,
-        );
+        ));
 
         let shard_sync_handler =
             ShardSyncHandler::new(inner.clone(), config.shard_sync_config.clone());
@@ -454,12 +457,17 @@ impl StorageNode {
 
         let background_shard_remover = BackgroundShardRemover::new(inner.clone());
 
+        let node_recovery_handler =
+            NodeRecoveryHandler::new(inner.clone(), blob_sync_handler.clone());
+        node_recovery_handler.restart_recovery()?;
+
         Ok(StorageNode {
             inner,
             blob_sync_handler,
             shard_sync_handler,
             epoch_change_driver,
             background_shard_remover,
+            node_recovery_handler,
         })
     }
 
@@ -543,6 +551,7 @@ impl StorageNode {
         // invariant violations and interference between different events. See, for example,
         // `BlobSyncHandler::cancel_sync_and_mark_event_complete`.
         while let Some((element_index, stream_element)) = indexed_element_stream.next().await {
+            let node_status = self.inner.storage.node_status()?;
             let span = tracing::info_span!(
                 parent: None,
                 "blob_store receive",
@@ -559,6 +568,7 @@ impl StorageNode {
                     .checkpoint_sequence_number,
                 "walrus.event.kind" = stream_element.element.label(),
                 "walrus.blob_id" = ?stream_element.element.blob_id(),
+                "walrus.node_status" = %node_status,
                 "error.type" = field::Empty,
             );
 
@@ -568,13 +578,18 @@ impl StorageNode {
                     // Clear the starting epoch, so that we never make this check again.
                     maybe_epoch_at_start = None;
 
-                    // if event.event_epoch() < starting_epoch - 1
-                    if event.event_epoch() + 1 < epoch_at_start {
+                    // Checks if the node is severely lagging behind.
+                    // This applies to node both in `Active` or `RecoveryInProgress` status.
+                    if node_status != NodeStatus::RecoveryCatchUp
+                        && event.event_epoch() + 1 < epoch_at_start
+                    {
                         tracing::warn!(
-                            "the current epoch ({}) is too far ahead of the event epoch: {}",
+                            "the current epoch ({}) is far ahead of the event epoch: {};
+                            node entering recovery mode",
                             epoch_at_start,
                             event.event_epoch()
                         );
+                        self.inner.set_node_status(NodeStatus::RecoveryCatchUp)?;
                     }
                 }
             }
@@ -718,6 +733,7 @@ impl StorageNode {
         if self.inner.storage.is_stored_at_all_shards(&event.blob_id)?
             || self.inner.storage.is_invalid(&event.blob_id)?
             || self.inner.current_epoch() >= event.end_epoch
+            || self.inner.storage.node_status()? == NodeStatus::RecoveryCatchUp
         {
             self.inner
                 .mark_event_completed(event_index, &event.event_id)?;
@@ -730,7 +746,15 @@ impl StorageNode {
 
         // Slivers and (possibly) metadata are not stored, so initiate blob sync.
         self.blob_sync_handler
-            .start_sync(event, event_index, start)
+            .start_sync(
+                event.blob_id,
+                event.epoch,
+                Some(EventInfo {
+                    event_id: event.event_id,
+                    event_index,
+                }),
+                start,
+            )
             .await?;
 
         Ok(())
@@ -800,6 +824,34 @@ impl StorageNode {
         self.epoch_change_driver
             .cancel_scheduled_epoch_change_initiation(event.epoch);
 
+        if self.inner.storage.node_status()? == NodeStatus::RecoveryCatchUp {
+            self.inner
+                .committee_service
+                .begin_committee_change_to_latest_committee()
+                .await?;
+
+            let mut need_to_mark_event_complete = false;
+            if event.epoch == self.inner.current_epoch() {
+                tracing::info!(
+                    epoch = %event.epoch,
+                    "processing event reaches the latest epoch, start recover entire node"
+                );
+                need_to_mark_event_complete =
+                    self.start_node_recovery(element_index, event).await?;
+            } else {
+                tracing::info!(
+                    event_epoch = %event.epoch,
+                    committee_epoch = %self.inner.current_epoch(),
+                    "epoch change start event reaches new epoch that is still lagging" );
+            }
+
+            if need_to_mark_event_complete {
+                self.inner
+                    .mark_event_completed(element_index, &event.event_id)?;
+            }
+            return Ok(());
+        }
+
         if !self.begin_committee_change(event.epoch).await? {
             self.inner
                 .mark_event_completed(element_index, &event.event_id)?;
@@ -820,6 +872,54 @@ impl StorageNode {
         }
 
         Ok(())
+    }
+
+    /// Starts the node recovery process.
+    /// Returns `true` if the caller should mark the event complete.
+    async fn start_node_recovery(
+        &self,
+        element_index: usize,
+        event: &EpochChangeStart,
+    ) -> anyhow::Result<bool> {
+        self.inner
+            .set_node_status(NodeStatus::RecoveryInProgress(event.epoch))?;
+
+        let public_key = self.inner.public_key();
+        let storage = &self.inner.storage;
+        let committees = self.inner.committee_service.active_committees();
+
+        // Create storage for shards that are currently owned by the node in the latest epoch.
+        let shard_diff = ShardDiff::diff_previous(&committees, &storage.shards(), public_key);
+        self.inner
+            .create_storage_for_shards_in_background(shard_diff.gained)
+            .await?;
+
+        // Given that the storage node is severely lagging, the node may contain shards in outdated
+        // status. We need to set the status of all currently owned shards to `Active` despite
+        // their current status.
+        for shard in committees
+            .current_committee()
+            .shards_for_node_public_key(public_key)
+        {
+            storage
+                .shard_storage(*shard)
+                .expect("we just create all storage, it must exist")
+                .set_active_status()?;
+        }
+
+        // Initiate blob sync for all certified blobs we've tracked so far. After this is done,
+        // the node will be in a state where it has all the shards and blobs that it should have.
+        self.node_recovery_handler
+            .start_node_recovery(event.epoch)?;
+
+        // Last but not least, we need to remove any shards that are no longer owned by the node.
+        if !shard_diff.removed.is_empty() {
+            self.background_shard_remover
+                .start_remove_storage_for_shards(element_index, event, shard_diff.removed.clone());
+            return Ok(false);
+        }
+
+        Ok(true)
     }
 
     /// Initiates a committee transition to a new epoch.
@@ -1154,6 +1254,12 @@ impl StorageNodeInner {
             .get_blob_info(blob_id)
             .context("could not retrieve blob info")?
             .is_some_and(|blob_info| blob_info.is_certified(self.current_epoch())))
+    }
+
+    /// Sets the status of the node.
+    pub fn set_node_status(&self, status: NodeStatus) -> Result<(), TypedStoreError> {
+        self.metrics.current_node_status.set(status.to_i64());
+        self.storage.set_node_status(status)
     }
 }
 
@@ -1520,6 +1626,11 @@ impl ServiceState for StorageNodeInner {
             uptime: self.start_time.elapsed(),
             epoch: self.current_epoch(),
             public_key: self.public_key().clone(),
+            node_status: self
+                .storage
+                .node_status()
+                .expect("fetching node status should not fail")
+                .to_string(),
             shard_detail,
             shard_summary,
         }

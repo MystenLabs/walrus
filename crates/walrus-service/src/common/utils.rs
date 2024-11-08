@@ -512,9 +512,9 @@ impl ShardDiff {
         let exist: HashSet<ShardIndex> = exist.iter().copied().collect();
 
         ShardDiff {
-            unchanged: from.intersection(&to).copied().collect(),
+            unchanged: exist.intersection(&to).copied().collect(),
             lost: from.difference(&to).copied().collect(),
-            gained: to.difference(&from).copied().collect(),
+            gained: to.difference(&exist).copied().collect(),
             removed: exist
                 .difference(&from.union(&to).copied().collect())
                 .copied()
@@ -858,7 +858,7 @@ mod tests {
                 ShardDiff::diff(
                     &[ShardIndex(1), ShardIndex(2), ShardIndex(3), ShardIndex(4)],
                     &[ShardIndex(2), ShardIndex(3), ShardIndex(4), ShardIndex(5)],
-                    &[],
+                    &[ShardIndex(1), ShardIndex(2), ShardIndex(3), ShardIndex(4)],
                 ),
                 ShardDiff {
                     lost: vec![ShardIndex(1)],
@@ -871,11 +871,24 @@ mod tests {
                 ShardDiff::diff(
                     &[ShardIndex(3), ShardIndex(4), ShardIndex(5)],
                     &[ShardIndex(6), ShardIndex(7), ShardIndex(4)],
-                    &[ShardIndex(1), ShardIndex(2)],
+                    &[ShardIndex(1), ShardIndex(2), ShardIndex(4)],
                 ),
                 ShardDiff {
                     lost: vec![ShardIndex(3), ShardIndex(5)],
                     gained: vec![ShardIndex(6), ShardIndex(7)],
+                    unchanged: vec![ShardIndex(4)],
+                    removed: vec![ShardIndex(1), ShardIndex(2)],
+                },
+            ),
+            gained_from_old_epochs: (
+                ShardDiff::diff(
+                    &[ShardIndex(3), ShardIndex(4), ShardIndex(5)],
+                    &[ShardIndex(6), ShardIndex(3), ShardIndex(4)],
+                    &[ShardIndex(1), ShardIndex(2), ShardIndex(4)],
+                ),
+                ShardDiff {
+                    lost: vec![ShardIndex(5)],
+                    gained: vec![ShardIndex(3), ShardIndex(6)],
                     unchanged: vec![ShardIndex(4)],
                     removed: vec![ShardIndex(1), ShardIndex(2)],
                 },

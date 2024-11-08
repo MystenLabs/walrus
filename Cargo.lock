@@ -11448,6 +11448,7 @@ dependencies = [
  "tracing",
  "walrus-core",
  "walrus-proc-macros",
+ "walrus-sdk",
  "walrus-service",
  "walrus-sui",
  "walrus-test-utils",

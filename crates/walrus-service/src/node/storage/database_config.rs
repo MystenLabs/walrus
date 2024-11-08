@@ -163,6 +163,7 @@ impl From<&GlobalDatabaseOptions> for Options {
 #[serde(default)]
 pub struct DatabaseConfig {
     pub(super) global: GlobalDatabaseOptions,
+    pub(super) node_status: DatabaseTableOptions,
     pub(super) metadata: DatabaseTableOptions,
     pub(super) blob_info: DatabaseTableOptions,
     pub(super) event_cursor: DatabaseTableOptions,
@@ -198,6 +199,7 @@ impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {
             global: GlobalDatabaseOptions::default(),
+            node_status: DatabaseTableOptions::default(),
             metadata: DatabaseTableOptions::optimized_for_blobs(),
             blob_info: DatabaseTableOptions::default(),
             event_cursor: DatabaseTableOptions::default(),

@@ -218,6 +218,8 @@ pub struct ServiceHealthInfo {
     /// The public key of the storage node.
     #[schema(value_type = [u8], format = "Base58")]
     pub public_key: PublicKey,
+    /// The status of the storage node.
+    pub node_status: String,
     /// The overall status of the shards.
     pub shard_summary: ShardStatusSummary,
     /// The status of the shards for which the node is responsible.
@@ -264,7 +266,7 @@ pub struct ShardStatusDetail {
 }
 
 /// A shard with its status.
-#[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ShardHealthInfo {
     /// The identifier of the shard in the walrus system.

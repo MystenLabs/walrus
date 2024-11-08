@@ -534,7 +534,7 @@ async fn test_repeated_shard_move() -> TestResult {
         .as_ref()
         .stake_with_node_pool(
             walrus_cluster.nodes[1]
-                .storage_capability
+                .storage_node_capability
                 .as_ref()
                 .unwrap()
                 .node_id,
@@ -550,7 +550,7 @@ async fn test_repeated_shard_move() -> TestResult {
         .as_ref()
         .stake_with_node_pool(
             walrus_cluster.nodes[0]
-                .storage_capability
+                .storage_node_capability
                 .as_ref()
                 .unwrap()
                 .node_id,
