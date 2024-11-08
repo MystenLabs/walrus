@@ -3377,7 +3377,13 @@ mod tests {
 
     #[cfg(msim)]
     mod failure_injection_tests {
-        use sui_macros::{clear_fail_point, register_fail_point_arg, register_fail_point_if};
+        use sui_macros::{
+            clear_fail_point,
+            register_fail_point_arg,
+            register_fail_point_async,
+            register_fail_point_if,
+        };
+        use tokio::sync::Notify;
         use walrus_proc_macros::walrus_simtest;
         use walrus_test_utils::simtest_param_test;
 
@@ -3583,6 +3589,101 @@ mod tests {
 
             wait_for_shard_in_active_state(shard_storage_dst.as_ref()).await?;
             check_all_blobs_are_synced(&blob_details, shard_storage_dst.as_ref())?;
+
+            Ok(())
+        }
+
+        #[walrus_simtest]
+        async fn finish_epoch_change_start_should_not_block_event_processing() -> TestResult {
+            let _ = tracing_subscriber::fmt::try_init();
+
+            // It is important to only use one node in this test, so that no other node would
+            // drive epoch change on chain, and send events to the nodes.
+            let (cluster, events, _blob_detail) =
+                cluster_with_initial_epoch_and_certified_blob(&[&[0]], &[BLOB], 2).await?;
+            cluster.nodes[0]
+                .storage_node
+                .start_epoch_change_finisher
+                .wait_until_previous_task_done()
+                .await;
+
+            let processed_event_count_initial = &cluster.nodes[0]
+                .storage_node
+                .inner
+                .storage
+                .get_sequentially_processed_event_count()?;
+
+            // Use fail point to block finishing epoch change start event.
+            let unblock = Arc::new(Notify::new());
+            let unblock_clone = unblock.clone();
+            register_fail_point_async("blocking_finishing_epoch_change_start", move || {
+                let unblock_clone = unblock_clone.clone();
+                async move {
+                    unblock_clone.notified().await;
+                }
+            });
+
+            // Update mocked on chain committee to the new epoch.
+            cluster
+                .lookup_service_handle
+                .clone()
+                .unwrap()
+                .advance_epoch();
+
+            // Sends one epoch change start event which will be blocked finishing.
+            events.send(ContractEvent::EpochChangeEvent(
+                EpochChangeEvent::EpochChangeStart(EpochChangeStart {
+                    epoch: 3,
+                    event_id: walrus_sui::test_utils::event_id_for_testing(),
+                }),
+            ))?;
+
+            // Register and certified a blob, and then check the blob should be certified in the
+            // node indicating that the event processing is not blocked.
+            assert_eq!(
+                cluster.nodes[0]
+                    .storage_node
+                    .inner
+                    .blob_status(&OTHER_BLOB_ID)
+                    .expect("getting blob status should succeed"),
+                BlobStatus::Nonexistent
+            );
+            events.send(BlobRegistered::for_testing(OTHER_BLOB_ID).into())?;
+            events.send(BlobCertified::for_testing(OTHER_BLOB_ID).into())?;
+
+            tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    if cluster.nodes[0]
+                        .storage_node
+                        .inner
+                        .is_blob_certified(&OTHER_BLOB_ID)
+                        .expect("getting blob status should succeed")
+                    {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            })
+            .await?;
+
+            // Persist event count should remain the same as the beginning since we haven't
+            // unblock epoch change start event.
+            assert_eq!(
+                processed_event_count_initial,
+                &cluster.nodes[0]
+                    .storage_node
+                    .inner
+                    .storage
+                    .get_sequentially_processed_event_count()?
+            );
+
+            // Unblock the epoch change start event, and expect that processed event count should
+            // make progress. Use `+2` instead of `+3` is because certify blob initiats a blob sync,
+            // and sync we don't upload the blob data, so it won't get processed.
+            // The point here is that the epoch change start event should be marked completed.
+            unblock.notify_one();
+            wait_until_events_processed(&cluster.nodes[0], processed_event_count_initial + 2)
+                .await?;
 
             Ok(())
         }

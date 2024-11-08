@@ -6,6 +6,7 @@ use std::{
     time::Duration,
 };
 
+use sui_macros::fail_point_async;
 use typed_store::TypedStoreError;
 use walrus_core::ShardIndex;
 use walrus_sui::types::EpochChangeStart;
@@ -20,7 +21,7 @@ use crate::{
 pub struct StartEpochChangeFinisher {
     node: Arc<StorageNodeInner>,
 
-    // There can be at most one background shard removal task at a time.
+    // There can be at most one background start epoch change finisher task at a time.
     task_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
 }
 
@@ -32,7 +33,11 @@ impl StartEpochChangeFinisher {
         }
     }
 
-    /// TODO:
+    /// Starts background tasks to finish the epoch change.
+    /// This includes:
+    ///    - Sending epoch sync done if there is no newly scheduled shard syncs.
+    ///    - Removing no longer owned storage for shards.
+    ///    - Marking the event as completed.
     pub fn start_finish_epoch_change_start_tasks(
         &self,
         event_element: usize,
@@ -59,6 +64,8 @@ impl StartEpochChangeFinisher {
                 shards.first().unwrap_or(&ShardIndex(0)).as_u64(),
             );
 
+            fail_point_async!("blocking_finishing_epoch_change_start");
+
             let result = utils::retry(backoff, || async {
                 if !ongoing_shard_sync {
                     self_clone
@@ -81,6 +88,7 @@ impl StartEpochChangeFinisher {
                     "failed to finish epoch change start tasks",
                 );
             }
+
             self_clone
                 .task_handle
                 .lock()
