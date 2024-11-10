@@ -64,7 +64,7 @@ fn get_pkg_id_from_tx_response(tx_response: &SuiTransactionBlockResponse) -> Res
 }
 
 fn compile_package(package_path: &Path, for_test: bool) -> Arc<CompiledPackage> {
-    if for_test {
+    if for_test && !cfg!(msim) {
         tracing::debug!("attempting to reuse compiled move packages");
         static COMPILED_PACKAGE: OnceLock<Arc<CompiledPackage>> = OnceLock::new();
         COMPILED_PACKAGE
@@ -78,7 +78,12 @@ fn compile_package(package_path: &Path, for_test: bool) -> Arc<CompiledPackage> 
             .clone()
     } else {
         tracing::debug!("compiling move packages from source");
-        let compiled_package = BuildConfig::default()
+        let build_config = if cfg!(msim) {
+            BuildConfig::new_for_testing()
+        } else {
+            BuildConfig::default()
+        };
+        let compiled_package = build_config
             .build(package_path)
             .expect("Building package failed");
         Arc::new(compiled_package)
