@@ -55,6 +55,7 @@ use walrus_core::{
 use walrus_event::{event_processor::EventProcessor, EventProcessorConfig, IndexedStreamElement};
 use walrus_sdk::api::{
     BlobStatus,
+    EventProgress,
     ServiceHealthInfo,
     ShardHealthInfo,
     ShardStatus as ApiShardStatus,
@@ -85,7 +86,7 @@ use self::{
     errors::IndexOutOfRange,
     metrics::{NodeMetricSet, TelemetryLabel as _, STATUS_PENDING, STATUS_PERSISTED},
     shard_sync::ShardSyncHandler,
-    storage::{blob_info::BlobInfoApi as _, EventProgress, ShardStatus, ShardStorage},
+    storage::{blob_info::BlobInfoApi as _, ShardStatus, ShardStorage},
 };
 pub mod committee;
 pub mod config;
@@ -688,7 +689,11 @@ impl StorageNode {
                     .mark_event_completed(element_index, &event.event_id)?;
             }
             EpochChangeEvent::EpochChangeStart(event) => {
-                tracing::info!("EpochChangeStart event received: {:?}", event);
+                tracing::info!(
+                    "EpochChangeStart event received: {:?}. Index: {:?}",
+                    event,
+                    element_index
+                );
                 self.process_epoch_change_start_event(element_index, &event)
                     .await?;
             }
@@ -830,7 +835,7 @@ impl StorageNode {
                 .begin_committee_change_to_latest_committee()
                 .await?;
 
-            let mut need_to_mark_event_complete = false;
+            let mut need_to_mark_event_complete = true;
             if event.epoch == self.inner.current_epoch() {
                 tracing::info!(
                     epoch = %event.epoch,
@@ -1595,6 +1600,10 @@ impl ServiceState for StorageNodeInner {
                 .node_status()
                 .expect("fetching node status should not fail")
                 .to_string(),
+            event_progress: self
+                .storage
+                .get_event_cursor_progress()
+                .expect("get cursor progress should not fail"),
             shard_detail,
             shard_summary,
         }

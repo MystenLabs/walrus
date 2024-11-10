@@ -403,6 +403,7 @@ mod tests {
         api::{
             BlobStatus,
             DeletableCounts,
+            EventProgress,
             ServiceHealthInfo,
             ShardStatusSummary,
             StoredOnNodeStatus,
@@ -584,6 +585,7 @@ mod tests {
                 epoch: 0,
                 public_key: ProtocolKeyPair::generate().as_ref().public().clone(),
                 node_status: "Active".to_string(),
+                event_progress: EventProgress::default(),
                 shard_detail: None,
                 shard_summary: ShardStatusSummary::default(),
             }

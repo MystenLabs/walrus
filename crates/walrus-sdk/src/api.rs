@@ -220,6 +220,8 @@ pub struct ServiceHealthInfo {
     pub public_key: PublicKey,
     /// The status of the storage node.
     pub node_status: String,
+    /// The event progress of the storage node.
+    pub event_progress: EventProgress,
     /// The overall status of the shards.
     pub shard_summary: ShardStatusSummary,
     /// The status of the shards for which the node is responsible.
@@ -290,4 +292,14 @@ pub enum ShardStatus {
     InRecovery,
     /// The shard is currently not accepting any more writes.
     ReadOnly,
+}
+
+/// Represents the progress of the events.
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, utoipa::ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct EventProgress {
+    /// The number of events that have been persisted.
+    pub persisted: u64,
+    /// The number of events that are pending in memory.
+    pub pending: u64,
 }

@@ -5,7 +5,7 @@
 mod tests {
     use std::{
         collections::HashSet,
-        sync::{atomic::AtomicBool, Arc},
+        sync::{atomic::AtomicBool, Arc, Mutex},
         time::Duration,
     };
 
@@ -13,9 +13,10 @@ mod tests {
     use rand::Rng;
     use sui_macros::register_fail_points;
     use sui_protocol_config::ProtocolConfig;
+    use tokio::time::Instant;
     use walrus_core::encoding::{Primary, Secondary};
     use walrus_proc_macros::walrus_simtest;
-    use walrus_sdk::api::ShardStatus;
+    use walrus_sdk::api::{ServiceHealthInfo, ShardStatus};
     use walrus_service::{
         client::{responses::BlobStoreResult, Client, StoreWhen},
         test_utils::{test_cluster, SimStorageNodeHandle},
@@ -29,6 +30,7 @@ mod tests {
     async fn write_read_and_check_random_blob(
         client: &WithTempDir<Client<SuiContractClient>>,
         data_length: usize,
+        write_only: bool,
     ) -> anyhow::Result<()> {
         // Write a random blob.
         let blob = walrus_test_utils::random_data(data_length);
@@ -49,6 +51,10 @@ mod tests {
         else {
             panic!("expect newly stored blob")
         };
+
+        if write_only {
+            return Ok(());
+        }
 
         // Read the blob using primary slivers.
         let read_blob = client
@@ -91,7 +97,7 @@ mod tests {
             .await
             .unwrap();
 
-        write_read_and_check_random_blob(&client, 31415)
+        write_read_and_check_random_blob(&client, 31415, false)
             .await
             .expect("workload should not fail");
     }
@@ -150,7 +156,7 @@ mod tests {
         let mut data_length = 31415;
         loop {
             // TODO(#995): use stress client for better coverage of the workload.
-            write_read_and_check_random_blob(&client, data_length)
+            write_read_and_check_random_blob(&client, data_length, false)
                 .await
                 .expect("workload should not fail");
 
@@ -164,7 +170,7 @@ mod tests {
         let _ = tokio::time::timeout(Duration::from_secs(60), async {
             loop {
                 // TODO(#995): use stress client for better coverage of the workload.
-                write_read_and_check_random_blob(&client, data_length)
+                write_read_and_check_random_blob(&client, data_length, false)
                     .await
                     .expect("workload should not fail");
 
@@ -206,6 +212,28 @@ mod tests {
 
             sui_simulator::task::kill_current_node(Some(restart_after));
         }
+    }
+
+    async fn get_nodes_health_info(nodes: &[&SimStorageNodeHandle]) -> Vec<ServiceHealthInfo> {
+        futures::future::join_all(
+            nodes
+                .iter()
+                .map(|node_handle| async {
+                    let client = walrus_sdk::client::Client::builder()
+                        .authenticate_with_public_key(node_handle.network_public_key.clone())
+                        // Disable proxy and root certs from the OS for tests.
+                        .no_proxy()
+                        .tls_built_in_root_certs(false)
+                        .build_for_remote_ip(node_handle.rest_api_address)
+                        .expect("create node client failed");
+                    client
+                        .get_server_health_info(true)
+                        .await
+                        .expect("getting server health info should succeed")
+                })
+                .collect::<Vec<_>>(),
+        )
+        .await
     }
 
     // Simulates node crash and restart with sim node id.
@@ -252,7 +280,7 @@ mod tests {
                 tracing::info!("writing data with size {}", data_length);
 
                 // TODO(#995): use stress client for better coverage of the workload.
-                write_read_and_check_random_blob(client_clone.as_ref(), data_length)
+                write_read_and_check_random_blob(client_clone.as_ref(), data_length, false)
                     .await
                     .expect("workload should not fail");
 
@@ -304,26 +332,8 @@ mod tests {
 
         tokio::time::sleep(Duration::from_secs(150)).await;
 
-        let node_health_info = futures::future::join_all(
-            walrus_cluster
-                .nodes
-                .iter()
-                .map(|node_handle| async {
-                    let client = walrus_sdk::client::Client::builder()
-                        .authenticate_with_public_key(node_handle.network_public_key.clone())
-                        // Disable proxy and root certs from the OS for tests.
-                        .no_proxy()
-                        .tls_built_in_root_certs(false)
-                        .build_for_remote_ip(node_handle.rest_api_address)
-                        .expect("create node client failed");
-                    client
-                        .get_server_health_info(true)
-                        .await
-                        .expect("getting server health info should succeed")
-                })
-                .collect::<Vec<_>>(),
-        )
-        .await;
+        let node_refs: Vec<&SimStorageNodeHandle> = walrus_cluster.nodes.iter().collect();
+        let node_health_info = get_nodes_health_info(&node_refs).await;
 
         assert!(node_health_info[0].shard_detail.is_some());
         for shard in &node_health_info[0].shard_detail.as_ref().unwrap().owned {
@@ -356,6 +366,164 @@ mod tests {
             }
         }
 
+        assert_eq!(
+            get_nodes_health_info(&[&walrus_cluster.nodes[0]])
+                .await
+                .get(0)
+                .unwrap()
+                .node_status,
+            "Active"
+        );
+
         workload_handle.abort();
+    }
+
+    fn repeatedly_crash_target_node(
+        target_node_id: sui_simulator::task::NodeId,
+        next_fail_triggered_clone: Arc<Mutex<Instant>>,
+        crash_end_time: Instant,
+    ) {
+        if Instant::now() > crash_end_time {
+            return;
+        }
+
+        if Instant::now() < *next_fail_triggered_clone.lock().unwrap() {
+            return;
+        }
+
+        let current_node = sui_simulator::current_simnode_id();
+        if target_node_id != current_node {
+            return;
+        }
+
+        let mut rng = rand::thread_rng();
+        let node_down_duration = Duration::from_secs(rng.gen_range(15..=65));
+        let next_crash_time =
+            Instant::now() + node_down_duration + Duration::from_secs(rng.gen_range(15..=45));
+
+        tracing::warn!(
+            "Crashing node {} for {:?} seconds. Next crash is set to {:?}",
+            current_node,
+            node_down_duration,
+            next_crash_time
+        );
+        sui_simulator::task::kill_current_node(Some(node_down_duration));
+        *next_fail_triggered_clone.lock().unwrap() = next_crash_time;
+    }
+
+    #[ignore = "ignore E2E tests by default"]
+    #[walrus_simtest]
+    async fn test_repeated_node_crash() {
+        let (_sui_cluster, walrus_cluster, client) =
+            test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
+                Duration::from_secs(20),
+                &[1, 2, 3, 3, 4],
+            )
+            .await
+            .unwrap();
+
+        let client_arc = Arc::new(client);
+        let client_clone = client_arc.clone();
+
+        let mut data_length = 64;
+        let workload_start_time = Instant::now();
+        loop {
+            if workload_start_time.elapsed() > Duration::from_secs(60) {
+                tracing::info!("Generated 60s of data. Stopping workload.");
+                break;
+            }
+            tracing::info!("writing data with size {}", data_length);
+
+            // TODO(#995): use stress client for better coverage of the workload.
+            write_read_and_check_random_blob(client_clone.as_ref(), data_length, true)
+                .await
+                .expect("workload should not fail");
+
+            tracing::info!("finish writing data with size {}", data_length);
+
+            data_length += 64;
+        }
+
+        let next_fail_triggered = Arc::new(Mutex::new(
+            tokio::time::Instant::now() + Duration::from_secs(70),
+        ));
+        let target_fail_node_id = walrus_cluster.nodes[0].node_id;
+        let next_fail_triggered_clone = next_fail_triggered.clone();
+        let crash_end_time = Instant::now() + Duration::from_secs(5 * 60);
+
+        // Trigger node crash during some DB access.
+        register_fail_points(
+            &[
+                "batch-write-before",
+                "batch-write-after",
+                "put-cf-before",
+                "put-cf-after",
+                "delete-cf-before",
+                "delete-cf-after",
+            ],
+            move || {
+                repeatedly_crash_target_node(
+                    target_fail_node_id,
+                    next_fail_triggered_clone.clone(),
+                    crash_end_time,
+                );
+            },
+        );
+
+        let shard_move_weight = rand::thread_rng().gen_range(3..=8);
+        tracing::info!(
+            "Triggering shard move with stake weight {}",
+            shard_move_weight
+        );
+
+        // Changes the stake of the crashed node so that it will gain some shards after the next
+        // epoch change. Note that the expectation is the node will be back only after more than
+        // 2 epoch changes, so that the node can be in a RecoveryInProgress state.
+        client_arc
+            .as_ref()
+            .as_ref()
+            .stake_with_node_pool(
+                walrus_cluster.nodes[0]
+                    .storage_node_capability
+                    .as_ref()
+                    .unwrap()
+                    .node_id,
+                test_cluster::FROST_PER_NODE_WEIGHT * shard_move_weight,
+            )
+            .await
+            .expect("stake with node pool should not fail");
+
+        tokio::time::sleep(Duration::from_secs(6 * 60)).await;
+
+        let mut last_persist_event_index = 0;
+        let mut last_persisted_event_time = Instant::now();
+        let start_time = Instant::now();
+        loop {
+            if start_time.elapsed() > Duration::from_secs(2 * 60) {
+                break;
+            }
+            let node_health_info = get_nodes_health_info(&[&walrus_cluster.nodes[0]]).await;
+            tracing::info!(
+                "ZZZZZZZ test queue potision {:?} {:?}",
+                node_health_info[0].event_progress.persisted,
+                node_health_info[0].event_progress.pending
+            );
+            if last_persist_event_index == node_health_info[0].event_progress.persisted {
+                assert!(last_persisted_event_time.elapsed() < Duration::from_secs(60));
+            } else {
+                last_persist_event_index = node_health_info[0].event_progress.persisted;
+                last_persisted_event_time = Instant::now();
+            }
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+
+        assert_eq!(
+            get_nodes_health_info(&[&walrus_cluster.nodes[0]])
+                .await
+                .get(0)
+                .unwrap()
+                .node_status,
+            "Active"
+        );
     }
 }

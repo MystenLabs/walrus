@@ -55,6 +55,7 @@ impl NodeRecoveryHandler {
                         tracing::debug!(%blob_id, %epoch, "skip non-certified blob");
                         continue;
                     }
+
                     if let Ok(stored_at_all_shards) = node.storage.is_stored_at_all_shards(&blob_id)
                     {
                         if stored_at_all_shards {
@@ -69,6 +70,7 @@ impl NodeRecoveryHandler {
                             "failed to check if blob is stored at all shards; start blob sync"
                         );
                     }
+
                     tracing::debug!(%blob_id, "start recovery sync for blob");
                     // TODO: rate limit start sync to avoid OOM.
                     let start_sync_result = blob_sync_handler
