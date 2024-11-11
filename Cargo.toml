@@ -72,7 +72,7 @@ syn = "2.0"
 telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.37.1" }
 tempfile = "3.14.0"
 test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.37.1" }
-thiserror = "1.0.67"
+thiserror = "2.0.3"
 tokio = "=1.38.1"
 tokio-stream = "0.1.16"
 tokio-util = "0.7.12"
