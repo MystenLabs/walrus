@@ -241,6 +241,9 @@ public(package) fun request_withdraw_stake(
     // if stake hasn't been activated yet, we mark it as withdrawing starting
     // its activation epoch before the committee selection.
     let (withdraw_epoch, token_amount) = if (staked_wal.activation_epoch() > wctx.epoch()) {
+        // only allow requesting if the stake is counted in; alternatively, user
+        // must withdraw directly
+        assert!(wctx.committee_selected() && staked_wal.activation_epoch() == wctx.epoch() + 1);
         let withdraw_epoch = staked_wal.activation_epoch() + 1;
         let token_amount = 0; // we don't know the token amount yet
 
