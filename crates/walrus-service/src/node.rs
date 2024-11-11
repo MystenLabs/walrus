@@ -3941,4 +3941,54 @@ mod tests {
 
         Ok(())
     }
+
+    // Tests that extending blob life time also extend blob's registration end time.
+    #[tokio::test]
+    async fn test_extend_blob_advance_registration() -> TestResult {
+        let _ = tracing_subscriber::fmt::try_init();
+
+        let (cluster, events, _blob_detail) =
+            cluster_with_initial_epoch_and_certified_blob(&[&[0]], &[], 1).await?;
+
+        let blob_details = EncodedBlob::new(BLOB, cluster.encoding_config());
+        events.send(
+            BlobRegistered {
+                end_epoch: 3,
+                ..BlobRegistered::for_testing(*blob_details.blob_id())
+            }
+            .into(),
+        )?;
+        store_at_shards(&blob_details, &cluster, |_, _| true).await?;
+        events.send(
+            BlobCertified {
+                end_epoch: 3,
+                ..BlobCertified::for_testing(*blob_details.blob_id())
+            }
+            .into(),
+        )?;
+
+        events.send(
+            BlobCertified {
+                end_epoch: 6,
+                is_extension: true,
+                ..BlobCertified::for_testing(*blob_details.blob_id())
+            }
+            .into(),
+        )?;
+
+        advance_cluster_to_epoch(&cluster, &[&events], 5).await?;
+
+        assert!(cluster.nodes[0]
+            .storage_node
+            .inner
+            .is_blob_certified(blob_details.blob_id())?);
+
+        // TODO: fix that blob registration is not extended when extending blob life time.
+        assert!(!cluster.nodes[0]
+            .storage_node
+            .inner
+            .is_blob_registered(blob_details.blob_id())?);
+
+        Ok(())
+    }
 }
