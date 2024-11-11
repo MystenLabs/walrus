@@ -3983,7 +3983,7 @@ mod tests {
             .inner
             .is_blob_certified(blob_details.blob_id())?);
 
-        // TODO: fix that blob registration is not extended when extending blob life time.
+        // TODO: fix that blob registration is not extended when extending blob life time (#1163).
         assert!(!cluster.nodes[0]
             .storage_node
             .inner
