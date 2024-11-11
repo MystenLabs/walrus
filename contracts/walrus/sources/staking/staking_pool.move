@@ -237,43 +237,41 @@ public(package) fun request_withdraw_stake(
     assert!(!pool.is_new());
     assert!(staked_wal.value() > 0);
     assert!(staked_wal.node_id() == pool.id.to_inner());
+    assert!(staked_wal.is_staked());
 
-    // if stake hasn't been activated yet, we mark it as withdrawing starting
-    // its activation epoch before the committee selection.
-    let (withdraw_epoch, token_amount) = if (staked_wal.activation_epoch() > wctx.epoch()) {
-        // only allow requesting if the stake is counted in; alternatively, user
-        // must withdraw directly
-        assert!(wctx.committee_selected() && staked_wal.activation_epoch() == wctx.epoch() + 1);
+    // early withdrawal request: only possible if activation epoch has not been
+    // reached, and the stake is already counted for the next committee selection
+    if (staked_wal.activation_epoch() > wctx.epoch()) {
+        // only allow requesting if the stake cannot be withdrawn directly
+        assert!(!staked_wal.can_withdraw_early(wctx));
+
         let withdraw_epoch = staked_wal.activation_epoch() + 1;
-        let token_amount = 0; // we don't know the token amount yet
-
         // register principal in the early withdrawals, the value will get converted to
         // the token amount in the `process_pending_stake` function
         pool.pending_early_withdrawals_mut().insert_or_add(withdraw_epoch, staked_wal.value());
-
-        (withdraw_epoch, token_amount)
-    } else {
-        // If the node is in the committee, the stake will be withdrawn in E+2,
-        // otherwise in E+1.
-        // TODO: add a check that the node is in the committee: `node_in_committee &&`
-        // let node_in_committee = wctx.committee().contains(pool.id.as_inner());
-        let withdraw_epoch = if (wctx.committee_selected()) {
-            wctx.epoch() + 2
-        } else {
-            wctx.epoch() + 1
-        };
-
-        let principal_amount = staked_wal.value();
-        let token_amount = pool
-            .exchange_rate_at_epoch(staked_wal.activation_epoch())
-            .get_token_amount(principal_amount);
-
-        pool.pending_pool_token_withdraw.insert_or_add(withdraw_epoch, token_amount);
-
-        (withdraw_epoch, token_amount)
+        staked_wal.set_withdrawing(withdraw_epoch, option::none());
+        return
     };
 
-    staked_wal.set_withdrawing(withdraw_epoch, token_amount);
+    assert!(staked_wal.activation_epoch() <= wctx.epoch());
+
+    // If the node is in the committee, the stake will be withdrawn in E+2,
+    // otherwise in E+1.
+    // TODO: add a check that the node is in the committee: `node_in_committee &&`
+    // let node_in_committee = wctx.committee().contains(pool.id.as_inner());
+    let withdraw_epoch = if (wctx.committee_selected()) {
+        wctx.epoch() + 2
+    } else {
+        wctx.epoch() + 1
+    };
+
+    let principal_amount = staked_wal.value();
+    let token_amount = pool
+        .exchange_rate_at_epoch(staked_wal.activation_epoch())
+        .get_token_amount(principal_amount);
+
+    pool.pending_pool_token_withdraw.insert_or_add(withdraw_epoch, token_amount);
+    staked_wal.set_withdrawing(withdraw_epoch, option::some(token_amount));
 }
 
 /// Perform the withdrawal of the staked WAL, returning the amount to the caller.
@@ -290,10 +288,7 @@ public(package) fun withdraw_stake(
 
     // early withdrawal in the case when committee before activation epoch hasn't
     // been selected. covers both E+1 and E+2 cases.
-    if (
-        activation_epoch > wctx.epoch() &&
-        (wctx.epoch().diff(activation_epoch) == 2 || !wctx.committee_selected())
-    ) {
+    if (staked_wal.can_withdraw_early(wctx)) {
         pool.pending_stake.reduce(activation_epoch, staked_wal.value());
         return staked_wal.into_balance()
     };
@@ -302,15 +297,16 @@ public(package) fun withdraw_stake(
     assert!(staked_wal.withdraw_epoch() <= wctx.epoch(), EWithdrawEpochNotReached);
     assert!(staked_wal.activation_epoch() <= wctx.epoch(), EActivationEpochNotReached);
 
-    // withdraw epoch and pool token amount are stored in the `StakedWal`
-    let mut token_amount = staked_wal.pool_token_amount();
-
-    // this is only possible if the stake was requested for withdrawal before
-    // its activation epoch. see `request_withdraw_stake` for the implementation
-    if (token_amount == 0) {
-        token_amount =
-            pool.exchange_rate_at_epoch(activation_epoch).get_token_amount(staked_wal.value());
-    };
+    // token amount is either set in the `StakedWal` or, in case of the early
+    // withdrawal, is calculated from the principal amount and the exchange rate
+    // at the activation epoch.
+    //
+    // note: macro `destroy_or!` is not evaluated if the value is `Some`
+    let token_amount = staked_wal
+        .pool_token_amount()
+        .destroy_or!(
+            pool.exchange_rate_at_epoch(activation_epoch).get_token_amount(staked_wal.value()),
+        );
 
     let withdraw_epoch = staked_wal.withdraw_epoch();
 

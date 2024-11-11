@@ -21,6 +21,8 @@ const ENonZeroPrincipal: u64 = 3;
 const ECantJoinWithdrawing: u64 = 4;
 // TODO: possibly enable this behavior in the future
 const ECantSplitWithdrawing: u64 = 5;
+/// Trying to mark stake as withdrawing when it is already marked as withdrawing.
+const EAlreadyWithdrawing: u64 = 6;
 
 /// The state of the staked WAL. It can be either `Staked` or `Withdrawing`.
 /// The `Withdrawing` state contains the epoch when the staked WAL can be
@@ -30,7 +32,7 @@ public enum StakedWalState has store, copy, drop {
     Staked,
     // The staked WAL is in the process of withdrawing. The value inside the
     // variant is the epoch when the staked WAL can be withdrawn.
-    Withdrawing { withdraw_epoch: u32, pool_token_amount: u64 },
+    Withdrawing { withdraw_epoch: u32, pool_token_amount: Option<u64> },
 }
 
 /// Represents a staked WAL, does not store the `Balance` inside, but uses
@@ -78,9 +80,44 @@ public(package) fun into_balance(sw: StakedWal): Balance<WAL> {
 public(package) fun set_withdrawing(
     sw: &mut StakedWal,
     withdraw_epoch: u32,
-    pool_token_amount: u64,
+    pool_token_amount: Option<u64>,
 ) {
+    assert!(sw.is_staked(), EAlreadyWithdrawing);
     sw.state = StakedWalState::Withdrawing { withdraw_epoch, pool_token_amount };
+}
+
+use walrus::walrus_context::WalrusContext;
+
+/// Checks if the staked WAL can be withdrawn directly.
+///
+/// The staked WAL can be withdrawn early if:
+/// - activation epoch is current epoch + 2
+/// - activation epoch is current epoch + 1 and committee hasn't been selected
+public(package) fun can_withdraw_early(sw: &StakedWal, wctx: &WalrusContext): bool {
+    let activation_epoch = sw.activation_epoch;
+    let current_epoch = wctx.epoch();
+    let is_withdrawing = sw.is_withdrawing();
+
+    // early return if stake is already active
+    if (activation_epoch <= current_epoch) {
+        return false
+    };
+
+    // if stake is to be applied in 2 epochs
+    if (!is_withdrawing && activation_epoch == current_epoch + 2) {
+        return true
+    };
+
+    // if stake is to be applied in the next epoch but committee hasn't been selected
+    if (
+        !is_withdrawing &&
+        sw.activation_epoch == current_epoch + 1 &&
+        !wctx.committee_selected()
+    ) {
+        return true
+    };
+
+    false
 }
 
 // === Accessors ===
@@ -117,7 +154,7 @@ public fun withdraw_epoch(sw: &StakedWal): u32 {
 
 /// Return the `withdraw_amount` of the staked WAL if it is in the `Withdrawing`.
 /// Aborts otherwise.
-public fun pool_token_amount(sw: &StakedWal): u64 {
+public fun pool_token_amount(sw: &StakedWal): Option<u64> {
     match (sw.state) {
         StakedWalState::Withdrawing { pool_token_amount, .. } => pool_token_amount,
         _ => abort ENotWithdrawing,
@@ -125,10 +162,6 @@ public fun pool_token_amount(sw: &StakedWal): u64 {
 }
 
 // === Public APIs ===
-
-// TODO: do we want to version them? And should we take precaution measures such
-//      as adding a `ctx` parameter for future extensions? What about versioning
-//      the staked WAL itself by adding a `version` field into the struct?
 
 /// Joins the staked WAL with another staked WAL, adding the `principal` of the
 /// `other` staked WAL to the current staked WAL.

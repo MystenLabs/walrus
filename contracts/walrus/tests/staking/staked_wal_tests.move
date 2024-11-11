@@ -50,7 +50,7 @@ fun test_unable_to_split_withdrawing() {
     let node_id = ctx.fresh_object_address().to_id();
     let mut staked_wal = staked_wal::mint(node_id, mint_balance(100), 1, ctx);
 
-    staked_wal.set_withdrawing(2, 100);
+    staked_wal.set_withdrawing(2, option::some(100));
     let _other = staked_wal.split(50, ctx);
 
     abort 1337
@@ -65,8 +65,8 @@ fun test_unable_to_join_withdrawing() {
     let mut staked_wal_a = staked_wal::mint(node_id, mint_balance(100), 1, ctx);
     let mut staked_wal_b = staked_wal::mint(node_id, mint_balance(100), 1, ctx);
 
-    staked_wal_a.set_withdrawing(2, 100);
-    staked_wal_b.set_withdrawing(2, 100);
+    staked_wal_a.set_withdrawing(2, option::some(100));
+    staked_wal_b.set_withdrawing(2, option::some(100));
     staked_wal_a.join(staked_wal_b);
 
     abort 1337
