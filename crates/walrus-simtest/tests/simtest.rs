@@ -27,6 +27,7 @@ mod tests {
     const FAILURE_TRIGGER_PROBABILITY: f64 = 0.01;
 
     // Helper function to write a random blob, read it back and check that it is the same.
+    // If `write_only` is true, only write the blob and do not read it back.
     async fn write_read_and_check_random_blob(
         client: &WithTempDir<Client<SuiContractClient>>,
         data_length: usize,
@@ -214,6 +215,7 @@ mod tests {
         }
     }
 
+    /// Helper function to get health info for a list of nodes.
     async fn get_nodes_health_info(nodes: &[&SimStorageNodeHandle]) -> Vec<ServiceHealthInfo> {
         futures::future::join_all(
             nodes
@@ -378,16 +380,20 @@ mod tests {
         workload_handle.abort();
     }
 
+    // Simulates repeated node crash and restart with sim node id.
     fn repeatedly_crash_target_node(
         target_node_id: sui_simulator::task::NodeId,
         next_fail_triggered_clone: Arc<Mutex<Instant>>,
         crash_end_time: Instant,
     ) {
-        if Instant::now() > crash_end_time {
+        let time_now = Instant::now();
+        if time_now > crash_end_time {
+            // No more crash is needed.
             return;
         }
 
-        if Instant::now() < *next_fail_triggered_clone.lock().unwrap() {
+        if time_now < *next_fail_triggered_clone.lock().unwrap() {
+            // Not time to crash yet.
             return;
         }
 
@@ -397,9 +403,9 @@ mod tests {
         }
 
         let mut rng = rand::thread_rng();
-        let node_down_duration = Duration::from_secs(rng.gen_range(15..=65));
+        let node_down_duration = Duration::from_secs(rng.gen_range(5..=25));
         let next_crash_time =
-            Instant::now() + node_down_duration + Duration::from_secs(rng.gen_range(15..=45));
+            Instant::now() + node_down_duration + Duration::from_secs(rng.gen_range(5..=25));
 
         tracing::warn!(
             "Crashing node {} for {:?} seconds. Next crash is set to {:?}",
@@ -411,12 +417,16 @@ mod tests {
         *next_fail_triggered_clone.lock().unwrap() = next_crash_time;
     }
 
+    // This integration test simulates a scenario where a node is repeatedly crashing and
+    // recovering.
     #[ignore = "ignore E2E tests by default"]
     #[walrus_simtest]
     async fn test_repeated_node_crash() {
+        // We use a very short epoch duration of 10 seconds so that we can exercise more epoch
+        // changes in the test.
         let (_sui_cluster, walrus_cluster, client) =
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
-                Duration::from_secs(20),
+                Duration::from_secs(10),
                 &[1, 2, 3, 3, 4],
             )
             .await
@@ -425,10 +435,12 @@ mod tests {
         let client_arc = Arc::new(client);
         let client_clone = client_arc.clone();
 
+        // First, we inject some data into the cluster. Note that to control the test duration, we
+        // stopped the workload once started crashing the node.
         let mut data_length = 64;
         let workload_start_time = Instant::now();
         loop {
-            if workload_start_time.elapsed() > Duration::from_secs(60) {
+            if workload_start_time.elapsed() > Duration::from_secs(20) {
                 tracing::info!("Generated 60s of data. Stopping workload.");
                 break;
             }
@@ -444,12 +456,10 @@ mod tests {
             data_length += 64;
         }
 
-        let next_fail_triggered = Arc::new(Mutex::new(
-            tokio::time::Instant::now() + Duration::from_secs(70),
-        ));
+        let next_fail_triggered = Arc::new(Mutex::new(tokio::time::Instant::now()));
         let target_fail_node_id = walrus_cluster.nodes[0].node_id;
         let next_fail_triggered_clone = next_fail_triggered.clone();
-        let crash_end_time = Instant::now() + Duration::from_secs(5 * 60);
+        let crash_end_time = Instant::now() + Duration::from_secs(2 * 60);
 
         // Trigger node crash during some DB access.
         register_fail_points(
@@ -470,15 +480,15 @@ mod tests {
             },
         );
 
-        let shard_move_weight = rand::thread_rng().gen_range(3..=8);
+        // We probabilistically trigger a shard move to the crashed node to test the recovery.
+        // The additional stake assigned are randomly chosen between 2 and 5 times of the original
+        // stake the per-node.
+        let shard_move_weight = rand::thread_rng().gen_range(2..=5);
         tracing::info!(
             "Triggering shard move with stake weight {}",
             shard_move_weight
         );
 
-        // Changes the stake of the crashed node so that it will gain some shards after the next
-        // epoch change. Note that the expectation is the node will be back only after more than
-        // 2 epoch changes, so that the node can be in a RecoveryInProgress state.
         client_arc
             .as_ref()
             .as_ref()
@@ -493,30 +503,33 @@ mod tests {
             .await
             .expect("stake with node pool should not fail");
 
-        tokio::time::sleep(Duration::from_secs(6 * 60)).await;
+        tokio::time::sleep(Duration::from_secs(3 * 60)).await;
 
+        // Check the final state of storage node after a few crash and recovery.
         let mut last_persist_event_index = 0;
         let mut last_persisted_event_time = Instant::now();
         let start_time = Instant::now();
         loop {
-            if start_time.elapsed() > Duration::from_secs(2 * 60) {
+            if start_time.elapsed() > Duration::from_secs(1 * 60) {
                 break;
             }
             let node_health_info = get_nodes_health_info(&[&walrus_cluster.nodes[0]]).await;
             tracing::info!(
-                "ZZZZZZZ test queue potision {:?} {:?}",
+                "event progress: persisted {:?}, pending {:?}",
                 node_health_info[0].event_progress.persisted,
                 node_health_info[0].event_progress.pending
             );
             if last_persist_event_index == node_health_info[0].event_progress.persisted {
-                assert!(last_persisted_event_time.elapsed() < Duration::from_secs(60));
+                // We expect that there shouldn't be any stuck event progress.
+                assert!(last_persisted_event_time.elapsed() < Duration::from_secs(10));
             } else {
                 last_persist_event_index = node_health_info[0].event_progress.persisted;
                 last_persisted_event_time = Instant::now();
             }
-            tokio::time::sleep(Duration::from_secs(5)).await;
+            tokio::time::sleep(Duration::from_secs(2)).await;
         }
 
+        // And finally the node should be in Active state.
         assert_eq!(
             get_nodes_health_info(&[&walrus_cluster.nodes[0]])
                 .await

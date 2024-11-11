@@ -549,6 +549,7 @@ impl Storage {
             .certified_blob_info_iter_before_epoch(epoch, std::ops::Bound::Unbounded)
     }
 
+    /// Returns the current event cursor.
     pub(crate) fn get_event_cursor_progress(&self) -> Result<EventProgress, TypedStoreError> {
         self.event_cursor.get_event_cursor_progress()
     }

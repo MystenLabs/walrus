@@ -101,7 +101,7 @@ impl EventCursorTable {
         })
     }
 
-    /// Returns the current event cursor and the next event index.
+    /// Returns the current event cursor.
     pub fn get_event_cursor_progress(&self) -> Result<EventProgress, TypedStoreError> {
         let count = self.get_sequentially_processed_event_count()?;
         Ok(EventProgress {

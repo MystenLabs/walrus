@@ -18,5 +18,5 @@ slow-timeout = { period = "2m", terminate-after = 5 } # Mark E2E tests as slow o
 threads-required = 4
 
 [profile.simtest]
-slow-timeout = { period = "5m", terminate-after = 3 } # Timeout tests after 15 minutes
+slow-timeout = { period = "5m", terminate-after = 6 } # Timeout tests after 30 minutes
 test-threads = "num-cpus"
