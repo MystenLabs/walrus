@@ -5,7 +5,7 @@
 module walrus::staking_pool;
 
 use std::string::String;
-use sui::{balance::{Self, Balance}, dynamic_field as df, table::{Self, Table}};
+use sui::{balance::{Self, Balance}, table::{Self, Table}};
 use wal::wal::WAL;
 use walrus::{
     messages,
@@ -91,6 +91,11 @@ public struct StakingPool has key, store {
     /// We use this amount to calculate the WAL withdrawal in the
     /// `process_pending_stake`.
     pending_pool_token_withdraw: PendingValues,
+    /// The amount of the stake requested for early withdrawal. Differs from the
+    /// `pending_pool_token_withdraw` as it stored principals of not yet active
+    /// stakes. Token amount for these principals is calculated via the exchange
+    /// rate at the activation epoch.
+    pending_early_withdrawals: PendingValues,
     /// The commission rate for the pool.
     /// TODO: allow changing the commission rate in E+2.
     commission_rate: u64,
@@ -130,7 +135,7 @@ public(package) fun new(
     wctx: &WalrusContext,
     ctx: &mut TxContext,
 ): StakingPool {
-    let mut id = object::new(ctx);
+    let id = object::new(ctx);
     let node_id = id.to_inner();
 
     // Verify proof of possession
@@ -153,9 +158,6 @@ public(package) fun new(
     let mut exchange_rates = table::new(ctx);
     exchange_rates.add(activation_epoch, pool_exchange_rate::empty());
 
-    // adds `PendingValues` for early withdrawals for each pool
-    df::add(&mut id, EarlyWithdrawalsKey(), pending_values::empty());
-
     StakingPool {
         id,
         state,
@@ -177,6 +179,7 @@ public(package) fun new(
         latest_epoch: wctx.epoch(),
         pending_stake: pending_values::empty(),
         pending_pool_token_withdraw: pending_values::empty(),
+        pending_early_withdrawals: pending_values::empty(),
         wal_balance: 0,
         pool_token_balance: 0,
         rewards_pool: balance::zero(),
@@ -248,7 +251,7 @@ public(package) fun request_withdraw_stake(
         let withdraw_epoch = staked_wal.activation_epoch() + 1;
         // register principal in the early withdrawals, the value will get converted to
         // the token amount in the `process_pending_stake` function
-        pool.pending_early_withdrawals_mut().insert_or_add(withdraw_epoch, staked_wal.value());
+        pool.pending_early_withdrawals.insert_or_add(withdraw_epoch, staked_wal.value());
         staked_wal.set_withdrawing(withdraw_epoch, option::none());
         return
     };
@@ -370,7 +373,7 @@ public(package) fun process_pending_stake(pool: &mut StakingPool, wctx: &WalrusC
     // flush it one by one, recalculating the exchange rate and pool token amount
     // for each early withdrawal epoch.
     let mut early_token_withdraw = 0;
-    let mut pending_early_withdrawals = (*pool.pending_early_withdrawals_mut()).unwrap();
+    let mut pending_early_withdrawals = pool.pending_early_withdrawals.unwrap();
     pending_early_withdrawals.keys().do!(|epoch| if (epoch <= current_epoch) {
         let (_, epoch_value) = pending_early_withdrawals.remove(&epoch);
         let token_value_for_epoch = pool
@@ -381,7 +384,7 @@ public(package) fun process_pending_stake(pool: &mut StakingPool, wctx: &WalrusC
     });
 
     // don't forget to flush the early withdrawals since we worked on a copy
-    let _ = pool.pending_early_withdrawals_mut().flush(current_epoch);
+    let _ = pool.pending_early_withdrawals.flush(current_epoch);
 
     // do the withdrawals reduction for both
     let token_withdraw = pool.pending_pool_token_withdraw.flush(wctx.epoch());
@@ -567,13 +570,4 @@ public(package) fun is_empty(pool: &StakingPool): bool {
     let non_empty = pending_stake.keys().count!(|epoch| pending_stake[epoch] != 0);
 
     pool.wal_balance == 0 && non_empty == 0 && pool.pool_token_balance == 0
-}
-
-// === Private functions ===
-
-public struct EarlyWithdrawalsKey() has store, drop, copy;
-
-/// Returns the early withdrawal amount for the pool.
-fun pending_early_withdrawals_mut(pool: &mut StakingPool): &mut PendingValues {
-    df::borrow_mut(&mut pool.id, EarlyWithdrawalsKey())
 }

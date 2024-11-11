@@ -11,6 +11,7 @@ module walrus::staked_wal;
 
 use sui::balance::Balance;
 use wal::wal::WAL;
+use walrus::walrus_context::WalrusContext;
 
 // Keep errors in `walrus-sui/types/move_errors.rs` up to date with changes here.
 const ENotWithdrawing: u64 = 0;
@@ -86,8 +87,6 @@ public(package) fun set_withdrawing(
     sw.state = StakedWalState::Withdrawing { withdraw_epoch, pool_token_amount };
 }
 
-use walrus::walrus_context::WalrusContext;
-
 /// Checks if the staked WAL can be withdrawn directly.
 ///
 /// The staked WAL can be withdrawn early if:
@@ -99,25 +98,13 @@ public(package) fun can_withdraw_early(sw: &StakedWal, wctx: &WalrusContext): bo
     let is_withdrawing = sw.is_withdrawing();
 
     // early return if stake is already active
-    if (activation_epoch <= current_epoch) {
+    if (activation_epoch <= current_epoch || is_withdrawing) {
         return false
     };
 
     // if stake is to be applied in 2 epochs
-    if (!is_withdrawing && activation_epoch == current_epoch + 2) {
-        return true
-    };
-
-    // if stake is to be applied in the next epoch but committee hasn't been selected
-    if (
-        !is_withdrawing &&
-        sw.activation_epoch == current_epoch + 1 &&
-        !wctx.committee_selected()
-    ) {
-        return true
-    };
-
-    false
+    activation_epoch == current_epoch + 2 ||
+    (sw.activation_epoch == current_epoch + 1 && !wctx.committee_selected())
 }
 
 // === Accessors ===
