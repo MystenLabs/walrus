@@ -3951,9 +3951,13 @@ mod tests {
         Ok(())
     }
 
-    // Tests that extending blob life time also extend blob's registration end time.
-    #[tokio::test]
-    async fn test_extend_blob_advance_registration() -> TestResult {
+    async_param_test! {
+        test_extend_blob_also_extends_registration -> TestResult: [
+            permanent: (false),
+            deletable: (true),
+        ]
+    }
+    async fn test_extend_blob_also_extends_registration(deletable: bool) -> TestResult {
         let _ = tracing_subscriber::fmt::try_init();
 
         let (cluster, events, _blob_detail) =
@@ -3963,6 +3967,7 @@ mod tests {
         events.send(
             BlobRegistered {
                 end_epoch: 3,
+                deletable,
                 ..BlobRegistered::for_testing(*blob_details.blob_id())
             }
             .into(),
@@ -3971,6 +3976,7 @@ mod tests {
         events.send(
             BlobCertified {
                 end_epoch: 3,
+                deletable,
                 ..BlobCertified::for_testing(*blob_details.blob_id())
             }
             .into(),
@@ -3980,6 +3986,7 @@ mod tests {
             BlobCertified {
                 end_epoch: 6,
                 is_extension: true,
+                deletable,
                 ..BlobCertified::for_testing(*blob_details.blob_id())
             }
             .into(),
@@ -3992,8 +3999,7 @@ mod tests {
             .inner
             .is_blob_certified(blob_details.blob_id())?);
 
-        // TODO: fix that blob registration is not extended when extending blob life time (#1163).
-        assert!(!cluster.nodes[0]
+        assert!(cluster.nodes[0]
             .storage_node
             .inner
             .is_blob_registered(blob_details.blob_id())?);
