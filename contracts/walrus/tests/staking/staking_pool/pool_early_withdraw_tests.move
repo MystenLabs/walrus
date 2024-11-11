@@ -71,7 +71,7 @@ fun withdraw_processing_at_different_epochs() {
     pool.request_withdraw_stake(&mut bob, &wctx);
     assert!(bob.activation_epoch() > wctx.epoch());
     assert_eq!(pool.wal_balance_at_epoch(E1), 1000);
-    assert_eq!(bob.pool_token_amount(), 0);
+    assert!(bob.pool_token_amount().is_none());
     assert_eq!(bob.withdraw_epoch(), E2);
 
     // Charlie stakes after committee selection, stake applied E+2
@@ -93,7 +93,7 @@ fun withdraw_processing_at_different_epochs() {
     pool.request_withdraw_stake(&mut dave, &wctx);
     assert_eq!(dave.activation_epoch(), E2);
     assert_eq!(dave.withdraw_epoch(), E3);
-    assert_eq!(dave.pool_token_amount(), 0);
+    assert!(dave.pool_token_amount().is_none());
 
     // E2: Bob withdraws his stake
     let (wctx, _ctx) = test.next_epoch();
