@@ -217,10 +217,7 @@ mod tests {
         }
     }
 
-<<<<<<< HEAD
     /// Helper function to get health info for a list of nodes.
-=======
->>>>>>> 0e49f73 (repeated crash recovery epoch change test)
     async fn get_nodes_health_info(nodes: &[&SimStorageNodeHandle]) -> Vec<ServiceHealthInfo> {
         futures::future::join_all(
             nodes
