@@ -15,13 +15,13 @@ use committee::{BeginCommitteeChangeError, EndCommitteeChangeError};
 use config::EventProviderConfig;
 use epoch_change_driver::EpochChangeDriver;
 use fastcrypto::traits::KeyPair;
-use futures::{stream, Stream, StreamExt, TryFutureExt};
+use futures::{stream, Stream, StreamExt, TryFutureExt as _};
 use node_recovery::NodeRecoveryHandler;
 use prometheus::Registry;
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use serde::Serialize;
 use start_epoch_change_finisher::StartEpochChangeFinisher;
-use sui_types::{digests::TransactionDigest, event::EventID};
+use system_events::{CompletableHandle, EventHandle};
 use tokio::{select, sync::watch, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{field, Instrument, Span};
@@ -77,7 +77,7 @@ use walrus_sui::{
 };
 
 use self::{
-    blob_sync::{BlobSyncHandler, EventInfo},
+    blob_sync::BlobSyncHandler,
     committee::{CommitteeService, NodeCommitteeService},
     config::{StorageNodeConfig, SuiConfig},
     contract_service::{SuiSystemContractService, SystemContractService},
@@ -504,7 +504,7 @@ impl StorageNode {
                 Err(err) => return Err(err),
             },
             _ = cancel_token.cancelled() => {
-                self.blob_sync_handler.cancel_all().await?;
+                self.blob_sync_handler.cancel_all_for_shutdown().await?;
             },
         }
 
@@ -559,6 +559,11 @@ impl StorageNode {
         // invariant violations and interference between different events. See, for example,
         // `BlobSyncHandler::cancel_sync_and_mark_event_complete`.
         while let Some((element_index, stream_element)) = indexed_element_stream.next().await {
+            let event_handle = EventHandle::new(
+                element_index,
+                stream_element.element.event_id(),
+                self.inner.clone(),
+            );
             let node_status = self.inner.storage.node_status()?;
             let span = tracing::info_span!(
                 parent: &Span::current(),
@@ -602,7 +607,7 @@ impl StorageNode {
                 }
             }
 
-            self.process_event(element_index, stream_element)
+            self.process_event(event_handle, stream_element)
                 .inspect_err(|err| {
                     let span = tracing::Span::current();
                     span.record("otel.status_code", "error");
@@ -618,7 +623,7 @@ impl StorageNode {
     #[tracing::instrument(skip_all)]
     async fn process_event(
         &self,
-        element_index: usize,
+        event_handle: EventHandle,
         stream_element: IndexedStreamElement,
     ) -> anyhow::Result<()> {
         let _timer_guard = &self
@@ -629,50 +634,47 @@ impl StorageNode {
             .start_timer();
         match stream_element.element {
             EventStreamElement::ContractEvent(ContractEvent::BlobEvent(blob_event)) => {
-                self.process_blob_event(element_index, blob_event).await?;
+                self.process_blob_event(event_handle, blob_event).await?;
             }
             EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
                 epoch_change_event,
             )) => {
-                self.process_epoch_change_event(element_index, epoch_change_event)
+                self.process_epoch_change_event(event_handle, epoch_change_event)
                     .await?;
             }
             EventStreamElement::CheckpointBoundary => {
-                self.inner.mark_element_at_index(element_index)?;
+                event_handle.mark_as_complete();
             }
         }
-        Ok::<(), anyhow::Error>(())
+        Ok(())
     }
 
     #[tracing::instrument(skip_all)]
     async fn process_blob_event(
         &self,
-        element_index: usize,
+        event_handle: EventHandle,
         blob_event: BlobEvent,
     ) -> anyhow::Result<()> {
         self.inner
             .storage
-            .update_blob_info(element_index, &blob_event)?;
+            .update_blob_info(event_handle.index(), &blob_event)?;
         match blob_event {
             BlobEvent::Registered(event) => {
                 tracing::debug!("BlobRegistered event received: {:?}", event);
-                self.inner
-                    .mark_event_completed(element_index, &event.event_id)?;
+                event_handle.mark_as_complete();
             }
             BlobEvent::Certified(event) => {
                 tracing::debug!("BlobCertified event received: {:?}", event);
-                self.process_blob_certified_event(element_index, event)
+                self.process_blob_certified_event(event_handle, event)
                     .await?;
             }
             BlobEvent::Deleted(event) => {
                 tracing::debug!("BlobDeleted event received: {:?}", event);
-                self.process_blob_deleted_event(element_index, event)
-                    .await?;
+                self.process_blob_deleted_event(event_handle, event).await?;
             }
             BlobEvent::InvalidBlobID(event) => {
                 tracing::debug!("BlobInvalid event received: {:?}", event);
-                self.process_blob_invalid_event(element_index, event)
-                    .await?;
+                self.process_blob_invalid_event(event_handle, event).await?;
             }
         }
         Ok(())
@@ -681,7 +683,7 @@ impl StorageNode {
     #[tracing::instrument(skip_all)]
     async fn process_epoch_change_event(
         &self,
-        element_index: usize,
+        event_handle: EventHandle,
         epoch_change_event: EpochChangeEvent,
     ) -> anyhow::Result<()> {
         match epoch_change_event {
@@ -692,33 +694,29 @@ impl StorageNode {
                 self.epoch_change_driver.schedule_initiate_epoch_change(
                     NonZero::new(event.next_epoch).expect("the next epoch is always non-zero"),
                 );
-                self.inner
-                    .mark_event_completed(element_index, &event.event_id)?;
+                event_handle.mark_as_complete();
             }
             EpochChangeEvent::EpochChangeStart(event) => {
                 tracing::info!(
                     "EpochChangeStart event received: {:?}. Index: {:?}",
                     event,
-                    element_index
+                    event_handle.index(),
                 );
-                self.process_epoch_change_start_event(element_index, &event)
+                self.process_epoch_change_start_event(event_handle, &event)
                     .await?;
             }
             EpochChangeEvent::EpochChangeDone(event) => {
                 tracing::info!("EpochChangeDone event received: {:?}", event);
                 self.process_epoch_change_done_event(&event).await?;
-                self.inner
-                    .mark_event_completed(element_index, &event.event_id)?;
+                event_handle.mark_as_complete();
             }
             EpochChangeEvent::ShardsReceived(event) => {
-                tracing::info!("ShardsReceived event received: {:?}", event);
-                self.inner
-                    .mark_event_completed(element_index, &event.event_id)?;
+                tracing::debug!("ShardsReceived event received: {:?}", event);
+                event_handle.mark_as_complete();
             }
             EpochChangeEvent::ShardRecoveryStart(event) => {
-                tracing::info!("ShardRecoveryStart event received: {:?}", event);
-                self.inner
-                    .mark_event_completed(element_index, &event.event_id)?;
+                tracing::debug!("ShardRecoveryStart event received: {:?}", event);
+                event_handle.mark_as_complete();
             }
         }
         Ok(())
@@ -736,7 +734,7 @@ impl StorageNode {
     #[tracing::instrument(skip_all)]
     async fn process_blob_certified_event(
         &self,
-        event_index: usize,
+        event_handle: EventHandle,
         event: BlobCertified,
     ) -> anyhow::Result<()> {
         let start = tokio::time::Instant::now();
@@ -747,8 +745,7 @@ impl StorageNode {
             || self.inner.current_epoch() >= event.end_epoch
             || self.inner.storage.node_status()? == NodeStatus::RecoveryCatchUp
         {
-            self.inner
-                .mark_event_completed(event_index, &event.event_id)?;
+            event_handle.mark_as_complete();
 
             metrics::with_label!(histogram_set, metrics::STATUS_SKIPPED)
                 .observe(start.elapsed().as_secs_f64());
@@ -758,15 +755,7 @@ impl StorageNode {
 
         // Slivers and (possibly) metadata are not stored, so initiate blob sync.
         self.blob_sync_handler
-            .start_sync(
-                event.blob_id,
-                event.epoch,
-                Some(EventInfo {
-                    event_id: event.event_id,
-                    event_index,
-                }),
-                start,
-            )
+            .start_sync(event.blob_id, event.epoch, Some(event_handle), start)
             .await?;
 
         Ok(())
@@ -775,7 +764,7 @@ impl StorageNode {
     #[tracing::instrument(skip_all)]
     async fn process_blob_deleted_event(
         &self,
-        event_index: usize,
+        event_handle: EventHandle,
         event: BlobDeleted,
     ) -> anyhow::Result<()> {
         let blob_id = event.blob_id;
@@ -802,8 +791,7 @@ impl StorageNode {
             tracing::warn!(%blob_id, "handling `BlobDeleted` event for untracked blob");
         }
 
-        self.inner
-            .mark_event_completed(event_index, &event.event_id)?;
+        event_handle.mark_as_complete();
 
         Ok(())
     }
@@ -811,22 +799,22 @@ impl StorageNode {
     #[tracing::instrument(skip_all)]
     async fn process_blob_invalid_event(
         &self,
-        event_index: usize,
+        event_handle: EventHandle,
         event: InvalidBlobId,
     ) -> anyhow::Result<()> {
         self.blob_sync_handler
             .cancel_sync_and_mark_event_complete(&event.blob_id)
             .await?;
         self.inner.storage.delete_blob(&event.blob_id, false)?;
-        self.inner
-            .mark_event_completed(event_index, &event.event_id)?;
+
+        event_handle.mark_as_complete();
         Ok(())
     }
 
     #[tracing::instrument(skip_all)]
     async fn process_epoch_change_start_event(
         &self,
-        element_index: usize,
+        event_handle: EventHandle,
         event: &EpochChangeStart,
     ) -> anyhow::Result<()> {
         // Irrespective of whether we are in this epoch, we can cancel any scheduled calls to change
@@ -841,15 +829,12 @@ impl StorageNode {
                 .committee_service
                 .begin_committee_change_to_latest_committee()
                 .await?;
-
-            let mut need_to_mark_event_complete = true;
             if event.epoch == self.inner.current_epoch() {
                 tracing::info!(
                     epoch = %event.epoch,
                     "processing event reaches the latest epoch, start recover entire node"
                 );
-                need_to_mark_event_complete =
-                    self.start_node_recovery(element_index, event).await?;
+                self.start_node_recovery(event_handle, event).await?;
             } else {
                 tracing::info!(
                     event_epoch = %event.epoch,
@@ -857,16 +842,11 @@ impl StorageNode {
                     "epoch change start event reaches new epoch that is still lagging" );
             }
 
-            if need_to_mark_event_complete {
-                self.inner
-                    .mark_event_completed(element_index, &event.event_id)?;
-            }
             return Ok(());
         }
 
         if !self.begin_committee_change(event.epoch).await? {
-            self.inner
-                .mark_event_completed(element_index, &event.event_id)?;
+            event_handle.mark_as_complete();
             return Ok(());
         }
 
@@ -875,17 +855,16 @@ impl StorageNode {
             .cancel_all_expired_syncs_and_mark_events_completed()
             .await?;
 
-        self.process_shard_changes_in_new_epoch(element_index, event)
+        self.process_shard_changes_in_new_epoch(event_handle, event)
             .await
     }
 
     /// Starts the node recovery process.
-    /// Returns `true` if the caller should mark the event complete.
     async fn start_node_recovery(
         &self,
-        element_index: usize,
+        event_handle: EventHandle,
         event: &EpochChangeStart,
-    ) -> anyhow::Result<bool> {
+    ) -> anyhow::Result<()> {
         self.inner
             .set_node_status(NodeStatus::RecoveryInProgress(event.epoch))?;
 
@@ -921,16 +900,17 @@ impl StorageNode {
         if !shard_diff.removed.is_empty() {
             self.start_epoch_change_finisher
                 .start_finish_epoch_change_tasks(
-                    element_index,
+                    event_handle,
                     event,
                     shard_diff.removed.clone(),
                     committees,
                     true,
                 );
-            return Ok(false);
+        } else {
+            event_handle.mark_as_complete();
         }
 
-        Ok(true)
+        Ok(())
     }
 
     /// Initiates a committee transition to a new epoch.
@@ -982,11 +962,11 @@ impl StorageNode {
         }
     }
 
-    /// Returns true if the caller should mark the event complete.
+    /// Processes all the shard changes in the new epoch.
     #[tracing::instrument(skip_all)]
     async fn process_shard_changes_in_new_epoch(
         &self,
-        element_index: usize,
+        event_handle: EventHandle,
         event: &EpochChangeStart,
     ) -> anyhow::Result<()> {
         let public_key = self.inner.public_key();
@@ -1037,7 +1017,7 @@ impl StorageNode {
 
         self.start_epoch_change_finisher
             .start_finish_epoch_change_tasks(
-                element_index,
+                event_handle,
                 event,
                 shard_diff.removed.clone(),
                 committees,
@@ -1137,30 +1117,6 @@ impl StorageNodeInner {
 
         metrics::with_label!(self.metrics.event_cursor_progress, "persisted").set(persisted);
 
-        Ok(())
-    }
-
-    #[tracing::instrument(skip_all)]
-    fn mark_event_completed(
-        &self,
-        event_index: usize,
-        cursor: &EventID,
-    ) -> Result<(), TypedStoreError> {
-        let EventProgress { persisted, pending } = self
-            .storage
-            .maybe_advance_event_cursor(event_index, cursor)?;
-
-        let event_cursor_progress = &self.metrics.event_cursor_progress;
-        metrics::with_label!(event_cursor_progress, STATUS_PERSISTED).add(persisted);
-        metrics::with_label!(event_cursor_progress, STATUS_PENDING).set(pending);
-
-        Ok(())
-    }
-
-    #[tracing::instrument(skip_all)]
-    fn mark_element_at_index(&self, element_index: usize) -> Result<(), TypedStoreError> {
-        let event_id = EventID::from((TransactionDigest::random(), 0));
-        self.mark_event_completed(element_index, &event_id)?;
         Ok(())
     }
 
@@ -2612,7 +2568,13 @@ mod tests {
         })
         .await?;
 
-        assert_eq!(node.storage_node.blob_sync_handler.cancel_all().await?, 0);
+        assert_eq!(
+            node.storage_node
+                .blob_sync_handler
+                .cancel_all_for_shutdown()
+                .await?,
+            0
+        );
 
         Ok(())
     }

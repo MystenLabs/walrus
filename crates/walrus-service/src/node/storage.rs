@@ -201,7 +201,7 @@ impl Storage {
         self.node_status.insert(&(), &status)
     }
 
-    /// Returns the storage for the specified shard, creating it if it does not exist.
+    /// Creates the storage for the specified shards, if it does not exist yet.
     pub(crate) fn create_storage_for_shards(
         &self,
         new_shards: &[ShardIndex],
@@ -1064,8 +1064,7 @@ pub(crate) mod tests {
         storage
             .inner
             .database
-            .create_cf(&primary_cfs.0, &primary_cfs.1)
-            .unwrap();
+            .create_cf(&primary_cfs.0, &primary_cfs.1)?;
         assert!(
             !ShardStorage::existing_shards(storage.temp_dir.path(), &Options::default())
                 .contains(&test_shard_index)
@@ -1076,8 +1075,7 @@ pub(crate) mod tests {
         storage
             .inner
             .database
-            .create_cf(&secondary_cfs.0, &secondary_cfs.1)
-            .unwrap();
+            .create_cf(&secondary_cfs.0, &secondary_cfs.1)?;
         assert!(
             ShardStorage::existing_shards(storage.temp_dir.path(), &Options::default())
                 .contains(&test_shard_index)
@@ -1193,10 +1191,7 @@ pub(crate) mod tests {
             HashMap::new();
         for shard in [ShardIndex(3), ShardIndex(5)] {
             // TODO: call create storage once with the list of storages.
-            storage
-                .as_mut()
-                .create_storage_for_shards(&[shard])
-                .unwrap();
+            storage.as_mut().create_storage_for_shards(&[shard])?;
             let shard_storage = storage.as_ref().shard_storage(shard).unwrap();
             data.insert(shard, HashMap::new());
             for blob in blob_ids.iter() {
@@ -1254,10 +1249,7 @@ pub(crate) mod tests {
             count,
             1,
         );
-        let response = storage
-            .as_ref()
-            .handle_sync_shard_request(&request, 1)
-            .unwrap();
+        let response = storage.as_ref().handle_sync_shard_request(&request, 1)?;
 
         let SyncShardResponse::V1(slivers) = response;
         let expected_response = expected_blob_index_in_response

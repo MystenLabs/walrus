@@ -12,8 +12,8 @@ use walrus_core::ShardIndex;
 use walrus_sui::types::EpochChangeStart;
 use walrus_utils::backoff::{self, ExponentialBackoff};
 
-use super::StorageNodeInner;
-use crate::common::active_committees::ActiveCommittees;
+use super::{system_events::EventHandle, StorageNodeInner};
+use crate::{common::active_committees::ActiveCommittees, node::system_events::CompletableHandle};
 
 #[derive(Debug, Clone)]
 pub struct StartEpochChangeFinisher {
@@ -32,13 +32,14 @@ impl StartEpochChangeFinisher {
     }
 
     /// Starts background tasks to finish the epoch change.
-    /// This includes:
-    ///    - Sending epoch sync done if there is no newly scheduled shard syncs.
-    ///    - Removing no longer owned storage for shards.
-    ///    - Marking the event as completed.
+    ///
+    /// This includes the following:
+    /// - Sending epoch sync done if there is no newly scheduled shard syncs.
+    /// - Removing no longer owned storage for shards.
+    /// - Marking the event as completed.
     pub fn start_finish_epoch_change_tasks(
         &self,
-        event_element: usize,
+        event_handle: EventHandle,
         event: &EpochChangeStart,
         shards: Vec<ShardIndex>,
         committees: ActiveCommittees,
@@ -46,7 +47,6 @@ impl StartEpochChangeFinisher {
     ) {
         let self_clone = self.clone();
         let event_clone = event.clone();
-        let committees_clone = committees.clone();
 
         let mut locked_task_handle = self.task_handle.lock().unwrap();
         assert!(locked_task_handle.is_none());
@@ -66,25 +66,24 @@ impl StartEpochChangeFinisher {
 
             let result = backoff::retry(backoff, || async {
                 if !ongoing_shard_sync {
-                    self_clone
-                        .epoch_sync_done(&committees_clone, &event_clone)
-                        .await;
+                    self_clone.epoch_sync_done(&committees, &event_clone).await;
                 }
                 self_clone
                     .remove_storage_for_shards(event_clone.clone(), &shards.clone())
                     .await?;
-                self_clone
-                    .node
-                    .mark_event_completed(event_element, &event_clone.event_id)
+                anyhow::Ok(())
             })
             .await;
 
             if let Err(err) = result {
+                // Question(mlegner): What should we do with the event in this case?
                 tracing::error!(
                     epoch = %event_clone.epoch,
                     error = %err,
                     "failed to finish epoch change start tasks",
                 );
+            } else {
+                event_handle.mark_as_complete();
             }
 
             self_clone

@@ -2042,12 +2042,9 @@ pub fn empty_storage_with_shards(shards: &[ShardIndex]) -> WithTempDir<Storage> 
     let storage = Storage::open(temp_dir.path(), db_config, MetricConf::default())
         .expect("storage creation must succeed");
 
-    for shard in shards {
-        // TODO: call create_storage_for_shards once use the list of shards.
-        storage
-            .create_storage_for_shards(&[*shard])
-            .expect("shard should be successfully created");
-    }
+    storage
+        .create_storage_for_shards(shards)
+        .expect("should be able to create storage for shards");
 
     WithTempDir {
         inner: storage,

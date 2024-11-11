@@ -1,19 +1,21 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! System events observed by the storage node.
+//! Walrus events observed by the storage node.
 
-use std::{any::Any, sync::Arc, time::Duration};
+use std::{any::Any, sync::Arc, thread, time::Duration};
 
 use anyhow::Error;
 use async_trait::async_trait;
 use futures::StreamExt;
 use futures_util::stream;
+use sui_types::{digests::TransactionDigest, event::EventID};
 use tokio::time::MissedTickBehavior;
 use tokio_stream::Stream;
+use walrus_sdk::api::EventProgress;
 use walrus_sui::client::{ReadClient, SuiReadClient};
 
-use super::config::SuiConfig;
+use super::{config::SuiConfig, metrics, StorageNodeInner, STATUS_PENDING, STATUS_PERSISTED};
 use crate::node::events::{
     event_processor::EventProcessor,
     EventSequenceNumber,
@@ -23,6 +25,134 @@ use crate::node::events::{
 
 /// The capacity of the event channel.
 pub const EVENT_CHANNEL_CAPACITY: usize = 1024;
+
+/// Represents a Walrus event and the obligation to completely process that event.
+///
+/// A function that obtains an `EventHandle` must do one of the following:
+///
+/// 1. Completely handle the event and use the handle to mark it as complete.
+/// 2. Pass the `EventHandle` on to a different function, which takes over responsibility to handle
+///    the event.
+/// 3. Return the `EventHandle` to the caller and let them retry/finish handling the event.
+/// 4. If none of the above are possible, the event can never be processed, so the node should
+///    panic. This can happen through a direct panic or by returning an error that is then
+///    propagated through the call stack.
+///
+/// The `EventHandle` should not be dropped before calling `is_marked_as_complete`; otherwise, it
+/// logs an error when it is dropped.
+#[derive(Debug)]
+#[must_use]
+// Important: Don't derive or implement `Clone` or `Copy`; every event should have a single handle
+// that is passed around until it is completely handled or the thread panics.
+pub(super) struct EventHandle {
+    index: usize,
+    event_id: EventID,
+    node: Arc<StorageNodeInner>,
+    can_be_dropped: bool,
+}
+
+impl EventHandle {
+    const EVENT_ID_FOR_CHECKPOINT_EVENTS: EventID = EventID {
+        tx_digest: TransactionDigest::ZERO,
+        event_seq: 0,
+    };
+
+    pub fn new(index: usize, event_id: Option<EventID>, node: Arc<StorageNodeInner>) -> Self {
+        Self {
+            index,
+            event_id: event_id.unwrap_or(Self::EVENT_ID_FOR_CHECKPOINT_EVENTS),
+            node,
+            can_be_dropped: false,
+        }
+    }
+
+    pub fn index(&self) -> usize {
+        self.index
+    }
+
+    pub fn event_id(&self) -> EventID {
+        self.event_id
+    }
+
+    fn mark_as_complete(mut self) {
+        tracing::trace!(
+            index = self.index,
+            event_id = ?self.event_id,
+            "marking event as complete",
+        );
+        let EventProgress { persisted, pending } = self
+            .node
+            .storage
+            .maybe_advance_event_cursor(self.index, &self.event_id)
+            .expect("DB operations should succeed");
+
+        let event_cursor_progress = &self.node.metrics.event_cursor_progress;
+        metrics::with_label!(event_cursor_progress, STATUS_PERSISTED).add(persisted);
+        metrics::with_label!(event_cursor_progress, STATUS_PENDING).set(pending);
+        self.can_be_dropped = true;
+    }
+}
+
+impl Drop for EventHandle {
+    fn drop(&mut self) {
+        if self.can_be_dropped {
+            return;
+        }
+
+        if thread::panicking() {
+            tracing::trace!(
+                index = self.index,
+                event_id = ?self.event_id,
+                "event handle dropped during panic",
+            );
+        } else {
+            tracing::error!(
+                index = self.index,
+                event_id = ?self.event_id,
+                "event handle dropped before being marked as complete",
+            );
+            // Panic in tests if an event handle is dropped.
+            debug_assert!(
+                self.can_be_dropped,
+                "event handle dropped before being marked as complete; event ID: {:?}, index: {}",
+                self.event_id, self.index,
+            );
+        }
+    }
+}
+
+pub(super) trait CompletableHandle {
+    /// This marks the handle as complete.
+    fn mark_as_complete(self);
+
+    /// This explicitly marks the handle as incomplete, for example during shutdown, such that no
+    /// error is logged when it is dropped.
+    fn mark_as_incomplete_during_shutdown(self);
+}
+
+impl CompletableHandle for EventHandle {
+    fn mark_as_complete(self) {
+        self.mark_as_complete();
+    }
+
+    fn mark_as_incomplete_during_shutdown(mut self) {
+        self.can_be_dropped = true;
+    }
+}
+
+impl CompletableHandle for Option<EventHandle> {
+    fn mark_as_complete(self) {
+        if let Some(handle) = self {
+            handle.mark_as_complete();
+        }
+    }
+
+    fn mark_as_incomplete_during_shutdown(self) {
+        if let Some(handle) = self {
+            handle.mark_as_incomplete_during_shutdown();
+        }
+    }
+}
 
 /// A [`SystemEventProvider`] that uses a [`SuiReadClient`] to fetch events.
 #[derive(Debug, Clone)]
