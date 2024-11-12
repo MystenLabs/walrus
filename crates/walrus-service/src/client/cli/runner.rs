@@ -385,15 +385,10 @@ impl ClientCommandRunner {
 
     pub(crate) async fn publisher(self, registry: &Registry, args: PublisherArgs) -> Result<()> {
         args.print_debug_message("attempting to run the Walrus publisher");
-        let config = &self.config?;
-        let sui_contract_client = config
-            .new_contract_client(self.wallet?, self.gas_budget)
-            .await?;
-
         let client = ClientMultiplexer::new(
             args.n_clients,
-            sui_contract_client,
-            config,
+            self.wallet?,
+            &self.config?,
             self.gas_budget,
             args.refill_interval,
             registry,

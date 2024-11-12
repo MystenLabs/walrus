@@ -39,22 +39,18 @@ pub struct ClientMultiplexer {
 impl ClientMultiplexer {
     pub async fn new(
         n_clients: usize,
-        contract_client: SuiContractClient,
+        wallet: WalletContext,
         config: &Config,
         gas_budget: u64,
         refill_interval: Duration,
         prometheus_registry: &Registry,
     ) -> anyhow::Result<Self> {
+        let sui_env = wallet.config.get_active_env()?.clone();
+        let contract_client = config.new_contract_client(wallet, gas_budget).await?;
+
         let sui_client = contract_client.sui_client().clone();
         let sui_read_client = contract_client.read_client.clone();
         let read_client = Client::new_read_client(config.clone(), sui_read_client).await?;
-
-        let sui_env = contract_client
-            .wallet()
-            .await
-            .config
-            .get_active_env()?
-            .clone();
 
         let system_pkg_id = get_system_package_id(&sui_client, config.system_object).await?;
         let refiller = Refiller::new(
