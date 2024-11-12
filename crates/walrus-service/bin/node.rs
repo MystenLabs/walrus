@@ -418,6 +418,7 @@ mod commands {
         )?;
 
         monitor_runtimes(
+            metrics_runtime,
             node_runtime,
             event_processor_runtime,
             exit_listener,
@@ -429,6 +430,7 @@ mod commands {
 
     #[cfg(not(msim))]
     fn monitor_runtimes(
+        mut metrics_runtime: MetricsAndLoggingRuntime,
         mut node_runtime: StorageNodeRuntime,
         mut event_processor_runtime: EventProcessorRuntime,
         exit_listener: oneshot::Receiver<()>,
@@ -438,6 +440,7 @@ mod commands {
         monitor_runtime.block_on(async {
             tokio::spawn(async move {
                 let mut set = JoinSet::new();
+                set.spawn_blocking(move || metrics_runtime.join());
                 set.spawn_blocking(move || node_runtime.join());
                 set.spawn_blocking(move || event_processor_runtime.join());
                 tokio::select! {
@@ -462,12 +465,14 @@ mod commands {
 
     #[cfg(msim)]
     fn monitor_runtimes(
+        mut metrics_runtime: MetricsAndLoggingRuntime,
         mut node_runtime: StorageNodeRuntime,
         mut event_processor_runtime: EventProcessorRuntime,
         exit_listener: oneshot::Receiver<()>,
         cancel_token: CancellationToken,
     ) -> anyhow::Result<()> {
         let monitor_runtime = Runtime::new()?;
+        metrics_runtime.join()?;
         monitor_runtime.block_on(async {
             tokio::spawn(async move { wait_until_terminated(exit_listener).await }).await
         })?;
