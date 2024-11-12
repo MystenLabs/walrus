@@ -70,10 +70,10 @@ futures.workspace = true
 futures-util.workspace = true
 git-version.workspace = true
 home.workspace = true
-humantime = { workspace = true }
+humantime.workspace = true
 indoc = { workspace = true, optional = true }
 integer-encoding.workspace = true
-itertools = { workspace = true }
+itertools.workspace = true
 mime = { workspace = true, optional = true }
 move-core-types.workspace = true
 mysten-metrics = { workspace = true, optional = true }

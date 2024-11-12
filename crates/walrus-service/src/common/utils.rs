@@ -25,12 +25,7 @@ use fastcrypto::{
 };
 use futures::future::FusedFuture;
 use pin_project::pin_project;
-<<<<<<< HEAD
-use prometheus::{HistogramVec, Registry};
-=======
 use prometheus::{Encoder, HistogramVec, Registry};
-use rand::{rngs::StdRng, Rng, SeedableRng};
->>>>>>> a1ee98a (remove dedicated runtime for metrics push and integrate into MetricsAndLoggingRuntime)
 use serde::{
     de::{DeserializeOwned, Error},
     Deserialize,
@@ -62,11 +57,9 @@ use walrus_sui::utils::SuiNetwork;
 use super::active_committees::ActiveCommittees;
 use crate::node::config::MetricsConfig;
 
-/// Defines a constant containing the version consisting of the package version
-/// and git revision.
+/// Defines a constant containing the version consisting of the package version and git revision.
 ///
-/// We are using a macro as placing this logic into a library can result in
-/// unnecessary builds.
+/// We are using a macro as placing this logic into a library can result in unnecessary builds.
 #[macro_export]
 macro_rules! version {
     () => {{
@@ -235,8 +228,8 @@ where
     path_with_resolved_home_dir(path).map_err(D::Error::custom)
 }
 
-/// Can be used to deserialize optional paths such that the `~` is resolved to
-/// the user's home directory.
+/// Can be used to deserialize optional paths such that the `~` is resolved to the user's home
+/// directory.
 pub fn resolve_home_dir_option<'de, D>(deserializer: D) -> Result<Option<PathBuf>, D::Error>
 where
     D: Deserializer<'de>,
@@ -364,8 +357,8 @@ fn create_push_client() -> reqwest::Client {
         .expect("unable to build client")
 }
 
-/// Responsible for sending data to walrus-proxy, used within the async
-/// scope of MetricPushRuntime::start.
+/// Responsible for sending data to walrus-proxy, used within the async scope of
+/// MetricPushRuntime::start.
 async fn push_metrics(
     network_key_pair: Arc<Secp256r1KeyPair>,
     client: &reqwest::Client,
@@ -374,8 +367,7 @@ async fn push_metrics(
 ) -> Result<(), anyhow::Error> {
     info!(push_url =% push_url, "pushing metrics to remote");
 
-    // now represents a collection timestamp for all of the metrics we send to the
-    // proxy.
+    // now represents a collection timestamp for all of the metrics we send to the proxy.
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -448,11 +440,11 @@ pub(crate) struct ShardDiff {
 
 impl ShardDiff {
     /// Returns a new `ShardDiff` when moving from the allocation in
-    /// `committees.previous_committee()` to `committees.current_committee()`
-    /// for the node identified by the provided public key.
-    /// `exist` is the list of shards that the node currently holds, which is
-    /// used to find out the shards that are no longer needed in the node
-    /// and can be removed.
+    /// `committees.previous_committee()` to `committees.current_committee()` for the node
+    /// identified by the provided public key.
+    ///
+    /// `exist` is the list of shards that the node currently holds, which is used to find out the
+    /// shards that are no longer needed in the node and can be removed.
     pub fn diff_previous(
         committees: &ActiveCommittees,
         exist: &[ShardIndex],
@@ -467,8 +459,7 @@ impl ShardDiff {
         Self::diff(from, to, exist)
     }
 
-    /// Returns a new `ShardDiff` when moving from the allocation in `from` to
-    /// `to`.
+    /// Returns a new `ShardDiff` when moving from the allocation in `from` to `to`.
     pub fn diff(from: &[ShardIndex], to: &[ShardIndex], exist: &[ShardIndex]) -> ShardDiff {
         let from: HashSet<ShardIndex> = from.iter().copied().collect();
         let to: HashSet<ShardIndex> = to.iter().copied().collect();
@@ -486,8 +477,7 @@ impl ShardDiff {
     }
 }
 
-/// Returns the path if it is `Some` or any of the default paths if they exist
-/// (attempt in order).
+/// Returns the path if it is `Some` or any of the default paths if they exist (attempt in order).
 pub fn path_or_defaults_if_exist(path: &Option<PathBuf>, defaults: &[PathBuf]) -> Option<PathBuf> {
     tracing::debug!(?path, ?defaults, "looking for configuration file");
     let mut path = path.clone();
@@ -502,10 +492,10 @@ pub fn path_or_defaults_if_exist(path: &Option<PathBuf>, defaults: &[PathBuf]) -
 
 /// Loads the wallet context from the given path.
 ///
-/// If no path is provided, tries to load the configuration first from the local
-/// folder, and then from the standard Sui configuration directory.
-// NB: When making changes to the logic, make sure to update the argument docs
-// in `crates/walrus-service/bin/client.rs`.
+/// If no path is provided, tries to load the configuration first from the local folder, and then
+/// from the standard Sui configuration directory.
+// NB: When making changes to the logic, make sure to update the argument docs in
+// `crates/walrus-service/bin/client.rs`.
 pub fn load_wallet_context(path: &Option<PathBuf>) -> Result<WalletContext> {
     let mut default_paths = vec!["./sui_config.yaml".into()];
     if let Some(home_dir) = home::home_dir() {
@@ -517,8 +507,8 @@ pub fn load_wallet_context(path: &Option<PathBuf>) -> Result<WalletContext> {
     WalletContext::new(&path, None, None)
 }
 
-/// Generates a new Sui wallet for the specified network at the specified path
-/// and attempts to fund it through the faucet.
+/// Generates a new Sui wallet for the specified network at the specified path and attempts to fund
+/// it through the faucet.
 pub async fn generate_sui_wallet(
     sui_network: SuiNetwork,
     path: &Path,
@@ -555,8 +545,7 @@ pub async fn generate_sui_wallet(
 
 /// Provides approximate parsing of human-friendly byte values.
 ///
-/// Values are calculated as floating points and the resulting number of bytes
-/// is rounded down.
+/// Values are calculated as floating points and the resulting number of bytes is rounded down.
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub struct ByteCount(pub u64);
 
@@ -596,8 +585,7 @@ impl FromStr for ByteCount {
                 .map(|value| ByteCount((value * scale).floor() as u64))
                 .with_context(error_context)
         } else {
-            // Otherwise, assume unittless.
-            // Bytes cannot have fractional components
+            // Otherwise, assume unittless. Bytes cannot have fractional components
             u64::from_str(s.trim())
                 .map(ByteCount)
                 .with_context(error_context)
@@ -606,8 +594,7 @@ impl FromStr for ByteCount {
 }
 
 /// Export the walrus binary version.
-// TODO(jsmith): Once the cli logic is moved within the package, this should be
-// crate-visible
+// TODO(jsmith): Once the cli logic is moved within the package, this should be crate-visible.
 pub fn export_build_info(registry: &Registry, version: &'static str) {
     let opts = prometheus::opts!("walrus_build_info", "Walrus binary info");
     let metric = prometheus::register_int_gauge_vec_with_registry!(opts, &["version"], registry)
@@ -618,10 +605,8 @@ pub fn export_build_info(registry: &Registry, version: &'static str) {
         .set(1);
 }
 
-/// Export information about the contract to which the storage nodes are
-/// communicating.
-// TODO(jsmith): Once the cli logic is moved within the package, this should be
-// crate-visible
+/// Export information about the contract to which the storage nodes are communicating.
+// TODO(jsmith): Once the cli logic is moved within the package, this should be crate-visible.
 pub fn export_contract_info(
     registry: &Registry,
     system_object: &ObjectID,
@@ -692,8 +677,7 @@ pub fn init_tracing_subscriber() -> Result<()> {
     Ok(())
 }
 
-/// Initializes the logger and tracing subscriber as the subscriber for the
-/// current scope.
+/// Initializes the logger and tracing subscriber as the subscriber for the current scope.
 pub fn init_scoped_tracing_subscriber() -> Result<DefaultGuard> {
     let guard = prepare_subscriber()?.set_default();
     tracing::debug!("initialized scoped tracing subscriber");
