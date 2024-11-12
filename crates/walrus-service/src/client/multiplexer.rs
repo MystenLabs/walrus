@@ -149,7 +149,7 @@ impl WriteClientPool {
         refiller: &Refiller<G>,
     ) -> anyhow::Result<Self> {
         tracing::info!(%n_clients, "creating write client pool");
-        let pool = SubClientBuilder::new(config, sub_wallets_dir, sui_env, gas_budget, refiller)
+        let pool = SubClientLoader::new(config, sub_wallets_dir, sui_env, gas_budget, refiller)
             .create_or_load_sub_clients(n_clients)
             .await?;
 
@@ -182,7 +182,7 @@ impl WriteClientPool {
 }
 
 /// Helper struct to build or load sub clients for the client multiplexer.
-struct SubClientBuilder<'a, G> {
+struct SubClientLoader<'a, G> {
     config: &'a Config,
     sub_wallets_dir: &'a Path,
     sui_env: SuiEnv,
@@ -190,7 +190,7 @@ struct SubClientBuilder<'a, G> {
     refiller: &'a Refiller<G>,
 }
 
-impl<'a, G: CoinRefill> SubClientBuilder<'a, G> {
+impl<'a, G: CoinRefill> SubClientLoader<'a, G> {
     fn new(
         config: &'a Config,
         sub_wallets_dir: &'a Path,
