@@ -23,27 +23,15 @@ use tracing::Instrument as _;
 use walrus_core::{
     bft,
     encoding::{
-        self,
-        EncodingAxis,
-        Primary,
-        RecoverySymbol as RecoverySymbolData,
-        Secondary,
-        SliverData,
-        SliverRecoveryOrVerificationError,
-        SliverVerificationError,
+        self, EncodingAxis, Primary, RecoverySymbol as RecoverySymbolData, Secondary, SliverData,
+        SliverRecoveryOrVerificationError, SliverVerificationError,
     },
     inconsistency::{InconsistencyProof, SliverOrInconsistencyProof},
     merkle::MerkleProof,
     messages::{CertificateError, InvalidBlobCertificate, InvalidBlobIdAttestation},
     metadata::VerifiedBlobMetadataWithId,
-    BlobId,
-    Epoch,
-    InconsistencyProof as InconsistencyProofEnum,
-    RecoverySymbol,
-    ShardIndex,
-    Sliver,
-    SliverPairIndex,
-    SliverType,
+    BlobId, Epoch, InconsistencyProof as InconsistencyProofEnum, RecoverySymbol, ShardIndex,
+    Sliver, SliverPairIndex, SliverType,
 };
 use walrus_sui::types::Committee;
 use walrus_utils::backoff::ExponentialBackoffState;

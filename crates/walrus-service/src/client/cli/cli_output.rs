@@ -14,31 +14,16 @@ use walrus_sui::types::Blob;
 
 use crate::client::{
     cli::{
-        error,
-        format_event_id,
-        success,
-        thousands_separator,
-        HumanReadableBytes,
-        HumanReadableFrost,
-        HumanReadableMist,
+        error, format_event_id, success, thousands_separator, HumanReadableBytes,
+        HumanReadableFrost, HumanReadableMist,
     },
     resource::RegisterBlobOp,
     responses::{
-        BlobIdConversionOutput,
-        BlobIdOutput,
-        BlobStatusOutput,
-        DeleteOutput,
-        DryRunOutput,
-        ExampleBlobInfo,
-        ExchangeOutput,
-        InfoDevOutput,
-        InfoOutput,
-        ReadOutput,
-        StakeOutput,
+        BlobIdConversionOutput, BlobIdOutput, BlobStatusOutput, DeleteOutput, DryRunOutput,
+        ExampleBlobInfo, ExchangeOutput, InfoDevOutput, InfoOutput, ReadOutput, StakeOutput,
         WalletOutput,
     },
-    string_prefix,
-    BlobStoreResult,
+    string_prefix, BlobStoreResult,
 };
 
 /// Trait to differentiate output depending on the output mode.

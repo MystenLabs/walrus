@@ -17,16 +17,9 @@ use super::extract::BcsRejection;
 use crate::{
     common::api::RestApiError,
     node::{
-        errors::InvalidEpochError,
-        BlobStatusError,
-        ComputeStorageConfirmationError,
-        InconsistencyProofError,
-        RetrieveMetadataError,
-        RetrieveSliverError,
-        RetrieveSymbolError,
-        StoreMetadataError,
-        StoreSliverError,
-        SyncShardServiceError,
+        errors::InvalidEpochError, BlobStatusError, ComputeStorageConfirmationError,
+        InconsistencyProofError, RetrieveMetadataError, RetrieveSliverError, RetrieveSymbolError,
+        StoreMetadataError, StoreSliverError, SyncShardServiceError,
     },
     rest_api_error,
 };

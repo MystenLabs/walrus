@@ -12,12 +12,7 @@ use walrus_core::{
     encoding::{EncodingAxis, EncodingConfig, SliverData, SliverPair},
     messages::SignedStorageConfirmation,
     metadata::VerifiedBlobMetadataWithId,
-    BlobId,
-    Epoch,
-    PublicKey,
-    ShardIndex,
-    Sliver,
-    SliverPairIndex,
+    BlobId, Epoch, PublicKey, ShardIndex, Sliver, SliverPairIndex,
 };
 use walrus_sdk::{
     api::{BlobStatus, StoredOnNodeStatus},

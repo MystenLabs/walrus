@@ -33,15 +33,8 @@ use walrus_core::{
     merkle::MerkleProof,
     messages::InvalidBlobCertificate,
     metadata::VerifiedBlobMetadataWithId,
-    BlobId,
-    Epoch,
-    InconsistencyProof as InconsistencyProofEnum,
-    NetworkPublicKey,
-    PublicKey,
-    ShardIndex,
-    Sliver,
-    SliverPairIndex,
-    SliverType,
+    BlobId, Epoch, InconsistencyProof as InconsistencyProofEnum, NetworkPublicKey, PublicKey,
+    ShardIndex, Sliver, SliverPairIndex, SliverType,
 };
 use walrus_sdk::client::Client;
 use walrus_sui::{
@@ -49,13 +42,8 @@ use walrus_sui::{
     test_utils::{system_setup::SystemContext, TestClusterHandle},
     types::{
         move_structs::{EpochState, VotingParams},
-        Committee,
-        ContractEvent,
-        NetworkAddress,
-        NodeRegistrationParams,
-        StorageNode as SuiStorageNode,
-        StorageNodeCap,
-        GENESIS_EPOCH,
+        Committee, ContractEvent, NetworkAddress, NodeRegistrationParams,
+        StorageNode as SuiStorageNode, StorageNodeCap, GENESIS_EPOCH,
     },
 };
 use walrus_test_utils::WithTempDir;
@@ -66,12 +54,8 @@ use crate::{
     common::active_committees::ActiveCommittees,
     node::{
         committee::{
-            BeginCommitteeChangeError,
-            CommitteeLookupService,
-            CommitteeService,
-            DefaultNodeServiceFactory,
-            EndCommitteeChangeError,
-            NodeCommitteeService,
+            BeginCommitteeChangeError, CommitteeLookupService, CommitteeService,
+            DefaultNodeServiceFactory, EndCommitteeChangeError, NodeCommitteeService,
         },
         config::{EventProviderConfig, StorageNodeConfig},
         contract_service::SystemContractService,
@@ -84,9 +68,7 @@ use crate::{
         },
         server::{UserServer, UserServerConfig},
         system_events::{EventManager, EventRetentionManager, SystemEventProvider},
-        DatabaseConfig,
-        Storage,
-        StorageNode,
+        DatabaseConfig, Storage, StorageNode,
     },
 };
 
@@ -1727,12 +1709,9 @@ pub mod test_cluster {
         test_utils::{
             self,
             system_setup::{
-                create_and_init_system_for_test,
-                end_epoch_zero,
-                register_committee_and_stake,
+                create_and_init_system_for_test, end_epoch_zero, register_committee_and_stake,
             },
-            TestClusterHandle,
-            DEFAULT_GAS_BUDGET,
+            TestClusterHandle, DEFAULT_GAS_BUDGET,
         },
     };
 

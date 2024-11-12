@@ -32,11 +32,7 @@ use walrus_core::keys::{NetworkKeyPair, ProtocolKeyPair};
 use walrus_service::{
     node::{
         config::{
-            self,
-            defaults::REST_API_PORT,
-            EventProviderConfig,
-            StorageNodeConfig,
-            SuiConfig,
+            self, defaults::REST_API_PORT, EventProviderConfig, StorageNodeConfig, SuiConfig,
         },
         events::{event_processor::EventProcessor, EventProcessorConfig},
         server::{UserServer, UserServerConfig},
@@ -44,12 +40,7 @@ use walrus_service::{
         StorageNode,
     },
     utils::{
-        self,
-        version,
-        ByteCount,
-        EnableMetricsPush,
-        LoadConfig as _,
-        MetricsAndLoggingRuntime,
+        self, version, ByteCount, EnableMetricsPush, LoadConfig as _, MetricsAndLoggingRuntime,
     },
 };
 use walrus_sui::{
@@ -365,14 +356,16 @@ mod commands {
             walrus.node.network_key = %network_key_pair.as_ref().public(),
             "walrus network key",
         );
-        let mp_config = config.metrics_push.take().map(|mp_config| EnableMetricsPush {
-            cancel: cancel_token.child_token(),
-            network_key_pair: network_key_pair.0.clone(),
-            config: mp_config,
-        });
-    
-        let metrics_runtime =
-            MetricsAndLoggingRuntime::start(config.metrics_address, mp_config)?;
+        let mp_config = config
+            .metrics_push
+            .take()
+            .map(|mp_config| EnableMetricsPush {
+                cancel: cancel_token.child_token(),
+                network_key_pair: network_key_pair.0.clone(),
+                config: mp_config,
+            });
+
+        let metrics_runtime = MetricsAndLoggingRuntime::start(config.metrics_address, mp_config)?;
         let registry_clone = metrics_runtime.registry.clone();
         metrics_runtime.runtime.spawn(async move {
             registry_clone

@@ -3,22 +3,15 @@
 
 use utoipa::{
     openapi::{schema::Schema, RefOr},
-    PartialSchema,
-    ToSchema,
+    PartialSchema, ToSchema,
 };
 use walrus_core::{
     messages::{SignedMessage, StorageConfirmation},
-    SliverPairIndex,
-    SliverType,
+    SliverPairIndex, SliverType,
 };
 use walrus_sdk::api::{
-    BlobStatus,
-    ServiceHealthInfo,
-    ShardHealthInfo,
-    ShardStatus,
-    ShardStatusDetail,
-    ShardStatusSummary,
-    StoredOnNodeStatus,
+    BlobStatus, ServiceHealthInfo, ShardHealthInfo, ShardStatus, ShardStatusDetail,
+    ShardStatusSummary, StoredOnNodeStatus,
 };
 
 use super::routes;

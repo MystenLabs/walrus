@@ -10,9 +10,7 @@ use std::{
 use futures::{
     future::try_join_all,
     stream::{self, FuturesUnordered},
-    FutureExt as _,
-    StreamExt,
-    TryFutureExt,
+    FutureExt as _, StreamExt, TryFutureExt,
 };
 use mysten_metrics::{GaugeGuard, GaugeGuardFutureExt};
 use sui_types::event::EventID;
@@ -27,10 +25,7 @@ use typed_store::TypedStoreError;
 use walrus_core::{
     encoding::{EncodingAxis, EncodingConfig, Primary, Secondary},
     metadata::VerifiedBlobMetadataWithId,
-    BlobId,
-    Epoch,
-    InconsistencyProof,
-    ShardIndex,
+    BlobId, Epoch, InconsistencyProof, ShardIndex,
 };
 
 use super::{

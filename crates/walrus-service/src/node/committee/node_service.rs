@@ -30,14 +30,8 @@ use walrus_core::{
     keys::ProtocolKeyPair,
     messages::InvalidBlobIdAttestation,
     metadata::VerifiedBlobMetadataWithId,
-    BlobId,
-    Epoch,
-    InconsistencyProof as InconsistencyProofEnum,
-    PublicKey,
-    ShardIndex,
-    Sliver,
-    SliverPairIndex,
-    SliverType,
+    BlobId, Epoch, InconsistencyProof as InconsistencyProofEnum, PublicKey, ShardIndex, Sliver,
+    SliverPairIndex, SliverType,
 };
 use walrus_sdk::{
     client::Client,

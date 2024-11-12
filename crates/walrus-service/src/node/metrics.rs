@@ -3,14 +3,7 @@
 
 use prometheus::{
     core::{AtomicU64, GenericGauge, GenericGaugeVec},
-    Histogram,
-    HistogramVec,
-    IntCounter,
-    IntCounterVec,
-    IntGauge,
-    IntGaugeVec,
-    Opts,
-    Registry,
+    Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Opts, Registry,
 };
 pub(crate) use telemetry::with_label;
 use walrus_sui::types::{BlobCertified, BlobEvent, ContractEvent, EpochChangeEvent};

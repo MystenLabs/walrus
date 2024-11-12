@@ -28,8 +28,7 @@ use pin_project::pin_project;
 use prometheus::{Encoder, HistogramVec, Registry};
 use serde::{
     de::{DeserializeOwned, Error},
-    Deserialize,
-    Deserializer,
+    Deserialize, Deserializer,
 };
 use serde_json;
 use sui_sdk::wallet_context::WalletContext;
@@ -47,8 +46,7 @@ use tracing_subscriber::{
     filter::Filtered,
     layer::{Layered, SubscriberExt as _},
     util::SubscriberInitExt,
-    EnvFilter,
-    Layer,
+    EnvFilter, Layer,
 };
 use uuid::Uuid;
 use walrus_core::{PublicKey, ShardIndex};
@@ -313,7 +311,8 @@ impl MetricsAndLoggingRuntime {
 
                 let push_registry = walrus_registry.clone();
                 let metric_push_handle = tokio::spawn(async move {
-                    let mut interval = tokio::time::interval(mp_config.config.push_interval_seconds);
+                    let mut interval =
+                        tokio::time::interval(mp_config.config.push_interval_seconds);
                     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                     let mut client = create_push_client();
                     info!("starting metrics push to {}", &mp_config.config.push_url);

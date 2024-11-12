@@ -16,19 +16,9 @@ use rand::{rngs::StdRng, Rng, SeedableRng};
 use tokio::sync::{watch, Mutex as TokioMutex};
 use tower::ServiceExt as _;
 use walrus_core::{
-    encoding::EncodingConfig,
-    ensure,
-    keys::ProtocolKeyPair,
-    merkle::MerkleProof,
-    messages::InvalidBlobCertificate,
-    metadata::VerifiedBlobMetadataWithId,
-    BlobId,
-    Epoch,
-    InconsistencyProof as InconsistencyProofEnum,
-    PublicKey,
-    ShardIndex,
-    Sliver,
-    SliverPairIndex,
+    encoding::EncodingConfig, ensure, keys::ProtocolKeyPair, merkle::MerkleProof,
+    messages::InvalidBlobCertificate, metadata::VerifiedBlobMetadataWithId, BlobId, Epoch,
+    InconsistencyProof as InconsistencyProofEnum, PublicKey, ShardIndex, Sliver, SliverPairIndex,
     SliverType,
 };
 use walrus_sui::types::Committee;
@@ -36,24 +26,16 @@ use walrus_sui::types::Committee;
 use super::{
     node_service::{NodeService, NodeServiceError, RemoteStorageNode, Request, Response},
     request_futures::{GetAndVerifyMetadata, GetInvalidBlobCertificate, RecoverSliver},
-    BeginCommitteeChangeError,
-    CommitteeLookupService,
-    CommitteeService,
-    DefaultNodeServiceFactory,
-    EndCommitteeChangeError,
-    NodeServiceFactory,
+    BeginCommitteeChangeError, CommitteeLookupService, CommitteeService, DefaultNodeServiceFactory,
+    EndCommitteeChangeError, NodeServiceFactory,
 };
 use crate::{
     common::active_committees::{
-        ActiveCommittees,
-        ChangeNotInProgress,
-        CommitteeTracker,
-        NextCommitteeAlreadySet,
+        ActiveCommittees, ChangeNotInProgress, CommitteeTracker, NextCommitteeAlreadySet,
         StartChangeError,
     },
     node::{
-        config::CommitteeServiceConfig,
-        errors::SyncShardClientError,
+        config::CommitteeServiceConfig, errors::SyncShardClientError,
         metrics::CommitteeServiceMetricSet,
     },
 };
