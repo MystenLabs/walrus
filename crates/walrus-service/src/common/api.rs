@@ -21,10 +21,17 @@ use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt as _;
 use utoipa::{
     openapi::{
-        schema, ContentBuilder, ObjectBuilder, RefOr, Response as OpenApiResponse, ResponseBuilder,
-        ResponsesBuilder, Schema,
+        schema,
+        ContentBuilder,
+        ObjectBuilder,
+        RefOr,
+        Response as OpenApiResponse,
+        ResponseBuilder,
+        ResponsesBuilder,
+        Schema,
     },
-    PartialSchema, ToSchema,
+    PartialSchema,
+    ToSchema,
 };
 use walrus_core::BlobId;
 use walrus_sdk::error::ServiceError;

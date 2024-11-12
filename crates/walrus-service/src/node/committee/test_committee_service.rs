@@ -24,7 +24,13 @@ use walrus_core::{
     merkle::MerkleProof,
     messages::InvalidBlobIdMsg,
     metadata::VerifiedBlobMetadataWithId,
-    Epoch, InconsistencyProof, PublicKey, RecoverySymbol, SliverIndex, SliverPairIndex, SliverType,
+    Epoch,
+    InconsistencyProof,
+    PublicKey,
+    RecoverySymbol,
+    SliverIndex,
+    SliverPairIndex,
+    SliverType,
 };
 use walrus_sdk::error::ClientBuildError;
 use walrus_sui::types::{Committee, StorageNode as SuiStorageNode};
@@ -37,7 +43,9 @@ use crate::{
         committee::{
             committee_service::NodeCommitteeService,
             node_service::{NodeServiceError, Request, Response},
-            CommitteeLookupService, CommitteeService, NodeServiceFactory,
+            CommitteeLookupService,
+            CommitteeService,
+            NodeServiceFactory,
         },
         config::CommitteeServiceConfig,
     },

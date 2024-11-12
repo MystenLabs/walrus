@@ -32,7 +32,11 @@ use walrus_core::keys::{NetworkKeyPair, ProtocolKeyPair};
 use walrus_service::{
     node::{
         config::{
-            self, defaults::REST_API_PORT, EventProviderConfig, StorageNodeConfig, SuiConfig,
+            self,
+            defaults::REST_API_PORT,
+            EventProviderConfig,
+            StorageNodeConfig,
+            SuiConfig,
         },
         events::{event_processor::EventProcessor, EventProcessorConfig},
         server::{UserServer, UserServerConfig},
@@ -40,7 +44,12 @@ use walrus_service::{
         StorageNode,
     },
     utils::{
-        self, version, ByteCount, EnableMetricsPush, LoadConfig as _, MetricsAndLoggingRuntime,
+        self,
+        version,
+        ByteCount,
+        EnableMetricsPush,
+        LoadConfig as _,
+        MetricsAndLoggingRuntime,
     },
 };
 use walrus_sui::{

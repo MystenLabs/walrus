@@ -17,7 +17,8 @@ use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
 use walrus_core::{
     encoding::{encoded_blob_length_for_n_shards, EncodingConfig, Primary},
-    BlobId, EpochCount,
+    BlobId,
+    EpochCount,
 };
 use walrus_sui::{
     client::{BlobPersistence, ContractClient, ReadClient},
@@ -25,23 +26,45 @@ use walrus_sui::{
 };
 
 use super::args::{
-    CliCommands, DaemonArgs, DaemonCommands, FileOrBlobId, FileOrBlobIdOrObjectId, PublisherArgs,
+    CliCommands,
+    DaemonArgs,
+    DaemonCommands,
+    FileOrBlobId,
+    FileOrBlobIdOrObjectId,
+    PublisherArgs,
     RpcArg,
 };
 use crate::{
     client::{
         cli::{
-            get_contract_client, get_read_client, get_sui_read_client_from_rpc_node_or_wallet,
-            load_configuration, read_blob_from_file, success, BlobIdDecimal, CliOutput,
+            get_contract_client,
+            get_read_client,
+            get_sui_read_client_from_rpc_node_or_wallet,
+            load_configuration,
+            read_blob_from_file,
+            success,
+            BlobIdDecimal,
+            CliOutput,
             HumanReadableMist,
         },
         config::ExchangeObjectConfig,
         multiplexer::ClientMultiplexer,
         responses::{
-            BlobIdConversionOutput, BlobIdOutput, BlobStatusOutput, DeleteOutput, DryRunOutput,
-            ExchangeOutput, InfoOutput, ReadOutput, StakeOutput, WalletOutput,
+            BlobIdConversionOutput,
+            BlobIdOutput,
+            BlobStatusOutput,
+            DeleteOutput,
+            DryRunOutput,
+            ExchangeOutput,
+            InfoOutput,
+            ReadOutput,
+            StakeOutput,
+            WalletOutput,
         },
-        Client, ClientDaemon, Config, StoreWhen,
+        Client,
+        ClientDaemon,
+        Config,
+        StoreWhen,
     },
     utils::{self, generate_sui_wallet, MetricsAndLoggingRuntime},
 };

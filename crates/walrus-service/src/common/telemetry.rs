@@ -25,7 +25,11 @@ use axum::{
 use opentelemetry::propagation::Extractor;
 use prometheus::{
     core::{AtomicU64, Collector, GenericGauge},
-    register_histogram_vec_with_registry, HistogramVec, IntGaugeVec, Opts, Registry,
+    register_histogram_vec_with_registry,
+    HistogramVec,
+    IntGaugeVec,
+    Opts,
+    Registry,
 };
 use tokio::time::Instant;
 use tower_http::trace::{MakeSpan, OnResponse};

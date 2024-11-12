@@ -156,8 +156,11 @@ mod commands {
     use testbed::ADMIN_CONFIG_PREFIX;
     use walrus_service::{
         testbed::{
-            create_client_config, create_storage_node_configs, deploy_walrus_contract,
-            DeployTestbedContractParameters, TestbedConfig,
+            create_client_config,
+            create_storage_node_configs,
+            deploy_walrus_contract,
+            DeployTestbedContractParameters,
+            TestbedConfig,
         },
         utils::LoadConfig as _,
     };

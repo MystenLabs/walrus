@@ -13,7 +13,11 @@ use walrus_core::{
     encoding::{Primary as PrimaryEncoding, Secondary as SecondaryEncoding},
     messages::{InvalidBlobIdAttestation, SignedSyncShardRequest, StorageConfirmation},
     metadata::{BlobMetadata, UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
-    InconsistencyProof, RecoverySymbol, Sliver, SliverPairIndex, SliverType,
+    InconsistencyProof,
+    RecoverySymbol,
+    Sliver,
+    SliverPairIndex,
+    SliverType,
 };
 use walrus_sdk::api::{BlobStatus, ServiceHealthInfo, StoredOnNodeStatus};
 
@@ -25,9 +29,16 @@ use super::{
 use crate::{
     common::api::{self, ApiSuccess, BlobIdString},
     node::{
-        BlobStatusError, ComputeStorageConfirmationError, InconsistencyProofError,
-        RetrieveMetadataError, RetrieveSliverError, RetrieveSymbolError, ServiceState,
-        StoreMetadataError, StoreSliverError, SyncShardServiceError,
+        BlobStatusError,
+        ComputeStorageConfirmationError,
+        InconsistencyProofError,
+        RetrieveMetadataError,
+        RetrieveSliverError,
+        RetrieveSymbolError,
+        ServiceState,
+        StoreMetadataError,
+        StoreSliverError,
+        SyncShardServiceError,
     },
 };
 

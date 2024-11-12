@@ -17,12 +17,15 @@ use serde::{Deserialize, Serialize};
 use sui_sdk::types::event::EventID;
 use typed_store::{
     rocks::{self, DBBatch, DBMap, MetricConf, ReadWriteOptions, RocksDB},
-    Map, TypedStoreError,
+    Map,
+    TypedStoreError,
 };
 use walrus_core::{
     messages::{SyncShardRequest, SyncShardResponse},
     metadata::{BlobMetadata, VerifiedBlobMetadataWithId},
-    BlobId, Epoch, ShardIndex,
+    BlobId,
+    Epoch,
+    ShardIndex,
 };
 use walrus_sdk::api::EventProgress;
 use walrus_sui::types::BlobEvent;
@@ -554,20 +557,27 @@ pub(crate) mod tests {
     use std::ops::Bound::{Excluded, Unbounded};
 
     use blob_info::{
-        BlobCertificationStatus, BlobInfoV1, BlobStatusChangeType, PermanentBlobInfoV1,
+        BlobCertificationStatus,
+        BlobInfoV1,
+        BlobStatusChangeType,
+        PermanentBlobInfoV1,
         ValidBlobInfoV1,
     };
     use prometheus::Registry;
     use shard::{
-        pending_recover_slivers_column_family_name, primary_slivers_column_family_name,
-        secondary_slivers_column_family_name, shard_status_column_family_name,
+        pending_recover_slivers_column_family_name,
+        primary_slivers_column_family_name,
+        secondary_slivers_column_family_name,
+        shard_status_column_family_name,
         shard_sync_progress_column_family_name,
     };
     use tempfile::TempDir;
     use tokio::runtime::Runtime;
     use walrus_core::{
         encoding::{EncodingAxis, SliverData},
-        Sliver, SliverIndex, SliverType,
+        Sliver,
+        SliverIndex,
+        SliverType,
     };
     use walrus_sui::{
         test_utils::{event_id_for_testing, EventForTesting},

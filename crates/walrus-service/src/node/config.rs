@@ -13,12 +13,21 @@ use std::{
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use serde_with::{
-    base64::Base64, de::DeserializeAsWrap, ser::SerializeAsWrap, serde_as, DeserializeAs,
-    DurationSeconds, SerializeAs,
+    base64::Base64,
+    de::DeserializeAsWrap,
+    ser::SerializeAsWrap,
+    serde_as,
+    DeserializeAs,
+    DurationSeconds,
+    SerializeAs,
 };
 use sui_sdk::{types::base_types::ObjectID, wallet_context::WalletContext};
 use walrus_core::keys::{
-    KeyPairParseError, NetworkKeyPair, ProtocolKeyPair, SupportedKeyPair, TaggedKeyPair,
+    KeyPairParseError,
+    NetworkKeyPair,
+    ProtocolKeyPair,
+    SupportedKeyPair,
+    TaggedKeyPair,
 };
 use walrus_sui::{
     client::{SuiClientError, SuiContractClient, SuiReadClient},

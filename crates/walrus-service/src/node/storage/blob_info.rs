@@ -17,7 +17,8 @@ use sui_types::event::EventID;
 use tracing::Level;
 use typed_store::{
     rocks::{DBBatch, DBMap, ReadWriteOptions, RocksDB},
-    Map, TypedStoreError,
+    Map,
+    TypedStoreError,
 };
 use walrus_core::{BlobId, Epoch};
 use walrus_sdk::api::{BlobStatus, DeletableCounts};

@@ -28,7 +28,8 @@ use pin_project::pin_project;
 use prometheus::{Encoder, HistogramVec, Registry};
 use serde::{
     de::{DeserializeOwned, Error},
-    Deserialize, Deserializer,
+    Deserialize,
+    Deserializer,
 };
 use serde_json;
 use sui_sdk::wallet_context::WalletContext;
@@ -46,7 +47,8 @@ use tracing_subscriber::{
     filter::Filtered,
     layer::{Layered, SubscriberExt as _},
     util::SubscriberInitExt,
-    EnvFilter, Layer,
+    EnvFilter,
+    Layer,
 };
 use uuid::Uuid;
 use walrus_core::{PublicKey, ShardIndex};
@@ -251,8 +253,8 @@ fn path_with_resolved_home_dir(path: PathBuf) -> Result<PathBuf> {
     }
 }
 
-/// A config struct to initialize the push metrics. Some binaries that depend on MetricsAndLoggingRuntime
-/// do not need nor is it appropriate to have push metrics.
+/// A config struct to initialize the push metrics. Some binaries that depend on
+/// MetricsAndLoggingRuntime do not need nor is it appropriate to have push metrics.
 #[derive(Debug)]
 pub struct EnableMetricsPush {
     /// token that is used to gracefully shut down the metrics push process

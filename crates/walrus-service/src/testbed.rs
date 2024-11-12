@@ -23,15 +23,19 @@ use sui_types::base_types::ObjectID;
 use tracing::instrument;
 use walrus_core::{
     keys::{NetworkKeyPair, ProtocolKeyPair},
-    EpochCount, ShardIndex,
+    EpochCount,
+    ShardIndex,
 };
 use walrus_sui::{
     client::{ContractClient as _, SuiContractClient},
     system_setup::InitSystemParams,
     test_utils::{
         system_setup::{
-            create_and_init_system, end_epoch_zero, mint_wal_to_addresses,
-            register_committee_and_stake, SystemContext,
+            create_and_init_system,
+            end_epoch_zero,
+            mint_wal_to_addresses,
+            register_committee_and_stake,
+            SystemContext,
         },
         DEFAULT_GAS_BUDGET,
     },
@@ -44,7 +48,9 @@ use crate::{
     common::utils::LoadConfig,
     node::config::{
         defaults::{self, REST_API_PORT},
-        EventProviderConfig, StorageNodeConfig, SuiConfig,
+        EventProviderConfig,
+        StorageNodeConfig,
+        SuiConfig,
     },
 };
 

@@ -32,22 +32,48 @@ use walrus_core::{
     keys::ProtocolKeyPair,
     merkle::MerkleProof,
     messages::{
-        Confirmation, InvalidBlobIdAttestation, InvalidBlobIdMsg, ProtocolMessage, SignedMessage,
-        SignedSyncShardRequest, StorageConfirmation, SyncShardResponse,
+        Confirmation,
+        InvalidBlobIdAttestation,
+        InvalidBlobIdMsg,
+        ProtocolMessage,
+        SignedMessage,
+        SignedSyncShardRequest,
+        StorageConfirmation,
+        SyncShardResponse,
     },
     metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
-    BlobId, Epoch, InconsistencyProof, PublicKey, RecoverySymbol, ShardIndex, Sliver,
-    SliverPairIndex, SliverType,
+    BlobId,
+    Epoch,
+    InconsistencyProof,
+    PublicKey,
+    RecoverySymbol,
+    ShardIndex,
+    Sliver,
+    SliverPairIndex,
+    SliverType,
 };
 use walrus_sdk::api::{
-    BlobStatus, EventProgress, ServiceHealthInfo, ShardHealthInfo, ShardStatus as ApiShardStatus,
-    ShardStatusDetail, ShardStatusSummary, StoredOnNodeStatus,
+    BlobStatus,
+    EventProgress,
+    ServiceHealthInfo,
+    ShardHealthInfo,
+    ShardStatus as ApiShardStatus,
+    ShardStatusDetail,
+    ShardStatusSummary,
+    StoredOnNodeStatus,
 };
 use walrus_sui::{
     client::SuiReadClient,
     types::{
-        BlobCertified, BlobDeleted, BlobEvent, ContractEvent, EpochChangeDone, EpochChangeEvent,
-        EpochChangeStart, InvalidBlobId, GENESIS_EPOCH,
+        BlobCertified,
+        BlobDeleted,
+        BlobEvent,
+        ContractEvent,
+        EpochChangeDone,
+        EpochChangeEvent,
+        EpochChangeStart,
+        InvalidBlobId,
+        GENESIS_EPOCH,
     },
 };
 
@@ -78,9 +104,17 @@ mod start_epoch_change_finisher;
 
 pub(crate) mod errors;
 use errors::{
-    BlobStatusError, ComputeStorageConfirmationError, InconsistencyProofError, InvalidEpochError,
-    RetrieveMetadataError, RetrieveSliverError, RetrieveSymbolError, ShardNotAssigned,
-    StoreMetadataError, StoreSliverError, SyncShardServiceError,
+    BlobStatusError,
+    ComputeStorageConfirmationError,
+    InconsistencyProofError,
+    InvalidEpochError,
+    RetrieveMetadataError,
+    RetrieveSliverError,
+    RetrieveSymbolError,
+    ShardNotAssigned,
+    StoreMetadataError,
+    StoreSliverError,
+    SyncShardServiceError,
 };
 
 mod storage;
@@ -2141,7 +2175,8 @@ mod tests {
 
         use fastcrypto::traits::VerifyingKey;
         use walrus_core::{
-            inconsistency::PrimaryInconsistencyProof, merkle::Node,
+            inconsistency::PrimaryInconsistencyProof,
+            merkle::Node,
             test_utils::generate_config_metadata_and_valid_recovery_symbols,
         };
 
@@ -3371,7 +3406,9 @@ mod tests {
     #[cfg(msim)]
     mod failure_injection_tests {
         use sui_macros::{
-            clear_fail_point, register_fail_point_arg, register_fail_point_async,
+            clear_fail_point,
+            register_fail_point_arg,
+            register_fail_point_async,
             register_fail_point_if,
         };
         use tokio::sync::Notify;

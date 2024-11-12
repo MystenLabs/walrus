@@ -23,7 +23,10 @@ use walrus_core::{
     ensure,
     messages::{Confirmation, ConfirmationCertificate, SignedStorageConfirmation},
     metadata::VerifiedBlobMetadataWithId,
-    BlobId, Epoch, EpochCount, Sliver,
+    BlobId,
+    Epoch,
+    EpochCount,
+    Sliver,
 };
 use walrus_sdk::{api::BlobStatus, error::NodeError};
 use walrus_sui::{
@@ -49,7 +52,10 @@ mod communication;
 
 mod config;
 pub use config::{
-    default_configuration_paths, ClientCommunicationConfig, Config, ExchangeObjectConfig,
+    default_configuration_paths,
+    ClientCommunicationConfig,
+    Config,
+    ExchangeObjectConfig,
 };
 
 mod daemon;

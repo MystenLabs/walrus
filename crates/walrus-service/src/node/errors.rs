@@ -5,8 +5,12 @@ use serde::Serialize;
 use sui_types::event::EventID;
 use typed_store::TypedStoreError;
 use walrus_core::{
-    encoding::SliverVerificationError, inconsistency::InconsistencyVerificationError,
-    messages::MessageVerificationError, metadata::VerificationError, Epoch, ShardIndex,
+    encoding::SliverVerificationError,
+    inconsistency::InconsistencyVerificationError,
+    messages::MessageVerificationError,
+    metadata::VerificationError,
+    Epoch,
+    ShardIndex,
 };
 use walrus_sdk::error::NodeError;
 

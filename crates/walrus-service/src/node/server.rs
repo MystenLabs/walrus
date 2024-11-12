@@ -378,20 +378,34 @@ mod tests {
     use walrus_core::{
         encoding::{EncodingAxis, Primary},
         inconsistency::{
-            InconsistencyProof as InconsistencyProofInner, InconsistencyVerificationError,
+            InconsistencyProof as InconsistencyProofInner,
+            InconsistencyVerificationError,
         },
         keys::ProtocolKeyPair,
         merkle::MerkleProof,
         messages::{
-            InvalidBlobIdAttestation, SignedMessage, StorageConfirmation, SyncShardMsg,
+            InvalidBlobIdAttestation,
+            SignedMessage,
+            StorageConfirmation,
+            SyncShardMsg,
             SyncShardResponse,
         },
         metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
-        BlobId, InconsistencyProof, PublicKey, RecoverySymbol, Sliver, SliverPairIndex, SliverType,
+        BlobId,
+        InconsistencyProof,
+        PublicKey,
+        RecoverySymbol,
+        Sliver,
+        SliverPairIndex,
+        SliverType,
     };
     use walrus_sdk::{
         api::{
-            BlobStatus, DeletableCounts, EventProgress, ServiceHealthInfo, ShardStatusSummary,
+            BlobStatus,
+            DeletableCounts,
+            EventProgress,
+            ServiceHealthInfo,
+            ShardStatusSummary,
             StoredOnNodeStatus,
         },
         client::{Client, ClientBuilder},
@@ -403,9 +417,15 @@ mod tests {
     use crate::{
         node::{
             config::{StorageNodeConfig, TlsCertificateAndKey},
-            BlobStatusError, ComputeStorageConfirmationError, InconsistencyProofError,
-            RetrieveMetadataError, RetrieveSliverError, RetrieveSymbolError, StoreMetadataError,
-            StoreSliverError, SyncShardServiceError,
+            BlobStatusError,
+            ComputeStorageConfirmationError,
+            InconsistencyProofError,
+            RetrieveMetadataError,
+            RetrieveSliverError,
+            RetrieveSymbolError,
+            StoreMetadataError,
+            StoreSliverError,
+            SyncShardServiceError,
         },
         test_utils,
     };

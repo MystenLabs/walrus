@@ -11,7 +11,8 @@ use axum::{
     middleware,
     response::{IntoResponse, Response},
     routing::{get, put},
-    BoxError, Router,
+    BoxError,
+    Router,
 };
 use openapi::{AggregatorApiDoc, DaemonApiDoc, PublisherApiDoc};
 use prometheus::{HistogramVec, Registry};

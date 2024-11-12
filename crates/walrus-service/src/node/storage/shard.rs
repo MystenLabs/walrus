@@ -24,14 +24,23 @@ use sui_macros::{fail_point_arg, fail_point_if};
 use tokio::sync::Semaphore;
 use typed_store::{
     rocks::{
-        be_fix_int_ser as to_rocks_db_key, errors::typed_store_err_from_rocks_err, DBBatch, DBMap,
-        ReadWriteOptions, RocksDB,
+        be_fix_int_ser as to_rocks_db_key,
+        errors::typed_store_err_from_rocks_err,
+        DBBatch,
+        DBMap,
+        ReadWriteOptions,
+        RocksDB,
     },
-    Map, TypedStoreError,
+    Map,
+    TypedStoreError,
 };
 use walrus_core::{
     encoding::{EncodingAxis, Primary, PrimarySliver, Secondary, SecondarySliver},
-    BlobId, Epoch, ShardIndex, Sliver, SliverType,
+    BlobId,
+    Epoch,
+    ShardIndex,
+    Sliver,
+    SliverType,
 };
 
 use super::{
@@ -39,7 +48,10 @@ use super::{
     DatabaseConfig,
 };
 use crate::node::{
-    config::ShardSyncConfig, errors::SyncShardClientError, metrics, StorageNodeInner,
+    config::ShardSyncConfig,
+    errors::SyncShardClientError,
+    metrics,
+    StorageNodeInner,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
