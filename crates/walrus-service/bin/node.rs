@@ -39,7 +39,6 @@ use walrus_service::{
             SuiConfig,
         },
         events::{event_processor::EventProcessor, EventProcessorConfig},
-        push_metrics,
         server::{UserServer, UserServerConfig},
         system_events::{EventManager, SuiSystemEventProvider},
         StorageNode,
@@ -349,7 +348,22 @@ mod commands {
             }
         }
 
-        let metrics_runtime = MetricsAndLoggingRuntime::start(config.metrics_address)?;
+        // create the cancellation token used in the metrics runtime and others, as seen
+        // below
+        let cancel_token = CancellationToken::new();
+        // load the network_key_pair so that it can be passed to the
+        // MetricsAndLoggingRuntime
+        let network_key_pair = config.network_key_pair.load()?;
+        tracing::info!(
+            walrus.node.network_key = %network_key_pair.as_ref().public(),
+            "walrus network key",
+        );
+        let metrics_runtime = MetricsAndLoggingRuntime::start(
+            config.metrics_address.clone(),
+            cancel_token.child_token(),
+            network_key_pair.0.clone(),
+            config.metrics_push.clone(),
+        )?;
         let registry_clone = metrics_runtime.registry.clone();
         metrics_runtime.runtime.spawn(async move {
             registry_clone
@@ -365,12 +379,6 @@ mod commands {
         tracing::info!(
             walrus.node.public_key = %config.protocol_key_pair.load()?.as_ref().public(),
             "walrus protocol public key",
-        );
-
-        let network_key_pair = config.network_key_pair.load()?;
-        tracing::info!(
-            walrus.node.network_key = %network_key_pair.as_ref().public(),
-            "walrus network key",
         );
         tracing::info!(
             metrics_address = %config.metrics_address, "started Prometheus HTTP endpoint",
@@ -388,20 +396,7 @@ mod commands {
             );
         }
 
-        let cancel_token = CancellationToken::new();
         let (exit_notifier, exit_listener) = oneshot::channel::<()>();
-
-        let mut push_metrics_runtime: Option<push_metrics::MetricPushRuntime> = None;
-        if let Some(metric_config) = config.metrics_push.as_ref() {
-            let network_key_pair = network_key_pair.0.clone();
-            let handle = push_metrics::MetricPushRuntime::start(
-                cancel_token.child_token(),
-                network_key_pair,
-                metric_config.clone(),
-                metrics_runtime.registry.clone(),
-            )?;
-            push_metrics_runtime = Some(handle);
-        }
 
         let (event_manager, event_processor_runtime) = EventProcessorRuntime::start(
             config
@@ -423,7 +418,6 @@ mod commands {
         )?;
 
         monitor_runtimes(
-            push_metrics_runtime,
             node_runtime,
             event_processor_runtime,
             exit_listener,
@@ -435,7 +429,6 @@ mod commands {
 
     #[cfg(not(msim))]
     fn monitor_runtimes(
-        push_metrics_runtime: Option<push_metrics::MetricPushRuntime>,
         mut node_runtime: StorageNodeRuntime,
         mut event_processor_runtime: EventProcessorRuntime,
         exit_listener: oneshot::Receiver<()>,
@@ -447,9 +440,6 @@ mod commands {
                 let mut set = JoinSet::new();
                 set.spawn_blocking(move || node_runtime.join());
                 set.spawn_blocking(move || event_processor_runtime.join());
-                if let Some(mut push_metrics_runtime) = push_metrics_runtime {
-                    set.spawn_blocking(move || push_metrics_runtime.join());
-                }
                 tokio::select! {
                     _ = wait_until_terminated(exit_listener) => {
                         tracing::info!("Received termination signal, shutting down...");
@@ -472,7 +462,6 @@ mod commands {
 
     #[cfg(msim)]
     fn monitor_runtimes(
-        push_metrics_runtime: Option<push_metrics::MetricPushRuntime>,
         mut node_runtime: StorageNodeRuntime,
         mut event_processor_runtime: EventProcessorRuntime,
         exit_listener: oneshot::Receiver<()>,
@@ -488,10 +477,6 @@ mod commands {
         // Wait for the node runtime to complete, may take a moment as
         // the REST-API waits for open connections to close before exiting.
         node_runtime.join()?;
-        // wait as needed if we have an active push_metrics_runtime
-        if let Some(mut push_metrics_runtime) = push_metrics_runtime {
-            push_metrics_runtime.join()?;
-        }
         Ok(())
     }
 

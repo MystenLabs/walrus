@@ -14,27 +14,40 @@ use std::{
     str::FromStr,
     sync::Arc,
     task::{ready, Context, Poll},
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{anyhow, Context as _, Result};
+use fastcrypto::{
+    encoding::Base64,
+    secp256r1::Secp256r1KeyPair,
+    traits::{EncodeDecodeBase64, RecoverableSigner},
+};
 use futures::future::FusedFuture;
 use pin_project::pin_project;
+<<<<<<< HEAD
 use prometheus::{HistogramVec, Registry};
+=======
+use prometheus::{Encoder, HistogramVec, Registry};
+use rand::{rngs::StdRng, Rng, SeedableRng};
+>>>>>>> a1ee98a (remove dedicated runtime for metrics push and integrate into MetricsAndLoggingRuntime)
 use serde::{
     de::{DeserializeOwned, Error},
     Deserialize,
     Deserializer,
 };
+use serde_json;
 use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::{ObjectID, SuiAddress};
 use telemetry_subscribers::{TelemetryGuards, TracingHandle};
 use tokio::{
     runtime::{self, Runtime},
     sync::Semaphore,
+    task::JoinHandle,
     time::Instant,
 };
-use tracing::subscriber::DefaultGuard;
+use tokio_util::sync::CancellationToken;
+use tracing::{debug, error, info, subscriber::DefaultGuard};
 use tracing_subscriber::{
     filter::Filtered,
     layer::{Layered, SubscriberExt as _},
@@ -42,14 +55,18 @@ use tracing_subscriber::{
     EnvFilter,
     Layer,
 };
+use uuid::Uuid;
 use walrus_core::{PublicKey, ShardIndex};
 use walrus_sui::utils::SuiNetwork;
 
 use super::active_committees::ActiveCommittees;
+use crate::node::config::MetricsConfig;
 
-/// Defines a constant containing the version consisting of the package version and git revision.
+/// Defines a constant containing the version consisting of the package version
+/// and git revision.
 ///
-/// We are using a macro as placing this logic into a library can result in unnecessary builds.
+/// We are using a macro as placing this logic into a library can result in
+/// unnecessary builds.
 #[macro_export]
 macro_rules! version {
     () => {{
@@ -218,8 +235,8 @@ where
     path_with_resolved_home_dir(path).map_err(D::Error::custom)
 }
 
-/// Can be used to deserialize optional paths such that the `~` is resolved to the user's home
-/// directory.
+/// Can be used to deserialize optional paths such that the `~` is resolved to
+/// the user's home directory.
 pub fn resolve_home_dir_option<'de, D>(deserializer: D) -> Result<Option<PathBuf>, D::Error>
 where
     D: Deserializer<'de>,
@@ -250,6 +267,7 @@ pub struct MetricsAndLoggingRuntime {
     pub registry: Registry,
     _telemetry_guards: TelemetryGuards,
     _tracing_handle: TracingHandle,
+    _metric_push_handle: Option<JoinHandle<anyhow::Result<()>>>,
     /// The runtime for metrics and logging.
     // INV: Runtime must be dropped last.
     pub runtime: Runtime,
@@ -257,7 +275,12 @@ pub struct MetricsAndLoggingRuntime {
 
 impl MetricsAndLoggingRuntime {
     /// Start metrics and log collection in a new runtime
-    pub fn start(mut metrics_address: SocketAddr) -> anyhow::Result<Self> {
+    pub fn start(
+        mut metrics_address: SocketAddr,
+        cancel: CancellationToken,
+        network_key_pair: Arc<Secp256r1KeyPair>,
+        config: Option<MetricsConfig>,
+    ) -> anyhow::Result<Self> {
         let runtime = runtime::Builder::new_multi_thread()
             .thread_name("metrics-runtime")
             .worker_threads(2)
@@ -277,13 +300,137 @@ impl MetricsAndLoggingRuntime {
             .with_json()
             .init();
 
+        let metric_push_handle = match config {
+            Some(config) => {
+                // associate a default tls provider for this runtime
+                let tls_provider = rustls::crypto::ring::default_provider();
+                tls_provider.install_default().expect(
+                    "unable to install default tls provider for rustls in MetricsAndLoggingRuntime",
+                );
+
+                let push_registry = walrus_registry.clone();
+                let metric_push_handle = tokio::spawn(async move {
+                    let mut interval = tokio::time::interval(config.push_interval_seconds);
+                    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                    let mut client = create_push_client();
+                    info!("starting metrics push to {}", &config.push_url);
+                    loop {
+                        tokio::select! {
+                            _ = interval.tick() => {
+                                if let Err(e) = push_metrics(
+                                    network_key_pair.clone(),
+                                    &client, &config.push_url, &push_registry
+                                ).await {
+                                    error!("unable to push metrics: {e}");
+                                    client = create_push_client();
+                                }
+                            }
+                            _ = cancel.cancelled() => {
+                                info!("received cancellation request, shutting down metrics push");
+                                return Ok(());
+                            }
+                        }
+                    }
+                });
+                Some(metric_push_handle)
+            }
+            None => None,
+        };
+
         Ok(Self {
             runtime,
             registry: walrus_registry,
             _telemetry_guards: telemetry_guards,
             _tracing_handle: tracing_handle,
+            _metric_push_handle: metric_push_handle,
         })
     }
+    /// join handle for the task.
+    pub fn join(&mut self) -> Result<(), anyhow::Error> {
+        if let Some(metric_push_handle) = self._metric_push_handle.take() {
+            tracing::debug!("waiting for the metric runtime to shutdown...");
+            self.runtime.block_on(metric_push_handle)?
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// Create a request client builder that is used to push metrics to mimir.
+fn create_push_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .expect("unable to build client")
+}
+
+/// Responsible for sending data to walrus-proxy, used within the async
+/// scope of MetricPushRuntime::start.
+async fn push_metrics(
+    network_key_pair: Arc<Secp256r1KeyPair>,
+    client: &reqwest::Client,
+    push_url: &str,
+    registry: &Registry,
+) -> Result<(), anyhow::Error> {
+    info!(push_url =% push_url, "pushing metrics to remote");
+
+    // now represents a collection timestamp for all of the metrics we send to the
+    // proxy.
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+
+    let mut metric_families = registry.gather();
+    for mf in metric_families.iter_mut() {
+        for m in mf.mut_metric() {
+            m.set_timestamp_ms(now);
+        }
+    }
+
+    let mut buf: Vec<u8> = vec![];
+    let encoder = prometheus::ProtobufEncoder::new();
+    encoder.encode(&metric_families, &mut buf)?;
+
+    let mut s = snap::raw::Encoder::new();
+    let compressed = s.compress_vec(&buf).map_err(|err| {
+        error!("unable to snappy encode; {err}");
+        err
+    })?;
+
+    let uid = Uuid::now_v7();
+    let uids = uid.simple().to_string();
+    let signature = network_key_pair.sign_recoverable(uid.as_bytes());
+    let auth = serde_json::json!({"signature":signature.encode_base64(), "message":uids});
+    let auth_encoded_with_scheme = format!(
+        "Secp256k1-recoverable: {}",
+        Base64::from_bytes(auth.to_string().as_bytes()).encoded()
+    );
+    let response = client
+        .post(push_url)
+        .header(reqwest::header::AUTHORIZATION, auth_encoded_with_scheme)
+        .header(reqwest::header::CONTENT_ENCODING, "snappy")
+        .header(reqwest::header::CONTENT_TYPE, prometheus::PROTOBUF_FORMAT)
+        .body(compressed)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = match response.text().await {
+            Ok(body) => body,
+            Err(error) => format!("couldn't decode response body; {error}"),
+        };
+        return Err(anyhow::anyhow!(
+            "metrics push failed: [{}]:{}",
+            status,
+            body
+        ));
+    }
+
+    debug!("successfully pushed metrics to {push_url}");
+
+    Ok(())
 }
 
 /// The difference between shard allocations in different epochs.
@@ -301,10 +448,11 @@ pub(crate) struct ShardDiff {
 
 impl ShardDiff {
     /// Returns a new `ShardDiff` when moving from the allocation in
-    /// `committees.previous_committee()` to `committees.current_committee()` for the node
-    /// identified by the provided public key.
-    /// `exist` is the list of shards that the node currently holds, which is used to find out
-    /// the shards that are no longer needed in the node and can be removed.
+    /// `committees.previous_committee()` to `committees.current_committee()`
+    /// for the node identified by the provided public key.
+    /// `exist` is the list of shards that the node currently holds, which is
+    /// used to find out the shards that are no longer needed in the node
+    /// and can be removed.
     pub fn diff_previous(
         committees: &ActiveCommittees,
         exist: &[ShardIndex],
@@ -319,7 +467,8 @@ impl ShardDiff {
         Self::diff(from, to, exist)
     }
 
-    /// Returns a new `ShardDiff` when moving from the allocation in `from` to `to`.
+    /// Returns a new `ShardDiff` when moving from the allocation in `from` to
+    /// `to`.
     pub fn diff(from: &[ShardIndex], to: &[ShardIndex], exist: &[ShardIndex]) -> ShardDiff {
         let from: HashSet<ShardIndex> = from.iter().copied().collect();
         let to: HashSet<ShardIndex> = to.iter().copied().collect();
@@ -337,7 +486,8 @@ impl ShardDiff {
     }
 }
 
-/// Returns the path if it is `Some` or any of the default paths if they exist (attempt in order).
+/// Returns the path if it is `Some` or any of the default paths if they exist
+/// (attempt in order).
 pub fn path_or_defaults_if_exist(path: &Option<PathBuf>, defaults: &[PathBuf]) -> Option<PathBuf> {
     tracing::debug!(?path, ?defaults, "looking for configuration file");
     let mut path = path.clone();
@@ -352,10 +502,10 @@ pub fn path_or_defaults_if_exist(path: &Option<PathBuf>, defaults: &[PathBuf]) -
 
 /// Loads the wallet context from the given path.
 ///
-/// If no path is provided, tries to load the configuration first from the local folder, and then
-/// from the standard Sui configuration directory.
-// NB: When making changes to the logic, make sure to update the argument docs in
-// `crates/walrus-service/bin/client.rs`.
+/// If no path is provided, tries to load the configuration first from the local
+/// folder, and then from the standard Sui configuration directory.
+// NB: When making changes to the logic, make sure to update the argument docs
+// in `crates/walrus-service/bin/client.rs`.
 pub fn load_wallet_context(path: &Option<PathBuf>) -> Result<WalletContext> {
     let mut default_paths = vec!["./sui_config.yaml".into()];
     if let Some(home_dir) = home::home_dir() {
@@ -367,8 +517,8 @@ pub fn load_wallet_context(path: &Option<PathBuf>) -> Result<WalletContext> {
     WalletContext::new(&path, None, None)
 }
 
-/// Generates a new Sui wallet for the specified network at the specified path and attempts to fund
-/// it through the faucet.
+/// Generates a new Sui wallet for the specified network at the specified path
+/// and attempts to fund it through the faucet.
 pub async fn generate_sui_wallet(
     sui_network: SuiNetwork,
     path: &Path,
@@ -405,7 +555,8 @@ pub async fn generate_sui_wallet(
 
 /// Provides approximate parsing of human-friendly byte values.
 ///
-/// Values are calculated as floating points and the resulting number of bytes is rounded down.
+/// Values are calculated as floating points and the resulting number of bytes
+/// is rounded down.
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub struct ByteCount(pub u64);
 
@@ -455,7 +606,8 @@ impl FromStr for ByteCount {
 }
 
 /// Export the walrus binary version.
-// TODO(jsmith): Once the cli logic is moved within the package, this should be crate-visible
+// TODO(jsmith): Once the cli logic is moved within the package, this should be
+// crate-visible
 pub fn export_build_info(registry: &Registry, version: &'static str) {
     let opts = prometheus::opts!("walrus_build_info", "Walrus binary info");
     let metric = prometheus::register_int_gauge_vec_with_registry!(opts, &["version"], registry)
@@ -466,8 +618,10 @@ pub fn export_build_info(registry: &Registry, version: &'static str) {
         .set(1);
 }
 
-/// Export information about the contract to which the storage nodes are communicating.
-// TODO(jsmith): Once the cli logic is moved within the package, this should be crate-visible
+/// Export information about the contract to which the storage nodes are
+/// communicating.
+// TODO(jsmith): Once the cli logic is moved within the package, this should be
+// crate-visible
 pub fn export_contract_info(
     registry: &Registry,
     system_object: &ObjectID,
@@ -538,7 +692,8 @@ pub fn init_tracing_subscriber() -> Result<()> {
     Ok(())
 }
 
-/// Initializes the logger and tracing subscriber as the subscriber for the current scope.
+/// Initializes the logger and tracing subscriber as the subscriber for the
+/// current scope.
 pub fn init_scoped_tracing_subscriber() -> Result<DefaultGuard> {
     let guard = prepare_subscriber()?.set_default();
     tracing::debug!("initialized scoped tracing subscriber");
