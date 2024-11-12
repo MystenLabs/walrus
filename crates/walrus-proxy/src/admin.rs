@@ -19,9 +19,7 @@ use crate::{
     handlers,
     histogram_relay::HistogramRelay,
     middleware::{
-        expect_content_length,
-        expect_mysten_proxy_header,
-        expect_valid_recoverable_pubkey,
+        expect_content_length, expect_mysten_proxy_header, expect_valid_recoverable_pubkey,
     },
     providers::WalrusNodeProvider,
     var,

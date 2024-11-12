@@ -10,21 +10,14 @@ use once_cell::sync::Lazy;
 use prometheus::{
     opts,
     proto::{self, MetricFamily},
-    Counter,
-    CounterVec,
-    HistogramOpts,
-    HistogramVec,
-    Opts,
+    Counter, CounterVec, HistogramOpts, HistogramVec, Opts,
 };
 use prost::Message;
 use protobuf::CodedInputStream;
 use tracing::{debug, error};
 
 use crate::{
-    admin::ReqwestClient,
-    prom_to_mimir::Mimir,
-    register_metric,
-    remote_write::WriteRequest,
+    admin::ReqwestClient, prom_to_mimir::Mimir, register_metric, remote_write::WriteRequest,
 };
 
 static CONSUMER_OPS_SUBMITTED: Lazy<Counter> = Lazy::new(|| {
