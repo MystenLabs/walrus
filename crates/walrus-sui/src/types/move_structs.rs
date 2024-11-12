@@ -518,3 +518,30 @@ impl Display for StakedWal {
         writeln!(f, "    activation_epoch: {}", self.activation_epoch)
     }
 }
+
+/// Sui type for an exchange rate: `wal` WAL = `sui` SUI.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct ExchangeRate {
+    wal: u64,
+    sui: u64,
+}
+/// Sui type for an exchange that allows exchanging SUI for WAL at a fixed exchange rate.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub(crate) struct WalExchange {
+    id: ObjectID,
+    wal_balance: u64,
+    sui_balance: u64,
+    pub exchange_rate: ExchangeRate,
+    admin: ObjectID,
+}
+
+impl AssociatedContractStruct for WalExchange {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::wal_exchange::Exchange;
+}
+
+impl ExchangeRate {
+    /// Converts an amount of SUI to WAL.
+    pub fn sui_to_wal(&self, amount: u64) -> u64 {
+        amount * self.wal / self.sui
+    }
+}

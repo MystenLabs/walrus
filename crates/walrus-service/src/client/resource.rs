@@ -257,14 +257,7 @@ impl<'a, C: ContractClient> ResourceManager<'a, C> {
             // TODO(giac): consider splitting the storage before reusing it (#811).
             let blob = self
                 .sui_client
-                .register_blob(
-                    &storage_resource,
-                    *metadata.blob_id(),
-                    metadata.metadata().compute_root_hash().bytes(),
-                    metadata.metadata().unencoded_length,
-                    metadata.metadata().encoding_type,
-                    persistence,
-                )
+                .register_blob(&storage_resource, metadata.try_into()?, persistence)
                 .await?;
             (blob, RegisterBlobOp::ReuseStorage { encoded_length })
         } else {
@@ -286,7 +279,7 @@ impl<'a, C: ContractClient> ResourceManager<'a, C> {
     ) -> ClientResult<(Blob, RegisterBlobOp)> {
         let blob = self
             .sui_client
-            .reserve_and_register_blob(epochs_ahead, metadata, persistence)
+            .reserve_and_register_blob(epochs_ahead, metadata.try_into()?, persistence)
             .await?;
         Ok((
             blob,

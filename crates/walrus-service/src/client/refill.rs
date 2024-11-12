@@ -12,7 +12,7 @@ use futures::{
 };
 use sui_sdk::{
     types::{
-        base_types::{ObjectID, ObjectRef, SuiAddress},
+        base_types::{ObjectID, SuiAddress},
         programmable_transaction_builder::ProgrammableTransactionBuilder,
     },
     SuiClient,
@@ -132,19 +132,14 @@ impl WalletCoinRefill {
 
     async fn send_wal(&self, address: SuiAddress) -> Result<()> {
         tracing::debug!("Sending wal to address: {:?}", &address);
-        let mut pt_builder = ProgrammableTransactionBuilder::new();
+        let mut pt_builder = self.sui_client.transaction_builder();
 
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.sui_client.wallet().await;
-
-        let wal_coin: ObjectRef = self
-            .sui_client
-            .get_wal_coin(self.wal_refill_size)
-            .await?
-            .object_ref();
-        pt_builder.pay(vec![wal_coin], vec![address], vec![self.wal_refill_size])?;
+        pt_builder.pay_wal(address, self.wal_refill_size).await?;
+        let (ptb, _) = pt_builder.finish().await?;
         self.sui_client
-            .sign_and_send_ptb(&wallet, pt_builder.finish(), None)
+            .sign_and_send_ptb(&wallet, ptb, None)
             .await?;
         Ok(())
     }
