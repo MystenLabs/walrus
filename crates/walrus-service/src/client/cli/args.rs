@@ -377,10 +377,13 @@ pub struct PublisherArgs {
     #[clap(long, default_value_t = default::n_publisher_clients())]
     #[serde(default = "default::n_publisher_clients")]
     pub n_clients: usize,
-    /// The interval of time between refilling the publisher's sub clients' wallets.
+    /// The interval of time between refilling the publisher's sub-clients' wallets.
     #[clap(long, value_parser = humantime::parse_duration, default_value = "1s" )]
     #[serde(default = "default::refill_interval")]
     pub refill_interval: Duration,
+    /// The directory where the publisher will store the sub-wallets used for client multiplexing.
+    #[clap(long)]
+    pub sub_wallets_dir: PathBuf,
 }
 
 impl PublisherArgs {
@@ -637,7 +640,8 @@ mod tests {
 
     const STORE_STR: &str = r#"{"store": {"file": "README.md"}}"#;
     const READ_STR: &str = r#"{"read": {"blobId": "4BKcDC0Ih5RJ8R0tFMz3MZVNZV8b2goT6_JiEEwNHQo"}}"#;
-    const DAEMON_STR: &str = r#"{"daemon": {"bindAddress": "127.0.0.1:12345"}}"#;
+    const DAEMON_STR: &str =
+        r#"{"daemon": {"bindAddress": "127.0.0.1:12345", "subWalletsDir": "/some/path"}}"#;
 
     // Creates the fixture for the JSON command string.
     fn make_cmd_str(command: &str) -> String {
@@ -684,6 +688,7 @@ mod tests {
                 max_request_buffer_size: default::max_request_buffer_size(),
                 max_concurrent_requests: default::max_concurrent_requests(),
                 refill_interval: default::refill_interval(),
+                sub_wallets_dir: "/some/path".into(),
             },
         })
     }

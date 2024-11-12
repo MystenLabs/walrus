@@ -4,6 +4,7 @@
 //! A client mulitplexer, that allows to submit requests using multiple clients in the background.
 
 use std::{
+    path::Path,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -20,9 +21,8 @@ use sui_sdk::{
 use walrus_core::{BlobId, EpochCount};
 use walrus_sui::{
     client::{get_system_package_id, BlobPersistence, SuiContractClient, SuiReadClient},
-    test_utils::temp_dir_wallet,
+    utils::create_wallet,
 };
-use walrus_test_utils::WithTempDir;
 
 use super::{
     daemon::{WalrusReadClient, WalrusWriteClient},
@@ -49,6 +49,7 @@ impl ClientMultiplexer {
         gas_budget: u64,
         refill_interval: Duration,
         prometheus_registry: &Registry,
+        sub_wallets_dir: &Path,
     ) -> anyhow::Result<Self> {
         let sui_env = wallet.config.get_active_env()?.clone();
         let contract_client = config.new_contract_client(wallet, gas_budget).await?;
@@ -63,8 +64,15 @@ impl ClientMultiplexer {
             system_pkg_id,
         );
 
-        let client_pool =
-            WriteClientPool::new(n_clients, config, sui_env, gas_budget, &refiller).await?;
+        let client_pool = WriteClientPool::new(
+            n_clients,
+            config,
+            sui_env,
+            gas_budget,
+            sub_wallets_dir,
+            &refiller,
+        )
+        .await?;
 
         let metrics = Arc::new(ClientMetrics::new(prometheus_registry));
         let refill_handles = refiller.refill_gas_and_wal(
@@ -126,7 +134,7 @@ impl WalrusWriteClient for ClientMultiplexer {
 
 /// A pool of temporary write clients that are rotaated.
 pub struct WriteClientPool {
-    pool: Vec<Arc<TempWriteClient>>,
+    pool: Vec<Arc<Client<SuiContractClient>>>,
     cur_idx: AtomicUsize,
 }
 
@@ -137,18 +145,13 @@ impl WriteClientPool {
         config: &Config,
         sui_env: SuiEnv,
         gas_budget: u64,
+        sub_wallets_dir: &Path,
         refiller: &Refiller<G>,
     ) -> anyhow::Result<Self> {
-        let mut pool = Vec::with_capacity(n_clients);
-
         tracing::info!(%n_clients, "creating write client pool");
-        for _ in 0..n_clients {
-            let client = Arc::new(
-                TempWriteClient::from_sui_env(config, sui_env.clone(), gas_budget, refiller)
-                    .await?,
-            );
-            pool.push(client);
-        }
+        let pool = SubClientBuilder::new(config, sub_wallets_dir, sui_env, gas_budget, refiller)
+            .create_or_load_sub_clients(n_clients)
+            .await?;
 
         Ok(Self {
             pool,
@@ -160,12 +163,12 @@ impl WriteClientPool {
     pub fn addresses(&self) -> Vec<SuiAddress> {
         self.pool
             .iter()
-            .map(|client| client.as_ref().address())
+            .map(|client| client.sui_client().address())
             .collect()
     }
 
     /// Returns the next client in the pool.
-    pub async fn next_client(&self) -> Arc<TempWriteClient> {
+    pub async fn next_client(&self) -> Arc<Client<SuiContractClient>> {
         let cur_idx = self.cur_idx.fetch_add(1, Ordering::Relaxed) % self.pool.len();
 
         let client = self
@@ -178,72 +181,92 @@ impl WriteClientPool {
     }
 }
 
-/// A temporary write client for client multiplexing.
-#[derive(Debug)]
-pub(crate) struct TempWriteClient(WithTempDir<Client<SuiContractClient>>);
-
-impl TempWriteClient {
-    /// Creates a new temporary write client.
-    pub async fn from_sui_env<G: CoinRefill + 'static>(
-        config: &Config,
-        sui_env: SuiEnv,
-        gas_budget: u64,
-        refiller: &Refiller<G>,
-    ) -> anyhow::Result<Self> {
-        let client = new_client(config, sui_env, gas_budget, refiller).await?;
-        Ok(Self(client))
-    }
-
-    /// Returns the active address of the client.
-    pub fn address(&self) -> SuiAddress {
-        self.0.as_ref().sui_client().address()
-    }
-
-    /// Stores the blob to Walrus, retrying if it fails because of epoch change.
-    pub async fn reserve_and_store_blob_retry_epoch(
-        &self,
-        blob: &[u8],
-        epochs_ahead: EpochCount,
-        store_when: StoreWhen,
-        persistence: BlobPersistence,
-    ) -> ClientResult<BlobStoreResult> {
-        self.0
-            .as_ref()
-            .reserve_and_store_blob_retry_epoch(blob, epochs_ahead, store_when, persistence)
-            .await
-    }
-}
-
-async fn new_client<G: CoinRefill + 'static>(
-    config: &Config,
+/// Helper struct to build or load sub clients for the client multiplexer.
+struct SubClientBuilder<'a, G> {
+    config: &'a Config,
+    sub_wallets_dir: &'a Path,
     sui_env: SuiEnv,
     gas_budget: u64,
-    refiller: &Refiller<G>,
-) -> anyhow::Result<WithTempDir<Client<SuiContractClient>>> {
-    // Create the client with a separate wallet
-    let wallet = wallet_for_testing_from_refill(sui_env, refiller).await?;
-    let sui_read_client = config
-        .new_read_client(wallet.as_ref().get_client().await?)
-        .await?;
-    let sui_contract_client = wallet.and_then(|wallet| {
-        SuiContractClient::new_with_read_client(wallet, gas_budget, sui_read_client)
-    })?;
-
-    let client = sui_contract_client
-        .and_then_async(|contract_client| {
-            Client::new_contract_client(config.clone(), contract_client)
-        })
-        .await?;
-    Ok(client)
+    refiller: &'a Refiller<G>,
 }
 
-async fn wallet_for_testing_from_refill<G: CoinRefill + 'static>(
-    sui_env: SuiEnv,
-    refiller: &Refiller<G>,
-) -> anyhow::Result<WithTempDir<WalletContext>> {
-    let mut wallet = temp_dir_wallet(sui_env)?;
-    let address = wallet.as_mut().active_address()?;
-    refiller.send_gas_request(address).await?;
-    refiller.send_wal_request(address).await?;
-    Ok(wallet)
+impl<'a, G: CoinRefill> SubClientBuilder<'a, G> {
+    fn new(
+        config: &'a Config,
+        sub_wallets_dir: &'a Path,
+        sui_env: SuiEnv,
+        gas_budget: u64,
+        refiller: &'a Refiller<G>,
+    ) -> Self {
+        Self {
+            config,
+            sub_wallets_dir,
+            sui_env,
+            gas_budget,
+            refiller,
+        }
+    }
+
+    async fn create_or_load_sub_clients(
+        &self,
+        n_clients: usize,
+    ) -> anyhow::Result<Vec<Arc<Client<SuiContractClient>>>> {
+        let mut clients = Vec::with_capacity(n_clients);
+        for idx in 0..n_clients {
+            let client = self.create_or_load_sub_client(idx).await?;
+            clients.push(Arc::new(client));
+        }
+
+        Ok(clients)
+    }
+
+    /// Crates or loads a Walrus write client for the multiplexer, with the specified index.
+    async fn create_or_load_sub_client(
+        &self,
+        sub_wallet_idx: usize,
+    ) -> anyhow::Result<Client<SuiContractClient>> {
+        let mut wallet = self.create_or_load_sub_wallet(sub_wallet_idx)?;
+        self.refill_wallet(&mut wallet).await?;
+
+        let sui_client = self
+            .config
+            .new_contract_client(wallet, self.gas_budget)
+            .await?;
+
+        Ok(Client::new_contract_client(self.config.clone(), sui_client).await?)
+    }
+
+    /// Creates or loads a new wallet to use with the multiplexer.
+    ///
+    /// The function looks for a wallet configuration file in the given `sub_wallets_dir`, with the
+    /// name `sui_client_<sub_wallet_idx>.yaml`. If the file exists, it loads the wallet from the
+    /// file. Otherwise, it creates a new wallet and saves it to the file.
+    ///
+    /// The corresponding keystore files are named `sui_<sub_wallet_idx>.keystore`.
+    fn create_or_load_sub_wallet(&self, sub_wallet_idx: usize) -> anyhow::Result<WalletContext> {
+        let wallet_config_path = self
+            .sub_wallets_dir
+            .join(format!("sui_client_{}.yaml", sub_wallet_idx));
+        let keystore_filename = format!("sui_{}.keystore", sub_wallet_idx);
+
+        if wallet_config_path.exists() {
+            tracing::debug!(?wallet_config_path, "loading sub-wallet from file");
+            WalletContext::new(&wallet_config_path, None, None)
+        } else {
+            tracing::debug!(?wallet_config_path, "creating new sub-wallet");
+            create_wallet(
+                &wallet_config_path,
+                self.sui_env.clone(),
+                Some(&keystore_filename),
+            )
+        }
+    }
+
+    async fn refill_wallet(&self, wallet: &mut WalletContext) -> anyhow::Result<()> {
+        let address = wallet.active_address()?;
+        tracing::debug!(?address, "refilling sub-wallet with SUI and WAL");
+        self.refiller.send_gas_request(address).await?;
+        self.refiller.send_wal_request(address).await?;
+        Ok(())
+    }
 }

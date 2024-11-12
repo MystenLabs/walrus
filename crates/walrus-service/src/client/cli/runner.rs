@@ -392,6 +392,7 @@ impl ClientCommandRunner {
             self.gas_budget,
             args.refill_interval,
             registry,
+            args.sub_wallets_dir.as_ref(),
         )
         .await?;
 
