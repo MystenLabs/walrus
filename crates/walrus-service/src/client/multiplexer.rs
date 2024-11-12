@@ -3,7 +3,13 @@
 
 //! A client mulitplexer, that allows to submit requests using multiple clients in the background.
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use prometheus::Registry;
 use sui_sdk::{
@@ -11,7 +17,6 @@ use sui_sdk::{
     types::base_types::SuiAddress,
     wallet_context::WalletContext,
 };
-use tokio::sync::Mutex;
 use walrus_core::{BlobId, EpochCount};
 use walrus_sui::{
     client::{get_system_package_id, BlobPersistence, SuiContractClient, SuiReadClient},
@@ -122,7 +127,7 @@ impl WalrusWriteClient for ClientMultiplexer {
 /// A pool of temporary write clients that are rotaated.
 pub struct WriteClientPool {
     pool: Vec<Arc<TempWriteClient>>,
-    cur_idx: Mutex<usize>,
+    cur_idx: AtomicUsize,
 }
 
 impl WriteClientPool {
@@ -147,7 +152,7 @@ impl WriteClientPool {
 
         Ok(Self {
             pool,
-            cur_idx: Mutex::new(0),
+            cur_idx: AtomicUsize::new(0),
         })
     }
 
@@ -161,8 +166,7 @@ impl WriteClientPool {
 
     /// Returns the next client in the pool.
     pub async fn next_client(&self) -> Arc<TempWriteClient> {
-        let mut idx = self.cur_idx.lock().await;
-        let cur_idx = *idx;
+        let cur_idx = self.cur_idx.fetch_add(1, Ordering::Relaxed) % self.pool.len();
 
         let client = self
             .pool
@@ -170,8 +174,6 @@ impl WriteClientPool {
             .expect("the index is computed modulo the length and clients cannot be removed")
             .clone();
 
-        let next = (cur_idx + 1) % self.pool.len();
-        *idx = next;
         client
     }
 }
