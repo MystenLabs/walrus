@@ -76,12 +76,11 @@ struct Args {
 enum Commands {
     /// Generate Sui wallet, keys, and configuration for a Walrus node.
     ///
-    /// This overwrites existing files in the configuration directory. Fails if
-    /// the specified directory does not exist yet.
+    /// This overwrites existing files in the configuration directory.
+    /// Fails if the specified directory does not exist yet.
     Setup {
         #[clap(long)]
-        /// The path to the directory in which to set up wallet and node
-        /// configuration.
+        /// The path to the directory in which to set up wallet and node configuration.
         config_directory: PathBuf,
         #[clap(long)]
         /// The path where the Walrus database will be stored.
@@ -118,21 +117,17 @@ enum Commands {
         cleanup_storage: bool,
     },
 
-    /// Generate a new key for use with the Walrus protocol, and writes it to a
-    /// file.
+    /// Generate a new key for use with the Walrus protocol, and writes it to a file.
     KeyGen {
-        /// Path to the file at which the key will be created. If the file
-        /// already exists, it is not overwritten and the operation will
-        /// fail unless the `--force` option is provided. [default: ./
-        /// <KEY_TYPE>.key]
+        /// Path to the file at which the key will be created. If the file already exists, it is
+        /// not overwritten and the operation will fail unless the `--force` option is provided.
+        /// [default: ./<KEY_TYPE>.key]
         #[clap(long)]
         out: Option<PathBuf>,
-        /// Which type of key to generate. Valid options are 'protocol' and
-        /// 'network'.
+        /// Which type of key to generate. Valid options are 'protocol' and 'network'.
         ///
-        /// The protocol key is used to sign Walrus protocol messages. The
-        /// network key is used to authenticate nodes in network
-        /// communication.
+        /// The protocol key is used to sign Walrus protocol messages.
+        /// The network key is used to authenticate nodes in network communication.
         #[clap(long)]
         key_type: KeyType,
         /// Overwrite existing files.
@@ -148,8 +143,8 @@ enum Commands {
         config_args: ConfigArgs,
     },
 
-    /// Repair a corrupted RocksDB database due to non-clean shutdowns. Hidden
-    /// command for emergency use only.
+    /// Repair a corrupted RocksDB database due to non-clean shutdowns.
+    /// Hidden command for emergency use only.
     #[clap(hide = true)]
     RepairDb {
         #[clap(long)]
@@ -209,9 +204,9 @@ struct ConfigArgs {
     #[clap(long)]
     /// Initial storage capacity of this node in bytes.
     ///
-    /// The value can either by unitless; have suffixes for powers of 1000, such
-    /// as (B), kilobytes (K), etc.; or have suffixes for the IEC units such
-    /// as kibibytes (Ki), mebibytes (Mi), etc.
+    /// The value can either by unitless; have suffixes for powers of 1000, such as (B),
+    /// kilobytes (K), etc.; or have suffixes for the IEC units such as kibibytes (Ki),
+    /// mebibytes (Mi), etc.
     node_capacity: ByteCount,
     #[clap(long)]
     /// The host name or public IP address of the node.
@@ -220,15 +215,13 @@ struct ConfigArgs {
     //   Optional fields below
     // ***************************
     #[clap(long)]
-    /// HTTP URL of the Sui full-node RPC endpoint (including scheme and port)
-    /// to use for event processing.
+    /// HTTP URL of the Sui full-node RPC endpoint (including scheme and port) to use for event
+    /// processing.
     ///
-    /// If not provided, the RPC node from the wallet's active environment will
-    /// be used.
+    /// If not provided, the RPC node from the wallet's active environment will be used.
     sui_rpc: Option<String>,
     #[clap(long, action)]
-    /// Use the legacy event provider instead of the standard checkpoint-based
-    /// event processor.
+    /// Use the legacy event provider instead of the standard checkpoint-based event processor.
     use_legacy_event_provider: bool,
     #[clap(long, default_value_t = REST_API_PORT)]
     /// The port on which the storage node will serve requests.
@@ -268,8 +261,7 @@ struct PathArgs {
     /// The path to the key pair used in Walrus protocol messages.
     protocol_key_path: PathBuf,
     #[clap(long)]
-    /// The path to the key pair used to authenticate nodes in network
-    /// communication.
+    /// The path to the key pair used to authenticate nodes in network communication.
     network_key_path: PathBuf,
     #[clap(long)]
     /// Location of the node's wallet config.
@@ -490,8 +482,8 @@ mod commands {
         // Cancel the node runtime, if it is still executing.
         cancel_token.cancel();
         event_processor_runtime.join()?;
-        // Wait for the node runtime to complete, may take a moment as the REST-API
-        // waits for open connections to close before exiting.
+        // Wait for the node runtime to complete, may take a moment as
+        // the REST-API waits for open connections to close before exiting.
         node_runtime.join()?;
         Ok(())
     }
@@ -551,8 +543,7 @@ mod commands {
         };
         let registration_params = config.to_registration_params(public_address, node_name);
 
-        // Uses the Sui wallet configuration in the storage node config to register the
-        // node.
+        // Uses the Sui wallet configuration in the storage node config to register the node.
         let contract_client = get_contract_client_from_node_config(&config).await?;
         let proof_of_possession = walrus_sui::utils::generate_proof_of_possession(
             config.protocol_key_pair(),
@@ -619,8 +610,7 @@ mod commands {
             EventProviderConfig::CheckpointBasedEventProcessor(None)
         };
 
-        // Do a minor sanity check that the user has not included a port in the
-        // hostname.
+        // Do a minor sanity check that the user has not included a port in the hostname.
         ensure!(
             !public_host.contains(':'),
             "DNS names must not contain ':'; to specify a port different from the default, use the \
@@ -716,8 +706,7 @@ mod commands {
     }
 }
 
-/// Creates a [`SuiContractClient`] from the Sui config in the provided storage
-/// node config.
+/// Creates a [`SuiContractClient`] from the Sui config in the provided storage node config.
 async fn get_contract_client_from_node_config(
     storage_config: &StorageNodeConfig,
 ) -> anyhow::Result<SuiContractClient> {

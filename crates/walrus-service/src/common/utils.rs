@@ -453,9 +453,8 @@ impl ShardDiff {
     /// Returns a new `ShardDiff` when moving from the allocation in
     /// `committees.previous_committee()` to `committees.current_committee()` for the node
     /// identified by the provided public key.
-    ///
-    /// `exist` is the list of shards that the node currently holds, which is used to find out the
-    /// shards that are no longer needed in the node and can be removed.
+    /// `exist` is the list of shards that the node currently holds, which is used to find out
+    /// the shards that are no longer needed in the node and can be removed.
     pub fn diff_previous(
         committees: &ActiveCommittees,
         exist: &[ShardIndex],
@@ -596,7 +595,8 @@ impl FromStr for ByteCount {
                 .map(|value| ByteCount((value * scale).floor() as u64))
                 .with_context(error_context)
         } else {
-            // Otherwise, assume unittless. Bytes cannot have fractional components
+            // Otherwise, assume unittless.
+            // Bytes cannot have fractional components
             u64::from_str(s.trim())
                 .map(ByteCount)
                 .with_context(error_context)
@@ -605,7 +605,7 @@ impl FromStr for ByteCount {
 }
 
 /// Export the walrus binary version.
-// TODO(jsmith): Once the cli logic is moved within the package, this should be crate-visible.
+// TODO(jsmith): Once the cli logic is moved within the package, this should be crate-visible
 pub fn export_build_info(registry: &Registry, version: &'static str) {
     let opts = prometheus::opts!("walrus_build_info", "Walrus binary info");
     let metric = prometheus::register_int_gauge_vec_with_registry!(opts, &["version"], registry)
@@ -617,7 +617,7 @@ pub fn export_build_info(registry: &Registry, version: &'static str) {
 }
 
 /// Export information about the contract to which the storage nodes are communicating.
-// TODO(jsmith): Once the cli logic is moved within the package, this should be crate-visible.
+// TODO(jsmith): Once the cli logic is moved within the package, this should be crate-visible
 pub fn export_contract_info(
     registry: &Registry,
     system_object: &ObjectID,
