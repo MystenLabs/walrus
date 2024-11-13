@@ -1,85 +1,85 @@
 repos:
-- repo: https://github.com/pre-commit/pre-commit-hooks
-  rev: v5.0.0
-  hooks:
-  - id: check-merge-conflict
-  - id: check-yaml
-  - id: trailing-whitespace
-  - id: check-symlinks
-  - id: end-of-file-fixer
-  - id: mixed-line-ending
-  - id: trailing-whitespace
-- repo: https://github.com/editorconfig-checker/editorconfig-checker.python
-  rev: "3.0.3"
-  hooks:
-  - id: editorconfig-checker
-    alias: ec
-- repo: https://github.com/notken12/licensesnip
-  rev: 19b1186
-  hooks:
-    - id: licensesnip
-      args: []
-      pass_filenames: false
-- repo: https://github.com/crate-ci/typos
-  rev: v1.26.8
-  hooks:
-  - id: typos
-    pass_filenames: false
-- repo: https://github.com/EmbarkStudios/cargo-deny
-  rev: 0.16.1
-  hooks:
-  - id: cargo-deny
-- repo: local
-  hooks:
-  - id: taplo-format
-    alias: taplo
-    name: taplo-format
-    description: Format TOML documents
-    entry: taplo format
-    language: python
-    types: [toml]
-    args: []
-    additional_dependencies: ["taplo==0.9.3"]
-  - id: cargo-fmt
-    name: cargo-fmt
-    entry: cargo fmt
-    args:
-    - "--"
-    - "--config"
-    - "group_imports=StdExternalCrate,imports_granularity=Crate,imports_layout=HorizontalVertical"
-    language: rust
-    types: [rust]
-    pass_filenames: false
-  - id: cargo-test
-    name: cargo-test
-    entry: cargo nextest run
-    language: rust
-    files: (^crates/|Cargo\.(toml|lock)$|nextest\.toml$)
-    pass_filenames: false
-  - id: clippy-with-tests
-    name: clippy-with-tests
-    entry: cargo clippy
-    args: ["--all-features", "--tests", "--", "-D", "warnings"]
-    language: rust
-    files: ^(crates/|Cargo\.(toml|lock)$)
-    pass_filenames: false
-  - id: clippy
-    name: clippy
-    entry: cargo clippy
-    args: ["--all-features", "--", "-D", "warnings"]
-    language: rust
-    files: ^(crates/|Cargo\.(toml|lock)$)
-    pass_filenames: false
-  - id: cargo-doc
-    name: cargo-doc
-    entry: env RUSTDOCFLAGS="-D warnings" cargo doc
-    args: ["--workspace", "--no-deps"]
-    language: rust
-    files: ^(crates/|Cargo\.(toml|lock)$)
-    pass_filenames: false
-  - id: move-test
-    name: move-test
-    entry: scripts/move_coverage.sh
-    language: system
-    files: "contracts/.*"
-    pass_filenames: false
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: trailing-whitespace
+      - id: check-symlinks
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+      - id: trailing-whitespace
+  - repo: https://github.com/editorconfig-checker/editorconfig-checker.python
+    rev: "3.0.3"
+    hooks:
+      - id: editorconfig-checker
+        alias: ec
+  - repo: https://github.com/notken12/licensesnip
+    rev: 19b1186
+    hooks:
+      - id: licensesnip
+        args: []
+        pass_filenames: false
+  - repo: https://github.com/crate-ci/typos
+    rev: v1.26.8
+    hooks:
+      - id: typos
+        pass_filenames: false
+  - repo: https://github.com/EmbarkStudios/cargo-deny
+    rev: 0.16.1
+    hooks:
+      - id: cargo-deny
+  - repo: local
+    hooks:
+      - id: taplo-format
+        alias: taplo
+        name: taplo-format
+        description: Format TOML documents
+        entry: taplo format
+        language: python
+        types: [toml]
+        args: []
+        additional_dependencies: ["taplo==0.9.3"]
+      - id: cargo-fmt
+        name: cargo-fmt
+        entry: cargo fmt
+        args:
+          - "--"
+          - "--config"
+          - "group_imports=StdExternalCrate,imports_granularity=Crate,imports_layout=HorizontalVertical"
+        language: rust
+        types: [rust]
+        pass_filenames: false
+      - id: cargo-test
+        name: cargo-test
+        entry: cargo nextest run --features mainnet-contracts
+        language: rust
+        files: (^crates/|Cargo\.(toml|lock)$|nextest\.toml$)
+        pass_filenames: false
+      - id: clippy-with-tests
+        name: clippy-with-tests
+        entry: cargo clippy
+        args: ["--all-features", "--tests", "--", "-D", "warnings"]
+        language: rust
+        files: ^(crates/|Cargo\.(toml|lock)$)
+        pass_filenames: false
+      - id: clippy
+        name: clippy
+        entry: cargo clippy
+        args: ["--all-features", "--", "-D", "warnings"]
+        language: rust
+        files: ^(crates/|Cargo\.(toml|lock)$)
+        pass_filenames: false
+      - id: cargo-doc
+        name: cargo-doc
+        entry: env RUSTDOCFLAGS="-D warnings" cargo doc
+        args: ["--workspace", "--no-deps"]
+        language: rust
+        files: ^(crates/|Cargo\.(toml|lock)$)
+        pass_filenames: false
+      - id: move-test
+        name: move-test
+        entry: scripts/move_coverage.sh
+        language: system
+        files: "contracts/.*"
+        pass_filenames: false
