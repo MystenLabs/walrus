@@ -799,6 +799,7 @@ impl Client {
     ) -> Result<(Response, Span), NodeError> {
         let url = request.url();
         let span = tracing::info_span!(
+            parent: &Span::current(),
             "http_request",
             otel.name = format!("{} {}", request.method().as_str(), url_template),
             otel.kind = "CLIENT",

@@ -55,6 +55,7 @@ impl MakeHttpSpan {
     fn make_span<B>(&mut self, request: &Request<B>) -> Span {
         let route = self.get_route(request);
         let span = tracing::info_span!(
+            parent: &Span::current(),
             "rest_api",
             // Overrides the exported span name to "{http.request.method} {http.route}"
             "otel.name" = format!("{} {}", request.method(), route),

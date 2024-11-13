@@ -24,7 +24,7 @@ use start_epoch_change_finisher::StartEpochChangeFinisher;
 use sui_types::{digests::TransactionDigest, event::EventID};
 use tokio::{select, sync::watch, time::Instant};
 use tokio_util::sync::CancellationToken;
-use tracing::{field, Instrument};
+use tracing::{field, Instrument, Span};
 use typed_store::{rocks::MetricConf, DBMetrics, TypedStoreError};
 use walrus_core::{
     encoding::{EncodingAxis, EncodingConfig, RecoverySymbolError},
@@ -562,7 +562,7 @@ impl StorageNode {
         while let Some((element_index, stream_element)) = indexed_element_stream.next().await {
             let node_status = self.inner.storage.node_status()?;
             let span = tracing::info_span!(
-                parent: None,
+                parent: &Span::current(),
                 "blob_store receive",
                 "otel.kind" = "CONSUMER",
                 "otel.status_code" = field::Empty,
