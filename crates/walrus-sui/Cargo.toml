@@ -1,13 +1,14 @@
 [package]
-name = "walrus-sui"
-publish = false
 authors.workspace = true
-version.workspace = true
 edition.workspace = true
 license.workspace = true
+name = "walrus-sui"
+publish = false
+version.workspace = true
 
 [features]
 default = []
+mainnet-contracts = []
 test-utils = [
   "dep:tempfile",
   "dep:test-cluster",

@@ -345,8 +345,12 @@ impl SuiReadClient {
     }
 
     async fn get_system_object(&self) -> SuiClientResult<SystemObject> {
-        let SystemObjectForDeserialization { id, version } =
-            get_sui_object(&self.sui_client, self.system_object_id).await?;
+        let SystemObjectForDeserialization {
+            id,
+            version,
+            #[cfg(feature = "mainnet-contracts")]
+            _foo,
+        } = get_sui_object(&self.sui_client, self.system_object_id).await?;
         let Some(dynamic_field_info) = self
             .sui_client
             .read_api()

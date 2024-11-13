@@ -409,6 +409,8 @@ pub struct SystemObject {
 pub(crate) struct SystemObjectForDeserialization {
     pub(crate) id: ObjectID,
     pub(crate) version: u64,
+    #[cfg(feature = "mainnet-contracts")]
+    pub(crate) _foo: u64,
 }
 impl AssociatedContractStruct for SystemObjectForDeserialization {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::system::System;

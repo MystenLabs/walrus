@@ -119,10 +119,17 @@ jobs:
         with:
           tool: cargo-nextest
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - uses: Swatinem/rust-cache@v2.7.5
         with:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
-      - name: Run tests
+      - name: Run tests with mainnet contracts
+        run: cargo nextest run --profile ci --run-ignored all --features mainnet-contracts
+      - name: Checkout testnet contracts
+        run: git checkout testnet-v1.0.1 contracts
+      - name: Run tests with testnet contracts
         run: cargo nextest run --profile ci --run-ignored all
 
   test-coverage:
@@ -156,8 +163,16 @@ jobs:
         with:
           tool: cargo-nextest
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - run: ./scripts/simtest/install.sh
-      - run: cargo simtest simtest --profile simtest
+      - name: Run tests with mainnet contracts
+        run: cargo simtest simtest --profile simtest --features mainnet-contracts
+      - name: Checkout testnet contracts
+        run: git checkout testnet-v1.0.1 contracts
+      - name: Run tests with testnet contracts
+        run: cargo simtest simtest --profile simtest
 
   test-move:
     name: Test Move code

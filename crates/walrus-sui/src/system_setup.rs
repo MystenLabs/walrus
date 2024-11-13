@@ -127,6 +127,7 @@ pub(crate) async fn publish_package(
         "Error during transaction execution: {:?}",
         transaction_response.errors
     );
+
     Ok(transaction_response)
 }
 

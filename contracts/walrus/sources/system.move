@@ -23,12 +23,15 @@ const VERSION: u64 = 0;
 public struct System has key {
     id: UID,
     version: u64,
+
+    // TODO: remove, only for testing
+    foo: u64,
 }
 
 /// Creates and shares an empty system object.
 /// Must only be called by the initialization function.
 public(package) fun create_empty(max_epochs_ahead: u32, ctx: &mut TxContext) {
-    let mut system = System { id: object::new(ctx), version: VERSION };
+    let mut system = System { id: object::new(ctx), version: VERSION, foo: 0 };
     let system_state_inner = system_state_inner::create_empty(max_epochs_ahead, ctx);
     dynamic_object_field::add(&mut system.id, VERSION, system_state_inner);
     transfer::share_object(system);
@@ -208,7 +211,7 @@ public(package) fun inner(system: &System): &SystemStateInnerV1 {
 #[test_only]
 public(package) fun new_for_testing(): System {
     let ctx = &mut tx_context::dummy();
-    let mut system = System { id: object::new(ctx), version: VERSION };
+    let mut system = System { id: object::new(ctx), version: VERSION, foo: 0 };
     let system_state_inner = system_state_inner::new_for_testing();
     dynamic_object_field::add(&mut system.id, VERSION, system_state_inner);
     system
@@ -216,7 +219,7 @@ public(package) fun new_for_testing(): System {
 
 #[test_only]
 public(package) fun new_for_testing_with_multiple_members(ctx: &mut TxContext): System {
-    let mut system = System { id: object::new(ctx), version: VERSION };
+    let mut system = System { id: object::new(ctx), version: VERSION, foo: 0 };
     let system_state_inner = system_state_inner::new_for_testing_with_multiple_members(ctx);
     dynamic_object_field::add(&mut system.id, VERSION, system_state_inner);
     system
