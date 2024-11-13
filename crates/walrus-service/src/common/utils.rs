@@ -353,7 +353,11 @@ impl MetricsAndLoggingRuntime {
     pub fn join(&mut self) -> Result<(), anyhow::Error> {
         if let Some(metric_push_handle) = self._metric_push_handle.take() {
             tracing::debug!("waiting for the metric runtime to shutdown...");
-            self.runtime.block_on(metric_push_handle)?
+            self.runtime.block_on(async {
+                // The first `?` handles the timeout result.
+                // The second `?` handles the handle result.
+                tokio::time::timeout(Duration::from_secs(5), metric_push_handle).await??
+            })
         } else {
             Ok(())
         }
