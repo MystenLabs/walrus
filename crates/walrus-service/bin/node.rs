@@ -443,9 +443,9 @@ mod commands {
         monitor_runtime.block_on(async {
             tokio::spawn(async move {
                 let mut set = JoinSet::new();
-                set.spawn_blocking(move || metrics_runtime.join());
                 set.spawn_blocking(move || node_runtime.join());
                 set.spawn_blocking(move || event_processor_runtime.join());
+                set.spawn_blocking(move || metrics_runtime.join());
                 tokio::select! {
                     _ = wait_until_terminated(exit_listener) => {
                         tracing::info!("Received termination signal, shutting down...");
@@ -475,7 +475,6 @@ mod commands {
         cancel_token: CancellationToken,
     ) -> anyhow::Result<()> {
         let monitor_runtime = Runtime::new()?;
-        metrics_runtime.join()?;
         monitor_runtime.block_on(async {
             tokio::spawn(async move { wait_until_terminated(exit_listener).await }).await
         })?;
@@ -485,6 +484,8 @@ mod commands {
         // Wait for the node runtime to complete, may take a moment as
         // the REST-API waits for open connections to close before exiting.
         node_runtime.join()?;
+        // and finally the metrics
+        metrics_runtime.join()?;
         Ok(())
     }
 

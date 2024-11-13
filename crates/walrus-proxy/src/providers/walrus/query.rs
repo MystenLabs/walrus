@@ -1,6 +1,9 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+// TODO: Reuse calls from `walrus-sui` here (#1170).
+// TODO: Include the previous and next committees (#1174).
+
 use std::vec;
 
 use anyhow::Error;
