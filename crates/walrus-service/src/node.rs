@@ -7,7 +7,10 @@ use std::{
     future::Future,
     num::{NonZero, NonZeroU16},
     pin::Pin,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 
 use anyhow::{anyhow, bail, Context};
@@ -404,6 +407,7 @@ pub struct StorageNodeInner {
     start_time: Instant,
     metrics: NodeMetricSet,
     current_epoch: watch::Sender<Epoch>,
+    is_shutting_down: AtomicBool,
 }
 
 impl StorageNode {
@@ -441,6 +445,7 @@ impl StorageNode {
             committee_service: committee_service.into(),
             metrics: NodeMetricSet::new(registry),
             start_time,
+            is_shutting_down: false.into(),
         });
 
         inner.init_gauges()?;
@@ -504,7 +509,8 @@ impl StorageNode {
                 Err(err) => return Err(err),
             },
             _ = cancel_token.cancelled() => {
-                self.blob_sync_handler.cancel_all_for_shutdown().await?;
+                self.inner.shut_down();
+                self.blob_sync_handler.cancel_all().await?;
             },
         }
 
@@ -1204,6 +1210,14 @@ impl StorageNodeInner {
     pub fn set_node_status(&self, status: NodeStatus) -> Result<(), TypedStoreError> {
         self.metrics.current_node_status.set(status.to_i64());
         self.storage.set_node_status(status)
+    }
+
+    fn shut_down(&self) {
+        self.is_shutting_down.store(true, Ordering::Relaxed)
+    }
+
+    fn is_shutting_down(&self) -> bool {
+        self.is_shutting_down.load(Ordering::Relaxed)
     }
 }
 
@@ -2568,13 +2582,7 @@ mod tests {
         })
         .await?;
 
-        assert_eq!(
-            node.storage_node
-                .blob_sync_handler
-                .cancel_all_for_shutdown()
-                .await?,
-            0
-        );
+        assert_eq!(node.storage_node.blob_sync_handler.cancel_all().await?, 0);
 
         Ok(())
     }

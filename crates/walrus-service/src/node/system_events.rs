@@ -94,29 +94,29 @@ impl EventHandle {
 }
 
 impl Drop for EventHandle {
+    #[tracing::instrument]
     fn drop(&mut self) {
         if self.can_be_dropped {
             return;
         }
 
-        if thread::panicking() {
-            tracing::trace!(
-                index = self.index,
-                event_id = ?self.event_id,
-                "event handle dropped during panic",
-            );
-        } else {
-            tracing::error!(
-                index = self.index,
-                event_id = ?self.event_id,
-                "event handle dropped before being marked as complete",
-            );
-            // Panic in tests if an event handle is dropped.
-            debug_assert!(
-                self.can_be_dropped,
-                "event handle dropped before being marked as complete; event ID: {:?}, index: {}",
-                self.event_id, self.index,
-            );
+        match () {
+            _ if thread::panicking() => {
+                tracing::debug!("event handle dropped during panic",);
+            }
+            _ if self.node.is_shutting_down() => {
+                tracing::debug!("event handle dropped during shutdown",);
+            }
+            _ => {
+                tracing::error!("event handle dropped before being marked as complete",);
+                // Panic in tests if an event handle is dropped.
+                debug_assert!(
+                    self.can_be_dropped,
+                    "event handle dropped before being marked as complete; \
+                        event ID: {:?}, index: {}",
+                    self.event_id, self.index,
+                );
+            }
         }
     }
 }
@@ -124,19 +124,11 @@ impl Drop for EventHandle {
 pub(super) trait CompletableHandle {
     /// This marks the handle as complete.
     fn mark_as_complete(self);
-
-    /// This explicitly marks the handle as incomplete, for example during shutdown, such that no
-    /// error is logged when it is dropped.
-    fn mark_as_incomplete_during_shutdown(self);
 }
 
 impl CompletableHandle for EventHandle {
     fn mark_as_complete(self) {
         self.mark_as_complete();
-    }
-
-    fn mark_as_incomplete_during_shutdown(mut self) {
-        self.can_be_dropped = true;
     }
 }
 
@@ -144,12 +136,6 @@ impl CompletableHandle for Option<EventHandle> {
     fn mark_as_complete(self) {
         if let Some(handle) = self {
             handle.mark_as_complete();
-        }
-    }
-
-    fn mark_as_incomplete_during_shutdown(self) {
-        if let Some(handle) = self {
-            handle.mark_as_incomplete_during_shutdown();
         }
     }
 }

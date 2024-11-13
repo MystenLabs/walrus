@@ -268,7 +268,7 @@ impl BlobSyncHandler {
 
     /// Cancels all blob syncs and returns the number of cancelled syncs.
     #[tracing::instrument(skip_all)]
-    pub async fn cancel_all_for_shutdown(&self) -> anyhow::Result<usize> {
+    pub async fn cancel_all(&self) -> anyhow::Result<usize> {
         let join_handles: Vec<_> = self
             .blob_syncs_in_progress
             .lock()
@@ -278,10 +278,7 @@ impl BlobSyncHandler {
             .collect();
         let count = join_handles.len();
 
-        try_join_all(join_handles)
-            .await?
-            .into_iter()
-            .for_each(CompletableHandle::mark_as_incomplete_during_shutdown);
+        try_join_all(join_handles).await?.into_iter().for_each(drop);
 
         Ok(count)
     }
