@@ -13,8 +13,7 @@ use std::{
     num::NonZeroU16,
     path::PathBuf,
     str::FromStr,
-    sync::{Arc, Mutex, MutexGuard, OnceLock},
-    thread,
+    sync::{Arc, Mutex},
 };
 
 use async_trait::async_trait;
@@ -23,11 +22,7 @@ use futures::{stream::FuturesUnordered, StreamExt};
 use prometheus::Registry;
 use sui_types::base_types::ObjectID;
 use tempfile::TempDir;
-use tokio::{
-    runtime::{Builder, Runtime},
-    task::JoinHandle,
-    time::Duration,
-};
+use tokio::{task::JoinHandle, time::Duration};
 use tokio_stream::{wrappers::BroadcastStream, Stream};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
@@ -337,7 +332,6 @@ impl SimStorageNodeHandle {
 
     /// Builds and runs a storage node with the provided configuration. Returns the handles to the
     /// REST API, the node, and the event processor.
-    #[cfg(msim)]
     async fn build_and_run_node(
         config: StorageNodeConfig,
         cancel_token: CancellationToken,
@@ -832,7 +826,6 @@ impl StorageNodeHandleBuilder {
             rest_api_address: storage_node_config.rest_api_address,
             metrics_address: storage_node_config.metrics_address,
             cancel_token,
-            #[cfg(msim)]
             node_id: handle.id(),
             storage_node_capability: self.storage_node_capability,
         })
@@ -934,13 +927,16 @@ fn spawn_event_processor(
 }
 
 /// Returns a runtime that can be used to spawn tasks.
-fn get_runtime() -> MutexGuard<'static, Runtime> {
-    static CLUSTER: OnceLock<std::sync::Mutex<Runtime>> = OnceLock::new();
+#[cfg(not(msim))]
+fn get_runtime() -> std::sync::MutexGuard<'static, tokio::runtime::Runtime> {
+    use std::sync::OnceLock;
+
+    static CLUSTER: OnceLock<std::sync::Mutex<tokio::runtime::Runtime>> = OnceLock::new();
     CLUSTER
         .get_or_init(|| {
             std::sync::Mutex::new(
-                thread::spawn(move || {
-                    Builder::new_multi_thread()
+                std::thread::spawn(move || {
+                    tokio::runtime::Builder::new_multi_thread()
                         .enable_all()
                         .build()
                         .expect("should be able to build runtime")

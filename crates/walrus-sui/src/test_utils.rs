@@ -10,7 +10,7 @@ use std::sync::mpsc;
 use std::{
     collections::BTreeSet,
     fmt::{self, Debug, Formatter},
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::Arc,
 };
 
@@ -180,7 +180,9 @@ impl TestClusterHandle {
     fn from_env() -> Option<Self> {
         let config_path = std::env::var("SUI_TEST_CONFIG_DIR").ok()?;
         tracing::debug!("using external sui test cluster");
-        let wallet_path = Path::new(&config_path).join("client.yaml").into();
+        let wallet_path = std::path::Path::new(&config_path)
+            .join("client.yaml")
+            .into();
         let rpc_url = "http://127.0.0.1:9000".into();
         Some(Self {
             cluster: LocalOrExternalTestCluster::External { rpc_url },
