@@ -9,6 +9,7 @@ use std::{
 use tokio::sync::Mutex;
 use walrus_core::ShardIndex;
 use walrus_sdk::error::ServiceError;
+use walrus_utils::backoff::{self, ExponentialBackoff};
 
 use super::{
     config::ShardSyncConfig,
@@ -16,10 +17,7 @@ use super::{
     storage::{ShardStatus, ShardStorage},
     StorageNodeInner,
 };
-use crate::{
-    node::{errors::ShardNotAssigned, metrics},
-    utils::{self, ExponentialBackoff},
-};
+use crate::node::{errors::ShardNotAssigned, metrics};
 
 /// Manages tasks for syncing shards during epoch change.
 #[derive(Debug, Clone)]
@@ -145,7 +143,7 @@ impl ShardSyncHandler {
                 shard_index.0 as u64, // Seed the backoff with the shard index.
             );
 
-            utils::retry(backoff, || async {
+            backoff::retry(backoff, || async {
                 metrics::with_label!(node_clone.metrics.shard_sync_total, "start").inc();
                 let sync_result = shard_storage
                     .start_sync_shard_before_epoch(

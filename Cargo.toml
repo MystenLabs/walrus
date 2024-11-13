@@ -3,13 +3,13 @@ members = ["crates/*"]
 resolver = "2"
 
 [workspace.package]
-version = "1.3.0"
+version = "1.4.0"
 authors = ["Mysten Labs <build@mystenlabs.com>"]
 edition = "2021"
 license = "Apache-2.0"
 
 [workspace.dependencies]
-anyhow = "1.0.92"
+anyhow = "1.0.93"
 async-channel = "2.3.1"
 async-trait = "0.1.83"
 axum = { version = "0.7.7", default-features = false }
@@ -70,9 +70,9 @@ sui-storage = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.37.
 sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.37.1" }
 syn = "2.0"
 telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.37.1" }
-tempfile = "3.13.0"
+tempfile = "3.14.0"
 test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.37.1" }
-thiserror = "1.0.67"
+thiserror = "2.0.3"
 tokio = "=1.38.1"
 tokio-stream = "0.1.16"
 tokio-util = "0.7.12"
@@ -86,12 +86,12 @@ url = "2.5.2"
 utoipa = { version = "4.2.3" }
 utoipa-redoc = { version = "4.0.0", features = ["axum"] }
 walrus-core = { path = "crates/walrus-core" }
-walrus-event = { path = "crates/walrus-event" }
 walrus-proc-macros = { path = "crates/walrus-proc-macros" }
 walrus-sdk = { path = "crates/walrus-sdk" }
 walrus-service = { path = "crates/walrus-service" }
 walrus-sui = { path = "crates/walrus-sui" }
 walrus-test-utils = { path = "crates/walrus-test-utils" }
+walrus-utils = { path = "crates/walrus-utils" }
 x509-cert = "0.2.5"
 
 [workspace.lints.rust]

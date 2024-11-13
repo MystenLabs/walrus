@@ -40,7 +40,7 @@ use self::{
     responses::BlobStoreResult,
     utils::{CompletedReasonWeight, WeightedFutures},
 };
-use crate::{common::active_committees::ActiveCommittees, utils::ExponentialBackoff};
+use crate::common::active_committees::ActiveCommittees;
 
 pub mod cli;
 pub mod responses;
@@ -68,8 +68,13 @@ mod resource;
 
 mod utils;
 pub use utils::string_prefix;
+use walrus_utils::backoff::ExponentialBackoff;
 
-mod metrics;
+pub mod metrics;
+
+mod refill;
+pub use refill::{CoinRefill, NetworkOrWallet, RefillHandles, Refiller};
+mod multiplexer;
 
 type ClientResult<T> = Result<T, ClientError>;
 
@@ -190,24 +195,6 @@ impl Client<()> {
             communication_factory: node_client_factory,
             metrics,
         }
-    }
-}
-impl<T> Client<T> {
-    /// Sets the metric registry used by the client.
-    pub fn set_metric_registry(&mut self, registry: &Registry) {
-        let metrics = ClientMetricSet::new(registry);
-
-        // Since the metrics have just been set, update them with the stored committee if possible.
-        // We use try_read as this is called during the 'construction' phase and it's unlikely that
-        // there is a write-lock necessitating the `.await`. Even if this fails, the daemon will
-        // eventually refresh the committee and log the state.
-        if let Ok(committees_guard) = self.committees.try_read() {
-            metrics.current_epoch.set(committees_guard.epoch());
-            metrics
-                .current_epoch_state
-                .set_from_committees(&committees_guard);
-        }
-        self.metrics = Some(metrics);
     }
 }
 
@@ -559,6 +546,23 @@ impl<T: ContractClient> Client<T> {
 }
 
 impl<T> Client<T> {
+    /// Sets the metric registry used by the client.
+    pub fn set_metric_registry(&mut self, registry: &Registry) {
+        let metrics = ClientMetricSet::new(registry);
+
+        // Since the metrics have just been set, update them with the stored committee if possible.
+        // We use try_read as this is called during the 'construction' phase and it's unlikely that
+        // there is a write-lock necessitating the `.await`. Even if this fails, the daemon will
+        // eventually refresh the committee and log the state.
+        if let Ok(committees_guard) = self.committees.try_read() {
+            metrics.current_epoch.set(committees_guard.epoch());
+            metrics
+                .current_epoch_state
+                .set_from_committees(&committees_guard);
+        }
+        self.metrics = Some(metrics);
+    }
+
     /// Adds a [`Blocklist`] to the client that will be checked when storing or reading blobs.
     ///
     /// This can be called again to replace the blocklist.
@@ -1113,6 +1117,11 @@ impl<T> Client<T> {
     /// Returns the inner sui client as mutable reference.
     pub fn sui_client_mut(&mut self) -> &mut T {
         &mut self.sui_client
+    }
+
+    /// Returns the config used by the client.
+    pub fn config(&self) -> &Config {
+        &self.config
     }
 }
 

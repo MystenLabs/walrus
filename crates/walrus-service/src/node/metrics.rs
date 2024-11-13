@@ -13,10 +13,12 @@ use prometheus::{
     Registry,
 };
 pub(crate) use telemetry::with_label;
-use walrus_event::EventStreamElement;
 use walrus_sui::types::{BlobCertified, BlobEvent, ContractEvent, EpochChangeEvent};
 
-use crate::common::telemetry::{self, CurrentEpochMetric, CurrentEpochStateMetric};
+use crate::{
+    common::telemetry::{self, CurrentEpochMetric, CurrentEpochStateMetric},
+    node::events::EventStreamElement,
+};
 
 pub(crate) const STATUS_FAILURE: &str = "failure";
 pub(crate) const STATUS_SUCCESS: &str = "success";

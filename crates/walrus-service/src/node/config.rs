@@ -29,14 +29,16 @@ use walrus_core::keys::{
     SupportedKeyPair,
     TaggedKeyPair,
 };
-use walrus_event::EventProcessorConfig;
 use walrus_sui::{
     client::{SuiClientError, SuiContractClient, SuiReadClient},
     types::{move_structs::VotingParams, NetworkAddress, NodeRegistrationParams},
 };
 
 use super::storage::DatabaseConfig;
-use crate::common::utils::{self, LoadConfig};
+use crate::{
+    common::utils::{self, LoadConfig},
+    node::events::EventProcessorConfig,
+};
 
 /// Configuration of a Walrus storage node.
 #[serde_as]

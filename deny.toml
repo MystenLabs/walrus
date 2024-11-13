@@ -4,17 +4,24 @@
 [advisories]
 version = 2
 ignore = [
-  # We depend on rsa via fastcrypto but don't actually use it.
-  "RUSTSEC-2023-0071",
-  # difference 2.0.0 is unmaintained.
+  # `difference` is unmaintained.
   "RUSTSEC-2020-0095",
-  # rust-yaml is not maintained, but is a dependency in many of our packages.
+  # We depend on `rsa` via `fastcrypto` but don't actually use it.
+  "RUSTSEC-2023-0071",
+  # `rust-yaml` is not maintained, but is a dependency in many of our packages.
   "RUSTSEC-2024-0320",
   # We have a vulnerable version of `rustls` in our dependency tree through the old version of
-  # jsonrpsee used by sui.
+  # `jsonrpsee` used by Sui.
   "RUSTSEC-2024-0336",
-  # proc-macro-error is not maintained, but is a dependency in many of our packages.
+  # `proc-macro-error` is not maintained, but is a dependency in many of our packages.
   "RUSTSEC-2024-0370",
+  # `instance` is unmaintained; consider using `web-time`.
+  "RUSTSEC-2024-0384",
+  # `opentelemetry_api` has been merged into the `opentelemetry` crate; we currently depend on the
+  # old version through Sui.
+  "RUSTSEC-2024-0387",
+  # `derivative` is unmaintained.
+  "RUSTSEC-2024-0388",
 ]
 
 # This section is considered when running `cargo deny check licenses`

@@ -13,15 +13,15 @@ use std::{
 
 use anyhow::Context;
 use clap::Parser;
-use refill::{NetworkOrWallet, Refiller};
-use walrus_service::{client::Config, utils::LoadConfig};
+use walrus_service::{
+    client::{metrics::ClientMetrics, Config, NetworkOrWallet, Refiller},
+    utils::LoadConfig,
+};
 use walrus_sui::{client::get_system_package_id, utils::SuiNetwork};
 
-use crate::{generator::LoadGenerator, metrics::ClientMetrics};
+use crate::generator::LoadGenerator;
 
 mod generator;
-mod metrics;
-mod refill;
 
 /// Gas budget for transactions.
 const GAS_BUDGET: u64 = 1_000_000_000;

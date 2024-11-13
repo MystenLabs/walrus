@@ -371,6 +371,19 @@ pub struct PublisherArgs {
     #[clap(long, default_value_t = default::max_concurrent_requests())]
     #[serde(default = "default::max_concurrent_requests")]
     pub max_concurrent_requests: usize,
+    /// The number of clients to use for the publisher.
+    ///
+    /// The publisher uses this number of clients to publish blobs concurrenty.
+    #[clap(long, default_value_t = default::n_publisher_clients())]
+    #[serde(default = "default::n_publisher_clients")]
+    pub n_clients: usize,
+    /// The interval of time between refilling the publisher's sub-clients' wallets.
+    #[clap(long, value_parser = humantime::parse_duration, default_value = "1s" )]
+    #[serde(default = "default::refill_interval")]
+    pub refill_interval: Duration,
+    /// The directory where the publisher will store the sub-wallets used for client multiplexing.
+    #[clap(long)]
+    pub sub_wallets_dir: PathBuf,
 }
 
 impl PublisherArgs {
@@ -573,6 +586,16 @@ mod default {
         max_concurrent_requests()
     }
 
+    pub(crate) fn n_publisher_clients() -> usize {
+        // Use the same number of clients as the number of concurrent requests. This way, the
+        // publisher will have the lowest possible latency for every request.
+        max_concurrent_requests()
+    }
+
+    pub(crate) fn refill_interval() -> Duration {
+        Duration::from_secs(1)
+    }
+
     pub(crate) fn status_timeout() -> Duration {
         Duration::from_secs(10)
     }
@@ -617,7 +640,8 @@ mod tests {
 
     const STORE_STR: &str = r#"{"store": {"file": "README.md"}}"#;
     const READ_STR: &str = r#"{"read": {"blobId": "4BKcDC0Ih5RJ8R0tFMz3MZVNZV8b2goT6_JiEEwNHQo"}}"#;
-    const DAEMON_STR: &str = r#"{"daemon": {"bindAddress": "127.0.0.1:12345"}}"#;
+    const DAEMON_STR: &str =
+        r#"{"daemon": {"bindAddress": "127.0.0.1:12345", "subWalletsDir": "/some/path"}}"#;
 
     // Creates the fixture for the JSON command string.
     fn make_cmd_str(command: &str) -> String {
@@ -654,6 +678,7 @@ mod tests {
     fn daemon_command() -> Commands {
         Commands::Daemon(DaemonCommands::Daemon {
             args: PublisherArgs {
+                n_clients: default::n_publisher_clients(),
                 daemon_args: DaemonArgs {
                     bind_address: SocketAddr::from_str("127.0.0.1:12345").unwrap(),
                     metrics_address: default::metrics_address(),
@@ -662,6 +687,8 @@ mod tests {
                 max_body_size_kib: default::max_body_size_kib(),
                 max_request_buffer_size: default::max_request_buffer_size(),
                 max_concurrent_requests: default::max_concurrent_requests(),
+                refill_interval: default::refill_interval(),
+                sub_wallets_dir: "/some/path".into(),
             },
         })
     }

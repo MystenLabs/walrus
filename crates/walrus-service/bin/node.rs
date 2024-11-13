@@ -29,7 +29,6 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 use walrus_core::keys::{NetworkKeyPair, ProtocolKeyPair};
-use walrus_event::{event_processor::EventProcessor, EventProcessorConfig};
 use walrus_service::{
     node::{
         config::{
@@ -39,6 +38,7 @@ use walrus_service::{
             StorageNodeConfig,
             SuiConfig,
         },
+        events::{event_processor::EventProcessor, EventProcessorConfig},
         server::{UserServer, UserServerConfig},
         system_events::{EventManager, SuiSystemEventProvider},
         StorageNode,

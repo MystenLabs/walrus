@@ -17,7 +17,15 @@ use tokio::{
     time::{Interval, MissedTickBehavior},
 };
 use walrus_core::{encoding::Primary, BlobId};
-use walrus_service::client::{Client, ClientError, Config};
+use walrus_service::client::{
+    metrics::{self, ClientMetrics},
+    Client,
+    ClientError,
+    CoinRefill,
+    Config,
+    RefillHandles,
+    Refiller,
+};
 use walrus_sui::{client::SuiReadClient, utils::SuiNetwork};
 
 const DEFAULT_GAS_BUDGET: u64 = 100_000_000;
@@ -31,11 +39,6 @@ mod blob;
 
 mod write_client;
 use write_client::WriteClient;
-
-use crate::{
-    metrics::{self, ClientMetrics},
-    refill::{CoinRefill, RefillHandles, Refiller},
-};
 
 /// A load generator for Walrus writes.
 #[derive(Debug)]
@@ -290,7 +293,7 @@ impl LoadGenerator {
         loop {
             tokio::select! {
                 _ = write_interval.tick() => {
-                    self.metrics.observe_benchmark_duration(Instant::now().duration_since(start));
+                    self.metrics.observe_execution_duration(Instant::now().duration_since(start));
                     self.write_burst(
                         writes_per_burst,
                         write_interval.period(),
@@ -298,7 +301,7 @@ impl LoadGenerator {
                     );
                 }
                 _ = read_interval.tick() => {
-                    self.metrics.observe_benchmark_duration(Instant::now().duration_since(start));
+                    self.metrics.observe_execution_duration(Instant::now().duration_since(start));
                     self.read_burst(reads_per_burst, read_interval.period(), read_blob_id);
                 }
                 else => break

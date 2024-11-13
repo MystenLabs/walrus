@@ -18,9 +18,9 @@ use walrus_sui::{
     client::{ContractClient, FixedSystemParameters, SuiClientError, SuiContractClient},
     types::move_structs::EpochState,
 };
+use walrus_utils::backoff::{self, ExponentialBackoff};
 
 use super::config::SuiConfig;
-use crate::common::utils::{self, ExponentialBackoff};
 
 const MIN_BACKOFF: Duration = Duration::from_secs(1);
 const MAX_BACKOFF: Duration = Duration::from_secs(3600);
@@ -116,7 +116,7 @@ where
             None,
             self.rng.lock().unwrap().gen(),
         );
-        utils::retry(backoff, || async {
+        backoff::retry(backoff, || async {
             self.contract_client
                 .lock()
                 .await
@@ -141,7 +141,7 @@ where
             self.rng.lock().unwrap().gen(),
         );
 
-        utils::retry(backoff, || async {
+        backoff::retry(backoff, || async {
             match self
                 .contract_client
                 .lock()

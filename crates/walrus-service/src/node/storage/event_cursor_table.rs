@@ -11,6 +11,7 @@ use typed_store::{
     Map,
     TypedStoreError,
 };
+use walrus_sdk::api::EventProgress;
 
 use super::{event_sequencer::EventSequencer, DatabaseConfig};
 
@@ -19,12 +20,6 @@ const COLUMN_FAMILY_NAME: &str = "event_cursor";
 
 type EventIdWithProgress = (EventID, u64);
 type ProgressMergeOperand = (EventID, u64);
-
-#[derive(Debug, Copy, Clone)]
-pub(crate) struct EventProgress {
-    pub persisted: u64,
-    pub pending: u64,
-}
 
 #[derive(Debug, Clone)]
 pub(super) struct EventCursorTable {
@@ -103,6 +98,15 @@ impl EventCursorTable {
         Ok(EventProgress {
             persisted: count,
             pending: event_queue.remaining(),
+        })
+    }
+
+    /// Returns the current event cursor.
+    pub fn get_event_cursor_progress(&self) -> Result<EventProgress, TypedStoreError> {
+        let count = self.get_sequentially_processed_event_count()?;
+        Ok(EventProgress {
+            persisted: count,
+            pending: self.event_queue.lock().unwrap().remaining(),
         })
     }
 }

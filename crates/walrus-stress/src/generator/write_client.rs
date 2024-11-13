@@ -7,7 +7,7 @@ use rand::{rngs::StdRng, thread_rng, SeedableRng};
 use sui_sdk::{types::base_types::SuiAddress, wallet_context::WalletContext};
 use tracing::instrument;
 use walrus_core::{merkle::Node, metadata::VerifiedBlobMetadataWithId, BlobId, SliverPairIndex};
-use walrus_service::client::{Client, ClientError, Config, StoreWhen};
+use walrus_service::client::{Client, ClientError, CoinRefill, Config, Refiller, StoreWhen};
 use walrus_sui::{
     client::{BlobPersistence, ContractClient, ReadClient, SuiContractClient},
     test_utils::temp_dir_wallet,
@@ -16,7 +16,6 @@ use walrus_sui::{
 use walrus_test_utils::WithTempDir;
 
 use super::blob::BlobData;
-use crate::refill::{CoinRefill, Refiller};
 
 #[derive(Debug)]
 pub(crate) struct WriteClient {

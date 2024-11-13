@@ -23,13 +23,14 @@ use walrus_sui::{
     utils::{send_faucet_request, SuiNetwork},
 };
 
-use crate::metrics::ClientMetrics;
+use super::metrics::ClientMetrics;
+use crate::utils;
 
 // If a node has less than `MIN_NUM_COINS` without at least `MIN_COIN_VALUE`,
 // we need to request additional coins from the faucet.
 const MIN_COIN_VALUE: u64 = 500_000_000;
-// We need at least a payment coin and a gas coin.
-const MIN_NUM_COINS: usize = 2;
+// The minimum number of coins needed in the wallet.
+const MIN_NUM_COINS: usize = 1;
 /// The amount in MIST that is transferred from the wallet refill account to the stress clients at
 /// each request.
 const WALLET_MIST_AMOUNT: u64 = 1_000_000_000;
@@ -38,7 +39,7 @@ const WALLET_MIST_AMOUNT: u64 = 1_000_000_000;
 const WALLET_FROST_AMOUNT: u64 = 1_000_000_000;
 
 /// Trait to request gas and Wal coins for a client.
-pub(crate) trait CoinRefill: Send + Sync {
+pub trait CoinRefill: Send + Sync {
     /// Sends a request to get gas for the given `address`.
     fn send_gas_request(
         &self,
@@ -55,13 +56,13 @@ pub(crate) trait CoinRefill: Send + Sync {
 /// The `CoinRefill` implementation that uses the Sui network.
 ///
 /// The faucet is used to refill gas, and a contract is used to exchange sui for WAL.
-// TODO: The WAL refill in not implemented.
-pub(crate) struct NetworkCoinRefill {
-    pub(crate) network: SuiNetwork,
+#[derive(Debug)]
+pub struct NetworkCoinRefill {
+    pub network: SuiNetwork,
 }
 
 impl NetworkCoinRefill {
-    pub(crate) fn new(network: SuiNetwork) -> Self {
+    pub fn new(network: SuiNetwork) -> Self {
         Self { network }
     }
 }
@@ -71,6 +72,7 @@ impl CoinRefill for NetworkCoinRefill {
         send_faucet_request(address, &self.network).await
     }
 
+    // TODO: The WAL refill in not implemented.
     async fn send_wal_request(&self, _address: SuiAddress) -> Result<()> {
         unimplemented!("WAL refill is not implemented for the network coin refill (#1015)")
     }
@@ -79,7 +81,8 @@ impl CoinRefill for NetworkCoinRefill {
 /// The `CoinRefill` implementation for a Sui wallet.
 ///
 /// The wallet sends gas and WAL to the specified address.
-pub(crate) struct WalletCoinRefill {
+#[derive(Debug)]
+pub struct WalletCoinRefill {
     /// The wallet containing the funds.
     sui_client: SuiContractClient,
     /// The amount of MIST to send at each request.
@@ -95,7 +98,7 @@ impl WalletCoinRefill {
     ///
     /// Should be sufficient to execute a coin transfer transaction.
 
-    pub(crate) fn new(
+    pub fn new(
         sui_client: SuiContractClient,
         gas_refill_size: u64,
         wal_refill_size: u64,
@@ -157,13 +160,18 @@ impl CoinRefill for WalletCoinRefill {
     }
 }
 
-pub(crate) enum NetworkOrWallet {
+/// A `CoinRefill` implementation that can use either the network or a wallet.
+#[derive(Debug)]
+pub enum NetworkOrWallet {
+    /// A refiller that uses a faucet.
     Network(NetworkCoinRefill),
+    /// A refiller that uses a wallet.
     Wallet(WalletCoinRefill),
 }
 
 impl NetworkOrWallet {
-    pub(crate) async fn new(
+    /// Creates a new refiller from either a wallet or a faucet.
+    pub async fn new(
         system_object: ObjectID,
         staking_object: ObjectID,
         sui_network: SuiNetwork,
@@ -175,7 +183,7 @@ impl NetworkOrWallet {
                 "Creating gas refill station from wallet: {:?}",
                 &wallet_path
             );
-            let wallet = walrus_service::utils::load_wallet_context(&Some(wallet_path))?;
+            let wallet = utils::load_wallet_context(&Some(wallet_path))?;
             let sui_client =
                 SuiContractClient::new(wallet, system_object, staking_object, gas_budget).await?;
             Ok(Self::new_wallet(sui_client, gas_budget)?)
@@ -185,11 +193,13 @@ impl NetworkOrWallet {
         }
     }
 
-    pub(crate) fn new_faucet(network: SuiNetwork) -> Self {
+    /// Creates a new refiller that uses a faucet.
+    fn new_faucet(network: SuiNetwork) -> Self {
         Self::Network(NetworkCoinRefill::new(network))
     }
 
-    pub(crate) fn new_wallet(sui_client: SuiContractClient, gas_budget: u64) -> Result<Self> {
+    /// Creates a new refiller that uses a wallet.
+    pub fn new_wallet(sui_client: SuiContractClient, gas_budget: u64) -> Result<Self> {
         Ok(Self::Wallet(WalletCoinRefill::new(
             sui_client,
             WALLET_MIST_AMOUNT,
@@ -216,9 +226,12 @@ impl CoinRefill for NetworkOrWallet {
 }
 
 /// Refills gas and WAL for the clients.
-pub(crate) struct Refiller<G> {
-    pub(crate) refill_inner: Arc<G>,
-    pub(crate) system_pkg_id: ObjectID,
+#[derive(Debug)]
+pub struct Refiller<G> {
+    /// The inner implementation of the refiller.
+    pub refill_inner: Arc<G>,
+    /// The package id of the system.
+    pub system_pkg_id: ObjectID,
 }
 
 impl<G> Clone for Refiller<G> {
@@ -231,14 +244,16 @@ impl<G> Clone for Refiller<G> {
 }
 
 impl<G: CoinRefill + 'static> Refiller<G> {
-    pub(crate) fn new(gas_refill: G, system_pkg_id: ObjectID) -> Self {
+    /// Creates a new refiller.
+    pub fn new(gas_refill: G, system_pkg_id: ObjectID) -> Self {
         Self {
             refill_inner: Arc::new(gas_refill),
             system_pkg_id,
         }
     }
 
-    pub(crate) fn refill_gas_and_wal(
+    /// Refills gas and WAL for the clients.
+    pub fn refill_gas_and_wal(
         &self,
         addresses: Vec<SuiAddress>,
         period: Duration,
@@ -260,7 +275,7 @@ impl<G: CoinRefill + 'static> Refiller<G> {
         }
     }
 
-    pub(crate) fn refill_gas(
+    fn refill_gas(
         &self,
         addresses: Vec<SuiAddress>,
         period: Duration,
@@ -286,7 +301,7 @@ impl<G: CoinRefill + 'static> Refiller<G> {
         )
     }
 
-    pub(crate) fn refill_wal(
+    fn refill_wal(
         &self,
         addresses: Vec<SuiAddress>,
         period: Duration,
@@ -366,7 +381,8 @@ impl<G: CoinRefill + 'static> Refiller<G> {
         })
     }
 
-    pub(crate) fn coin_type(&self) -> String {
+    /// The WAL coin type.
+    pub fn coin_type(&self) -> String {
         format!("{}::wal::WAL", self.system_pkg_id)
     }
 }
@@ -381,8 +397,11 @@ impl<G: CoinRefill> CoinRefill for Refiller<G> {
     }
 }
 
+/// Helper struct to hold the handles for the refiller tasks.
 #[derive(Debug)]
-pub(crate) struct RefillHandles {
-    pub(crate) _gas_refill_handle: JoinHandle<anyhow::Result<()>>,
-    pub(crate) _wal_refill_handle: JoinHandle<anyhow::Result<()>>,
+pub struct RefillHandles {
+    /// The handle for the gas refill task.
+    pub _gas_refill_handle: JoinHandle<anyhow::Result<()>>,
+    /// The handle for the WAL refill task.
+    pub _wal_refill_handle: JoinHandle<anyhow::Result<()>>,
 }

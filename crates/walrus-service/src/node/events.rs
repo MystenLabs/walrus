@@ -1,6 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Service functionality for downloading and processing events from the full node.
+
 use std::{
     fs::File,
     io::{BufReader, BufWriter},
@@ -24,10 +26,10 @@ use sui_types::{
 };
 use walrus_core::BlobId;
 use walrus_sui::types::{BlobEvent, ContractEvent};
+use walrus_utils::checkpoint_downloader::AdaptiveDownloaderConfig;
 
-use crate::checkpoint_downloader::AdaptiveDownloaderConfig;
-
-mod checkpoint_downloader;
+pub mod event_blob;
+pub mod event_blob_writer;
 pub mod event_processor;
 
 /// Configuration for event processing.
@@ -51,6 +53,7 @@ impl EventProcessorConfig {
         }
     }
 
+    /// Returns the checkpoint adaptive downloader configuration.
     pub fn adaptive_downloader_config(&self) -> AdaptiveDownloaderConfig {
         self.adaptive_downloader_config.clone().unwrap_or_default()
     }
@@ -67,6 +70,7 @@ pub struct EventSequenceNumber {
 }
 
 impl EventSequenceNumber {
+    /// Creates a new event sequence number.
     pub fn new(checkpoint_sequence_number: CheckpointSequenceNumber, counter: u64) -> Self {
         Self {
             checkpoint_sequence_number,
@@ -94,11 +98,14 @@ impl EventSequenceNumber {
 /// markers
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EventStreamElement {
+    /// A contract event.
     ContractEvent(ContractEvent),
+    /// A marker that indicates the end of a checkpoint.
     CheckpointBoundary,
 }
 
 impl EventStreamElement {
+    /// Returns the event ID of the event, if it is an actual event.
     pub fn event_id(&self) -> Option<EventID> {
         match self {
             EventStreamElement::ContractEvent(event) => Some(event.event_id()),
@@ -106,6 +113,7 @@ impl EventStreamElement {
         }
     }
 
+    /// Returns the blob ID of the event, if it is an actual event.
     pub fn blob_id(&self) -> Option<BlobId> {
         match self {
             EventStreamElement::ContractEvent(event) => event.blob_id(),
@@ -113,6 +121,7 @@ impl EventStreamElement {
         }
     }
 
+    /// Returns the blob event, if it is an actual event.
     pub fn blob_event(&self) -> Option<&BlobEvent> {
         match self {
             EventStreamElement::ContractEvent(ContractEvent::BlobEvent(event)) => Some(event),
@@ -131,6 +140,7 @@ pub struct IndexedStreamElement {
 }
 
 impl IndexedStreamElement {
+    /// Creates a new indexed stream element.
     #[allow(dead_code)]
     pub fn new(contract_event: ContractEvent, event_sequence_number: EventSequenceNumber) -> Self {
         Self {
@@ -151,10 +161,12 @@ impl IndexedStreamElement {
         }
     }
 
+    /// Returns true if the element is a marker event that indicates the end of a checkpoint.
     pub fn is_end_of_checkpoint_marker(&self) -> bool {
         matches!(self.element, EventStreamElement::CheckpointBoundary)
     }
 
+    /// Returns true if the element is an event that indicates the end of an epoch.
     pub fn is_end_of_epoch_event(&self) -> bool {
         // TODO: Update this once we add an epoch change event
         false
@@ -164,11 +176,14 @@ impl IndexedStreamElement {
 /// A cursor that points to a specific element in the event stream.
 #[derive(Debug, Clone)]
 pub struct EventStreamCursor {
+    /// The event ID of the event the cursor points to.
     pub event_id: Option<EventID>,
+    /// The index of the element the cursor points to.
     pub element_index: u64,
 }
 
 impl EventStreamCursor {
+    /// Creates a new cursor.
     pub fn new(event_id: Option<EventID>, element_index: u64) -> Self {
         Self {
             event_id,
@@ -177,6 +192,7 @@ impl EventStreamCursor {
     }
 }
 
+/// Returns the next checkpoint sequence number.
 pub async fn get_bootstrap_committee_and_checkpoint(
     sui_client: &SuiClient,
     client: Client,
@@ -218,6 +234,7 @@ pub async fn get_bootstrap_committee_and_checkpoint(
     Ok((committee, verified_checkpoint))
 }
 
+/// Checks if the full node provides the required REST endpoint for event processing.
 async fn check_experimental_rest_endpoint_exists(client: Client) -> anyhow::Result<bool> {
     // TODO: https://github.com/MystenLabs/walrus/issues/1049
     // TODO: Use utils::retry once it is outside walrus-service such that it doesn't trigger
@@ -238,6 +255,7 @@ async fn check_experimental_rest_endpoint_exists(client: Client) -> anyhow::Resu
     Ok(true)
 }
 
+/// Ensures that the full node provides the required REST endpoint for event processing.
 async fn ensure_experimental_rest_endpoint_exists(client: Client) -> anyhow::Result<()> {
     if !check_experimental_rest_endpoint_exists(client.clone()).await? {
         bail!(
@@ -251,17 +269,4 @@ async fn ensure_experimental_rest_endpoint_exists(client: Client) -> anyhow::Res
         );
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::OnceLock;
-
-    use tokio::sync::Mutex;
-
-    // Prevent tests running simultaneously to avoid interferences or race conditions.
-    pub fn global_test_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(Mutex::default)
-    }
 }

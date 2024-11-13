@@ -1,6 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Event processor for processing events from the full node.
+
 use std::{fmt::Debug, path::Path, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, bail, Result};
@@ -47,9 +49,9 @@ use typed_store::{
 };
 use walrus_core::ensure;
 use walrus_sui::types::ContractEvent;
+use walrus_utils::checkpoint_downloader::ParallelCheckpointDownloader;
 
-use crate::{
-    checkpoint_downloader::ParallelCheckpointDownloader,
+use crate::node::events::{
     ensure_experimental_rest_endpoint_exists,
     get_bootstrap_committee_and_checkpoint,
     EventProcessorConfig,
@@ -85,7 +87,7 @@ pub struct LocalDBPackageStore {
 }
 
 /// Metrics for the event processor.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct EventProcessorMetrics {
     /// The latest downloaded full checkpoint.
     pub latest_downloaded_checkpoint: IntGauge,
@@ -93,6 +95,7 @@ pub struct EventProcessorMetrics {
     pub total_downloaded_checkpoints: IntCounter,
 }
 
+/// Event processor for processing checkpoint and extract Walrus events from the full node.
 #[derive(Clone)]
 pub struct EventProcessor {
     /// Full node REST client.
@@ -121,7 +124,16 @@ pub struct EventProcessor {
     pub checkpoint_downloader: ParallelCheckpointDownloader,
 }
 
+impl Debug for LocalDBPackageStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LocalDBPackageStore")
+            .field("package_store_table", &self.package_store_table)
+            .finish()
+    }
+}
+
 impl EventProcessorMetrics {
+    /// Creates a new instance of the event processor metrics.
     pub fn new(registry: &Registry) -> Self {
         Self {
             latest_downloaded_checkpoint: register_int_gauge_with_registry!(
@@ -154,6 +166,7 @@ impl Debug for EventProcessor {
 
 #[allow(dead_code)]
 impl EventProcessor {
+    /// Polls the event store for new events starting from the given sequence number.
     pub async fn poll(&self, from: u64) -> Result<Vec<IndexedStreamElement>> {
         let mut elements = vec![];
         let mut iter = self.event_store.unbounded_iter();
@@ -164,6 +177,7 @@ impl EventProcessor {
         Ok(elements)
     }
 
+    /// Starts the event processor. This method will run until the cancellation token is cancelled.
     pub async fn start(&self, cancellation_token: CancellationToken) -> Result<(), anyhow::Error> {
         let pruning_task = self.start_pruning_events(cancellation_token.clone());
         let tailing_task = self.start_tailing_checkpoints(cancellation_token.clone());
@@ -179,6 +193,7 @@ impl EventProcessor {
         }
     }
 
+    /// Updates the package store with the given objects.
     fn update_package_store(&self, objects: &[Object]) -> Result<(), TypedStoreError> {
         let mut write_batch = self.walrus_package_store.batch();
         for object in objects.iter() {
@@ -221,6 +236,9 @@ impl EventProcessor {
         }
     }
 
+    /// Verifies the given checkpoint with the given previous checkpoint. This method will verify
+    /// that the checkpoint summary matches the content and that the checkpoint contents match the
+    /// transactions.
     pub fn verify_checkpoint(
         &self,
         checkpoint: &CheckpointData,
@@ -537,6 +555,7 @@ impl EventProcessor {
 }
 
 impl LocalDBPackageStore {
+    /// Creates a new instance of the local package store.
     pub fn new(package_store_table: DBMap<ObjectID, Object>, client: Client) -> Self {
         Self {
             package_store_table,
@@ -544,6 +563,7 @@ impl LocalDBPackageStore {
         }
     }
 
+    /// Updates the package store with the given object.
     pub fn update(&self, object: &Object) -> Result<()> {
         if object.is_package() {
             let mut write_batch = self.package_store_table.batch();
@@ -556,6 +576,8 @@ impl LocalDBPackageStore {
         Ok(())
     }
 
+    /// Gets the object with the given id. If the object is not found in the local store, it will be
+    /// fetched from the full node.
     pub async fn get(&self, id: AccountAddress) -> Result<Object, PackageResolverError> {
         let object = if let Some(object) = self
             .package_store_table
@@ -597,9 +619,9 @@ mod tests {
     use tokio::sync::Mutex;
     use walrus_core::BlobId;
     use walrus_sui::{test_utils::EventForTesting, types::BlobCertified};
+    use walrus_utils::{checkpoint_downloader::AdaptiveDownloaderConfig, tests::global_test_lock};
 
     use super::*;
-    use crate::{checkpoint_downloader::AdaptiveDownloaderConfig, tests::global_test_lock};
 
     async fn new_event_processor_for_testing() -> Result<EventProcessor, anyhow::Error> {
         let metric_conf = MetricConf::default();

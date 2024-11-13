@@ -27,6 +27,7 @@ use walrus_core::{
     Epoch,
     ShardIndex,
 };
+use walrus_sdk::api::EventProgress;
 use walrus_sui::types::BlobEvent;
 
 use self::{
@@ -41,12 +42,8 @@ mod database_config;
 pub use database_config::DatabaseConfig;
 
 mod event_cursor_table;
-pub(super) use event_cursor_table::EventProgress;
 
 mod event_sequencer;
-
-pub mod event_blob;
-pub mod event_blob_writer;
 mod shard;
 
 pub(crate) use shard::{ShardStatus, ShardStorage};
@@ -547,6 +544,11 @@ impl Storage {
     pub(crate) fn certified_blob_info_iter_before_epoch(&self, epoch: Epoch) -> BlobInfoIterator {
         self.blob_info
             .certified_blob_info_iter_before_epoch(epoch, std::ops::Bound::Unbounded)
+    }
+
+    /// Returns the current event cursor.
+    pub(crate) fn get_event_cursor_progress(&self) -> Result<EventProgress, TypedStoreError> {
+        self.event_cursor.get_event_cursor_progress()
     }
 }
 
