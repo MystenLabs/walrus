@@ -158,7 +158,7 @@ jobs:
     continue-on-error: true
     env:
       MSIM_TEST_NUM: 10
-      RUST_LOG: error
+      RUST_LOG: ERROR,walrus=WARN
     steps:
       - uses: taiki-e/install-action@v2.44.58
         with:
