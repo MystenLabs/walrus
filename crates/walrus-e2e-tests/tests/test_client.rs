@@ -527,7 +527,7 @@ async fn test_repeated_shard_move() -> TestResult {
         test_cluster::default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
             Duration::from_secs(20),
             &[1, 1],
-            false,
+            true,
         )
         .await?;
 

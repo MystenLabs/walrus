@@ -94,7 +94,7 @@ mod tests {
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(60 * 60),
                 &[1, 2, 3, 3, 4],
-                false,
+                true,
             )
             .await
             .unwrap();
@@ -119,7 +119,7 @@ mod tests {
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(60 * 60),
                 &[1, 2, 3, 3, 4],
-                false,
+                true,
             )
             .await
             .unwrap();
@@ -269,7 +269,7 @@ mod tests {
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(30),
                 &[1, 2, 3, 3, 4],
-                false,
+                true,
             )
             .await
             .unwrap();
@@ -431,7 +431,7 @@ mod tests {
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(10),
                 &[1, 2, 3, 3, 4],
-                false,
+                true,
             )
             .await
             .unwrap();

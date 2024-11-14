@@ -1772,7 +1772,7 @@ pub mod test_cluster {
         default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
             epoch_duration,
             &node_weights,
-            false,
+            true,
         )
         .await
     }
