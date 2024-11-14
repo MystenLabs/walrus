@@ -1428,15 +1428,17 @@ impl TestClusterBuilder {
     /// Sets the [`SystemContractService`] used for each storage node.
     ///
     /// Should be called after the storage nodes have been specified.
-    pub fn with_system_contract_services<T>(mut self, contract_services: &[T]) -> Self
+    pub fn with_system_contract_services<T, U>(mut self, contract_services: T) -> Self
     where
-        T: SystemContractService + Clone + 'static,
+        T: IntoIterator<Item = U>,
+        U: SystemContractService + Clone + 'static,
     {
-        assert_eq!(contract_services.len(), self.storage_node_configs.len());
-        self.contract_services = contract_services
-            .iter()
+        let contract_services: Vec<_> = contract_services
+            .into_iter()
             .map(|service| Some(Box::new(service.clone()) as _))
             .collect();
+        assert_eq!(contract_services.len(), self.storage_node_configs.len());
+        self.contract_services = contract_services;
         self
     }
 
@@ -1841,12 +1843,14 @@ pub mod test_cluster {
                 .and_then_async(|wallet| system_ctx.new_contract_client(wallet, DEFAULT_GAS_BUDGET))
                 .await?;
             node_wallet_dirs.push(client.temp_dir.path().to_owned());
-            contract_clients.push(client);
+            contract_clients.push(client.inner);
+            // In simtest, storage nodes load the Sui wallet config from the `temp_dir`. We
+            // need to keep the directory alive throughout the test.
+            #[cfg(msim)]
+            Box::leak(Box::new(client.temp_dir));
         }
-        let contract_clients_refs = contract_clients
-            .iter()
-            .map(|client| &client.inner)
-            .collect::<Vec<_>>();
+
+        let contract_clients_refs = contract_clients.iter().collect::<Vec<_>>();
 
         let amounts_to_stake = node_weights
             .iter()
@@ -1865,20 +1869,7 @@ pub mod test_cluster {
 
         end_epoch_zero(contract_clients_refs.first().unwrap()).await?;
 
-        let (node_contract_services, _wallet_dirs): (Vec<_>, Vec<_>) = contract_clients
-            .into_iter()
-            .map(|client| (client.inner, client.temp_dir))
-            .map(|(client, tmp_dir)| {
-                (
-                    SuiSystemContractService::new(client),
-                    // In simtest, storage nodes load sui wallet config from the `tmp_dir`. We need
-                    // to keep the directory alive throughout the test.
-                    Box::leak(Box::new(tmp_dir)),
-                )
-            })
-            .unzip();
-
-        // Build the walrus cluster
+        // Build the Walrus cluster.
         let sui_read_client = SuiReadClient::new(
             wallet.as_ref().get_client().await?,
             system_ctx.system_object,
@@ -1898,7 +1889,11 @@ pub mod test_cluster {
                     .expect("service construction must succeed in tests")
             })
             .await
-            .with_system_contract_services(&node_contract_services);
+            .with_system_contract_services(
+                contract_clients
+                    .into_iter()
+                    .map(SuiSystemContractService::new),
+            );
 
         let event_processor_config =
             EventProcessorConfig::new_with_default_pruning_interval(sui_cluster.rpc_url().clone());
