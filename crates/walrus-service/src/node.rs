@@ -54,7 +54,6 @@ use walrus_core::{
 };
 use walrus_sdk::api::{
     BlobStatus,
-    EventProgress,
     ServiceHealthInfo,
     ShardHealthInfo,
     ShardStatus as ApiShardStatus,
@@ -85,7 +84,7 @@ use self::{
     errors::IndexOutOfRange,
     metrics::{NodeMetricSet, TelemetryLabel as _, STATUS_PENDING, STATUS_PERSISTED},
     shard_sync::ShardSyncHandler,
-    storage::{blob_info::BlobInfoApi as _, ShardStatus, ShardStorage},
+    storage::{blob_info::BlobInfoApi as _, EventProgress, ShardStatus, ShardStorage},
 };
 pub mod committee;
 pub mod config;
@@ -1623,7 +1622,8 @@ impl ServiceState for StorageNodeInner {
             event_progress: self
                 .storage
                 .get_event_cursor_progress()
-                .expect("get cursor progress should not fail"),
+                .expect("get cursor progress should not fail")
+                .into(),
             shard_detail,
             shard_summary,
         }
