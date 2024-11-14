@@ -1837,9 +1837,11 @@ pub mod test_cluster {
 
         let mut contract_clients = vec![];
         let mut node_wallet_dirs = vec![];
-        for _ in members.iter() {
-            let client = test_utils::new_wallet_on_sui_test_cluster(sui_cluster.clone())
+        for wallet in
+            test_utils::create_and_fund_wallets_on_cluster(sui_cluster.clone(), members.len())
                 .await?
+        {
+            let client = wallet
                 .and_then_async(|wallet| system_ctx.new_contract_client(wallet, DEFAULT_GAS_BUDGET))
                 .await?;
             node_wallet_dirs.push(client.temp_dir.path().to_owned());

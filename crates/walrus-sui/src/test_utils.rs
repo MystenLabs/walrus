@@ -345,6 +345,42 @@ pub mod using_msim {
     }
 }
 
+/// Creates `n_wallets` wallets and funds them with the cluster's initial wallet.
+///
+/// Funds all the wallets with a single transaction, so as to avoid contention on the cluster's
+/// wallet.
+///
+/// See [`new_wallet_on_sui_test_cluster`] for a similar method that funds a single wallet at a
+/// time.
+pub async fn create_and_fund_wallets_on_cluster(
+    sui_cluster: Arc<TestClusterHandle>,
+    n_wallets: usize,
+) -> anyhow::Result<Vec<WithTempDir<WalletContext>>> {
+    let path_guard = sui_cluster.wallet_path.lock().await;
+    // Load the cluster's wallet from file instead of using the wallet stored in the cluster.
+    // This prevents tasks from being spawned in the current runtime that are expected by
+    // the wallet to continue running.
+    let mut cluster_wallet = WalletContext::new(&path_guard, None, None)?;
+
+    let mut wallets = vec![];
+    let mut addresses = vec![];
+    for _ in 0..n_wallets {
+        let mut wallet = wallet_for_testing(&mut cluster_wallet, false).await?;
+        addresses.push(
+            wallet
+                .inner
+                .active_address()
+                .expect("newly created wallet has an active address"),
+        );
+        wallets.push(wallet);
+    }
+
+    fund_addresses(&mut cluster_wallet, addresses).await?;
+
+    drop(path_guard);
+    Ok(wallets)
+}
+
 /// Returns a new wallet on the global Sui test cluster.
 pub async fn new_wallet_on_sui_test_cluster(
     sui_cluster: Arc<TestClusterHandle>,
@@ -354,7 +390,7 @@ pub async fn new_wallet_on_sui_test_cluster(
     // This prevents tasks from being spawned in the current runtime that are expected by
     // the wallet to continue running.
     let mut cluster_wallet = WalletContext::new(&path_guard, None, None)?;
-    let wallet = wallet_for_testing(&mut cluster_wallet).await?;
+    let wallet = wallet_for_testing(&mut cluster_wallet, true).await?;
     drop(path_guard);
     Ok(wallet)
 }
@@ -372,6 +408,7 @@ pub async fn sui_test_cluster() -> TestCluster {
 /// `funding_wallet` by transferring at least two gas objects.
 pub async fn wallet_for_testing(
     funding_wallet: &mut WalletContext,
+    funded: bool,
 ) -> anyhow::Result<WithTempDir<WalletContext>> {
     let temp_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
 
@@ -381,7 +418,9 @@ pub async fn wallet_for_testing(
         None,
     )?;
 
-    fund_addresses(funding_wallet, vec![wallet.active_address()?]).await?;
+    if funded {
+        fund_addresses(funding_wallet, vec![wallet.active_address()?]).await?
+    };
 
     Ok(WithTempDir {
         inner: wallet,
