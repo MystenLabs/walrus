@@ -26,7 +26,6 @@ use fastcrypto::{
 use futures::future::FusedFuture;
 use pin_project::pin_project;
 use prometheus::{Encoder, HistogramVec, Registry};
-use rand::{rngs::StdRng, Rng, SeedableRng};
 use serde::{
     de::{DeserializeOwned, Error},
     Deserialize,
