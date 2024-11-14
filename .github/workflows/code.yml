@@ -229,6 +229,7 @@ jobs:
       - build
       - test
       - test-mainnet
+      - simtests
       - test-move
     runs-on: ubuntu-latest
     steps:
