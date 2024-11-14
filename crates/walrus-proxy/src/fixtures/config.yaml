@@ -1,0 +1,13 @@
+---
+network: joenet
+listen-address: 127.0.0.1:8080
+remote-write:
+  url: https://metrics-gw.testnet.walrus.space/api/v1/push
+  username: incoming_metrics
+  password: fooman
+dynamic-peers:
+  url: https://fullnode.devnet.sui.io:443
+  interval: 60
+  staking-object-id: 0xb696e77b774cfcba7ff9b2c33c3b5a766325d352ba205d1ed703cae3665bcb3a
+metrics-address: localhost:9184
+histogram-address: localhost:9185
