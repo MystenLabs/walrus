@@ -153,7 +153,7 @@ async_param_test! {
     ]
 }
 /// Stores a blob that is inconsistent in shard 1
-async fn test_inconsistency(failed_shards: &[usize]) -> TestResult {
+async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
     let _ = tracing_subscriber::fmt::try_init();
 
     let (_sui_cluster_handle, mut cluster, mut client) = test_cluster::default_setup().await?;
@@ -196,7 +196,7 @@ async fn test_inconsistency(failed_shards: &[usize]) -> TestResult {
         .await?;
 
     // Stop the nodes in the failure set.
-    failed_shards
+    failed_nodes
         .iter()
         .for_each(|&idx| cluster.cancel_node(idx));
 
