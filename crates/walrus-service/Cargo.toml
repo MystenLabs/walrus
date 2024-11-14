@@ -24,9 +24,7 @@ required-features = ["deploy"]
 [features]
 client = [
   "dep:colored",
-  "dep:humantime",
   "dep:indoc",
-  "dep:itertools",
   "dep:prettytable",
 ]
 deploy = ["client", "node", "walrus-sui/test-utils"]
@@ -72,10 +70,10 @@ futures.workspace = true
 futures-util.workspace = true
 git-version.workspace = true
 home.workspace = true
-humantime = { workspace = true, optional = true }
+humantime.workspace = true
 indoc = { workspace = true, optional = true }
 integer-encoding.workspace = true
-itertools = { workspace = true, optional = true }
+itertools.workspace = true
 mime = { workspace = true, optional = true }
 move-core-types.workspace = true
 mysten-metrics = { workspace = true, optional = true }
@@ -95,6 +93,7 @@ serde.workspace = true
 serde_json.workspace = true
 serde_with.workspace = true
 serde_yaml.workspace = true
+snap.workspace = true
 sui-config.workspace = true
 sui-macros.workspace = true
 sui-package-resolver.workspace = true
@@ -117,6 +116,7 @@ tracing-subscriber.workspace = true
 typed-store = { workspace = true, optional = true }
 utoipa = { workspace = true, features = ["axum_extras"] }
 utoipa-redoc.workspace = true
+uuid.workspace = true
 walrus-core = { workspace = true, features = ["utoipa"] }
 walrus-sdk.workspace = true
 walrus-sui = { workspace = true, features = ["utoipa"] }

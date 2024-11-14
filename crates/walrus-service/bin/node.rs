@@ -43,7 +43,14 @@ use walrus_service::{
         system_events::{EventManager, SuiSystemEventProvider},
         StorageNode,
     },
-    utils::{self, version, ByteCount, LoadConfig as _, MetricsAndLoggingRuntime},
+    utils::{
+        self,
+        version,
+        ByteCount,
+        EnableMetricsPush,
+        LoadConfig as _,
+        MetricsAndLoggingRuntime,
+    },
 };
 use walrus_sui::{
     client::{ContractClient, SuiContractClient},
@@ -340,7 +347,26 @@ mod commands {
             }
         }
 
-        let metrics_runtime = MetricsAndLoggingRuntime::start(config.metrics_address)?;
+        // Create the cancellation token used in the metrics runtime and others, as seen
+        // below.
+        let cancel_token = CancellationToken::new();
+        // Load the network_key_pair so that it can be passed to the
+        // MetricsAndLoggingRuntime.
+        let network_key_pair = config.network_key_pair.load()?;
+        tracing::info!(
+            walrus.node.network_key = %network_key_pair.as_ref().public(),
+            "walrus network key",
+        );
+        let mp_config = config
+            .metrics_push
+            .take()
+            .map(|mp_config| EnableMetricsPush {
+                cancel: cancel_token.child_token(),
+                network_key_pair: network_key_pair.0.clone(),
+                config: mp_config,
+            });
+
+        let metrics_runtime = MetricsAndLoggingRuntime::start(config.metrics_address, mp_config)?;
         let registry_clone = metrics_runtime.registry.clone();
         metrics_runtime.runtime.spawn(async move {
             registry_clone
@@ -402,6 +428,7 @@ mod commands {
         monitor_runtimes(
             node_runtime,
             event_processor_runtime,
+            metrics_runtime,
             exit_listener,
             cancel_token,
         )?;
@@ -413,6 +440,7 @@ mod commands {
     fn monitor_runtimes(
         mut node_runtime: StorageNodeRuntime,
         mut event_processor_runtime: EventProcessorRuntime,
+        mut metrics_runtime: MetricsAndLoggingRuntime,
         exit_listener: oneshot::Receiver<()>,
         cancel_token: CancellationToken,
     ) -> anyhow::Result<()> {
@@ -422,6 +450,7 @@ mod commands {
                 let mut set = JoinSet::new();
                 set.spawn_blocking(move || node_runtime.join());
                 set.spawn_blocking(move || event_processor_runtime.join());
+                set.spawn_blocking(move || metrics_runtime.join());
                 tokio::select! {
                     _ = wait_until_terminated(exit_listener) => {
                         tracing::info!("Received termination signal, shutting down...");
@@ -446,6 +475,7 @@ mod commands {
     fn monitor_runtimes(
         mut node_runtime: StorageNodeRuntime,
         mut event_processor_runtime: EventProcessorRuntime,
+        mut metrics_runtime: MetricsAndLoggingRuntime,
         exit_listener: oneshot::Receiver<()>,
         cancel_token: CancellationToken,
     ) -> anyhow::Result<()> {
@@ -459,6 +489,8 @@ mod commands {
         // Wait for the node runtime to complete, may take a moment as
         // the REST-API waits for open connections to close before exiting.
         node_runtime.join()?;
+        // Wait for metrics to flush
+        metrics_runtime.join()?;
         Ok(())
     }
 

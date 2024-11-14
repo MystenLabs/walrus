@@ -47,7 +47,7 @@ fn client() -> Result<()> {
         Commands::Daemon(command) => {
             let metrics_address = command.get_metrics_address();
 
-            let runtime = MetricsAndLoggingRuntime::start(metrics_address)?;
+            let runtime = MetricsAndLoggingRuntime::start(metrics_address, None)?;
             utils::export_build_info(&runtime.registry, VERSION);
 
             tracing::debug!(%metrics_address, "started metrics and logging on separate runtime");

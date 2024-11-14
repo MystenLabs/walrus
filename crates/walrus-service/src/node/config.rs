@@ -105,6 +105,9 @@ pub struct StorageNodeConfig {
     /// Name of the storage node.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// Metric push configuration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metrics_push: Option<MetricsConfig>,
 }
 
 impl Default for StorageNodeConfig {
@@ -131,6 +134,7 @@ impl Default for StorageNodeConfig {
                 node_capacity: 250_000_000_000,
             },
             name: Default::default(),
+            metrics_push: None,
         }
     }
 }
@@ -177,6 +181,23 @@ impl StorageNodeConfig {
             node_capacity: self.voting_params.node_capacity,
         }
     }
+}
+
+/// Configuration for metric push
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct MetricsConfig {
+    /// the interval of time we will allow to elapse before pushing metrics
+    #[serde_as(as = "DurationSeconds<u64>")]
+    #[serde(default = "push_interval_seconds_default")]
+    pub push_interval_seconds: Duration,
+    /// the url that we will push metrics to
+    pub push_url: String,
+}
+
+/// Configure the default push interval for metrics.
+fn push_interval_seconds_default() -> Duration {
+    Duration::from_secs(60)
 }
 
 /// Configuration for TLS of the rest API.

@@ -14,27 +14,36 @@ use std::{
     str::FromStr,
     sync::Arc,
     task::{ready, Context, Poll},
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{anyhow, Context as _, Result};
+use fastcrypto::{
+    encoding::Base64,
+    secp256r1::Secp256r1KeyPair,
+    traits::{EncodeDecodeBase64, RecoverableSigner},
+};
 use futures::future::FusedFuture;
 use pin_project::pin_project;
-use prometheus::{HistogramVec, Registry};
+use prometheus::{Encoder, HistogramVec, Registry};
+use rand::{rngs::StdRng, Rng, SeedableRng};
 use serde::{
     de::{DeserializeOwned, Error},
     Deserialize,
     Deserializer,
 };
+use serde_json;
 use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::{ObjectID, SuiAddress};
 use telemetry_subscribers::{TelemetryGuards, TracingHandle};
 use tokio::{
     runtime::{self, Runtime},
     sync::Semaphore,
+    task::JoinHandle,
     time::Instant,
 };
-use tracing::subscriber::DefaultGuard;
+use tokio_util::sync::CancellationToken;
+use tracing::{debug, error, info, subscriber::DefaultGuard};
 use tracing_subscriber::{
     filter::Filtered,
     layer::{Layered, SubscriberExt as _},
@@ -42,10 +51,12 @@ use tracing_subscriber::{
     EnvFilter,
     Layer,
 };
+use uuid::Uuid;
 use walrus_core::{PublicKey, ShardIndex};
 use walrus_sui::utils::SuiNetwork;
 
 use super::active_committees::ActiveCommittees;
+use crate::node::config::MetricsConfig;
 
 /// Defines a constant containing the version consisting of the package version and git revision.
 ///
@@ -243,6 +254,18 @@ fn path_with_resolved_home_dir(path: PathBuf) -> Result<PathBuf> {
     }
 }
 
+/// A config struct to initialize the push metrics. Some binaries that depend on
+/// MetricsAndLoggingRuntime do not need nor is it appropriate to have push metrics.
+#[derive(Debug)]
+pub struct EnableMetricsPush {
+    /// token that is used to gracefully shut down the metrics push process
+    pub cancel: CancellationToken,
+    /// the network keys we use to identify the client using this push config
+    pub network_key_pair: Arc<Secp256r1KeyPair>,
+    /// the url, timeouts, etc used to push the metrics
+    pub config: MetricsConfig,
+}
+
 /// A runtime for metrics and logging.
 #[allow(missing_debug_implementations)]
 pub struct MetricsAndLoggingRuntime {
@@ -250,6 +273,7 @@ pub struct MetricsAndLoggingRuntime {
     pub registry: Registry,
     _telemetry_guards: TelemetryGuards,
     _tracing_handle: TracingHandle,
+    _metric_push_handle: Option<JoinHandle<anyhow::Result<()>>>,
     /// The runtime for metrics and logging.
     // INV: Runtime must be dropped last.
     pub runtime: Runtime,
@@ -257,7 +281,10 @@ pub struct MetricsAndLoggingRuntime {
 
 impl MetricsAndLoggingRuntime {
     /// Start metrics and log collection in a new runtime
-    pub fn start(mut metrics_address: SocketAddr) -> anyhow::Result<Self> {
+    pub fn start(
+        mut metrics_address: SocketAddr,
+        mp_config: Option<EnableMetricsPush>,
+    ) -> anyhow::Result<Self> {
         let runtime = runtime::Builder::new_multi_thread()
             .thread_name("metrics-runtime")
             .worker_threads(2)
@@ -277,13 +304,139 @@ impl MetricsAndLoggingRuntime {
             .with_json()
             .init();
 
+        let metric_push_handle = match mp_config {
+            Some(mp_config) => {
+                // associate a default tls provider for this runtime
+                let tls_provider = rustls::crypto::ring::default_provider();
+                tls_provider.install_default().expect(
+                    "unable to install default tls provider for rustls in MetricsAndLoggingRuntime",
+                );
+
+                let push_registry = walrus_registry.clone();
+                let metric_push_handle = tokio::spawn(async move {
+                    let mut interval =
+                        tokio::time::interval(mp_config.config.push_interval_seconds);
+                    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                    let mut client = create_push_client();
+                    info!("starting metrics push to {}", &mp_config.config.push_url);
+                    loop {
+                        tokio::select! {
+                            _ = interval.tick() => {
+                                if let Err(e) = push_metrics(
+                                    mp_config.network_key_pair.clone(),
+                                    &client, &mp_config.config.push_url, &push_registry
+                                ).await {
+                                    error!("unable to push metrics: {e}");
+                                    client = create_push_client();
+                                }
+                            }
+                            _ = mp_config.cancel.cancelled() => {
+                                info!("received cancellation request, shutting down metrics push");
+                                return Ok(());
+                            }
+                        }
+                    }
+                });
+                Some(metric_push_handle)
+            }
+            None => None,
+        };
+
         Ok(Self {
             runtime,
             registry: walrus_registry,
             _telemetry_guards: telemetry_guards,
             _tracing_handle: tracing_handle,
+            _metric_push_handle: metric_push_handle,
         })
     }
+    /// join handle for the task.
+    pub fn join(&mut self) -> Result<(), anyhow::Error> {
+        if let Some(metric_push_handle) = self._metric_push_handle.take() {
+            tracing::debug!("waiting for the metric runtime to shutdown...");
+            self.runtime.block_on(async {
+                // The first `?` handles the timeout result.
+                // The second `?` handles the handle result.
+                tokio::time::timeout(Duration::from_secs(5), metric_push_handle).await??
+            })
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// Create a request client builder that is used to push metrics to mimir.
+fn create_push_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .expect("unable to build client")
+}
+
+/// Responsible for sending data to walrus-proxy, used within the async scope of
+/// MetricPushRuntime::start.
+async fn push_metrics(
+    network_key_pair: Arc<Secp256r1KeyPair>,
+    client: &reqwest::Client,
+    push_url: &str,
+    registry: &Registry,
+) -> Result<(), anyhow::Error> {
+    info!(push_url =% push_url, "pushing metrics to remote");
+
+    // now represents a collection timestamp for all of the metrics we send to the proxy.
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+
+    let mut metric_families = registry.gather();
+    for mf in metric_families.iter_mut() {
+        for m in mf.mut_metric() {
+            m.set_timestamp_ms(now);
+        }
+    }
+
+    let mut buf: Vec<u8> = vec![];
+    let encoder = prometheus::ProtobufEncoder::new();
+    encoder.encode(&metric_families, &mut buf)?;
+
+    let mut s = snap::raw::Encoder::new();
+    let compressed = s.compress_vec(&buf).map_err(|err| {
+        error!("unable to snappy encode; {err}");
+        err
+    })?;
+
+    let uid = Uuid::now_v7();
+    let uids = uid.simple().to_string();
+    let signature = network_key_pair.sign_recoverable(uid.as_bytes());
+    let auth = serde_json::json!({"signature":signature.encode_base64(), "message":uids});
+    let auth_encoded_with_scheme = format!(
+        "Secp256k1-recoverable: {}",
+        Base64::from_bytes(auth.to_string().as_bytes()).encoded()
+    );
+    let response = client
+        .post(push_url)
+        .header(reqwest::header::AUTHORIZATION, auth_encoded_with_scheme)
+        .header(reqwest::header::CONTENT_ENCODING, "snappy")
+        .header(reqwest::header::CONTENT_TYPE, prometheus::PROTOBUF_FORMAT)
+        .body(compressed)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = match response.text().await {
+            Ok(body) => body,
+            Err(error) => format!("couldn't decode response body; {error}"),
+        };
+        return Err(anyhow::anyhow!(
+            "metrics push failed: [{}]:{}",
+            status,
+            body
+        ));
+    }
+    debug!("successfully pushed metrics to {push_url}");
+    Ok(())
 }
 
 /// The difference between shard allocations in different epochs.

@@ -2013,6 +2013,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             },
             public_host: Some(rest_api_address.ip().to_string()),
             public_port: Some(rest_api_address.port()),
+            metrics_push: None,
         },
         temp_dir,
     }
