@@ -198,6 +198,7 @@ jobs:
       - lint
       - build
       - test
+      - simtests
       - test-move
     runs-on: ubuntu-latest
     steps:
