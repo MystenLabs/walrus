@@ -6,7 +6,6 @@
 use std::{iter, num::NonZeroU16, path::PathBuf, str::FromStr, time::Duration};
 
 use anyhow::{anyhow, Result};
-use futures::{stream::FuturesUnordered, TryFutureExt, TryStreamExt};
 use rand::{rngs::StdRng, SeedableRng as _};
 use serde::{Deserialize, Serialize};
 use sui_sdk::{
@@ -216,33 +215,31 @@ pub async fn register_committee_and_stake(
     let current_epoch = contract_clients[0].current_epoch().await?;
 
     // Initialize client
-    let storage_node_caps = (0..node_params.len())
-        .map(|i| {
-            let storage_node_params = &node_params[i];
-            let contract_client = contract_clients[i];
-            let amount_to_stake = amounts_to_stake[i];
-            let bls_sk = &node_bls_keys[i];
-            let proof_of_possession = crate::utils::generate_proof_of_possession(
-                bls_sk,
-                contract_client,
-                storage_node_params,
-                current_epoch,
-            );
-
-            contract_client
-                .register_candidate(storage_node_params, proof_of_possession)
-                .and_then(move |node_cap| async move {
-                    let _ = contract_client
-                        .stake_with_pool(amount_to_stake, node_cap.node_id)
-                        .await;
-                    Ok(node_cap)
-                })
-        })
-        .collect::<FuturesUnordered<_>>()
-        .try_collect::<Vec<_>>()
-        .await?;
-
-    Ok(storage_node_caps)
+    let mut node_capabilities = Vec::new();
+    for (((storage_node_params, bls_sk), contract_client), amount_to_stake) in node_params
+        .iter()
+        .zip(node_bls_keys)
+        .zip(contract_clients)
+        .zip(amounts_to_stake)
+    {
+        let proof_of_possession = crate::utils::generate_proof_of_possession(
+            bls_sk,
+            contract_client,
+            storage_node_params,
+            current_epoch,
+        );
+        let node_cap = contract_client
+            .register_candidate(storage_node_params, proof_of_possession)
+            .await?;
+        // stake with storage nodes
+        if *amount_to_stake > 0 {
+            let _staked_wal = contract_client
+                .stake_with_pool(*amount_to_stake, node_cap.node_id)
+                .await?;
+        }
+        node_capabilities.push(node_cap);
+    }
+    Ok(node_capabilities)
 }
 
 /// Calls `voting_end`, immediately followed by `initiate_epoch_change`.

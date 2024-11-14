@@ -1720,7 +1720,6 @@ pub(crate) fn test_committee_with_epoch(weights: &[u16], epoch: Epoch) -> Commit
 pub mod test_cluster {
     use std::sync::OnceLock;
 
-    use futures::{stream, TryStreamExt};
     use tokio::sync::Mutex;
     use walrus_sui::{
         client::{SuiContractClient, SuiReadClient},
@@ -1825,34 +1824,20 @@ pub mod test_cluster {
         )
         .await?;
 
-        let WithTempDir {
-            inner: wallets,
-            // The on-file representation of the wallets are dropped at the end of scope.
-            temp_dir,
-        } = test_utils::create_and_fund_wallets_on_cluster(sui_cluster.clone(), members.len())
-            .await?;
-
-        let temp_dir_path = temp_dir.path().to_path_buf();
-
-        // In simtest, storage nodes load sui wallet config from the `tmp_dir`. We need to keep the
-        // directory alive throughout the test.
-        #[cfg(msim)]
-        Box::leak(Box::new(temp_dir));
-
-        let contract_clients = stream::iter(wallets)
-            .then(|wallet| {
-                SuiContractClient::new(
-                    wallet,
-                    system_ctx.system_object,
-                    system_ctx.staking_object,
-                    DEFAULT_GAS_BUDGET,
-                )
-            })
-            .try_collect::<Vec<_>>()
-            .await?;
-        let node_wallet_dirs = vec![temp_dir_path; contract_clients.len()];
-
-        let contract_clients_refs = contract_clients.iter().collect::<Vec<_>>();
+        let mut contract_clients = vec![];
+        let mut node_wallet_dirs = vec![];
+        for _ in members.iter() {
+            let client = test_utils::new_wallet_on_sui_test_cluster(sui_cluster.clone())
+                .await?
+                .and_then_async(|wallet| system_ctx.new_contract_client(wallet, DEFAULT_GAS_BUDGET))
+                .await?;
+            node_wallet_dirs.push(client.temp_dir.path().to_owned());
+            contract_clients.push(client);
+        }
+        let contract_clients_refs = contract_clients
+            .iter()
+            .map(|client| &client.inner)
+            .collect::<Vec<_>>();
 
         let amounts_to_stake = node_weights
             .iter()
@@ -1871,10 +1856,18 @@ pub mod test_cluster {
 
         end_epoch_zero(contract_clients_refs.first().unwrap()).await?;
 
-        let node_contract_services = contract_clients
+        let (node_contract_services, _wallet_dirs): (Vec<_>, Vec<_>) = contract_clients
             .into_iter()
-            .map(SuiSystemContractService::new)
-            .collect::<Vec<_>>();
+            .map(|client| (client.inner, client.temp_dir))
+            .map(|(client, tmp_dir)| {
+                (
+                    SuiSystemContractService::new(client),
+                    // In simtest, storage nodes load sui wallet config from the `tmp_dir`. We need
+                    // to keep the directory alive throughout the test.
+                    Box::leak(Box::new(tmp_dir)),
+                )
+            })
+            .unzip();
 
         // Build the walrus cluster
         let sui_read_client = SuiReadClient::new(
