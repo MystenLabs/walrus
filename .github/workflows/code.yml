@@ -119,9 +119,6 @@ jobs:
         with:
           tool: cargo-nextest
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
       - uses: Swatinem/rust-cache@v2.7.5
         with:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
