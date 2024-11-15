@@ -329,35 +329,29 @@ public(package) fun advance_epoch(
 /// `advance_epoch` function in case the pool is in the committee and receives the
 /// rewards. And may be called in user-facing functions to update the pool state,
 /// if the pool is not in the committee.
-///
-/// Additions:
-/// - `WAL` is added to the `wal_balance` directly.
-/// - Pool Token is added to the `pool_token_balance` via the exchange rate.
-///
-/// Withdrawals:
-/// - `WAL` withdrawal is processed via the exchange rate and pool token.
-/// - Pool Token withdrawal is processed directly.
 public(package) fun process_pending_stake(pool: &mut StakingPool, wctx: &WalrusContext) {
     let current_epoch = wctx.epoch();
 
-    // do the withdrawals reduction for both
-    let token_withdraw = pool.pending_pool_token_withdraw.flush(wctx.epoch());
+    // Get the exchange rate to use for all conversions and store it for future use.
     let exchange_rate = pool_exchange_rate::new(
         pool.wal_balance,
         pool.pool_token_balance,
     );
+    pool.exchange_rates.add(current_epoch, exchange_rate);
 
+    // Process additions.
+    pool.wal_balance = pool.wal_balance + pool.pending_stake.flush(current_epoch);
+
+    // Process withdrawals.
+    let token_withdraw = pool.pending_pool_token_withdraw.flush(wctx.epoch());
     let pending_withdrawal = exchange_rate.get_wal_amount(token_withdraw);
-    pool.pool_token_balance = pool.pool_token_balance - token_withdraw;
 
-    // check that the amount is not higher than the pool balance
+    // Check that the amount is not higher than the pool balance
     assert!(pool.wal_balance >= pending_withdrawal, ECalculationError);
     pool.wal_balance = pool.wal_balance - pending_withdrawal;
 
-    // recalculate the additions
-    pool.wal_balance = pool.wal_balance + pool.pending_stake.flush(current_epoch);
+    // Recalculate the pool token balance.
     pool.pool_token_balance = exchange_rate.get_token_amount(pool.wal_balance);
-    pool.exchange_rates.add(current_epoch, exchange_rate);
 }
 
 // === Pool parameters ===
