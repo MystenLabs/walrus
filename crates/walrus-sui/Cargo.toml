@@ -1,10 +1,10 @@
 [package]
-authors.workspace = true
-edition.workspace = true
-license.workspace = true
 name = "walrus-sui"
 publish = false
+authors.workspace = true
 version.workspace = true
+edition.workspace = true
+license.workspace = true
 
 [features]
 default = []
