@@ -247,17 +247,16 @@ pub async fn end_epoch_zero(contract_client: &SuiContractClient) -> Result<()> {
     // call vote end
     contract_client.voting_end().await?;
 
-    tracing::info!(
-        "Epoch state after voting end: {:?}",
-        contract_client.current_committee().await?
-    );
+    let voting_end_epoch_state = contract_client.current_committee().await?;
+    tracing::info!("Epoch state after voting end: {:?}", voting_end_epoch_state);
 
     // call epoch change
     contract_client.initiate_epoch_change().await?;
 
+    let initiate_epoch_state = contract_client.current_committee().await?;
     tracing::info!(
         "Epoch state after initiating epoch change: {:?}",
-        contract_client.current_committee().await?
+        initiate_epoch_state
     );
 
     Ok(())
