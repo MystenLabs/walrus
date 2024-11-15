@@ -318,8 +318,8 @@ pub struct MetricPushRuntime {
 }
 
 impl MetricPushRuntime {
-    /// Starts a task to periodically push metrics to a configured endpoint if a metrics push endpoint
-    /// is configured.
+    /// Starts a task to periodically push metrics to a configured endpoint
+    /// if a metrics push endpoint is configured.
     pub fn start(registry: Registry, mp_config: EnableMetricsPush) -> anyhow::Result<Self> {
         let runtime = runtime::Builder::new_multi_thread()
             .thread_name("metric-push-runtime")
@@ -344,8 +344,13 @@ impl MetricPushRuntime {
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
-                        if let Err(e) = push_metrics(mp_config.network_key_pair.clone(), &client, &push_url, &registry).await {
-                            error!("unable to push metrics: {e}; a new push client will be created");
+                        if let Err(e) = push_metrics(
+                            mp_config.network_key_pair.clone(),
+                            &client,
+                            &push_url,
+                            &registry,
+                        ).await {
+                            error!("unable to push metrics: {e}");
                             client = create_push_client();
                         }
                     }
