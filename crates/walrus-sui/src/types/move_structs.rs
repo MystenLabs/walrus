@@ -453,16 +453,33 @@ where
 pub enum StakedWalState {
     /// The WAL is staked.
     Staked,
+    #[cfg(not(feature = "mainnet-contracts"))]
     /// The WAL is unstaked and can be withdrawn.
     Withdrawing(Epoch, u64),
+    #[cfg(feature = "mainnet-contracts")]
+    /// The WAL is unstaked and can be withdrawn.
+    Withdrawing(Epoch, Option<u64>),
 }
 
 impl Display for StakedWalState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             StakedWalState::Staked => write!(f, "Staked"),
+            #[cfg(not(feature = "mainnet-contracts"))]
             StakedWalState::Withdrawing(epoch, amount) => {
                 write!(f, "Withdrawing: epoch={}, amount={}", epoch, amount)
+            }
+            #[cfg(feature = "mainnet-contracts")]
+            StakedWalState::Withdrawing(epoch, Some(amount)) => {
+                write!(
+                    f,
+                    "Withdrawing: epoch={}, pool token amount={:?}",
+                    epoch, amount
+                )
+            }
+            #[cfg(feature = "mainnet-contracts")]
+            StakedWalState::Withdrawing(epoch, None) => {
+                write!(f, "Withdrawing: epoch={}, pool token amount=Unknown", epoch)
             }
         }
     }
