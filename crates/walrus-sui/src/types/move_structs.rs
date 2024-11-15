@@ -156,9 +156,7 @@ impl Display for StorageNodeCap {
 
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 enum PoolState {
-    // The pool is new and awaits the stake to be added.
-    New,
-    // The pool is active and can accept stakes.
+    // The pool is active and can accept stakes. This is the default state.
     Active,
     // The pool awaits the stake to be withdrawn. The value inside the
     // variant is the epoch in which the pool will be withdrawn.
