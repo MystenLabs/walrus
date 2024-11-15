@@ -69,7 +69,7 @@ version in the Rust codebase, we gate any incompatible changes in the Rust bindi
 contracts behind the `mainnet-contracts` feature in the `walrus-sui` crate.
 
 If you make any changes to the contracts that necessitates corresponding changes in Rust, make sure
-to gate these changes behind the feature, e.g. by adding the `#[cfg(feature = "walrus-mainnet")]` attribute.
+to gate these changes behind the feature, e.g. by adding the `#[cfg(feature = "mainnet-contracts")]` attribute.
 
 ## Tests
 
@@ -81,7 +81,7 @@ additional packages and take longer to run. These tests can either be run with t
 version (including breaking changes that are incompatible with testnet) or they can be run with the
 contracts as deployed on testnet.
 
-For the first option, you can run these test as follows:
+For the first option, you can run these tests as follows:
 
 ```sh
 cargo nextest run --run-ignored ignored-only --features walrus-sui/mainnet-contracts
@@ -91,7 +91,8 @@ For the second option, you first need to checkout the correct version of the con
 and cleanup afterwards, you can run the following:
 
 ```sh
-GIT_STASH_TAG="${RANDOM}" git stash push -m "${GIT_STASH_TAG}" -a -- contracts
+GIT_STASH_TAG="testnet_checkout_${RANDOM}"
+git stash push -m "${GIT_STASH_TAG}" -u -- contracts
 git checkout testnet-v1.0.1 contracts
 cargo nextest run --run-ignored ignored-only
 git restore --staged contracts

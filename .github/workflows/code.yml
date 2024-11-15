@@ -122,6 +122,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2.7.5
         with:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
+          shared-key: v0-rust-test
       - name: Run tests
         run: cargo nextest run --profile ci --run-ignored all --features walrus-sui/mainnet-contracts
 
@@ -141,6 +142,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2.7.5
         with:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
+          shared-key: v0-rust-test
       - name: Checkout testnet contracts
         run: git checkout testnet-v1.0.1 contracts
       - name: Run tests with testnet contracts
