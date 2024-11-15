@@ -35,14 +35,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # Pin v4.1.1
+      - name: Checkout
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # Pin v4.1.1
 
-    - name: Tag
-      uses: julbme/gh-action-manage-tag@v1
-      with:
-        name: ${{ env.TAG_NAME }}
-        state: present
-        from: ${{ env.WALRUS_COMMIT }}
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Tag
+        uses: julbme/gh-action-manage-tag@v1
+        with:
+          name: ${{ env.TAG_NAME }}
+          state: present
+          from: ${{ env.WALRUS_COMMIT }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -27,7 +27,6 @@ use walrus_core::{
     Epoch,
     ShardIndex,
 };
-use walrus_sdk::api::EventProgress;
 use walrus_sui::types::BlobEvent;
 
 use self::{
@@ -42,6 +41,7 @@ mod database_config;
 pub use database_config::DatabaseConfig;
 
 mod event_cursor_table;
+pub(super) use event_cursor_table::EventProgress;
 
 mod event_sequencer;
 mod shard;

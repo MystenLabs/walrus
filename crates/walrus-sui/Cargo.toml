@@ -8,6 +8,7 @@ license.workspace = true
 
 [features]
 default = []
+mainnet-contracts = []
 test-utils = [
   "dep:tempfile",
   "dep:test-cluster",

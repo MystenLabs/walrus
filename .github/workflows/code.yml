@@ -109,8 +109,8 @@ jobs:
       - name: Build Rust code
         run: cargo build --verbose
 
-  test:
-    name: Test Rust code
+  test-mainnet:
+    name: Test Rust code with mainnet contracts
     needs: diff
     if: ${{ needs.diff.outputs.isRust == 'true' || needs.diff.outputs.isMove == 'true' }}
     runs-on: ubuntu-ghcloud
@@ -122,7 +122,30 @@ jobs:
       - uses: Swatinem/rust-cache@v2.7.5
         with:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
+          shared-key: v0-rust-test
       - name: Run tests
+        run: cargo nextest run --profile ci --run-ignored all --features walrus-sui/mainnet-contracts
+
+  test:
+    name: Test Rust code with testnet contracts
+    needs: diff
+    if: ${{ needs.diff.outputs.isRust == 'true' || needs.diff.outputs.isMove == 'true' }}
+    runs-on: ubuntu-ghcloud
+    steps:
+      - uses: taiki-e/install-action@v2.44.58
+        with:
+          tool: cargo-nextest
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: Swatinem/rust-cache@v2.7.5
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
+          shared-key: v0-rust-test
+      - name: Checkout testnet contracts
+        run: git checkout testnet-v1.0.1 contracts
+      - name: Run tests with testnet contracts
         run: cargo nextest run --profile ci --run-ignored all
 
   test-coverage:
@@ -144,7 +167,7 @@ jobs:
           path: code-coverage-results.md
 
   simtests:
-    name: Run all simtests
+    name: Run all simtests with testnet contracts
     needs: diff
     if: ${{ needs.diff.outputs.isRust == 'true' || needs.diff.outputs.isMove == 'true' }}
     runs-on: ubuntu-ghcloud
@@ -157,8 +180,14 @@ jobs:
         with:
           tool: cargo-nextest
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - run: ./scripts/simtest/install.sh
-      - run: cargo simtest simtest --profile simtest
+      - name: Checkout testnet contracts
+        run: git checkout testnet-v1.0.1 contracts
+      - name: Run tests with testnet contracts
+        run: cargo simtest simtest --profile simtest
 
   test-move:
     name: Test Move code
@@ -198,6 +227,7 @@ jobs:
       - lint
       - build
       - test
+      - test-mainnet
       - test-move
     runs-on: ubuntu-latest
     steps:

@@ -62,16 +62,43 @@ Also make sure you use the correct version of Rustfmt. See
 [rust-toolchain.toml](rust-toolchain.toml) for the current version. This also impacts other checks,
 for example Clippy.
 
+## Contract Versions
+
+To allow breaking changes in the contracts, while keeping compatibility with the deployed testnet
+version in the Rust codebase, we gate any incompatible changes in the Rust bindings for the
+contracts behind the `mainnet-contracts` feature in the `walrus-sui` crate.
+
+If you make any changes to the contracts that necessitates corresponding changes in Rust, make sure
+to gate these changes behind the feature, e.g. by adding the `#[cfg(feature = "mainnet-contracts")]` attribute.
+
 ## Tests
 
 The majority of our code is covered by automatic unit and integration tests which you can run
 through `cargo test` or `cargo nextest run` (require [nextest](https://nexte.st/)).
 
 Integration and end-to-end tests are excluded by default when running `cargo nextest` as they depend on
-additional packages and take longer to run. You can run these test as follows:
+additional packages and take longer to run. These tests can either be run with the newest contract
+version (including breaking changes that are incompatible with testnet) or they can be run with the
+contracts as deployed on testnet.
+
+For the first option, you can run these tests as follows:
 
 ```sh
+cargo nextest run --run-ignored ignored-only --features walrus-sui/mainnet-contracts
+```
+
+For the second option, you first need to checkout the correct version of the contracts. To do this
+and cleanup afterwards, you can run the following:
+
+```sh
+GIT_STASH_TAG="testnet_checkout_${RANDOM}"
+git stash push -m "${GIT_STASH_TAG}" -u -- contracts
+git checkout testnet-v1.0.1 contracts
 cargo nextest run --run-ignored ignored-only
+git restore --staged contracts
+git checkout HEAD contracts
+git clean -f contracts
+git stash list | grep "${GIT_STASH_TAG}" && git stash pop --index
 ```
 
 Integration tests that require a running Sui test cluster can use an external cluster. This requires a one-time setup:
@@ -90,8 +117,12 @@ For running tests, start the external cluster with `sui start`, set the environm
 CLUSTER_CONFIG_DIR="$PWD/target/sui-start"
 SUI_CONFIG_DIR="$CLUSTER_CONFIG_DIR" sui start&
 SUI_PID=$!
-SUI_TEST_CONFIG_DIR="$CLUSTER_CONFIG_DIR" cargo test -- --ignored
+SUI_TEST_CONFIG_DIR="$CLUSTER_CONFIG_DIR" cargo test -- --ignored --features walrus-sui/mainnet-contracts
 ```
+
+This runs the tests with the newest contract version. To run them with the testnet version,
+check out the testnet contracts as described above and run the tests without
+`--features walrus-sui/mainnet-contracts`.
 
 After the tests have completed, you can stop the cluster:
 
@@ -136,7 +167,7 @@ To run simulation tests, first install the `cargo simtest` tool:
 You can then run all simtests with
 
 ```sh
-cargo simtest
+cargo simtest --features walrus-sui/mainnet-contracts
 ```
 
 Further information about the simtest framework is available
