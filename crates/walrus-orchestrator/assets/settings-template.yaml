@@ -1,10 +1,9 @@
----
 testbed_id: "${USER}-walrus"
 cloud_provider: aws
 token_file: "/Users/${USER}/.aws/credentials"
 ssh_private_key_file: "/Users/${USER}/.ssh/aws"
 regions:
-- us-west-1
+  - us-west-1
 specs: m5d.8xlarge
 repository:
   url: https://github.com/mystenlabs/walrus.git

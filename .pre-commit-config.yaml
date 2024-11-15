@@ -14,6 +14,10 @@ repos:
     hooks:
       - id: editorconfig-checker
         alias: ec
+  - repo: https://github.com/google/yamlfmt
+    rev: v0.14.0
+    hooks:
+      - id: yamlfmt
   - repo: https://github.com/notken12/licensesnip
     rev: 19b1186
     hooks:
