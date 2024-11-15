@@ -253,18 +253,6 @@ fn path_with_resolved_home_dir(path: PathBuf) -> Result<PathBuf> {
     }
 }
 
-/// A config struct to initialize the push metrics. Some binaries that depend on
-/// MetricsAndLoggingRuntime do not need nor is it appropriate to have push metrics.
-#[derive(Debug)]
-pub struct EnableMetricsPush {
-    /// token that is used to gracefully shut down the metrics push process
-    pub cancel: CancellationToken,
-    /// the network keys we use to identify the client using this push config
-    pub network_key_pair: Arc<Secp256r1KeyPair>,
-    /// the url, timeouts, etc used to push the metrics
-    pub config: MetricsConfig,
-}
-
 /// A runtime for metrics and logging.
 #[allow(missing_debug_implementations)]
 pub struct MetricsAndLoggingRuntime {
@@ -272,7 +260,6 @@ pub struct MetricsAndLoggingRuntime {
     pub registry: Registry,
     _telemetry_guards: TelemetryGuards,
     _tracing_handle: TracingHandle,
-    _metric_push_handle: Option<JoinHandle<anyhow::Result<()>>>,
     /// The runtime for metrics and logging.
     // INV: Runtime must be dropped last.
     pub runtime: Runtime,
@@ -280,10 +267,7 @@ pub struct MetricsAndLoggingRuntime {
 
 impl MetricsAndLoggingRuntime {
     /// Start metrics and log collection in a new runtime
-    pub fn start(
-        mut metrics_address: SocketAddr,
-        mp_config: Option<EnableMetricsPush>,
-    ) -> anyhow::Result<Self> {
+    pub fn start(mut metrics_address: SocketAddr) -> anyhow::Result<Self> {
         let runtime = runtime::Builder::new_multi_thread()
             .thread_name("metrics-runtime")
             .worker_threads(2)
@@ -303,64 +287,86 @@ impl MetricsAndLoggingRuntime {
             .with_json()
             .init();
 
-        let metric_push_handle = match mp_config {
-            Some(mp_config) => {
-                // associate a default tls provider for this runtime
-                let tls_provider = rustls::crypto::ring::default_provider();
-                tls_provider.install_default().expect(
-                    "unable to install default tls provider for rustls in MetricsAndLoggingRuntime",
-                );
-
-                let push_registry = walrus_registry.clone();
-                let metric_push_handle = tokio::spawn(async move {
-                    let mut interval =
-                        tokio::time::interval(mp_config.config.push_interval_seconds);
-                    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-                    let mut client = create_push_client();
-                    info!("starting metrics push to {}", &mp_config.config.push_url);
-                    loop {
-                        tokio::select! {
-                            _ = interval.tick() => {
-                                if let Err(e) = push_metrics(
-                                    mp_config.network_key_pair.clone(),
-                                    &client, &mp_config.config.push_url, &push_registry
-                                ).await {
-                                    error!("unable to push metrics: {e}");
-                                    client = create_push_client();
-                                }
-                            }
-                            _ = mp_config.cancel.cancelled() => {
-                                info!("received cancellation request, shutting down metrics push");
-                                return Ok(());
-                            }
-                        }
-                    }
-                });
-                Some(metric_push_handle)
-            }
-            None => None,
-        };
-
         Ok(Self {
             runtime,
             registry: walrus_registry,
             _telemetry_guards: telemetry_guards,
             _tracing_handle: tracing_handle,
-            _metric_push_handle: metric_push_handle,
         })
     }
-    /// join handle for the task.
+}
+
+/// A config struct to initialize the push metrics. Some binaries that depend on
+/// MetricsAndLoggingRuntime do not need nor is it appropriate to have push metrics.
+#[derive(Debug)]
+pub struct EnableMetricsPush {
+    /// token that is used to gracefully shut down the metrics push process
+    pub cancel: CancellationToken,
+    /// the network keys we use to identify the client using this push config
+    pub network_key_pair: Arc<Secp256r1KeyPair>,
+    /// the url, timeouts, etc used to push the metrics
+    pub config: MetricsConfig,
+}
+
+/// MetricPushRuntime to manage the metric push task.
+/// We run this in a dedicated runtime to avoid being blocked by others.
+#[allow(missing_debug_implementations)]
+pub struct MetricPushRuntime {
+    metric_push_handle: JoinHandle<anyhow::Result<()>>,
+    // INV: Runtime must be dropped last.
+    runtime: Runtime,
+}
+
+impl MetricPushRuntime {
+    /// Starts a task to periodically push metrics to a configured endpoint if a metrics push endpoint
+    /// is configured.
+    pub fn start(registry: Registry, mp_config: EnableMetricsPush) -> anyhow::Result<Self> {
+        let runtime = runtime::Builder::new_multi_thread()
+            .thread_name("metric-push-runtime")
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .context("meteric push runtime creation failed")?;
+        let _guard = runtime.enter();
+
+        // associate a default tls provider for this runtime
+        let tls_provider = rustls::crypto::ring::default_provider();
+        tls_provider
+            .install_default()
+            .expect("unable to install default tls provider for rustls in MetricPushRuntime");
+
+        let metric_push_handle = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(mp_config.config.push_interval_seconds);
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            let mut client = create_push_client();
+            let push_url = mp_config.config.push_url;
+            info!("starting metrics push to {}", &push_url);
+            loop {
+                tokio::select! {
+                    _ = interval.tick() => {
+                        if let Err(e) = push_metrics(mp_config.network_key_pair.clone(), &client, &push_url, &registry).await {
+                            error!("unable to push metrics: {e}; a new push client will be created");
+                            client = create_push_client();
+                        }
+                    }
+                    _ = mp_config.cancel.cancelled() => {
+                        info!("received cancellation request, shutting down metrics push");
+                        return Ok(());
+                    }
+                }
+            }
+        });
+
+        Ok(Self {
+            runtime,
+            metric_push_handle,
+        })
+    }
+
+    /// join handle for the task
     pub fn join(&mut self) -> Result<(), anyhow::Error> {
-        if let Some(metric_push_handle) = self._metric_push_handle.take() {
-            tracing::debug!("waiting for the metric runtime to shutdown...");
-            self.runtime.block_on(async {
-                // The first `?` handles the timeout result.
-                // The second `?` handles the handle result.
-                tokio::time::timeout(Duration::from_secs(5), metric_push_handle).await??
-            })
-        } else {
-            Ok(())
-        }
+        tracing::debug!("waiting for the metric push to shutdown...");
+        self.runtime.block_on(&mut self.metric_push_handle)?
     }
 }
 
