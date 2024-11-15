@@ -198,6 +198,9 @@ pub(crate) struct StakingPool {
     pool_token_balance: u64,
     /// Pending withdrawals from the pool token balance indexed by epoch.
     pending_pool_token_withdraw: Vec<(Epoch, u64)>,
+    #[cfg(feature = "mainnet-contracts")]
+    /// Pending early withdrawals for which we cannot calculate the pool tokens.
+    pending_early_withdrawals: Vec<(Epoch, u64)>,
     /// The commission rate for the pool.
     commission_rate: u64,
     /// Exchange rates table ID.
