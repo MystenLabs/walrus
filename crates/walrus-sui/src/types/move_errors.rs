@@ -328,7 +328,7 @@ move_error_kind!(
     6,
     EZeroStake,
     7,
-    EPoolIsNotNew,
+    EActivationEpochNotReached,
     8,
     EIncorrectPoolId,
     9,
@@ -336,8 +336,6 @@ move_error_kind!(
     10,
     EWithdrawEpochNotReached,
     11,
-    EActivationEpochNotReached,
-    12,
 );
 
 move_error_kind!(

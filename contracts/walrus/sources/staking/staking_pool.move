@@ -30,24 +30,20 @@ const EPoolAlreadyWithdrawing: u64 = 5;
 const EPoolIsNotActive: u64 = 6;
 /// Trying to stake zero amount.
 const EZeroStake: u64 = 7;
-/// Pool is not in `New` state.
-const EPoolIsNotNew: u64 = 8;
+/// Attempt to withdraw before `activation_epoch`.
+const EActivationEpochNotReached: u64 = 8;
 /// Trying to withdraw stake from the incorrect pool.
 const EIncorrectPoolId: u64 = 9;
 /// Trying to withdraw active stake.
 const ENotWithdrawing: u64 = 10;
 /// Attempt to withdraw before `withdraw_epoch`.
 const EWithdrawEpochNotReached: u64 = 11;
-/// Attempt to withdraw before `activation_epoch`.
-const EActivationEpochNotReached: u64 = 12;
 
 /// Represents the state of the staking pool.
 ///
 /// TODO: revisit the state machine.
 public enum PoolState has store, copy, drop {
-    // The pool is new and awaits the stake to be added.
-    New,
-    // The pool is active and can accept stakes.
+    // The pool is active and can accept stakes. This is the initial state.
     Active,
     // The pool awaits the stake to be withdrawn. The value inside the
     // variant is the epoch in which the pool will be withdrawn.
@@ -145,22 +141,17 @@ public(package) fun new(
             ctx.sender(),
             public_key,
         ).verify_proof_of_possession(proof_of_possession),
-        /// Invalid proof of possession in the `new` function.
+        // Invalid proof of possession in the `new` function.
         EInvalidProofOfPossession,
     );
 
-    let (activation_epoch, state) = if (wctx.committee_selected()) {
-        (wctx.epoch() + 1, PoolState::New)
-    } else {
-        (wctx.epoch(), PoolState::Active)
-    };
-
+    let activation_epoch = wctx.epoch();
     let mut exchange_rates = table::new(ctx);
     exchange_rates.add(activation_epoch, pool_exchange_rate::empty());
 
     StakingPool {
         id,
-        state,
+        state: PoolState::Active,
         exchange_rates,
         voting_params: VotingParams {
             storage_price,
@@ -200,7 +191,7 @@ public(package) fun stake(
     wctx: &WalrusContext,
     ctx: &mut TxContext,
 ): StakedWal {
-    assert!(pool.is_active() || pool.is_new(), EPoolIsNotActive);
+    assert!(pool.is_active(), EPoolIsNotActive);
     assert!(to_stake.value() > 0, EZeroStake);
 
     let current_epoch = wctx.epoch();
@@ -237,7 +228,6 @@ public(package) fun request_withdraw_stake(
     staked_wal: &mut StakedWal,
     wctx: &WalrusContext,
 ) {
-    assert!(!pool.is_new());
     assert!(staked_wal.value() > 0);
     assert!(staked_wal.node_id() == pool.id.to_inner());
     assert!(staked_wal.is_staked());
@@ -283,7 +273,6 @@ public(package) fun withdraw_stake(
     staked_wal: StakedWal,
     wctx: &WalrusContext,
 ): Balance<WAL> {
-    assert!(!pool.is_new(), EPoolIsNotActive);
     assert!(staked_wal.value() > 0, EZeroStake);
     assert!(staked_wal.node_id() == pool.id.to_inner(), EIncorrectPoolId);
 
@@ -485,12 +474,6 @@ public(package) fun destroy_empty(pool: StakingPool) {
     pending_stakes.do!(|stake| assert!(stake == 0));
 }
 
-/// Set the state of the pool to `Active`.
-public(package) fun set_is_active(pool: &mut StakingPool) {
-    assert!(pool.is_new(), EPoolIsNotNew);
-    pool.state = PoolState::Active;
-}
-
 /// Returns the exchange rate for the given current or future epoch. If there
 /// isn't a value for the specified epoch, it will look for the most recent
 /// value down to the pool activation epoch.
@@ -549,9 +532,6 @@ public(package) fun activation_epoch(pool: &StakingPool): u32 { pool.activation_
 
 /// Returns the node info for the pool.
 public(package) fun node_info(pool: &StakingPool): &StorageNodeInfo { &pool.node_info }
-
-/// Returns `true` if the pool is empty.
-public(package) fun is_new(pool: &StakingPool): bool { pool.state == PoolState::New }
 
 /// Returns `true` if the pool is active.
 public(package) fun is_active(pool: &StakingPool): bool { pool.state == PoolState::Active }
