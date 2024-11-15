@@ -365,8 +365,8 @@ mod commands {
             walrus.node.public_key = %config.protocol_key_pair.load()?.as_ref().public(),
             "walrus protocol public key",
         );
-        // // Load the network_key_pair so that it can be passed to the
-        // // MetricsAndLoggingRuntime.
+        // Load the network_key_pair so that it can be passed to the
+        // MetricPushRuntime.
         let network_key_pair = config.network_key_pair.load()?;
         tracing::info!(
             walrus.node.network_key = %network_key_pair.as_ref().public(),

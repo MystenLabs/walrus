@@ -297,7 +297,7 @@ impl MetricsAndLoggingRuntime {
 }
 
 /// A config struct to initialize the push metrics. Some binaries that depend on
-/// MetricsAndLoggingRuntime do not need nor is it appropriate to have push metrics.
+/// MetricPushRuntime do not need nor is it appropriate to have push metrics.
 #[derive(Debug)]
 pub struct EnableMetricsPush {
     /// token that is used to gracefully shut down the metrics push process
