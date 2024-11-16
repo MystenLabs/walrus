@@ -40,6 +40,8 @@ const ENotWithdrawing: u64 = 10;
 const EWithdrawEpochNotReached: u64 = 11;
 /// Attempt to withdraw before `activation_epoch`.
 const EActivationEpochNotReached: u64 = 12;
+/// Requesting withdrawal for the stake that can be withdrawn directly.
+const EWithdrawDirectly: u64 = 13;
 
 /// Represents the state of the staking pool.
 ///
@@ -246,7 +248,7 @@ public(package) fun request_withdraw_stake(
     // reached, and the stake is already counted for the next committee selection
     if (staked_wal.activation_epoch() > wctx.epoch()) {
         // only allow requesting if the stake cannot be withdrawn directly
-        assert!(!staked_wal.can_withdraw_early(wctx));
+        assert!(!staked_wal.can_withdraw_early(wctx), EWithdrawDirectly);
 
         let withdraw_epoch = staked_wal.activation_epoch() + 1;
         // register principal in the early withdrawals, the value will get converted to
@@ -256,7 +258,7 @@ public(package) fun request_withdraw_stake(
         return
     };
 
-    assert!(staked_wal.activation_epoch() <= wctx.epoch());
+    assert!(staked_wal.activation_epoch() <= wctx.epoch(), EActivationEpochNotReached);
 
     // If the node is in the committee, the stake will be withdrawn in E+2,
     // otherwise in E+1.

@@ -59,6 +59,7 @@ fun withdraw_processing_at_different_epochs() {
     assert_eq!(pool.wal_balance_at_epoch(E1), 1000);
     let balance = pool.withdraw_stake(alice, &wctx);
     assert_eq!(balance.destroy_for_testing(), 1000);
+    assert_eq!(pool.wal_balance_at_epoch(E1), 0);
 
     // Bob stakes before committee selection, stake applied E+1
     let mut bob = pool.stake(mint_balance(1000), &wctx, ctx);
@@ -117,7 +118,7 @@ fun withdraw_processing_at_different_epochs() {
 }
 
 
-#[test, expected_failure]
+#[test, expected_failure(abort_code = walrus::staking_pool::ENotWithdrawing)]
 // Scenario:
 // 1. Alice stakes in E0,
 // 2. Committee selected
@@ -138,7 +139,7 @@ fun request_withdraw_after_committee_selection() {
     destroy(pool);
 }
 
-#[test, expected_failure]
+#[test, expected_failure(abort_code = walrus::staking_pool::EWithdrawDirectly)]
 // Scenario (see `request_withdraw_can_withdraw_directly` for symmetrical successful case)
 // 1. Alice stakes in E0 before committee selection
 // 2. Alice requests withdrawal (even though it's not needed)
