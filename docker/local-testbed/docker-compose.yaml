@@ -4,7 +4,7 @@ services:
   sui-localnet:
     networks:
       testbed-network:
-    image: mysten/sui-tools:testnet-v1.35.1
+    image: mysten/sui-tools:mainnet
     command:
       [
         "sui",
@@ -32,11 +32,10 @@ services:
     hostname: walrus-deploy
     container_name: walrus-deploy
     volumes:
+      - ./contracts:/opt/walrus/contracts
       - walrus-config:/opt/walrus/config
     command: >
       /bin/sh -c "apt install -y git \
-      && git clone https://github.com/MystenLabs/walrus-docs \
-      && cp -r walrus-docs/contracts /opt/walrus/contracts \
       && cd /opt/walrus && /opt/walrus/bin/walrus-deploy deploy-system-contract \
       --working-dir /opt/walrus \
       --sui-network 'http://sui-localnet:9000;http://sui-localnet:9123/gas' \

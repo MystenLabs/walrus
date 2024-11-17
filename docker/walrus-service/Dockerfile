@@ -16,7 +16,7 @@ RUN cargo build --profile $PROFILE --bin walrus --bin walrus-node --bin walrus-d
 
 # Production Image for all binaries under walrus-service
 FROM debian:bullseye-slim AS walrus-service
-RUN apt-get update && apt-get install -y ca-certificates curl
+RUN apt-get update && apt-get install -y ca-certificates curl git
 ARG PROFILE=release
 WORKDIR "$WORKDIR/walrus"
 # Both bench and release profiles copy from release dir
