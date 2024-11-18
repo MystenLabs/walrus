@@ -5,20 +5,17 @@ services:
     networks:
       testbed-network:
     image: mysten/sui-tools:mainnet
-    command:
-      [
-        "sui",
-        "start",
-        "--with-faucet",
-        # "--force-regenesis", # comment out to use existing genesis
-      ]
+    command: >
+      /bin/sh -c "cp /usr/local/bin/sui /root/sui_bin/ && \
+      sui start --with-faucet --force-regenesis"
     healthcheck:
-      test: ["CMD", "bash", "-c", "echo > /dev/tcp/127.0.0.1/9000"]
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/127.0.0.1/9123 && echo > /dev/tcp/127.0.0.1/9000"]
       interval: 5s
       timeout: 10s
       retries: 5
+      start_period: 30s
     volumes:
-      - sui-config:/root/.sui/sui_config
+      - sui-bin:/root/sui_bin
 
   walrus-deploy:
     restart: no
@@ -27,55 +24,132 @@ services:
         condition: service_healthy
     networks:
       testbed-network:
-    image: mysten/walrus-service:f600f7595744d87072af9c49e2c25ef49d9e268a
+    image: mysten/walrus-service:9eeee2f17198ed8683967af8c8ed7d7c985398ef
     platform: linux/amd64
     hostname: walrus-deploy
     container_name: walrus-deploy
     volumes:
       - ./contracts:/opt/walrus/contracts
-      - walrus-config:/opt/walrus/config
+      - ./files/deploy-walrus.sh:/root/deploy-walrus.sh
+      - walrus-deploy-outputs:/opt/walrus/outputs
     command: >
-      /bin/sh -c "apt install -y git \
-      && cd /opt/walrus && /opt/walrus/bin/walrus-deploy deploy-system-contract \
-      --working-dir /opt/walrus \
-      --sui-network 'http://sui-localnet:9000;http://sui-localnet:9123/gas' \
-      --n-shards 10 \
-      --host-addresses 10.0.0.11 10.0.0.12 10.0.0.13 10.0.0.14 \
-      --storage-price 5 \
-      --write-price 1 \
-      --epoch-duration 1h"
+      /bin/bash -c "/root/deploy-walrus.sh"
 
-  # walrus-node1:
-  #   depends_on:
-  #     walrus-deploy:
-  #       condition: service_completed_successfully
-  #   networks:
-  #     testbed-network:
-  #       ipv4_address: 10.0.0.11
-  #   image: mysten/walrus-service:f600f7595744d87072af9c49e2c25ef49d9e268a
-  #   platform: linux/amd64
-  #   hostname: walrus-node1
-  #   container_name: walrus-node1
-  #   volumes:
-  #     - ./walrus-genesis/static/walrus-node.yaml:/opt/walrus/config/walrus-node.yaml:ro
-  #     - ./walrus-genesis/static/sui-config.yaml:/opt/walrus/config/sui-config.yaml:ro
-  #     - /tmp/walrus-testbed/walrus/db:/opt/walrus/db:rw
-  #   command:
-  #     [
-  #       "/usr/local/bin/sui-node",
-  #       "--config-path",
-  #       "/opt/sui/config/fullnode.yaml",
-  #     ]
-  #   restart: on-failure
-  #   logging:
-  #     driver: "json-file"
-  #     options:
-  #       max-file: "10"
-  #       max-size: "1g"
+  walrus-node-0:
+    depends_on:
+      sui-localnet:
+        condition: service_healthy
+      walrus-deploy:
+        condition: service_completed_successfully
+    networks:
+      testbed-network:
+        ipv4_address: 10.0.0.10
+    image: mysten/walrus-service:9eeee2f17198ed8683967af8c8ed7d7c985398ef
+    platform: linux/amd64
+    hostname: dryrun-node-0
+    container_name: dryrun-node-0
+    environment:
+      - NODE_NAME=dryrun-node-0
+    volumes:
+      - sui-bin:/root/sui_bin
+      - walrus-deploy-outputs:/opt/walrus/outputs
+      - ./files/walrus-client-config.yaml:/root/walrus-client-config.yaml
+      - ./files/run-walrus.sh:/root/run-walrus.sh
+    command: >
+      /bin/bash -c "/root/run-walrus.sh"
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "10"
+        max-size: "1g"
+
+  walrus-node-1:
+    depends_on:
+      sui-localnet:
+        condition: service_healthy
+      walrus-deploy:
+        condition: service_completed_successfully
+    networks:
+      testbed-network:
+        ipv4_address: 10.0.0.11
+    image: mysten/walrus-service:9eeee2f17198ed8683967af8c8ed7d7c985398ef
+    platform: linux/amd64
+    hostname: dryrun-node-1
+    container_name: dryrun-node-1
+    environment:
+      - NODE_NAME=dryrun-node-1
+    volumes:
+      - sui-bin:/root/sui_bin
+      - walrus-deploy-outputs:/opt/walrus/outputs
+      - ./files/walrus-client-config.yaml:/root/walrus-client-config.yaml
+      - ./files/run-walrus.sh:/root/run-walrus.sh
+    command: >
+      /bin/bash -c "/root/run-walrus.sh"
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "10"
+        max-size: "1g"
+
+  walrus-node-2:
+    depends_on:
+      sui-localnet:
+        condition: service_healthy
+      walrus-deploy:
+        condition: service_completed_successfully
+    networks:
+      testbed-network:
+        ipv4_address: 10.0.0.12
+    image: mysten/walrus-service:9eeee2f17198ed8683967af8c8ed7d7c985398ef
+    platform: linux/amd64
+    hostname: dryrun-node-2
+    container_name: dryrun-node-2
+    environment:
+      - NODE_NAME=dryrun-node-2
+    volumes:
+      - sui-bin:/root/sui_bin
+      - walrus-deploy-outputs:/opt/walrus/outputs
+      - ./files/walrus-client-config.yaml:/root/walrus-client-config.yaml
+      - ./files/run-walrus.sh:/root/run-walrus.sh
+    command: >
+      /bin/bash -c "/root/run-walrus.sh"
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "10"
+        max-size: "1g"
+
+  walrus-node-3:
+    depends_on:
+      sui-localnet:
+        condition: service_healthy
+      walrus-deploy:
+        condition: service_completed_successfully
+    networks:
+      testbed-network:
+        ipv4_address: 10.0.0.13
+    image: mysten/walrus-service:9eeee2f17198ed8683967af8c8ed7d7c985398ef
+    platform: linux/amd64
+    hostname: dryrun-node-3
+    container_name: dryrun-node-3
+    environment:
+      - NODE_NAME=dryrun-node-3
+    volumes:
+      - sui-bin:/root/sui_bin
+      - walrus-deploy-outputs:/opt/walrus/outputs
+      - ./files/walrus-client-config.yaml:/root/walrus-client-config.yaml
+      - ./files/run-walrus.sh:/root/run-walrus.sh
+    command: >
+      /bin/bash -c "/root/run-walrus.sh"
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "10"
+        max-size: "1g"
 
 volumes:
-  sui-config:
-  walrus-config:
+  sui-bin:
+  walrus-deploy-outputs:
 
 networks:
   testbed-network:
