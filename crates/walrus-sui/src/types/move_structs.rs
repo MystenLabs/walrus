@@ -156,6 +156,7 @@ impl Display for StorageNodeCap {
 
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 enum PoolState {
+    #[cfg(not(feature = "mainnet-contracts"))]
     // The pool is new and awaits the stake to be added.
     New,
     // The pool is active and can accept stakes.
