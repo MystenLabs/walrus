@@ -1217,7 +1217,7 @@ impl StorageNodeInner {
     }
 
     fn is_shutting_down(&self) -> bool {
-        self.is_shutting_down.load(Ordering::Relaxed)
+        self.is_shutting_down.load(Ordering::SeqCst)
     }
 }
 

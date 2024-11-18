@@ -3,7 +3,7 @@
 
 //! Walrus events observed by the storage node.
 
-use std::{any::Any, sync::Arc, thread, time::Duration};
+use std::{any::Any, fmt::Debug, sync::Arc, thread, time::Duration};
 
 use anyhow::Error;
 use async_trait::async_trait;
@@ -40,7 +40,6 @@ pub const EVENT_CHANNEL_CAPACITY: usize = 1024;
 ///
 /// The `EventHandle` should not be dropped before calling `is_marked_as_complete`; otherwise, it
 /// logs an error when it is dropped.
-#[derive(Debug)]
 #[must_use]
 // Important: Don't derive or implement `Clone` or `Copy`; every event should have a single handle
 // that is passed around until it is completely handled or the thread panics.
@@ -118,6 +117,17 @@ impl Drop for EventHandle {
                 );
             }
         }
+    }
+}
+
+impl Debug for EventHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EventHandle")
+            .field("index", &self.index)
+            .field("event_id", &self.event_id)
+            // Exclude `node` field.
+            .field("can_be_dropped", &self.can_be_dropped)
+            .finish()
     }
 }
 
