@@ -108,7 +108,8 @@ impl Drop for EventHandle {
             }
             _ => {
                 tracing::error!("event handle dropped before being marked as complete",);
-                // Panic in tests if an event handle is dropped.
+                // Panic in tests (not in simtests) if an event handle is dropped.
+                #[cfg(not(msim))]
                 debug_assert!(
                     self.can_be_dropped,
                     "event handle dropped before being marked as complete; \
