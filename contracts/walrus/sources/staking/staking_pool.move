@@ -148,7 +148,12 @@ public(package) fun new(
         EInvalidProofOfPossession,
     );
 
-    let activation_epoch = if (wctx.committee_selected()) wctx.epoch() + 1 else wctx.epoch();
+    let activation_epoch = if (wctx.committee_selected()) {
+        wctx.epoch() + 1
+    } else {
+        wctx.epoch()
+    };
+    
     let mut exchange_rates = table::new(ctx);
     exchange_rates.add(activation_epoch, pool_exchange_rate::empty());
 
