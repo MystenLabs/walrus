@@ -95,6 +95,10 @@ public struct StakingPool has key, store {
     /// stakes. Token amount for these principals is calculated via the exchange
     /// rate at the activation epoch.
     pending_early_withdrawals: PendingValues,
+    /// The pending commission rate for the pool. Commission rate is applied in
+    /// E+2, so we store the value for the matching epoch and apply it in the
+    /// `advance_epoch` function.
+    pending_commission_rate: PendingValues,
     /// The commission rate for the pool.
     /// TODO: allow changing the commission rate in E+2.
     commission_rate: u16,
@@ -181,6 +185,7 @@ public(package) fun new(
         pending_stake: pending_values::empty(),
         pending_pool_token_withdraw: pending_values::empty(),
         pending_early_withdrawals: pending_values::empty(),
+        pending_commission_rate: pending_values::empty(),
         wal_balance: 0,
         pool_token_balance: 0,
         rewards_pool: balance::zero(),
@@ -341,11 +346,17 @@ public(package) fun advance_epoch(
     assert!(current_epoch > pool.latest_epoch, EPoolAlreadyUpdated);
     assert!(rewards.value() == 0 || pool.wal_balance > 0, EIncorrectEpochAdvance);
 
-    // split rewards according to commission setting
+    // update the commission_rate if there's a pending value for the current epoch
+    pool.pending_commission_rate.inner().try_get(&current_epoch).do!(|commission_rate| {
+        pool.commission_rate = commission_rate as u16;
+        pool.pending_commission_rate.flush(current_epoch);
+    });
+
+    // split the commission from the rewards
     let total_rewards = rewards.value();
     let commission = rewards.split(total_rewards * (pool.commission_rate as u64) / 100_00);
 
-    // if rewards are calculated only for full epochs,
+    // add rewards to the pool and update the `wal_balance`
     let rewards_amount = rewards.value();
     pool.rewards_pool.join(rewards);
     pool.wal_balance = pool.wal_balance + rewards_amount;
@@ -410,8 +421,12 @@ public(package) fun process_pending_stake(pool: &mut StakingPool, wctx: &WalrusC
 /// Sets the next commission rate for the pool.
 /// TODO: implement changing commission rate in E+2, the change should not be
 /// immediate.
-public(package) fun set_next_commission(pool: &mut StakingPool, commission_rate: u16) {
-    pool.commission_rate = commission_rate;
+public(package) fun set_next_commission(
+    pool: &mut StakingPool,
+    commission_rate: u16,
+    wctx: &WalrusContext,
+) {
+    pool.pending_commission_rate.insert_or_replace(wctx.epoch() + 2, commission_rate as u64);
 }
 
 /// Sets the next storage price for the pool.

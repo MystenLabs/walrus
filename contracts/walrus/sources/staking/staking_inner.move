@@ -269,7 +269,8 @@ public(package) fun set_next_commission(
     cap: &StorageNodeCap,
     commission_rate: u16,
 ) {
-    self.pools[cap.node_id()].set_next_commission(commission_rate);
+    let wctx = &self.new_walrus_context();
+    self.pools[cap.node_id()].set_next_commission(commission_rate, wctx);
 }
 
 /// Sets the storage price vote for the pool.
