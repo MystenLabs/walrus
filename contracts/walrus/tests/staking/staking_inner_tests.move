@@ -90,6 +90,7 @@ fun test_parameter_changes() {
         .commission_rate(0)
         .name(b"pool_1".to_string())
         .register(&mut staking, ctx);
+
     let cap = storage_node::new_cap(pool_id, ctx);
 
     staking.set_next_commission(&cap, 10000);

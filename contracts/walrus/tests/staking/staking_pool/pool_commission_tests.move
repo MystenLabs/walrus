@@ -37,3 +37,36 @@ fun collect_commission_with_rewards() {
 
     pool.destroy_empty();
 }
+
+#[test]
+fun commission_setting_at_different_epochs() {
+    let mut test = context_runner();
+    let (wctx, ctx) = test.current();
+    let mut pool = pool().commission_rate(0).build(&wctx, ctx);
+
+    assert_eq!(pool.commission_rate(), 0);
+    pool.set_next_commission(10_00, &wctx); // applied E+2
+    assert_eq!(pool.commission_rate(), 0);
+
+    let (wctx, _) = test.next_epoch(); // E+1
+    pool.advance_epoch(mint_balance(0), &wctx);
+
+    assert_eq!(pool.commission_rate(), 0);
+    pool.set_next_commission(20_00, &wctx); // set E+3
+    pool.set_next_commission(30_00, &wctx); // override E+3
+
+    let (wctx, _) = test.next_epoch(); // E+2
+    pool.advance_epoch(mint_balance(0), &wctx);
+    assert_eq!(pool.commission_rate(), 10_00);
+    pool.set_next_commission(40_00, &wctx); // set E+4
+
+    let (wctx, _) = test.next_epoch(); // E+3
+    pool.advance_epoch(mint_balance(0), &wctx);
+    assert_eq!(pool.commission_rate(), 30_00);
+
+    let (wctx, _) = test.next_epoch(); // E+4
+    pool.advance_epoch(mint_balance(0), &wctx);
+    assert_eq!(pool.commission_rate(), 40_00);
+
+    pool.destroy_empty();
+}
