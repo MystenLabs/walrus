@@ -116,6 +116,8 @@ public struct StakingPool has key, store {
     pending_stake: PendingValues,
     /// The rewards that the pool has received from being in the committee.
     rewards_pool: Balance<WAL>,
+    /// The commission that the pool has received from the rewards.
+    commission: Balance<WAL>,
 }
 
 /// Create a new `StakingPool` object.
@@ -153,7 +155,7 @@ public(package) fun new(
     } else {
         wctx.epoch()
     };
-    
+
     let mut exchange_rates = table::new(ctx);
     exchange_rates.add(activation_epoch, pool_exchange_rate::empty());
 
@@ -182,6 +184,7 @@ public(package) fun new(
         wal_balance: 0,
         pool_token_balance: 0,
         rewards_pool: balance::zero(),
+        commission: balance::zero(),
     }
 }
 
@@ -329,7 +332,7 @@ public(package) fun withdraw_stake(
 /// Advance epoch for the `StakingPool`.
 public(package) fun advance_epoch(
     pool: &mut StakingPool,
-    rewards: Balance<WAL>,
+    mut rewards: Balance<WAL>,
     wctx: &WalrusContext,
 ) {
     // process the pending and withdrawal amounts
@@ -338,8 +341,11 @@ public(package) fun advance_epoch(
     assert!(current_epoch > pool.latest_epoch, EPoolAlreadyUpdated);
     assert!(rewards.value() == 0 || pool.wal_balance > 0, EIncorrectEpochAdvance);
 
+    // split rewards according to commission setting
+    let total_rewards = rewards.value();
+    let commission = rewards.split(total_rewards * (pool.commission_rate as u64) / 100_00);
+
     // if rewards are calculated only for full epochs,
-    // rewards addition should happen prior to pool token calculation
     let rewards_amount = rewards.value();
     pool.rewards_pool.join(rewards);
     pool.wal_balance = pool.wal_balance + rewards_amount;
@@ -347,7 +353,8 @@ public(package) fun advance_epoch(
     pool.node_info.rotate_public_key();
 
     // perform stake deduction / addition for the current epoch - wctx.epoch()
-    pool.process_pending_stake(wctx)
+    pool.process_pending_stake(wctx);
+    pool.commission.join(commission);
 }
 
 /// Process the pending stake and withdrawal requests for the pool. Called in the
@@ -466,11 +473,13 @@ public(package) fun destroy_empty(pool: StakingPool) {
         pending_stake,
         exchange_rates,
         rewards_pool,
+        commission,
         ..,
     } = pool;
 
     id.delete();
     exchange_rates.drop();
+    commission.destroy_zero();
     rewards_pool.destroy_zero();
 
     let (_epochs, pending_stakes) = pending_stake.unwrap().into_keys_values();
@@ -515,6 +524,15 @@ public(package) fun wal_balance_at_epoch(pool: &StakingPool, epoch: u32): u64 {
 /// Returns the commission rate for the pool.
 public(package) fun commission_rate(pool: &StakingPool): u16 { pool.commission_rate }
 
+/// Returns the commission amount for the pool.
+public(package) fun commission_amount(pool: &StakingPool): u64 { pool.commission.value() }
+
+/// Withdraws the commission from the pool. Amount is optional, if not provided,
+/// the full commission is withdrawn.
+public(package) fun withdraw_commission(pool: &mut StakingPool, amount: Option<u64>): Balance<WAL> {
+    amount.map!(|amount| pool.commission.split(amount)).destroy_or!(pool.commission.withdraw_all())
+}
+
 /// Returns the rewards amount for the pool.
 public(package) fun rewards_amount(pool: &StakingPool): u64 { pool.rewards_pool.value() }
 
@@ -552,5 +570,8 @@ public(package) fun is_empty(pool: &StakingPool): bool {
     let pending_stake = pool.pending_stake.unwrap();
     let non_empty = pending_stake.keys().count!(|epoch| pending_stake[epoch] != 0);
 
-    pool.wal_balance == 0 && non_empty == 0 && pool.pool_token_balance == 0
+    pool.pool_token_balance == 0 &&
+    pool.commission.value() == 0 &&
+    pool.wal_balance == 0 &&
+    non_empty == 0
 }

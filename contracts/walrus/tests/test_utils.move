@@ -238,7 +238,7 @@ public fun build(
             x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677ab",
         ),
         pop,
-        commission_rate.destroy_with_default(1000),
+        commission_rate.destroy_with_default(0),
         storage_price.destroy_with_default(1000),
         write_price.destroy_with_default(1000),
         node_capacity.destroy_with_default(1000),
