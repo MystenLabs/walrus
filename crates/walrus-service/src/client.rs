@@ -423,26 +423,28 @@ impl<T: ContractClient> Client<T> {
             StoreOp::RegisterNew { blob, operation } => (blob, operation),
         };
 
-        if resource_operation.is_registration() {
-            tracing::debug!(
-                delay=?self.config.communication_config.registration_delay,
-                "waiting to ensure that all storage nodes have seen the registration"
-            );
-            tokio::time::sleep(self.config.communication_config.registration_delay).await;
-        }
-
         let (certificate, write_committee_epoch) = {
             let committees = self.committees.read().await;
 
             let certificate = match blob_status.initial_certified_epoch() {
                 Some(certified_epoch) if !committees.is_change_in_progress() => {
-                    // The blob is already certified on chain: the slivers are already available.
-                    // However, during epoch change we may need to store the slivers again, as the
-                    // current committee may not have synced them yet.
+                    // If the blob is already certified on chain and there is no committee change in
+                    // progress, all nodes already have the slivers.
                     self.get_certificate_standalone(&blob_id, certified_epoch)
                         .await?
                 }
                 _ => {
+                    // If the blob is not certified, we need to store the slivers. Also, during
+                    // epoch change we may need to store the slivers again for an already certified
+                    // blob, as the current committee may not have synced them yet.
+                    if resource_operation.is_registration() && !blob_status.is_registered() {
+                        tracing::debug!(
+                            delay=?self.config.communication_config.registration_delay,
+                            "waiting to ensure that all storage nodes have seen the registration"
+                        );
+                        tokio::time::sleep(self.config.communication_config.registration_delay)
+                            .await;
+                    }
                     let certify_start_timer = Instant::now();
                     let result = self
                         .send_blob_data_and_get_certificate(metadata, pairs)
