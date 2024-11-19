@@ -17,9 +17,6 @@ ignore = [
   "RUSTSEC-2024-0370",
   # `instance` is unmaintained; consider using `web-time`.
   "RUSTSEC-2024-0384",
-  # `opentelemetry_api` has been merged into the `opentelemetry` crate; we currently depend on the
-  # old version through Sui.
-  "RUSTSEC-2024-0387",
   # `derivative` is unmaintained.
   "RUSTSEC-2024-0388",
 ]
