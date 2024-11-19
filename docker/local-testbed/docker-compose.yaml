@@ -24,8 +24,8 @@ services:
         condition: service_healthy
     networks:
       testbed-network:
-    image: mysten/walrus-service:9eeee2f17198ed8683967af8c8ed7d7c985398ef
-    platform: linux/amd64
+    image: ${WALRUS_IMAGE_NAME:-mysten/walrus-service:9eeee2f17198ed8683967af8c8ed7d7c985398ef}
+    platform: ${WALRUS_PLATFORM:-linux/amd64}
     hostname: walrus-deploy
     container_name: walrus-deploy
     volumes:
@@ -43,8 +43,8 @@ services:
     networks:
       testbed-network:
         ipv4_address: 10.0.0.10
-    image: mysten/walrus-service:9eeee2f17198ed8683967af8c8ed7d7c985398ef
-    platform: linux/amd64
+    image: ${WALRUS_IMAGE_NAME:-mysten/walrus-service:9eeee2f17198ed8683967af8c8ed7d7c985398ef}
+    platform: ${WALRUS_PLATFORM:-linux/amd64}
     hostname: dryrun-node-0
     container_name: dryrun-node-0
     environment:
@@ -71,8 +71,8 @@ services:
     networks:
       testbed-network:
         ipv4_address: 10.0.0.11
-    image: mysten/walrus-service:9eeee2f17198ed8683967af8c8ed7d7c985398ef
-    platform: linux/amd64
+    image: ${WALRUS_IMAGE_NAME:-mysten/walrus-service:9eeee2f17198ed8683967af8c8ed7d7c985398ef}
+    platform: ${WALRUS_PLATFORM:-linux/amd64}
     hostname: dryrun-node-1
     container_name: dryrun-node-1
     environment:
@@ -99,8 +99,8 @@ services:
     networks:
       testbed-network:
         ipv4_address: 10.0.0.12
-    image: mysten/walrus-service:9eeee2f17198ed8683967af8c8ed7d7c985398ef
-    platform: linux/amd64
+    image: ${WALRUS_IMAGE_NAME:-mysten/walrus-service:9eeee2f17198ed8683967af8c8ed7d7c985398ef}
+    platform: ${WALRUS_PLATFORM:-linux/amd64}
     hostname: dryrun-node-2
     container_name: dryrun-node-2
     environment:
@@ -127,8 +127,8 @@ services:
     networks:
       testbed-network:
         ipv4_address: 10.0.0.13
-    image: mysten/walrus-service:9eeee2f17198ed8683967af8c8ed7d7c985398ef
-    platform: linux/amd64
+    image: ${WALRUS_IMAGE_NAME:-mysten/walrus-service:9eeee2f17198ed8683967af8c8ed7d7c985398ef}
+    platform: ${WALRUS_PLATFORM:-linux/amd64}
     hostname: dryrun-node-3
     container_name: dryrun-node-3
     environment:

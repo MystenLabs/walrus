@@ -7,11 +7,15 @@ This setup launches:
 - 4 Walrus Storage Nodes.
 
 ## How to Run
-Simply execute `docker compose up` (the latest Docker versions have deprecated `docker-compose`).
+1. ./build-local-image.sh
+    1. only if you want to run containers built from local repo
+    2. takes about 10 min on M2 Pro Macbook
+    3. be sure assign 16GB+ to docker process for image building process
+2. `docker compose up` (the latest Docker versions have deprecated `docker-compose`).
 
 ## How to Interact with the Network
 1. Use `docker ps` to view all running containers. Look for containers with the images:
-    - `mysten/walrus-service:9eeee2f17198ed8683967af8c8ed7d7c985398ef`
+    - `mysten/walrus-service:<VERSION>` or `local-testbed_walrus-servcie:<VERSION>`
     - `mysten/sui-tools:mainnet`
 
 2. To access a container’s shell:
