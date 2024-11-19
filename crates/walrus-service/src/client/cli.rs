@@ -160,6 +160,11 @@ pub fn error() -> ColoredString {
     "Error:".bold().red()
 }
 
+/// Returns the string `Warning:` colored in yellow for terminal output.
+pub fn warning() -> ColoredString {
+    "Warning:".bold().yellow()
+}
+
 /// Type to help with formatting bytes as human-readable strings.
 ///
 /// Formatting of `HumanReadableBytes` works as follows:

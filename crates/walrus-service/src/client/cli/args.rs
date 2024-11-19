@@ -164,9 +164,8 @@ pub enum CliCommands {
         #[serde(deserialize_with = "crate::utils::resolve_home_dir")]
         file: PathBuf,
         /// The number of epochs ahead for which to store the blob.
-        #[clap(short, long, default_value_t = default::epochs())]
-        #[serde(default = "default::epochs")]
-        epochs: EpochCount,
+        #[clap(short, long)]
+        epochs: Option<EpochCount>,
         /// Perform a dry-run of the store without performing any actions on chain.
         ///
         /// This assumes `--force`; i.e., it does not check the current status of the blob.
@@ -579,7 +578,7 @@ impl FileOrBlobIdOrObjectId {
     }
 }
 
-mod default {
+pub(crate) mod default {
     use std::{net::SocketAddr, time::Duration};
 
     use walrus_core::EpochCount;
@@ -682,7 +681,7 @@ mod tests {
     fn store_command() -> Commands {
         Commands::Cli(CliCommands::Store {
             file: PathBuf::from("README.md"),
-            epochs: 1,
+            epochs: None,
             dry_run: false,
             force: false,
             deletable: false,

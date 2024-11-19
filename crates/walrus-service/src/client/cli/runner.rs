@@ -39,12 +39,14 @@ use super::args::{
 use crate::{
     client::{
         cli::{
+            self,
             get_contract_client,
             get_read_client,
             get_sui_read_client_from_rpc_node_or_wallet,
             load_configuration,
             read_blob_from_file,
             success,
+            warning,
             BlobIdDecimal,
             CliOutput,
             HumanReadableMist,
@@ -285,12 +287,21 @@ impl ClientCommandRunner {
     pub(crate) async fn store(
         self,
         file: PathBuf,
-        epochs: EpochCount,
+        epochs: Option<EpochCount>,
         dry_run: bool,
         store_when: StoreWhen,
         persistence: BlobPersistence,
     ) -> Result<()> {
         let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
+
+        let epochs = epochs.unwrap_or_else(|| {
+            println!(
+                "{} The number of epochs for which to store the blob was not specified. \
+                Using the default value of 1 epoch. Use `--epochs` to store for a longer period.",
+                warning()
+            );
+            cli::args::default::epochs()
+        });
 
         if dry_run {
             tracing::info!("Performing dry-run store for file {}", file.display());
