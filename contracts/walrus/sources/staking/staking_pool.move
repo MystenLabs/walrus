@@ -5,7 +5,7 @@
 module walrus::staking_pool;
 
 use std::string::String;
-use sui::{balance::{Self, Balance}, table::{Self, Table}};
+use sui::{bag::{Self, Bag}, balance::{Self, Balance}, table::{Self, Table}};
 use wal::wal::WAL;
 use walrus::{
     messages,
@@ -122,6 +122,8 @@ public struct StakingPool has key, store {
     rewards_pool: Balance<WAL>,
     /// The commission that the pool has received from the rewards.
     commission: Balance<WAL>,
+    /// Reserved for future use and migrations.
+    extra_fields: Bag,
 }
 
 /// Create a new `StakingPool` object.
@@ -190,6 +192,7 @@ public(package) fun new(
         pool_token_balance: 0,
         rewards_pool: balance::zero(),
         commission: balance::zero(),
+        extra_fields: bag::new(ctx),
     }
 }
 
@@ -489,6 +492,7 @@ public(package) fun destroy_empty(pool: StakingPool) {
         exchange_rates,
         rewards_pool,
         commission,
+        extra_fields,
         ..,
     } = pool;
 
@@ -496,6 +500,7 @@ public(package) fun destroy_empty(pool: StakingPool) {
     exchange_rates.drop();
     commission.destroy_zero();
     rewards_pool.destroy_zero();
+    extra_fields.destroy_empty();
 
     let (_epochs, pending_stakes) = pending_stake.unwrap().into_keys_values();
     pending_stakes.do!(|stake| assert!(stake == 0));
