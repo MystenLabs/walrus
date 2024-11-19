@@ -529,6 +529,11 @@ public(package) fun initiate_epoch_change(
     self.advance_epoch(rewards);
 }
 
+public(package) fun emit_epoch_change_start_event(self: &mut StakingInnerV1) {
+    self.epoch = self.epoch + 1;
+    events::emit_epoch_change_start(self.epoch);
+}
+
 /// Sets the next epoch of the system and emits the epoch change start event.
 ///
 /// TODO: `advance_epoch` needs to be either pre or post handled by each staking pool as well.

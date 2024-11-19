@@ -180,6 +180,11 @@ public fun initiate_epoch_change(staking: &mut Staking, system: &mut System, clo
     staking_inner.initiate_epoch_change(clock, rewards);
 }
 
+public fun initiate_epoch_change_dummy(staking: &mut Staking, system: &mut System, clock: &Clock) {
+    let staking_inner = staking.inner_mut();
+    staking_inner.emit_epoch_change_start_event();
+}
+
 /// Checks if the node should either have received the specified shards from the specified node
 /// or vice-versa.
 ///

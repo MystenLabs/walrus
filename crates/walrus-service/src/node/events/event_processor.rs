@@ -353,6 +353,7 @@ impl EventProcessor {
                     .filter(|event| event.package_id == self.system_pkg_id)
                     .enumerate()
                 {
+                    tracing::debug!("Event emitted: {:?}", tx_event);
                     let move_type_layout = self
                         .package_resolver
                         .type_layout(move_core_types::language_storage::TypeTag::Struct(
