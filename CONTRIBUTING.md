@@ -79,7 +79,7 @@ through `cargo test` or `cargo nextest run` (require [nextest](https://nexte.st/
 Integration and end-to-end tests are excluded by default when running `cargo nextest` as they depend on
 additional packages and take longer to run. These tests can either be run with the newest contract
 version (including breaking changes that are incompatible with testnet) or they can be run with the
-contracts as deployed on testnet.
+contracts as deployed on testnet, for which the contracts are located in `testnet-contracts`.
 
 For the first option, you can run these tests as follows:
 
@@ -87,18 +87,10 @@ For the first option, you can run these tests as follows:
 cargo nextest run --run-ignored ignored-only --features walrus-sui/mainnet-contracts
 ```
 
-For the second option, you first need to checkout the correct version of the contracts. To do this
-and cleanup afterwards, you can run the following:
+For the second option, simply run:
 
 ```sh
-GIT_STASH_TAG="testnet_checkout_${RANDOM}"
-git stash push -m "${GIT_STASH_TAG}" -u -- contracts
-git checkout testnet-v1.0.1 contracts
 cargo nextest run --run-ignored ignored-only
-git restore --staged contracts
-git checkout HEAD contracts
-git clean -f contracts
-git stash list | grep "${GIT_STASH_TAG}" && git stash pop --index
 ```
 
 Integration tests that require a running Sui test cluster can use an external cluster. This requires a one-time setup:
@@ -121,8 +113,7 @@ SUI_TEST_CONFIG_DIR="$CLUSTER_CONFIG_DIR" cargo test -- --ignored --features wal
 ```
 
 This runs the tests with the newest contract version. To run them with the testnet version,
-check out the testnet contracts as described above and run the tests without
-`--features walrus-sui/mainnet-contracts`.
+run them without the `--features walrus-sui/mainnet-contracts` flag.
 
 After the tests have completed, you can stop the cluster:
 
