@@ -1,5 +1,9 @@
 #!/bin/bash
 
+rm -rf walrus-docs
+git clone https://github.com/MystenLabs/walrus-docs.git
+cp -r walrus-docs/contracts /opt/walrus
+
 cd /opt/walrus
 
 rm -rf /opt/walrus/outputs/*

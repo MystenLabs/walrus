@@ -29,7 +29,6 @@ services:
     hostname: walrus-deploy
     container_name: walrus-deploy
     volumes:
-      - ./contracts:/opt/walrus/contracts
       - ./files/deploy-walrus.sh:/root/deploy-walrus.sh
       - walrus-deploy-outputs:/opt/walrus/outputs
     command: >
