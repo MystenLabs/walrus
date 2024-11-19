@@ -110,7 +110,7 @@ public struct PoolBuilder has copy, drop {
     network_address: Option<String>,
     bls_sk: Option<vector<u8>>,
     network_public_key: Option<vector<u8>>,
-    commission_rate: Option<u64>,
+    commission_rate: Option<u16>,
     storage_price: Option<u64>,
     write_price: Option<u64>,
     node_capacity: Option<u64>,
@@ -149,7 +149,7 @@ public fun pool(): PoolBuilder {
 /// Sets the commission rate for the pool.
 public fun commission_rate(
     mut self: PoolBuilder,
-    commission_rate: u64,
+    commission_rate: u16,
 ): PoolBuilder {
     self.commission_rate.fill(commission_rate);
     self

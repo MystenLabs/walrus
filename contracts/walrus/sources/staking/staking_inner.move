@@ -144,7 +144,7 @@ public(package) fun create_pool(
     public_key: vector<u8>,
     network_public_key: vector<u8>,
     proof_of_possession: vector<u8>,
-    commission_rate: u64,
+    commission_rate: u16,
     storage_price: u64,
     write_price: u64,
     node_capacity: u64,
@@ -267,7 +267,7 @@ fun take_threshold_value(vote_queue: &mut PriorityQueue<u64>, threshold_weight: 
 public(package) fun set_next_commission(
     self: &mut StakingInnerV1,
     cap: &StorageNodeCap,
-    commission_rate: u64,
+    commission_rate: u16,
 ) {
     self.pools[cap.node_id()].set_next_commission(commission_rate);
 }
@@ -559,9 +559,7 @@ public(package) fun advance_epoch(self: &mut StakingInnerV1, mut rewards: Balanc
 
     node_ids.zip_do!(shard_assignments, |node_id, shards| {
         self.pools[node_id].advance_epoch(rewards.split(rewards_per_shard * shards.length()), wctx);
-        self
-            .active_set
-            .update(node_id, self.pools[node_id].wal_balance_at_epoch(wctx.epoch() + 1));
+        self.active_set.update(node_id, self.pools[node_id].wal_balance_at_epoch(wctx.epoch() + 1));
     });
 
     // Save any leftover rewards due to rounding.

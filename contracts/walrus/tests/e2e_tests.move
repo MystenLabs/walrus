@@ -8,7 +8,7 @@ use std::unit_test::assert_eq;
 use walrus::{e2e_runner, staking_pool, test_node, test_utils};
 use sui::test_scenario;
 
-const COMMISSION: u64 = 1;
+const COMMISSION: u16 = 0;
 const STORAGE_PRICE: u64 = 5;
 const WRITE_PRICE: u64 = 1;
 const NODE_CAPACITY: u64 = 1_000_000_000;

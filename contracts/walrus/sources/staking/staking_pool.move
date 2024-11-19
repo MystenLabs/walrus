@@ -97,7 +97,7 @@ public struct StakingPool has key, store {
     pending_early_withdrawals: PendingValues,
     /// The commission rate for the pool.
     /// TODO: allow changing the commission rate in E+2.
-    commission_rate: u64,
+    commission_rate: u16,
     /// Historical exchange rates for the pool. The key is the epoch when the
     /// exchange rate was set, and the value is the exchange rate (the ratio of
     /// the amount of WAL tokens for the pool token).
@@ -127,7 +127,7 @@ public(package) fun new(
     public_key: vector<u8>,
     network_public_key: vector<u8>,
     proof_of_possession: vector<u8>,
-    commission_rate: u64,
+    commission_rate: u16,
     storage_price: u64,
     write_price: u64,
     node_capacity: u64,
@@ -398,7 +398,7 @@ public(package) fun process_pending_stake(pool: &mut StakingPool, wctx: &WalrusC
 /// Sets the next commission rate for the pool.
 /// TODO: implement changing commission rate in E+2, the change should not be
 /// immediate.
-public(package) fun set_next_commission(pool: &mut StakingPool, commission_rate: u64) {
+public(package) fun set_next_commission(pool: &mut StakingPool, commission_rate: u16) {
     pool.commission_rate = commission_rate;
 }
 
@@ -508,7 +508,7 @@ public(package) fun wal_balance_at_epoch(pool: &StakingPool, epoch: u32): u64 {
 // === Accessors ===
 
 /// Returns the commission rate for the pool.
-public(package) fun commission_rate(pool: &StakingPool): u64 { pool.commission_rate }
+public(package) fun commission_rate(pool: &StakingPool): u16 { pool.commission_rate }
 
 /// Returns the rewards amount for the pool.
 public(package) fun rewards_amount(pool: &StakingPool): u64 { pool.rewards_pool.value() }
