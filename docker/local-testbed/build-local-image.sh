@@ -16,5 +16,5 @@ docker build -t ${IMAGE_NAME} \
 
 # echo the IMAGE_NAME and PLATFORM to the .env file
 rm -f docker/local-testbed/.env
-echo "WALRUS_IMAGE_NAME=${IMAGE_NAME}" >> docker/local-testbed/.env
-echo "WALRUS_PLATFORM=${PLATFORM}" >> docker/local-testbed/.env
+echo "WALRUS_IMAGE_NAME=${IMAGE_NAME}" >>docker/local-testbed/.env
+echo "WALRUS_PLATFORM=${PLATFORM}" >>docker/local-testbed/.env
