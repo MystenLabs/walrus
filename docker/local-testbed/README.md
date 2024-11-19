@@ -7,6 +7,9 @@ This setup launches:
 - 4 Walrus Storage Nodes.
 
 ## How to Run
+
+Make sure you're under `walrus/docker/local-testbed`
+
 1. ./build-local-image.sh
     1. only if you want to run containers built from local repo
     2. takes about 10 min on M2 Pro Macbook
@@ -15,7 +18,7 @@ This setup launches:
 
 ## How to Interact with the Network
 1. Use `docker ps` to view all running containers. Look for containers with the images:
-    - `mysten/walrus-service:<VERSION>` or `local-testbed_walrus-servcie:<VERSION>`
+    - `mysten/walrus-service:<VERSION>` or `local-testbed_walrus-service:<VERSION>`
     - `mysten/sui-tools:mainnet`
 
 2. To access a container’s shell:
