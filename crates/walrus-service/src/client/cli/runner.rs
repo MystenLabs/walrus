@@ -538,11 +538,24 @@ impl ClientCommandRunner {
                 unreachable!("we checked that either file, blob ID or object ID are be provided");
             };
 
+        let post_deletion_status = if let Some(deleted_blob_id) = blob_id {
+            // Wait to ensure that the information on the deletion is propagated.
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            Some(
+                client
+                    .get_blob_status_with_retries(&deleted_blob_id, client.sui_client())
+                    .await?,
+            )
+        } else {
+            None
+        };
+
         DeleteOutput {
             blob_id,
             file,
             object_id,
             deleted_blobs,
+            post_deletion_status,
         }
         .print_output(self.json)
     }

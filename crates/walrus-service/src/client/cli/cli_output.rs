@@ -432,8 +432,61 @@ impl CliOutput for DeleteOutput {
                 success()
             );
             self.deleted_blobs.print_cli_output();
+            if let Some(post_deletion_status) = self.post_deletion_status {
+                let status_output = removed_instance_string(&post_deletion_status);
+
+                println!("{} {}", "Note:".bold().yellow(), status_output);
+            }
         }
     }
+}
+
+fn removed_instance_string(blob_status: &BlobStatus) -> String {
+    const STILL_AVAILABLE: &str =
+        "The above blob instances were removed, but the blob still exist on Walrus.";
+    match blob_status {
+        BlobStatus::Nonexistent => "The blob was completely removed from Walrus.".to_owned(),
+        BlobStatus::Invalid { .. } => "The blob was marked as invalid.".to_owned(),
+        BlobStatus::Permanent {
+            is_certified,
+            deletable_counts,
+            ..
+        } => {
+            format!(
+                "{} There are still {} permanent instances {}available.",
+                STILL_AVAILABLE,
+                if *is_certified {
+                    "certified"
+                } else {
+                    "registered"
+                },
+                if deletable_counts.count_deletable_total > 0 {
+                    format!(
+                        "and deletable instance(s) ({})",
+                        deletable_counts_summary(deletable_counts)
+                    )
+                } else {
+                    "".to_owned()
+                }
+            )
+        }
+        BlobStatus::Deletable {
+            deletable_counts, ..
+        } => {
+            format!(
+                "{} There are still deletable instances ({}) available.",
+                STILL_AVAILABLE,
+                deletable_counts_summary(deletable_counts)
+            )
+        }
+    }
+}
+
+fn deletable_counts_summary(counts: &DeletableCounts) -> String {
+    format!(
+        "{} total, of which {} certified",
+        counts.count_deletable_total, counts.count_deletable_certified
+    )
 }
 
 impl CliOutput for StakeOutput {

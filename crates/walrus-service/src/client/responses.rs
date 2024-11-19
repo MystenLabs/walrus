@@ -412,6 +412,7 @@ pub(crate) struct DeleteOutput {
     #[serde_as(as = "Option<DisplayFromStr>")]
     pub(crate) object_id: Option<ObjectID>,
     pub(crate) deleted_blobs: Vec<Blob>,
+    pub(crate) post_deletion_status: Option<BlobStatus>,
 }
 
 #[derive(Debug, Clone, Serialize)]
