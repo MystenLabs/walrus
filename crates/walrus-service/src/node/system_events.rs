@@ -12,15 +12,17 @@ use futures_util::stream;
 use sui_types::{digests::TransactionDigest, event::EventID};
 use tokio::time::MissedTickBehavior;
 use tokio_stream::Stream;
-use walrus_sdk::api::EventProgress;
 use walrus_sui::client::{ReadClient, SuiReadClient};
 
 use super::{config::SuiConfig, metrics, StorageNodeInner, STATUS_PENDING, STATUS_PERSISTED};
-use crate::node::events::{
-    event_processor::EventProcessor,
-    EventSequenceNumber,
-    EventStreamCursor,
-    IndexedStreamElement,
+use crate::node::{
+    events::{
+        event_processor::EventProcessor,
+        EventSequenceNumber,
+        EventStreamCursor,
+        IndexedStreamElement,
+    },
+    storage::EventProgress,
 };
 
 /// The capacity of the event channel.

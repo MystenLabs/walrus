@@ -87,7 +87,7 @@ use self::{
     errors::IndexOutOfRange,
     metrics::{NodeMetricSet, TelemetryLabel as _, STATUS_PENDING, STATUS_PERSISTED},
     shard_sync::ShardSyncHandler,
-    storage::{blob_info::BlobInfoApi as _, EventProgress, ShardStatus, ShardStorage},
+    storage::{blob_info::BlobInfoApi as _, ShardStatus, ShardStorage},
 };
 pub mod committee;
 pub mod config;
