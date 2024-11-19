@@ -13,6 +13,7 @@ use std::{
 use anyhow::{Context, Result};
 use prometheus::Registry;
 use rand::seq::SliceRandom;
+use sui_config::{sui_config_dir, SUI_CLIENT_CONFIG};
 use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
 use walrus_core::{
@@ -169,7 +170,27 @@ impl ClientCommandRunner {
                 sui_network,
                 faucet_timeout,
             } => {
-                self.generate_sui_wallet(&path, sui_network, faucet_timeout)
+                let wallet_path = if let Some(path) = path {
+                    path
+                } else {
+                    // Check if the Sui configuration directory exists.
+                    let config_dir = sui_config_dir()?;
+                    if config_dir.exists() {
+                        anyhow::bail!(
+                            "Sui configuration directory already exists; please specify a \
+                            different path using `--path` or manage the wallet using the Sui CLI."
+                        );
+                    } else {
+                        tracing::debug!(
+                            config_dir = ?config_dir.display(),
+                            "creating the Sui configuration directory"
+                        );
+                        std::fs::create_dir_all(&config_dir)?;
+                        config_dir.join(SUI_CLIENT_CONFIG)
+                    }
+                };
+
+                self.generate_sui_wallet(&wallet_path, sui_network, faucet_timeout)
                     .await
             }
 

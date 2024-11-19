@@ -274,7 +274,12 @@ pub enum CliCommands {
     /// Generates a new Sui wallet.
     GenerateSuiWallet {
         /// The path where the wallet configuration will be stored.
-        path: PathBuf,
+        ///
+        /// If not specified, the command will try to create the wallet configuration at the default
+        /// location `$HOME/.sui/sui_config/`. If the directory already exists, an error will be
+        /// returned specifying to use the Sui CLI to manage the existing wallets.
+        #[clap(long)]
+        path: Option<PathBuf>,
         /// Sui network for which the wallet is generated.
         ///
         /// Available options are `devnet`, `testnet`, and `localnet`.
