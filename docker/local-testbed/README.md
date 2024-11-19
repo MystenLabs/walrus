@@ -55,6 +55,7 @@ Make sure you're under `walrus/docker/local-testbed`
 
 ## Disclaimer
 
-1. This project is in its early stages. A fixed version of the Walrus image and contracts is used for testing. We are working on a process to regularly update the image version, enabling users to test the latest features.
+1. This project is in its early stages. A fixed version of the Walrus image and contracts is used for testing.
+   We are working on a process to regularly update the image version, enabling users to test the latest features.
 2. The Sui network uses the `mainnet` image label. At the time of testing, it was an alias for `mainnet-v1.37.3`.
 3. Walrus publisher and aggregator features are currently not supported but are under development.
