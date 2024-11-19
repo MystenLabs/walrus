@@ -202,8 +202,12 @@ pub(crate) struct StakingPool {
     #[cfg(feature = "mainnet-contracts")]
     /// Pending early withdrawals for which we cannot calculate the pool tokens.
     pending_early_withdrawals: Vec<(Epoch, u64)>,
+    #[cfg(not(feature = "mainnet-contracts"))]
     /// The commission rate for the pool.
     commission_rate: u64,
+    #[cfg(feature = "mainnet-contracts")]
+    /// The commission rate for the pool.
+    commission_rate: u16,
     /// Exchange rates table ID.
     #[serde(deserialize_with = "deserialize_table")]
     exchange_rates: ObjectID,
