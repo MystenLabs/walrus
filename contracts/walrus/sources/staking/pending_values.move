@@ -16,7 +16,7 @@ public struct PendingValues(VecMap<u32, u64>) has store, drop, copy;
 /// Create a new empty `PendingValues` instance.
 public(package) fun empty(): PendingValues { PendingValues(vec_map::empty()) }
 
-/// Insert a new pending value for the given epoch.
+/// Insert a new pending value for the given epoch, or add to the existing value.
 public(package) fun insert_or_add(self: &mut PendingValues, epoch: u32, value: u64) {
     let map = &mut self.0;
     if (!map.contains(&epoch)) {
@@ -27,8 +27,7 @@ public(package) fun insert_or_add(self: &mut PendingValues, epoch: u32, value: u
     };
 }
 
-/// Insert a new pending value for the given epoch. If the value already exists
-/// for the given epoch, it will be replaced.
+/// Insert a new pending value for the given epoch, or replace the existing.
 public(package) fun insert_or_replace(self: &mut PendingValues, epoch: u32, value: u64) {
     let map = &mut self.0;
     if (!map.contains(&epoch)) {
