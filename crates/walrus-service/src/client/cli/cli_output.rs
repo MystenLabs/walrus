@@ -66,8 +66,9 @@ impl CliOutput for BlobStoreResult {
                 end_epoch,
             } => {
                 println!(
-                    "{} Blob was previously certified within Walrus for a sufficient period.\n\
-                    Blob ID: {}\n{event_or_object}\nEnd epoch (exclusive): {}",
+                    "{} Blob was already available and certified within Walrus, \
+                    for a sufficient number of epochs.\n\
+                    Blob ID: {}\n{event_or_object}\nExpiry epoch (exclusive): {}",
                     success(),
                     blob_id,
                     end_epoch,
@@ -83,9 +84,11 @@ impl CliOutput for BlobStoreResult {
                         "(storage was purchased, and a new blob object was registered)"
                     }
                     RegisterBlobOp::ReuseStorage { .. } => {
-                        "(storage was reused, and a new blob object was registered)"
+                        "(already-owned storage was reused, and a new blob object was registered)"
                     }
-                    RegisterBlobOp::ReuseRegistration { .. } => "(the registration was reused)",
+                    RegisterBlobOp::ReuseRegistration { .. } => {
+                        "(an existing registration was reused)"
+                    }
                 };
                 println!(
                     "{} {} blob stored successfully.\n\
@@ -212,7 +215,7 @@ impl CliOutput for BlobStatusOutput {
                 };
                 println!(
                     "There is a {status} permanent Blob object for blob ID {blob_str}.\n\
-                        End epoch: {end_epoch}\n\
+                        Expiry epoch: {end_epoch}\n\
                         Related event: {}\
                         {initial_certified_str}",
                     format_event_id(&status_event)
