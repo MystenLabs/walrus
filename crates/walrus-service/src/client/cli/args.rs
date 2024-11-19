@@ -142,6 +142,22 @@ pub enum Commands {
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum CliCommands {
     /// Store a new blob into Walrus.
+    ///
+    /// The store operation considers the Storage and Blob objects already owned by the active
+    /// wallet, trying to reuse them whenever possible to optimize the cost of storing the blob.
+    ///
+    /// First, the store operation checks the status of the blob ID on Walrus. If the blob is
+    /// already certified for the requested number of epochs, and the command is not run with the
+    /// `--force` flag, the store operation stops. Otherwise, the operation proceeds as follows:
+    ///
+    /// - check if the blob is registered (but not certified) in the current wallet for a sufficient
+    ///   duration, and if so reuse the registration to store the blob;
+    /// - otherwise, check if there is an appropriate storage resource (with sufficient space
+    ///   and for a sufficient duration) that can be used to register the blob; or
+    /// - if the above fails, it purchase a new storage resource and register the blob.
+    ///
+    /// If the `--force` flag is used, this operation always creates a new certification for the
+    /// blob possibly reusing storage resources or uncertified but registered blobs).
     #[clap(alias("write"))]
     Store {
         /// The file containing the blob to be published to Walrus.
