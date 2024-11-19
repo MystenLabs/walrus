@@ -34,6 +34,7 @@ use super::args::{
     FileOrBlobIdOrObjectId,
     PublisherArgs,
     RpcArg,
+    UserConfirmation,
 };
 use crate::{
     client::{
@@ -159,7 +160,10 @@ impl ClientCommandRunner {
 
             CliCommands::ListBlobs { include_expired } => self.list_blobs(include_expired).await,
 
-            CliCommands::Delete { target } => self.delete(target).await,
+            CliCommands::Delete { target, yes } => {
+                self.delete(target, UserConfirmation::from_yes_flag(yes))
+                    .await
+            }
 
             CliCommands::Stake { node_id, amount } => {
                 self.stake_with_node_pool(node_id, amount).await
@@ -477,7 +481,11 @@ impl ClientCommandRunner {
         BlobIdConversionOutput::from(blob_id_decimal).print_output(self.json)
     }
 
-    pub(crate) async fn delete(self, target: FileOrBlobIdOrObjectId) -> Result<()> {
+    pub(crate) async fn delete(
+        self,
+        target: FileOrBlobIdOrObjectId,
+        confirmation: UserConfirmation,
+    ) -> Result<()> {
         // Check that the target is valid.
         target.exactly_one_is_some()?;
 
@@ -497,11 +505,13 @@ impl ClientCommandRunner {
                         println!("No owned deletable blobs found for blob ID {blob_id}.");
                         return Ok(());
                     }
-                    println!("The following blobs with blob ID {blob_id} are deletable:");
-                    to_delete.print_output(self.json)?;
-                    if !ask_for_confirmation()? {
-                        println!("{} Aborting. No blobs were deleted.", success());
-                        return Ok(());
+                    if confirmation.is_required() {
+                        println!("The following blobs with blob ID {blob_id} are deletable:");
+                        to_delete.print_output(self.json)?;
+                        if !ask_for_confirmation()? {
+                            println!("{} Aborting. No blobs were deleted.", success());
+                            return Ok(());
+                        }
                     }
                     println!("Deleting blobs...");
                 }
