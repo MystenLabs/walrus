@@ -244,7 +244,7 @@ impl ClientCommandRunner {
         let blob_size = blob.len();
         let elapsed = start_timer.elapsed();
 
-        tracing::info!(?blob_id, ?elapsed, blob_size, "read blob");
+        tracing::info!(%blob_id, ?elapsed, blob_size, "finished reading blob");
 
         match out.as_ref() {
             Some(path) => std::fs::write(path, &blob)?,
@@ -268,7 +268,7 @@ impl ClientCommandRunner {
         let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
 
         if dry_run {
-            tracing::info!("Performing dry-run store for file {}", file.display());
+            tracing::info!("performing dry-run store for file '{}'", file.display());
             let encoding_config = client.encoding_config();
             tracing::debug!(n_shards = encoding_config.n_shards(), "encoding the blob");
             let metadata = encoding_config
@@ -288,7 +288,7 @@ impl ClientCommandRunner {
             }
             .print_output(self.json)
         } else {
-            tracing::info!("Storing file {} as blob on Walrus", file.display());
+            tracing::info!("storing file '{}' as blob on Walrus", file.display());
             let result = client
                 .reserve_and_store_blob_retry_epoch(
                     &read_blob_from_file(&file)?,

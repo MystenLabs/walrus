@@ -22,7 +22,7 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
-use tracing::{field, info_span, instrument, Instrument, Span};
+use tracing::{field, Instrument as _, Span};
 use typed_store::TypedStoreError;
 use walrus_core::{
     encoding::{EncodingAxis, EncodingConfig, Primary, Secondary},
@@ -186,7 +186,7 @@ impl BlobSyncHandler {
         let finish_notify = Arc::new(Notify::new());
         match in_progress.entry(blob_id) {
             Entry::Vacant(entry) => {
-                let spawned_trace = info_span!(
+                let spawned_trace = tracing::info_span!(
                     parent: None,
                     "blob_sync",
                     "otel.kind" = "CONSUMER",
@@ -498,7 +498,7 @@ impl BlobSynchronizer {
         Ok((true, metadata))
     }
 
-    #[instrument(
+    #[tracing::instrument(
         skip_all,
         fields(
             walrus.shard_index = %shard,
@@ -543,9 +543,11 @@ impl BlobSynchronizer {
                 }
             }
         }
-        .inspect_err(|err| match err {
-            RecoverSliverError::Inconsistent(_) => tracing::debug!(error = %err),
-            RecoverSliverError::Database(_) => tracing::error!(error = ?err),
+        .inspect_err(|error| match error {
+            RecoverSliverError::Inconsistent(_) => tracing::debug!(?error),
+            RecoverSliverError::Database(_) => {
+                tracing::error!(?error, "database error during sliver sync")
+            }
         })
     }
 

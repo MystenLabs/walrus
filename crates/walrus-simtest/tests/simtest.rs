@@ -206,7 +206,7 @@ mod tests {
             let restart_after = Duration::from_secs(rng.gen_range(10..30));
 
             tracing::warn!(
-                "Crashing node {} for {} seconds",
+                "crashing node {} for {} seconds",
                 current_node,
                 restart_after.as_secs()
             );
@@ -256,7 +256,7 @@ mod tests {
             return;
         }
 
-        tracing::warn!("Crashing node {} for 120 seconds", current_node,);
+        tracing::warn!("crashing node {} for 120 seconds", current_node,);
         fail_triggered.store(true, std::sync::atomic::Ordering::SeqCst);
         sui_simulator::task::kill_current_node(Some(Duration::from_secs(120)));
     }
@@ -411,9 +411,8 @@ mod tests {
             Instant::now() + node_down_duration + Duration::from_secs(rng.gen_range(5..=25));
 
         tracing::warn!(
-            "Crashing node {} for {:?} seconds. Next crash is set to {:?}",
-            current_node,
-            node_down_duration,
+            "crashing node {current_node} for {} seconds; next crash is set to {:?}",
+            node_down_duration.as_secs(),
             next_crash_time
         );
         sui_simulator::task::kill_current_node(Some(node_down_duration));
@@ -445,7 +444,7 @@ mod tests {
         let workload_start_time = Instant::now();
         loop {
             if workload_start_time.elapsed() > Duration::from_secs(20) {
-                tracing::info!("Generated 60s of data. Stopping workload.");
+                tracing::info!("generated 60s of data; stopping workload");
                 break;
             }
             tracing::info!("writing data with size {}", data_length);
@@ -489,7 +488,7 @@ mod tests {
         // stake the per-node.
         let shard_move_weight = rand::thread_rng().gen_range(2..=5);
         tracing::info!(
-            "Triggering shard move with stake weight {}",
+            "triggering shard move with stake weight {}",
             shard_move_weight
         );
 

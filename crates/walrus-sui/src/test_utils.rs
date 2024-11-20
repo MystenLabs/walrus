@@ -179,7 +179,7 @@ impl TestClusterHandle {
     #[cfg(not(msim))]
     fn from_env() -> Option<Self> {
         let config_path = std::env::var("SUI_TEST_CONFIG_DIR").ok()?;
-        tracing::debug!("using external sui test cluster");
+        tracing::debug!("using external Sui test cluster");
         let wallet_path = std::path::Path::new(&config_path)
             .join("client.yaml")
             .into();

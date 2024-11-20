@@ -459,7 +459,7 @@ impl SuiContractClient {
     /// Returns a [`SuiClientError::NoCompatibleWalCoin`] if no WAL coin with sufficient balance can
     /// be found.
     pub async fn get_wal_coin(&self, min_balance: u64) -> SuiClientResult<Coin> {
-        tracing::debug!(coin_type=?self.read_client.coin_type());
+        tracing::debug!(coin_type = ?self.read_client.coin_type());
         self.read_client
             .get_coin_with_balance(
                 self.wallet_address,
@@ -977,7 +977,10 @@ impl ContractClient for SuiContractClient {
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
-        tracing::debug!("calling epoch_sync_done {:?}", node_capability.node_id);
+        tracing::debug!(
+            storage_node_cap = %node_capability.node_id,
+            "calling epoch_sync_done"
+        );
         let cap_obj_ref = wallet.get_object_ref(node_capability.id).await?;
 
         self.move_call_and_transfer(

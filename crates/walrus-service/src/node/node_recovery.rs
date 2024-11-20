@@ -116,7 +116,7 @@ impl NodeRecoveryHandler {
             match node.set_node_status(NodeStatus::Active) {
                 Ok(()) => node.contract_service.epoch_sync_done(epoch).await,
                 Err(error) => {
-                    tracing::error!(error = ?error, "failed to set node status to active");
+                    tracing::error!(?error, "failed to set node status to active");
                 }
             }
         });
@@ -133,9 +133,9 @@ impl NodeRecoveryHandler {
             } else {
                 assert!(recovering_epoch < self.node.current_epoch());
                 tracing::warn!(
-                    recovering_epoch = recovering_epoch,
+                    recovering_epoch,
                     current_epoch = self.node.current_epoch(),
-                    "recovery epoch mismatch; skip recovery restart; next epoch change start event
+                    "recovery epoch mismatch; skip recovery restart; next epoch change start event \
                     will bring node to the latest state"
                 );
                 self.node.set_node_status(NodeStatus::RecoveryCatchUp)?;

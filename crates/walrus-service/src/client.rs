@@ -17,7 +17,7 @@ use tokio::{
     sync::{RwLock, Semaphore},
     time::Duration,
 };
-use tracing::{Instrument, Level};
+use tracing::{Instrument as _, Level};
 use walrus_core::{
     encoding::{BlobDecoder, EncodingAxis, EncodingConfig, SliverData, SliverPair},
     ensure,
@@ -371,15 +371,14 @@ impl<T: ContractClient> Client<T> {
             .map_err(ClientError::other)?
             .encode_with_metadata();
 
-        let encode_duration = encode_start_timer.elapsed();
-
+        let duration = encode_start_timer.elapsed();
         let pair = pairs.first().expect("the encoding produces sliver pairs");
         let symbol_size = pair.primary.symbols.symbol_size().get();
         tracing::info!(
-            symbol_size=%symbol_size,
-            primary_sliver_size=%pair.primary.symbols.len() * usize::from(symbol_size),
-            secondary_sliver_size=%pair.secondary.symbols.len() * usize::from(symbol_size),
-            duration = ?encode_duration,
+            symbol_size,
+            primary_sliver_size = pair.primary.symbols.len() * usize::from(symbol_size),
+            secondary_sliver_size = pair.secondary.symbols.len() * usize::from(symbol_size),
+            ?duration,
             "encoded sliver pairs and metadata"
         );
 
@@ -449,12 +448,12 @@ impl<T: ContractClient> Client<T> {
                     let result = self
                         .send_blob_data_and_get_certificate(metadata, pairs)
                         .await?;
-                    let certify_duration = certify_start_timer.elapsed();
+                    let duration = certify_start_timer.elapsed();
                     let blob_size = blob_object.size;
                     tracing::info!(
-                        duration =  ?certify_duration,
-                        blob_size = blob_size,
-                        "finished sending blob data and collected certificate"
+                        ?duration,
+                        blob_size,
+                        "finished sending blob data and collecting certificate"
                     );
                     result
                 }
@@ -802,7 +801,7 @@ impl<T> Client<T> {
             .filter_map(|NodeResult(_, _, node, result)| {
                 result
                     .map_err(|error| {
-                        tracing::warn!(%node, %error, "retrieving sliver failed");
+                        tracing::debug!(%node, %error, "retrieving sliver failed");
                         if error.is_status_not_found() {
                             n_not_found += 1;
                         }
@@ -864,7 +863,7 @@ impl<T> Client<T> {
                     }
                 }
                 Err(error) => {
-                    tracing::warn!(%node, %error, "retrieving sliver failed");
+                    tracing::debug!(%node, %error, "retrieving sliver failed");
                     if error.is_status_not_found() && {
                         n_not_found += 1;
                         self.committees.read().await.is_quorum(n_not_found)

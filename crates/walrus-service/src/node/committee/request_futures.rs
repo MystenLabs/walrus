@@ -570,7 +570,7 @@ where
     fn create_certificate(
         collected_signatures: HashMap<usize, InvalidBlobIdAttestation>,
     ) -> InvalidBlobCertificate {
-        tracing::warn!("extracting signers and messages");
+        tracing::info!("extracting signers and messages");
         let (signer_indices, signed_messages): (Vec<_>, Vec<_>) = collected_signatures
             .into_iter()
             .map(|(index, message)| {
@@ -579,7 +579,7 @@ where
             })
             .unzip();
 
-        tracing::warn!(
+        tracing::info!(
             symbol_count = signed_messages.len(),
             "creating invalid blob certificate"
         );
@@ -588,7 +588,7 @@ where
             signer_indices,
         ) {
             Ok(certificate) => {
-                tracing::warn!("successfully created invalid blob certificate");
+                tracing::info!("successfully created invalid blob certificate");
                 certificate
             }
             Err(CertificateError::SignatureAggregation(err)) => {

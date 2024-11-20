@@ -287,6 +287,16 @@ impl BlobEvent {
             BlobEvent::InvalidBlobID(event) => event.epoch,
         }
     }
+
+    /// The name of the event.
+    pub fn name(&self) -> &'static str {
+        match self {
+            BlobEvent::Registered(_) => "BlobRegistered",
+            BlobEvent::Certified(_) => "BlobCertified",
+            BlobEvent::Deleted(_) => "BlobDeleted",
+            BlobEvent::InvalidBlobID(_) => "InvalidBlobID",
+        }
+    }
 }
 
 impl TryFrom<SuiEvent> for BlobEvent {
@@ -475,6 +485,17 @@ impl EpochChangeEvent {
             EpochChangeEvent::EpochChangeDone(event) => event.epoch,
             EpochChangeEvent::ShardsReceived(event) => event.epoch,
             EpochChangeEvent::ShardRecoveryStart(event) => event.epoch,
+        }
+    }
+
+    /// The name of the event.
+    pub fn name(&self) -> &'static str {
+        match self {
+            EpochChangeEvent::EpochParametersSelected(_) => "EpochParametersSelected",
+            EpochChangeEvent::EpochChangeStart(_) => "EpochChangeStart",
+            EpochChangeEvent::EpochChangeDone(_) => "EpochChangeDone",
+            EpochChangeEvent::ShardsReceived(_) => "ShardsReceived",
+            EpochChangeEvent::ShardRecoveryStart(_) => "ShardRecoveryStart",
         }
     }
 }

@@ -20,7 +20,7 @@ use reqwest::{
 use rustls::pki_types::CertificateDer;
 use rustls_native_certs::CertificateResult;
 use serde::{de::DeserializeOwned, Serialize};
-use tracing::{field, Instrument, Level, Span};
+use tracing::{field, Instrument as _, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use walrus_core::{
     encoding::{EncodingAxis, EncodingConfig, Primary, RecoverySymbol, Secondary, SliverData},

@@ -15,7 +15,6 @@ use sui_sdk::{
 };
 use sui_types::TypeTag;
 use thiserror::Error;
-use tracing::instrument;
 use walrus_core::ensure;
 
 /// Error returned when converting a Sui object or event to a rust struct.
@@ -49,7 +48,7 @@ pub trait AssociatedContractStruct: DeserializeOwned {
     const CONTRACT_STRUCT: StructTag<'static>;
 
     /// Converts a [`SuiObjectData`] to [`Self`].
-    #[instrument(err, skip_all)]
+    #[tracing::instrument(err, skip_all)]
     fn try_from_object_data(sui_object_data: &SuiObjectData) -> Result<Self, MoveConversionError> {
         tracing::debug!(
             "converting move object to rust struct {:?}",

@@ -194,7 +194,7 @@ pub async fn get_sliver<S: SyncServiceState>(
 /// Store blob slivers.
 ///
 /// Stores a primary or secondary blob sliver at the storage node.
-#[tracing::instrument(skip_all, err(level = Level::DEBUG), ret, fields(
+#[tracing::instrument(skip_all, err(level = Level::DEBUG), ret(level = Level::DEBUG), fields(
     walrus.blob_id = %blob_id.0,
     walrus.sliver.pair_index = %sliver_pair_index,
     walrus.sliver.r#type = %sliver_type

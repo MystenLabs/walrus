@@ -33,7 +33,7 @@ fn client() -> Result<()> {
     let mut app = ClientArgs::parse().inner;
     app.extract_json_command()?;
 
-    tracing::info!("client version: {}", VERSION);
+    tracing::info!("client version: {VERSION}");
     let runner = ClientCommandRunner::new(&app.config, &app.wallet, app.gas_budget, app.json);
 
     // Drop the temporary tracing subscriber, as the global ones are about to be initialized.

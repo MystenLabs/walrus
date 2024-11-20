@@ -319,19 +319,17 @@ impl EventProcessor {
             .start(next_checkpoint, cancel_token);
         while let Some(entry) = rx.recv().await {
             let Ok(checkpoint) = entry.result else {
+                let error = entry.result.err().unwrap_or(anyhow!("unknown error"));
                 tracing::error!(
-                    "Failed to download checkpoint {}: {}",
+                    ?error,
+                    "failed to download checkpoint {}",
                     entry.sequence_number,
-                    entry
-                        .result
-                        .err()
-                        .map_or("Unknown error".to_string(), |e| e.to_string())
                 );
-                bail!("Failed to download checkpoint: {}", entry.sequence_number);
+                bail!("failed to download checkpoint: {}", entry.sequence_number);
             };
             ensure!(
                 *checkpoint.checkpoint_summary.sequence_number() == next_checkpoint,
-                "Received out of order checkpoint: expected {}, got {}",
+                "received out-of-order checkpoint: expected {}, got {}",
                 next_checkpoint,
                 checkpoint.checkpoint_summary.sequence_number()
             );

@@ -133,7 +133,7 @@ pub async fn get_sui_read_client_from_rpc_node_or_wallet(
             }
             Err(e) => {
                 if allow_fallback_to_default {
-                    tracing::info!("using default RPC URL {DEFAULT_RPC_URL}");
+                    tracing::info!("using default RPC URL '{DEFAULT_RPC_URL}'");
                     SuiClientBuilder::default()
                         .build(DEFAULT_RPC_URL)
                         .await

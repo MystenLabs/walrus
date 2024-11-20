@@ -22,7 +22,7 @@ use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceBuilder;
 use tower_http::trace::TraceLayer;
-use tracing::Instrument;
+use tracing::Instrument as _;
 use utoipa::OpenApi as _;
 use utoipa_redoc::{Redoc, Servable as _};
 use walrus_core::{encoding::max_sliver_size_for_n_shards, keys::NetworkKeyPair};

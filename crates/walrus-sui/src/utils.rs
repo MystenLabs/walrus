@@ -408,7 +408,7 @@ pub async fn request_sui_from_faucet(
         successful_response = if !successful_response {
             send_faucet_request(address, network)
                 .await
-                .inspect_err(|e| tracing::warn!(error = ?e, "faucet request failed, retrying"))
+                .inspect_err(|error| tracing::warn!(?error, "faucet request failed, retrying"))
                 .inspect(|_| tracing::debug!("waiting to receive tokens from faucet"))
                 .is_ok()
         } else {
@@ -442,14 +442,14 @@ where
 
     Ok(results.filter_map(|object_data| {
         object_data.map_or_else(
-            |err| {
-                tracing::warn!(%err, "failed to convert to local type");
+            |error| {
+                tracing::warn!(?error, "failed to convert to local type");
                 None
             },
             |object_data| match U::try_from_object_data(&object_data) {
                 Result::Ok(value) => Some(value),
-                Result::Err(err) => {
-                    tracing::warn!(%err, "failed to convert to local type");
+                Result::Err(error) => {
+                    tracing::warn!(?error, "failed to convert to local type");
                     None
                 }
             },
