@@ -159,6 +159,11 @@ pub trait ReadClient: Send + Sync {
     fn fixed_system_parameters(
         &self,
     ) -> impl Future<Output = SuiClientResult<FixedSystemParameters>> + Send;
+
+    /// Returns the mapping between object IDs and stake in the staking object.
+    fn stake_assignment(
+        &self,
+    ) -> impl Future<Output = SuiClientResult<Vec<(ObjectID, u64)>>> + Send;
 }
 
 /// The mutability of a shared object.
@@ -617,6 +622,11 @@ impl ReadClient for SuiReadClient {
                 || anyhow!("invalid first_epoch_start timestamp received from contracts"),
             )?,
         })
+    }
+
+    async fn stake_assignment(&self) -> SuiClientResult<Vec<(ObjectID, u64)>> {
+        let staking_object = self.get_staking_object().await?.inner;
+        Ok(staking_object.active_set.nodes)
     }
 }
 

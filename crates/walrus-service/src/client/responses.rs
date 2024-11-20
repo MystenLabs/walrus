@@ -265,6 +265,52 @@ pub(crate) struct StorageNodeInfo {
     pub(crate) network_public_key: NetworkPublicKey,
     pub(crate) n_shards: usize,
     pub(crate) shard_ids: Vec<ShardIndex>,
+    pub(crate) object_id: ObjectID,
+    pub(crate) stake: u64,
+}
+
+impl StorageNodeInfo {
+    fn from_nodes_and_stake(value: StorageNode, stake: u64) -> Self {
+        let StorageNode {
+            name,
+            node_id: object_id,
+            network_address,
+            public_key,
+            next_epoch_public_key,
+            network_public_key,
+            shard_ids,
+        } = value;
+        Self {
+            name,
+            network_address,
+            public_key,
+            next_epoch_public_key,
+            network_public_key,
+            n_shards: shard_ids.len(),
+            shard_ids,
+            object_id,
+            stake,
+        }
+    }
+}
+
+fn merge_nodes_and_stake(
+    committee: &Committee,
+    stake_assignment: &[(ObjectID, u64)],
+) -> Vec<StorageNodeInfo> {
+    committee
+        .members()
+        .iter()
+        .cloned()
+        .map(|node| {
+            let stake = stake_assignment
+                .iter()
+                .find(|(object_id, _)| object_id == &node.node_id)
+                .map(|(_, stake)| *stake)
+                .expect("a node in the committee must have stake");
+            StorageNodeInfo::from_nodes_and_stake(node, stake)
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -300,29 +346,6 @@ impl ExampleBlobInfo {
     }
 }
 
-impl From<StorageNode> for StorageNodeInfo {
-    fn from(value: StorageNode) -> Self {
-        let StorageNode {
-            name,
-            node_id: _,
-            network_address,
-            public_key,
-            next_epoch_public_key,
-            network_public_key,
-            shard_ids,
-        } = value;
-        Self {
-            name,
-            network_address,
-            public_key,
-            next_epoch_public_key,
-            network_public_key,
-            n_shards: shard_ids.len(),
-            shard_ids,
-        }
-    }
-}
-
 impl InfoOutput {
     /// Computes the Walrus system information after reading relevant data from the Walrus system
     /// object on chain.
@@ -336,6 +359,7 @@ impl InfoOutput {
             .await?;
         let fixed_params = sui_read_client.fixed_system_parameters().await?;
         let next_committee = sui_read_client.next_committee().await?;
+        let stake_assignment = sui_read_client.stake_assignment().await?;
 
         let current_epoch = committee.epoch;
         let n_shards = committee.n_shards();
@@ -375,21 +399,11 @@ impl InfoOutput {
             let max_encoded_blob_size = encoded_blob_length_for_n_shards(n_shards, max_blob_size)
                 .expect("we can compute the encoded length of the max blob size");
             let f = bft::max_n_faulty(n_shards);
-            let storage_nodes = committee
-                .members()
-                .iter()
-                .cloned()
-                .map(StorageNodeInfo::from)
-                .collect();
+            let storage_nodes = merge_nodes_and_stake(&committee, &stake_assignment);
 
-            let next_storage_nodes = next_committee.as_ref().map(|next_committee| {
-                next_committee
-                    .members()
-                    .iter()
-                    .cloned()
-                    .map(StorageNodeInfo::from)
-                    .collect()
-            });
+            let next_storage_nodes = next_committee
+                .as_ref()
+                .map(|next_committee| merge_nodes_and_stake(next_committee, &stake_assignment));
 
             InfoDevOutput {
                 n_primary_source_symbols,

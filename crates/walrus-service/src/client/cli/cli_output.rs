@@ -382,9 +382,15 @@ impl CliOutput for InfoOutput {
 fn print_storage_node_table(n_shards: &NonZeroU16, storage_nodes: &[StorageNodeInfo]) {
     let mut table = Table::new();
     table.set_format(default_table_format());
-    table.set_titles(
-        row![b->"Idx", b->"Name", b->"# Shards", b->"Pk prefix", b->"Address", b->"Shards"],
-    );
+    table.set_titles(row![
+        b->"Idx",
+        b->"Name",
+        b->"# Shards",
+        b->"Stake",
+        b->"Pk prefix",
+        b->"Address",
+        b->"Shards"
+    ]);
     for (i, node) in storage_nodes.iter().enumerate() {
         let n_owned = node.n_shards;
         let n_owned_percent = (n_owned as f64) / (n_shards.get() as f64) * 100.0;
@@ -392,6 +398,7 @@ fn print_storage_node_table(n_shards: &NonZeroU16, storage_nodes: &[StorageNodeI
             bFg->format!("{i}"),
             node.name,
             format!("{} ({:.2}%)", n_owned, n_owned_percent),
+            HumanReadableFrost::from(node.stake),
             string_prefix(&node.public_key),
             node.network_address,
             DisplayShardList(&node.shard_ids),

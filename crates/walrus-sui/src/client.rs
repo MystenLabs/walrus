@@ -473,6 +473,10 @@ impl ReadClient for SuiContractClient {
     async fn fixed_system_parameters(&self) -> SuiClientResult<FixedSystemParameters> {
         self.read_client.fixed_system_parameters().await
     }
+
+    async fn stake_assignment(&self) -> SuiClientResult<Vec<(ObjectID, u64)>> {
+        self.read_client.stake_assignment().await
+    }
 }
 
 impl ContractClient for SuiContractClient {
