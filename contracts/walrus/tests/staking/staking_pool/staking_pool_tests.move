@@ -604,7 +604,7 @@ fun test_advance_pool_epoch() {
     pool.set_next_storage_price(100);
     pool.set_next_write_price(100);
 
-    // pool changes commission rate to 1% in epoch E+2
+    // pool changes commission rate to 10% in epoch E+2
     pool.set_next_commission(10_00, &wctx);
 
     // TODO: commission rate should be applied in E+2

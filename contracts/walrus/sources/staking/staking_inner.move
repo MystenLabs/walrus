@@ -1,16 +1,6 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// TODO:
-// 1. registering the node
-// 2. adding staked wal to the pool
-// 3. selecting the committee
-// 4. withdrawing staked wal from the pool
-//
-// NOTES:
-// - advance_epoch - initiates the epoch change
-// - initiate epoch change - bumped in `advance_epoch`
-// - get "epoch_sync_done" event
 module walrus::staking_inner;
 
 use std::string::String;

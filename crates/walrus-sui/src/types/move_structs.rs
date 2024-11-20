@@ -212,7 +212,7 @@ pub(crate) struct StakingPool {
     /// The commission rate for the pool.
     commission_rate: u16,
     /// Exchange rates table ID.
-    #[serde(deserialize_with = "deserialize_table")]
+    #[serde(deserialize_with = "deserialize_bag_or_table")]
     exchange_rates: ObjectID,
     /// The amount of stake that will be added to the `active_stake` in the given epoch.
     pending_stake: Vec<(Epoch, u64)>,
@@ -222,7 +222,7 @@ pub(crate) struct StakingPool {
     /// Collected commission.
     commission: u64,
     #[cfg(feature = "mainnet-contracts")]
-    #[serde(deserialize_with = "deserialize_bag")]
+    #[serde(deserialize_with = "deserialize_bag_or_table")]
     extra_fields: ObjectID,
 }
 
@@ -366,7 +366,7 @@ pub(crate) struct StakingInnerV1 {
     /// first epoch can be started.
     pub(crate) first_epoch_start: u64,
     /// Object ID of the object table storing the staking pools.
-    #[serde(deserialize_with = "deserialize_table")]
+    #[serde(deserialize_with = "deserialize_bag_or_table")]
     pub(crate) pools: ObjectID,
     /// The current epoch of the Walrus system.
     pub(crate) epoch: Epoch,
@@ -457,16 +457,7 @@ impl AssociatedContractStruct for SystemStateInnerV1 {
 }
 
 #[instrument(err, skip_all)]
-fn deserialize_table<'de, D>(deserializer: D) -> Result<ObjectID, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let (object_id, _length): (ObjectID, u64) = Deserialize::deserialize(deserializer)?;
-    Ok(object_id)
-}
-
-#[instrument(err, skip_all)]
-fn deserialize_bag<'de, D>(deserializer: D) -> Result<ObjectID, D::Error>
+fn deserialize_bag_or_table<'de, D>(deserializer: D) -> Result<ObjectID, D::Error>
 where
     D: Deserializer<'de>,
 {

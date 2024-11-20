@@ -45,8 +45,6 @@ const EWithdrawDirectly: u64 = 13;
 const EIncorrectCommissionRate: u64 = 14;
 
 /// Represents the state of the staking pool.
-///
-/// TODO: revisit the state machine.
 public enum PoolState has store, copy, drop {
     // The pool is active and can accept stakes.
     Active,
@@ -101,8 +99,7 @@ public struct StakingPool has key, store {
     /// E+2, so we store the value for the matching epoch and apply it in the
     /// `advance_epoch` function.
     pending_commission_rate: PendingValues,
-    /// The commission rate for the pool.
-    /// TODO: allow changing the commission rate in E+2.
+    /// The commission rate for the pool, in basis points.
     commission_rate: u16,
     /// Historical exchange rates for the pool. The key is the epoch when the
     /// exchange rate was set, and the value is the exchange rate (the ratio of
@@ -240,10 +237,6 @@ public(package) fun stake(
 ///
 /// TODO: if pool is out and is withdrawing, we can perform the withdrawal
 /// immediately
-/// TODO: consider the case of early withdrawal if stake hasn't been activated
-/// and committee not selected.
-///
-/// TODO: remove the return value (currently returns total amount expected)
 public(package) fun request_withdraw_stake(
     pool: &mut StakingPool,
     staked_wal: &mut StakedWal,
@@ -424,8 +417,6 @@ public(package) fun process_pending_stake(pool: &mut StakingPool, wctx: &WalrusC
 // === Pool parameters ===
 
 /// Sets the next commission rate for the pool.
-/// TODO: implement changing commission rate in E+2, the change should not be
-/// immediate.
 public(package) fun set_next_commission(
     pool: &mut StakingPool,
     commission_rate: u16,
