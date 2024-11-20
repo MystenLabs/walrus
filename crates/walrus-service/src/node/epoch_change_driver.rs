@@ -570,7 +570,7 @@ pub fn default_voting_duration(epoch_duration: Duration) -> Duration {
 
 #[cfg(test)]
 mod tests {
-    use std::num::NonZero;
+    use std::num::{NonZero, NonZeroU16};
 
     use tokio::time::Instant;
     use walrus_test_utils::{async_param_test, nonzero, Result as TestResult};
@@ -618,6 +618,8 @@ mod tests {
     ) -> EpochChangeDriver {
         EpochChangeDriver::new_with_time_provider(
             FixedSystemParameters {
+                n_shards: NonZeroU16::new(1000).expect("1000 > 0"),
+                max_epochs_ahead: 200,
                 epoch_duration: EPOCH_DURATION,
                 epoch_zero_end,
             },

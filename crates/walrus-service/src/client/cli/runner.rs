@@ -18,6 +18,7 @@ use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
 use walrus_core::{
     encoding::{encoded_blob_length_for_n_shards, EncodingConfig, Primary},
+    ensure,
     BlobId,
     EpochCount,
 };
@@ -302,6 +303,17 @@ impl ClientCommandRunner {
             );
             cli::args::default::epochs()
         });
+
+        // Check that the number of epochs is lower than the number of epochs the blob can be stored
+        // for.
+        let fixed_params = client.sui_client().fixed_system_parameters().await?;
+
+        ensure!(
+            epochs <= fixed_params.max_epochs_ahead,
+            "blobs can only be stored for up to {} epochs ahead; {} epochs were requested",
+            fixed_params.max_epochs_ahead,
+            epochs
+        );
 
         if dry_run {
             tracing::info!("Performing dry-run store for file {}", file.display());

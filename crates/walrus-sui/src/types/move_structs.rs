@@ -256,6 +256,11 @@ impl FutureAccountingRingBuffer {
             ring_buffer: vec![],
         }
     }
+
+    /// Returns the `length` field of the ring buffer.
+    pub fn length(&self) -> u32 {
+        self.length
+    }
 }
 
 /// Event blob.
