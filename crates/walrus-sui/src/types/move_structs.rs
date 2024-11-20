@@ -203,6 +203,9 @@ pub(crate) struct StakingPool {
     /// Pending early withdrawals for which we cannot calculate the pool tokens.
     pending_early_withdrawals: Vec<(Epoch, u64)>,
     #[cfg(not(feature = "mainnet-contracts"))]
+    /// Pending commission rate changes indexed by epoch.
+    pending_commission_rate_changes: Vec<(Epoch, u64)>,
+    #[cfg(not(feature = "mainnet-contracts"))]
     /// The commission rate for the pool.
     commission_rate: u64,
     #[cfg(feature = "mainnet-contracts")]
@@ -215,6 +218,12 @@ pub(crate) struct StakingPool {
     pending_stake: Vec<(Epoch, u64)>,
     /// The rewards that the pool has received.
     rewards: u64,
+    #[cfg(not(feature = "mainnet-contracts"))]
+    /// Collected commission.
+    commission: u64,
+    #[cfg(feature = "mainnet-contracts")]
+    #[serde(deserialize_with = "deserialize_bag")]
+    extra_fields: ObjectID,
 }
 
 impl AssociatedContractStruct for StakingPool {
@@ -449,6 +458,15 @@ impl AssociatedContractStruct for SystemStateInnerV1 {
 
 #[instrument(err, skip_all)]
 fn deserialize_table<'de, D>(deserializer: D) -> Result<ObjectID, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let (object_id, _length): (ObjectID, u64) = Deserialize::deserialize(deserializer)?;
+    Ok(object_id)
+}
+
+#[instrument(err, skip_all)]
+fn deserialize_bag<'de, D>(deserializer: D) -> Result<ObjectID, D::Error>
 where
     D: Deserializer<'de>,
 {
