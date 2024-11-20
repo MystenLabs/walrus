@@ -78,14 +78,20 @@ fn compile_package(package_path: &Path, for_test: bool) -> Arc<CompiledPackage> 
             .clone()
     } else {
         tracing::debug!("compiling move packages from source");
-        let build_config = if cfg!(msim) {
+        let mut build_config = if cfg!(msim) {
+            tracing::info!("using msim build config");
             BuildConfig::new_for_testing()
         } else {
+            tracing::info!("using default build config");
             BuildConfig::default()
         };
+        build_config.config.silence_warnings = false;
+        build_config.print_diags_to_stderr = true;
+        build_config.config.force_recompilation = true;
         let compiled_package = build_config
             .build(package_path)
             .expect("Building package failed");
+        tracing::info!("ZZZZ done compiling package");
         Arc::new(compiled_package)
     }
 }
@@ -100,8 +106,10 @@ pub(crate) async fn publish_package(
     let sender = wallet.active_address()?;
     let sui = wallet.get_client().await?;
 
+    tracing::info!("compiling package");
     let compiled_package = compile_package(&package_path, for_test);
     let compiled_modules = compiled_package.get_package_bytes(true);
+    tracing::info!("done compiling package");
 
     let dep_ids: Vec<ObjectID> = compiled_package
         .dependency_ids
@@ -116,11 +124,14 @@ pub(crate) async fn publish_package(
         .publish(sender, compiled_modules, dep_ids, None, gas_budget)
         .await?;
 
+    tracing::info!("start publishing contract");
+
     // Get a signed transaction
     let transaction = wallet.sign_transaction(&publish_tx);
 
     // Submit the transaction
     let transaction_response = wallet.execute_transaction_may_fail(transaction).await?;
+    tracing::info!("done publishing contract");
 
     ensure!(
         transaction_response.status_ok() == Some(true),

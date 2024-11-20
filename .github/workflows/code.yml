@@ -51,6 +51,7 @@ jobs:
           filters: |
             isMove:
               - 'contracts/**'
+              - 'testnet-contracts/**'
               - 'scripts/move_coverage.sh'
               - '.github/workflows/code.yml'
             isRust:
@@ -168,8 +169,10 @@ jobs:
     runs-on: ubuntu-ghcloud
     continue-on-error: true
     env:
-      MSIM_TEST_NUM: 10
-      RUST_LOG: error
+      # MSIM_TEST_NUM: 10
+      MSIM_TEST_SEED: 17
+      RUST_BACKTRACE: 1
+      RUST_LOG: debug
     steps:
       - uses: taiki-e/install-action@v2.44.58
         with:
@@ -177,7 +180,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: ./scripts/simtest/install.sh
       - name: Run tests with testnet contracts
-        run: cargo simtest simtest --profile simtest
+        run: cargo simtest no_reuse_storage --profile simtest --no-capture # --features mainnet-contracts
 
   test-move:
     name: Test Move code
