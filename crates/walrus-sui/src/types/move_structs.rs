@@ -221,7 +221,8 @@ pub(crate) struct StakingPool {
     #[cfg(feature = "mainnet-contracts")]
     /// Collected commission.
     commission: u64,
-    #[cfg(feature = "mainnet-contracts"), serde(deserialize_with = "deserialize_bag_or_table")]
+    #[cfg(feature = "mainnet-contracts")]
+    #[serde(deserialize_with = "deserialize_bag_or_table")]
     extra_fields: ObjectID,
 }
 
