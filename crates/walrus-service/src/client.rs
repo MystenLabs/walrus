@@ -714,7 +714,7 @@ impl<T> Client<T> {
                             .expect("the node index is computed from the vector of members"),
                     );
                 }
-                Err(error) => tracing::warn!(node, %error, "storing metadata and pairs failed"),
+                Err(error) => tracing::info!(node, %error, "storing metadata and pairs failed"),
             }
         }
 
@@ -802,7 +802,7 @@ impl<T> Client<T> {
             .filter_map(|NodeResult(_, _, node, result)| {
                 result
                     .map_err(|error| {
-                        tracing::warn!(%node, %error, "retrieving sliver failed");
+                        tracing::info!(%node, %error, "retrieving sliver failed");
                         if error.is_status_not_found() {
                             n_not_found += 1;
                         }
@@ -864,7 +864,7 @@ impl<T> Client<T> {
                     }
                 }
                 Err(error) => {
-                    tracing::warn!(%node, %error, "retrieving sliver failed");
+                    tracing::info!(%node, %error, "retrieving sliver failed");
                     if error.is_status_not_found() && {
                         n_not_found += 1;
                         self.committees.read().await.is_quorum(n_not_found)
