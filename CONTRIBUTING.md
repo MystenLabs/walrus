@@ -66,7 +66,7 @@ for example Clippy.
 
 To allow breaking changes in the contracts, while keeping compatibility with the deployed testnet
 version in the Rust codebase, we gate any incompatible changes in the Rust bindings for the
-contracts behind the `mainnet-contracts` feature in the `walrus-sui` crate.
+contracts behind the `mainnet-contracts` feature.
 
 If you make any changes to the contracts that necessitates corresponding changes in Rust, make sure
 to gate these changes behind the feature, e.g. by adding the `#[cfg(feature = "mainnet-contracts")]` attribute.
@@ -84,7 +84,7 @@ contracts as deployed on testnet, for which the contracts are located in `testne
 For the first option, you can run these tests as follows:
 
 ```sh
-cargo nextest run --run-ignored ignored-only --features walrus-sui/mainnet-contracts
+cargo nextest run --run-ignored ignored-only --features mainnet-contracts
 ```
 
 For the second option, simply run:
@@ -109,11 +109,11 @@ For running tests, start the external cluster with `sui start`, set the environm
 CLUSTER_CONFIG_DIR="$PWD/target/sui-start"
 SUI_CONFIG_DIR="$CLUSTER_CONFIG_DIR" sui start&
 SUI_PID=$!
-SUI_TEST_CONFIG_DIR="$CLUSTER_CONFIG_DIR" cargo test -- --ignored --features walrus-sui/mainnet-contracts
+SUI_TEST_CONFIG_DIR="$CLUSTER_CONFIG_DIR" cargo test -- --ignored --features mainnet-contracts
 ```
 
 This runs the tests with the newest contract version. To run them with the testnet version,
-run them without the `--features walrus-sui/mainnet-contracts` flag.
+run them without the `--features mainnet-contracts` flag.
 
 After the tests have completed, you can stop the cluster:
 
@@ -158,7 +158,7 @@ To run simulation tests, first install the `cargo simtest` tool:
 You can then run all simtests with
 
 ```sh
-cargo simtest --features walrus-sui/mainnet-contracts
+cargo simtest --features mainnet-contracts
 ```
 
 Further information about the simtest framework is available
