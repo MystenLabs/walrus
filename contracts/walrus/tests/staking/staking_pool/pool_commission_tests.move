@@ -70,3 +70,14 @@ fun commission_setting_at_different_epochs() {
 
     pool.destroy_empty();
 }
+
+#[test, expected_failure(abort_code = ::walrus::staking_pool::EIncorrectCommissionRate)]
+fun set_incorrect_commission_rate_fail() {
+    let mut test = context_runner();
+    let (wctx, ctx) = test.current();
+    let mut pool = pool().commission_rate(0).build(&wctx, ctx);
+
+    pool.set_next_commission(100_01, &wctx);
+
+    abort 1337 // unreachable
+}

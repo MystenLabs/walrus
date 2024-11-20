@@ -338,6 +338,8 @@ move_error_kind!(
     11,
     EActivationEpochNotReached,
     12,
+    EIncorrectCommissionRate,
+    13,
 );
 
 move_error_kind!(

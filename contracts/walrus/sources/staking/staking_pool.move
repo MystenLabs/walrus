@@ -30,7 +30,7 @@ const EPoolAlreadyWithdrawing: u64 = 5;
 const EPoolIsNotActive: u64 = 6;
 /// Trying to stake zero amount.
 const EZeroStake: u64 = 7;
-// abort_code=8 is available
+// code 8 is available
 /// Trying to withdraw stake from the incorrect pool.
 const EIncorrectPoolId: u64 = 9;
 /// Trying to withdraw active stake.
@@ -41,6 +41,8 @@ const EWithdrawEpochNotReached: u64 = 11;
 const EActivationEpochNotReached: u64 = 12;
 /// Requesting withdrawal for the stake that can be withdrawn directly.
 const EWithdrawDirectly: u64 = 13;
+/// Incorrect commission rate.
+const EIncorrectCommissionRate: u64 = 14;
 
 /// Represents the state of the staking pool.
 ///
@@ -429,6 +431,7 @@ public(package) fun set_next_commission(
     commission_rate: u16,
     wctx: &WalrusContext,
 ) {
+    assert!(commission_rate <= 100_00, EIncorrectCommissionRate);
     pool.pending_commission_rate.insert_or_replace(wctx.epoch() + 2, commission_rate as u64);
 }
 
