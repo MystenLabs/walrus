@@ -176,8 +176,12 @@ public(package) fun withdraw_node(self: &mut StakingInnerV1, cap: &mut StorageNo
     self.pools[cap.node_id()].set_withdrawing(wctx);
 }
 
-public(package) fun collect_commission(_: &mut StakingInnerV1, _: &StorageNodeCap): Coin<WAL> {
-    abort ENotImplemented
+/// Collect commission for the pool using the `StorageNodeCap`.
+public(package) fun collect_commission(
+    self: &mut StakingInnerV1,
+    cap: &StorageNodeCap,
+): Balance<WAL> {
+    self.pools[cap.node_id()].withdraw_commission(option::none())
 }
 
 public(package) fun voting_end(self: &mut StakingInnerV1, clock: &Clock) {

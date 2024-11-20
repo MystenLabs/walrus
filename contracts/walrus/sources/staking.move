@@ -105,8 +105,12 @@ public fun set_next_commission(staking: &mut Staking, cap: &StorageNodeCap, comm
 }
 
 /// Returns the accumulated commission for the storage node.
-public fun collect_commission(staking: &mut Staking, cap: &StorageNodeCap): Coin<WAL> {
-    staking.inner_mut().collect_commission(cap)
+public fun collect_commission(
+    staking: &mut Staking,
+    cap: &StorageNodeCap,
+    ctx: &mut TxContext,
+): Coin<WAL> {
+    staking.inner_mut().collect_commission(cap).into_coin(ctx)
 }
 
 // === Voting ===
