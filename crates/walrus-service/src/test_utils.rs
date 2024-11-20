@@ -184,6 +184,8 @@ pub struct StorageNodeHandle {
     pub client: Client,
     /// The storage capability object of the node.
     pub storage_node_capability: Option<StorageNodeCap>,
+    /// The handle to the node runtime.
+    pub node_runtime_handle: Option<JoinHandle<()>>,
 }
 
 impl StorageNodeHandleTrait for StorageNodeHandle {
@@ -730,11 +732,11 @@ impl StorageNodeHandleBuilder {
             );
         }
 
-        if self.run_node {
+        let node_runtime_handle = if self.run_node {
             let node = node.clone();
             let cancel_token = cancel_token.clone();
 
-            tokio::task::spawn(
+            Some(tokio::task::spawn(
                 async move {
                     let status = node.run(cancel_token).await;
                     if let Err(error) = status {
@@ -745,8 +747,10 @@ impl StorageNodeHandleBuilder {
                 .instrument(
                     tracing::info_span!("cluster-node", address = %config.rest_api_address),
                 ),
-            );
-        }
+            ))
+        } else {
+            None
+        };
 
         let client = Client::builder()
             .authenticate_with_public_key(network_public_key.clone())
@@ -770,6 +774,7 @@ impl StorageNodeHandleBuilder {
             cancel: cancel_token,
             client,
             storage_node_capability: self.storage_node_capability,
+            node_runtime_handle,
         })
     }
 
