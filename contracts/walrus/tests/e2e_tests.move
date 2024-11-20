@@ -341,7 +341,7 @@ fun test_first_epoch_too_soon_fail() {
 }
 
 #[test]
-fun test_epoch_change_with_rewards() {
+fun test_epoch_change_with_rewards_and_commission() {
     let admin = @0xA11CE;
     let mut nodes = test_node::test_nodes();
     let mut runner = e2e_runner::prepare(admin)
@@ -360,7 +360,7 @@ fun test_epoch_change_with_rewards() {
                 node.bls_pk(),
                 node.network_key(),
                 node.create_proof_of_possession(epoch),
-                COMMISSION,
+                10_00, // 10.00% commission
                 STORAGE_PRICE,
                 WRITE_PRICE,
                 NODE_CAPACITY,
@@ -444,6 +444,16 @@ fun test_epoch_change_with_rewards() {
     // === check if epoch state is changed correctly ==
 
     runner.tx!(admin, |staking, _, _| assert!(staking.is_epoch_sync_done()));
+
+    // === check rewards for each node ===
+
+    // each node is getting 470 in rewards, 10% of that is - 47 - commission
+    nodes.do_mut!(|node| {
+        runner.tx!(node.sui_address(), |staking, _, ctx| {
+            let commission = staking.collect_commission(node.cap(), ctx);
+            assert_eq!(commission.burn_for_testing(), 47);
+        })
+    });
 
     // === cleanup ===
 
